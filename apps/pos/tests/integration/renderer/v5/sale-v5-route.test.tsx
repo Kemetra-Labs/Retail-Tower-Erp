@@ -184,7 +184,7 @@ describe('/app/sale-v5 guarded functional preview (023 slice E)', () => {
       expect(window.location.pathname).toBe('/sign-in');
     });
     expect(api().cart.create).not.toHaveBeenCalled();
-    expect(screen.queryByRole('main', { name: 'مساحة البيع' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'مساحة البيع' })).not.toBeInTheDocument();
   });
 
   it('scan → confirm → handoff → Continue reaches the unchanged /app/checkout PaymentSurface', async () => {
@@ -199,7 +199,7 @@ describe('/app/sale-v5 guarded functional preview (023 slice E)', () => {
       />,
     );
 
-    await screen.findByRole('main', { name: 'مساحة البيع' });
+    await screen.findByRole('region', { name: 'مساحة البيع' });
     await waitFor(() => {
       expect(api().cart.create).toHaveBeenCalledOnce();
     });
