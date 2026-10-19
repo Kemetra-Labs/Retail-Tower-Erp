@@ -1,0 +1,136 @@
+ref	oid	disposition	reason
+HEAD	274589a3dd54c97e678348bc34b3063d8e54f2e7	EXCLUDED	symbolic alias of refs/heads/main
+refs/heads/001-frappe-app-foundation	769393e4842a4aed978f3cc91f6499c6fe2d746a	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/ccr-46b6351f-oe8x8s	39ad81d6553e5a7ada8bd2200fc92f356a02871f	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/ccr-603b39ef-uqspur	b22f11d4c5660d5e531f970c849bf7c0129cb00a	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/claude/458-execute-762b70	23b12ad03164ed566427b53d48393c456a97222d	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/claude/apache-2.0-license	29485f5d7318783e276e21219dfd84d7a2c2f4e1	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/claude/dazzling-fermat-w8Gg3	0be9b624c4932b16a149dd4049a49445dccf78eb	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/claude/dazzling-mayer-7uiveg	8071a9dc015d15f1dd0ad10138075c4321ece80d	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/claude/dazzling-mayer-oeCza	376700f69d9cf2323f206496d96f498ad9bb48f3	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/claude/friendly-galileo-2eirsd	e76aa767328f7b6d9b6b44e8cb1f09c5fca4a030	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/claude/relaxed-volta-axz8zp	1f7d5806794214ce774ae3df84e1d964ab731f73	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/claude/rt-171-transient-ack-key	ac0e0016e1ea8e6e6af8911c63b566be9b18e202	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/claude/rt-172-reversal-awaits-original	36b68c59a62a3425d94af0e3f93573ec075db48d	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/claude/rt-176-paged-bin-view	3732979950fdf427e5d65f66b153a170db30b195	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/claude/rt-39-uuid-request-id	3d2d18d0822ec5bee5c8ae4ac5475fdbe89da54c	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/claude/rt-482-frappe-research-7a1b3f	67df5305de7be4044bed86cde4807e3333bb0684	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/claude/rt-581-nightly-bench-15b51f	61200efd419040327a0c5be48277567b7624bc12	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/claude/rt-590-coderabbit-config-30b53d	dd77805b40b6ab673c79f0864fca97ce114ab1c2	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/claude/rt-635-obs6-connector-693fcb	e106adcad2b7fb2adc0c1ad66854d373b3a936c1	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/claude/rt464-self-compare-asserts	92ced6a4dbbe34fe38ffa15bf5bd39fb2589d362	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/claude/rt466-live-e2e-refresh	f3f5cd604ae6e6b0097a5734b7b36cef409e3e9e	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/claude/rt469-sonar-test-style	e22de3afc078d9aad0de39d39f91f1e6c03f41be	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/claude/rt694-auth-edge-cases	59fb0f2130e8bca2f5688c9808abbcf3ee39acb0	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/claude/sonar-leftover-fixes-aa78f8	7c11069f4c903d18821c08abf65fa4852715b15c	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/docs/006-bench-import-findings	43a2d11376ea722682074d3048865f04ff5afcf4	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/docs/028-followups-analyze	a19246f50898cb8c1df4a6790f5b5536e3669bee	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/docs/028-followups-pathfix	cea4a3185643aaef44d45e67c707869e962e2bdc	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/docs/028-followups-specs	ab396e7e405eff92ac0192abba62bc0c308e64e8	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/docs/reconcile-connector-agent-context	2111e7a041d034f29e809e7a177127b09f982eb7	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/docs/retire-agent-os	dc4cd419653bde2fe71568580f41aac352bd7dc9	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/docs/rt-105-return-precision-note	fc55a4c8323012e8344c1d04a19b332e34d80dac	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/docs/rt-467-rt-469-dependency-pinning-and-sonar-test-rules	f9b642e03916fee51508af03f4be977bd4c730b0	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/feat/006-reversal-rekey	3a20c1e42081249b782629283e66f68b843d13c0	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/feat/019-bin-view-client	b064ed451d421082a436b755ff94b164a5d2a02d	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/feat/con-006-activation	805ac90f82970b923ea0d7b6cb31d520ac442925	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/feat/con-006-live-flow-tier1	9122688818884a2701a00c1ca6901ea2f2d97e7c	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/feat/con-006-sales-posting-adapter-impl	a5f43f2e3c832060e0fcb5d763767b76d21ac05a	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/feat/con-006-sales-posting-adapter-plan	4f0018d14d23322c473bfd9bef75e461b35a6ba0	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/feat/rt-16-partial-returns	1ffc9c2e0597bf1b159d636c84bba3118ad5f2c4	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/feat/rt-378-representation-check	eda9992828d4988129ba782ce95e9b318f2c86ba	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/feat/rt-379-compatibility-profile	e398c2cdbaaca53e7793e4c8b55b7ea6f05573d4	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/fix/rt686-scrub-phone	b89ce76ea9b2a4bb5feba997df7ab4573d4ca880	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/main	274589a3dd54c97e678348bc34b3063d8e54f2e7	IMPORTED	allowlisted: main
+refs/heads/rt-690-pylock-ci	c9ab8f8ec1ee975a2e8a43c4a984500756af14c1	EXCLUDED	non-main branch, not on the allowlist
+refs/heads/rt-691-raises-match	0fa775f4189c11d4f8cab44f364b195fbd3fc123	EXCLUDED	non-main branch, not on the allowlist
+refs/pull/1/head	62d8b5d56cb09b104fa0843f6f35c7b60f60c38e	EXCLUDED	pull request ref
+refs/pull/10/head	4c040587955ecb94517614b559394a9e3680755b	EXCLUDED	pull request ref
+refs/pull/11/head	9dbffc64b7538dc46bfe4085fcdae6b775d12ce6	EXCLUDED	pull request ref
+refs/pull/12/head	7b86e6ab8d648cdde779dce6ee84c3a8abc3b53e	EXCLUDED	pull request ref
+refs/pull/13/head	0be9b624c4932b16a149dd4049a49445dccf78eb	EXCLUDED	pull request ref
+refs/pull/14/head	475d8825fff552d42c1062a4a47f14df4da5e182	EXCLUDED	pull request ref
+refs/pull/15/head	5473fff2de123dffe40ce6086e4defb57cb1a7fe	EXCLUDED	pull request ref
+refs/pull/16/head	4f0018d14d23322c473bfd9bef75e461b35a6ba0	EXCLUDED	pull request ref
+refs/pull/17/head	a5f43f2e3c832060e0fcb5d763767b76d21ac05a	EXCLUDED	pull request ref
+refs/pull/18/head	43a2d11376ea722682074d3048865f04ff5afcf4	EXCLUDED	pull request ref
+refs/pull/19/head	805ac90f82970b923ea0d7b6cb31d520ac442925	EXCLUDED	pull request ref
+refs/pull/2/head	769393e4842a4aed978f3cc91f6499c6fe2d746a	EXCLUDED	pull request ref
+refs/pull/20/head	9122688818884a2701a00c1ca6901ea2f2d97e7c	EXCLUDED	pull request ref
+refs/pull/21/head	61149222bd3cea2dbba4d9e9e644445b15317c71	EXCLUDED	pull request ref
+refs/pull/22/head	f099831cd0b245d32d57e533ce941a92964edc34	EXCLUDED	pull request ref
+refs/pull/23/head	1b7a0dbba7f7ddf275f6b31e467d5d396836afef	EXCLUDED	pull request ref
+refs/pull/24/head	376700f69d9cf2323f206496d96f498ad9bb48f3	EXCLUDED	pull request ref
+refs/pull/25/head	b064ed451d421082a436b755ff94b164a5d2a02d	EXCLUDED	pull request ref
+refs/pull/26/head	8071a9dc015d15f1dd0ad10138075c4321ece80d	EXCLUDED	pull request ref
+refs/pull/27/head	618c021c8bf12709bb1cef6f6b670219ee5100a7	EXCLUDED	pull request ref
+refs/pull/29/head	3a20c1e42081249b782629283e66f68b843d13c0	EXCLUDED	pull request ref
+refs/pull/3/head	d5bcba85f27081bc27d0908b3ffb2bf2cafc7d9a	EXCLUDED	pull request ref
+refs/pull/31/head	ab396e7e405eff92ac0192abba62bc0c308e64e8	EXCLUDED	pull request ref
+refs/pull/32/head	a19246f50898cb8c1df4a6790f5b5536e3669bee	EXCLUDED	pull request ref
+refs/pull/33/head	cea4a3185643aaef44d45e67c707869e962e2bdc	EXCLUDED	pull request ref
+refs/pull/34/head	8260ecaffe934c8d25fa0ebcd50a78e0774c5db7	EXCLUDED	pull request ref
+refs/pull/35/head	8a9b7d93465894c1bbdce0742bbdde86336e998c	EXCLUDED	pull request ref
+refs/pull/36/head	14a20183d38b43fa84a8675c49ae7f2a959874ac	EXCLUDED	pull request ref
+refs/pull/37/head	554e5cd77f757a8522bc3bfb0770f4b1def85d59	EXCLUDED	pull request ref
+refs/pull/38/head	b94896421a97f5e0caf6424e72d06f7c97bf94d0	EXCLUDED	pull request ref
+refs/pull/39/head	3c7faeb6b71654db0adfc904169b3d4855133162	EXCLUDED	pull request ref
+refs/pull/4/head	8b853b03b003e19957c6bc598e1a55343de1dd64	EXCLUDED	pull request ref
+refs/pull/40/head	dc4cd419653bde2fe71568580f41aac352bd7dc9	EXCLUDED	pull request ref
+refs/pull/41/head	9376110499968a2acce060340b1aaef65a2dd8e0	EXCLUDED	pull request ref
+refs/pull/42/head	38864e8ef51521d0b3b84d62672a0032cbaa17fa	EXCLUDED	pull request ref
+refs/pull/43/head	c3fba85df1fa270a905ab4e2274acb56c0797b46	EXCLUDED	pull request ref
+refs/pull/44/head	548a655c80d8b93db6d7176dd02a333e4a5ae9d2	EXCLUDED	pull request ref
+refs/pull/45/head	17423b8f3952a329fed50968b5dd39bcaa3d7503	EXCLUDED	pull request ref
+refs/pull/46/head	61da4cd83b4861cc903e5e642427b49bf16cf2d5	EXCLUDED	pull request ref
+refs/pull/47/head	165d0a7bafd208298cda80cd7df41f1fbc6546fc	EXCLUDED	pull request ref
+refs/pull/48/head	8f83ce6dad83279720d262233e01366512bbff82	EXCLUDED	pull request ref
+refs/pull/49/head	70547551cf21beb256901f797cf39702d4a1a88b	EXCLUDED	pull request ref
+refs/pull/5/head	b4d7b3417ed18d48605e24ac0bdb482b3c28b70c	EXCLUDED	pull request ref
+refs/pull/50/head	1ffc9c2e0597bf1b159d636c84bba3118ad5f2c4	EXCLUDED	pull request ref
+refs/pull/51/head	10364ecdecb844e524c278725f4408e5f8c2e7b8	EXCLUDED	pull request ref
+refs/pull/52/head	fc55a4c8323012e8344c1d04a19b332e34d80dac	EXCLUDED	pull request ref
+refs/pull/53/head	3d2d18d0822ec5bee5c8ae4ac5475fdbe89da54c	EXCLUDED	pull request ref
+refs/pull/54/head	ac0e0016e1ea8e6e6af8911c63b566be9b18e202	EXCLUDED	pull request ref
+refs/pull/55/head	36b68c59a62a3425d94af0e3f93573ec075db48d	EXCLUDED	pull request ref
+refs/pull/56/head	3732979950fdf427e5d65f66b153a170db30b195	EXCLUDED	pull request ref
+refs/pull/57/head	d1a878a04f002bf863da0da7e84a03bb123230b6	EXCLUDED	pull request ref
+refs/pull/58/head	3024401997216e03e8bc2258ae9d982d39079572	EXCLUDED	pull request ref
+refs/pull/59/head	b22f11d4c5660d5e531f970c849bf7c0129cb00a	EXCLUDED	pull request ref
+refs/pull/6/head	f56b0d1d54eb4ba5a4bac85d7063c42e751e51b3	EXCLUDED	pull request ref
+refs/pull/60/head	65d77c46134d9e7818411c6ede59472d73d25a53	EXCLUDED	pull request ref
+refs/pull/61/head	9cfb81832de039d0e1e30b3da613f7d1dd1ad144	EXCLUDED	pull request ref
+refs/pull/62/head	770316207e9e8d240bb99de55c6afe9e30040de8	EXCLUDED	pull request ref
+refs/pull/63/head	dbcc00d2e3cdceeb034ad5c33ecdb1c7c9078660	EXCLUDED	pull request ref
+refs/pull/64/head	71a5fef65e0bdad3f94b05f450f70d1960459788	EXCLUDED	pull request ref
+refs/pull/65/head	7bd33bc4ffb353b291f23f3fbcc7c18cf51a5d7f	EXCLUDED	pull request ref
+refs/pull/66/head	eda9992828d4988129ba782ce95e9b318f2c86ba	EXCLUDED	pull request ref
+refs/pull/67/head	e398c2cdbaaca53e7793e4c8b55b7ea6f05573d4	EXCLUDED	pull request ref
+refs/pull/68/head	b5dc2428b78d64bc4d58a99487d9d166a876a7da	EXCLUDED	pull request ref
+refs/pull/69/head	39ad81d6553e5a7ada8bd2200fc92f356a02871f	EXCLUDED	pull request ref
+refs/pull/7/head	572cf23dcbbe1e5392e70055b819cf4d5a8eb753	EXCLUDED	pull request ref
+refs/pull/70/head	23b12ad03164ed566427b53d48393c456a97222d	EXCLUDED	pull request ref
+refs/pull/71/head	744ff4a96bc3581e061c619754f0eb0813bfce63	EXCLUDED	pull request ref
+refs/pull/72/head	29485f5d7318783e276e21219dfd84d7a2c2f4e1	EXCLUDED	pull request ref
+refs/pull/73/head	e76aa767328f7b6d9b6b44e8cb1f09c5fca4a030	EXCLUDED	pull request ref
+refs/pull/74/head	1f7d5806794214ce774ae3df84e1d964ab731f73	EXCLUDED	pull request ref
+refs/pull/75/head	67df5305de7be4044bed86cde4807e3333bb0684	EXCLUDED	pull request ref
+refs/pull/76/head	cfe4f6809d430ef2bb7a1483b8d3383b4a56fd07	EXCLUDED	pull request ref
+refs/pull/77/head	72d104d4febb14ee09e3475ea5769dc55b27b5d5	EXCLUDED	pull request ref
+refs/pull/78/head	7c11069f4c903d18821c08abf65fa4852715b15c	EXCLUDED	pull request ref
+refs/pull/79/head	bb1ac135887b95f66016e9525be1bae7443218cd	EXCLUDED	pull request ref
+refs/pull/8/head	9c0b084515003157f7110b49631a2d75e1a2338d	EXCLUDED	pull request ref
+refs/pull/80/head	61200efd419040327a0c5be48277567b7624bc12	EXCLUDED	pull request ref
+refs/pull/81/head	dd77805b40b6ab673c79f0864fca97ce114ab1c2	EXCLUDED	pull request ref
+refs/pull/82/head	e106adcad2b7fb2adc0c1ad66854d373b3a936c1	EXCLUDED	pull request ref
+refs/pull/83/head	f9b642e03916fee51508af03f4be977bd4c730b0	EXCLUDED	pull request ref
+refs/pull/84/head	c9ab8f8ec1ee975a2e8a43c4a984500756af14c1	EXCLUDED	pull request ref
+refs/pull/85/head	0fa775f4189c11d4f8cab44f364b195fbd3fc123	EXCLUDED	pull request ref
+refs/pull/86/head	b89ce76ea9b2a4bb5feba997df7ab4573d4ca880	EXCLUDED	pull request ref
+refs/pull/87/head	59fb0f2130e8bca2f5688c9808abbcf3ee39acb0	EXCLUDED	pull request ref
+refs/pull/88/head	92ced6a4dbbe34fe38ffa15bf5bd39fb2589d362	EXCLUDED	pull request ref
+refs/pull/89/head	f3f5cd604ae6e6b0097a5734b7b36cef409e3e9e	EXCLUDED	pull request ref
+refs/pull/9/head	f2099592f81f049f6f5f2649b9bb4296309c5af1	EXCLUDED	pull request ref
+refs/pull/90/head	e22de3afc078d9aad0de39d39f91f1e6c03f41be	EXCLUDED	pull request ref
+refs/pull/91/head	696bc914fb884ec75ecf834887a459cc694e0b2b	EXCLUDED	pull request ref
+refs/pull/92/head	774a12d4d63b3de01f6b074d46b062dbfe216dc1	EXCLUDED	pull request ref
