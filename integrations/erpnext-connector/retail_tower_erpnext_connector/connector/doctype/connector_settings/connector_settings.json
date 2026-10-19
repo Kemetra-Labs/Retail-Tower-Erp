@@ -1,0 +1,177 @@
+{
+ "actions": [],
+ "creation": "2026-06-04 00:00:00.000000",
+ "description": "Retail Tower connector configuration (spec 006 — sales posting; spec 007 — credential lifecycle). The DP2 posting-feed endpoint + auth token, the operator-owned mapping tables (unit→UOM, store→warehouse, store→customer, tender→Mode of Payment) the scheduled poller reads each tick, and the registration-linked credential lifecycle (registration/credential refs + expiry) so the connector can warn before expiry instead of only reacting to a 401 (007 §5/§6). The token is a secret (Password field, Gate G4 — never logged); the lifecycle ids/timestamps are non-secret status.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "dp2_section",
+  "dp2_base_url",
+  "dp2_token",
+  "credential_lifecycle_section",
+  "dp2_connector_registration_id",
+  "dp2_credential_id",
+  "dp2_credential_issued_at",
+  "dp2_credential_expires_at",
+  "dp2_credential_warn_days",
+  "maps_section",
+  "uom_map",
+  "warehouse_map",
+  "store_customer_map",
+  "tender_mode_map",
+  "compatibility_section",
+  "posting_currency",
+  "compatibility_status",
+  "compatibility_checked_at",
+  "compatibility_fingerprint",
+  "compatibility_report"
+ ],
+ "fields": [
+  {
+   "fieldname": "dp2_section",
+   "fieldtype": "Section Break",
+   "label": "Data-Pulse-2 Posting Feed"
+  },
+  {
+   "fieldname": "dp2_base_url",
+   "fieldtype": "Data",
+   "label": "DP2 Base URL",
+   "description": "Base URL of the Data-Pulse-2 connector API, e.g. https://dp2.example.com. The poller appends /api/connector/v1/erpnext/postings (spec 003)."
+  },
+  {
+   "fieldname": "dp2_token",
+   "fieldtype": "Password",
+   "label": "DP2 Connector Token",
+   "description": "The opaque connectorBearer token (spec 003). SECRET — stored encrypted, read via get_password, never logged (Gate G4). Sourced from the once-shown IssuedCredential.secret (007 §5, E-1); still hand-configured DP2-side, the connector only presents it."
+  },
+  {
+   "fieldname": "credential_lifecycle_section",
+   "fieldtype": "Section Break",
+   "label": "Credential Lifecycle (007)"
+  },
+  {
+   "fieldname": "dp2_connector_registration_id",
+   "fieldtype": "Data",
+   "label": "DP2 Connector Registration Id",
+   "description": "The connector_registration id the active credential is linked to (007 §5, E-3). NON-SECRET identifier — survives credential rotation (a rotate swaps the token/credential id/expiry but leaves this unchanged). Lets the DP2-side list/audit correlate this instance."
+  },
+  {
+   "fieldname": "dp2_credential_id",
+   "fieldtype": "Data",
+   "label": "DP2 Credential Id",
+   "description": "The auth_tokens credential id (IssuedCredential.credential_id, 007 §5, E-1). NON-SECRET — identifies WHICH credential is configured, for rotate/revoke correlation. Not the secret itself (that is dp2_token)."
+  },
+  {
+   "fieldname": "dp2_credential_issued_at",
+   "fieldtype": "Datetime",
+   "label": "DP2 Credential Issued At",
+   "description": "Provenance of the current credential (IssuedCredential issue time, 007 §5). NON-SECRET — audit/correlation."
+  },
+  {
+   "fieldname": "dp2_credential_expires_at",
+   "fieldtype": "Datetime",
+   "label": "DP2 Credential Expires At",
+   "description": "The credential's bounded expiry (IssuedCredential.expires_at, server default 90 days, 007 §5/§6, E-1). NON-SECRET — drives the pre-expiry warning (G-2): the connector compares now() to this and surfaces 'credential expiring — request rotation' BEFORE a 401. The connector cannot self-rotate (admin surface is session-only)."
+  },
+  {
+   "fieldname": "dp2_credential_warn_days",
+   "fieldtype": "Int",
+   "label": "Credential Warn Days",
+   "default": "14",
+   "description": "How many days before dp2_credential_expires_at the connector starts logging the 'credential expiring — request rotation' ops alert each poll tick (007 OQ-1a). NON-SECRET. Blank/0 → the 14-day default; a negative value is a config error (fail-loud)."
+  },
+  {
+   "fieldname": "maps_section",
+   "fieldtype": "Section Break",
+   "label": "Posting Maps"
+  },
+  {
+   "fieldname": "uom_map",
+   "fieldtype": "Table",
+   "options": "RT Uom Map Row",
+   "label": "Unit → UOM Map",
+   "description": "Signed Option-A unit→ERPNext-UOM map (FR-008). An unmapped unit fails closed → validation."
+  },
+  {
+   "fieldname": "warehouse_map",
+   "fieldtype": "Table",
+   "options": "RT Warehouse Map Row",
+   "label": "Store → Warehouse Map",
+   "description": "Store→ERPNext-Warehouse map applying the DP2-pre-resolved warehouse (FR-010, rider R5)."
+  },
+  {
+   "fieldname": "store_customer_map",
+   "fieldtype": "Table",
+   "options": "RT Store Customer Map Row",
+   "label": "Store → Customer Map",
+   "description": "Store→ERPNext-Customer map (F-009). The 012 work-item carries no customer; an unmapped store fails closed → validation. The connector never fabricates a customer (Principle VI)."
+  },
+  {
+   "fieldname": "tender_mode_map",
+   "fieldtype": "Table",
+   "options": "RT Tender Mode Map Row",
+   "label": "Tender → Mode of Payment Map",
+   "description": "RT-78 / RT-10 D5: maps each POS tender method to an ERPNext Mode of Payment (with a company account). A sale carrying tenders posts as a paid Sales Invoice; an unmapped method fails closed → validation. May stay empty while sales are tender-unknown (they post unpaid, as before)."
+  },
+  {
+   "fieldname": "compatibility_section",
+   "fieldtype": "Section Break",
+   "label": "Compatibility Profile (RT-379)"
+  },
+  {
+   "fieldname": "posting_currency",
+   "fieldtype": "Link",
+   "options": "Currency",
+   "label": "Posting Currency",
+   "description": "RT-379: the currency Retail Tower sales post in (ISO 4217). The poller checks it against the company currency and the ERPNext currency precision before every tick; blank pauses posting (critical, the backlog stays in Backend-Core)."
+  },
+  {
+   "fieldname": "compatibility_status",
+   "fieldtype": "Data",
+   "label": "Compatibility Status",
+   "read_only": 1,
+   "description": "RT-379 (read-only, written by the poller): OK, WARNING (posting continues) or CRITICAL (posting paused). It reflects the last profile run: a tick skipped earlier (the G5 index guard, or a missing token / URL / maps) leaves it unchanged, and Compatibility Checked At (checked_at) shows its age."
+  },
+  {
+   "fieldname": "compatibility_checked_at",
+   "fieldtype": "Datetime",
+   "label": "Compatibility Checked At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "compatibility_fingerprint",
+   "fieldtype": "Data",
+   "label": "Compatibility Fingerprint",
+   "read_only": 1,
+   "description": "RT-379: sha256 of the ERPNext/Frappe versions and checked settings. A change is logged as compatibility.drift."
+  },
+  {
+   "fieldname": "compatibility_report",
+   "fieldtype": "Small Text",
+   "label": "Compatibility Report",
+   "read_only": 1,
+   "description": "RT-379: the latest findings, one per line. The connector never changes ERP settings to pass (Pricing 668)."
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-10-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Connector",
+ "name": "Connector Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
