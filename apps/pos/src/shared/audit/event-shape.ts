@@ -1,0 +1,284 @@
+/**
+ * 004-operator-session T013 — Audit-event shape (FR-025 + FR-026 + AD-3).
+ *
+ * The five mandatory attributes of every audit event are codified here
+ * so any future emitter MUST honour them. The shape lands in S1 as a
+ * type-only contract; the durable `audit_events` table + emitter
+ * (T045–T046) is S3 territory under §A1 / §A3.
+ *
+ * The `OperatorRefusal` envelope is the canonical "generic refusal"
+ * shape that crosses the bridge for every refused operator-bridge call
+ * (NFR-003 / PR-2). It carries a closed-set category and NO
+ * factor-distinguishing payload — the renderer renders the generic
+ * Surface 6 message family from the category alone.
+ */
+
+/**
+ * Action categories recognised by the audit catalogue (data-model.md §
+ * "Action Category Catalogue"). 004 owns the operator/session and PIN /
+ * forced-close categories; future features add more.
+ */
+export const AUDIT_ACTION_CATEGORIES = [
+  'shift.open',
+  'shift.close',
+  'shift.forced_close',
+  'operator.session.takeover',
+  // RT-117 (RT-116 §7.3) — inactivity lock of the EXISTING session and its
+  // same-operator unlock. Neither ends the session.
+  'operator.session.locked',
+  'operator.session.unlocked',
+  // RT-444 (RT-116 §4, §7.3) — a sign-in refused because this terminal holds
+  // another operator's unresolved payment. Payload empty: it names neither
+  // that operator nor any amount (FR-013).
+  'operator.signin.refused_unresolved_payment',
+  // RT-113 P1.2 (OD10) — an offline grant was invalidated or purged. One event
+  // per grant, attributed to that grant's operator; payload `{reason}` only.
+  // Main-only (a renderer cannot forge it). Open-set at the SQL layer (0004).
+  'operator.offline_grant.invalidated',
+  'cashier.pin.reset',
+  'cashier.pin.unlock',
+  // 019-cashier-pin-provisioning (R-2) — first-PIN create path; sibling to
+  // reset/unlock. Emitter wiring lands with the provision handler.
+  'cashier.pin.provisioned',
+  // 005-sales-cart §A3 (FR-026 / Q5) — type-only extension; emitter wiring lands in S3.
+  'cart.handoff_to_payment',
+  'cart.cancel.post_handoff',
+  // Historical only (RT-28 D3): the threshold rule is retired and this is never
+  // emitted; kept because the catalogue never shrinks.
+  'cart.discount.above_threshold',
+  // RT-608 (RT-28 FR-023 revised, D3) — every manual discount, authorised by a
+  // manager: a consumed `cart.discount.manual` approval on a cashier session,
+  // or the manager / admin session itself (D2). Dual-attributed: the requester
+  // acts, the approver is `approving_supervisor_id`. Main-only. Open-set at the
+  // SQL layer (0004). Local only until Backend-Core accepts it (RT-608 gate).
+  'cart.discount.manager_authorized',
+  // Kept (the catalogue never shrinks) but no longer emitted: RT-115 D5
+  // superseded the 005 Q3 discard; a draft is held instead (RT-352).
+  'cart.discarded_on_session_end',
+  // RT-352 (RT-116 §7.3) — a draft cart outlives its session (RT-115 D3.2).
+  'cart.held_on_session_end',
+  'cart.reattached',
+  // RT-441 (RT-116 §5.2, §7.3) — manager recovery, dual-attributed: the
+  // original operator acts, the approving manager is `approving_supervisor_id`.
+  // Main-only (a renderer cannot forge them).
+  'cart.held_cancelled_by_manager',
+  'payment.recovery_completed',
+  'payment.recovery_cancelled',
+  // RT-440 (PK-2, spec 024 K6) — Park v1. Local only (RT-160 D-2). Payloads
+  // carry ids, counts and closed values: NEVER the park label. Open-set at
+  // the SQL layer (0004); recorded in migration 0050's header.
+  'cart.parked',
+  'cart.resumed',
+  'cart.park_refused',
+  // RT-26 — Checkout Back: a handed-off cart with no tender activity returns
+  // to `editing` (envelope invalidated). Open-set at the SQL layer (0004).
+  'cart.return_to_sale',
+  // 008-sale-finalization-and-receipts §AD-9 (S1c T093) — 10 new categories.
+  // Migration 0026 is a no-op SELECT 1; the closed-set enforcement lives here.
+  'sale.finalized',
+  'sale.finalization_refused',
+  'sale.receipt.printed',
+  'sale.receipt.reprinted',
+  'sale.receipt.print_failed',
+  'sale.receipt.print_retried_success',
+  'sale.receipt.manual_override',
+  'sale.drawer.opened',
+  'sale.drawer.suppressed',
+  'sale.drawer.failed',
+  // RT-15 S2 — cashier returns (AC11). Open-set at the SQL layer (0004); the
+  // categories are recorded in migration 0039's header.
+  'sale.return.attempted',
+  'sale.return.refused',
+  'sale.return.confirmed',
+  'sale.return.payout_ready',
+  // RT-15 S4 — the cash payout, its drawer kick and the return slip. Open-set
+  // at the SQL layer (0004); recorded in migration 0040's header.
+  'sale.return.payout_started',
+  'sale.return.drawer_opened',
+  'sale.return.drawer_failed',
+  'sale.return.paid_out',
+  'sale.return.slip_printed',
+  'sale.return.slip_print_failed',
+  'sale.return.slip_reprinted',
+  // RT-215 (RT-138 P-1) — the device credential was confirmed revoked, and a
+  // later re-pair (or, RT-215 10897-A, a "Check again" answered 2xx) cleared it. System-attributed (no operator acts): the
+  // actor is SYSTEM_DEVICE_ACTOR_ID below. Payload `{ source }` only — never a
+  // token or device secret. Main-only (the renderer cannot emit them).
+  // Open-set at the SQL layer (0004: no CHECK); recorded in migration 0042's
+  // header.
+  'pairing.device_revoked',
+  'pairing.device_revoked_cleared',
+  // RT-438 (MA-1, RT-114 §4) — the terminal's manager PIN lifecycle. Local
+  // only. Payload ids only (`manager_ref`, and the closed revoke reason):
+  // never a PIN, a hash, a seal or a users.id. Open-set at the SQL layer
+  // (0004); recorded in migration 0047's header.
+  'manager_credential.enrolled',
+  'manager_credential.revoked',
+  'manager_credential.locked_out',
+  'manager_credential.disabled',
+  // RT-443 (MA-2, RT-114 §4) — a manager approval granted, or refused (wrong
+  // PIN, unknown / locked / expired / revoked approver, or the requester).
+  // Local only; `approving_supervisor_id` is the approver's users.id on a
+  // grant. Payload ids and closed codes only; never a PIN.
+  'manager_approval.granted',
+  'manager_approval.refused',
+  // RT-530 — a finalized sale voided with a bound manager approval. Local
+  // journal events: requested (the approval consumed, the void queued, the
+  // approver in `approving_supervisor_id`), confirmed (Backend-Core recorded
+  // it) and refused (Backend-Core refused it: terminal). Payload ids, minor
+  // units and closed codes only; never a PIN or an envelope. Open-set at the
+  // SQL layer (0004); recorded in migration 0054 header.
+  'sale.void.requested',
+  'sale.void.confirmed',
+  'sale.void.refused',
+  // RT-546 (RT-534 F3, OD-534-1/2/7) — a `sales.*` / `receipts.*` bridge call
+  // refused by the main-process role gate (`sale-access-policy.ts`): a role
+  // outside the allowlist, or a cashier asking for another operator's sale.
+  // Payload: the handler, the closed reason and the opaque sale id only. Open-set
+  // at the SQL layer (0004: no CHECK); no migration.
+  'sale.access.refused',
+  // RT-551 (RT-545 S2) — the terminal's first sale numbered by the store
+  // business day (Africa/Cairo) of `finalized_at` instead of the UTC date of
+  // `settled_at`: the Option A cutover, written once per terminal by the
+  // finalize transaction. Payload: terminal, sale id and number, instant, day
+  // and zone only. Open-set at the SQL layer (0004: no CHECK); no migration.
+  'sale.number_day_rule.switched',
+  // RT-542 (RT-534 S6, OD-534-3/8) — a store-history reprint (duplicate or sale
+  // record) after Backend-Core authorized it. Attributed to the signed-in
+  // operator. Payload: the server sale ref, the kind, the server copy number,
+  // the closed marks and the print outcome only; never a token or receipt
+  // content. Main-only. Open-set at the SQL layer (0004: no CHECK); no migration.
+  'sale.history.reprinted',
+] as const;
+export type ActionCategory = (typeof AUDIT_ACTION_CATEGORIES)[number];
+
+/**
+ * RT-215 / Jira RT-215 comment 10879 (audit actor, branch 2) — the reserved
+ * `acting_operator_id` for audit events that no operator performs: the
+ * device-revoked pairing events. There was no existing system-actor
+ * convention, and `audit_events.acting_operator_id` is free TEXT NOT NULL with
+ * no FK (0004), so a named sentinel is used instead of a fake operator row.
+ *
+ * It cannot collide with a real operator id: those are provider subjects
+ * (Clerk `user_<base62>`) or `users.id` UUIDs, neither of which can contain a
+ * `:`. Used by the `pairing.device_revoked*` categories, and (RT-438) as the
+ * fallback actor of a `manager_credential.*` event with no live session, and
+ * (RT-551) by `sale.number_day_rule.switched`.
+ */
+export const SYSTEM_DEVICE_ACTOR_ID = 'system:device' as const;
+
+/**
+ * The FR-025 mandatory five attributes plus the optional `session_id`,
+ * `approving_supervisor_id`, and per-category `payload`. `shift_id` is
+ * nullable because some categories (e.g., `operator.session.takeover`)
+ * are not shift-scoped per data-model.md.
+ */
+export interface AuditEvent {
+  /** Client-generated UUID v4 (P5 idempotency key). */
+  event_id: string;
+  /** Opaque tenant identifier. */
+  tenant_id: string;
+  /** Opaque branch identifier. */
+  branch_id: string;
+  /** Opaque terminal identifier (FR-025). */
+  originating_terminal_id: string;
+  /** Clerk user id of the acting operator (FR-025). */
+  acting_operator_id: string;
+  /** Operator session id; null for events emitted outside a session. */
+  session_id: string | null;
+  /** Shift id; null for non-shift-scoped categories per data-model.md. */
+  shift_id: string | null;
+  /** Closed-set category (FR-026). */
+  action_category: ActionCategory;
+  /** ISO 8601 UTC timestamp (FR-025). */
+  created_at: string;
+  /** Optional second identity for supervisor-approved actions. */
+  approving_supervisor_id: string | null;
+  /**
+   * Per-category structured payload. Forbidden field names (raw
+   * cardholder data, full PII, credential fragments, PIN values,
+   * Clerk JWTs, session tokens) MUST be refused at the emitter (T046).
+   */
+  payload: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * The five mandatory attributes per FR-025. Used by validators in S3.
+ */
+export const FR025_MANDATORY_ATTRIBUTES = [
+  'acting_operator_id',
+  'originating_terminal_id',
+  'created_at',
+  'action_category',
+  'shift_id',
+] as const;
+export type Fr025MandatoryAttribute = (typeof FR025_MANDATORY_ATTRIBUTES)[number];
+
+/**
+ * Generic-refusal categories. ONE category per failure mode; the
+ * renderer maps to a single generic Surface-6 message family per
+ * outcome (NFR-003 / PR-2).
+ *
+ * `rate_limited` is the sole exception that distinguishes itself
+ * (PR-2 explicit carve-out for the cashier-PIN lockout case; visible
+ * to the operator so they know to wait). Reachable in S4; harmless
+ * to enumerate here.
+ *
+ * `not_ready` (019-cashier-pin-provisioning FR-11) is the truthful
+ * "cannot provision yet" state: the rostered cashier carries no
+ * provider-neutral `user_id`, so provisioning refuses rather than
+ * falling back to a provider-coupled key. A degraded-state signal
+ * (P9), distinct from `invalid_input` — the request was well-formed,
+ * the upstream identity simply isn't available.
+ *
+ * `reauth_required` (RT-358 / RT-247 D-A1) — the manager's held sign-in JWT
+ * has expired (or an `operator-identity` route answered 401): the session is
+ * still valid locally, and signing in again in place will let the action
+ * continue. Never offered as a generic retry.
+ *
+ * `terminal_has_unresolved_payment` (RT-444, RT-116 §4) — sign-in refused:
+ * this terminal holds another operator's payment with live tender. It names
+ * neither that operator nor any amount (FR-013).
+ *
+ * `payment_in_progress` (RT-444, RT-116 §3.4) — sign-out refused: the current
+ * session holds a started payment with live tender.
+ */
+export const REFUSAL_CATEGORIES = [
+  'invalid_input',
+  'no_connection',
+  'rate_limited',
+  'role_mismatch',
+  'not_signed_in',
+  'state_invalid',
+  'not_ready',
+  'reauth_required',
+  'terminal_has_unresolved_payment',
+  'payment_in_progress',
+] as const;
+export type RefusalCategory = (typeof REFUSAL_CATEGORIES)[number];
+
+export interface OperatorRefusal {
+  kind: 'refused';
+  category: RefusalCategory;
+}
+
+export class OperatorRefusalError extends Error {
+  readonly category: RefusalCategory;
+  constructor(category: RefusalCategory) {
+    super(`operator refusal: ${category}`);
+    this.name = 'OperatorRefusalError';
+    this.category = category;
+  }
+}
+
+export function isOperatorRefusal(value: unknown): value is OperatorRefusal {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const v = value as { kind?: unknown; category?: unknown };
+  return (
+    v.kind === 'refused' &&
+    typeof v.category === 'string' &&
+    (REFUSAL_CATEGORIES as readonly string[]).includes(v.category)
+  );
+}

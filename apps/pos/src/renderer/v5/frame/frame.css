@@ -1,0 +1,339 @@
+/*
+ * V5 frame — layout of the one application frame. Consumes foundation.css
+ * aliases only. Scoped under .v5-frame (see foundation.css for why).
+ */
+
+/* RTL grid: the first track is the right-hand side. Screen first, nav after. */
+.v5-frame {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--v5-nav-inline-size);
+  inline-size: 100%;
+  block-size: 100vh;
+  overflow: hidden;
+}
+
+/* Below the 1024px floor the frame holds only the too-small notice. */
+.v5-frame--too-small {
+  display: block;
+  overflow: auto;
+}
+
+.v5-frame__body {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+.v5-frame__notices {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--v5-gutter) var(--v5-gutter) 0;
+}
+
+.v5-frame__notices:empty {
+  display: none;
+}
+
+/*
+ * The screen gets a definite height so its own regions (cart lines, results)
+ * scroll internally and the total + primary action stay on screen. It is also
+ * a size container, so screens adapt to the space they actually receive
+ * rather than to the viewport.
+ */
+.v5-frame__main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  min-block-size: 0;
+  overflow: hidden;
+  container: v5-screen / inline-size;
+  /*
+   * RT-412: <main> is the containing block of the in-surface fit notice, which
+   * covers the screen when it cannot show its must-see elements. The guard's
+   * wrapper is `display: contents`, so the screen is still <main>'s flex item.
+   */
+  position: relative;
+}
+
+.v5-frame__main > *,
+.v5-frame__main > .v5-fit-guard > * {
+  flex: 1 1 auto;
+  min-block-size: 0;
+}
+
+/*
+ * RT-407 (RT-312 D12): the compact composition is chosen by height as well as
+ * by width. A viewport shorter than 768px (the 600–767px compact-height band;
+ * below 600 the frame shows only the RT-313 notice) marks the screen container,
+ * and the screens' compact queries read the mark with `style()`:
+ *   @container v5-screen (max-width: 1120px) or style(--v5-screen-height: compact)
+ * So the compact rules exist once, and the container stays inline-size only.
+ */
+@media (height < 768px) {
+  .v5-frame__main {
+    --v5-screen-height: compact;
+  }
+}
+
+/*
+ * RT-313: <main> takes focus by script when the too-small notice gives way
+ * (tabIndex -1, never a Tab stop). It is not a control, and the frame's ring
+ * would frame the whole workspace.
+ */
+.v5-frame .v5-frame__main:focus {
+  outline: none;
+}
+
+/* ── Navigation ─────────────────────────────────────────────────────────── */
+
+.v5-frame__nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-block-size: 0;
+  overflow-y: auto;
+  padding: var(--space-3) var(--v5-gutter);
+  background: var(--v5-surface-panel);
+  border-inline-start: var(--v5-divider);
+}
+
+.v5-frame__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-block-size: var(--v5-target);
+  padding-inline: var(--space-2);
+}
+
+.v5-frame__brand-mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  inline-size: 32px;
+  block-size: 32px;
+  border-radius: var(--radius-control);
+  background: var(--color-primary);
+  color: var(--color-primary-on);
+}
+
+.v5-frame__brand-name {
+  overflow: hidden;
+  font-size: var(--v5-text-body);
+  font-weight: var(--font-weight-bold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v5-frame__links {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.v5-frame__link {
+  display: flex;
+  align-items: center;
+  min-block-size: var(--v5-target);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  font-size: var(--v5-text-body);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+  text-decoration: none;
+  transition: background-color 150ms ease-out;
+}
+
+.v5-frame__link:hover {
+  background: var(--color-surface-muted);
+}
+
+/*
+ * Selected, but never louder than the Sale's primary action: a soft tint plus
+ * weight. aria-current carries the state for assistive tech.
+ */
+.v5-frame__link--active,
+.v5-frame__link--active:hover {
+  background: var(--color-primary-soft);
+  color: var(--color-primary-emphasis);
+  font-weight: var(--font-weight-bold);
+}
+
+.v5-frame__operator {
+  display: grid;
+  gap: 2px;
+  margin-block-start: auto;
+  padding: var(--space-3) var(--space-2) 0;
+  border-block-start: var(--v5-divider);
+}
+
+.v5-frame__operator-name {
+  overflow: hidden;
+  font-size: var(--v5-text-body);
+  font-weight: var(--font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v5-frame__operator-role {
+  color: var(--v5-text-muted);
+  font-size: var(--v5-text-meta);
+}
+
+/* Sign-out: quiet until asked; the confirm step is the only emphasis. */
+.v5-frame__sign-out {
+  display: grid;
+  gap: var(--space-1);
+  margin-block-start: var(--space-2);
+}
+
+.v5-frame__sign-out button {
+  min-block-size: var(--v5-target);
+  padding-inline: var(--space-2);
+  border: var(--v5-divider);
+  border-radius: var(--radius-md);
+  background: var(--v5-surface-panel);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--v5-text-body);
+  cursor: pointer;
+}
+
+.v5-frame__sign-out button:hover:not(:disabled) {
+  background: var(--v5-surface-selected);
+}
+
+.v5-frame__sign-out button:disabled {
+  color: var(--v5-text-muted);
+  cursor: not-allowed;
+}
+
+.v5-frame__sign-out .v5-frame__sign-out-confirm {
+  border-color: var(--color-danger);
+  background: var(--color-danger);
+  color: var(--color-danger-on);
+  font-weight: var(--font-weight-semibold);
+}
+
+.v5-frame__sign-out .v5-frame__sign-out-confirm:hover:not(:disabled) {
+  background: var(--color-danger-emphasis);
+}
+
+.v5-frame__sign-out-hint {
+  color: var(--v5-text-muted);
+  font-size: var(--v5-text-meta);
+}
+
+.v5-frame__sign-out-error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--v5-text-meta);
+}
+
+/* The glyph belongs to the slim rail only; the labelled panel stays text. */
+.v5-frame__link-icon {
+  display: none;
+}
+
+/* ── Slim rail on an active-sale route (RT-242, VN-S12; DESIGN.md Direction B) ── */
+
+.v5-frame[data-nav='slim'] {
+  --v5-nav-inline-size: 76px;
+}
+
+.v5-frame[data-nav='slim'] .v5-frame__nav {
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-1);
+}
+
+.v5-frame[data-nav='slim'] .v5-frame__brand {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+/* The wordmark gives way to the mark; the brand is still one name for assistive tech. */
+.v5-frame[data-nav='slim'] .v5-frame__brand-name {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.v5-frame[data-nav='slim'] .v5-frame__link {
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-block-size: 56px;
+  padding: var(--space-1) 2px;
+  font-size: var(--font-size-xs);
+  text-align: center;
+}
+
+.v5-frame[data-nav='slim'] .v5-frame__link-icon {
+  display: block;
+}
+
+.v5-frame[data-nav='slim'] .v5-frame__link-label {
+  overflow-wrap: anywhere;
+}
+
+.v5-frame[data-nav='slim'] .v5-frame__operator {
+  padding-inline: 0;
+  text-align: center;
+}
+
+.v5-frame[data-nav='slim'] .v5-frame__operator-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  font-size: var(--font-size-xs);
+  white-space: normal;
+}
+
+.v5-frame[data-nav='slim'] .v5-frame__operator-role,
+.v5-frame[data-nav='slim'] .v5-frame__sign-out-hint {
+  font-size: var(--font-size-xs);
+}
+
+.v5-frame[data-nav='slim'] .v5-frame__sign-out button {
+  padding-inline: 2px;
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-snug);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v5-frame__link {
+    transition: none;
+  }
+}
+
+/*
+ * RT-241 (VN-S2) — Windows contrast themes drop tints, fills and shadows, so a
+ * state carried only by one of them would vanish. Selection uses the system
+ * Highlight pair; a filled action keeps a 3px ButtonText edge.
+ */
+@media (forced-colors: active) {
+  /* forced-color-adjust: none, or the text's Canvas backplate hides HighlightText. */
+  .v5-frame__link--active,
+  .v5-frame__link--active:hover {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  .v5-frame__brand-mark {
+    border: 1px solid CanvasText;
+  }
+
+  .v5-frame__sign-out .v5-frame__sign-out-confirm {
+    border: 3px solid ButtonText;
+  }
+}

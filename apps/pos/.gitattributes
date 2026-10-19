@@ -1,0 +1,31 @@
+# Pin LF on codegen-sensitive artifacts so cross-platform checkouts read
+# byte-identical content. Without this, Git's autocrlf=true on Windows
+# would store CRLF and a Linux contributor's checkout would fail
+# `npm run codegen:verify` because their LF-generated output would not
+# byte-match the CRLF-converted committed file.
+#
+# Scope is intentionally narrow — do NOT broaden to the whole repo.
+scripts/openapi-snapshot.json text eol=lf
+src/shared/api-types.ts text eol=lf
+
+# Same rationale for the vendored 022 design handoff: these files are committed
+# VERBATIM and RECONCILIATION.md asserts they are byte-identical to the
+# designer's bundle. Without a pin, autocrlf=true would materialise CRLF on a
+# Windows checkout and that verbatim claim would hold only on some platforms.
+# Binary assets (PNG) are unaffected. Scope stays narrow — this directory only.
+specs/022-pos-ui-v4-rescue/design-handoff/**/*.html text eol=lf
+specs/022-pos-ui-v4-rescue/design-handoff/*.css text eol=lf
+specs/022-pos-ui-v4-rescue/design-handoff/*.md text eol=lf
+
+# Same rationale for the vNext Visual Acceptance Pack: it is committed VERBATIM
+# from the owner-approved archive, and its README entry asserts it is
+# byte-identical to that archive. Without a pin, autocrlf=true would materialise
+# CRLF on a Windows checkout. Scope stays narrow - this directory only.
+docs/design/vnext/visual-acceptance/**/*.html text eol=lf
+docs/design/vnext/visual-acceptance/**/*.json text eol=lf
+
+# RT-217: the vendored Backend-Core contracts are checked against their
+# Backend-Core git blob SHAs (contracts/backend-core/PIN). Pin LF so a Windows
+# checkout (autocrlf=true) reads the same bytes. Scope stays narrow - this
+# directory only.
+contracts/backend-core/** text eol=lf

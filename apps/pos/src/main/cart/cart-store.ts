@@ -1,0 +1,819 @@
+/**
+ * 005-sales-cart S2 — Cart persistence layer.
+ *
+ * Owns all SQL access for the four cart tables (`carts`, `cart_action_outbox`,
+ * `cart_lines`, `cart_line_discount_placeholders`). The cart-bridge handlers
+ * call into this module; this module never reads the operator session and
+ * never decides authorisation — that is `requireOperatorSession`'s job.
+ *
+ * Wraps `DatabaseHandle` (better-sqlite3) so tests can inject a stub. The
+ * production wiring lives in `src/main/index.ts`.
+ *
+ * SECURITY:
+ * - No payload values are logged or returned to the renderer beyond the
+ *   contract-specified shapes.
+ * - `payload_json` is canonicalised JSON of the cart-action input; the
+ *   bridge handler is responsible for stripping forbidden field names
+ *   (NFR-006) before passing it here.
+ * - No FK constraints exist in SQL (mirrors 004 precedent); this module
+ *   enforces ownership / tenant / version integrity in code.
+ */
+
+import type { DatabaseHandle } from '../db/client.js';
+import { bindDiscountPlaceholderTrust, type DiscountPlaceholderRef } from './discount-trust.js';
+
+// ── Narrow better-sqlite3 surfaces (R1: no native binding required at test time) ──
+
+interface PrepareRun {
+  run(...params: unknown[]): { changes: number; lastInsertRowid: number | bigint };
+}
+
+interface PrepareGet<Row> {
+  get(...params: unknown[]): Row | undefined;
+}
+
+// ── Row shapes ────────────────────────────────────────────────────────────
+
+export interface CartRow {
+  cart_id: string;
+  tenant_id: string;
+  branch_id: string;
+  terminal_id: string;
+  owning_operator_id: string;
+  operator_session_id: string;
+  state: string;
+  cart_subtotal_minor: number;
+  created_at: string;
+  updated_at: string;
+  frozen_at: string | null;
+  cancelled_at: string | null;
+  cancellation_reason: string | null;
+  handoff_envelope_json: string | null;
+  last_action_id: string | null;
+  /**
+   * RT-440 (migration 0050, spec 024 K5) — set while the cart is parked.
+   * Optional on the type: rows read before 0050 runs have no such column.
+   */
+  parked_at?: string | null;
+  /** RT-440 — the optional local label of a parked cart. Never logged or synced. */
+  park_label?: string | null;
+}
+
+export interface CartLineRow {
+  line_id: string;
+  cart_id: string;
+  item_ref: string;
+  display_name: string;
+  quantity: number;
+  unit_price_minor: number;
+  line_subtotal_minor: number;
+  note: string | null;
+  version: number;
+  last_action_id: string;
+  created_at: string;
+  updated_at: string;
+  removed_at: string | null;
+}
+
+export interface OutboxRow {
+  action_id: string;
+  cart_id: string;
+  line_id: string | null;
+  action_kind: string;
+  acting_operator_id: string;
+  attribution_operator_id: string | null;
+  operator_session_id: string;
+  payload_json: string;
+  applied_at: string;
+  synced_at: string | null;
+}
+
+export interface InsertCartInput {
+  cart_id: string;
+  tenant_id: string;
+  branch_id: string;
+  terminal_id: string;
+  owning_operator_id: string;
+  operator_session_id: string;
+  state: string;
+  created_at: string;
+  /** Outbox row id for the `cart.create` action. */
+  last_action_id: string;
+}
+
+export interface InsertOutboxInput {
+  action_id: string;
+  cart_id: string;
+  line_id: string | null;
+  action_kind: string;
+  acting_operator_id: string;
+  attribution_operator_id: string | null;
+  operator_session_id: string;
+  /** Canonicalised JSON, post-redaction. */
+  payload_json: string;
+  applied_at: string;
+}
+
+export interface InsertCartLineInput {
+  line_id: string;
+  cart_id: string;
+  item_ref: string;
+  display_name: string;
+  quantity: number;
+  unit_price_minor: number;
+  line_subtotal_minor: number;
+  note: string | null;
+  last_action_id: string;
+  created_at: string;
+}
+
+export interface UpdateCartLineQtyInput {
+  line_id: string;
+  quantity: number;
+  line_subtotal_minor: number;
+  last_action_id: string;
+  updated_at: string;
+}
+
+export interface UpdateCartLineNoteInput {
+  line_id: string;
+  note: string | null;
+  last_action_id: string;
+  updated_at: string;
+}
+
+export interface SoftRemoveCartLineInput {
+  line_id: string;
+  removed_at: string;
+  last_action_id: string;
+}
+
+export interface CancelCartInput {
+  cart_id: string;
+  cancelled_at: string;
+  cancellation_reason:
+    | 'cashier_voided'
+    | 'manager_voided_post_handoff'
+    | 'session_ended'
+    // RT-441 (RT-116 §5.2, migration 0049) — a manager cancelled a held draft.
+    | 'manager_cancelled_held';
+  last_action_id: string;
+  updated_at: string;
+}
+
+export interface HandoffCartInput {
+  cart_id: string;
+  frozen_at: string;
+  /** JSON-serialised PaymentIntentEnvelope v1. */
+  handoff_envelope_json: string;
+  last_action_id: string;
+  updated_at: string;
+}
+
+/** RT-26 — `frozen_handed_off → editing` (Checkout Back). */
+export interface ReturnCartToSaleInput {
+  cart_id: string;
+  last_action_id: string;
+  updated_at: string;
+}
+
+/**
+ * RT-254 — the inverse main chose for `cart.undoLast` (contract RT-245).
+ * `decrement` carries the already-computed quantity/subtotal (the bridge owns
+ * the integer-minor-unit arithmetic, same as every other line mutation).
+ */
+export type UndoInverse =
+  | { readonly kind: 'soft_remove' }
+  | { readonly kind: 'decrement'; readonly quantity: number; readonly line_subtotal_minor: number }
+  | { readonly kind: 'restore' };
+
+/** The facts the Undo was decided on; the write commits only while they all still hold. */
+export interface UndoLastInput {
+  cart_id: string;
+  line_id: string;
+  /** Must still be `carts.last_action_id`, the line's `last_action_id`, and the cart's newest outbox row. */
+  target_action_id: string;
+  /** The line version the bridge read; the write requires it unchanged. */
+  expected_line_version: number;
+  inverse: UndoInverse;
+  now: string;
+}
+
+export interface InsertDiscountPlaceholderInput {
+  placeholder_id: string;
+  cart_id: string;
+  line_id: string;
+  placeholder_kind: string;
+  requires_manager_attribution: 0 | 1;
+  attribution_operator_id: string | null;
+  created_at: string;
+}
+
+/** What one discount add writes, built inside its transaction. */
+export interface DiscountPlaceholderWrite {
+  placeholder: InsertDiscountPlaceholderInput;
+  outbox: InsertOutboxInput;
+  onInserted?: () => void;
+}
+
+export interface DiscountPlaceholderRow {
+  placeholder_id: string;
+  cart_id: string;
+  line_id: string;
+  placeholder_kind: string;
+  requires_manager_attribution: number;
+  attribution_operator_id: string | null;
+  created_at: string;
+}
+
+// ── CartStore ────────────────────────────────────────────────────────────
+
+export interface CartStore {
+  insertCartAndOutbox(cart: InsertCartInput, outbox: InsertOutboxInput): void;
+  /**
+   * RT-347 — the add paths re-prove, inside the write transaction, that the
+   * cart is still mutable (the bridge awaits the item resolver between its
+   * gate and this call; a handoff or void may commit in between). Return
+   * `false` with nothing written when it no longer is.
+   */
+  insertLineAndOutbox(line: InsertCartLineInput, outbox: InsertOutboxInput): boolean;
+  mergeLineAndOutbox(update: UpdateCartLineQtyInput, outbox: InsertOutboxInput): boolean;
+  updateLineQuantityAndOutbox(update: UpdateCartLineQtyInput, outbox: InsertOutboxInput): void;
+  setLineNoteAndOutbox(update: UpdateCartLineNoteInput, outbox: InsertOutboxInput): void;
+  softRemoveLineAndOutbox(remove: SoftRemoveCartLineInput, outbox: InsertOutboxInput): void;
+  /**
+   * RT-254 `cart.undoLast` as ONE conditional transaction. Re-proves, at
+   * commit time, that the cart is still `editing`, that the target is both
+   * `carts.last_action_id` and the cart's newest outbox row (a note or
+   * discount edit writes outbox lineage without moving `carts.last_action_id`),
+   * and that the line still carries the target action, the expected version
+   * and the matching active/removed state (a restore also needs no other
+   * active line for the same item_ref). Only then does it apply the inverse,
+   * write the outbox row and recompute the subtotal. Returns `false` with
+   * nothing written when any fact no longer holds.
+   */
+  undoLastActionAndOutbox(input: UndoLastInput, outbox: InsertOutboxInput): boolean;
+  /**
+   * ONE transaction: `build` runs first (RT-608: a cashier's manager approval
+   * is consumed there, and its approver names the placeholder), then the
+   * outbox row and the placeholder row are written, then `onInserted` (if
+   * returned) runs — same audit-atomic pattern as `cancelCartAndOutbox`. A
+   * throw anywhere rolls the whole add back.
+   */
+  insertDiscountPlaceholderAndOutbox(build: () => DiscountPlaceholderWrite): void;
+  /** Hard-deletes the placeholder row and writes the outbox row atomically. */
+  removeDiscountPlaceholderAndOutbox(placeholder_id: string, outbox: InsertOutboxInput): void;
+  getDiscountPlaceholder(placeholder_id: string): DiscountPlaceholderRow | undefined;
+  /**
+   * Atomically writes the outbox row, cancels the cart, and (if provided)
+   * calls `onInserted` inside the same transaction — enabling audit emission
+   * to be atomic with the state change without this store knowing about audits.
+   */
+  cancelCartAndOutbox(
+    cancel: CancelCartInput,
+    outbox: InsertOutboxInput,
+    onInserted?: () => void,
+  ): void;
+  /**
+   * Post-handoff cancel as ONE transaction (§A4 review): ask
+   * `isStillCancellable` (the payments record), then UPDATE only while the
+   * cart is still `frozen_handed_off`. The outbox row and `onInserted` (the
+   * audit emit) are written only when that UPDATE changed the row, inside the
+   * same transaction; otherwise nothing is written and `false` is returned.
+   * A throw anywhere rolls the whole transaction back.
+   */
+  cancelFrozenCartAndOutbox(
+    cancel: CancelCartInput,
+    outbox: InsertOutboxInput,
+    isStillCancellable: () => boolean,
+    onInserted?: () => void,
+  ): boolean;
+  /**
+   * Atomically writes the outbox row, freezes the cart (state=frozen_handed_off,
+   * frozen_at, handoff_envelope_json), and calls `onInserted` inside the same
+   * transaction — enabling audit emission to be atomic with the freeze.
+   */
+  handoffCartAndOutbox(
+    handoff: HandoffCartInput,
+    outbox: InsertOutboxInput,
+    onInserted?: () => void,
+  ): void;
+  /**
+   * RT-26 Checkout Back as ONE transaction (same shape as
+   * `cancelFrozenCartAndOutbox`): ask `releasePayment` (the payments record —
+   * it refuses on any tender activity, and cancels a zero-funds started
+   * attempt), then move the cart to `editing` ONLY while it is still
+   * `frozen_handed_off`, clearing `frozen_at` and the persisted envelope so the
+   * handoff can never be paid. Lines and placeholders are not touched. The
+   * outbox row and `onInserted` (the audit emit) are written only when that
+   * UPDATE changed the row. Returns `false` with nothing written when the
+   * payment guard refuses; throws (rolling everything back, including a
+   * cancelled attempt) if the cart is no longer frozen after the guard ran.
+   */
+  returnFrozenCartToSaleAndOutbox(
+    input: ReturnCartToSaleInput,
+    outbox: InsertOutboxInput,
+    releasePayment: () => boolean,
+    onInserted?: () => void,
+  ): boolean;
+  /**
+   * Returns the action_id of the most recent `cart.handoff_to_payment` outbox
+   * row. Since RT-26 a cart can be handed off more than once (Back, edit,
+   * Checkout again), so insertion order (rowid) breaks an `applied_at` tie.
+   * Ordering is by wall clock, so it is NOT used to validate a handoff:
+   * `cart.returnToSale` and `cart.cancelPostHandoff` compare against the
+   * cart's persisted envelope instead (immune to a clock step).
+   */
+  findLatestHandoffActionId(cart_id: string): string | undefined;
+  /**
+   * Returns the active (non-terminal) draft cart owned by the given session,
+   * if any. RT-440: never a parked cart (spec 024 K5).
+   */
+  findDraftCartBySession(operator_session_id: string): CartRow | undefined;
+  /** Returns all non-removed cart lines for the given cart. */
+  getActiveLines(cart_id: string): CartLineRow[];
+  /** Returns all discount placeholders for the given cart. */
+  getDiscountPlaceholdersForCart(cart_id: string): DiscountPlaceholderRow[];
+  /**
+   * RT-614 — true only when a `cart.discount.manager_authorized` audit row
+   * names this placeholder, cart and line in this scope (`discount-trust.ts`).
+   */
+  isDiscountPlaceholderTrusted(ref: DiscountPlaceholderRef): boolean;
+  getCart(cart_id: string): CartRow | undefined;
+  getLine(cart_id: string, line_id: string): CartLineRow | undefined;
+  findActiveLineByItemRef(cart_id: string, item_ref: string): CartLineRow | undefined;
+  /**
+   * The action recorded under `action_id`. RT-440: a key `cart.park` /
+   * `cart.resume` recorded in `cart_park_actions` answers too, with its kind
+   * (and no line or payload), so every cart handler's replay check refuses it
+   * `idempotency_payload_mismatch` like any other key of a different action.
+   */
+  getOutboxRow(action_id: string): OutboxRow | undefined;
+}
+
+/** Shared SET clause of the two cart-cancel statements. */
+const CANCEL_CART_SQL = `UPDATE carts
+    SET state = 'cancelled', cancelled_at = ?, cancellation_reason = ?, updated_at = ?,
+        last_action_id = ?`;
+
+/**
+ * RT-347 — commit-time twin of the bridge's mutability gate
+ * (`requireOperatorSession` + the `handing_off` freeze). RT-440: a cart parked
+ * while the add awaited the item resolver is not mutable either.
+ */
+/** RT-440 (R-7): one idempotency namespace across the outbox and park / resume. */
+const RECORDED_ACTION_SQL = `SELECT action_id, cart_id, line_id, action_kind, acting_operator_id,
+         attribution_operator_id, operator_session_id, payload_json, applied_at, synced_at
+    FROM cart_action_outbox WHERE action_id = ?
+  UNION ALL
+  SELECT idempotency_key, cart_id, NULL, action_kind, '', NULL, '', '{}', applied_at, NULL
+    FROM cart_park_actions WHERE idempotency_key = ?
+  LIMIT 1`;
+
+const MUTABLE_CART_GUARD_SQL = `SELECT 1 AS ok FROM carts
+    WHERE cart_id = ? AND state NOT IN ('handing_off', 'frozen_handed_off', 'cancelled')
+      AND parked_at IS NULL`;
+
+export function bindCartStore(db: DatabaseHandle): CartStore {
+  const insertCart = db.prepare(
+    `INSERT INTO carts (
+       cart_id, tenant_id, branch_id, terminal_id, owning_operator_id,
+       operator_session_id, state, cart_subtotal_minor,
+       created_at, updated_at, last_action_id
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+  ) as PrepareRun;
+
+  const insertOutbox = db.prepare(
+    `INSERT INTO cart_action_outbox (
+       action_id, cart_id, line_id, action_kind,
+       acting_operator_id, attribution_operator_id, operator_session_id,
+       payload_json, applied_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ) as PrepareRun;
+
+  const insertLine = db.prepare(
+    `INSERT INTO cart_lines (
+       line_id, cart_id, item_ref, display_name,
+       quantity, unit_price_minor, line_subtotal_minor,
+       note, version, last_action_id,
+       created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+  ) as PrepareRun;
+
+  const updateLineQty = db.prepare(
+    `UPDATE cart_lines
+       SET quantity = ?,
+           line_subtotal_minor = ?,
+           last_action_id = ?,
+           updated_at = ?,
+           version = version + 1
+     WHERE line_id = ?`,
+  ) as PrepareRun;
+
+  const updateLineNote = db.prepare(
+    `UPDATE cart_lines
+       SET note = ?,
+           last_action_id = ?,
+           updated_at = ?,
+           version = version + 1
+     WHERE line_id = ?`,
+  ) as PrepareRun;
+
+  const softRemoveLine = db.prepare(
+    `UPDATE cart_lines
+       SET removed_at = ?,
+           last_action_id = ?,
+           version = version + 1,
+           updated_at = ?
+     WHERE line_id = ?`,
+  ) as PrepareRun;
+
+  const mutableCartGuardStmt = db.prepare(MUTABLE_CART_GUARD_SQL) as PrepareGet<{ ok: number }>;
+
+  // ── RT-254 Undo: commit-time guards + inverse writes ──
+  // Insertion order (rowid) is the lineage order: the outbox is append-only.
+  const undoCartGuardStmt = db.prepare(
+    `SELECT 1 AS ok FROM carts
+      WHERE cart_id = ? AND state = 'editing' AND last_action_id = ?
+        AND (SELECT action_id FROM cart_action_outbox
+              WHERE cart_id = ? ORDER BY rowid DESC LIMIT 1) = ?`,
+  ) as PrepareGet<{ ok: number }>;
+  const UNDO_LINE_MATCH = `WHERE line_id = ? AND cart_id = ? AND last_action_id = ? AND version = ?`;
+  const undoSoftRemoveStmt = db.prepare(
+    `UPDATE cart_lines
+        SET removed_at = ?, last_action_id = ?, updated_at = ?, version = version + 1
+      ${UNDO_LINE_MATCH} AND removed_at IS NULL`,
+  ) as PrepareRun;
+  const undoDecrementStmt = db.prepare(
+    `UPDATE cart_lines
+        SET quantity = ?, line_subtotal_minor = ?, last_action_id = ?, updated_at = ?,
+            version = version + 1
+      ${UNDO_LINE_MATCH} AND removed_at IS NULL`,
+  ) as PrepareRun;
+  // Restore clears `removed_at` on the SAME row: line id, price snapshot,
+  // note and attached placeholders are untouched. Q4 (one active line per
+  // item_ref) is re-proved here because it is application-layer only.
+  const undoRestoreStmt = db.prepare(
+    `UPDATE cart_lines
+        SET removed_at = NULL, last_action_id = ?, updated_at = ?, version = version + 1
+      ${UNDO_LINE_MATCH} AND removed_at IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM cart_lines AS twin
+                         WHERE twin.cart_id = cart_lines.cart_id
+                           AND twin.item_ref = cart_lines.item_ref
+                           AND twin.removed_at IS NULL
+                           AND twin.line_id <> cart_lines.line_id)`,
+  ) as PrepareRun;
+
+  const getCartStmt = db.prepare(`SELECT * FROM carts WHERE cart_id = ?`) as PrepareGet<CartRow>;
+  const getLineStmt = db.prepare(
+    `SELECT * FROM cart_lines WHERE cart_id = ? AND line_id = ?`,
+  ) as PrepareGet<CartLineRow>;
+  const findActiveLineStmt = db.prepare(
+    `SELECT * FROM cart_lines WHERE cart_id = ? AND item_ref = ? AND removed_at IS NULL LIMIT 1`,
+  ) as PrepareGet<CartLineRow>;
+  const getOutboxStmt = db.prepare(RECORDED_ACTION_SQL) as PrepareGet<OutboxRow>;
+  const subtotalStmt = db.prepare(
+    `SELECT COALESCE(SUM(line_subtotal_minor), 0) AS total
+       FROM cart_lines
+      WHERE cart_id = ? AND removed_at IS NULL`,
+  ) as PrepareGet<{ total: number }>;
+  const updateCartTotal = db.prepare(
+    `UPDATE carts SET cart_subtotal_minor = ?, updated_at = ?, last_action_id = ? WHERE cart_id = ?`,
+  ) as PrepareRun;
+  const setCartStateStmt = db.prepare(
+    `UPDATE carts SET state = ?, updated_at = ?, last_action_id = ? WHERE cart_id = ?`,
+  ) as PrepareRun;
+  const cancelCartStmt = db.prepare(`${CANCEL_CART_SQL} WHERE cart_id = ?`) as PrepareRun;
+  const cancelFrozenCartStmt = db.prepare(
+    `${CANCEL_CART_SQL} WHERE cart_id = ? AND state = 'frozen_handed_off'`,
+  ) as PrepareRun;
+  const returnFrozenCartStmt = db.prepare(
+    `UPDATE carts
+        SET state = 'editing', frozen_at = NULL, handoff_envelope_json = NULL,
+            updated_at = ?, last_action_id = ?
+      WHERE cart_id = ? AND state = 'frozen_handed_off'`,
+  ) as PrepareRun;
+  const findLatestHandoffStmt = db.prepare(
+    `SELECT action_id FROM cart_action_outbox
+      WHERE cart_id = ? AND action_kind = 'cart.handoff_to_payment'
+      ORDER BY applied_at DESC, rowid DESC LIMIT 1`,
+  ) as PrepareGet<{ action_id: string }>;
+  const findDraftCartBySessionStmt = db.prepare(
+    `SELECT * FROM carts
+      WHERE operator_session_id = ?
+        AND state NOT IN ('cancelled', 'frozen_handed_off') AND parked_at IS NULL
+      ORDER BY created_at DESC LIMIT 1`,
+  ) as PrepareGet<CartRow>;
+  const insertDiscountPlaceholder = db.prepare(
+    `INSERT INTO cart_line_discount_placeholders (
+       placeholder_id, cart_id, line_id, placeholder_kind,
+       requires_manager_attribution, attribution_operator_id, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ) as PrepareRun;
+  const deleteDiscountPlaceholder = db.prepare(
+    `DELETE FROM cart_line_discount_placeholders WHERE placeholder_id = ?`,
+  ) as PrepareRun;
+  const getDiscountPlaceholderStmt = db.prepare(
+    `SELECT * FROM cart_line_discount_placeholders WHERE placeholder_id = ?`,
+  ) as PrepareGet<DiscountPlaceholderRow>;
+  const getActiveLinesStmt = db.prepare(
+    `SELECT * FROM cart_lines WHERE cart_id = ? AND removed_at IS NULL ORDER BY created_at ASC`,
+  ) as { all(...params: unknown[]): CartLineRow[] };
+  const getDiscountPlaceholdersForCartStmt = db.prepare(
+    `SELECT * FROM cart_line_discount_placeholders WHERE cart_id = ? ORDER BY created_at ASC`,
+  ) as { all(...params: unknown[]): DiscountPlaceholderRow[] };
+  const handoffCartStmt = db.prepare(
+    `UPDATE carts
+        SET state = 'frozen_handed_off',
+            frozen_at = ?,
+            handoff_envelope_json = ?,
+            updated_at = ?,
+            last_action_id = ?
+      WHERE cart_id = ?`,
+  ) as PrepareRun;
+
+  function writeOutbox(row: InsertOutboxInput): void {
+    insertOutbox.run(
+      row.action_id,
+      row.cart_id,
+      row.line_id,
+      row.action_kind,
+      row.acting_operator_id,
+      row.attribution_operator_id,
+      row.operator_session_id,
+      row.payload_json,
+      row.applied_at,
+    );
+  }
+
+  /** Applies the Undo inverse to the line only while every precondition holds. */
+  function applyUndoInverse(input: UndoLastInput, undo_action_id: string): boolean {
+    const match = [
+      input.line_id,
+      input.cart_id,
+      input.target_action_id,
+      input.expected_line_version,
+    ];
+    const { inverse, now } = input;
+    let result: { changes: number };
+    if (inverse.kind === 'soft_remove') {
+      result = undoSoftRemoveStmt.run(now, undo_action_id, now, ...match);
+    } else if (inverse.kind === 'decrement') {
+      result = undoDecrementStmt.run(
+        inverse.quantity,
+        inverse.line_subtotal_minor,
+        undo_action_id,
+        now,
+        ...match,
+      );
+    } else {
+      result = undoRestoreStmt.run(undo_action_id, now, ...match);
+    }
+    return result.changes === 1;
+  }
+
+  function recomputeSubtotal(cart_id: string, updated_at: string, last_action_id: string): number {
+    // COALESCE(SUM(...), 0) guarantees a row with a non-null total even when
+    // no matching lines exist, so the get() result is always defined.
+    const row = subtotalStmt.get(cart_id) as { total: number };
+    updateCartTotal.run(row.total, updated_at, last_action_id, cart_id);
+    return row.total;
+  }
+
+  return {
+    insertCartAndOutbox(cart, outbox): void {
+      db.transaction(() => {
+        writeOutbox(outbox);
+        insertCart.run(
+          cart.cart_id,
+          cart.tenant_id,
+          cart.branch_id,
+          cart.terminal_id,
+          cart.owning_operator_id,
+          cart.operator_session_id,
+          cart.state,
+          cart.created_at,
+          cart.created_at,
+          cart.last_action_id,
+        );
+      })();
+    },
+
+    insertLineAndOutbox(line, outbox): boolean {
+      return db.transaction((): boolean => {
+        if (mutableCartGuardStmt.get(line.cart_id) === undefined) return false;
+        writeOutbox(outbox);
+        insertLine.run(
+          line.line_id,
+          line.cart_id,
+          line.item_ref,
+          line.display_name,
+          line.quantity,
+          line.unit_price_minor,
+          line.line_subtotal_minor,
+          line.note,
+          line.last_action_id,
+          line.created_at,
+          line.created_at,
+        );
+        recomputeSubtotal(line.cart_id, line.created_at, line.last_action_id);
+        // Cart transitions empty → editing on the first add. The guard above
+        // keeps this from ever reviving a frozen or cancelled cart.
+        setCartStateStmt.run('editing', line.created_at, line.last_action_id, line.cart_id);
+        return true;
+      })();
+    },
+
+    mergeLineAndOutbox(update, outbox): boolean {
+      return db.transaction((): boolean => {
+        // Caller guarantees outbox.cart_id matches the line's cart_id.
+        if (mutableCartGuardStmt.get(outbox.cart_id) === undefined) return false;
+        writeOutbox(outbox);
+        updateLineQty.run(
+          update.quantity,
+          update.line_subtotal_minor,
+          update.last_action_id,
+          update.updated_at,
+          update.line_id,
+        );
+        recomputeSubtotal(outbox.cart_id, update.updated_at, update.last_action_id);
+        return true;
+      })();
+    },
+
+    updateLineQuantityAndOutbox(update, outbox): void {
+      db.transaction(() => {
+        writeOutbox(outbox);
+        updateLineQty.run(
+          update.quantity,
+          update.line_subtotal_minor,
+          update.last_action_id,
+          update.updated_at,
+          update.line_id,
+        );
+        recomputeSubtotal(outbox.cart_id, update.updated_at, update.last_action_id);
+      })();
+    },
+
+    setLineNoteAndOutbox(update, outbox): void {
+      db.transaction(() => {
+        writeOutbox(outbox);
+        updateLineNote.run(update.note, update.last_action_id, update.updated_at, update.line_id);
+      })();
+    },
+
+    softRemoveLineAndOutbox(remove, outbox): void {
+      db.transaction(() => {
+        writeOutbox(outbox);
+        softRemoveLine.run(
+          remove.removed_at,
+          remove.last_action_id,
+          remove.removed_at,
+          remove.line_id,
+        );
+        recomputeSubtotal(outbox.cart_id, remove.removed_at, remove.last_action_id);
+      })();
+    },
+
+    undoLastActionAndOutbox(input, outbox): boolean {
+      return db.transaction((): boolean => {
+        const target = input.target_action_id;
+        if (undoCartGuardStmt.get(input.cart_id, target, input.cart_id, target) === undefined) {
+          return false;
+        }
+        // Nothing has been written yet: a zero-row line UPDATE leaves no trace.
+        if (!applyUndoInverse(input, outbox.action_id)) return false;
+        writeOutbox(outbox);
+        recomputeSubtotal(input.cart_id, input.now, outbox.action_id);
+        return true;
+      })();
+    },
+
+    insertDiscountPlaceholderAndOutbox(build): void {
+      db.transaction(() => {
+        const { placeholder, outbox, onInserted } = build();
+        writeOutbox(outbox);
+        insertDiscountPlaceholder.run(
+          placeholder.placeholder_id,
+          placeholder.cart_id,
+          placeholder.line_id,
+          placeholder.placeholder_kind,
+          placeholder.requires_manager_attribution,
+          placeholder.attribution_operator_id,
+          placeholder.created_at,
+        );
+        onInserted?.();
+      })();
+    },
+
+    removeDiscountPlaceholderAndOutbox(placeholder_id, outbox): void {
+      db.transaction(() => {
+        writeOutbox(outbox);
+        deleteDiscountPlaceholder.run(placeholder_id);
+      })();
+    },
+
+    getDiscountPlaceholder(placeholder_id): DiscountPlaceholderRow | undefined {
+      return getDiscountPlaceholderStmt.get(placeholder_id);
+    },
+
+    cancelCartAndOutbox(cancel, outbox, onInserted): void {
+      db.transaction(() => {
+        writeOutbox(outbox);
+        cancelCartStmt.run(
+          cancel.cancelled_at,
+          cancel.cancellation_reason,
+          cancel.updated_at,
+          cancel.last_action_id,
+          cancel.cart_id,
+        );
+        onInserted?.();
+      })();
+    },
+
+    cancelFrozenCartAndOutbox(cancel, outbox, isStillCancellable, onInserted): boolean {
+      return db.transaction((): boolean => {
+        if (!isStillCancellable()) return false;
+        // Conditional UPDATE: zero rows means the cart is no longer
+        // `frozen_handed_off`, so nothing (outbox, audit) is written.
+        const updated =
+          cancelFrozenCartStmt.run(
+            cancel.cancelled_at,
+            cancel.cancellation_reason,
+            cancel.updated_at,
+            cancel.last_action_id,
+            cancel.cart_id,
+          ).changes === 1;
+        if (updated) {
+          writeOutbox(outbox);
+          onInserted?.();
+        }
+        return updated;
+      })();
+    },
+
+    returnFrozenCartToSaleAndOutbox(input, outbox, releasePayment, onInserted): boolean {
+      return db.transaction((): boolean => {
+        if (!releasePayment()) return false;
+        const updated =
+          returnFrozenCartStmt.run(input.updated_at, input.last_action_id, input.cart_id)
+            .changes === 1;
+        // The caller checked the state just before, on the same thread, so
+        // this cannot happen; if it ever does, roll back the payment release
+        // too rather than commit a cancelled attempt for a cart left frozen.
+        if (!updated) throw new Error('cart.return_to_sale: cart is no longer frozen');
+        writeOutbox(outbox);
+        onInserted?.();
+        return true;
+      })();
+    },
+
+    handoffCartAndOutbox(handoff, outbox, onInserted): void {
+      db.transaction(() => {
+        writeOutbox(outbox);
+        handoffCartStmt.run(
+          handoff.frozen_at,
+          handoff.handoff_envelope_json,
+          handoff.updated_at,
+          handoff.last_action_id,
+          handoff.cart_id,
+        );
+        onInserted?.();
+      })();
+    },
+
+    getActiveLines(cart_id): CartLineRow[] {
+      return getActiveLinesStmt.all(cart_id);
+    },
+
+    getDiscountPlaceholdersForCart(cart_id): DiscountPlaceholderRow[] {
+      return getDiscountPlaceholdersForCartStmt.all(cart_id);
+    },
+
+    isDiscountPlaceholderTrusted: bindDiscountPlaceholderTrust(db),
+
+    findLatestHandoffActionId(cart_id): string | undefined {
+      return findLatestHandoffStmt.get(cart_id)?.action_id;
+    },
+
+    findDraftCartBySession(operator_session_id): CartRow | undefined {
+      return findDraftCartBySessionStmt.get(operator_session_id);
+    },
+
+    getCart(cart_id): CartRow | undefined {
+      return getCartStmt.get(cart_id);
+    },
+
+    getLine(cart_id, line_id): CartLineRow | undefined {
+      return getLineStmt.get(cart_id, line_id);
+    },
+
+    findActiveLineByItemRef(cart_id, item_ref): CartLineRow | undefined {
+      return findActiveLineStmt.get(cart_id, item_ref);
+    },
+
+    getOutboxRow(action_id): OutboxRow | undefined {
+      return getOutboxStmt.get(action_id, action_id);
+    },
+  };
+}

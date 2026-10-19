@@ -1,0 +1,478 @@
+import type { IpcMain, IpcMainInvokeEvent } from 'electron';
+
+import { CART_IPC_CHANNELS } from '../../shared/cart/channels.js';
+import type {
+  CartCancelPostHandoffRequest,
+  CartCancelPostHandoffResponse,
+  CartCreateRequest,
+  CartCreateResponse,
+  CartDiscountPlaceholdersAddRequest,
+  CartDiscountPlaceholdersAddResponse,
+  CartDiscountPlaceholdersRemoveRequest,
+  CartDiscountPlaceholdersRemoveResponse,
+  CartHandoffRequest,
+  CartHandoffResponse,
+  CartLinesAddRequest,
+  CartLinesAddResponse,
+  CartLinesRemoveRequest,
+  CartLinesRemoveResponse,
+  CartLinesSetNoteRequest,
+  CartLinesSetNoteResponse,
+  CartLinesUpdateRequest,
+  CartLinesUpdateResponse,
+  CartReturnToSaleRequest,
+  CartReturnToSaleResponse,
+  CartReturnToSaleEligibilityRequest,
+  CartReturnToSaleEligibilityResponse,
+  CartSnapshotRequest,
+  CartSnapshotResponse,
+  CartSubscribeRequest,
+  CartSubscribeResponse,
+  CartUndoLastRequest,
+  CartUndoLastResponse,
+  CartVoidRequest,
+  CartVoidResponse,
+} from '../../shared/cart/bridge-types.js';
+import type { CartRefusal } from '../../shared/cart/refusal.js';
+import type { CartBridgeHandlers } from '../cart/cart-bridge.js';
+
+/**
+ * 005-sales-cart S1 / T029 — `cart:*` IPC channel registration.
+ *
+ * Mirrors the operator IPC pattern. Every handler runs through
+ * `CartBridgeHandlers`, which is responsible for the role gate
+ * (`requireOperatorSession` is the FIRST instruction of every handler).
+ * This file is the thin wire-up; no business logic lives here.
+ *
+ * Input shape validation refuses generically: malformed payloads
+ * collapse to `{ kind: 'refused', reason: 'no_session' }` — we do NOT
+ * leak the field that failed validation (Constitution VII / PR-2).
+ */
+
+export interface CartHandlerDeps {
+  handlers: CartBridgeHandlers;
+}
+
+function refuseInvalid(): CartRefusal {
+  return { kind: 'refused', reason: 'no_session' };
+}
+
+/**
+ * Identifier shape for the §A4-reviewed channels: 1–128 characters of
+ * [A-Za-z0-9_-] (UUIDs and test ids fit). Values persisted into the outbox
+ * and audit log cannot be oversized or carry path/markup characters.
+ */
+const ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+
+function isBoundedId(value: unknown): value is string {
+  return typeof value === 'string' && ID_PATTERN.test(value);
+}
+
+function asCreateReq(value: unknown): CartCreateRequest | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v['idempotency_key'] !== 'string') return null;
+  return { idempotency_key: v['idempotency_key'] };
+}
+
+function asLinesAddReq(value: unknown): CartLinesAddRequest | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (
+    typeof v['cart_id'] !== 'string' ||
+    typeof v['item_ref'] !== 'string' ||
+    typeof v['quantity'] !== 'number' ||
+    typeof v['idempotency_key'] !== 'string'
+  ) {
+    return null;
+  }
+  return {
+    cart_id: v['cart_id'],
+    item_ref: v['item_ref'],
+    quantity: v['quantity'],
+    idempotency_key: v['idempotency_key'],
+  };
+}
+
+function asLinesUpdateReq(value: unknown): CartLinesUpdateRequest | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (
+    typeof v['cart_id'] !== 'string' ||
+    typeof v['line_id'] !== 'string' ||
+    (v['op'] !== 'increment' && v['op'] !== 'decrement' && v['op'] !== 'set') ||
+    typeof v['version'] !== 'number' ||
+    typeof v['idempotency_key'] !== 'string'
+  ) {
+    return null;
+  }
+  const req: CartLinesUpdateRequest = {
+    cart_id: v['cart_id'],
+    line_id: v['line_id'],
+    op: v['op'],
+    version: v['version'],
+    idempotency_key: v['idempotency_key'],
+  };
+  if (typeof v['delta'] === 'number') (req as { delta?: number }).delta = v['delta'];
+  if (typeof v['absolute'] === 'number') (req as { absolute?: number }).absolute = v['absolute'];
+  return req;
+}
+
+function asLinesRemoveReq(value: unknown): CartLinesRemoveRequest | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (
+    typeof v['cart_id'] !== 'string' ||
+    typeof v['line_id'] !== 'string' ||
+    typeof v['version'] !== 'number' ||
+    typeof v['idempotency_key'] !== 'string'
+  ) {
+    return null;
+  }
+  return {
+    cart_id: v['cart_id'],
+    line_id: v['line_id'],
+    version: v['version'],
+    idempotency_key: v['idempotency_key'],
+  };
+}
+
+function asLinesSetNoteReq(value: unknown): CartLinesSetNoteRequest | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (
+    typeof v['cart_id'] !== 'string' ||
+    typeof v['line_id'] !== 'string' ||
+    (typeof v['note'] !== 'string' && v['note'] !== null) ||
+    typeof v['version'] !== 'number' ||
+    typeof v['idempotency_key'] !== 'string'
+  ) {
+    return null;
+  }
+  return {
+    cart_id: v['cart_id'],
+    line_id: v['line_id'],
+    note: v['note'],
+    version: v['version'],
+    idempotency_key: v['idempotency_key'],
+  };
+}
+
+/**
+ * Discount placeholder add. Builds a FRESH object with only the contract
+ * fields: a renderer-supplied `attribution_operator_id` is deliberately
+ * dropped (RT-183, RT-114 C10), so the renderer can never choose the recorded
+ * approving supervisor. RT-608: a cashier carries an `approval_id` from
+ * `approval.request` instead, which main verifies and consumes; when present
+ * it must be a bounded id.
+ */
+function asDiscountAddReq(value: unknown): CartDiscountPlaceholdersAddRequest | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (
+    typeof v['cart_id'] !== 'string' ||
+    typeof v['line_id'] !== 'string' ||
+    typeof v['placeholder_kind'] !== 'string' ||
+    typeof v['idempotency_key'] !== 'string'
+  ) {
+    return null;
+  }
+  const req = {
+    cart_id: v['cart_id'],
+    line_id: v['line_id'],
+    placeholder_kind: v['placeholder_kind'],
+    idempotency_key: v['idempotency_key'],
+  };
+  const approvalId = v['approval_id'];
+  if (approvalId === undefined) return req;
+  return isBoundedId(approvalId) ? { ...req, approval_id: approvalId } : null;
+}
+
+function asDiscountRemoveReq(value: unknown): CartDiscountPlaceholdersRemoveRequest | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (
+    typeof v['cart_id'] !== 'string' ||
+    typeof v['placeholder_id'] !== 'string' ||
+    typeof v['idempotency_key'] !== 'string'
+  ) {
+    return null;
+  }
+  // RT-443 (MA-2, RT-114 C10): a FRESH object with only the contract fields;
+  // a renderer-supplied `attribution_operator_id` is dropped like everywhere else.
+  return {
+    cart_id: v['cart_id'],
+    placeholder_id: v['placeholder_id'],
+    idempotency_key: v['idempotency_key'],
+  };
+}
+
+/**
+ * Pre-handoff void. Builds a FRESH object with only the contract fields: a
+ * renderer-supplied `attribution_operator_id` is deliberately dropped
+ * (RT-184), so the renderer can never choose an operator recorded on a void.
+ */
+function asVoidReq(value: unknown): CartVoidRequest | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v['cart_id'] !== 'string' || typeof v['idempotency_key'] !== 'string') return null;
+  return {
+    cart_id: v['cart_id'],
+    idempotency_key: v['idempotency_key'],
+  };
+}
+
+/**
+ * Post-handoff cancel. Builds a FRESH object with only the request fields:
+ * `attribution_operator_id` is deliberately dropped, so a cashier can never
+ * borrow a manager's authority through this bridge, and no renderer-supplied
+ * identity reaches the handler. RT-443 (MA-2): a cashier carries an
+ * `approval_id` from `approval.request` instead, which main verifies and
+ * consumes; without one main refuses `manager_attribution_required`. Every
+ * field must be a bounded id.
+ */
+function asCancelPostHandoffReq(value: unknown): CartCancelPostHandoffRequest | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  const cartId = v['cart_id'];
+  const handoffActionId = v['handoff_action_id'];
+  const idempotencyKey = v['idempotency_key'];
+  if (!isBoundedId(cartId) || !isBoundedId(handoffActionId) || !isBoundedId(idempotencyKey)) {
+    return null;
+  }
+  const req = {
+    cart_id: cartId,
+    handoff_action_id: handoffActionId,
+    idempotency_key: idempotencyKey,
+  };
+  const approvalId = v['approval_id'];
+  if (approvalId === undefined) return req;
+  return isBoundedId(approvalId) ? { ...req, approval_id: approvalId } : null;
+}
+
+/** RT-26 — the same bounded-identifier request shape as `cart:cancelPostHandoff`. */
+const asReturnToSaleReq: (value: unknown) => CartReturnToSaleRequest | null =
+  asCancelPostHandoffReq;
+
+/** RT-26 — the read-only eligibility query: bounded cart + handoff ids only. */
+function asReturnToSaleEligibilityReq(value: unknown): CartReturnToSaleEligibilityRequest | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  const cartId = v['cart_id'];
+  const handoffActionId = v['handoff_action_id'];
+  if (!isBoundedId(cartId)) return null;
+  return isBoundedId(handoffActionId)
+    ? { cart_id: cartId, handoff_action_id: handoffActionId }
+    : null;
+}
+
+/**
+ * RT-254 — Undo. Builds a FRESH object with only the three contract fields,
+ * each a bounded id: no inverse kind, line id, quantity or scope crosses this
+ * bridge — main derives every one of them from persisted lineage.
+ */
+function asUndoLastReq(value: unknown): CartUndoLastRequest | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  const cartId = v['cart_id'];
+  const targetActionId = v['target_action_id'];
+  const idempotencyKey = v['idempotency_key'];
+  if (!isBoundedId(cartId) || !isBoundedId(targetActionId) || !isBoundedId(idempotencyKey)) {
+    return null;
+  }
+  return { cart_id: cartId, target_action_id: targetActionId, idempotency_key: idempotencyKey };
+}
+
+function asHandoffReq(value: unknown): CartHandoffRequest | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (
+    typeof v['cart_id'] !== 'string' ||
+    !Array.isArray(v['per_line_versions']) ||
+    typeof v['idempotency_key'] !== 'string'
+  ) {
+    return null;
+  }
+  const versions: { line_id: string; version: number }[] = [];
+  for (const entry of v['per_line_versions']) {
+    if (typeof entry !== 'object' || entry === null) return null;
+    const e = entry as Record<string, unknown>;
+    if (typeof e['line_id'] !== 'string' || typeof e['version'] !== 'number') return null;
+    versions.push({ line_id: e['line_id'], version: e['version'] });
+  }
+  return {
+    cart_id: v['cart_id'],
+    per_line_versions: versions,
+    idempotency_key: v['idempotency_key'],
+  };
+}
+
+function asSubscribeReq(value: unknown): CartSubscribeRequest | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v['cart_id'] !== 'string') return null;
+  return { cart_id: v['cart_id'] };
+}
+
+/**
+ * V5 active cart read. Builds a FRESH object holding only `cart_id`, so any
+ * renderer-supplied identity (tenant/branch/operator/session) is dropped here
+ * and scope comes solely from the trusted main-process session.
+ */
+function asSnapshotReq(value: unknown): CartSnapshotRequest | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (!isBoundedId(v['cart_id'])) return null;
+  return { cart_id: v['cart_id'] };
+}
+
+export function registerCartHandlers(ipcMain: IpcMain, deps: CartHandlerDeps): void {
+  const { handlers } = deps;
+
+  ipcMain.handle(
+    CART_IPC_CHANNELS.CREATE,
+    async (_event: IpcMainInvokeEvent, request: unknown): Promise<CartCreateResponse> => {
+      const req = asCreateReq(request);
+      if (req === null) return refuseInvalid();
+      return handlers.create(req);
+    },
+  );
+
+  ipcMain.handle(
+    CART_IPC_CHANNELS.LINES_ADD,
+    async (_event: IpcMainInvokeEvent, request: unknown): Promise<CartLinesAddResponse> => {
+      const req = asLinesAddReq(request);
+      if (req === null) return refuseInvalid();
+      return handlers.linesAdd(req);
+    },
+  );
+
+  ipcMain.handle(
+    CART_IPC_CHANNELS.LINES_UPDATE,
+    async (_event: IpcMainInvokeEvent, request: unknown): Promise<CartLinesUpdateResponse> => {
+      const req = asLinesUpdateReq(request);
+      if (req === null) return refuseInvalid();
+      return handlers.linesUpdate(req);
+    },
+  );
+
+  ipcMain.handle(
+    CART_IPC_CHANNELS.LINES_REMOVE,
+    async (_event: IpcMainInvokeEvent, request: unknown): Promise<CartLinesRemoveResponse> => {
+      const req = asLinesRemoveReq(request);
+      if (req === null) return refuseInvalid();
+      return handlers.linesRemove(req);
+    },
+  );
+
+  ipcMain.handle(
+    CART_IPC_CHANNELS.LINES_SET_NOTE,
+    async (_event: IpcMainInvokeEvent, request: unknown): Promise<CartLinesSetNoteResponse> => {
+      const req = asLinesSetNoteReq(request);
+      if (req === null) return refuseInvalid();
+      return handlers.linesSetNote(req);
+    },
+  );
+
+  ipcMain.handle(
+    CART_IPC_CHANNELS.DISCOUNT_PLACEHOLDERS_ADD,
+    async (
+      _event: IpcMainInvokeEvent,
+      request: unknown,
+    ): Promise<CartDiscountPlaceholdersAddResponse> => {
+      const req = asDiscountAddReq(request);
+      if (req === null) return refuseInvalid();
+      return handlers.discountPlaceholdersAdd(req);
+    },
+  );
+
+  ipcMain.handle(
+    CART_IPC_CHANNELS.DISCOUNT_PLACEHOLDERS_REMOVE,
+    async (
+      _event: IpcMainInvokeEvent,
+      request: unknown,
+    ): Promise<CartDiscountPlaceholdersRemoveResponse> => {
+      const req = asDiscountRemoveReq(request);
+      if (req === null) return refuseInvalid();
+      return handlers.discountPlaceholdersRemove(req);
+    },
+  );
+
+  ipcMain.handle(
+    CART_IPC_CHANNELS.VOID,
+    async (_event: IpcMainInvokeEvent, request: unknown): Promise<CartVoidResponse> => {
+      const req = asVoidReq(request);
+      if (req === null) return refuseInvalid();
+      return handlers.void(req);
+    },
+  );
+
+  ipcMain.handle(
+    CART_IPC_CHANNELS.CANCEL_POST_HANDOFF,
+    async (
+      _event: IpcMainInvokeEvent,
+      request: unknown,
+    ): Promise<CartCancelPostHandoffResponse> => {
+      const req = asCancelPostHandoffReq(request);
+      if (req === null) return refuseInvalid();
+      return handlers.cancelPostHandoff(req);
+    },
+  );
+
+  ipcMain.handle(
+    CART_IPC_CHANNELS.RETURN_TO_SALE,
+    async (_event: IpcMainInvokeEvent, request: unknown): Promise<CartReturnToSaleResponse> => {
+      const req = asReturnToSaleReq(request);
+      if (req === null) return refuseInvalid();
+      return handlers.returnToSale(req);
+    },
+  );
+
+  ipcMain.handle(
+    CART_IPC_CHANNELS.RETURN_TO_SALE_ELIGIBILITY,
+    async (
+      _event: IpcMainInvokeEvent,
+      request: unknown,
+    ): Promise<CartReturnToSaleEligibilityResponse> => {
+      const req = asReturnToSaleEligibilityReq(request);
+      if (req === null) return refuseInvalid();
+      return handlers.returnToSaleEligibility(req);
+    },
+  );
+
+  ipcMain.handle(
+    CART_IPC_CHANNELS.UNDO_LAST,
+    async (_event: IpcMainInvokeEvent, request: unknown): Promise<CartUndoLastResponse> => {
+      const req = asUndoLastReq(request);
+      if (req === null) return refuseInvalid();
+      return handlers.undoLast(req);
+    },
+  );
+
+  ipcMain.handle(
+    CART_IPC_CHANNELS.HANDOFF,
+    async (_event: IpcMainInvokeEvent, request: unknown): Promise<CartHandoffResponse> => {
+      const req = asHandoffReq(request);
+      if (req === null) return refuseInvalid();
+      return handlers.handoff(req);
+    },
+  );
+
+  ipcMain.handle(
+    CART_IPC_CHANNELS.SUBSCRIBE,
+    async (_event: IpcMainInvokeEvent, request: unknown): Promise<CartSubscribeResponse> => {
+      const req = asSubscribeReq(request);
+      if (req === null) return refuseInvalid();
+      return handlers.subscribe(req);
+    },
+  );
+
+  ipcMain.handle(
+    CART_IPC_CHANNELS.SNAPSHOT,
+    async (_event: IpcMainInvokeEvent, request: unknown): Promise<CartSnapshotResponse> => {
+      const req = asSnapshotReq(request);
+      if (req === null) return refuseInvalid();
+      return handlers.snapshot(req);
+    },
+  );
+}

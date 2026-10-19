@@ -1,0 +1,1620 @@
+# Hybrid Maestro Execution Map — 006-payments-tender Slices 3 + 4
+#
+# Schema: docs/maestro/slice-schema.yaml (added by PR #201; forward ref)
+# Template: docs/maestro/templates/execution-map.yaml (added by PR #201; forward ref)
+#
+# ⚠ THIS FILE DOES NOT REPLACE tasks.md, coordination.md, OR contracts/bridge-api.md.
+# ⚠ THIS FILE DOES NOT AUTHORIZE IMPLEMENTATION.
+# ⚠ THIS FILE DOES NOT CLEAR §A3 OR §A4-A OR §A4-B.
+#
+# Source of truth (in priority order per docs/maestro/README.md):
+#   1. specs/006-payments-tender/tasks.md  — Spec Kit executable list; canonical task IDs
+#   2. specs/006-payments-tender/coordination.md  — live gate ledger + phase status
+#   3. specs/006-payments-tender/contracts/bridge-api.md  — payments.* + tender.* + vouchers.* contract
+#
+# This file adds Maestro coordination layer on top of those documents only.
+# It does not invent requirements, task IDs, or gates.
+
+spec: 006-payments-tender
+slice: 5
+version: 10
+base: 9778361
+status: SPEC-COMPLETE
+preflight: NONE-SPEC-CLOSED
+last_updated: "2026-05-26"
+# Status history:
+#   v9  (2026-05-25): SLICE-4-IN-PROGRESS, preflight SLICE-4-WAVE-5C-NEXT
+#   v10 (2026-05-26): SPEC-COMPLETE. Slice 4 closed via Waves 5c (PR #225) + 5d (PR #227) + 5e (PR #228).
+#                     Slice 5 (§A5 production readiness) signed off via Waves 6a (PR #231) + 6a-fixup
+#                     (PR #232) + 6b (PR #233) + 6c (PR #234). T309 (feature-flag flip to default-enabled)
+#                     remains explicitly out of 006 scope per tasks.md line 451 — future rollout PR.
+
+source_of_truth:
+  tasks: specs/006-payments-tender/tasks.md
+  gates: specs/006-payments-tender/coordination.md
+  bridge_contract: specs/006-payments-tender/contracts/bridge-api.md
+  note: >
+    This execution-map.yaml does NOT replace any of the above documents.
+    When this file and tasks.md disagree, tasks.md wins.
+    When this file and coordination.md disagree, coordination.md wins.
+
+# ---------------------------------------------------------------------------
+# Gate ledger (mirror of coordination.md — DO NOT update here instead of there)
+# ---------------------------------------------------------------------------
+gates:
+  - id: §A0
+    label: Upstream readiness
+    status: cleared
+    cleared_at: "2026-05-19"
+    note: Functionally cleared 2026-05-19; procedurally cleared when /speckit-analyze merged (PR #187).
+
+  - id: §A1
+    label: Visual direction Slice 0
+    status: cleared
+    cleared_at: "2026-05-20"
+    note: T011 signed off PR #189 + PR #190. Reviewer Ahmed. Clears Slices 1-2-4 force-fail surface.
+
+  - id: §A2
+    label: Backend / OpenAPI
+    status: no-op
+    note: >
+      No-op confirmed for Slices 1-3 (plan AD-8). §A2 gates Slice 4 voucher V-A
+      endpoints + codegen only. No action required for Slice 3.
+
+  - id: §A3
+    label: Migrations (three new tables + audit-category extension)
+    status: cleared
+    reviewer: Ahmed
+    commissioned_at: "2026-05-21"
+    signed_off_at: "2026-05-21"
+    signed_off_result: "Approved — no changes requested"
+    note: >
+      Cleared. Tables: payment_attempts, payment_tender_lines, payment_action_outbox +
+      audit_events.action_category extension (7 categories; tender.reversal_pending
+      deferred to Slice 4). Reviewer Ahmed (commissioned 2026-05-21; signed off 2026-05-21 — Approved).
+      Authorizes S3a implementation.
+
+  - id: §A4-A
+    label: "Bridge-API security review: payments.* + tender.*"
+    status: cleared
+    reviewer: Ahmed
+    commissioned_at: "2026-05-21"
+    signed_off_at: "2026-05-21"
+    signed_off_result: "Approved — no changes requested"
+    note: >
+      Cleared. Full security review of contracts/bridge-api.md: handler signatures,
+      requireOperatorSession gating, refusal envelopes, idempotency-key strategy,
+      PII redaction, audit emission paths. Reviewer Ahmed (commissioned 2026-05-21; signed off 2026-05-21 — Approved).
+      Authorizes S3c bridge handlers.
+
+  - id: §A4-B
+    label: "Bridge-API security review: vouchers.* (Slice 4 only)"
+    status: cleared
+    reviewer: Ahmed
+    commissioned_at: "2026-05-25"
+    signed_off_at: "2026-05-25"
+    signed_off_result: "Approved with notes (4 Low findings F-A4B-001..004; F-A4B-003 records the 8→1 refusal-copy mapping decision; F-A4B-001/002/004 are forward-looking Wave 3+ guards, not contract issues)"
+    note: >
+      Cleared. Full security review of vouchers.* bridge surface (Contract V-A:
+      vouchers.validate / vouchers.redeem / vouchers.reverse). Reviewer Ahmed
+      (commissioned 2026-05-25; signed off 2026-05-25 — Approved with notes).
+      All 10 brief checklist sections (3.1–3.10) verdicts ✅. Schema-level FR-017
+      minimisation confirmed against the Pos*VoucherRequest/Response schemas
+      pinned in scripts/openapi-snapshot.json (additionalProperties: false on
+      every Pos* schema; redemption_intent_token explicitly forbidden in
+      logs/audit/support-bundles at schema description level; redemption_id
+      explicitly FR-017 allowlist). Findings recorded in
+      specs/006-payments-tender/reviews/a4b-vouchers-bridge-brief.md §6.
+      Authorizes Slice 4 voucher bridge handlers — Maestro Wave 3 (T210–T213
+      RED → T220+ GREEN paired single-agent) unblocked.
+
+  - id: §A5
+    label: Production readiness
+    status: cleared
+    reviewer: Ahmed
+    commissioned_at: "2026-05-26"
+    signed_off_at: "2026-05-26"
+    signed_off_result: "Approved — all §A5 sub-checks green; T309 deferred to future rollout PR (explicitly out of 006 scope per tasks.md line 451)"
+    closed_in_pr: 234
+    note: >
+      Cleared. Wave 6c T308 sign-off recorded in PR #234 (merge SHA 9778361,
+      2026-05-26). Sub-checks: coverage floors met (≥95 % money-math / FSM /
+      audit-emitter; ≥90 % renderer surfaces); Sentry/log redaction audit
+      (docs/runbook/006-payments-redaction-audit.md); security-review handoff
+      packet (docs/runbook/006-payments-security-review.md); race test
+      (tests/integration/payments/concurrent-start-race.test.ts); cashier
+      runbook + developer onboarding written; T307 CI matrix green on
+      windows-latest for codegen:verify → typecheck → lint → test →
+      package:dir. F-W6A-001 (audit-emitter coverage 94.74 %) closed via
+      PR #232 (audit-emitter 100 % line). T309 (feature-flag flip to
+      default-enabled) remains future rollout PR, NOT part of 006 sign-off.
+
+# ---------------------------------------------------------------------------
+# Findings (divergences flagged for /speckit-analyze)
+# ---------------------------------------------------------------------------
+findings:
+  - id: F-001
+    severity: low
+    summary: Migration naming divergence — tasks.md vs. owner decision
+    detail: >
+      tasks.md (T060-T065) proposes feature-prefixed migration names:
+      006-0001_create_payment_attempts.sql, 006-0001b_..., 006-0002_...,
+      006-0003_..., 006-0003b_..., 006-0004_... The Slice 3 owner decision
+      (PR #200, session 2026-05-21) mandates bare numeric names continuing
+      the existing migration sequence — e.g., 0012_create_payment_attempts.sql,
+      0013_create_payment_tender_lines.sql, etc. The tasks.md proposals are
+      advisory per Maestro task-marking (docs/maestro/task-marking.md); the
+      divergence does not modify task IDs or descriptions. Flagged for
+      /speckit-analyze follow-up.
+
+# ---------------------------------------------------------------------------
+# Slices
+# ---------------------------------------------------------------------------
+# Schema per docs/maestro/slice-schema.yaml (forward ref — added by PR #201)
+slices:
+  - id: 006-S3a
+    title: Migrations + persistence repositories
+    spec: 006-payments-tender
+    type: implementation
+    status: completed
+    authorized_at: "2026-05-21"
+    merged_in_pr: 207
+    merged_at_commit: e8b33d5
+    merged_at_date: "2026-05-22"
+    head_sha: e3784c1
+    merged_at_iso: "2026-05-22T14:07:11Z"
+    gate:
+      required:
+        - §A3
+    task_ids:
+      - T060
+      - T061
+      - T062
+      - T063
+      - T064
+      - T065
+      - T066
+      - T067
+      - T110
+      - T111
+      - T112
+      - T113
+    depends_on: []
+    blocks:
+      - 006-S3b
+      - 006-S3c
+      - 006-S3d
+    agent: single-agent
+    # Process-boundary edges: migrations touch the SQLite schema; repositories
+    # are the only authorised callers. Both live in main-process territory.
+    # Per docs/maestro/graph-rules.md §"Process-boundary edges", single-agent
+    # is mandatory for any task that crosses the migration / repository boundary.
+    validation:
+      reference: tasks.md T066 (integration test — apply all 4 migrations + assert schema)
+      result: green
+      evidence: >
+        PR #207 head e3784c1 — typecheck clean, lint clean on S3a surface
+        (3 pre-existing prettier warnings on main, since unblocked by PR #208),
+        vitest 230 files / 2 984 passed / 3 skipped / 0 fail,
+        codegen:verify clean, S3a repository coverage 98.38% stmt / 92.85% br
+        / 100% func / 100% line.
+    notes: >
+      Delivered under §A3 + §A4-A clearance recorded 2026-05-21. Migration
+      filenames follow bare-numeric sequence 0012–0017 per owner decision
+      PR #200 (the 006-* prefixes in tasks.md remain advisory; F-001 stands
+      for the next /speckit-analyze). Repositories landed under
+      src/main/payments/repositories/. No bridge wiring, no FSM, no audit
+      emission — those land in S3b/S3c. CodeRabbit rounds 1+2 + a third
+      sharpening pass all absorbed pre-merge.
+
+  - id: 006-S3b
+    title: Shared types + FSMs + audit emitter + idempotency helper
+    spec: 006-payments-tender
+    type: implementation
+    status: completed
+    authorized_at: "2026-05-22"
+    merged_in_pr: 209
+    merged_at_commit: 862d24581173adc18c8d547b5fcd6ca69225a78d
+    merged_at_date: "2026-05-23"
+    head_sha: 6b3f2d0
+    merged_at_iso: "2026-05-23T10:10:17Z"
+    gate:
+      required:
+        - §A4-A
+        - §A3-cleared
+        - 006-S3a-GREEN
+    task_ids:
+      - T070
+      - T071
+      - T072
+      - T073
+      - T080
+      - T081
+      - T082
+      - T083
+      - T084
+      - T085
+      - T086
+      - T087
+      - T088
+      - T090
+      - T091
+      - T092
+      - T093
+      - T094
+      - T120
+      - T121
+      - T130
+      - T131
+      - T132
+    depends_on:
+      - 006-S3a
+    blocks:
+      - 006-S3c
+      - 006-S3d
+    agent: single-agent
+    # Shared types / FSMs form the internal trust boundary below the bridge.
+    # single-agent per process-boundary rule — FSM and audit code lives in main
+    # and the shared layer simultaneously.
+    validation:
+      reference: tasks.md T160 (full suite; >=95% on FSMs + audit-emitter + idempotency)
+      result: green
+      evidence: >
+        PR #209 head 6b3f2d0 — typecheck clean, lint clean, vitest 246 files /
+        3144 passed / 3 skipped / 0 fail, codegen:verify clean.
+        main/payments aggregate 98.66% branch; main/payments/fsm aggregate
+        95.18% branch. All CI coverage thresholds pass. payment-attempt-fsm.ts
+        93.33% branch accepted (line 228 = Slice-4 reversal_pending bucket,
+        structurally unreachable in S3).
+    notes: >
+      Wave order C → D → E → F (TDD RED → GREEN). Single-agent per
+      process-boundary rule. No [P] downgrades fired. Zero forbidden-scope fires.
+      CodeRabbit review addressed in commit 6b3f2d0 before merge.
+
+  - id: 006-S3c
+    title: Bridge handlers + preload registration
+    spec: 006-payments-tender
+    type: implementation
+    status: completed
+    authorized_at: "2026-05-23"
+    merged_in_pr: 210
+    merged_at_commit: 5f493fdc802ef70d00ad9f10e4805db5dd429edf
+    merged_at_date: "2026-05-23"
+    head_sha: 7d09cbe4ab70f364b0eab18b35c21aa5b874795c
+    merged_at_iso: "2026-05-23T12:37:41Z"
+    gate:
+      required:
+        - §A4-A
+        - 006-S3b-GREEN
+    task_ids:
+      - T100
+      - T101
+      - T102
+      - T103
+      - T104
+      - T105
+      - T106
+      - T133
+      - T134
+      - T135
+      - T136
+      - T137
+      - T138
+      - T139
+      - T140
+      - T141
+      - T142
+    depends_on:
+      - 006-S3b
+    blocks:
+      - 006-S3d
+    agent: single-agent
+    # Bridge surface is the trust boundary (Constitution §III; plan AD-1).
+    # T142 registers all handlers in src/preload/payments.ts — single process
+    # boundary crossing. Process-boundary rule applies.
+    validation:
+      reference: tasks.md T160 (full suite; >=95% on all bridge handlers)
+      result: green
+      evidence: >
+        PR #210 head 7d09cbe — typecheck clean, lint clean, vitest 3 284 passed /
+        3 skipped / 0 failed, codegen:verify clean. All per-file coverage
+        thresholds pass (initial 12 violations resolved across two review-cycle
+        commits 06343a5 + 7d09cbe).
+    notes: >
+      Wave order G → H → I followed (TDD RED → GREEN → preload registration).
+      Single-agent per process-boundary rule (Bridge handlers span main / preload
+      / shared simultaneously). Zero [P] downgrades, zero forbidden-scope fires.
+      CodeRabbit review absorbed in commit 06343a5 (CR-1 money safe-integer
+      guard at the IPC boundary; CR-2 invocationCallOrder LIFO test fix;
+      CR-3 mismatch branch in tender-apply replay test). Coverage tail in 7d09cbe
+      (reversal_pending bucket seed for payments-cancel replay test). F-002
+      through F-007 surfaced as documentation divergences / follow-ups during
+      execution (preflight-named F-002 plus four owner-authorized fold-ins under
+      Option A) — none modifies task IDs.
+
+  - id: 006-S3d
+    title: Renderer wiring + final verification
+    spec: 006-payments-tender
+    type: implementation
+    status: completed
+    authorized_at: "2026-05-23"
+    merged_in_pr: 212
+    merged_at_commit: 0039cc5e74bafc19f5f574dadd86c2cdba83fc9a
+    merged_at_date: "2026-05-24"
+    head_sha: 2a27828a642c1d0a93cf58a04b9f8498bdcfa1a3
+    merged_at_iso: "2026-05-24T16:32:55Z"
+    gate:
+      required:
+        - §A1
+        - 006-S3c-GREEN
+      note: §A1 already cleared (2026-05-20). S3c GREEN via PR #210 (5f493fd, 2026-05-23T12:37:41Z). Preflight authorized by owner 2026-05-23 (Maestro Preflight Report — Slice 3d, Template 1).
+    task_ids:
+      - T150
+      - T151
+      - T152
+      - T153
+      - T154
+      - T160
+      - T161
+      - T162
+      - T163
+      - T164
+    depends_on:
+      - 006-S3c
+    blocks: []
+    agent: single-agent
+    validation:
+      reference: >
+        tasks.md T160 (full suite), T161 (end-to-end lifecycle integration),
+        T162 (restart-survival integration), T163 (settlement-invariant property test),
+        T164 (Slice 3 sign-off in coordination.md)
+      result: green
+      evidence: >
+        Full suite GREEN — 264 files / 3 341 passed / 3 skipped / 0 failed.
+        Per-module coverage: main/payments aggregate 98.94% stmt / 98.66% br /
+        100% func / 98.88% line; main/payments/fsm 97.91% stmt / 95.4% br /
+        100% func / 98.51% line; audit-emitter 98.21/97.72/100/98.11;
+        renderer/ui/payments 96.27/93.92/95.34/96.13; PaymentSurface
+        94.44/92.95/90/94.11; CashEntry 97.56/94.64/100/97.50;
+        ExternalCardTerminalEntry 97.72/94/100/97.67. PaymentAttempt FSM
+        94.11% branches accepted per S3b precedent (line 238 = Slice-4
+        reversal_pending bucket, structurally unreachable in S3).
+    notes: >
+      Wave order J → K → L per preflight. Wave-J (T150 + T151) on separate
+      files; Wave-K (T152 → T153 → T154) hard-serialised on
+      src/renderer/ui/payments/PaymentSurface.tsx; Wave-L (T163 → T161 → T162
+      → T160 → T164). Pre-Wave-L audit caught a real double-payments.start
+      bug in the split-tender flow; fix landed in commit 10c4c08 with a
+      regression test. CashEntry contract relaxed in bridged mode to accept
+      partial cash (main process owns settlement invariant). fast-check
+      ^4.8.0 added as devDependency for T163 per owner authorization
+      2026-05-23. F-008 surfaced during preflight (execution-map Wave-J
+      omission of the T150 → T151 dependency edge); documentation
+      divergence, does not modify task IDs.
+
+  # -------------------------------------------------------------------------
+  # Slice 4 — Voucher Contract V-A + force-fail (Wave-by-wave dispatch)
+  # -------------------------------------------------------------------------
+  - id: 006-W1
+    title: "Slice 4 Wave 1 — Voucher V-A contract pin + codegen (T200–T203)"
+    spec: 006-payments-tender
+    type: implementation
+    status: completed
+    authorized_at: "2026-05-24"
+    merged_in_pr: 214
+    merged_at_commit: b3c7b21c371833730647683b321238e000326754
+    merged_at_date: "2026-05-24"
+    head_sha: 7e8526df184853dadb17b38e80e9f35d87a21057
+    merged_at_iso: "2026-05-24T18:35:41Z"
+    gate:
+      required:
+        - §A2
+      note: >
+        Data-Pulse-2 PR #316 (vouchers.yaml) merged 2026-05-24 17:41 UTC
+        (merge SHA 90261f2; source commit aedb757). §A2 ✅ pinned 2026-05-24.
+    task_ids:
+      - T200
+      - T201
+      - T202
+      - T203
+    depends_on:
+      - 006-S3d
+    blocks:
+      - 006-W3
+    agent: single-agent
+    validation:
+      reference: tasks.md T203 (`npm run codegen:verify` — 0-diff)
+      result: green
+      evidence: >
+        PR #214 head 7e8526d — typecheck clean, lint clean, codegen:verify
+        clean (snapshot pinned + api-types regenerated; 0 diff in CI rerun).
+    notes: >
+      Wave 1 pinned vouchers.yaml into scripts/openapi-snapshot.json and
+      regenerated src/shared/api-types.ts. The source-scope guard initially
+      blocked the diff; a narrow `feat/006-*` branch exemption for the two
+      codegen artefacts was added in commit 3953755 under owner option A
+      authorization. CodeRabbit findings absorbed in commit 7e8526d
+      (ledger + evidence sharpening).
+
+  - id: 006-W2
+    title: "Slice 4 Wave 2 — Additive migration for tender.reversal_pending audit category (T204)"
+    spec: 006-payments-tender
+    type: implementation
+    status: completed
+    authorized_at: "2026-05-25"
+    merged_in_pr: 215
+    merged_at_commit: 21a7b64504e22a1285fc49c6a134d3ff68d037ea
+    merged_at_date: "2026-05-25"
+    head_sha: 1a77a12ac7052fc69181d4fd9337baa9867b61cc
+    merged_at_iso: "2026-05-25T06:24:07Z"
+    gate:
+      required:
+        - §A3
+      note: >
+        §A3 was originally signed off 2026-05-21 covering all 8
+        categories including tender.reversal_pending (per data-model
+        §"audit_events.action_category extension"); T204 ratifies the
+        deferred Slice-4 category at the migration timeline.
+    task_ids:
+      - T204
+    depends_on:
+      - 006-S3d
+    blocks: []
+    agent: single-agent
+    validation:
+      reference: tasks.md T204 + migrations integration test
+      result: green
+      evidence: >
+        PR #215 head 1a77a12 — typecheck clean, lint clean,
+        codegen:verify no-op, migrations integration test 66/66 pass,
+        full vitest 3350 passed / 3 skipped / 0 failed.
+    notes: >
+      Migration named 0018_audit_event_tender_reversal_pending.sql per
+      PR #200 owner decision (bare-numeric continuing the existing
+      sequence; tasks.md's `006-0005` suggestion overridden — F-001
+      precedent). Documentation-only marker following the 0017 pattern
+      (`SELECT 1;` body); audit_events.action_category was open-set
+      TEXT in 0004, so no DDL is needed — adding a CHECK now would
+      invalidate existing rows (Constitution §P4 append-only).
+
+  - id: 006-W3
+    title: "Slice 4 Wave 3 — Voucher V-A client (T210–T214 RED + T250–T253 GREEN)"
+    spec: 006-payments-tender
+    type: implementation
+    status: completed
+    authorized_at: "2026-05-25"
+    merged_in_pr: 218
+    merged_at_commit: 3d18ad483f0cba95f80f6bc50d2a9a5f35b24868
+    merged_at_date: "2026-05-25"
+    head_sha: a4926268ba68d8f2da72e8696623425fb783ef47
+    merged_at_iso: "2026-05-25T07:37:48Z"
+    gate:
+      required:
+        - §A2
+        - §A4-B
+      note: >
+        §A4-B signed off 2026-05-25 (PR #217). Wave 3 ships only the
+        client-tier (HTTP call + refusal mapping + error-body parser);
+        no bridge surface introduced. F-A4B-001 + F-A4B-002 guards
+        applied; F-A4B-004 (redaction test) authored in T214.
+    task_ids:
+      - T210
+      - T211
+      - T212
+      - T213
+      - T214
+      - T250
+      - T251
+      - T252
+      - T253
+    depends_on:
+      - 006-W1
+    blocks:
+      - 006-W4
+    agent: single-agent
+    validation:
+      reference: tasks.md T210–T214 (RED) + T250–T253 (GREEN)
+      result: green
+      evidence: >
+        PR #218 head a492626 — typecheck clean, lint clean,
+        codegen:verify clean. Focused voucher-authority tests 56/56;
+        full vitest 271 files / 3406 passed / 3 skipped / 0 failed.
+        Coverage 100% statements/branches/functions/lines on all 5 new
+        files (validate.ts / redeem.ts / reverse.ts / refusal-mapping.ts
+        / error-body.ts).
+    notes: >
+      Wave 3 introduced a helper file `error-body.ts` not named in
+      tasks.md — defensive Data-Pulse-2 response parser. F-A4B-001
+      runtime closed-set assertion lives in refusal-mapping.ts
+      (mapRefusalCode); F-A4B-002 grep verified zero admin Voucher*
+      imports. Required a coverage-fix dependency PR (#219) for the
+      pre-existing PaymentSurface 88.88% function-coverage failure
+      inherited from main before this wave could merge cleanly.
+
+  - id: 006-W4
+    title: "Slice 4 Wave 4 — Voucher bridge handlers + TenderLine FSM extension (T220–T222 RED + T260–T264 GREEN)"
+    spec: 006-payments-tender
+    type: implementation
+    status: completed
+    authorized_at: "2026-05-25"
+    merged_in_pr: 220
+    merged_at_commit: da3c7f847d515ee2cba411df4c0a7a0078081680
+    merged_at_date: "2026-05-25"
+    head_sha: 4ee0bb5a2ea3e20982521bb5285f36ea8d688858
+    merged_at_iso: "2026-05-25T09:18:35Z"
+    gate:
+      required:
+        - §A2
+        - §A3
+        - §A4-B
+        - 006-W3-GREEN
+      note: >
+        Largest Slice 4 wave: 3 RED + 5 GREEN with 4 EXTENSIONS of
+        existing Slice 3 files (tender-apply.ts / payments-confirm.ts
+        / tender-reverse.ts / tender-line-fsm.ts) + 1 NEW handler
+        (vouchers-validate.ts) + IPC plumbing.
+    task_ids:
+      - T220
+      - T221
+      - T222
+      - T260
+      - T261
+      - T262
+      - T263
+      - T264
+    depends_on:
+      - 006-W3
+    blocks:
+      - 006-W5a
+      - 006-W5b-main
+    agent: single-agent
+    validation:
+      reference: tasks.md T220–T222 (RED) + T260–T264 (GREEN)
+      result: green
+      evidence: >
+        PR #220 head 4ee0bb5 — typecheck clean, lint clean,
+        codegen:verify clean. Focused tests 102/102 (vouchers-validate
+        + payments-confirm.voucher + tender-reverse.voucher +
+        tender-apply + tender-line-fsm family); full vitest 275 files /
+        3472 passed / 3 skipped / 0 failed (post-fixup). Coverage on
+        changed Wave 4 files: vouchers-validate 100%, apply-voucher-line
+        100%, payments-confirm 97.22%, tender-reverse 95.83%,
+        tender-line-fsm 98.14%, tender-apply branches 87.93% (post-fixup).
+    notes: >
+      Wave 4 added a 6th GREEN file `apply-voucher-line.ts` (shared
+      T260/T263 helper extracted from the common
+      validate→persist-intent-token→transition flow). CodeRabbit
+      surfaced 3 substantive findings absorbed in fixup commit 4ee0bb5:
+      CR-1 outbox hash divergence on voucher amount, CR-2 missing
+      Number.isSafeInteger guard on authority-returned money, CR-3
+      partial-redemption rollback bug (mid-sweep failure left
+      already-redeemed lines marked reversal_pending without a
+      compensating reverseVoucher call — real money-state corruption
+      scenario; fixed via track-and-compensate-reverse algorithm).
+      Pre-existing tender-apply.ts branch coverage failure (75.86% vs.
+      80%) also fixed in the same fixup commit by adding two focused
+      tests for refused-replay reconstruction + voucher-branch-with-
+      prior-applied-lines. FSM transitions added: applied →
+      reversal_pending (markReversalPending); reversal_pending →
+      reversed (confirmReversed). Wave 5a is the consumer of these
+      transitions.
+
+  - id: 006-W5a
+    title: "Slice 4 Wave 5a — Deferred-reversal resolver (T230+T231 RED + T270+T271 GREEN)"
+    spec: 006-payments-tender
+    type: implementation
+    status: completed
+    authorized_at: "2026-05-25"
+    merged_in_pr: 222
+    merged_at_commit: a25ad9dcf42c6bd9fed9e0246b9a48da5857d6b4
+    merged_at_date: "2026-05-25"
+    head_sha: 097b24e7e29d4fc7e95983c5ff5b97d25f7fa5c9
+    merged_at_iso: "2026-05-25T10:13:28Z"
+    gate:
+      required:
+        - §A2
+        - §A3
+        - §A4-B
+        - 006-W4-GREEN
+      note: >
+        Closes the reversal_pending loop established in Wave 4. The
+        FSM markReversalPending / confirmReversed transitions are the
+        resolver's authoritative seam.
+    task_ids:
+      - T230
+      - T231
+      - T270
+      - T271
+    depends_on:
+      - 006-W4
+    blocks: []
+    agent: single-agent
+    validation:
+      reference: tasks.md T230 + T231 (RED) + T270 + T271 (GREEN)
+      result: green
+      evidence: >
+        PR #222 head 097b24e — typecheck clean, lint clean,
+        codegen:verify clean. Focused deferred-resolver tests 17/17
+        (post-fixup with CR-2 per-line throw isolation + CR-1 contract
+        change tests); full vitest 277 files / 3491 passed / 3 skipped
+        / 0 failed. Coverage on deferred-reversal-resolver.ts: 100%
+        statements / 81.81% branches / 100% functions / 100% lines.
+    notes: >
+      Wave 5a authored a `NetworkRestoreSignal` interface locally
+      since the 003 network module does not yet exist; bootstrap
+      wires no-op until 003 lands. CodeRabbit surfaced 2 substantive
+      findings absorbed in fixup commit 097b24e: CR-1 production
+      bootstrap used a reverseVoucherStub guaranteeing no pending
+      line could ever resolve in production — replaced with a real
+      V-A reverse closure wiring the existing reverseVoucher client
+      using the operator backend's apiBaseUrl + globalThis.fetch
+      seam (required extending the resolver DI signature to thread
+      a per-line idempotencyKey: <tender_line_id>:resolver:retry).
+      CR-2 per-line throw aborted the entire sweep — added per-line
+      try/catch with structured error log; throwing line stays
+      reversal_pending for the next sweep. Also fixed an inherited
+      CI lint failure from PR #221 (scripts/update-loc-badge.mjs
+      missing from tsconfig project service) via the
+      scripts/**/*.mjs eslint ignore.
+
+  - id: 006-W5b-main
+    title: "Slice 4 Wave 5b-main — payments.forceFail handler + FSM extension (T240+T241 RED + T280 GREEN)"
+    spec: 006-payments-tender
+    type: implementation
+    status: completed
+    authorized_at: "2026-05-25"
+    merged_in_pr: 223
+    merged_at_commit: 39f8cbbc811cd4994ef4ac8990d3faafe8065320
+    merged_at_date: "2026-05-25"
+    head_sha: 58d46eeb2212b52c10a10baf950a673e7d349045
+    merged_at_iso: "2026-05-25T10:55:16Z"
+    gate:
+      required:
+        - §A1
+        - §A4-A
+        - 006-W4-GREEN
+      note: >
+        §A1 already cleared (2026-05-20) covering the Slice 4
+        force-fail visual variant. §A4-A already cleared (2026-05-21)
+        covering the payments.* namespace. Force-fail is a
+        payments.* handler (not vouchers.*), so §A4-B is not required.
+    task_ids:
+      - T240
+      - T241
+      - T280
+    depends_on:
+      - 006-W4
+    blocks:
+      - 006-W5b-renderer
+    agent: single-agent
+    validation:
+      reference: tasks.md T240 + T241 (RED) + T280 (GREEN)
+      result: green
+      evidence: >
+        PR #223 head 58d46ee — typecheck clean, lint clean,
+        codegen:verify clean. Focused force-fail tests 10/10
+        (post-fixup with CR-1 commit() regression test); full vitest
+        279 files / 3501 passed / 3 skipped / 0 failed.
+    notes: >
+      Spec gap resolved in this wave: data-model line 79 required a
+      failure_reason on the force_failed state from FR-006's closed
+      enum, but FR-006 had no value for "manager force-failed it".
+      Owner approved adding `manager_force_failed` to the
+      PaymentFailureReason union (additive change). Dual attribution
+      enforced at three layers: payment_attempts.acting_operator_id
+      (original cashier, immutable since payments.start),
+      payment_attempts.force_fail_attribution_operator_id (manager),
+      and the audit event payload (both ids structured).
+      CodeRabbit surfaced 1 substantive finding absorbed in fixup
+      commit d3f779b: CR-1 missing reservation.commit() on the
+      success path (broke §P5 idempotency contract — a same-key
+      retry would attempt a second FSM transition instead of
+      observing kind:'replay'). Source-scope guard also caught an
+      inadvertent .github/ touch (courtesy prettier reformat of the
+      inherited PR #221 LOC-badge file); reverted and added the
+      file to .prettierignore as the proper Catch-22 escape
+      (PR #221's broken workflow on main; feature PRs can't fix
+      .github/ without a ci/ branch).
+
+  - id: 006-W5b-renderer
+    title: "Slice 4 Wave 5b-renderer — ForceFailSurface + manager-only route + IPC plumbing (T242+T281+T282)"
+    spec: 006-payments-tender
+    type: implementation
+    status: completed
+    authorized_at: "2026-05-25"
+    merged_in_pr: 224
+    merged_at_commit: d45b9a1d41914be270e1214031c4648fdd872314
+    merged_at_date: "2026-05-25"
+    head_sha: 154d510029a8d9d48f622470995b4c66cbf1f677
+    merged_at_iso: "2026-05-25T11:42:03Z"
+    gate:
+      required:
+        - §A1
+        - §A4-A
+        - 006-W5b-main-GREEN
+      note: >
+        Completes the force-fail work-stream by exposing the
+        payments.forceFail bridge handler to the renderer via a
+        manager-only route. Same gates as 5b-main; no §A4-B because
+        force-fail is payments.*, not vouchers.*.
+    task_ids:
+      - T242
+      - T281
+      - T282
+    depends_on:
+      - 006-W5b-main
+    blocks:
+      - 006-W5c
+    agent: single-agent
+    validation:
+      reference: tasks.md T242 (RED) + T281 + T282 (GREEN)
+      result: green
+      evidence: >
+        PR #224 head 154d510 — typecheck clean, lint clean,
+        codegen:verify clean. Focused ForceFailSurface tests 6/6
+        (post-fixup with CR-1 rejected-promise regression);
+        focused IPC registrar tests 41/41; focused force-fail
+        handler tests 13/13; full vitest 280 files / 3518 passed /
+        3 skipped / 0 failed.
+    notes: >
+      ForceFailSurface deliberately takes a payment_attempt_id +
+      idempotency_key prop. tasks.md row 419 mentioned "reads
+      stuck-attempt list via payments.read" but payments.read is a
+      single-attempt read — a list query method (payments.listStuck?)
+      does not yet exist. Manager reaches the route via direct
+      navigation or a future list view; documented as a Wave 5+
+      followup. CodeRabbit surfaced 1 substantive finding absorbed
+      in fixup commit 154d510: CR-1 unhandled bridge rejection
+      could leave the surface stuck in submitting state forever —
+      wrapped the await in try/catch, collapse to the same generic
+      refusal copy on rejection. Also addressed inherited CI
+      coverage failures on the IPC payments.ts (76.42% / 72.8% →
+      84.55% / 82.45%) and force-fail handler branches (77.27% →
+      90.9%) by adding 8 IPC FORCE_FAIL malformed-payload + happy-
+      path tests + 3 handler tests for the gate-fall-through
+      branches (mismatch / inconsistent-replay / FSM-refused-race).
+
+# ---------------------------------------------------------------------------
+# Groups (parallel-safe batches within each sub-slice)
+# ---------------------------------------------------------------------------
+# Per docs/maestro/graph-rules.md §"Process-boundary edges", all S3 work is
+# single-agent. Groups below reflect the THEORETICAL parallel-safe sets from
+# the preflight file-conflict analysis. They are informational — the executing
+# agent processes them sequentially within each sub-slice wave.
+groups:
+  - sub_slice: 006-S3a
+    waves:
+      - id: Wave-A
+        label: "S3a — Migration tables (partial parallel)"
+        tasks:
+          - T060  # payment_attempts (base table — T061 depends on it)
+        serial_after_T060:
+          - T061  # partial unique index (depends on T060)
+        parallel_with_T060:
+          - T062  # payment_tender_lines (independent of T060 at SQL level but FK dep — sequential)
+          - T063  # payment_action_outbox
+          - T065  # audit-category extension (independent of T060-T063)
+        note: >
+          T062 has FK -> payment_attempts, so T060 must land first.
+          T063 has FK -> both tables; must follow T060 + T062.
+          T064 (append-only trigger) depends on T063; serialised after T063.
+          T065 is independent. Effective execution order: T060 -> T061 -> T062 -> T063 -> T064; T065 parallel after T060.
+      - id: Wave-B
+        label: "S3a — Migration integration test + repositories"
+        tasks:
+          - T066  # integration test (apply all 4 migrations)
+          - T067  # §A3 sign-off record
+          - T110  # migration runner registration
+          - T111  # payment_attempts repository
+          - T112  # payment_tender_lines repository
+          - T113  # payment_action_outbox repository
+        note: T111/T112/T113 are [P]-marked; parallel-safe (separate files).
+
+  - sub_slice: 006-S3b
+    waves:
+      - id: Wave-C
+        label: "S3b — Shared types + FSM compile-time contract (18-wide antichain)"
+        tasks:
+          - T070  # bridge-api contract test
+          - T071  # payments.* + tender.* types in bridge-api.ts
+          - T072  # shared payment types module
+          - T073  # FSM-helper types
+        note: T070-T073 are the shared types layer; T071 implements what T070 tests.
+      - id: Wave-D
+        label: "S3b — PaymentAttempt FSM tests (TDD RED)"
+        tasks:
+          - T080
+          - T081
+          - T082
+          - T083
+          - T084
+        note: All [P]-marked; parallel-safe (separate test files). Run before T120.
+      - id: Wave-E
+        label: "S3b — TenderLine FSM + idempotency + audit tests (TDD RED)"
+        tasks:
+          - T085
+          - T086
+          - T087
+          - T088
+          - T090
+          - T091
+          - T092
+          - T093
+          - T094
+        note: All [P]-marked; parallel-safe (separate test files). Run before T121/T131/T132.
+      - id: Wave-F
+        label: "S3b — FSM + audit + idempotency implementation (GREEN)"
+        tasks:
+          - T120  # PaymentAttempt FSM impl
+          - T121  # TenderLine FSM impl
+          - T130  # requireOperatorSession wrapper
+          - T131  # idempotency replay helper
+          - T132  # audit emitter
+        note: T120/T121 depend on Wave-D/E going GREEN. T130/T131/T132 are [P]-marked.
+
+  - sub_slice: 006-S3c
+    waves:
+      - id: Wave-G
+        label: "S3c — Bridge handler tests (9-wide antichain, TDD RED)"
+        tasks:
+          - T100
+          - T101
+          - T102
+          - T103
+          - T104
+          - T105
+          - T106
+        note: All [P]-marked; separate test files; parallel-safe. Run before T133-T141.
+      - id: Wave-H
+        label: "S3c — Bridge handler implementation (GREEN)"
+        tasks:
+          - T133  # payments.start
+          - T134  # payments.confirm
+          - T135  # payments.cancel
+          - T136  # payments.subscribe
+          - T137  # payments.read
+          - T138  # payments.discardOnSessionEnd
+          - T139  # tender.apply
+          - T140  # tender.reverse
+          - T141  # tender.read
+        note: T133-T141 are parallel-safe (separate handler files). T135-T141 are [P]-marked.
+      - id: Wave-I
+        label: "S3c — Preload registration"
+        tasks:
+          - T142
+        note: Depends on all of Wave-H. Serialised last in S3c.
+
+  - sub_slice: 006-S3d
+    waves:
+      - id: Wave-J
+        label: "S3d — Renderer store + entry wiring"
+        tasks:
+          - T150  # paymentSlice FSM state in renderer store
+          - T151  # wire CashEntry + ExternalCardTerminalEntry to tender.apply
+        graph1_dependency_edge: "T150 -> T151"
+        note: >
+          T150 and T151 touch different files (no Graph 3 file-conflict edge).
+          However, T151 calls tender.apply using the store slice that T150 creates
+          (export-then-consume per graph-rules.md Graph 1 rule 4). Graph 1 wins:
+          T150 must complete before T151. Effective execution is sequential despite
+          the [P] marker on T151 in tasks.md. The [P] marker is preserved in
+          tasks.md per Maestro task-marking §"What Maestro never changes". This
+          edge was omitted from the preflight map (finding F-008); corrected here.
+      - id: Wave-K
+        label: "S3d — PaymentSurface wiring (SERIALISED — file conflict)"
+        tasks:
+          - T152  # payments.confirm wire
+          - T153  # payments.cancel wire
+          - T154  # split-tender UX
+        note: >
+          ALL THREE tasks modify src/renderer/ui/payments/PaymentSurface.tsx.
+          MUST be sequentialised: T152 -> T153 -> T154.
+          Do NOT run these in parallel.
+      - id: Wave-L
+        label: "S3d — Verification + sign-off"
+        tasks:
+          - T160  # full test suite + coverage
+          - T161  # end-to-end lifecycle integration
+          - T162  # restart-survival integration
+          - T163  # settlement-invariant property test (parallel-safe)
+          - T164  # Slice 3 sign-off record
+        note: T163 is [P]-marked; T160/T161/T162/T164 are sequential verification steps.
+
+  # -------------------------------------------------------------------------
+  # Slice 4 wave-by-wave dispatch (Maestro Ops Loop posture)
+  # -------------------------------------------------------------------------
+  # Single-agent per wave per docs/maestro/graph-rules.md §"Process-boundary
+  # edges". Each wave is one PR; owner merges between waves.
+  - sub_slice: 006-W1
+    waves:
+      - id: Wave-1
+        label: "Wave 1 — Voucher V-A contract pin + codegen"
+        tasks:
+          - T200  # commission ledger
+          - T201  # snapshot pin (vouchers.yaml → openapi-snapshot.json)
+          - T202  # codegen api-types regeneration
+          - T203  # codegen:verify 0-diff evidence
+        note: >
+          Strict serial: T200 → T201 → T202 → T203. T201 is the input,
+          T202 is the codegen output; both are shared/exclusive files
+          on the codegen chain. T200 + T203 are coordination edits.
+
+  - sub_slice: 006-W2
+    waves:
+      - id: Wave-2
+        label: "Wave 2 — Additive migration for tender.reversal_pending"
+        tasks:
+          - T204  # migration 0018 (bare-numeric per PR #200; F-001 precedent)
+        note: >
+          Single-task wave. Migration named
+          0018_audit_event_tender_reversal_pending.sql (NOT the
+          006-0005_… proposed in tasks.md). Documentation-only SELECT 1;
+          marker per the 0017 precedent.
+
+  - sub_slice: 006-W3
+    waves:
+      - id: Wave-3
+        label: "Wave 3 — Voucher V-A client (RED+GREEN paired)"
+        tasks:
+          - T210  # validate.test.ts (RED)
+          - T211  # validate-partial-refuse.test.ts (RED)
+          - T212  # redeem.test.ts (RED)
+          - T213  # reverse.test.ts (RED)
+          - T214  # redaction.test.ts (RED — closes F-A4B-004)
+          - T250  # validate.ts (GREEN)
+          - T251  # redeem.ts (GREEN)
+          - T252  # reverse.ts (GREEN)
+          - T253  # refusal-mapping.ts (GREEN — F-A4B-001 enforcement seam)
+        note: >
+          5 RED + 4 GREEN paired in one PR per S3b/S3c precedent.
+          Antichain B (5-wide test antichain) was theoretically
+          parallel-safe but single-agent mandatory per process-boundary
+          rule — voucher-authority code is main-process bridge-adjacent.
+          A 6th helper file `error-body.ts` was added during execution
+          (defensive Data-Pulse-2 response parser).
+
+  - sub_slice: 006-W4
+    waves:
+      - id: Wave-4
+        label: "Wave 4 — Voucher bridge handlers + TenderLine FSM extension"
+        tasks:
+          - T220  # bridge.vouchers-validate.test.ts (RED)
+          - T221  # bridge.payments-confirm.voucher.test.ts (RED)
+          - T222  # bridge.tender-reverse.voucher.test.ts (RED)
+          - T260  # vouchers-validate.ts (GREEN NEW)
+          - T261  # payments-confirm.ts (GREEN EXTEND)
+          - T262  # tender-reverse.ts (GREEN EXTEND)
+          - T263  # tender-apply.ts (GREEN EXTEND — removes tender_not_yet_supported)
+          - T264  # tender-line-fsm.ts (GREEN EXTEND — markReversalPending + confirmReversed)
+        note: >
+          Largest wave: 3 RED + 5 GREEN + IPC plumbing (channels +
+          bridge-api + main/ipc + preload). 4 of 5 GREEN files are
+          EXTENSIONS of Slice 3 handlers. A 6th helper file
+          `apply-voucher-line.ts` extracted during execution (shared
+          T260/T263 path). Fixup commit absorbed CodeRabbit CR-1
+          (outbox hash), CR-2 (safe-int guard), CR-3 (compensating
+          reverse for multi-voucher partial-redemption rollback —
+          real money-state corruption fix).
+
+  - sub_slice: 006-W5a
+    waves:
+      - id: Wave-5a
+        label: "Wave 5a — Deferred-reversal resolver"
+        tasks:
+          - T230  # deferred-reversal-resolver.test.ts (RED — trigger + outcome matrix)
+          - T231  # deferred-reversal-resolver.history.test.ts (RED — reversal_pending_since)
+          - T270  # deferred-reversal-resolver.ts (GREEN — factory + start/stop/runOnce)
+          - T271  # src/main/index.ts (GREEN EXTEND — bootstrap registration)
+        note: >
+          2 RED + 2 GREEN. The resolver closes the reversal_pending
+          loop established in Wave 4. Bootstrap (T271) is a cross-
+          feature serialisation point (src/main/index.ts); single-agent
+          mandatory. NetworkRestoreSignal authored locally pending the
+          003 network module. Fixup absorbed CR-1 (production stub
+          replaced with real V-A reverse closure — required extending
+          resolver DI to thread per-line idempotencyKey) + CR-2
+          (per-line throw isolation in runOnce sweep).
+
+  - sub_slice: 006-W5b-main
+    waves:
+      - id: Wave-5b-main
+        label: "Wave 5b-main — payments.forceFail handler + FSM extension"
+        tasks:
+          - T240  # bridge.payments-force-fail.role.test.ts (RED — role gate)
+          - T241  # bridge.payments-force-fail.audit.test.ts (RED — dual attribution)
+          - T280  # payments-force-fail.ts (GREEN — handler)
+        note: >
+          2 RED + 1 GREEN + FSM forceFail method extension +
+          PaymentFailureReason enum addition (manager_force_failed,
+          spec-gap fix). Bridge IPC plumbing deferred to 5b-renderer
+          for scope. Fixup absorbed CR-1 missing reservation.commit()
+          (broke §P5 idempotency contract); source-scope guard
+          violation also corrected by reverting an inadvertent
+          .github/ touch and adding the inherited-broken file to
+          .prettierignore as the Catch-22 escape.
+
+  - sub_slice: 006-W5b-renderer
+    waves:
+      - id: Wave-5b-renderer
+        label: "Wave 5b-renderer — ForceFailSurface + manager-only route + IPC plumbing"
+        tasks:
+          - T242  # ForceFailSurface.manager-only.test.tsx (RED)
+          - T281  # ForceFailSurface.tsx (GREEN — renderer component)
+          - T282  # router.tsx (GREEN EXTEND — manager-only route registration)
+        ipc_plumbing:
+          - channels.FORCE_FAIL constant
+          - PaymentsBridgeAPI.forceFail (bridge-api.ts)
+          - preload/payments.ts forceFail proxy
+          - main/ipc/payments.ts asPaymentsForceFailReq validator + handler registration
+          - main/index.ts bootstrap createPaymentsForceFailHandler wire-up
+        note: >
+          1 RED + 2 GREEN + 5-file IPC plumbing batch. router.tsx is a
+          cross-feature serialisation point. Fixup absorbed CR-1
+          unhandled bridge rejection (stuck-submitting fix via
+          try/catch); also added 8 IPC FORCE_FAIL malformed-payload
+          + happy-path tests + 3 handler branch tests to lift
+          coverage on payments.ts (76.42% → 84.55%) and
+          payments-force-fail.ts branches (77.27% → 90.9%).
+
+  - sub_slice: 006-W5c
+    waves:
+      - id: Wave-5c
+        label: "Wave 5c — Voucher entry UI (NEXT — not yet authorised)"
+        tasks:
+          - T290  # VoucherEntry.tsx (NEW)
+          - T291  # TenderSelection.tsx (EXTEND — remove reserved-disabled voucher slot)
+        red_tests:
+          - VoucherEntry.test.tsx (new — F-A4B-003 enforcement: 8 refusal reasons → 1 renderer copy)
+          - VoucherEntry.refusal-copy.test.tsx (new)
+        note: >
+          NOT YET DISPATCHED. Single-agent per process-boundary rule.
+          T291 modifies a Slice 1 file (cross-feature serialisation).
+          F-A4B-003 reviewer decision lives here: all 8 voucher
+          refusal reasons map to ONE generic renderer copy string.
+          Wave 5c consumes the Wave 4 vouchers.* bridge surface; it
+          does NOT introduce any new bridge surface.
+
+  - sub_slice: 006-W5d
+    waves:
+      - id: Wave-5d
+        label: "Wave 5d — Verification + Slice 4 sign-off (LAST — not yet authorised)"
+        tasks:
+          - T295  # full Slice 4 coverage audit (≥95% on voucher paths + force-fail handler)
+          - T296  # voucher end-to-end integration test (validate → redeem → settled; redeem failure → reversal_pending)
+          - T297  # force-fail end-to-end integration test (dual attribution audit row)
+          - T298  # coordination.md Slice 4 sign-off ledger entry
+        note: >
+          NOT YET DISPATCHED. Verification + sign-off only — no
+          source changes. Closes Slice 4. The next Maestro work
+          after 5d ships is Slice 5 (production readiness, §A5
+          rollout-time gate).
+
+# ---------------------------------------------------------------------------
+# Validation posture
+# ---------------------------------------------------------------------------
+validation:
+  per_sub_slice:
+    - npm run typecheck          # both tsconfigs — must be clean
+    - npm run lint               # eslint + prettier --check — must be clean
+    - npx vitest run             # full vitest — 0 failures
+    - npm run codegen:verify     # must be no-op (no OpenAPI changes in Slice 3)
+  coverage_floors:
+    money_math: ">=95%"
+    payment_attempt_fsm: ">=95%"
+    tender_line_fsm: ">=95%"
+    audit_emitter: ">=95%"
+    idempotency_replay: ">=95%"
+    bridge_handlers: ">=95%"
+    renderer_wiring: ">=90%"
+  reference: tasks.md T160
+
+# ---------------------------------------------------------------------------
+# Closeout
+# ---------------------------------------------------------------------------
+closeout:
+  template: docs/maestro/templates/post-merge-closeout-prompt.md
+  note: >
+    After each sub-slice PR merges, run the post-merge closeout prompt.
+    After S3d merges, run T164 to record Slice 3 functional sign-off +
+    coverage numbers + §A2 no-op confirmation + §A3 + §A4 review sign-offs
+    in specs/006-payments-tender/coordination.md.
+    Recommended commit message for the closeout PR:
+    "docs(pos): record 006 slice 3 closeout"
+
+  # Per-sub-slice closeout records (append-only; one block per merged sub-slice).
+  sub_slices:
+    - sub_slice: 006-S3a
+      pr: 207
+      sha: e8b33d5
+      head_sha: e3784c1
+      date: "2026-05-22"
+      merged_at_iso: "2026-05-22T14:07:11Z"
+      report_location: >
+        PR #207 description on GitHub +
+        specs/006-payments-tender/coordination.md §"Maestro closeout — S3a (PR #207)"
+      tasks_completed:
+        - T060
+        - T061
+        - T062
+        - T063
+        - T064
+        - T065
+        - T066
+        - T067
+        - T110
+        - T111
+        - T112
+        - T113
+      next_action: >
+        Run a fresh Maestro preflight for S3b (Template 1). S3b is the
+        next-candidate sub-slice; its gates (§A4-A and §A3) are already
+        cleared and S3a is GREEN, but a preflight worklist + dependency /
+        file-conflict / parallel-safe graphs are required before any S3b
+        code is written. S3c and S3d remain blocked on their predecessors;
+        Slice 4 gates (§A4-B, §A2) remain held.
+
+    - sub_slice: 006-S3b
+      pr: 209
+      sha: 862d24581173adc18c8d547b5fcd6ca69225a78d
+      head_sha: 6b3f2d0
+      date: "2026-05-23"
+      merged_at_iso: "2026-05-23T10:10:17Z"
+      report_location: >
+        PR #209 description on GitHub +
+        specs/006-payments-tender/coordination.md §"Maestro closeout — S3b (PR #209)"
+      tasks_completed:
+        - T070
+        - T071
+        - T072
+        - T073
+        - T080
+        - T081
+        - T082
+        - T083
+        - T084
+        - T085
+        - T086
+        - T087
+        - T088
+        - T090
+        - T091
+        - T092
+        - T093
+        - T094
+        - T120
+        - T121
+        - T130
+        - T131
+        - T132
+      next_action: >
+        Run a fresh Maestro preflight for S3c (Template 1). S3c introduces
+        the payments.* + tender.* bridge handlers (T100–T106 TDD tests +
+        T133–T142 implementation + T142 preload registration). Gates §A4-A
+        cleared, §A3 cleared, S3b GREEN — all preconditions satisfied.
+        S3d remains blocked on S3c-GREEN; Slice 4 gates (§A4-B, §A2)
+        remain held throughout.
+
+    - sub_slice: 006-S3c
+      pr: 210
+      sha: 5f493fdc802ef70d00ad9f10e4805db5dd429edf
+      head_sha: 7d09cbe4ab70f364b0eab18b35c21aa5b874795c
+      date: "2026-05-23"
+      merged_at_iso: "2026-05-23T12:37:41Z"
+      report_location: >
+        PR #210 description on GitHub +
+        specs/006-payments-tender/coordination.md §"Maestro closeout — S3c (PR #210)"
+      tasks_completed:
+        - T100
+        - T101
+        - T102
+        - T103
+        - T104
+        - T105
+        - T106
+        - T133
+        - T134
+        - T135
+        - T136
+        - T137
+        - T138
+        - T139
+        - T140
+        - T141
+        - T142
+      findings:
+        - F-002  # src/preload/index.ts wire-up not in tasks.md (preflight-named)
+        - F-003  # src/shared/payments/channels.ts not in tasks.md
+        - F-004  # src/main/ipc/payments.ts + src/main/index.ts bootstrap not in tasks.md
+        - F-005  # PaymentTenderLinesRepository.findByLineId added (T112 surface extension)
+        - F-006  # AUDIT_ACTION_CATEGORIES TS union does not yet include payment categories (004-owner follow-up)
+        - F-007  # OperatorSession lacks terminal_id; payments adapter reuses branch_id per cart precedent (004-owner follow-up)
+      next_action: >
+        Run a fresh Maestro preflight for S3d (Template 1). S3d introduces
+        the renderer wiring (T150–T154) + final verification + Slice-3
+        sign-off tasks (T160–T164). Gates §A1 cleared (2026-05-20),
+        S3c-GREEN — all preconditions satisfied. Do not start S3d
+        implementation without the preflight. Slice 4 gates (§A4-B, §A2)
+        remain held throughout.
+
+    - sub_slice: 006-S3d
+      pr: 212
+      sha: 0039cc5e74bafc19f5f574dadd86c2cdba83fc9a
+      head_sha: 2a27828a642c1d0a93cf58a04b9f8498bdcfa1a3
+      date: "2026-05-24"
+      merged_at_iso: "2026-05-24T16:32:55Z"
+      report_location: >
+        PR #212 description on GitHub +
+        specs/006-payments-tender/coordination.md §"Slice 3 closeout (T164)"
+      tasks_completed:
+        - T150
+        - T151
+        - T152
+        - T153
+        - T154
+        - T160
+        - T161
+        - T162
+        - T163
+        - T164
+      findings:
+        - F-008  # Execution-map Wave-J omission of T150 → T151 dependency edge
+      next_action: >
+        Slice 3 is closed. Slice 4 dispatch commenced 2026-05-24
+        (§A2 + §A3 + §A4-B all cleared by 2026-05-25); Waves 1–5b
+        are now merged. See subsequent closeout records below.
+
+    # -----------------------------------------------------------------------
+    # Slice 4 wave-by-wave closeout records (Maestro Ops Loop posture)
+    # -----------------------------------------------------------------------
+    - sub_slice: 006-W1
+      pr: 214
+      sha: b3c7b21c371833730647683b321238e000326754
+      head_sha: 7e8526df184853dadb17b38e80e9f35d87a21057
+      date: "2026-05-24"
+      merged_at_iso: "2026-05-24T18:35:41Z"
+      report_location: >
+        PR #214 description on GitHub +
+        specs/006-payments-tender/coordination.md §"Slice 4 Wave 1 — Voucher V-A contract pin"
+      tasks_completed:
+        - T200
+        - T201
+        - T202
+        - T203
+      next_action: >
+        Wave 2 (T204 additive migration) is unblocked under the
+        already-signed §A3 (2026-05-21). Dispatch Wave 2 single-agent;
+        one PR; stop before merge.
+
+    - sub_slice: 006-W2
+      pr: 215
+      sha: 21a7b64504e22a1285fc49c6a134d3ff68d037ea
+      head_sha: 1a77a12ac7052fc69181d4fd9337baa9867b61cc
+      date: "2026-05-25"
+      merged_at_iso: "2026-05-25T06:24:07Z"
+      report_location: >
+        PR #215 description on GitHub +
+        specs/006-payments-tender/coordination.md §"Slice 4 Wave 2 — T204 additive ratification"
+      tasks_completed:
+        - T204
+      next_action: >
+        §A4-B sign-off (PR #217) is the next gate. Wave 3
+        (voucher V-A client) dispatches after §A4-B clears.
+
+    - sub_slice: 006-A4-B-signoff
+      pr: 217
+      sha: 5cb26a555840bf172fd372a33ec1d93ec057bdc7
+      head_sha: 3409a41186b706059933890814e7e3655ca8a3e8
+      date: "2026-05-25"
+      merged_at_iso: "2026-05-25T06:46:16Z"
+      report_location: >
+        PR #217 description on GitHub +
+        specs/006-payments-tender/coordination.md §"Gate ledger row §A4-B"
+      docs_only: true
+      gate_cleared: §A4-B
+      reviewer: Ahmed
+      verdict: "Approved with notes (4 Low findings F-A4B-001..004)"
+      next_action: >
+        Wave 3 (voucher V-A client TDD-RED → GREEN paired single-agent)
+        is unblocked. F-A4B-001 + F-A4B-002 guards apply to Wave 3
+        GREEN code; F-A4B-003 (8→1 refusal-copy mapping) is deferred to
+        Wave 5c (voucher entry UI); F-A4B-004 (redaction tests) is
+        absorbed by Wave 3 T214.
+
+    - sub_slice: 006-W3
+      pr: 218
+      sha: 3d18ad483f0cba95f80f6bc50d2a9a5f35b24868
+      head_sha: a4926268ba68d8f2da72e8696623425fb783ef47
+      date: "2026-05-25"
+      merged_at_iso: "2026-05-25T07:37:48Z"
+      report_location: >
+        PR #218 description on GitHub +
+        specs/006-payments-tender/coordination.md §"Slice 4 Wave 3 — voucher V-A client"
+      tasks_completed:
+        - T210
+        - T211
+        - T212
+        - T213
+        - T214
+        - T250
+        - T251
+        - T252
+        - T253
+      coverage_dependency_pr: 219  # PaymentSurface external-card test (unblocked PR #218 CI)
+      next_action: >
+        Wave 4 (voucher bridge handlers + FSM extension) is unblocked.
+        Dispatch single-agent; one PR; stop before merge.
+
+    - sub_slice: 006-W4
+      pr: 220
+      sha: da3c7f847d515ee2cba411df4c0a7a0078081680
+      head_sha: 4ee0bb5a2ea3e20982521bb5285f36ea8d688858
+      date: "2026-05-25"
+      merged_at_iso: "2026-05-25T09:18:35Z"
+      report_location: >
+        PR #220 description on GitHub +
+        specs/006-payments-tender/coordination.md §"Slice 4 Wave 4 — voucher bridge handlers"
+      tasks_completed:
+        - T220
+        - T221
+        - T222
+        - T260
+        - T261
+        - T262
+        - T263
+        - T264
+      coderabbit_fixup: "CR-1 outbox hash + CR-2 safe-int guard + CR-3 compensating-reverse (real money-state corruption fix); CI tender-apply branch coverage"
+      next_action: >
+        Wave 5a (deferred-reversal resolver) is unblocked — it
+        consumes the markReversalPending / confirmReversed FSM
+        transitions established here. Dispatch single-agent.
+
+    - sub_slice: 006-W5a
+      pr: 222
+      sha: a25ad9dcf42c6bd9fed9e0246b9a48da5857d6b4
+      head_sha: 097b24e7e29d4fc7e95983c5ff5b97d25f7fa5c9
+      date: "2026-05-25"
+      merged_at_iso: "2026-05-25T10:13:28Z"
+      report_location: >
+        PR #222 description on GitHub +
+        specs/006-payments-tender/coordination.md §"Slice 4 Wave 5a — deferred-reversal resolver"
+      tasks_completed:
+        - T230
+        - T231
+        - T270
+        - T271
+      coderabbit_fixup: "CR-1 production-bootstrap stub → real V-A reverse closure with per-line idempotencyKey; CR-2 per-line throw isolation; inherited CI lint fix via scripts/**/*.mjs eslint ignore"
+      next_action: >
+        Wave 5b (force-fail) is unblocked under the already-signed
+        §A1 (2026-05-20) + §A4-A (2026-05-21). Force-fail is
+        payments.* (NOT vouchers.*), so §A4-B is not required.
+        Wave 5b split into 5b-main (bridge + FSM) and 5b-renderer
+        (UI + route + IPC plumbing) per S3a/S3b cadence.
+
+    - sub_slice: 006-W5b-main
+      pr: 223
+      sha: 39f8cbbc811cd4994ef4ac8990d3faafe8065320
+      head_sha: 58d46eeb2212b52c10a10baf950a673e7d349045
+      date: "2026-05-25"
+      merged_at_iso: "2026-05-25T10:55:16Z"
+      report_location: >
+        PR #223 description on GitHub +
+        specs/006-payments-tender/coordination.md §"Slice 4 Wave 5b-main — force-fail handler"
+      tasks_completed:
+        - T240
+        - T241
+        - T280
+      spec_gap_resolved: "manager_force_failed added to PaymentFailureReason union (additive; owner approved during dispatch)"
+      coderabbit_fixup: "CR-1 missing reservation.commit() (broke §P5 contract); source-scope guard violation reverted; .prettierignore Catch-22 escape for PR #221 inherited workflow"
+      next_action: >
+        Wave 5b-renderer (ForceFailSurface + manager-only route +
+        IPC plumbing) is unblocked. Single-agent; one PR; stop
+        before merge.
+
+    - sub_slice: 006-W5b-renderer
+      pr: 224
+      sha: d45b9a1d41914be270e1214031c4648fdd872314
+      head_sha: 154d510029a8d9d48f622470995b4c66cbf1f677
+      date: "2026-05-25"
+      merged_at_iso: "2026-05-25T11:42:03Z"
+      report_location: >
+        PR #224 description on GitHub +
+        specs/006-payments-tender/coordination.md §"Slice 4 Wave 5b-renderer — ForceFailSurface"
+      tasks_completed:
+        - T242
+        - T281
+        - T282
+      coderabbit_fixup: "CR-1 unhandled bridge rejection (stuck-submitting fix via try/catch); coverage backfill on IPC payments.ts (76.42% → 84.55%) + force-fail handler branches (77.27% → 90.9%)"
+      next_action: >
+        Wave 5c (voucher entry UI: T290 + T291) is the next dispatch.
+        Single-agent; consumes the Wave 4 vouchers.* bridge surface;
+        no new bridge surface introduced. F-A4B-003 reviewer decision
+        (8 voucher refusal reasons → 1 renderer copy) enforced via
+        new RED tests in this wave. T291 modifies a Slice 1 file
+        (TenderSelection.tsx — cross-feature serialisation point).
+
+    - sub_slice: 006-W5c
+      pr: 225
+      date: "2026-05-25"
+      report_location: >
+        PR #225 description on GitHub +
+        specs/006-payments-tender/coordination.md §"Slice 4 Wave 5c — voucher entry UI"
+      tasks_completed:
+        - T290  # VoucherEntry.tsx
+        - T291  # TenderSelection.tsx (EXTEND — remove reserved-disabled voucher slot)
+      next_action: >
+        Wave 5d (verification + Slice 4 sign-off, T295–T298) closes
+        Slice 4. No source changes; verification + sign-off only.
+
+    - sub_slice: 006-W5d
+      pr: 227
+      date: "2026-05-25"
+      report_location: >
+        PR #227 description on GitHub +
+        specs/006-payments-tender/coordination.md §"Slice 4 Wave 5d — verification + sign-off"
+      tasks_completed:
+        - T295  # full Slice 4 coverage audit
+        - T296  # voucher end-to-end integration test
+        - T297  # force-fail end-to-end integration test
+        - T298  # coordination.md Slice 4 sign-off ledger entry
+      findings_surfaced:
+        - F-W5D-001  # closed in Wave 5e (PR #228)
+      next_action: >
+        Wave 5e closes F-W5D-001 + records T299 final sign-off.
+
+    - sub_slice: 006-W5e
+      pr: 228
+      date: "2026-05-25"
+      report_location: >
+        PR #228 description on GitHub +
+        specs/006-payments-tender/coordination.md §"Slice 4 sign-off (T299)"
+      tasks_completed:
+        - T299  # Slice 4 sign-off recorded
+      findings_closed:
+        - F-W5D-001
+      next_action: >
+        Slice 4 closed. Slice 5 (§A5 production readiness) is the next
+        Maestro work — gate is rollout-time, not slice-merge-time, but
+        the §A5 evidence artifacts (T300–T308) are scoped as Slice 5
+        of the spec.
+
+    - sub_slice: 006-W6-preflight
+      pr: 230
+      date: "2026-05-26"
+      report_location: >
+        PR #230 description on GitHub.
+        Adds docs/superpowers/specs/2026-05-26-006-slice5-preflight-design.md
+        and docs/superpowers/plans/2026-05-26-006-slice5-preflight.md
+        (brainstorming + writing-plans output for Waves 6a/6b/6c).
+      docs_only: true
+      next_action: >
+        Wave 6a (T300 coverage audit) is the first executable wave.
+
+    - sub_slice: 006-W6a
+      pr: 231
+      date: "2026-05-26"
+      report_location: >
+        PR #231 description on GitHub +
+        specs/006-payments-tender/coordination.md §"Slice 5 — Wave 6a coverage audit (T300)"
+      tasks_completed:
+        - T300  # coverage audit; per-floor pass/fail table; reproducibility awk script
+      findings_surfaced:
+        - F-W6A-001  # audit-emitter.ts at 94.74 % line; below §A5 ≥ 95 % floor
+      next_action: >
+        Close F-W6A-001 in a fixup PR (audit-emitter coverage backfill)
+        before progressing Wave 6b.
+
+    - sub_slice: 006-W6a-fixup
+      pr: 232
+      date: "2026-05-26"
+      report_location: >
+        PR #232 description on GitHub.
+        Closes F-W6A-001 by adding 6 unit tests for audit-emitter.ts uncovered
+        lines 220 (deriveAttributionOperatorId malformed inputs), 433
+        (emitTenderReversed reversal_pending_since branches), 449
+        (emitTenderReversalPending shape).
+      findings_closed:
+        - F-W6A-001
+      coverage_result: "audit-emitter.ts 94.74 % → 100.00 % line"
+      next_action: >
+        Wave 6b (T301–T306 six evidence artifacts) is unblocked.
+
+    - sub_slice: 006-W6b
+      pr: 233
+      date: "2026-05-26"
+      report_location: >
+        PR #233 description on GitHub +
+        specs/006-payments-tender/coordination.md §"Slice 5 — Wave 6b evidence artifacts"
+      tasks_completed:
+        - T301  # docs/runbook/006-payments-redaction-audit.md
+        - T302  # docs/runbook/006-payments-security-review.md
+        - T303  # contracts/bridge-api.md Appendix A — receipt-handoff payload
+        - T304  # docs/runbook/006-payments-tender.md (cashier/manager runbook)
+        - T305  # docs/onboarding/006-payments-tender.md
+        - T306  # tests/integration/payments/concurrent-start-race.test.ts
+      coderabbit_fixup: >
+        CR-1 (Major) failure_reason enum drift — 'force_failed_by_manager' →
+        canonical 'manager_force_failed' aligned across bridge-api.md +
+        data-model.md with reference to Wave 5b-main FR-006 amendment +
+        Wave 5e migration 0019. CR-3 (Minor) shell redirection order fixed
+        in redaction audit (2>&1 > file → > file 2>&1). CR-4 (Minor)
+        Number.isSafeInteger-on-string-length corrected to cite the actual
+        EXTERNAL_REFERENCE_REGEX = /^[A-Z0-9]{0,6}$/ at FSM layer.
+      next_action: >
+        Wave 6c (T307 CI matrix verification + T308 §A5 sign-off) closes
+        the spec.
+
+    - sub_slice: 006-W6c
+      pr: 234
+      date: "2026-05-26"
+      report_location: >
+        PR #234 description on GitHub +
+        specs/006-payments-tender/coordination.md §"Slice 5 — §A5
+        production-readiness sign-off (T308)"
+      tasks_completed:
+        - T307  # CI matrix verification (codegen:verify → typecheck → lint → test → package:dir on windows-latest)
+        - T308  # §A5 sign-off recorded
+      gate_cleared: §A5
+      out_of_scope:
+        - T309  # Feature-flag flip to default-enabled — future rollout PR per tasks.md line 451
+      ci_note: >
+        T307 stages all green (codegen:verify, typecheck, lint, test,
+        package:dir). Merge commit 621f7dc (PR #233) hit a post-matrix
+        artifact-upload-step failure due to GitHub Actions storage quota
+        exhaustion — out-of-scope ops/billing concern, not a matrix-stage
+        failure. T307 closes ✅.
+      next_action: >
+        None. Spec 006-payments-tender is COMPLETE. T309 deferred to future
+        rollout PR — not part of 006 closeout. Sub-slice closeout list ends
+        here for spec 006.
+
+# ---------------------------------------------------------------------------
+# Slice 4 trajectory — closed
+# ---------------------------------------------------------------------------
+slice_4_state:
+  status: completed
+  closed_at: "2026-05-25"
+  closed_in_pr: 228  # Wave 5e — F-W5D-001 + Slice 4 sign-off recorded (T299)
+  waves_complete:
+    - Wave 1 — voucher V-A contract pin (PR #214)
+    - Wave 2 — additive migration (PR #215)
+    - §A4-B sign-off (PR #217)
+    - Wave 3 — voucher V-A client (PR #218)
+    - Wave 4 — voucher bridge + FSM (PR #220)
+    - Wave 5a — deferred-reversal resolver (PR #222)
+    - Wave 5b-main — force-fail handler + FSM (PR #223)
+    - Wave 5b-renderer — ForceFailSurface + route + IPC (PR #224)
+    - Wave 5c — voucher entry UI (T290 + T291) (PR #225)
+    - Wave 5d — verification + Slice 4 sign-off (PR #227)
+    - Wave 5e — F-W5D-001 close + T299 Slice 4 sign-off recorded (PR #228)
+  gates_state:
+    §A1: cleared
+    §A2: cleared
+    §A3: cleared
+    §A4-A: cleared
+    §A4-B: cleared
+    §A5: cleared (Wave 6c PR #234 — see slice_5_state below)
+
+# ---------------------------------------------------------------------------
+# Slice 5 trajectory — closed (§A5 production-readiness gate signed off)
+# ---------------------------------------------------------------------------
+slice_5_state:
+  status: completed
+  closed_at: "2026-05-26"
+  closed_in_pr: 234  # Wave 6c — T308 §A5 sign-off
+  waves_complete:
+    - Preflight design + per-task plan (PR #230 — superpowers brainstorming + writing-plans)
+    - Wave 6a — T300 coverage audit + F-W6A-001 surfaced (PR #231)
+    - Wave 6a-fixup — F-W6A-001 closed; audit-emitter 94.74 % → 100 % line (PR #232)
+    - Wave 6b — T301–T306 evidence artifacts (redaction audit, security review,
+      bridge-contract receipt-handoff appendix, cashier runbook, developer
+      onboarding, concurrent-start-race integration test) (PR #233)
+    - Wave 6c — T307 CI matrix verification + T308 §A5 sign-off (PR #234)
+  out_of_scope:
+    - T309  # Feature-flag flip to default-enabled; explicitly future rollout PR per tasks.md line 451
+  findings_closed:
+    - F-W6A-001  # audit-emitter coverage 94.74 % → 100 % line (PR #232)
+  next_recommended_action: >
+    None. Spec 006-payments-tender is COMPLETE. T309 (feature-flag flip to
+    default-enabled) is a future rollout PR — separately scheduled, not part
+    of spec 006 closeout. No further Maestro work commissioned at the 006
+    level. See top-level `status: SPEC-COMPLETE`.

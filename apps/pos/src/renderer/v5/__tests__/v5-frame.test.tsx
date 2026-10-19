@@ -1,0 +1,608 @@
+import { readFileSync } from 'node:fs';
+import { createRef } from 'react';
+import { resolve } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import axe from 'axe-core';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import '@testing-library/jest-dom/vitest';
+import { expectNoAxeViolations } from '../../test-utils/axe-config';
+import { useOperatorSessionStore } from '../../stores/operator-session-store';
+import type { Role } from '../../../shared/operator/role';
+import { V5Frame } from '../frame/V5Frame';
+import { Dialog } from '../foundation/Dialog';
+import { V5_SALE_PATH, v5NavEntries, visibleNavEntries } from '../frame/nav-model';
+import { V5OperationalNotices } from '../frame/V5OperationalNotices';
+import { useDrawerNoticeStore } from '../../ui/receipts/drawer-notice-store';
+import { useFeatureFlagsStore } from '../../stores/feature-flags-store';
+
+afterEach(() => {
+  cleanup();
+  useDrawerNoticeStore.getState().reset();
+  useOperatorSessionStore.getState().reset();
+  useFeatureFlagsStore.getState().reset();
+  vi.unstubAllGlobals();
+});
+
+/** Every media query false: a viewport under the 1024px floor. */
+/** Below the 1024px width floor; the height floors (RT-313) are met. */
+function stubTooSmallViewport(): void {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn((query: string) => ({
+      matches: query.includes('min-height'),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  );
+}
+
+function signIn(role: Role): void {
+  useOperatorSessionStore.getState().hydrateSignedIn({
+    id: 'session-1',
+    operator_id: 'op-1',
+    display_name: 'د. سارة',
+    role,
+    tenant_id: 'tenant-1',
+    branch_id: 'branch-1',
+    started_at: '2026-09-24T09:00:00Z',
+  });
+}
+
+function renderFrame(path = V5_SALE_PATH): ReturnType<typeof render> {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <V5Frame>
+        <section aria-labelledby="screen-title">
+          <h1 id="screen-title">مساحة البيع</h1>
+        </section>
+      </V5Frame>
+    </MemoryRouter>,
+  );
+}
+
+describe('V5Frame — the one application frame for v5 screens', () => {
+  it('owns exactly one main, one primary nav and one brand, in Arabic RTL', () => {
+    signIn('manager');
+    const { container } = renderFrame();
+
+    const frame = screen.getByTestId('v5-frame');
+    expect(frame).toHaveAttribute('dir', 'rtl');
+    expect(frame).toHaveAttribute('lang', 'ar');
+    expect(screen.getAllByRole('main')).toHaveLength(1);
+    expect(screen.getAllByRole('navigation')).toHaveLength(1);
+    expect(screen.getByRole('navigation', { name: 'التنقل الرئيسي' })).toBeInTheDocument();
+    expect(screen.getAllByText('POS Pulse')).toHaveLength(1);
+    expect(within(screen.getByRole('main')).getByRole('heading', { level: 1 })).toHaveTextContent(
+      'مساحة البيع',
+    );
+    expect(container.querySelectorAll('h1')).toHaveLength(1);
+  });
+
+  it('marks the Sale entry as the current page with an Arabic accessible name', () => {
+    signIn('cashier');
+    renderFrame();
+
+    const nav = screen.getByRole('navigation', { name: 'التنقل الرئيسي' });
+    const sale = within(nav).getByRole('link', { name: 'نقطة البيع' });
+    expect(sale).toHaveAttribute('aria-current', 'page');
+    expect(sale).toHaveAttribute('href', V5_SALE_PATH);
+    for (const link of within(nav).getAllByRole('link')) {
+      if (link !== sale) expect(link).not.toHaveAttribute('aria-current');
+    }
+  });
+
+  it('keeps the existing role filter: a cashier never sees Returns or Audit', () => {
+    signIn('cashier');
+    renderFrame();
+    const nav = screen.getByRole('navigation', { name: 'التنقل الرئيسي' });
+    expect(within(nav).queryByRole('link', { name: 'المرتجعات' })).not.toBeInTheDocument();
+    expect(within(nav).queryByRole('link', { name: 'سجل المراجعة' })).not.toBeInTheDocument();
+  });
+
+  // RT-241 / OD-6: the Dashboard refuses the cashier role, and Sales, Inventory
+  // and Settings are placeholders (freeze 15 §1: manager/admin only), so the
+  // cashier nav holds the Sale alone. Settings carried the only theme toggle on
+  // a cashier path (OD-4). Navigation only: no route guard changes.
+  it('a cashier sees only the Sale (OD-6), and no theme toggle', () => {
+    signIn('cashier');
+    renderFrame();
+    const nav = screen.getByRole('navigation', { name: 'التنقل الرئيسي' });
+    expect(
+      within(nav)
+        .getAllByRole('link')
+        .map((link) => link.textContent),
+    ).toEqual(['نقطة البيع']);
+    expect(within(nav).queryByRole('link', { name: 'الإعدادات' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /theme|السمة|المظهر/i })).not.toBeInTheDocument();
+  });
+
+  // RT-701 (D8): Audit and Settings are hidden for every role, so five remain.
+  it('shows a manager every entry but Audit and Settings; entries keep their existing routes', () => {
+    signIn('manager');
+    renderFrame();
+    const nav = screen.getByRole('navigation', { name: 'التنقل الرئيسي' });
+    expect(within(nav).getAllByRole('link')).toHaveLength(5);
+    expect(within(nav).queryByRole('link', { name: 'سجل المراجعة' })).not.toBeInTheDocument();
+    expect(within(nav).queryByRole('link', { name: 'الإعدادات' })).not.toBeInTheDocument();
+    expect(within(nav).getByRole('link', { name: 'المرتجعات' })).toHaveAttribute(
+      'href',
+      '/app/returns',
+    );
+    expect(within(nav).getByRole('link', { name: 'لوحة المتابعة' })).toHaveAttribute(
+      'href',
+      '/app/dashboard',
+    );
+  });
+
+  it('names the signed-in operator and role in Arabic, with no fabricated terminal identity', () => {
+    signIn('manager');
+    renderFrame();
+    const operator = screen.getByTestId('v5-frame-operator');
+    expect(operator).toHaveTextContent('د. سارة');
+    expect(operator).toHaveTextContent('مدير');
+    expect(screen.queryByText('—')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Online|Dark/)).not.toBeInTheDocument();
+  });
+
+  it('signed out: no operator block, and only the unrestricted entries', () => {
+    renderFrame();
+    expect(screen.queryByTestId('v5-frame-operator')).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole('navigation', { name: 'التنقل الرئيسي' })).queryAllByRole('link'),
+    ).toHaveLength(4);
+  });
+
+  it('renders a notices slot above the screen when given one', () => {
+    signIn('manager');
+    render(
+      <MemoryRouter initialEntries={[V5_SALE_PATH]}>
+        <V5Frame notices={<p>تنبيه تشغيلي</p>}>
+          <p>محتوى</p>
+        </V5Frame>
+      </MemoryRouter>,
+    );
+    const notices = screen.getByTestId('v5-frame-notices');
+    expect(notices).toHaveTextContent('تنبيه تشغيلي');
+    expect(notices.compareDocumentPosition(screen.getByRole('main'))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it('is axe-clean with a signed-in manager', async () => {
+    signIn('manager');
+    const { container } = renderFrame();
+    await expectNoAxeViolations(container);
+  });
+});
+
+describe('V5Frame — the notices strip is a labelled landmark (RT-595, RT-505 F1)', () => {
+  function renderWithShiftAndVoidLinks(): ReturnType<typeof render> {
+    useFeatureFlagsStore.getState().hydrate({ shiftCashup: true, saleVoid: true });
+    vi.stubGlobal('window', Object.assign(window, {}));
+    (window as unknown as { api: unknown }).api = {
+      shiftCashup: {},
+      saleVoid: { list: () => Promise.resolve({ kind: 'list', voids: [] }) },
+    };
+    signIn('manager');
+    return render(
+      <MemoryRouter initialEntries={[V5_SALE_PATH]}>
+        <V5Frame notices={<V5OperationalNotices />}>
+          <p>محتوى</p>
+        </V5Frame>
+      </MemoryRouter>,
+    );
+  }
+
+  afterEach(() => {
+    delete (window as unknown as { api?: unknown }).api;
+  });
+
+  it('puts the shift and void links inside a labelled complementary landmark, before <main>', () => {
+    renderWithShiftAndVoidLinks();
+    const notices = screen.getByTestId('v5-frame-notices');
+    expect(notices.tagName).toBe('ASIDE');
+    expect(notices).toHaveAccessibleName('إشعارات التشغيل');
+    const landmark = screen.getByRole('complementary', { name: 'إشعارات التشغيل' });
+    expect(landmark).toBe(notices);
+    expect(within(landmark).getByRole('link', { name: 'حالة الوردية' })).toBeInTheDocument();
+    expect(within(landmark).getByRole('link', { name: 'إلغاء بيع' })).toBeInTheDocument();
+    expect(notices.compareDocumentPosition(screen.getByRole('main'))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it('keeps keyboard order: notice links, then the screen, then the navigation', () => {
+    renderWithShiftAndVoidLinks();
+    const links = screen.getAllByRole('link');
+    const shift = screen.getByRole('link', { name: 'حالة الوردية' });
+    const voidLink = screen.getByRole('link', { name: 'إلغاء بيع' });
+    const nav = screen.getByRole('navigation');
+    expect(links.indexOf(shift)).toBeLessThan(links.indexOf(voidLink));
+    expect(voidLink.compareDocumentPosition(nav)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it('has no axe `region` violation with shiftCashup and saleVoid on', async () => {
+    renderWithShiftAndVoidLinks();
+    // Page-level run: `region` is only evaluated against the whole document.
+    const results = await axe.run(document, { runOnly: ['region'] });
+    expect(results.violations.map((v) => v.id)).toEqual([]);
+  });
+});
+
+describe('V5OperationalNotices — the same operational banners the app frame must keep', () => {
+  it('shows the forced shift-close notice from the existing session store', () => {
+    useOperatorSessionStore.setState({
+      state: {
+        kind: 'signedIn',
+        session: {
+          id: 'session-1',
+          operator_id: 'op-1',
+          display_name: 'د. سارة',
+          role: 'cashier',
+          tenant_id: 'tenant-1',
+          branch_id: 'branch-1',
+          started_at: '2026-09-24T09:00:00Z',
+        },
+        forced_close_notice: { closed_at: '2026-09-24T08:00:00Z' },
+      },
+    });
+    render(<V5OperationalNotices />);
+    expect(screen.getByRole('status')).toBeInTheDocument();
+  });
+
+  it('surfaces printer and drawer failures from the existing banner-state poll, and keeps every entry point live', async () => {
+    const subscribe = vi.fn(() =>
+      Promise.resolve({
+        kind: 'ok',
+        banner_state: {
+          printer_failure: {
+            sale_id: 's-1',
+            failure_reason: 'offline',
+            has_successful_print: true,
+          },
+          drawer_failure: { sale_id: 's-1', last_successful_open_at: '2026-09-24T08:00:00Z' },
+        },
+      }),
+    );
+    // Held open so a second click lands while the first call is in flight.
+    const reprint = vi.fn(() => new Promise(() => undefined));
+    const manualOverride = vi.fn(() => new Promise(() => undefined));
+    (window as unknown as { api?: unknown }).api = {
+      sales: { subscribe, unsubscribe: vi.fn(() => Promise.resolve()) },
+      receipts: { reprint, manualOverride },
+    };
+    useOperatorSessionStore.setState({
+      state: {
+        kind: 'signedIn',
+        session: {
+          id: 'session-1',
+          operator_id: 'op-1',
+          display_name: 'د. سارة',
+          role: 'cashier',
+          tenant_id: 'tenant-1',
+          branch_id: 'branch-1',
+          started_at: '2026-09-24T09:00:00Z',
+        },
+        forced_close_notice: { closed_at: '2026-09-24T08:00:00Z' },
+      },
+    });
+    // RT-241 (D-B1): this session already read a clean projection, so the
+    // drawer failure in the poll below is new and shows.
+    useDrawerNoticeStore.getState().observe(null);
+    try {
+      render(<V5OperationalNotices />);
+      expect(await screen.findByTestId('printer-failure-banner')).toBeInTheDocument();
+      // Codex P2 (#462): recovery controls must reach the existing receipts
+      // bridge, not a no-op; a double press while in flight fires once.
+      const reprintButton = screen.getByRole('button', { name: 'نسخة' });
+      fireEvent.click(reprintButton);
+      fireEvent.click(reprintButton);
+      expect(reprint).toHaveBeenCalledOnce();
+      expect(reprint).toHaveBeenCalledWith({
+        sale_id: 's-1',
+        idempotency_key: expect.any(String) as string,
+      });
+
+      const manualButton = within(await screen.findByTestId('drawer-notice')).getByRole('button', {
+        name: 'إيصال يدوي',
+      });
+      fireEvent.click(manualButton);
+      fireEvent.click(manualButton);
+      expect(manualOverride).toHaveBeenCalledOnce();
+      expect(manualOverride).toHaveBeenCalledWith({
+        sale_id: 's-1',
+        idempotency_key: expect.any(String) as string,
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'إخفاء' }));
+      const state = useOperatorSessionStore.getState().state;
+      expect(state.kind === 'signedIn' && state.forced_close_notice).toBeFalsy();
+      expect(subscribe).toHaveBeenCalledWith({ topic: 'banner_state' });
+    } finally {
+      delete (window as unknown as { api?: unknown }).api;
+    }
+  });
+
+  it('releases the in-flight lock after a failed recovery call, so the operator can retry', async () => {
+    (window as unknown as { api?: unknown }).api = {
+      sales: {
+        subscribe: vi.fn(() =>
+          Promise.resolve({
+            kind: 'ok',
+            banner_state: {
+              drawer_failure: { sale_id: 's-2', last_successful_open_at: null },
+            },
+          }),
+        ),
+        unsubscribe: vi.fn(() => Promise.resolve()),
+      },
+      receipts: {
+        reprint: vi.fn(() => Promise.reject(new Error('transport'))),
+        manualOverride: vi.fn(() => Promise.reject(new Error('transport'))),
+      },
+    };
+    const receipts = (
+      window as unknown as { api: { receipts: { manualOverride: ReturnType<typeof vi.fn> } } }
+    ).api.receipts;
+    signIn('cashier');
+    useDrawerNoticeStore.getState().observe(null);
+    try {
+      render(<V5OperationalNotices />);
+      const button = within(await screen.findByTestId('drawer-notice')).getByRole('button', {
+        name: 'إيصال يدوي',
+      });
+      fireEvent.click(button);
+      await waitFor(() => {
+        expect(receipts.manualOverride).toHaveBeenCalledTimes(1);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      fireEvent.click(button);
+      expect(receipts.manualOverride).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId('drawer-notice')).toBeInTheDocument();
+    } finally {
+      delete (window as unknown as { api?: unknown }).api;
+    }
+  });
+
+  // RT-504: ported from `AppShell.printer-failure-banner.test.tsx` (T291).
+  it('renders no printer banner and no drawer notice when the projection has no failure (both null)', async () => {
+    const subscribe = vi.fn(() =>
+      Promise.resolve({
+        kind: 'ok',
+        banner_state: { printer_failure: null, drawer_failure: null },
+      }),
+    );
+    (window as unknown as { api?: unknown }).api = {
+      sales: { subscribe, unsubscribe: vi.fn(() => Promise.resolve()) },
+      receipts: { reprint: vi.fn(), manualOverride: vi.fn() },
+    };
+    signIn('cashier');
+    try {
+      const { container } = render(<V5OperationalNotices />);
+      await waitFor(() => {
+        expect(subscribe).toHaveBeenCalledWith({ topic: 'banner_state' });
+      });
+      expect(screen.queryByText('فشل طباعة الإيصال')).toBeNull();
+      expect(screen.queryByTestId('printer-failure-banner')).toBeNull();
+      expect(screen.queryByTestId('drawer-notice')).toBeNull();
+      expect(container).toBeEmptyDOMElement();
+    } finally {
+      delete (window as unknown as { api?: unknown }).api;
+    }
+  });
+
+  it('renders nothing when there is no notice and no bridge, signed in or out', () => {
+    const signedOut = render(<V5OperationalNotices />);
+    expect(signedOut.container).toBeEmptyDOMElement();
+    signedOut.unmount();
+
+    signIn('cashier');
+    const { container } = render(<V5OperationalNotices />);
+    expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe('v5 nav model', () => {
+  it('derives from the existing seven-entry contract without changing it', () => {
+    expect(v5NavEntries.map((e) => e.id)).toEqual([
+      'dashboard',
+      'cart',
+      'sales',
+      'returns',
+      'audit',
+      'inventory',
+      'settings',
+    ]);
+    expect(v5NavEntries.find((e) => e.id === 'cart')?.path).toBe(V5_SALE_PATH);
+  });
+
+  // RT-701 (P-26-4, D8): Audit and Settings are empty pages, so no role sees
+  // them in the nav. Navigation only: their routes and guards are unchanged.
+  it.each(['cashier', 'manager', 'admin', undefined] as const)(
+    'never shows Audit or Settings (role: %s)',
+    (role) => {
+      const ids = visibleNavEntries(role).map((e) => e.id);
+      expect(ids).not.toContain('audit');
+      expect(ids).not.toContain('settings');
+    },
+  );
+
+  it('keeps the manager and admin nav otherwise unchanged', () => {
+    for (const role of ['manager', 'admin'] as const) {
+      expect(visibleNavEntries(role).map((e) => e.id)).toEqual([
+        'dashboard',
+        'cart',
+        'sales',
+        'returns',
+        'inventory',
+      ]);
+    }
+  });
+});
+
+describe('live Sale presentation inside the frame', () => {
+  it('lets a long cart product name wrap to two lines so drug strength stays visible', () => {
+    const css = readFileSync(resolve(__dirname, '../sale/live-sale.css'), 'utf8');
+    const rule = /\.v5-sale-cart-line \.v5-sale-line-product strong\s*\{([^}]*)\}/.exec(css);
+    expect(rule, 'cart line name rule').not.toBeNull();
+    const body = rule?.[1] ?? '';
+    expect(body).toMatch(/white-space:\s*normal/);
+    expect(body).toMatch(/-webkit-line-clamp:\s*2/);
+    expect(body).toMatch(/overflow-wrap:\s*anywhere/);
+  });
+});
+
+describe('v5 foundation CSS stays scoped to the v5 frame', () => {
+  const css = ['../foundation/foundation.css', '../frame/frame.css'].map((p) =>
+    readFileSync(resolve(__dirname, p), 'utf8'),
+  );
+
+  it('never styles bare elements or :root, so legacy screens are untouched after preview', () => {
+    for (const source of css) {
+      const selectors = source
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/@(media|container)[^{]*\{/g, '')
+        .split('{')
+        .slice(0, -1)
+        .map((chunk) => (chunk.split('}').pop() ?? '').trim())
+        .filter((sel) => sel.length > 0 && !/^[\d.%]+$/.test(sel));
+      for (const selector of selectors) {
+        for (const part of selector.split(',')) {
+          expect(part.trim(), part).toMatch(/^\.v5-/);
+        }
+      }
+    }
+  });
+
+  it('keeps every frame control at the 44px target floor', () => {
+    expect(css.join('\n')).toMatch(/--v5-target:\s*44px/);
+    expect(css[1]).toMatch(/\.v5-frame__link\s*\{[^}]*min-block-size:\s*var\(--v5-target\)/);
+  });
+});
+
+/**
+ * RT-604: the nav's status indicator has its own live connection row, so the
+ * legacy banner (retired in S6-5) is found as a status region outside it.
+ */
+function connectionBanners(): HTMLElement[] {
+  return screen
+    .queryAllByRole('status')
+    .filter((el) => el.closest('[data-testid="v5-status-indicator"]') === null);
+}
+
+describe('V5Frame — AppShell parity before the /app cutover (023 G0)', () => {
+  it('below 1024px shows only the too-small notice: no nav, and the screen never mounts', () => {
+    signIn('cashier');
+    stubTooSmallViewport();
+    renderFrame();
+
+    expect(
+      screen.getByRole('heading', { name: /^الشاشة أصغر من 1024×768\s?\.$/ }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole('main')).toHaveLength(1);
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'مساحة البيع' })).not.toBeInTheDocument();
+  });
+
+  it('at a supported width renders the screen, not the too-small notice', () => {
+    signIn('cashier');
+    renderFrame();
+    expect(
+      screen.queryByRole('heading', { name: /^الشاشة أصغر من 1024×768\s?\.$/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'مساحة البيع' })).toBeInTheDocument();
+  });
+
+  // RT-605/RT-606 (VN-S6): the connection banner lives in the notices stack
+  // (M-O1, fed by the real terminal signal); the frame renders none itself.
+  it('renders no connection banner of its own', () => {
+    signIn('cashier');
+    renderFrame();
+    expect(connectionBanners()).toHaveLength(0);
+    expect(document.querySelector('[data-state]')).toBeNull();
+  });
+
+  // RT-504: ported from `AppShell.layout.test.tsx` (RT-240, I-7). Nothing
+  // measures the connection, so a green «Online» would claim an unproven state.
+  it('renders no connection pill', () => {
+    signIn('cashier');
+    const { container } = renderFrame();
+    expect(container.querySelector('[data-connection-state]')).toBeNull();
+    expect(screen.queryByText('Online')).toBeNull();
+  });
+});
+
+describe('V5Frame — dialog host (RT-241)', () => {
+  it('a v5 dialog portals into the frame, outside the screen, so its backdrop covers the nav', () => {
+    signIn('cashier');
+    render(
+      <MemoryRouter initialEntries={[V5_SALE_PATH]}>
+        <V5Frame>
+          <Dialog label="نافذة" initialFocusRef={createRef<HTMLElement>()}>
+            <button type="button">رجوع</button>
+          </Dialog>
+        </V5Frame>
+      </MemoryRouter>,
+    );
+    const dialog = screen.getByRole('dialog', { name: 'نافذة' });
+    expect(screen.getByTestId('v5-frame')).toContainElement(dialog);
+    expect(screen.getByRole('main')).not.toContainElement(dialog);
+  });
+});
+
+/**
+ * RT-241 — D-B1: the drawer notice no longer persists across restart or
+ * sign-out (N-08). Main's projection still reports the old failure; the frame
+ * just does not show it for a sale from another session or run.
+ */
+describe('V5OperationalNotices — drawer notice lifetime (D-B1)', () => {
+  function failingDrawerApi(drawer: { sale_id: string } | null): ReturnType<typeof vi.fn> {
+    const subscribe = vi.fn(() =>
+      Promise.resolve({
+        kind: 'ok',
+        banner_state: {
+          printer_failure: null,
+          drawer_failure: drawer === null ? null : { ...drawer, last_successful_open_at: null },
+        },
+      }),
+    );
+    (window as unknown as { api?: unknown }).api = {
+      sales: { subscribe, unsubscribe: vi.fn(() => Promise.resolve()) },
+      receipts: { reprint: vi.fn(), manualOverride: vi.fn() },
+    };
+    return subscribe;
+  }
+
+  afterEach(() => {
+    delete (window as unknown as { api?: unknown }).api;
+  });
+
+  it('after a restart, a failure from before it is not shown', async () => {
+    const subscribe = failingDrawerApi({ sale_id: 's-before-restart' });
+    signIn('cashier');
+    render(<V5OperationalNotices />);
+    await waitFor(() => {
+      expect(subscribe).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(useDrawerNoticeStore.getState().baseline).toBe('s-before-restart');
+    });
+    expect(screen.queryByTestId('drawer-notice')).not.toBeInTheDocument();
+  });
+
+  it('a failure in this session shows, and «تم» clears it', async () => {
+    failingDrawerApi({ sale_id: 's-now' });
+    signIn('cashier');
+    useDrawerNoticeStore.getState().observe(null);
+    render(<V5OperationalNotices />);
+    const notice = await screen.findByTestId('drawer-notice');
+    fireEvent.click(within(notice).getByRole('button', { name: 'تم' }));
+    expect(screen.queryByTestId('drawer-notice')).not.toBeInTheDocument();
+  });
+});

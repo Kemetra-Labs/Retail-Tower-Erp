@@ -1,0 +1,103 @@
+# Reference / vendored material — read-only, never source of truth
+_reference/
+
+# Node / Vite
+node_modules/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Vite + TypeScript build output
+dist/
+dist-electron/
+out/
+
+# Code-analysis tool output (graphify) — local cache, never committed
+graphify-out/
+build/
+*.tsbuildinfo
+
+# Electron-builder packaged artifacts (signed installers, unpacked dirs)
+release/
+
+# Self-hosted GitHub Actions runner — its own working tree (a nested checkout
+# of this repo plus dist/, _work/, and downloaded actions). Pure CI scratch,
+# never project source. Critically: leaving it untracked makes `npm run lint`
+# recurse into it and report thousands of unrelated errors on compiled JS,
+# masking real lint/prettier failures in src/ (CI uses a clean checkout, so it
+# catches them). Ignore the whole dir.
+actions-runner/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.local
+# Also ignore *.local.* — files that carry a suffix after `.local` (e.g.
+# run-pos-smoke.local.ps1, foo.local.json). The bare `*.local` glob only
+# matches names ENDING in `.local`, so these would otherwise slip through.
+# Some of these carry dev-only secrets (publishable keys, test setup).
+*.local.*
+# Block any literal secrets dir at the repo root, but NOT the SecretStore
+# source directory at src/main/secrets/.
+/secrets/
+
+# Tooling caches
+.vite/
+.cache/
+coverage/
+.nyc_output/
+.eslintcache
+
+# Vitest reporter scratch — flat-file output from `npm test > <name>.txt` runs.
+# `coverage/` covers the V8 reporter directory; these patterns catch the
+# stdout-redirected text files (cov-final.txt, coverage-rerun.txt, etc.)
+# that local dev sessions sometimes leave behind.
+cov-*.txt
+coverage-*.txt
+
+# Manual editor / agent backups of root config files. Real source of truth
+# is the committed file; backups are scratch.
+CLAUDE.md.backup-*
+*.backup-*
+
+# Spec Kit local tooling state — written on `specify init` per-machine.
+# The templates/ subdirectory is project content and stays tracked.
+.specify/init-options.json
+.specify/integration.json
+.specify/integrations/
+.specify/scripts/
+
+# Local SQLite POS data — never commit live transaction data
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+data/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# Transient scratch / crash artifacts (bench smokes, MSYS stack dumps).
+# Never project source.
+.tmp/
+*.stackdump
+
+# Sentry
+.sentryclirc
+
+# Claude Code — personal, per-user local state (permissions, settings).
+# Never commit; not project configuration.
+# Exception: project-local skills tracked as project tooling.
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/impeccable/
+!.claude/skills/impeccable/**

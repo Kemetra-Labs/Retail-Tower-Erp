@@ -1,0 +1,415 @@
+# Tasks: Foundation
+
+**Feature:** 001-foundation
+**Plan:** [./plan.md](./plan.md)
+**Spec:** [./spec.md](./spec.md)
+**Created:** 2026-05-01
+**Last Updated:** 2026-05-02 (Phase Final — 001-foundation closed)
+
+---
+
+## Conventions
+
+- **Format:** `- [ ] [TaskID] [P?] [Story?] Description with file path`
+- **`[P]`** marks parallelizable tasks (different files, no dependency on incomplete tasks).
+- **`[USn]`** maps the task to a user-story phase.
+- All file paths are repository-relative.
+- **Test-first per Constitution Principle VI.** Inside each story phase, the test task MUST be
+  written and run (and seen to fail) before its corresponding implementation task. The order below
+  reflects this.
+
+## User-story map (from spec acceptance scenarios)
+
+| Story | Priority | Title | Spec AS#  |
+|:------|:--------:|:--|:--|
+| US1   | P1       | Secure Electron app launches in dev mode (window + isolation + bridge) | AS-1, AS-2, AS-3 |
+| US2   | P1       | Local SQLite database with migration runner | AS-4 |
+| US3   | P1       | Secret storage abstraction | AS-5 |
+| US4   | P1       | OpenAPI types codegen and drift verification | AS-6 |
+| US5   | P1       | Money module with strong tests | AS-9 |
+| US6   | P2       | Local structured logging | AS-7 |
+| US7   | P2       | Crash reporting wired and inert without DSN | AS-8 |
+| US8   | P2       | CI pipeline + package dry-run artifact | AS-10, AS-11 |
+| US9   | P3       | Hardware matrix documentation | AS-12 |
+
+---
+
+## Phase 1 — Setup
+
+Project initialization, configs, dependencies, scripts. No app code yet.
+
+- [X] T001 Initialize `package.json` with project metadata (name `pos-pulse`, version `0.1.0`, description, license, type `module`, main `dist/main/index.js`, engines.node `>=20`) at `package.json`
+- [X] T002 [P] Add `.nvmrc` pinning Node 20 LTS at `.nvmrc`
+- [X] T003 [P] Create base `tsconfig.json` with `strict: true`, `noUncheckedIndexedAccess: true`, `exactOptionalPropertyTypes: true`, `target: ES2022`, `module: ESNext`, `moduleResolution: bundler`, `paths` for `@shared/*` and `@main/*` at `tsconfig.json`
+- [X] T004 [P] Create `tsconfig.main.json` extending base, `target: node20`, includes `src/main/**`, `src/preload/**`, `src/shared/**` at `tsconfig.main.json`
+- [X] T005 [P] Create `tsconfig.renderer.json` extending base, `target: ES2022`, `lib: ["ES2022", "DOM"]`, JSX `react-jsx`, includes `src/renderer/**`, `src/shared/**` at `tsconfig.renderer.json`
+- [X] T006 [P] Configure ESLint flat config (typescript-eslint v8 strict-type-checked, eslint-plugin-react, eslint-plugin-react-hooks, electron-security recommended rules) at `eslint.config.js`
+- [X] T007 [P] Configure Prettier (single quotes, semicolons, width 100) at `.prettierrc` and ignore patterns at `.prettierignore`
+- [X] T008 [P] Add `.editorconfig` (LF, UTF-8, 2-space indent, trim trailing whitespace) at `.editorconfig`
+- [X] T009 [P] Create `.env.example` documenting `SENTRY_DSN`, `VITE_API_BASE_URL`, `ELECTRON_UPDATE_FEED_URL` (all optional in 001) at `.env.example`
+- [X] T010 Install runtime dependencies in **three batches** (so a failure points at the offending group, not the whole install). Versions verified against the npm registry on 2026-05-01.
+    - **T010a** Shell: `npm install electron@^40.9 react@^19.2 react-dom@^19.2`
+    - **T010b** Data: `npm install better-sqlite3@^12.9`
+    - **T010c** Observability + UI util: `npm install pino@^10.3 pino-roll@^4.0 @sentry/electron@^7.13 clsx@^2.1`
+- [X] T011 Install dev dependencies in **three batches**. Versions verified against the npm registry on 2026-05-01.
+    - **T011a** Build & test: `npm install --save-dev vite@^8.0 @vitejs/plugin-react@^6.0 typescript@^5.9 vitest@^4.1 @vitest/coverage-v8@^4.1 happy-dom@^20 electron-builder@^26.8 @electron/rebuild@^4.0 concurrently@^9 wait-on@^8 cross-env@^7 tsx@^4`
+    - **T011b** Lint & format: `npm install --save-dev eslint@^9.39 typescript-eslint@^8 eslint-plugin-react@^7 eslint-plugin-react-hooks@^5 prettier@^3`
+    - **T011c** Codegen, styling, types: `npm install --save-dev openapi-typescript@^7.13 tailwindcss@^4.2 @tailwindcss/postcss@^4.2 postcss@^8 autoprefixer@^10 @types/node@^20 @types/react@^19 @types/react-dom@^19 @types/better-sqlite3@^7`
+- [X] T012 Add scripts to `package.json`: `dev`, `dev:vite`, `dev:electron`, `build:renderer`, `build:main`, `build`, `codegen:api`, `codegen:verify`, `typecheck`, `lint`, `lint:fix`, `format`, `test`, `test:watch`, `package:dir`, `postinstall` (electron-rebuild for better-sqlite3) at `package.json`
+- [X] T013 [P] Configure PostCSS to use `@tailwindcss/postcss` at `postcss.config.cjs` and create `tailwind.config.ts` with content paths and dark-mode `class` strategy at `tailwind.config.ts`
+- [X] T014 [P] Create initial `README.md` (replacing the one-line bootstrap) with quickstart pointing at `specs/001-foundation/quickstart.md` at `README.md`
+
+---
+
+## Phase 2 — Foundational (Blocking Prerequisites)
+
+These tasks MUST complete before any user-story phase begins. They establish the renderer scaffold,
+the Electron main shell, the typed bridge contract, the test harness, and the build/package config.
+Nothing here proves a user story; it just makes the user-story work runnable.
+
+- [X] T015 Create renderer entry HTML with strict CSP meta and no inline scripts at `src/renderer/index.html`
+- [X] T016 [P] Create Tailwind CSS entry (`@import "tailwindcss";`) at `src/renderer/styles/tailwind.css`
+- [X] T017 [P] Create renderer bootstrap mounting React root at `src/renderer/main.tsx`
+- [X] T018 [P] Create blank `App` component (single empty `<main>`, no Tailwind classes used yet) at `src/renderer/App.tsx`
+- [X] T019 [P] Configure Vite for the renderer (`root: 'src/renderer'`, `build.outDir: '../../dist/renderer'`, react plugin, server.port 5173) at `vite.config.ts`
+- [X] T020 [P] Configure Vitest with `environment: 'happy-dom'`, `coverage.provider: 'v8'`, per-file thresholds for `src/shared/money.ts` (95% line + branch), and reporters at `vitest.config.ts`
+- [X] T021 [P] Create shared types directory with placeholder `index.ts` at `src/shared/types.ts`
+- [X] T022 Materialize the `PreloadBridgeAPI` interface at `src/shared/bridge-api.ts` based on `specs/001-foundation/contracts/preload-bridge.ts`. **Policy:** from this point forward, `src/shared/bridge-api.ts` is the canonical contract; the spec file is a planning snapshot and is NOT re-synced. The same policy applies to the SecretStore (T045) and Money (T057) materializations. See plan.md § Phase 1 → "Source-of-truth policy."
+- [X] T023 Create Electron main entry with secure `BrowserWindow` defaults (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, `webSecurity: true`, preload script wired, devtools open in dev only) and a strict CSP via `session.defaultSession.webRequest.onHeadersReceived` at `src/main/index.ts`
+- [X] T024 Create preload script using `contextBridge.exposeInMainWorld('api', impl)` matching `PreloadBridgeAPI` (initially an empty stub object; methods land in US1) at `src/preload/index.ts`
+- [X] T025 Wire `npm run dev`: `concurrently` runs `vite` and (after `wait-on http://localhost:5173`) compiles main+preload via `tsc -p tsconfig.main.json` and launches `electron .` at `package.json` (scripts) + a small `scripts/dev-electron.cjs` if needed
+- [X] T026 [P] Configure `electron-builder` for Windows: `productName`, `appId` `tech.smartdatapulse.pos`, `win.target: dir`, `directories.output: dist-electron`, `files` includes `dist/**` at `electron-builder.yml`
+- [X] T027 [P] Add `postinstall` script invoking `@electron/rebuild` (`npx electron-rebuild -f -w better-sqlite3`) so the native module ABI matches Electron's bundled Node at `package.json`
+- [X] T027a **Phase 2 closing smoke (manual, gating).** Run `npm install` (verifying T010+T011 batches succeed in order), then `npm run dev`. Confirm: (a) the empty Electron window opens; (b) the renderer's devtools console is clean (no errors, no Node-globals warnings); (c) `window.api` exists as an empty object (or whatever stub Phase 2 lands); (d) shutting the app exits cleanly. **Do not declare Phase 2 complete until this manual smoke passes.** No file output; record the verification in the PR description for the Phase 1+2 PR.
+
+---
+
+## Phase 3 — US1: Secure Electron app launches in dev mode (P1)
+
+**Goal:** Running `npm run dev` opens a single empty Electron window with secure defaults, and the
+renderer reaches the main process exclusively through a typed `window.api` bridge whose contract is
+shared and TypeScript-enforced.
+
+**Independent test:** On a clean machine, `npm run dev` opens a window. In devtools, `window.api.ping()`
+returns `"pong"` and `window.api.appVersion()` returns the package version. `window.require`,
+`window.process`, and `window.Buffer` are all `undefined`. (AS-1, AS-2, AS-3 from spec.)
+
+- [X] T028 [P] [US1] Write a renderer no-Node-globals **regression guard** Vitest at `src/tests/renderer-isolation.test.ts` asserting `window.require`, `window.process`, and `window.Buffer` are all `undefined`. Note: in `happy-dom` these are absent by default, so this test passes from the start; its purpose is to fail loudly if a future change accidentally exposes Node to the renderer. Real packaged-build isolation is verified by the polish-phase smoke step (T079). **Implementation note:** happy-dom v20 exposes `Buffer`/`process` as Node-compatibility shims, so the test was implemented as a static-source guard verifying `nodeIntegration:false`, `contextIsolation:true`, `sandbox:true`, `webSecurity:true` remain set in `src/main/index.ts`. Real renderer isolation is verified by T034 + T079.
+- [X] T029 [P] [US1] Write failing bridge-typing test at `src/tests/bridge-typing.test.ts` that uses `expectTypeOf` (or equivalent) to assert `window.api` matches `PreloadBridgeAPI`
+- [X] T030 [P] [US1] Write failing IPC unit test for the `ping` handler at `src/main/ipc/__tests__/ping.test.ts` — fails until handler exists. **Extension (D1):** matching test added at `src/main/ipc/__tests__/app-version.test.ts` to close the TDD gap before T032.
+- [X] T031 [US1] Implement `ping` IPC handler returning `"pong"` at `src/main/ipc/ping.ts`
+- [X] T032 [US1] Implement `appVersion` IPC handler reading `app.getVersion()` at `src/main/ipc/app-version.ts`
+- [X] T033 [US1] Register both handlers in `app.whenReady()` and update preload bridge implementation to call them via `ipcRenderer.invoke` at `src/main/index.ts` and `src/preload/index.ts`
+- [X] T034 [US1] Run `npm run dev` locally; verify window opens, devtools confirm `window.api.ping()` resolves to `"pong"` and Node globals are unreachable. Capture the verification in the PR description.
+
+---
+
+## Phase 4 — US2: Local SQLite database with migration runner (P1)
+
+**Goal:** A `better-sqlite3` database file lives under the user's app-data directory; a transactional
+migration runner applies pending SQL files in order, records each in `schema_migrations`, is
+idempotent on re-run, and rolls back failed migrations cleanly.
+
+**Independent test:** Add a new file `migrations/0002_smoke.sql` containing
+`CREATE TABLE smoke (id INTEGER PRIMARY KEY);`; relaunch the app; observe `smoke` table created and
+`schema_migrations` has rows for `0001_init` and `0002_smoke`. Relaunch again; no re-application. (AS-4.)
+
+- [X] T035 [US2] Create the bootstrap migration creating `schema_migrations(name TEXT PK, applied_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP), checksum TEXT)` at `migrations/0001_init.sql`
+- [X] T036 [P] [US2] Write failing migration-runner unit tests covering: applies pending in order, records rows, idempotent on re-run, rolls back on mid-migration failure, halts launch on rollback at `src/main/db/__tests__/migrate.test.ts`
+- [X] T037 [P] [US2] Write failing DB client unit test asserting connection opens at the injected path and `WAL` mode is enabled at `src/main/db/__tests__/client.test.ts`. **Note (R2):** the test asserts an *injected* `dbPath`, not `app.getPath('userData')` directly — the Electron `app` lookup is moved to the wire-in seam in T040 so the client is testable without an Electron runtime.
+- [X] T038 [US2] Implement DB client wrapping `better-sqlite3` with `journal_mode = WAL` and `foreign_keys = ON` at `src/main/db/client.ts`. **R1 mitigation:** the client takes a `DatabaseFactory` so unit tests can substitute the native binding (which is rebuilt for Electron's Node ABI by `postinstall` and won't load cleanly under Vitest).
+- [X] T039 [US2] Implement migration runner: read `migrations/*.sql` (sorted), check `schema_migrations` (creating it via raw SQL if absent), apply each pending file inside a transaction, record `(name, applied_at, checksum)` on success, throw with halt-launch semantics on failure at `src/main/db/migrate.ts`. **R4:** `checksum` is `sha256(file content)`.
+- [X] T040 [US2] Wire migration runner into `app.whenReady()` (runs before any window is created, fatal on failure) at `src/main/index.ts`. **R3:** failure path calls `app.exit(1)`.
+- [X] T041 [US2] Unit tests green (32/32, 100% coverage of `src/main/db/`). Manual Electron smoke recipe documented in the Phase 4 PR description for reviewer verification.
+
+---
+
+## Phase 5 — US3: Secret storage abstraction (P1)
+
+**Goal:** A `SecretStore` abstraction (matching `contracts/secret-store.ts`) round-trips
+`get`/`set`/`delete` against an Electron `safeStorage`-backed implementation in production and an
+in-memory backend in dev/test. Production builds refuse to start when `safeStorage` is unavailable.
+
+**Independent test:** A unit test stores `"placeholder"` under `"test.placeholder"`, reads it back,
+deletes it, reads again (expecting `null`). On Windows, the persisted SQLite blob is opaque (not
+plaintext). (AS-5.)
+
+- [X] T042 [US3] Add migration `migrations/0002_secrets.sql` creating `secrets(key TEXT PRIMARY KEY, value BLOB NOT NULL)` at `migrations/0002_secrets.sql`
+- [X] T043 [P] [US3] Write failing `SecretStore` round-trip tests (in-memory backend) covering set→get, overwrite, delete, missing-key returns null, key-validation errors at `src/main/secrets/__tests__/safe-storage.test.ts`. **Note:** the same shared suite runs against both backends via a `describeSecretStore` helper; safe-storage backend uses a `SafeStorageLike` fake (R5) so unit tests do not load Electron.
+- [X] T044 [P] [US3] Write failing test asserting production builds refuse to start when `safeStorage.isEncryptionAvailable()` returns false (mock `app.isPackaged: true`) at `src/main/secrets/__tests__/backend-selection.test.ts`. Includes all four cells of the (`available`, `packaged`) matrix plus a regression test that the fatal log message contains no caller-supplied secret data.
+- [X] T045 [US3] Define `SecretKey` brand type and `SecretStore` interface at `src/shared/secret-store.ts` (mirrors `contracts/secret-store.ts`; one-shot transfer). Adds `makeSecretKey(raw)` validating constructor + `SECRET_KEY_PATTERN` so backends share the same predicate.
+- [X] T046 [US3] Implement production `safeStorage`-backed `SecretStore`: `set` calls `safeStorage.encryptString` and writes `BLOB` row; `get` reads + `decryptString`; `delete` removes row at `src/main/secrets/safe-storage.ts`. **R5:** `SafeStorageLike` interface DI'd. **Lazy prep:** statements deferred until first call (same lesson as Phase 4's `bindMigrationsDb`).
+- [X] T047 [US3] Implement in-memory dev/test backend (Map<string, string>) selected when `safeStorage.isEncryptionAvailable()` is false AND `app.isPackaged === false` at `src/main/secrets/in-memory.ts`
+- [X] T048 [US3] Implement `createSecretStore()` factory that picks backend based on availability and `app.isPackaged`; production refusal raises a fatal error logged via the main logger at `src/main/secrets/index.ts`. **R8:** until US6 lands, log sinks default to `console.warn` / `console.error`; sinks are injectable for tests.
+- [X] T049 [US3] All secret-store tests pass (44 cases across two files). Coverage 100% on `src/main/secrets/`. **R9:** `src/main/index.ts` now opens a single shared DB handle, runs migrations, instantiates the SecretStore on the same handle, and closes the handle on `window-all-closed` / `quit`.
+
+---
+
+## Phase 6 — US4: OpenAPI types codegen and drift verification (P1)
+
+**Goal:** Running `npm run codegen:api` writes deterministic TypeScript types into
+`src/shared/api-types.ts` derived from a pinned OpenAPI snapshot. `npm run codegen:verify` regenerates
+to a temp file and fails if the committed file drifts.
+
+**Independent test:** Delete `src/shared/api-types.ts`, run `npm run codegen:api`, verify the file is
+recreated identically (byte-equal to git's HEAD copy). Modify the file by hand, run `npm run
+codegen:verify`, verify non-zero exit. (AS-6.)
+
+- [X] T050 [P] [US4] Commit a pinned OpenAPI snapshot at `scripts/openapi-snapshot.json`. **Note:** the live URL `https://api.smartdatapulse.tech/openapi.json` was reachable as of 2026-05-02, so the snapshot is the *real* live doc (493 KB, OpenAPI 3.1.0, "DataPulse API"), not a stub.
+- [X] T051 [P] [US4] Write failing test asserting `codegen:api` produces deterministic output + drift detection at `scripts/__tests__/codegen.test.ts`. Three groups: determinism (byte-equal across two runs, header sentinel, LF-only), verify (match/drifted/missing exit codes + temp-file cleanup), snapshot precondition. RED state observed before T052/T053.
+- [X] T052 [US4] Implement codegen runner using `openapi-typescript` programmatically at `scripts/codegen-api.ts`. Reads `scripts/openapi-snapshot.json` by default; `--source=live` opt-in fetches the live URL. **Determinism:** every `OpenAPITSOptions` field pinned explicitly; output normalized to LF-only line endings; header sentinel prepended.
+- [X] T053 [US4] Implement verify script at `scripts/verify-codegen.ts`. Regenerates to a temp file (cleaned up in `finally`), byte-compares with the committed file. Three outcomes: `match` (exit 0), `drifted` (exit 1 + first-diff-line preview), `missing` (exit 1 + "run codegen:api" hint).
+- [X] T054 [US4] Wire `codegen:api` and `codegen:verify` scripts in `package.json` (using `tsx scripts/...`).
+- [X] T055 [US4] Ran `npm run codegen:api`; committed the generated `src/shared/api-types.ts` (705 KB, 23 316 lines). `npm run codegen:verify` exits zero. AS-6 sanity smoke (delete-recreate, hand-edit-detect, restore) verified end-to-end.
+
+---
+
+## Phase 7 — US5: Money module with strong tests (P1)
+
+**Goal:** A `Money` module providing `of`, `zero`, `add`, `subtract`, `multiply`, `allocate`,
+`equals`, `compare`, `format` operations on integer minor units, with ≥ 95% line and branch coverage.
+
+**Independent test:** `npm test -- src/shared/money` passes; coverage reporter shows ≥ 95% on
+`src/shared/money.ts`. Sample assertions: `multiply(of(99999900, 'EGP'), 1000)` is rejected as out
+of safe range (illustrative); `allocate(of(100, 'EGP'), 3)` returns `[34, 33, 33]`. (AS-9.)
+
+- [X] T056 [P] [US5] Write failing exhaustive Money test suite at `src/shared/__tests__/money.test.ts`. 90 cases across 9 operations: construction validation (non-integer, NaN, ±Infinity, non-safe-integer, unsupported currency); zero; add/subtract including overflow detection; multiply by 0/1/negative/non-integer/overflow; allocate for n=1/2/3/10/zero/negative/n≤0/non-integer with sum-equals-original invariant; equals/compare; format. RED state observed before T057.
+- [X] T057 [US5] Implement `Money` value type and module functions per `specs/001-foundation/contracts/money.ts` at `src/shared/money.ts`. Source-of-truth policy: `src/shared/money.ts` is canonical from this point on. **D10 drift note:** the spec contract says `equals` returns true/false based on (currency, amount) equality; tasks.md text said "equals cross-currency throws". We implement per the contract — `equals` returns false on currency mismatch (does NOT throw); `compare` throws on currency mismatch.
+- [X] T058 [US5] Coverage gate green: 100% statements / 100% branches / 100% functions / 100% lines on `src/shared/money.ts` (exceeds the ≥95% gate enforced via per-file threshold in `vitest.config.ts`). Full suite: 176 tests passing across 13 files.
+
+---
+
+## Phase 8 — US6: Local structured logging (P2)
+
+**Goal:** `pino` + `pino-roll` write rotated JSON log files to `app.getPath('logs')`, one per process
+(main, renderer), one file per day, kept 14 days. Every record carries `process`, `app_version`,
+`time`, `level`, `msg`.
+
+**Independent test:** Run `npm run dev`; observe log files appear at the expected path; `cat` (or
+PowerShell `Get-Content`) shows valid JSON-per-line records with the required fields. (AS-7.)
+
+- [X] T059 [P] [US6] Write failing logger unit test asserting required fields are present in every record and `time` is ISO-8601 at `src/main/logging/__tests__/logger.test.ts`
+- [X] T060 [US6] Implement main-process logger using `pino` + `pino-roll` writing to
+  `path.join(app.getPath('logs'), 'main-YYYYMMDD.log')`, with base properties `{ process: 'main',
+  app_version }` at `src/main/logging/logger.ts`. **R9:** `pinoRollFactory` injected so unit tests
+  use a `PassThrough` stream and avoid touching the filesystem. **R4:** stream-init failure logs to
+  console once and falls back to a stderr-backed pino so the app continues launching (spec.md:130).
+- [X] T061 [US6] Implement renderer-process logger that forwards records over IPC to a `log` handler
+  in main, where they're persisted to `renderer-YYYYMMDD.log` at `src/renderer/logging/logger.ts`
+  and `src/main/ipc/log.ts`. **R3:** shared `LogRecord` contract added at `src/shared/log-record.ts`
+  and the bridge surface (`src/shared/bridge-api.ts`) gains `log(record): Promise<void>`.
+  Renderer facade is fire-and-forget and routes IPC failures to `console[level]` (fatal → error).
+- [X] T062 [US6] Initialize main logger in `src/main/index.ts` before migrations and before window
+  creation. Logged events: `app:logger-ready`, `db:opened`, `db:migrations-applied`, `app:ready`.
+- [X] T063 [US6] Manual Electron smoke recipe documented in the Phase 8 PR description for reviewer
+  verification (`npm run dev` → log files appear at `app.getPath('logs')` matching the data-model.md
+  § LogRecord schema).
+
+---
+
+## Phase 9 — US7: Crash reporting wired and inert without DSN (P2)
+
+**Goal:** `@sentry/electron` is initialized in main and renderer. With `SENTRY_DSN` unset, no network
+calls and no crashes occur. With an invalid `SENTRY_DSN`, Sentry's own init error is caught and
+logged once; the app launches and runs normally.
+
+**Independent test:** (a) Launch with no env: app opens, no Sentry traffic in devtools network tab.
+(b) Launch with `SENTRY_DSN=invalid`: app opens, one warning in main log, no recurring errors. (AS-8.)
+
+- [X] T064 [P] [US7] Failing test asserting `initSentryMain()` is a no-op (no `sentryInit` call)
+  when `SENTRY_DSN` is unset/empty/whitespace at `src/main/observability/__tests__/sentry-main.test.ts`.
+  **R9 DI seam:** `sentryInit` is injected (`vi.fn()` in tests; defaults to `Sentry.init` in prod).
+- [X] T065 [P] [US7] Failing test asserting `initSentryMain()` does NOT throw when `sentryInit`
+  itself throws (DSN set but malformed). Logs a single warn line via the injected pino-shaped
+  logger; warning message does NOT echo the DSN to disk. Same file as T064.
+- [X] T066 [US7] Implemented `initSentryMain()` reading DSN from injected `env`, returning early
+  when empty, wrapping `sentryInit` in try/catch otherwise at `src/main/observability/sentry-main.ts`.
+  **D1 (PII at init time):** `sendDefaultPii: false`, `integrations: []`, `tracesSampleRate: 0`,
+  `beforeSend: scrubEvent` strips `request`, `user`, and denylist keys
+  (`/secret|token|password|credential|card|pii|cvv|pan|email|phone/i`) from `extra` and `contexts`.
+- [X] T067 [US7] Implemented `initSentryRenderer()` mirroring main at
+  `src/renderer/observability/sentry-renderer.ts`. **D3:** DSN sourced via the typed preload bridge
+  (`window.api.appConfig()`), NOT `import.meta.env.VITE_*` (which would inline the DSN into the
+  bundle at build time). Adds `app:config` IPC handler at `src/main/ipc/app-config.ts` and shared
+  `AppConfig` contract at `src/shared/app-config.ts`; bridge surface at `src/shared/bridge-api.ts`
+  gains `appConfig(): Promise<AppConfig>`; preload at `src/preload/index.ts` wires the invoke;
+  `src/tests/bridge-typing.test.ts` extended to cover the new method.
+- [X] T068 [US7] Wired `initSentryMain()` in `src/main/index.ts` AFTER `mainLogger.info('app:logger-ready')`
+  and BEFORE migrations / window creation. Wired `initSentryRenderer()` at the top of
+  `src/renderer/main.tsx` BEFORE `ReactDOM.createRoot`. Sentry init failure NEVER halts launch.
+- [X] T069 [US7] Manual Electron smoke recipe (DSN unset / DSN invalid scenarios) documented in the
+  Phase 9 PR description for reviewer verification — same posture as T041/T049/T063.
+
+---
+
+## Phase 10 — US8: CI pipeline + package dry-run artifact (P2)
+
+**Goal:** A GitHub Actions workflow on `windows-latest` runs the four required gates on every PR
+(typecheck, lint, tests, package dry-run) plus the codegen drift gate, and uploads the unsigned
+`--dir` build as an artifact.
+
+**Independent test:** Open a PR; CI runs and reports green; the workflow run page lists an artifact
+`pos-pulse-win-unpacked-<sha>.zip`. (AS-10, AS-11.)
+
+- [X] T070 [US8] CI workflow at `.github/workflows/ci.yml` — single job on `windows-latest` with
+  steps in order: checkout → setup-node 20 (npm cache) → `npm ci` → `codegen:verify` → `typecheck`
+  → `lint` → `test --coverage` → `build` → `package:dir` → `upload-artifact`. **D1:** `npm run build`
+  is its own step BEFORE `package:dir` (electron-builder's `files: [dist/**, …]` requires `dist/`
+  populated; the `package:dir` script does NOT chain `build`, and `package.json` is intentionally
+  not modified). **D2:** native rebuild for `better-sqlite3` is handled implicitly by
+  `package.json`'s `postinstall` (`electron-rebuild`); no explicit `npx @electron/rebuild` step.
+  Triggers `pull_request` and `push: branches: [main]`. Permissions `contents: read`. Artifact
+  name `pos-pulse-win-unpacked-${{ github.sha }}` matching `actions/upload-artifact@v4`'s
+  uniqueness requirement.
+- [X] T071 [P] [US8] CODEOWNERS at `.github/CODEOWNERS` — single rule `* @ahmed-shaaban-94`. Note:
+  CODEOWNERS alone does NOT enforce review; the maintainer must enable "Require review from Code
+  Owners" in branch protection settings (manual repo-settings step, intentionally NOT in this PR).
+- [X] T072 [P] [US8] Pull-request template at `.github/pull_request_template.md` — sections:
+  Summary / Completed tasks / Changed files / Checks run / Manual smoke / Constitution check /
+  Active spec / Not in this PR. Mirrors the body shape used on PRs #6–#10.
+- [X] T073 [US8] Self-validation strategy: this PR's first green CI run is T073's evidence (the
+  workflow file under review IS the workflow being exercised). Local `package:dir` is intentionally
+  NOT run pre-commit — known Windows symlink issue with `electron-builder --dir` on local dev is
+  not worked around; CI `windows-latest` is the authoritative packaging gate.
+
+---
+
+## Phase 11 — US9: Hardware matrix documentation (P3)
+
+**Goal:** `docs/hardware-matrix.md` reproduces constitution v1.2.0 MVP hardware scope with concrete
+tested-models columns left blank for now.
+
+**Independent test:** A reader opening `docs/hardware-matrix.md` sees the in-scope and out-of-scope
+tables consistent with constitution v1.2.0 § Hardware. (AS-12.)
+
+- [X] T074 [US9] Created `docs/hardware-matrix.md` reproducing constitution v1.3.0 § Hardware
+  (scope originally established at v1.2.0). Contents: Overview / In Scope (MVP) — four
+  sub-sections (Workstation, Barcode scanner, Receipt printer, Cash drawer) each with an empty
+  tested-models table (`Model | Transport | Driver / firmware | Tested in feature | Known
+  caveats`) placeholder-rowed `_None tested yet — first entry lands in feature 002+_` / Out of
+  Scope (MVP) bullet list / four Operational rules from constitution lines 415-427 / How to
+  update this doc (distinguishes incremental tested-model edits from out-of-band In/Out-of-Scope
+  changes that require a constitution amendment) / Source-of-truth footer pointing at
+  `.specify/memory/constitution.md` § Hardware. Satisfies AS-12 + FR-13.
+
+---
+
+## Phase Final — Polish & Cross-Cutting
+
+- [X] T075 `npm run codegen:verify` confirmed green — exit 0, `api-types.ts is up to date`.
+- [X] T076 [P] `npm run lint` confirmed clean — eslint + prettier across the whole repo.
+- [X] T077 [P] `npm run typecheck` confirmed clean — renderer + main + preload tsconfigs.
+- [X] T078 [P] `npm test -- --coverage` confirmed green — 281/281 tests across 19 files;
+  global coverage 100% statements, 95.27% branches, 100% functions, 100% lines; per-file 80%
+  gates green; Money at 100% (≥95% gate preserved).
+- [X] T079 [P] `npm run build && npm run package:dir` confirmed locally — exit 0; produced
+  `dist-electron/win-unpacked/POS Pulse.exe` (407 MB). Non-fatal symlink warnings during 7z
+  extraction of the macOS codesign cache (libcrypto.dylib / libssl.dylib) are irrelevant to
+  Windows packaging. **Fresh Windows-VM smoke** is documented in the Phase Final PR body as a
+  reviewer follow-up step (same T041/T049/T063/T069/T073 posture); the CI artifacts from PR
+  #11 (`pos-pulse-win-unpacked-ff98f554...`) and PR #12 are the authoritative `windows-latest`
+  evidence.
+- [X] T080 `specs/001-foundation/quickstart.md` updated with four targeted clarifications
+  (D3): `codegen:api` clarified as optional, `npm run build` required before `package:dir`,
+  Electron version reference 33 → 40, and a new "Where to find logs" section pointing at
+  `app.getPath('logs')` with a citation to `data-model.md` § LogRecord and the no-PII policy.
+- [X] T081 AS-1 through AS-12 walked end-to-end in the Phase Final PR body; every cited proof
+  path verified with `git ls-files`. Mapping: AS-1 → `src/main/index.ts:18-29` + T034 manual;
+  AS-2 → `src/tests/renderer-isolation.test.ts`; AS-3 → `src/shared/bridge-api.ts` +
+  `src/tests/bridge-typing.test.ts`; AS-4 → `src/main/db/__tests__/migrate.test.ts` +
+  `migrations/0001_init.sql`; AS-5 → `src/main/secrets/__tests__/{safe-storage,backend-selection}.test.ts`;
+  AS-6 → `scripts/__tests__/codegen.test.ts` + `npm run codegen:verify`; AS-7 →
+  `src/main/logging/__tests__/logger.test.ts` + `src/renderer/logging/__tests__/logger.test.ts`;
+  AS-8 → `src/main/observability/__tests__/sentry-main.test.ts`; AS-9 →
+  `src/shared/__tests__/money.test.ts`; AS-10 → `.github/workflows/ci.yml`; AS-11 → CI artifact
+  `pos-pulse-win-unpacked-<sha>` + this PR's local re-run; AS-12 → `docs/hardware-matrix.md`.
+- [X] T082 `CLAUDE.md` SPECKIT block flipped to status `complete` for 001-foundation; HTML
+  comment placeholder added for `specs/002-terminal-pairing` (no live link — directory does
+  not exist yet); constitution version reference updated v1.2.0 → v1.3.0; stack reference
+  updated Electron 33 → 40.
+
+---
+
+**Feature 001-foundation: complete.** Next feature (`002-terminal-pairing`) requires
+`/speckit-specify` to begin and is NOT in the Phase Final PR.
+
+---
+
+## Dependency Graph
+
+```
+Phase 1 (Setup)
+    │
+    ▼
+Phase 2 (Foundational)        ← blocks every story below
+    │
+    ├──► US1 (Window + isolation + bridge)        ─┐
+    ├──► US2 (DB + migrations)                     ├─ all P1, run in parallel
+    ├──► US3 (Secret store) ──── depends on US2's `secrets` table migration
+    ├──► US4 (OpenAPI codegen)                     │
+    ├──► US5 (Money module)                       ─┘
+    │
+    ├──► US6 (Logging)                            ─┐
+    ├──► US7 (Sentry)                              ├─ all P2, run after P1
+    ├──► US8 (CI pipeline) ──── depends on every prior story being green
+    │
+    ▼
+US9 (Hardware matrix doc) ─── independent; can run any time after Phase 2
+    │
+    ▼
+Phase Final (Polish)
+```
+
+**Cross-story dependencies:**
+- US3 (secrets) needs the `secrets` migration, which lives in US3's own phase but uses the runner
+  delivered in US2. Run US2 first.
+- US8 (CI) is the integrator — meaningful only when US1–US7 implementations exist locally; can be
+  drafted in parallel but won't show green until the others land.
+
+---
+
+## Parallel Execution Examples
+
+**Setup phase (Phase 1):** T002–T009 and T013–T014 are all independent file creations. A single
+contributor can batch them; multiple contributors can split.
+
+**US1 tests:** T028, T029, T030 are three different test files. Write all three first (they all
+fail), then implement T031–T033 to make them pass.
+
+**Money module (US5):** T056 is the test, T057 is the implementation. Standard TDD pair.
+
+**Suggested parallel split for two contributors after Phase 2:**
+
+| Contributor A                       | Contributor B                       |
+|:------------------------------------|:------------------------------------|
+| US1 (window + isolation + bridge)   | US5 (Money — pure business logic)   |
+| US2 (DB + migrations)               | US4 (OpenAPI codegen)               |
+| US3 (secrets, after US2 lands)      | US6 (logging)                       |
+| US7 (Sentry)                        | US8 (CI workflow draft)             |
+| US9 (hardware matrix doc, anytime)  | Polish                              |
+
+---
+
+## Implementation Strategy
+
+1. **MVP for 001 = ALL P1 stories (US1–US5).** Without all five, feature 002 cannot start. Ship
+   them as the first PR or a tightly batched series.
+2. **P2 stories (US6, US7, US8) follow.** Logging and Sentry can land standalone; CI gates only
+   become useful once the gates have something meaningful to assert.
+3. **US9 (hardware matrix doc) is small enough to bundle with any other PR or commit alone.**
+4. **Each story is its own PR if possible.** This gives reviewers a contained surface and keeps
+   constitution-check entries in PR descriptions specific.
+5. **Test-first per task:** the test task within each story is `[P]`-marked and listed first; it
+   MUST be committed (and seen to fail) before its corresponding implementation task is started.
+6. **Constitution-check line in every PR description:** the relevant principles for that PR's
+   stories should be cited (e.g., a US3 PR cites Principles V, VI, VII, VIII; a US5 PR cites
+   Principle II).
+
+---
+
+**Total tasks:** 83 (T001–T082, plus T027a Phase 2 smoke gate).
+**Setup:** 14 tasks. **Foundational:** 14 tasks (incl. T027a smoke). **User stories:** 47 tasks
+across 9 stories. **Polish:** 8 tasks.
+
+T010 and T011 are each split into three sub-batches (a/b/c) inside their task description — counted
+as one task each in the totals above; the sub-batches are command-level, not task-level units.

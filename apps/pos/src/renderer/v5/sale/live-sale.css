@@ -1,0 +1,602 @@
+.v5-sale-workstation[data-catalogue='false'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Existing-cart read in flight or failed: one small, recoverable message. */
+.v5-live-state {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+/* Screen title only: the app frame owns brand and operator identity. */
+.v5-live-titlebar {
+  display: flex;
+  align-items: center;
+  min-block-size: 44px;
+  padding-inline: var(--space-4);
+  background: var(--color-surface);
+  border-block-end: 1px solid var(--color-border);
+}
+
+.v5-live-titlebar h1 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-snug);
+}
+
+/* RT-239 — scan-owner status: text plus an icon, never colour alone. */
+.v5-live-scan-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  margin-inline-start: auto;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.v5-live-scan-status[data-state='ready'] {
+  border-color: var(--color-success);
+  color: var(--color-success-emphasis);
+}
+
+.v5-live-scan-status[data-state='dialog'],
+.v5-live-scan-status[data-state='unavailable'] {
+  border-color: var(--color-warning);
+  color: var(--color-warning-emphasis);
+}
+
+.v5-live-scan-status-icon {
+  display: inline-grid;
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+}
+
+@media (forced-colors: active) {
+  .v5-live-scan-status,
+  .v5-live-scan-status[data-state] {
+    border-color: CanvasText;
+    color: CanvasText;
+  }
+
+  /* RT-241 (VN-S2): filled actions keep an edge; selection is the system pair. */
+  .v5-live-btn--primary,
+  .v5-live-btn--danger,
+  .v5-live-sale .v5-sale-checkout {
+    border: 3px solid ButtonText;
+  }
+
+  .v5-live-btn:disabled {
+    border-color: GrayText;
+    color: GrayText;
+  }
+
+  /* An edge, not a fill: forced-color-adjust is inherited and would un-force the row's «اختيار» cue. */
+  .v5-sale-product-row[aria-selected='true'] {
+    outline: 3px solid Highlight;
+    outline-offset: -3px;
+  }
+}
+
+/*
+ * Inside the v5 frame the Sale is measured by the space it receives, not by
+ * the viewport (the v5-screen container). The Direction B grid, its compact
+ * tracks and the money column live in sale-direction-b.css (RT-242).
+ */
+@container v5-screen (max-width: 1120px) or style(--v5-screen-height: compact) {
+  .v5-live-titlebar {
+    padding-inline: var(--space-3);
+  }
+
+  .v5-sale-grand-total {
+    padding-inline: var(--space-3);
+  }
+}
+
+.v5-live-message {
+  margin: 0;
+  padding: var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.v5-live-freshness,
+.v5-live-line-actions,
+.v5-live-discount {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.v5-live-discount {
+  padding: var(--space-2) var(--space-4);
+  border-block-end: 1px solid var(--color-border);
+}
+
+.v5-live-line-actions button,
+.v5-live-freshness button,
+.v5-live-void,
+.v5-live-discount button,
+.v5-live-message button,
+.v5-live-state button,
+.v5-sale-product-pick {
+  min-block-size: 44px;
+  min-inline-size: 44px;
+  padding-inline: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* RT-242: the option is the click target; «اختيار» is a visual cue, not a control. */
+.v5-sale-product-row[role='option'] {
+  cursor: pointer;
+}
+
+.v5-sale-product-pick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.v5-live-void {
+  border-color: var(--color-danger-soft);
+  color: var(--color-danger-emphasis);
+  background: var(--color-surface);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* Line actions stay a 44px hit area but read as quiet text, not boxed chrome. */
+.v5-live-line-actions button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-primary-emphasis);
+}
+
+.v5-live-line-actions button:hover {
+  background: var(--color-primary-soft);
+}
+
+/*
+ * A live cart line shows the product name on up to two lines: a one-line
+ * ellipsis hid the strength ("875/125 مجم") of long pharmacy names at 1024.
+ * Search results keep their single-line treatment.
+ */
+.v5-sale-cart-line .v5-sale-line-product strong {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/* Money never breaks between amount and currency at 1024-class widths. */
+.v5-sale-line-unit,
+.v5-sale-line-total,
+.v5-sale-product-price {
+  white-space: nowrap;
+}
+
+/* The field wrapper carries the focus ring; the live input must not add a second one. */
+.v5-sale-search-field input,
+.v5-sale-search-field input:focus,
+.v5-sale-search-field input:focus-visible {
+  background: transparent;
+  box-shadow: none;
+  outline: 0;
+}
+
+.v5-live-scan-label {
+  margin-block-start: var(--space-3);
+}
+
+.v5-live-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.v5-live-flag {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-control);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.v5-live-flag--controlled {
+  background: var(--color-warning-soft);
+  color: var(--color-warning-emphasis);
+}
+
+.v5-live-flag--rx {
+  background: var(--color-primary-soft);
+  color: var(--color-primary-emphasis);
+}
+
+.v5-sale-quantity button {
+  display: grid;
+  place-items: center;
+  inline-size: 44px;
+  block-size: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--color-primary-emphasis);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Dialog backdrop and panel base: foundation/dialog.css (RT-241, one Dialog). */
+
+.v5-live-dialog h2,
+.v5-live-dialog h3,
+.v5-live-dialog p {
+  margin: 0;
+}
+.v5-live-dialog-title {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-bold);
+}
+
+.v5-live-dialog-name {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+}
+
+.v5-live-dialog-secondary {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.v5-live-dialog-price {
+  color: var(--color-primary-emphasis);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.v5-live-dialog > div:last-child {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-block-start: var(--space-2);
+}
+
+.v5-live-dialog button {
+  min-block-size: 44px;
+  min-inline-size: 44px;
+}
+
+.v5-live-btn {
+  padding-inline: var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.v5-live-btn--primary {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-primary-on);
+}
+
+.v5-live-btn--danger {
+  border-color: var(--color-danger);
+  background: var(--color-danger);
+  color: var(--color-danger-on);
+}
+
+.v5-live-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.v5-live-btn:focus-visible,
+.v5-live-void:focus-visible,
+.v5-live-message button:focus-visible,
+.v5-live-line-actions button:focus-visible,
+.v5-live-freshness button:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+.v5-live-dialog textarea {
+  min-block-size: 100px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  font: inherit;
+  resize: vertical;
+}
+
+/* ── Polish pass (v5 live Sale only; the static proof keeps sale-screen.css) ── */
+
+/* Region headings: one line, the heading speaks for itself. */
+.v5-live-sale .v5-sale-region-heading,
+.v5-live-sale .v5-sale-cart-heading {
+  justify-content: flex-start;
+  min-block-size: 52px;
+  padding-block: var(--space-1);
+}
+
+.v5-live-sale .v5-sale-region-heading h2,
+.v5-live-sale .v5-sale-cart-heading h2 {
+  font-size: var(--font-size-lg);
+}
+
+.v5-live-sale .v5-sale-cart-heading .v5-sale-count {
+  margin-inline-start: auto;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.v5-live-cart-state {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--color-info-soft);
+  color: var(--color-info-emphasis);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+.v5-live-cart-state[data-tone='success'] {
+  background: var(--color-success-soft);
+  color: var(--color-success-emphasis);
+}
+
+.v5-live-cart-state[data-tone='neutral'] {
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+}
+
+/* Discovery: typed search first, the scanner target second and unmistakably different. */
+.v5-live-sale .v5-sale-search-area {
+  padding: var(--space-3) var(--space-4);
+}
+
+.v5-live-sale .v5-sale-search-area p {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.v5-live-sale .v5-sale-search-icon {
+  color: var(--color-primary);
+}
+
+.v5-live-scan-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-block-size: 44px;
+  padding-inline: var(--space-3);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+}
+
+.v5-live-scan-field:focus-within {
+  border-style: solid;
+  border-color: var(--color-primary);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Barcodes are Latin digits: the value runs in its own direction inside the RTL form. */
+.v5-live-scan-field input {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  block-size: 42px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  unicode-bidi: plaintext;
+}
+
+.v5-live-scan-field input,
+.v5-live-scan-field input:focus,
+.v5-live-scan-field input:focus-visible {
+  box-shadow: none;
+  outline: 0;
+}
+
+.v5-live-scan-field input::placeholder {
+  color: var(--color-text-muted);
+  font-family: var(--font-family-sans);
+}
+
+.v5-live-result-count {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.v5-live-results {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+/* The option Enter will pick is always visible; the ring shows while the list has focus. */
+.v5-sale-product-row[aria-selected='true'] {
+  background: var(--color-primary-soft);
+}
+
+.v5-sale-product-list:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+
+.v5-sale-product-list:focus-visible .v5-sale-product-row[aria-selected='true'] {
+  box-shadow: inset 0 0 0 2px var(--color-focus-ring);
+}
+
+/* Catalogue freshness: a status line under the results, loud only when search cannot be trusted. */
+.v5-live-freshness {
+  flex-wrap: wrap;
+  justify-content: space-between;
+  column-gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border-block-start: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.v5-live-freshness[data-tone='warning'] {
+  background: var(--color-warning-soft);
+  color: var(--color-warning-emphasis);
+  font-weight: var(--font-weight-semibold);
+}
+
+.v5-live-freshness button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-primary-emphasis);
+  font-weight: var(--font-weight-semibold);
+}
+
+.v5-live-freshness button:hover:not(:disabled) {
+  background: var(--color-primary-soft);
+}
+
+.v5-live-freshness button:disabled {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+/* Cart: sticky column labels, compact rows, quiet unit price, obvious stepper. */
+.v5-live-sale .v5-sale-cart-columns {
+  position: sticky;
+  z-index: 1;
+  inset-block-start: 0;
+  min-block-size: 32px;
+}
+
+.v5-live-sale .v5-sale-line-unit {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.v5-live-sale .v5-sale-quantity {
+  border-color: var(--color-border-strong);
+}
+
+.v5-live-sale .v5-sale-quantity strong {
+  min-inline-size: 28px;
+  font-weight: var(--font-weight-bold);
+}
+
+.v5-sale-quantity button:hover {
+  background: var(--color-primary-soft);
+}
+
+.v5-live-sale .v5-sale-cart-table,
+.v5-live-sale .v5-sale-product-list {
+  scrollbar-color: var(--color-border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+/* Totals + the one primary action (in the Direction B money column). */
+.v5-live-sale .v5-sale-total-row {
+  min-block-size: 30px;
+}
+
+.v5-live-sale .v5-sale-grand-total {
+  min-block-size: 56px;
+}
+
+.v5-live-sale .v5-sale-checkout {
+  gap: var(--space-3);
+  min-block-size: 56px;
+  cursor: pointer;
+}
+
+/*
+ * The static proof's arrow span is the CTA's last child; the live CTA uses an
+ * SVG arrow, and while handing off the label span is last. Keep it CTA-sized.
+ */
+.v5-live-sale .v5-sale-checkout span:last-child {
+  font-size: inherit;
+}
+
+.v5-live-sale .v5-sale-checkout:hover:not(:disabled) {
+  border-color: var(--color-primary-emphasis);
+  background: var(--color-primary-emphasis);
+}
+
+.v5-sale-checkout:disabled {
+  border-color: var(--color-border);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+/* State and failure notices are read, not squinted at. */
+.v5-live-sale .v5-live-notice {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.v5-live-sale .v5-live-notice--danger {
+  background: var(--color-danger-soft);
+  color: var(--color-danger-emphasis);
+}
+
+.v5-live-sale .v5-live-notice--success {
+  background: var(--color-success-soft);
+  color: var(--color-success-emphasis);
+}
+
+.v5-live-sale ::selection {
+  background: var(--color-primary-soft);
+  color: var(--color-text);
+}
+
+/* A frozen or cancelled line shows its quantity as a value, not as an empty stepper. */
+.v5-live-sale .v5-sale-quantity:not(:has(button)) {
+  border-color: transparent;
+  background: transparent;
+}
+
+.v5-live-sale .v5-sale-cart-table:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+
+/* A Latin secondary name keeps its own direction but lines up with the Arabic above it. */
+.v5-live-dialog .v5-live-dialog-secondary {
+  text-align: end;
+}

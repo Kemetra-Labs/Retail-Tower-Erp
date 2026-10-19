@@ -1,0 +1,83 @@
+import { useCallback, type JSX } from 'react';
+import { Navigate, useNavigate } from 'react-router-dom';
+
+import { useFeatureFlagsStore } from '../../../stores/feature-flags-store';
+import { usePaymentStore } from '../../../stores/payment-store';
+import { resetSaleStores } from '../../../sale/reset-sale-stores';
+import {
+  useBackToSaleEligibility,
+  useCheckoutBackToSale,
+} from '../../../sale/useCheckoutBackToSale';
+import { PaymentSurface } from '../../../ui/payments/PaymentSurface';
+import { CheckoutPlaceholder } from './CheckoutPlaceholder';
+import { acknowledgeDrawerNotice } from '../../../ui/receipts/drawer-notice-store';
+
+/**
+ * 006-payments-tender — `/app/checkout` route.
+ *
+ * When the `payments` feature flag is on, the checkout route renders the live
+ * `PaymentSurface` (the tender screen). PaymentSurface self-gates: it returns
+ * null unless a signed-in operator session AND a non-null payment envelope
+ * exist in the payment store. The envelope is mounted by the V5 Sale's
+ * "Continue to payment" handler immediately before navigation here, so by the
+ * time this route renders the envelope is present.
+ *
+ * When the flag is off (fail-closed default), the route falls back to the
+ * 003-era `CheckoutPlaceholder` — the visual tender-slot reservation — so the
+ * route is never blank and pre-006 behaviour is preserved.
+ *
+ * PaymentSurface reads its own payments + tender + sales bridge from
+ * `window.api`. The one prop threaded here is `onNewSale`: after payment
+ * settles, PaymentSurface shows a "New sale" button but is Router-agnostic, so
+ * the route owner supplies the post-sale reset+navigate. Resetting the payment
+ * and cart stores then returning to /app/cart starts the next sale clean and
+ * is what unsticks the cashier from the settled surface (the prior dead-end).
+ *
+ * RT-26: `onBackToSale` is Checkout Back / Esc. Main decides (`cart.returnToSale`);
+ * only on its `ok` does the route drop the old envelope and return to the SAME
+ * sale at /app/cart, where the cart is re-read from main as editable.
+ */
+export function CheckoutRoute(): JSX.Element {
+  const paymentsFlag = useFeatureFlagsStore((s) => s.payments);
+  const hasEnvelope = usePaymentStore((s) => s.envelope !== null);
+  const navigate = useNavigate();
+
+  const handleNewSale = useCallback((): void => {
+    // Clear the just-completed sale's payment envelope + attempt, and the cart,
+    // so the next sale starts from empty. (The finalized Sale is already
+    // durable in the main process; these stores are renderer-only working
+    // state.) Then return to the cart to begin ringing the next sale.
+    resetSaleStores();
+    // RT-241 (D-B1): «بيع جديد» acknowledges the drawer notice.
+    acknowledgeDrawerNotice();
+    void navigate('/app/cart');
+  }, [navigate]);
+
+  const handleReturnedToSale = useCallback((): void => {
+    void navigate('/app/cart');
+  }, [navigate]);
+  const backToSale = useCheckoutBackToSale({ onReturned: handleReturnedToSale });
+  // Main's durable answer per handoff; Back stays disabled until it is known.
+  const backEligibility = useBackToSaleEligibility();
+
+  if (!paymentsFlag) {
+    return <CheckoutPlaceholder />;
+  }
+  // No handed-off sale (direct entry, or a renderer reload lost the envelope):
+  // there is nothing to pay here, so return to the Sale instead of an empty pane.
+  if (!hasEnvelope) {
+    return <Navigate to="/app/cart" replace />;
+  }
+
+  // 023 Slice G: checkout renders in the v5 frame, where PaymentSurface's own
+  // Arabic heading is the screen's one title. RT-243 W1-C: it fills the frame's
+  // `v5-screen` container directly, as the Sale does (no padded Workspace), so
+  // the Direction B columns and the money column line up across the journey.
+  return (
+    <PaymentSurface
+      onNewSale={handleNewSale}
+      onBackToSale={backToSale}
+      backToSaleEligibility={backEligibility}
+    />
+  );
+}

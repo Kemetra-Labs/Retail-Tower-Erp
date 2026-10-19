@@ -1,0 +1,1943 @@
+@import 'tailwindcss';
+
+:root {
+  /* ── Colour tokens — aligned to POS Pulse 003 design spec ───────────── */
+
+  /* Workspace + surface — v4.0 light clinical (022 T023) */
+  --color-background: #f7f9fa; /* workspace surface */
+  --color-surface: #ffffff; /* card / panel */
+  --color-surface-elevated: #f3f6fa; /* inert tile, slot-id chip, banner band */
+  --color-surface-muted: #f3f6fa; /* alias kept for backward compat */
+
+  /* Ink */
+  --color-text: #0f1d2e; /* navy retained — ink + structure (17.0:1 AAA) */
+  --color-text-muted: #53647a; /* 6.05:1 AA (was #5b6b7c, 4.9:1) */
+  --color-text-inverse: #ffffff;
+
+  /* Brand primary — v4.0 PHARMACY GREEN-TEAL (022 T023, supersedes the v3.5
+     navy #1f4e7a and the One-Accent Rule: teal MAY fill large primary
+     actions). White-on-teal 5.47:1 AA; emphasis-on-white 7.95:1 AAA. */
+  --color-primary: #0f766e;
+  --color-primary-emphasis: #0b5b55;
+  --color-primary-soft: #e6f4f1;
+  --color-primary-on: #ffffff;
+
+  /* Semantic state colours */
+  /* #1f8a5b failed AA as a fill (white-on-it 4.33:1); #15774d is 5.56:1. */
+  --color-success: #15774d;
+  --color-success-emphasis: #10603d;
+  --color-success-soft: #e7f5ee;
+  --color-success-on: #ffffff;
+
+  --color-warning: #a35a00; /* orange — warnings only (5.22:1 AA) */
+  --color-warning-emphasis: #7d4500;
+  --color-warning-soft: #fdf1e0;
+  --color-warning-on: #ffffff;
+
+  --color-danger: #b3261e; /* red — destructive/error only (6.54:1 AA) */
+  --color-danger-emphasis: #8c1d18;
+  --color-danger-soft: #fbe9e7;
+  --color-danger-on: #ffffff;
+
+  --color-info: #1b6ca8; /* controlled blue — informational/selection only */
+  --color-info-emphasis: #145184;
+  --color-info-soft: #e4f0f9;
+  --color-info-on: #ffffff;
+
+  /* Neutral (legacy syncing intent) */
+  --color-neutral: #5b6b7c;
+  --color-neutral-emphasis: #3d4c5a;
+  --color-neutral-on: #ffffff;
+
+  /* Borders / rules */
+  --color-border: #d8dfe7;
+  --color-border-soft: #e7ecf2;
+  /* EXTERNAL REVIEW P2 (round 2) — "Raise light-theme control-boundary
+     contrast". WCAG 1.4.11 requires >=3:1 for UI COMPONENT boundaries.
+     `--color-border` #d8dfe7 gives only 1.24:1 on --color-surface-elevated
+     (#f3f6fa) and 1.34:1 on white, so control outlines were effectively
+     invisible once light became the default. The old strong value #9ca3af
+     failed too (2.34 / 2.54).
+     #6f7b89 clears the bar on BOTH light surfaces: 3.98:1 on elevated,
+     4.31:1 on white. Applied to CONTROL boundaries only — the 50 decorative
+     `--color-border` dividers keep their quiet hairline, since 1.4.11 governs
+     components, not ornamental rules. */
+  --color-border-strong: #6f7b89;
+  --color-focus-ring: var(--color-primary);
+  --color-overlay-scrim: rgba(8, 14, 24, 0.55);
+
+  /* ── Spacing scale — 4 px base ──────────────────────────────────────── */
+  --space-0: 0px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* 022 US3 (T070/T071) — checkout COMPONENT GEOMETRY from the design handoff.
+     Deliberately NOT named `--space-*`: that prefix is a governed scale whose
+     every member must have a matching TS export (tokens.test.ts T008 parity),
+     and these are not steps on the spacing scale. They are mockup-specified
+     pairs — the tender tile's 18x14 padding, the confirm action's 15x40 —
+     used only by checkout CSS, with no TS consumer. Adding scale members and
+     TS exports nobody reads to carry component geometry would weaken the
+     scale's meaning, so they live here as their own tokens instead. */
+  --checkout-tile-padding-block: 18px;
+  --checkout-tile-padding-inline: 14px;
+  --checkout-action-padding-block: 15px;
+  --checkout-action-padding-inline: 40px;
+
+  /* ── Typography ─────────────────────────────────────────────────────── */
+  /* 022 T026 — Arabic-first SYSTEM stack. 'Inter Variable'/Inter were
+     unresolvable (no package, no @font-face, no bundled file), so Arabic fell
+     through to uncontrolled OS fallback. Dubai ships with Windows 10/11 and
+     renders Arabic properly; Segoe UI / Tahoma are the ordered fallbacks.
+     Still NO package, NO @font-face, NO bundled file — so `no-brand-font`
+     stays green and no approval gate is triggered (research.md §1). */
+  --font-family-sans: 'Dubai', 'Segoe UI', Tahoma, Arial, system-ui, sans-serif;
+  /* 022 T027 — money / barcodes / SKUs / sale numbers (FR-12). Paired with
+     `font-variant-numeric: tabular-nums` so digits align in dense cart rows
+     and totals do not jitter as values change. dir="ltr" isolation is applied
+     at the call site (FR-21). */
+  --font-family-mono: ui-monospace, 'Cascadia Code', 'JetBrains Mono', 'Consolas', monospace;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --font-size-2xs: 0.6875rem; /* 11px */
+  --font-size-xs: 0.75rem; /* 12px */
+  --font-size-sm: 0.875rem; /* 14px */
+  --font-size-md: 1rem; /* 16px */
+  --font-size-lg: 1.125rem; /* 18px */
+  --font-size-xl: 1.25rem; /* 20px */
+  --font-size-2xl: 1.5rem; /* 24px */
+  --font-size-3xl: 1.875rem; /* 30px */
+  --font-size-4xl: 2.75rem; /* 44px */
+
+  /* 022 US3 (T070) — checkout type steps taken from the approved design
+     handoff. They are intermediate steps the base scale does not carry, and
+     the amount-due hierarchy depends on the exact ratios between them:
+     44 (amount due, dominant) > 30 (remaining) > 26 (received) > 24 (summary
+     amount) > 19 (section titles) > 15 (tender tile label). Values are design
+     evidence from the mockup; they introduce no new COLOUR and so do not touch
+     the measured-contrast tokens (RECONCILIATION §C). */
+  --font-size-checkout-received: 1.625rem; /* 26px */
+  --font-size-checkout-section: 1.1875rem; /* 19px */
+  --font-size-checkout-tile: 0.9375rem; /* 15px */
+
+  --line-height-tight: 1.25;
+  --line-height-snug: 1.375;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.625;
+
+  /* ── Radius ─────────────────────────────────────────────────────────── */
+  --radius-none: 0;
+  --radius-sm: 0.125rem; /* 2px */
+  --radius-md: 0.25rem; /* 4px */
+  --radius-lg: 0.5rem; /* 8px */
+  --radius-control: 10px; /* buttons, fields */
+  --radius-card: 14px; /* cards, panes */
+  --radius-pane: 16px; /* pairing / paired centred panels */
+  --radius-pill: 9999px;
+
+  /* ── Shadow ─────────────────────────────────────────────────────────── */
+  --shadow-none: none;
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  --shadow-card: 0 1px 2px rgba(15, 29, 46, 0.04), 0 8px 24px rgba(15, 29, 46, 0.06);
+  --shadow-pane: 0 18px 60px rgba(15, 29, 46, 0.1);
+  --shadow-overlay: 0 20px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.25);
+  /* S1 additive */
+  --shadow-inset: inset 0 1px 0 rgba(15, 29, 46, 0.04), inset 0 0 0 1px rgba(15, 29, 46, 0.04);
+
+  /* ── S1 additive — sunken surface colour ────────────────────────────── */
+  --color-surface-sunken: #eef2f6;
+
+  /* ── S1 additive — spacing step 9 ──────────────────────────────────── */
+  --space-9: 96px;
+
+  /* ── S1 additive — motion tokens ───────────────────────────────────── */
+  --duration-1: 80ms;
+  --duration-2: 150ms;
+  --duration-3: 220ms;
+  --duration-4: 320ms;
+  --ease-out: cubic-bezier(0.2, 0.7, 0.25, 1);
+  --ease-in-out: cubic-bezier(0.45, 0.05, 0.25, 1);
+}
+
+/* ── POS v3.5 — Vault Dark register (ADR-0004, the terminal DEFAULT) ──────
+ *
+ * Dark is the default terminal theme; light (the :root base above) is the
+ * toggle target. Switching themes flips token VALUES ONLY — every rule in
+ * this block is a `--*` custom-property override (plus the one allowlisted
+ * `color-scheme: dark`). No component class is forked, no new token NAME is
+ * introduced (token-name parity with colors.ts / the T008 guard is held by
+ * overriding only names that already exist in :root). Hand-written CSS and
+ * Tailwind `var(--color-*)` utilities both re-theme through these values.
+ *
+ * Selector is `:root[data-theme='dark']` — specificity (0,2,0) so it wins
+ * over both :root and Tailwind's @theme-emitted :root props regardless of
+ * source order. The attribute is set on <html> by the theme store
+ * (stores/theme-store.ts) and baked as the default in index.html.
+ *
+ * Values are the v3.5 README token table (THE source). Three rows the
+ * README leaves blank (danger / info deepen) take the kit.css
+ * dark values, because leaving the LIGHT danger/info inks on dark surfaces
+ * is a contrast regression; this deviation is documented in the slice
+ * report. Shadows deepen per kit.css (token-only, in scope).
+ */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* Workspace + surface */
+  --color-background: #0a1420;
+  --color-surface: #111f30;
+  --color-surface-elevated: #182a3e;
+  --color-surface-muted: #182a3e;
+  --color-surface-sunken: #0b1623;
+
+  /* Ink */
+  --color-text: #e8eef5;
+  --color-text-muted: #93a5b7;
+  --color-text-inverse: #0f1d2e;
+
+  /* Brand primary — v4.0 pharmacy teal adapted for dark surfaces (022 T024
+     option (a), owner-ratified: ONE visual identity across both registers).
+     6.68:1 on --color-surface; navy-on-teal 6.83:1 for filled controls. */
+  --color-primary: #14b8a6;
+  --color-primary-emphasis: #2dd4bf;
+  --color-primary-soft: rgba(20, 184, 166, 0.14);
+  /* Dark teal is a LIGHT fill, so its on-colour is the navy ink, not white. */
+  --color-primary-on: #0f1d2e;
+
+  /* Semantic state colours */
+  --color-success: #41b283;
+  --color-success-emphasis: #5ec79a;
+  --color-success-soft: rgba(65, 178, 131, 0.14);
+
+  --color-warning: #d9a13a;
+  --color-warning-emphasis: #e7b65f;
+  --color-warning-soft: rgba(217, 161, 58, 0.13);
+
+  /* danger / info: README leaves these blank; kit.css dark values adopted
+     for legibility on dark surfaces (deviation noted in slice report). */
+  --color-danger: #d96770;
+  --color-danger-emphasis: #e4848c;
+  --color-danger-soft: rgba(217, 103, 112, 0.14);
+
+  --color-info: #4ba3c4;
+  --color-info-emphasis: #6cb8d4;
+  --color-info-soft: rgba(75, 163, 196, 0.14);
+
+  /* Neutral */
+  --color-neutral: #93a5b7;
+  --color-neutral-emphasis: #b5c4d2;
+
+  /* Borders / rules / scrim */
+  --color-border: #243a52;
+  --color-border-soft: #1a2c40;
+  --color-border-strong: #3c5a7a;
+  --color-overlay-scrim: rgba(2, 6, 12, 0.72);
+
+  /* Elevation — deepen for the dark register (token-only) */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45), 0 4px 14px rgba(0, 0, 0, 0.3);
+  --shadow-pane: 0 6px 24px rgba(0, 0, 0, 0.5);
+  --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.6);
+  --shadow-inset: inset 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
+@theme {
+  --color-surface: var(--color-surface);
+  --color-surface-muted: var(--color-surface-muted);
+  --color-surface-elevated: var(--color-surface-elevated);
+  --color-text: var(--color-text);
+  --color-text-muted: var(--color-text-muted);
+  --color-text-inverse: var(--color-text-inverse);
+  --color-primary: var(--color-primary);
+  --color-primary-emphasis: var(--color-primary-emphasis);
+  --color-primary-on: var(--color-primary-on);
+  --color-danger: var(--color-danger);
+  --color-danger-emphasis: var(--color-danger-emphasis);
+  --color-danger-on: var(--color-danger-on);
+  --color-warning: var(--color-warning);
+  --color-warning-emphasis: var(--color-warning-emphasis);
+  --color-warning-on: var(--color-warning-on);
+  --color-success: var(--color-success);
+  --color-success-emphasis: var(--color-success-emphasis);
+  --color-success-on: var(--color-success-on);
+  --color-neutral: var(--color-neutral);
+  --color-neutral-emphasis: var(--color-neutral-emphasis);
+  --color-neutral-on: var(--color-neutral-on);
+  --color-focus-ring: var(--color-focus-ring);
+  --color-border: var(--color-border);
+  --color-border-strong: var(--color-border-strong);
+  --color-overlay-scrim: var(--color-overlay-scrim);
+}
+
+/* ─── Base ──────────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  block-size: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+  color: var(--color-text);
+  background-color: var(--color-background);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ─── Focus ─────────────────────────────────────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ─── @layer components ─────────────────────────────────────────────────── */
+
+/*
+ * RT-515: live-region messages use the native <output> element (implicit
+ * role="status") instead of role="status" on a <p>/<div>. <output> is inline by
+ * default; every replaced element was a block, so keep it one. A class that sets
+ * its own display (the inline-block spinners) still wins, being outside `base`.
+ */
+@layer base {
+  output {
+    display: block;
+  }
+}
+
+@layer components {
+  /* ── Screen Too Small ────────────────────────────────────────────────── */
+
+  /* RT-313: the notice now shows on short viewports (height < 600px). It grows
+     past the viewport instead of clipping, and `safe` centring keeps an
+     overflowing card's top reachable by scrolling. */
+  .screen-too-small {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: safe center;
+    min-block-size: 100dvh;
+    padding: var(--space-5);
+    background-color: var(--color-background);
+  }
+
+  .screen-too-small__card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-4);
+    max-inline-size: 360px;
+    padding: var(--space-6);
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+    text-align: center;
+  }
+
+  .screen-too-small__icon {
+    display: block;
+    inline-size: 88px;
+    block-size: 88px;
+    border-radius: 22px; /* 88px squared-circle per spec */
+    background-color: var(--color-surface-elevated);
+    border: 1px solid var(--color-border);
+    flex-shrink: 0;
+  }
+
+  .screen-too-small__title {
+    font-size: 1.625rem; /* 26px */
+    font-weight: var(--font-weight-bold);
+    letter-spacing: -0.01em;
+    color: var(--color-text);
+    margin: 0;
+  }
+
+  .screen-too-small__body {
+    color: var(--color-text-muted);
+    font-size: 0.9375rem; /* 15px */
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-relaxed);
+    margin: 0;
+  }
+
+  /* ── Form Elements ───────────────────────────────────────────────────── */
+
+  input[type='text'],
+  input[type='number'],
+  input[type='email'],
+  input[type='password'],
+  input[type='search'],
+  select,
+  textarea {
+    display: block;
+    inline-size: 100%;
+    padding-block: var(--space-2);
+    padding-inline: var(--space-3);
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-sm);
+    line-height: var(--line-height-normal);
+    color: var(--color-text);
+    background-color: var(--color-surface);
+    /* Control boundary — must clear WCAG 1.4.11 (>=3:1), so it uses the
+       STRONG border token rather than the decorative hairline. */
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-control);
+    transition:
+      border-color 150ms ease,
+      box-shadow 150ms ease;
+    min-block-size: 44px;
+  }
+
+  input[type='text']:focus-visible,
+  input[type='number']:focus-visible,
+  input[type='email']:focus-visible,
+  input[type='password']:focus-visible,
+  input[type='search']:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent);
+    outline: none;
+  }
+
+  label {
+    display: block;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text);
+    margin-block-end: var(--space-1);
+  }
+
+  /* ── Input field wrapper (T032) ──────────────────────────────────────── */
+
+  .input-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .input-field__description {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+  }
+
+  .input-field__error {
+    font-size: var(--font-size-xs);
+    color: var(--color-danger);
+  }
+
+  .input-field input[aria-invalid='true'] {
+    border-color: var(--color-danger);
+  }
+
+  .input-field input[aria-invalid='true']:focus-visible {
+    border-color: var(--color-danger);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 20%, transparent);
+  }
+
+  /* ── Inactivity lock (RT-117, VN-R8) ─────────────────────────────────────
+     Overlay level on the scrim, above every workspace layer. The app under
+     it stays mounted and `inert`, so the sale is preserved. The lock screen's
+     own styles live in session/lock-screen.css (RT-593). */
+  /* Layout-neutral wrapper: `inert` still applies to its whole subtree. */
+  .session-lock-app {
+    display: contents;
+  }
+
+  /* RT-161: preserved, not readable. `visibility` inherits through the
+     `display: contents` wrapper to the whole sale, which stays mounted. */
+  .session-lock-app--concealed {
+    visibility: hidden;
+  }
+
+  .session-lock {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+  }
+
+  /* RT-444 — another operator signs in on a locked terminal. A slim notice
+     above the sign-in screen: the lock is still held, and the way back. */
+  .session-lock-switch {
+    position: fixed;
+    inset-block-start: 0;
+    inset-inline: 0;
+    z-index: 90;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-4);
+    border-block-end: 1px solid var(--color-border);
+    background: var(--color-surface-elevated);
+    font-size: var(--font-size-sm);
+  }
+
+  .session-lock-switch p {
+    margin: 0;
+  }
+
+  .session-lock-switch button {
+    min-block-size: 44px;
+    padding-inline: var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-control);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  /* ── Dialog (T033) ───────────────────────────────────────────────────── */
+
+  .dialog-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--color-overlay-scrim);
+  }
+
+  .dialog-panel {
+    position: fixed;
+    inset-block-start: 50%;
+    inset-inline-start: 50%;
+    transform: translate(-50%, -50%);
+    inline-size: 480px;
+    max-inline-size: calc(100vw - var(--space-6));
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-overlay);
+    padding-block-start: 28px;
+    padding-inline: 28px;
+    padding-block-end: 24px;
+    outline: none;
+  }
+
+  /* RTL re-anchor (POS v3.5 root dir="rtl" fix). The panel centres with
+     `inset-inline-start: 50%` + a PHYSICAL translate(-50%, …); under RTL,
+     `inset-inline-start` resolves to the RIGHT edge, so the physical
+     translate flings the panel off-centre. Centring is symmetric, so we
+     pin it with physical `left: 50%`. Required by the root RTL change (a
+     regression this slice introduces), not a redesign. */
+  [dir='rtl'] .dialog-panel {
+    inset-inline-start: auto;
+    left: 50%;
+    right: auto;
+  }
+
+  .dialog-panel h2 {
+    font-size: 1.125rem;
+    font-weight: var(--font-weight-bold);
+    letter-spacing: -0.01em;
+    color: var(--color-text);
+    margin: 0 0 var(--space-3);
+  }
+
+  .dialog-panel p {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-muted);
+    margin: 0 0 var(--space-5);
+    line-height: var(--line-height-relaxed);
+  }
+
+  .dialog-panel__body {
+    margin-block-end: var(--space-5);
+  }
+
+  /* RT-241 (D-B1): the drawer-failure banner is retired; the drawer notice is
+     a v5 Banner/Notice (v5/foundation/messages.css). */
+
+  /*
+   * 022 US3 T072 — the primary confirm action. Padding 15x40, label 16/700.
+   * The cancel action turns red on hover per the mockup; it uses the measured
+   * `--color-danger` token, NOT the handoff's stock Tailwind red, because the
+   * repo value was chosen by contrast measurement (RECONCILIATION §C).
+   */
+  .payment-surface__confirm {
+    padding: var(--checkout-action-padding-block) var(--checkout-action-padding-inline);
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-bold);
+    border-radius: var(--radius-control);
+    background-color: var(--color-primary);
+    border: 1px solid var(--color-primary);
+    color: var(--color-primary-on);
+  }
+
+  .payment-surface__cancel:hover:not(:disabled) {
+    border-color: var(--color-danger);
+    color: var(--color-danger);
+  }
+
+  /* ── Entry surfaces ───────────────────────────────────────────────────
+   * The entry component mounts beneath the tender grid. It is a peer card
+   * (rule above); its internal rows get the reference's row rhythm.
+   */
+  .payment-surface__entry .tender-slots {
+    border: none;
+    background: transparent;
+  }
+
+  .payment-surface__entry .tender-row {
+    padding-inline: 0;
+  }
+
+  /* ── Footer actions ───────────────────────────────────────────────────
+   * The reference pairs a filled teal confirm with a quiet outlined cancel,
+   * both on one row at the surface foot.
+   */
+  /*
+   * RT-238 — the pinned action bar (15 §4 A2 ActionSlots). It is a sibling of the
+   * scrolling panes, so it never scrolls away. inline-start = cancel,
+   * inline-end = primary/commit, and an empty slot stays empty: the end slot is
+   * pushed to the inline-end edge even when the start slot has nothing in it.
+   */
+  .checkout-actions {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding-block-start: var(--space-3);
+    border-block-start: 1px solid var(--color-border-soft);
+  }
+
+  .checkout-actions__row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-4);
+  }
+
+  .checkout-actions__slot {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-inline-size: 0;
+  }
+
+  .checkout-actions__slot--start {
+    align-items: flex-start;
+  }
+
+  .checkout-actions__slot--end {
+    align-items: flex-end;
+    margin-inline-start: auto;
+  }
+
+  .checkout-actions__reason {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-warning-emphasis);
+  }
+
+  /* The entry's own button row is empty once its commit is pinned into the bar. */
+  .cash-entry__actions:empty,
+  .external-card-terminal-entry__actions:empty {
+    display: none;
+  }
+
+  .payment-surface__confirm,
+  .payment-surface__cancel {
+    min-block-size: 44px;
+    border-radius: var(--radius-control);
+    font-family: var(--font-family-sans);
+    font-weight: var(--font-weight-bold);
+    cursor: pointer;
+    transition:
+      background-color var(--duration-2) var(--ease-out),
+      border-color var(--duration-2) var(--ease-out),
+      color var(--duration-2) var(--ease-out);
+  }
+
+  .payment-surface__confirm:hover:not(:disabled):not([aria-disabled='true']) {
+    background-color: var(--color-primary-emphasis);
+    border-color: var(--color-primary-emphasis);
+  }
+
+  .payment-surface__cancel {
+    padding: var(--checkout-action-padding-block) var(--space-5);
+    border: 1px solid var(--color-border-strong);
+    background-color: var(--color-surface);
+    color: var(--color-text);
+    font-size: var(--font-size-md);
+  }
+
+  .payment-surface__confirm[aria-disabled='true'],
+  .payment-surface__cancel[aria-disabled='true'] {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .payment-surface__confirm:focus-visible,
+  .payment-surface__cancel:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  /*
+   * RT-238 — commit chrome (RT-159 F-09: the entry confirms rendered as plain
+   * text). One filled primary per region (Commit-Teal rule). A commit that
+   * cannot proceed is sunken and dashed, never just dimmed. Under forced colours
+   * the fill is dropped by the browser, so the boundary carries the meaning.
+   */
+  .checkout-commit {
+    min-block-size: 56px;
+    padding: var(--space-3) var(--space-6);
+    border: 2px solid var(--color-primary);
+    border-radius: var(--radius-control);
+    background-color: var(--color-primary);
+    color: var(--color-primary-on);
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-bold);
+    cursor: pointer;
+  }
+
+  .checkout-commit:hover:not(:disabled):not([aria-disabled='true']) {
+    background-color: var(--color-primary-emphasis);
+    border-color: var(--color-primary-emphasis);
+  }
+
+  .checkout-commit:disabled,
+  .checkout-commit[aria-disabled='true'] {
+    border: 2px dashed var(--color-border-strong);
+    background-color: var(--color-surface-sunken);
+    color: var(--color-text-muted);
+    cursor: not-allowed;
+    opacity: 1;
+  }
+
+  .checkout-commit:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  @media (forced-colors: active) {
+    .checkout-commit {
+      border: 3px solid ButtonText;
+      background-color: ButtonFace;
+      color: ButtonText;
+    }
+
+    .checkout-commit:disabled,
+    .checkout-commit[aria-disabled='true'] {
+      border: 2px dashed GrayText;
+      color: GrayText;
+    }
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * 022 US0-R2 — RE-HOMED INTO `@layer components` (was unlayered).
+   *
+   * Everything below this banner previously sat AFTER the layer closed. CSS
+   * cascade layers give unlayered rules priority over EVERY layered rule,
+   * regardless of specificity — so this block silently outranked the whole v4
+   * design system. A layered v4 rule written specifically to override one of
+   * these lost anyway.
+   *
+   * Concretely, that is why 022 US3's checkout convergence could not fully
+   * land: `.tender-method-grid .method-card--selected` (0,2,0) lost to
+   * `.method-card--selected` (0,1,0) purely because the latter was unlayered,
+   * so the v3.5 selected-tile ring survived the v4 restyle.
+   *
+   * The rules are UNCHANGED — only their layer membership moved, plus
+   * indentation. Relative order is preserved, so every intra-block
+   * relationship still resolves exactly as before. What changes is only where
+   * a LAYERED rule now legitimately wins.
+   *
+   * Enforced by `__tests__/component-layer-discipline.test.ts`.
+   * ═════════════════════════════════════════════════════════════════════ */
+
+  /* ─── Reduced motion (T041) ─────────────────────────────────────────────── */
+  /* Per spec NFR-007 — animations degrade to immediate state swap under         */
+  /* prefers-reduced-motion: reduce.                                             */
+
+  @media (prefers-reduced-motion: reduce) {
+    /* Dialog fade-in */
+    .dialog-panel,
+    .dialog-overlay {
+      transition: none;
+      animation: none;
+    }
+  }
+
+  /* ── 007 S5 — Operator session surfaces ─────────────────────────────── */
+
+  /* ── RosterList ──────────────────────────────────────────────────────── */
+
+  .roster-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    inline-size: 100%;
+  }
+
+  .roster-list--inert {
+    padding: var(--space-6);
+  }
+
+  /* Column count follows the CONTAINER, not the viewport.
+   *
+   * A roster card is avatar + name + role on one row; its chrome is fixed
+   * (2px border + 32px padding + 44px avatar + 24px inner gaps + the role
+   * label), so every pixel below ~240px comes out of the NAME — the only
+   * part that tells two cashiers apart.
+   *
+   * This was a viewport media query (3 columns, dropping to 2 below 1280px)
+   * and it got the dependency backwards: the roster's usable width is set by
+   * the two FIXED tracks beside it, not by the window. That produced a cliff
+   * at exactly 1280px, where the base rule added a THIRD column at the
+   * tightest container width on the whole supported range — so widening the
+   * window made names LESS readable:
+   *
+   *   1279px → 2 cols → 274px card   (comfortable)
+   *   1280px → 3 cols → 157px card   (name ellipsised to ~19px)
+   *
+   * `auto-fit` + `minmax()` removes the discontinuity by construction: the
+   * track count is derived from the space actually available, so the card can
+   * never fall below the floor. At the 1024px viewport the roster renders a
+   * single full-width column — the correct outcome at that width, and a
+   * deliberate density change. A long roster grows the page, which scrolls
+   * normally (`.v4-screen` is `min-block-size`, not a fixed height).
+   *
+   * Enforced by v4-sign-in-track-fit.test.ts, which re-derives the column
+   * count from the track shape at 1024/1279/1280/1440/1920 and fails if a
+   * viewport override is reintroduced. */
+  .roster-list__items {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: var(--space-4) var(--space-4);
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .roster-list__item {
+    block-size: 84px;
+  }
+
+  .roster-list__item-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    inline-size: 100%;
+    block-size: 100%;
+    padding-inline: var(--space-4);
+    background-color: var(--color-surface-elevated);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-sm);
+    cursor: pointer;
+    transition:
+      background-color var(--duration-2) var(--ease-out),
+      border-color var(--duration-2) var(--ease-out),
+      box-shadow var(--duration-2) var(--ease-out);
+    text-align: start;
+    overflow: hidden;
+  }
+
+  .roster-list__item-btn:hover {
+    background-color: var(--color-primary-soft);
+    border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
+  }
+
+  .roster-list__item--selected .roster-list__item-btn {
+    background-color: var(--color-primary-soft);
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 18%, transparent);
+  }
+
+  .roster-list__item-btn:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .roster-list__avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 44px;
+    block-size: 44px;
+    min-inline-size: 44px;
+    border-radius: var(--radius-pill);
+    background-color: var(--color-primary-soft);
+    color: var(--color-primary);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-bold);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+  }
+
+  .roster-list__name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text);
+  }
+
+  .roster-list__role {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    color: var(--color-text-muted);
+    flex-shrink: 0;
+  }
+
+  /* ── PinPad ──────────────────────────────────────────────────────────── */
+
+  .pin-pad {
+    display: inline-flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    align-items: center;
+    padding: var(--space-5);
+    background-color: var(--color-surface-sunken);
+    box-shadow: var(--shadow-inset);
+    border-radius: var(--radius-card);
+  }
+
+  .pin-pad__dots {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    justify-content: center;
+  }
+
+  .pin-pad__dot {
+    display: inline-block;
+    inline-size: 12px;
+    block-size: 12px;
+    border-radius: var(--radius-pill);
+    background-color: var(--color-border);
+    transition: background-color var(--duration-2) var(--ease-out);
+  }
+
+  .pin-pad__dot[data-state='filled'] {
+    background-color: var(--color-primary);
+  }
+
+  .pin-pad__dot[data-state='error'] {
+    background-color: var(--color-danger);
+  }
+
+  .pin-pad__grid {
+    display: grid;
+    grid-template-columns: repeat(3, 64px);
+    gap: var(--space-2);
+  }
+
+  .pin-pad__key {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 64px;
+    block-size: 64px;
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface-elevated);
+    border: 1px solid var(--color-border-strong);
+    box-shadow: var(--shadow-sm);
+    font-size: 1.25rem;
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text);
+    cursor: pointer;
+    transition:
+      background-color var(--duration-1) var(--ease-out),
+      box-shadow var(--duration-1) var(--ease-out);
+    user-select: none;
+  }
+
+  .pin-pad__key:hover:not(:disabled) {
+    background-color: var(--color-primary-soft);
+    border-color: color-mix(in srgb, var(--color-primary) 25%, transparent);
+  }
+
+  .pin-pad__key:active:not(:disabled) {
+    background-color: var(--color-primary-soft);
+    box-shadow: var(--shadow-inset);
+  }
+
+  .pin-pad__key:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .pin-pad__key:disabled,
+  .pin-pad[data-disabled] .pin-pad__key {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .pin-pad__key--enter[aria-disabled='true'] {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  /* ── TakeoverPrompt ──────────────────────────────────────────────────── */
+
+  .takeover-prompt {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--color-overlay-scrim);
+    z-index: 50;
+  }
+
+  .takeover-prompt__content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+    inline-size: 480px;
+    max-inline-size: calc(100vw - var(--space-8));
+    padding: var(--space-7);
+    background-color: var(--color-surface-elevated);
+    border-radius: var(--radius-pane);
+    box-shadow: var(--shadow-overlay);
+  }
+
+  .takeover-prompt__title {
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text);
+    margin: 0;
+    line-height: 1.4;
+  }
+
+  .takeover-prompt__body {
+    font-size: var(--font-size-base);
+    color: var(--color-text-muted);
+    margin: 0;
+  }
+
+  .takeover-prompt__feedback {
+    min-block-size: 1.25rem;
+    font-size: var(--font-size-sm);
+  }
+
+  .takeover-prompt__spinner {
+    color: var(--color-text-muted);
+  }
+
+  .takeover-prompt__error {
+    color: var(--color-danger);
+    font-weight: var(--font-weight-medium);
+  }
+
+  .takeover-prompt__actions {
+    display: flex;
+    gap: var(--space-3);
+    justify-content: flex-end;
+  }
+
+  .takeover-prompt__cancel {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding-inline: var(--space-5);
+    block-size: 44px;
+    border-radius: var(--radius-control);
+    background-color: transparent;
+    border: 1px solid var(--color-border-strong);
+    color: var(--color-text);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    transition:
+      background-color var(--duration-2) var(--ease-out),
+      border-color var(--duration-2) var(--ease-out);
+  }
+
+  .takeover-prompt__cancel:hover:not(:disabled) {
+    background-color: var(--color-surface-muted);
+  }
+
+  .takeover-prompt__cancel:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .takeover-prompt__cancel:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .takeover-prompt__confirm {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding-inline: var(--space-5);
+    block-size: 44px;
+    border-radius: var(--radius-control);
+    background-color: var(--color-primary);
+    border: 1px solid var(--color-primary);
+    color: var(--color-primary-on);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    cursor: pointer;
+    transition:
+      background-color var(--duration-2) var(--ease-out),
+      border-color var(--duration-2) var(--ease-out);
+  }
+
+  .takeover-prompt__confirm:hover:not(:disabled) {
+    background-color: var(--color-primary-emphasis);
+    border-color: var(--color-primary-emphasis);
+  }
+
+  .takeover-prompt__confirm:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .takeover-prompt__confirm:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  /* ── OperatorBadge ───────────────────────────────────────────────────── */
+
+  .operator-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    overflow: hidden;
+    max-inline-size: 100%;
+  }
+
+  .operator-badge__avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 32px;
+    block-size: 32px;
+    min-inline-size: 32px;
+    border-radius: var(--radius-pill);
+    background-color: var(--color-primary-soft);
+    color: var(--color-primary);
+    font-size: 0.6875rem; /* 11px */
+    font-weight: var(--font-weight-bold);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+  }
+
+  .operator-badge__name {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .operator-badge__role {
+    display: inline-flex;
+    align-items: center;
+    padding-inline: var(--space-2);
+    block-size: 20px;
+    border-radius: var(--radius-pill);
+    font-size: 0.6875rem; /* 11px */
+    font-weight: var(--font-weight-semibold);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .operator-badge__role[data-role='cashier'] {
+    background-color: var(--color-info-soft);
+    color: var(--color-info);
+  }
+
+  .operator-badge__role[data-role='manager'] {
+    background-color: var(--color-primary-soft);
+    color: var(--color-primary);
+  }
+
+  .operator-badge__role[data-role='admin'] {
+    background-color: var(--color-warning-soft);
+    color: var(--color-warning);
+  }
+
+  /* === POS v3.5 prototype port (Phase 0 Task 1) — tender/account/held classes from docs/design/pos-v3.5/design-reference/kit.css === */
+  /*
+   * STYLE-ONLY port of class vocabulary that later tender-screen work needs.
+   * Rules copied verbatim from kit.css and token-mapped onto the production
+   * token set (no raw hex, no new token names). These are appended OUTSIDE
+   * `@layer components` deliberately — they are additive and must not be
+   * silently overridden by the layered rules above; existing rules are left
+   * untouched.
+   *
+   * Dark register: the prototype scoped a dark sheen under per-component
+   * dark-theme selectors (kit.css 1689-1699, e.g. method-card / tender-slots).
+   * Production's theme contract (ADR-0004) forbids any forked dark-component
+   * selector — theme-contract.test.ts fails on any dark-theme attribute
+   * followed by a class selector. The production dark register is token-VALUE
+   * only, so the base rules below already re-theme through the dark token
+   * values keyed on the root attribute. The prototype's gradient/box-shadow
+   * sheen forks are therefore INTENTIONALLY NOT ported. The unscoped selected
+   * card ring (kit.css 1745-1747) is folded into the base selected-card rule
+   * below.
+   */
+
+  /* ── Tender: stacked slot container ───────────────────────────────────── */
+  .tender-slots {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    overflow: hidden;
+    background: var(--color-surface);
+  }
+
+  /* ── Tender: credit-account selector rows ─────────────────────────────── */
+  .account-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-block-size: 56px;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-family: var(--font-family-sans);
+    text-align: start;
+    cursor: pointer;
+    transition:
+      background-color var(--duration-2) var(--ease-out),
+      border-color var(--duration-2) var(--ease-out);
+  }
+  .account-row:hover {
+    background: var(--color-surface-elevated);
+  }
+  .account-row--selected {
+    background: var(--color-primary-soft);
+    border-color: var(--color-primary);
+    box-shadow: inset 0 0 0 1px var(--color-primary);
+  }
+  .account-row:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent);
+  }
+  .account-row__avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 38px;
+    block-size: 38px;
+    border-radius: var(--radius-pill);
+    background: var(--color-surface-elevated);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-muted);
+    flex-shrink: 0;
+  }
+  .account-row__avatar svg,
+  .account-row__avatar [data-lucide] {
+    width: 18px;
+    height: 18px;
+  }
+  .account-row__main {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+  .account-row__name {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+  }
+  .account-row__meta {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+  }
+  .account-row__kind {
+    margin-inline-start: auto;
+    /* kit.css used the raw 0.6875rem literal; mapped to the existing token. */
+    font-size: var(--font-size-2xs);
+    font-weight: var(--font-weight-bold);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    flex-shrink: 0;
+  }
+  .account-row__kind--cover {
+    color: var(--color-primary);
+    background: var(--color-primary-soft);
+    border-radius: var(--radius-pill);
+    padding: 3px 10px;
+    font-weight: var(--font-weight-semibold);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Held sales (park & recall) tray + chips ──────────────────────────── */
+  .held-tray {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-block-end: 1px solid var(--color-border-soft);
+    background: var(--color-surface-sunken);
+    overflow-x: auto;
+  }
+  .held-tray__label {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-bold);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
+  .held-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-block-size: 36px;
+    padding-inline: var(--space-3);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    cursor: pointer;
+    white-space: nowrap;
+    transition:
+      border-color var(--duration-1) var(--ease-out),
+      background-color var(--duration-1) var(--ease-out);
+  }
+  .held-chip:hover {
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
+  }
+  .held-chip .mono {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+  }
+
+  /* === POS v3.5 Slice 4 — tender-screen visual recompose =====================
+   *
+   * ADDITIVE CSS block: classes from the v3.5 prototype (kit.css) that were not
+   * present in earlier slices. Rules are token-mapped — NO raw hex, NO new
+   * custom-property names. Token values re-theme through :root[data-theme='dark']
+   * (ADR-0004). NO dark-forked component selectors (theme-contract.test.ts
+   * forbids them). Classes already present above (.tender-slots, .method-card,
+   * .method-grid, .account-row, .tender-method-grid) are left as-is.
+   *
+   * Sources: kit.css lines 400-555 (tender screen section), token-mapped.
+   * =========================================================================*/
+
+  /* ── Amount-due card (kit.css 400-423) ─────────────────────────────────── */
+  .amount-due-card {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding: var(--space-4) var(--space-5);
+    background: var(--color-surface-sunken);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-inset);
+  }
+  .amount-due-card__label {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text-muted);
+  }
+  .amount-due-card__value {
+    font-family: var(--font-family-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 2rem;
+    font-weight: var(--font-weight-bold);
+    color: var(--color-text);
+    letter-spacing: -0.01em;
+  }
+
+  /* ── Tender rows (kit.css 461-473) ─────────────────────────────────────── */
+  /*
+   * .tender-slots is already defined above; these are the row-level classes.
+   */
+  .tender-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    min-height: 56px;
+    border-bottom: 1px solid var(--color-border-soft);
+  }
+  .tender-row:last-child {
+    border-bottom: none;
+  }
+  .tender-row--totals {
+    background: var(--color-surface-elevated);
+  }
+  .tender-row__label {
+    font-weight: var(--font-weight-semibold);
+    font-size: var(--font-size-sm);
+    color: var(--color-text);
+    min-width: 140px;
+  }
+  .tender-row__value {
+    margin-inline-start: auto;
+  }
+  .tender-row__body {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-sm);
+  }
+  /* Muted value modifier — used for deferred/informational amounts. */
+  .tender-row__value--muted {
+    color: var(--color-text-muted);
+  }
+  /* Deferred balance highlight (kit.css 608). */
+  .tender-row__value--deferred {
+    font-family: var(--font-family-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-bold);
+    color: var(--color-warning-emphasis);
+  }
+
+  /* ── Voucher-field wrapper (kit.css 511-524) ────────────────────────────── */
+  .voucher-field {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex: 1;
+  }
+  .voucher-field input {
+    flex: 1;
+    font-family: var(--font-family-mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    min-block-size: 44px;
+  }
+
+  /* ── Voucher applied indicator (kit.css 525-538) ────────────────────────── */
+  .voucher-applied {
+    font-family: var(--font-family-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-bold);
+    color: var(--color-success-emphasis);
+    white-space: nowrap;
+  }
+  .voucher-applied--ok {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 24px;
+    block-size: 24px;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--color-success) 16%, transparent);
+    color: var(--color-success-emphasis);
+    font-size: 0.8rem;
+  }
+
+  /* ── Voucher error + hint (kit.css 554-555) ────────────────────────────── */
+  .voucher-error {
+    font-size: var(--font-size-xs);
+    color: var(--color-danger);
+    margin: 4px 2px 0;
+  }
+  .voucher-hint {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+  }
+
+  /* ── v4 screen scaffold ──────────────────────────────────────────────────
+   * A screen is: an optional header band, then a column track region. Screens
+   * declare their track shape with a `--v4-cols` custom property rather than a
+   * bespoke per-screen grid class, so column geometry is data, not new CSS. */
+  /* ═══════════════════════════════════════════════════════════════════════════
+   * v4 LAYOUT LAYER — 022 hard reset, foundation slice.
+   *
+   * WHY THIS LAYER EXISTS
+   *
+   * The cascade correction (component-layer-discipline guard) fixed WHICH rules
+   * win. It did not retire the v3.5 vocabulary: 237 of the 333 live renderer
+   * classes are screen-geometry classes authored per-screen (`sign-in-route__*`,
+   * `payment-surface__*`, `cart-pane__*`). Deep BEM element classes hard-code
+   * geometry into each screen, so restyling them cannot change the layout — which
+   * is exactly why the incremental attempt read as "old POS with new colours".
+   *
+   * This layer supplies the missing piece: a SCREEN-AGNOSTIC layout vocabulary
+   * that rebuilt screens compose from, so geometry stops living in per-screen
+   * BEM. It adds NO colour tokens — the v4.0 palette (022 T023) already landed
+   * and is measured-contrast authoritative (see RECONCILIATION §C).
+   *
+   * LAYERED ON PURPOSE. Unlayered rules always beat layered ones regardless of
+   * specificity, which is the defect `component-layer-discipline.test.ts` exists
+   * to prevent. Everything here stays inside `@layer components`.
+   *
+   * RTL-NATIVE. Logical properties only (inline-start/end, margin-block,
+   * padding-inline). No left/right physical properties — the terminal is
+   * Arabic-first and `dir="rtl"` is set at the shell root.
+   * ═══════════════════════════════════════════════════════════════════════════ */
+
+  .v4-screen {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+    min-block-size: 100%;
+    padding: var(--space-5);
+    background: var(--color-background);
+  }
+
+  .v4-screen__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+  }
+
+  .v4-screen__title {
+    margin: 0;
+    font-size: var(--font-size-2xl);
+    font-weight: var(--font-weight-bold);
+    line-height: var(--line-height-tight);
+    color: var(--color-text);
+  }
+
+  .v4-screen__subtitle {
+    margin: var(--space-1) 0 0;
+    font-size: var(--font-size-sm);
+    line-height: var(--line-height-normal);
+    color: var(--color-text-muted);
+  }
+
+  /* Column region. `--v4-cols` defaults to a single track; screens override it.
+   * `align-items: start` keeps columns independently sized (a short rail must
+   * not stretch to a tall neighbour). */
+  .v4-columns {
+    display: grid;
+    grid-template-columns: var(--v4-cols, 1fr);
+    gap: var(--space-5);
+    align-items: start;
+    flex: 1;
+    min-block-size: 0;
+  }
+
+  /* Sign-in track shape: staff-code rail · roster (widest, primary choice) ·
+   * PIN column. The PIN track is fixed so selecting a cashier never reflows
+   * the columns beside it. Declared here rather than inline — the route file
+   * is held to a no-inline-style rule (v4-sign-in-presentation.test.ts).
+   *
+   * The PIN track has a HARD FLOOR of 306px, and it is arithmetic, not taste:
+   *
+   *   .pin-pad__grid   3 × 64px keys + 2 × 8px gaps  = 208px
+   *   .pin-pad         + 2 × 24px padding            =  48px
+   *   .v4-panel        + 2 × 24px padding + 2 × 1px border = 50px
+   *                                                   ───────
+   *                                                     306px
+   *
+   * Below that the keypad overflows its panel into the roster — destroying the
+   * persistent-PIN-column guarantee this fixed track exists to provide. The pad
+   * is NOT the place to absorb a shortfall: the 64px keys are a touch-target
+   * floor (147 assertions) and `.pin-pad` is shared, so shrinking it is a global
+   * regression to solve a screen-local layout problem. Widen the track instead.
+   *
+   * Enforced by v4-sign-in-track-fit.test.ts, which recomputes the 306px from
+   * these same tokens rather than hard-coding it — change a token and the guard
+   * re-derives the new floor. jsdom computes no layout, so no renderer test can
+   * see this class of break. */
+  .v4-columns--sign-in {
+    /* Track order is PAINT order, and under RTL the FIRST track paints at the
+     * RIGHT edge (handoff: "the first declared track paints on the right").
+     * The approved composition is rail-left · roster-centre · PIN-right, so
+     * the PIN's 312px track is declared FIRST and the rail's 320px LAST. */
+    --v4-cols: 312px 1fr 320px;
+  }
+
+  /* ── Sign-in region placement ────────────────────────────────────────────
+   * `<main>` carries `dir="rtl"`, so grid auto-placement would paint the first
+   * DOM child at the RIGHT edge and mirror the whole screen. The handoff warns
+   * about precisely this: "Do not rely on `dir=\"rtl\"` alone to mirror the
+   * page — it will produce the wrong column order."
+   *
+   * DOM order and paint order therefore disagree ON PURPOSE, each correct for
+   * its own axis:
+   *
+   *   DOM   — staff-code → roster → PIN   (task flow: choose a cashier, THEN
+   *                                        type the PIN; keyboard order)
+   *   PAINT — staff-code | roster | PIN    (handoff composition)
+   *
+   * Explicit placement is what lets both hold at once. This does NOT violate
+   * WCAG 2.4.3: that criterion requires focus order to preserve MEANING and
+   * operability, not to mirror visual order — and the DOM keeps the meaningful
+   * sequence. Reordering the DOM instead would put the PIN pad ahead of the
+   * roster in traversal, which inverts the task.
+   *
+   * Scoped to `--sign-in` by the child combinator: `.v4-columns` is the
+   * generic primitive and other screens must not inherit this placement.
+   *
+   * Enforced by v4-sign-in-track-fit.test.ts, which reads the track widths
+   * through these declarations rather than by list position — so the geometry
+   * guards keep measuring the right track if the composition ever changes. */
+  .v4-columns--sign-in > .v4-col--pin {
+    grid-column: 1;
+  }
+
+  .v4-columns--sign-in > .v4-col--roster {
+    grid-column: 2;
+  }
+
+  .v4-columns--sign-in > .v4-col--rail {
+    grid-column: 3;
+  }
+
+  /* Below ~1280px the fixed tracks starve the roster. Arithmetic at the 1024px
+   * viewport floor: 1024 − 48 (screen padding) − 48 (two gaps) − 568 (fixed
+   * tracks) = 360px for the `1fr` roster. That keeps the ordering the hierarchy
+   * requires — roster 360 > PIN 312 > rail 256 — because the roster carries the
+   * primary choice and must stay the widest track. Left at the full-width 320px
+   * rail the roster would drop to 308px and be out-sized by its own rail.
+   *
+   * The PIN track stays at its 306px floor (312px) here: it is the one track
+   * that CANNOT be narrowed to buy room, since the keypad inside it is fixed.
+   *
+   * This is why track shape is a custom property rather than bespoke CSS: the
+   * override is the one line that changes, and `/sign-in` mounts ABOVE `/app/*`
+   * so there is no nav rail competing for the same width. */
+  @media (max-width: 1279px) {
+    .v4-columns--sign-in {
+      /* PIN first (paints right-to-left under RTL), rail last — same order as
+       * the base rule. The PIN keeps its 306px floor; only the rail narrows. */
+      --v4-cols: 312px 1fr 256px;
+    }
+  }
+
+  /* ── v4 panel — the single surface primitive ─────────────────────────────
+   * Replaces per-screen pane/card/section geometry. One surface treatment, one
+   * radius, one shadow. Density is a modifier, not a new class family. */
+  .v4-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-5);
+    border: 1px solid var(--color-border, var(--color-surface-elevated));
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-card);
+  }
+
+  .v4-panel--flush {
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .v4-panel--quiet {
+    box-shadow: none;
+    background: var(--color-surface-elevated);
+  }
+
+  .v4-panel__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+
+  .v4-panel__title {
+    margin: 0;
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-snug);
+    color: var(--color-text);
+  }
+
+  .v4-panel__hint {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    line-height: var(--line-height-normal);
+    color: var(--color-text-muted);
+  }
+
+  .v4-panel__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .v4-panel__footer {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin-block-start: auto;
+    padding-block-start: var(--space-4);
+    border-block-start: 1px solid var(--color-border, var(--color-surface-elevated));
+  }
+
+  /* ── v4 stack / row — spacing without bespoke wrappers ───────────────── */
+  .v4-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  /* Wrong-PIN halo.
+   *
+   * Ported from the retired `.sign-in-route__pin-section[data-error]`: the
+   * rebuild deleted that rule while `data-error` stayed on the markup, so a
+   * refused PIN signalled nothing visually. The textual `role="alert"` is the
+   * accessible channel and is unchanged — this restores the NON-TEXTUAL one,
+   * which is what makes a refusal legible at arm's length on a terminal.
+   *
+   * On `.v4-stack` rather than a per-screen class so the treatment travels
+   * with the vocabulary instead of dying with the next rebuild. Padding and
+   * the negative inline margin keep the halo clear of the content without
+   * shifting it, so a refusal never reflows the keypad beneath.
+   *
+   * Enforced by v4-rebuild-vocabulary.test.ts, which fails when a screen sets
+   * a `data-*` state no stylesheet rule answers. */
+  .v4-stack[data-error] {
+    border-radius: var(--radius-card);
+    box-shadow: 0 0 0 2px var(--color-danger);
+    padding-inline: var(--space-3);
+    margin-inline: calc(var(--space-3) * -1);
+  }
+
+  .v4-stack--tight {
+    gap: var(--space-2);
+  }
+
+  .v4-stack--loose {
+    gap: var(--space-5);
+  }
+
+  /* ── v4 definition row — label/value pairs (summaries, totals) ──────────
+   * The reference's summary panels are label/value rows, not tables. Money and
+   * identifiers re-isolate to LTR inside the value slot via `.v4-def__value--ltr`
+   * so Arabic labels and Latin figures never reorder each other. */
+  .v4-def {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-4);
+    font-size: var(--font-size-sm);
+    line-height: var(--line-height-normal);
+  }
+
+  .v4-def__label {
+    color: var(--color-text-muted);
+  }
+
+  .v4-def__value {
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text);
+    text-align: end;
+  }
+
+  .v4-def__value--ltr {
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+
+  /* ── v4 stepper — numbered progress (reference sign-in / checkout) ──────
+   * Presentation only. It reflects flow position; it never gates navigation. */
+  .v4-stepper {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .v4-stepper__step {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+  }
+
+  .v4-stepper__mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 26px;
+    block-size: 26px;
+    border-radius: var(--radius-pill);
+    background: var(--color-surface-elevated);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .v4-stepper__step[aria-current] .v4-stepper__mark {
+    background: var(--color-primary);
+    color: var(--color-primary-on);
+  }
+
+  .v4-stepper__step[aria-current] {
+    color: var(--color-text);
+    font-weight: var(--font-weight-semibold);
+  }
+
+  .v4-stepper__rule {
+    inline-size: var(--space-6);
+    block-size: 1px;
+    background: var(--color-border, var(--color-surface-elevated));
+  }
+
+  /* ── v4 field — form control geometry ───────────────────────────────── */
+  .v4-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .v4-field__label {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--color-text);
+  }
+
+  .v4-field__hint {
+    font-size: var(--font-size-xs);
+    line-height: var(--line-height-normal);
+    color: var(--color-text-muted);
+  }
+
+  /* Field controls. Ported from the retired `.sign-in-form__field input` rules
+   * so the v4 field carries the same WCAG 1.4.11 control boundary and focus
+   * treatment — but at 44px, not the old 40px, to meet the touch-target NFR.
+   * Scoped to the wrapper so it styles any control a field holds. */
+  .v4-field label {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--color-text);
+  }
+
+  .v4-field input,
+  .v4-field select {
+    block-size: 44px;
+    inline-size: 100%;
+    padding-inline: var(--space-3);
+    background-color: var(--color-surface-elevated);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-control);
+    color: var(--color-text);
+    font-size: var(--font-size-md);
+    outline: none;
+    transition:
+      border-color var(--duration-2) var(--ease-out),
+      box-shadow var(--duration-2) var(--ease-out);
+  }
+
+  .v4-field input:focus,
+  .v4-field select:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+  }
+
+  .v4-field input:disabled,
+  .v4-field select:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    background-color: var(--color-surface-muted);
+  }
+
+  /* ── v4 selectable row — roster entries, list choices ───────────────────
+   * 44px min touch target (NFR). Selection is a filled tint plus a check mark,
+   * never colour alone — colour is not the sole carrier of state (WCAG 1.4.1). */
+  .v4-choice {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    inline-size: 100%;
+    min-block-size: 56px;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-border, var(--color-surface-elevated));
+    border-radius: var(--radius-control);
+    background: var(--color-surface);
+    color: var(--color-text);
+    text-align: start;
+    cursor: pointer;
+  }
+
+  .v4-choice:hover:not(:disabled) {
+    background: var(--color-surface-elevated);
+  }
+
+  .v4-choice[data-selected='true'] {
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
+  }
+
+  .v4-choice:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  .v4-choice__mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 24px;
+    block-size: 24px;
+    flex: none;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border, var(--color-text-muted));
+    color: transparent;
+    font-size: var(--font-size-xs);
+  }
+
+  .v4-choice[data-selected='true'] .v4-choice__mark {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+    color: var(--color-primary-on);
+  }
+
+  .v4-choice__body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-inline-size: 0;
+    flex: 1;
+  }
+
+  .v4-choice__title {
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-snug);
+  }
+
+  .v4-choice__meta {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+  }
+
+  /* ── v4 live region — one slot, one message (alert XOR spinner) ─────────
+   * Reserves its box so a refusal appearing never reflows the surface beneath
+   * it. Truthfulness invariant: the screen shows progress OR outcome, never both. */
+  .v4-feedback {
+    min-block-size: var(--space-5);
+    font-size: var(--font-size-sm);
+    line-height: var(--line-height-normal);
+    color: var(--color-text-muted);
+  }
+
+  .v4-feedback__error {
+    color: var(--color-danger-emphasis);
+    font-weight: var(--font-weight-medium);
+  }
+}

@@ -1,0 +1,331 @@
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { describe, it, expect } from 'vitest';
+
+/**
+ * 022 hard reset — per-screen rebuild vocabulary guard.
+ *
+ * ── WHAT THIS DEFENDS ─────────────────────────────────────────────────────
+ *
+ * `component-layer-discipline.test.ts` fixed WHICH rules win the cascade. It
+ * did not retire the v3.5 vocabulary, and that distinction is the whole reason
+ * the incremental attempt still read as "old POS with new colours":
+ *
+ *   - 333 of the renderer's live classes are defined in `tailwind.css`.
+ *   - Only ~96 are shared primitives (`btn`, `panel`, `input-field`, …).
+ *   - ~237 are per-screen geometry classes (`sign-in-route__*`,
+ *     `payment-surface__*`, `cart-pane__*`) authored one screen at a time.
+ *
+ * Deep BEM element classes hard-code geometry INTO the screen. Restyling
+ * `.sign-in-route__pin-section` cannot change where the PIN pad sits, because
+ * its position is the class's reason to exist. So a screen is only genuinely
+ * rebuilt once it stops naming that vocabulary at all and composes from the
+ * shared `.v4-*` layout layer instead.
+ *
+ * ── WHY A GUARD AND NOT JUST A SCREENSHOT ─────────────────────────────────
+ *
+ * Visual acceptance for this feature is a MANUAL owner capture (the repo has
+ * no Playwright/Puppeteer and `screenshots/README.md` forbids adding one), so
+ * nothing in CI can see the rendered pixels. This guard is the mechanical half:
+ * it cannot prove a screen looks right, but it CAN prove the old geometry is
+ * gone and did not creep back. Those are different claims and this file only
+ * makes the second one.
+ *
+ * ── WHAT THIS DELIBERATELY DOES NOT FORBID ────────────────────────────────
+ *
+ * Component-level primitives survive on purpose. `.pin-pad__*` and
+ * `.roster-list__*` are pinned BY NAME with accessibility requirements in
+ * `ui/operator/__tests__/v4-sign-in-presentation.test.ts`, and `PinPad` carries
+ * the PR-1 guarantee that PIN digits never enter the DOM. Deleting those to
+ * chase a zero-legacy-class score would destroy working, security-relevant
+ * components to satisfy a metric. The target is SCREEN GEOMETRY, not every
+ * class a screen happens to touch.
+ */
+
+const ROOT = resolve(__dirname, '../../');
+const CSS = readFileSync(resolve(ROOT, 'styles/tailwind.css'), 'utf-8');
+
+/**
+ * Screens rebuilt onto the v4 layout vocabulary, with the screen-geometry
+ * class prefixes each one retired. Add a row when a screen is rebuilt; the
+ * remaining screens are tracked as outstanding in the slice report, not here
+ * (a guard that asserts unfinished work fails for the wrong reason).
+ */
+const REBUILT_SCREENS: ReadonlyArray<{
+  readonly screen: string;
+  readonly file: string;
+  readonly retired: ReadonlyArray<string>;
+  /**
+   * The retired prefix is still defined in `tailwind.css` because other,
+   * not-yet-moved screens share it. The orphan-rule check is then skipped for
+   * this row; the stylesheet rule is deleted with the last screen that uses it.
+   */
+  readonly sharedRulesRemain?: boolean;
+}> = [
+  {
+    screen: 'sign-in',
+    file: 'routes/sign-in.tsx',
+    retired: ['sign-in-route', 'sign-in-pane', 'sign-in-split'],
+  },
+  {
+    // Renders INSIDE the rebuilt sign-in screen, so it is part of that screen's
+    // surface. Listing it separately keeps the guard honest: a v4 shell wrapping
+    // a v3.5 form is not a rebuilt screen, and omitting this row would have let
+    // the guard report sign-in clean while `.sign-in-form__*` still composed it.
+    screen: 'sign-in › manager/admin form',
+    file: 'ui/operator/ManagerAdminSignInForm.tsx',
+    retired: ['sign-in-form'],
+  },
+  // RT-244 PR2: pairing and Ready moved onto the v5 entry card.
+  {
+    screen: 'pairing',
+    file: 'routes/pairing/PairingScreen.tsx',
+    retired: ['pairing-screen'],
+  },
+  {
+    screen: 'pairing › code form',
+    file: 'routes/pairing/PairingForm.tsx',
+    retired: ['pairing-form', 'pairing-screen'],
+  },
+  {
+    screen: 'Ready',
+    file: 'routes/paired/PairedScreen.tsx',
+    retired: ['paired-screen'],
+  },
+  // RT-501 (VN-S10 S10-4): Returns moved off the legacy `Workspace` wrapper into
+  // the V5 frame (`ScreenSection`). RT-504 (S10-Z) deleted `.workspace*` from
+  // tailwind.css, so the orphan-rule check now runs for this row.
+  {
+    screen: 'returns',
+    file: 'returns/ReturnsRoute.tsx',
+    retired: ['workspace'],
+  },
+  // RT-500 (VN-S10 S10-3): the Sales lookup moved onto the G-6 references.
+  {
+    screen: 'Sales lookup',
+    file: 'routes/app/SalesWorkspace.tsx',
+    retired: ['placeholder-pane'],
+  },
+  // Its own retired prefix has no rule left in tailwind.css, so the orphan check stays on.
+  {
+    screen: 'Sales lookup › reprint',
+    file: 'v5/manager/sales/ReprintAffordance.tsx',
+    retired: ['receipt-reprint'],
+  },
+  // RT-499 (VN-S10 S10-2): the dashboard became the G-6 manager home; the v3.5
+  // skeleton, its workspace header and the demo stat strip are gone.
+  {
+    screen: 'dashboard (manager home)',
+    file: 'routes/app/DashboardRoute.tsx',
+    retired: [
+      'dashboard-card',
+      'dashboard-skeleton',
+      'dashboard-demo-banner',
+      'ws-head',
+      'stat-strip',
+    ],
+  },
+  // RT-502 (VN-S10 S10-5): stuck shifts and forced close. The entry,
+  // `StuckShiftSurface` in `ui/operator/ForcedCloseSurface.tsx`, keeps the state
+  // and the bridge calls and renders these two v5 files. The old markup was
+  // unstyled (bare divs, a role="button" card, no class at all), so there is no
+  // screen-geometry prefix to retire: `retired` is honestly empty, and the rows
+  // pin that the screen and its dialog now compose from the v5 vocabulary.
+  {
+    screen: 'manager › stuck shifts',
+    file: 'v5/manager/stuck-shifts/StuckShiftsScreen.tsx',
+    retired: [],
+  },
+  {
+    screen: 'manager › stuck shifts › forced-close dialog',
+    file: 'v5/manager/stuck-shifts/ForcedCloseDialog.tsx',
+    retired: [],
+  },
+  // RT-503 (VN-S10 S10-6): the honest manager pages moved onto the v5 frame.
+  // They were the last users of `placeholder-pane`, so its rules are deleted.
+  {
+    screen: 'audit',
+    file: 'routes/app/AuditPlaceholder.tsx',
+    retired: ['placeholder-pane'],
+  },
+  {
+    screen: 'inventory',
+    file: 'routes/app/InventoryPlaceholder.tsx',
+    retired: ['placeholder-pane'],
+  },
+  {
+    screen: 'catalogue diagnostics',
+    file: 'routes/app/CatalogueDiagnostics.tsx',
+    retired: ['catalogue-diagnostics', 'diagnostics-section', 'diagnostics-badge'],
+  },
+  {
+    screen: 'settings',
+    file: 'routes/app/SettingsHelpPlaceholder.tsx',
+    retired: ['settings-section', 'settings-skeleton'],
+  },
+  {
+    screen: 'checkout (payments off)',
+    file: 'routes/app/checkout/CheckoutPlaceholder.tsx',
+    retired: ['checkout-placeholder', 'reserved-slot'],
+  },
+];
+
+/** Strip block comments so prose naming a retired class is not a violation. */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+}
+
+/**
+ * A screen composes from the shared layer either by naming a `.v4-*` / `.v5-*`
+ * class itself or by rendering a v5 foundation component (e.g. `ScreenSection`).
+ */
+function importsV5Foundation(source: string): boolean {
+  return /from\s+'(?:\.\.?\/)+v5\/foundation\//.test(stripComments(source));
+}
+
+/** Every class token appearing in a `className="..."` literal. */
+function classNamesIn(source: string): ReadonlySet<string> {
+  const found = new Set<string>();
+  for (const match of stripComments(source).matchAll(/className="([^"]+)"/g)) {
+    for (const token of (match[1] ?? '').split(/\s+/)) {
+      if (token.length > 0) found.add(token);
+    }
+  }
+  return found;
+}
+
+describe('022 hard reset — rebuilt screens use the v4 vocabulary', () => {
+  for (const { screen, file, retired, sharedRulesRemain } of REBUILT_SCREENS) {
+    describe(screen, () => {
+      const path = resolve(ROOT, file);
+
+      it('the screen source exists', () => {
+        expect(existsSync(path), `${file} not found`).toBe(true);
+      });
+
+      it('names no retired screen-geometry class in its markup', () => {
+        const used = classNamesIn(readFileSync(path, 'utf-8'));
+        const violations = [...used].filter((cls) =>
+          retired.some((prefix) => cls === prefix || cls.startsWith(`${prefix}__`)),
+        );
+        expect(
+          violations,
+          `${file} still composes from retired v3.5 geometry: ${violations.join(', ')}.\n` +
+            'Compose from the shared `.v4-*` layout layer instead — restyling a ' +
+            'per-screen BEM class cannot change the layout it encodes.',
+        ).toEqual([]);
+      });
+
+      // RT-244 (VNext W1-D): sign-in moved on from the v4 layer to the v5
+      // vocabulary (`.v5-entry*`), which supersedes it. Either shared layer
+      // counts; a per-screen BEM class still does not.
+      it('composes from a shared layout layer (v4 or its v5 successor)', () => {
+        const used = classNamesIn(readFileSync(path, 'utf-8'));
+        const shared = [...used].filter((cls) => cls.startsWith('v4-') || cls.startsWith('v5-'));
+        const viaFoundation = importsV5Foundation(readFileSync(path, 'utf-8'));
+        expect(
+          shared.length > 0 || viaFoundation,
+          `${file} references no \`.v4-*\` or \`.v5-*\` class and renders no v5 foundation ` +
+            'component, so it is not rebuilt onto a shared layout vocabulary.',
+        ).toBe(true);
+      });
+
+      it.skipIf(sharedRulesRemain === true)(
+        'leaves no orphan rules for the retired classes in the stylesheet',
+        () => {
+          const orphans = retired.filter((prefix) =>
+            new RegExp(`^\\s*\\.${prefix}(__[a-z-]+)?[\\s,{:]`, 'm').test(stripComments(CSS)),
+          );
+          expect(
+            orphans,
+            `tailwind.css still defines retired geometry: ${orphans.join(', ')}.\n` +
+              'Dead screen CSS is how a superseded layout returns — delete it with the screen.',
+          ).toEqual([]);
+        },
+      );
+    });
+  }
+});
+
+describe('022 hard reset — the v4 layout layer is present and layered', () => {
+  it('defines the core v4 layout primitives', () => {
+    for (const cls of ['.v4-screen', '.v4-columns', '.v4-panel', '.v4-stack', '.v4-choice']) {
+      expect(CSS, `${cls} is missing from the stylesheet`).toContain(`${cls} {`);
+    }
+  });
+
+  it('declares v4 geometry with logical properties, not physical ones', () => {
+    // RTL-native: the terminal is Arabic-first. A physical `left`/`right` in the
+    // layout layer would silently mirror wrong under `dir="rtl"`.
+    const layer = CSS.slice(CSS.indexOf('.v4-screen {'));
+    const physical = layer.match(/^\s*(margin|padding|border)-(left|right)\s*:/gm) ?? [];
+    expect(
+      physical,
+      `v4 layout layer uses physical direction properties: ${physical.join(', ')}`,
+    ).toEqual([]);
+  });
+
+  it('resolves v4 colour through tokens, never raw literals', () => {
+    const layer = CSS.slice(CSS.indexOf('.v4-screen {'));
+    const literals = layer.match(/:\s*#[0-9a-fA-F]{3,8}\b/g) ?? [];
+    expect(literals, `v4 layout layer pins raw colour literals: ${literals.join(', ')}`).toEqual(
+      [],
+    );
+  });
+
+  /**
+   * ── A STATE ATTRIBUTE MUST HAVE A STYLE THAT ANSWERS IT ─────────────────
+   *
+   * A rebuild retires per-screen BEM classes, and a state selector written
+   * against a retired class dies with it while the attribute that triggers it
+   * survives in the markup. The result is a state the code believes it is
+   * signalling and the operator never sees.
+   *
+   * That happened here: the rebuild deleted
+   * `.sign-in-route__pin-section[data-error]` — the wrong-PIN halo — while
+   * `data-error` stayed on the rebuilt PIN container, so a refused PIN styled
+   * nothing. A dangling attribute is worse than no attribute, because it reads
+   * as working state to the next reader.
+   *
+   * Cheap, general invariant: every `data-*` STATE attribute set in a rebuilt
+   * screen's markup must be answered by at least one attribute selector in the
+   * stylesheet. `data-testid` is excluded (test seam, never styled), as are
+   * attributes consumed as props rather than as CSS state.
+   */
+  it('answers every state attribute the rebuilt screens set', () => {
+    /**
+     * Attributes that are data, not style state.
+     *
+     * `data-testid` is a test seam. `data-category` marks WHICH refusal
+     * occurred for tests and telemetry — the element already carries
+     * `.v4-feedback__error` for its treatment, and the categories are
+     * deliberately styled alike (a refusal reads the same however it arose).
+     * Both are exposed for reading, never for selecting.
+     */
+    const IGNORED = new Set(['data-testid', 'data-theme', 'data-category']);
+    const unanswered: string[] = [];
+
+    for (const { screen, file } of REBUILT_SCREENS) {
+      const source = readFileSync(resolve(ROOT, file), 'utf-8');
+      const attributes = new Set(source.match(/\bdata-[a-z][a-z0-9-]*(?==)/g) ?? []);
+      for (const attribute of attributes) {
+        if (IGNORED.has(attribute)) continue;
+        // Comments are stripped first: the prose explaining a state selector
+        // must not count as the selector. (Caught by negative-testing this
+        // guard — it passed against a stylesheet whose rule had been renamed,
+        // because the comment above the rule still named the attribute.)
+        if (!stripComments(CSS).includes(`[${attribute}`)) {
+          unanswered.push(`${screen}: ${attribute}`);
+        }
+      }
+    }
+
+    expect(
+      unanswered,
+      'State attributes are set in markup but no stylesheet rule selects them.\n\n' +
+        'Each is a state the screen believes it signals and the operator never sees —\n' +
+        'usually a state selector that died with a retired per-screen class.\n\n' +
+        `${unanswered.join('\n')}\n`,
+    ).toEqual([]);
+  });
+});

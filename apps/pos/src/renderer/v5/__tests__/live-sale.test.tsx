@@ -1,0 +1,722 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
+import type { JSX } from 'react';
+import '@testing-library/jest-dom/vitest';
+import type { CartBridgeAPI, CatalogueBridgeAPI } from '../../../shared/bridge-api';
+import type { ProductSnapshotDisplay } from '../../../shared/catalogue/product-snapshot';
+import { useCartStore } from '../../stores/cart-store';
+import { installCartStoreSignOutHook } from '../../stores/cart-signout-hook';
+import { useCatalogueSearchStore } from '../../stores/catalogueSearchStore';
+import { useFeatureFlagsStore } from '../../stores/feature-flags-store';
+import { useOperatorSessionStore } from '../../stores/operator-session-store';
+import { usePaymentStore } from '../../stores/payment-store';
+import { useScanNoticeStore } from '../../scan/scan-notice-store';
+import { SALE_ADD_FAILED_MESSAGE } from '../../scan/scan-messages';
+import { LiveSaleWorkspace } from '../sale/LiveSaleWorkspace';
+import { expectNoAxeViolations } from '../../test-utils/axe-config';
+
+afterEach(() => {
+  cleanup();
+  useCartStore.getState().reset();
+  useCatalogueSearchStore.getState().reset();
+  useFeatureFlagsStore.getState().reset();
+  useOperatorSessionStore.getState().reset();
+  usePaymentStore.getState().reset();
+  useScanNoticeStore.setState({ message: null, seq: 0 });
+});
+
+type Role = 'cashier' | 'manager' | 'admin';
+
+const PANADOL: ProductSnapshotDisplay = {
+  product_id: 'p-1',
+  display_name_ar: 'بنادول',
+  price_minor: 1500,
+  active: true,
+  controlled_substance: false,
+  prescription_required: false,
+};
+
+const ENVELOPE = {
+  envelope_version: 'v1' as const,
+  cart_id: 'cart-1',
+  operator_session_id: 'session-1',
+  owning_operator_id: 'op-1',
+  tenant_id: 'tenant-1',
+  branch_id: 'branch-1',
+  terminal_id: 'terminal-1',
+  lines: [],
+  discount_placeholders: [],
+  subtotal_minor: 1500,
+  created_at: '2026-09-23T20:00:00Z',
+  handoff_action_id: 'handoff-1',
+};
+
+function signIn(role: Role = 'cashier'): void {
+  useFeatureFlagsStore.setState({ cart: true, productSearch: true, payments: true });
+  useOperatorSessionStore.getState().hydrateSignedIn({
+    id: 'session-1',
+    operator_id: 'op-1',
+    display_name: 'صيدلي',
+    role,
+    tenant_id: 'tenant-1',
+    branch_id: 'branch-1',
+    started_at: '2026-09-23T20:00:00Z',
+  });
+}
+
+function makeBridges(): {
+  cart: CartBridgeAPI;
+  catalogue: CatalogueBridgeAPI;
+  fns: {
+    create: ReturnType<typeof vi.fn>;
+    add: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
+    remove: ReturnType<typeof vi.fn>;
+    setNote: ReturnType<typeof vi.fn>;
+    voidCart: ReturnType<typeof vi.fn>;
+    handoff: ReturnType<typeof vi.fn>;
+    search: ReturnType<typeof vi.fn>;
+    lookupBarcode: ReturnType<typeof vi.fn>;
+    refresh: ReturnType<typeof vi.fn>;
+  };
+} {
+  const fns = {
+    create: vi.fn().mockResolvedValue({ kind: 'ok', cart_id: 'cart-1' }),
+    add: vi.fn().mockResolvedValue({
+      kind: 'ok',
+      line_id: 'line-1',
+      merged: false,
+      version: 1,
+      display_name: 'بنادول',
+      unit_price_minor: 1500,
+      line_subtotal_minor: 1500,
+      quantity: 1,
+    }),
+    update: vi.fn(),
+    remove: vi.fn().mockResolvedValue({ kind: 'ok' }),
+    setNote: vi.fn().mockResolvedValue({ kind: 'ok', version: 2 }),
+    voidCart: vi.fn().mockResolvedValue({ kind: 'ok' }),
+    handoff: vi.fn().mockResolvedValue({ kind: 'ok', envelope: ENVELOPE }),
+    search: vi.fn(),
+    lookupBarcode: vi.fn().mockResolvedValue({ kind: 'one', product: PANADOL }),
+    refresh: vi.fn().mockResolvedValue({ kind: 'refused', reason: 'no_session' }),
+  };
+  const cart = {
+    create: fns.create,
+    lines: { add: fns.add, update: fns.update, remove: fns.remove, setNote: fns.setNote },
+    discountPlaceholders: { add: vi.fn(), remove: vi.fn() },
+    void: fns.voidCart,
+    handoff: fns.handoff,
+    subscribe: vi.fn(),
+    undoLast: vi.fn(),
+  } as unknown as CartBridgeAPI;
+  const catalogue = {
+    search: fns.search,
+    lookupBarcode: fns.lookupBarcode,
+    lookupSku: vi.fn(),
+    resolve: vi.fn(),
+    freshness: vi.fn().mockResolvedValue({ kind: 'ok', last_success_at: null, is_empty: true }),
+    refresh: fns.refresh,
+    counts: vi.fn(),
+  } as unknown as CatalogueBridgeAPI;
+  return { cart, catalogue, fns };
+}
+
+function renderSale(bridges: ReturnType<typeof makeBridges>, onPaymentContinue = vi.fn()): void {
+  render(
+    <LiveSaleWorkspace
+      cartBridge={bridges.cart}
+      catalogueBridge={bridges.catalogue}
+      onPaymentContinue={onPaymentContinue}
+    />,
+  );
+}
+
+async function scan(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  // No cart precondition: the first add creates it (#466).
+  const field = screen.getByRole('textbox', { name: 'حقل التقاط مسح الباركود' });
+  await user.type(field, '6223004355218{Enter}');
+}
+
+/** D-C1: a resolved scan adds at once, with no confirm dialog. */
+async function addOneLine(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  await scan(user);
+  await screen.findByRole('list', { name: 'أصناف السلة' });
+}
+
+describe('live v5 Sale adapter', () => {
+  it('scans (direct add), hands off, then mounts the existing payment envelope', async () => {
+    signIn();
+    const bridges = makeBridges();
+    const onPaymentContinue = vi.fn();
+    renderSale(bridges, onPaymentContinue);
+    const user = userEvent.setup();
+    await scan(user);
+    await waitFor(() => {
+      expect(screen.getAllByText('15.00 EGP').length).toBeGreaterThan(0);
+    });
+    await user.click(screen.getByRole('button', { name: /تسليم السلة/ }));
+    await waitFor(() => {
+      expect(bridges.fns.handoff).toHaveBeenCalledOnce();
+    });
+    await user.click(screen.getByRole('button', { name: /المتابعة إلى الدفع/ }));
+    expect(onPaymentContinue).toHaveBeenCalledOnce();
+    expect(usePaymentStore.getState().envelope).toEqual(ENVELOPE);
+  });
+
+  // RT-258 / UX-12: a noun-first dense counter, so no noun inflection to get wrong.
+  it('shows the cart counter noun-first with Western digits (RT-258)', async () => {
+    signIn();
+    const bridges = makeBridges();
+    renderSale(bridges, vi.fn());
+    const user = userEvent.setup();
+    await addOneLine(user);
+    expect(screen.getByText('الأصناف: 1 · الوحدات: 1')).toBeInTheDocument();
+  });
+
+  it('does not call business bridges before session and feature gates', () => {
+    const create = vi.fn();
+    const cart = { create } as unknown as CartBridgeAPI;
+    const catalogue = { freshness: vi.fn() } as unknown as CatalogueBridgeAPI;
+    const view = (): JSX.Element => (
+      <LiveSaleWorkspace
+        cartBridge={cart}
+        catalogueBridge={catalogue}
+        onPaymentContinue={vi.fn()}
+      />
+    );
+    const { rerender } = render(view());
+    expect(create).not.toHaveBeenCalled();
+    useOperatorSessionStore.getState().hydrateSignedIn({
+      id: 'session-1',
+      operator_id: 'op-1',
+      display_name: 'صيدلي',
+      role: 'cashier',
+      tenant_id: 'tenant-1',
+      branch_id: 'branch-1',
+      started_at: '2026-09-23T20:00:00Z',
+    });
+    rerender(view());
+    expect(create).not.toHaveBeenCalled();
+    useFeatureFlagsStore.setState({ cart: true, productSearch: false });
+    rerender(view());
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('keeps the cart visible without the product rail when product search is off (legacy parity)', () => {
+    signIn();
+    useFeatureFlagsStore.setState({ productSearch: false });
+    const bridges = makeBridges();
+    renderSale(bridges);
+    expect(screen.getByRole('heading', { name: 'سلة المشتريات' })).toBeInTheDocument();
+    expect(screen.getByText(/لا توجد أصناف في السلة/)).toBeInTheDocument();
+    expect(
+      screen.queryByRole('searchbox', { name: 'البحث بالاسم أو الباركود' }),
+    ).not.toBeInTheDocument();
+    expect(bridges.fns.create).not.toHaveBeenCalled();
+  });
+
+  it('a scan with no cart yet creates the cart, then adds (#466)', async () => {
+    signIn();
+    const bridges = makeBridges();
+    renderSale(bridges);
+    expect(bridges.fns.create).not.toHaveBeenCalled();
+    await scan(userEvent.setup());
+    await waitFor(() => {
+      expect(bridges.fns.add).toHaveBeenCalledWith(expect.objectContaining({ cart_id: 'cart-1' }));
+    });
+    expect(bridges.fns.create).toHaveBeenCalledOnce();
+  });
+
+  it('a refused cart create leaves the cashier a working retry, not a dead workspace (#466)', async () => {
+    signIn();
+    const bridges = makeBridges();
+    bridges.fns.create
+      .mockResolvedValueOnce({ kind: 'refused', reason: 'no_session' })
+      .mockResolvedValueOnce({ kind: 'ok', cart_id: 'cart-1' });
+    renderSale(bridges);
+    const user = userEvent.setup();
+    await scan(user);
+    await waitFor(() => {
+      expect(useScanNoticeStore.getState().message).toBe(SALE_ADD_FAILED_MESSAGE);
+    });
+    expect(bridges.fns.add).not.toHaveBeenCalled();
+    expect(screen.queryByText(/no_session/)).not.toBeInTheDocument();
+    await scan(user);
+    await waitFor(() => {
+      expect(bridges.fns.add).toHaveBeenCalledWith(expect.objectContaining({ cart_id: 'cart-1' }));
+    });
+    expect(bridges.fns.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('starts with an honest empty search and no static demo products or totals', async () => {
+    signIn();
+    const bridges = makeBridges();
+    renderSale(bridges);
+    await screen.findByText(/لم يُنزّل الكتالوج بعد/);
+    expect(bridges.fns.create).not.toHaveBeenCalled();
+    expect(screen.queryByText('بنادول أدفانس 500 مجم أقراص')).not.toBeInTheDocument();
+    expect(screen.getByText(/لم يُنزّل الكتالوج بعد/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /تسليم السلة/ })).toBeDisabled();
+    expect(screen.getByText(/لا توجد أصناف في السلة/)).toBeInTheDocument();
+    act(() => {
+      useCatalogueSearchStore.getState().beginSearch('بنادول');
+    });
+    expect(screen.getByText(/جارٍ البحث/)).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: /تحديث الكتالوج/ }));
+    await waitFor(() => {
+      expect(bridges.fns.refresh).toHaveBeenCalledOnce();
+    });
+    expect(screen.queryByText(/no_session/)).not.toBeInTheDocument();
+  });
+
+  it('a scan adds with no dialog and focus stays on the scan owner (D-C1)', async () => {
+    signIn();
+    const bridges = makeBridges();
+    renderSale(bridges);
+    await addOneLine(userEvent.setup());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(bridges.fns.add).toHaveBeenCalledWith(
+      expect.objectContaining({ item_ref: PANADOL.product_id, quantity: 1 }),
+    );
+    // RT-239 rule 6: the next scan is the next thing the cashier does, so focus
+    // stays on the scan owner, not the search box (RT-159 F-07).
+    expect(document.activeElement).toBe(
+      screen.getByRole('textbox', { name: 'حقل التقاط مسح الباركود' }),
+    );
+  });
+
+  it('typed search lists only real result fields; a keyboard pick adds that result directly', async () => {
+    signIn();
+    const bridges = makeBridges();
+    const full: ProductSnapshotDisplay = {
+      ...PANADOL,
+      display_name_en: 'Panadol',
+      unit_pack_label: '×20',
+      selling_barcode: '6223004355218',
+      sku: 'SKU-1',
+    };
+    const bare: ProductSnapshotDisplay = {
+      ...PANADOL,
+      product_id: 'p-2',
+      display_name_ar: 'بنادول نايت',
+      price_minor: 2250,
+    };
+    bridges.fns.search.mockResolvedValue({
+      kind: 'results',
+      items: [full, bare],
+      truncated: false,
+    });
+    renderSale(bridges);
+    const user = userEvent.setup();
+    await user.type(screen.getByRole('searchbox', { name: 'البحث بالاسم أو الباركود' }), 'بنا');
+    const listbox = await screen.findByRole('listbox', { name: 'نتائج البحث' });
+    expect(bridges.fns.search).toHaveBeenLastCalledWith({ query: 'بنا' });
+    const [first, second] = within(listbox).getAllByRole('option');
+    expect(first).toHaveTextContent('Panadol');
+    expect(first?.querySelectorAll('bdi')).toHaveLength(2);
+    expect(second?.querySelectorAll('bdi')).toHaveLength(0);
+    expect(second?.querySelector('.v5-sale-product-meta')).toBeNull();
+    expect(second).toHaveTextContent('22.50 EGP');
+    act(() => {
+      listbox.focus();
+    });
+    await user.keyboard('{ArrowDown}{Enter}');
+    await waitFor(() => {
+      expect(bridges.fns.add).toHaveBeenCalledWith(
+        expect.objectContaining({ item_ref: 'p-2', quantity: 1 }),
+      );
+    });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('listbox', { name: 'نتائج البحث' })).not.toBeInTheDocument();
+  });
+
+  it('shows a generic add refusal and keeps the cart empty', async () => {
+    signIn();
+    const bridges = makeBridges();
+    bridges.fns.add.mockResolvedValue({ kind: 'refused', reason: 'stale_version' });
+    renderSale(bridges);
+    await scan(userEvent.setup());
+    await waitFor(() => {
+      expect(useScanNoticeStore.getState().message).toBe(SALE_ADD_FAILED_MESSAGE);
+    });
+    expect(screen.queryByText(/stale_version/)).not.toBeInTheDocument();
+    expect(screen.getByText(/لا توجد أصناف في السلة/)).toBeInTheDocument();
+  });
+
+  it('applies only bridge-confirmed quantity changes with the current line version', async () => {
+    signIn();
+    const bridges = makeBridges();
+    bridges.fns.update
+      .mockResolvedValueOnce({ kind: 'ok', version: 2 })
+      .mockResolvedValueOnce({ kind: 'refused', reason: 'stale_version' });
+    renderSale(bridges);
+    const user = userEvent.setup();
+    await addOneLine(user);
+    await user.click(screen.getByRole('button', { name: 'زيادة كمية بنادول' }));
+    await waitFor(() => {
+      expect(screen.getByLabelText('الكمية 2')).toBeInTheDocument();
+    });
+    expect(bridges.fns.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({ line_id: 'line-1', op: 'increment', version: 1 }),
+    );
+    expect(screen.getAllByText('30.00 EGP').length).toBeGreaterThan(0);
+    await user.click(screen.getByRole('button', { name: 'إنقاص كمية بنادول' }));
+    await waitFor(() => {
+      expect(bridges.fns.update).toHaveBeenCalledTimes(2);
+    });
+    expect(bridges.fns.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({ op: 'decrement', version: 2 }),
+    );
+    expect(screen.getByLabelText('الكمية 2')).toBeInTheDocument();
+    expect(screen.queryByText(/stale_version/)).not.toBeInTheDocument();
+  });
+
+  it('removes a note-less line when decremented at quantity one', async () => {
+    signIn();
+    const bridges = makeBridges();
+    renderSale(bridges);
+    const user = userEvent.setup();
+    await addOneLine(user);
+    await user.click(screen.getByRole('button', { name: 'إنقاص كمية بنادول' }));
+    await waitFor(() => {
+      expect(screen.getByText(/لا توجد أصناف في السلة/)).toBeInTheDocument();
+    });
+    expect(bridges.fns.remove).toHaveBeenCalledWith(
+      expect.objectContaining({ line_id: 'line-1', version: 1 }),
+    );
+    expect(bridges.fns.update).not.toHaveBeenCalled();
+  });
+
+  it('keeps a refused handoff editable with generic copy', async () => {
+    signIn();
+    const bridges = makeBridges();
+    bridges.fns.handoff.mockResolvedValue({ kind: 'refused', reason: 'stale_version' });
+    renderSale(bridges);
+    const user = userEvent.setup();
+    await addOneLine(user);
+    await user.click(screen.getByRole('button', { name: /تسليم السلة/ }));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByText(/stale_version/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /المتابعة إلى الدفع/ })).not.toBeInTheDocument();
+    expect(usePaymentStore.getState().envelope).toBeNull();
+  });
+
+  it.each([
+    ['cashier', false],
+    ['manager', true],
+  ] as const)('after handoff, %s void visibility is %s', async (role, visible) => {
+    signIn(role);
+    const bridges = makeBridges();
+    renderSale(bridges);
+    const user = userEvent.setup();
+    await addOneLine(user);
+    await user.click(screen.getByRole('button', { name: /تسليم السلة/ }));
+    await screen.findByRole('button', { name: /المتابعة إلى الدفع/ });
+    expect(screen.queryByRole('button', { name: 'إلغاء البيع' }) !== null).toBe(visible);
+  });
+
+  it('note dialog focuses its field, and Escape returns focus to the opener', async () => {
+    signIn();
+    const bridges = makeBridges();
+    renderSale(bridges);
+    const user = userEvent.setup();
+    await addOneLine(user);
+    const opener = screen.getByRole('button', { name: 'ملاحظة' });
+    await user.click(opener);
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'ملاحظة الصنف' }));
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'ملاحظة الصنف' })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('void dialog focuses the safe action, and Escape returns focus to the opener', async () => {
+    signIn('manager');
+    const bridges = makeBridges();
+    renderSale(bridges);
+    const user = userEvent.setup();
+    await addOneLine(user);
+    const opener = screen.getByRole('button', { name: 'إلغاء البيع' });
+    await user.click(opener);
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'العودة' }));
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'تأكيد إلغاء البيع' })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('drops local lines on sign-out and does not resurrect them on the next sign-in', async () => {
+    signIn();
+    // Production sign-out path (main.tsx installs it): clears the renderer cart
+    // store, so the next sign-in starts without an active cart to reopen.
+    const uninstall = installCartStoreSignOutHook();
+    onTestFinished(uninstall);
+    const bridges = makeBridges();
+    renderSale(bridges);
+    const user = userEvent.setup();
+    await addOneLine(user);
+    act(() => {
+      useOperatorSessionStore.getState().reset();
+    });
+    expect(useCartStore.getState().activeCart).toBeNull();
+    expect(screen.queryByRole('list', { name: 'أصناف السلة' })).not.toBeInTheDocument();
+    expect(screen.queryByText('15.00 EGP')).not.toBeInTheDocument();
+    act(() => {
+      signIn();
+    });
+    expect(await screen.findByText(/لا توجد أصناف في السلة/)).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'أصناف السلة' })).not.toBeInTheDocument();
+  });
+
+  it('never continues to payment when the payments flag is off', async () => {
+    signIn();
+    useFeatureFlagsStore.setState({ payments: false });
+    const bridges = makeBridges();
+    const onPaymentContinue = vi.fn();
+    renderSale(bridges, onPaymentContinue);
+    const user = userEvent.setup();
+    await addOneLine(user);
+    await user.click(screen.getByRole('button', { name: /تسليم السلة/ }));
+    const proceed = await screen.findByRole('button', { name: /المتابعة إلى الدفع/ });
+    expect(proceed).toBeDisabled();
+    await user.click(proceed);
+    expect(onPaymentContinue).not.toHaveBeenCalled();
+    expect(usePaymentStore.getState().envelope).toBeNull();
+  });
+
+  it('saves a trimmed note with the current version and renders it', async () => {
+    signIn();
+    const bridges = makeBridges();
+    renderSale(bridges);
+    const user = userEvent.setup();
+    await addOneLine(user);
+    await user.click(screen.getByRole('button', { name: 'ملاحظة' }));
+    const field = screen.getByRole('textbox', { name: 'ملاحظة الصنف' });
+    expect(field).toHaveAttribute('maxLength', '200');
+    expect(screen.getByRole('button', { name: 'حفظ' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'مسح الملاحظة' })).toBeDisabled();
+    await user.type(field, '  بعد الأكل  ');
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'ملاحظة الصنف' })).not.toBeInTheDocument();
+    });
+    expect(bridges.fns.setNote).toHaveBeenCalledWith(
+      expect.objectContaining({ line_id: 'line-1', version: 1, note: 'بعد الأكل' }),
+    );
+    expect(screen.getByText('ملاحظة: بعد الأكل')).toBeInTheDocument();
+  });
+
+  it('keeps the note dialog open with generic copy when the save is refused', async () => {
+    signIn();
+    const bridges = makeBridges();
+    bridges.fns.setNote.mockResolvedValue({ kind: 'refused', reason: 'stale_version' });
+    renderSale(bridges);
+    const user = userEvent.setup();
+    await addOneLine(user);
+    await user.click(screen.getByRole('button', { name: 'ملاحظة' }));
+    await user.type(screen.getByRole('textbox', { name: 'ملاحظة الصنف' }), 'ملاحظة');
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('تعذّر حفظ الملاحظة.');
+    expect(screen.getByRole('dialog', { name: 'ملاحظة الصنف' })).toBeInTheDocument();
+    expect(screen.queryByText(/stale_version/)).not.toBeInTheDocument();
+  });
+
+  it('clears an existing note by saving null', async () => {
+    signIn();
+    const bridges = makeBridges();
+    bridges.fns.setNote
+      .mockResolvedValueOnce({ kind: 'ok', version: 2 })
+      .mockResolvedValueOnce({ kind: 'ok', version: 3 });
+    renderSale(bridges);
+    const user = userEvent.setup();
+    await addOneLine(user);
+    await user.click(screen.getByRole('button', { name: 'ملاحظة' }));
+    await user.type(screen.getByRole('textbox', { name: 'ملاحظة الصنف' }), 'مؤقت');
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+    await screen.findByText('ملاحظة: مؤقت');
+    await user.click(screen.getByRole('button', { name: 'ملاحظة' }));
+    await user.click(screen.getByRole('button', { name: 'مسح الملاحظة' }));
+    await waitFor(() => {
+      expect(screen.queryByText('ملاحظة: مؤقت')).not.toBeInTheDocument();
+    });
+    expect(bridges.fns.setNote).toHaveBeenLastCalledWith(
+      expect.objectContaining({ version: 2, note: null }),
+    );
+  });
+
+  it('decrements (does not remove) a quantity-one line that carries a note', async () => {
+    signIn();
+    const bridges = makeBridges();
+    bridges.fns.update.mockResolvedValue({ kind: 'ok', version: 3 });
+    renderSale(bridges);
+    const user = userEvent.setup();
+    await addOneLine(user);
+    await user.click(screen.getByRole('button', { name: 'ملاحظة' }));
+    await user.type(screen.getByRole('textbox', { name: 'ملاحظة الصنف' }), 'مهم');
+    await user.click(screen.getByRole('button', { name: 'حفظ' }));
+    await screen.findByText('ملاحظة: مهم');
+    await user.click(screen.getByRole('button', { name: 'إنقاص كمية بنادول' }));
+    await waitFor(() => {
+      expect(bridges.fns.update).toHaveBeenCalledWith(
+        expect.objectContaining({ line_id: 'line-1', op: 'decrement', version: 2 }),
+      );
+    });
+    expect(bridges.fns.remove).not.toHaveBeenCalled();
+  });
+
+  it('voids through the bridge and shows the cancelled state without line controls', async () => {
+    signIn('manager');
+    const bridges = makeBridges();
+    renderSale(bridges);
+    const user = userEvent.setup();
+    await addOneLine(user);
+    await user.click(screen.getByRole('button', { name: 'إلغاء البيع' }));
+    await user.click(screen.getByRole('button', { name: 'تأكيد الإلغاء' }));
+    expect(await screen.findByText('تم إلغاء البيع.')).toBeInTheDocument();
+    expect(bridges.fns.voidCart).toHaveBeenCalledWith(
+      expect.objectContaining({ cart_id: 'cart-1' }),
+    );
+    expect(screen.queryByRole('dialog', { name: 'تأكيد إلغاء البيع' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'زيادة كمية بنادول' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'إلغاء البيع' })).not.toBeInTheDocument();
+  });
+
+  it('surfaces controlled / Rx awareness on result rows and on the added line only when flagged (M-S9)', async () => {
+    signIn();
+    const bridges = makeBridges();
+    const controlled: ProductSnapshotDisplay = {
+      ...PANADOL,
+      product_id: 'p-c',
+      display_name_ar: 'ترامادول',
+      controlled_substance: true,
+      prescription_required: true,
+    };
+    bridges.fns.search.mockResolvedValue({
+      kind: 'results',
+      items: [controlled, PANADOL],
+      truncated: false,
+    });
+    renderSale(bridges);
+    const user = userEvent.setup();
+    await user.type(screen.getByRole('searchbox', { name: 'البحث بالاسم أو الباركود' }), 'بنا');
+    const listbox = await screen.findByRole('listbox', { name: 'نتائج البحث' });
+    const [flagged, plain] = within(listbox).getAllByRole('option');
+    expect(flagged).toHaveTextContent('مادة خاضعة للرقابة');
+    expect(flagged).toHaveTextContent('بوصفة طبية');
+    expect(plain).not.toHaveTextContent('مادة خاضعة للرقابة');
+    expect(plain).not.toHaveTextContent('بوصفة طبية');
+    // RT-242: the option itself is the pick target (no nested button).
+    await user.click(flagged as HTMLElement);
+    const lines = await screen.findByRole('list', { name: 'أصناف السلة' });
+    // Display only (I-17): the badge sits on the line, nothing blocks the sale.
+    const row = within(lines).getAllByRole('listitem')[0];
+    expect(row).toHaveTextContent('مادة خاضعة للرقابة');
+    expect(row).toHaveTextContent('بوصفة طبية');
+  });
+
+  it('keeps the void dialog open on refusal, matching legacy, and leaks no reason', async () => {
+    signIn('manager');
+    const bridges = makeBridges();
+    bridges.fns.voidCart.mockResolvedValue({ kind: 'refused', reason: 'role_denied' });
+    renderSale(bridges);
+    const user = userEvent.setup();
+    await addOneLine(user);
+    await user.click(screen.getByRole('button', { name: 'إلغاء البيع' }));
+    await user.click(screen.getByRole('button', { name: 'تأكيد الإلغاء' }));
+    await waitFor(() => {
+      expect(bridges.fns.voidCart).toHaveBeenCalledOnce();
+    });
+    expect(screen.getByRole('dialog', { name: 'تأكيد إلغاء البيع' })).toBeInTheDocument();
+    expect(screen.queryByText(/role_denied/)).not.toBeInTheDocument();
+    expect(screen.queryByText('تم إلغاء البيع.')).not.toBeInTheDocument();
+  });
+});
+
+describe('live v5 Sale touch targets', () => {
+  it('sizes every live button rule to at least the 44px floor', () => {
+    const css = readFileSync(resolve(__dirname, '../sale/live-sale.css'), 'utf8');
+    const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter(([, selector]) =>
+      selector?.includes('button'),
+    );
+    expect(rules.length).toBeGreaterThan(0);
+    for (const [, selector, body] of rules) {
+      for (const match of (body ?? '').matchAll(/(?:min-)?block-size:\s*(\d+)px/g)) {
+        expect(Number(match[1]), selector?.trim()).toBeGreaterThanOrEqual(44);
+      }
+    }
+  });
+
+  // Ported from the retired legacy duplicate-scan / keyboard-walkthrough story 3
+  // (023 Slice H): the production wedge-scanner path, keyboard only.
+  it('a duplicate scan adds +1 by keyboard and merges into the same line', async () => {
+    signIn();
+    const bridges = makeBridges();
+    bridges.fns.add
+      .mockResolvedValueOnce({
+        kind: 'ok',
+        line_id: 'line-1',
+        merged: false,
+        version: 1,
+        display_name: 'بنادول',
+        unit_price_minor: 1500,
+        line_subtotal_minor: 1500,
+        quantity: 1,
+      })
+      .mockResolvedValueOnce({
+        kind: 'ok',
+        line_id: 'line-1',
+        merged: true,
+        version: 2,
+        display_name: 'بنادول',
+        unit_price_minor: 1500,
+        line_subtotal_minor: 3000,
+        quantity: 2,
+      });
+    renderSale(bridges);
+    const user = userEvent.setup();
+    const scan = screen.getByRole('textbox', { name: 'حقل التقاط مسح الباركود' });
+
+    for (const expectedCalls of [1, 2]) {
+      act(() => {
+        scan.focus();
+      });
+      await user.keyboard('6223004355218{Enter}');
+      expect(scan).toHaveValue('');
+      await waitFor(() => {
+        expect(bridges.fns.lookupBarcode).toHaveBeenCalledTimes(expectedCalls);
+      });
+      await waitFor(() => {
+        expect(bridges.fns.add).toHaveBeenCalledTimes(expectedCalls);
+      });
+    }
+
+    expect(bridges.fns.add.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({ item_ref: PANADOL.product_id, quantity: 1 }),
+    );
+    const lines = await screen.findByRole('list', { name: 'أصناف السلة' });
+    await waitFor(() => {
+      expect(within(lines).getAllByRole('listitem')).toHaveLength(1);
+      expect(within(lines).getByText('30.00 EGP')).toBeInTheDocument();
+    });
+  });
+
+  // Ported from the retired legacy Sale a11y suites (023 Slice H): the jsdom axe
+  // pass now runs on the V5 Sale's empty and one-line (Undo offered) states.
+  it('is axe-clean empty and with one line and the Undo offer showing', async () => {
+    signIn();
+    const bridges = makeBridges();
+    const { container } = render(
+      <LiveSaleWorkspace
+        cartBridge={bridges.cart}
+        catalogueBridge={bridges.catalogue}
+        onPaymentContinue={vi.fn()}
+      />,
+    );
+    await expectNoAxeViolations(container);
+    await addOneLine(userEvent.setup());
+    await screen.findByRole('button', { name: 'تراجع عن إضافة بنادول' });
+    await expectNoAxeViolations(container);
+  });
+});

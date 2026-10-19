@@ -1,0 +1,39 @@
+<!doctype html>
+<!--
+  POS v3.5 Phase 1 (ADR-0004):
+  - lang="ar" dir="rtl"  — the terminal is Arabic-first; RTL is systemic at
+    the root, so component CSS (logical properties throughout) flips without
+    per-leaf dir spot-fixes. Operator copy stays English in this slice
+    (translation is out of scope); the layout direction is what changes.
+  - data-theme="light"   — spec 022 (POS UI v4.0) is LIGHT-FIRST; baked
+    statically so the default boot is flash-free. main.tsx (initTheme)
+    repaints to dark only when the operator persisted that choice. The
+    shipped meta CSP is `script-src 'self'`, so an inline pre-paint script is
+    not an option — the static default attribute is the flash-free path.
+    (Supersedes ADR-0004's dark default; the dark register itself remains,
+    retuned to the v4.0 teal identity.)
+-->
+<html lang="ar" dir="rtl" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Shipped meta CSP. For a packaged build the renderer loads via file:// (loadFile),
+      which webRequest.onHeadersReceived does NOT intercept — so THIS meta is the
+      authoritative prod policy. #370: the dev `ws://localhost:5173` (Vite HMR socket)
+      was a dev-only artifact baked into the shipped policy and is removed — prod never
+      dials a dev websocket. (`style-src 'unsafe-inline'` is retained: React renders
+      `style={{…}}` props as inline style attributes; removing it needs a nonce/hash
+      migration — tracked separately, see #370 follow-up.)
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';"
+    />
+    <title>POS Pulse</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/main.tsx"></script>
+  </body>
+</html>

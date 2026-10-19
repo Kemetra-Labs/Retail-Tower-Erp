@@ -1,0 +1,275 @@
+/**
+ * Main-side eligibility check for `payments.start` (§A4 review, 2026-09-25).
+ *
+ * `payments.start` takes the envelope fields from the renderer. Main now
+ * refuses unless the cart it names is really handed off in this session's
+ * tenant and branch, the request matches that cart's persisted envelope, and
+ * the cart has no settled payment. This is what stops a cancelled cart, or an
+ * already-paid cart, from being paid through the bridge.
+ *
+ * RT-614 (RT-28 step 3b): an unpaid frozen envelope holding a manual-discount
+ * placeholder that no `cart.discount.manager_authorized` audit row names is
+ * refused `unauthorized_discount`; the recovery is the manager post-handoff cancel.
+ */
+
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import initSqlJs, { type Database as SqlJsDatabase, type SqlJsStatic } from 'sql.js';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { bindCartPaymentEligibility } from '../../../../src/main/payments/cart-payment-eligibility.js';
+import { bindPaymentAttemptsRepository } from '../../../../src/main/payments/repositories/payment-attempts.repository.js';
+import { makeSqlJsHandle } from '../cart/__helpers__/sql-js-handle.js';
+
+const __dirnameForFile = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(__dirnameForFile, '..', '..', '..', '..');
+const MIGRATIONS = [
+  '0004_audit_events.sql',
+  '0008_carts.sql',
+  '0012_create_payment_attempts.sql',
+  '0013_payment_attempts_partial_unique_started.sql',
+  '0014_create_payment_tender_lines.sql',
+  '0019_extend_payment_failure_reason_enum.sql',
+].map((f) => readFileSync(path.join(REPO_ROOT, 'migrations', f), 'utf8'));
+
+let SQL: SqlJsStatic;
+beforeAll(async () => {
+  SQL = await initSqlJs();
+});
+
+let db: SqlJsDatabase;
+beforeEach(() => {
+  db = new SQL.Database();
+  for (const sql of MIGRATIONS) db.exec(sql);
+});
+
+const ENVELOPE = {
+  envelope_version: 'v1',
+  cart_id: 'cart-1',
+  handoff_action_id: 'handoff-1',
+  subtotal_minor: 5500,
+};
+
+function seedCart(state: string, envelope: object | null = ENVELOPE): void {
+  db.run(
+    `INSERT INTO carts (
+       cart_id, tenant_id, branch_id, terminal_id, owning_operator_id, operator_session_id,
+       state, cart_subtotal_minor, created_at, updated_at, frozen_at, cancelled_at,
+       cancellation_reason, handoff_envelope_json, last_action_id
+     ) VALUES ('cart-1', 'tenant-1', 'branch-1', 'terminal-1', 'op-1', 'sess-1', ?, 5500,
+       '2026-09-25T09:00:00.000Z', '2026-09-25T09:00:00.000Z', NULL, NULL, NULL, ?, 'a-1')`,
+    [state, envelope === null ? null : JSON.stringify(envelope)],
+  );
+}
+
+function check(
+  overrides: Partial<Parameters<ReturnType<typeof bindCartPaymentEligibility>>[0]> = {},
+) {
+  return bindCartPaymentEligibility(makeSqlJsHandle(db))({
+    envelope_cart_id: 'cart-1',
+    envelope_handoff_action_id: 'handoff-1',
+    envelope_subtotal_minor: 5500,
+    tenant_id: 'tenant-1',
+    branch_id: 'branch-1',
+    ...overrides,
+  });
+}
+
+describe('bindCartPaymentEligibility', () => {
+  it('admits a handed-off cart whose persisted envelope matches the request', () => {
+    seedCart('frozen_handed_off');
+    expect(check()).toEqual({ kind: 'ok' });
+  });
+
+  it.each(['cancelled', 'editing', 'empty', 'handing_off'])(
+    'refuses cart_lost for a cart in state %s',
+    (state) => {
+      seedCart(state);
+      expect(check()).toEqual({ kind: 'refused', reason: 'cart_lost' });
+    },
+  );
+
+  it('refuses cart_lost for an unknown cart', () => {
+    expect(check()).toEqual({ kind: 'refused', reason: 'cart_lost' });
+  });
+
+  it.each([
+    ['another tenant', { tenant_id: 'tenant-2' }],
+    ['another branch', { branch_id: 'branch-2' }],
+  ])('refuses cart_lost for a cart in %s', (_label, overrides) => {
+    seedCart('frozen_handed_off');
+    expect(check(overrides)).toEqual({ kind: 'refused', reason: 'cart_lost' });
+  });
+
+  it.each([
+    ['a different handoff action', { envelope_handoff_action_id: 'handoff-forged' }],
+    ['a different subtotal', { envelope_subtotal_minor: 1 }],
+  ])('refuses stale_handoff for %s', (_label, overrides) => {
+    seedCart('frozen_handed_off');
+    expect(check(overrides)).toEqual({ kind: 'refused', reason: 'stale_handoff' });
+  });
+
+  it('refuses stale_handoff when the persisted envelope is missing or corrupt', () => {
+    seedCart('frozen_handed_off', null);
+    expect(check()).toEqual({ kind: 'refused', reason: 'stale_handoff' });
+    db.run(`UPDATE carts SET handoff_envelope_json = '{not json' WHERE cart_id = 'cart-1'`);
+    expect(check()).toEqual({ kind: 'refused', reason: 'stale_handoff' });
+  });
+
+  it('refuses attempt_terminal for a cart that already has a settled payment', () => {
+    seedCart('frozen_handed_off');
+    const repo = bindPaymentAttemptsRepository(makeSqlJsHandle(db));
+    repo.insert({
+      payment_attempt_id: 'a1',
+      tenant_id: 'tenant-1',
+      branch_id: 'branch-1',
+      terminal_id: 'terminal-1',
+      acting_operator_id: 'op-1',
+      operator_session_id: 'sess-1',
+      envelope_handoff_action_id: 'handoff-1',
+      envelope_cart_id: 'cart-1',
+      envelope_subtotal_minor: 5500,
+      started_at: '2026-09-25T09:01:00.000Z',
+      last_action_id: 'pa-action-1',
+    });
+    expect(check()).toEqual({ kind: 'ok' });
+    repo.updateState({
+      payment_attempt_id: 'a1',
+      state: 'settled',
+      timestamp: '2026-09-25T09:02:00.000Z',
+      last_action_id: 'pa-action-2',
+    });
+    expect(check()).toEqual({ kind: 'refused', reason: 'attempt_terminal' });
+  });
+
+  describe('a force-failed attempt (tender is NOT reversed by force-fail)', () => {
+    function forceFailedAttemptWithTender(tenderState: string | null): void {
+      seedCart('frozen_handed_off');
+      const repo = bindPaymentAttemptsRepository(makeSqlJsHandle(db));
+      repo.insert({
+        payment_attempt_id: 'ff1',
+        tenant_id: 'tenant-1',
+        branch_id: 'branch-1',
+        terminal_id: 'terminal-1',
+        acting_operator_id: 'op-1',
+        operator_session_id: 'sess-1',
+        envelope_handoff_action_id: 'handoff-1',
+        envelope_cart_id: 'cart-1',
+        envelope_subtotal_minor: 5500,
+        started_at: '2026-09-26T09:01:00.000Z',
+        last_action_id: 'ff-action-1',
+      });
+      if (tenderState !== null) {
+        db.run(
+          `INSERT INTO payment_tender_lines (
+             tender_line_id, payment_attempt_id, tender_type, amount_applied_minor, state,
+             attribution_operator_id, apply_order, last_action_id
+           ) VALUES ('t1', 'ff1', 'cash', 5500, ?, 'op-1', 1, 't-action-1')`,
+          [tenderState],
+        );
+      }
+      repo.updateState({
+        payment_attempt_id: 'ff1',
+        state: 'force_failed',
+        timestamp: '2026-09-26T09:05:00.000Z',
+        last_action_id: 'ff-action-2',
+        failure_reason: 'manager_force_failed',
+        force_fail_attribution_operator_id: 'mgr-1',
+      });
+    }
+
+    it.each(['applied', 'applying', 'reversal_pending'])(
+      'refuses attempt_terminal when its tender is still %s (money may be taken)',
+      (tenderState) => {
+        forceFailedAttemptWithTender(tenderState);
+        expect(check()).toEqual({ kind: 'refused', reason: 'attempt_terminal' });
+      },
+    );
+
+    it.each([
+      ['no tender', null],
+      ['only reversed tender', 'reversed'],
+      ['only refused tender', 'refused'],
+    ])('admits a new payment when it holds %s (no money was taken)', (_label, tenderState) => {
+      forceFailedAttemptWithTender(tenderState);
+      expect(check()).toEqual({ kind: 'ok' });
+    });
+  });
+
+  describe('manual-discount placeholders in the envelope (RT-614 step 3b)', () => {
+    const PLACEHOLDER = {
+      placeholder_id: 'dp-1',
+      line_id: 'line-1',
+      placeholder_kind: 'percent_1',
+      requires_manager_attribution: true,
+      attribution_operator_id: 'mgr-1',
+    };
+
+    function seedWithPlaceholders(placeholders: object[]): void {
+      seedCart('frozen_handed_off', { ...ENVELOPE, discount_placeholders: placeholders });
+    }
+
+    function authorize(payload: Record<string, unknown> = {}): void {
+      db.run(
+        `INSERT INTO audit_events (event_id, tenant_id, branch_id, originating_terminal_id,
+           acting_operator_id, session_id, shift_id, action_category, created_at,
+           approving_supervisor_id, payload)
+         VALUES (?, 'tenant-1', 'branch-1', 'terminal-1', 'op-1', 'sess-1', NULL,
+           'cart.discount.manager_authorized', '2026-09-25T08:59:00.000Z', 'mgr-1', ?)`,
+        [
+          `evt-${String(Math.random())}`,
+          JSON.stringify({
+            cart_id: 'cart-1',
+            cart_line_id: 'line-1',
+            placeholder_id: 'dp-1',
+            ...payload,
+          }),
+        ],
+      );
+    }
+
+    it('admits an envelope whose placeholder a manager authorised', () => {
+      seedWithPlaceholders([PLACEHOLDER]);
+      authorize();
+      expect(check()).toEqual({ kind: 'ok' });
+    });
+
+    it('admits an envelope with no placeholders', () => {
+      seedWithPlaceholders([]);
+      expect(check()).toEqual({ kind: 'ok' });
+    });
+
+    it('refuses a placeholder with no audit row (a pre-upgrade frozen envelope)', () => {
+      seedWithPlaceholders([PLACEHOLDER]);
+      expect(check()).toEqual({ kind: 'refused', reason: 'unauthorized_discount' });
+    });
+
+    it('refuses when the audit row names a different placeholder_id', () => {
+      seedWithPlaceholders([PLACEHOLDER]);
+      authorize({ placeholder_id: 'dp-other' });
+      expect(check()).toEqual({ kind: 'refused', reason: 'unauthorized_discount' });
+    });
+
+    it('refuses a placeholder whose authorisation belongs to another cart', () => {
+      seedWithPlaceholders([PLACEHOLDER]);
+      authorize({ cart_id: 'cart-other' });
+      expect(check()).toEqual({ kind: 'refused', reason: 'unauthorized_discount' });
+    });
+
+    it('refuses when any one placeholder is untrusted', () => {
+      seedWithPlaceholders([PLACEHOLDER, { ...PLACEHOLDER, placeholder_id: 'dp-legacy' }]);
+      authorize();
+      expect(check()).toEqual({ kind: 'refused', reason: 'unauthorized_discount' });
+    });
+
+    it.each([
+      ['not an array', { oops: true }],
+      ['an entry without ids', [{ placeholder_kind: 'percent_1' }]],
+    ])('refuses when discount_placeholders is %s', (_label, placeholders) => {
+      seedCart('frozen_handed_off', { ...ENVELOPE, discount_placeholders: placeholders });
+      authorize();
+      expect(check()).toEqual({ kind: 'refused', reason: 'unauthorized_discount' });
+    });
+  });
+});
