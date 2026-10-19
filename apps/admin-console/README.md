@@ -1,0 +1,191 @@
+<div align="center">
+
+<h1 align="center">
+  <img src="docs/assets/readme/hero.svg" alt="Retail Tower OS, Admin-Console track: one product, four development tracks, with AI woven through all of them" width="100%"/>
+</h1>
+
+<p align="center">
+  <a href="docs/product/retail-tower-console-charter.md"><img alt="Retail Tower OS" src="https://img.shields.io/badge/Retail%20Tower-OS-0f766e?labelColor=0a0f24&style=flat-square"></a>
+  <a href="#-ai-is-native-to-the-architecture-and-the-design"><img alt="AI embedded by design" src="https://img.shields.io/badge/AI-embedded%20by%20design-a78bfa?labelColor=0a0f24&style=flat-square"></a>
+  <a href=".specify/memory/constitution.md"><img alt="Platform: frontend-only" src="https://img.shields.io/badge/platform-frontend--only-14b8a6?labelColor=0a0f24&style=flat-square"></a>
+  <a href="src/generated"><img alt="API: generated client only" src="https://img.shields.io/badge/API-generated%20client%20only-60a5fa?labelColor=0a0f24&style=flat-square"></a>
+  <a href="specs/001-console-foundation/api-readiness.md"><img alt="Contracts: Backend-Core authority" src="https://img.shields.io/badge/contracts-Backend--Core%20authority-f87171?labelColor=0a0f24&style=flat-square"></a>
+  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-34d399?labelColor=0a0f24&style=flat-square"></a>
+</p>
+
+<p align="center">
+  <a href="package.json"><img alt="Node.js 22+" src="https://img.shields.io/badge/node-%E2%89%A522-339933?logo=nodedotjs&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
+  <a href="package.json"><img alt="pnpm 9.15" src="https://img.shields.io/badge/pnpm-9.15-f69220?logo=pnpm&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
+  <a href="tsconfig.json"><img alt="TypeScript strict" src="https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
+  <a href="package.json"><img alt="React 19" src="https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black&labelColor=0a0f24&style=flat-square"></a>
+  <a href="vite.config.ts"><img alt="Vite 6" src="https://img.shields.io/badge/Vite-6-646cff?logo=vite&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
+</p>
+
+<p align="center">
+  <a href="#-one-project-four-tracks"><b>Tracks</b></a> &nbsp;·&nbsp;
+  <a href="#-ai-is-native-to-the-architecture-and-the-design"><b>AI</b></a> &nbsp;·&nbsp;
+  <a href="#current-implementation-status"><b>Status</b></a> &nbsp;·&nbsp;
+  <a href="docs/architecture/sync-overview.md"><b>Sync</b></a> &nbsp;·&nbsp;
+  <a href="#getting-started"><b>Get started</b></a> &nbsp;·&nbsp;
+  <a href="docs/README.md"><b>Docs</b></a>
+</p>
+
+</div>
+
+> **Retail Tower OS** is the product; this repository, [`Kemetra/Admin-Console`](https://github.com/Kemetra/Admin-Console), is its admin/operator track, the browser frontend. It consumes Backend-Core OpenAPI contracts through a generated client and never calls ERPNext/Frappe directly. What it owns and does not own: [see below](#what-this-repo-owns).
+>
+> **Also known as:** this repo's surface name is "Retail Tower Console". Older specs, code comments and config here still say "Data-Pulse-2" / "DP2" for Backend-Core (for example the `dp2_session` cookie and the `DATA_PULSE_2_PIN` constant) and "POS-Pulse" for POS; these are the same repositories as the tracks below.
+
+---
+
+## 🧩 One project, four tracks
+
+<p align="center">
+  <img src="docs/assets/readme/tracks.svg" alt="Data flow: POS and Admin-Console talk to Backend-Core, which feeds the ERPNext-Connector, the only path to ERPNext. An AI layer runs through all four tracks." width="100%"/>
+</p>
+
+| Track | Repository | Owns |
+| --- | --- | --- |
+| **Backend-Core** | [`Kemetra/Backend-Core`](https://github.com/Kemetra/Backend-Core) | APIs · data · workers · tenant/store context · sync operations |
+| **POS** | [`Kemetra/POS`](https://github.com/Kemetra/POS) | Windows cashier terminal · offline state · receipts |
+| **Admin-Console** ◀ you are here | [`Kemetra/Admin-Console`](https://github.com/Kemetra/Admin-Console) | Operator web UI · catalog · inventory views · sync ops |
+| **ERPNext-Connector** | [`Kemetra/ERPNext-Connector`](https://github.com/Kemetra/ERPNext-Connector) | The only ERPNext/Frappe adapter · DocType mapping · posting |
+
+<sub>Management screens read <b>down</b> from Backend-Core and operator actions go <b>up</b> to it; Backend-Core orchestrates everything beyond (<a href="docs/architecture/sync-overview.md">sync overview</a>). <a href="https://github.com/Kemetra/Orchestrator"><code>Kemetra/Orchestrator</code></a> is the technical handbook, not a track.</sub>
+
+<details><summary><b>More architecture views</b></summary>
+
+<p align="center"><a href="docs/architecture/retail-tower-console-live-map.html"><img src="docs/assets/architecture/retail-tower-console-live-map-preview.svg" alt="Admin-Console live control map preview"/></a></p>
+
+<p>Open the <a href="docs/architecture/retail-tower-console-live-map.html">interactive Three.js Admin-Console map</a> through a local static server or docs host. The map is backed by <a href="docs/architecture/retail-tower-console-live-map.json">topology JSON</a>, while the README stays GitHub-safe with a static SVG preview. It was authored at planning time, so treat it as a topology sketch rather than a record of what is implemented.</p>
+
+</details>
+
+---
+
+## 🧠 AI is native to the architecture and the design
+
+<p align="center">
+  <img src="docs/assets/readme/ai-embedded.svg" alt="AI-integrated: the AI sits outside the boundary and reaches the system through a side channel. AI-embedded: the AI runs through every layer inside the boundary, under the same rules." width="100%"/>
+</p>
+
+<table>
+<tr>
+<td width="25%" valign="top"><b>🔒 Same boundary</b><br/><sub>Same generated client over Backend-Core contracts and the same server-enforced role and scope checks as every operator. No side door, no direct database or ERPNext path.</sub></td>
+<td width="25%" valign="top"><b>🧾 Auditable</b><br/><sub>Actions are audited in Backend-Core and keep their provenance, so AI-driven decisions can be traced and reviewed in Admin-Console.</sub></td>
+<td width="25%" valign="top"><b>🏢 Tenant-safe</b><br/><sub>Scope stays per tenant and store, enforced by the backend (<a href=".specify/memory/constitution.md">constitution</a>). Intelligence never crosses it.</sub></td>
+<td width="25%" valign="top"><b>🧑‍⚖️ Human-governed</b><br/><sub>Operators keep authority. Suggestions are acted on only through the same authenticated operator actions.</sub></td>
+</tr>
+</table>
+
+> AI-embedded describes the architectural and design direction. **No AI feature is implemented in this repository today**: there is no model, assistant, or AI-driven code under `src`. The only AI-related material is design intent, an "AI Studio" concept screen in the [vision set](docs/design/_vision/README.md) that is explicitly marked as having no slice yet. What is shipped is tracked in [Current implementation status](#current-implementation-status).
+
+---
+
+## Current implementation status
+
+> **Source of truth.** GitHub `main` is the technical truth for what is implemented; active work and priorities are tracked in Jira (project **RT**). The `Status:` headers inside `specs/*/spec.md` and the "gated" labels in [`api-readiness.md`](specs/001-console-foundation/api-readiness.md) were written at spec time and often lag the code (for example, spec 017 still reads "Proposed / Draft" although its screens are on `main`). The table below is derived from what exists on `main`: routes, screens, generated-client operations, and tests.
+
+The Vite/React SPA is past the scaffold. It ships sign-in and active-context handling, tenant/store management, operator/admin management, audit search, the unknown-items review queue, settlement screens (payer accounts, receivables, claims, remittance reconciliation, apply-payment), and an ERPNext negative-stock view that reads through Backend-Core.
+
+Route families keep the original RF numbering from the [foundation plan](specs/001-console-foundation/plan.md). Settlement and stock-discrepancy surfaces were added later and carry no RF number.
+
+| | Surface | Route | State on `main` | Backend-Core contract (generated client) | Spec |
+| :--: | --- | --- | --- | --- | --- |
+| <img src="docs/assets/icons/rf1-auth.svg" width="34" alt=""/> | Sign-in, active tenant/store context, app shell (RF-1) | `/signin` · `/` | Implemented: sign-in, scope gate, app shell. Password sign-in only; Overview is a placeholder that shows the active tenant and store name | `auth` · `context` | [`003`](specs/003-rf1-auth-shell) |
+| <img src="docs/assets/icons/rf2-tenant-store.svg" width="34" alt=""/> | Tenant and store management (RF-2) | `/tenants` · `/stores` (+ `new`, `:id`, `:id/edit`) | Implemented: list, detail, create, edit, soft delete | `tenants` · `stores` | [`004`](specs/004-rf2-tenant-store-mgmt) |
+| <img src="docs/assets/icons/rf5-operators.svg" width="34" alt=""/> | Operator/admin management (RF-5) | `/operators` · public `/accept-invitation` | Implemented: member list, invite, edit, revoke, accept invitation | `tenants` (members) · `memberships` | [`005`](specs/005-rf5-operator-admin) |
+| <img src="docs/assets/icons/rf6-audit-search.svg" width="34" alt=""/> | Audit and operational search (RF-6) | `/audit` | Implemented: cursor-paginated search and read-only inspect | `audit` | [`006`](specs/006-rf6-audit-search) |
+| <img src="docs/assets/icons/rf4-unknown-items.svg" width="34" alt=""/> | Unknown-items review queue (RF-4a) | `/unknown-items` | Implemented: list, inspect, dismiss. Link and create-product (RF-4b) are not built. The sidebar still shows this entry as gated, so the route is reachable by URL only | `catalog/unknown-items` | [`007`](specs/007-rf4a-unknown-items) |
+| | Payer accounts | `/payer-accounts` | Implemented: list and create. No sidebar entry yet | `settlement` | [`017`](specs/017-console-customer-and-payer-accounts) |
+| | Receivables, claims, remittance, apply-payment | `/receivables` | Implemented: list, submit claim, reconcile remittance, apply payment. No sidebar entry yet | `settlement` | [`018`](specs/018-console-receivables-and-insurance-claims) · [`019`](specs/019-console-settlement-reconciliation) |
+| | ERPNext stock discrepancies (RT-178) | `/stock-discrepancies` · `/stock-discrepancies/:storeId` | Implemented: negative on-hand per store and item, plus a "request fresh snapshot" action. Sidebar entry is shown only to the roles the API allows | `erpnext-reconciliation` | tracked in Jira RT |
+| <img src="docs/assets/icons/rf3-catalog.svg" width="34" alt=""/> | Catalog management (RF-3) | none | Not built; no sidebar route | none consumed | [`api-readiness.md`](specs/001-console-foundation/api-readiness.md) |
+| <img src="docs/assets/icons/rf7-settings.svg" width="34" alt=""/> | Settings / connectors / system management (RF-7) | none | Not built | none consumed | [`016`](specs/016-rf-connectors-settings) (vision stub) |
+| | Overview dashboard, data quality, inventory, sales, monitoring, alerts, reports | none | Not built; spec folders `009`–`015` are vision stubs only | none consumed | [`009`](specs/009-rf-overview-dashboard)–[`015`](specs/015-rf-reports-analytics) |
+| | Provider-based login | none | Not built; spec-only draft | none consumed | [`008`](specs/008-provider-auth-login) |
+| | Observability instrumentation (error tracking, session replay) | none | Not built; spec-only draft | none consumed | [`020`](specs/020-console-observability-instrumentation) |
+
+Wiring, boundaries and tooling, with the repo-backed evidence for each:
+
+| Area | What holds | Evidence |
+| --- | --- | --- |
+| Frontend-only | Admin-Console is frontend-only | [Constitution principle 1](.specify/memory/constitution.md) · [boundary test](tests/unit/boundary.test.ts) |
+| Generated API client | Generated from nine Backend-Core OpenAPI sources at a pinned commit (`auth`, `context`, `tenants`, `stores`, `memberships`, `audit`, `catalog/unknown-items`, `settlement`, `erpnext-reconciliation`); regeneration needs a local Backend-Core checkout | [`openapi-ts.config.ts`](openapi-ts.config.ts) · [`src/generated/schema.d.ts`](src/generated/schema.d.ts) |
+| Browser-to-backend path | The browser reaches the backend only through the generated client; hand-written API calls exist only as generated-client wrappers, and a boundary test enforces this | [Constitution principle 8](.specify/memory/constitution.md) · [`src/generated`](src/generated) · [`src/lib`](src/lib) · [`tests/unit/boundary.test.ts`](tests/unit/boundary.test.ts) |
+| Backend contracts | Backend-Core owns backend contracts (owned upstream) | [Constitution principle 2](.specify/memory/constitution.md) · [contract boundary docs](specs/001-console-foundation/contracts) |
+| POS terminal behavior | Owned elsewhere, by `Kemetra/POS` | [Constitution principle 3](.specify/memory/constitution.md) |
+| Work governance | Work is issue-governed; `main` is the technical truth | [Operating instructions](CLAUDE.md) · [Constitution](.specify/memory/constitution.md) (the Maestro slice-dispatch workflow in `docs/agent-os` is historical) |
+| Approval gates | Package, lockfile, dependency, and CI changes remain approval-gated | [Constitution principle 9](.specify/memory/constitution.md) |
+| Secrets and deployment | No secrets or deployment assumptions belong here | [Constitution principle 10](.specify/memory/constitution.md) |
+| Tests | 53 Vitest unit test files and 18 Playwright e2e spec files under `tests/` | [`tests/unit`](tests/unit) · [`tests/e2e`](tests/e2e) |
+| CI | One workflow on pull requests and pushes to `main`: `pnpm install --frozen-lockfile`, `build`, `lint`, unit tests, then e2e, on Node 22 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
+| AI review | CodeRabbit is the primary AI reviewer, capped at about one included review per hour, so incremental review is off. High-tier PRs (RT-582 tiers; the Admin-Console path mapping is not defined yet, so until it is the PR author names the tier, and PRs touching paths that carry `path_instructions` in `.coderabbit.yaml` are the working candidates) get a manual `@coderabbitai full review` after the last push, because a plain `review` only covers commits since the previous review; the `skip-coderabbit` label opts a trivial PR out | [`.coderabbit.yaml`](.coderabbit.yaml) |
+
+Not verified by this README: that the unit and e2e suites currently pass, and the live behavior of any screen against a running Backend-Core. Re-verify against `main` and CI before relying on this table.
+
+---
+
+## Repository map
+
+| Path | Purpose |
+| --- | --- |
+| `src` | React SPA: `auth`, `context`, `shell`, `tenants`, `stores`, `operators`, `audit`, `unknown-items`, `payers`, `receivables`, `settlement-reconciliation`, `stock-discrepancies`, shared `components`, `lib` (generated-client wrappers) and `generated` (client types) |
+| `tests` | Vitest unit tests (`tests/unit`) and Playwright e2e specs (`tests/e2e`) |
+| `specs` | Spec Kit artifacts, `001`–`020`: foundation and scaffold (`001`–`002`), RF-1/2/5/6 slices (`003`–`006`), RF-4a (`007`), provider login draft (`008`), vision stubs (`009`–`016`), settlement children (`017`–`019`), observability draft (`020`). Design records, not the authority for current behavior; see [Current implementation status](#current-implementation-status) |
+| `.specify/memory/constitution.md` | Binding project boundary and implementation rules |
+| `docs/product` | Product charter and cross-repo boundaries |
+| `docs/design` · `DESIGN.md` · `PRODUCT.md` · `design_handoff_retail_tower_console` | Design system, vision screens and handoff reference |
+| `docs/agent-os` | Historical Agent OS material (Maestro playbook, slice schema, older standing rules written in planning-first mode). Current work rules are in [`CLAUDE.md`](CLAUDE.md) |
+| `docs/architecture` | Sync overview, live control map and topology data |
+| `docs/assets` | Brand, architecture previews and route-family icons used in this README |
+| `.github/workflows` | CI workflow |
+
+### What this repo owns
+
+Admin web frontend: browser UX, routes, layout, navigation, frontend state, components, generated API client consumption, and Admin-Console product positioning. In operational terms: tenant/store operational UI, catalog UI, inventory views, sales search, synchronization operations, and support/admin surfaces, as the work items for them open.
+
+### What this repo does not own
+
+Backend APIs and business logic, OpenAPI source contracts, database schema, SQL migrations, POS terminal code, worker jobs, any ERPNext/Frappe call or mapping, secrets, or deployment infrastructure. Package, lockfile, dependency, and CI changes are made only inside explicitly approved work items.
+
+---
+
+## Getting started
+
+This repo uses **pnpm** (`pnpm@9.15.0`, Node `>=22`). Common checks:
+
+```bash
+pnpm install         # install dependencies
+pnpm dev             # run the Vite dev server
+pnpm build           # type-check (tsc --noEmit) + production build
+pnpm lint            # Biome check
+pnpm test            # Vitest run with coverage
+pnpm test:e2e        # Playwright end-to-end tests
+pnpm generate:client # regenerate the typed client from pinned contracts (needs a Backend-Core checkout)
+```
+
+`pnpm generate:client` reads the OpenAPI sources from a local Backend-Core git checkout at the commit pinned in [`contracts/backend-core/PIN`](contracts/backend-core/PIN) (the same format as POS). It looks in `../Data-Pulse-2` by default (the legacy directory name); set `DATA_PULSE_2_REPO` to point at your checkout. Before generating it checks every source's blob SHA against the PIN, and `pnpm generate:client --repin <ref>` rewrites the PIN at `<ref>` and regenerates. The generated output is committed, so day-to-day development does not need this step.
+
+Then review:
+
+| Need | Read |
+| --- | --- |
+| Product scope | [`docs/product`](docs/product) |
+| Governance | [Operating instructions](CLAUDE.md) · [Constitution](.specify/memory/constitution.md) |
+| Foundation plan | [`specs/001-console-foundation/plan.md`](specs/001-console-foundation/plan.md) |
+| API dependency posture (historical, spec-time) | [`specs/001-console-foundation/api-readiness.md`](specs/001-console-foundation/api-readiness.md) |
+| Design system | [`DESIGN.md`](DESIGN.md) · [`PRODUCT.md`](PRODUCT.md) |
+| Implemented slices | [`003`](specs/003-rf1-auth-shell) · [`004`](specs/004-rf2-tenant-store-mgmt) · [`005`](specs/005-rf5-operator-admin) · [`006`](specs/006-rf6-audit-search) · [`007`](specs/007-rf4a-unknown-items) · [`017`](specs/017-console-customer-and-payer-accounts) · [`018`](specs/018-console-receivables-and-insurance-claims) · [`019`](specs/019-console-settlement-reconciliation) |
+
+---
+
+## Development agreement
+
+The unit of work is a Jira issue (project RT); start from `origin/main`, keep changes to the issue's scope, and do not change dependency manifests, lockfiles, generated code, or CI workflows without explicit approval. GitHub `main` is the technical source of truth. See [`CLAUDE.md`](CLAUDE.md) and the [Constitution](.specify/memory/constitution.md).
+
+---
+
+## License
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

@@ -1,0 +1,88 @@
+/**
+ * RT-268 Stay / Discard confirmation. A real modal (UX-11 "modal semantics
+ * require modal behavior"): initial focus on the safe choice, Escape = Stay,
+ * Tab is trapped, and focus returns to whatever held it before.
+ */
+import { useT } from "@/i18n";
+import { useEffect, useRef } from "react";
+import "./dirty-guard.css";
+
+/** The button Tab would leave from, and the one it should wrap to. */
+function tabEdges(panel: HTMLElement, backwards: boolean): [HTMLElement, HTMLElement] {
+  const buttons = Array.from(panel.querySelectorAll<HTMLElement>("button"));
+  const first = buttons[0];
+  const last = buttons.at(-1) as HTMLElement;
+  return backwards ? [first, last] : [last, first];
+}
+
+/** Keep Tab / Shift+Tab cycling between the dialog's buttons. */
+function trapTab(e: React.KeyboardEvent<HTMLElement>, panel: HTMLElement): void {
+  const [edge, wrapTo] = tabEdges(panel, e.shiftKey);
+  if (document.activeElement !== edge) return;
+  e.preventDefault();
+  wrapTo.focus();
+}
+
+function handleKey(
+  e: React.KeyboardEvent<HTMLElement>,
+  panel: HTMLElement | null,
+  onStay: () => void,
+): void {
+  if (e.key === "Escape") {
+    e.preventDefault();
+    onStay();
+  } else if (e.key === "Tab" && panel) {
+    trapTab(e, panel);
+  }
+}
+
+/** Focus `target` on open; give focus back to its previous owner on close. */
+function useFocusWhileOpen(target: React.RefObject<HTMLElement | null>): void {
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    target.current?.focus();
+    return () => previouslyFocused?.focus?.();
+  }, [target]);
+}
+
+export interface LeaveDialogProps {
+  onStay: () => void;
+  onDiscard: () => void;
+}
+
+export function LeaveDialog({ onStay, onDiscard }: Readonly<LeaveDialogProps>): React.JSX.Element {
+  const t = useT();
+  const panelRef = useRef<HTMLDialogElement>(null);
+  const stayRef = useRef<HTMLButtonElement>(null);
+  useFocusWhileOpen(stayRef);
+
+  return (
+    <div className="leave-scrim">
+      <dialog
+        ref={panelRef}
+        open
+        className="leave-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="leave-dialog-title"
+        aria-describedby="leave-dialog-desc"
+        onKeyDown={(e) => handleKey(e, panelRef.current, onStay)}
+      >
+        <h2 id="leave-dialog-title" className="leave-dialog__title">
+          {t("shell.leave.title")}
+        </h2>
+        <p id="leave-dialog-desc" className="leave-dialog__desc">
+          {t("shell.leave.desc")}
+        </p>
+        <div className="leave-dialog__actions">
+          <button ref={stayRef} type="button" className="btn-primary" onClick={onStay}>
+            {t("shell.leave.stay")}
+          </button>
+          <button type="button" className="btn-destructive" onClick={onDiscard}>
+            {t("shell.leave.discard")}
+          </button>
+        </div>
+      </dialog>
+    </div>
+  );
+}

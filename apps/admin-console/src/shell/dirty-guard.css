@@ -1,0 +1,47 @@
+/* RT-268 Stay / Discard dialog. Strongest elevation (DESIGN.md §5: dialog). */
+.leave-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: var(--color-scrim);
+}
+.leave-dialog {
+  /* Reset the native <dialog> UA box: the scrim centers the panel. */
+  position: static;
+  margin: 0;
+  max-width: none;
+  max-height: none;
+  color: inherit;
+  width: min(440px, 100%);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-overlay);
+  box-shadow: var(--shadow-overlay);
+  padding: var(--space-5);
+}
+.leave-dialog__title {
+  margin: 0 0 var(--space-2);
+  font: var(--weight-strong) var(--text-screen-title) / var(--leading-title) var(--font-sans);
+  color: var(--color-text);
+}
+.leave-dialog__desc {
+  margin: 0 0 var(--space-5);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--color-text-muted);
+}
+.leave-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+/* Forced colors drop the shadow and the scrim tint; keep the dialog edge. */
+@media (forced-colors: active) {
+  .leave-dialog {
+    border: 1px solid CanvasText;
+  }
+}

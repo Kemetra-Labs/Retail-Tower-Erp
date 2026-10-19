@@ -1,0 +1,20 @@
+/* Initials avatar (Console v4.0). Teal-wash disc, teal initials. The disc
+ * dimensions/font-size are set inline (dynamic per use); the look lives here. */
+.avatar {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-primary-soft);
+  color: var(--color-primary-emphasis);
+  font-weight: var(--weight-strong);
+  line-height: var(--leading-tight);
+  font-family: var(--font-sans);
+}
+
+/* Identity cell: avatar beside the name/email stack (member list, Console v4.0). */
+.member-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}

@@ -1,0 +1,26 @@
+/* No-access terminal state (S7). */
+.noaccess {
+  text-align: center;
+  display: grid;
+  gap: var(--space-4);
+  justify-items: center;
+  max-width: 420px;
+  padding: var(--space-6);
+}
+.noaccess__icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  color: var(--color-text-muted);
+}
+.noaccess__title {
+  margin: 0;
+  font: var(--weight-strong) var(--text-screen-title) / var(--leading-title) var(--font-sans);
+  color: var(--color-text);
+}
+.noaccess__body {
+  margin: 0;
+  color: var(--color-text-muted);
+  max-width: 60ch;
+}

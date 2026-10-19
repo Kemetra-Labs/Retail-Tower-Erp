@@ -1,0 +1,192 @@
+// Off-script design-sync layout builder for the Retail Tower Design System (RT-392).
+//
+// This repo is an app, not a component library, and its shipped components use
+// their own class vocabulary (and, until RT-397, Inter), so the converter's
+// compiled-components path does not apply (owner decision, 2026-10-11). This
+// script assembles the upload contract from the hand-authored source bundle in
+// design/claude-design-system/ instead: a tokens + CSS-vocabulary design system
+// with an empty component bundle and 20 reference cards in a flat preview/ folder
+// (the layout the app registers for hand-authored systems, as in the POS Pulse
+// project; components/ stays empty so no card is mistaken for a React component).
+//
+//   node .design-sync/build-bundle.mjs            -> ./ds-bundle
+//   node .ds-sync/package-validate.mjs ./ds-bundle  (the gate; must exit 0)
+//
+// .ds-sync/ is gitignored: `/design-sync` stages the validator there at the start
+// of each run, so the gate exists only during a sync.
+//
+// Deterministic: same source in, same bytes out (the source includes the untracked
+// Dubai TTFs in .design-sync/fonts/). Every text input is read with its
+// line endings normalised to LF, so a CRLF checkout (core.autocrlf=true) builds the
+// same bundle as an LF one. Nothing here is uploaded by itself; DesignSync uploads
+// ./ds-bundle.
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { CONTRAST_PAIRS } from './contrast-pairs.mjs';
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const SRC = join(ROOT, 'design', 'claude-design-system');
+const OUT = join(ROOT, 'ds-bundle');
+const readLF = (p) => readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
+const stripComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, '');
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const cfg = JSON.parse(readLF(join(ROOT, '.design-sync', 'config.json')));
+
+// A code span names a class when it is `.x` or `element.x`, or a bare identifier
+// in the class table (table rows only; `aria-*` spans are attributes).
+function classInSpan(span, tableRow) {
+  const m = /^\.([a-z][\w-]*)$/.exec(span) ?? /^(?:label|input|select|tr)\.([a-z][\w-]*)$/.exec(span);
+  if (m) return m[1];
+  return tableRow && /^(?!aria-)[a-z][\w-]*$/.test(span) ? span : null;
+}
+
+function classesNamedIn(md) {
+  const fromSpans = md.split('\n').flatMap((line) =>
+    [...line.matchAll(/`([^`]+)`/g)].map(([, span]) => classInSpan(span, line.startsWith('| '))));
+  const fromAttrs = [...md.matchAll(/class="([^"]+)"/g)].flatMap(([, list]) => list.split(/\s+/));
+  return new Set([...fromSpans, ...fromAttrs].filter(Boolean));
+}
+
+// Every token named in full; a `--x-1`…`--x-9` range names each step in between.
+function tokensNamedIn(md) {
+  const tokens = new Set([...md.matchAll(/(?<![\w-])--[a-z][a-z0-9-]*/g)].map((m) => m[0]));
+  for (const [, stem, from, to] of md.matchAll(/`(--[a-z-]+-)(\d+)`…`\1(\d+)`/g)) {
+    for (let i = Number(from); i <= Number(to); i++) tokens.add(`${stem}${i}`);
+  }
+  return tokens;
+}
+
+// Every token and class conventions.md names must exist in the CSS designs receive.
+// Without this, a rename in components.css ships a README that teaches the design
+// agent a class that no longer styles anything. Comments are stripped first, so a
+// name that survives only in a comment does not count as defined.
+function checkConventionNames(md, tokensCss, componentsCss) {
+  const defined = new Set([...stripComments(tokensCss).matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
+  const selectors = stripComments(componentsCss);
+  const tokens = tokensNamedIn(md);
+  const classes = classesNamedIn(md);
+  const missing = [
+    ...[...tokens].filter((t) => !defined.has(t)),
+    ...[...classes].filter((c) => !new RegExp(`\\.${escapeRe(c)}(?![\\w-])`).test(selectors)).map((c) => `.${c}`),
+  ];
+  if (missing.length) throw new Error(`conventions.md names undefined token(s)/class(es): ${missing.join(', ')}`);
+  return { tokens: tokens.size, classes: classes.size };
+}
+
+// WCAG AA gate over every text (4.5) and boundary (3) pairing the components use
+// (CONTRAST_PAIRS, shared with the shipped-token test), in both themes. Values are
+// read from colors_and_type.css, so a new colour that fails cannot ship.
+
+function paletteOf(css, selector) {
+  const start = css.indexOf(`${selector} {`);
+  if (start < 0) throw new Error(`palette block ${selector} not found`);
+  const block = css.slice(start, css.indexOf('}', start));
+  const raw = Object.fromEntries([...block.matchAll(/--color-([a-z-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
+  const resolve = (v) => (v.startsWith('var(--color-') ? resolve(raw[v.slice(12, -1)]) : v);
+  return Object.fromEntries(Object.keys(raw).map((k) => [k, resolve(raw[k])]));
+}
+
+function luminance(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function checkContrast(css) {
+  const lowest = [];
+  for (const [name, selector] of [['light', '[data-theme="light"]'], ['dark', '[data-theme="dark"]']]) {
+    const p = paletteOf(css, selector);
+    const ratios = CONTRAST_PAIRS.map(([fg, bg, min]) => {
+      const [hi, lo] = [luminance(p[fg]), luminance(p[bg])].sort((a, b) => b - a);
+      return { fg, bg, min, ratio: (hi + 0.05) / (lo + 0.05) };
+    });
+    const fails = ratios.filter((r) => r.ratio < r.min);
+    if (fails.length) throw new Error(`${name} contrast fails: ${fails.map((f) => `${f.fg}/${f.bg} ${f.ratio.toFixed(2)} < ${f.min}`).join(', ')}`);
+    const text = ratios.filter((r) => r.min === 4.5).sort((a, b) => a.ratio - b.ratio)[0];
+    lowest.push(`${name} ${text.fg}/${text.bg} ${text.ratio.toFixed(2)}`);
+  }
+  return { pairs: CONTRAST_PAIRS.length, lowest: lowest.join(', ') };
+}
+
+if (existsSync(OUT)) {
+  if (!existsSync(join(OUT, '.ds-build-meta.json'))) throw new Error(`refusing to rm ${OUT}: not a prior bundle`);
+  rmSync(OUT, { recursive: true, force: true });
+}
+mkdirSync(join(OUT, 'tokens'), { recursive: true });
+mkdirSync(join(OUT, 'preview'), { recursive: true });
+// Tokens-only contract: components/ exists but stays empty (an empty dir uploads nothing).
+mkdirSync(join(OUT, 'components'), { recursive: true });
+
+// Styles: designs receive only the styles.css @import closure.
+const tokensCss = readLF(join(SRC, 'colors_and_type.css'));
+const componentsCss = readLF(join(SRC, 'components.css'));
+const contrast = checkContrast(stripComments(tokensCss));
+writeFileSync(join(OUT, 'tokens', 'colors_and_type.css'), tokensCss);
+writeFileSync(join(OUT, 'tokens', 'components.css'), componentsCss);
+// Fonts: the Dubai TTFs are not committed (© Dubai Executive Council, all rights
+// reserved, and this repo is public). Copy them from dubaifont.com into
+// .design-sync/fonts/ (gitignored) before building; they go only to the private
+// Claude Design project.
+const FONT_FACES = [['Light', 300], ['Regular', 400], ['Medium', 500], ['Bold', 700]];
+mkdirSync(join(OUT, 'fonts'), { recursive: true });
+for (const [style] of FONT_FACES) {
+  const ttf = join(ROOT, '.design-sync', 'fonts', `Dubai-${style}.ttf`);
+  if (!existsSync(ttf)) throw new Error(`missing ${ttf}: copy the Dubai TTFs into .design-sync/fonts/ (not committed)`);
+  cpSync(ttf, join(OUT, 'fonts', `Dubai-${style}.ttf`));
+}
+writeFileSync(join(OUT, 'tokens', 'fonts.css'),
+  '/* Dubai, the Arabic-first UI voice (UX-03). Files live in ../fonts/. */\n' +
+  FONT_FACES.map(([style, weight]) => `@font-face {\n  font-family: "Dubai";\n  src: url("../fonts/Dubai-${style}.ttf") format("truetype");\n  font-weight: ${weight};\n  font-style: normal;\n  font-display: swap;\n}\n`).join(''));
+
+writeFileSync(join(OUT, 'styles.css'),
+  '/* Retail Tower Design System: the closure every generated design receives. */\n' +
+  '@import "./tokens/fonts.css";\n' +
+  '@import "./tokens/colors_and_type.css";\n' +
+  '@import "./tokens/components.css";\n');
+
+// Card chrome: cards link it; it pulls styles.css so cards render exactly what designs get.
+const chrome = readLF(join(SRC, 'preview', '_card.css'))
+  .replace(/^@import url\("\.\.\/colors_and_type\.css"\);\n@import url\("\.\.\/components\.css"\);\n/m,
+           '@import url("../styles.css");\n');
+if (!chrome.includes('@import url("../styles.css");')) throw new Error('card chrome imports did not match');
+writeFileSync(join(OUT, 'preview', '_card.css'), chrome);
+
+// Cards: preview/<file>.html, copied with LF endings (they already link ./_card.css).
+const cards = [];
+for (const f of readdirSync(join(SRC, 'preview')).filter((f) => f.endsWith('.html')).sort()) {
+  const html = readLF(join(SRC, 'preview', f));
+  const m = /^<!-- @dsCard group="([^"]+)" name="([^"]+)" subtitle="([^"]+)" viewport="(\d+)x(\d+)" -->/.exec(html);
+  if (!m) throw new Error(`${f}: line 1 is not a full @dsCard marker`);
+  const [, group, name] = m;
+  if (!html.includes('<link rel="stylesheet" href="_card.css">')) throw new Error(`${f}: stylesheet link not found`);
+  writeFileSync(join(OUT, 'preview', f), html);
+  cards.push({ group, name, file: f });
+}
+
+// Empty component bundle with the header the app's self-check parses. No React
+// components ship until the light-first token migration lands in the app.
+const header = { namespace: cfg.globalName, components: [], sourceHashes: {}, inlinedExternals: [], source: 'retail-tower-console design/claude-design-system (off-script, tokens + CSS vocabulary)' };
+writeFileSync(join(OUT, '_ds_bundle.js'),
+  `/* @ds-bundle: ${JSON.stringify(header).replace(/\*\//g, '*\\/')} */\n` +
+  `(function(){var g=typeof window!=='undefined'?window:globalThis;g[${JSON.stringify(cfg.globalName)}]=g[${JSON.stringify(cfg.globalName)}]||{};})();\n`);
+
+// README = the conventions header (the design agent's system-prompt slot) + a short body.
+const conventions = readLF(join(ROOT, cfg.readmeHeader)).trimEnd();
+const named = checkConventionNames(conventions, tokensCss, componentsCss);
+const groups = [...new Set(cards.map((c) => c.group))];
+const body = [
+  '', '---', '', '## Reference cards', '',
+  'Rendered examples of the vocabulary above, under `preview/<card>.html`. They are',
+  'reference renders, not importable components: there is no React component bundle yet.', '',
+  ...groups.flatMap((g) => [`- **${g}:** ` + cards.filter((c) => c.group === g).map((c) => `${c.name} (\`preview/${c.file}\`)`).join(', ')]),
+  '', 'Authority: Retail Tower UX/UI Constitution UX-01…UX-13 (Confluence RETAIL); colour values approved',
+  'in RT-392 (2026-10-11). Source of truth: Kemetra/Admin-Console `design/claude-design-system/`.', '',
+].join('\n');
+writeFileSync(join(OUT, 'README.md'), conventions + '\n' + body);
+
+// Upload fence + local-only build metadata.
+writeFileSync(join(OUT, '_ds_needs_recompile'), JSON.stringify({ by: 'design-sync-cli' }) + '\n');
+writeFileSync(join(OUT, '.ds-build-meta.json'), JSON.stringify({ componentCount: 0, cardCount: cards.length, shape: 'package', offScript: true }, null, 2) + '\n');
+
+console.log(`[OK] ds-bundle: ${cards.length} cards in ${groups.length} groups, styles.css + 3 token files, ${FONT_FACES.length} Dubai faces, README ${conventions.length} char header (${named.tokens} tokens + ${named.classes} classes checked); contrast ${contrast.pairs}/${contrast.pairs} per theme, lowest text: ${contrast.lowest}`);

@@ -1,0 +1,201 @@
+/* Shared control primitives (buttons, inputs, fields, spinner, brand lockup).
+ * From DESIGN.md component specs; consumed across RF-1 surfaces. */
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 14px;
+  background-color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-control);
+  color: var(--color-on-primary);
+  text-decoration: none;
+  font: var(--weight-strong) var(--text-control) / var(--leading-tight) var(--font-sans);
+  cursor: pointer;
+  transition: background-color var(--duration-2) var(--ease-out), box-shadow var(--duration-2)
+    var(--ease-out);
+}
+.btn-primary:hover:not(:disabled) {
+  background-color: var(--color-primary-emphasis);
+}
+/* Focus: the global outline (a11y.css). Its 2px offset keeps the ring on the
+ * page ground, where it holds 3:1, instead of on the teal fill. */
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 14px;
+  background-color: transparent;
+  border: 1px solid var(--color-control-border);
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  text-decoration: none;
+  font: var(--weight-strong) var(--text-control) / var(--leading-tight) var(--font-sans);
+  cursor: pointer;
+  transition: border-color var(--duration-2) var(--ease-out), background-color var(--duration-2)
+    var(--ease-out);
+}
+.btn-secondary:hover {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-soft);
+}
+/* Toggle button (aria-pressed, e.g. the dark-mode switch, RT-398). On reads as a
+ * selection: teal wash and a 2px teal edge (border + inset), kept on hover. Off
+ * hovers neutral, so hovering never looks like "on". Enabled buttons only. */
+.btn-secondary[aria-pressed="false"]:not(:disabled):hover {
+  border-color: var(--color-control-border);
+  background-color: var(--color-surface-sunken);
+}
+.btn-secondary[aria-pressed="true"]:not(:disabled) {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-soft);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  height: 32px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-control);
+  font: var(--weight-strong) var(--text-control) / var(--leading-tight) var(--font-sans);
+  cursor: pointer;
+  transition: background-color var(--duration-2) var(--ease-out), color var(--duration-2)
+    var(--ease-out);
+}
+.btn-ghost:hover {
+  background-color: var(--color-surface-sunken);
+  color: var(--color-text);
+}
+
+.btn-destructive {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 14px;
+  background-color: var(--color-danger);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-control);
+  color: var(--color-on-primary);
+  font: var(--weight-strong) var(--text-control) / var(--leading-tight) var(--font-sans);
+  cursor: pointer;
+  transition: background-color var(--duration-2) var(--ease-out);
+}
+.btn-destructive:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Status pill (DESIGN.md .badge). Display-only; never a UI gate. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+  color: var(--color-text-muted);
+  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
+  white-space: nowrap;
+}
+.badge--active {
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+.badge--suspended {
+  border-color: var(--color-warning);
+  color: var(--color-warning);
+}
+.badge--pending {
+  border-color: var(--color-info);
+  color: var(--color-info);
+}
+
+.input {
+  display: block;
+  width: 100%;
+  min-height: 36px;
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-control-border);
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  font: var(--weight-regular) var(--text-body) / var(--leading-body) var(--font-sans);
+  transition: border-color var(--duration-2) var(--ease-out), box-shadow var(--duration-2)
+    var(--ease-out);
+}
+.input::placeholder {
+  color: var(--color-text-muted);
+}
+/* Border shift reinforces focus; the global outline (a11y.css) is the signal. */
+.input:focus-visible {
+  border-color: var(--color-focus-ring);
+}
+.input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+  box-shadow: 0 0 0 1px var(--color-danger);
+}
+.input:disabled {
+  opacity: 0.55;
+}
+
+.field {
+  display: grid;
+  gap: var(--space-2);
+}
+.field > label {
+  font: var(--weight-strong) var(--text-control) / var(--leading-title) var(--font-sans);
+  color: var(--color-text-muted);
+}
+
+.tower-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.tower-lockup__word {
+  font: var(--weight-strong) var(--text-section-title) / var(--leading-tight) var(--font-sans);
+  color: var(--color-text);
+}
+.tower-mark {
+  width: 28px;
+  height: 28px;
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: rtc-spin 0.7s linear infinite;
+}
+@keyframes rtc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}

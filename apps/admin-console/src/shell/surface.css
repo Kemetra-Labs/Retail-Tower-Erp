@@ -1,0 +1,232 @@
+/* Shared RF-2 surface frame (Phase 3/4). The content-area composition every
+ * tenant/store surface uses: a page header (display title + subtitle + a single
+ * right-aligned primary), then the body. Varied spacing per DESIGN.md (no
+ * uniform padding). The shell already supplies the workspace padding. */
+
+.surface {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.surface__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.surface__head .content__sub {
+  margin-top: var(--space-1);
+}
+
+/* Detail layout: read-first field rows in a single column, max measure. */
+.surface__detail {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 60ch;
+}
+.field-row {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: var(--space-4);
+  align-items: baseline;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.field-row__label {
+  color: var(--color-text-muted);
+  font: var(--weight-strong) var(--text-control) / var(--leading-title) var(--font-sans);
+}
+.field-row__value {
+  color: var(--color-text);
+}
+.field-row__value--mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-machine);
+  color: var(--color-text-muted);
+}
+.surface__actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+
+/* Back link above a detail/form title. */
+.surface__back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-text-muted);
+  text-decoration: none;
+  font-size: var(--text-control);
+}
+.surface__back:hover {
+  color: var(--color-text);
+}
+
+/* Create/edit form: single column, capped measure. */
+.surface__form {
+  display: grid;
+  gap: var(--space-5);
+  max-width: 65ch;
+}
+.surface__form .field {
+  gap: var(--space-2);
+}
+
+/* Sectioned form (RT-400 screens 16/17): a section title, then fields in two
+ * columns that stack below 600px, then the actions under a divider. */
+.surface__section-title {
+  margin: 0;
+  font: var(--weight-strong) var(--text-section-title) / var(--leading-tight) var(--font-sans);
+  color: var(--color-text);
+}
+.surface__form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5) var(--space-4);
+  align-items: start;
+}
+.surface__form-grid > .field {
+  align-content: start;
+}
+@media (max-width: 600px) {
+  .surface__form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.field__required {
+  font-weight: var(--weight-regular, 400);
+}
+.field__hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-machine);
+  line-height: var(--leading-body);
+}
+.surface__form .input--mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-machine);
+}
+.surface__form .input[readonly] {
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+}
+/* Actions beside a title in .surface__head (RT-371): aligned with it, no top gap. */
+.surface__actions--head {
+  margin-top: 0;
+}
+
+.surface__actions--divided {
+  margin-top: 0;
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--color-border);
+}
+
+/* «حالة المتجر»: the V1 is_active control, set apart from the form. */
+.surface__status {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 65ch;
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--color-border);
+}
+.surface__status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+/* Inline confirm before suspending (not a modal, DESIGN.md). */
+.surface__confirm {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+.surface__confirm-msg {
+  margin: 0;
+  color: var(--color-text);
+}
+.surface__confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.surface__status-current {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-control);
+}
+.surface__scope-line {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  color: var(--color-text-muted);
+  font-size: var(--text-control);
+}
+.surface__scope-line strong {
+  color: var(--color-text);
+  font-weight: var(--weight-strong);
+}
+
+/* Scope prompt: the store surfaces' no-active-tenant state. A precondition,
+ * not an error (OQ-4) — quiet, points at the scope bar, no danger styling. */
+.scope-prompt {
+  max-width: 60ch;
+  margin: 0;
+  padding: var(--space-5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-object);
+  color: var(--color-text-muted);
+  line-height: var(--leading-body);
+}
+
+/* RT-477: the impact review before a store's time zone changes. Inline, not a modal. */
+.surface__impact {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 65ch;
+  margin-top: var(--space-5);
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+.surface__impact-title {
+  margin: 0;
+  font: var(--weight-strong) var(--text-control) / var(--leading-title) var(--font-sans);
+  color: var(--color-text);
+}
+.surface__impact-body {
+  display: grid;
+  gap: var(--space-3);
+}
+.surface__impact-line {
+  margin: 0;
+  color: var(--color-text);
+}
+.surface__impact-line--muted {
+  color: var(--color-text-muted);
+  font-size: var(--text-control);
+}
+.surface__impact-line--blocked {
+  color: var(--color-warning);
+  font-weight: var(--weight-strong);
+}
+.surface__impact-review {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  color: var(--color-text);
+}
+.surface__impact-review input {
+  margin-block-start: var(--space-1);
+}

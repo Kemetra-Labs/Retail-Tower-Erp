@@ -1,0 +1,74 @@
+/* RT-267 (UX-11) — focus + forced-colors baseline.
+ *
+ * Focus is an OUTLINE, never a box-shadow alone: forced-colors (Windows contrast
+ * themes) drops box-shadows, so a shadow-only ring vanishes for exactly the
+ * operators who need it most. Components may tune the offset; none may remove
+ * the outline without replacing it. */
+
+:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Forced colors are an operating environment, not a brand theme: hand meaning to
+ * system colors and keep every boundary that brand fills/shadows used to draw. */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline-color: Highlight;
+  }
+
+  /* Fills are forced to Canvas, so a filled or borderless button would lose its
+   * edge. A ButtonText border keeps every button reading as a button. */
+  .btn-primary,
+  .btn-secondary,
+  .btn-ghost,
+  .btn-destructive {
+    border: 1px solid ButtonText;
+  }
+  /* Forced colours drop the inset edge of an on toggle (RT-398): a 2px Highlight
+   * border instead, with 1px less padding so the button keeps its width. */
+  .btn-secondary[aria-pressed="true"]:not(:disabled) {
+    border-width: 2px;
+    border-color: Highlight;
+    padding: 0 13px;
+  }
+  .btn-primary:disabled,
+  .btn-secondary:disabled,
+  .btn-ghost:disabled,
+  .btn-destructive:disabled {
+    border-color: GrayText;
+    color: GrayText;
+  }
+
+  /* Status pills keep a visible boundary; their text carries the status. */
+  .badge {
+    border-color: CanvasText;
+  }
+
+  .spinner {
+    border-color: GrayText;
+    border-top-color: CanvasText;
+  }
+
+  /* Loading skeleton (RT-549): fills are dropped, so the placeholder bars keep
+   * an outline; otherwise the loading table reads as empty. */
+  .skeleton {
+    box-sizing: border-box;
+    border: 1px solid GrayText;
+  }
+}
+
+/* Screen-reader-only text (RT-268 scope announcements). Stays in the
+ * accessibility tree; takes no visual space. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

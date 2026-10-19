@@ -1,0 +1,164 @@
+/* Admin Console design tokens — production source.
+ *
+ * Colour, radius and elevation follow the approved Retail Tower target identity
+ * (RT-392, RT-396): light-first Mineral Daylight + Tower Teal. Every colour is a
+ * value from the light block of design/claude-design-system/colors_and_type.css,
+ * or an alias/alpha of one; tests/unit/tokens-identity.test.ts checks that and
+ * the WCAG AA pairings. Components consume these role names, never hex values,
+ * so a theme can remap the roles without changing what a component means.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Approved colour roles (RT-392 light table) */
+  --color-background: #f7f9fa; /* canvas */
+  --color-surface: #ffffff; /* work surface, panel, overlay */
+  --color-surface-sunken: #eef2f6; /* recessed: headers, hover rows, read-only */
+  --color-text: #0f1d2e;
+  --color-text-muted: #53647a; /* secondary text; also control boundaries */
+  --color-border: #d8dfe7; /* decorative dividers ONLY (1.34:1), never a control edge */
+
+  /* Tower Teal: intent (primary action, selection, focus) */
+  --color-primary: #0f766e;
+  --color-primary-emphasis: #0b5b55; /* hover, pressed, teal text */
+  --color-primary-soft: #e6f4f1; /* selection / current-context wash */
+
+  /* Status: text first, never colour alone */
+  --color-success: #15774d; /* proven success only */
+  --color-warning: #a35a00; /* caution / degraded */
+  --color-danger: #b3261e; /* danger / consequence / UNKNOWN */
+  --color-info: #1b6ca8; /* information / pending */
+
+  /* Derived roles: aliases or alphas of the values above only */
+  --color-on-primary: var(--color-surface); /* text on a primary or danger fill */
+  --color-control-border: var(--color-text-muted); /* >= 3:1 control boundary */
+  --color-focus-ring: var(--color-primary);
+  --color-scrim: rgb(15 29 46 / 0.45); /* text at 45% */
+  --shadow-overlay: 0 12px 32px rgb(15 29 46 / 0.16), 0 2px 6px rgb(15 29 46 / 0.08);
+
+  /* Type (UX-03, RT-397). Dubai is the one Arabic-first UI voice shared with POS.
+   * No font files are served: Dubai renders where it is installed, otherwise the
+   * Segoe UI / Tahoma fallbacks. Dubai ships 300/400/500/700 only, so weights use
+   * the three roles below (a 600 would silently fall to Bold). Floor: 12px. */
+  --font-sans: "Dubai", "Segoe UI", Tahoma, system-ui, sans-serif;
+  --font-mono: ui-monospace, "Consolas", monospace;
+
+  --text-display: 1.875rem; /* 30px, rare */
+  --text-screen-title: 1.25rem; /* 20px */
+  --text-section-title: 1rem; /* 16px */
+  --text-body: 0.875rem; /* 14px */
+  --text-control: 0.8125rem; /* 13px */
+  --text-meta: 0.75rem; /* 12px, the floor */
+  --text-money-total: 1.25rem; /* 20px, tabular */
+  --text-numeric-row: 0.875rem; /* 14px, tabular */
+  --text-machine: 0.8125rem; /* 13px, mono (LTR isolation lands with RT-399) */
+  --text-kbd: 0.75rem; /* 12px, mono */
+
+  --leading-body: 1.7; /* Arabic body needs room */
+  --leading-title: 1.35;
+  --leading-tight: 1.2;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-strong: 700;
+
+  /* Radius (UX-04): round the object, not the page */
+  --radius-sm: 4px; /* small inline marks: tags, code chips */
+  --radius-control: 8px; /* controls, menus, banners, nav entries */
+  --radius-object: 12px; /* a genuine contained object or panel */
+  --radius-overlay: 16px; /* an independent overlay: dialog */
+  --radius-pill: 9999px; /* status, counts, tags only */
+
+  /* Spacing — 4px base */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+
+  /* Shell dimensions — the SF-2 frame (Console v4.0 layout). The grid template
+   * is the sole consumer; named here so topbar/scope/sidebar agree on one value. */
+  --shell-topbar-h: 56px;
+  --shell-scope-h: 40px;
+  --shell-sidebar-w: 240px;
+
+  /* Motion */
+  --duration-1: 80ms;
+  --duration-2: 150ms;
+  --duration-3: 220ms;
+  --duration-4: 320ms;
+  --ease-out: cubic-bezier(0.2, 0.7, 0.25, 1);
+  --ease-in-out: cubic-bezier(0.45, 0.05, 0.25, 1);
+}
+
+/* Dark theme (owner-approved 2026-10-11, RT-392; shipped by RT-398). Light stays
+ * the default: the top-bar switch sets data-theme="dark" on <html>, and the
+ * pre-paint script in index.html restores it before first paint. The same
+ * thirteen roles take dark values and the derived aliases are restated here, so
+ * no component changes. Verbatim from the approved dark block; it must come after
+ * :root, which has the same specificity. */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-background: #0e161f;
+  --color-surface: #16212d;
+  --color-surface-sunken: #111a24;
+  --color-text: #e7edf3;
+  --color-text-muted: #9fb0c2;
+  --color-border: #2a3846;
+
+  --color-primary: #3fb8a8;
+  --color-primary-emphasis: #6fd0c2;
+  --color-primary-soft: #12322f;
+
+  --color-success: #5cc995;
+  --color-warning: #e9a84a;
+  --color-danger: #ff8b7f;
+  --color-info: #6db3ea;
+
+  --color-on-primary: var(--color-background); /* text on a teal or danger fill is dark */
+  --color-control-border: var(--color-text-muted);
+  --color-focus-ring: var(--color-primary);
+  --color-scrim: rgb(14 22 31 / 0.7); /* background at 70% */
+  --shadow-overlay: 0 12px 32px rgb(14 22 31 / 0.7), 0 2px 6px rgb(14 22 31 / 0.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-1: 0ms;
+    --duration-2: 0ms;
+    --duration-3: 0ms;
+    --duration-4: 0ms;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--color-text);
+  background-color: var(--color-background);
+  /* Native checkboxes, radios, date pickers and the caret take Tower Teal, never
+   * the browser's default accent. */
+  accent-color: var(--color-primary);
+  caret-color: var(--color-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The browser shrinks <small> to ~83% of its parent, under the 12px floor on
+ * 13-14px text; pin it to the meta role instead. */
+small {
+  font-size: var(--text-meta);
+}

@@ -1,0 +1,76 @@
+# Retail Tower Design System: conventions for generated screens
+
+This is the target identity from the Retail Tower UX/UI Constitution: light-first Mineral Daylight + Tower Teal, Arabic-first, RTL by structure.
+
+**This bundle has no React components.** `window.RetailTowerDS` is empty. Build screens from plain HTML/JSX elements styled with the token and class vocabulary below. Never invent class names or hex values.
+
+## Setup
+
+- Root: `<html lang="ar" dir="rtl">`. Load `styles.css`; it imports `tokens/fonts.css` (Dubai), `tokens/colors_and_type.css` (tokens) and `tokens/components.css` (classes). No provider or wrapper is needed.
+- The CSS uses logical properties only. Without `dir="rtl"`, the layout renders mirrored and wrong for Arabic.
+- **English** is the second locale: `<html lang="en" dir="ltr">`, and the same CSS mirrors the layout. Build in Arabic unless English is asked for.
+- **Dark theme:** add `data-theme="dark"` to `<html>` (or to one container). Every token switches to its dark value, so never hard-code a dark colour. Light is the default.
+- **Shell switches:** the top bar carries a language button (`btn btn--quiet`, labelled with the other language's name: «English» / «العربية») and a theme button (`btn btn--secondary`) with the constant label «الوضع الليلي» / "Dark mode" and `aria-pressed="true"` while dark is on (never swap the label), before the user's name. The CSS draws an on toggle (teal wash, 2px teal edge); never restyle it by hand.
+- Font: `var(--font-sans)` (Dubai, embedded through `styles.css` in weights 300, 400, 500 and 700). Keep text at 12px or larger.
+
+## Styling idiom: tokens + classes
+
+- **Colours:** `--color-background`, `--color-surface`, `--color-surface-sunken`, `--color-text`, `--color-text-muted`, `--color-border` (dividers only), `--color-primary`, `--color-primary-emphasis`, `--color-primary-soft` (Tower Teal = intent), `--color-info`, `--color-success`, `--color-warning`, `--color-danger`.
+- **Space:** `--space-1`…`--space-9` (4–96px).
+- **Radius:** `--radius-control` (8), `--radius-object` (12), `--radius-overlay` (16), `--radius-pill`.
+- **Type:** `--text-display`, `--text-screen-title`, `--text-section-title`, `--text-body`, `--text-control`, `--text-meta`, `--text-money-total`.
+- **Motion:** `--duration-contact`, `--duration-signal`, `--duration-continuity`, `--ease-standard`.
+
+| Need | Classes |
+|---|---|
+| Buttons | `btn` + `btn--primary` (one per region), `btn--secondary`, `btn--quiet`, `btn--danger`. `btn--danger-commit` is for confirm dialogs only. Busy: `aria-busy="true"` + `spinner`. Blocked: `aria-disabled="true"` + a visible reason. |
+| Fields | `field` > `label.field__label` (+ `field__req`), then `input.input` or `select.select`, then `field__hint` / `field__error`, linked via `aria-describedby`. |
+| Status | `badge` + `is-neutral` / `is-info` / `is-success` / `is-warning` / `is-danger`, with `dot` or `dot--hollow`. `dot--live` only during real activity. |
+| States | `notice`; `banner` (`banner__title`, `banner__body`, `banner__evidence`, `banner__action`); `blocking`. |
+| Tables | `table` (full-bleed, never inside a card), `col-num`, `tr.is-selected`, `table__continuation`, `table-meta`, `skeleton`. |
+| Shell | `shell` > `shell__top` (`shell__product`), `shell__scope` (`scope-item`), `shell__nav` (`nav-item` + `signal` on `aria-current="page"`), `shell__main`. |
+| Overlays | `scrim`, `drawer` (`drawer__head`, `drawer__body`, `drawer__foot`), `dialog` (`dialog__actions`), `menu` / `menu__item` (radio group). Place each `scrim` directly before its `drawer` or `dialog`, after the page content; a later overlay covers an earlier one. |
+| Forms | `form`, `form__section`, `form__row`, `form__actions`, `form__dirty`, `error-summary`. |
+| Data | `num` (money, quantities), `machine` (IDs, codes), `ledger` / `ledger__total`, `sr-only`. |
+
+## Where the truth lives
+
+`tokens/colors_and_type.css` and `tokens/components.css`. The reference cards are under `preview/`, for example `preview/patterns-shell-tenant.html`, `preview/foundations-content.html` (wording rules), `preview/foundations-dark-theme.html` and `preview/patterns-locale-english.html`.
+
+## Rules
+
+- **Language:** Arabic by default, English as the second locale, one locale at a time; never "عربي (English)".
+- **Terms:**
+  - «المؤسسة» = tenant
+  - «المتجر» = store, never «الفرع»
+  - «الصنف» = item
+  - «المستخدم» = user
+- **Buttons** name the action: «حفظ المتجر», not «موافق».
+- **Money:** `1,250.00 EGP` inside `.num`, Western digits. Dates read «7 أكتوبر 2026، 13:42».
+- **Time:** operational times show in the store's own time zone. Each store has its own, and it stays editable on the store's settings after creation, except while a shift is open; a change goes through an impact review before it applies. Show the blocked state with its reason, not a hidden control.
+- **Status:**
+  - Never colour alone.
+  - An UNKNOWN outcome is danger.
+  - A missing signal is «لا توجد إشارة» (hollow neutral).
+  - Healthy stays quiet: a steady connection is a green `dot` beside «متصل», never a banner.
+  - One meaning per word in status badges and labels: «غير معروف» / «النتيجة غير معروفة» only for an unknown outcome (danger); «موقوفة» = suspended tenant (hollow neutral); «معلّقة» = parked postings only (hollow neutral); «بانتظار تحقق» and «قيد التحقيق» are info hollow.
+- **Design-only actions:** with no service behind it yet, an action is `aria-disabled` with a visible «تصميم فقط: …» reason. A mock never shows a write to tenant data, a sale, a posting or a device as succeeding.
+- **Messages:** what happened, what is safe, what to do, then the evidence (a `.machine` reference).
+- **Charts:** a summary count band (numbers with labels) is allowed. Status marks (status-history strip, status distribution bar) are allowed too, each with a legend, a written summary and a dashed «لا توجد إشارة» segment. Bar, line and sparkline charts, threshold lines and deploy markers are not: use a table.
+- **Not allowed:** data charts, icons, toasts, gradients, new colours (dark mode uses the approved dark values through `data-theme`, never its own).
+- **Consoles:** the Tenant and Platform consoles share every token and differ only in copy and scope bar.
+
+```html
+<div class="shell__main">
+  <h2>المتاجر</h2>
+  <div class="banner is-warning" role="status">
+    <span class="banner__title">تعذّر تحديث فروق المخزون من ERPNext.</span>
+    <span class="banner__body">آخر بيانات مؤكدة معروضة أدناه، ويمكنك متابعة العمل.</span>
+    <button class="btn btn--secondary banner__action">تحديث البيانات</button>
+  </div>
+  <table class="table">
+    <thead><tr><th>المتجر</th><th>الحالة</th><th class="col-num">قيمة المخزون</th></tr></thead>
+    <tbody><tr><td>متجر الواحة</td><td><span class="badge is-neutral"><span class="dot"></span>نشط</span></td><td class="col-num"><span class="num">98,410.50 EGP</span></td></tr></tbody>
+  </table>
+</div>
+```

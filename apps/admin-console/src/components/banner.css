@@ -1,0 +1,75 @@
+/* Persistent status banner (DESIGN.md Alert/Status Banner; rule 4). */
+.rtc-alert {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-control);
+  font-size: var(--text-body);
+  border: 1px solid transparent;
+}
+
+.rtc-alert__msg {
+  font-weight: var(--weight-medium);
+}
+
+/* Titled banner: the headline carries the status colour, the body reads as text. */
+.rtc-alert__title {
+  font-weight: var(--weight-strong);
+}
+.rtc-alert__body {
+  color: var(--color-text);
+}
+
+.rtc-alert__req {
+  font-family: var(--font-mono);
+  font-size: var(--text-machine);
+  color: var(--color-text-muted);
+}
+
+.rtc-alert__action {
+  margin-top: var(--space-2);
+}
+
+.rtc-alert--danger {
+  background: var(--color-surface);
+  color: var(--color-danger);
+  border-color: currentColor;
+}
+
+.rtc-alert--warning {
+  background: var(--color-surface);
+  color: var(--color-warning);
+  border-color: currentColor;
+}
+
+.rtc-alert--success {
+  background: var(--color-surface);
+  color: var(--color-success);
+  border-color: currentColor;
+}
+
+.rtc-alert--info {
+  background: var(--color-surface);
+  color: var(--color-info);
+  border-color: currentColor;
+}
+
+/* RT-621: the 429 banner sits above the routed surface and never blocks it. */
+.rate-limit-banner:has(.rtc-alert) {
+  margin-block-end: var(--space-5);
+}
+
+.rate-limited-area {
+  padding: var(--space-7) var(--space-6);
+}
+
+.rate-limit-banner__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.rate-limit-countdown {
+  margin-inline-start: var(--space-2);
+  font-variant-numeric: tabular-nums;
+}

@@ -1,0 +1,70 @@
+/* SF-1 sign-in — centered card on the light canvas (shape brief). */
+.signin-stage {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-7) var(--space-5);
+  background: var(--color-background);
+}
+
+.signin-shell {
+  width: 100%;
+  max-width: 384px;
+}
+
+/* Brand lockup sits above the card (Console v4.0): the teal mark anchors the
+ * surface before the operator reads the form. Centered. */
+.signin-brand {
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--space-5);
+}
+.signin-brand .tower-mark {
+  color: var(--color-primary);
+}
+.signin-brand .tower-lockup__word {
+  font: var(--weight-strong) var(--text-screen-title) / var(--leading-tight) var(--font-sans);
+}
+
+.signin-card {
+  width: 100%;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-object);
+  box-shadow: var(--shadow-overlay);
+  padding: var(--space-6);
+}
+
+/* Card heading — left-aligned now that identity lives in the brand lockup above. */
+.signin-head {
+  margin-bottom: var(--space-5);
+}
+.signin-head__title {
+  margin: 0 0 var(--space-1);
+  font: var(--weight-strong) var(--text-screen-title) / var(--leading-title) var(--font-sans);
+}
+.signin-head__sub {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-body);
+}
+
+.signin-banner {
+  margin-bottom: var(--space-4);
+}
+
+.signin-form {
+  display: grid;
+  gap: var(--space-4);
+}
+.signin-submit {
+  width: 100%;
+  margin-top: var(--space-2);
+}
+
+.signin-foot {
+  margin: var(--space-5) 0 0;
+  text-align: center;
+  font-size: var(--text-meta);
+  color: var(--color-text-muted);
+}

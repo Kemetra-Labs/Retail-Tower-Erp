@@ -1,0 +1,238 @@
+/* SF-2 app shell layout (DESIGN.md App Shell; Console v4.0 visual adoption).
+ * The frame: 56px topbar / 40px recessed scope bar / sidebar + content. Tower
+ * Teal marks intent only: the active nav entry (wash + Signal Line), actions and
+ * focus (RT-396). */
+.shell {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: var(--shell-topbar-h) var(--shell-scope-h) 1fr;
+  grid-template-columns: var(--shell-sidebar-w) 1fr;
+  grid-template-areas:
+    "topbar topbar"
+    "scope scope"
+    "sidebar content";
+  background: var(--color-background);
+}
+
+/* ---- Topbar ------------------------------------------------------------- */
+.topbar {
+  grid-area: topbar;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-5);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+.topbar__spacer {
+  flex: 1;
+}
+
+.tower-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+.tower-mark {
+  color: var(--color-primary);
+}
+.tower-lockup__word {
+  font: var(--weight-strong) var(--text-section-title) / var(--leading-tight) var(--font-sans);
+}
+/* "Console" is a product label, not a control — a quiet pill, never teal. */
+.tower-lockup__tag {
+  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  padding: 3px 8px;
+}
+
+.topbar__user {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-control);
+}
+.topbar__avatar-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.topbar__avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  display: grid;
+  place-items: center;
+  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
+  color: var(--color-on-primary);
+}
+/* Presence dot — a truthful signal about the viewing operator (they are here,
+ * now), not a claim about external systems. Decorative to AT (the name carries
+ * identity); a later slice can drive it from real session liveness. */
+.topbar__online {
+  position: absolute;
+  inset-inline-end: -1px;
+  bottom: -1px;
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-pill);
+  background: var(--color-success);
+  border: 2px solid var(--color-surface);
+}
+.topbar__name {
+  font-size: var(--text-control);
+  font-weight: var(--weight-strong);
+  line-height: var(--leading-tight);
+}
+.topbar__name small {
+  display: block;
+  font-weight: var(--weight-regular);
+  color: var(--color-text-muted);
+}
+
+/* ---- Sidebar ------------------------------------------------------------ */
+.sidebar {
+  grid-area: sidebar;
+  background: var(--color-surface);
+  border-inline-end: 1px solid var(--color-border);
+  padding: var(--space-4) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: auto;
+}
+.nav-section {
+  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
+  color: var(--color-text-muted); /* text-disabled scored 2.87:1 (axe, RT-267) */
+  padding: var(--space-4) var(--space-3) var(--space-2);
+}
+.nav-entry {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  height: 40px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-control);
+  color: var(--color-text-muted);
+  font-size: var(--text-body);
+  text-align: start;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--duration-2) var(--ease-out), color var(--duration-2)
+    var(--ease-out);
+}
+.nav-entry__icon {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  transition: color var(--duration-2) var(--ease-out);
+}
+.nav-entry__label {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.nav-entry--link {
+  text-decoration: none;
+}
+.nav-entry--link:hover {
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+}
+.nav-entry--link:hover .nav-entry__icon {
+  color: var(--color-text-muted);
+}
+.nav-entry:focus-visible {
+  outline-offset: -2px; /* inset: entries fill the sidebar width */
+}
+.nav-entry--active {
+  background: var(--color-primary-soft);
+  color: var(--color-primary-emphasis);
+  text-decoration: none;
+}
+.nav-entry--active .nav-entry__icon {
+  color: var(--color-primary-emphasis);
+}
+/* The active marker: the Signal Line, in Tower Teal. */
+.nav-entry--active::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  inset-inline-start: 0;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 20px;
+  border-start-end-radius: 2px;
+  border-end-end-radius: 2px;
+  background: var(--color-primary);
+}
+.nav-entry--disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.nav-gate {
+  margin-inline-start: auto;
+  font: var(--weight-strong) var(--text-kbd) / var(--leading-tight) var(--font-mono);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  padding: 2px 5px;
+  border-radius: var(--radius-sm);
+}
+.nav-signout:hover {
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+}
+.nav-signout:hover .nav-entry__icon {
+  color: var(--color-text-muted);
+}
+
+/* ---- Content ------------------------------------------------------------ */
+.content {
+  grid-area: content;
+  padding: var(--space-7) var(--space-6);
+  overflow: auto;
+}
+.content__title {
+  margin: 0 0 var(--space-2);
+  font: var(--weight-strong) var(--text-display) / var(--leading-title) var(--font-sans);
+}
+.content__sub {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+/* Forced colors (RT-267): the active tint and the marker's fill are forced to
+ * Canvas, which would erase "you are here". Keep the marker as a system-colored
+ * shape, and grey out gated entries that relied on opacity alone. */
+@media (forced-colors: active) {
+  .nav-entry--active::before {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+  .nav-entry--disabled,
+  .nav-gate {
+    color: GrayText;
+    border-color: GrayText;
+  }
+}
+
+@media (max-width: 768px) {
+  .shell {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "topbar"
+      "scope"
+      "content";
+  }
+  .sidebar {
+    display: none;
+  }
+}

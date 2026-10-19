@@ -1,0 +1,125 @@
+/* RF-4a review-queue surface styles. Composed over the design tokens; reuses the
+ * shared .surface frame (src/shell/surface.css). No new visual primitive. */
+
+/* Filter / sort / group control row above the queue table. Framed as a surface
+ * panel to match the audit query bar (Console v4.0 — consistent filter chrome). */
+.unknown-item-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  align-items: flex-end;
+  margin: 0;
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-object);
+}
+.unknown-item-controls__legend {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  float: inline-start;
+  width: 100%;
+  padding: 0;
+  margin-block-end: var(--space-3);
+  color: var(--color-text-muted);
+  font: var(--weight-strong) var(--text-control) / var(--leading-title) var(--font-sans);
+}
+.unknown-item-controls__icon {
+  color: var(--color-text-muted);
+}
+.unknown-item-controls__field {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--text-control);
+  color: var(--color-text-muted);
+}
+.unknown-item-controls__field input,
+.unknown-item-controls__field select {
+  min-height: 36px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-control-border);
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  font-size: var(--text-body);
+}
+
+/* Inspect-drawer read-only detail list. */
+.unknown-item-detail {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+}
+.unknown-item-detail__field {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: var(--space-4);
+  align-items: baseline;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.unknown-item-detail__label {
+  color: var(--color-text-muted);
+  font: var(--weight-strong) var(--text-control) / var(--leading-title) var(--font-sans);
+}
+.unknown-item-detail__value {
+  margin: 0;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.unknown-item-detail__actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+.unknown-item-dismiss {
+  margin-top: var(--space-5);
+  display: grid;
+  gap: var(--space-4);
+}
+
+/* RT-724: the bulk-dismiss bar above the pending queue. The selection is
+ * explicit and counted (UX-10 "bulk scope is explicit and countable"). */
+.unknown-item-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+.unknown-item-bulk__page {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  font-size: var(--text-control);
+}
+.unknown-item-bulk__count {
+  color: var(--color-text-muted);
+  font-size: var(--text-control);
+}
+.unknown-item-bulk > .confirm-delete,
+.unknown-item-bulk > .rtc-alert {
+  flex-basis: 100%;
+}
+.unknown-item-select {
+  inline-size: 18px;
+  block-size: 18px;
+  accent-color: var(--color-primary);
+}
+
+/* RT-724: the create-product form inside the inspect drawer. */
+.unknown-item-form {
+  margin-block-start: var(--space-5);
+}
+.unknown-item-form__fields {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.unknown-item-form__legend {
+  padding: 0;
+  margin-block-end: var(--space-2);
+  font: var(--weight-strong) var(--text-body) / var(--leading-title) var(--font-sans);
+}

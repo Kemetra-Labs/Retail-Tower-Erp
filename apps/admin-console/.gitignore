@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Test artifacts
+coverage/
+playwright-report/
+test-results/
+.playwright/
+
+# Editor / OS
+.DS_Store
+*.local
+
+# Claude Code harness artifacts
+.claude/scheduled_tasks.lock
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Env (C-8: no env files committed; ignored to prevent accidents)
+.env
+.env.*
+!.env.example
+
+# Local tool output (not part of the repo)
+graphify-out/
+
+# tester-army/e2e run output (RT-299): reports, results, replay cache, logs
+.e2e/
+
+# design-sync (RT-392): staged converter scripts, generated upload bundle, machine state
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
+.design-sync/fonts/

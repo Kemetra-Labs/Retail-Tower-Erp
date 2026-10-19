@@ -1,0 +1,128 @@
+/* Side-panel drawer (RF-5). Right-anchored panel over a dim scrim; the list
+ * stays visible behind it. --shadow-overlay (rule 8); no nested cards. */
+
+.drawer-scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--color-scrim);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 50;
+}
+.drawer {
+  /* Reset the native <dialog> UA box: the scrim positions the panel. */
+  position: static;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  max-width: none;
+  max-height: none;
+  color: inherit;
+  width: min(440px, 100vw);
+  height: 100%;
+  background: var(--color-surface);
+  border-inline-start: 1px solid var(--color-border);
+  box-shadow: var(--shadow-overlay);
+  display: flex;
+  flex-direction: column;
+  animation: drawer-in var(--duration-3) var(--ease-out);
+  /* The panel enters from its own edge: the inline end, mirrored in RTL (RT-399). */
+  --dir-sign: 1;
+}
+/* The panel is a programmatic initial-focus target (tabindex=-1), never a Tab
+ * stop, so it opts out of the global focus ring (a11y.css). Every control inside
+ * keeps its outline. Specificity, not bundle order, decides this (RT-267). */
+.drawer:focus-visible {
+  outline: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .drawer {
+    animation: none;
+  }
+}
+/* Forced colors drop the pane shadow; a full system-colored edge keeps the
+ * dialog visibly separate from the page it covers (RT-267). */
+@media (forced-colors: active) {
+  .drawer {
+    border: 1px solid CanvasText;
+  }
+}
+[dir="rtl"] .drawer {
+  --dir-sign: -1;
+}
+@keyframes drawer-in {
+  from {
+    transform: translateX(calc(16px * var(--dir-sign)));
+    opacity: 0.6;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.drawer__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+}
+.drawer__title {
+  margin: 0;
+  font: var(--weight-strong) var(--text-screen-title) / var(--leading-title) var(--font-sans);
+}
+.drawer__body {
+  padding: var(--space-5);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* Member identity cell (member list). */
+.member-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.member-identity__name {
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+.member-identity__email {
+  font-family: var(--font-mono);
+  font-size: var(--text-machine);
+  color: var(--color-text-muted);
+}
+
+/* Revoke section in the edit drawer: isolated by a top rule, never a nested
+ * card (rule 5). */
+.drawer__danger-section {
+  margin-top: var(--space-2);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.drawer__danger-title {
+  margin: 0;
+  font: var(--weight-strong) var(--text-section-title) / var(--leading-title) var(--font-sans);
+  color: var(--color-text);
+}
+.drawer__radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.drawer__radio {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+  font-size: var(--text-body);
+  cursor: pointer;
+}
+.drawer__radio input {
+  accent-color: var(--color-primary);
+}

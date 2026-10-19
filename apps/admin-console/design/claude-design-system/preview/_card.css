@@ -1,0 +1,94 @@
+/* Preview-card chrome (RT-392). Cards only: never part of what generated designs
+ * receive. Tokens and the component vocabulary come from the two imports. */
+@import url("../colors_and_type.css");
+@import url("../components.css");
+
+body {
+  padding: var(--space-6);
+}
+
+/* ── Card chrome ─────────────────────────────────────────────────────── */
+.ds-head {
+  display: grid;
+  gap: var(--space-1);
+  margin-block-end: var(--space-6);
+  max-inline-size: 70ch;
+}
+.ds-head h1 {
+  font-size: var(--text-screen-title);
+  line-height: var(--leading-title);
+  font-weight: var(--weight-strong);
+}
+.ds-head p {
+  color: var(--color-text-muted);
+}
+.ds-section {
+  display: grid;
+  gap: var(--space-3);
+  margin-block-end: var(--space-6);
+}
+.ds-section:last-child {
+  margin-block-end: 0;
+}
+.ds-section > h2 {
+  font-size: var(--text-section-title);
+  line-height: var(--leading-title);
+  font-weight: var(--weight-strong);
+  margin-block-start: var(--space-2);
+}
+.ds-note {
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.ds-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+.ds-grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+.ds-spec {
+  inline-size: 100%;
+  border-collapse: collapse;
+}
+.ds-spec th,
+.ds-spec td {
+  text-align: start;
+  padding-block: var(--space-2);
+  padding-inline: var(--space-3);
+  border-block-end: 1px solid var(--color-border);
+  vertical-align: top;
+}
+.ds-spec th {
+  font-size: var(--text-meta);
+  font-weight: var(--weight-strong);
+  color: var(--color-text-muted);
+  background: var(--color-surface-sunken);
+}
+
+/* Overlay demos stay inside their frame; in a real screen they are fixed. */
+.stage {
+  position: relative;
+  min-block-size: 360px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-object);
+  background: var(--color-background);
+  overflow: hidden;
+}
+.stage .scrim,
+.stage .drawer,
+.stage .dialog {
+  position: absolute;
+}
+
+/* A shell shown inside a card is framed; a real shell fills the viewport. */
+.shell {
+  min-block-size: 640px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-object);
+  overflow: hidden;
+}
