@@ -1,0 +1,394 @@
+/**
+ * apps/api/test/catalog/sales/schema/sales-schema-shape.spec.ts
+ *
+ * Slice 008-SCHEMA (T012) — Drizzle schema-shape test for the sale-fact tables.
+ *
+ * This is the lightweight, Docker-FREE companion to the Testcontainers
+ * migration round-trip in `packages/db/__tests__/migration/0012-sales.spec.ts`.
+ * It introspects the Drizzle table objects exported from `@data-pulse-2/db/schema`
+ * and asserts the data-model.md §1-§4 column inventory: presence, money
+ * precision/scale, char(3) currency, gate-B nullability, the dedup-unique
+ * tuple, and the load-bearing NEGATIVES (no `version` column — gate D.1/FR-070;
+ * no tender column — gate A.5).
+ *
+ * RED-before-GREEN: authored before the schema exists, this file fails to even
+ * import (`sales` is not yet exported) — the intended T012 RED. Once T013 lands
+ * the schema + barrel re-export, the import resolves and the assertions pass.
+ *
+ * Note: `@data-pulse-2/db/schema` resolves to the package's built `dist/`, so
+ * the db package must be built before this spec sees the new exports
+ * (`pnpm --filter @data-pulse-2/db build`).
+ */
+import "reflect-metadata";
+
+import { getTableConfig } from "drizzle-orm/pg-core";
+
+import {
+  saleApprovalUses,
+  saleCreditReversals,
+  saleCreditReversalTenders,
+  saleLines,
+  saleRefunds,
+  saleReprints,
+  saleResponsibilities,
+  saleReturnLines,
+  saleReturns,
+  saleReturnTenders,
+  saleTenders,
+  sales,
+  saleVoids,
+} from "@data-pulse-2/db/schema";
+
+type ColumnInfo = {
+  name: string;
+  notNull: boolean;
+  dataType: string;
+  columnType: string;
+  precision?: number | undefined;
+  scale?: number | undefined;
+  length?: number | undefined;
+};
+
+function columns(table: unknown): Map<string, ColumnInfo> {
+  // getTableConfig exposes the column builders' resolved metadata.
+  const cfg = getTableConfig(table as Parameters<typeof getTableConfig>[0]);
+  const out = new Map<string, ColumnInfo>();
+  for (const col of cfg.columns) {
+    const c = col as unknown as {
+      name: string;
+      notNull: boolean;
+      dataType: string;
+      columnType: string;
+      precision?: number;
+      scale?: number;
+      size?: number;
+      length?: number;
+    };
+    out.set(c.name, {
+      name: c.name,
+      notNull: c.notNull,
+      dataType: c.dataType,
+      columnType: c.columnType,
+      precision: c.precision,
+      scale: c.scale,
+      length: c.length ?? c.size,
+    });
+  }
+  return out;
+}
+
+const ALL_TABLES: ReadonlyArray<{ name: string; table: unknown }> = [
+  { name: "sales", table: sales },
+  { name: "sale_lines", table: saleLines },
+  { name: "sale_voids", table: saleVoids },
+  { name: "sale_refunds", table: saleRefunds },
+  { name: "sale_returns", table: saleReturns },
+  { name: "sale_return_lines", table: saleReturnLines },
+  { name: "sale_return_tenders", table: saleReturnTenders },
+  { name: "sale_tenders", table: saleTenders },
+  { name: "sale_reprints", table: saleReprints },
+  { name: "sale_responsibilities", table: saleResponsibilities },
+  // RT-577 (0054): credit-sale reversals, their refund tenders, the shared
+  // approval-use ledger.
+  { name: "sale_credit_reversals", table: saleCreditReversals },
+  { name: "sale_credit_reversal_tenders", table: saleCreditReversalTenders },
+  { name: "sale_approval_uses", table: saleApprovalUses },
+];
+
+describe("sales schema shape — sales (header)", () => {
+  const cols = columns(sales);
+
+  it("carries the data-model.md §1 column inventory", () => {
+    for (const name of [
+      "id",
+      "tenant_id",
+      "store_id",
+      "currency_code",
+      "pos_total",
+      "occurred_at",
+      "received_at",
+      "business_date",
+      "processed_at",
+      "source_clock_at",
+      "source_system",
+      "external_id",
+      "payload_hash",
+      "mismatch_flag",
+      "created_by",
+      "created_at",
+    ]) {
+      expect(cols.has(name)).toBe(true);
+    }
+  });
+
+  it("pos_total is numeric(19,4)", () => {
+    const c = cols.get("pos_total");
+    expect(c?.columnType).toBe("PgNumeric");
+    expect(c?.precision).toBe(19);
+    expect(c?.scale).toBe(4);
+  });
+
+  it("currency_code is char(3)", () => {
+    const c = cols.get("currency_code");
+    expect(c?.columnType).toBe("PgChar");
+    expect(c?.length).toBe(3);
+  });
+
+  it("applies gate-B nullability", () => {
+    expect(cols.get("occurred_at")?.notNull).toBe(true);
+    expect(cols.get("received_at")?.notNull).toBe(true);
+    expect(cols.get("business_date")?.notNull).toBe(true);
+    expect(cols.get("processed_at")?.notNull).toBe(false);
+    expect(cols.get("source_clock_at")?.notNull).toBe(false);
+    expect(cols.get("mismatch_flag")?.notNull).toBe(false);
+  });
+
+  it("tenant_id and store_id are NOT NULL (FR-001/061)", () => {
+    expect(cols.get("tenant_id")?.notNull).toBe(true);
+    expect(cols.get("store_id")?.notNull).toBe(true);
+  });
+});
+
+describe("sales schema shape — sale_lines (frozen snapshot)", () => {
+  const cols = columns(saleLines);
+
+  it("carries the data-model.md §2 snapshot columns", () => {
+    for (const name of [
+      "id",
+      "sale_id",
+      "tenant_id",
+      "store_id",
+      "line_name",
+      "unit_price",
+      "currency_code",
+      "quantity",
+      "line_amount",
+      "tax_amount",
+      "unit",
+      "tenant_product_ref",
+    ]) {
+      expect(cols.has(name)).toBe(true);
+    }
+  });
+
+  it("unit_price and line_amount are numeric(19,4) NOT NULL; tax_amount nullable", () => {
+    for (const name of ["unit_price", "line_amount"]) {
+      const c = cols.get(name);
+      expect(c?.columnType).toBe("PgNumeric");
+      expect(c?.precision).toBe(19);
+      expect(c?.scale).toBe(4);
+      expect(c?.notNull).toBe(true);
+    }
+    expect(cols.get("tax_amount")?.notNull).toBe(false);
+  });
+
+  it("tenant_product_ref is nullable (ad-hoc lines, FR-004)", () => {
+    expect(cols.get("tenant_product_ref")?.notNull).toBe(false);
+  });
+});
+
+describe("sales schema shape — terminal events (void / refund)", () => {
+  it("sale_voids carries the §3 columns incl. voided_at NOT NULL", () => {
+    const cols = columns(saleVoids);
+    for (const name of [
+      "id",
+      "sale_id",
+      "tenant_id",
+      "store_id",
+      "voided_at",
+      "source_system",
+      "external_id",
+      "payload_hash",
+      "created_by",
+    ]) {
+      expect(cols.has(name)).toBe(true);
+    }
+    expect(cols.get("voided_at")?.notNull).toBe(true);
+  });
+
+  it("sale_voids carries its own NOT NULL business_date (RT-63 P2, 0032)", () => {
+    const c = columns(saleVoids).get("business_date");
+    expect(c?.columnType).toBe("PgDateString");
+    expect(c?.notNull).toBe(true);
+  });
+
+  it("sale_refunds preserves pos_refund_amount numeric(19,4) + currency", () => {
+    const cols = columns(saleRefunds);
+    for (const name of [
+      "id",
+      "sale_id",
+      "tenant_id",
+      "store_id",
+      "refunded_at",
+      "pos_refund_amount",
+      "currency_code",
+      "source_system",
+      "external_id",
+      "payload_hash",
+      "created_by",
+    ]) {
+      expect(cols.has(name)).toBe(true);
+    }
+    const amt = cols.get("pos_refund_amount");
+    expect(amt?.columnType).toBe("PgNumeric");
+    expect(amt?.precision).toBe(19);
+    expect(amt?.scale).toBe(4);
+    expect(amt?.notNull).toBe(true);
+    expect(cols.get("refunded_at")?.notNull).toBe(true);
+  });
+});
+
+describe("sales schema shape — line-aware returns (RT-73, 0032)", () => {
+  it("money is numeric(19,4) and quantities numeric(19,6)", () => {
+    const money: Array<[unknown, string]> = [
+      [saleReturns, "return_total"],
+      [saleReturnLines, "line_amount"],
+      [saleReturnLines, "tax_amount"],
+      [saleReturnTenders, "amount"],
+    ];
+    for (const [table, name] of money) {
+      const c = columns(table).get(name);
+      expect(c?.columnType).toBe("PgNumeric");
+      expect([c?.precision, c?.scale]).toEqual([19, 4]);
+    }
+    for (const name of ["quantity", "returned_quantity_after"]) {
+      const c = columns(saleReturnLines).get(name);
+      expect(c?.columnType).toBe("PgNumeric");
+      expect([c?.precision, c?.scale]).toEqual([19, 6]);
+      expect(c?.notNull).toBe(true);
+    }
+  });
+
+  it("a return carries its own server stamp, business date and per-sale sequence", () => {
+    const cols = columns(saleReturns);
+    for (const name of ["returned_at", "business_date", "return_seq", "payload_hash"]) {
+      expect(cols.get(name)?.notNull).toBe(true);
+    }
+    expect(cols.get("reason")?.notNull).toBe(false);
+    expect(columns(saleReturnLines).get("tax_amount")?.notNull).toBe(false);
+  });
+});
+
+describe("sales schema shape — sale tenders + device attribution (RT-77, 0033)", () => {
+  it("a tender amount is numeric(19,4) with a char(3) currency; reference is optional", () => {
+    const cols = columns(saleTenders);
+    expect(cols.get("amount")?.columnType).toBe("PgNumeric");
+    expect([cols.get("amount")?.precision, cols.get("amount")?.scale]).toEqual([19, 4]);
+    for (const name of ["sale_id", "method", "amount", "currency_code", "created_at"]) {
+      expect(cols.get(name)?.notNull).toBe(true);
+    }
+    expect(cols.get("currency_code")?.length).toBe(3);
+    expect(cols.get("reference")?.notNull).toBe(false);
+  });
+
+  it("sales.device_id is nullable (pre-RT-77 rows) and tender_count is NOT NULL", () => {
+    const cols = columns(sales);
+    expect(cols.get("device_id")?.notNull).toBe(false);
+    expect(cols.get("tender_count")?.notNull).toBe(true);
+  });
+
+  it("RT-360 (0041): tender_ref (uuid) and sequence (smallint) are nullable — legacy tenders carry neither", () => {
+    const cols = columns(saleTenders);
+    expect(cols.get("tender_ref")?.columnType).toBe("PgUUID");
+    expect(cols.get("tender_ref")?.notNull).toBe(false);
+    expect(cols.get("sequence")?.columnType).toBe("PgSmallInt");
+    expect(cols.get("sequence")?.notNull).toBe(false);
+  });
+});
+
+/** The named columns' metadata, keyed by name, for one `toMatchObject` check. */
+function pick(table: unknown, names: readonly string[]): Record<string, ColumnInfo | undefined> {
+  const cols = columns(table);
+  return Object.fromEntries(names.map((n) => [n, cols.get(n)]));
+}
+
+const NULLABLE_TEXT = { columnType: "PgText", notNull: false };
+
+describe("sales schema shape — sale history storage (RT-538, 0047)", () => {
+  it("sales carries the nullable receipt snapshot, typed per CaptureSaleReceipt", () => {
+    const names = [
+      "receipt_sale_number",
+      "receipt_number",
+      "receipt_terminal_label",
+      "receipt_operator_display_name",
+      "receipt_branch_name",
+      "receipt_branch_address",
+      "receipt_tax_registration_id",
+      "receipt_settled_at",
+      "receipt_change_given",
+    ];
+    expect(pick(sales, names)).toMatchObject({
+      receipt_sale_number: NULLABLE_TEXT,
+      receipt_number: NULLABLE_TEXT,
+      receipt_terminal_label: NULLABLE_TEXT,
+      receipt_operator_display_name: NULLABLE_TEXT,
+      receipt_branch_name: NULLABLE_TEXT,
+      receipt_branch_address: NULLABLE_TEXT,
+      receipt_tax_registration_id: NULLABLE_TEXT,
+      receipt_settled_at: { columnType: "PgTimestamp", notNull: false },
+      receipt_change_given: { columnType: "PgNumeric", precision: 19, scale: 4, notNull: false },
+    });
+  });
+
+  it("sale_lines.line_seq is a nullable integer (legacy lines carry none)", () => {
+    expect(pick(saleLines, ["line_seq"])).toMatchObject({
+      line_seq: { columnType: "PgInteger", notNull: false },
+    });
+  });
+
+  it("sale_reprints: NOT NULL facts, nullable device, server-stamped recorded_at", () => {
+    const required = [
+      "sale_id",
+      "tenant_id",
+      "store_id",
+      "mode",
+      "kind",
+      "marked_voided",
+      "marked_returned",
+      "copy_number",
+      "printed_at",
+      "recorded_at",
+      "created_by",
+      "idempotency_key",
+    ];
+    expect(pick(saleReprints, required)).toMatchObject(
+      Object.fromEntries(required.map((n) => [n, { notNull: true }])),
+    );
+    expect(pick(saleReprints, ["device_id", "copy_number", "marked_voided"])).toMatchObject({
+      device_id: { notNull: false },
+      copy_number: { columnType: "PgInteger" },
+      marked_voided: { columnType: "PgBoolean" },
+    });
+  });
+});
+
+describe("sales schema shape — load-bearing negatives", () => {
+  it("NO `version` column on any table (gate D.1 / FR-070)", () => {
+    for (const { table } of ALL_TABLES) {
+      expect(columns(table).has("version")).toBe(false);
+    }
+  });
+
+  it("NO tender/payment column on any table (gate A.5) beyond the RT-77 tender count", () => {
+    // Gate A.5 is lifted only by RT-10/RT-77: tenders live in the child
+    // `sale_tenders` (method/amount/reference), and `sales.tender_count` is
+    // the one reviewed payment-named column (a count, not payment data).
+    // RT-360 (RT-264 D1): `sale_tenders.tender_ref`, the tender line's opaque
+    // identity, is the second reviewed one (a UUID, not payment data).
+    const banned = ["tender", "payment", "card", "cash"];
+    const allowed: Readonly<Record<string, readonly string[]>> = {
+      sales: ["tender_count"],
+      sale_tenders: ["tender_ref"],
+      // RT-577 D8: the sale tender a credit void's refund mirrors (a UUID).
+      sale_credit_reversal_tenders: ["tender_ref"],
+    };
+    for (const { name, table } of ALL_TABLES) {
+      const offending = [...columns(table).keys()].filter(
+        (col) =>
+          !(allowed[name] ?? []).includes(col) &&
+          banned.some((b) => col.toLowerCase().includes(b)),
+      );
+      expect(offending).toEqual([]);
+    }
+  });
+});

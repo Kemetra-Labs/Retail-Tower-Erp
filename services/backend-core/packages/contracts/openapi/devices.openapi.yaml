@@ -1,0 +1,2643 @@
+openapi: 3.1.0
+info:
+  title: Data-Pulse-2 — Console Device Registry API
+  version: "1.4.0-draft"
+  description: >
+    Jira RT-365 (RT-287 F2; RT-138 L3 / DL-2), RT-366 (RT-287 F3), RT-367
+    (RT-287 F4; RT-138 L1 / L5 / DL-3) and RT-368 (RT-287 F5; D-Q2): the
+    Console device registry that Admin-Console RT-371 (Devices destination,
+    fleet table, device detail) and RT-372 (lifecycle flows, pairing codes)
+    consume. Five operations over the `devices` table (migrations
+    `0001_pos_operator_identity`, `0040_device_lifecycle`) and three over
+    `pairing_codes` (migrations `0024_pairing_codes`,
+    `0040_device_lifecycle`):
+
+      1. `consoleListDevices`  — a filtered, cursor-paginated fleet list,
+         exception-first.
+      2. `consoleGetDevice`    — one device, with its revoke note and retire
+         attribution.
+      3. `consoleRevokeDevice` — revoke a device with a structured reason
+         (RT-287 D-Q3), cascading to its live operator sessions and its pending
+         pairing codes, under the Cash Session rule (RT-287 D-Q4 as amended,
+         RT-287 comment 11493).
+      4. `consoleGetDeviceImpact` — the read-only lifecycle impact preview
+         (RT-366): what a revoke, replace, move or retire of the device would
+         do, and whether the server would allow it, before the operator
+         confirms (see "Impact preview" below).
+      5. `consoleIssuePairingCode` — issue a one-time pairing code for a
+         store, optionally replacing or moving a device (RT-367, RT-287
+         D-Q1); the code is returned once (see "Pairing codes" below).
+      6. `consoleListPairingCodes` — the live pending codes in scope.
+      7. `consoleCancelPairingCode` — cancel a pending code.
+      8. `consoleRetireDevice` — retire (decommission) a device: terminal,
+         revoking it first if needed, never a delete (RT-368, RT-287 D-Q2;
+         see "Retire" below).
+
+    Not on this surface (other RT-287 follow-ups): rotate (RT-369), the
+    throttled `last_seen_at` writer and the expiry enforcement flag (RT-370),
+    and resolving a custody exception (force-seal / custody reconciliation,
+    DEFERRED). There is no un-retire and no DELETE of a device, on any path
+    (RT-287 D-Q2): a device row is never removed. The pairing itself (the code's redemption, which mints the new
+    device and auto-revokes the replaced one) is the POS
+    `posPairTerminal` (`pos-terminal-pairing.openapi.yaml`). A revoked device
+    is never reactivated (RT-287 D-Q5): there is no un-revoke. The owner-run
+    CLI (`packages/db/src/cli/bootstrap-pairing-code.ts`) stays as the
+    bootstrap / break-glass issuer.
+
+
+    **Posture.** `consoleListDevices`, `consoleGetDevice` and
+    `consoleRevokeDevice` are implemented (RT-365: contract PR #777, runtime
+    PR #781), and so is `consoleGetDeviceImpact` with the impact payload on the
+    revoke 409 (RT-366: contract PR #784, runtime PR #785), and so are the
+    three pairing-code operations (RT-367: contract PR #789, runtime PR #798),
+    and so is the retire (RT-368: contract PR #799, runtime PR #802). No
+    operation carries `x-runtime-status: contract-only`; every operation is
+    served. 1.2.0-draft (RT-367) was additive: three new operations and
+    new schemas. 1.3.0-draft (RT-368) adds one operation and changes one
+    default; see the next paragraph.
+
+
+    **Posture (RT-368).** `1.3.0-draft`. `consoleRetireDevice` is `[GATED]`
+    contract-first (RT-368: contract PR #799) and implemented by the RT-368
+    runtime, unchanged on the wire, so it carries no
+    `x-runtime-status: contract-only`. The change from 1.2.0-draft adds one
+    operation and its schemas, and changes one default: `consoleListDevices`
+    without `trust_state` no longer lists retired devices (RT-368 scope,
+    "excluded from the default list filter but stay queryable"); they stay
+    readable with `trust_state=retired` and by id. No schema changes.
+
+
+    **Auth and scope.** The HUMAN `cookieAuth` scheme (httpOnly `dp2_session`)
+    only, gated `SessionOnlyAdminGuard` → `TenantContextGuard` → `RolesGuard`;
+    the session-only guard rejects every bearer (a `dashboard_api` token, a
+    POS device token, an operator envelope) with 401. Roles: `owner`,
+    `tenant_admin`, `store_manager` (the base authority of RT-365). The tenant
+    comes from the session, never from the request (§II, §XII). The store
+    scope is the operator-surface rule (`operator-store-scope.ts`, RT-51 D6 /
+    RT-131 / RT-132): `owner` and `tenant_admin` see their membership's store
+    authority (tenant-wide for an `all` grant, never narrowed by the active
+    store); `store_manager` sees the standard resolved store scope, including
+    active-store narrowing. A role outside the list (`store_staff`), a device
+    of another tenant, a device of a store outside the caller's scope and an
+    absent device are the same non-disclosing 404 (`RolesGuard` default
+    `denyAs: 404`, FR-ISO-4); so is a `store_id` filter naming a store outside
+    the scope. The revoke is a cookie-authenticated unsafe request, so it must
+    carry a trusted `Origin` (RT-430), else 403 `origin_rejected`; so must the
+    pairing-code issue and cancel, and the retire.
+
+
+    **Trust state.** Derived from the row, mutually exclusive: `retired` when
+    `retiredAt` is set (retire implies revoke, 0040 CHECK), else `revoked` when
+    `revokedAt` is set, else `active`. There is no `expired` state: `expiresAt`
+    is reported, but expiry is not enforced until RT-370 turns the
+    enforcement flag on, so a device past `expiresAt` is still `active`.
+
+
+    **Open shift (the Cash Session rule's input).** A device "has an open
+    shift" when a `shifts` row opened on it (`opening_device_id`) has
+    `lifecycle_state = 'open'`, whatever its `source` (`cash_up` or
+    `legacy`) — the predicate `StoresRepository.countOpenShifts` uses for a
+    store. A shift, or a cash fact, that the till has not synced is not
+    visible to the server and is not counted: a till that is offline with
+    unsynced facts looks like a till with no open shift (same caveat as
+    `offline_shifts_not_visible`). Closing a shift is the POS's (RT-17); this
+    surface never closes, counts or edits a shift or a cash fact.
+
+
+    **Custody exception (RT-287 D-Q4 amended).** Derived, never stored: a
+    device that is revoked (or retired) AND still has an open shift carries
+    `custodyExceptionShiftId` = that shift's id (the most recently opened one
+    if a legacy device has several). A security or recovery revoke never
+    closes the shift, so the open shift on the revoked device IS the
+    unresolved exception; it stays attached to the old device and shift, it is
+    never transferred to a replacement device, and it disappears only when the
+    shift is closed (a later force-seal / custody-reconciliation slice). It is
+    `null` on an active device (an open shift on a live till is normal). The
+    RT-18 exception view reads it from this surface.
+
+
+    **Revoke (one transaction).** Runtime requirement (implemented by the
+    RT-365 runtime, PR #781): the revoke and
+    every shift open (the cash-up open and the audit-ingest `shift.open`)
+    MUST take the same per-device lifecycle lock (a transaction-scoped
+    advisory lock on tenant + device), and a shift open MUST recheck
+    `revoked_at` under that lock before it inserts. A device revoked
+    meanwhile MUST NOT get an open shift (the cash-up open is refused as a
+    revoked device); a retired device is always revoked (0040 CHECK), so the
+    same check covers it. A revoke MUST see a shift whose open committed
+    first. The revoke then locks the device row (`FOR UPDATE`) and decides,
+    in this order:
+
+      1. Already revoked (or retired) → 200 `already_revoked` with the current
+         state. Nothing is overwritten, nothing cascades again, no second audit
+         row (idempotent; the body's reason is not compared).
+      2. No open shift → revoke with any reason.
+      3. Open shift, security reason (`lost`, `stolen`,
+         `suspected_compromise`) → revoke; the shift becomes the custody
+         exception. Base authority — a security revoke never waits.
+      4. Open shift, `hardware_failure` → a RECOVERY revoke: `owner` /
+         `tenant_admin` only (a `store_manager` gets 403
+         `recovery_revoke_forbidden`), a `note` saying what happened and where
+         the drawer cash is (else 422 `recovery_note_required`) and
+         `acknowledgeCustodyException: true` (else 422
+         `custody_exception_not_acknowledged`), checked in that order. Then
+         revoke; the shift becomes the custody exception.
+      5. Open shift, any other reason (`replaced`, `moved`, `retired`,
+         `admin_error`, `other`) → 409 `unresolved_cash_session`. No override
+         until a force-seal slice exists.
+
+    A revoke sets `revoked_at` (server clock), `revoked_by` (the session
+    user), `revoke_reason` and `revoke_note`; revokes every live
+    `pos_operator` `auth_tokens` row of the device (`revoked_at IS NULL AND
+    expires_at > now()`); and cancels the device's pending pairing codes
+    (`status = 'pending'` with `terminal_id` = the device id, or
+    `replaces_device_id` = the device id → `cancelled`). A code issued AFTER
+    the revoke is not touched (RT-367 replace / move after a security or
+    recovery revoke). The device token itself stops authenticating at once
+    (`PosDeviceAuthGuard` reads `revoked_at`), so the till enters its revoked
+    state (POS RT-215). No shift, cash movement, close, sale or other cash
+    fact is changed on any path.
+
+
+    **Impact preview (RT-366, RT-287 F3).** `consoleGetDeviceImpact` reports
+    what one lifecycle action would do to the device now. It has the
+    authority, store scope and non-disclosing 404 of the reads. It is
+    read-only: it writes nothing, takes no lock and cascades nothing.
+
+    One evaluator decides both the verdict and the real mutation, so the two
+    cannot drift. The revoke, the RT-367 replace / move and RT-368
+    retire MUST decide with the same evaluator, from the
+    same inputs: the action, the revoke reason it records, whether the device
+    is revoked or retired, its open shift and the caller's role. The
+    request's note and acknowledgement are not inputs to the verdict. They
+    are checked after it, against `requires`.
+
+    Each action records one revoke reason. `revoke` records the `reason`
+    query value. `replace` records `replaced`, `move` records `moved` and
+    `retire` records `retired` (RT-287 D-Q1 / D-Q2). The verdict, in this
+    order:
+
+      - `revoke`:
+          1. Device already revoked or retired → `no_change`.
+          2. No open shift → `allowed`.
+          3. Open shift, security reason → `allowed_with_custody_exception`.
+          4. Open shift, `hardware_failure` (the recovery revoke), with
+             `requires` = [`owner_or_tenant_admin`, `note`,
+             `acknowledge_custody_exception`]:
+               - caller `owner` / `tenant_admin` →
+                 `allowed_with_custody_exception`;
+               - otherwise → `forbidden_recovery`.
+          5. Open shift, any other reason → `blocked`
+             `unresolved_cash_session`.
+      - `replace` / `move` (RT-367):
+          1. Device retired → `blocked` `device_retired`.
+          2. Device revoked (with or without a custody exception) →
+             `allowed`. The pair-time auto-revoke is a no-op, and the
+             exception stays on the old device and shift.
+          3. Active, open shift → `blocked` `unresolved_cash_session`.
+          4. Active, no open shift → `allowed`.
+      - `retire` (RT-368):
+          1. Device already retired → `no_change`.
+          2. Open shift on an active device → `blocked`
+             `unresolved_cash_session`.
+          3. Open shift on a revoked device (the custody exception) →
+             `blocked` `unresolved_custody_exception`.
+          4. No open shift → `allowed`.
+
+    The verdict maps one-to-one onto the mutation's outcome on the same
+    state. For `consoleRevokeDevice`:
+
+      - `allowed` → 200 `revoked`.
+      - `allowed_with_custody_exception` → 200 `revoked` when the body meets
+        every entry of `requires`; otherwise 422 with the first unmet entry,
+        in order (`recovery_note_required`, then
+        `custody_exception_not_acknowledged`).
+      - `forbidden_recovery` → 403 `recovery_revoke_forbidden`.
+      - `blocked` → 409 with `error.code` = `blockCode`.
+      - `no_change` → 200 `already_revoked`.
+
+    One rule comes first, whatever the verdict. A `revoke` with `other`
+    carries `requires: [note]`, and a body without the note is 400
+    `validation_error`. The body is checked before any read.
+
+    RT-367 / RT-368 map `blocked` to 409 with `error.code` = `blockCode`, and
+    `no_change` to their idempotent outcome. For `consoleRetireDevice`:
+    `allowed` → 200 `retired`; `blocked` → 409 with `error.code` =
+    `blockCode` (`unresolved_cash_session` or `unresolved_custody_exception`)
+    and the retire preview as `error.details`; `no_change` → 200
+    `already_retired`.
+
+    **The preview is a snapshot, not a reservation.** The mutation decides
+    again under the device lifecycle lock, and its decision is
+    authoritative. A shift that opens, or a revoke that commits, after the
+    preview changes the mutation's outcome. A client renders the preview
+    and then renders whatever the mutation answers, including a 409 that
+    carries a fresh impact. The preview's facts come from one database
+    snapshot, so the verdict, the open shift and the counts agree with each
+    other.
+
+    **Cash facts are a server-received view.** A shift or cash fact that the
+    till has not synced cannot be seen (see "Open shift" above), so the
+    preview never claims that everything has synced. For an open `cash_up`
+    shift, `openShift.cashFacts` counts the facts the server has received for
+    it: the shift open and its cash movements. A close is never counted,
+    because an open shift has none. It also gives the latest `received_at`
+    among them. Sales carry no shift link, so they are not cash facts here.
+    A `legacy` shift has no received cash-up facts, so `cashFacts` is null
+    (unknown), never zero.
+
+
+    **Pairing codes (RT-367, RT-287 D-Q1 / D-Q4 amended).** A pairing code is
+    a one-time credential that a POS terminal redeems once through
+    `posPairTerminal`. Each redemption mints a NEW device identity (a new
+    `devices` row and `terminal_id`) in the code's store. A device is never
+    re-pointed: `devices.store_id` never changes, and the old device keeps its
+    sales, shifts and cash facts under its old store.
+
+      - **Issue.** The caller names the store, the terminal binding the POS
+        pins at pairing (`branchName`, `branchAddress`, `taxRegistrationId`,
+        the printer ids). These are passed through to satisfy migration
+        0024's NOT NULL snapshot columns; this API does not manage them, and
+        Backend-Core has no other source for them. Then an
+        optional `terminalLabel`, an optional `ttlMinutes` (default 60, at most
+        1440 = 24 h) and optionally `replacesDeviceId`. The server generates
+        the code and returns it ONCE, in the 201 body only. It stores only a
+        hash (`code_hash`), so it can never return the code again: not on a
+        list, not on an idempotent retry. A same-key retry is answered 409
+        `idempotency_key_conflict` (RT-82 K3, as the connector credential
+        rotation). A client that lost the 201 finds the stray code with
+        `consoleListPairingCodes`, cancels it, and issues again with a new
+        key.
+      - **Replace and move.** With `replacesDeviceId`, the code replaces that
+        device. The server derives the kind from the stores, never from the
+        request: the device's own store is a `replace` (it records reason
+        `replaced`), another store of the tenant is a `move` (reason
+        `moved`). The device must be in the caller's tenant and store scope,
+        as must the code's store; anything else (another tenant's device, a
+        device or store outside the scope, an absent id) is the same
+        non-disclosing 404. The issue decides with the lifecycle evaluator
+        (`replace` / `move`, see "Impact preview"), under the replaced
+        device's lifecycle lock: `allowed` issues the code; `blocked` is 409
+        with `error.code` = `blockCode` (`unresolved_cash_session` for an
+        active device with an open shift, `device_retired` for a retired one)
+        and the replace / move preview as `error.details`. A revoked device,
+        including one whose open shift is the custody exception after a
+        security or recovery revoke, can be replaced or moved: the exception
+        stays on the old device and shift and is never transferred to the new
+        device (RT-287 comment 11493).
+      - **One replacement per device.** A device is replaced at most once
+        (`replacedByDeviceId` holds one id). After an `allowed` verdict, and
+        still under the replaced device's locks, the issue is refused with
+        409 when a code already replaces that device:
+        `replacement_already_pending` when a live code (`pending`, not past
+        `expiresAt`) names it, `device_already_replaced` when a used code
+        does. Cancel the pending code (or let it expire) to issue another.
+        These two refusals are not verdicts: the impact preview reports the
+        device's lifecycle state, and shows the facts behind them as
+        `replacedByDeviceId` and `cascade.pendingPairingCodeCount`. They carry
+        no `error.details`. A `blocked` verdict is always reported first.
+      - **Redemption** (`posPairTerminal`) decides again, under the replaced
+        device's lifecycle lock, with the same evaluator. If it is still
+        allowed, ONE transaction burns the code, inserts the new device and,
+        when the replaced device is still active, revokes it with reason
+        `replaced` / `moved` through the revoke cascade (its live operator
+        sessions are revoked and its other pending codes cancelled), with no
+        actor (`revokedByUserId` null: the redemption is the terminal's, not a
+        session user's; the issuer is on the `pos.device.pairing_code.issued`
+        row; the revoke's audit row carries `pairing_code_id` to join them).
+        On an already revoked device the auto-revoke changes nothing, and the
+        redemption still cancels any other pending code that replaces the
+        same device, so no second replacement can follow. If a shift opened on the replaced device after the issue, the
+        redemption is refused (`REPLACEMENT_BLOCKED`, see the pairing
+        contract) and the code stays pending.
+      - **List** returns the live codes: `pending` and not past `expiresAt`.
+        Expiry is time-based (nothing rewrites the row); an expired code is
+        never redeemable and is not listed.
+      - **Cancel** sets a pending code `cancelled`, whether or not it has
+        expired. Idempotent: a cancelled code answers 200
+        `already_cancelled`. A used code is 409 `pairing_code_used`. A code
+        of another tenant, of a store outside the caller's scope, or absent
+        is the non-disclosing 404.
+
+    The code, its hash and the device token never appear in any response
+    other than the issue's 201, in any log or in audit metadata.
+
+
+    **Retire (RT-368, RT-287 D-Q2 / D-Q4 as amended).** Decommissioning is a
+    closeout, not a delete. `consoleRetireDevice` runs in ONE transaction: it
+    takes the device lifecycle lock and the device row lock (as the revoke),
+    reads the impact facts and decides with the lifecycle evaluator
+    (`retire`, see "Impact preview"):
+
+      1. Already retired → 200 `already_retired` with the current state.
+         Idempotent: nothing is overwritten (the body's reason is not
+         compared), nothing cascades, no audit row.
+      2. Open shift on an active device → 409 `unresolved_cash_session`.
+         Close the shift on the till and let it sync; for a lost till, make
+         a security revoke first (`consoleRevokeDevice`).
+      3. Open shift on a revoked device (the custody exception) → 409
+         `unresolved_custody_exception`. Retire stays blocked until the
+         deferred force-seal / custody-reconciliation slice resolves it
+         (RT-287 comment 11493).
+      4. Otherwise → retire. An active device is first revoked with reason
+         `retired` through the revoke cascade (live operator sessions
+         revoked, pending codes cancelled, `pos.device.revoked` written, the
+         session user as actor). On a device that is already revoked the
+         revoke fields are kept as they are, and its pending codes (its own
+         and the replacement codes naming it) are cancelled, so a retired
+         device can never be paired or replaced. Then `retired_at` (server
+         clock), `retired_by` (the session user) and `retire_reason` are set.
+
+    **Retiring a revoked device cancels its pending replacement codes.** A
+    code issued to replace or move a revoked device (for example after a
+    security revoke) is cancelled by the retire, and that device can then
+    never be replaced or moved (`device_retired`). The retire preview of a
+    revoked device has `cascade: null`, so it does not show this. Before
+    retiring a revoked device, a client lists the live codes
+    (`consoleListPairingCodes`) and looks for one whose `replacesDeviceId` is
+    the device (its `kind` is `replace` or `move`), and asks the operator to
+    pair it first or to confirm. The cancel also covers a move code issued in
+    another store of the tenant.
+
+    A 409 carries the retire preview, computed under the lock, as
+    `error.details`. Retire is terminal: there is no un-retire, and a
+    retired device is never replaced or moved (`device_retired`). Its
+    history (sales, shifts, cash facts, links) keeps resolving: the row is
+    kept, with its store, for ever.
+
+
+    **Audit.** The revoke writes `pos.device.revoked` in the same transaction
+    (target `device` / the device id; actor the session user) with metadata
+    limited to the RT-135 allowlist: `reason`, `revoked_session_count`,
+    `cancelled_pairing_code_count`, `custody_exception` (boolean) and, when it
+    is true, `shift_id`. The note, any token, hash or code never enters audit
+    metadata. Repeated security / recovery revokes are an audit signal, never
+    an automatic verdict. A refused revoke (403 / 409 / 422) writes no
+    `pos.device.revoked` row. The reads are audited `devices.listed` /
+    `devices.read`. The impact preview is audited `devices.impact_read`,
+    with the device id and the action, never a note.
+
+    RT-367 adds, each in its mutation's transaction:
+    `pos.device.pairing_code.issued` (target `pairing_code` / its id; actor
+    the session user; metadata `kind`, `replaces_device_id`, `ttl_minutes`,
+    `terminal_id`), `pos.device.pairing_code.cancelled` (target
+    `pairing_code`; actor the session user) and, at redemption,
+    `pos.device.paired` (target `device` / the new device id; no actor user;
+    metadata `pairing_code_id`, `kind`, `replaces_device_id` and
+    `cancelled_pairing_code_count`: the sibling replacement codes the
+    redemption itself cancelled on an already revoked device, 0 otherwise,
+    where the auto-revoke's own row counts them). The
+    redemption's auto-revoke writes `pos.device.revoked` with no actor user,
+    `reason` `replaced` / `moved`, the cascade counts,
+    `custody_exception: false`, `replaced_by_device_id` and
+    `pairing_code_id` (joins it to the issuer's
+    `pos.device.pairing_code.issued` row). A refused issue,
+    cancel or redemption writes none of these. The list is audited
+    `pairing_codes.listed`.
+
+    RT-368 adds `pos.device.retired` (target `device` / the device id; actor
+    the session user), in the retire's transaction, with metadata
+    `revoked_by_retire` (boolean: this retire also revoked the device, whose
+    own `pos.device.revoked` row has reason `retired`) and
+    `cancelled_pairing_code_count`: only the codes the retire step itself
+    cancelled, on a device that was already revoked. When the retire revokes
+    the device, the revoke cascade cancels the codes and its own
+    `pos.device.revoked` row counts them, so this count is 0 there and
+    nothing is counted twice. The retire reason never enters audit
+    metadata. An idempotent repeat or a refused retire writes no row.
+
+
+    **Default filter (RT-368).** Without `trust_state`, the list returns the
+    `active` and `revoked` devices only: retired devices are closed out and
+    leave the default view. `trust_state=retired` lists them.
+
+
+    **Ordering and paging (exception-first, for RT-371).** The list is ordered
+    by a rank, then `expiresAt`, then `deviceId`, all ascending — a total
+    order (`expiresAt` is never null: `devices.expires_at` is NOT NULL in
+    migration 0040, so the cursor tuple never holds a null):
+
+      - rank 0: a device with a custody exception;
+      - rank 1: `active` (soonest-expiring first);
+      - rank 2: `revoked`, no custody exception;
+      - rank 3: `retired`, no custody exception (with `trust_state=retired`
+        only; see "Default filter").
+
+    "Stale" cannot be ordered yet (`lastSeenAt` is null until RT-370). Keyset
+    pagination with an opaque cursor that encodes the position (rank,
+    `expiresAt`, `deviceId`). Reuse a cursor only with the same filters. The
+    walk is not a snapshot: a device whose rank changes during a walk (a
+    revoke, a shift opening or closing) may be returned twice or not at all by
+    that walk; a fresh first page reflects it.
+
+
+    **PII.** User references are `users.id` values only; no name, e-mail,
+    phone, PIN or credential. The only free text is the revoke note and the
+    retire reason (operator text, "no PII, no secret"); they are returned to
+    the authorised operator on the detail and never logged or audited. No
+    token hash, previous token, rotation window or tenant id is ever returned.
+
+
+    **Error envelope.** The canonical `{ error: { code, message, request_id } }`
+    shape (`auth` / `pos-sales` / `shift-closes`). It may gain fields
+    additively. RT-366 adds the impact-preview payload to the revoke's 409,
+    as `error.details`: the preview of that revoke (action `revoke`, the
+    request's reason), computed inside the refused revoke's transaction,
+    under its lock. Status mapping: 400 `validation_error`, 401 unauthenticated, 403
+    `origin_rejected` / `recovery_revoke_forbidden`, 404 non-disclosing
+    not-found, 409 `unresolved_cash_session`, 422 `recovery_note_required` /
+    `custody_exception_not_acknowledged`, 500 internal. The pairing-code
+    operations (RT-367) add: 400 `idempotency_key_required` /
+    `idempotency_key_malformed` on the issue; 409 `unresolved_cash_session` /
+    `device_retired` (with the replace / move preview as `error.details`),
+    `replacement_already_pending` / `device_already_replaced` and
+    `idempotency_key_conflict` on the issue; 409 `pairing_code_used` on the
+    cancel; 425 `idempotency_in_progress` on the issue. The retire (RT-368)
+    adds 409 `unresolved_cash_session` / `unresolved_custody_exception` (with
+    the retire preview as `error.details`). Every operation adds 429 `rate_limited` (console rate limit; honour `Retry-After`).
+
+
+    **1.4.0-draft (RT-620, additive).** Every cookieAuth operation may
+    return 429 `rate_limited` (`TooManyRequests`, with `Retry-After`)
+    from the console rate limit (RT-574, RT-619). No other wire change.
+
+servers:
+  - url: https://api.example.com
+
+tags:
+  - name: devices
+    description: >
+      Console device registry (RT-365): the fleet list, a device's detail and
+      the revoke.
+  - name: pairing-codes
+    description: >
+      Console pairing codes (RT-367): issue (optionally replacing or moving a
+      device), list and cancel.
+
+security:
+  - cookieAuth: []
+
+paths:
+  /api/v1/devices:
+    get:
+      summary: List devices (exception-first, keyset paginated).
+      operationId: consoleListDevices
+      tags: [devices]
+      description: >
+        The devices in the caller's tenant and store scope, exception-first
+        (see the ordering rule above). Every filter is optional and they
+        combine with AND. With no `store_id`, every store in the caller's
+        scope is listed. With no `trust_state`, retired devices are not
+        listed (RT-368, "Default filter"). An empty page (`items: []`, `nextCursor: null`) is a
+        200.
+      parameters:
+        - $ref: "#/components/parameters/StoreIdQuery"
+        - $ref: "#/components/parameters/TrustStateQuery"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: A page of devices, exception-first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DevicePage"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/devices/{deviceId}:
+    get:
+      summary: Read one device.
+      operationId: consoleGetDevice
+      tags: [devices]
+      description: >
+        One device with its revoke note and retire attribution (the History
+        tab's revoke / retire / replace chain). A device of another tenant, of
+        a store outside the caller's scope, or absent is the same
+        non-disclosing 404.
+      parameters:
+        - $ref: "#/components/parameters/DeviceIdPath"
+      responses:
+        "200":
+          description: The device.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceDetail"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/devices/{deviceId}/revoke:
+    post:
+      summary: Revoke a device (structured reason, cascade, Cash Session rule).
+      operationId: consoleRevokeDevice
+      tags: [devices]
+      description: >
+        Revokes the device in one transaction, cascading to its live operator
+        sessions and its pending pairing codes, under the Cash Session rule
+        (see "Revoke" above for the decision order). Idempotent: a device that
+        is already revoked answers 200 `already_revoked` with its current
+        state and changes nothing. A malformed path or body is 400 before any
+        read.
+      parameters:
+        - $ref: "#/components/parameters/DeviceIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceRevokeRequest"
+      responses:
+        "200":
+          description: >
+            The device is revoked: by this request (`revoked`) or already
+            (`already_revoked`). The body is the device's state after the
+            request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceRevokeResult"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/RevokeForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/UnresolvedCashSession"
+        "422":
+          $ref: "#/components/responses/RecoveryRequirementsUnmet"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/devices/{deviceId}/retire:
+    post:
+      summary: Retire (decommission) a device. Terminal; never a delete.
+      operationId: consoleRetireDevice
+      tags: [devices]
+      description: >
+        Retires the device in one transaction under the Cash Session rule (see
+        "Retire" above): revokes it first with reason `retired` when it is
+        still active, cancels its pending codes, and records the retire
+        attribution. Idempotent: a retired device answers 200
+        `already_retired` and changes nothing. A malformed path or body is 400
+        before any read; a device of another tenant, of a store outside the
+        caller's scope, or absent is the non-disclosing 404.
+      parameters:
+        - $ref: "#/components/parameters/DeviceIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceRetireRequest"
+      responses:
+        "200":
+          description: >
+            The device is retired: by this request (`retired`) or already
+            (`already_retired`). The body is the device's state after the
+            request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceRetireResult"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/DeviceRetireConflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/devices/{deviceId}/impact:
+    get:
+      summary: Preview a lifecycle action's impact (read-only).
+      operationId: consoleGetDeviceImpact
+      tags: [devices]
+      description: >
+        What a `revoke`, `replace`, `move` or `retire` of the device would do
+        now, and the server's verdict (see "Impact preview" above). Read-only:
+        nothing is written, locked or cascaded, and the read is not a
+        reservation. The mutation decides again under its lock. A device of
+        another tenant, of a store outside the caller's scope, or an absent
+        device is the same non-disclosing 404. A malformed path or query, a
+        `revoke` without a `reason`, or a `reason` with any other action is
+        400 before any read.
+      parameters:
+        - $ref: "#/components/parameters/DeviceIdPath"
+        - $ref: "#/components/parameters/ImpactActionQuery"
+        - $ref: "#/components/parameters/ImpactReasonQuery"
+      responses:
+        "200":
+          description: The impact preview.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceImpactPreview"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/pairing-codes:
+    post:
+      summary: Issue a one-time pairing code (optionally replacing or moving a device).
+      operationId: consoleIssuePairingCode
+      tags: [pairing-codes]
+      x-idempotency: required
+      description: >
+        Issues a pairing code for a store in the caller's scope (see "Pairing
+        codes" above). The code is in this 201 body only, once. With
+        `replacesDeviceId` the code replaces (same store) or moves (another
+        store) that device, under the Cash Session rule: an active device with
+        an open shift, or a retired device, is 409 with the replace / move
+        preview. The body is checked (400) before any read; a store or device
+        that is absent, of another tenant or outside the caller's scope is the
+        non-disclosing 404.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairingCodeIssueRequest"
+      responses:
+        "201":
+          description: >
+            The code is issued. The body carries the code ONCE (SECRET): show it
+            to the operator to type into the terminal, never store or log it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairingCodeIssued"
+        "400":
+          $ref: "#/components/responses/IssueValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/PairingCodeIssueConflict"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+    get:
+      summary: List the live pending pairing codes in scope.
+      operationId: consoleListPairingCodes
+      tags: [pairing-codes]
+      description: >
+        The `pending` codes that have not expired, in the caller's tenant and
+        store scope, newest first (`createdAt` descending, then
+        `pairingCodeId`). Never the code or its hash. With no `store_id`, every
+        store in the caller's scope is listed. An empty page is a 200.
+      parameters:
+        - $ref: "#/components/parameters/StoreIdQuery"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: A page of live pending codes, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairingCodePage"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/pairing-codes/{pairingCodeId}/cancel:
+    post:
+      summary: Cancel a pending pairing code.
+      operationId: consoleCancelPairingCode
+      tags: [pairing-codes]
+      description: >
+        Sets a pending code `cancelled` (expired or not), so it can never be
+        redeemed. Idempotent: an already cancelled code answers 200
+        `already_cancelled` and changes nothing. A used code is 409
+        `pairing_code_used`. A code of another tenant, of a store outside the
+        caller's scope, or absent is the non-disclosing 404. No body.
+      parameters:
+        - $ref: "#/components/parameters/PairingCodeIdPath"
+      responses:
+        "200":
+          description: The code is cancelled, by this request or already.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairingCodeCancelResult"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/PairingCodeUsed"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+      description: >
+        The human dashboard session cookie (httpOnly `dp2_session`), verified
+        by `SessionOnlyAdminGuard`. The only accepted credential on this
+        surface: a machine bearer, a POS `device` token or an
+        `operatorAuthorization` envelope is rejected (401). `RolesGuard` +
+        `@Roles("owner", "tenant_admin", "store_manager")` gate every route
+        (default deny → 404). 401 semantics are owned by 028 (G10).
+
+  parameters:
+    DeviceIdPath:
+      name: deviceId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: >
+        The device id (`devices.id`, which is the paired `terminal_id`). Case
+        insensitive: normalised to lower case before the lookup. A value that
+        is not a UUID is 400 `validation_error` and never reaches the
+        database.
+    StoreIdQuery:
+      name: store_id
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: >
+        Only devices of this store (the Store Detail deep link). Validated
+        against the caller's store scope: a store outside it, or of another
+        tenant, is the non-disclosing 404.
+    TrustStateQuery:
+      name: trust_state
+      in: query
+      required: false
+      schema:
+        $ref: "#/components/schemas/TrustState"
+      description: >
+        Only devices in this trust state. The states are mutually exclusive:
+        `revoked` excludes retired devices. Omitted: `active` and `revoked`
+        devices, never `retired` ones (RT-368); pass `retired` to list them.
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 512
+        pattern: "^[A-Za-z0-9_-]+$"
+      description: >
+        Opaque keyset cursor from a prior page's `nextCursor`. Do not decode
+        or construct it; omit it for the first page. Reuse it only with the
+        same filters. A value the server did not issue, or cannot decode, is
+        400 `validation_error`.
+    PageSize:
+      name: page_size
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+      description: Maximum items per page (bounded). The server MAY return fewer.
+    ImpactActionQuery:
+      name: action
+      in: query
+      required: true
+      schema:
+        $ref: "#/components/schemas/DeviceLifecycleAction"
+      description: The lifecycle action to preview.
+    ImpactReasonQuery:
+      name: reason
+      in: query
+      required: false
+      schema:
+        $ref: "#/components/schemas/RevokeReason"
+      description: >
+        The revoke reason. Required when `action` is `revoke`. Refused (400)
+        with any other action, because `replace`, `move` and `retire` each
+        record their own reason (`replaced`, `moved`, `retired`). There is no
+        note parameter: the note and the acknowledgement are not verdict
+        inputs (see `requires`).
+    PairingCodeIdPath:
+      name: pairingCodeId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: >
+        The pairing code's id (`pairing_codes.id`), never the code itself. Case
+        insensitive. A value that is not a UUID is 400 `validation_error`.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: "^[\\x21-\\x7E]{16,128}$"
+      description: >
+        Client-generated opaque token (UUIDv7 recommended). Missing → 400
+        `idempotency_key_required`; malformed → 400 `idempotency_key_malformed`.
+        Non-replayable (RT-82 K3): the issued code is never stored, so a retry
+        with the same key never issues a second code and never returns the
+        first one; it is answered 409 `idempotency_key_conflict`, and so is the
+        same key with a different body. A request still in progress under the
+        key is 425. Never retry with the same key: list the live codes, cancel
+        a stray one, and issue again with a new key.
+
+  schemas:
+    # -----------------------------------------------------------------------
+    # Vocabularies
+    # -----------------------------------------------------------------------
+    TrustState:
+      type: string
+      enum: [active, revoked, retired]
+      description: >
+        `active`: the device token authenticates. `revoked`: it never will
+        again (no un-revoke, RT-287 D-Q5). `retired`: revoked and closed out
+        (RT-368). Derived; see "Trust state" above.
+    RevokeReason:
+      type: string
+      enum:
+        - lost
+        - stolen
+        - suspected_compromise
+        - hardware_failure
+        - replaced
+        - moved
+        - retired
+        - admin_error
+        - other
+      description: >
+        The closed RT-287 D-Q3 set (0040 CHECK `devices_revoke_reason_valid`).
+        Security class: `lost`, `stolen`, `suspected_compromise`.
+        `hardware_failure` with an open shift is a recovery revoke. `other`
+        requires a note.
+    RevokeNote:
+      type: string
+      minLength: 1
+      maxLength: 500
+      # Not blank, and no NUL anywhere (Postgres `text` refuses U+0000).
+      pattern: '^[^\u0000]*[^\s\u0000][^\u0000]*$'
+      description: >
+        Operator free text: 1..500 characters and not blank (0040 CHECK
+        `devices_revoke_note_shape`), and no NUL character, because Postgres
+        `text` cannot store U+0000 (a NUL is 400 `validation_error`). For a recovery revoke: what happened and where
+        the drawer cash physically is. No PII, no token, PIN or secret; never
+        logged or audited.
+
+    # -----------------------------------------------------------------------
+    # Projections (explicit wire shapes, never DB rows)
+    # -----------------------------------------------------------------------
+    DeviceSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - deviceId
+        - storeId
+        - label
+        - trustState
+        - createdAt
+        - expiresAt
+        - lastSeenAt
+        - lastSeenSource
+        - revokedAt
+        - revokedByUserId
+        - revokeReason
+        - retiredAt
+        - replacesDeviceId
+        - replacedByDeviceId
+        - custodyExceptionShiftId
+      allOf:
+        - $ref: "#/components/schemas/TrustStateConsistency"
+        - $ref: "#/components/schemas/LastSeenConsistency"
+      description: >
+        One device, as listed. Every key is always present; a value that is
+        not recorded is `null`. No tenant id, token hash, previous token or
+        rotation window.
+      properties:
+        deviceId:
+          type: string
+          format: uuid
+        storeId:
+          type: string
+          format: uuid
+          description: >
+            The store the device is paired to. Never changes: a move is a
+            re-pair into the target store (RT-287 D-Q1).
+        label:
+          type: [string, "null"]
+          description: The terminal label given at pairing; `null` when none.
+        trustState:
+          $ref: "#/components/schemas/TrustState"
+        createdAt:
+          type: string
+          format: date-time
+          description: When the device was paired (server clock).
+        expiresAt:
+          type: string
+          format: date-time
+          description: >
+            When the device credential expires (RT-138 L2, 90 days). Reported,
+            not yet enforced (RT-370).
+        lastSeenAt:
+          type: [string, "null"]
+          format: date-time
+          description: >
+            The device's last authenticated activity (RT-138 L7). `null`
+            until RT-370 writes it. Label it with `lastSeenSource`; activity
+            alone never means healthy (RT-287 D-Q6).
+        lastSeenSource:
+          description: >
+            Where `lastSeenAt` comes from, so the console can label it.
+            `activity`: the last authenticated request (RT-138 L7). `null`
+            exactly when `lastSeenAt` is null. A `heartbeat` value
+            (AD-DEVICE-001 D-5) is added later; clients must show an unknown
+            source as unknown, never as healthy.
+          oneOf:
+            - type: string
+              enum: [activity]
+            - type: "null"
+        revokedAt:
+          type: [string, "null"]
+          format: date-time
+          description: When the device was revoked (server clock); `null` while active.
+        revokedByUserId:
+          type: [string, "null"]
+          format: uuid
+          description: >
+            The `users.id` who revoked it. `null` while active, on a revoke
+            recorded before RT-365 (actor unknown), and on the auto-revoke of a
+            replaced or moved device at pairing (RT-367: the terminal's
+            redemption has no session user; the issuer is on the code's
+            `pos.device.pairing_code.issued` audit row).
+        revokeReason:
+          description: >
+            The structured reason. `null` while active, and on a revoke
+            recorded before RT-365 (no reason recorded, never guessed).
+          oneOf:
+            - $ref: "#/components/schemas/RevokeReason"
+            - type: "null"
+        retiredAt:
+          type: [string, "null"]
+          format: date-time
+          description: When the device was retired (RT-368); `null` otherwise.
+        replacesDeviceId:
+          type: [string, "null"]
+          format: uuid
+          description: >
+            The device this one replaced: the `replaces_device_id` of the
+            pairing code that paired it (RT-367). `null` otherwise, and `null`
+            when that device is in a store outside the caller's scope
+            (out-of-scope reads as absent).
+        replacedByDeviceId:
+          type: [string, "null"]
+          format: uuid
+          description: >
+            The device paired by a code whose `replaces_device_id` is this
+            device (RT-367). `null` otherwise, and `null` when that device is
+            in a store outside the caller's scope.
+        custodyExceptionShiftId:
+          type: [string, "null"]
+          format: uuid
+          description: >
+            The open custody exception: the id of the open shift still on this
+            revoked device (see "Custody exception" above). `null` when there
+            is none, and always `null` on an active device.
+
+    DeviceDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - deviceId
+        - storeId
+        - label
+        - trustState
+        - createdAt
+        - expiresAt
+        - lastSeenAt
+        - lastSeenSource
+        - revokedAt
+        - revokedByUserId
+        - revokeReason
+        - retiredAt
+        - replacesDeviceId
+        - replacedByDeviceId
+        - custodyExceptionShiftId
+        - revokeNote
+        - retiredByUserId
+        - retireReason
+      allOf:
+        - $ref: "#/components/schemas/TrustStateConsistency"
+        - $ref: "#/components/schemas/LastSeenConsistency"
+        # 0040 `devices_retire_fields_when_retired`: a retired device carries
+        # its retire reason; any other device has no retire attribution.
+        - if:
+            properties:
+              trustState:
+                const: retired
+            required: [trustState]
+          then:
+            properties:
+              retireReason:
+                type: string
+          else:
+            properties:
+              retireReason:
+                type: "null"
+              retiredByUserId:
+                type: "null"
+      description: >
+        One device with its revoke note and retire attribution. The summary
+        fields are the `DeviceSummary` fields, with the same rules. A retired
+        device always carries `retireReason`; any other device has
+        `retireReason` and `retiredByUserId` null.
+      properties:
+        deviceId:
+          type: string
+          format: uuid
+        storeId:
+          type: string
+          format: uuid
+        label:
+          type: [string, "null"]
+        trustState:
+          $ref: "#/components/schemas/TrustState"
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        lastSeenAt:
+          type: [string, "null"]
+          format: date-time
+        lastSeenSource:
+          oneOf:
+            - type: string
+              enum: [activity]
+            - type: "null"
+        revokedAt:
+          type: [string, "null"]
+          format: date-time
+        revokedByUserId:
+          type: [string, "null"]
+          format: uuid
+        revokeReason:
+          oneOf:
+            - $ref: "#/components/schemas/RevokeReason"
+            - type: "null"
+        retiredAt:
+          type: [string, "null"]
+          format: date-time
+        replacesDeviceId:
+          type: [string, "null"]
+          format: uuid
+        replacedByDeviceId:
+          type: [string, "null"]
+          format: uuid
+        custodyExceptionShiftId:
+          type: [string, "null"]
+          format: uuid
+        revokeNote:
+          description: >
+            The note recorded with the revoke; `null` when none. Returned to
+            the authorised operator only; never in the list, logs or audit.
+          oneOf:
+            - $ref: "#/components/schemas/RevokeNote"
+            - type: "null"
+        retiredByUserId:
+          type: [string, "null"]
+          format: uuid
+          description: The `users.id` who retired the device (RT-368); `null` otherwise.
+        retireReason:
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 500
+          description: The retire reason (RT-368); `null` otherwise. Operator text, no PII.
+
+    TrustStateConsistency:
+      description: >
+        The trust state agrees with the revoke / retire timestamps, and a
+        custody exception exists only on a revoked or retired device.
+      allOf:
+        - if:
+            properties:
+              trustState:
+                const: active
+            required: [trustState]
+          then:
+            properties:
+              revokedAt:
+                type: "null"
+              revokedByUserId:
+                type: "null"
+              revokeReason:
+                type: "null"
+              retiredAt:
+                type: "null"
+              custodyExceptionShiftId:
+                type: "null"
+        - if:
+            properties:
+              trustState:
+                const: revoked
+            required: [trustState]
+          then:
+            properties:
+              revokedAt:
+                type: string
+              retiredAt:
+                type: "null"
+        - if:
+            properties:
+              trustState:
+                const: retired
+            required: [trustState]
+          then:
+            properties:
+              revokedAt:
+                type: string
+              retiredAt:
+                type: string
+
+    LastSeenConsistency:
+      description: "`lastSeenSource` is null exactly when `lastSeenAt` is null."
+      if:
+        properties:
+          lastSeenAt:
+            type: "null"
+        required: [lastSeenAt]
+      then:
+        properties:
+          lastSeenSource:
+            type: "null"
+      else:
+        properties:
+          lastSeenSource:
+            type: string
+
+    DevicePage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      description: A keyset page of devices, exception-first.
+      properties:
+        items:
+          type: array
+          # Mirrors the page_size maximum (200).
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/DeviceSummary"
+        nextCursor:
+          type: [string, "null"]
+          description: Opaque cursor for the next page; `null` on the last page.
+
+    DeviceRevokeRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      if:
+        properties:
+          reason:
+            const: other
+        required: [reason]
+      then:
+        required: [note]
+      description: >
+        The revoke. `other` requires a `note` (400 otherwise). For a recovery
+        revoke (`hardware_failure` while the device has an open shift) the
+        `note` and `acknowledgeCustodyException: true` are required too (422
+        otherwise); elsewhere `acknowledgeCustodyException` is accepted and
+        ignored.
+      properties:
+        reason:
+          $ref: "#/components/schemas/RevokeReason"
+        note:
+          $ref: "#/components/schemas/RevokeNote"
+        acknowledgeCustodyException:
+          type: boolean
+          description: >
+            The client showed the custody-exception impact and the operator
+            confirmed it. Required `true` for a recovery revoke.
+
+    DeviceRevokeResult:
+      type: object
+      additionalProperties: false
+      required: [outcome, device]
+      description: The revoke outcome and the device's state after the request.
+      properties:
+        outcome:
+          type: string
+          enum: [revoked, already_revoked]
+          description: >
+            `revoked`: this request revoked the device. `already_revoked`: it
+            was already revoked (or retired); nothing changed.
+        device:
+          description: >
+            The device after the request. Always revoked or retired: a revoke
+            that succeeds or repeats never leaves the device active.
+          allOf:
+            - $ref: "#/components/schemas/DeviceDetail"
+            - properties:
+                trustState:
+                  enum: [revoked, retired]
+
+    # -----------------------------------------------------------------------
+    # Impact preview (RT-366)
+    # -----------------------------------------------------------------------
+    DeviceLifecycleAction:
+      type: string
+      enum: [revoke, replace, move, retire]
+      description: >
+        A lifecycle action. `revoke` is `consoleRevokeDevice`. `replace` and
+        `move` are a pairing code whose `replaces_device_id` is this device,
+        in the same store or another store of the tenant (RT-367, RT-287
+        D-Q1). `retire` is the RT-368 retire.
+    ImpactVerdict:
+      type: string
+      enum: [allowed, allowed_with_custody_exception, blocked, forbidden_recovery, no_change]
+      description: >
+        The server's verdict on the action now (see "Impact preview" above
+        for the decision order and the mapping to the mutation's outcome).
+        `allowed`: the action proceeds. `allowed_with_custody_exception`: the
+        revoke proceeds, and the open shift becomes the unresolved custody
+        exception (no count, no close, no cash fact edited); the request must
+        also meet `requires`. `blocked`: the action is refused with
+        `blockCode` (409). `forbidden_recovery`: a recovery revoke the caller's
+        role may not make (403 `recovery_revoke_forbidden`). `no_change`: the
+        action has already happened, so the mutation changes nothing.
+
+        **Extension policy:** adding a verdict is a minor contract version
+        bump. A client MUST treat an unknown verdict as `blocked` (fail-safe):
+        it never offers to proceed with an action whose verdict it doesn't
+        know.
+    ImpactBlockCode:
+      type: string
+      enum: [unresolved_cash_session, unresolved_custody_exception, device_retired]
+      description: >
+        Why a `blocked` action is refused, equal to the mutation's 409
+        `error.code`. `unresolved_cash_session`: the active device has an
+        open shift (close it on the till and let it sync first).
+        `unresolved_custody_exception`: retire of a revoked device whose open
+        shift is the custody exception, which stays until the deferred
+        force-seal / custody-reconciliation slice resolves it.
+        `device_retired`: a retired device cannot be replaced or moved.
+
+        **Extension policy:** adding a block code is a minor contract version
+        bump. A client MUST treat an unknown block code as a refusal it
+        cannot resolve. It shows the code, and doesn't offer the action.
+    ImpactRequirement:
+      type: string
+      enum: [owner_or_tenant_admin, note, acknowledge_custody_exception]
+      description: >
+        A requirement on the request beyond the verdict (the recovery revoke,
+        RT-287 D-Q4 amended). `owner_or_tenant_admin`: the caller's role.
+        `note`: the body's `note`. `acknowledge_custody_exception`: the
+        body's `acknowledgeCustodyException: true`.
+
+        **Extension policy:** adding a requirement is a minor contract
+        version bump. A client MUST treat an unknown requirement as unmet,
+        and doesn't offer the action.
+
+    ImpactCashFacts:
+      type: object
+      additionalProperties: false
+      required: [view, receivedCount, lastReceivedAt]
+      description: >
+        The cash-up facts the server has received for the open shift: its
+        open and its cash movements. A server-received view, never "all
+        synced": facts the till has not synced are not visible (see "Cash
+        facts" above).
+      properties:
+        view:
+          type: string
+          enum: [server_received]
+          description: Always `server_received`, so a client labels the counts as such.
+        receivedCount:
+          type: integer
+          minimum: 1
+          description: >
+            How many cash-up facts of the shift the server has received: the
+            open, plus each cash movement. At least 1, because the open
+            itself is one.
+        lastReceivedAt:
+          type: string
+          format: date-time
+          description: The latest server `received_at` among those facts.
+
+    ImpactOpenShift:
+      type: object
+      additionalProperties: false
+      required: [shiftId, source, openedAt, openingCashierUserId, cashFacts]
+      description: >
+        The open shift on the device: the most recently opened one, if a
+        legacy device has several. The same shift the Cash Session rule
+        reads.
+      properties:
+        shiftId:
+          type: string
+          format: uuid
+        source:
+          type: string
+          enum: [cash_up, legacy]
+          description: How the shift was opened (`shifts.source`).
+        openedAt:
+          type: string
+          format: date-time
+          description: When the shift opened (the till's stated time).
+        openingCashierUserId:
+          type: string
+          format: uuid
+          description: The opening cashier's `users.id`. No name or contact field.
+        cashFacts:
+          description: >
+            The server-received cash-up facts. `null` for a `legacy` shift,
+            which has none (unknown, never zero).
+          oneOf:
+            - $ref: "#/components/schemas/ImpactCashFacts"
+            - type: "null"
+      allOf:
+        - if:
+            properties:
+              source:
+                const: legacy
+            required: [source]
+          then:
+            properties:
+              cashFacts:
+                type: "null"
+          else:
+            properties:
+              cashFacts:
+                type: object
+
+    ImpactCascade:
+      type: object
+      additionalProperties: false
+      required: [operatorSessionCount, pendingPairingCodeCount]
+      description: >
+        What the revoke this action performs would cascade, counted now with
+        the same predicates the revoke applies. Counts only: no token,
+        session id, code or hash. On the same state they equal the
+        `revoked_session_count` and `cancelled_pairing_code_count` that the
+        `pos.device.revoked` audit row records.
+      properties:
+        operatorSessionCount:
+          type: integer
+          minimum: 0
+          description: >
+            Live `pos_operator` sessions of the device that would be revoked
+            (`revoked_at IS NULL AND expires_at > now()`).
+        pendingPairingCodeCount:
+          type: integer
+          minimum: 0
+          description: >
+            Pending pairing codes that would be cancelled: the device's own
+            (`terminal_id`), and those whose `replaces_device_id` is the
+            device. This is the count the revoke cancels, so it includes a
+            pending move code issued for another store, even one outside the
+            caller's scope. Only the number is disclosed, never the code, its
+            store or its target.
+
+    DeviceImpactPreview:
+      type: object
+      additionalProperties: false
+      required:
+        - deviceId
+        - action
+        - revokeReason
+        - trustState
+        - verdict
+        - blockCode
+        - requires
+        - openShift
+        - custodyExceptionShiftId
+        - cascade
+        - replacesDeviceId
+        - replacedByDeviceId
+        - evaluatedAt
+      description: >
+        The impact of one lifecycle action on the device now (see "Impact
+        preview" above). Every key is always present; a value that does not
+        apply is `null`. No tenant id, token, hash, code or note.
+      properties:
+        deviceId:
+          type: string
+          format: uuid
+        action:
+          $ref: "#/components/schemas/DeviceLifecycleAction"
+        revokeReason:
+          description: >
+            The revoke reason the action records: the `reason` query value
+            for `revoke`, otherwise `replaced` / `moved` / `retired`.
+          allOf:
+            - $ref: "#/components/schemas/RevokeReason"
+        trustState:
+          description: The device's trust state now, before the action.
+          allOf:
+            - $ref: "#/components/schemas/TrustState"
+        verdict:
+          $ref: "#/components/schemas/ImpactVerdict"
+        blockCode:
+          description: Set exactly when `verdict` is `blocked`.
+          oneOf:
+            - $ref: "#/components/schemas/ImpactBlockCode"
+            - type: "null"
+        requires:
+          type: array
+          uniqueItems: true
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/ImpactRequirement"
+          description: >
+            The request requirements beyond the verdict, in the order the
+            mutation checks them. For a recovery revoke (a `revoke` with
+            `hardware_failure` while an active device has an open shift):
+            [`owner_or_tenant_admin`, `note`, `acknowledge_custody_exception`],
+            whatever the caller's role. For a `revoke` with `other`: [`note`],
+            whatever the verdict, because the body schema requires it. Empty
+            otherwise.
+        openShift:
+          description: The open shift on the device; `null` when there is none.
+          oneOf:
+            - $ref: "#/components/schemas/ImpactOpenShift"
+            - type: "null"
+        custodyExceptionShiftId:
+          type: [string, "null"]
+          format: uuid
+          description: >
+            The custody exception that exists now: the open shift of a
+            revoked or retired device, as on `DeviceSummary`. `null` on an
+            active device. A verdict of `allowed_with_custody_exception`
+            means `openShift` would become one.
+        cascade:
+          description: >
+            What the revoke this action performs would cascade. `null` when
+            the action does not revoke the device, because it is already
+            revoked or retired. Reported whatever the verdict, so a blocked
+            action still shows what it would cascade once it is allowed.
+          oneOf:
+            - $ref: "#/components/schemas/ImpactCascade"
+            - type: "null"
+        replacesDeviceId:
+          type: [string, "null"]
+          format: uuid
+          description: As on `DeviceSummary` (out-of-scope reads as `null`).
+        replacedByDeviceId:
+          type: [string, "null"]
+          format: uuid
+          description: As on `DeviceSummary` (out-of-scope reads as `null`).
+        evaluatedAt:
+          type: string
+          format: date-time
+          description: When the server evaluated the preview (server clock).
+      allOf:
+        - $ref: "#/components/schemas/ImpactVerdictConsistency"
+        - $ref: "#/components/schemas/ImpactActionConsistency"
+        - $ref: "#/components/schemas/ImpactStateConsistency"
+
+    ImpactVerdictConsistency:
+      description: >
+        `blockCode` is set exactly when the verdict is `blocked`. `requires`
+        is the recovery revoke's three entries, or [`note`] for an `other`
+        revoke, and empty otherwise. A custody-exception or forbidden-recovery
+        verdict needs an open shift. A `no_change` verdict cascades nothing.
+      allOf:
+        - if:
+            properties:
+              verdict:
+                const: blocked
+            required: [verdict]
+          then:
+            properties:
+              blockCode:
+                type: string
+          else:
+            properties:
+              blockCode:
+                type: "null"
+        - if:
+            properties:
+              verdict:
+                enum: [allowed_with_custody_exception, forbidden_recovery]
+            required: [verdict]
+          then:
+            properties:
+              action:
+                const: revoke
+              openShift:
+                type: object
+              trustState:
+                const: active
+        # Over an open shift only a security reason or the recovery reason
+        # makes the custody exception; any other reason is blocked.
+        - if:
+            properties:
+              verdict:
+                const: allowed_with_custody_exception
+            required: [verdict]
+          then:
+            properties:
+              revokeReason:
+                enum: [lost, stolen, suspected_compromise, hardware_failure]
+        # The mirror: a blocked revoke is one whose reason cannot make the
+        # custody exception.
+        - if:
+            properties:
+              verdict:
+                const: blocked
+              action:
+                const: revoke
+            required: [verdict, action]
+          then:
+            properties:
+              revokeReason:
+                enum: [replaced, moved, retired, admin_error, other]
+        # On a revoked or retired device the open shift IS the custody
+        # exception: one is present exactly when the other is.
+        - if:
+            properties:
+              trustState:
+                enum: [revoked, retired]
+              custodyExceptionShiftId:
+                type: string
+            required: [trustState, custodyExceptionShiftId]
+          then:
+            properties:
+              openShift:
+                type: object
+        - if:
+            properties:
+              trustState:
+                enum: [revoked, retired]
+              openShift:
+                type: object
+            required: [trustState, openShift]
+          then:
+            properties:
+              custodyExceptionShiftId:
+                type: string
+        # An open shift blocks an active device's action, and a revoked
+        # device's retire: `allowed` there means no open shift.
+        - if:
+            properties:
+              verdict:
+                const: allowed
+              trustState:
+                const: active
+            required: [verdict, trustState]
+          then:
+            properties:
+              openShift:
+                type: "null"
+        - if:
+            properties:
+              verdict:
+                const: allowed
+              action:
+                const: retire
+            required: [verdict, action]
+          then:
+            properties:
+              openShift:
+                type: "null"
+        - if:
+            properties:
+              blockCode:
+                enum: [unresolved_cash_session, unresolved_custody_exception]
+            required: [blockCode]
+          then:
+            properties:
+              openShift:
+                type: object
+        - if:
+            properties:
+              verdict:
+                const: forbidden_recovery
+            required: [verdict]
+          then:
+            properties:
+              revokeReason:
+                const: hardware_failure
+        # The recovery revoke (hardware_failure over an open shift) carries all
+        # three requirements in the revoke's check order, whatever the role; a
+        # revoke with `other` carries `note` whatever the verdict (the body
+        # schema's rule); every other preview carries none.
+        - if:
+            properties:
+              verdict:
+                enum: [allowed_with_custody_exception, forbidden_recovery]
+              revokeReason:
+                const: hardware_failure
+            required: [verdict, revokeReason]
+          then:
+            properties:
+              requires:
+                const: [owner_or_tenant_admin, note, acknowledge_custody_exception]
+          else:
+            if:
+              properties:
+                action:
+                  const: revoke
+                revokeReason:
+                  const: other
+              required: [action, revokeReason]
+            then:
+              properties:
+                requires:
+                  const: [note]
+            else:
+              properties:
+                requires:
+                  maxItems: 0
+        - if:
+            properties:
+              verdict:
+                const: no_change
+            required: [verdict]
+          then:
+            properties:
+              cascade:
+                type: "null"
+
+    ImpactActionConsistency:
+      description: >
+        Each action records its own revoke reason, and a block code belongs
+        to the actions that can raise it.
+      allOf:
+        - if:
+            properties:
+              action:
+                const: replace
+            required: [action]
+          then:
+            properties:
+              revokeReason:
+                const: replaced
+        - if:
+            properties:
+              action:
+                const: move
+            required: [action]
+          then:
+            properties:
+              revokeReason:
+                const: moved
+        - if:
+            properties:
+              action:
+                const: retire
+            required: [action]
+          then:
+            properties:
+              revokeReason:
+                const: retired
+              blockCode:
+                enum: [unresolved_cash_session, unresolved_custody_exception, null]
+        - if:
+            properties:
+              action:
+                enum: [replace, move]
+            required: [action]
+          then:
+            properties:
+              blockCode:
+                enum: [unresolved_cash_session, device_retired, null]
+        - if:
+            properties:
+              action:
+                const: revoke
+            required: [action]
+          then:
+            properties:
+              blockCode:
+                enum: [unresolved_cash_session, null]
+
+    ImpactStateConsistency:
+      description: >
+        The device state pins what the verdict table leaves no choice about.
+        An active device is the one a lifecycle action would revoke, so it
+        has a cascade and no custody exception; a revoked or retired device
+        has no cascade. A revoke of a revoked or retired device, and a retire
+        of a retired one, is `no_change`. A retire of a revoked device is
+        `allowed` or `blocked`, never `no_change`. A replace or move is `blocked`
+        `device_retired` on a retired device and `allowed` on a revoked one.
+        Each block code belongs to one state: `unresolved_cash_session` to
+        an active device, `unresolved_custody_exception` to a revoked one and
+        `device_retired` to a retired one.
+      allOf:
+        - if:
+            properties:
+              trustState:
+                const: active
+            required: [trustState]
+          then:
+            properties:
+              cascade:
+                type: object
+              custodyExceptionShiftId:
+                type: "null"
+              verdict:
+                not:
+                  const: no_change
+          else:
+            properties:
+              cascade:
+                type: "null"
+        - if:
+            properties:
+              trustState:
+                enum: [revoked, retired]
+              action:
+                const: revoke
+            required: [trustState, action]
+          then:
+            properties:
+              verdict:
+                const: no_change
+        - if:
+            properties:
+              trustState:
+                const: retired
+              action:
+                const: retire
+            required: [trustState, action]
+          then:
+            properties:
+              verdict:
+                const: no_change
+        # A revoked (not retired) device's retire is still to do: `allowed`
+        # without an open shift, `blocked` `unresolved_custody_exception` with
+        # one (the shift rules pin which), never `no_change`.
+        - if:
+            properties:
+              trustState:
+                const: revoked
+              action:
+                const: retire
+            required: [trustState, action]
+          then:
+            properties:
+              verdict:
+                enum: [allowed, blocked]
+        - if:
+            properties:
+              trustState:
+                const: retired
+              action:
+                enum: [replace, move]
+            required: [trustState, action]
+          then:
+            properties:
+              verdict:
+                const: blocked
+              blockCode:
+                const: device_retired
+        - if:
+            properties:
+              trustState:
+                const: revoked
+              action:
+                enum: [replace, move]
+            required: [trustState, action]
+          then:
+            properties:
+              verdict:
+                const: allowed
+        - if:
+            properties:
+              blockCode:
+                const: unresolved_cash_session
+            required: [blockCode]
+          then:
+            properties:
+              trustState:
+                const: active
+        - if:
+            properties:
+              blockCode:
+                const: unresolved_custody_exception
+            required: [blockCode]
+          then:
+            properties:
+              trustState:
+                const: revoked
+        - if:
+            properties:
+              blockCode:
+                const: device_retired
+            required: [blockCode]
+          then:
+            properties:
+              trustState:
+                const: retired
+
+    DeviceImpactConflict:
+      type: object
+      required: [error]
+      description: >
+        The 409 of `consoleRevokeDevice`: the canonical error envelope, plus
+        the impact preview of the refused revoke as `error.details`. Its
+        verdict is `blocked`, and its `blockCode` equals `error.code`. The
+        RT-366 runtime always sends `details`. A server from before RT-366
+        omits it, so a client treats it as optional and falls back to
+        `consoleGetDeviceImpact`.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id; the cause is recorded server-side.
+            details:
+              # The refused revoke's own preview: its only 409 is
+              # unresolved_cash_session, so the envelope code equals it.
+              allOf:
+                - $ref: "#/components/schemas/DeviceImpactPreview"
+                - properties:
+                    action:
+                      const: revoke
+                    verdict:
+                      const: blocked
+                    blockCode:
+                      const: unresolved_cash_session
+      allOf:
+        # error.code equals details.blockCode whenever the preview is present.
+        - if:
+            properties:
+              error:
+                required: [details]
+            required: [error]
+          then:
+            properties:
+              error:
+                properties:
+                  code:
+                    const: unresolved_cash_session
+
+    # -----------------------------------------------------------------------
+    # Retire (RT-368)
+    # -----------------------------------------------------------------------
+    DeviceRetireRequest:
+      type: object
+      additionalProperties: false
+      required: [retireReason]
+      description: >
+        The retire. `retireReason` is free operator text (0040
+        `devices_retire_reason_shape`), not a `RevokeReason`: the revoke a
+        retire makes always records `retired`.
+      properties:
+        retireReason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          # Not blank, and no NUL anywhere (Postgres `text` refuses U+0000).
+          pattern: '^[^\u0000]*[^\s\u0000][^\u0000]*$'
+          description: >
+            Why the device is decommissioned (e.g. "End of life, returned to
+            vendor"): 1..500 characters, not blank, no NUL. No PII, no token,
+            PIN or secret; returned on the detail as `retireReason`, never
+            logged or audited.
+
+    DeviceRetireResult:
+      type: object
+      additionalProperties: false
+      required: [outcome, device]
+      description: The retire outcome and the device's state after the request.
+      properties:
+        outcome:
+          type: string
+          enum: [retired, already_retired]
+          description: >
+            `retired`: this request retired the device. `already_retired`: it
+            was retired already; nothing changed.
+        device:
+          description: The device after the request. Always retired.
+          allOf:
+            - $ref: "#/components/schemas/DeviceDetail"
+            - properties:
+                trustState:
+                  const: retired
+
+    DeviceRetireConflict:
+      type: object
+      required: [error]
+      description: >
+        The 409 of `consoleRetireDevice`: the canonical error envelope plus the
+        retire preview of the refused state as `error.details` (computed under
+        the retire's lock). Its verdict is `blocked` and its `blockCode` equals
+        `error.code`.
+      properties:
+        error:
+          type: object
+          required: [code, message, details]
+          properties:
+            code:
+              type: string
+              enum: [unresolved_cash_session, unresolved_custody_exception]
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id; the cause is recorded server-side.
+            details:
+              allOf:
+                - $ref: "#/components/schemas/DeviceImpactPreview"
+                - properties:
+                    action:
+                      const: retire
+                    verdict:
+                      const: blocked
+      allOf:
+        - if:
+            properties:
+              error:
+                properties:
+                  code:
+                    const: unresolved_cash_session
+                required: [code]
+            required: [error]
+          then:
+            properties:
+              error:
+                properties:
+                  details:
+                    properties:
+                      blockCode:
+                        const: unresolved_cash_session
+        - if:
+            properties:
+              error:
+                properties:
+                  code:
+                    const: unresolved_custody_exception
+                required: [code]
+            required: [error]
+          then:
+            properties:
+              error:
+                properties:
+                  details:
+                    properties:
+                      blockCode:
+                        const: unresolved_custody_exception
+
+    # -----------------------------------------------------------------------
+    # Pairing codes (RT-367)
+    # -----------------------------------------------------------------------
+    PairingCodeKind:
+      type: string
+      enum: [pair, replace, move]
+      description: >
+        What redeeming the code does. `pair`: a new device, nothing replaced.
+        `replace`: a new device in the replaced device's store, which is
+        revoked with reason `replaced`. `move`: a new device in another store
+        of the tenant, and the replaced device is revoked with reason `moved`
+        (RT-287 D-Q1). Derived by the server from the stores, never sent.
+    TerminalLabel:
+      type: string
+      minLength: 1
+      maxLength: 64
+      # Not blank, and no NUL (0024 CHECK `pairing_codes_terminal_label_non_empty`).
+      pattern: '^[^\u0000]*[^\s\u0000][^\u0000]*$'
+      description: >
+        The terminal's display name (e.g. "Counter 1"), printed on receipts and
+        in the POS sale number (`<terminal_label>-<YYYY-MM-DD>-<NNNNNN>`), so
+        keep it unique within the store.
+    BindingText:
+      type: string
+      minLength: 1
+      maxLength: 512
+      pattern: '^[^\u0000]*[^\s\u0000][^\u0000]*$'
+      description: Operator text pinned on the code, not blank, no NUL.
+    PrinterUsbId:
+      type: string
+      pattern: "^0x[0-9A-Fa-f]{4}$"
+      description: A USB vendor or product id as `0xHHHH` (0024 CHECK).
+
+    PairingCodeIssueRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - storeId
+        - branchName
+        - branchAddress
+        - taxRegistrationId
+        - printerVendorId
+        - printerProductId
+      description: >
+        The code to issue. The tenant is the session's, never the request's.
+        `branchName`, `branchAddress`, `taxRegistrationId` and the printer
+        fields are the terminal binding `posPairTerminal` returns: the
+        terminal pins them at pairing and prints them on receipts. Backend-Core
+        holds no store address, tax registration or printer, so the issuer
+        supplies them, as the bootstrap CLI does.
+      properties:
+        storeId:
+          type: string
+          format: uuid
+          description: The store the new device is paired into (the code's store).
+        terminalLabel:
+          description: >
+            The new terminal's label. When omitted, the server derives it
+            from the new `terminalId` prefix: `T-` + its first 8 hex digits,
+            upper case. It is never the replaced device's label (the old
+            till's sale numbers stay its own). Give an explicit label to keep
+            labels distinct within a store.
+          allOf:
+            - $ref: "#/components/schemas/TerminalLabel"
+        ttlMinutes:
+          type: integer
+          minimum: 1
+          maximum: 1440
+          default: 60
+          description: How long the code stays redeemable, in minutes (at most 24 h).
+        replacesDeviceId:
+          type: string
+          format: uuid
+          description: >
+            The device this code replaces (same store) or moves (another store
+            of the tenant). It must be in the caller's tenant and store scope
+            (404 otherwise). Omit it for a plain pairing.
+        branchName:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '^[^\u0000]*[^\s\u0000][^\u0000]*$'
+          description: The branch name printed on receipts.
+        branchAddress:
+          description: The branch address printed on receipts (`\n` allowed).
+          allOf:
+            - $ref: "#/components/schemas/BindingText"
+        taxRegistrationId:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[^\u0000]*[^\s\u0000][^\u0000]*$'
+          description: The tenant's tax registration id printed on fiscal receipts.
+        printerVendorId:
+          $ref: "#/components/schemas/PrinterUsbId"
+        printerProductId:
+          $ref: "#/components/schemas/PrinterUsbId"
+        printerComPort:
+          description: >
+            The optional RS-232 port alongside the USB printer (e.g. `COM3`);
+            omitted or null for a USB-only printer.
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 32
+              pattern: '^[^\u0000]*[^\s\u0000][^\u0000]*$'
+            - type: "null"
+
+    PairingCodeIssued:
+      type: object
+      additionalProperties: false
+      required:
+        - pairingCodeId
+        - code
+        - kind
+        - storeId
+        - terminalId
+        - terminalLabel
+        - replacesDeviceId
+        - expiresAt
+        - createdAt
+      description: >
+        The issued code. `code` is the SECRET, present here only, once. Every
+        other field can be read again from the list while the code is live.
+      properties:
+        pairingCodeId:
+          type: string
+          format: uuid
+          description: The code's id (`pairing_codes.id`); cancel uses it.
+        code:
+          type: string
+          minLength: 16
+          maxLength: 32
+          description: >
+            The one-time pairing code (SECRET) the operator types into the
+            terminal (`posPairTerminal` `pairing_code`). Server-generated: 16
+            characters from an alphabet without look-alike characters in v1;
+            a client treats it as opaque. Shown once, never stored by the
+            server (only its hash), never logged or audited.
+        kind:
+          $ref: "#/components/schemas/PairingCodeKind"
+        storeId:
+          type: string
+          format: uuid
+        terminalId:
+          type: string
+          format: uuid
+          description: The id the new device will have once paired (`devices.id`).
+        terminalLabel:
+          $ref: "#/components/schemas/TerminalLabel"
+        replacesDeviceId:
+          type: [string, "null"]
+          format: uuid
+          description: The replaced or moved device; `null` for `pair`.
+        expiresAt:
+          type: string
+          format: date-time
+          description: When the code stops being redeemable (server clock).
+        createdAt:
+          type: string
+          format: date-time
+      allOf:
+        - if:
+            properties:
+              kind:
+                const: pair
+            required: [kind]
+          then:
+            properties:
+              replacesDeviceId:
+                type: "null"
+          else:
+            properties:
+              replacesDeviceId:
+                type: string
+
+    PairingCodeSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - pairingCodeId
+        - kind
+        - storeId
+        - terminalId
+        - terminalLabel
+        - status
+        - replacesDeviceId
+        - expiresAt
+        - createdAt
+      description: >
+        A pairing code without its secret: no code, no hash.
+      properties:
+        pairingCodeId:
+          type: string
+          format: uuid
+        kind:
+          description: >
+            What redeeming the code does, derived as on the issue. Reported
+            even when the replaced device is outside the caller's scope (then
+            `replacesDeviceId` is null), so the list flags every code that
+            will revoke a device.
+          allOf:
+            - $ref: "#/components/schemas/PairingCodeKind"
+        storeId:
+          type: string
+          format: uuid
+        terminalId:
+          type: string
+          format: uuid
+        terminalLabel:
+          $ref: "#/components/schemas/TerminalLabel"
+        status:
+          type: string
+          enum: [pending, cancelled]
+          description: >
+            `pending` on the list (live codes only); `cancelled` after a cancel.
+        replacesDeviceId:
+          type: [string, "null"]
+          format: uuid
+          description: >
+            The device the code replaces or moves. `null` for a plain pairing,
+            and `null` when that device is in a store outside the caller's
+            scope (out-of-scope reads as absent).
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    PairingCodePage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      description: A keyset page of live pending codes, newest first.
+      properties:
+        items:
+          type: array
+          maxItems: 200
+          items:
+            allOf:
+              - $ref: "#/components/schemas/PairingCodeSummary"
+              - properties:
+                  status:
+                    const: pending
+        nextCursor:
+          type: [string, "null"]
+          description: Opaque cursor for the next page; `null` on the last page.
+
+    PairingCodeCancelResult:
+      type: object
+      additionalProperties: false
+      required: [outcome, pairingCode]
+      description: The cancel outcome and the code after the request.
+      properties:
+        outcome:
+          type: string
+          enum: [cancelled, already_cancelled]
+          description: >
+            `cancelled`: this request cancelled the code. `already_cancelled`:
+            it was cancelled already; nothing changed.
+        pairingCode:
+          allOf:
+            - $ref: "#/components/schemas/PairingCodeSummary"
+            - properties:
+                status:
+                  const: cancelled
+
+    PairingCodeIssueConflict:
+      type: object
+      required: [error]
+      description: >
+        The issue's 409: the canonical error envelope. For a refused replace or
+        move (`unresolved_cash_session`, `device_retired`) it carries the
+        replace / move impact preview, computed under the replaced device's
+        lock, as `error.details`; its verdict is `blocked` and its `blockCode`
+        equals `error.code`. `replacement_already_pending`,
+        `device_already_replaced` and `idempotency_key_conflict` carry no
+        details.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - unresolved_cash_session
+                - device_retired
+                - replacement_already_pending
+                - device_already_replaced
+                - idempotency_key_conflict
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id; the cause is recorded server-side.
+            details:
+              allOf:
+                - $ref: "#/components/schemas/DeviceImpactPreview"
+                - properties:
+                    action:
+                      enum: [replace, move]
+                    verdict:
+                      const: blocked
+      allOf:
+        # A refused replace / move always carries its preview, and the preview's
+        # block code is the envelope's code.
+        - if:
+            properties:
+              error:
+                properties:
+                  code:
+                    enum: [unresolved_cash_session, device_retired]
+                required: [code]
+            required: [error]
+          then:
+            properties:
+              error:
+                required: [details]
+          else:
+            properties:
+              error:
+                not:
+                  required: [details]
+        - if:
+            properties:
+              error:
+                properties:
+                  code:
+                    const: unresolved_cash_session
+                required: [code]
+            required: [error]
+          then:
+            properties:
+              error:
+                properties:
+                  details:
+                    properties:
+                      blockCode:
+                        const: unresolved_cash_session
+        - if:
+            properties:
+              error:
+                properties:
+                  code:
+                    const: device_retired
+                required: [code]
+            required: [error]
+          then:
+            properties:
+              error:
+                properties:
+                  details:
+                    properties:
+                      blockCode:
+                        const: device_retired
+
+    IdempotencyInProgress:
+      type: object
+      additionalProperties: false
+      required: [error, retryAfterSec]
+      description: >
+        The platform idempotency interceptor's 425 body (not the canonical
+        envelope).
+      properties:
+        error:
+          type: string
+          enum: [idempotency_in_progress]
+        retryAfterSec:
+          type: integer
+          minimum: 1
+
+    # -----------------------------------------------------------------------
+    # Canonical error envelope (auth / pos-sales / shift-closes)
+    # -----------------------------------------------------------------------
+    Error:
+      type: object
+      required: [error]
+      description: >
+        Canonical error envelope. Out-of-scope and cross-tenant refusals are
+        non-disclosing (§II, §XII): they never name the cause. Open to
+        additive fields (RT-366 adds the impact preview to the 409).
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id; the cause is recorded server-side.
+
+  responses:
+    ValidationFailure:
+      description: >
+        validation_error (400): a malformed path, query or body value, an
+        unknown query or body key, a cursor the server cannot decode, or
+        `other` without a `note`. Checked before any database read.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: >
+        Unauthenticated (401): a missing or invalid session cookie, or a
+        non-cookie credential. Non-disclosing. Owned by 028 (G10).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RevokeForbidden:
+      description: >
+        Forbidden (403), with a stable code: `origin_rejected` — a
+        cookie-authenticated revoke without a trusted `Origin` (RT-430);
+        `recovery_revoke_forbidden` — a `store_manager` attempting a recovery
+        revoke (`hardware_failure` while the device has an open shift), which
+        is `owner` / `tenant_admin` only (RT-287 D-Q4 amended).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: >
+        not_found (404), non-disclosing: identical for a role outside
+        `owner` / `tenant_admin` / `store_manager`, another tenant's device or
+        store, a store outside the caller's scope and an absent id.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    UnresolvedCashSession:
+      description: >
+        unresolved_cash_session (409): the device has an open shift and the
+        reason is neither a security reason nor a recovery revoke (`replaced`,
+        `moved`, `retired`, `admin_error`, `other`). Close the shift on the
+        till and let it sync, then revoke. Nothing was changed. The body
+        carries the refused revoke's impact preview as `error.details`
+        (RT-366), computed under the revoke's lock.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/DeviceImpactConflict"
+    RecoveryRequirementsUnmet:
+      description: >
+        Unprocessable (422), with a stable code, for a recovery revoke by
+        `owner` / `tenant_admin`: `recovery_note_required` — no `note`;
+        `custody_exception_not_acknowledged` — `acknowledgeCustodyException`
+        is not `true`. Nothing was changed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SystemFailure:
+      description: >
+        system_failure (500): unexpected server error; the cause is recorded
+        server-side under `request_id`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    IssueValidationFailure:
+      description: >
+        Bad request (400), checked before any read: `validation_error` (a
+        malformed or unknown body key), `idempotency_key_required` (no
+        `Idempotency-Key`) or `idempotency_key_malformed`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OriginRejected:
+      description: >
+        origin_rejected (403): a cookie-authenticated unsafe request without a
+        trusted `Origin` (RT-430).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    PairingCodeIssueConflict:
+      description: >
+        Conflict (409), nothing issued. `unresolved_cash_session`: the replaced
+        device is active and has an open shift (close it on the till and let
+        it sync first). `device_retired`: the replaced device is retired. Both
+        carry the replace / move preview as `error.details`.
+        `replacement_already_pending`: a live pending code already replaces
+        the device (cancel it first). `device_already_replaced`: a used code
+        already replaced it (a device is replaced once).
+        `idempotency_key_conflict`: the `Idempotency-Key` was already used (a
+        retry is never replayed, because the code is never stored) or was used
+        with another body; issue again with a new key.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/PairingCodeIssueConflict"
+    IdempotencyInProgress:
+      description: >
+        Too Early (425): a request with this `Idempotency-Key` is still in
+        progress. The key is non-replayable (RT-82 K3): once that request
+        completes, any retry with the same key is 409
+        `idempotency_key_conflict` and never returns the code. Do not retry
+        with the same key. After `Retry-After` seconds, check
+        `consoleListPairingCodes`, cancel the stray code if one was issued,
+        and issue again with a new key.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+          description: Seconds to wait before retrying.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/IdempotencyInProgress"
+    DeviceRetireConflict:
+      description: >
+        Conflict (409), nothing changed. `unresolved_cash_session`: the active
+        device has an open shift (close it on the till and let it sync, or
+        make a security revoke first if the till is lost).
+        `unresolved_custody_exception`: the revoked device's open shift is an
+        unresolved custody exception; retire waits for the deferred
+        force-seal / custody-reconciliation slice. The body carries the retire
+        preview as `error.details`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/DeviceRetireConflict"
+    PairingCodeUsed:
+      description: >
+        pairing_code_used (409): the code was already redeemed, so it cannot be
+        cancelled. Revoke the device it paired instead. Nothing was changed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this
+        class of operation is spent. The body is the canonical error
+        envelope with a non-disclosing message (no budget, class or window);
+        its `request_id` equals the `X-Request-Id` response header. Honour
+        `Retry-After`; never auto-retry a mutation. A 429 is not a 401: it
+        never means the session ended. The console limit is
+        server-configured and may not be enforced, so a client must handle a
+        429 but must not expect one.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body: the
+            inbound `X-Request-Id` when it is a well-formed UUID, otherwise a
+            server-minted one.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  headers:
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5). Its own bound, 1 to 3600; it is not the POS
+        `RetryAfter` header.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600

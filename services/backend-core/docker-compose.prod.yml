@@ -1,0 +1,251 @@
+# Backend-Core — public deploy compose template.
+#
+# PostgreSQL is expected to be an external managed service — NOT a container here.
+# Bring up on <app-host>, with secrets injected in-memory by a secret manager:
+#   op run --env-file=deploy/prod.env -- docker compose -f docker-compose.prod.yml up -d --build
+#
+# `op run` resolves private references in deploy/prod.env into these env vars at
+# launch time. Real deployment values belong in private ops config or the host
+# environment, not public git.
+#
+# Service order: migrate (one-shot) -> api + worker (wait for migrate success) ; redis + caddy alongside.
+# Caddy is the single public origin: /api/* -> api, everything else -> Admin Console (RT-336).
+
+name: dp2-template
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: dp2-redis
+    restart: unless-stopped
+    # RT-143: the password never appears in a command line. It reaches the
+    # container only as REDIS_PASSWORD, is written to a private config file
+    # at start, and redis-server is exec'd with that file. `ps` and the
+    # container's Cmd show no secret; the healthcheck authenticates through
+    # REDISCLI_AUTH instead of `redis-cli -a`. The hand-off goes through the
+    # image's docker-entrypoint.sh so redis-server still drops to the `redis`
+    # user. ($$ escapes compose interpolation so the shell expands the
+    # variable inside the container.)
+    # RT-344: on a restart the file from the previous start still exists and
+    # belongs to `redis`. With fs.protected_regular >= 1 (Ubuntu's default) root
+    # may not re-open it for writing in the sticky /tmp, so it is removed first
+    # and created fresh.
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+    command:
+      - sh
+      - -c
+      - rm -f /tmp/redis-auth.conf && umask 077 && printf 'requirepass %s\n' "$$REDIS_PASSWORD" > /tmp/redis-auth.conf && chown redis:redis /tmp/redis-auth.conf && unset REDIS_PASSWORD && exec docker-entrypoint.sh redis-server /tmp/redis-auth.conf --appendonly yes
+    volumes:
+      - dp2_redis_data:/data
+    networks: [dp2]
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$(sed -n 's/^requirepass //p' /tmp/redis-auth.conf)\" redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrate
+    image: dp2-migrate:template
+    container_name: dp2-migrate
+    restart: "no"
+    user: "node"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp"]
+    environment:
+      DATABASE_URL: ${MIGRATION_DATABASE_URL:?MIGRATION_DATABASE_URL required (migration owner credential)}
+      NODE_ENV: production
+    networks: [dp2]
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    image: dp2-api:template
+    container_name: dp2-api
+    restart: unless-stopped
+    user: "node"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL required}
+      AUTH_LOOKUP_DATABASE_URL: ${AUTH_LOOKUP_DATABASE_URL:?AUTH_LOOKUP_DATABASE_URL required}
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379}
+      PORT: "3000"
+      METRICS_PORT: "9464"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      NODE_ENV: production
+      # RT-152: which deployment this is (dev|staging|pilot|prod). Connector feed
+      # calls from a registration of a different environment are refused (403).
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:?DEPLOYMENT_ENVIRONMENT required (dev|staging|pilot|prod)}
+      # Exactly one trusted reverse-proxy hop (the Caddy service).
+      TRUST_PROXY: "1"
+      # Migration-status gauge reads the drizzle SQL dir (shipped into the image).
+      DB_MIGRATIONS_DIR: /packages/db/drizzle
+      # Clerk POS-operator JWT verification — CLERK_SECRET_KEY is required in production.
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?CLERK_SECRET_KEY required (Clerk backend key)}
+      CLERK_AUTHORIZED_PARTIES: ${CLERK_AUTHORIZED_PARTIES:-}
+      CLERK_JWT_AUDIENCE: ${CLERK_JWT_AUDIENCE:-}
+      # Spec 037 observability. All default-inert: an empty SENTRY_DSN sends no
+      # Sentry events; traces go to OTEL_EXPORTER_OTLP_ENDPOINT (the SDK default
+      # until pointed at the datadog-agent profile, see deploy/README.md).
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-}
+      SENTRY_RELEASE: ${SENTRY_RELEASE:-}
+      # RT-632: the Console Sentry project, used only by the same-origin tunnel
+      # POST /api/v1/console/telemetry/envelope. Empty = tunnel inert.
+      CONSOLE_SENTRY_DSN: ${CONSOLE_SENTRY_DSN:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-0.1}
+    networks: [dp2]
+    expose:
+      - "3000"
+    healthcheck:
+      # RT-144 readiness: 200 only when the domain DB, the auth lookup DB and
+      # Redis all answer within a bounded timeout (503 otherwise).
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/v1/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    image: dp2-worker:template
+    container_name: dp2-worker
+    restart: unless-stopped
+    user: "node"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL required}
+      # The audit retention sweep's own role, audit_retention_worker (RT-353).
+      AUDIT_RETENTION_DATABASE_URL: ${AUDIT_RETENTION_DATABASE_URL:?AUDIT_RETENTION_DATABASE_URL required (audit retention role)}
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      NODE_ENV: production
+      # Spec 037 observability — same default-inert posture as the api service.
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-}
+      SENTRY_RELEASE: ${SENTRY_RELEASE:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-0.1}
+    networks: [dp2]
+    healthcheck:
+      # Authenticate with the configured URL and require an application-level
+      # Redis PING. Errors stay silent so credentials embedded in REDIS_URL are
+      # never copied into healthcheck output.
+      test: ["CMD-SHELL", "node -e \"const M=require('ioredis');const Redis=M.default||M;const r=new Redis(process.env.REDIS_URL,{lazyConnect:true,enableOfflineQueue:false,maxRetriesPerRequest:0,connectTimeout:3000});r.connect().then(()=>r.ping()).then(v=>{r.disconnect();process.exit(v==='PONG'?0:1)}).catch(()=>{r.disconnect();process.exit(1)})\""]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Spec 037 US2: Datadog Agent as the OTLP collector + OpenMetrics scraper.
+  # Opt-in: only runs with `--profile datadog`, so a plain `docker compose up`
+  # is unchanged. Internal only (no published ports). It does NOT mount the
+  # Docker socket or host paths, so container logs and host metrics are out of
+  # scope until that trade-off is approved (spec 037 US3). Enable by setting
+  # DD_API_KEY and OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-agent:4318.
+  datadog-agent:
+    image: datadog/agent:7
+    container_name: dp2-datadog-agent
+    profiles: ["datadog"]
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      - api
+    environment:
+      DD_API_KEY: ${DD_API_KEY:-}
+      DD_SITE: ${DD_SITE:-us5.datadoghq.com}
+      # Without the Docker socket the agent has no reliable hostname source.
+      # The real name belongs in private ops config (deploy/README.md).
+      DD_HOSTNAME: ${DD_HOSTNAME:-}
+      DD_ENV: ${DEPLOYMENT_ENVIRONMENT:-}
+      DD_APM_ENABLED: "true"
+      DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT: 0.0.0.0:4318
+      DD_LOGS_ENABLED: "false"
+    # Prometheus scrape of the api metrics listener (METRICS_PORT 9464); the
+    # check config is inline below so the release bundle needs no extra file.
+    configs:
+      - source: dd_openmetrics
+        target: /etc/datadog-agent/conf.d/openmetrics.d/conf.yaml
+    expose:
+      - "4318"
+    networks: [dp2]
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: dp2-caddy
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Public hostname for automatic HTTPS. Real hostnames come from private ops
+      # config or the host environment, never this public template.
+      CADDY_SITE_ADDRESS: ${CADDY_SITE_ADDRESS:-api.example.test}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # RT-336: Admin Console on the same origin as the API. The directory holds
+      # unpacked, checksum-verified RT-337 releases plus a relative `current`
+      # symlink; see deploy/README.md for release and rollback.
+      - ${CONSOLE_RELEASES_DIR:?CONSOLE_RELEASES_DIR required (pinned Admin Console releases + current symlink)}:/srv/console:ro
+      - dp2_caddy_data:/data
+      - dp2_caddy_config:/config
+    networks: [dp2]
+
+networks:
+  dp2:
+    driver: bridge
+
+volumes:
+  dp2_redis_data:
+  dp2_caddy_data:
+  dp2_caddy_config:
+
+# Datadog Agent OpenMetrics check (profile `datadog` only). It scrapes the api's
+# existing Prometheus listener over the internal network, so no endpoint is
+# added (spec 037 FR-008). The allowlist is the signal families documented in
+# docs/observability/signals.md: Datadog bills each metric name as a custom
+# metric, so this never uses `.*`. Add a prefix only with a signals.md entry.
+# The worker's listener binds 127.0.0.1, so the agent cannot reach it yet.
+configs:
+  dd_openmetrics:
+    content: |
+      init_config:
+      instances:
+        - openmetrics_endpoint: http://api:9464/metrics
+          namespace: dp2
+          metrics:
+            - "^(http|auth|tenant|validation|suspicious|cross_tenant|idempotency|db|redis|queue|worker|outbox|sale|erpnext|shift|unknown_item|catalog|settlement)_.*"
+          tags:
+            - service:backend-api

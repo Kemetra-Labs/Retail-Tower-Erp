@@ -1,0 +1,19 @@
+# Acknowledged OpenAPI breaking changes — see tools/oasdiff/README.md.
+#
+# One line per acknowledged finding: the method and path (or `components`) plus
+# the finding text, as printed by `oasdiff breaking --format singleline`, and a
+# reason with the PR or Jira key. The gate only honours lines added by the PR
+# under review; once that PR merges its lines stop applying and can be removed.
+#
+# Example:
+#   RT-123 intentional: POST /api/v1/example added the new required request header 'X-Example'
+# RT-367 C2 (PR #789): posPairTerminal adds the 409 error code REPLACEMENT_BLOCKED
+# (pair-time Cash Session re-check on a replacement code) to the closed
+# error.code enum shared by every error status. Owner-approved 2026-10-17.
+# Old POS builds treat it as a generic pair failure (fail safe); POS maps it in
+# RT-591. The nine inherited RT-417 lines from #779 were removed as check.sh asks.
+RT-367 C2 intentional (owner-approved 2026-10-17; cross-repo POS contract change, POS maps the code in RT-591): in API POST /api/pos/v1/terminals/pair added the new `REPLACEMENT_BLOCKED` enum value to the `error/code` response property for the response status `400` [response-property-enum-value-added].
+RT-367 C2 intentional (owner-approved 2026-10-17; cross-repo POS contract change, POS maps the code in RT-591): in API POST /api/pos/v1/terminals/pair added the new `REPLACEMENT_BLOCKED` enum value to the `error/code` response property for the response status `404` [response-property-enum-value-added].
+RT-367 C2 intentional (owner-approved 2026-10-17; cross-repo POS contract change, POS maps the code in RT-591): in API POST /api/pos/v1/terminals/pair added the new `REPLACEMENT_BLOCKED` enum value to the `error/code` response property for the response status `409` [response-property-enum-value-added].
+RT-367 C2 intentional (owner-approved 2026-10-17; cross-repo POS contract change, POS maps the code in RT-591): in API POST /api/pos/v1/terminals/pair added the new `REPLACEMENT_BLOCKED` enum value to the `error/code` response property for the response status `410` [response-property-enum-value-added].
+RT-367 C2 intentional (owner-approved 2026-10-17; cross-repo POS contract change, POS maps the code in RT-591): in API POST /api/pos/v1/terminals/pair added the new `REPLACEMENT_BLOCKED` enum value to the `error/code` response property for the response status `429` [response-property-enum-value-added].

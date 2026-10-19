@@ -1,0 +1,979 @@
+# 003-catalog-foundation — Execution Map (Agent OS v1)
+#
+# Authoritative state of the catalog spec for Maestro dispatch. Mirrors the
+# task plan in tasks.md but adds: slice status, agent assignments, allowed
+# files, validation contracts, findings, and proposed parallel groups.
+#
+# Schema reference: docs/agent-os/slice-schema.yaml
+# Wave summary:     specs/003-catalog-foundation/wave-status.md
+#
+# Updated: 2026-05-23 — 0010_CATALOG_TENANT_GUC_CAST_FIX closed out: PR #292 @ 6adf6df (2026-05-23).
+# T340 (isolation harness) closed out: PR #264 @ 02cdf75 (2026-05-21).
+# T341 (cross-tenant read isolation) closed out: PR #268 @ 263492a (2026-05-21).
+# HARNESS_FIX (seed constraint violations) closed out: PR #279 @ e33fd0e (2026-05-22).
+# 0009_STORE_GUC_FIX (empty-store cast CASE guard) closed out: PR #279 @ e33fd0e (2026-05-22).
+# HARNESS_SEED_BUGS finding resolved by PR #279 — T341 31/31 GREEN confirmed.
+# T342, T343, T344 closed out: PR #285 @ fd18598 (2026-05-22).
+# RLS_UNSET_TENANT_GUC_CAST_ERROR finding resolved by PR #292 @ 6adf6df (2026-05-23).
+# Map base advanced to 6adf6df (PR #292).
+# 0011_CATALOG_STORE_CARVEOUT_SENTINEL closed out: PR #295 @ 2f7554d (2026-05-23).
+# RLS_STORE_ABSENT_READ_LEAK finding resolved by PR #295 @ 2f7554d (2026-05-23).
+# Map base advanced to 2f7554d (PR #295).
+
+spec: 003-catalog-foundation
+version: 1
+base: origin/main  # 2f7554d (PR #295, 0011 store carve-out sentinel)
+
+# ----------------------------------------------------------------------------
+# findings
+# ----------------------------------------------------------------------------
+findings:
+  - id: RLS_CROSS_STORE_READ_LEAK
+    summary: >
+      store_product_overrides and unknown_items declared two PERMISSIVE
+      SELECT policies per table (a tenant_isolation policy checking
+      tenant_id only, and a store_read policy checking store_id-or-empty).
+      PostgreSQL OR-combines PERMISSIVE policies, so the tenant_isolation
+      policy alone returned TRUE for every row of the active tenant
+      regardless of store_id. A runtime principal with
+      app.current_tenant = Tenant A and app.current_store = Store X could
+      SELECT Tenant A / Store Y rows — a cross-store data leak inside a
+      tenant. Writes were unaffected (the FOR ALL _tenant_write policies
+      already AND tenant_id with store_id). Closed by 0008_catalog_store_
+      read_isolation.sql which collapses the two SELECT policies into one
+      that AND-gates both scopes.
+    affected:
+      - store_product_overrides
+      - unknown_items
+    severity: medium
+    proof: 3da993b  # RED Testcontainers spec at packages/db/__tests__/migration/catalog-rls-store-read.spec.ts
+    blocks: []     # cleared — all previously blocked slices may proceed (subject to other deps)
+    previously_blocked:
+      - T336
+      - T340
+      - T341
+      - T342
+      - T343
+      - T344
+    resolved_by: RLS_CROSS_STORE_FIX
+    resolved_by_pr: 254
+    resolved_by_commit: 483aae4  # merge commit on main
+    resolved_at: 2026-05-21
+
+  - id: MISSING_WITHSTORE_HELPER
+    summary: >
+      The 003 spec (rls-test-matrix.md:464-465 and plan.md:210) claims
+      packages/db/src/helpers/with-store.ts ships from feature 001, but
+      the file does not exist on main. Only with-tenant.ts and
+      audit-insert.ts are present under packages/db/src/helpers/. T336
+      (Test the existing withStore helper against store_product_overrides)
+      cannot proceed without either (a) a new gated slice that authors
+      with-store.ts, or (b) reinterpreting T336 to test the store GUC
+      contract directly via runWithTenantContext + manual SET LOCAL
+      app.current_store. Resolution is out of scope for the catalog
+      foundation; either path needs explicit user authorization because
+      it touches the forbidden surface packages/db/src/helpers/**.
+    affected:
+      - packages/db/src/helpers/with-store.ts  # nonexistent — path (a) explicitly NOT taken
+    severity: low  # documentation/scaffolding mismatch, not a security defect
+    proof: >
+      `ls packages/db/src/helpers/` returns only audit-insert.ts and
+      with-tenant.ts on main @ 483aae4.
+    blocks: []   # cleared — T336 reinterpreted to exercise the underlying GUC contract
+    previously_blocked:
+      - T336
+    resolved_by: T336    # path (b): T336 reinterpreted to test runWithTenantContext + manual SET LOCAL app.current_store, same pattern as T335_TENANT_HELPER_COVERAGE — no helper file authored
+    resolved_by_pr: 310
+    resolved_by_commit: 69e0e00
+    resolved_at: 2026-05-23
+
+  - id: HARNESS_SEED_BUGS
+    summary: >
+      Three latent constraint violations in seedCatalogIsolationFixture discovered
+      by static inspection of isolation-harness.ts on main @ f6a8075 against the
+      0007_catalog.sql schema, and confirmed by Testcontainers run on 2026-05-22:
+        1. product_aliases INSERT column list omits `created_by` (NOT NULL per
+           0007_catalog.sql:275). INSERT fails immediately with not-null violation.
+        2. product_aliases store-scoped rows use `identifier_type = 'external_pos_id'`
+           with `store_id` set, violating the CHECK
+           `product_aliases_store_scope_consistency` (external_pos_id rows must have
+           store_id NULL per 0007_catalog.sql:284-285).
+        3. price_history INSERT uses column `created_by` (does not exist on that
+           table — correct column is `changed_by`, 0007_catalog.sql:335) and omits
+           `correlation_id` which is NOT NULL (0007_catalog.sql:336).
+      All three bugs surface on the first real Testcontainers execution before any
+      RLS assertion runs. They do not affect production (no runtime path uses this
+      seed function).
+    affected:
+      - apps/api/test/catalog/__support__/isolation-harness.ts
+    severity: medium    # T342-T344 validation blocked until fixed; not a production defect
+    proof: >
+      Static: grep of isolation-harness.ts lines 327-353 vs. 0007_catalog.sql
+      lines 275, 284-285, 335-336 on main @ f6a8075.
+      Runtime: Testcontainers run (WSL Docker) on 2026-05-22 — 31/31 FAILED with
+      "null value in column 'created_by' of relation 'product_aliases' violates
+      not-null constraint".
+    blocks: []          # cleared — all deps unblocked by PR #279
+    previously_blocked:
+      - T342
+      - T343
+      - T344
+    resolved_by: HARNESS_FIX
+    resolved_by_pr: 279
+    resolved_by_commit: e33fd0e
+    resolved_at: 2026-05-22
+
+  - id: RLS_STORE_ABSENT_READ_LEAK
+    summary: >
+      The matrix prescribes "tenant set, app.current_store GUC absent (never set
+      in session) → 0 rows" for the two store-scoped tables (rls-test-matrix.md
+      §4.6 store_product_overrides and §7.6 unknown_items). Empirically (CI run
+      on PR #285 @ 30751989), the combination of (a) PG returning the empty
+      string `''` from current_setting('app.current_store', true) when the GUC
+      has never been set in the session — NOT NULL as the matrix author assumed
+      — and (b) the 0009 CASE guard's `WHEN '' THEN TRUE` carve-out branch
+      firing, produces visible rows instead of 0. Same family as the resolved
+      RLS_CROSS_STORE_READ_LEAK finding (PR #254) but on the "store GUC absent"
+      axis rather than the "two split SELECT policies" axis. Tenant-owner
+      cross-store reads (explicitly setting GUC to '' via set_config) still
+      work correctly — the defect is specific to the never-set path.
+    affected:
+      - store_product_overrides   # §4.6 SELECT under tenant-set / store-absent
+      - unknown_items             # §7.6 SELECT under tenant-set / store-absent
+    severity: medium    # data-visibility issue; same severity tier as the resolved cross-store leak
+    proof: >
+      CI failure on PR #285 (commit 30751989) — six test cases failing with
+      either "Expected '0', Received '2'" (carve-out branch fires) or
+      "invalid input syntax for type uuid: ''" (cast on FOR ALL USING).
+      Independent Postgres 16 probe (2026-05-22) confirms
+      current_setting('app.current_store', true) returns '' (empty string)
+      not NULL for a GUC never set in the session, contrary to the matrix's
+      design assumption.
+    blocks: []
+    previously_blocked: []   # no slice-level dispatch blockers were set; deferred tests unblocked by 0011
+    deferred_tests:
+      - apps/api/test/catalog/isolation/cross-store-read.spec.ts:T342 fail-closed (4 it.todo placeholders)
+      - apps/api/test/catalog/isolation/rls-bypass-probe.spec.ts:§4.6 store_product_overrides absent (1 it.todo)
+      - apps/api/test/catalog/isolation/rls-bypass-probe.spec.ts:§7.6 unknown_items absent (1 it.todo)
+      - apps/api/test/catalog/isolation/rls-bypass-probe.spec.ts no-GUC pool (2 it.todo)
+    resolution_paths:
+      - "(a) New gated SQL slice (e.g. 0010_*) extending 0009's CASE guard to distinguish 'GUC explicitly empty (carve-out)' from 'GUC never set (fail-closed)'. The current carve-out is keyed on the empty string but should be keyed on an explicit sentinel set only by the tenant-owner code path."
+      - "(b) Matrix amendment acknowledging that 'GUC never set' is observably indistinguishable from 'GUC = empty string' at the policy layer, and either re-specifying §4.6 / §7.6 to require an explicit unset (e.g. via DISCARD ALL) before the contract holds, or accepting the current behavior as the contract."
+    resolved_by: 0011_CATALOG_STORE_CARVEOUT_SENTINEL
+    resolved_by_pr: 295
+    resolved_by_commit: 2f7554d
+    resolved_at: 2026-05-23
+
+  - id: RLS_UNSET_TENANT_GUC_CAST_ERROR
+    summary: >
+      The matrix prescribes "app.current_tenant unset / NULL → 0 rows" for
+      every tenant-scoped catalog table (rls-test-matrix.md §2.3, §3.3, §5.3,
+      §6.5, §7.6). Empirically (CI run on PR #285 @ 30751989), the policy's
+      USING clause `tenant_id = current_setting('app.current_tenant', true)::uuid`
+      throws SQLSTATE 22P02 ("invalid input syntax for type uuid: ''") on a
+      pooled connection where app.current_tenant has been observed as the empty
+      string rather than NULL. The matrix author assumed NULL semantics (where
+      `NULL::uuid` = NULL, and `tenant_id = NULL` evaluates to NULL → filtered
+      out → 0 rows). PG actually returns '' from current_setting(...,true)
+      for a missing custom GUC, and `''::uuid` raises before the policy
+      evaluates. Four SELECT test cases failed for this reason in CI.
+      The §2.3 tenant_products case passed in CI because the no-GUC pool
+      it uses is a freshly opened cold pool with no prior set_config bleed
+      — but the other suites (§3.3, §5.3, §6.5, §7.6) share withRawClient
+      against env.app where pool-scoped set_config bleed exposes the cast
+      error.
+    affected:
+      - tenant_products              # §2.3 — passes in CI via cold pool path, but matrix contract still fragile
+      - tenant_product_categories    # §3.3
+      - product_aliases              # §5.3
+      - price_history                # §6.5
+      - unknown_items                # §7.6 unset-tenant
+    severity: medium    # write-path RLS still enforces; this is a read-path fail-closed-semantics defect
+    proof: >
+      CI failure on PR #285 (commit 30751989) — five "§X.Y unset tenant GUC:
+      SELECT returns 0 rows" test cases failing with "invalid input syntax
+      for type uuid: ''". Postgres 16 probe (2026-05-22) confirms
+      current_setting('app.current_tenant', true) returns '' (not NULL) on
+      a session where the GUC was never assigned, and `''::uuid` raises
+      22P02.
+    blocks: []          # T343 lands with deferred coverage; full unset-tenant GREEN waits on a future SQL slice
+    deferred_tests:
+      - apps/api/test/catalog/isolation/rls-bypass-probe.spec.ts:§3.3 (1 it.todo)
+      - apps/api/test/catalog/isolation/rls-bypass-probe.spec.ts:§4.5 no-tenant-store-set (1 it.todo)
+      - apps/api/test/catalog/isolation/rls-bypass-probe.spec.ts:§5.3 (1 it.todo)
+      - apps/api/test/catalog/isolation/rls-bypass-probe.spec.ts:§6.5 (1 it.todo)
+      - apps/api/test/catalog/isolation/rls-bypass-probe.spec.ts:§7.6 unset-tenant (1 it.todo)
+    resolution_paths:
+      - "(a) New gated SQL slice (e.g. 0010_*) adding a CASE guard around the tenant cast in every tenant-scoped policy, analogous to 0009's store-GUC guard. Body shape: `tenant_id = CASE WHEN current_setting('app.current_tenant', true) = '' THEN NULL ELSE current_setting('app.current_tenant', true)::uuid END` — preserves fail-closed (NULL match returns 0 rows) without throwing."
+      - "(b) Matrix amendment redefining the §2.3 / §3.3 / §5.3 / §6.5 / §7.6 expected result from '0 rows' to 'SQLSTATE 22P02 cast error (acceptable fail-closed behavior because the query throws before any data is returned)' — this is arguably stronger fail-closed semantics but would require coordinated test updates to assert the error code rather than row count."
+    resolved_by: 0010_CATALOG_TENANT_GUC_CAST_FIX
+    resolved_by_pr: 292
+    resolved_by_commit: 6adf6df
+    resolved_at: 2026-05-23
+
+# ----------------------------------------------------------------------------
+# slices
+# ----------------------------------------------------------------------------
+slices:
+
+  # ===== Merged on main =====================================================
+
+  - id: T320
+    task_ids: [T320]
+    type: feat
+    status: merged
+    approval_required: true   # gated (schema modules)
+    depends_on: []
+    blocks: []
+    agent: sonnet-sql
+    allowed_files:
+      - packages/db/src/schema/catalog/**
+    validation: []
+    stop: []
+    report_fields: [changed_files]
+    parallel_safety: safe
+
+  - id: T331
+    task_ids: [T331]
+    type: test
+    status: merged
+    approval_required: false
+    depends_on: [T320]
+    blocks: []
+    agent: sonnet-test
+    allowed_files:
+      - packages/db/__tests__/schema/catalog/**
+    validation: []
+    stop: []
+    report_fields: [changed_files]
+    parallel_safety: safe
+
+  - id: T326_T327_T328_T329
+    task_ids: [T326, T327, T328, T329]
+    type: test
+    status: merged
+    approval_required: false
+    depends_on: [T320, T331]
+    blocks: [T330]
+    agent: sonnet-test
+    allowed_files:
+      - packages/db/__tests__/migration/0001-catalog.spec.ts
+    validation: []
+    stop: []
+    report_fields: [changed_files]
+    parallel_safety: safe
+
+  - id: T330
+    task_ids: [T330]
+    type: feat
+    status: merged
+    approval_required: true   # gated (SQL migration)
+    depends_on: [T326_T327_T328_T329]
+    blocks: []
+    agent: sonnet-sql
+    allowed_files:
+      - packages/db/drizzle/0007_catalog.sql
+      - packages/db/drizzle/0007_catalog.down.sql
+    validation: []
+    stop: []
+    report_fields: [changed_files]
+    parallel_safety: unsafe   # gated SQL — serialize
+
+  - id: PR250_DB_INTEGRATION_FALLOUT
+    task_ids: []
+    type: fix
+    status: merged
+    approval_required: false
+    depends_on: [T330]
+    blocks: []
+    agent: sonnet-test
+    allowed_files:
+      - packages/db/__tests__/migration/0001-catalog.spec.ts
+      - packages/db/__tests__/outbox/rls.spec.ts
+    validation: []
+    stop: []
+    report_fields: [changed_files]
+    parallel_safety: safe
+
+  - id: T335_TENANT_HELPER_COVERAGE
+    task_ids: [T335]
+    type: test
+    status: merged              # closed out 2026-05-21 via PR #260 @ 5801369
+    approval_required: false
+    depends_on: [T330]
+    blocks: []
+    agent: sonnet-test
+    allowed_files:
+      - packages/db/__tests__/helpers/with-tenant-catalog.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/db test "__tests__/helpers/with-tenant-catalog.spec.ts"
+        expected: GREEN 5/5
+        docker_required: true
+    stop:
+      - if helper signature changes
+    report_fields:
+      - changed_files
+      - validation_results
+      - forbidden_path_check
+      - confirmation_no_unauthorized_git_ops
+    parallel_safety: safe
+    merged_in_pr: 260
+    merged_at_commit: 5801369
+    merged_at_date: 2026-05-21
+    # Originally authored in worktree dp2-catalog-helper-foundation as
+    # local_uncommitted; landed on a fresh slice worktree
+    # (dp2-t335-tenant-helper, branch test/003-t335-tenant-helper-coverage)
+    # after Agent OS v1 became the active workflow. Validated 5/5 GREEN
+    # on Testcontainers Postgres 16 in WSL Docker.
+
+  - id: RLS_CROSS_STORE_RED_PROOF
+    task_ids: []
+    type: test
+    status: merged        # part of PR #254 merge commit 483aae4
+    approval_required: false
+    depends_on: [T330]
+    blocks: []
+    agent: sonnet-test
+    allowed_files:
+      - packages/db/__tests__/migration/catalog-rls-store-read.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/db test "__tests__/migration/catalog-rls-store-read.spec.ts"
+        expected: GREEN 2/2 (post-fix; was RED 2/2 before 0008 migration)
+        docker_required: true
+    stop: []
+    report_fields:
+      - changed_files
+      - validation_results
+    parallel_safety: safe
+    merged_in_pr: 254
+    merged_at_commit: 483aae4
+    # Local proof commit: 3da993b
+    # Cherry-picked into PR #254 as 8cf797a, then squash-merged as 483aae4
+
+  # ===== Closed gated slice — RLS fix (merged as PR #254 @ 483aae4) =========
+
+  - id: RLS_CROSS_STORE_FIX
+    task_ids: []
+    type: fix
+    status: merged        # PR #254 squash-merged into main as 483aae4
+    approval_required: true   # gated (SQL migration) — approval granted prior to merge
+    depends_on:
+      - T330
+      - RLS_CROSS_STORE_RED_PROOF
+    blocks: []
+    previously_blocked:   # historical record — these were unblocked by the merge
+      - T336
+      - T340
+      - T341
+      - T342
+      - T343
+      - T344
+    agent: sonnet-sql
+    allowed_files:
+      - packages/db/__tests__/migration/catalog-rls-store-read.spec.ts
+      - packages/db/drizzle/0008_catalog_store_read_isolation.sql
+      - packages/db/drizzle/0008_catalog_store_read_isolation.down.sql
+    forbidden_files:
+      - packages/db/drizzle/0007_catalog.sql   # do not edit 0007; new migration only
+    validation:
+      - command: pnpm --filter @data-pulse-2/db test "__tests__/migration/catalog-rls-store-read.spec.ts"
+        expected: GREEN 2/2 (was RED 2/2)
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/db test "__tests__/migration/0001-catalog.spec.ts"
+        expected: GREEN 27/27 (T327 up->down->up round-trip preserved)
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/db test "__tests__/outbox/rls.spec.ts"
+        expected: GREEN 12/12 (G-9 cross-table policy regression sweep)
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/db test "__tests__/schema/catalog"
+        expected: GREEN 119/119 across 9 suites
+        docker_required: true
+    stop:
+      - if either 0008 SQL file edits 0007
+      - if regression sweep produces any new failure
+      - if RED proof spec is not also present in the slice (round-trip evidence)
+    report_fields:
+      - changed_files
+      - validation_results
+      - forbidden_path_check
+      - confirmation_no_unauthorized_git_ops
+      - recommended_commit_message
+    parallel_safety: unsafe   # gated SQL — serialize
+    merged_in_pr: 254
+    merged_at_commit: 483aae4
+    merged_at_date: 2026-05-21
+
+  # ===== Blocked by MISSING_WITHSTORE_HELPER (RLS leak resolved) ============
+
+  - id: T336
+    task_ids: [T336]
+    type: test
+    # Reinterpreted (path b of finding MISSING_WITHSTORE_HELPER, authorized
+    # by the user 2026-05-23): instead of testing a never-scaffolded
+    # `withStore(tx, tenantId, storeId)` helper, this slice tests the
+    # underlying store-axis GUC contract that any such helper would
+    # compile to — `runWithTenantContext` + manual
+    # `SELECT set_config('app.current_store', $1, true)` per transaction.
+    # Mirrors the T335_TENANT_HELPER_COVERAGE pattern exactly. The
+    # rejected path (a) would have authored
+    # `packages/db/src/helpers/with-store.ts` (forbidden surface — would
+    # need a separate `[GATED]` slice); that is explicitly NOT taken
+    # here.
+    status: merged              # closed out 2026-05-23 via PR #310 @ 69e0e00
+    approval_required: false
+    depends_on: []        # RLS_CROSS_STORE_FIX merged; no remaining slice-level deps
+    blocks: []
+    agent: sonnet-test
+    allowed_files:
+      - packages/db/__tests__/helpers/with-store-catalog.spec.ts
+    forbidden_files:
+      # Reinterpretation NEVER touches the would-be helper file.
+      - packages/db/src/helpers/with-store.ts
+      # And it does NOT modify the production tenant-context glue.
+      - packages/db/src/middleware/tenant-context.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/db test "__tests__/helpers/with-store-catalog.spec.ts"
+        expected: GREEN — 7 cases (A own-store, B sibling-store, C carve-out '*', D never-set fail-closed, E cross-tenant store id, F symmetry on tenant B, G runtime-role sanity)
+        docker_required: true
+    stop:
+      - if the spec attempts to author packages/db/src/helpers/with-store.ts
+        (that is path (a) and was explicitly rejected by the slice owner)
+      - if the spec modifies runWithTenantContext or any production code
+    report_fields:
+      - changed_files
+      - validation_results
+    parallel_safety: safe
+    merged_in_pr: 310
+    merged_at_commit: 69e0e00
+    merged_at_date: 2026-05-23
+    # Resolves finding MISSING_WITHSTORE_HELPER via path (b).
+
+  # ===== Merged (T340 PR #264, T341 PR #268, HARNESS_FIX + 0009 PR #279) / Ready ===
+
+  - id: T340
+    task_ids: [T340]
+    type: test
+    status: merged              # closed out 2026-05-22 via PR #264 @ 02cdf75
+    approval_required: false
+    depends_on:
+      - T330              # 0007 catalog migration (long-merged)
+    blocks:
+      - T341
+      - T342
+      - T343
+      - T344
+    agent: sonnet-test
+    allowed_files:
+      - apps/api/test/catalog/__support__/isolation-harness.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/__support__"
+        expected: GREEN
+        docker_required: true
+    stop: []
+    report_fields:
+      - changed_files
+      - validation_results
+    parallel_safety: safe
+    merged_in_pr: 264
+    merged_at_commit: 02cdf75
+    merged_at_date: 2026-05-21
+    notes: >
+      Harness contains three latent seed bugs (HARNESS_SEED_BUGS finding),
+      independently verified on main @ f6a8075. A fix slice targeting
+      isolation-harness.ts is needed before T342–T344 validation can succeed.
+
+  - id: T341
+    task_ids: [T341]
+    type: test
+    status: merged              # closed out 2026-05-22 via PR #268 @ 263492a
+    approval_required: false
+    depends_on:
+      - T340
+    blocks: []
+    agent: sonnet-test
+    allowed_files:
+      - apps/api/test/catalog/isolation/cross-tenant-read.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/isolation/cross-tenant-read"
+        expected: GREEN
+        docker_required: true
+    stop: []
+    report_fields:
+      - changed_files
+      - validation_results
+    parallel_safety: safe
+    merged_in_pr: 268
+    merged_at_commit: 263492a
+    merged_at_date: 2026-05-21
+    notes: >
+      31 assertions across Groups A-D (own-rows, cross-tenant ID probe, Tenant B
+      symmetry, fail-closed) — GREEN 31/31 confirmed after HARNESS_FIX (PR #279).
+      Four tenant-owner count assertions updated to explicitly set
+      app.current_store = '' (T341_MISSING_STORE_GUC resolved in PR #279).
+
+  - id: HARNESS_FIX
+    task_ids: []
+    type: fix
+    status: merged              # closed out 2026-05-22 via PR #279 @ e33fd0e
+    approval_required: false
+    depends_on:
+      - T340
+    blocks: []
+    previously_blocked: []
+    agent: sonnet-test
+    allowed_files:
+      - apps/api/test/catalog/__support__/isolation-harness.ts
+      - apps/api/test/catalog/isolation/cross-tenant-read.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/isolation/cross-tenant-read"
+        expected: GREEN 31/31
+        docker_required: true
+    stop: []
+    report_fields:
+      - changed_files
+      - validation_results
+      - confirmation_no_unauthorized_git_ops
+    parallel_safety: safe
+    merged_in_pr: 279
+    merged_at_commit: e33fd0e
+    merged_at_date: 2026-05-22
+    notes: >
+      Resolved HARNESS_SEED_BUGS finding. Three seed constraint violations fixed:
+      (1) product_aliases created_by added; (2) product_aliases store-scoped rows
+      switched from external_pos_id to sku identifier_type; (3) price_history
+      created_by -> changed_by + correlation_id added. Also updated T341 spec
+      to explicitly set app.current_store = '' on four tenant-owner count assertions
+      (resolves T341_MISSING_STORE_GUC). T341 now GREEN 31/31.
+
+  - id: 0009_STORE_GUC_FIX
+    task_ids: []
+    type: fix
+    status: merged              # closed out 2026-05-22 via PR #279 @ e33fd0e
+    approval_required: true     # gated (SQL migration) — approval granted prior to merge
+    depends_on:
+      - RLS_CROSS_STORE_FIX
+    blocks: []
+    agent: sonnet-sql
+    allowed_files:
+      - packages/db/drizzle/0009_catalog_store_empty_guc_fix.sql
+      - packages/db/drizzle/0009_catalog_store_empty_guc_fix.down.sql
+      - packages/db/__tests__/cli/migrate.spec.ts
+    forbidden_files:
+      - packages/db/drizzle/0007_catalog.sql   # do not edit 0007
+      - packages/db/drizzle/0008_catalog_store_read_isolation.sql   # do not edit 0008
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/isolation/cross-tenant-read"
+        expected: GREEN 31/31
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/db test "__tests__/migration/catalog-rls-store-read.spec.ts"
+        expected: GREEN 2/2
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/db test "__tests__/migration/0001-catalog.spec.ts"
+        expected: GREEN 27/27
+        docker_required: true
+    stop:
+      - if 0009 edits 0007 or 0008
+    report_fields:
+      - changed_files
+      - validation_results
+      - confirmation_no_unauthorized_git_ops
+    parallel_safety: unsafe   # gated SQL — serialize
+    merged_in_pr: 279
+    merged_at_commit: e33fd0e
+    merged_at_date: 2026-05-22
+    notes: >
+      Replaces the OR-cast expression in three RLS policies with a CASE guard
+      to prevent ''::uuid cast error when app.current_store = '' (the tenant-owner
+      carve-out path from rls-test-matrix.md §4.3). Affected policies:
+      store_product_overrides_select (0008), store_product_overrides_tenant_write
+      (0007 FOR ALL), unknown_items_select (0008). Down migration restores 0008 and
+      0007 policy bodies verbatim.
+
+  - id: T342
+    task_ids: [T342]
+    type: test
+    status: merged              # closed out 2026-05-22 via PR #285 @ fd18598
+    approval_required: false
+    depends_on:
+      - T340
+    # RLS_CROSS_STORE_FIX removed from depends_on — merged 2026-05-21 (PR #254).
+    # HARNESS_SEED_BUGS resolved by PR #279 — no prerequisite blocker remains.
+    blocks: []
+    agent: sonnet-test
+    allowed_files:
+      - apps/api/test/catalog/isolation/cross-store-read.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/isolation/cross-store-read"
+        expected: GREEN  # cross-store read denial verified at api integration layer (RLS guarantee from 0008)
+        docker_required: true
+    stop: []
+    report_fields:
+      - changed_files
+      - validation_results
+    parallel_safety: safe
+    merged_in_pr: 285
+    merged_at_commit: fd18598
+    merged_at_date: 2026-05-22
+    notes: >
+      PR #285 ships T342 with §4.6 / §7.6 "fail-closed when store GUC absent"
+      coverage deferred as 4 it.todo placeholders — see finding
+      RLS_STORE_ABSENT_READ_LEAK. T342 cannot be considered fully complete
+      until that finding is resolved.
+
+  - id: T343
+    task_ids: [T343]
+    type: test
+    status: merged              # closed out 2026-05-22 via PR #285 @ fd18598
+    approval_required: false
+    depends_on:
+      - T340
+    blocks: []
+    agent: sonnet-test
+    allowed_files:
+      - apps/api/test/catalog/isolation/rls-bypass-probe.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/isolation/rls-bypass-probe"
+        expected: GREEN
+        docker_required: true
+    stop: []
+    report_fields:
+      - changed_files
+      - validation_results
+    parallel_safety: safe
+    merged_in_pr: 285
+    merged_at_commit: fd18598
+    merged_at_date: 2026-05-22
+    notes: >
+      PR #285 ships T343 with deferred coverage:
+        - §3.3 / §5.3 / §6.5 / §7.6 unset-tenant SELECT + §4.5 no-tenant-store-set
+          (5 it.todo) tracked under RLS_UNSET_TENANT_GUC_CAST_ERROR.
+        - §4.6 / §7.6 absent-store SELECT + no-GUC pool §4.6 / §7.6 (4 it.todo)
+          tracked under RLS_STORE_ABSENT_READ_LEAK.
+      Three Class A "explicit empty-string tenant GUC" cases (§3.4, §5.4, §6.4)
+      DELETED in PR #285 — invented by the original draft, not prescribed by
+      the matrix. T343 cannot be considered fully complete until both findings
+      are resolved.
+
+  - id: T344
+    task_ids: [T344]
+    type: test
+    status: merged              # closed out 2026-05-22 via PR #285 @ fd18598
+    approval_required: false
+    depends_on:
+      - T340
+    blocks: []
+    agent: sonnet-test
+    allowed_files:
+      - apps/api/test/catalog/isolation/malicious-override.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/isolation/malicious-override"
+        expected: GREEN
+        docker_required: true
+    stop: []
+    report_fields:
+      - changed_files
+      - validation_results
+    parallel_safety: safe
+    merged_in_pr: 285
+    merged_at_commit: fd18598
+    merged_at_date: 2026-05-22
+
+  # ===== In-progress gated SQL slice — tenant GUC CASE guard ====================
+
+  - id: 0010_CATALOG_TENANT_GUC_CAST_FIX
+    task_ids: []
+    type: fix
+    status: merged                # closed out 2026-05-23 via PR #292 @ 6adf6df
+    approval_required: true       # gated (SQL migration) — approval granted 2026-05-23
+    depends_on:
+      - 0009_STORE_GUC_FIX        # 0009 bodies are the baseline for Group B down-migration
+    blocks: []
+    previously_blocked: []
+    agent: sonnet-sql
+    allowed_files:
+      - packages/db/drizzle/0010_catalog_tenant_empty_guc_fix.sql
+      - packages/db/drizzle/0010_catalog_tenant_empty_guc_fix.down.sql
+      - apps/api/test/catalog/isolation/rls-bypass-probe.spec.ts
+      - packages/db/__tests__/cli/migrate.spec.ts
+      - specs/003-catalog-foundation/execution-map.yaml
+      - specs/003-catalog-foundation/wave-status.md
+    forbidden_files:
+      - packages/db/drizzle/0007_catalog.sql        # do not edit prior migrations
+      - packages/db/drizzle/0007_catalog.down.sql
+      - packages/db/drizzle/0008_catalog_store_read_isolation.sql
+      - packages/db/drizzle/0008_catalog_store_read_isolation.down.sql
+      - packages/db/drizzle/0009_catalog_store_empty_guc_fix.sql
+      - packages/db/drizzle/0009_catalog_store_empty_guc_fix.down.sql
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/isolation/rls-bypass-probe"
+        expected: GREEN — 5 previously-todo tenant-axis assertions now execute
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/isolation/cross-tenant-read"
+        expected: GREEN 31/31 (regression — T341 must stay green)
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/isolation/cross-store-read"
+        expected: GREEN (regression — T342 must stay green)
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/db test "__tests__/migration/catalog-rls-store-read.spec.ts"
+        expected: GREEN 2/2
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/db test "__tests__/migration/0001-catalog.spec.ts"
+        expected: GREEN 27/27 (up->down->up round-trip preserved)
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/db test "__tests__/cli/migrate.spec.ts"
+        expected: GREEN (EXPECTED_MIGRATIONS now includes 0010)
+        docker_required: true
+    stop:
+      - if 0010 edits any prior migration (0007–0009)
+      - if store-axis it.todo items in rls-bypass-probe.spec.ts are converted (RLS_STORE_ABSENT_READ_LEAK is not resolved by this slice)
+      - if any regression in T341 / T342 / T344 suites
+    report_fields:
+      - changed_files
+      - validation_results
+      - forbidden_path_check
+      - confirmation_no_unauthorized_git_ops
+      - recommended_commit_message
+    parallel_safety: unsafe   # gated SQL — serialize
+    merged_in_pr: 292
+    merged_at_commit: 6adf6df
+    merged_at_date: 2026-05-23
+    notes: >
+      Resolves finding RLS_UNSET_TENANT_GUC_CAST_ERROR. Adds CASE guard to 13 policy
+      bodies across 5 tenant-scoped tables: (Group A) tenant_product_categories,
+      tenant_products, product_aliases, price_history, unknown_items INSERT/UPDATE
+      policies in 0007-form; (Group B) store_product_overrides_select,
+      store_product_overrides_tenant_write, unknown_items_select in 0009-form
+      (store CASE guard preserved; tenant CASE guard added). Flips 5 it.todo items
+      in T343 rls-bypass-probe.spec.ts (§3.3, §4.5, §5.3, §6.5, §7.6 tenant-axis)
+      to executable assertions. Does NOT resolve RLS_STORE_ABSENT_READ_LEAK
+      (4 remaining it.todo items for store-axis). Down migration restores 0007 form
+      for Group A and 0009 form for Group B.
+      Validation results (PR #292): T343 rls-bypass-probe 35 passed / 4 todo; T341
+      cross-tenant-read 31/31; T342 cross-store-read 17 passed / 4 todo; 0001-catalog
+      27/27; migrate.spec.ts 10/10.
+
+  # ===== Gated SQL slice — store carve-out sentinel fix ====================
+
+  - id: 0011_CATALOG_STORE_CARVEOUT_SENTINEL
+    task_ids: []
+    type: fix
+    status: merged                # closed out 2026-05-23 via PR #295 @ 2f7554d
+    approval_required: true       # gated (SQL migration) — [GATED] approved 2026-05-23
+    depends_on:
+      - 0010_CATALOG_TENANT_GUC_CAST_FIX  # 0010 bodies are the baseline for down-migration
+    blocks: []
+    agent: sonnet-sql
+    allowed_files:
+      - packages/db/drizzle/0011_catalog_store_carveout_sentinel.sql         # [GATED]
+      - packages/db/drizzle/0011_catalog_store_carveout_sentinel.down.sql    # [GATED]
+      - specs/003-catalog-foundation/rls-test-matrix.md                      # §4.3/§4.6/§7.3/§7.6 sentinel docs
+      - apps/api/test/catalog/isolation/cross-store-read.spec.ts             # convert 4 it.todo
+      - apps/api/test/catalog/isolation/rls-bypass-probe.spec.ts             # convert 4 it.todo
+      - apps/api/test/catalog/isolation/cross-tenant-read.spec.ts           # update 4 '' → '*' carve-out call sites
+      - packages/db/__tests__/cli/migrate.spec.ts                            # add 0011 to EXPECTED_MIGRATIONS
+      - specs/003-catalog-foundation/execution-map.yaml
+      - specs/003-catalog-foundation/wave-status.md
+    forbidden_files:
+      - packages/db/drizzle/0007_catalog.sql
+      - packages/db/drizzle/0007_catalog.down.sql
+      - packages/db/drizzle/0008_catalog_store_read_isolation.sql
+      - packages/db/drizzle/0008_catalog_store_read_isolation.down.sql
+      - packages/db/drizzle/0009_catalog_store_empty_guc_fix.sql
+      - packages/db/drizzle/0009_catalog_store_empty_guc_fix.down.sql
+      - packages/db/drizzle/0010_catalog_tenant_empty_guc_fix.sql
+      - packages/db/drizzle/0010_catalog_tenant_empty_guc_fix.down.sql
+      - packages/db/src/schema/**
+      - packages/contracts/openapi/**
+      - package.json
+      - pnpm-lock.yaml
+      - .github/**
+    sentinel: "'*'"   # app.current_store = '*' → tenant-owner cross-store carve-out (Option B, confirmed 2026-05-23)
+    migrations:
+      up:   packages/db/drizzle/0011_catalog_store_carveout_sentinel.sql
+      down: packages/db/drizzle/0011_catalog_store_carveout_sentinel.down.sql
+      predecessor_form: 0010   # down must restore exact 0010-form bodies for all 3 policies
+    sql_policy_targets:
+      - store_product_overrides_select          # SELECT USING — add WHEN '*' THEN TRUE before WHEN '' THEN FALSE
+      - store_product_overrides_tenant_write    # FOR ALL USING + WITH CHECK — same change
+      - unknown_items_select                    # SELECT USING — same change
+    deferred_tests:
+      total: 8   # 4 in cross-store-read.spec.ts + 4 in rls-bypass-probe.spec.ts
+      cross_store_read:
+        file: apps/api/test/catalog/isolation/cross-store-read.spec.ts
+        count: 4
+        lines: [502, 505, 508, 511]
+      rls_bypass_probe:
+        file: apps/api/test/catalog/isolation/rls-bypass-probe.spec.ts
+        count: 4
+        lines: [472, 741, 867, 870]
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/isolation/cross-store-read"
+        expected: 21 passed / 0 todo  (17 green + 4 formerly-todo §4.6/§7.6)
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/isolation/rls-bypass-probe"
+        expected: 39 passed / 0 todo  (35 green + 4 formerly-todo §4.6/§7.6 + no-GUC pool)
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/isolation/cross-tenant-read"
+        expected: GREEN 31/31 (regression — T341 must stay green)
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/db test "__tests__/migration/0001-catalog.spec.ts"
+        expected: GREEN 27/27 (up->down->up round-trip preserved)
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/db test "__tests__/cli/migrate.spec.ts"
+        expected: GREEN (EXPECTED_MIGRATIONS now includes 0011)
+        docker_required: true
+    stop:
+      - if any file outside allowed_files is touched
+      - if migration round-trip test fails (down does not restore 0010-form exactly)
+      - if any previously-green test regresses
+      - if sentinel value differs from '*' (confirmed in pre-flight 2026-05-23)
+    report_fields:
+      - changed_files
+      - validation_results
+      - forbidden_path_check
+      - confirmation_no_unauthorized_git_ops
+      - recommended_commit_message
+    parallel_safety: unsafe   # gated SQL — serialize
+    merged_in_pr: 295
+    merged_at_commit: 2f7554d
+    merged_at_date: 2026-05-23
+    notes: >
+      Resolves finding RLS_STORE_ABSENT_READ_LEAK. Introduces sentinel '*' to
+      distinguish tenant-owner cross-store carve-out from never-set GUC fail-closed.
+      Three-way CASE guard on three store-axis RLS policies:
+        - store_product_overrides_select (SELECT USING): '*' → TRUE, '' → FALSE, else uuid match.
+        - store_product_overrides_tenant_write (FOR ALL USING + WITH CHECK): '*' → FALSE (prevents
+          cross-store DELETE/INSERT via write policy), '' → FALSE, else uuid match.
+        - unknown_items_select (SELECT USING): '*' → TRUE, '' → FALSE, else uuid match.
+      Converts 8 it.todo items to executable assertions (4 in cross-store-read.spec.ts,
+      4 in rls-bypass-probe.spec.ts). Updates 8 carve-out call sites from '' → '*'
+      (cross-store-read.spec.ts x5, rls-bypass-probe.spec.ts x4, cross-tenant-read.spec.ts x4).
+      CodeRabbit security fix: write policy USING uses WHEN '*' THEN FALSE (not TRUE) to
+      prevent cross-store DELETE — cross-store reads are served by the SELECT-only policy only.
+      Down migration restores exact 0010-form bodies.
+
+  # ===== Proposed Phase-3 RED tests (not approved) ==========================
+
+  - id: T350_TENANT_CATALOG_CREATE_RED
+    task_ids: [T350]   # paired GREEN T351 (TenantCatalogService.create) landed in the same squash
+    type: test
+    status: merged
+    merged_in_pr: 300
+    merged_at_commit: 2bf7e27c4eb01e7f5f38fb6e40641e28002e508b
+    merged_at_date: 2026-05-23
+    previously_blocked: []
+    approval_required: false
+    depends_on:
+      - T340
+    # RLS_CROSS_STORE_FIX dropped — merged 2026-05-21 (PR #254 @ 483aae4).
+    blocks: []
+    agent: sonnet-test
+    allowed_files:
+      - apps/api/test/catalog/tenant-catalog.service.create.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/tenant-catalog.service.create"
+        expected: RED initially — service does not exist yet
+        docker_required: true
+    stop:
+      - if test attempts to implement the service it claims to test
+    report_fields:
+      - changed_files
+      - validation_results
+    parallel_safety: safe
+
+  - id: T360_GLOBAL_CATALOG_LIST_RED
+    task_ids: [T360]   # paired GREEN T361 (GlobalCatalogService.list) landed in the same squash
+    type: test
+    status: merged
+    merged_in_pr: 301
+    merged_at_commit: f577570d9c661d7805318a0ad07c4b0c933ff6a2
+    merged_at_date: 2026-05-23
+    previously_blocked: []
+    approval_required: false
+    depends_on:
+      - T340
+    # RLS_CROSS_STORE_FIX dropped — merged 2026-05-21 (PR #254 @ 483aae4).
+    blocks: []
+    agent: sonnet-test
+    allowed_files:
+      - apps/api/test/catalog/global-catalog.service.list.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/global-catalog.service.list"
+        expected: RED initially
+        docker_required: true
+    stop: []
+    report_fields:
+      - changed_files
+      - validation_results
+    parallel_safety: safe
+
+  - id: T372_STORE_OVERRIDE_CREATE_RED
+    task_ids: [T372]   # paired GREEN T373 (StoreOverrideService.create) landed in the same squash; cross-tenant product probe added at merge time (PG FKs bypass RLS)
+    type: test
+    status: merged
+    merged_in_pr: 302
+    merged_at_commit: c4147b03adc6fe417000b1843a3289059a5b3d23
+    merged_at_date: 2026-05-23
+    previously_blocked: []
+    approval_required: false
+    depends_on:
+      - T340
+    # RLS_CROSS_STORE_FIX dropped — merged 2026-05-21 (PR #254 @ 483aae4).
+    blocks: []
+    agent: sonnet-test
+    allowed_files:
+      - apps/api/test/catalog/store-override.service.create.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/store-override.service.create"
+        expected: RED initially
+        docker_required: true
+    stop: []
+    report_fields:
+      - changed_files
+      - validation_results
+    parallel_safety: safe
+
+  - id: T383_PRODUCT_ALIASES_UNIQUENESS_RED
+    task_ids: [T383]   # paired GREEN T384 (ProductAliasesService.create) landed in the same squash
+    type: test
+    status: merged
+    merged_in_pr: 303
+    merged_at_commit: 454a7ae23cd855a69af7ba332db4318c1ce7b78b
+    merged_at_date: 2026-05-23
+    previously_blocked: []
+    approval_required: false
+    depends_on:
+      - T340
+    # RLS_CROSS_STORE_FIX dropped — merged 2026-05-21 (PR #254 @ 483aae4).
+    blocks: []
+    agent: sonnet-test
+    allowed_files:
+      - apps/api/test/catalog/product-aliases.service.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/product-aliases.service"
+        expected: RED initially
+        docker_required: true
+    stop: []
+    report_fields:
+      - changed_files
+      - validation_results
+    parallel_safety: safe
+
+# ----------------------------------------------------------------------------
+# groups — proposed parallel waves
+# ----------------------------------------------------------------------------
+groups:
+
+  - id: PHASE3_RED_WAVE
+    members:
+      - T340
+      - T350_TENANT_CATALOG_CREATE_RED
+      - T360_GLOBAL_CATALOG_LIST_RED
+      - T372_STORE_OVERRIDE_CREATE_RED
+      - T383_PRODUCT_ALIASES_UNIQUENESS_RED
+    parallel_safety: safe
+    proposed: false
+    # All four RED slices merged 2026-05-23 in independent PRs (#300/#301/
+    # #302/#303), each carrying its paired GREEN. T340 was already merged
+    # earlier (PR #264 @ 02cdf75). Group retained here for traceability;
+    # member status now lives on the individual slice entries above.

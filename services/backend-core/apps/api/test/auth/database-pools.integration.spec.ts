@@ -1,0 +1,315 @@
+import { hashToken } from "@data-pulse-2/auth";
+import { runWithTenantContext } from "@data-pulse-2/db";
+import type { Logger } from "@data-pulse-2/shared";
+import { Pool } from "pg";
+
+import { verifyDatabasePoolBoundary } from "../../src/auth/database-pools";
+import { MembershipRepository } from "../../src/context/membership.repository";
+import { DeviceRepository } from "../../src/pos-operators/device.repository";
+import { PosShiftsService } from "../../src/pos-shifts/pos-shifts.service";
+import { TenantsRepository } from "../../src/tenants/tenants.repository";
+import { TenantsService } from "../../src/tenants/tenants.service";
+import {
+  APP_ROLE_NAME,
+  applyAllUpAndCreateAppRole,
+  startPgEnv,
+  stopPgEnv,
+  type PgTestEnv,
+} from "../_helpers/postgres-container";
+
+const TENANT_A = "a1000000-0000-4000-8000-000000000001";
+const TENANT_B = "b1000000-0000-4000-8000-000000000001";
+const STORE_A = "a1000000-0000-4000-8000-000000000002";
+const STORE_B = "b1000000-0000-4000-8000-000000000002";
+const DEVICE_A = "a1000000-0000-4000-8000-000000000003";
+const DEVICE_B = "b1000000-0000-4000-8000-000000000003";
+const LOOKUP_ROLE = "auth_lookup_test";
+const LOOKUP_PASSWORD = "auth_lookup_test";
+const USER_A = "a1000000-0000-4000-8000-000000000004";
+const ROLE_A = "a1000000-0000-4000-8000-000000000005";
+const MEMBERSHIP_A = "a1000000-0000-4000-8000-000000000006";
+
+let env: PgTestEnv | null = null;
+let lookup: Pool | null = null;
+let dockerSkipped = false;
+
+beforeAll(async () => {
+  try {
+    env = await startPgEnv();
+    await applyAllUpAndCreateAppRole(env);
+    await env.admin.query(`
+      CREATE ROLE ${LOOKUP_ROLE} LOGIN PASSWORD '${LOOKUP_PASSWORD}' BYPASSRLS;
+      GRANT USAGE ON SCHEMA public TO ${LOOKUP_ROLE};
+      GRANT SELECT ON users, sessions, auth_tokens, devices, stores,
+        external_identity_links, connector_registration, pairing_codes TO ${LOOKUP_ROLE};
+      GRANT INSERT, UPDATE ON sessions, auth_tokens TO ${LOOKUP_ROLE};
+      GRANT UPDATE ON users TO ${LOOKUP_ROLE};
+    `);
+
+    const host = env.container.getHost();
+    const port = env.container.getMappedPort(5432);
+    lookup = new Pool({
+      connectionString: `postgres://${LOOKUP_ROLE}:${LOOKUP_PASSWORD}@${host}:${port}/test`,
+    });
+
+    await env.admin.query(
+      `INSERT INTO tenants (id, slug, name) VALUES
+         ($1, 'pool-a', 'Pool A'), ($2, 'pool-b', 'Pool B')`,
+      [TENANT_A, TENANT_B],
+    );
+    await env.admin.query(
+      `INSERT INTO stores (id, tenant_id, code, name) VALUES
+         ($1, $2, 'A', 'Store A'), ($3, $4, 'B', 'Store B')`,
+      [STORE_A, TENANT_A, STORE_B, TENANT_B],
+    );
+    await env.admin.query(
+      `INSERT INTO users (id, email, clerk_user_id) VALUES ($1, 'pool-user@example.test', 'pool-clerk-user')`,
+      [USER_A],
+    );
+    await env.admin.query(
+      `INSERT INTO roles (id, tenant_id, code, name) VALUES ($1, $2, 'store_manager', 'Store Manager')`,
+      [ROLE_A, TENANT_A],
+    );
+    await env.admin.query(
+      `INSERT INTO memberships (id, tenant_id, user_id, role_id, store_access_kind)
+       VALUES ($1, $2, $3, $4, 'all')`,
+      [MEMBERSHIP_A, TENANT_A, USER_A, ROLE_A],
+    );
+    await env.admin.query(
+      `INSERT INTO devices (id, tenant_id, store_id, token_hash) VALUES
+         ($1, $2, $3, $4), ($5, $6, $7, $8)`,
+      [
+        DEVICE_A,
+        TENANT_A,
+        STORE_A,
+        hashToken("device-a"),
+        DEVICE_B,
+        TENANT_B,
+        STORE_B,
+        hashToken("device-b"),
+      ],
+    );
+  } catch (error) {
+    if (process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1") {
+      dockerSkipped = true;
+      return;
+    }
+    throw error;
+  }
+}, 180_000);
+
+afterAll(async () => {
+  await lookup?.end().catch(() => undefined);
+  if (env) await stopPgEnv(env);
+});
+
+describe("production database pool separation", () => {
+  it("RT-143: the documented lookup grants pass; an extra or a missing grant fails boot verification", async () => {
+    if (dockerSkipped) return;
+    const { app, admin } = env!;
+    const lookupPool = lookup!;
+    await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
+
+    await admin.query(`GRANT SELECT ON sales TO ${LOOKUP_ROLE}`);
+    try {
+      await expect(verifyDatabasePoolBoundary(app, lookupPool)).rejects.toThrow(
+        /forbidden grants on: sales/,
+      );
+    } finally {
+      await admin.query(`REVOKE SELECT ON sales FROM ${LOOKUP_ROLE}`);
+    }
+
+    // RT-113 BC2: a grant on either cashier-admission table fails boot too.
+    // RT-213: so does any grant on tenants (BYPASSRLS would expose every row).
+    for (const table of ["cashier_admissions", "cashier_admission_requests", "tenants"]) {
+      await admin.query(`GRANT SELECT ON ${table} TO ${LOOKUP_ROLE}`);
+      try {
+        await expect(verifyDatabasePoolBoundary(app, lookupPool)).rejects.toThrow(
+          new RegExp(`forbidden grants on: ${table}`),
+        );
+      } finally {
+        await admin.query(`REVOKE SELECT ON ${table} FROM ${LOOKUP_ROLE}`);
+      }
+    }
+
+    await admin.query(`REVOKE UPDATE ON users FROM ${LOOKUP_ROLE}`);
+    try {
+      await expect(verifyDatabasePoolBoundary(app, lookupPool)).rejects.toThrow(
+        /missing required grants: UPDATE ON users/,
+      );
+    } finally {
+      await admin.query(`GRANT UPDATE ON users TO ${LOOKUP_ROLE}`);
+    }
+  });
+
+  it("RT-212: a TRUNCATE, TRIGGER or REFERENCES grant to the lookup role on a forbidden table fails boot verification", async () => {
+    if (dockerSkipped) return;
+    const { app, admin } = env!;
+    const lookupPool = lookup!;
+    await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
+
+    for (const [privilege, table] of [
+      ["TRUNCATE", "sales"],
+      ["TRIGGER", "audit_events"],
+      ["REFERENCES", "cashier_admissions"],
+      ["TRUNCATE", "memberships"],
+    ] as const) {
+      await admin.query(`GRANT ${privilege} ON ${table} TO ${LOOKUP_ROLE}`);
+      try {
+        await expect(verifyDatabasePoolBoundary(app, lookupPool)).rejects.toThrow(
+          new RegExp(`forbidden grants on: ${table}\\b`),
+        );
+      } finally {
+        await admin.query(`REVOKE ${privilege} ON ${table} FROM ${LOOKUP_ROLE}`);
+      }
+    }
+
+    await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
+  });
+
+  it("RT-212 / RT-213: a domain role missing a cashier-admissions or tenants grant fails boot verification", async () => {
+    if (dockerSkipped) return;
+    const { app, admin } = env!;
+    const lookupPool = lookup!;
+    await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
+
+    await admin.query(`REVOKE DELETE ON cashier_admission_requests FROM ${APP_ROLE_NAME}`);
+    try {
+      await expect(verifyDatabasePoolBoundary(app, lookupPool)).rejects.toThrow(
+        /AuthModule: DATABASE_URL role is missing required grants: DELETE ON cashier_admission_requests\b/,
+      );
+    } finally {
+      await admin.query(`GRANT DELETE ON cashier_admission_requests TO ${APP_ROLE_NAME}`);
+    }
+
+    await admin.query(`REVOKE INSERT, UPDATE ON cashier_admissions FROM ${APP_ROLE_NAME}`);
+    try {
+      await expect(verifyDatabasePoolBoundary(app, lookupPool)).rejects.toThrow(
+        /missing required grants: INSERT ON cashier_admissions, UPDATE ON cashier_admissions\b/,
+      );
+    } finally {
+      await admin.query(`GRANT INSERT, UPDATE ON cashier_admissions TO ${APP_ROLE_NAME}`);
+    }
+
+    // RT-213: device auth reads tenants.status on the domain role. A missing
+    // grant must stop boot, not refuse every till at runtime.
+    await admin.query(`REVOKE SELECT ON tenants FROM ${APP_ROLE_NAME}`);
+    try {
+      await expect(verifyDatabasePoolBoundary(app, lookupPool)).rejects.toThrow(
+        /AuthModule: DATABASE_URL role is missing required grants: SELECT ON tenants\b/,
+      );
+    } finally {
+      await admin.query(`GRANT SELECT ON tenants TO ${APP_ROLE_NAME}`);
+    }
+
+    await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
+  });
+
+  it("RT-343: a domain role missing SELECT on memberships or roles fails boot verification", async () => {
+    if (dockerSkipped) return;
+    const { app, admin } = env!;
+    const lookupPool = lookup!;
+
+    // Sign-in reads the user's memberships (joined to roles and tenants) on
+    // the domain role. A missing grant must stop boot, not fail every sign-in.
+    for (const table of ["memberships", "roles"]) {
+      await admin.query(`REVOKE SELECT ON ${table} FROM ${APP_ROLE_NAME}`);
+      try {
+        await expect(verifyDatabasePoolBoundary(app, lookupPool)).rejects.toThrow(
+          new RegExp(`AuthModule: DATABASE_URL role is missing required grants: SELECT ON ${table}\\b`),
+        );
+      } finally {
+        await admin.query(`GRANT SELECT ON ${table} TO ${APP_ROLE_NAME}`);
+      }
+    }
+
+    await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
+  });
+
+  it("RT-357: a superuser URL that switches with options=-c role= fails boot verification", async () => {
+    if (dockerSkipped) return;
+    const { app, adminUri } = env!;
+    const lookupPool = lookup!;
+    // current_user becomes the checked role while session_user stays the
+    // superuser, so RESET ROLE would restore superuser privileges.
+    const switchedTo = (role: string): Pool =>
+      new Pool({ connectionString: adminUri, options: `-c role=${role}`, max: 1 });
+
+    const domainSwitch = switchedTo(APP_ROLE_NAME);
+    const lookupSwitch = switchedTo(LOOKUP_ROLE);
+    try {
+      const who = await domainSwitch.query<{ cu: string; su: string }>(
+        "SELECT current_user AS cu, session_user AS su",
+      );
+      expect(who.rows[0]!.cu).toBe(APP_ROLE_NAME); // the switch did happen
+      expect(who.rows[0]!.su).not.toBe(APP_ROLE_NAME);
+
+      await expect(verifyDatabasePoolBoundary(domainSwitch, lookupPool)).rejects.toThrow(
+        /DATABASE_URL role must log in as itself/,
+      );
+      await expect(verifyDatabasePoolBoundary(app, lookupSwitch)).rejects.toThrow(
+        /AUTH_LOOKUP_DATABASE_URL role must log in as itself/,
+      );
+    } finally {
+      await domainSwitch.end().catch(() => undefined);
+      await lookupSwitch.end().catch(() => undefined);
+    }
+    // The real logins still pass.
+    await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
+  });
+
+  it("keeps bootstrap resolution available while the domain pool remains RLS-bound", async () => {
+    if (dockerSkipped) return;
+    const { app } = env!;
+    const lookupPool = lookup!;
+
+    await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
+
+    // RT-213: the device on the lookup role, its tenant's status on the
+    // NOBYPASSRLS domain role under the device's tenant context. Neither role
+    // needs a new grant: the lookup role still cannot read `tenants`.
+    const device = await new DeviceRepository(lookupPool, app).findActiveByAttestation("device-b");
+    expect(device?.id).toBe(DEVICE_B);
+    await expect(lookupPool.query("SELECT status FROM tenants LIMIT 1")).rejects.toThrow(
+      /permission denied/i,
+    );
+
+    const visibleToTenantA = await runWithTenantContext(
+      app,
+      { tenantId: TENANT_A, isPlatformAdmin: false },
+      (client) => client.query<{ id: string }>("SELECT id FROM devices ORDER BY id"),
+    );
+    expect(visibleToTenantA.rows.map((row) => row.id)).toEqual([DEVICE_A]);
+
+    await expect(lookupPool.query("SELECT * FROM sales LIMIT 1")).rejects.toThrow(
+      /permission denied/i,
+    );
+  });
+
+  it("lists only the caller's tenants and admits an authorized stuck-shifts lookup", async () => {
+    if (dockerSkipped) return;
+    const { app } = env!;
+    const tenants = new TenantsService(
+      app,
+      new TenantsRepository(),
+      new MembershipRepository(app),
+    );
+    const principal = { kind: "session" as const, sessionId: USER_A, userId: USER_A };
+
+    expect((await tenants.list(principal)).map((row) => row.id)).toEqual([TENANT_A]);
+    await expect(tenants.read(principal, TENANT_B)).rejects.toMatchObject({ status: 404 });
+
+    const shifts = new PosShiftsService(
+      app,
+      { verify: async () => ({ sub: "pool-clerk-user" }) },
+      { warn: () => undefined } as unknown as Logger,
+    );
+    await expect(shifts.getStuck("verified-jwt", STORE_A, null)).resolves.toEqual({
+      kind: "ok",
+      body: { kind: "ok", shifts: [] },
+    });
+    await expect(shifts.getStuck("verified-jwt", STORE_B, null)).resolves.toEqual({
+      kind: "refused",
+    });
+  });
+});

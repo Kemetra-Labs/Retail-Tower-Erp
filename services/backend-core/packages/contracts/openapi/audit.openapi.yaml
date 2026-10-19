@@ -1,0 +1,179 @@
+openapi: 3.1.0
+info:
+  title: Data-Pulse-2 Audit API
+  version: "1.2.0-draft"
+  description: >
+    Read-only access to audit events for the active tenant.
+    Tenant-admin or platform-admin scope. Per spec FR-AUDIT-1/2/3.
+
+
+    **1.2.0-draft (RT-620, additive).** Every cookieAuth operation may
+    return 429 `rate_limited` (`TooManyRequests`, with `Retry-After`)
+    from the console rate limit (RT-574, RT-619). No other wire change.
+servers:
+  - url: https://api.example.com
+paths:
+  /api/v1/audit/events:
+    get:
+      summary: Query audit events for the active tenant.
+      operationId: listAuditEvents
+      description: >
+        Items are ordered newest first: `occurred_at` descending, then `id`
+        descending as the tie-breaker. `next_cursor` continues that order and is
+        stable under concurrent inserts. A cursor is valid only with the same
+        filters (including `kind`) it was issued under.
+      parameters:
+        - in: query
+          name: action
+          schema:
+            type: string
+            minLength: 1
+          description: >
+            Filter by a literal action-code prefix (e.g. `auth.`). `%`, `_` and
+            `\` are matched literally, not as patterns.
+        - in: query
+          name: kind
+          schema:
+            type: string
+            enum: [read, change]
+          description: >
+            Return only events of this action kind. `change` excludes read-only
+            actions (list/read/pull requests that changed no state); `read` returns
+            only those. Omitted: all events, as before. Read-only actions are still
+            recorded; this filter changes what the list returns, not what is audited.
+            Combines with every other filter (AND). An unknown value is a 400
+            `validation_error`.
+        - in: query
+          name: actor_user_id
+          schema: { type: string, format: uuid }
+        - in: query
+          name: store_id
+          schema: { type: string, format: uuid }
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+        - in: query
+          name: cursor
+          schema: { type: string, minLength: 1 }
+          description: >
+            Opaque pagination cursor from a prior page's `next_cursor`. Do not
+            construct or decode it; a malformed value is a 400 `validation_error`.
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuditEvent"
+                  next_cursor:
+                    type: string
+                    nullable: true
+        "400":
+          description: >
+            `validation_error`: a query parameter is invalid (for example an
+            unknown `kind`, a malformed `cursor`, an out-of-range `limit`, a
+            non-UUID id, or a malformed date-time).
+        "401":
+          description: No active tenant.
+        "403":
+          description: Insufficient role.
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+components:
+  schemas:
+    AuditEvent:
+      type: object
+      required: [kind]
+      properties:
+        id: { type: string, format: uuid }
+        occurred_at: { type: string, format: date-time }
+        actor_user_id: { type: string, format: uuid, nullable: true }
+        actor_label: { type: string, nullable: true }
+        tenant_id: { type: string, format: uuid }
+        store_id: { type: string, format: uuid, nullable: true }
+        action: { type: string }
+        kind:
+          type: string
+          description: >
+            Action kind derived by the server from `action` (not stored). Known
+            values: `read`, `change`. More values may be added; treat an unknown
+            value as `change`. An action the server has not classified is `change`.
+        target_type: { type: string, nullable: true }
+        target_id: { type: string, format: uuid, nullable: true }
+        request_id: { type: string, format: uuid, nullable: true }
+        metadata:
+          type: object
+          additionalProperties: true
+    Error:
+      description: The canonical error envelope (code, message, request_id).
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            request_id:
+              type: string
+              format: uuid
+  headers:
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5). Its own bound, 1 to 3600; it is not the POS
+        `RetryAfter` header.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+  responses:
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this
+        class of operation is spent. The body is the canonical error
+        envelope with a non-disclosing message (no budget, class or window);
+        its `request_id` equals the `X-Request-Id` response header. Honour
+        `Retry-After`; never auto-retry a mutation. A 429 is not a 401: it
+        never means the session ended. The console limit is
+        server-configured and may not be enforced, so a client must handle a
+        429 but must not expect one.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body: the
+            inbound `X-Request-Id` when it is a well-formed UUID, otherwise a
+            server-minted one.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+security:
+  - cookieAuth: []

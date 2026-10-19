@@ -1,0 +1,694 @@
+# 009-inventory-stock-ledger — Execution Map (Agent OS v1)
+#
+# Authoritative state of the 009 spec for Maestro dispatch. Mirrors the task
+# plan in tasks.md but adds: slice status, agent assignments, allowed files,
+# validation contracts, parallel-safety semantics, and the GATED-first
+# serialization edges.
+#
+# 009 is a CODE feature (NestJS api + worker). It introduces the Inventory
+# source-of-truth domain: an append-only `stock_movements` ledger + a derived
+# (compute-on-read) on-hand balance, and builds ALONGSIDE the shipped 001/005/
+# 008 seams — reusing the Idempotency-Key interceptor, sourceSystem+externalId
+# dedup, tenant-context/RLS helpers, the audit insert, and the outbox/worker
+# (tasks.md §0, plan §4). It does NOT re-invent ingestion.
+#
+# CRITICAL DECOUPLING: v1 does NOT subscribe to `sale.captured`. The 008 live
+# capture->process loop is gated (processed_at stays NULL). The sale-linked
+# backfill reads the CAPTURED (immutable) 008 sales/sale_lines rows directly,
+# never processed_at-stamped ones. Automatic decrement + automatic restock-on-
+# void are MODELED but DEFERRED to a future "008-live-loop / 009-sale-consumer"
+# slice — addable without redesigning the ledger (tasks.md §0, plan §4.3, R8).
+#
+# TWO slices are `[GATED]` (Constitution §IV/§VIII, Standing Rules §3):
+#   - 009-CONTRACT  → new OpenAPI inventory contract under
+#                     packages/contracts/openapi/inventory/**
+#   - 009-SCHEMA    → new Drizzle schema + 0014_inventory SQL migration under
+#                     packages/db/** (paired *.down.sql, lock-duration review)
+# Both carry `approval_required: true` and are the hard serialization points:
+# no implementing GREEN slice dispatches until both are merged.
+#
+# ONE slice is `[SIGN-OFF]` (009-SIGNOFF-QTY-LIB / T001): confirm the string-
+# backed exact-decimal quantity value object adds NO package.json dependency
+# (R3, mirrors 008 gate A.6). If a big-decimal library becomes necessary, that
+# is a SEPARATE [GATED] package.json decision — stop and request approval.
+#
+# ONE new observability signal: the negative-balance signal (flag + a new
+# OpenTelemetry meter.createCounter in api.metrics.ts, exported via the
+# Prometheus exporter) — NOT in the constitution §VII named list, consciously
+# introduced (plan §3.3, T045). Labels follow the existing api.metrics.ts
+# allowlist (closed, low-cardinality, PII-free — NOT tenant/store).
+# Registered with the negative-balance-handling slice.
+#
+# Schema reference: docs/agent-os/slice-schema.yaml
+# Wave summary:     specs/009-inventory-stock-ledger/wave-status.md
+# Brief source:     specs/009-inventory-stock-ledger/tasks.md
+#                   (each slice's full RED/GREEN brief, Predecessors, and
+#                   Acceptance live in tasks.md; this file provides the
+#                   dispatch-time schema fields only.)
+#
+# Slicing convention (005/007/008-style, NOT 006-style 1:1): each capability
+# slice folds its RED test task(s) + GREEN implementation task(s) into one
+# dispatchable unit, because a worker writes the failing test and makes it
+# pass within one worktree. `task_ids` is therefore list-valued. Every
+# tasks.md ID T001..T104 (45 distinct, incl. T063b) is assigned to exactly one slice's
+# `task_ids` — verified at authoring time.
+#
+# Status: 009 CLOSED — 15/15 slices merged 2026-06-03 (PRs #437–#444, #451,
+#   #454/#455/#456/#458/#459/#461/#464). Full append-only stock ledger live on
+#   main: compute-on-read on-hand (US1), manual movements (US2), manual
+#   idempotency (US3), sale-linked outbound + off-request backfill (US4),
+#   transfers (US5), counts + append-only corrections (US6), negative-balance
+#   allow-and-flag counter (SIGNAL), void/refund→restock inbound (RESTOCK),
+#   §XIV data-class guard (LIFECYCLE), closeout (POLISH). The 009-CI-OPT infra
+#   slice made hosted CI reliable. TWO [GATED] packages/db deferrals carried OUT
+#   to a future gated slice — durable tracker: issue #465 — (1) established-unit
+#   concurrency guard (a real FR-022 gap under concurrent first-movements);
+#   (2) movement outbox emit (INVENTORY_MOVEMENT_* in OUTBOX_EVENT_TYPES).
+#
+#   DEFERRED (modeled, not v1 — see spec FR-060/FR-025/FR-040..042):
+#     1. Automatic sale-event decrement — future 008-live-loop / 009-sale-
+#        consumer slice (depends on producer binding + sale.captured outbox
+#        event type + SaleWorker.start()). NOT in 009 v1.
+#     2. Automatic restock-on-void — deferred with #1; v1 ships only the
+#        manual/backfill restock (T090/T091).
+#     3. Pharmacy lot/batch/serial/expiry/FEFO — designed-for seam, gated
+#        future decision (FR-040..042); v1 implements none of it.
+#
+# Created: 2026-05-31 — /speckit-tasks output; planning-only, authorizes no implementation.
+
+version: 1
+spec: 009-inventory-stock-ledger
+
+# ============================================================================
+# slices
+# ============================================================================
+
+slices:
+
+  # ===== Phase 1: Setup =======================================================
+
+  - id: 009-SIGNOFF-QTY-LIB
+    task_ids: [T001]
+    type: docs
+    # T001 is a [SIGN-OFF] gate (R3): quantity = string-backed exact-decimal
+    # value object, NO package.json dependency (mirrors 008 gate A.6). The
+    # verdict is RECORDED in wave-status.md. A future big-decimal lib remains a
+    # SEPARATE [GATED] decision.
+    status: merged
+    merged_at_commit: 581708a   # [SIGN-OFF] recorded in wave-status.md with the planning PR #437
+    approval_required: false   # decision gate, not a code gate
+    depends_on: []
+    blocks:
+      - 009-SETUP
+      - 009-SCHEMA             # quantity columns realize the no-dependency value-object decision
+    agent: opus-maestro
+    allowed_files:
+      - specs/009-inventory-stock-ledger/wave-status.md
+    validation:
+      - command: 'grep -nE "T001|quantity value object|no .*dependency" specs/009-inventory-stock-ledger/wave-status.md'
+        expected: One+ match — the no-package.json-dependency quantity decision is recorded under SIGN-OFF Decisions.
+        docker_required: false
+    stop:
+      - standing-rules universal stops
+      - "stop and request a SEPARATE [GATED] package.json approval if any slice proposes adding a big-decimal library (big.js / decimal.js) — R3 chose a string-backed value object"
+    parallel_safety: safe
+
+  - id: 009-SETUP
+    task_ids: [T002]
+    type: chore
+    status: merged
+    merged_at_commit: 9f18621   # PR #438
+    approval_required: false
+    depends_on: [009-SIGNOFF-QTY-LIB]
+    blocks:
+      - 009-CONTRACT
+      - 009-SCHEMA
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/inventory/inventory.module.ts
+      - apps/api/src/app.module.ts   # InventoryModule MUST be added to the imports array (line ~208), mirroring SalesModule registration — confirmed registration point
+    validation:
+      - command: pnpm --filter @data-pulse-2/api build
+        expected: GREEN — the new empty inventory module compiles and is registered in app.module.ts imports (mirroring SalesModule at app.module.ts:208); no routes yet.
+        docker_required: false
+    stop:
+      - standing-rules universal stops
+      - "stop if the 009 branch is not off latest origin/main — rebase first"
+      - "stop if the catalog sales/reconciliation/unknown-items modules do not compile — that is a regression, not a 009 task"
+    parallel_safety: safe   # single new module file, no overlap
+
+  # ===== Phase 2: Foundational (blocking prerequisites) =======================
+
+  # ----- 2.1 GATED OpenAPI contract (hard serialization point) ---------------
+
+  - id: 009-CONTRACT
+    task_ids: [T010, T011]
+    type: feat
+    status: merged
+    merged_at_commit: 1aee57f   # PR #439
+    approval_required: true   # [GATED] — packages/contracts/openapi/** (Constitution §IV/§VIII) — APPROVED in-session + merged
+    depends_on: [009-SETUP]
+    blocks:   # direct-dependency entries; CONTRACT transitively blocks ALL implementing slices (US3/US4/SIGNAL/RESTOCK reach it via US1→US2)
+      - 009-US1-ONHAND
+      - 009-US2-MANUAL
+      - 009-US5-TRANSFER
+      - 009-US6-COUNT
+    agent: sonnet-api
+    allowed_files:
+      - packages/contracts/openapi/inventory/inventory.yaml
+      - apps/api/test/inventory/contract/inventory.contract.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test -- inventory/contract contract-conformance
+        expected: GREEN — inventory.contract.spec (createStockMovement/getOnHand/listStockMovements/createStockTransfer/recordStockCount present + unique vs shipped, cookieAuth on operator ops, backfill on the admin path, Idempotency-Key on writes, Error envelope, on-hand projection carries negative_balance flag, strict schemas, no PII/payment field names) + umbrella conformance (no operationId collision).
+        docker_required: false
+    stop:
+      - standing-rules universal stops
+      - "stop — this is a [GATED] forbidden-path slice; do NOT touch packages/contracts/openapi/** until the user approves THIS slice in-session"
+      - "stop if any operationId collides with or renames a shipped 005/007/008 operationId (renames are breaking)"
+      - "stop if any operation is modeled as a /api/pos/v1/ device-token route — 009 v1 is a cookieAuth operator surface (plan §4.2)"
+    parallel_safety: serialize   # the gated contract is a hard ordering point; nothing implementing dispatches before it merges
+
+  # ----- 2.2 GATED schema + migration (hard serialization point) -------------
+
+  - id: 009-SCHEMA
+    task_ids: [T012, T013]
+    type: feat
+    status: merged
+    merged_at_commit: 4d5f1e7   # PR #440
+    approval_required: true   # [GATED] — packages/db/** schema + SQL migration (Constitution §VIII) — APPROVED in-session + merged
+    depends_on: [009-SETUP, 009-SIGNOFF-QTY-LIB]
+    blocks:
+      - 009-ISOLATION-HARNESS
+      - 009-US1-ONHAND
+      - 009-LIFECYCLE
+    agent: sonnet-db
+    allowed_files:
+      - packages/db/src/schema/inventory/stock-movements.ts
+      - packages/db/src/schema/index.ts   # barrel re-export of the new schema (mirrors the 008 sales export) — required for @data-pulse-2/db/schema to resolve the shape test import; F-01-class allowed_files addition
+      - packages/db/drizzle/0014_inventory.sql
+      - packages/db/drizzle/0014_inventory.down.sql
+      - apps/api/test/inventory/schema/stock-movements-schema-shape.spec.ts
+      - packages/db/__tests__/migration/0014-inventory.spec.ts   # Testcontainers migration round-trip (mirrors 008 0012-sales.spec.ts) — the file that realizes the "applies + rolls back clean" validation; Docker-gated, CI-run
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test -- inventory/schema
+        expected: GREEN — schema-shape 1:1 with data-model.md (movement_type CHECK-constrained text, quantity numeric(19,4) SIGNED, stocking_unit, nullable tenant_product_ref + provenance refs, transfer_group_id, stock_count_id, occurred_at/received_at NOT NULL, EXACTLY ONE movement-level dedup index = backfill partial-unique (tenant_id, source_system, external_id), NO manual idempotency_key unique index, NO version column, NO batch/expiry/serial column on base movement; stock_counts fields). The Docker-gated round-trip (packages/db/__tests__/migration/0014-inventory.spec.ts) asserts migration applies + rolls back clean under Testcontainers — CI-RUN (local Docker unavailable ⇒ MIGRATION_TEST_ALLOW_SKIP=1 skips it locally); lock-duration reviewed.
+        docker_required: true
+    stop:
+      - standing-rules universal stops
+      - "stop — this is a [GATED] forbidden-path slice; do NOT touch packages/db/** schema or migrations until the user approves THIS slice in-session"
+      - "stop if the migration number is not 0014 — confirm highest on main is 0013_store_timezone first"
+      - "stop if a version column, or any batch/expiry/serial column, is added to the base stock_movements table — R7 (append-only, no version) + FR-041 (lot/serial is a future nullable FK only)"
+    parallel_safety: serialize   # the gated migration is a hard ordering point
+
+  # ----- 2.3 Isolation-harness extension (blocking — serves all stories) -----
+
+  - id: 009-ISOLATION-HARNESS
+    task_ids: [T014, T015]
+    type: test
+    status: merged
+    merged_at_commit: c863216   # PR #442
+    approval_required: false
+    depends_on: [009-SCHEMA]
+    blocks:
+      - 009-US1-ONHAND
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/test/inventory/__support__/seed-inventory.ts
+      - apps/api/test/inventory/isolation/inventory-sweep.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test -- inventory/isolation
+        expected: RED — sweep cases fail on missing operations (NOT on RLS); RLS-bypass probe scaffolded for stock_movements + stock_counts; existing isolation tests untouched.
+        docker_required: true
+    stop:
+      - standing-rules universal stops
+      - "stop if seed-inventory.ts modifies the 003/008-owned isolation harness — add a sibling, do not edit shared support"
+    parallel_safety: safe
+
+  # ===== Phase 3: US1 — Explain on-hand (P1) 🎯 MVP ===========================
+
+  - id: 009-US1-ONHAND
+    task_ids: [T030, T031, T032, T033, T034]
+    type: feat
+    status: merged
+    merged_at_commit: 4449f13   # PR #443
+    approval_required: false
+    depends_on: [009-CONTRACT, 009-SCHEMA, 009-ISOLATION-HARNESS]
+    blocks:
+      - 009-US2-MANUAL
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/inventory/inventory.service.ts
+      - apps/api/src/inventory/inventory.controller.ts
+      - apps/api/src/inventory/inventory.module.ts   # register the new controller + service in the (currently empty) InventoryModule
+      - apps/api/test/inventory/on-hand/*.spec.ts
+      - apps/api/test/inventory/isolation/inventory-sweep.spec.ts   # T034: updates the sweep's GROUP B note — read-path object-safety is now covered Docker-FREE in on-hand/read-object-safety.spec.ts; GROUP B retains only the write-path (FR-052) deferral for US2. F-01-class allowed_files addition.
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test -- inventory/on-hand inventory/isolation
+        expected: >
+          GREEN — on-hand = compute-on-read SUM (FR-003/SC-001), empty key
+          deterministic "0" (FR-005), store isolation, stable-order movement
+          list summing to on-hand (FR-004). Object-safety (read paths): a
+          store-scoped principal requesting a different store → 404
+          (non-disclosing, FR-051); a cross-TENANT on-hand read → 200/"0" and
+          list → 200/empty (non-disclosure via EMPTINESS, NOT 404 — a 404 would
+          contradict FR-005; tenant resolves from context, never the path);
+          unauthenticated → 401; RLS-bypass probe (wrong GUC) → zero rows
+          (SC-006). NOTE: the read object-safety is proven Docker-FREE in
+          on-hand/read-object-safety.spec.ts; the SUM/isolation/seeded-RLS proof
+          is Docker-gated (CI db-integration only).
+        docker_required: true
+    stop:
+      - standing-rules universal stops
+      - "stop if on-hand is implemented as a stored mutable balance — v1 is compute-on-read SUM (R1/plan §10); a materialized balance is a separate future perf decision"
+    parallel_safety: safe   # new inventory module files only
+
+  # ===== Phase 4: US2 — Manual movements (P1) =================================
+
+  - id: 009-US2-MANUAL
+    task_ids: [T040, T041, T042, T043, T044]
+    type: feat
+    status: merged
+    merged_at_commit: 8d3e6d9   # PR #444 (incl. CodeRabbit: numeric(19,4) quantity bound + precise rejection assertions; outbox emit + established-unit concurrency guard deferred [GATED] to closeout)
+    approval_required: false
+    depends_on: [009-US1-ONHAND]
+    blocks:
+      - 009-US3-IDEMPOTENCY
+      - 009-US4-SALELINKED
+      - 009-US5-TRANSFER
+      - 009-US6-COUNT
+      - 009-SIGNAL-NEGBAL
+      - 009-LIFECYCLE
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/inventory/inventory.service.ts
+      - apps/api/src/inventory/inventory.controller.ts
+      - apps/api/test/inventory/movements/*.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test -- inventory/movements
+        expected: GREEN — inbound/outbound/adjustment appended + audited (FR-010..013); write-off = reason-coded outbound (FR-002); append-only (no UPDATE/DELETE, FR-001); cross-unit rejected 400 (FR-022); mass-assignment forbidden (FR-052); ad-hoc nullable product, no auto-create (FR-023).
+        docker_required: true
+    stop:
+      - standing-rules universal stops
+      - "stop if any movement path mutates the 008 sale fact or auto-creates a tenant_products row — both forbidden (FR-023/§IX)"
+      - "stop if negative stock is rejected anywhere — v1 is allow-and-flag (FR-024)"
+    parallel_safety: safe
+
+  # ===== Phase 5: US3 — Idempotency (P1) ======================================
+
+  - id: 009-US3-IDEMPOTENCY
+    task_ids: [T050, T051, T053]   # F-03: T052 (provenance dedup) MOVED to 009-US4-SALELINKED — see note below
+    type: feat
+    status: merged
+    merged_at_commit: 1ef6e07   # PR #451 — db-integration + fast + CodeRabbit all GREEN
+    approval_required: false
+    depends_on: [009-US2-MANUAL]
+    blocks: []
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/inventory/inventory.controller.ts   # F-02: add @Idempotent("required") to the createStockMovement POST route — manual idempotency is HTTP-layer (the interceptor runs on the request), mirroring sales.controller.ts. NOT a new primitive.
+      - apps/api/src/inventory/inventory.module.ts        # F-02: import IdempotencyModule so the global interceptor's @Idempotent metadata is honored on the inventory write route (mirrors sales.module.ts imports). Currently imports AuthModule+ContextModule only.
+      - apps/api/test/inventory/idempotency/*.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test -- inventory/idempotency
+        expected: GREEN — manual replay (same Idempotency-Key) one movement + on-hand applied once (FR-030, SC-003); divergent body under same key → 409, no side-effect (FR-030). (Backfill provenance dedup is US4/T052 — the createStockMovement manual path is provenance-free + .strict().)
+        docker_required: true
+    stop:
+      - standing-rules universal stops
+      - "stop if a new idempotency primitive is introduced — reuse the 001/005 Idempotency-Key interceptor unchanged (FR-030). US3 is MANUAL idempotency only: NO new service logic — just wire @Idempotent('required') + IdempotencyModule (the interceptor does the replay/409). No inventory.service.ts change (dropped from allowed_files)."
+      - "manual-idempotency specs (T050/T051) MUST exercise the HTTP layer (the interceptor runs on the request) — use the app+supertest __movement-harness, NOT a direct `new InventoryService()` service-layer call"
+    parallel_safety: safe
+    # F-03 (2026-06-01): T052 (provenance/backfill dedup) reconciled OUT of US3 into US4.
+    # Rationale: (1) the (tenant_id,source_system,external_id) partial-unique already
+    # exists in 0014 — a raw-constraint probe is GREEN-on-arrival, violating T052's RED
+    # requirement; (2) US4/T064 already explicitly owns the provenance WRITE+dedup path
+    # ("on the createStockMovement route, dedups on (sourceSystem,externalId)"); (3)
+    # createStockMovement is .strict() and provenance-free today — provenance fields are
+    # a US4 surface addition. So US3 is purely MANUAL idempotency (Idempotency-Key
+    # replay + divergent-body 409, both pure interceptor wiring); inventory.service.ts
+    # dropped from US3 allowed_files (no service change needed). T052 + its backfill
+    # dedup land with US4's write path. Owner-approved in-session.
+    # F-02 (2026-06-01): allowed_files expanded to include inventory.controller.ts + inventory.module.ts. createStockMovement is a @Post route but was never wired to the idempotency interceptor (US2 was audit-only); manual idempotency requires that controller+module wiring (the 008 sales pattern). Owner-approved in-session.
+
+  # ===== Phase 6: US4 — Sale-linked / backfill (P2) — DECOUPLED ===============
+
+  - id: 009-US4-SALELINKED
+    task_ids: [T052, T060, T061, T062, T063, T063b, T064]   # F-03: T052 (provenance dedup) moved here from US3 — it belongs with the provenance write path this slice owns (T064)
+    type: feat
+    # F-06 (FR-022 worker mirror gap) found by adversarial review + fixed
+    # (bfe71b6) — see note below. api sale-linked 6/6 + worker backfill 8/8.
+    status: merged
+    merged_at_commit: 51b2e80   # PR #454 (squash) — db-integration + fast + CodeRabbit green
+    approval_required: false
+    depends_on: [009-US2-MANUAL]
+    blocks:
+      - 009-RESTOCK
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/inventory/inventory.service.ts
+      - apps/worker/src/inventory/backfill.processor.ts
+      - apps/api/test/inventory/sale-linked/*.spec.ts
+      - apps/worker/test/inventory/*.spec.ts   # F-05: T063b + T064 are worker-source specs (backfill.processor.ts) — they belong in the worker jest project (Testcontainers + WORKER_INCLUDE_DB_TESTS=1), NOT the api harness. The api validation command does not match them. Outside the original allowed_files; owner-approved expansion.
+      - apps/worker/jest.config.cjs   # F-04: new Docker-backed worker spec(s) for the backfill processor must be registered in `dockerOutboxSuites` or the fast CI job (no Docker) goes RED (project_008_worker_ci_jest_exclusion). Outside the original allowed_files; owner-approved expansion.
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test -- inventory/sale-linked
+        expected: GREEN — sale-linked outbound carries provenance + decrements on-hand (FR-032); DECOUPLING — all flows pass with the 008 live loop UNWIRED, backfill reads CAPTURED rows not processed_at-stamped (SC-002/R8); backfill re-run idempotent (FR-033); ad-hoc NULL-product no auto-create rolls up to no product on-hand (FR-023/R5). Covers the SERVICE-LAYER specs T052/T061/T062/T063 (inventory.service.ts is in the api package).
+        docker_required: true
+      - command: WORKER_INCLUDE_DB_TESTS=1 pnpm --filter @data-pulse-2/worker test -- inventory
+        expected: GREEN — backfill.processor.ts establishes tenant context (SET LOCAL app.current_tenant) BEFORE any DB access (§V), reads CAPTURED 008 rows (processed_at IS NULL, R8), never mutates the sale fact, never auto-creates a product; T063b RLS-bypass probe confirms cross-tenant isolation. New spec(s) registered in dockerOutboxSuites so the no-Docker fast job excludes them (F-04/project_008_worker_ci_jest_exclusion).
+        docker_required: true
+    stop:
+      - standing-rules universal stops
+      - "stop if any flow subscribes to sale.captured or reads processed_at — v1 is decoupled; the backfill reads CAPTURED sale rows (FR-032/060, R8). Auto-decrement is the deferred follow-up."
+      - "stop if the backfill mutates the 008 sale fact — read-only provenance only"
+    parallel_safety: serialize   # touches inventory.service.ts shared with US5/US6 — serialize in same repo (parallel-agent worktree contention)
+    # F-04 (2026-06-01): US4 reshaped after RED-baseline probing (WSL Docker).
+    # T060 (API sale-linked outbound REFERENCE) is GREEN-on-arrival — US2's
+    # createStockMovement already accepts saleId/saleLineId, decrements on-hand,
+    # and surfaces the ref on the list (verified: outbound-reference.spec passes
+    # unchanged). So US4's genuine NEW work is the off-request WORKER backfill:
+    #   - service-layer entry accepting sourceSystem/externalId (worker-internal;
+    #     the HTTP DTO stays .strict() + provenance-free) — inventory.service.ts;
+    #   - T052 provenance dedup: catch the (tenant_id,source_system,external_id)
+    #     partial-unique, return the existing movement, do NOT re-apply on-hand;
+    #   - backfill.processor.ts (T064): reads CAPTURED 008 sales/sale_lines,
+    #     establishes tenant context (SET LOCAL app.current_tenant) BEFORE any DB
+    #     access (§V), carries tenantId/storeId/correlationId, dedups, never
+    #     mutates the sale fact, never auto-creates a product, redacts payloads.
+    #   - specs T061 (decoupling) / T062 (backfill idempotent) / T063 (ad-hoc
+    #     null-product) / T063b (worker tenant-context + RLS-bypass probe).
+    # allowed_files expanded to include apps/worker/jest.config.cjs (F-04 above).
+    # F-05 (2026-06-03): OPEN question from F-04 RESOLVED. The discriminating
+    # constraint is the validation command's jest project, not the source under
+    # test. `pnpm --filter @data-pulse-2/api test -- inventory/sale-linked`
+    # matches ONLY apps/api/test/inventory/sale-linked/*.spec.ts. So:
+    #   - T052/T061/T062/T063 test inventory.service.ts (an API-package module) —
+    #     they STAY in the api harness, matched by the api command, already in
+    #     allowed_files. T052 is the true RED (US2 DTO is .strict()+provenance-
+    #     free; no worker-internal dedup entry exists yet) — author it first; it
+    #     needs no scope expansion.
+    #   - T063b + T064 are worker-source (backfill.processor.ts) — they need the
+    #     worker jest project (Testcontainers + WORKER_INCLUDE_DB_TESTS=1) and a
+    #     home under apps/worker/test/inventory/**. Two gaps surfaced + closed:
+    #     (1) apps/worker/test/inventory/*.spec.ts added to allowed_files (was
+    #     absent — only the api glob existed); (2) the worker validation command
+    #     added to the validation block (one api command could not validate the
+    #     slice's "genuine new work"). Register the new worker spec(s) in
+    #     dockerOutboxSuites. R8 boundary confirmed: the backfill row predicate is
+    #     `processed_at IS NULL` (the decoupling filter), NOT a processed_at read/
+    #     wait or a sale.captured subscription — stays on the right side of the
+    #     stop. Advisor-reviewed + owner-approved expansion in-session.
+    # F-06 (2026-06-03): FR-022 MIRROR GAP found by adversarial review + fixed
+    # (commit bfe71b6). InventoryService.backfillSaleLinkedOutbound enforced the
+    # established-unit check; the worker InventoryBackfillProcessor — the
+    # production path — had OMITTED it, silently inserting a cross-unit movement.
+    # All fixtures used 'ea', so the green suite could not see the divergence.
+    # FR-022 is unconditional (MUST reject; no backfill carve-out; no allow-and-
+    # flag escape, unlike FR-024 negative balance), so the api path was right and
+    # the worker was wrong. Added InventoryBackfillCrossUnitError + the per-line
+    # established-unit check + a mixed-unit rejection test (kg vs established ea →
+    # reject, no partial side-effect). LESSON: the same author wrote both the
+    # mirrored write and its tests; a "keep in sync" comment is not a guarantee —
+    # a divergence-proving test (different units, not the happy-path unit) is.
+    # Worker 8/8 green; full api inventory regression 84 pass / 1 skip.
+
+  # ===== Phase 7: US5 — Transfers (P2) ========================================
+
+  - id: 009-US5-TRANSFER
+    task_ids: [T070, T071, T072, T073]
+    type: feat
+    # transfer 6/6 + full api inventory regression 90 pass (1 skip), via WSL Docker.
+    # A transient CI flake (inbound-outbound-adjust container reaped mid-connection)
+    # did NOT reproduce on re-run nor full-concurrency local run — see F-09 below.
+    status: merged
+    merged_at_commit: 08be518   # PR #455 (squash) — db-integration green on re-run
+    approval_required: false
+    depends_on: [009-US2-MANUAL]
+    blocks: []
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/inventory/inventory.service.ts
+      - apps/api/src/inventory/inventory.controller.ts
+      - apps/api/test/inventory/transfer/*.spec.ts
+      - apps/api/test/inventory/transfer/__transfer-harness.ts   # F-07: the __-prefixed cross-store harness (source A.X / same-tenant dest A.Y / cross-tenant B.X for the FR-051 404 probe) is a support file, not a *.spec.ts — same allowed_files gap the sale-linked slice hit (F-05). Owner-approved expansion.
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test -- inventory/transfer
+        expected: GREEN — linked transfer_out/transfer_in sharing transfer_group_id, mutually discoverable (FR-020/SC-004); cross-tenant destination safe-404 (FR-051); negative source allow-and-flag (FR-024); same-store/zero-qty 400.
+        docker_required: true
+    stop:
+      - standing-rules universal stops
+      - "stop if a transfer is modeled as a mutable transfer object instead of linked append-only movements (FR-020)"
+    parallel_safety: serialize   # shares inventory.service.ts with US4/US6
+
+  # ===== Phase 8: US6 — Stock count (P2) ======================================
+
+  - id: 009-US6-COUNT
+    task_ids: [T080, T081, T082, T083]
+    type: feat
+    # count 4/4 + full api inventory regression 94 pass (1 skip), via WSL Docker.
+    # Stacked on US5; rebased --onto main after US5's squash-merge (the squash
+    # orphaned the stacked base → CONFLICTING → rebase dropped US5's commits,
+    # leaving a clean count-only diff). F-08 below.
+    status: merged
+    merged_at_commit: 2f49f08   # PR #456 (squash) — re-targeted to main + rebased after US5 squash
+    approval_required: false
+    depends_on: [009-US2-MANUAL]
+    blocks: []
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/inventory/inventory.service.ts
+      - apps/api/src/inventory/inventory.controller.ts
+      - apps/api/test/inventory/count/*.spec.ts
+      - apps/api/test/inventory/count/__count-harness.ts   # F-08: support harness (not a *.spec.ts) — same allowed_files gap as F-05/F-07. Owner-approved expansion.
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test -- inventory/count
+        expected: GREEN — count variance => count_correction movement = signed variance linked via stock_count_id; on-hand == counted; no history rewrite (FR-021/SC-005); zero-variance deterministic; correction traceable.
+        docker_required: true
+    stop:
+      - standing-rules universal stops
+      - "stop if a count rewrites or deletes any historical movement — variance is an append-only correction movement (FR-021)"
+    parallel_safety: serialize   # shares inventory.service.ts with US4/US5
+
+  # ===== Phase 9: cross-cutting (signal / restock / lifecycle) ================
+
+  - id: 009-SIGNAL-NEGBAL
+    task_ids: [T045]
+    type: feat
+    # signal 2/2 + observability 13 suites/291 + shared metrics-labels 40/40.
+    # F-09 (allowed_files expansion for the packages/shared allowlist +
+    # cardinality drift catalogue) — owner-approved; see note below. Unlabeled
+    # counter (movement-key is PII-adjacent).
+    status: merged
+    merged_at_commit: 69bde9e   # PR #458 (squash) — db-integration + fast + CodeRabbit green
+    approval_required: false
+    depends_on: [009-US1-ONHAND, 009-US2-MANUAL]   # US1 explicit: the negative_balance flag lives on the on-hand projection (getOnHand), so the read path must exist; US2 supplies the outbound that drives it negative
+    blocks: []
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/inventory/inventory.service.ts
+      - apps/api/src/observability/metrics/api.metrics.ts   # CONFIRMED path (holds api.metrics.ts + db.metrics.ts) — add a NEW meter.createCounter here (no such counter exists yet); follow the existing registrar + assertMetricLabels pattern
+      - apps/api/test/inventory/signal/negative-balance.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test -- inventory/signal
+        expected: GREEN — on-hand projection carries negative_balance flag AND a NEW OpenTelemetry meter.createCounter (labels = closed low-cardinality PII-free set per the assertMetricLabels allowlist, NOT tenant/store) increments on outbound-below-zero; never an error (FR-024/R2, plan §3.3).
+        docker_required: true
+    stop:
+      - standing-rules universal stops
+      - "stop if the negative-balance signal is named to collide with an existing §VII signal — it is a NEW category, register it cleanly (plan §3.3)"
+      - "metrics module path is apps/api/src/observability/metrics/api.metrics.ts (CONFIRMED at review) — add a NEW meter.createCounter (no such counter exists yet) following the existing registrar + assertMetricLabels pattern"
+      - "stop if the counter is given a tenant_id/store_id label — the assertMetricLabels allowlist forbids unregistered labels and per-tenant labels are high-cardinality + PII-adjacent; use a closed low-cardinality reason-style label (precedent: tenant_context_failure_total labels by reason)"
+    parallel_safety: serialize   # touches inventory.service.ts + shared metrics module
+    # F-09 (2026-06-03): allowed_files expanded (owner-approved) for two files the
+    # slice's declared globs omitted but the counter genuinely requires:
+    #   - packages/shared/src/observability/metrics-labels.ts — the counter name
+    #     MUST be in ALLOWED_METRIC_LABELS or assertMetricLabels throws
+    #     unknown_metric at module load. packages/shared is NOT a forbidden path
+    #     (only package.json/lockfile/migrations/openapi/.github are); it was just
+    #     outside the slice's allowed_files. Registered unlabeled ([]).
+    #   - apps/api/test/observability/cardinality.spec.ts — the drift-contract
+    #     catalogue asserts Object.keys(ALLOWED_METRIC_LABELS) EXACTLY equals the
+    #     expected list, so a new allowlist entry must be added here too or the
+    #     drift test reds. Added INVENTORY_METRIC_NAMES registry in api.metrics.ts
+    #     (sibling of API_/CATALOG_/DB_, keeping the locked API_METRIC_NAMES count).
+    # DESIGN: counter is UNLABELED (movement-key is high-cardinality/PII-adjacent;
+    # tenant_id/store_id are hard-forbidden), matching the catalog domain-keyed
+    # precedent. Emission via flagIfNegativeOnHand inside the write tx, signal-only
+    # (try/catch swallow — never blocks/rolls back the movement, FR-024).
+
+  - id: 009-RESTOCK
+    task_ids: [T090, T091]
+    type: feat
+    # restock 4/4 + full api inventory regression 100 pass (1 skip).
+    # backfillRestockInbound = the inbound mirror of US4's
+    # backfillSaleLinkedOutbound (terminal_event_ref provenance, ON CONFLICT
+    # dedup). MANUAL/BACKFILL only — no auto restock-on-void route (stop honored).
+    # The worker backfill.processor.ts restock path is NOT added: the T090/T091
+    # validation command is the api lane, so the service entry is the proof (the
+    # api/worker split F-05 resolved for US4). F-10 below (harness allowed_files).
+    status: merged
+    merged_at_commit: 8142334   # PR #459 (squash) — db-integration + fast + CodeRabbit green
+    approval_required: false
+    depends_on: [009-US2-MANUAL, 009-US4-SALELINKED]
+    blocks: []
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/inventory/inventory.service.ts
+      - apps/worker/src/inventory/backfill.processor.ts
+      - apps/api/test/inventory/restock/*.spec.ts
+      - apps/api/test/inventory/restock/__restock-harness.ts   # F-10: support harness (not a *.spec.ts) — same allowed_files gap as F-05/F-07/F-08. Owner-approved expansion.
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test -- inventory/restock
+        expected: GREEN — inbound movement referencing an 008 void/refund terminal event (or return) as provenance, idempotent on the provenance (FR-025/R6); NO automatic restock-on-void route exists (deferred with FR-060).
+        docker_required: true
+    stop:
+      - standing-rules universal stops
+      - "stop if automatic restock-on-void is implemented — v1 ships only manual/backfill restock; auto is deferred with auto-decrement (FR-025/FR-060)"
+    parallel_safety: serialize   # shares inventory.service.ts + backfill.processor.ts with US4
+
+  - id: 009-LIFECYCLE
+    task_ids: [T095]
+    type: test
+    # 6/6, Docker-free introspection guard (getTableConfig set-equality tripwire
+    # on stock_movements + stock_counts + PII/payment denylist + classification-
+    # prose assertions). repoRoot is FIVE ".." (one fewer than the 008 guard — the
+    # PR #430 trap); 0014 header's "001"/"long-horizon" asserted independently.
+    status: merged
+    merged_at_commit: 579b67a   # PR #461 (squash) — db-integration + fast + CodeRabbit green
+    approval_required: false
+    depends_on: [009-SCHEMA, 009-US2-MANUAL]
+    blocks: []
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/test/inventory/lifecycle/classification.spec.ts
+      - specs/009-inventory-stock-ledger/data-model.md
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test -- inventory/lifecycle
+        expected: GREEN — guard asserts no PII/payment-class field persisted in v1; business-class + 001-inherited retention recorded in the 0014 migration header + data-model (§XIV).
+        docker_required: true
+    stop:
+      - standing-rules universal stops
+      - "stop if any PII/payment-class field is found persisted in v1 — reclassifies (§XIV) and re-triggers; raise it, do not silently allow"
+    parallel_safety: safe
+
+  # ===== Phase 10: Polish & cross-cutting =====================================
+
+  - id: 009-POLISH
+    task_ids: [T100, T101, T102, T103, T104]
+    type: chore
+    # T100 k6 report-only (inventory-on-hand.js + inventory-movement.js, never run
+    # in CI/never faked); T101 500/req backfill ceiling (MAX_BACKFILL_MOVEMENTS +
+    # guard before the processor loop; over→reject zero-write, at→succeed; worker
+    # spec 10/10); T102 SC-008/SC-009 verdicts in wave-status (both PASS); T103
+    # coverage recorded local (stmts 87.45/lines 87.89, ≥80 met) + full inventory
+    # suite 22/106 GREEN; T104 reconciliation. F-11 below. The LAST 009 slice →
+    # 15/15. Two [GATED] packages/db deferrals tracked durably in issue #465.
+    status: merged
+    merged_at_commit: af4c17d   # PR #464 (squash) — db-integration + fast + CodeRabbit green
+    approval_required: false
+    depends_on:
+      - 009-US1-ONHAND
+      - 009-US2-MANUAL
+      - 009-US3-IDEMPOTENCY
+      - 009-US4-SALELINKED
+      - 009-US5-TRANSFER
+      - 009-US6-COUNT
+      - 009-SIGNAL-NEGBAL
+      - 009-RESTOCK
+      - 009-LIFECYCLE
+    blocks: []
+    agent: opus-maestro
+    allowed_files:
+      - loadtests/k6/inventory-on-hand.js
+      - loadtests/k6/inventory-movement.js
+      - apps/api/src/inventory/inventory.service.ts
+      - apps/worker/src/inventory/backfill.processor.ts   # T101 enforces the 500/req backfill ceiling here (owned by US4; POLISH may extend it for the bound)
+      - apps/worker/test/inventory/backfill-processor.spec.ts   # F-11: the T101 bound test is a WORKER test (the guard is in backfill.processor.ts; the api validation command won't run it). Owner-approved expansion.
+      - apps/worker/test/inventory/__support__/seed.ts          # F-11: seedManyLines bulk helper for the over/at-ceiling fixtures.
+      - specs/009-inventory-stock-ledger/wave-status.md
+      - specs/009-inventory-stock-ledger/execution-map.yaml
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test -- inventory
+        expected: GREEN — full inventory suite (22 suites / 106 pass / 1 skip); ≥80% coverage on the new module (collected MANUALLY/LOCALLY — `--coverage` removed from the blocking CI api step by 009-CI-OPT; CI no longer emits lcov; recorded figure in wave-status); SC-008/SC-009 seam-design verdicts recorded; perf report-only.
+        docker_required: true
+      - command: WORKER_INCLUDE_DB_TESTS=1 pnpm --filter @data-pulse-2/worker test -- inventory/backfill-processor
+        expected: GREEN — backfill 500/req bound enforced (over-ceiling → InventoryBackfillTooManyLinesError + zero partial writes; at-ceiling 500 succeeds); 10/10. F-11 — the bound test is worker-side, so the worker command is needed (the api command above does not run it).
+        docker_required: true
+    stop:
+      - standing-rules universal stops
+      - "stop if perf is treated as a hard gate — report-only in v1 (no perf env, 005/008 precedent)"
+      - "note: the ≥80% coverage check is a LOCAL/manual verification — CI does not produce a coverage report (009-CI-OPT deferral); run `pnpm --filter @data-pulse-2/api test -- --coverage` locally and record the figure"
+    parallel_safety: serialize   # closeout reconciliation, runs last
+    # F-11 (2026-06-03): allowed_files + validation expanded (owner-approved) for
+    # the T101 bound test. The 500/req guard lives in the WORKER processor, so its
+    # test is a worker spec (apps/worker/test/inventory/backfill-processor.spec.ts,
+    # already in dockerOutboxSuites from F-04) + a seedManyLines helper — and the
+    # api validation command does NOT run worker specs, so the worker command is
+    # added to the validation block. Same api/worker-command split closed for US4
+    # in F-05. Same allowed_files-gap class as F-05/F-07/F-08/F-10.
+
+  # ===== Infra: hosted-CI reliability (blocks all remaining Docker-gated work) =
+
+  - id: 009-CI-OPT
+    task_ids: []   # infrastructure slice — no tasks.md task IDs; created in-session after PR #446 destabilised hosted CI
+    type: ci
+    status: in_progress
+    approval_required: true   # [GATED] — .github/workflows/** (Constitution §VIII / Standing Rules §3) — APPROVED in-session by owner directive
+    depends_on: []   # remediation of the CI lane itself; depends on nothing in the feature graph
+    blocks:
+      # Every remaining Docker-gated slice runs through the db-integration api
+      # step. None may dispatch until 009-CI-OPT lands a GREEN hosted canary.
+      - 009-US3-IDEMPOTENCY
+      - 009-US4-SALELINKED
+      - 009-US5-TRANSFER
+      - 009-US6-COUNT
+      - 009-SIGNAL-NEGBAL
+      - 009-RESTOCK
+      - 009-LIFECYCLE
+      - 009-POLISH
+    agent: opus-maestro
+    allowed_files:
+      - .github/workflows/ci.yml
+      - .github/workflows/update-loc-badge.yml
+      - CLAUDE.md
+      - specs/009-inventory-stock-ledger/execution-map.yaml
+      - specs/009-inventory-stock-ledger/wave-status.md
+    validation:
+      - command: 'git diff --check && grep -R "runs-on:" .github/workflows && (grep -R "self-hosted" .github/workflows || true)'
+        expected: No whitespace errors; all jobs runs-on ubuntu-latest; no self-hosted runner SELECTOR (a documentary "self-hosted" mention in a comment is acceptable).
+        docker_required: false
+      - command: re-run CI on GitHub-hosted ubuntu-latest (push/PR)
+        expected: >
+          db-integration completes GREEN (not cancelled, not timed out) — all
+          three Docker steps (db / worker / api RLS+audit+auth) pass; api step
+          finishes well under the bumped 40-min job timeout. Per-job duration
+          recorded in wave-status. This GREEN hosted canary is the gate that
+          unblocks US3-US6.
+        docker_required: true
+    stop:
+      - standing-rules universal stops
+      - "[GATED] .github/** — owner directive (2026-06-01) authorises THIS slice's workflow edits; do not expand beyond ci.yml/update-loc-badge.yml"
+      - "do NOT touch product code, package.json, pnpm-lock.yaml, or change any test semantics (no --maxWorkers/--runInBand on the api suite — RLS tests share DB state)"
+      - "do NOT start 009-US3/US4/US5/US6 until a hosted CI canary finishes GREEN"
+      - "stop before merge unless CI is green"
+    parallel_safety: serialize   # CI-lane remediation; nothing else dispatches until it is green
+
+# ============================================================================
+# serialization edges (hard ordering)
+# ============================================================================
+#
+#   009-SIGNOFF-QTY-LIB ─┐
+#                        ├─> 009-SCHEMA ─┐
+#   009-SETUP ───────────┘               ├─> 009-ISOLATION-HARNESS ─> 009-US1-ONHAND ─> 009-US2-MANUAL ─┬─> 009-US3-IDEMPOTENCY
+#   009-SETUP ─> 009-CONTRACT ───────────┘                                                              ├─> 009-US4-SALELINKED ─> 009-RESTOCK
+#                                                                                                        ├─> 009-US5-TRANSFER
+#                                                                                                        ├─> 009-US6-COUNT
+#                                                                                                        ├─> 009-SIGNAL-NEGBAL
+#                                                                                                        └─> 009-LIFECYCLE
+#   (all P2 + cross-cutting) ─> 009-POLISH
+#
+# GATED-first: neither 009-CONTRACT nor 009-SCHEMA dispatches without explicit
+# in-session approval; no GREEN implementing slice dispatches until BOTH merge.
+#
+# Parallel-safety note: US4/US5/US6/SIGNAL/RESTOCK all touch the shared
+# inventory.service.ts — marked `serialize` to avoid the parallel-agent git
+# worktree contention documented in project memory. Dispatch them serially, or
+# use `git worktree add` for true isolation.

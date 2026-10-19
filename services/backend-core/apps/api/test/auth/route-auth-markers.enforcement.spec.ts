@@ -1,0 +1,213 @@
+/**
+ * RT-129 (RT-120 A9) — route-level enforcement of the auth markers.
+ *
+ * The global FailClosedAuthGuard trusts two markers to mean "this route
+ * authenticates itself":
+ *   - @DeviceBearer()   → the route MUST also run PosDeviceAuthGuard;
+ *   - @DeviceAttested() → the handler checks the device attestation itself.
+ * If a future change keeps the marker but drops the route guard, the route
+ * silently becomes public. This sweep over the real AppModule catches that.
+ */
+import "reflect-metadata";
+
+import { Controller, Get, UseGuards, type INestApplication, type Type } from "@nestjs/common";
+import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from "@nestjs/common/constants";
+import request from "supertest";
+
+import { appControllers, bootDbLessApp, type DbLessApp } from "../_helpers/db-less-app";
+import { PosDeviceAuthGuard } from "../../src/auth/pos-device-auth.guard";
+import { SaleCaptureAuthGuard } from "../../src/catalog/sales/sale-capture-auth.guard";
+import { SaleHistoryAuthGuard } from "../../src/catalog/sales/history/sale-history-auth.guard";
+import { ShiftCashUpAuthGuard } from "../../src/pos-shifts/shift-cash-up-auth.guard";
+import { DeviceRotationAuthGuard } from "../../src/pos-terminal-pairing/device-rotation-auth.guard";
+import { DEVICE_ATTESTED_KEY, DEVICE_BEARER_KEY, DeviceBearer } from "../../src/auth/route-auth";
+
+const HTTP_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "ALL", "OPTIONS", "HEAD"];
+
+/**
+ * Device-attested handlers reviewed to verify the attestation in-handler,
+ * covered by test/pos-audit-events/pos-audit-events.controller.spec.ts.
+ * Adding a route here is a security review decision.
+ */
+const REVIEWED_DEVICE_ATTESTED = ["PosAuditEventsController.syncBatch"];
+
+/**
+ * Route guards reviewed to run PosDeviceAuthGuard internally, for a route
+ * that accepts the device bearer as one of several alternative credentials.
+ * RT-224: SaleCaptureAuthGuard (captureSale) runs PosDeviceAuthGuard on its
+ * device path and PosOperatorEnvelopeSaleGuard on its envelope path; both
+ * paths authenticate in the route guard, which is why captureSale carries the
+ * marker (the global guard's opaque-token lookup would reject a device
+ * token). Delegation is covered by sale-capture-auth.guard.unit.spec.ts and
+ * device-operator-capture.http.integration.spec.ts. Adding a guard here is a
+ * security review decision.
+ * RT-17 slice 2b-1: ShiftCashUpAuthGuard (openShift, recordCashMovement) is
+ * the same composite for the shift cash-up writes (the same two guards plus
+ * the same attribution verifier); covered by
+ * shift-cash-up-auth.guard.unit.spec.ts and the shift cash-up HTTP suites.
+ * RT-539 (RT-534 S3): SaleHistoryAuthGuard (listSaleHistory,
+ * readSaleHistoryDetail, recordSaleReprint) is the same envelope / device
+ * composite, the cashier selected by X-Cashier-Admission (RT-537 Q-2;
+ * security-reviewed in the RT-539 PR); covered by
+ * sale-history-auth.guard.unit.spec.ts and sale-history.http.integration.spec.ts.
+ * RT-369: DeviceRotationAuthGuard (posRotateTerminalToken only) is the
+ * device bearer with the rotation's own rules instead of PosDeviceAuthGuard:
+ * the same lookup of the current or in-window previous hash, plus the
+ * rotate-only 7-day expiry grace and the `pos.device.rotation_rejected` audit
+ * of a known token it refuses; the same generic 401 and the same
+ * row-sourced principal. Security-reviewed in the RT-369 runtime PR; covered
+ * by rotation-decision.unit.spec.ts and rotation.http.integration.spec.ts.
+ */
+const REVIEWED_DEVICE_GUARD_COMPOSITES: readonly unknown[] = [
+  SaleCaptureAuthGuard,
+  ShiftCashUpAuthGuard,
+  SaleHistoryAuthGuard,
+  DeviceRotationAuthGuard,
+];
+
+interface MarkedRoute {
+  id: string;
+  method: string;
+  path: string;
+  guards: unknown[];
+}
+
+function joinPath(base: unknown, sub: unknown): string {
+  const parts = [base, sub]
+    .flatMap((p) => (Array.isArray(p) ? [p[0]] : [p]))
+    .filter((p): p is string => typeof p === "string" && p.length > 0 && p !== "/");
+  return "/" + parts.map((p) => p.replace(/^\/+|\/+$/g, "")).join("/");
+}
+
+/** Every handler of `controller` carrying `marker` (on the handler or the class). */
+export function markedRoutes(controller: Type<unknown>, marker: string): MarkedRoute[] {
+  const proto = controller.prototype as Record<string, unknown>;
+  return Object.getOwnPropertyNames(proto)
+    .filter((name) => name !== "constructor" && typeof proto[name] === "function")
+    .flatMap((name) => {
+      const handler = proto[name] as object;
+      const verb = Reflect.getMetadata(METHOD_METADATA, handler) as number | undefined;
+      if (verb === undefined) return [];
+      const marked =
+        Reflect.getMetadata(marker, handler) === true ||
+        Reflect.getMetadata(marker, controller) === true;
+      if (!marked) return [];
+      const guards = [
+        ...((Reflect.getMetadata(GUARDS_METADATA, controller) as unknown[] | undefined) ?? []),
+        ...((Reflect.getMetadata(GUARDS_METADATA, handler) as unknown[] | undefined) ?? []),
+      ];
+      return [
+        {
+          id: `${controller.name}.${name}`,
+          method: HTTP_METHODS[verb] ?? "GET",
+          path: joinPath(
+            Reflect.getMetadata(PATH_METADATA, controller),
+            Reflect.getMetadata(PATH_METADATA, handler),
+          ),
+          guards,
+        },
+      ];
+    });
+}
+
+function runsDeviceGuard(guards: unknown[]): boolean {
+  return (
+    guards.includes(PosDeviceAuthGuard) ||
+    guards.some((g) => REVIEWED_DEVICE_GUARD_COMPOSITES.includes(g))
+  );
+}
+
+function missingDeviceGuard(routes: MarkedRoute[]): string[] {
+  return routes.filter((r) => !runsDeviceGuard(r.guards)).map((r) => r.id);
+}
+
+describe("route auth markers are enforced at the route (RT-129 / A9)", () => {
+  let booted: DbLessApp;
+  let app: INestApplication;
+  let deviceBearer: MarkedRoute[] = [];
+  let deviceAttested: MarkedRoute[] = [];
+
+  beforeAll(async () => {
+    // Unreachable DB on purpose: every assertion below must hold without one.
+    booted = await bootDbLessApp("marker-check");
+    app = booted.app;
+
+    const controllers = appControllers(app);
+    deviceBearer = controllers.flatMap((c) => markedRoutes(c, DEVICE_BEARER_KEY));
+    deviceAttested = controllers.flatMap((c) => markedRoutes(c, DEVICE_ATTESTED_KEY));
+  });
+
+  afterAll(async () => {
+    await booted.close();
+  });
+
+  it("finds the marked routes (the sweep is not vacuous)", () => {
+    expect(deviceBearer.map((r) => r.id).sort()).toEqual([
+      // RT-387: the POS read of the resolved shift variance policy (device bearer only).
+      "CashVariancePolicyDeviceController.read",
+      // RT-113 BC2: the cashier-admissions surface (device bearer only).
+      "CashierAdmissionsController.admit",
+      "CashierAdmissionsController.end",
+      "CashierAdmissionsController.roster",
+      "ReadDownController.getDeltas",
+      "ReadDownController.getSnapshot",
+      // RT-369: the device token rotation (DeviceRotationAuthGuard).
+      "RotationController.rotate",
+      // RT-539: the POS sale history (envelope, or device + X-Cashier-Admission).
+      "SaleHistoryController.listSaleHistory",
+      "SaleHistoryController.readSaleHistoryDetail",
+      "SaleHistoryController.recordSaleReprint",
+      // RT-224 (Option B): captureSale accepts the device bearer as an
+      // alternative to the operator envelope; SaleCaptureAuthGuard runs both.
+      "SalesController.captureSale",
+      // RT-17 slices 2b-1 / 2b-2: the shift cash-up writes, the captureSale model.
+      "ShiftCashUpController.closeShift",
+      "ShiftCashUpController.openShift",
+      "ShiftCashUpController.recordCashMovement",
+    ]);
+    expect(deviceAttested.length).toBeGreaterThan(0);
+  });
+
+  it("every @DeviceBearer route also runs PosDeviceAuthGuard", () => {
+    expect(missingDeviceGuard(deviceBearer)).toEqual([]);
+  });
+
+  it("every @DeviceAttested route is a reviewed in-handler attestation route", () => {
+    expect(deviceAttested.map((r) => r.id).sort()).toEqual([...REVIEWED_DEVICE_ATTESTED].sort());
+  });
+
+  it("every @DeviceBearer route answers 401 without a device bearer", async () => {
+    for (const route of deviceBearer) {
+      const res = await request(app.getHttpServer())[
+        route.method.toLowerCase() as "get"
+      ](route.path);
+      expect({ route: route.id, status: res.status }).toEqual({ route: route.id, status: 401 });
+    }
+  });
+
+  it("the checker flags a @DeviceBearer route whose guard is not a reviewed composite", () => {
+    class UnreviewedCompositeGuard {}
+    @Controller("probe")
+    class UnreviewedProbeController {
+      @Get("unreviewed")
+      @DeviceBearer()
+      @UseGuards(UnreviewedCompositeGuard)
+      read(): void {}
+    }
+    expect(
+      missingDeviceGuard(markedRoutes(UnreviewedProbeController, DEVICE_BEARER_KEY)),
+    ).toEqual(["UnreviewedProbeController.read"]);
+  });
+
+  it("the checker flags a @DeviceBearer route that lost its guard", () => {
+    @Controller("probe")
+    class UnguardedProbeController {
+      @Get("unguarded")
+      @DeviceBearer()
+      read(): void {}
+    }
+    expect(missingDeviceGuard(markedRoutes(UnguardedProbeController, DEVICE_BEARER_KEY))).toEqual([
+      "UnguardedProbeController.read",
+    ]);
+  });
+});

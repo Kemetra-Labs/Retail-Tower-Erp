@@ -1,0 +1,705 @@
+/**
+ * ErpnextPostingService — 015-US1-FEED (T031).
+ *
+ * The DP2-side read of the fixed 012 posting-feed contract:
+ *   - `pullPostings()` — a PURE READ of `pending` `erpnext_posting_status` rows
+ *     for the connector principal's tenant, cursor-ordered by the row `sequence`,
+ *     each projected into a 012 `PostingWorkItem` (lines carry the DP2-resolved
+ *     `erpnextItemRef`). NO status mutation → re-pulling the same `since` cursor
+ *     yields the same logical set (012 idempotent replay).
+ *
+ * The COMPLEMENTARY write — resolving eligibility and inserting the `pending` /
+ * `permanently_rejected` row — happens at row CREATION in the worker-side
+ * `erpnext.posting.requested` consumer (NOT here, NOT at pull). See
+ * `posting-work-item.projection.ts` for the two-moment split.
+ *
+ * All queries run under the caller's tenant GUC via `runWithTenantContext`
+ * (tenant from the connector principal, never the body — §XII); RLS scopes rows.
+ */
+import { Inject, Injectable } from "@nestjs/common";
+import type { Pool, PoolClient } from "pg";
+
+import { PG_POOL } from "../../auth/auth.module";
+import { lockPostingFeedSequence, runWithTenantContext } from "@data-pulse-2/db";
+import { applyPostingSignalToEffects } from "../../inventory/effect-integration/effect-integration.transitions";
+import { recordErpnextPostingReconciliation } from "../../observability/metrics/api.metrics";
+import {
+  buildWorkItem,
+  type PostingWorkItem,
+} from "./posting-work-item.projection";
+import { isFeedResponsibilitiesEnabled } from "./responsibilities-feed-gate";
+
+/**
+ * Hard ceiling on a single pull page — the 012 contract `Limit.maximum` (500),
+ * aligning with the 009 backfill ceiling. The contract `default` is 100; the
+ * controller applies that default, this caps the upper bound.
+ */
+export const POSTING_FEED_MAX_PAGE = 500;
+
+/**
+ * DP2-side retry budget for `failed_transient` re-offers (012: "bounded by a
+ * retry budget"). A `failed_transient` ack re-heads the row's `sequence` so it
+ * re-appears on the feed past the connector's advanced cursor; once `retry_count`
+ * reaches this ceiling, a further `failed_transient` flips the row to
+ * `permanently_rejected` (category `retry_budget_exhausted`) instead of
+ * re-offering forever. Tuneable; the actionable end state (a dead-lettered row
+ * the 017 reconciliation surface drains) is the contract, not the exact number.
+ */
+export const POSTING_RETRY_BUDGET = 5;
+
+/** A `posted` ack carries the ERPNext document reference (012 ErpnextDocumentRef). */
+export interface AckDocumentRef {
+  readonly doctype: string;
+  readonly name: string;
+}
+
+/** A `permanently_rejected` ack carries a structured reason (012 RejectionReason). */
+export interface AckRejectionReason {
+  readonly category: string;
+  readonly message: string;
+}
+
+/** The outcome a posting row is RECORDED with (012 RecordedOutcome.outcome). */
+export type RecordedOutcomeKind =
+  | "posted"
+  | "failed_transient"
+  | "permanently_rejected";
+
+/**
+ * The outcome a connector may REPORT (012 OutcomeAckRequest.outcome). RT-332:
+ * `reconciliation_required` — an existing ERP document does not match the
+ * frozen resolution; it is recorded as `permanently_rejected` with
+ * `rejection_category = 'reconciliation_required'`.
+ */
+export type AckOutcomeKind = RecordedOutcomeKind | "reconciliation_required";
+
+/** RT-332: the dead-letter category of a replay / stale post that needs reconciliation. */
+export const RECONCILIATION_REQUIRED_CATEGORY = "reconciliation_required";
+
+export interface AckOutcomeInput {
+  readonly tenantId: string;
+  readonly workItemRef: string;
+  readonly outcome: AckOutcomeKind;
+  readonly documentRef?: AckDocumentRef;
+  readonly reason?: AckRejectionReason;
+  /** RT-332: the frozen resolution version the connector posted with, when it echoes one. */
+  readonly resolutionVersion?: number;
+}
+
+/** The 012 RecordedOutcome wire projection (DP2 → connector). */
+export interface RecordedOutcome {
+  readonly workItemRef: string;
+  readonly outcome: RecordedOutcomeKind;
+  readonly documentRef: AckDocumentRef | null;
+  readonly recordedAt: string;
+  readonly dlqueued: boolean;
+}
+
+export interface AckOutcomeResult {
+  readonly outcome: RecordedOutcome;
+  /**
+   * True when this ack hit the SERVICE-level O-3 echo path (the row was already
+   * terminal under the SAME logical outcome) — the controller surfaces it as a
+   * 200 with `Idempotent-Replayed: true`. False on a first-time transition (201).
+   */
+  readonly replayed: boolean;
+}
+
+/**
+ * The work-item ref does not resolve within the connector principal's tenant
+ * scope (RLS returns 0 rows). Non-disclosing — identical for cross-tenant,
+ * out-of-scope, and genuinely-absent refs (§II/§XII → 404 `not_found`).
+ */
+export class AckNotFoundError extends Error {
+  constructor() {
+    super("not found");
+    this.name = "AckNotFoundError";
+  }
+}
+
+/**
+ * The row is already terminal under a DIFFERENT logical outcome than the one
+ * being acked (O-3: the stored document wins; a contradicting re-ack is rejected,
+ * never an overwrite). Surfaced as 409 `idempotency_key_conflict`.
+ */
+export class AckConflictError extends Error {
+  constructor() {
+    super("idempotency key conflict");
+    this.name = "AckConflictError";
+  }
+}
+
+/**
+ * A malformed ack reached the service past the DTO (an internal/direct caller
+ * with no `documentRef` on a `posted` outcome). Surfaced as 400 — NOT a 409
+ * conflict (a missing conditional field is a validation error, 012). Unreachable
+ * over HTTP (the strict DTO guards it); a defensive guard for direct callers.
+ */
+export class AckValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AckValidationError";
+  }
+}
+
+/** A posted document_ref is stored as canonical JSON text in the TEXT column. */
+function serializeDocRef(doc: AckDocumentRef): string {
+  return JSON.stringify({ doctype: doc.doctype, name: doc.name });
+}
+
+/** Parse a stored document_ref back to the structured wire shape (null-safe). */
+function parseDocRef(stored: string | null): AckDocumentRef | null {
+  if (stored === null) return null;
+  try {
+    const v = JSON.parse(stored) as Partial<AckDocumentRef>;
+    if (typeof v.doctype === "string" && typeof v.name === "string") {
+      return { doctype: v.doctype, name: v.name };
+    }
+  } catch {
+    // Legacy / non-JSON stored value (e.g. a bare fixture string) — wrap it so
+    // the echo still surfaces a structured ref rather than throwing.
+    return { doctype: "Sales Invoice", name: stored };
+  }
+  return { doctype: "Sales Invoice", name: stored };
+}
+
+export interface PullPostingsInput {
+  readonly tenantId: string;
+  /** Opaque cursor — the last `sequence` the connector saw. null = from start. */
+  readonly since: bigint | null;
+  readonly limit: number;
+}
+
+export interface PullPostingsResult {
+  readonly items: readonly PostingWorkItem[];
+  /** The advanced opaque cursor (the last item's sequence), as a string. */
+  readonly cursor: string | null;
+  /** Next-page token (the same advanced cursor) when the page was full. */
+  readonly nextPageToken: string | null;
+}
+
+/** The columns an ack reads from an already-terminal posting row. */
+interface TerminalRow {
+  readonly status: string;
+  readonly document_ref: string | null;
+  readonly rejection_category: string | null;
+  readonly updated_at: Date;
+  readonly current_resolution_version: number | null;
+  readonly reconciliation_document_ref: string | null;
+}
+
+@Injectable()
+export class ErpnextPostingService {
+  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+
+  /**
+   * Pull a cursor-ordered page of pending posting work-items. Read-only; orders
+   * by the monotonic `sequence` (> `since`); caps at `POSTING_FEED_MAX_PAGE`.
+   */
+  async pullPostings(input: PullPostingsInput): Promise<PullPostingsResult> {
+    const limit = Math.min(Math.max(1, input.limit), POSTING_FEED_MAX_PAGE);
+
+    return runWithTenantContext(
+      this.pool,
+      { tenantId: input.tenantId, isPlatformAdmin: false },
+      async (client) => {
+        // Pending rows only, after the `since` cursor, ordered + capped. RLS
+        // scopes to the connector principal's tenant; the partial index
+        // idx_erpnext_posting_status_pending backs this scan. ORDER BY names the
+        // table column: a bare `sequence` would resolve to the ::text alias and
+        // sort "10" before "9", advancing the cursor past unsent rows (RT-325).
+        //
+        // RT-418 HOLDS (posting-feed.yaml 1.8.0, RT-417): a work item of a sale
+        // with payer responsibilities is not offered when
+        //   - it is a `reversal`: reversal of such a sale is undefined in this
+        //     version (035 OQ-4 carve), whatever the Connector supports;
+        //   - it is a `sale_post` and the Connector gate is off (ROLLOUT ORDER,
+        //     see responsibilities-feed-gate.ts);
+        //   - it is a `sale_post` and a void / refund / return of the sale
+        //     exists: a credit sale reversed before posting never posts alone
+        //     while its reversal is held.
+        //   - its visible responsibility rows differ from
+        //     `sales.responsibility_count` (an RLS fault or a missing row):
+        //     FAIL CLOSED, held, never offered as a cash sale.
+        //   - its payer link is NULL or blank: the frozen one when the row has a
+        //     resolution version (the live one never fills it in), else the
+        //     live payer's. Capture refuses an unlinked payer, so this is a
+        //     detectable defect: FAIL CLOSED, held, never the store Customer.
+        // The key is `sales.responsibility_count`, written with the rows in the
+        // capture transaction (the projection keeps a second guard that throws).
+        // A missing grant on sale_responsibilities fails the whole pull. Held rows are filtered here, not dropped in the projection, so
+        // a page is never short; lifting a hold must re-head their sequence.
+        const rows = await client.query<{
+          id: string;
+          kind: "sale_post" | "reversal";
+          sale_id: string;
+          source_ref_id: string;
+          source_system: string;
+          external_id: string;
+          payload_hash: string;
+          sequence: string;
+          current_resolution_version: number | null;
+        }>(
+          `SELECT id, kind, sale_id, source_ref_id, source_system, external_id,
+                  payload_hash, sequence::text AS sequence,
+                  current_resolution_version
+             FROM erpnext_posting_status
+            WHERE status = 'pending'
+              AND ($1::bigint IS NULL OR sequence > $1::bigint)
+              AND NOT EXISTS (
+                SELECT 1 FROM sales s
+                 WHERE s.id = erpnext_posting_status.sale_id
+                   AND s.responsibility_count > 0
+                   AND (erpnext_posting_status.kind = 'reversal'
+                        OR NOT $3::boolean
+                        OR (SELECT count(*) FROM sale_responsibilities sr
+                             WHERE sr.sale_id = s.id) <> s.responsibility_count
+                        OR NOT (CASE
+                          WHEN erpnext_posting_status.current_resolution_version IS NOT NULL THEN EXISTS (
+                            SELECT 1 FROM erpnext_posting_resolution fr
+                             WHERE fr.intent_id = erpnext_posting_status.id
+                               AND fr.resolution_version = erpnext_posting_status.current_resolution_version
+                               AND fr.payer_external_ref ~ '[^[:space:]]')
+                          ELSE NOT EXISTS (
+                            SELECT 1 FROM sale_responsibilities sr
+                              JOIN payer_account p ON p.id = sr.payer_id
+                             WHERE sr.sale_id = s.id
+                               AND (p.external_ref IS NULL OR p.external_ref !~ '[^[:space:]]'))
+                        END)
+                        OR EXISTS (SELECT 1 FROM sale_voids v WHERE v.sale_id = s.id)
+                        OR EXISTS (SELECT 1 FROM sale_refunds f WHERE f.sale_id = s.id)
+                        OR EXISTS (SELECT 1 FROM sale_returns r WHERE r.sale_id = s.id)))
+            ORDER BY erpnext_posting_status.sequence
+            LIMIT $2`,
+          [input.since !== null ? input.since.toString() : null, limit, isFeedResponsibilitiesEnabled()],
+        );
+
+        const items: PostingWorkItem[] = [];
+        for (const row of rows.rows) {
+          const item = await buildWorkItem(client, {
+            id: row.id,
+            kind: row.kind,
+            saleId: row.sale_id,
+            sourceRefId: row.source_ref_id,
+            sourceSystem: row.source_system,
+            externalId: row.external_id,
+            payloadHash: row.payload_hash,
+            sequence: row.sequence,
+            currentResolutionVersion: row.current_resolution_version,
+          });
+          if (item) items.push(item);
+        }
+
+        const advanced =
+          rows.rows.length > 0
+            ? rows.rows[rows.rows.length - 1]!.sequence
+            : null;
+        const nextPageToken = rows.rows.length === limit ? advanced : null;
+
+        return { items, cursor: advanced, nextPageToken };
+      },
+    );
+  }
+
+  /**
+   * Record a connector posting OUTCOME on `erpnext_posting_status` (the 012
+   * `connectorAckOutcome`). NEVER mutates the 008 sale fact (§IX) — only this
+   * status row advances. All work runs under the caller's tenant GUC; RLS scopes
+   * the row, so a cross-tenant `workItemRef` reads 0 rows → `AckNotFoundError`
+   * (non-disclosing, §XII).
+   *
+   * Lifecycle (only a `pending` row transitions):
+   *   - posted             → status='posted' + document_ref (the CHECK biconditional);
+   *   - failed_transient   → re-head `sequence` (so the row re-appears on the feed
+   *                          past the connector's advanced cursor), retry_count++;
+   *                          at `POSTING_RETRY_BUDGET` → permanently_rejected
+   *                          (category `retry_budget_exhausted`) — bounded re-offer;
+   *   - permanently_rejected → rejection_category stored, dead-lettered (dlqueued).
+   *
+   * RT-426 (RT-289 G2-3): each transition also moves the Inventory Effects the
+   * intent represents, in this same transaction — posted → confirmed,
+   * permanently_rejected / retry budget exhausted → rejected,
+   * reconciliation_required → reconciliation_required, failed_transient → stays
+   * pending. Effects themselves are never written. An O-3 echo transitions
+   * nothing, so it moves no effect either.
+   *
+   * Service-level O-3 idempotency (a FRESH idempotency key re-acking an
+   * already-TERMINAL row, which the HTTP interceptor cannot dedupe):
+   *   - same logical outcome (e.g. posted + same documentRef) → echo the stored
+   *     RecordedOutcome, no re-transition (`replayed: true`);
+   *   - a different/contradicting outcome → `AckConflictError` (the stored
+   *     document wins; never an overwrite).
+   */
+  ackOutcome(input: AckOutcomeInput): Promise<AckOutcomeResult> {
+    return runWithTenantContext(
+      this.pool,
+      { tenantId: input.tenantId, isPlatformAdmin: false },
+      async (client): Promise<AckOutcomeResult> => {
+        // RT-456: a transient ack re-heads the row's feed sequence. Take the
+        // tenant's sequence lock FIRST (before the row lock below) so commit
+        // order is sequence order and the feed cursor cannot skip it.
+        await lockPostingFeedSequence(client, input.tenantId);
+        // FOR UPDATE: serialize concurrent acks on the same row (the terminal-
+        // state check + transition must be atomic). RLS scopes the row to the
+        // tenant; a foreign ref reads nothing.
+        const cur = await client.query<{
+          status: string;
+          document_ref: string | null;
+          rejection_category: string | null;
+          retry_count: number;
+          updated_at: Date;
+          current_resolution_version: number | null;
+          reconciliation_document_ref: string | null;
+        }>(
+          `SELECT status, document_ref, rejection_category, retry_count, updated_at,
+                  current_resolution_version, reconciliation_document_ref
+             FROM erpnext_posting_status
+            WHERE id = $1
+            FOR UPDATE`,
+          [input.workItemRef],
+        );
+        const row = cur.rows[0];
+        if (!row) throw new AckNotFoundError();
+
+        // --- RT-333: an attempt from a superseded resolution version (an
+        // operator re-resolved the intent meanwhile) never changes the row. ---
+        if (isSupersededAttempt(input, row)) {
+          return { replayed: true, outcome: this.supersededEcho(input.workItemRef, row) };
+        }
+
+        // --- Already-TERMINAL row (posted / permanently_rejected): O-3 echo or
+        // conflict, NO re-transition. `recordedAt` echoes the STORED updated_at
+        // so an idempotent re-ack returns a STABLE body (does not drift). ------
+        if (row.status === "posted" || row.status === "permanently_rejected") {
+          return this.terminalAck(client, input, row);
+        }
+
+        // --- Re-offerable row (status = 'pending'; a stored 'failed_transient'
+        // is never produced by 015 — applyTransient always resets to 'pending' —
+        // but is treated as re-offerable too for forward-compat). -------------
+        return { replayed: false, outcome: await this.transition(client, input, row) };
+      },
+    );
+  }
+
+  /**
+   * An ack for an already-TERMINAL row: O-3 echo, a reconciliation upgrade, or
+   * a conflict — never a re-transition out of the terminal state.
+   *
+   * RT-332: an ack that reports reconciliation (`reconciliation_required`, or a
+   * `posted` from a superseded resolution version) on a dead-lettered row is an
+   * echo when the row already carries that category, and otherwise UPGRADES the
+   * row to it: an ERP document now exists, so repair must never re-offer it.
+   */
+  private async terminalAck(
+    client: PoolClient,
+    input: AckOutcomeInput,
+    row: TerminalRow,
+  ): Promise<AckOutcomeResult> {
+    if (reportsReconciliation(input, row) && row.status === "permanently_rejected") {
+      return this.reconcileTerminal(client, input, row);
+    }
+    // A post from a superseded resolution is never confirmed as posted — not
+    // even on a row a current-version post already completed.
+    if (!isStaleResolution(input, row) && this.sameLogicalOutcome(row, input)) {
+      return { replayed: true, outcome: this.project(input.workItemRef, row) };
+    }
+    throw new AckConflictError();
+  }
+
+  /**
+   * RT-332: a reconciliation report on a dead-lettered row. Already in the
+   * reconciliation category → an echo only for the SAME evidence (a retry
+   * reporting another document contradicts the recorded one: O-3 conflict, the
+   * first stays). Any other category → upgrade it: an ERP document now exists,
+   * so repair must never re-offer the row.
+   */
+  private async reconcileTerminal(
+    client: PoolClient,
+    input: AckOutcomeInput,
+    row: TerminalRow,
+  ): Promise<AckOutcomeResult> {
+    if (row.rejection_category !== RECONCILIATION_REQUIRED_CATEGORY) {
+      return { replayed: false, outcome: await this.applyReconciliation(client, input) };
+    }
+    if (!sameDocument(row.reconciliation_document_ref, input.documentRef)) {
+      throw new AckConflictError();
+    }
+    return { replayed: true, outcome: this.project(input.workItemRef, row) };
+  }
+
+  /**
+   * RT-333: the benign answer to a superseded attempt — never a 409, which the
+   * connector treats as an operator alarm. A terminal row echoes its stored
+   * outcome; a row still pending at the newer version answers
+   * `failed_transient` (it is re-offered on the feed), with no retry spent.
+   */
+  private supersededEcho(
+    workItemRef: string,
+    row: { status: string; document_ref: string | null; updated_at: Date },
+  ): RecordedOutcome {
+    if (row.status === "posted" || row.status === "permanently_rejected") {
+      return this.project(workItemRef, row);
+    }
+    return {
+      workItemRef,
+      outcome: "failed_transient",
+      documentRef: null,
+      recordedAt: row.updated_at.toISOString(),
+      dlqueued: false,
+    };
+  }
+
+  /** Apply a first-time outcome to a re-offerable row. */
+  private async transition(
+    client: PoolClient,
+    input: AckOutcomeInput,
+    row: { retry_count: number; current_resolution_version: number | null },
+  ): Promise<RecordedOutcome> {
+    switch (input.outcome) {
+      case "posted":
+        // RT-332: a post made from a superseded resolution version is not the
+        // intent's current one — record it for reconciliation, never as posted.
+        return isStaleResolution(input, row)
+          ? this.applyReconciliation(client, input)
+          : this.applyPosted(client, input);
+      case "reconciliation_required":
+        return this.applyReconciliation(client, input);
+      case "permanently_rejected":
+        return this.applyRejected(client, input.workItemRef, input.reason?.category ?? "other");
+      case "failed_transient":
+        return this.applyTransient(client, input.workItemRef, row.retry_count);
+    }
+  }
+
+  /** True when an already-terminal row matches the incoming ack (O-3 echo). */
+  private sameLogicalOutcome(
+    row: { status: string; document_ref: string | null; updated_at: Date },
+    input: AckOutcomeInput,
+  ): boolean {
+    if (row.status !== recordedKindOf(input.outcome)) return false;
+    if (row.status === "posted") {
+      const stored = parseDocRef(row.document_ref);
+      return (
+        stored !== null &&
+        input.documentRef !== undefined &&
+        stored.doctype === input.documentRef.doctype &&
+        stored.name === input.documentRef.name
+      );
+    }
+    return true; // permanently_rejected same-outcome re-ack — echo
+  }
+
+  private async applyPosted(
+    client: PoolClient,
+    input: AckOutcomeInput,
+  ): Promise<RecordedOutcome> {
+    if (!input.documentRef) {
+      // Defensive — the strict DTO requires documentRef on posted, so this is
+      // unreachable over HTTP. A direct caller omitting it is a VALIDATION error
+      // (400), not an idempotency conflict (409).
+      throw new AckValidationError(
+        "documentRef is required when outcome is 'posted'",
+      );
+    }
+    // RT-425 (RT-289 G2-4): posted_at is the ERP confirmation time — the
+    // server clock when this ack is applied. COALESCE keeps the first value: a
+    // duplicate ack echoes before reaching here, and this never overwrites it.
+    const documentRef = serializeDocRef(input.documentRef);
+    const r = await client.query<{ updated_at: Date; posted_at: Date }>(
+      `UPDATE erpnext_posting_status
+          SET status='posted', document_ref=$2, updated_at=now(),
+              posted_at=COALESCE(posted_at, now())
+        WHERE id=$1
+        RETURNING updated_at, posted_at`,
+      [input.workItemRef, documentRef],
+    );
+    // RT-426: the linked effects are confirmed by this document, at posted_at.
+    await applyPostingSignalToEffects(client, {
+      postingStatusId: input.workItemRef,
+      signal: "posted",
+      erpDocumentRef: documentRef,
+      erpConfirmedAt: r.rows[0]!.posted_at,
+    });
+    return {
+      workItemRef: input.workItemRef,
+      outcome: "posted",
+      documentRef: input.documentRef,
+      recordedAt: r.rows[0]!.updated_at.toISOString(),
+      dlqueued: false,
+    };
+  }
+
+  /**
+   * RT-332: dead-letter the row as `reconciliation_required`, keeping the ERP
+   * document the connector reported as evidence (`reconciliation_document_ref`).
+   */
+  private applyReconciliation(
+    client: PoolClient,
+    input: AckOutcomeInput,
+  ): Promise<RecordedOutcome> {
+    return this.applyRejected(
+      client,
+      input.workItemRef,
+      RECONCILIATION_REQUIRED_CATEGORY,
+      input.documentRef ? serializeDocRef(input.documentRef) : null,
+    );
+  }
+
+  private async applyRejected(
+    client: PoolClient,
+    workItemRef: string,
+    category: string,
+    reconciliationDocumentRef: string | null = null,
+  ): Promise<RecordedOutcome> {
+    const r = await client.query<{ updated_at: Date }>(
+      `UPDATE erpnext_posting_status
+          SET status='permanently_rejected', rejection_category=$2,
+              reconciliation_document_ref=$3, updated_at=now()
+        WHERE id=$1
+        RETURNING updated_at`,
+      [workItemRef, category, reconciliationDocumentRef],
+    );
+    // RT-426: the linked effects stand (DC-5) and record why ERP refused them.
+    await applyPostingSignalToEffects(client, {
+      postingStatusId: workItemRef,
+      signal:
+        category === RECONCILIATION_REQUIRED_CATEGORY
+          ? "reconciliation_required"
+          : "permanently_rejected",
+      erpDocumentRef: reconciliationDocumentRef,
+      stateReason: category,
+    });
+    // §VII reconciliation / DLQ signal — a posting row just dead-lettered. A
+    // SIGNAL: it never alters the ack outcome (the row is already updated above).
+    recordErpnextPostingReconciliation();
+    return {
+      workItemRef,
+      outcome: "permanently_rejected",
+      documentRef: null,
+      recordedAt: r.rows[0]!.updated_at.toISOString(),
+      dlqueued: true,
+    };
+  }
+
+  /**
+   * `failed_transient`: re-offer the row by re-heading its `sequence` to a fresh
+   * (globally-ahead) value so a connector that already advanced its cursor past
+   * the old sequence sees the row again — `UPDATE ... SET sequence = DEFAULT`
+   * draws `nextval` (the sanctioned exception for a GENERATED ALWAYS identity).
+   * Bounded: at `POSTING_RETRY_BUDGET` the row dead-letters instead of looping.
+   */
+  private async applyTransient(
+    client: PoolClient,
+    workItemRef: string,
+    retryCount: number,
+  ): Promise<RecordedOutcome> {
+    if (retryCount >= POSTING_RETRY_BUDGET) {
+      return this.applyRejected(client, workItemRef, "retry_budget_exhausted");
+    }
+    const r = await client.query<{ updated_at: Date }>(
+      `UPDATE erpnext_posting_status
+          SET status='pending', retry_count=retry_count+1,
+              sequence=DEFAULT, updated_at=now()
+        WHERE id=$1
+        RETURNING updated_at`,
+      [workItemRef],
+    );
+    // RT-426: the linked effects stay pending (the signal only checks them).
+    await applyPostingSignalToEffects(client, {
+      postingStatusId: workItemRef,
+      signal: "failed_transient",
+    });
+    return {
+      workItemRef,
+      outcome: "failed_transient",
+      documentRef: null,
+      recordedAt: r.rows[0]!.updated_at.toISOString(),
+      dlqueued: false,
+    };
+  }
+
+  /**
+   * Project a stored TERMINAL row into the 012 RecordedOutcome (the O-3 echo
+   * path). `recordedAt` echoes the row's STORED `updated_at`, so a repeated
+   * idempotent re-ack returns a byte-stable body (the contract's replay
+   * guarantee) rather than a fresh wall-clock stamp on each call.
+   */
+  private project(
+    workItemRef: string,
+    row: { status: string; document_ref: string | null; updated_at: Date },
+  ): RecordedOutcome {
+    return {
+      workItemRef,
+      outcome: row.status as RecordedOutcomeKind,
+      documentRef: parseDocRef(row.document_ref),
+      recordedAt: row.updated_at.toISOString(),
+      dlqueued: row.status === "permanently_rejected",
+    };
+  }
+}
+
+/** RT-332: the status a reported outcome is recorded with. */
+function recordedKindOf(outcome: AckOutcomeKind): RecordedOutcomeKind {
+  return outcome === "reconciliation_required" ? "permanently_rejected" : outcome;
+}
+
+/**
+ * RT-332: the connector echoed a resolution version that is not the row's
+ * current frozen version. Rows without a frozen version (pre-0037) and acks
+ * without an echo (older connectors) are never stale.
+ */
+function isStaleResolution(
+  input: AckOutcomeInput,
+  row: { current_resolution_version: number | null },
+): boolean {
+  return (
+    input.resolutionVersion !== undefined &&
+    row.current_resolution_version !== null &&
+    input.resolutionVersion !== row.current_resolution_version
+  );
+}
+
+/**
+ * RT-333: a `failed_transient` / `permanently_rejected` ack from a superseded
+ * resolution version reports on a resolution that no longer applies. (A stale
+ * `posted` / `reconciliation_required` still records reconciliation: an ERP
+ * document exists.)
+ */
+function isSupersededAttempt(
+  input: AckOutcomeInput,
+  row: { current_resolution_version: number | null },
+): boolean {
+  return (
+    (input.outcome === "failed_transient" || input.outcome === "permanently_rejected") &&
+    isStaleResolution(input, row)
+  );
+}
+
+/**
+ * RT-332: the ack reports that an ERP document exists that does not match the
+ * intent's current frozen resolution.
+ */
+function reportsReconciliation(
+  input: AckOutcomeInput,
+  row: { current_resolution_version: number | null },
+): boolean {
+  return (
+    input.outcome === "reconciliation_required" ||
+    (input.outcome === "posted" && isStaleResolution(input, row))
+  );
+}
+
+/**
+ * RT-332: the stored reconciliation evidence names the same document as the
+ * incoming ack. No stored evidence (a row upgraded before 0039) accepts any.
+ */
+function sameDocument(stored: string | null, incoming: AckDocumentRef | undefined): boolean {
+  const recorded = parseDocRef(stored);
+  if (recorded === null) return true;
+  return (
+    incoming !== undefined &&
+    recorded.doctype === incoming.doctype &&
+    recorded.name === incoming.name
+  );
+}

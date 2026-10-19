@@ -1,0 +1,1581 @@
+# 005-pos-catalog-sync-reconciliation — Execution Map (Agent OS v1)
+#
+# Authoritative state of the 005 spec for Maestro dispatch. Mirrors the task
+# plan in tasks.md but adds: slice status, agent assignments, allowed files,
+# validation contracts, findings (none yet), and proposed parallel groups.
+#
+# Schema reference: docs/agent-os/slice-schema.yaml
+# Wave summary:     specs/005-pos-catalog-sync-reconciliation/wave-status.md
+#
+# Updated: 2026-05-23 — after PR #299 + #304 closeout. Two Wave 1 slices merged:
+# 005-WAVE1-METRICS-ALLOWLIST (PR #299) and 005-WAVE1-SETUP (PR #304). 18
+# candidate slices remain at `status: proposed`.
+# Wave 2 slices not yet enumerated (blocked on 003's PHASE3_RED_WAVE — T350 + T383).
+#
+# Authoring sequence:
+#  - Spec authored:                                                       PR #293 @ 9d835eb (2026-05-23)
+#  - Plan + research + data-model + quickstart + contracts placeholder:   PR #294 @ 6895246 (2026-05-23)
+#  - Wave 1 tasks.md:                                                     PR #296 @ 5179682 (2026-05-23)
+#  - execution-map + wave-status initial authoring:                       PR #298 @ dd38594 (2026-05-23)
+#  - 005-WAVE1-METRICS-ALLOWLIST slice merged (gated allowlist + finding): PR #299 @ 28d1a0d (2026-05-23)
+#  - 005-WAVE1-SETUP slice merged (T500 module skeleton + T501 counters):  PR #304 @ 622e509 (2026-05-23)
+
+spec: 005-pos-catalog-sync-reconciliation
+version: 1
+base: origin/main  # 043c1c2 (PR #345, 005-WAVE1-IDEMP-EDGES merged 2026-05-26)
+
+# ----------------------------------------------------------------------------
+# findings
+# ----------------------------------------------------------------------------
+# Planning-time gaps surface here when they are non-trivial and require a
+# dedicated slice or amendment. Pre-implementation product decisions (e.g.,
+# PHASE3_RED_WAVE for Wave 2, header-name drift between spec/quickstart and
+# the existing interceptor) are recorded in plan.md §4 and tasks.md preamble,
+# not here.
+
+findings:
+  - id: 005-METRICS-ALLOWLIST-PRECONDITION
+    severity: high
+    discovered_in_slice_attempt: 005-WAVE1-SETUP   # first dispatch attempt, 2026-05-23
+    summary: |
+      T501 (register three Wave 1 catalog counters in api.metrics.ts) cannot
+      succeed within its declared `allowed_files`. The closed allowlist
+      `ALLOWED_METRIC_LABELS` in packages/shared/src/observability/metrics-labels.ts
+      gates every counter registration via `assertMetricLabels()` at module
+      load. None of `unknown_item_captured_total`,
+      `unknown_item_resolved_total`, or `idempotency_token_mismatch_total`
+      were allowlisted at tasks.md authoring time. Adding them requires
+      editing 004-owned observability schema files — outside T501's
+      `allowed_files` and forbidden to 005 by Standing Rules §3.
+    evidence:
+      - packages/shared/src/observability/metrics-labels.ts:111-150 (closed allowlist contents — source of truth #1)
+      - apps/api/src/observability/metrics/api.metrics.ts:75-86 (load-time assertMetricLabels calls)
+      - packages/shared/src/observability/metrics-labels.ts:177-211 (unregistered-metric throw path)
+      - apps/api/test/observability/cardinality.spec.ts:162-194 (drift-contract `expectedSignals` array — source of truth #3, discovered via CI failure on PR #299 first push 2026-05-23 when CI ran with a fresh `@data-pulse-2/shared` build while local jest had a stale dist symlink)
+    resolution_path: |
+      Path (b) chosen by owner: add a new `[GATED]` prerequisite slice
+      `005-WAVE1-METRICS-ALLOWLIST` that touches only the 004-owned files
+      (`packages/shared/src/observability/metrics-labels.ts` and
+      `docs/observability/signals.md`). 005-WAVE1-SETUP gains a
+      `depends_on: [005-WAVE1-METRICS-ALLOWLIST]` edge so T501 cannot
+      dispatch until the allowlist lands on `main`.
+    resolved_by_slice: 005-WAVE1-METRICS-ALLOWLIST
+    resolved_by_pr: 299
+    resolved_at_commit: 28d1a0d72725ffa93272dd2a2e9b912b11380cc4
+    resolved_at: 2026-05-23
+    notes: |
+      Planning fix only — no Wave 1 task IDs change. tasks.md T501's
+      acceptance criteria already assumed the counters would be registered;
+      the gap was that tasks.md didn't enumerate the upstream allowlist
+      precondition. The new slice is a planning correction, not a new
+      product requirement.
+
+# ----------------------------------------------------------------------------
+# slices — Wave 1 (capture path)
+# ----------------------------------------------------------------------------
+# All 19 candidate slices listed below at `status: proposed`. None have been
+# approved for dispatch. The 5 Phase 1+2 slices have full briefs authored;
+# Phase 3-6 slices carry minimal stubs referencing tasks.md as the brief
+# source-of-truth. Stubs will be expanded to full briefs as each slice
+# approaches dispatch.
+#
+# Per tasks.md §11.2, slices are dispatched in roughly phase order with
+# parallelism opportunities within each phase. See tasks.md §10.3.
+
+slices:
+
+  # ===== Phase 0: Cross-spec prerequisite (gated) ===========================
+  # The three Wave 1 catalog metrics (`unknown_item_captured_total`,
+  # `unknown_item_resolved_total{action}`, `idempotency_token_mismatch_total`)
+  # cannot be registered in `apps/api/src/observability/metrics/api.metrics.ts`
+  # (T501) without first allowlisting them in 004's closed metric-label
+  # registry. The registry's `assertMetricLabels` throws at module load on
+  # any unallowlisted metric name, which would fail the entire API test
+  # suite. This slice does the schema-only allowlist extension first.
+  #
+  # Discovered: 2026-05-23 during the first 005-WAVE1-SETUP dispatch
+  # attempt. See wave-status.md "Active findings" for the audit trail.
+
+  - id: 005-WAVE1-METRICS-ALLOWLIST
+    task_ids: []   # No task ids in tasks.md — this is a planning correction added after tasks.md merged. Tracked as a finding-driven slice.
+    type: docs
+    status: merged
+    merged_in_pr: 299
+    merged_at_commit: 28d1a0d72725ffa93272dd2a2e9b912b11380cc4
+    merged_at_date: 2026-05-23
+    previously_blocked:
+      - 005-WAVE1-SETUP
+    approval_required: true   # [GATED] — touches 004-owned observability schema (packages/shared/src/observability/** and docs/observability/**)
+    depends_on: []
+    blocks:
+      - 005-WAVE1-SETUP        # T501 cannot register the counters until this lands
+    agent: sonnet-api
+    allowed_files:
+      - packages/shared/src/observability/metrics-labels.ts                  # [GATED] — closed allowlist extension (source of truth #1)
+      - docs/observability/signals.md                                        # [GATED] — signal catalogue extension, new §1.1 (source of truth #2)
+      - apps/api/test/observability/cardinality.spec.ts                      # [GATED] — `expectedSignals` drift-contract array (source of truth #3 — discovered via CI failure on PR #299 first push)
+      - specs/005-pos-catalog-sync-reconciliation/execution-map.yaml         # self-amending: add this slice + the finding + SETUP depends_on edge
+      - specs/005-pos-catalog-sync-reconciliation/wave-status.md             # self-amending: surface the finding + new first dispatch
+    forbidden_files:
+      - apps/api/src/observability/metrics/api.metrics.ts          # belongs to T501 / 005-WAVE1-SETUP
+      - apps/api/src/catalog/**                                    # no instrument creation or emission in this slice
+      - .specify/memory/redaction-matrix.md                        # not touched — new counters have no labels that need redaction-matrix entries
+      - docs/observability/dashboards/**                           # dashboards extension is out of scope for this slice
+      - docs/observability/alerts/**                               # alerts extension is out of scope for this slice
+      - specs/005-pos-catalog-sync-reconciliation/spec.md          # product surface — not amended by this slice
+      - specs/005-pos-catalog-sync-reconciliation/plan.md          # product surface — not amended by this slice
+      - specs/005-pos-catalog-sync-reconciliation/tasks.md         # task list — T501's acceptance text already assumed registration; not amended here
+      - specs/005-pos-catalog-sync-reconciliation/research.md      # not amended
+      - specs/005-pos-catalog-sync-reconciliation/data-model.md    # not amended
+      - specs/005-pos-catalog-sync-reconciliation/quickstart.md    # not amended
+      - specs/005-pos-catalog-sync-reconciliation/contracts/**     # not amended
+      - specs/003-catalog-foundation/**                            # 003 is read-only for 005
+      - specs/004-platform-production-readiness/**                 # 004 spec docs not amended (only its owned observability files in allowed_files above)
+    validation:
+      - command: pnpm --filter @data-pulse-2/shared test "observability/metrics-labels"
+        expected: GREEN — new entries pass the closed-allowlist invariants (snake_case keys, no forbidden labels, no duplicates, every value is an array)
+        docker_required: false
+      - command: pnpm --filter @data-pulse-2/api test "observability/cardinality"
+        expected: GREEN — `apps/api/test/observability/cardinality.spec.ts` (T461) still passes; new entries are disjoint from FORBIDDEN_METRIC_LABELS
+        docker_required: false
+    stop:
+      - if any file outside allowed_files is modified
+      - if any existing entry in `ALLOWED_METRIC_LABELS` is altered
+      - if any new label is added that is not in the closed `action` set {linked, created, dismissed}
+      - if the docs section disturbs §1's existing T444 table (must add new §1.1, not edit §1)
+    report_fields:
+      - changed_files
+      - validation_results
+      - forbidden_path_check
+      - confirmation_no_unauthorized_git_ops
+    parallel_safety: unsafe   # gated cross-spec schema change — serialize before anything that consumes it
+    branch_template: "feat/005-wave1-metrics-allowlist"
+
+  # ===== Phase 1: Setup ====================================================
+
+  - id: 005-WAVE1-SETUP
+    task_ids: [T500, T501]
+    type: chore
+    status: merged
+    merged_in_pr: 304
+    merged_at_commit: 622e5091196409f145a38ef8458b1b23014ce17b
+    merged_at_date: 2026-05-23
+    previously_blocked:
+      - 005-WAVE1-CAPTURE-HAPPY
+      - 005-WAVE1-IDEMP-VERIFY
+      - 005-WAVE1-HARNESS
+    approval_required: false
+    depends_on:
+      - 005-WAVE1-METRICS-ALLOWLIST   # T501 requires the three new counters allowlisted upstream first
+    blocks:
+      - 005-WAVE1-CAPTURE-HAPPY
+      - 005-WAVE1-IDEMP-VERIFY
+      - 005-WAVE1-HARNESS
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/catalog/unknown-items/unknown-items.module.ts
+      - apps/api/src/observability/metrics/api.metrics.ts
+    forbidden_files:
+      - apps/api/src/catalog/unknown-items/unknown-items.service.ts          # belongs to T511
+      - apps/api/src/catalog/unknown-items/unknown-items.controller.ts       # belongs to T512
+      - packages/shared/src/observability/metrics-labels.ts                  # done in 005-WAVE1-METRICS-ALLOWLIST (predecessor)
+      - docs/observability/signals.md                                        # done in 005-WAVE1-METRICS-ALLOWLIST (predecessor)
+    validation:
+      - command: pnpm --filter @data-pulse-2/api build
+        expected: GREEN
+        docker_required: false
+      - command: pnpm --filter @data-pulse-2/api test "observability/metrics"
+        expected: GREEN (existing metrics suite still passes; three new counters registered)
+        docker_required: false
+    stop:
+      - if any file outside allowed_files is modified
+      - if existing counters (`recordIdempotencyConflict`, `recordIdempotencyReplay`, `recordIdempotencyInProgress`) are altered
+      - if 005-WAVE1-METRICS-ALLOWLIST is not yet merged on origin/main (the assertMetricLabels call at module load will throw on unallowlisted counters)
+    report_fields:
+      - changed_files
+      - validation_results
+      - forbidden_path_check
+      - confirmation_no_unauthorized_git_ops
+    parallel_safety: safe
+    branch_template: "chore/005-wave1-setup"
+
+  # ===== Phase 2: Foundational ==============================================
+
+  - id: 005-WAVE1-CONTRACT
+    task_ids: [T503, T504]
+    type: feat
+    status: merged
+    merged_in_pr: 315
+    merged_at_commit: 6cb4a1b3911a14b1cc6f4b40933d693317cbf4b5
+    merged_at_date: 2026-05-24
+    approval_required: true  # [GATED] — packages/contracts/openapi/** is a forbidden surface per Standing Rules §3
+    depends_on:
+      - 005-WAVE1-SETUP
+    blocks:
+      - 005-WAVE1-CAPTURE-HAPPY
+      - 005-WAVE1-LIST
+      - 005-WAVE1-DISMISS
+      - 005-WAVE1-IDEMP-WIRE
+    agent: sonnet-api
+    allowed_files:
+      - packages/contracts/openapi/catalog/unknown-items.yaml             # [GATED] — OpenAPI YAML
+      - apps/api/test/catalog/unknown-items/contract.spec.ts              # conformance test (apps/api Jest runner; mirrors apps/api/test/outbox/admin.contract.spec.ts precedent)
+    forbidden_files:
+      - packages/contracts/openapi/audit.openapi.yaml                 # do not edit existing contracts
+      - packages/contracts/openapi/auth.openapi.yaml
+      - packages/contracts/openapi/context.openapi.yaml
+      - packages/contracts/openapi/memberships.openapi.yaml
+      - packages/contracts/openapi/outbox.openapi.yaml
+      - packages/contracts/openapi/pos-audit-events.openapi.yaml
+      - packages/contracts/openapi/pos-operators.openapi.yaml
+      - packages/contracts/openapi/pos-shifts.openapi.yaml
+      - packages/contracts/openapi/stores.openapi.yaml
+      - packages/contracts/openapi/tenants.openapi.yaml
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/contract"
+        expected: GREEN — new unknown-items.contract.spec.ts asserts the new YAML is loadable, operationIds are unique vs. existing contracts, and the document conforms to existing schema/header conventions (Idempotency-Key cased and shaped like memberships.openapi.yaml)
+        docker_required: false
+      - command: pnpm --filter @data-pulse-2/api test "test/contract-conformance"
+        expected: GREEN — umbrella conformance suite continues to auto-discover every YAML under packages/contracts/openapi/ (including the new catalog/unknown-items.yaml) with no regressions
+        docker_required: false
+    stop:
+      - if the YAML edits any existing operationId
+      - if the contract uses `Idempotency-Token` instead of `Idempotency-Key` (must align to existing IdempotencyInterceptor convention; see tasks.md §5.2 note)
+      - if any file outside `packages/contracts/openapi/catalog/` or `apps/api/test/catalog/unknown-items/` is modified
+    report_fields:
+      - changed_files
+      - validation_results
+      - forbidden_path_check
+      - confirmation_no_unauthorized_git_ops
+      - recommended_commit_message
+    parallel_safety: unsafe   # gated contract — serialize before any impl
+    branch_template: "feat/005-wave1-contract"
+
+  - id: 005-WAVE1-IDEMP-VERIFY
+    task_ids: [T505]
+    type: test
+    status: merged
+    merged_in_pr: 306
+    merged_at_commit: 4c16451860f4108e7c85eb4a77ad9bc3751da960
+    merged_at_date: 2026-05-23
+    previously_blocked: []   # was always non-blocking (verification spec)
+    approval_required: false
+    depends_on:
+      - 005-WAVE1-SETUP
+    blocks: []   # T505 is a verification spec, not a hard predecessor for downstream slices — but its result determines whether Phase 4 needs any custom service code
+    agent: sonnet-test
+    allowed_files:
+      - apps/api/test/catalog/unknown-items/idempotency/existing-primitive-coverage.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/idempotency/existing-primitive-coverage"
+        expected: GREEN 4/4 — existing IdempotencyInterceptor satisfies FR-021/021a/021b/021c against a fake POS-principal context
+        docker_required: true
+    stop:
+      - if any of the 4 cases require modifications to `apps/api/src/idempotency/idempotency.interceptor.ts` (which is forbidden — 001-owned)
+      - if FR-021b's 72h default is somehow shorter than 24h (would indicate a regression in 001)
+    report_fields:
+      - changed_files
+      - validation_results
+      - forbidden_path_check
+      - confirmation_no_unauthorized_git_ops
+    parallel_safety: safe
+    branch_template: "test/005-wave1-idemp-verify"
+
+  - id: 005-WAVE1-HARNESS
+    task_ids: [T506, T507]
+    type: test
+    status: merged
+    merged_in_pr: 307
+    merged_at_commit: e7c41b04bacd75c594a10d52409b4946cadac0cf
+    merged_at_date: 2026-05-23
+    previously_blocked:
+      - 005-WAVE1-CAPTURE-HAPPY
+      - 005-WAVE1-CAPTURE-RESOLVE
+      - 005-WAVE1-CAPTURE-STORE-SCOPE
+      - 005-WAVE1-CAPTURE-DEDUP
+      - 005-WAVE1-LIST
+      - 005-WAVE1-DISMISS
+      - 005-WAVE1-NON-DISCLOSING
+    # Closeout note: T507's cross-tenant RED suite uses soft-skip
+    # (`serviceMissing()` returns early) instead of throwing — so CI on
+    # this branch stayed green while UnknownItemsService is absent. Once
+    # T511 ships the service, `serviceModuleError === null` flips the
+    # gate off and the assertions execute for real. The seed fixture and
+    # container lifecycle are exercised on every run regardless.
+    approval_required: false
+    depends_on:
+      - 005-WAVE1-SETUP
+    blocks:
+      - 005-WAVE1-CAPTURE-HAPPY
+      - 005-WAVE1-CAPTURE-RESOLVE
+      - 005-WAVE1-CAPTURE-STORE-SCOPE
+      - 005-WAVE1-CAPTURE-DEDUP
+      - 005-WAVE1-LIST
+      - 005-WAVE1-DISMISS
+      - 005-WAVE1-NON-DISCLOSING
+    agent: sonnet-test
+    allowed_files:
+      - apps/api/test/catalog/__support__/seed-unknown-items.ts
+      - apps/api/test/catalog/unknown-items/isolation/cross-tenant.spec.ts
+    forbidden_files:
+      - apps/api/test/catalog/__support__/isolation-harness.ts   # 003-owned, do not modify
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/__support__"
+        expected: GREEN — seed-unknown-items.ts compiles and is importable
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/isolation"
+        expected: GREEN — existing 003 isolation suites (T341 31/31, T342 17 pass + 4 todo, T343 35 pass + 4 todo, T344) unchanged
+        docker_required: true
+    stop:
+      - if isolation-harness.ts is modified (003-owned, T336/T340/T341 invariant)
+      - if existing 003 isolation suite counts change
+    report_fields:
+      - changed_files
+      - validation_results
+      - forbidden_path_check
+      - confirmation_no_unauthorized_git_ops
+    parallel_safety: safe
+    branch_template: "test/005-wave1-harness"
+
+  # ===== Phase 3: US1 Capture (P1 / MVP) ====================================
+
+  - id: 005-WAVE1-CAPTURE-HAPPY
+    task_ids: [T510, T511, T512]
+    type: feat
+    status: merged
+    merged_in_pr: 317
+    merged_at_commit: 5fc8549769c44771842328f5dd42050f4c30a1b8
+    merged_at_date: 2026-05-24
+    approval_required: false
+    depends_on:
+      - 005-WAVE1-SETUP
+      - 005-WAVE1-CONTRACT      # needs operationId from YAML
+      - 005-WAVE1-HARNESS       # needs seed-unknown-items.ts
+    blocks:
+      - 005-WAVE1-CAPTURE-RESOLVE
+      - 005-WAVE1-CAPTURE-STORE-SCOPE
+      - 005-WAVE1-CAPTURE-DEDUP
+      - 005-WAVE1-NON-DISCLOSING
+      - 005-WAVE1-IDEMP-WIRE
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/catalog/unknown-items/unknown-items.service.ts
+      - apps/api/src/catalog/unknown-items/unknown-items.controller.ts
+      - apps/api/src/catalog/unknown-items/unknown-items.module.ts
+      - apps/api/test/catalog/unknown-items/capture/capture-happy-path.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/capture/capture-happy-path"
+        expected: GREEN — T510 acceptance criteria met
+        docker_required: true
+    stop:
+      - if any 003 file is modified
+      - if any new SQL migration is created
+    report_fields:
+      - changed_files
+      - validation_results
+      - forbidden_path_check
+      - confirmation_no_unauthorized_git_ops
+    parallel_safety: unsafe   # shared service/controller files with downstream capture slices
+    branch_template: "feat/005-wave1-capture-happy"
+
+  - id: 005-WAVE1-CAPTURE-RESOLVE
+    task_ids: [T513, T514]
+    type: feat
+    status: merged
+    merged_in_pr: 321
+    merged_at_commit: f5e4a19dd93abdc2520e21f0661f803a3c563edf
+    merged_at_date: 2026-05-25
+    approval_required: false
+    depends_on: [005-WAVE1-CAPTURE-HAPPY]
+    blocks: [005-WAVE1-CAPTURE-STORE-SCOPE, 005-WAVE1-CAPTURE-DEDUP]
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/catalog/unknown-items/unknown-items.service.ts
+      - apps/api/src/catalog/unknown-items/unknown-items.controller.ts  # discriminated-union response, 200/201 status branching, audit-subject branch — required for `kind: "resolved"` path per contract
+      - apps/api/test/catalog/unknown-items/capture/capture-resolves-to-alias.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/capture/capture-resolves-to-alias"
+        expected: GREEN — alias-resolution prelude wins over capture
+        docker_required: true
+    stop: []
+    report_fields: [changed_files, validation_results, forbidden_path_check]
+    parallel_safety: unsafe   # shared service file
+    branch_template: "feat/005-wave1-capture-resolve"
+
+  - id: 005-WAVE1-CAPTURE-STORE-SCOPE
+    task_ids: [T515, T516]
+    type: feat
+    status: merged
+    merged_in_pr: 326
+    merged_at_commit: 9cae6b5d7f41b5f98f4a6d0f58d8dba1ba75fd92
+    merged_at_date: 2026-05-25
+    approval_required: false
+    depends_on: [005-WAVE1-CAPTURE-RESOLVE]
+    blocks: []
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/catalog/unknown-items/unknown-items.service.ts
+      - apps/api/test/catalog/unknown-items/capture/capture-store-scope.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/capture/capture-store-scope"
+        expected: GREEN — FR-030a store-scope respected at capture
+        docker_required: true
+    stop: []
+    report_fields: [changed_files, validation_results, forbidden_path_check]
+    parallel_safety: unsafe
+    branch_template: "feat/005-wave1-capture-store-scope"
+
+  - id: 005-WAVE1-CAPTURE-DEDUP
+    task_ids: [T517, T518]
+    type: feat
+    status: merged
+    merged_in_pr: 328
+    merged_at_commit: d3985137211a9c65a935e2e356f96386552c8424
+    merged_at_date: 2026-05-25
+    approval_required: false
+    depends_on: [005-WAVE1-CAPTURE-RESOLVE]
+    blocks: [005-WAVE1-FR005]
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/catalog/unknown-items/unknown-items.service.ts
+      - apps/api/test/catalog/unknown-items/capture/capture-deduplicates-pending.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/capture/capture-deduplicates-pending"
+        expected: GREEN — FR-032 natural dedup via idx_unknown_items_lookup_value
+        docker_required: true
+    stop: []
+    report_fields: [changed_files, validation_results, forbidden_path_check]
+    parallel_safety: unsafe
+    branch_template: "feat/005-wave1-capture-dedup"
+
+  - id: 005-WAVE1-VALIDATION
+    task_ids: [T519, T520]
+    type: feat
+    status: merged
+    merged_in_pr: 331
+    merged_at_commit: 290cbaa22cc928e154de8befd9eaf7c38fe5ffba
+    merged_at_date: 2026-05-25
+    approval_required: false
+    depends_on: [005-WAVE1-CAPTURE-HAPPY]
+    blocks: []
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/catalog/unknown-items/dto/capture-request.dto.ts
+      - apps/api/src/catalog/unknown-items/unknown-items.controller.ts
+      - apps/api/test/catalog/unknown-items/capture/capture-validation.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/capture/capture-validation"
+        expected: GREEN — FR-070/071/072 boundary rejection
+        docker_required: true
+    stop:
+      - if Zod schema diverges from 003 CHK constraints (unknown_items_identifier_type_valid, unknown_items_value_length, unknown_items_source_system_required)
+    report_fields: [changed_files, validation_results, forbidden_path_check]
+    parallel_safety: safe   # dto/ is a new file, controller is shared but the edit is decorator-only
+    branch_template: "feat/005-wave1-validation"
+
+  - id: 005-WAVE1-NON-DISCLOSING
+    task_ids: [T521, T522]
+    type: feat
+    status: merged
+    merged_in_pr: 332
+    merged_at_commit: c151aeb95a2b92047363733e5a2a5b3caed1228b
+    merged_at_date: 2026-05-25
+    approval_required: false
+    depends_on: [005-WAVE1-CAPTURE-HAPPY, 005-WAVE1-HARNESS]
+    blocks: []
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/catalog/unknown-items/unknown-items.service.ts
+      - apps/api/test/catalog/unknown-items/isolation/cross-tenant.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/isolation/cross-tenant"
+        expected: GREEN — SI-001/SI-004/FR-013/FR-092 non-disclosing
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/isolation/cross-tenant-read"
+        expected: GREEN 31/31 — T341 regression unchanged
+        docker_required: true
+    stop:
+      - if T341 regresses
+    report_fields: [changed_files, validation_results, forbidden_path_check]
+    parallel_safety: unsafe   # shared service file
+    branch_template: "feat/005-wave1-non-disclosing"
+
+  - id: 005-WAVE1-LIST
+    task_ids: [T523, T524]
+    type: feat
+    status: merged
+    merged_in_pr: 334
+    merged_at_commit: bdb582efa364e66f9397e101148bdfa816c89c2a
+    merged_at_date: 2026-05-25
+    approval_required: false
+    depends_on: [005-WAVE1-CONTRACT, 005-WAVE1-HARNESS]
+    previously_blocked: [005-WAVE1-DISMISS]
+    blocks: []   # DISMISS was the only blocker; cleared by this merge
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/catalog/unknown-items/unknown-items.service.ts
+      - apps/api/src/catalog/unknown-items/unknown-items.controller.ts
+      - apps/api/test/catalog/unknown-items/list/list-queue.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/list/list-queue"
+        expected: GREEN — FR-014 store-scoped vs tenant-wide visibility
+        docker_required: true
+    stop: []
+    report_fields: [changed_files, validation_results, forbidden_path_check]
+    parallel_safety: unsafe
+    branch_template: "feat/005-wave1-list"
+
+  # ===== Phase 4: US4 Idempotency (P2) ======================================
+
+  - id: 005-WAVE1-IDEMP-WIRE
+    task_ids: [T530, T531]
+    type: feat
+    status: merged
+    merged_in_pr: 336
+    merged_at_commit: d57efc6b026bd0cf095476d1022d020532675fba
+    merged_at_date: 2026-05-25
+    approval_required: false
+    depends_on: [005-WAVE1-IDEMP-VERIFY, 005-WAVE1-CAPTURE-HAPPY]
+    previously_blocked: [005-WAVE1-IDEMP-MISMATCH, 005-WAVE1-IDEMP-EDGES]
+    blocks: []
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/catalog/unknown-items/unknown-items.controller.ts   # add @Idempotent('required') decorator
+      - apps/api/test/catalog/unknown-items/idempotency/retry-identical.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/idempotency/retry-identical"
+        expected: GREEN — FR-021 identical retry replays
+        docker_required: true
+    stop: []
+    report_fields: [changed_files, validation_results, forbidden_path_check]
+    parallel_safety: unsafe
+    branch_template: "feat/005-wave1-idemp-wire"
+
+  - id: 005-WAVE1-IDEMP-MISMATCH
+    task_ids: [T532, T533]
+    type: feat
+    status: merged
+    merged_in_pr: 339
+    merged_at_commit: 0eef243c1fbf55fb4ca209c7dc8ae8b4ad36813e
+    merged_at_date: 2026-05-25
+    approval_required: false
+    depends_on: []   # IDEMP-WIRE merged via PR #336 (d57efc6); was sole blocker
+    previously_blocked: [005-WAVE1-AUDIT, 005-WAVE1-METRICS]
+    blocks: []
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/catalog/unknown-items/filters/idempotency-mismatch.filter.ts   # new file — small exception filter
+      - apps/api/src/catalog/unknown-items/unknown-items.module.ts                 # register the filter as a provider
+      - apps/api/src/catalog/unknown-items/unknown-items.controller.ts             # apply @UseFilters(IdempotencyMismatchFilter) to posCaptureItem; method-scope keeps filter off LIST/DISMISS/future routes per stop rule
+      - apps/api/test/catalog/unknown-items/idempotency/retry-mismatch.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/idempotency/retry-mismatch"
+        expected: GREEN — FR-021c catalog-domain audit + counter on existing 409
+        docker_required: true
+    stop:
+      - if the filter modifies the existing 001 IdempotencyInterceptor behavior on routes other than the capture route
+      - if @UseFilters is applied at the class level rather than method level (class-level would inherit to LIST/DISMISS, violating the stop rule above)
+    report_fields: [changed_files, validation_results, forbidden_path_check]
+    parallel_safety: safe   # new filter file, method-scoped to capture route
+    branch_template: "feat/005-wave1-idemp-mismatch"
+
+  - id: 005-WAVE1-IDEMP-EDGES
+    task_ids: [T534, T535, T536]
+    type: test
+    status: merged
+    merged_in_pr: 345
+    merged_at_commit: 043c1c2ce51083fadd95ea989b73f2ae743b297b
+    merged_at_date: 2026-05-26
+    approval_required: false
+    depends_on: []   # IDEMP-WIRE merged via PR #336 (d57efc6); CAPTURE-RESOLVE merged via PR #321; both predecessors cleared
+    blocks: []
+    agent: sonnet-test
+    allowed_files:
+      - apps/api/test/catalog/unknown-items/idempotency/cross-device-keys.spec.ts
+      - apps/api/test/catalog/unknown-items/idempotency/ttl-expiry.spec.ts
+      - apps/api/test/catalog/unknown-items/idempotency/post-resolved.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/idempotency"
+        expected: GREEN — FR-021a, FR-021b, FR-022
+        docker_required: true
+    stop: []
+    report_fields: [changed_files, validation_results, forbidden_path_check]
+    parallel_safety: safe   # three disjoint test files
+    branch_template: "test/005-wave1-idemp-edges"
+
+  - id: 005-WAVE1-IDEMP-STATUS-CAPTURE
+    task_ids: [T539a, T539b]
+    type: feat
+    status: merged
+    merged_in_pr: 324
+    merged_at_commit: 0c3638d0bcaa409cae13c2a9b7ca1e0da76c17a3
+    merged_at_date: 2026-05-25
+    approval_required: true   # [GATED] — apps/api/src/idempotency/** is normally 001-owned; this slice crosses spec boundary to fix the defect surfaced by PR #321 (see wave-status.md finding 005-IDEMP-STATUS-CAPTURE-DEFECT)
+    depends_on:
+      - 005-WAVE1-CAPTURE-RESOLVE   # tripwire test (it.skip on line ~389) lives in this slice's spec file; flipping .skip → it requires RESOLVE's merge
+    blocks:
+      - 005-WAVE1-LIST              # LIST returns non-201 successful responses; the fix is a hard precondition for its idempotency-replay correctness
+      - 005-WAVE1-DISMISS           # same reason as LIST
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/idempotency/idempotency.interceptor.ts                            # [GATED] — 001-owned; one-line fix at line 274 (read actual response status instead of hard-coding HttpStatus.CREATED)
+      - apps/api/test/idempotency/replay.spec.ts                                       # [GATED] — 001-owned; add regression test asserting non-201 status preservation through replay
+      - apps/api/test/catalog/unknown-items/capture/capture-resolves-to-alias.spec.ts  # flip the existing it.skip() tripwire at line ~389 to it() and re-enable the 005-side status assertion
+    forbidden_files:
+      - packages/contracts/openapi/**
+      - packages/db/**
+      - packages/shared/**
+      - apps/api/src/auth/**
+      - apps/api/src/audit/**
+      - apps/api/src/catalog/**         # do not touch the catalog module; the 005-side test edit is just .skip → it
+      - apps/api/src/idempotency/in-progress-marker.ts   # marker is a separate concern; this slice only touches the interceptor
+      - apps/api/test/idempotency/conflict.spec.ts       # other idempotency tests stay locked
+      - apps/api/test/idempotency/cross-tenant.spec.ts
+      - apps/api/test/idempotency/expiry.spec.ts
+      - apps/api/test/idempotency/in-progress.spec.ts
+      - apps/api/test/idempotency/marker-ttl.spec.ts
+      - apps/api/test/idempotency/missing-header.spec.ts
+      - apps/api/test/idempotency/authorization.spec.ts
+      - apps/api/test/idempotency/signals.spec.ts
+      - apps/api/test/catalog/unknown-items/capture/capture-happy-path.spec.ts   # CAPTURE-HAPPY's tests must stay green; this slice does not modify them
+      - packages/contracts/openapi/catalog/unknown-items.yaml
+      - apps/api/test/catalog/unknown-items/contract.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/idempotency/replay"
+        expected: GREEN — new regression test asserts non-201 status preservation through replay; existing 4 replay tests unchanged
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/capture/capture-resolves-to-alias"
+        expected: GREEN — the previously-skipped resolved-branch idempotency replay test (it.skip → it) now passes; the existing 2 tests stay green (3/3 total, no skips)
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/capture/capture-happy-path"
+        expected: GREEN — CAPTURE-HAPPY's 6 tests unchanged; regression guard since this slice's edit might silently affect any code path replaying responses
+        docker_required: true
+    stop:
+      - if the fix requires more than a one-line change at idempotency.interceptor.ts:274 (e.g., schema migration of StoredResult) → STOP and report; the interceptor's logic shouldn't need restructuring for this fix
+      - if the regression test reveals OTHER hard-coded fields in StoredResult that this slice should also fix → STOP and surface scope-expansion question to the user
+      - if CAPTURE-HAPPY's tests break (status-passthrough change shouldn't affect 201 handlers, but watch for it)
+      - if any file outside allowed_files is modified
+    report_fields:
+      - changed_files
+      - validation_results
+      - forbidden_path_check
+      - confirmation_no_unauthorized_git_ops
+      - recommended_commit_message
+    parallel_safety: unsafe   # gated 001-surface edit — serialize before LIST/DISMISS
+    branch_template: "feat/005-wave1-idemp-status-capture"
+
+  # ===== Phase 5: US5 Audit + Dismiss (P2) ==================================
+
+  - id: 005-WAVE1-DISMISS
+    task_ids: [T540, T541, T542, T543]
+    type: feat
+    status: merged
+    merged_in_pr: 341
+    merged_at_commit: 1ff755f358430e103a29a9dc01ae3107a0f5da98
+    merged_at_date: 2026-05-25
+    approval_required: false
+    depends_on: []   # LIST merged via PR #334 (bdb582e); was the sole blocker
+    previously_blocked: [005-WAVE1-FR005, 005-WAVE1-AUDIT]
+    blocks: []
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/catalog/unknown-items/unknown-items.service.ts
+      - apps/api/src/catalog/unknown-items/unknown-items.controller.ts
+      - apps/api/test/catalog/unknown-items/dismiss/dismiss-happy-path.spec.ts
+      - apps/api/test/catalog/unknown-items/dismiss/dismiss-monotonic.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/dismiss"
+        expected: GREEN — FR-002/003/004 monotonic lifecycle
+        docker_required: true
+    stop:
+      - if UPDATE clause omits WHERE resolution_status='pending' (would violate FR-004 monotonicity)
+    report_fields: [changed_files, validation_results, forbidden_path_check]
+    parallel_safety: unsafe
+    branch_template: "feat/005-wave1-dismiss"
+
+  - id: 005-WAVE1-FR005
+    task_ids: [T544, T545]
+    type: feat
+    status: merged
+    merged_in_pr: 343
+    merged_at_commit: 83eb81032755887e70c00e38726ce5cb330fbc97
+    merged_at_date: 2026-05-26
+    approval_required: false
+    depends_on: []   # CAPTURE-DEDUP merged via PR #328; DISMISS merged via PR #341 (1ff755f); both predecessors cleared
+    blocks: []
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/catalog/unknown-items/unknown-items.service.ts
+      - apps/api/test/catalog/unknown-items/capture/dismissed-then-resubmit.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/capture/dismissed-then-resubmit"
+        expected: GREEN — FR-005 fresh pending row after dismiss + resubmit
+        docker_required: true
+    stop: []
+    report_fields: [changed_files, validation_results, forbidden_path_check]
+    parallel_safety: unsafe
+    branch_template: "feat/005-wave1-fr005"
+
+  # ===== Phase 5 (hotfix): Cross-spec regression fix ========================
+  # Migration 0011 in 003-catalog-foundation PR #295 changed the
+  # tenant-wide read carve-out sentinel from '' (empty string) to '*'
+  # and made '' fail-closed.  Three call sites in UnknownItemsService
+  # (listForTenant, dismissUnknownItem, findByIdForTenant) still passed
+  # `input.storeId ?? ""`, so all three broke in CI when the next slice's
+  # tests ran against real Postgres.  This surgical 3-line fix was the
+  # prerequisite for #343 / #344 / #345 to clear db-integration CI.
+
+  - id: 005-WAVE1-DISMISS-CARVEOUT-FIX
+    task_ids: []   # unplanned hotfix — not in tasks.md; driven by 003 PR #295 cross-spec regression
+    type: fix
+    status: merged
+    merged_in_pr: 346
+    merged_at_commit: 08ab0445ff02fcae1430f99e21c7b1d8828f7af4
+    merged_at_date: 2026-05-26
+    approval_required: false
+    depends_on: []
+    blocks: []
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/src/catalog/unknown-items/unknown-items.service.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items"
+        expected: GREEN — all three affected call sites (listForTenant, dismissUnknownItem, findByIdForTenant) use '*' sentinel; db-integration CI passes
+        docker_required: true
+    stop:
+      - if any file outside allowed_files is modified
+    report_fields: [changed_files, validation_results, forbidden_path_check]
+    parallel_safety: safe   # surgical 3-line literal replacement; no behavioural change for store-scoped callers
+    branch_template: "fix/005-wave1-dismiss-carveout"
+
+  - id: 005-WAVE1-AUDIT
+    task_ids: [T546, T547, T548, T549, T550, T551]
+    type: test
+    # T546-T549 shipped (capture-audit.spec.ts + dismiss-audit.spec.ts).
+    # T550 (idempotency-mismatch-audit.spec.ts) + T551 ABSORBED INTO
+    # 005-WAVE1-METRICS-MISMATCH-FOLLOWUP as of 2026-05-28 (docs PR).
+    # Reason: PR #349 investigation proved the integration harness pattern
+    # (APP_INTERCEPTOR + TestingModule + @UseFilters) is broken for the
+    # mismatch path — see retry-mismatch.spec.ts:334-357. T550 cannot land
+    # as a standalone micro-slice; it requires the harness refactor that
+    # FOLLOWUP performs. Unit-level branch coverage exists at
+    # apps/api/test/catalog/unknown-items/filters/idempotency-mismatch.filter.unit.spec.ts
+    # (IMF1-5); production audit emit is wired in idempotency-mismatch.filter.ts
+    # and live (FR-082 satisfied at the wire). FOLLOWUP closes T532 + T550
+    # + T551 + T552-mismatch-case together.
+    status: merged
+    partial: true
+    deferred_tasks: [T550, T551]
+    merged_in_pr: 344
+    merged_at_commit: 0a7cb1049d9207e259c27de0487f2c44fff5fa1c
+    merged_at_date: 2026-05-26
+    approval_required: false
+    depends_on: []   # CAPTURE-HAPPY via PR #317, IDEMP-MISMATCH via PR #339, DISMISS via PR #341 (1ff755f) — all three predecessors cleared; DISMISS-CARVEOUT-FIX via PR #346 now also landed
+    blocks: []
+    agent: sonnet-test
+    allowed_files:
+      - apps/api/src/catalog/unknown-items/unknown-items.controller.ts   # @Auditable decorators on capture/dismiss
+      - apps/api/src/catalog/unknown-items/filters/idempotency-mismatch.filter.ts   # audit emission for mismatch
+      - apps/api/test/catalog/unknown-items/audit/capture-audit.spec.ts
+      - apps/api/test/catalog/unknown-items/audit/dismiss-audit.spec.ts
+      - apps/api/test/catalog/unknown-items/audit/idempotency-mismatch-audit.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/audit"
+        expected: GREEN — FR-080/082 audit emission for all 3 Wave 1 subjects
+        docker_required: true
+    stop: []
+    report_fields: [changed_files, validation_results, forbidden_path_check]
+    parallel_safety: safe   # three test files; controller and filter touch decorator-level changes only
+    branch_template: "test/005-wave1-audit"
+
+  - id: 005-WAVE1-METRICS
+    task_ids: [T552, T553]
+    type: test
+    # T553 (captured_total + dismissed_total counter increments) shipped.
+    # T552-mismatch-case (the describe.skip block in
+    # apps/api/test/catalog/unknown-items/audit/metrics.spec.ts) was left
+    # skipped because the integration harness for the mismatch path has been
+    # latently broken since PR #339 merged with red CI on the
+    # retry-mismatch.spec.ts suite.  Three fix-up attempts were documented in
+    # the PR #349 commit history and all were reverted to keep the branch
+    # green; the correct resolution requires a dedicated harness refactor
+    # tracked in the follow-up slice 005-WAVE1-METRICS-MISMATCH-FOLLOWUP.
+    status: merged
+    partial: true
+    deferred_tasks: [T552-mismatch-case]   # describe.skip in metrics.spec.ts; harness refactor needed. FOLLOWUP slice (005-WAVE1-METRICS-MISMATCH-FOLLOWUP) now also absorbs T550/T551 (see AUDIT slice notes above) and unskips T532 in retry-mismatch.spec.ts — four tasks closed by one harness refactor.
+    merged_in_pr: 349
+    merged_at_commit: 3e915b76507ad0e9b1733e1d3ceff74b8b6f3e2c
+    merged_at_date: 2026-05-26
+    approval_required: false
+    depends_on: []   # CAPTURE-HAPPY via PR #317, IDEMP-MISMATCH via PR #339, DISMISS via PR #341 (1ff755f) — all three predecessors cleared
+    blocks: []
+    previously_blocked: []   # blocks was already [] at authoring time; preserved for audit symmetry with AUDIT slice
+    agent: sonnet-test
+    allowed_files:
+      - apps/api/src/catalog/unknown-items/unknown-items.service.ts   # add counter-increment calls if needed
+      - apps/api/src/catalog/unknown-items/filters/idempotency-mismatch.filter.ts   # counter increment for mismatch
+      - apps/api/test/catalog/unknown-items/audit/metrics.spec.ts
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/audit/metrics"
+        expected: GREEN — FR-081 counter increments at all 3 emission sites
+        docker_required: true
+    stop: []
+    report_fields: [changed_files, validation_results, forbidden_path_check]
+    parallel_safety: unsafe   # touches service file
+    branch_template: "test/005-wave1-metrics"
+
+  # ===== METRICS mismatch-case harness follow-up ============================
+  # Context:
+  #   (1) Open question: is the mismatch path ACTUALLY broken in production, or
+  #       is it only the test harness that is wrong?  PR #349 commit history
+  #       shows the interceptor raises a ConflictException that the harness
+  #       Supertest client sees as a 409, but the spec expects the
+  #       IdempotencyMismatchFilter to catch that exception and re-emit metrics
+  #       BEFORE the 409 response.  It is unclear whether the filter fires
+  #       in the Supertest context or whether the harness wiring omits it.
+  #   (2) Three fix-up attempts in PR #349 (commits b8a9dd4, 3771569, c15f669):
+  #       all three were reverted or narrowed because they either broke the
+  #       broader test suite (interceptor change attempt), moved the skip without
+  #       fixing the underlying harness wiring (second attempt), or only restored
+  #       branch coverage via a unit spec without confirming the integration
+  #       assertion (third attempt — the IdempotencyMismatchFilter unit spec in
+  #       idempotency-mismatch.filter.unit.spec.ts).
+  #   (3) Two valid resolution paths for the follow-up:
+  #       Path A — fix the integration harness so the filter IS applied in the
+  #         Supertest context (likely requires adjusting how the test app module
+  #         is bootstrapped or ensuring @UseFilters is wired in the test module).
+  #       Path B — verify empirically that production behavior is correct (filter
+  #         does fire on a real app) and then reclassify the skip as a known
+  #         harness limitation with a clear comment, rather than a production bug.
+  #   (4) The follow-up's job: pick and execute one of the two paths, flip the
+  #       describe.skip to describe.only or remove it, and ensure both T532 and
+  #       T552-mismatch assertions pass GREEN under Docker/Testcontainers.
+
+  - id: 005-WAVE1-METRICS-MISMATCH-FOLLOWUP
+    task_ids: [T532, T550, T551, T552-mismatch-case]   # absorbed 2026-05-28 — see AUDIT slice deferred_tasks note
+    type: fix
+    status: complete-by-execution   # 2026-05-29 — all four tasks closed across PR #386 (diagnostics) → #389 (architectural pivot, T532 GREEN + catalog-collision branch coverage) → #390 (unskip T552-mismatch + author T550/T551 audit spec). Status reconciled from stale `proposed`; see wave-status §"Next recommended action".
+    closed_by_pr: 390   # final PR of the multi-PR slice (#386 → #389 → #390)
+    closed_at_date: 2026-05-29
+    approval_required: false
+    depends_on: []
+    blocks: []
+    agent: sonnet-test
+    # Scope (absorbed):
+    #   1. Refactor the mismatch-path integration harness — the shared
+    #      APP_INTERCEPTOR + TestingModule + @UseFilters pattern in
+    #      retry-mismatch.spec.ts / metrics.spec.ts caused the
+    #      ConflictException to escape Jest before any filter side-effect
+    #      ran (30s timeout, bare RxJS stack). PR #349 commits 30ca9e0
+    #      and 951ee84 tried two fixes with byte-identical CI output —
+    #      the pattern itself is wrong, tweaks don't unstick it.
+    #   2. Unskip T532 (retry-mismatch.spec.ts describe.skip block) and
+    #      assert the FR-021c mismatch contract end-to-end.
+    #   3. Unskip the T552-mismatch-case in metrics.spec.ts and assert
+    #      idempotency_token_mismatch_total increments at the right call
+    #      site.
+    #   4. Author T550 — apps/api/test/catalog/unknown-items/audit/
+    #      idempotency-mismatch-audit.spec.ts — proving the audit subject
+    #      unknown_item.idempotency_mismatch_rejected emits on the live
+    #      request path (FR-082). Unit-level branch coverage already
+    #      exists at filters/idempotency-mismatch.filter.unit.spec.ts
+    #      (IMF1-5); this spec adds the wiring-level guarantee.
+    # Sequencing: harness-refactor PR first; T532+T552 unskip + T550
+    # author can land in one or two follow-up PRs.
+    allowed_files:
+      - apps/api/test/catalog/unknown-items/audit/metrics.spec.ts
+      - apps/api/test/catalog/unknown-items/audit/idempotency-mismatch-audit.spec.ts   # T550 new file
+      - apps/api/test/catalog/unknown-items/idempotency/retry-mismatch.spec.ts
+      - apps/api/src/idempotency/idempotency.interceptor.ts
+      - apps/api/src/catalog/unknown-items/filters/idempotency-mismatch.filter.ts        # deleted in PR 2 (architectural pivot — see wave-status.md investigation update)
+      - apps/api/src/catalog/unknown-items/unknown-items.controller.ts                   # PR 2 (remove @UseFilters / @UseInterceptors — telemetry inlined in IdempotencyInterceptor)
+      - apps/api/src/catalog/unknown-items/unknown-items.module.ts                       # PR 2 (drop interceptor provider — telemetry inlined)
+      - apps/api/test/catalog/unknown-items/filters/idempotency-mismatch.filter.unit.spec.ts # deleted in PR 2 (filter unit spec — coverage replaced by integration assertions in retry-mismatch.spec.ts)
+      - apps/api/test/catalog/unknown-items/idempotency/ttl-expiry.spec.ts                              # PR 2 (remove interceptor provider entry — DI cleanup)
+      - apps/api/test/catalog/unknown-items/idempotency/cross-device-keys.spec.ts                       # PR 2 (pass auditSpy to IdempotencyInterceptor + DI cleanup)
+      - apps/api/test/catalog/unknown-items/idempotency/post-resolved.spec.ts                           # PR 2 (DI cleanup)
+      - apps/api/test/catalog/unknown-items/perf/capture-latency.spec.ts                                # PR 2 (DI cleanup)
+      - apps/api/src/observability/metrics/api.metrics.ts                                               # PR 2 (emission-site comment update)
+    validation:
+      command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/audit/metrics" "test/catalog/unknown-items/audit/idempotency-mismatch-audit" "test/catalog/unknown-items/idempotency/retry-mismatch"
+      expected: GREEN — T532 + T552-mismatch + T550 all pass against the refactored harness; production behavior confirmed correct or fixed
+      docker_required: true
+    stop: []
+    report_fields: [changed_files, validation_results, forbidden_path_check, harness_decision, production_behavior_verification]
+    parallel_safety: unsafe
+    branch_template: "fix/005-wave1-metrics-mismatch-followup"
+
+  # ===== Phase 6: Polish ====================================================
+  # WAVE 1 TERMINAL SLICE — its merge on 2026-05-26 marks Wave 1 feature-complete.
+  # All 21 implementation slices + 1 hotfix are now merged on main.
+  # Former deferred item 005-WAVE1-METRICS-MISMATCH-FOLLOWUP (harness fix-up) is
+  # now COMPLETE (PRs #386 → #389 → #390); see that slice's status below.
+
+  - id: 005-WAVE1-POLISH
+    task_ids: [T560, T561, T562, T563, T564]
+    type: chore
+    status: merged
+    merged_in_pr: 351
+    merged_at_commit: bb98ff4f7bd3b9f7433b3d899680db8b4531f8b1
+    merged_at_date: 2026-05-26
+    approval_required: false
+    depends_on: []   # METRICS cleared by PR #349 (merge commit 3e915b7, 2026-05-26); IDEMP-WIRE/DISMISS/IDEMP-MISMATCH/AUDIT all merged previously
+    # Previously depended on: 005-WAVE1-METRICS (PR #349), IDEMP-WIRE (PR #336), DISMISS (PR #341),
+    # IDEMP-MISMATCH (PR #339), AUDIT (PR #344 partial) — all merged.
+    blocks: []
+    previously_blocked: []   # blocks was already [] at authoring time; preserved for audit symmetry
+    agent: sonnet-test
+    allowed_files:
+      - apps/api/test/catalog/unknown-items/perf/capture-latency.spec.ts
+      - specs/005-pos-catalog-sync-reconciliation/wave-status.md       # closeout doc
+      - specs/005-pos-catalog-sync-reconciliation/spec.md              # header-name drift fixup (Idempotency-Token → Idempotency-Key)
+      - specs/005-pos-catalog-sync-reconciliation/quickstart.md        # header-name drift fixup
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/perf/capture-latency"
+        expected: GREEN — SC-008 p95 ≤ 500ms, p99 ≤ 1s on local Testcontainers
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/isolation"
+        expected: GREEN — T341/T342/T343/T344 unchanged (regression sweep)
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/api test "test/idempotency"
+        expected: GREEN — 001 idempotency suite unchanged (T562)
+        docker_required: true
+    stop:
+      - if any 003 isolation suite regresses
+      - if 001 idempotency suite regresses
+      - if perf test fails the SC-008 budget on a representative tenant catalog
+    report_fields:
+      - changed_files
+      - validation_results
+      - forbidden_path_check
+      - confirmation_no_unauthorized_git_ops
+    parallel_safety: safe   # author-time tasks; performance test runs independently
+    branch_template: "chore/005-wave1-polish"
+
+  # ===== Follow-up: T560 perf-budget flake stabilization =====================
+  # PREFLIGHT slice (authored 2026-05-28). The owning slice 005-WAVE1-POLISH is
+  # already merged (PR #351); the perf test `capture-latency.spec.ts` shipped
+  # GREEN there, but is intermittently RED on db-integration CI from runner
+  # variance — NOT a code regression. This slice exists so the stabilization
+  # work is dispatchable with a bounded contract instead of acting on a prose
+  # "follow-up" note. EXECUTED 2026-05-29 via PR #394 (mechanism (b) report-only
+  # gate) — status: complete-by-execution below.
+  #
+  # Observed flake (wave-status.md §Deferred T560): same-SHA back-to-back CI
+  # runs produced p95 = 760 ms (FAIL) then 446 ms (PASS) — a 1.7x spread on
+  # identical code against the 50k-product / 100k-alias full-scale fixture.
+  # Passing-run headroom only 10.8% (446 vs 500). Expected recurrence ~5-15%.
+  #
+  # CANNOT be reproduced or validated locally: docker_required perf assertions
+  # soft-skip without Docker (capture-latency.spec.ts:439), and the flake only
+  # manifests under the full-scale fixture on CI runners. CI is the only gate.
+  #
+  # EXECUTION DISCIPLINE — diagnostic-first (do NOT pick a mechanism blind):
+  #   1. Pull the PER-CALL latency distribution from a RED CI run (the spec
+  #      already console.logs p50/p95/p99/max; add per-call dump if needed
+  #      within allowed_files). The distribution SHAPE discriminates the fix:
+  #        - slowness concentrated in the first few (cold-start) calls
+  #          → warmup-discard is the right mechanism.
+  #        - whole-run slow (runner under load) → warmup-discard won't help;
+  #          quarantine / report-only is the honest answer.
+  #   2. Choose ONE candidate mechanism (listed below) based on that evidence.
+  #
+  # CANDIDATE MECHANISMS (enumerated, NOT pre-chosen — pick at execution time):
+  #   (a) Warmup-discard: run N (~5) un-measured warmup captures before the
+  #       sampled loop, or drop the first N from the percentile array. PRESERVES
+  #       the SC-008 assertions (p95<=500 / p99<=1000) — only measurement
+  #       methodology changes. Lowest-risk if cold-start is the culprit.
+  #   (b) Report-only / non-blocking perf gate: keep emitting p50/p95/p99 for
+  #       CI trend tracking but stop failing the build on them; track SC-008 in
+  #       a dedicated perf environment instead. Standard answer for an
+  #       inherently runner-noisy CI perf gate. Tradeoff: loses the in-CI SLA
+  #       enforcement signal — document the compensating perf-env tracking.
+  #   (c) Widen the asserted threshold (e.g. p95<=750). >>> GATED BY A STOP <<<
+  #       The 500 ms value is the encoded SC-008 SLA from spec.md §8, not a
+  #       test-tuning knob. Changing it silently redefines the verified SLA
+  #       (constitution §IV contract-first). See the stop condition.
+  - id: 005-WAVE1-T560-PERF-FLAKE
+    task_ids: [T560-flake]
+    type: chore
+    status: complete-by-execution   # 2026-05-29 — diagnostic-first executed, mechanism (b) report-only gate applied + merged via PR #394 (commit fd2544b). See `chosen_mechanism_with_evidence`. Follow-up (open, non-blocking): authoritative SC-008 enforcement in a dedicated contention-free perf environment.
+    closed_by_pr: 394
+    closed_at_date: 2026-05-29
+    chosen_mechanism_with_evidence: |
+      Mechanism (b) — report-only perf gate. RED-run diagnostic (CI run
+      26608290112, the only perf-assertion failure available) showed WHOLE-RUN
+      slowness, NOT cold-start outliers: p50=185.1 / p95=1372.5 / p99=2351.3 /
+      max=3188.2 ms, vs two PASS runs (26598377992: p50=109.8/p95=195.3/p99=284.3;
+      26595213890: p50=91.6/p95=129.4/p99=139.0). The median itself is ~1.8x
+      elevated on the failing run, so the entire distribution shifts up under
+      runner contention. This trips the slice's stop condition #2 (whole-run-slow
+      → warmup-discard cannot fix it) → mechanism (b) is the honest fix. The two
+      build-failing `expect(p95).toBeLessThanOrEqual(500)` / `expect(p99)...1000`
+      assertions were converted to a logged WITHIN/OVER soft-check. SC-008
+      threshold VALUES (500/1000) UNCHANGED — only build-blocking removed, so the
+      §IV / stop-condition-#1 guard is respected. Per-call 2xx success remains
+      build-gating. Authoritative SC-008 enforcement deferred to a dedicated
+      contention-free perf environment (recorded in wave-status).
+    approval_required: false   # touches only the perf spec + closeout doc; no GATED path
+    depends_on: []   # 005-WAVE1-POLISH (PR #351) already merged; this stabilizes its perf test
+    blocks: []
+    agent: sonnet-test
+    allowed_files:
+      - apps/api/test/catalog/unknown-items/perf/capture-latency.spec.ts   # the flaky perf test — measurement methodology only
+      - specs/005-pos-catalog-sync-reconciliation/wave-status.md            # closeout: record the chosen mechanism + evidence
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/perf/capture-latency"
+        expected: |
+          GREEN and STABLE across re-runs (mechanism (b) report-only, applied 2026-05-28).
+          The spec no longer fails the build on the SC-008 latency budget — it emits the
+          p50/p95/p99/max distribution and a WITHIN/OVER soft-check to the CI logs for trend
+          tracking, so runner-variance can no longer flip the suite RED. Build-gating is now
+          limited to per-call 2xx success (correctness). The SC-008 threshold VALUES
+          (p95 500ms / p99 1000ms) are UNCHANGED (stop-condition #1 respected — they remain
+          the SLA, now monitored/logged rather than CI-gate-enforced). Authoritative SC-008
+          enforcement is deferred to a dedicated contention-free perf environment (see
+          wave-status §"Next recommended action" / T560).
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/api test "test/idempotency"
+        expected: GREEN — 001 idempotency suite unchanged (no collateral regression)
+        docker_required: true
+    stop:
+      - standing-rules universal stops
+      - "STOP + escalate if the fix requires changing the asserted SC-008 threshold VALUES (p95 500ms / p99 1000ms) rather than measurement methodology — that is a spec.md §8 SLA change (constitution §IV contract-first), NOT a flake fix, and must not ride in on a test-file edit"
+      - "STOP if the RED-run per-call distribution shows whole-run slowness (not cold-start-concentrated) — warmup-discard will not fix it; report mechanism (b) quarantine/report-only as the recommendation and escalate before editing the gate"
+      - "STOP if stabilizing requires touching production code (the perf path itself) — that is an optimization slice, not a flake-stabilization slice; re-scope"
+    report_fields:
+      - changed_files
+      - validation_results
+      - forbidden_path_check
+      - chosen_mechanism_with_evidence   # which candidate (a/b/c) + the RED-run distribution that justified it
+      - confirmation_no_unauthorized_git_ops
+    parallel_safety: safe   # single test file; perf test runs independently of all other suites
+    branch_template: "chore/005-t560-perf-flake"
+
+# ----------------------------------------------------------------------------
+# Wave 2 slices — Reconciliation path (US2 link + create-new, US3 alias-conflict)
+# ----------------------------------------------------------------------------
+# Dependency cleared 2026-05-24:
+#   - 003 PHASE3_RED_WAVE fully merged (PR #300 TenantCatalogService.create,
+#     PR #301, PR #302, PR #303 ProductAliasesService.create).
+#   - T336 MISSING_WITHSTORE_HELPER resolved via PR #310 (store-GUC contract,
+#     path b — no new with-store.ts; tested via runWithTenantContext + manual
+#     SET LOCAL app.current_store in test helper).
+#
+# Architecture: ReconciliationService owns multi-row SQL (product INSERT +
+# alias INSERT + unknown_items UPDATE) inside a single runWithTenantContext
+# call. Does NOT compose TenantCatalogService.create (opens own transaction,
+# emits own catalog.product.create audit) or ProductAliasesService.create
+# (calls pool.query directly — no tenant GUC). Pattern mirrors StoresService.
+#
+# Task range: T600–T670  |  Slices: 005-WAVE2-*  |  Authored: 2026-05-24
+# Wave 2 tasks authored in tasks.md §§13–21 (appended 2026-05-24).
+
+  # ===== Wave 2 Phase 2: Gated contract extension ===========================
+
+  - id: 005-WAVE2-CONTRACT
+    task_ids: [T600, T601]
+    type: contract
+    status: merged   # [GATED] approval granted + merged via PR #353 @ 2b8b851 (2026-05-26). Status reconciled from stale `proposed`; the eight downstream Wave 2 slices it blocked all subsequently shipped (see wave-status "Merged on main" ledger).
+    merged_in_pr: 353
+    merged_at_commit: 2b8b851
+    approval_required: true   # [GATED] — extends packages/contracts/openapi/**
+    depends_on:
+      - 005-WAVE1-CONTRACT    # Wave 1 YAML must be merged first (T503/T504)
+    blocks:
+      - 005-WAVE2-CONFLICT
+      - 005-WAVE2-LINK-HAPPY
+      - 005-WAVE2-CREATE-HAPPY
+    agent: sonnet-api
+    allowed_files:
+      - packages/contracts/openapi/catalog/unknown-items.yaml             # [GATED] — extend with Wave 2 operationIds (tenantAdminLinkUnknownItem, tenantAdminCreateProductFromUnknownItem)
+      - apps/api/test/catalog/unknown-items/contract-wave2.spec.ts        # Wave 2 conformance test (apps/api Jest runner; mirrors PR #315 / #319 precedent for Wave 1)
+    forbidden_files:
+      - apps/api/src/catalog/**
+      - apps/api/test/catalog/unknown-items/contract.spec.ts   # Wave 1 conformance test — locked; this slice authors contract-wave2.spec.ts as a sibling
+      - apps/api/test/catalog/unknown-items/capture/**          # capture-* implementation tests live in Wave 1 / Phase 3 slices
+      - apps/api/test/catalog/unknown-items/idempotency/**      # idempotency tests live in 005-WAVE1-IDEMP-* slices
+      - apps/api/test/catalog/unknown-items/isolation/**        # 005-WAVE1-HARNESS owns these
+      - apps/api/test/catalog/__support__/**                    # harness fixtures (HARNESS slice owns)
+      - packages/db/**
+      - specs/003-catalog-foundation/**
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/contract-wave2"
+        expected: GREEN — new Wave 2 conformance spec asserts both tenantAdminLinkUnknownItem and tenantAdminCreateProductFromUnknownItem operationIds present, schemas resolve, and no operationId collision with Wave 1's three operationIds (posCaptureItem, tenantAdminListUnknownItems, tenantAdminDismissUnknownItem)
+        docker_required: false
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/contract"
+        expected: GREEN — Wave 1 contract conformance unchanged (no regression on the existing operationIds in the same YAML)
+        docker_required: false
+
+  # ===== Wave 2 Phase 3: US3 alias-conflict safety floor ====================
+
+  # NOTE (2026-05-26, PR #361): the two T610/T611 spec files originally
+  # authored under this slice hardcoded `controllers: [], providers: []`
+  # in their TestingModule (RED-by-design until LINK-HAPPY shipped a
+  # controller). After LINK-HAPPY (#355), LINK-EDGES (#359), and the
+  # exception filter fix (#360) landed, those specs remained RED purely
+  # because their TestingModule did not mount the controller — a
+  # module-wiring latent, not a src/ gap. PR #361 wires both specs to
+  # mount ReconciliationController + ReconciliationService + PG_POOL
+  # (localEnv.app) + AuditEmitterInterceptor; the validation contract
+  # below (`expected: RED`) is now stale. Treat as effectively GREEN
+  # post-#361; left as `proposed` to avoid inventing a non-existent
+  # absorbed-slice state. Will be observed-green by CI on PR #361.
+  - id: 005-WAVE2-CONFLICT
+    task_ids: [T610, T611]
+    type: test
+    status: merged   # PR #354 @ 0724361 (T610/T611 alias-conflict safety floor). Status reconciled from stale `proposed` 2026-05-29 — Wave 2 is COMPLETE on main per wave-status ledger.
+    merged_in_pr: 354
+    merged_at_commit: 0724361
+    approval_required: false
+    depends_on:
+      - 005-WAVE2-CONTRACT
+    blocks:
+      - 005-WAVE2-LINK-HAPPY
+      - 005-WAVE2-CREATE-HAPPY
+    agent: sonnet-api
+    parallel_safety: safe   # T610 + T611 spec files are disjoint
+    allowed_files:
+      - apps/api/test/catalog/reconciliation/conflict/alias-conflict.spec.ts         # T610
+      - apps/api/test/catalog/reconciliation/conflict/store-scoped-conflict.spec.ts  # T611
+      - apps/api/test/catalog/__support__/seed-unknown-items.ts                      # read-only ref; may add helpers
+    forbidden_files:
+      - apps/api/src/catalog/reconciliation/**      # no implementation in this RED-only slice
+      - packages/db/**
+      - specs/003-catalog-foundation/**
+    validation:
+      # Validation flipped from RED-by-design to GREEN in PR #361, which
+      # wired both T610/T611 specs to mount ReconciliationController +
+      # ReconciliationService. Before #361 the specs returned 404 on every
+      # POST regardless of src/ correctness — a TestingModule latent, not
+      # a service gap.
+      - command: pnpm --filter @data-pulse-2/api test "reconciliation/conflict"
+        expected: GREEN — specs mount ReconciliationController/ReconciliationService and validate live conflict behavior
+        docker_required: true
+
+  # ===== Wave 2 Phase 4: US2 #1 link reconciliation =========================
+
+  - id: 005-WAVE2-LINK-HAPPY
+    task_ids: [T620, T621, T622]
+    type: feature
+    status: merged
+    merged_in_pr: 355
+    merged_at_commit: f923fda94611120f6c907623e2755e2c5b0bf79c
+    merged_at_date: 2026-05-26
+    # Follow-up PRs landed on top of #355 immediately after merge:
+    #   - PR #356 (fix/005-wave2-conflict-request-body-snake-case, merge 89aeb16, 2026-05-26)
+    #     cross-slice snake_case fix on CONFLICT spec request bodies (latent
+    #     between PR #354 CONFLICT and PR #353 OpenAPI YAML). Touched only
+    #     test files owned by 005-WAVE2-CONFLICT; LINK-HAPPY allowed_files
+    #     unaffected.
+    #   - PR #357 (fix/005-wave2-link-happy-coderabbit-followup, merge cf55ef4, 2026-05-26)
+    #     CodeRabbit critical (impossible-state silent return -> throw) +
+    #     major (link-happy-path.spec.ts PG_POOL swap admin -> app for RLS-active
+    #     test path). Same allowed_files as this slice.
+    # Cross-cutting RLS-superuser audit finding surfaced by CodeRabbit's
+    # major; tracked in new slice 005-WAVE2-RLS-TEST-AUDIT below.
+    approval_required: false
+    depends_on:
+      - 005-WAVE2-CONFLICT
+    blocks:
+      - 005-WAVE2-LINK-EDGES
+      - 005-WAVE2-CREATE-HAPPY   # ReconciliationService (T621) created here; CREATE-HAPPY extends it
+      - 005-WAVE2-AUDIT
+      - 005-WAVE2-METRICS
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/test/catalog/reconciliation/link/link-happy-path.spec.ts              # T620 RED
+      - apps/api/src/catalog/reconciliation/reconciliation.service.ts                  # T621 GREEN (new file)
+      - apps/api/src/catalog/reconciliation/reconciliation.module.ts                   # module skeleton (new file)
+      - apps/api/src/catalog/reconciliation/reconciliation.controller.ts               # T622 GREEN (new file)
+    forbidden_files:
+      - apps/api/src/modules/catalog/tenant-catalog.service.ts    # 003-owned — read-only
+      - apps/api/src/modules/catalog/product-aliases.service.ts   # 003-owned — read-only
+      - packages/db/**
+      - specs/003-catalog-foundation/**
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "reconciliation/link/link-happy-path"
+        expected: GREEN — T620 passes
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/api test "reconciliation/conflict"
+        expected: RED still (conflict harness T610/T611 fail until GREEN impl lands); no new import errors
+        docker_required: true
+
+  # ===== Wave 2 cross-cutting: RLS-test-audit (surfaced by CodeRabbit on #355)
+  # Cross-cutting test-quality slice. CodeRabbit flagged link-happy-path.spec.ts
+  # for binding PG_POOL to localEnv.admin (superuser, bypasses RLS), masking
+  # potential RLS authorization regressions. PR #357 fixed that one file; a
+  # grep of the 005 catalog test suite found 9 more specs with the same
+  # pattern (7 plausibly orthogonal-concern, 2 data-path warranting swap).
+  # See wave-status.md "Wave 2 progress" entry 2026-05-26 for the full audit.
+
+  - id: 005-WAVE2-RLS-TEST-AUDIT
+    task_ids: []   # not in tasks.md — surfaced by CodeRabbit review on PR #355
+    type: fix
+    status: merged   # PR #363 (CodeRabbit follow-up: admin->app pool swap (2 specs) + justification comments (8 specs)). Status reconciled from stale `proposed` 2026-05-29 — Wave 2 is COMPLETE on main per wave-status ledger.
+    merged_in_pr: 363
+    merged_at_commit: 5fccf02
+    approval_required: false
+    depends_on:
+      - 005-WAVE2-LINK-HAPPY
+    blocks: []
+    agent: sonnet-test
+    parallel_safety: safe   # 10 disjoint test spec files; no shared service/controller edits
+    allowed_files:
+      - apps/api/test/catalog/unknown-items/capture/capture-happy-path.spec.ts        # data-path: swap admin -> app
+      - apps/api/test/catalog/unknown-items/capture/capture-resolves-to-alias.spec.ts # data-path: swap admin -> app
+      - apps/api/test/catalog/unknown-items/perf/capture-latency.spec.ts              # orthogonal: add justification comment
+      - apps/api/test/catalog/unknown-items/audit/metrics.spec.ts                     # orthogonal: add justification comment
+      - apps/api/test/catalog/unknown-items/audit/capture-audit.spec.ts               # orthogonal: add justification comment
+      - apps/api/test/catalog/unknown-items/idempotency/cross-device-keys.spec.ts     # orthogonal: add justification comment
+      - apps/api/test/catalog/unknown-items/idempotency/ttl-expiry.spec.ts            # orthogonal: add justification comment
+      - apps/api/test/catalog/unknown-items/idempotency/retry-mismatch.spec.ts        # orthogonal: add justification comment
+      - apps/api/test/catalog/unknown-items/idempotency/retry-identical.spec.ts       # orthogonal: add justification comment
+      - apps/api/test/catalog/unknown-items/idempotency/post-resolved.spec.ts         # orthogonal: add justification comment
+    forbidden_files:
+      - apps/api/src/**
+      - packages/contracts/openapi/**
+      - packages/db/**
+      - specs/003-catalog-foundation/**
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items/capture/capture-happy-path" "test/catalog/unknown-items/capture/capture-resolves-to-alias"
+        expected: GREEN — the two data-path specs still pass after swapping localEnv.admin -> localEnv.app; if any goes red, the surfaced RLS gap becomes a separate slice (escalate, do not paper over)
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/api test "test/catalog/unknown-items"
+        expected: GREEN — full 005 catalog suite unchanged; the 7 comment-only files compile and run
+        docker_required: true
+    stop:
+      - if any file outside allowed_files is modified
+      - if either data-path spec goes red after the pool swap (means the masked RLS gap is real — STOP and escalate, do not paper over)
+      - if any service/controller code is modified (this is a test-quality slice; production code stays untouched)
+    report_fields:
+      - changed_files
+      - validation_results
+      - forbidden_path_check
+      - confirmation_no_unauthorized_git_ops
+      - rls_gap_findings   # if pool swap surfaces a real RLS hole, document it here
+    branch_template: "fix/005-wave2-rls-test-audit"
+
+  - id: 005-WAVE2-LINK-EDGES
+    task_ids: [T623, T624, T625, T626]
+    type: feature
+    status: merged
+    merged_in_pr: 359
+    merged_at_commit: 9d72ef3a7a0d54848321e98617ff0647bec27109
+    merged_at_date: 2026-05-26
+    # Follow-up PRs that ride on the LINK-EDGES landing:
+    #   - PR #360 (fix/exception-filter-code-passthrough, merge 48b9a8b, 2026-05-26)
+    #     Wave 1 cross-cutting filter contract restoration. GlobalExceptionFilter
+    #     was overwriting every HttpException's error.code with the status-derived
+    #     canonical code ("conflict" for all 409s) — Constitution §IV (OpenAPI
+    #     fine-grained codes are contract-of-record) violation. Unblocked the
+    #     4 LINK-EDGES test failures (CR error.code reading "conflict" instead
+    #     of fine-grained code) AND latent contract violations across the
+    #     idempotency + Wave 1 unknown-items surfaces. See wave-status.md
+    #     "2026-05-26 — LINK-EDGES landed" for full surface unblocked.
+    #   - PR #361 (docs/005-wave2-link-edges-closeout, this PR) —
+    #     closeout + CodeRabbit nits on LINK-EDGES docblocks + CONFLICT
+    #     spec module-wiring (T610/T611 specs now mount the controller,
+    #     flipping 005-WAVE2-CONFLICT from RED-by-design to GREEN).
+    approval_required: false
+    depends_on:
+      - 005-WAVE2-LINK-HAPPY
+    blocks:
+      - 005-WAVE2-AUDIT
+    agent: sonnet-api
+    parallel_safety: safe   # T623 + T625 RED spec files are disjoint; T624 + T626 are GREEN fixups
+    allowed_files:
+      - apps/api/test/catalog/reconciliation/link/link-target-unavailable.spec.ts     # T623 RED
+      - apps/api/test/catalog/reconciliation/link/link-already-reconciled.spec.ts     # T625 RED
+      - apps/api/src/catalog/reconciliation/reconciliation.service.ts                  # T624 + T626 GREEN
+    forbidden_files:
+      - apps/api/src/modules/catalog/tenant-catalog.service.ts
+      - apps/api/src/modules/catalog/product-aliases.service.ts
+      - packages/db/**
+      - specs/003-catalog-foundation/**
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "reconciliation/link"
+        expected: GREEN — all four link spec files pass
+        docker_required: true
+
+  # ===== Wave 2 Phase 5: US2 #2 create-new reconciliation ==================
+
+  - id: 005-WAVE2-CREATE-HAPPY
+    task_ids: [T630, T631, T632]
+    type: feature
+    status: merged   # PR #364 @ 22dee63 (create-new product happy path (FR-060-063)). Status reconciled from stale `proposed` 2026-05-29 — Wave 2 is COMPLETE on main per wave-status ledger.
+    merged_in_pr: 364
+    merged_at_commit: 22dee63
+    approval_required: false
+    depends_on:
+      - 005-WAVE2-LINK-HAPPY    # ReconciliationService exists; CREATE-HAPPY extends it
+      - 005-WAVE2-CONFLICT
+    blocks:
+      - 005-WAVE2-CREATE-EDGES
+      - 005-WAVE2-AUDIT
+      - 005-WAVE2-METRICS
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/test/catalog/reconciliation/create/create-happy-path.spec.ts         # T630 RED
+      - apps/api/src/catalog/reconciliation/reconciliation.service.ts                  # T631 GREEN (extends)
+      - apps/api/src/catalog/reconciliation/reconciliation.controller.ts               # T632 GREEN (extends)
+    forbidden_files:
+      - apps/api/src/modules/catalog/tenant-catalog.service.ts    # 003-owned — NOT called for create-new
+      - apps/api/src/modules/catalog/product-aliases.service.ts   # 003-owned — NOT called for create-new
+      - packages/db/**
+      - specs/003-catalog-foundation/**
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "reconciliation/create/create-happy-path"
+        expected: GREEN — T630 passes; no catalog.product.create audit row emitted (dual-emission guard)
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/api test "reconciliation/link"
+        expected: GREEN — link tests not regressed by service extension
+        docker_required: true
+
+  - id: 005-WAVE2-CREATE-EDGES
+    task_ids: [T633, T634, T635, T636]
+    type: feature
+    status: merged   # PR #367 (create edge-case rejections (FR-062)). Status reconciled from stale `proposed` 2026-05-29 — Wave 2 is COMPLETE on main per wave-status ledger.
+    merged_in_pr: 367
+    merged_at_commit: 8700d2c
+    approval_required: false
+    depends_on:
+      - 005-WAVE2-CREATE-HAPPY
+    blocks:
+      - 005-WAVE2-AUDIT
+    agent: sonnet-api
+    parallel_safety: safe   # T633 + T635 RED spec files are disjoint
+    allowed_files:
+      - apps/api/test/catalog/reconciliation/create/create-alias-conflict.spec.ts     # T633 RED
+      - apps/api/test/catalog/reconciliation/create/create-validation.spec.ts         # T635 RED
+      - apps/api/src/catalog/reconciliation/reconciliation.service.ts                  # T634 GREEN
+      - apps/api/src/catalog/reconciliation/dto/create-product-request.dto.ts          # T636 DTO (new file)
+    forbidden_files:
+      - apps/api/src/modules/catalog/tenant-catalog.service.ts
+      - apps/api/src/modules/catalog/product-aliases.service.ts
+      - packages/db/**
+      - specs/003-catalog-foundation/**
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "reconciliation/create"
+        expected: GREEN — all four create spec files pass; no tenant_products row on conflict
+        docker_required: true
+
+  # ===== Wave 2 Phase 6: Audit, metrics, regression sweeps ==================
+
+  - id: 005-WAVE2-AUDIT
+    task_ids: [T640, T641, T642, T643, T644, T645]
+    type: test
+    status: merged   # PR #368 @ 2e6959e (Wave 2 audit subjects (FR-080/082)). Status reconciled from stale `proposed` 2026-05-29 — Wave 2 is COMPLETE on main per wave-status ledger.
+    merged_in_pr: 368
+    merged_at_commit: 2e6959e
+    approval_required: false
+    depends_on:
+      - 005-WAVE2-LINK-EDGES
+      - 005-WAVE2-CREATE-EDGES
+    blocks:
+      - 005-WAVE2-POLISH
+    agent: sonnet-api
+    parallel_safety: safe   # T640 + T642 + T644 RED spec files are disjoint
+    allowed_files:
+      - apps/api/test/catalog/reconciliation/audit/link-audit.spec.ts          # T640 RED
+      - apps/api/test/catalog/reconciliation/audit/create-audit.spec.ts        # T642 RED
+      - apps/api/test/catalog/reconciliation/audit/conflict-audit.spec.ts      # T644 RED
+      - apps/api/src/catalog/reconciliation/reconciliation.service.ts            # T641/T643/T645 fixups
+      - apps/api/src/catalog/reconciliation/reconciliation.controller.ts         # T641/T643 fixups
+    forbidden_files:
+      - packages/db/**
+      - specs/003-catalog-foundation/**
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "reconciliation/audit"
+        expected: GREEN — all three audit spec files pass; no dual-emission (catalog.product.create absent from create-new results)
+        docker_required: true
+
+  - id: 005-WAVE2-METRICS
+    task_ids: [T650, T651]
+    type: test
+    status: merged   # PR #372 (Wave 2 FR-081 counters). Status reconciled from stale `proposed` 2026-05-29 — Wave 2 is COMPLETE on main per wave-status ledger.
+    merged_in_pr: 372
+    merged_at_commit: 2b25656
+    approval_required: false
+    depends_on:
+      - 005-WAVE2-LINK-HAPPY
+      - 005-WAVE2-CREATE-HAPPY
+    blocks:
+      - 005-WAVE2-POLISH
+    agent: sonnet-api
+    allowed_files:
+      - apps/api/test/catalog/reconciliation/audit/metrics.spec.ts              # T650 RED
+      - apps/api/src/catalog/reconciliation/reconciliation.service.ts            # T651 GREEN counter increments
+      - apps/api/src/observability/metrics/api.metrics.ts                        # T651: add catalog_duplicate_alias_conflict_total to CATALOG_METRIC_NAMES if not already present (003 canonical name — not yet registered as of 2026-05-24)
+    forbidden_files:
+      - packages/db/**
+      - specs/003-catalog-foundation/**
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "reconciliation/audit/metrics"
+        expected: GREEN — unknown_item_resolved_total{action='linked'} + unknown_item_resolved_total{action='created'} + catalog_duplicate_alias_conflict_total (003 canonical name from tasks.md T603/003-tasks §9; verify CATALOG_METRIC_NAMES in api.metrics.ts before authoring T650 — register if absent per tasks.md T650 note) all increment at their call sites
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/api test "unknown-items/audit/metrics"
+        expected: GREEN — Wave 1 counter tests (T552) not regressed
+        docker_required: true
+
+  # ===== Wave 2 Phase 7: Polish & closeout ==================================
+
+  - id: 005-WAVE2-POLISH
+    task_ids: [T660, T661, T662, T670]
+    type: docs
+    status: merged   # PR #374 @ a96706d (T660-T662 regression + atomicity.spec.ts + closeout). Status reconciled from stale `proposed` 2026-05-29 — Wave 2 is COMPLETE on main per wave-status ledger.
+    merged_in_pr: 374
+    merged_at_commit: a96706d
+    approval_required: false
+    # T670 merge-audit (self-amending). The eight Wave 2 predecessor slices
+    # below are merged on origin/main (2026-05-26..27); POLISH (this slice) is
+    # still open and carries the closeout — it is NOT yet merged.
+    # Predecessor merges:
+    #   CONTRACT #353 @ 2b8b851 · CONFLICT #354 @ 0724361
+    #   LINK-HAPPY #355 @ f923fda (+#357) · LINK-EDGES #359 @ 9d72ef3
+    #   CREATE-HAPPY #364 @ 22dee63 (+#365) · CREATE-EDGES #367 @ 8700d2c
+    #   AUDIT #368 @ 2e6959e (+#369 coverage) · METRICS-ALLOWLIST #371 @ 69bd873 (gated)
+    #   METRICS #372 @ 2b25656 (+#373 create-path coverage)
+    # Wave 2 status: COMPLETE pending this POLISH merge.
+    depends_on:
+      - 005-WAVE2-AUDIT
+      - 005-WAVE2-METRICS
+    blocks: []
+    agent: sonnet-api
+    parallel_safety: safe   # T660 + T661 + T662 spec files are disjoint; T670 is docs-only
+    allowed_files:
+      - apps/api/test/catalog/reconciliation/integrity/atomicity.spec.ts        # T662 — SC-007 atomicity verification
+      - specs/005-pos-catalog-sync-reconciliation/wave-status.md                # T670 — Wave 2 closeout
+      - specs/005-pos-catalog-sync-reconciliation/execution-map.yaml            # T670 — self-amending merge audit fields
+    forbidden_files:
+      - packages/db/**
+      - specs/003-catalog-foundation/**
+    validation:
+      - command: pnpm --filter @data-pulse-2/api test "catalog/unknown-items"
+        expected: GREEN — all Wave 1 specs still pass (T660 regression sweep)
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/api test "catalog" --testPathPattern="isolation"
+        expected: GREEN — 003 isolation suites (T341–T344) still pass at established counts (T661)
+        docker_required: true
+      - command: pnpm --filter @data-pulse-2/api test "reconciliation/integrity/atomicity"
+        expected: GREEN — all fault-injection cases confirm full rollback (T662)
+        docker_required: true
+
+# ----------------------------------------------------------------------------
+# groups — phase cohorts (NOT flat-dispatchable waves)
+# ----------------------------------------------------------------------------
+# Groups below are **phase cohorts** for human-readable navigation of slices
+# that share a phase boundary. They are **NOT flat-dispatchable bundles**.
+# Members may have intra-group `depends_on` edges; Maestro MUST topologically
+# sort by the per-slice `depends_on` DAG before dispatching any member.
+#
+# `parallel_safety: safe` on a group reflects the schema's file/fixture
+# disjointness contract (docs/agent-os/slice-schema.yaml §parallel_safety):
+# group members do not write to overlapping files and do not share test
+# fixture state. It does **NOT** mean the members are dependency-flat.
+#
+# Where two or more members are dependency-independent of each other AND
+# their predecessors are merged, those subsets MAY be dispatched in parallel
+# worktrees. Where members have intra-group dependencies (e.g., one member
+# blocks another), Maestro serializes them per the DAG.
+#
+# See tasks.md §10.3 for the source-of-truth parallel-set analysis at the
+# RED-authoring level.
+
+groups:
+
+  - id: PHASE_0_1_2_COHORT
+    members:
+      - 005-WAVE1-METRICS-ALLOWLIST   # [GATED] — must land first
+      - 005-WAVE1-SETUP
+      - 005-WAVE1-IDEMP-VERIFY
+      - 005-WAVE1-HARNESS
+    parallel_safety: safe   # file/fixture disjoint per schema
+    proposed: true
+    # Intra-group DAG (strict serialization for the first two, then fanout):
+    #   METRICS-ALLOWLIST  blocks  SETUP  blocks  {IDEMP-VERIFY, HARNESS}
+    # METRICS-ALLOWLIST is [GATED] and must merge first (T501's assertion
+    # call at module load would otherwise throw on unallowlisted counters).
+    # After METRICS-ALLOWLIST merges and SETUP merges, IDEMP-VERIFY and
+    # HARNESS may dispatch in parallel worktrees (they touch disjoint test
+    # paths). File scope: METRICS-ALLOWLIST edits two 004-owned files only
+    # (metrics-labels.ts + signals.md §1.1); SETUP edits the catalog module
+    # dir + api.metrics.ts; IDEMP-VERIFY is one new spec file under
+    # .../idempotency/; HARNESS adds two new files under .../__support__/
+    # and .../isolation/.
+
+  - id: PHASE_3_COHORT
+    members:
+      - 005-WAVE1-CAPTURE-HAPPY
+      - 005-WAVE1-CAPTURE-RESOLVE
+      - 005-WAVE1-CAPTURE-STORE-SCOPE
+      - 005-WAVE1-CAPTURE-DEDUP
+      - 005-WAVE1-VALIDATION
+      - 005-WAVE1-NON-DISCLOSING
+      - 005-WAVE1-LIST
+    parallel_safety: safe   # RED spec files are disjoint per schema
+    proposed: true
+    # Intra-group DAG: CAPTURE-HAPPY is the root; CAPTURE-RESOLVE,
+    # VALIDATION, NON-DISCLOSING, LIST all `depends_on: CAPTURE-HAPPY`.
+    # CAPTURE-STORE-SCOPE and CAPTURE-DEDUP both `depends_on: CAPTURE-RESOLVE`.
+    # The group is NOT a flat dispatch wave. RED test authoring across
+    # members is parallel-safe (each spec file disjoint), but GREEN
+    # implementations serialize through unknown-items.service.ts and
+    # unknown-items.controller.ts. See tasks.md §10.3.
+
+  - id: PHASE_4_5_COHORT
+    members:
+      - 005-WAVE1-IDEMP-WIRE
+      - 005-WAVE1-IDEMP-MISMATCH
+      - 005-WAVE1-IDEMP-EDGES
+      - 005-WAVE1-DISMISS
+      - 005-WAVE1-FR005
+      - 005-WAVE1-AUDIT
+      - 005-WAVE1-METRICS
+    parallel_safety: safe   # RED spec files are disjoint per schema
+    proposed: true
+    # Intra-group DAG: IDEMP-WIRE `blocks` IDEMP-MISMATCH + IDEMP-EDGES.
+    # IDEMP-MISMATCH `blocks` AUDIT + METRICS. DISMISS `blocks` FR005 + AUDIT.
+    # See per-slice depends_on edges above. RED tests within disjoint spec
+    # files may dispatch in parallel where predecessors are merged; GREEN
+    # implementations serialize through the shared service/controller/filter
+    # files.
+
+
+# ----------------------------------------------------------------------------
+# Wave 2 groups
+# ----------------------------------------------------------------------------
+
+  - id: WAVE2_PHASE_2_3_COHORT
+    members:
+      - 005-WAVE2-CONTRACT    # [GATED] — must land first
+      - 005-WAVE2-CONFLICT
+    parallel_safety: safe
+    proposed: true
+    # Intra-group DAG: CONTRACT blocks CONFLICT.
+    # CONTRACT is [GATED] and must approve + merge before CONFLICT can dispatch.
+    # CONFLICT is RED-only — writes only to test spec files.
+
+  - id: WAVE2_PHASE_4_5_COHORT
+    members:
+      - 005-WAVE2-LINK-HAPPY
+      - 005-WAVE2-LINK-EDGES
+      - 005-WAVE2-CREATE-HAPPY
+      - 005-WAVE2-CREATE-EDGES
+    parallel_safety: safe   # RED spec files are disjoint; GREENs serialize through reconciliation.service.ts
+    proposed: true
+    # Intra-group DAG:
+    #   LINK-HAPPY blocks LINK-EDGES + CREATE-HAPPY.
+    #   CREATE-HAPPY blocks CREATE-EDGES.
+    #   LINK-EDGES and CREATE-HAPPY may dispatch in parallel once LINK-HAPPY merges.
+    # GREEN implementations all serialize through reconciliation.service.ts.
+
+  - id: WAVE2_PHASE_6_7_COHORT
+    members:
+      - 005-WAVE2-AUDIT
+      - 005-WAVE2-METRICS
+      - 005-WAVE2-POLISH
+    parallel_safety: safe   # AUDIT + METRICS spec files are disjoint; POLISH is docs-only
+    proposed: true
+    # Intra-group DAG: AUDIT + METRICS both block POLISH. AUDIT and METRICS
+    # may dispatch in parallel once their respective link/create predecessors merge.

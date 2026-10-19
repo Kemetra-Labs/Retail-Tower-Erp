@@ -1,0 +1,200 @@
+import "reflect-metadata";
+
+import { HttpException, NotFoundException } from "@nestjs/common";
+import type { Request, Response } from "express";
+
+import type { RateLimiter } from "../../src/auth/rate-limit";
+import { PairingController } from "../../src/pos-terminal-pairing/pairing.controller";
+import type { PairingService } from "../../src/pos-terminal-pairing/pairing.service";
+
+function requestWithIp(ip: string): Request {
+  return {
+    ip,
+    headers: { "x-forwarded-for": "203.0.113.250" },
+    socket: { remoteAddress: ip },
+  } as unknown as Request;
+}
+
+function responseStub(): jest.Mocked<Pick<Response, "setHeader">> {
+  return { setHeader: jest.fn() };
+}
+
+describe("PairingController source-IP limiter", () => {
+  it("counts an unknown pairing code before returning the non-disclosing 404", async () => {
+    const pair = jest.fn().mockResolvedValue({ kind: "invalid" });
+    const check = jest.fn().mockResolvedValue({
+      allowed: true,
+      count: 1,
+      remaining: 29,
+      resetMs: 60_000,
+    });
+    const controller = new PairingController(
+      { pair } as unknown as PairingService,
+      { check } as unknown as RateLimiter,
+    );
+
+    await expect(
+      controller.pair(
+        { pairing_code: "UNKNOWN-001" },
+        requestWithIp("192.0.2.10"),
+        responseStub() as unknown as Response,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(check).toHaveBeenCalledWith(
+      "pairing_ip",
+      "192.0.2.10",
+      expect.objectContaining({ limit: 30 }),
+    );
+    expect(pair).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 429 with bounded Retry-After before code lookup", async () => {
+    const pair = jest.fn();
+    const check = jest.fn().mockResolvedValue({
+      allowed: false,
+      count: 31,
+      remaining: 0,
+      resetMs: 999_000,
+    });
+    const res = responseStub();
+    const controller = new PairingController(
+      { pair } as unknown as PairingService,
+      { check } as unknown as RateLimiter,
+    );
+
+    let thrown: unknown;
+    try {
+      await controller.pair(
+        { pairing_code: "UNKNOWN-002" },
+        requestWithIp("192.0.2.11"),
+        res as unknown as Response,
+      );
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(HttpException);
+    expect((thrown as HttpException).getStatus()).toBe(429);
+    expect(res.setHeader).toHaveBeenCalledWith("Retry-After", "300");
+    expect(pair).not.toHaveBeenCalled();
+  });
+
+  it("uses Express req.ip and never parses an untrusted forwarded header", async () => {
+    const pair = jest.fn().mockResolvedValue({ kind: "invalid" });
+    const check = jest.fn().mockResolvedValue({
+      allowed: true,
+      count: 1,
+      remaining: 29,
+      resetMs: 60_000,
+    });
+    const controller = new PairingController(
+      { pair } as unknown as PairingService,
+      { check } as unknown as RateLimiter,
+    );
+
+    await expect(
+      controller.pair(
+        { pairing_code: "UNKNOWN-003" },
+        requestWithIp("192.0.2.12"),
+        responseStub() as unknown as Response,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(check.mock.calls[0]?.[1]).toBe("192.0.2.12");
+    expect(check.mock.calls[0]?.[1]).not.toBe("203.0.113.250");
+  });
+});
+
+describe("PairingController global wrong-code budget (RT-141)", () => {
+  const ALLOW = { allowed: true, count: 1, remaining: 29, resetMs: 60_000 };
+
+  function build(opts: { pairResult: unknown; guessAllowed?: boolean }) {
+    const pair = jest.fn().mockResolvedValue(opts.pairResult);
+    const check = jest.fn(async (bucket: string) =>
+      bucket === "pairing_invalid" && opts.guessAllowed === false
+        ? { allowed: false, count: 301, remaining: 0, resetMs: 120_000 }
+        : ALLOW,
+    );
+    const release = jest.fn().mockResolvedValue(undefined);
+    const controller = new PairingController(
+      { pair } as unknown as PairingService,
+      { check, release } as unknown as RateLimiter,
+    );
+    return { controller, pair, check, release };
+  }
+
+  async function call(controller: PairingController, res = responseStub()) {
+    return controller.pair(
+      { pairing_code: "SOME-CODE-0001" },
+      requestWithIp("192.0.2.20"),
+      res as unknown as Response,
+    );
+  }
+
+  it("a non-matching guess consumes the global budget (no release)", async () => {
+    const { controller, check, release } = build({ pairResult: { kind: "invalid" } });
+    await expect(call(controller)).rejects.toBeInstanceOf(NotFoundException);
+    expect(check).toHaveBeenCalledWith(
+      "pairing_invalid",
+      "global",
+      expect.objectContaining({ limit: 300 }),
+    );
+    expect(release).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ kind: "expired" }],
+    [{ kind: "already_paired" }],
+    [{ kind: "rate_limited", retryAfterSeconds: 60 }],
+  ])("a code that exists gives the hit back (%o)", async (pairResult) => {
+    const { controller, release } = build({ pairResult });
+    await expect(call(controller)).rejects.toBeInstanceOf(HttpException);
+    expect(release).toHaveBeenCalledWith("pairing_invalid", "global");
+  });
+
+  it("a successful pair gives the hit back", async () => {
+    const { controller, release } = build({ pairResult: { kind: "ok", body: { device_token: "t" } } });
+    await expect(call(controller)).resolves.toEqual({ device_token: "t" });
+    expect(release).toHaveBeenCalledWith("pairing_invalid", "global");
+  });
+
+  it("an exhausted budget answers the contract 429 before any code lookup", async () => {
+    const res = responseStub();
+    const { controller, pair } = build({ pairResult: { kind: "invalid" }, guessAllowed: false });
+    const err = await call(controller, res).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(HttpException);
+    expect((err as HttpException).getStatus()).toBe(429);
+    expect((err as HttpException).getResponse()).toEqual(
+      expect.objectContaining({ code: "RATE_LIMITED" }),
+    );
+    expect(res.setHeader).toHaveBeenCalledWith("Retry-After", "120");
+    expect(pair).not.toHaveBeenCalled();
+  });
+
+  it("a malformed body never touches the global budget", async () => {
+    const { controller, check } = build({ pairResult: { kind: "invalid" } });
+    await expect(
+      controller.pair({ nope: true }, requestWithIp("192.0.2.21"), responseStub() as unknown as Response),
+    ).rejects.toBeInstanceOf(HttpException);
+    expect(check.mock.calls.map((c) => c[0])).toEqual(["pairing_ip"]);
+  });
+});
+
+describe("PairingController — replacement codes (RT-367)", () => {
+  it("maps replacement_blocked to 409 REPLACEMENT_BLOCKED", async () => {
+    const pair = jest.fn().mockResolvedValue({ kind: "replacement_blocked" });
+    const check = jest.fn().mockResolvedValue({ allowed: true, count: 1, remaining: 29, resetMs: 60_000 });
+    const release = jest.fn().mockResolvedValue(undefined);
+    const controller = new PairingController(
+      { pair } as unknown as PairingService,
+      { check, release } as unknown as RateLimiter,
+    );
+    const err: unknown = await controller
+      .pair({ pairing_code: "REPLACE-CODE-01" }, requestWithIp("192.0.2.10"), responseStub() as unknown as Response)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(HttpException);
+    expect((err as HttpException).getStatus()).toBe(409);
+    expect((err as HttpException).getResponse()).toMatchObject({ code: "REPLACEMENT_BLOCKED" });
+  });
+});

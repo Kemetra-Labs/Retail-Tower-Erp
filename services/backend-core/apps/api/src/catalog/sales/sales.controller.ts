@@ -1,0 +1,505 @@
+/**
+ * SalesController — 008 US1 capture (T035).
+ *
+ * Implements the `captureSale` (+ `readSale`) operationIds from
+ * `packages/contracts/openapi/pos-sales/sales.yaml`:
+ *   POST /api/pos/v1/sales            → captureSale
+ *   GET  /api/pos/v1/sales/{saleRef}  → readSale
+ *
+ * Auth / context: mirrors `posCaptureItem` — `@UseGuards(PosOperatorAuthGuard,
+ * TenantContextGuard)` resolve the POS principal onto `req.context`; the
+ * tenant/store/actor come from there and are NEVER read from the body
+ * (FR-061). Body strictness (FR-062) is enforced by the `.strict()` Zod DTO.
+ *
+ * Idempotency: `@Idempotent("required")` engages the existing global
+ * IdempotencyInterceptor (FR-051) — no new primitive. Provenance dedup
+ * (FR-050) is enforced independently in the service, so a re-delivery with a
+ * different Idempotency-Key still resolves to the same sale.
+ *
+ * Audit: `@Auditable("sale.captured")` is passive metadata read by the global
+ * AuditEmitterInterceptor (FR-090). `readSale` emits one
+ * `pos_sales.detail_read` per authorized 200 (RT-548, OD-534-7), metadata
+ * `{ sale_ref }` only — no sale content.
+ *
+ * Status: 201 for a fresh capture; 200 with `Idempotent-Replayed: true` for a
+ * provenance dedup-hit (deterministic, identical body — FR-100).
+ */
+import {
+  BadRequestException,
+  Body,
+  ConflictException,
+  Controller,
+  ForbiddenException,
+  Get,
+  HttpStatus,
+  NotFoundException,
+  Param,
+  Post,
+  Req,
+  Res,
+  UnauthorizedException,
+  UnprocessableEntityException,
+  UseGuards,
+} from "@nestjs/common";
+import type { Response } from "express";
+
+import { annotateAudit, Auditable } from "../../audit/auditable.decorator";
+import { PosOperatorAuthGuard } from "../../auth/pos-operator-auth.guard";
+import { PosOperatorEnvelopeSaleGuard } from "../../auth/pos-operator-envelope-sale.guard";
+import { PosWriteRateLimitGuard } from "../../auth/pos-write-rate-limit.guard";
+import { PosWriteRateLimitBucket } from "../../auth/pos-write-rate-limit.decorator";
+import { DeviceBearer } from "../../auth/route-auth";
+import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { TenantContextGuard } from "../../context/tenant-context.guard";
+import type { TenantContextRequest } from "../../context/types";
+import { Idempotent } from "../../idempotency/idempotent.decorator";
+import { type CaptureSaleRequestDto } from "./dto/capture-sale-request.dto";
+import { CaptureSaleRequestPipe } from "./dto/capture-sale-request.pipe";
+import {
+  RecordVoidRequestSchema,
+  type RecordVoidRequestDto,
+} from "./dto/record-void-request.dto";
+import {
+  RecordRefundRequestSchema,
+  type RecordRefundRequestDto,
+} from "./dto/record-refund-request.dto";
+import {
+  RecordReturnRequestSchema,
+  type RecordReturnRequestDto,
+} from "./dto/record-return-request.dto";
+import { isPosReturnsEnabled } from "./returns-gate";
+import {
+  VoidApprovalInvalidError,
+  VoidApprovalRequiredError,
+  VoidApproverNotEligibleError,
+  VoidOutsideBusinessDayError,
+  VoidRequesterMismatchError,
+  VoidRequesterNotEligibleError,
+  VoidSelfApprovalError,
+} from "./void-approval";
+import { SaleCaptureAuthGuard } from "./sale-capture-auth.guard";
+import {
+  SaleResponsibilityMismatchError,
+  SaleResponsibilityOfflineRefusedError,
+  SaleResponsibilityPayerInvalidError,
+  SaleResponsibilityReplayConflictError,
+  SaleResponsibilityRoleRefusedError,
+} from "./sale-responsibilities";
+import {
+  SaleReturnsService,
+  type SaleReturnProjection,
+} from "./sale-returns.service";
+import {
+  CreditSaleReversalRestrictedError,
+  ReturnLineInvalidError,
+  ReturnOverReturnError,
+  ReturnQuantityNotWholeError,
+  ReturnTenderMismatchError,
+  SaleAlreadyReversedError,
+} from "./sale-reversal";
+import {
+  SalesService,
+  SaleLinePricingInvalidError,
+  SaleNotFoundError,
+  SaleTenderMismatchError,
+  SaleTenderReplayConflictError,
+  TerminalEventProvenanceConflictError,
+  type SaleProjection,
+  type TerminalEventProjection,
+} from "./sales.service";
+
+/**
+ * Map a capture service error to its contract response (RT-77). The filter's
+ * status fallback has no 422 case, so the code is passed explicitly.
+ */
+function toCaptureHttpError(err: unknown): unknown {
+  const responsibility = toResponsibilityHttpError(err);
+  if (responsibility !== null) return responsibility;
+  if (err instanceof SaleTenderMismatchError) {
+    return new UnprocessableEntityException({
+      code: "sale_tender_mismatch",
+      message: "tenders do not sum to posTotal",
+    });
+  }
+  if (err instanceof SaleLinePricingInvalidError) {
+    return new UnprocessableEntityException({
+      code: "sale_line_pricing_invalid",
+      message: "a sale line's price, amount or quantity breaks the price invariant",
+    });
+  }
+  if (err instanceof SaleTenderReplayConflictError) {
+    // The contract's single 409 wire code (sales.yaml `Conflict`): the same
+    // provenance reused with a different logical payload.
+    return new ConflictException({
+      code: "idempotency_key_conflict",
+      message: "sale already captured with different tenders",
+    });
+  }
+  return err;
+}
+
+/**
+ * RT-418 (sales.yaml 1.10.0-draft `CaptureForbidden` / `CaptureUnprocessable`
+ * / `Conflict`): the responsibility refusals, each one body for every cause;
+ * null for any other error.
+ */
+function toResponsibilityHttpError(err: unknown): unknown {
+  if (err instanceof SaleResponsibilityRoleRefusedError) {
+    return new ForbiddenException({ code: "sale_responsibility_role_refused", message: err.message });
+  }
+  if (err instanceof SaleResponsibilityOfflineRefusedError) {
+    return new UnprocessableEntityException({ code: "sale_responsibility_offline_refused", message: err.message });
+  }
+  if (err instanceof SaleResponsibilityMismatchError) {
+    return new UnprocessableEntityException({ code: "sale_responsibility_mismatch", message: err.message });
+  }
+  if (err instanceof SaleResponsibilityPayerInvalidError) {
+    return new UnprocessableEntityException({ code: "sale_responsibility_payer_invalid", message: err.message });
+  }
+  if (err instanceof SaleResponsibilityReplayConflictError) {
+    return new ConflictException({ code: "idempotency_key_conflict", message: err.message });
+  }
+  return null;
+}
+
+/** Canonical UUID shape (any version) — a saleRef that fails this never hits the DB. */
+const SALE_REF_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Map a void / return service error to its contract response. Every code is
+ * passed explicitly: the filter's status fallback has no 422 case.
+ */
+export function toReversalHttpError(err: unknown): unknown {
+  if (err instanceof SaleNotFoundError) {
+    // Cross-tenant / cross-store / unknown sale are indistinguishable.
+    return new NotFoundException("not_found");
+  }
+  if (err instanceof TerminalEventProvenanceConflictError) {
+    // Provenance reused for a different sale or payload → 409 (FR-013).
+    return new ConflictException("conflict");
+  }
+  if (err instanceof CreditSaleReversalRestrictedError) {
+    // RT-577: one body for every operator; nothing was recorded.
+    return new ForbiddenException({ code: "credit_sale_reversal_restricted", message: err.message });
+  }
+  if (err instanceof SaleAlreadyReversedError) {
+    return new ConflictException({ code: "already_reversed", message: "sale already reversed" });
+  }
+  if (err instanceof VoidApprovalRequiredError) {
+    return new ForbiddenException({ code: "void_approval_required", message: err.message });
+  }
+  if (err instanceof VoidApprovalInvalidError) {
+    return new UnprocessableEntityException({ code: "void_approval_invalid", message: err.message });
+  }
+  if (err instanceof VoidOutsideBusinessDayError) {
+    return new UnprocessableEntityException({ code: "void_outside_business_day", message: err.message });
+  }
+  if (err instanceof VoidRequesterMismatchError) {
+    return new ForbiddenException({ code: "void_requester_mismatch", message: err.message });
+  }
+  if (err instanceof VoidRequesterNotEligibleError) {
+    return new ForbiddenException({ code: "void_requester_not_eligible", message: err.message });
+  }
+  if (err instanceof VoidSelfApprovalError) {
+    return new ForbiddenException({ code: "void_self_approval", message: err.message });
+  }
+  if (err instanceof VoidApproverNotEligibleError) {
+    return new ForbiddenException({ code: "void_approver_not_eligible", message: err.message });
+  }
+  if (err instanceof ReturnOverReturnError) {
+    return new ConflictException({ code: "over_return", message: "return exceeds the returnable quantity" });
+  }
+  if (err instanceof ReturnTenderMismatchError) {
+    return new UnprocessableEntityException({
+      code: "return_tender_mismatch",
+      message: "refund tenders do not match the return total",
+    });
+  }
+  if (err instanceof ReturnLineInvalidError) {
+    return new BadRequestException({ code: "validation_error", message: "lineRef is not a line of this sale" });
+  }
+  if (err instanceof ReturnQuantityNotWholeError) {
+    return new BadRequestException({
+      code: "validation_error",
+      message: "quantity must be a whole number for a line sold in a whole quantity",
+    });
+  }
+  return err;
+}
+
+@Controller()
+export class SalesController {
+  constructor(
+    private readonly salesService: SalesService,
+    private readonly saleReturnsService: SaleReturnsService,
+  ) {}
+
+  @Post("api/pos/v1/sales")
+  // RT-224 (Option B): two alternative credentials. SaleCaptureAuthGuard runs
+  // the unchanged envelope guard, or — when the body carries `operatorUserId`
+  // — the device guard plus the cashier-admission check. @DeviceBearer makes
+  // the global FailClosedAuthGuard defer to it (its opaque-token lookup would
+  // reject a device token); both paths authenticate in the route guard.
+  // Guard order matters: the auth guard runs FIRST (resolves request.principal
+  // + the device), THEN the per-device rate limit (ADR 0009) throttles on that
+  // device. The rate limit fails open on a Redis/lookup error, so it never
+  // blocks a write the auth guard admitted.
+  @DeviceBearer()
+  @UseGuards(SaleCaptureAuthGuard, PosWriteRateLimitGuard)
+  @PosWriteRateLimitBucket("posWriteSale")
+  @Idempotent("required")
+  @Auditable("sale.captured")
+  async captureSale(
+    @Req() request: TenantContextRequest,
+    // RT-77: the schema is chosen per request by POS_SALE_TENDERS_ENABLED
+    // (default off → the pre-RT-77 strict body, `tenders` is a 400).
+    @Body(CaptureSaleRequestPipe)
+    body: CaptureSaleRequestDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SaleProjection> {
+    const ctx = request.context;
+    if (!ctx || ctx.tenantId === null || ctx.userId === null) {
+      throw new UnauthorizedException("Unauthorized");
+    }
+    if (ctx.storeId === null) {
+      // A POS sale MUST resolve a store binding (FR-001).
+      throw new UnauthorizedException("store_context_required");
+    }
+    // RT-77 (RT-10 D7(i)): the guard's resolved device is the sale's device —
+    // never a body field. A request the guard did not resolve to a device is
+    // refused (the settlement-intent precedent).
+    if (!request.posDeviceId) throw new UnauthorizedException("Unauthorized");
+
+    // RT-224: `operatorUserId` is the device path's attribution CLAIM. The
+    // guard verified it and published the cashier as ctx.userId, which is the
+    // only actor recorded. The claim is not a sale fact, so it is dropped
+    // before the service hashes the body into payload_hash.
+    // RT-225: `admissionCheckAt` is only the guard's window instant, not a
+    // sale fact either: dropped the same way, so payload_hash, the stored
+    // occurred_at / business_date and the posting feed are unchanged. (Both
+    // stay in the idempotency fingerprint, which covers the raw body.)
+    // RT-539: `receipt` is presentation, not a sale fact (sales.yaml 1.9.0):
+    // dropped from the hashed body and stored on its own, first write wins.
+    const {
+      operatorUserId: _attributionClaim,
+      admissionCheckAt: _admissionCheckAt,
+      receipt,
+      ...saleBody
+    } = body;
+
+    let result;
+    try {
+      result = await this.salesService.captureSale({
+        tenantId: ctx.tenantId,
+        storeId: ctx.storeId,
+        actorUserId: ctx.userId,
+        deviceId: request.posDeviceId,
+        // RT-418: the path SaleCaptureAuthGuard took, chosen by the same rule
+        // (the presence of `operatorUserId`); credit is envelope-only.
+        authPath: _attributionClaim === undefined ? "envelope" : "device",
+        body: saleBody,
+        ...(receipt === undefined ? {} : { receipt }),
+      });
+    } catch (err) {
+      throw toCaptureHttpError(err);
+    }
+
+    if (result.created) {
+      res.status(HttpStatus.CREATED);
+    } else {
+      // Provenance dedup-hit: deterministic replay, identical body (FR-100).
+      res.status(HttpStatus.OK);
+      res.setHeader("Idempotent-Replayed", "true");
+    }
+    return result.projection;
+  }
+
+  @Get("api/pos/v1/sales/:saleRef")
+  @UseGuards(PosOperatorAuthGuard, TenantContextGuard)
+  @Auditable("pos_sales.detail_read")
+  async readSale(
+    @Req() request: TenantContextRequest,
+    @Param("saleRef") saleRef: string,
+  ): Promise<SaleProjection> {
+    const ctx = request.context;
+    if (!ctx || ctx.tenantId === null) {
+      throw new UnauthorizedException("Unauthorized");
+    }
+    if (ctx.storeId === null) {
+      // Reads are store-scoped: a POS principal may only read sales captured
+      // within its own store (spec §120/§449, FR-063). Mirrors captureSale.
+      throw new UnauthorizedException("store_context_required");
+    }
+    if (!SALE_REF_RE.test(saleRef)) {
+      // Non-disclosing input guard: a malformed ref must not reach the DB (an
+      // invalid uuid would surface as a 500). Treat it as a safe-404.
+      throw new NotFoundException("not_found");
+    }
+    let projection: SaleProjection;
+    try {
+      projection = await this.salesService.readSaleProjection(
+        ctx.tenantId,
+        ctx.storeId,
+        saleRef,
+      );
+    } catch (err) {
+      if (err instanceof SaleNotFoundError) {
+        // Non-disclosing 404 — cross-tenant / cross-store / absent are
+        // indistinguishable (FR-063/102, SI-004).
+        throw new NotFoundException("not_found");
+      }
+      throw err;
+    }
+    // RT-548: identifiers only (FR-AUDIT-3, §XIV) — never line/tender/payer
+    // content. The interceptor emits only after a successful response.
+    annotateAudit(request, { sale_ref: saleRef });
+    return projection;
+  }
+
+  @Post("api/pos/v1/sales/:saleRef/void")
+  @UseGuards(PosOperatorEnvelopeSaleGuard)
+  @Idempotent("required")
+  @Auditable("sale.voided")
+  async recordVoid(
+    @Req() request: TenantContextRequest,
+    @Param("saleRef") saleRef: string,
+    @Body(new ZodValidationPipe(RecordVoidRequestSchema))
+    body: RecordVoidRequestDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<TerminalEventProjection> {
+    const ctx = request.context;
+    if (!ctx || ctx.tenantId === null || ctx.userId === null) {
+      throw new UnauthorizedException("Unauthorized");
+    }
+    if (ctx.storeId === null) {
+      throw new UnauthorizedException("store_context_required");
+    }
+    if (!SALE_REF_RE.test(saleRef)) {
+      // A malformed ref is a non-disclosing safe-404, never a 500 (SI-004).
+      throw new NotFoundException("not_found");
+    }
+    try {
+      const result = await this.salesService.recordVoid({
+        tenantId: ctx.tenantId,
+        storeId: ctx.storeId,
+        actorUserId: ctx.userId,
+        saleRef,
+        body,
+      });
+      if (result.created) {
+        res.status(HttpStatus.CREATED);
+      } else {
+        // Provenance dedup-hit: deterministic replay, no duplicate (FR-013).
+        res.status(HttpStatus.OK);
+        res.setHeader("Idempotent-Replayed", "true");
+      }
+      // RT-530: the `sale.voided` audit event names the approver and approval.
+      if (result.audit !== undefined) annotateAudit(request, { ...result.audit });
+      return result.projection;
+    } catch (err) {
+      throw toReversalHttpError(err);
+    }
+  }
+
+  /**
+   * RT-73 line-aware return (RT-14 D1–D3). Behind the AC4 deployment gate:
+   * until `POS_RETURNS_ENABLED` is on, the route answers 404 and records
+   * nothing, so no `return` reversal reaches a Connector that predates RT-16.
+   */
+  @Post("api/pos/v1/sales/:saleRef/returns")
+  @UseGuards(PosOperatorEnvelopeSaleGuard)
+  @Idempotent("required")
+  @Auditable("sale.returned")
+  async recordReturn(
+    @Req() request: TenantContextRequest,
+    @Param("saleRef") saleRef: string,
+    @Body(new ZodValidationPipe(RecordReturnRequestSchema))
+    body: RecordReturnRequestDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SaleReturnProjection> {
+    if (!isPosReturnsEnabled()) {
+      throw new NotFoundException("not_found");
+    }
+    const ctx = request.context;
+    if (!ctx || ctx.tenantId === null || ctx.userId === null) {
+      throw new UnauthorizedException("Unauthorized");
+    }
+    if (ctx.storeId === null) {
+      throw new UnauthorizedException("store_context_required");
+    }
+    if (!SALE_REF_RE.test(saleRef)) {
+      throw new NotFoundException("not_found");
+    }
+    try {
+      const result = await this.saleReturnsService.recordReturn({
+        tenantId: ctx.tenantId,
+        storeId: ctx.storeId,
+        actorUserId: ctx.userId,
+        saleRef,
+        body,
+      });
+      if (result.created) {
+        res.status(HttpStatus.CREATED);
+      } else {
+        // Provenance replay: identical stored return, no duplicate (FR-013).
+        res.status(HttpStatus.OK);
+        res.setHeader("Idempotent-Replayed", "true");
+      }
+      return result.projection;
+    } catch (err) {
+      throw toReversalHttpError(err);
+    }
+  }
+
+  @Post("api/pos/v1/sales/:saleRef/refund")
+  @UseGuards(PosOperatorEnvelopeSaleGuard)
+  @Idempotent("required")
+  @Auditable("sale.refunded")
+  async recordRefund(
+    @Req() request: TenantContextRequest,
+    @Param("saleRef") saleRef: string,
+    @Body(new ZodValidationPipe(RecordRefundRequestSchema))
+    body: RecordRefundRequestDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<TerminalEventProjection> {
+    const ctx = request.context;
+    if (!ctx || ctx.tenantId === null || ctx.userId === null) {
+      throw new UnauthorizedException("Unauthorized");
+    }
+    if (ctx.storeId === null) {
+      throw new UnauthorizedException("store_context_required");
+    }
+    if (!SALE_REF_RE.test(saleRef)) {
+      throw new NotFoundException("not_found");
+    }
+    try {
+      const result = await this.salesService.recordRefund({
+        tenantId: ctx.tenantId,
+        storeId: ctx.storeId,
+        actorUserId: ctx.userId,
+        saleRef,
+        body,
+      });
+      if (result.created) {
+        res.status(HttpStatus.CREATED);
+      } else {
+        res.status(HttpStatus.OK);
+        res.setHeader("Idempotent-Replayed", "true");
+      }
+      return result.projection;
+    } catch (err) {
+      if (err instanceof SaleNotFoundError) {
+        throw new NotFoundException("not_found");
+      }
+      if (err instanceof TerminalEventProvenanceConflictError) {
+        // Refund provenance reused for a different sale → 409 (FR-013).
+        throw new ConflictException("conflict");
+      }
+      if (err instanceof CreditSaleReversalRestrictedError) {
+        throw toReversalHttpError(err);
+      }
+      throw err;
+    }
+  }
+}

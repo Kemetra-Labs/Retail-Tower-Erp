@@ -1,0 +1,410 @@
+/**
+ * RT-173 (RT-83 option 2) — `PostingRequestedConsumer` reversal ordering guard,
+ * Docker-free unit spec.
+ *
+ * A reversal's erpnext_posting_status row is created only after its sale's
+ * `sale_post` row exists. Before that, `handle()` inserts nothing and throws the
+ * typed retryable `ReversalAwaitingSalePostError`, so the outbox drainer re-tries
+ * it with its normal backoff / dead-letter rules. The real-Postgres ordering
+ * proof (sequence order, RLS) lives in `posting-requested-consumer.spec.ts`.
+ *
+ * The pool is a scripted fake: it answers the consumer's SQL by shape and
+ * records every statement, so the tests assert what reached the database.
+ */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import type { Pool } from "pg";
+import { MAX_ATTEMPTS } from "@data-pulse-2/db";
+import type { OutboxEventEnvelope } from "@data-pulse-2/shared";
+
+import {
+  PostingRequestedConsumer,
+  ReversalAwaitingSalePostError,
+  type PostingRequestedPayload,
+} from "../../src/erpnext-posting/posting-requested.consumer";
+import * as workerMetrics from "../../src/observability/metrics/worker.metrics";
+
+const TENANT = "01900000-0000-7000-8000-0000000f1111";
+const PAYLOAD_TENANT = "01900000-0000-7000-8000-0000000f9999";
+const STORE = "01900000-0000-7000-8000-0000000f2222";
+const SALE = "01900000-0000-7000-8000-0000000f3333";
+const VOID_ID = "01900000-0000-7000-8000-0000000f4444";
+const EVENT_ID = "01900000-0000-7000-8000-0000000f5555";
+const CORRELATION_ID = "01900000-0000-7000-8000-0000000f6666";
+
+interface Recorded {
+  readonly sql: string;
+  readonly params: readonly unknown[];
+}
+
+/** A fake Pool whose single client answers the consumer's SQL by shape. */
+function fakePool(salePostExists: boolean): { pool: Pool; log: Recorded[] } {
+  const log: Recorded[] = [];
+  const query = async (sql: string, params: unknown[] = []) => {
+    log.push({ sql, params });
+    if (/kind = 'sale_post'/.test(sql)) {
+      return { rows: salePostExists ? [{ exists: 1 }] : [], rowCount: salePostExists ? 1 : 0 };
+    }
+    if (/FROM erpnext_warehouse_map/.test(sql)) return { rows: [{ count: "1" }], rowCount: 1 };
+    if (/FROM sale_lines/.test(sql)) return { rows: [{ count: "0" }], rowCount: 1 };
+    if (/INSERT INTO erpnext_posting_status/.test(sql)) return { rows: [{ id: "x" }], rowCount: 1 };
+    return { rows: [], rowCount: 0 };
+  };
+  const client = { query, release: () => undefined };
+  return { pool: { connect: async () => client } as unknown as Pool, log };
+}
+
+function reversalEvent(): OutboxEventEnvelope<PostingRequestedPayload> {
+  return {
+    event_id: EVENT_ID,
+    event_type: "erpnext.posting.requested",
+    tenant_id: TENANT,
+    store_id: STORE,
+    payload: { sale_id: SALE, store_id: STORE, kind: "reversal", source_ref_id: VOID_ID },
+    correlation_id: null,
+    attempts: 2,
+    occurred_at: new Date("2026-10-04T00:00:00.000Z"),
+  };
+}
+
+function salePostEvent(): OutboxEventEnvelope<PostingRequestedPayload> {
+  const ev = reversalEvent();
+  return { ...ev, payload: { ...ev.payload, kind: "sale_post", source_ref_id: SALE } };
+}
+
+const inserts = (log: Recorded[]) => log.filter((q) => /INSERT INTO erpnext_posting_status/.test(q.sql));
+const salePostChecks = (log: Recorded[]) => log.filter((q) => /kind = 'sale_post'/.test(q.sql));
+
+describe("PostingRequestedConsumer — RT-173 reversal waits for its sale_post row", () => {
+  it("reversal before the sale_post row exists → throws the typed retryable error and inserts nothing", async () => {
+    const { pool, log } = fakePool(false);
+    const consumer = new PostingRequestedConsumer(pool, { warn: jest.fn(), error: jest.fn() });
+
+    await expect(consumer.handle(reversalEvent())).rejects.toBeInstanceOf(ReversalAwaitingSalePostError);
+
+    expect(inserts(log)).toHaveLength(0);
+    expect(log.map((q) => q.sql)).toContain("ROLLBACK");
+  });
+
+  it("the deferral error is named, so the drainer records it as the outbox error class", async () => {
+    const { pool } = fakePool(false);
+    const consumer = new PostingRequestedConsumer(pool, { warn: jest.fn(), error: jest.fn() });
+
+    const err = await consumer.handle(reversalEvent()).catch((e: unknown) => e);
+
+    expect((err as Error).name).toBe("ReversalAwaitingSalePostError");
+  });
+
+  it("the sale_post check is scoped to the ENVELOPE tenant and the payload sale", async () => {
+    const { pool, log } = fakePool(false);
+    const consumer = new PostingRequestedConsumer(pool, { warn: jest.fn(), error: jest.fn() });
+    const ev = reversalEvent();
+    const tampered = { ...ev, payload: { ...ev.payload, tenant_id: PAYLOAD_TENANT } };
+
+    await consumer.handle(tampered).catch(() => undefined);
+
+    const [check] = salePostChecks(log);
+    expect(check?.params).toEqual([TENANT, SALE]);
+    expect(check?.sql).toMatch(/tenant_id = \$1/);
+  });
+
+  it("logs a 'reversal deferred' warning with identifiers only", async () => {
+    const { pool } = fakePool(false);
+    const warn = jest.fn();
+    const consumer = new PostingRequestedConsumer(pool, { warn, error: jest.fn() });
+
+    await consumer.handle(reversalEvent()).catch(() => undefined);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      {
+        event: "posting.reversal.deferred",
+        // RT-216: signals.md §4 async-work fields, from the same sources as the
+        // RT-207 dead-letter log. The deferred attempt fails (it throws and is
+        // retried), so outcome is "failure"; request_id is the job's unique id
+        // (the outbox event); correlation_id is null when the envelope has none.
+        outcome: "failure",
+        request_id: EVENT_ID,
+        correlation_id: null,
+        tenant_id: TENANT,
+        store_id: STORE,
+        sale_id: SALE,
+        source_ref_id: VOID_ID,
+        event_id: EVENT_ID,
+        attempts: 2,
+      },
+      "reversal deferred: sale_post row not created yet",
+    );
+  });
+
+  it("the deferred warning carries the envelope correlation_id when there is one (RT-216)", async () => {
+    const { pool } = fakePool(false);
+    const warn = jest.fn();
+    const consumer = new PostingRequestedConsumer(pool, { warn, error: jest.fn() });
+    const correlated = { ...reversalEvent(), correlation_id: CORRELATION_ID };
+
+    await consumer.handle(correlated).catch(() => undefined);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toMatchObject({ correlation_id: CORRELATION_ID });
+  });
+
+  it("reversal after the sale_post row exists → the reversal row is inserted, no warning", async () => {
+    const { pool, log } = fakePool(true);
+    const warn = jest.fn();
+    const consumer = new PostingRequestedConsumer(pool, { warn, error: jest.fn() });
+
+    await consumer.handle(reversalEvent());
+
+    expect(inserts(log)).toHaveLength(1);
+    expect(inserts(log)[0]?.params[4]).toBe("reversal");
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("a sale_post event is never gated (no sale_post existence check, row inserted)", async () => {
+    const { pool, log } = fakePool(false);
+    const consumer = new PostingRequestedConsumer(pool, { warn: jest.fn(), error: jest.fn() });
+
+    await consumer.handle(salePostEvent());
+
+    expect(salePostChecks(log)).toHaveLength(0);
+    expect(inserts(log)).toHaveLength(1);
+  });
+});
+
+// RT-207: the outbox dead-letter of a reversal still awaiting its sale_post is
+// the record of truth, so it must be countable and logged. The drainer
+// dead-letters the row whose claim carries attempts >= MAX_ATTEMPTS.
+describe("PostingRequestedConsumer — RT-207 reversal dead-letter while awaiting sale_post", () => {
+  const atAttempt = (
+    attempts: number,
+    ev: OutboxEventEnvelope<PostingRequestedPayload> = reversalEvent(),
+  ): OutboxEventEnvelope<PostingRequestedPayload> => ({ ...ev, attempts });
+
+  let counter: jest.SpyInstance;
+  beforeEach(() => {
+    counter = jest
+      .spyOn(workerMetrics, "recordErpnextPostingReversalDeferredDeadLetter")
+      .mockImplementation(() => undefined);
+  });
+
+  it("final attempt still awaiting sale_post → counts once and logs one structured error", async () => {
+    const { pool } = fakePool(false);
+    const error = jest.fn();
+    const consumer = new PostingRequestedConsumer(pool, { warn: jest.fn(), error });
+
+    await expect(consumer.handle(atAttempt(MAX_ATTEMPTS))).rejects.toBeInstanceOf(
+      ReversalAwaitingSalePostError,
+    );
+
+    expect(counter).toHaveBeenCalledTimes(1);
+    expect(counter).toHaveBeenCalledWith();
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith(
+      {
+        event: "posting.reversal.dead_lettered",
+        outcome: "failure",
+        // signals.md §4 async-work fields: request_id is the job's unique id
+        // (the outbox event), correlation_id is null when the envelope has none.
+        request_id: EVENT_ID,
+        correlation_id: null,
+        tenant_id: TENANT,
+        store_id: STORE,
+        sale_id: SALE,
+        source_ref_id: VOID_ID,
+        event_id: EVENT_ID,
+        attempts: MAX_ATTEMPTS,
+      },
+      "reversal dead-lettered: its sale_post row never appeared",
+    );
+  });
+
+  it("the dead-letter log carries identifiers only (no payload, no money, no PII)", async () => {
+    const { pool } = fakePool(false);
+    const error = jest.fn();
+    const consumer = new PostingRequestedConsumer(pool, { warn: jest.fn(), error });
+
+    await consumer.handle(atAttempt(MAX_ATTEMPTS)).catch(() => undefined);
+
+    const [fields] = error.mock.calls[0] as [Record<string, unknown>];
+    expect(Object.keys(fields).sort()).toEqual([
+      "attempts",
+      "correlation_id",
+      "event",
+      "event_id",
+      "outcome",
+      "request_id",
+      "sale_id",
+      "source_ref_id",
+      "store_id",
+      "tenant_id",
+    ]);
+  });
+
+  it("the dead-letter log carries the envelope correlation_id when there is one", async () => {
+    const { pool } = fakePool(false);
+    const error = jest.fn();
+    const consumer = new PostingRequestedConsumer(pool, { warn: jest.fn(), error });
+    const correlated = { ...atAttempt(MAX_ATTEMPTS), correlation_id: CORRELATION_ID };
+
+    await consumer.handle(correlated).catch(() => undefined);
+
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error.mock.calls[0]?.[0]).toMatchObject({ correlation_id: CORRELATION_ID });
+  });
+
+  it("an attempt before the last (a retried deferral) neither counts nor logs an error", async () => {
+    const { pool } = fakePool(false);
+    const error = jest.fn();
+    const consumer = new PostingRequestedConsumer(pool, { warn: jest.fn(), error });
+
+    for (let attempts = 1; attempts < MAX_ATTEMPTS; attempts += 1) {
+      await expect(consumer.handle(atAttempt(attempts))).rejects.toBeInstanceOf(
+        ReversalAwaitingSalePostError,
+      );
+    }
+
+    expect(counter).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("final-attempt reversal whose sale_post exists → inserted, not counted", async () => {
+    const { pool, log } = fakePool(true);
+    const error = jest.fn();
+    const consumer = new PostingRequestedConsumer(pool, { warn: jest.fn(), error });
+
+    await consumer.handle(atAttempt(MAX_ATTEMPTS));
+
+    expect(inserts(log)).toHaveLength(1);
+    expect(counter).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("final-attempt failure for another reason (malformed payload) → not counted", async () => {
+    const { pool } = fakePool(false);
+    const error = jest.fn();
+    const consumer = new PostingRequestedConsumer(pool, { warn: jest.fn(), error });
+    const malformed = {
+      ...atAttempt(MAX_ATTEMPTS),
+      payload: { sale_id: "not-a-uuid" },
+    } as unknown as OutboxEventEnvelope<PostingRequestedPayload>;
+
+    await expect(consumer.handle(malformed)).rejects.not.toBeInstanceOf(
+      ReversalAwaitingSalePostError,
+    );
+
+    expect(counter).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("final-attempt sale_post event is never counted", async () => {
+    const { pool } = fakePool(false);
+    const error = jest.fn();
+    const consumer = new PostingRequestedConsumer(pool, { warn: jest.fn(), error });
+
+    await consumer.handle(atAttempt(MAX_ATTEMPTS, salePostEvent()));
+
+    expect(counter).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+  });
+});
+
+// RT-216: signals.md §4 allows only its default structured-log fields; any other
+// field on a log line must be classified in the redaction matrix, or it must not
+// be emitted. Both posting-reversal logs must pass that rule, and the extra
+// fields must be classified `business` (§3.4), the only loggable class here.
+describe("PostingRequestedConsumer — RT-216 posting-reversal log fields are classified", () => {
+  const repoRoot = resolve(__dirname, "../../../..");
+
+  /** Backticked names in the first cell of each table row in one markdown section. */
+  function firstCellFields(file: string, startHeading: string, endHeading: string): Set<string> {
+    const text = readFileSync(resolve(repoRoot, file), "utf8");
+    const start = text.indexOf(startHeading);
+    const end = text.indexOf(endHeading, start + startHeading.length);
+    if (start < 0 || end < 0) throw new Error(`${file}: section "${startHeading}" not found`);
+    const fields = new Set<string>();
+    for (const line of text.slice(start, end).split("\n")) {
+      if (!line.startsWith("|") || /^\|\s*-/.test(line)) continue;
+      const firstCell = line.split("|")[1] ?? "";
+      for (const m of firstCell.matchAll(/`([^`]+)`/g)) fields.add(m[1] as string);
+    }
+    return fields;
+  }
+
+  const signalsDefaults = firstCellFields(
+    "docs/observability/signals.md",
+    "## 4. Structured-log field requirements",
+    "\n## 5.",
+  );
+  const matrixBusiness = firstCellFields(
+    ".specify/memory/redaction-matrix.md",
+    "### 3.4 Business",
+    "\n### 3.5",
+  );
+
+  async function emittedFields(): Promise<{ deferred: string[]; deadLettered: string[] }> {
+    jest
+      .spyOn(workerMetrics, "recordErpnextPostingReversalDeferredDeadLetter")
+      .mockImplementation(() => undefined);
+    const { pool } = fakePool(false);
+    const warn = jest.fn();
+    const error = jest.fn();
+    const consumer = new PostingRequestedConsumer(pool, { warn, error });
+
+    await consumer.handle({ ...reversalEvent(), attempts: MAX_ATTEMPTS }).catch(() => undefined);
+
+    const fieldsOf = (fn: jest.Mock) =>
+      Object.keys((fn.mock.calls[0] as [Record<string, unknown>])[0]);
+    return { deferred: fieldsOf(warn), deadLettered: fieldsOf(error) };
+  }
+
+  // signals.md §4 fields that apply to every worker (outbox-job) log line. The
+  // other §4 rows do not apply here: `route` / `method` / `status` are HTTP-only
+  // and `actor_id` needs an authenticated request, which an outbox job lacks.
+  // The repo has no shared constant for this set; the subset test below ties it
+  // to the §4 table so it cannot drift from the doc.
+  const SIGNALS_S4_WORKER_REQUIRED = ["request_id", "tenant_id", "store_id", "correlation_id", "outcome"];
+  // Both posting-reversal logs also carry the outbox `event_id` (matrix §3.4).
+  const POSTING_REVERSAL_REQUIRED = [...SIGNALS_S4_WORKER_REQUIRED, "event_id"];
+
+  it("the section parsers find the documented tables", () => {
+    expect(signalsDefaults).toEqual(
+      new Set(["request_id", "tenant_id", "store_id", "actor_id", "correlation_id", "route", "method", "status", "outcome"]),
+    );
+    expect(matrixBusiness.has("tenant_id")).toBe(true);
+    expect(matrixBusiness.has("event_id")).toBe(true);
+  });
+
+  it("every field on both logs is a signals.md §4 default or a matrix §3.4 business field", async () => {
+    const { deferred, deadLettered } = await emittedFields();
+
+    const unclassified = [...new Set([...deferred, ...deadLettered])].filter(
+      (f) => !signalsDefaults.has(f) && !matrixBusiness.has(f),
+    );
+
+    expect(unclassified).toEqual([]);
+  });
+
+  it("the worker-required set is taken from the signals.md §4 table", () => {
+    for (const field of SIGNALS_S4_WORKER_REQUIRED) {
+      expect(signalsDefaults.has(field)).toBe(true);
+    }
+  });
+
+  it("both logs carry every required field (signals.md §4 + event_id)", async () => {
+    const { deferred, deadLettered } = await emittedFields();
+
+    const missing = (fields: string[]) => POSTING_REVERSAL_REQUIRED.filter((f) => !fields.includes(f));
+
+    expect({ deferred: missing(deferred), deadLettered: missing(deadLettered) }).toEqual({
+      deferred: [],
+      deadLettered: [],
+    });
+  });
+
+  it("the four RT-216 fields are classified business in the matrix", () => {
+    for (const field of ["sale_id", "source_ref_id", "attempts", "event"]) {
+      expect(matrixBusiness.has(field)).toBe(true);
+    }
+  });
+});

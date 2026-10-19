@@ -1,0 +1,664 @@
+openapi: 3.1.0
+info:
+  title: Data-Pulse-2 — Payer Accounts (settlement) API
+  version: "2.2.0"
+  description: >
+    Spec 035 (sale-settlement-and-receivables-model), narrowed to Option B
+    (RT-413; RT-277 comment 11662; decision-record amendment A1). Backend-Core
+    keeps only the payer identity facade. The per-sale payer responsibility
+    allocation is captured on the sale itself (owner decision R-1, RT-413
+    comment 11669): `CaptureSaleRequest.responsibilities[]` in
+    `pos-sales/sales.yaml`, carried to the Connector on the posting feed
+    (`erpnext-connector/posting-feed.yaml`). ERPNext owns customer and
+    third-party A/R balances, cash application, aging, payment terms, credit
+    limits, collections and accounting reconciliation (Payment & Receivables
+    baseline, Confluence RETAIL 23560196).
+
+    RT-417 (2.0.0; [GATED] approval Jira RT-417 comment 11671, owner,
+    2026-10-12): BREAKING, replacing the stale `1.0.0-draft`.
+
+      Kept (Console, cookieAuth):
+        1. `consoleCreatePayerAccount` — create a payer account.
+        2. `consoleListPayerAccounts`  — tenant-scoped, newest-first, keyset
+           pagination.
+      Both are implemented by the RT-418 runtime, unchanged on the wire, so
+      neither carries `x-runtime-status: contract-only`.
+
+      Removed (listed in `x-retired-operations`):
+        `consoleApplyPayment`, `consoleSubmitClaim`,
+        `consoleReconcileRemittance`, `posRecordSettlementIntent`,
+        `consoleGetReceivable`, `consoleListReceivables`. Cash application,
+        claims, remittance and receivable balances leave Backend-Core.
+
+      Changed: `PayerAccountCreate.creditTerms` is removed (ERPNext owns terms
+      and credit limits). `PayerAccountCreate` stays `additionalProperties:
+      false`, so a client that still sends `creditTerms` gets a 400.
+      `externalRef` is now the payer's ERPNext Customer link (see the field).
+      The `operatorAuthorization` scheme, the POS 429 response and every
+      receivable / claim / remittance schema leave this document with the
+      operations that used them.
+
+    RT-572 (2.1.0; [GATED], additive to 2.0.0; no change to any existing
+    operation or schema): adds `consoleUpdatePayerAccount`, a PATCH that
+    repairs a payer. A payer created without `externalRef` (its ERPNext
+    Customer link) fails every credit sale against it with 422
+    `sale_responsibility_payer_invalid`, and 2.0.0 had no way to fix it. The
+    RT-572 runtime serves it (no migration: it uses the existing
+    `payer_account.version`), so it carries no `x-runtime-status`. Coordinator decisions (owner delegation, 2026-10-17): (1) the
+    update set is `displayName`, `externalRef` (set or replace, never cleared)
+    and `status` (active / suspended); `category` and `storeId` are immutable
+    because a sale's payer must belong to the sale's store (capture checks it,
+    and RT-577 D12 refuses a credit reversal whose payer is scoped to another
+    store), so moving a payer's store would turn existing sales' reversals
+    into 422s; (2) the optimistic precondition is the existing
+    `PayerAccount.version`, sent as `expectedVersion`, so the runtime needs no
+    new column; (3) a changed `externalRef` never touches a posting that
+    already froze its payer link (RT-332), see the operation; (4) the audit
+    records field names, `status` and `externalRef` before / after
+    (`externalRefFrom` / `externalRefTo`: ERPNext Customer identifiers,
+    business-class, not PII), never the displayName; (5) suspension refuses
+    new capture and, under RT-577 D12, fails credit reversals of that payer's
+    sales closed; (6) a `status` or `externalRef` change of a tenant-wide
+    payer needs tenant-wide store scope, else 403 `payer_scope_insufficient`
+    (every owner / tenant_admin sees tenant-wide payers in the list, so a 404
+    would hide nothing).
+
+    RUNTIME DURING THE TRANSITION: the six removed routes are still served by
+    the 035 runtime until RT-422 deletes them (RT-418 leaves them in place).
+    They are retired from the contract now so that no new consumer is built on
+    them. Admin-Console RT-421 removes their callers; POS RT-420 never adopts
+    `settlement-intent`. A route served but absent from every contract is not
+    a conformance failure (the runtime-route conformance check maps contract
+    operations to routes, not the reverse).
+
+    CONSUMERS: Admin-Console 017 payer screens (RT-421: regenerate from this
+    version, drop `creditTerms` from the create form, label `externalRef` as
+    the ERPNext Customer link) and Admin-Console 018/019 (RT-421: removed).
+    POS 020 (RT-420) uses `pos-sales/sales.yaml`, not this contract.
+
+    AUTH: Console routes use the human `cookieAuth` (httpOnly `dp2_session`,
+    `DashboardAuthGuard` + `RolesGuard`). 401/403 semantics are owned by 028
+    (G10) and are not re-decided here.
+
+    PROJECTIONS (§IV): every response is an explicit wire shape with
+    `additionalProperties: false`: no raw DB entity, no `tenant_id` (implicit
+    in scope), no `created_by`.
+
+    Error envelope: the canonical `{ error: { code, message, request_id } }`,
+    identical to the shared shape (`auth` / `pos-sales` / `sale-sync-ops`).
+    Status mapping: 400 validation, 401 unauthenticated, 403 insufficient-role
+    or `origin_rejected`, 404 not-found (non-disclosing), 409 conflict,
+    429 `rate_limited` (console rate limit; honour `Retry-After`), 500 internal. Tenant isolation is RLS; an out-of-scope id is a non-disclosing
+    404 wherever an id is accepted (on create: an out-of-scope `storeId`).
+
+
+    **2.2.0 (RT-620, additive).** Every cookieAuth operation may
+    return 429 `rate_limited` (`TooManyRequests`, with `Retry-After`)
+    from the console rate limit (RT-574, RT-619). No other wire change.
+
+servers:
+  - url: https://api.example.com
+
+tags:
+  - name: settlement-console
+    description: Console-managed payer accounts (035 narrowed to Option B, RT-413).
+
+x-retired-operations:
+  # RT-417 (2.0.0): removed from the contract. The runtime keeps serving them
+  # until RT-422 deletes the routes; no new consumer may call them.
+  - operationId: consoleApplyPayment
+    route: POST /api/v1/settlement/receivables/{receivableRef}/apply-payment
+    removedRuntimeIn: RT-422
+  - operationId: consoleSubmitClaim
+    route: POST /api/v1/settlement/claims
+    removedRuntimeIn: RT-422
+  - operationId: consoleReconcileRemittance
+    route: POST /api/v1/settlement/claims/{claimRef}/reconcile-remittance
+    removedRuntimeIn: RT-422
+  - operationId: posRecordSettlementIntent
+    route: POST /api/v1/settlement/settlement-intent
+    removedRuntimeIn: RT-422
+  - operationId: consoleGetReceivable
+    route: GET /api/v1/settlement/receivables/{receivableRef}
+    removedRuntimeIn: RT-422
+  - operationId: consoleListReceivables
+    route: GET /api/v1/settlement/receivables
+    removedRuntimeIn: RT-422
+
+paths:
+  # ----------------------------------------------------------------------------
+  # Console — payer accounts
+  # ----------------------------------------------------------------------------
+  /api/v1/settlement/payer-accounts:
+    post:
+      summary: Create a payer account (credit customer / corporate / insurer).
+      operationId: consoleCreatePayerAccount
+      x-idempotency: required
+      tags: [settlement-console]
+      security:
+        - cookieAuth: []
+      description: >
+        Create a payer account. `tenant_id` + actor are server-resolved (§XII).
+        Idempotent on `Idempotency-Key`. FR-001/002.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PayerAccountCreate"
+      responses:
+        "201":
+          description: Payer account created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayerAccount"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/ForbiddenOrOriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+    get:
+      summary: List payer accounts (tenant-scoped, newest-first, keyset paginated).
+      operationId: consoleListPayerAccounts
+      tags: [settlement-console]
+      description: >
+        The caller's tenant's payers: tenant-wide payers (`storeId` null) and
+        payers of the stores the caller can access; store-scoped payers outside the caller's store access are excluded (the
+        same scope create enforces with its non-disclosing 404).
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PayerCategoryQuery"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: A page of payer accounts, newest-first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayerAccountPage"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/settlement/payer-accounts/{payerRef}:
+    patch:
+      summary: Update a payer account (repair a missing ERPNext Customer link, rename, suspend or reactivate).
+      operationId: consoleUpdatePayerAccount
+      x-idempotency: required
+      tags: [settlement-console]
+      security:
+        - cookieAuth: []
+      description: >
+        Change a payer's `displayName`, `externalRef` or `status`. Role: owner /
+        tenant_admin (403 otherwise). `tenant_id` and the actor are
+        server-resolved (§XII). A malformed `payerRef` is a 400
+        `validation_error`.
+
+
+        Scope. A store-scoped payer outside the caller's store access is a
+        non-disclosing 404, as is an unknown or other-tenant `payerRef`. A change
+        to `status` or `externalRef` of a tenant-wide payer (`storeId` null)
+        needs a caller with tenant-wide store scope (access to all stores, with
+        no single store selected): a store-restricted owner / tenant_admin gets
+        403 `payer_scope_insufficient` and nothing is written, because the
+        change reaches every store. It is a 403, not a 404, because every owner
+        / tenant_admin already sees tenant-wide payers in the list, so the
+        refusal hides nothing. The gate triggers on `status` or `externalRef`
+        being present in the body, not on an effective change: a request that
+        repeats the current value is refused too, and a request that mixes such
+        a field with `displayName` is refused as a whole. A `displayName`-only
+        change to a tenant-wide payer follows the store-scope rule of the list.
+        Order: validation (400) and not-found / out-of-store-scope (404) first;
+        the scope check (403) runs before the version check (409).
+
+
+        Fields. Every field is optional, but the body must carry `expectedVersion`
+        and at least one of `displayName`, `externalRef` or `status`
+        (otherwise 400 `validation_error`). `category` and `storeId` cannot be
+        changed; sending them is a 400 (strict body). `externalRef` sets or
+        replaces the ERPNext Customer link and cannot be cleared: `null` is a
+        400, because an unlinked payer is the fault this route repairs. It is an
+        identifier: 1..140 characters, no leading or trailing whitespace, no
+        control characters, no NUL, no zero-width character (U+200B-U+200D,
+        U+FEFF) and no line / paragraph separator (U+2028 / U+2029). `displayName` must contain a non-whitespace
+        character and no NUL. A value that breaks these rules is a 400
+        `validation_error`, never a 5xx.
+
+
+        Concurrency. `expectedVersion` must equal the payer's current
+        `version`, else 409 `payer_version_conflict` and nothing is written:
+        re-list the payer and retry. An effective update sets `version` to
+        version + 1 in the same transaction that writes the change and returns
+        the updated `PayerAccount`. A request whose values all equal the current
+        ones is a no-op: 200 with the unchanged payer, `version` not bumped, no
+        audit event. The version check runs before any write, so a stale
+        `expectedVersion` is a 409 even for a no-op. Idempotent on `Idempotency-Key`: the same key
+        and body replay the stored 200 (including after the version moved on);
+        the key with another body is 409 `idempotency_key_conflict`.
+
+
+        Effect on sales. A credit sale captured after a repair succeeds.
+        `suspended` refuses new capture (`sale_responsibility_payer_invalid`) and,
+        under RT-577 D12, makes a credit reversal of any of that payer's sales
+        fail closed (422 `credit_reversal_settlement_unavailable`); `active`
+        reinstates both. Postings, frozen or pending, are unaffected by a status
+        change. Captured `sale_responsibilities` and their `payerRef` are not
+        changed by any update.
+
+
+        Effect on postings (RT-332). A changed `externalRef` NEVER touches a
+        posting that has already frozen its payer link: each work item freezes
+        `payerExternalRef` in its resolution version, so the posting feed keeps
+        serving the frozen value and no edit retargets it. A new `externalRef` is
+        picked up only by resolutions frozen after the update (a sale whose
+        posting intent has not yet been created, or a new sale). The one
+        exception is deliberate: an RT-332 operator re-resolution
+        (`freezeOperatorResolution`) re-reads the live `external_ref`, so
+        re-resolving a pending posting after an update repoints it to the new
+        value. An update itself never re-resolves anything.
+
+
+        Audit. An effective update writes `settlement.payer_account.updated` in the
+        same transaction as the update (a failed audit write rolls the update
+        back); it is not emitted for a no-op. Metadata: `payerRef`,
+        `changedFields` (the field names that changed), `fromVersion`,
+        `toVersion`, `statusFrom` / `statusTo` when the status changed, and
+        `externalRefFrom` / `externalRefTo` when the link changed (ERPNext
+        Customer identifiers, business-class and not PII per migration 0051;
+        `externalRefFrom` is null for an unlinked payer). It never records the
+        displayName (§XIV). Cookie-authenticated, so the RT-430 `Origin` check
+        applies.
+      parameters:
+        - $ref: "#/components/parameters/PayerRef"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PayerAccountUpdate"
+      responses:
+        "200":
+          description: The payer after the update (or unchanged, for a no-op).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayerAccount"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/ForbiddenOrOriginRejected"
+        "404":
+          $ref: "#/components/responses/PayerNotFound"
+        "409":
+          $ref: "#/components/responses/PayerUpdateConflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+      description: >
+        The human dashboard session cookie (httpOnly `dp2_session`), verified by
+        `DashboardAuthGuard` + `RolesGuard` (default deny). The ONLY accepted
+        credential on this surface — a machine bearer or POS envelope is
+        rejected. 401/403 semantics owned by 028 (G10).
+
+  parameters:
+    PayerRef:
+      name: payerRef
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: >
+        The payer's stable reference (`PayerAccount.payerRef`). A malformed value
+        is a 400 `validation_error`.
+    PayerCategoryQuery:
+      name: category
+      in: query
+      required: false
+      schema:
+        $ref: "#/components/schemas/PayerCategory"
+      description: Optional payer-category filter.
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+      description: Opaque keyset cursor from a prior page's `nextCursor`. Omit for the first page.
+    PageSize:
+      name: page_size
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+      description: Maximum items per page (bounded). The server MAY return fewer.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: "^[\\x21-\\x7E]{16,128}$"
+      description: >
+        REQUIRED on every write. Reuses the existing IdempotencyInterceptor —
+        identical retry replays the stored response; key-reuse with a different
+        logical payload returns 409 `idempotency_key_conflict`.
+
+  schemas:
+    # ----- vocabularies -----
+    PayerCategory:
+      type: string
+      enum: [credit_customer, corporate, insurer]
+      description: >
+        Third-party payer category (FR-002). Extensible without hard-coding a
+        single vertical; this is the v1 set.
+
+    # ----- payer account -----
+    PayerAccountCreate:
+      type: object
+      additionalProperties: false
+      required: [category, displayName]
+      description: >
+        Create-a-payer-account request. `tenant_id` + actor are server-resolved
+        (§XII) and MUST NOT appear here. RT-417 (2.0.0): `creditTerms` is
+        removed; ERPNext owns payment terms and credit limits.
+      properties:
+        category:
+          $ref: "#/components/schemas/PayerCategory"
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        externalRef:
+          type: [string, "null"]
+          minLength: 1
+          pattern: '\S'
+          description: >
+            The payer's ERPNext Customer link (RT-413 §2): the identifier the
+            Connector resolves to the ERPNext Customer that a sale's
+            responsibility is posted against (RT-419). Opaque to Backend-Core
+            (no FK, never looked up here). Null = not yet linked; the
+            Connector fails closed for an unlinked or unknown payer and never
+            falls back to the store's Customer (see
+            `erpnext-connector/posting-feed.yaml`). When present it must contain
+            a non-whitespace character: a blank or whitespace-only value is a
+            400 `validation_error`, because it could never resolve to a
+            Customer (Codex review of #779).
+        storeId:
+          type: [string, "null"]
+          format: uuid
+          description: Optional store scope; null = tenant-wide payer.
+    PayerAccountUpdate:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion]
+      anyOf:
+        - required: [displayName]
+        - required: [externalRef]
+        - required: [status]
+      description: >
+        Update-a-payer-account request (RT-572). `expectedVersion` plus at least
+        one change. `category`, `storeId`, `payerRef`, `version`, `tenant_id`
+        and any other key are refused (strict). Omitted fields are unchanged.
+      properties:
+        expectedVersion:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+          description: >
+            The `PayerAccount.version` the caller last saw (an int4 column, hence
+            the bound). A mismatch is 409 `payer_version_conflict`.
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 200
+          pattern: '^\s*[^\s\u0000][^\u0000]*$'
+          description: >
+            New display name. Must contain a non-whitespace character and no
+            NUL; otherwise 400 `validation_error`.
+        externalRef:
+          type: string
+          minLength: 1
+          maxLength: 140
+          pattern: '^[^\s\u0000-\u001f\u007f-\u009f\u200b-\u200d\u2028\u2029\ufeff](?:[^\u0000-\u001f\u007f-\u009f\u200b-\u200d\u2028\u2029\ufeff]*[^\s\u0000-\u001f\u007f-\u009f\u200b-\u200d\u2028\u2029\ufeff])?$'
+          description: >
+            Set or replace the payer's ERPNext Customer link (see
+            `PayerAccountCreate.externalRef`). Not nullable: the link cannot be
+            cleared. It is an identifier: 1..140 characters (a Frappe document
+            name), no leading or trailing whitespace, no control characters, no
+            NUL, no zero-width character (U+200B-U+200D, U+FEFF) and no line /
+            paragraph separator (U+2028 / U+2029); otherwise 400
+            `validation_error`. It never alters an
+            already-frozen posting (RT-332): only resolutions frozen after the
+            update use it.
+        status:
+          type: string
+          enum: [active, suspended]
+          description: >
+            `suspended` refuses new capture (`sale_responsibility_payer_invalid`)
+            and, under RT-577 D12, makes credit reversals of that payer's sales
+            fail closed (`credit_reversal_settlement_unavailable`); postings are
+            unaffected. `active` reinstates both.
+    PayerAccount:
+      type: object
+      additionalProperties: false
+      required: [payerRef, category, displayName, status, version]
+      description: Wire projection of a payer account. No `tenant_id` (implicit in scope), no credit terms.
+      properties:
+        payerRef:
+          type: string
+          format: uuid
+          description: >
+            Stable server-issued payer reference. A sale names its payers by
+            this value (`pos-sales/sales.yaml` `SaleResponsibility.payerRef`).
+        category:
+          $ref: "#/components/schemas/PayerCategory"
+        displayName:
+          type: string
+        externalRef:
+          type: [string, "null"]
+          description: The payer's ERPNext Customer link (see `PayerAccountCreate.externalRef`).
+        status:
+          type: string
+          enum: [active, suspended]
+        storeId:
+          type: [string, "null"]
+          format: uuid
+        version:
+          type: integer
+          minimum: 0
+          description: Optimistic-concurrency version (§III).
+    PayerAccountPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/PayerAccount"
+        nextCursor:
+          type: [string, "null"]
+          description: Opaque cursor for the next page; null on the last page.
+
+    # -------------------------------------------------------------------------
+    # Canonical Error envelope (mirrors auth / pos-sales / sale-sync-ops)
+    # -------------------------------------------------------------------------
+    Error:
+      type: object
+      required: [error]
+      description: >
+        Canonical error envelope. Cross-tenant / out-of-scope refusals are
+        non-disclosing (§II/§XII) — they never enumerate the underlying cause.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id; the actual cause is recorded server-side.
+
+  responses:
+    ValidationFailure:
+      description: validation_error (400) — malformed body/query, unknown key (strict, including a removed `creditTerms`), bad cursor.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: >
+        Unauthenticated (401) — missing/invalid credential, or a wrong-surface
+        credential (a POS envelope or machine bearer) rejected. Non-disclosing.
+        401 semantics owned by 028 (G10).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Insufficient role (403) — authenticated but lacks the required role. 028 (G10).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ForbiddenOrOriginRejected:
+      description: >
+        Insufficient role (403) — authenticated but lacks the required role. 028
+        (G10). Also `origin_rejected` (RT-430): the request is authenticated by
+        the `dp2_session` cookie and its `Origin` header is missing, or is
+        neither the API's own origin nor listed in `ALLOWED_ORIGINS`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: >
+        not_found (404) — an out-of-scope `storeId` on create: a store that
+        does not exist, belongs to another tenant, or is outside the caller's
+        store scope. Non-disclosing: one body for every cause (§II/§XII).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: >
+        conflict (409) — a deterministic, side-effect-free refusal:
+        `idempotency_key_conflict` (the key reused with a different payload).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    PayerNotFound:
+      description: >
+        not_found (404) — the payer does not exist, belongs to another tenant,
+        or is store-scoped outside the caller's store access. Non-disclosing: one
+        body for every cause (§II/§XII).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    PayerUpdateConflict:
+      description: >
+        conflict (409) — a deterministic refusal that writes nothing:
+        `payer_version_conflict` (`expectedVersion` is not the payer's current
+        `version`; re-list and retry) or `idempotency_key_conflict` (the key
+        reused with a different payload).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SystemFailure:
+      description: system_failure (500) — unexpected server error; cause recorded server-side by request_id.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this
+        class of operation is spent. The body is the canonical error
+        envelope with a non-disclosing message (no budget, class or window);
+        its `request_id` equals the `X-Request-Id` response header. Honour
+        `Retry-After`; never auto-retry a mutation. A 429 is not a 401: it
+        never means the session ended. The console limit is
+        server-configured and may not be enforced, so a client must handle a
+        429 but must not expect one.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body: the
+            inbound `X-Request-Id` when it is a well-formed UUID, otherwise a
+            server-minted one.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  headers:
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5). Its own bound, 1 to 3600; it is not the POS
+        `RetryAfter` header.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600

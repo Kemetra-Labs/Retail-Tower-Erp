@@ -1,0 +1,54 @@
+{
+  "name": "@data-pulse-2/db",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Drizzle schema, explicit SQL migrations, migration runner CLI, tenant-scoped query helper, and DB session middleware.",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema/index.d.ts",
+      "default": "./dist/schema/index.js"
+    },
+    "./helpers/with-tenant": {
+      "types": "./dist/helpers/with-tenant.d.ts",
+      "default": "./dist/helpers/with-tenant.js"
+    },
+    "./middleware/tenant-context": {
+      "types": "./dist/middleware/tenant-context.d.ts",
+      "default": "./dist/middleware/tenant-context.js"
+    }
+  },
+  "bin": {
+    "data-pulse-migrate": "./dist/cli/migrate.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "jest --passWithNoTests",
+    "migrate:up": "node dist/cli/migrate.js up",
+    "migrate:down": "node dist/cli/migrate.js down",
+    "migrate:status": "node dist/cli/migrate.js status",
+    "bootstrap:pilot": "node dist/cli/bootstrap-pilot.js",
+    "bootstrap:pairing-code": "node dist/cli/bootstrap-pairing-code.js",
+    "seed:catalog": "node dist/cli/seed-catalog.js",
+    "lint": "tsc -p tsconfig.build.json --noEmit --incremental false"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.2",
+    "pg": "8.20.0"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "11.14.0",
+    "@types/jest": "29.5.14",
+    "@types/node": "20.17.6",
+    "@types/pg": "8.20.0",
+    "jest": "29.7.0",
+    "ts-jest": "29.2.5",
+    "typescript": "5.6.3"
+  }
+}

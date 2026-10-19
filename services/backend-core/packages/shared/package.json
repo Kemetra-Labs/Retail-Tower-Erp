@@ -1,0 +1,69 @@
+{
+  "name": "@data-pulse-2/shared",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Shared utilities: Zod base schemas, error envelope, pino logger, OTel setup. Backend-only; no DOM types.",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./zod/base": {
+      "types": "./dist/zod/base.d.ts",
+      "default": "./dist/zod/base.js"
+    },
+    "./errors/envelope": {
+      "types": "./dist/errors/envelope.d.ts",
+      "default": "./dist/errors/envelope.js"
+    },
+    "./logger/pino": {
+      "types": "./dist/logger/pino.d.ts",
+      "default": "./dist/logger/pino.js"
+    },
+    "./observability/otel": {
+      "types": "./dist/observability/otel.d.ts",
+      "default": "./dist/observability/otel.js"
+    },
+    "./ids/uuid": {
+      "types": "./dist/ids/uuid.d.ts",
+      "default": "./dist/ids/uuid.js"
+    },
+    "./queues/queue-config": {
+      "types": "./dist/queues/queue.config.d.ts",
+      "default": "./dist/queues/queue.config.js"
+    },
+    "./idempotency": {
+      "types": "./dist/idempotency/index.d.ts",
+      "default": "./dist/idempotency/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "jest --passWithNoTests",
+    "lint": "tsc -p tsconfig.build.json --noEmit --incremental false"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/exporter-prometheus": "0.216.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.216.0",
+    "@opentelemetry/instrumentation-http": "0.216.0",
+    "@opentelemetry/instrumentation-pg": "0.68.0",
+    "@opentelemetry/instrumentation-redis": "0.64.0",
+    "@opentelemetry/sdk-metrics": "2.7.1",
+    "@opentelemetry/sdk-node": "0.216.0",
+    "pino": "9.5.0",
+    "uuid": "10.0.0",
+    "zod": "3.23.8"
+  },
+  "devDependencies": {
+    "@types/jest": "29.5.14",
+    "@types/node": "20.17.6",
+    "@types/uuid": "10.0.0",
+    "jest": "29.7.0",
+    "ts-jest": "29.2.5",
+    "typescript": "5.6.3"
+  }
+}
