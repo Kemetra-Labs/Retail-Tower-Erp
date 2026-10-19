@@ -1,0 +1,8 @@
+id: P11
+spec: "RT-709 A.6 P11 - docs/** only"
+cases:
+  - name: root-docs
+    changes: [{status: M, path: docs/overview.md}]
+    expect_plan: {select: [], graph_validation: pass, reasons: [], e2e: false}
+    checks: auto
+    expect_required: {conclusion: success, reasons: []}

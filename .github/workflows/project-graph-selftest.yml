@@ -1,0 +1,44 @@
+# Read-only selftest of tools/project-graph (RT-721 Substep A).
+# Runs PR code with a read-only token and no secrets. It is NOT the trust gate:
+# the gate is tools/ci-gate/gate.yml.staged, inactive until RT-721 Substep B.
+name: project-graph-selftest
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: project-graph-selftest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  selftest:
+    name: project-graph/selftest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install pinned dependencies
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: --no-deps -r tools/project-graph/requirements.txt
+      - name: Unit tests and fixtures P01-P19, X01-X07
+        working-directory: tools/project-graph
+        run: python -m unittest discover -s tests -v
+      - name: Classify every tracked path
+        working-directory: tools/project-graph
+        run: python -m pgraph classify-tree --repo "$GITHUB_WORKSPACE" --rev HEAD
+      - name: Workflow privilege invariants (R5, T-A)
+        working-directory: tools/project-graph
+        run: python -m pgraph privileges --repo "$GITHUB_WORKSPACE"
+      - name: Layer-1 boundary check
+        working-directory: tools/project-graph
+        run: python -m pgraph boundary --repo "$GITHUB_WORKSPACE" --rev HEAD

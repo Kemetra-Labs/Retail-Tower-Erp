@@ -1,0 +1,8 @@
+id: P02
+spec: "RT-709 A.6 P2 - rename across products"
+cases:
+  - name: pos-to-backend-core
+    changes: [{status: R, old: apps/pos/src/a.ts, path: services/backend-core/src/a.ts}]
+    expect_plan: {select: [pos, backend-core], graph_validation: pass, reasons: [], boundary_review: true, e2e: true}
+    checks: auto
+    expect_required: {conclusion: success, reasons: []}

@@ -1,0 +1,27 @@
+id: P07
+spec: "RT-709 A.6 P7 - PR removes a tier (downgrade attempt)"
+cases:
+  - name: drop-pos-money-tier
+    changes:
+      - {status: M, path: tools/project-graph/graph.yaml}
+      - {status: M, path: apps/pos/src/main/payments/x.ts}
+    proposed: {patch: [{op: delete, path: [products, pos, tiers, money]}]}
+    expect_plan:
+      select: all
+      graph_validation: needs_approval
+      reasons: [POLICY_CHANGE]
+      policy_change: true
+      # union of trusted (money) and proposed (no tier -> high); money is kept
+      path_tiers: {apps/pos/src/main/payments/x.ts: [money, high]}
+      path_trusted_tiers: {apps/pos/src/main/payments/x.ts: [money]}
+    checks: auto
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED]}
+  - name: approved-by-sha-bound-human
+    trusted_overrides: {policy_approvers: [test-human]}
+    changes:
+      - {status: M, path: tools/project-graph/graph.yaml}
+      - {status: M, path: apps/pos/src/main/payments/x.ts}
+    proposed: {patch: [{op: delete, path: [products, pos, tiers, money]}]}
+    checks: auto
+    approvals: [{login: test-human}]
+    expect_required: {conclusion: success, reasons: []}

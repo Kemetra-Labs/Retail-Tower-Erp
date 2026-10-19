@@ -1,0 +1,9 @@
+id: P15
+spec: "RT-709 A.6 P15 - merge_group run"
+status: deferred
+deferred_reason: "Merge Queue is out of scope for T-A and stays OFF (A.3/A.5). Only the fail-closed event handling is checked here."
+cases:
+  - name: merge-group-is-unknown-event
+    event: merge_group
+    changes: [{status: M, path: apps/pos/src/renderer/a.tsx}]
+    expect_plan: {select: all, graph_validation: fail, reasons: [UNKNOWN_EVENT]}

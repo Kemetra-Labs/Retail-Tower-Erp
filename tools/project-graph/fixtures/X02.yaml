@@ -1,0 +1,33 @@
+id: X02
+spec: "NEW (RT-721, from A.8 R2) - wrong producer, wrong workflow, duplicate results"
+cases:
+  - name: green-from-another-app-only
+    changes: [{status: M, path: services/backend-core/apps/api/src/inventory/x.ts}]
+    checks: auto
+    check_overrides:
+      bc/db-integration: [{app_id: 999002, conclusion: success}]
+    deadline_passed: true
+    expect_required: {conclusion: failure, reasons: [ABSENT_JOB]}
+  - name: green-from-unexpected-workflow
+    changes: [{status: M, path: services/backend-core/apps/api/src/inventory/x.ts}]
+    checks: auto
+    check_overrides:
+      bc/db-integration: [{workflow: .github/workflows/evil.yml, conclusion: success}]
+    deadline_passed: true
+    expect_required: {conclusion: failure, reasons: [ABSENT_JOB]}
+  - name: duplicate-results-in-latest-attempt
+    changes: [{status: M, path: services/backend-core/apps/api/src/inventory/x.ts}]
+    checks: auto
+    check_overrides:
+      bc/db-integration:
+        - {run_id: 20, attempt: 1, conclusion: success}
+        - {run_id: 20, attempt: 1, conclusion: failure}
+    expect_required: {conclusion: failure, reasons: [DUPLICATE_CHECK]}
+  - name: forged-green-does-not-mask-real-failure
+    changes: [{status: M, path: services/backend-core/apps/api/src/inventory/x.ts}]
+    checks: auto
+    check_overrides:
+      bc/db-integration:
+        - {run_id: 20, attempt: 1, conclusion: failure}
+        - {run_id: 99, attempt: 1, app_id: 999002, conclusion: success}
+    expect_required: {conclusion: failure, reasons: [JOB_FAILED]}

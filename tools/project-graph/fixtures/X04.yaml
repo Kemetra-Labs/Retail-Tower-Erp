@@ -1,0 +1,26 @@
+id: X04
+spec: "NEW (RT-721, from A.8 R1) - approval is bound to exact head, base and policy fingerprint"
+cases:
+  - name: approved-at-head-A-then-head-moved-to-B
+    trusted_overrides: {policy_approvers: [test-human]}
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    checks: auto
+    approvals: [{login: test-human, head: "4444444444444444444444444444444444444444"}]
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [STALE_HEAD]}
+  - name: base-moved-after-approval
+    trusted_overrides: {policy_approvers: [test-human]}
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    checks: auto
+    approvals: [{login: test-human, base: "5555555555555555555555555555555555555555"}]
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [STALE_BASE]}
+  - name: policy-content-changed-after-approval
+    trusted_overrides: {policy_approvers: [test-human]}
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    checks: auto
+    approvals: [{login: test-human, fingerprint: "0000000000000000000000000000000000000000000000000000000000000000"}]
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [STALE_POLICY]}
+  - name: same-paths-different-blob-changes-fingerprint
+    kind: fingerprint
+    a: [{status: M, path: .github/workflows/pos.yml, blob: "1111111111111111111111111111111111111111"}]
+    b: [{status: M, path: .github/workflows/pos.yml, blob: "2222222222222222222222222222222222222222"}]
+    expect_equal: false

@@ -1,0 +1,11 @@
+id: P08
+spec: "RT-709 A.6 P8 - PR edits a workflow or the evaluator only"
+cases:
+  - name: workflow-only
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    expect_plan: {select: all, graph_validation: needs_approval, reasons: [POLICY_CHANGE], policy_change: true}
+    checks: auto
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED]}
+  - name: evaluator-only
+    changes: [{status: M, path: tools/project-graph/pgraph/evaluate.py}]
+    expect_plan: {select: all, graph_validation: needs_approval, reasons: [POLICY_CHANGE], policy_change: true}

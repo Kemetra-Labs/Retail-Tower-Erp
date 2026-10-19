@@ -1,0 +1,8 @@
+id: P01
+spec: "RT-709 A.6 P1 - new top-level directory, graph unchanged"
+cases:
+  - name: new-top-level-dir
+    changes: [{status: A, path: foo/x.txt}]
+    expect_plan: {select: all, graph_validation: fail, reasons: [UNKNOWN_PATH], policy_change: false}
+    checks: auto
+    expect_required: {conclusion: failure, reasons: [GRAPH_VALIDATION_FAILED]}

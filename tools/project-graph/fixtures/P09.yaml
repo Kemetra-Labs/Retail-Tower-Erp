@@ -1,0 +1,17 @@
+id: P09
+spec: "RT-709 A.6 P9 - generated output edited alone"
+cases:
+  - name: api-types-alone
+    changes: [{status: M, path: apps/pos/src/shared/api-types.ts}]
+    expect_plan: {select: all, graph_validation: fail, reasons: [GENERATED_WITHOUT_SOURCE]}
+  - name: api-types-with-snapshot
+    changes:
+      - {status: M, path: apps/pos/src/shared/api-types.ts}
+      - {status: M, path: apps/pos/scripts/openapi-snapshot.json}
+    # POS contracts tier forces BC oasdiff (B.3.1), so backend-core is selected too
+    expect_plan: {select: [pos, backend-core], graph_validation: pass, reasons: [], product_tiers: {pos: [contracts]}}
+  - name: admin-schema-with-bc-openapi-glob-source
+    changes:
+      - {status: M, path: apps/admin-console/src/generated/schema.d.ts}
+      - {status: M, path: services/backend-core/packages/contracts/openapi/stores.openapi.yaml}
+    expect_plan: {select: [pos, admin-console, backend-core, erpnext-connector], graph_validation: pass, reasons: []}

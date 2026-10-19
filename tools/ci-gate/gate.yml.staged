@@ -1,0 +1,236 @@
+# =============================================================================
+# STAGED ONLY - NOT A RUNNABLE WORKFLOW. Deliberately kept OUTSIDE
+# .github/workflows. RT-709 A.3 trusted gate (owner decision O-5 = T-A).
+#
+# Not operational, not security-verified. Activation needs ALL of:
+#   1. RT-721 Substep B, each step separately owner-authorized:
+#      - kemetra-ci-gate installed on Kemetra/Retail-Tower-Shadow ONLY, with
+#        checks:write, contents:read, pull_requests:read, actions:read,
+#        metadata:read and no webhook;
+#      - protected `ci-gate` environment restricted to `main`, holding
+#        vars.CI_GATE_APP_ID and secrets.CI_GATE_APP_PRIVATE_KEY
+#        (environment-scoped, never repository-level);
+#      - ruleset on main: require the `required` check with source pinned to
+#        kemetra-ci-gate, AND "require branches to be up to date before
+#        merging" (the gate evaluates against the PR's base SHA; without this a
+#        green result could merge onto a newer main);
+#      - product workflows trigger `pull_request` only for `branches: [main]`.
+#   2. A human login in graph.yaml `policy_approvers` (empty today = every
+#      policy change is denied).
+#   3. Root product workflows that define every job in graph.yaml `jobs`
+#      (static rule 5 fails until then, so this gate would fail every PR).
+#   4. RT-711 independent verification (P17/P19, PR-branch secret refusal,
+#      anti-spoof canary, latest-wins of multiple `required` check-runs per SHA).
+#      checks:write vs statuses:write for the source pin is "Needs
+#      verification" (A.8); do NOT widen App grants to work around it.
+#
+# Invariants this file must keep (review any change against them):
+#   - Runs only base-branch code: checkout of the BASE sha only. Head objects
+#     are fetched and read with git plumbing (names, modes, blobs) - never
+#     checked out, installed or executed. No artifact is downloaded.
+#   - Two jobs: `evaluate` touches all untrusted data and has NO environment
+#     and no secrets; `post` holds `ci-gate`, reads only validated job outputs
+#     (conclusion enum, 40-hex SHA, base64 summary) and runs no repo code.
+#   - Every value from the event or API reaches shell via env vars, never
+#     inline ${{ }} in a run script (script injection).
+#   - The App token is scoped to checks:write and minted only in `post`.
+#   - Approval = APPROVED review with the SHA-bound line, verified by pgraph
+#     (A.8 R1). Labels only re-trigger the gate; they never carry authority.
+#     Dismissing a review does NOT re-trigger (pull_request_review would run
+#     untrusted workflow code); the next push or label re-evaluates.
+#   - Merge Queue stays OFF: merge_group is an UNKNOWN_EVENT (P15 deferred).
+#   - `python -m pgraph privileges` must report no problems for this file.
+# =============================================================================
+name: gate
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  workflow_run:
+    workflows: [pos, admin-console, backend-core, erpnext-connector, e2e, project-graph]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+  actions: read
+
+concurrency:
+  # One key per head SHA for both triggers, so two gate runs cannot race.
+  group: gate-${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
+  cancel-in-progress: true
+
+jobs:
+  evaluate:
+    name: gate/evaluate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      head_sha: ${{ steps.pr.outputs.head_sha }}
+      conclusion: ${{ steps.agg.outputs.conclusion }}
+      summary_b64: ${{ steps.agg.outputs.summary_b64 }}
+    steps:
+      - name: Resolve pull request (metadata only)
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "pull_request_target" ]; then sha="$PR_HEAD_SHA"; else sha="$RUN_HEAD_SHA"; fi
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          # Fail closed unless exactly one open PR has this head SHA, so a decoy
+          # PR with the same head (e.g. against another base) cannot lend its runs.
+          pr_json="$(gh api "repos/$REPO/commits/$sha/pulls" \
+            | jq --arg sha "$sha" \
+                '[.[] | select(.state == "open" and .head.sha == $sha)] | if length == 1 then .[0] else error("head SHA is not unique to one open PR") end')"
+          number="$(jq -r .number <<<"$pr_json")"
+          base_sha="$(jq -r .base.sha <<<"$pr_json")"
+          base_ref="$(jq -r .base.ref <<<"$pr_json")"
+          [[ "$number" =~ ^[0-9]+$ && "$base_sha" =~ ^[0-9a-f]{40}$ ]]
+          [ "$base_ref" = "main" ]
+          if [ "$EVENT" = "pull_request_target" ]; then [ "$number" = "$PR_NUMBER" ]; fi
+          { echo "number=$number"; echo "head_sha=$sha"; echo "base_sha=$base_sha"; } >> "$GITHUB_OUTPUT"
+
+      - name: Check out the trusted BASE only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ steps.pr.outputs.base_sha }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Fetch head objects (no checkout)
+        env:
+          NUMBER: ${{ steps.pr.outputs.number }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          SERVER: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          git -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --no-tags --no-recurse-submodules \
+            "$SERVER/$REPO" "+refs/pull/$NUMBER/head:refs/gate/head"
+          [ "$(git rev-parse refs/gate/head)" = "$HEAD_SHA" ]
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned dependencies (from BASE)
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: --no-deps -r tools/project-graph/requirements.txt
+
+      - name: Evaluate (trusted evaluator, head as data)
+        working-directory: tools/project-graph
+        env:
+          BASE_SHA: ${{ steps.pr.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+        run: |
+          python -m pgraph evaluate --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA" --head "$HEAD_SHA" \
+            --event pull_request_target --out "$RUNNER_TEMP/plan.json"
+
+      - name: Collect job results and reviews (read-only token)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ steps.pr.outputs.number }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          t="$RUNNER_TEMP"
+          # The gate's own runs are excluded, or "all runs completed" could never be true.
+          gh api --paginate "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&per_page=100" --jq '.workflow_runs' \
+            | jq -s '{workflow_runs: (add | map(select(.path != ".github/workflows/gate.yml")))}' > "$t/runs.json"
+          echo '{}' > "$t/jobs.json"
+          for id in $(jq -r '.workflow_runs[].id' "$t/runs.json"); do
+            [[ "$id" =~ ^[0-9]+$ ]]
+            gh api --paginate "repos/$REPO/actions/runs/$id/jobs?filter=all&per_page=100" --jq '.jobs' \
+              | jq -s --arg id "$id" --slurpfile acc "$t/jobs.json" '$acc[0] + {($id): add}' > "$t/jobs.next"
+            mv "$t/jobs.next" "$t/jobs.json"
+          done
+          gh api --paginate "repos/$REPO/commits/$HEAD_SHA/check-runs?per_page=100" --jq '.check_runs' \
+            | jq -s '{check_runs: add}' > "$t/checks.json"
+          gh api --paginate "repos/$REPO/pulls/$NUMBER/reviews?per_page=100" | jq -s 'add' > "$t/reviews.json"
+
+      - name: Normalize and aggregate
+        id: agg
+        working-directory: tools/project-graph
+        env:
+          REPO: ${{ github.repository }}
+          BASE_SHA: ${{ steps.pr.outputs.base_sha }}
+        run: |
+          set -uo pipefail
+          t="$RUNNER_TEMP"
+          python -m pgraph normalize --repo-name "$REPO" --workflow-runs "$t/runs.json" --jobs "$t/jobs.json" \
+            --check-runs "$t/checks.json" --reviews "$t/reviews.json" \
+            --out-checks "$t/records.json" --out-approvals "$t/approvals.json" > "$t/norm.json"
+          deadline=""
+          [ "$(jq -r .all_runs_completed "$t/norm.json")" = "true" ] && deadline="--deadline-passed"
+          python -m pgraph aggregate --plan "$t/plan.json" --checks "$t/records.json" \
+            --approvals "$t/approvals.json" --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA" $deadline \
+            > "$t/result.json" || true
+          conclusion="$(jq -r '.conclusion // "failure"' "$t/result.json" 2>/dev/null || echo failure)"
+          summary="$(jq -r '"reasons: " + ((.reasons // ["NO_RESULT"]) | join(", "))' "$t/result.json" 2>/dev/null || echo "reasons: NO_RESULT")"
+          # Publish the exact attestation line a listed human must put in an
+          # APPROVED review on this head commit. Harmless: only a trusted login counts.
+          if [ "$(jq -r '.approval_required // false' "$t/plan.json" 2>/dev/null)" = "true" ]; then
+            line="$(jq -r '"policy-change-approved: base=" + .base_sha + " fingerprint=" + .policy_fingerprint' "$t/plan.json")"
+            summary="$summary"$'\n\n'"Policy change: approval must be an APPROVED review on this head commit containing exactly:"$'\n'"$line"
+          fi
+          { echo "conclusion=$conclusion"; echo "summary_b64=$(printf '%s' "$summary" | base64 -w0)"; } >> "$GITHUB_OUTPUT"
+
+  post:
+    name: gate/post
+    needs: evaluate
+    # Runs even if evaluate failed, so a crash posts a failing `required`.
+    if: ${{ always() && needs.evaluate.outputs.head_sha != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: ci-gate
+    permissions: {}
+    steps:
+      - name: Validate job outputs
+        id: v
+        env:
+          HEAD_SHA: ${{ needs.evaluate.outputs.head_sha }}
+          CONCLUSION: ${{ needs.evaluate.outputs.conclusion }}
+          SUMMARY_B64: ${{ needs.evaluate.outputs.summary_b64 }}
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          case "$CONCLUSION" in success|failure|pending) c="$CONCLUSION" ;; *) c=failure ;; esac
+          [[ "$SUMMARY_B64" =~ ^[A-Za-z0-9+/=]*$ ]] || SUMMARY_B64="$(printf 'reasons: NO_RESULT' | base64 -w0)"
+          { echo "conclusion=$c"; echo "summary_b64=$SUMMARY_B64"; } >> "$GITHUB_OUTPUT"
+
+      - name: Mint kemetra-ci-gate token (checks:write only)
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CI_GATE_APP_ID }}
+          private-key: ${{ secrets.CI_GATE_APP_PRIVATE_KEY }}
+          permission-checks: write
+
+      - name: Post the `required` check
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ needs.evaluate.outputs.head_sha }}
+          CONCLUSION: ${{ steps.v.outputs.conclusion }}
+          SUMMARY_B64: ${{ steps.v.outputs.summary_b64 }}
+        run: |
+          set -euo pipefail
+          summary="$(printf '%s' "$SUMMARY_B64" | base64 -d)"
+          if [ "$CONCLUSION" = "pending" ]; then
+            gh api "repos/$REPO/check-runs" -f name=required -f head_sha="$HEAD_SHA" -f status=in_progress \
+              -f "output[title]=required: waiting" -f "output[summary]=$summary"
+          else
+            gh api "repos/$REPO/check-runs" -f name=required -f head_sha="$HEAD_SHA" -f status=completed \
+              -f conclusion="$CONCLUSION" -f "output[title]=required: $CONCLUSION" -f "output[summary]=$summary"
+          fi

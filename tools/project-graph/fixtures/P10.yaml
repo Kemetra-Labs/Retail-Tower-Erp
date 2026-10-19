@@ -1,0 +1,20 @@
+id: P10
+spec: "RT-709 A.6 P10 - lockfile-only change, each of the 4 lockfiles"
+cases:
+  - name: pos-npm
+    changes: [{status: M, path: apps/pos/package-lock.json}]
+    expect_plan: {select: [pos], graph_validation: pass, reasons: [], product_tiers: {pos: [dependency]}}
+  - name: admin-pnpm
+    changes: [{status: M, path: apps/admin-console/pnpm-lock.yaml}]
+    expect_plan: {select: [admin-console], graph_validation: pass, reasons: [], product_tiers: {admin-console: [dependency]}}
+  - name: bc-pnpm
+    changes: [{status: M, path: services/backend-core/pnpm-lock.yaml}]
+    expect_plan: {select: [backend-core], graph_validation: pass, reasons: [], product_tiers: {backend-core: [dependency]}}
+  - name: connector-pylock
+    changes: [{status: M, path: integrations/erpnext-connector/pylock.toml}]
+    expect_plan: {select: [erpnext-connector], graph_validation: pass, reasons: [], product_tiers: {erpnext-connector: [dependency]}}
+  - name: failed-dependency-review-fails-required
+    changes: [{status: M, path: integrations/erpnext-connector/pylock.toml}]
+    checks: auto
+    check_overrides: {dependency-review: [{conclusion: failure}]}
+    expect_required: {conclusion: failure, reasons: [JOB_FAILED]}

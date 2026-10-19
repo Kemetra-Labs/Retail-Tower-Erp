@@ -1,0 +1,22 @@
+# Advisory until a second maintainer exists (then: ruleset "require code owner review").
+# RT-709 §B.6. This file is in the `policy` class of tools/project-graph/graph.yaml.
+# NOTE: a CODEOWNERS entry is NOT a policy approver. Policy approval is a
+# SHA-bound review by a login in graph.yaml `policy_approvers` (A.8 R1).
+*                                   @ahmed-shaaban-94
+/apps/pos/                          @ahmed-shaaban-94
+/apps/admin-console/                @ahmed-shaaban-94
+/services/backend-core/             @ahmed-shaaban-94
+/integrations/erpnext-connector/    @ahmed-shaaban-94
+/tools/                             @ahmed-shaaban-94
+/.github/                           @ahmed-shaaban-94
+# High-risk paths (named so a future team split is one edit):
+/services/backend-core/packages/contracts/  @ahmed-shaaban-94
+/services/backend-core/packages/db/drizzle/ @ahmed-shaaban-94
+/services/backend-core/packages/auth/       @ahmed-shaaban-94
+/apps/pos/src/main/secrets/                 @ahmed-shaaban-94
+/apps/pos/electron-builder.yml              @ahmed-shaaban-94
+# Lockfiles deliberately unowned (Bitwarden pattern) - NOT a security exemption (§B.4):
+/apps/pos/package-lock.json
+/apps/admin-console/pnpm-lock.yaml
+/services/backend-core/pnpm-lock.yaml
+/integrations/erpnext-connector/pylock.toml

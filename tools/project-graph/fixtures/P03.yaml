@@ -1,0 +1,8 @@
+id: P03
+spec: "RT-709 A.6 P3 - rename within one product"
+cases:
+  - name: within-pos
+    changes: [{status: R, old: apps/pos/src/renderer/a.tsx, path: apps/pos/src/renderer/b.tsx}]
+    expect_plan: {select: [pos], graph_validation: pass, reasons: [], boundary_review: false}
+    checks: auto
+    expect_required: {conclusion: success, reasons: []}

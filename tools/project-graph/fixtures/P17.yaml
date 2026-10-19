@@ -1,0 +1,13 @@
+id: P17
+spec: "RT-709 A.6 P17 - PR rewrites a workflow or aggregator to always pass"
+logic_level_only: true
+live_proof: "RT-711 (only GitHub running the base-branch gate workflow proves this)"
+cases:
+  - name: rewrite-gate-and-aggregator
+    changes:
+      - {status: M, path: tools/ci-gate/gate.yml.staged}
+      - {status: M, path: tools/project-graph/pgraph/aggregate.py}
+    expect_plan: {select: all, graph_validation: needs_approval, reasons: [POLICY_CHANGE], policy_change: true}
+    checks: auto
+    extra_checks: [{name: required, conclusion: success}]
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], ignored: 1}

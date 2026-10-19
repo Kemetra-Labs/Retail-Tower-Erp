@@ -1,0 +1,226 @@
+# Retail Tower project graph, schema v1 (RT-709 §A.1, §B.3, §B.5). RT-721 Substep A.
+#
+# Single source for CI job selection, the boundary check and the risk tiers.
+# Globs are gitignore-style, anchored: shared-class globs at the repo root, tier
+# globs at the product root. `*` does not cross `/`, `**` spans segments,
+# `{a,b}` expands. Case-sensitive; paths are NFC-normalised.
+#
+# This file is in the `policy` class: any change to it is a policy change that
+# needs SHA-bound human approval (A.4 / A.8 R1). YAML anchors, aliases and
+# duplicate keys are rejected by the loader.
+
+schema: retail-tower/project-graph@1
+
+# Producer of every product check-run the gate may consume (A.8 R2).
+# 15368 is the GitHub Actions app.
+trusted_check_producer: { app_id: 15368, app_slug: github-actions }
+
+# Every job the gate can require, and the root workflow that must define it
+# (static rule 5). None of these root workflows exists yet: product CI still
+# lives under each product's own .github/ (inactive in the monorepo).
+jobs:
+  pos/static: .github/workflows/pos.yml
+  pos/test-shard-1: .github/workflows/pos.yml
+  pos/test-shard-2: .github/workflows/pos.yml
+  pos/test-shard-3: .github/workflows/pos.yml
+  pos/test: .github/workflows/pos.yml
+  pos/package-windows: .github/workflows/pos.yml
+  pos/docs: .github/workflows/pos.yml
+  admin/build-test: .github/workflows/admin-console.yml
+  bc/fast: .github/workflows/backend-core.yml
+  bc/db-integration: .github/workflows/backend-core.yml
+  bc/oasdiff: .github/workflows/backend-core.yml
+  bc/schemathesis: .github/workflows/backend-core.yml
+  connector/unit-tests-and-lint: .github/workflows/erpnext-connector.yml
+  e2e/smoke: .github/workflows/e2e.yml
+  boundary-check: .github/workflows/project-graph.yml
+  dependency-review: .github/workflows/project-graph.yml
+
+job_groups:
+  pos-full: [pos/static, pos/test-shard-1, pos/test-shard-2, pos/test-shard-3, pos/test]
+  bc-full: [bc/fast, bc/db-integration, bc/oasdiff, bc/schemathesis]
+
+always_jobs: [boundary-check, dependency-review]
+e2e_job: e2e/smoke
+e2e_runs_when: any_product_selected
+
+products:
+  pos:
+    root: apps/pos/
+    toolchain: { manager: npm, lockfiles: [apps/pos/package-lock.json] }
+    ci_jobs: [pos/static, pos/test-shard-1, pos/test-shard-2, pos/test-shard-3, pos/test, pos/package-windows, pos/docs]
+    high_jobs: ["@pos-full", pos/package-windows]
+    tiers:
+      contracts:
+        globs: [contracts/backend-core/**, "scripts/{codegen-api,verify-codegen,contracts-pin,contracts-repin,contracts-repin-pr,merge-readdown-contract}.ts", scripts/openapi-snapshot.json, src/shared/api-types.ts, tests/contract/**]
+        jobs: [pos/static, "@pos-full", bc/oasdiff]
+      money:
+        globs: ["src/main/{payments,shift-cashup,drawer}/**", "src/shared/{payments,money,shift-cashup}/**", src/shared/money.ts, src/preload/shift-cashup.ts, "migrations/*payment*", "migrations/*cash*"]
+        jobs: ["@pos-full", pos/package-windows, e2e/smoke]
+      sales:
+        globs: ["src/main/{sales,sales-sync,sale-history,sale-void,returns,receipts,cart,sync-outbox}/**", "src/shared/{sales,sales-sync,sale-history,sale-void,returns,receipts,cart}/**", "src/preload/{sales,sales-sync,sale-void}.ts", "src/renderer/{sale,returns,routes}/**"]
+        jobs: ["@pos-full", pos/package-windows, e2e/smoke]
+      stock:
+        globs: [src/main/catalogue/**, src/shared/catalogue/**, src/renderer/scan/**]
+        jobs: ["@pos-full", pos/package-windows]
+      auth:
+        globs: ["src/main/{operator,pairing,recovery}/**", "src/main/ipc/{manager-approval,recovery,recovery-mode-guard,session-lock,session-lock-guard,cashier-pin-status}.ts", "src/preload/{manager-approval,recovery,session-state}.ts", src/shared/operator/**, src/renderer/session/**]
+        jobs: ["@pos-full", pos/package-windows]
+      persistence:
+        globs: [migrations/**, "src/main/{db,migrations,audit,logging}/**", src/main/app/startup-migrations.ts]
+        jobs: ["@pos-full", pos/package-windows]
+      electron-security:
+        globs: [src/main/index.ts, src/main/app/**, src/main/secrets/**, src/main/ipc/**, src/preload/**, "src/shared/{bridge-api,secret-store}.ts", src/renderer/index.html, electron-builder.yml, src/tests/**]
+        jobs: ["@pos-full", pos/package-windows]
+      windows-packaging:
+        globs: [electron-builder.yml, "vite.config*.ts", "tsconfig*.json", scripts/dev-electron.cjs, LICENSE, NOTICE]
+        jobs: [pos/package-windows]
+      dependency:
+        globs: [package.json, package-lock.json, .nvmrc]
+        jobs: ["@pos-full", pos/package-windows, dependency-review]
+      tooling:
+        globs: [scripts/**, eslint.config.js, ".prettier*", "vitest*.ts", codecov.yml, .sonarcloud.properties, .coderabbit.yaml, .editorconfig, .gitattributes, .gitignore, postcss.config.cjs, tailwind.config.ts, .env.example]
+        jobs: [pos/static, "@pos-full"]
+      low:
+        globs: [docs/**, specs/**, .specify/**, .claude/**, .impeccable/**, "*.md"]
+        jobs: [pos/docs]
+
+  admin-console:
+    root: apps/admin-console/
+    toolchain: { manager: pnpm, lockfiles: [apps/admin-console/pnpm-lock.yaml] }
+    ci_jobs: [admin/build-test]
+    high_jobs: [admin/build-test]
+    tiers:
+      contracts:
+        globs: [contracts/backend-core/PIN, src/generated/**, openapi-ts.config.ts, "src/lib/{contracts-pin,client,auth-interceptor,request-id}.ts", .github/scripts/fetch-pinned-contracts.sh, scripts/contracts-repin-pr.ts, "tests/unit/{contracts-pin,boundary}.test.ts", "tests/unit/*-boundary.test.ts"]
+        jobs: [admin/build-test, bc/oasdiff]
+      money:
+        globs: ["src/{cash-policy,payers,shift-closes}/**", "src/lib/{cash-variance-policy,shift-close}-queries.ts"]
+        jobs: [admin/build-test]
+      sales:
+        globs: [src/sales/**, src/lib/sale-queries.ts]
+        jobs: [admin/build-test]
+      stock:
+        globs: ["src/{stock-discrepancies,unknown-items}/**", "src/lib/{stock-discrepancy,unknown-items}-queries.ts"]
+        jobs: [admin/build-test]
+      auth:
+        globs: ["src/{auth,context,operators,devices,tenants,stores}/**", "src/shell/{useSignOut,sign-out,SignInRoute,ScopeGate,scope-gate,scope-mismatch,ScopeMismatchBanner}*", src/lib/auth-interceptor.ts]
+        jobs: [admin/build-test]
+      security:
+        globs: [src/observability/**, index.html, release-artifact.ts]
+        jobs: [admin/build-test]
+      release:
+        globs: [release-artifact.ts, vite.config.ts]
+        jobs: [admin/build-test]
+      dependency:
+        globs: [package.json, pnpm-lock.yaml]
+        jobs: [admin/build-test, dependency-review]
+      tooling:
+        globs: [scripts/**, biome.json, vitest.config.ts, playwright.config.ts, e2e.config.ts, tsconfig.json, codecov.yml, .sonarcloud.properties, .coderabbit.yaml, .gitignore]
+        jobs: [admin/build-test]
+      low:
+        globs: [docs/**, specs/**, design/**, design_handoff_retail_tower_console/**, .design-sync/**, .claude/**, .specify/**, .impeccable/**, "*.md"]
+        jobs: []
+
+  backend-core:
+    root: services/backend-core/
+    toolchain: { manager: pnpm, lockfiles: [services/backend-core/pnpm-lock.yaml] }
+    ci_jobs: [bc/fast, bc/db-integration, bc/oasdiff, bc/schemathesis]
+    high_jobs: ["@bc-full"]
+    tiers:
+      contracts:
+        globs: [packages/contracts/**, apps/api/src/openapi/**, apps/api/test/contract-conformance.spec.ts, apps/api/test/openapi/**, tools/oasdiff/**, tools/schemathesis/**]
+        jobs: ["@bc-full", pos/static, pos/test, admin/build-test, connector/unit-tests-and-lint]
+      money:
+        globs: [apps/api/src/settlement/**, packages/db/src/schema/settlement/**, packages/db/src/schema/sales/sale-tenders.ts, packages/db/src/schema/catalog/price-history.ts]
+        jobs: ["@bc-full", e2e/smoke]
+      sales:
+        globs: [apps/api/src/catalog/sales/**, "apps/api/src/{pos-shifts,shift-closes}/**", apps/worker/src/sales/**, packages/db/src/schema/sales/**, "packages/db/src/schema/shift*.ts"]
+        jobs: ["@bc-full", e2e/smoke]
+      stock:
+        globs: [apps/api/src/inventory/**, apps/worker/src/inventory/**, packages/db/src/schema/inventory/**, "apps/api/src/catalog/erpnext-{warehouse-map,bin-view}/**", packages/db/src/helpers/stock-reconciliation-run.ts]
+        jobs: ["@bc-full", e2e/smoke]
+      tenant-auth:
+        globs: [packages/auth/**, apps/api/src/auth/**, "apps/api/test/{auth,authz}/**", "apps/api/src/{tenants,memberships,stores,context,devices,pos-operators,pos-cashier-admissions,pos-terminal-pairing}/**", packages/db/src/middleware/tenant-context.ts, packages/db/src/helpers/with-tenant.ts, "packages/db/src/schema/{tenants,stores,memberships,roles,permissions,store_access,sessions,auth_tokens,users,devices}.ts", packages/db/__tests__/rls.bypass.spec.ts, docs/operations/sql/**, tools/eslint-rules/**]
+        jobs: ["@bc-full"]
+      migrations:
+        globs: [packages/db/drizzle/**, packages/db/__tests__/migration/**, packages/db/src/cli/migrate.ts]
+        jobs: ["@bc-full"]
+      posting-sync:
+        globs: [packages/shared/src/outbox/**, packages/db/src/outbox/**, "packages/db/src/schema/{outbox_events,connector*}.ts", "packages/db/src/schema/catalog/erpnext-*.ts", packages/db/src/helpers/posting-feed-lock.ts, "apps/api/src/{outbox,connector,connector-health}/**", "apps/api/src/catalog/{erpnext-*,read-down,sale-sync-ops}/**", "apps/worker/src/{outbox,erpnext-posting,erpnext-reconciliation,erpnext-product-reconciliation}/**"]
+        jobs: ["@bc-full", connector/unit-tests-and-lint, e2e/smoke]
+      deploy-security:
+        globs: ["Dockerfile*", .dockerignore, Caddyfile, "docker-compose.*.yml", deploy/**]
+        jobs: ["@bc-full"]
+      dependency:
+        globs: [pnpm-lock.yaml, pnpm-workspace.yaml, package.json, "*/*/package.json", "tsconfig*.json", .nvmrc]
+        jobs: ["@bc-full", dependency-review]
+      tooling:
+        globs: [scripts/**, loadtests/**, .eslintrc.cjs, .prettierrc, codecov.yml, .sonarcloud.properties, .coderabbit.yaml]
+        jobs: [bc/fast]
+      # No `low` tier for BC yet. §B.3.3 makes docs/**, specs/**, .specify/**,
+      # *.md and images low ONLY if no code under apps/ packages/ tools/ quotes
+      # the path (RT-582 rule, e.g. deploy/README.md read by release-images.spec.ts).
+      # That content check is not implemented, so these paths fall to `high`
+      # (full BC suite). Fail closed: over-selects, never under-selects.
+
+  erpnext-connector:
+    root: integrations/erpnext-connector/
+    toolchain: { manager: uv, lockfiles: [integrations/erpnext-connector/pylock.toml] }
+    ci_jobs: [connector/unit-tests-and-lint]
+    high_jobs: [connector/unit-tests-and-lint]
+    # §B.3.4 globs are relative to retail_tower_erpnext_connector/ unless they
+    # start with `/` (product root); translated here to product-root-relative.
+    tiers:
+      contracts:
+        globs: [retail_tower_erpnext_connector/connector/posting/contracts.py, retail_tower_erpnext_connector/connector/bin_view/contracts.py, retail_tower_erpnext_connector/connector/schema.py, retail_tower_erpnext_connector/tests/**/test_contracts.py, retail_tower_erpnext_connector/tests/**/test_resolution_contracts.py, retail_tower_erpnext_connector/tests/obs1-golden-vectors.json]
+        jobs: [connector/unit-tests-and-lint, bc/fast]
+      money:
+        globs: ["retail_tower_erpnext_connector/connector/posting/{tender,uom,builder,return_builder,reversal_builder,reversal_policy,stock_policy,representation_check}.py", "retail_tower_erpnext_connector/connector/doctype/{rt_tender_mode_map_row,rt_uom_map_row}/**"]
+        jobs: [connector/unit-tests-and-lint]
+      posting-sync:
+        globs: [retail_tower_erpnext_connector/connector/posting/**, retail_tower_erpnext_connector/connector/bin_view/**, retail_tower_erpnext_connector/connector/doctype/posting_log/**, retail_tower_erpnext_connector/hooks.py, retail_tower_erpnext_connector/tests/posting/**, retail_tower_erpnext_connector/tests/test_scheduler_cadence.py]
+        jobs: [connector/unit-tests-and-lint, e2e/smoke]
+      auth:
+        globs: ["retail_tower_erpnext_connector/connector/posting/{credential_lifecycle,config}.py", "retail_tower_erpnext_connector/connector/doctype/{connector_settings,rt_store_customer_map_row}/**"]
+        jobs: [connector/unit-tests-and-lint]
+      migrations:
+        globs: [retail_tower_erpnext_connector/patches.txt, retail_tower_erpnext_connector/patches/**, "retail_tower_erpnext_connector/connector/doctype/**/*.json", retail_tower_erpnext_connector/fixtures/**, retail_tower_erpnext_connector/connector/posting/index_guard.py, retail_tower_erpnext_connector/tests/test_g5_unique_index_db.py, retail_tower_erpnext_connector/modules.txt]
+        jobs: [connector/unit-tests-and-lint]
+      observability:
+        globs: [retail_tower_erpnext_connector/connector/observability/**, retail_tower_erpnext_connector/connector/request_id.py]
+        jobs: [connector/unit-tests-and-lint]
+      dependency:
+        globs: [pyproject.toml, pylock.toml]
+        jobs: [connector/unit-tests-and-lint, dependency-review]
+      tooling:
+        globs: [codecov.yml, .sonarcloud.properties, .coderabbit.yaml]
+        jobs: [connector/unit-tests-and-lint]
+      low:
+        globs: [docs/**, specs/**, .specify/**, .claude/**, "*.md"]
+        jobs: []
+
+shared_classes:   # precedence: lower wins; two matches at the SAME precedence = AMBIGUOUS_PATH
+  policy:  { precedence: 1, globs: [.github/**, tools/project-graph/**, tools/ci-gate/**, CODEOWNERS], selects: all, policy_change: true }
+  tooling: { precedence: 2, globs: [tools/**], selects: all }
+  e2e:     { precedence: 3, globs: [tests/e2e/**], selects: [e2e] }
+  docs:    { precedence: 3, globs: [docs/**], selects: [] }
+  root:    { precedence: 4, globs: ["*"], selects: all }
+
+edges:   # allowed cross-product references; anything else is a boundary violation
+  - { from: pos, to: backend-core, via: [services/backend-core/packages/contracts/openapi/**] }
+  - { from: admin-console, to: backend-core, via: [services/backend-core/packages/contracts/openapi/**] }
+  - { from: erpnext-connector, to: backend-core, kind: semantic, via: [services/backend-core/packages/contracts/openapi/erpnext-connector/**, services/backend-core/packages/contracts/openapi/connector/**] }
+
+generated:   # an output may change only together with at least one declared source (§B.2)
+  - { outputs: [apps/pos/src/shared/api-types.ts], sources: [apps/pos/scripts/openapi-snapshot.json, apps/pos/scripts/codegen-api.ts, apps/pos/package-lock.json] }
+  - { outputs: [apps/admin-console/src/generated/schema.d.ts], sources: [apps/admin-console/contracts/backend-core/PIN, apps/admin-console/openapi-ts.config.ts, apps/admin-console/pnpm-lock.yaml, services/backend-core/packages/contracts/openapi/**] }
+
+allowed_symlinks: []
+
+# Human GitHub logins whose SHA-bound attestation can approve a policy change.
+# Deliberately EMPTY (fail closed, A.8 R1): agents still act under the owner's
+# personal login, so no login can yet be trusted as "human only". Every policy
+# change is denied until the owner names the login after Substep B moves agents
+# to kemetra-agent. Adding a login here is itself a policy change.
+policy_approvers: []

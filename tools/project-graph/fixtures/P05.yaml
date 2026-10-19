@@ -1,0 +1,13 @@
+id: P05
+spec: "RT-709 A.6 P5 - delete a connector file"
+cases:
+  - name: delete-posting-builder
+    changes: [{status: D, path: integrations/erpnext-connector/retail_tower_erpnext_connector/connector/posting/builder.py}]
+    expect_plan:
+      select: [erpnext-connector]
+      graph_validation: pass
+      reasons: []
+      e2e: true
+      product_tiers: {erpnext-connector: [money, posting-sync]}
+    checks: auto
+    expect_required: {conclusion: success, reasons: []}

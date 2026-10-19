@@ -1,0 +1,20 @@
+id: P18
+spec: "RT-709 A.6 P18 - PR adds newpkg/ and its glob in graph.yaml"
+cases:
+  - name: without-approval
+    changes:
+      - {status: A, path: newpkg/x.txt}
+      - {status: M, path: tools/project-graph/graph.yaml}
+    proposed: {patch: [{op: set, path: [shared_classes, newpkg], value: {precedence: 3, globs: ["newpkg/**"], selects: all}}]}
+    expect_plan: {select: all, graph_validation: needs_approval, reasons: [UNKNOWN_IN_TRUSTED_ONLY, POLICY_CHANGE], policy_change: true}
+    checks: auto
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED]}
+  - name: with-valid-approval
+    trusted_overrides: {policy_approvers: [test-human]}
+    changes:
+      - {status: A, path: newpkg/x.txt}
+      - {status: M, path: tools/project-graph/graph.yaml}
+    proposed: {patch: [{op: set, path: [shared_classes, newpkg], value: {precedence: 3, globs: ["newpkg/**"], selects: all}}]}
+    checks: auto
+    approvals: [{login: test-human}]
+    expect_required: {conclusion: success, reasons: []}

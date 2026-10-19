@@ -1,0 +1,15 @@
+id: P14
+spec: "RT-709 A.6 P14 - evaluator crash or plan.json missing"
+cases:
+  - name: plan-missing
+    kind: aggregate
+    plan: missing
+    expect_required: {conclusion: failure, reasons: [NO_PLAN]}
+  - name: plan-wrong-schema
+    kind: aggregate
+    plan: {schema: something-else}
+    expect_required: {conclusion: failure, reasons: [NO_PLAN]}
+  - name: plan-missing-fields
+    kind: aggregate
+    plan: {schema: retail-tower/plan@1}
+    expect_required: {conclusion: failure, reasons: [NO_PLAN]}

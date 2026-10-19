@@ -1,0 +1,17 @@
+id: X03
+spec: "NEW (RT-721, from A.8 R2) - stale or foreign SHA, wrong event"
+cases:
+  - name: green-on-previous-head-only
+    changes: [{status: M, path: apps/admin-console/src/sales/x.ts}]
+    checks: auto
+    check_overrides:
+      admin/build-test: [{head: "3333333333333333333333333333333333333333", conclusion: success}]
+    deadline_passed: true
+    expect_required: {conclusion: failure, reasons: [ABSENT_JOB]}
+  - name: green-from-push-event-on-a-pr-plan
+    changes: [{status: M, path: apps/admin-console/src/sales/x.ts}]
+    checks: auto
+    check_overrides:
+      admin/build-test: [{event: push, conclusion: success}]
+    deadline_passed: true
+    expect_required: {conclusion: failure, reasons: [ABSENT_JOB]}

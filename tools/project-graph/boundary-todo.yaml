@@ -1,0 +1,5 @@
+# Boundary ratchet (RT-709 B.1, Packwerk package_todo pattern).
+# Entries may only be REMOVED. Adding one is a policy change (this file is in
+# the `policy` class) and needs SHA-bound human approval.
+# Shape: - { rule: import, from: <repo path>, to: <resolved target>, ticket: RT-xxx }
+[]

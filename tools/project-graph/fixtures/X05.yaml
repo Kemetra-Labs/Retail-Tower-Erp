@@ -1,0 +1,26 @@
+id: X05
+spec: "NEW (RT-721, from A.8 R1) - only a listed human, by SHA-bound review, can approve"
+cases:
+  - name: bot-account-cannot-approve
+    trusted_overrides: {policy_approvers: [test-human]}
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    checks: auto
+    approvals: [{login: test-human, actor_type: Bot}]
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [NOT_HUMAN]}
+  - name: unlisted-login-cannot-approve
+    trusted_overrides: {policy_approvers: [test-human]}
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    checks: auto
+    approvals: [{login: someone-else}]
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [NOT_APPROVER]}
+  - name: sticky-label-is-not-an-approval
+    trusted_overrides: {policy_approvers: [test-human]}
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    checks: auto
+    approvals: [{login: test-human, kind: label}]
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [LABEL_NOT_SHA_BOUND]}
+  - name: real-graph-has-no-approver-yet
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    checks: auto
+    approvals: [{login: ahmed-shaaban-94}]
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [APPROVER_UNRESOLVED]}

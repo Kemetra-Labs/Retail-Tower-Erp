@@ -1,0 +1,34 @@
+id: X01
+spec: "NEW (RT-721, from A.8 R2) - only the latest run attempt counts; an older green never wins"
+cases:
+  - name: rerun-attempt-2-failed-after-attempt-1-green
+    changes: [{status: M, path: apps/pos/src/renderer/a.tsx}]
+    checks: auto
+    check_overrides:
+      pos/static:
+        - {run_id: 10, attempt: 1, conclusion: success}
+        - {run_id: 10, attempt: 2, conclusion: failure}
+    expect_required: {conclusion: failure, reasons: [JOB_FAILED]}
+  - name: rerun-attempt-2-still-running
+    changes: [{status: M, path: apps/pos/src/renderer/a.tsx}]
+    checks: auto
+    check_overrides:
+      pos/static:
+        - {run_id: 10, attempt: 1, conclusion: success}
+        - {run_id: 10, attempt: 2, status: in_progress, conclusion: null}
+    expect_required: {conclusion: pending, reasons: [JOB_PENDING]}
+  - name: newer-run-failed-older-run-green
+    changes: [{status: M, path: apps/pos/src/renderer/a.tsx}]
+    checks: auto
+    check_overrides:
+      pos/static:
+        - {run_id: 10, attempt: 1, conclusion: success}
+        - {run_id: 11, attempt: 1, conclusion: failure}
+    expect_required: {conclusion: failure, reasons: [JOB_FAILED]}
+  - name: incomplete-after-deadline-fails
+    changes: [{status: M, path: apps/pos/src/renderer/a.tsx}]
+    checks: auto
+    check_overrides:
+      pos/static: [{status: queued, conclusion: null}]
+    deadline_passed: true
+    expect_required: {conclusion: failure, reasons: [JOB_INCOMPLETE]}

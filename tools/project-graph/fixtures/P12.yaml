@@ -1,0 +1,8 @@
+id: P12
+spec: "RT-709 A.6 P12 - empty diff"
+cases:
+  - name: empty
+    changes: []
+    expect_plan: {select: [], graph_validation: pass, reasons: [], notes: [EMPTY_DIFF]}
+    checks: auto
+    expect_required: {conclusion: success, reasons: []}

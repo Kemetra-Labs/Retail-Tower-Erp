@@ -1,0 +1,39 @@
+id: P13
+spec: "RT-709 A.6 P13 - forced failure / cancellation / unexpected skip of a selected job"
+cases:
+  - name: failure
+    changes: [{status: M, path: apps/pos/src/main/payments/x.ts}]
+    checks: auto
+    check_overrides: {pos/static: [{conclusion: failure}]}
+    expect_required: {conclusion: failure, reasons: [JOB_FAILED]}
+  - name: cancelled
+    changes: [{status: M, path: apps/pos/src/main/payments/x.ts}]
+    checks: auto
+    check_overrides: {pos/package-windows: [{conclusion: cancelled}]}
+    expect_required: {conclusion: failure, reasons: [JOB_CANCELLED]}
+  - name: unexpected-skip
+    changes: [{status: M, path: apps/pos/src/main/payments/x.ts}]
+    checks: auto
+    check_overrides: {e2e/smoke: [{conclusion: skipped}]}
+    expect_required: {conclusion: failure, reasons: [UNEXPECTED_SKIP]}
+  - name: neutral-is-not-success
+    changes: [{status: M, path: apps/pos/src/main/payments/x.ts}]
+    checks: auto
+    check_overrides: {pos/test: [{conclusion: neutral}]}
+    expect_required: {conclusion: failure, reasons: [JOB_NOT_SUCCESS]}
+  - name: absent-after-deadline
+    changes: [{status: M, path: apps/pos/src/main/payments/x.ts}]
+    checks: auto
+    check_overrides: {pos/test: []}
+    deadline_passed: true
+    expect_required: {conclusion: failure, reasons: [ABSENT_JOB]}
+  - name: absent-before-deadline-is-pending
+    changes: [{status: M, path: apps/pos/src/main/payments/x.ts}]
+    checks: auto
+    check_overrides: {pos/test: []}
+    expect_required: {conclusion: pending, reasons: [JOB_PENDING]}
+  - name: skipped-and-not-selected-is-ok
+    changes: [{status: M, path: apps/pos/docs/a.md}]
+    checks: auto
+    extra_checks: [{name: bc/fast, conclusion: skipped}]
+    expect_required: {conclusion: success, reasons: []}

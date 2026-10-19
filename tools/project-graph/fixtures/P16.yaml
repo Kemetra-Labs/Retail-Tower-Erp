@@ -1,0 +1,6 @@
+id: P16
+spec: "RT-709 A.6 P16 - submodule added"
+cases:
+  - name: submodule
+    changes: [{status: A, path: apps/pos/vendor/sub, mode: "160000"}]
+    expect_plan: {select: all, graph_validation: fail, reasons: [SUBMODULE]}

@@ -1,0 +1,24 @@
+id: P06
+spec: "RT-709 A.6 P6 - malformed graph.yaml"
+cases:
+  - name: malformed
+    changes: [{status: M, path: tools/project-graph/graph.yaml}]
+    proposed: {text: "schema: [unclosed\n"}
+    expect_plan: {select: all, graph_validation: fail, reasons: [GRAPH_INVALID, POLICY_CHANGE], policy_change: true}
+    checks: auto
+    expect_required: {conclusion: failure, reasons: [GRAPH_VALIDATION_FAILED, POLICY_APPROVAL_REQUIRED]}
+  - name: malformed-even-with-valid-approval
+    trusted_overrides: {policy_approvers: [test-human]}
+    changes: [{status: M, path: tools/project-graph/graph.yaml}]
+    proposed: {text: "schema: [unclosed\n"}
+    checks: auto
+    approvals: [{login: test-human}]
+    expect_required: {conclusion: failure, reasons: [GRAPH_VALIDATION_FAILED]}
+  - name: alias-in-proposed-graph
+    changes: [{status: M, path: tools/project-graph/graph.yaml}]
+    proposed: {text: "schema: &s retail-tower/project-graph@1\nother: *s\n"}
+    expect_plan: {select: all, graph_validation: fail, reasons: [GRAPH_INVALID, POLICY_CHANGE]}
+  - name: duplicate-key-in-proposed-graph
+    changes: [{status: M, path: tools/project-graph/graph.yaml}]
+    proposed: {text: "schema: retail-tower/project-graph@1\nschema: retail-tower/project-graph@1\n"}
+    expect_plan: {select: all, graph_validation: fail, reasons: [GRAPH_INVALID, POLICY_CHANGE]}

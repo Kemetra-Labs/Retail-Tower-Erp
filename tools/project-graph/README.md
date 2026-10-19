@@ -1,0 +1,107 @@
+# tools/project-graph
+
+The project graph, fail-closed evaluator, `required` aggregator and layer-1 boundary check for the private, **non-authoritative** `Kemetra/Retail-Tower-Shadow` (RT-721 Substep A).
+
+The design comes from [RT-709 §A](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/43548700) and [§B](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/43778136), hardened by A.8 (R1, R2, R5).
+
+**Status: staged, not operational and not security-verified.** Nothing here is wired as a required check. App installation, the `ci-gate` environment and the ruleset are RT-721 Substep B, and each needs separate owner authorization. Independent verification is RT-711.
+
+## Layout
+
+| Path | What |
+| --- | --- |
+| `graph.yaml` | Schema v1 graph. Single source for job selection, tiers and boundary edges. `policy` class |
+| `pgraph/globs.py` | Anchored glob dialect (A.1) |
+| `pgraph/graph.py` | Strict loader (size cap; no anchors, aliases or duplicate keys), static rules 1–6, classification |
+| `pgraph/evaluate.py` | A.2 evaluator: metadata in, `plan.json` out. Never runs PR code |
+| `pgraph/aggregate.py` | A.5 `required` decision with R2 provenance and R1 SHA-bound approval |
+| `pgraph/github.py` | REST payloads → aggregator records (jobs `filter=all` joined to check-runs; review attestations) |
+| `pgraph/boundary.py` | B.1 layer-1 cross-product reference check (dependency-free `scan`) |
+| `pgraph/gitio.py` | Git plumbing adapter (`diff --raw -z`, `ls-tree`, `show`); no checkout |
+| `pgraph/privileges.py` | R5 / T-A static check of root and staged workflows (`python -m pgraph privileges`) |
+| `boundary-todo.yaml` | Boundary ratchet (empty). Entries may only be removed |
+| `fixtures/` | P01–P19 (RT-709 A.6) and X01–X07 (new, see below) with hand-written expectations |
+| `tests/` | unittest suite, including the fixture runner and a real-tree acceptance check |
+| `../ci-gate/gate.yml.staged` | T-A gate template, kept outside `.github/workflows` |
+
+## Commands
+
+```bash
+cd tools/project-graph
+python -m pip install --require-hashes --no-deps -r requirements.txt
+python -m unittest discover -s tests -v
+python -m pgraph classify-tree --repo ../.. --rev HEAD
+python -m pgraph boundary --repo ../.. --rev HEAD
+python -m pgraph evaluate --repo ../.. --base <base> --head <head> --event pull_request --out plan.json
+```
+
+## Approval protocol (R1)
+
+A policy change passes only with an **APPROVED** pull request review on the exact head commit. GitHub does not let a PR's author approve their own PR, so self-approval is impossible. COMMENTED reviews never count. The review is valid only if it meets all of these:
+
+- It comes from a `User` login listed in the **trusted** (base) `policy_approvers`.
+- Its body contains this line exactly:
+
+  ```
+  policy-change-approved: base=<base sha> fingerprint=<plan.policy_fingerprint>
+  ```
+
+The fingerprint covers the base SHA, both graph hashes and every changed path/mode/blob. Any new head commit, base move or content change invalidates the approval. Labels never approve; they only re-trigger the gate.
+
+`policy_approvers` is **empty** on purpose. Agents still act under the owner's personal login, so no login can yet be trusted as human-only. Every policy change is denied until the owner names a login after agents move to `kemetra-agent` (Substep B).
+
+## Credential matrix (R5)
+
+| Workflow | Triggers | Token permissions | Environment | Secrets |
+| --- | --- | --- | --- | --- |
+| `.github/workflows/project-graph-selftest.yml` | `pull_request`, `push` main | `contents: read` | none | none |
+| `tools/ci-gate/gate.yml.staged` (inactive) | `pull_request_target`, `workflow_run` | `contents/pull-requests/checks/actions: read` | `ci-gate` (main-only) | `CI_GATE_APP_PRIVATE_KEY`, used only in the last step; App token scoped to `checks: write` |
+| Product CI (future root workflows) | `pull_request` | read-only | none | none |
+| Per-product releases (RT-717) | protected `main` / tags only | product-specific identity | per-product environment | never reachable from PR code |
+
+`python -m pgraph privileges` enforces these rules for every workflow reachable from a PR:
+- No `write` scope, and permissions must be declared.
+- No `secrets.*` outside a `ci-gate` job.
+- In `pull_request_target`/`workflow_run`: no head-ref checkout, no `actions/cache` and no `actions/download-artifact`.
+
+GitHub repo-scoped `contents:write` tokens have **no path restriction**, so product isolation comes from protected branches, environments and per-product identities, never from paths. The Connector publisher App is installable only on the distribution mirror (RT-712), never on this repo.
+
+## X01–X07 (new in RT-721)
+
+These were named but never defined in RT-710 comment 12882. They are **defined new here** from the RT-721 negatives, not restored:
+
+| # | Case |
+| --- | --- |
+| X01 | Only the latest run/attempt counts; an older green never wins; an incomplete job after the deadline fails |
+| X02 | Wrong producer App, wrong workflow path, duplicate results; a forged green cannot mask a real failure |
+| X03 | Green on a stale/foreign head SHA, or from the wrong event |
+| X04 | Approval at head A, then head moved to B; base moved; policy content changed (fingerprint) |
+| X05 | Bot reviewer, unlisted login, label-only approval, empty approver list |
+| X06 | Path dialect: case, root anchoring, NFC, unmatched-in-product = `high`, BC docs SQL, push selects all |
+| X07 | Boundary: imports, `require`, dynamic `import()`, manifest `file:`, tsconfig `extends`, Python `sys.path` and relative imports, literal product paths, Dockerfile, ratchet |
+
+## Known gaps (named, not silently relaxed)
+
+1. **Static rule 5 fails on the real tree.** There are no root `.github/workflows` defining the product jobs: product CI still sits under each product's own `.github/`, and GitHub does not run it there. A gate built on this graph therefore fails **every** PR with `GRAPH_INVALID / CI_JOB_MISSING`. That is fail-closed and correct for now, and `tests/test_real_tree.py` pins it as the only static-rule failure. Moving product CI to root workflows is out of Substep A scope.
+2. **P15 deferred.** Merge Queue is off; `merge_group` is `UNKNOWN_EVENT`.
+3. **P17/P19 are logic-level only here.** The local tests show that forged and wrong-producer results are ignored and that workflow/aggregator edits are policy changes. The real proof is GitHub running the base-branch gate and enforcing the ruleset source pin: **RT-711**.
+4. **BC has no `low` tier.** The RT-582 rule (a low path quoted by code becomes high) needs a content scan that is not implemented. BC docs/specs/markdown are therefore `high` (over-selection).
+5. **Layer-2 per-product boundaries** (POS process ESLint rules, Admin Biome, BC internal graph, Connector import-linter) belong to product slices and are not implemented here.
+6. **Forced checks not yet in the §B.5 job map** are mapped to the nearest existing job: Admin Playwright e2e → `admin/build-test`; POS fuse readback and native-load smoke → `pos/package-windows`; BC compat matrix/replay → `bc/oasdiff`. B.4 dependency checks are one `dependency-review` job. These need real jobs before G2.
+7. **e2e trigger interpretation.** `e2e_runs_when: any_product_selected` is read as "any product has a non-`low` tier", so a docs-only product change does not run e2e.
+8. **Staged gate: Needs verification.** Two behaviours are unconfirmed:
+   - whether a `pull_request_target` run's `head_sha` makes it appear in `actions/runs?head_sha=` (the gate excludes its own workflow path regardless);
+   - whether the source pin accepts a `checks:write` App check (A.8).
+9. **Root LICENSE and NOTICE are deferred** (OA-5, OA-6, OA-7). Not added.
+
+### Review findings recorded, not fixed (2026-10-19 code + security review)
+
+All HIGH findings were fixed test-first (`tests/test_review_fixes.py`). These lower ones stay open:
+
+10. **`boundary_review` is a flag only.** A cross-product rename sets it, but nothing blocks on it. Whether it should require approval is an owner decision.
+11. **Ratchet is not removal-only in code.** `stale_ratchet` is reported but not failing. The only control on new entries is the `policy` class. A `(rule, from, to)` entry also covers any later violation with the same triple.
+12. **The boundary scan misses non-import relative paths in JS**, such as `path.resolve(__dirname, '../..')` or `new URL('../x', import.meta.url)`. It also ignores `.vue`/`.svelte`, and `boundary` reads the working tree rather than `--rev`.
+13. **Approvers are matched by login.** Matching by numeric user id would survive renames and recycled logins.
+14. **Dismissing a review does not re-trigger the gate.** A `pull_request_review` trigger would run workflow code from the PR merge ref. A green `required` stays until the next push or label event.
+15. **The gate does not re-run `privileges` on head workflows.** That is defence in depth only; the primary control is that `.github/**` and `tools/ci-gate/**` are `policy` paths.
+16. **`required` and stale bases.** `required` is posted per head SHA against the PR's base SHA, so the ruleset must also require "branches up to date" (in the activation checklist).

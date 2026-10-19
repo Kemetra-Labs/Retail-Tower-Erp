@@ -1,0 +1,26 @@
+id: X06
+spec: "NEW (RT-721) - path dialect: case-sensitive, root-anchored, NFC-normalised"
+cases:
+  - name: wrong-case-product-root-is-unknown
+    changes: [{status: A, path: APPS/pos/x.ts}]
+    expect_plan: {select: all, graph_validation: fail, reasons: [UNKNOWN_PATH]}
+  - name: nested-tools-dir-belongs-to-its-product-not-tooling
+    changes: [{status: M, path: services/backend-core/tools/eslint-rules/x.js}]
+    expect_plan: {select: [backend-core], graph_validation: pass, reasons: [], product_tiers: {backend-core: [tenant-auth]}}
+  - name: decomposed-unicode-path-is-normalised
+    changes: [{status: A, path: "apps/pos/docs/café.md"}]
+    expect_plan:
+      select: [pos]
+      graph_validation: pass
+      reasons: []
+      path_tiers: {"apps/pos/docs/café.md": [low]}
+  - name: unmatched-path-inside-product-is-high-not-unknown
+    changes: [{status: M, path: apps/admin-console/src/theme/x.ts}]
+    expect_plan: {select: [admin-console], graph_validation: pass, reasons: [], path_tiers: {apps/admin-console/src/theme/x.ts: [high]}}
+  - name: bc-docs-sql-is-not-low
+    changes: [{status: M, path: services/backend-core/docs/operations/sql/a.sql}]
+    expect_plan: {select: [backend-core], graph_validation: pass, reasons: [], path_tiers: {services/backend-core/docs/operations/sql/a.sql: [tenant-auth]}}
+  - name: push-to-main-selects-everything
+    event: push
+    changes: [{status: M, path: apps/pos/docs/a.md}]
+    expect_plan: {select: all, graph_validation: pass, reasons: [], notes: [FULL_RUN_EVENT]}

@@ -1,0 +1,12 @@
+id: P04
+spec: "RT-709 A.6 P4 - symlink added in admin-console"
+cases:
+  - name: symlink
+    changes: [{status: A, path: apps/admin-console/src/link, mode: "120000"}]
+    expect_plan: {select: all, graph_validation: fail, reasons: [SYMLINK]}
+    checks: auto
+    expect_required: {conclusion: failure, reasons: [GRAPH_VALIDATION_FAILED]}
+  - name: symlink-listed-in-trusted-graph-is-allowed
+    trusted_overrides: {allowed_symlinks: [apps/admin-console/src/link]}
+    changes: [{status: A, path: apps/admin-console/src/link, mode: "120000"}]
+    expect_plan: {select: [admin-console], graph_validation: pass, reasons: []}

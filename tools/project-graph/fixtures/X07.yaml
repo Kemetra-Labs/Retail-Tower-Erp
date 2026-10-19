@@ -1,0 +1,37 @@
+id: X07
+spec: "NEW (RT-721, RT-709 B.1 layer 1) - cross-product boundary check"
+cases:
+  - name: boundary-references
+    kind: boundary
+    files:
+      apps/pos/src/main/a.ts: "import x from '../../../../services/backend-core/apps/api/src/x';\n"
+      apps/pos/scripts/b.ts: "import spec from '../../../services/backend-core/packages/contracts/openapi/pos-sales/x.yaml';\n"
+      apps/pos/src/renderer/ok.ts: "import { y } from '../shared/y';\nimport z from 'react';\n"
+      apps/admin-console/src/c.ts: "const z = require('../../pos/src/main/z');\n"
+      apps/admin-console/src/d.ts: "const w = await import('../../../integrations/erpnext-connector/x');\n"
+      apps/pos/package.json: "{\"dependencies\": {\"bc\": \"file:../../services/backend-core\", \"react\": \"^18.0.0\"}}\n"
+      apps/pos/tsconfig.json: "{\"extends\": \"../admin-console/tsconfig.json\"}\n"
+      integrations/erpnext-connector/retail_tower_erpnext_connector/connector/x.py: "import sys\nsys.path.insert(0, '../../..')\nfrom .... import y\nfrom . import ok\n"
+      services/backend-core/scripts/s.sh: "cat apps/pos/package.json\n"
+      apps/pos/tools/run.sh: "cd ../.. && ls\n"
+      services/backend-core/Dockerfile: "WORKDIR /app\n# loader -> ../../../../packages/contracts/openapi\nCOPY apps/pos/x ./\n"
+    ratchet: []
+    expect_violations:
+      - {from: apps/pos/src/main/a.ts, to_product: backend-core, rule: import}
+      - {from: apps/admin-console/src/c.ts, to_product: pos, rule: import}
+      - {from: apps/admin-console/src/d.ts, to_product: erpnext-connector, rule: import}
+      - {from: apps/pos/package.json, to_product: backend-core, rule: manifest-path}
+      - {from: apps/pos/tsconfig.json, to_product: admin-console, rule: config-path}
+      - {from: integrations/erpnext-connector/retail_tower_erpnext_connector/connector/x.py, to_product: outside, rule: python-sys-path}
+      - {from: integrations/erpnext-connector/retail_tower_erpnext_connector/connector/x.py, to_product: outside, rule: python-relative-import}
+      - {from: services/backend-core/scripts/s.sh, to_product: pos, rule: literal-product-path}
+      - {from: apps/pos/tools/run.sh, to_product: outside, rule: literal-escape}
+      - {from: services/backend-core/Dockerfile, to_product: pos, rule: literal-product-path}
+  - name: ratchet-entry-suppresses-known-violation
+    kind: boundary
+    files:
+      apps/admin-console/src/c.ts: "const z = require('../../pos/src/main/z');\n"
+    ratchet:
+      - {rule: import, from: apps/admin-console/src/c.ts, to: apps/pos/src/main/z, ticket: RT-000}
+    expect_violations: []
+    expect_ratcheted: 1
