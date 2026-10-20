@@ -206,7 +206,7 @@ describe('OneFrameProof — the in-memory bridges', () => {
   it.each([
     ['refused', { kind: 'refused', category: 'invalid_input' }],
     ['state_invalid', { kind: 'refused', category: 'state_invalid' }],
-    ['ok', { kind: 'forced_closed', audit_event_id: 'proof-event' }],
+    ['ok', { kind: 'forced_closed', audit_event_id: 'proof-event', delivery: 'sent' }],
   ] as const)('RT-502: close=%s drives what forceCloseShift answers', async (close, answer) => {
     const bridge = operatorBridge({ ...DEFAULTS, close }) as unknown as Record<string, AnyFn>;
     expect(await (bridge.forceCloseShift as AnyFn)()).toEqual(answer);
@@ -275,7 +275,7 @@ describe('OneFrameProof — renders the real router in the one frame', () => {
     );
   });
 
-  it('a cashier sees only the Sale in the nav', async () => {
+  it('a cashier sees only the Sale in the nav: the proof profile has saleFinalization off', async () => {
     window.location.hash = '#/dev/one-frame-proof?role=cashier';
     render(<OneFrameProof />);
     const frame = await screen.findByTestId('v5-frame');
