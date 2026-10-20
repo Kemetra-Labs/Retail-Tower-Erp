@@ -1,0 +1,189 @@
+# RT-750: BrowserStack cross-browser SMOKE of the existing locale-switch E2E spec, on the official BrowserStack
+# Node SDK with SDK-managed BrowserStack Local: Firefox/Windows 11 and Playwright WebKit/macOS Ventura, Arabic and
+# English (about 4 sessions per run). Manual only, main only, never a required check; the required Chromium CI
+# (ci.yml) is untouched. Results: this run's summary (with links) and BrowserStack Test Reporting & Analytics.
+# There is deliberately no pull_request trigger: the key never meets pull-request code. Details and the security
+# notes (vendor binaries run before they can be verified): cloud-e2e/README.md.
+name: Cross-browser cloud smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      acknowledge_entitlement:
+        description: "I confirm this run may use the existing BrowserStack Open Source entitlement (no purchase or upgrade)"
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+# One run at a time; a running run is never cancelled (GitHub keeps at most one pending).
+concurrency:
+  group: cross-browser-cloud
+  cancel-in-progress: false
+
+jobs:
+  cloud-smoke:
+    # Main only, here and in the environment's deployment-branch policy (repository setting).
+    if: ${{ inputs.acknowledge_entitlement && github.ref == 'refs/heads/main' }}
+    runs-on: windows-latest
+    environment: browserstack
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the BrowserStack secrets exist (values are never printed)
+        env:
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+        run: |
+          if (-not $env:BROWSERSTACK_USERNAME -or -not $env:BROWSERSTACK_ACCESS_KEY) {
+            throw 'BROWSERSTACK_USERNAME / BROWSERSTACK_ACCESS_KEY are not set in the browserstack environment.'
+          }
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+
+      - name: Setup Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      # The root install never sees the proprietary SDK: it is isolated in cloud-e2e/ (licence, Jira RT-750 13075).
+      - name: Install root dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build the SPA
+        run: pnpm build
+
+      - name: Install the SDK from cloud-e2e (own lockfile, no scripts)
+        run: pnpm --dir cloud-e2e install --frozen-lockfile --ignore-scripts
+
+      # One step on purpose: the preview server must live as long as both SDK runs. Per locale: write the official
+      # browserstack.yml (no credential fields), run the SDK once, then check the results. Sessions are bounded by
+      # cloud-e2e/playwright.config.ts (one worker per platform, no retries, maxFailures 2).
+      - name: Cloud run - Arabic and English
+        id: run
+        env:
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+        run: |
+          # Returns the problems found for one locale (empty = every configured platform ran and nothing failed).
+          # The SDK can exit 0 without running a test, so "no results" is a failure here.
+          function Test-Locale([string]$Locale, [int]$SdkExit, [int]$Platforms) {
+            $problems = @()
+            if ($SdkExit -ne 0) { $problems += "the SDK exited with code $SdkExit" }
+            $json = "reports/$Locale/results.json"
+            if (-not (Test-Path $json)) { return $problems + 'no results.json was produced (the SDK can exit 0 without running tests)' }
+            $data = Get-Content -LiteralPath $json -Raw | ConvertFrom-Json -Depth 100
+            $s = $data.stats
+            if (($s.expected + $s.unexpected + $s.flaky) -lt 1) { $problems += 'no test was executed' }
+            if ($s.unexpected -gt 0) { $problems += "$($s.unexpected) test(s) failed" }
+            $tests = New-Object System.Collections.Generic.List[object]
+            function Add-Tests($Suites) {
+              foreach ($n in $Suites) {
+                foreach ($sp in $n.specs) { foreach ($t in $sp.tests) { $tests.Add($t) } }
+                if ($n.suites) { Add-Tests $n.suites }
+              }
+            }
+            Add-Tests $data.suites
+            $ran = @($tests | Where-Object { @($_.results | Where-Object { $_.status -ne 'skipped' }).Count -gt 0 } | ForEach-Object projectName | Sort-Object -Unique)
+            if ($ran.Count -lt $Platforms) { $problems += "tests ran on only $($ran.Count) of $Platforms configured platform(s)" }
+            return $problems
+          }
+
+          $preview = Start-Process node -PassThru -WindowStyle Hidden -ArgumentList @('node_modules/vite/bin/vite.js', 'preview', '--port', '4173', '--strictPort')
+          $failed = $false
+          try {
+            $up = $false
+            for ($i = 0; $i -lt 30; $i++) {
+              try { Invoke-WebRequest -Uri 'http://localhost:4173/signin' -UseBasicParsing -TimeoutSec 3 | Out-Null; $up = $true; break } catch { Start-Sleep -Seconds 1 }
+            }
+            if (-not $up) { throw 'preview did not start' }
+            Set-Location cloud-e2e
+            foreach ($locale in 'ar', 'en') {
+              $build = "rt-admin-console-cloud-$locale"
+              $env:E2E_LOCALE = $locale
+              Remove-Item -LiteralPath "reports/$locale" -Recurse -Force -ErrorAction SilentlyContinue
+              # Digit-free build name on purpose: TRA drops digit-bearing tokens from build names.
+              $yml = @"
+          framework: playwright
+          projectName: Admin-Console
+          buildName: $build
+          platforms:
+            - os: Windows
+              osVersion: 11
+              browserName: playwright-firefox
+              browserVersion: latest
+            - os: OS X
+              osVersion: Ventura
+              browserName: playwright-webkit
+              browserVersion: latest
+          parallelsPerPlatform: 1
+          browserstackLocal: true
+          testObservability: true
+          selfHeal: false
+          "@
+              Set-Content -LiteralPath browserstack.yml -Value $yml
+              pnpm exec browserstack-node-sdk playwright test --config playwright.config.ts 2>&1 | Tee-Object -Variable sdkOut | Out-Host
+              $exit = $LASTEXITCODE
+              $problems = @(Test-Locale $locale $exit ([regex]::Matches($yml, 'browserName:')).Count)
+              $links = [regex]::Matches(($sdkOut | Out-String), 'https://automate\.browserstack\.com/dashboard/v2/builds/[0-9a-f]+|https://automation\.browserstack\.com/builds/[A-Za-z0-9]+') | ForEach-Object Value | Sort-Object -Unique
+              $lines = @("### Locale $locale - build $build") + @($links | ForEach-Object { "- Results: $_" }) + "- SDK exit code: $exit"
+              if ($problems.Count -gt 0) { $failed = $true; $lines += @($problems | ForEach-Object { "- FAILED: $_" }) } else { $lines += '- Result: every configured platform ran, no test failed' }
+              $lines | ForEach-Object { Write-Host $_ }
+              Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value $lines
+            }
+          } finally {
+            if ($preview -and -not $preview.HasExited) { Stop-Process -Id $preview.Id -Force -ErrorAction SilentlyContinue }
+          }
+          if ($failed) { exit 1 }
+
+      # Detective control: the SDK downloads and RUNS its CLI and BrowserStack Local with the key and offers no way to
+      # verify them first, so they are verified after every run against .github/browserstack-pins.json (hash, valid
+      # Authenticode signature, signer). Any other executable under ~/.browserstack also fails the job. A mismatch
+      # with a VALID signature is most likely a vendor release: review it, then bump the pins in a reviewed PR.
+      # A bad or missing signature means possible compromise: rotate the BrowserStack key.
+      - name: Verify the vendor binaries after the run
+        if: ${{ always() && steps.run.conclusion != 'skipped' }}
+        run: |
+          $pins = Get-Content -LiteralPath .github/browserstack-pins.json -Raw | ConvertFrom-Json
+          $bad = @()
+          $known = @()
+          foreach ($b in @(@{ Path = $pins.local.relativePath; Hash = $pins.local.exeSha256; Signer = $pins.local.signer }, @{ Path = $pins.cli.relativePath; Hash = $pins.cli.sha256; Signer = $pins.cli.signer })) {
+            $path = Join-Path $env:USERPROFILE $b.Path
+            $known += $path
+            if (-not (Test-Path -LiteralPath $path)) { $bad += "MISSING: $path"; continue }
+            $sig = Get-AuthenticodeSignature -LiteralPath $path
+            $signer = $sig.SignerCertificate.GetNameInfo('SimpleName', $false)
+            $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+            Write-Host "$path sha256=$hash signature=$($sig.Status) signer=$signer"
+            if ($sig.Status -ne 'Valid' -or $signer -ne $b.Signer) { $bad += "SIGNATURE (possible compromise, rotate the key): $path" }
+            elseif ($hash -ne $b.Hash.ToUpperInvariant()) { $bad += "HASH differs from the pin but the signature is valid (most likely a vendor release): $path" }
+          }
+          $stray = @(Get-ChildItem -LiteralPath (Join-Path $env:USERPROFILE '.browserstack') -Recurse -Filter *.exe -File -ErrorAction SilentlyContinue | Where-Object { $known -notcontains $_.FullName })
+          foreach ($f in $stray) { $bad += "UNPINNED executable: $($f.FullName)" }
+          $lines = if ($bad.Count -gt 0) { @($bad | ForEach-Object { "- BINARY CHECK FAILED: $_" }) } else { @('- Vendor binaries re-verified after the run (hash, signature, signer match the pins)') }
+          $lines | ForEach-Object { Write-Host $_ }
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value $lines
+          if ($bad.Count -gt 0) { throw 'vendor binary check failed' }
+
+      # The first run on GitHub left no logs (the Local log was lost): print the tails when anything failed.
+      - name: Failure diagnostics
+        if: ${{ failure() }}
+        run: |
+          Get-ChildItem -LiteralPath (Join-Path $env:USERPROFILE '.browserstack/log') -Filter 'local-*.log' -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "---- $($_.Name)"; Get-Content -LiteralPath $_.FullName -Tail 30
+          }
+          Get-ChildItem -Path cloud-e2e/log -File -ErrorAction SilentlyContinue | Select-Object -First 3 | ForEach-Object {
+            Write-Host "---- $($_.Name)"; Get-Content -LiteralPath $_.FullName -Tail 20
+          }

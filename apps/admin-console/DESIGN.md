@@ -340,7 +340,7 @@ These classes exist on `main` and new work reuses them until a migration slice r
 - **Banner** `.rtc-alert--{danger,warning,success,info}`: persistent operational state, not a
   toast.
 - **Inputs** `.input` and `.field`. Errors use `aria-invalid` plus inline text.
-- **DataTable** (`src/components/DataTable.tsx`), **Drawer** (focus-trapped dialog), and
+- **DataTable** (`src/components/DataTable.tsx`; usage rules in the notes below), **Drawer** (focus-trapped dialog), and
   **ListState** (loading / empty).
 - **Shell** (`src/shell/`): topbar, a recessed (`surface-sunken`) scope header, and a sidebar
   whose active entry takes the teal wash and the teal Signal Line (RT-396).
@@ -350,6 +350,30 @@ These classes exist on `main` and new work reuses them until a migration slice r
   `--color-focus-ring`. No box-shadow-only focus remains; new work keeps the outline.
 - **Gold:** retired by RT-396 (the scope header, nav marker and icon, `TowerMark`,
   `.badge--gold` and the gold shadow ring). Do not reintroduce it.
+- **DataTable sort and selection (RT-753, UX-10):** the table never reorders rows and
+  never owns the sort order, the selection state or the count; the caller owns all three.
+  - *Sort:* mark a column `sortable` and pass `sort` / `onSortChange`. Use
+    `sortRows` (`src/components/tableSort.ts`) only for a complete in-memory set; a paged
+    or server-backed list sorts at the query layer, never by reordering the visible page.
+  - *Selection:* wire `useRowSelection(scopeKey, rowKeys)` to `DataTable`'s `selection`
+    prop and `SelectionSummary`. Put the tenant, store, filters **and sort** in
+    `scopeKey`, so changing any of them clears the selection. Memoise `rowKeys`.
+  - Only rows currently listed count. The count names its scope ("selected on this
+    page"). Offer "select all matching" only when the caller has an authoritative total
+    and a handler; with no backend contract, leave `allMatching` out.
+  - A checkbox toggles selection only; it never opens the row. With selection on the row is
+    neither a click target nor a tab stop (RT-756): an explicit «Open» button in its own
+    cell, right after the checkbox, calls `onRowActivate`. It is named from
+    `selection.rowLabel` ("Open Alpha"), so the visible «Open» is inside the accessible name
+    and the caller needs no extra label prop. Tab order per row: checkbox, then open.
+    Without `selection` the whole row is still the target and nothing changes.
+  - Target size (RT-757): the 36px floor applies inside tables. The whole selection cell
+    (header and row) is the target and the checkbox keeps its 18px glyph; the sort button
+    keeps its text-sized box and gains a 36px hit area (`::after`), so the header does not
+    grow. New table controls follow the same pattern: enlarge the hit area, not the row.
+  - Composed behaviour is pinned in `tests/unit/data-table-selection.test.tsx`, the open
+    control in `tests/unit/data-table-row-open.test.tsx`. Known gap: RT-758 (dedicated sort
+    glyph and a way back to server order).
 
 ## 10. Migration debts
 
