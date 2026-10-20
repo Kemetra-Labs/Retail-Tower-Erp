@@ -1,4 +1,4 @@
-backend-core	services/backend-core	Backend-Core	8111982a2c5cb693f30266351d1a3d24ddce9f00
+backend-core	services/backend-core	Backend-Core	52bbf29bd646c2e9c96fd135d928a0ccf337a64f
 erpnext-connector	integrations/erpnext-connector	ERPNext-Connector	274589a3dd54c97e678348bc34b3063d8e54f2e7
-admin-console	apps/admin-console	Admin-Console	d695cfc0f746647ff65f29bbb59af7e26234228e
-pos	apps/pos	POS	3c1cad5fe516c36579f8748349793b1177426782
+admin-console	apps/admin-console	Admin-Console	a85e3e87584be177045efb8c2855ab460c5f338a
+pos	apps/pos	POS	0b3db6a46c43a8729a2af4ac5832ed33c1f8aa72
