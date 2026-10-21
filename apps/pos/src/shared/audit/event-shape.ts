@@ -100,6 +100,11 @@ export const AUDIT_ACTION_CATEGORIES = [
   'sale.return.slip_printed',
   'sale.return.slip_print_failed',
   'sale.return.slip_reprinted',
+  // RT-196 S1 — one send that left a return unknown (with its cause code), and
+  // a manager's per-row resend. Local only; ids and closed codes, never a body
+  // or envelope. Open-set at the SQL layer (0004: no CHECK); no migration.
+  'sale.return.attempt_unknown',
+  'sale.return.resend_requested',
   // RT-215 (RT-138 P-1) — the device credential was confirmed revoked, and a
   // later re-pair (or, RT-215 10897-A, a "Check again" answered 2xx) cleared it. System-attributed (no operator acts): the
   // actor is SYSTEM_DEVICE_ACTOR_ID below. Payload `{ source }` only — never a
@@ -242,6 +247,23 @@ export type Fr025MandatoryAttribute = (typeof FR025_MANDATORY_ATTRIBUTES)[number
  *
  * `payment_in_progress` (RT-444, RT-116 §3.4) — sign-out refused: the current
  * session holds a started payment with live tender.
+ *
+ * `not_closable_here` (RT-554) — forced close refused: the stuck-shift list
+ * comes from Backend-Core, but Backend-Core resolves a shift only for the
+ * device that opened it (pos-shifts `ShiftNotFound`), and this device holds no
+ * such shift. A truthful, distinct answer — never the generic `state_invalid`
+ * ("state changed"). Names no shift id and no amount.
+ *
+ * `close_blocked` (RT-554 (b)) — forced close of this terminal's own shift
+ * refused because the terminal still has parked sales or drawer cash in flight
+ * (a settled payment not yet a sale, a started refund payout). Resolve them,
+ * then close. Names no count and no amount.
+ *
+ * `closed_here_unsent` (RT-554 (b)) — a retry on a shift this terminal already
+ * closed whose close has NOT reached Backend-Core yet (queued, offline, or behind
+ * an earlier fact that is stuck): the stuck list still shows the shift, and the
+ * truthful answer is "closed on this device, not at the server yet". Once the
+ * server has it the answer is `state_invalid` (the list is only stale).
  */
 export const REFUSAL_CATEGORIES = [
   'invalid_input',
@@ -254,6 +276,9 @@ export const REFUSAL_CATEGORIES = [
   'reauth_required',
   'terminal_has_unresolved_payment',
   'payment_in_progress',
+  'not_closable_here',
+  'close_blocked',
+  'closed_here_unsent',
 ] as const;
 export type RefusalCategory = (typeof REFUSAL_CATEGORIES)[number];
 

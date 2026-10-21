@@ -416,6 +416,196 @@ This project follows [Semantic Versioning](https://semver.org/).
   console-sales "no 429" sentence is gone and the status mappings name the
   429. Each changed file takes an additive minor version. A new contract
   sweep imports the runtime exemption list. No runtime or migration change.
+- RT-492 `[GATED]`, pending owner approval (RT-114 MA-BC1; owner decision
+  RT-114 comment 11888, reconciled with RT-284 comment 11887): OpenAPI
+  contract `pos-approvers.openapi.yaml` (1.0.0-draft, contract-only).
+  `posCheckApproverEligibility` (`POST /api/pos/v1/approvers/eligibility`,
+  `device` bearer only, tenant and store from the device row) takes 1 to 50
+  distinct `user_ids` and answers one `{ user_id, eligible }` per id, in
+  request order. V1 eligibility: not deleted, an active membership in the
+  device's tenant, a role in `{owner, tenant_admin, store_manager}` and
+  access to the device's store. Unknown, cross-tenant and every other
+  ineligible user are the same `eligible: false`, with no cause. The
+  optional `action_kinds` is reserved for RT-284 P-A: the server omits it in
+  1.0.0-draft, and clients honour it when present. Read-only, not audited,
+  `Cache-Control: no-store`. The runtime ships in MA-BC2. No runtime or
+  migration change.
+- RT-738 (CAT-W1 + CAT-W2 of RT-281): runtime for the seven interim console
+  catalog writes (`ConsoleCatalogWriteController` / `ConsoleCatalogWriteService`
+  in `apps/api/src/catalog/console-catalog/`); they lose `x-runtime-status:
+  contract-only` and ship unchanged on the wire. Each write is one RLS tenant
+  transaction holding the change, its `audit_events` row and the detail it
+  answers with; POS propagation stays on the 0015 `catalog_change_log`
+  triggers. `expectedUpdatedAt` compares at millisecond precision and a write
+  reruns its transaction rather than reuse its row's `updated_at`
+  millisecond, so every accepted write's `updatedAt` is strictly later. Price
+  is never written; store data follows the operator store scope, and a
+  soft-deleted store is a 404. `ConsoleCatalogReadService.detailIn` lets a
+  write answer from its own transaction. No migration, package or CI change.
+- RT-738 `[GATED]`, owner-approved 2026-10-19 (CAT-W1 + CAT-W2 of RT-281):
+  `catalog/console-catalog.yaml` 1.1.0-draft (additive) adds seven interim,
+  audited console catalog writes, contract-only until the RT-738 runtime:
+  `consoleCreateCatalogProduct` (`Idempotency-Key`),
+  `consoleUpdateCatalogProduct` and `consoleRetireCatalogProduct`
+  (`expectedUpdatedAt` → 409 `stale_write`), `consoleAddProductIdentifier`
+  (non-disclosing 409 `alias_conflict`) and `consoleRetireProductIdentifier`
+  (owner / tenant_admin), and `consoleUpsertStoreOverride` /
+  `consoleRetireStoreOverride` (availability for store_manager on in-scope
+  stores; tax category owner / tenant_admin only). No price field (O-2), no
+  identifier move, 403 `origin_rejected` on cookie writes, soft-deleted
+  stores a 404. Labelled interim, pre Change Sets (decision 400). No runtime
+  or migration change.
+- RT-729 `[GATED]`, owner-approved 2026-10-19 (CAT-R1 of RT-281): OpenAPI
+  contract `catalog/console-catalog.yaml` (1.0.0-draft, contract-only). It
+  defines the console read of the Tenant Catalog for Admin-Console RF-3 and
+  the RT-724 link product picker: `consoleListCatalogProducts` (search by
+  exact active barcode / sku / plu or case-insensitive name substring, status
+  and category filters, an optional store's effective view, keyset cursor),
+  `consoleGetCatalogProduct` (identifiers and store overrides in the caller's
+  store scope) and `consoleListCatalogCategories`. Dashboard session only,
+  roles owner / tenant_admin / store_manager, non-disclosing 404, no per-read
+  audit. No runtime or migration change; the runtime ships in RT-730.
+- RT-730 (CAT-R2 of RT-281): runtime for the console catalog read
+  (`ConsoleCatalogModule`, `apps/api/src/catalog/console-catalog/`). All three
+  operations ship unchanged on the wire and lose `x-runtime-status:
+  contract-only`. Reads run under the RLS tenant context; store data
+  (`storeView`, store-scoped identifiers, overrides) carries an explicit
+  store predicate from the operator store scope. The Tenant ⊕ Store Override
+  resolver is extracted from the POS read-down into
+  `catalog/store-resolution/store-product-resolution.ts` and shared by both
+  reads (a Testcontainers parity test pins `storeView` to the read-down
+  projection). The keyset cursor is a compact, filter-bound byte layout. A
+  soft-deleted store is absent on this surface for every scope (owner
+  decision): its `store_id` is a 404 and its overrides and store-scoped
+  identifiers are never shown or matched, unlike console-sales. No
+  migration, package or CI change.
+- RT-649 `[GATED]`, owner-approved 2026-10-19 (BC-009-1, RT-642 D0 P3):
+  OpenAPI contract `console-sales-summary.openapi.yaml` (1.0.0-draft,
+  contract-only). `consoleGetSalesSummary` (`GET /api/v1/sales-summary`) is
+  the deterministic sales KPI read for Admin-Console spec 009 P-6 and a
+  future Daily Briefing: per store, per business date (store timezone, DST
+  via the tz database) and per currency, received-sale count and gross
+  total, voids, returns, legacy refunds, shift-close outcomes and sync /
+  ERP-posting attention counts, with `asOf`, `completeness: received_only`,
+  explicit `unknown` buckets, exact four-digit decimal money, a 31-day
+  range, store paging and server scope totals. Dashboard session, roles
+  owner / tenant_admin / store_manager, non-disclosing 404, audited
+  `console_sales.summary_read`. No runtime or migration change.
+- RT-435 `[GATED: OpenAPI contract + migration]`, owner-approved 2026-10-19
+  (RT-435 comment 12993, D1–D4; RT-290 Gate 4): inventory status moves and
+  relocations. `inventory.yaml` 1.6.0-draft adds `createStatusMove`
+  (`POST /api/inventory/v1/stores/{storeId}/status-moves`),
+  `createRelocation` (`POST .../relocations`) and the tenant return landing
+  policy (`GET`/`PUT /api/inventory/v1/settings/return-landing`, `sellable`
+  default | `return_inspection`). Each move is one `adjustment` event with an
+  `inventory_position_events` record and exactly two effects (`-q` from,
+  `+q` to; DC-1 keys `<kind>:<eventId>:from|to`), `erp_neutral` in the same
+  transaction under the V1 mapping profile (M-5, Q10); a non-zero per-bucket
+  net fails closed. Physical on-hand never changes. Governed Reason Codes
+  (D1); moves out of damaged / expired / a hold are owner / tenant_admin only
+  (D2). `StockMovement.integrationState` gains `erp_neutral` (5 acknowledged
+  oasdiff findings, `consumer:none`). Migration `0056_inventory_position_events`
+  (+ guarded down) and `docs/operations/sql/inventory-position-events-domain-grants.sql`
+  (deploy step 2; boot check). No package or CI change.
+- RT-662 `[GATED]`, owner-approved 2026-10-19 (RT-644 ENT-BC1,
+  AD-AI-ENT-001): OpenAPI contract `ai-entitlements.openapi.yaml`
+  (1.0.0-draft, contract-only). `consoleGetTenantAiEntitlements`
+  (`GET /api/v1/tenants/{tenant_id}/ai/entitlements`) returns the `full`
+  view to owner / tenant_admin (state, effective dates, per-feature
+  availability, tenant opt-outs, UTC request meters) and the `minimal`
+  `available | unavailable` view to store_manager; store_staff, another
+  tenant and an absent tenant get the same non-disclosing 404, decided
+  before any entitlement read; 503 `entitlement_unavailable` fails closed.
+  `consolePutTenantAiFeatureOptOut` (`PUT .../ai/entitlements/opt-outs/
+  {feature_id}`) is the owner-only, subtract-only opt-out write (D-5):
+  required `reason`, `Idempotency-Key`, audited
+  `ai_entitlement.opt_out_changed`, guarded by its own `optOutVersion`
+  (never `entitlementVersion`), 403 `origin_rejected`, 409 on a stale
+  revision, 422 `not_entitled` for an opt-in beyond the plan. The full view
+  and every `check` decision report both `entitlementVersion` and
+  `optOutVersion`. Also the closed AI reason-code set (§4.4 plus `feature_disabled_tenant`)
+  and the server-internal `check` input and decision schemas
+  (`x-internal`, no HTTP route). No price, currency, plan name, quota size,
+  billing event or grace duration. No runtime or migration change; the
+  runtime ships in RT-664.
+- RT-649 / RT-739: runtime for `consoleGetSalesSummary` (`ConsoleSalesSummaryController`
+  and service in `ConsoleSalesModule`); the operation loses
+  `x-runtime-status: contract-only`. One SQL statement (one snapshot) counts
+  and sums every fact per store, business date, currency and state through
+  tenant RLS and the explicit operator store scope; legacy refunds and shift
+  closes are bucketed by the store-local date of their instant (`AT TIME
+  ZONE`, DST-correct); sums are added as exact BigInt decimals. Audited
+  `console_sales.summary_read` (read kind), console rate limit class
+  `expensiveRead`. No migration, package, lockfile or CI change. RT-739
+  lands the runtime of #861, which had merged into a stacked branch rather
+  than `main`.
+- RT-565 `[GATED]`, owner-approved 2026-10-19 (RT-565 comment 12969, D1–D7 of
+  `docs/planning/rt-565-posting-freshness-read.md`):
+  `erpnext-sync-ops/console-sync-ops.yaml` 1.2.0-draft (additive).
+  `consoleGetSyncOpsSummary` gains a required top-level `asOf` and a
+  required `postingFreshness`: `lastPosted` (`state` `known` / `unknown` /
+  `none` and its ERP confirmation time), `pendingCount`, `oldestPendingAt`
+  and `oldestPendingAgeSeconds`. Facts only, no current / behind verdict;
+  the `posting` domain rule, roles, session, RLS, store scope and the
+  out-of-scope 404 are unchanged. No runtime or migration change; the read
+  and its indexes ship in the RT-565 runtime PR.
+- RT-663 `[GATED]` migration `0055_ai_entitlements_usage` (owner-approved
+  2026-10-19 for authoring and CI verification only; not applied to any lab
+  or live database). It is storage only, for AD-AI-ENT-001 and
+  AD-AI-PROV-001 D-6, and has no runtime until RT-664. It adds:
+  - the code-owned, versioned, default-deny AI plan catalog (seed `core@1`
+    grants no feature and no meter);
+  - immutable `tenant_ai_entitlements` revisions on a tenant-wide
+    `entitlement_version` chain, platform-admin INSERT only;
+  - the tenant owner opt-out chain `tenant_ai_feature_opt_outs` (D-5);
+  - `ai_usage_counters` per tenant, store, meter and UTC window;
+  - the single append-only `ai_usage_ledger`: `reserved`, then
+    `committed` / `released`, unique (tenant, feature, kind, idempotency_key),
+    with the AI-09 run metadata. A dispute is settled by a platform-admin-only
+    compensating `adjusted` row (T20).
+
+  Every table forces RLS. There is no price column and no grant.
+- RT-565 `[GATED]` migrations 0057-0061, owner-approved 2026-10-19 (RT-565
+  comment 12969): runtime for the console posting freshness. The sync-ops
+  summary now serves `asOf` and `postingFreshness`
+  (`apps/api/src/catalog/erpnext-sync-ops/posting-freshness.read.ts`): one
+  statement, so one snapshot, with `asOf` = `clock_timestamp()` taken inside
+  it; tenant-wide probes, or one `LATERAL ... LIMIT 1` probe per store for a
+  `store_id` filter or an RT-192 membership scope. Five partial indexes on
+  `erpnext_posting_status` (D7), one `CREATE INDEX CONCURRENTLY` file each
+  (the 0048 rule): posted_at tenant-first and store-first, pending created_at
+  tenant-first and store-first, and the fixed-size pre-0042 legacy-posted
+  set. Roles, RLS, store scope and the 404 are unchanged. No package or CI
+  change.
+- RT-664 (RT-644 ENT-BC3): the `ai-entitlements` runtime on the 0055
+  storage. Decisions: AD-AI-ENT-001 D-1 to D-9. It adds:
+  - the internal `check` (layers 1, 4, 6, 7), fail closed. It records
+    `entitlement_unavailable` and reserves nothing when the store cannot be
+    read;
+  - the Option A reserve / commit / release. A conditional counter UPDATE
+    is safe at the limit. A replay of the same `Idempotency-Key` is counted
+    once. Only a validated `ok` is charged (D-8). Writes are serialised by
+    advisory locks, because the ledger grants no UPDATE, so a locking read is
+    impossible;
+  - platform-admin entitlement revisions with a reason, `expectedVersion`, a
+    SHA-256 `content_hash` and an audit row. Dispute adjustments are capped at
+    the committed units. Both are a service API with no route yet;
+  - the RT-662 Console read and owner-only opt-out runtime, so the two
+    operations lose `x-runtime-status: contract-only`;
+  - the worker's TTL sweep, `ai-usage-reservation-sweep` (T17).
+
+  The AI gateway now checks the kill switch first (layer 0), then the
+  entitlement, the budget and the quota reservation. It settles every
+  reservation it took, and its deny-all entitlement stub is replaced. v1
+  reserves one counter per request, so a feature with zero or several meters
+  fails closed. No billing, price or tenant-visible rollout.
+
+  The domain-role grants ship as an owner-gated operator script,
+  `docs/operations/sql/ai-entitlements-domain-grants.sql` (owner decision
+  2026-10-20, option B). It is not in the routine deploy step 2, and the
+  tables are not in `DOMAIN_REQUIRED_GRANTS`, so the API boots without them.
+  Until the script runs, the routes answer 503 `entitlement_unavailable`,
+  every AI run fails closed and the sweep is a no-op.
 
 ### Changed
 - RT-616: successful `GET /api/v1/health/live` probes are no longer logged

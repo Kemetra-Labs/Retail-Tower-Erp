@@ -143,6 +143,10 @@ const MAIN_ONLY_AUDIT_CATEGORIES: ReadonlySet<string> = new Set([
   'cart.held_cancelled_by_manager',
   'payment.recovery_completed',
   'payment.recovery_cancelled',
+  // RT-196 S1 — the unknown-cause record feeds what the returns list shows
+  // (`lastCause`); emitted only by the returns dispatcher / service.
+  'sale.return.attempt_unknown',
+  'sale.return.resend_requested',
   // RT-546 — emitted only by the sales/receipts role gate (sale-access-policy).
   'sale.access.refused',
   // RT-551 — the sale-number day-rule switch, written only by the finalize
@@ -150,6 +154,20 @@ const MAIN_ONLY_AUDIT_CATEGORIES: ReadonlySet<string> = new Set([
   'sale.number_day_rule.switched',
   // RT-542 — emitted only by the store-history reprint (sale-history-reprint).
   'sale.history.reprinted',
+  // RT-15 S2/S4 — the cashier-return facts, written only by main's returns-audit
+  // (journal, Backend-Core answer, payout, drawer kick, return slip). A forged
+  // row would fake a confirmed return or a paid-out cash refund.
+  'sale.return.attempted',
+  'sale.return.refused',
+  'sale.return.confirmed',
+  'sale.return.payout_ready',
+  'sale.return.payout_started',
+  'sale.return.drawer_opened',
+  'sale.return.drawer_failed',
+  'sale.return.paid_out',
+  'sale.return.slip_printed',
+  'sale.return.slip_print_failed',
+  'sale.return.slip_reprinted',
 ]);
 
 function asEmitAuditEventRequest(value: unknown): EmitAuditEventRequest | null {
@@ -218,19 +236,27 @@ function asUnlockCashierRequest(value: unknown): UnlockCashierRequest | null {
   };
 }
 
+function isForcedCloseReason(value: unknown): value is ForceCloseShiftRequest['reason'] {
+  return typeof value === 'string' && (FORCED_CLOSE_REASONS as readonly string[]).includes(value);
+}
+
+/** RT-554 (b): the manager's count: integer minor units, safe, never negative. */
+function isCountedCashMinor(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
 function asForceCloseShiftRequest(value: unknown): ForceCloseShiftRequest | null {
   if (typeof value !== 'object' || value === null) return null;
   const v = value as Record<string, unknown>;
   if (!hasNonEmptyStringFields(v, ['event_id', 'shift_id'])) return null;
-  if (
-    typeof v['reason'] !== 'string' ||
-    !(FORCED_CLOSE_REASONS as readonly string[]).includes(v['reason'])
-  )
-    return null;
+  const reason = v['reason'];
+  const counted = v['counted_cash_minor'];
+  if (!isForcedCloseReason(reason) || !isCountedCashMinor(counted)) return null;
   const req: ForceCloseShiftRequest = {
     event_id: v['event_id'] as string,
     shift_id: v['shift_id'] as string,
-    reason: v['reason'] as ForceCloseShiftRequest['reason'],
+    reason,
+    counted_cash_minor: counted,
   };
   if (typeof v['annotation'] === 'string') req.annotation = v['annotation'];
   return req;

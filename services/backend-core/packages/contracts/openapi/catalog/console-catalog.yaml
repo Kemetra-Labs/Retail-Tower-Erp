@@ -1,0 +1,1559 @@
+openapi: 3.1.0
+info:
+  title: Data-Pulse-2 Catalog — Console Catalog API
+  version: "1.1.0-draft"
+  description: >
+    Jira RT-729 (CAT-R1 of the RT-281 decomposition, comment 12887 §1): the
+    console view of the Backend-Core Tenant Catalog that
+    Admin-Console RF-3 (catalog read) and the unknown-item LINK product picker
+    (RT-724) consume. Three read operations:
+
+      1. `consoleListCatalogProducts`   — search and list the tenant's
+         products, keyset paginated, optionally with one store's effective
+         view.
+      2. `consoleGetCatalogProduct`     — one product with its identifiers and
+         store overrides.
+      3. `consoleListCatalogCategories` — the tenant's product categories (flat).
+
+    The three reads write nothing. Seven interim console writes, described
+    under **Writes (RT-738)** below, are the separately approved slices
+    (CAT-W1 / CAT-W2). The POS read-down (`catalog/read-down.yaml`) and the
+    tracking-profile surface are not changed.
+
+
+    **Posture.** Implemented. The three reads came in `1.0.0-draft` (RT-729,
+    `[GATED]`, owner-approved 2026-10-19) and the RT-730 (CAT-R2) runtime
+    serves them. The seven writes came in `1.1.0-draft` (RT-738, `[GATED]`,
+    owner-approved 2026-10-19; see **Writes**) and the RT-738 runtime serves
+    them. Every operation ships unchanged on the wire, so none carries
+    `x-runtime-status: contract-only`.
+
+
+    **Authority.** The Backend-Core Tenant Catalog is the retail product
+    authority and the Store Override is the store authority for price,
+    availability and tax deviations. The reads read them; the interim
+    writes (RT-738, **Writes**) change them directly, never a price. No
+    operation calls ERPNext, Frappe or the connector or exposes an ERP
+    mapping.
+
+
+    **Auth and scope.** The HUMAN `cookieAuth` scheme (httpOnly `dp2_session`)
+    only, gated `SessionOnlyAdminGuard` → `TenantContextGuard` → `RolesGuard`
+    (the `console-sales` / `shift-closes` precedent); the session-only guard
+    rejects a request authenticated only by a bearer (a `dashboard_api` token,
+    a POS `device` token or an `operatorAuthorization` envelope) with 401. A
+    request with a valid session cookie is authenticated by the cookie and
+    any `Authorization` header is ignored (see `cookieAuth`). Roles: `owner`,
+    `tenant_admin`, `store_manager`. The tenant comes from the session, never
+    from the request (§II, §XII). Every read runs under the RLS tenant
+    context.
+
+    Products and categories are TENANT data: every allowed role reads every
+    product and category of the session's tenant, whatever its store scope
+    (decision O-7). STORE data (a `storeView`, a store-scoped identifier, a
+    store override) is limited to the caller's store scope, the
+    operator-surface rule (`operator-store-scope.ts`, RT-51 D6 / RT-131 /
+    RT-193): `owner` and `tenant_admin` see their membership's store
+    authority (tenant-wide for an `all` grant, never narrowed by the active
+    store); `store_manager` sees the standard resolved store scope, including
+    active-store narrowing. Store rows are read with an explicit store
+    predicate. Store data outside the scope is omitted, never shown as
+    absent-with-a-reason. A soft-deleted store is absent on this surface
+    for every scope, tenant-wide included: its `store_id` is the 404, and
+    its overrides and store-scoped identifiers are never shown or matched
+    (owner decision on RT-730; console-sales still lets a tenant-wide owner
+    read a deleted store's sales history).
+
+    A role outside the list (`store_staff`), a `store_id` outside the
+    caller's scope, soft-deleted or of another tenant, a product of another
+    tenant and an absent product are the same non-disclosing 404 (`RolesGuard` default
+    `denyAs: 404`, FR-ISO-4). There is no 403 on this surface. The guards
+    run before request validation: an unauthenticated request is 401 and a
+    role outside the list is 404 for any input, a malformed one included. A
+    platform admin's human session passes `RolesGuard` (the platform-admin
+    bypass, RT-132 D6 / RT-149) in the session's tenant only, with the store
+    scope the `console-sales` runtime gives it; never another tenant.
+
+
+    **Search (`q`).** One term, matched two ways, and a product matches if
+    either matches:
+
+      - exact identifier: equal, byte for byte, to the value of an ACTIVE
+        (not retired) `barcode`, `sku` or `plu` identifier of the product.
+        No trimming, no case folding, no normalisation, no fuzzy or prefix
+        match: leading zeros are significant (`000123` does not match
+        `123`). A tenant-wide identifier always counts; a store-scoped one
+        counts only for a store in the caller's scope (only the `store_id`
+        store when `store_id` is given). A retired identifier never matches.
+      - name: a case-insensitive substring of the product `name`. `%`, `_`
+        and `\` in `q` are literal characters, not wildcards.
+
+    Exact identifier hits rank first. There is no trigram or full-text index
+    in v1 (decision O-8): the name match is a scan of the tenant's products
+    that pass the other filters.
+
+
+    **Ordering and paging.** Without `q`: `name ASC, productId ASC`. With
+    `q`: exact identifier hits first, then name-only matches, each group
+    `name ASC, productId ASC`. Names compare in the database's collation,
+    the same for every page. Keyset pagination with an opaque cursor bound
+    to the operation, the tenant and every filter (`q`, `status`,
+    `category_id`, `store_id`). The walk is not a snapshot: a product
+    renamed, created or changing status during a walk is returned by the
+    walk only if it sorts after the walk's current position under the
+    filters as they evaluate when its page is read. Only `nextCursor: null`
+    ends the walk.
+
+
+    **Money.** Exact-decimal strings paired with an ISO-4217 `currencyCode`;
+    no float ever appears on the wire. An amount is the stored value, never
+    rounded: it has the currency's minor-unit digits (`8.50` EGP, `100` JPY)
+    and more only when the stored value has more significant fraction
+    digits (`9.999` EGP). A store's effective price is resolved exactly as
+    the POS read-down resolves it (Tenant ⊕ Store Override, 003 §6.4, one
+    shared resolver), so a product the read-down publishes for a store has
+    the same price and tax category in its `storeView`.
+
+
+    **Audit (decision O-6).** These are reads of catalog master data and are
+    NOT audited per request: no audit event is written for a list, detail or
+    category read, so no operation carries `x-audit-action`. Catalog writes
+    (separate slices) are audited per mutation.
+
+
+    **PII.** No user ids, emails or names: the catalog's `created_by` /
+    `updated_by` are never exposed.
+
+
+    **Error envelope.** The canonical `{ error: { code, message, request_id } }`
+    shape. Status mapping: 400 `validation_error` (a malformed path or query
+    value, an unknown or repeated query key, or a cursor the server did not
+    issue for this query), 401 unauthenticated, 404 non-disclosing
+    not-found, 429 `rate_limited` (console rate limit; honour
+    `Retry-After`), 500 internal.
+
+
+    **Writes (RT-738, CAT-W1 + CAT-W2; `1.1.0-draft`, additive).** Seven
+    INTERIM console writes on the same Tenant Catalog, owner-approved on
+    2026-10-19 (O-1 "Allow interim writes", O-2 "Exclude price for now").
+    They are direct, audited writes of the current model and predate
+    Catalog Change Sets (decision 400); Change Sets will replace them.
+    The RT-738 runtime serves every write unchanged on the wire.
+
+      CAT-W1 (roles `owner`, `tenant_admin`):
+      4. `consoleCreateCatalogProduct`    — create a product (`Idempotency-Key`).
+      5. `consoleUpdateCatalogProduct`    — edit name, description, category,
+         tax category and `isActive` (`expectedUpdatedAt` precondition).
+      6. `consoleRetireCatalogProduct`    — retire a product (no hard delete).
+      7. `consoleAddProductIdentifier`    — bind a new identifier.
+      8. `consoleRetireProductIdentifier` — retire an identifier.
+
+      CAT-W2 (roles `owner`, `tenant_admin`, and `store_manager` for the
+      availability of a store in its scope):
+      9. `consoleUpsertStoreOverride`     — set a store's availability and
+         (owner / tenant_admin only, O-4) tax category override.
+      10. `consoleRetireStoreOverride`    — retire a store's override.
+
+    Out of scope of every write: price (no write sets or clears a default
+    price or an override price, O-2), the tracking profile (it stays on
+    `catalog/tracking-profile.yaml`), moving an identifier to another
+    product (decision 317; retire it and add it again), un-retiring a
+    product, categories, and any ERPNext or connector call.
+
+
+    **Write auth and order of checks.** The writes use the same session,
+    guards, tenant rule and store-scope rule as the reads. A role outside a
+    write's list (`store_staff` everywhere; `store_manager` on the CAT-W1
+    writes) is the same non-disclosing 404 as on the reads. On a write the
+    checks run in this order, each stopping the call: (1) the session (401),
+    the `Origin` of a cookie-authenticated write (403 `origin_rejected`,
+    RT-430) and the role (404); (2) on the create only, the
+    `Idempotency-Key` (400 / 409 / 425, or the replay); (3) the path and
+    body (400 `validation_error`); (4) the product and the store (404); (5)
+    the write's own rules (403 / 409 / 422 below); (6) the write and its
+    audit row in one transaction. The "no 403" rule above is for the reads;
+    a write answers 403 only with `origin_rejected` or
+    `tax_override_forbidden`.
+
+    A product of another tenant, an absent product, a `storeId` outside the
+    caller's store scope, of another tenant or soft-deleted, and an
+    identifier or override that is not active on that product are the same
+    non-disclosing 404 (`WriteNotFound`). A refused write writes nothing.
+
+
+    **Concurrency (`expectedUpdatedAt` → 409 `stale_write`).** The product
+    update and retire, and the override upsert and retire, take
+    `expectedUpdatedAt`: the `updatedAt` the caller last read (the
+    product's `summary.updatedAt`, or the override's `updatedAt`), compared
+    at the millisecond precision this surface renders. A value that is not
+    the current one is 409 `stale_write` and nothing is written; reload and
+    retry. Every accepted write of a product or an override gives it a new,
+    strictly later `updatedAt`. A retried update or retire that already
+    succeeded is therefore `stale_write`, never a second write.
+
+
+    **Identifiers.** An identifier is unique among ACTIVE identifiers in its
+    scope: a tenant-wide `barcode` / `sku` / `plu` / `supplier_code` by
+    (type, value); a store-scoped one by (store, type, value); an
+    `external_pos_id` by (`sourceSystem`, value). Values are stored and
+    compared byte for byte (leading zeros significant, no trimming or case
+    folding). Adding one that is already active in its scope, on this
+    product or on any other, is 409 `alias_conflict`; the response never
+    names, counts or hints at the other product (FR-042), and is the same
+    whichever product holds it. Retiring a product leaves its identifiers
+    bound (an identifier is never silently released or moved); retire them
+    explicitly to free their values.
+
+
+    **Store overrides.** An override row holds a store's deviation from the
+    tenant value: `isActive` (availability), `taxCategory` and `price`.
+    These writes set or clear `isActive` and `taxCategory` only and never
+    change `price`: an override's price, when it has one, is kept as is
+    (O-2). A `store_manager` may change only `isActive`, on a store in its
+    scope; a `taxCategory` in its request, or retiring an override that
+    has a tax category, is 403 `tax_override_forbidden` (O-4). Retiring an
+    override that has a price is 409 `price_override_present` for every
+    role, because it would change the store's effective price (O-2).
+
+
+    **Audit and POS propagation.** Every accepted write appends one
+    `audit_events` row (`x-audit-action` on each operation) in the same
+    transaction as the change: the actor, the tenant, the product, the store
+    or identifier when there is one, and the changed fields' old and new
+    values. A refused write and an idempotent replay write no audit row.
+    The existing `catalog_change_log` triggers record every product,
+    identifier and override change, so the POS read-down delta picks it up
+    with no other step.
+
+servers:
+  - url: https://api.example.com
+
+tags:
+  - name: console-catalog
+    description: >
+      Console-facing read of the Tenant Catalog (RT-729 / CAT-R1), for
+      Admin-Console RF-3 and the unknown-item link product picker, and its
+      interim audited writes (RT-738 / CAT-W1 + CAT-W2).
+
+security:
+  - cookieAuth: []
+
+paths:
+  /api/v1/catalog/products:
+    get:
+      summary: Search and list the tenant's catalog products (keyset paginated).
+      operationId: consoleListCatalogProducts
+      tags: [console-catalog]
+      description: >
+        The products of the session's tenant that match every given filter
+        (filters combine with AND), in the order described under **Ordering
+        and paging**. `status` defaults to `active`. With `store_id`, each
+        item adds that store's effective `storeView`; a `store_id` outside the
+        caller's scope or of another tenant is the non-disclosing 404. A
+        `category_id` that names no category of the tenant matches nothing
+        (an empty 200, never a 404). An empty page (`items: []`,
+        `nextCursor: null`) is a 200. Any query key not listed here is 400
+        `validation_error`.
+
+        Not audited per request (decision O-6).
+      parameters:
+        - $ref: "#/components/parameters/SearchQuery"
+        - $ref: "#/components/parameters/StatusQuery"
+        - $ref: "#/components/parameters/CategoryIdQuery"
+        - $ref: "#/components/parameters/StoreIdQuery"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of the tenant's matching products.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleCatalogProductPage"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+    post:
+      summary: Create a catalog product (interim, CAT-W1).
+      operationId: consoleCreateCatalogProduct
+      x-idempotency: required
+      x-audit-action: catalog.product.create
+      tags: [console-catalog]
+      description: >
+        Interim (pre Change Sets, decision 400). Creates one product in the
+        session's tenant with the given fields; it has no price (O-2), no
+        identifier, no store override and the `none` tracking profile.
+        Roles `owner` / `tenant_admin`. `categoryId`, when given, must name a
+        category of the tenant that is not retired (else 422
+        `category_unavailable`). An identical retry with the same
+        `Idempotency-Key` replays the stored `201` with `Idempotent-Replayed:
+        true` and creates nothing. Audited as `catalog.product.create`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCatalogProductRequest"
+      responses:
+        "201":
+          description: >
+            Created. The body is the new product's detail. A same-key retry
+            replays this `201` with `Idempotent-Replayed: true`.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleCatalogProductDetail"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/WriteNotFound"
+        "409":
+          $ref: "#/components/responses/CreateConflict"
+        "422":
+          $ref: "#/components/responses/CategoryUnavailable"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/products/{productId}:
+    get:
+      summary: Read one catalog product with its identifiers and store overrides.
+      operationId: consoleGetCatalogProduct
+      tags: [console-catalog]
+      description: >
+        One product of the session's tenant, whatever its status (an
+        inactive or retired product is returned, with its `status`). Its
+        `identifiers` are the ACTIVE identifiers that are tenant-wide or
+        scoped to a store in the caller's scope; its `storeOverrides` are the
+        active overrides of stores in the caller's scope. A product of
+        another tenant or an absent id is the non-disclosing 404. The
+        operation takes no query parameter; any query key is 400
+        `validation_error`.
+
+        Not audited per request (decision O-6).
+      parameters:
+        - $ref: "#/components/parameters/ProductId"
+      responses:
+        "200":
+          description: The product detail projection.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleCatalogProductDetail"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+    patch:
+      summary: Edit a catalog product's simple fields (interim, CAT-W1).
+      operationId: consoleUpdateCatalogProduct
+      x-audit-action: catalog.product.update
+      tags: [console-catalog]
+      description: >
+        Interim (pre Change Sets, decision 400). Changes the given fields of
+        one product of the session's tenant; a field that is absent is left
+        as is. Editable: `name`, `description` (null clears it),
+        `categoryId` (null clears it), `taxCategory` and `isActive`. Price,
+        the tracking profile and identifiers are not editable here. Roles
+        `owner` / `tenant_admin`. A retired product is 409
+        `product_retired`; an `expectedUpdatedAt` that is not the product's
+        current `updatedAt` is 409 `stale_write`; a `categoryId` that names
+        no category of the tenant, or a retired one, is 422
+        `category_unavailable`. Audited as `catalog.product.update`.
+      parameters:
+        - $ref: "#/components/parameters/ProductId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCatalogProductRequest"
+      responses:
+        "200":
+          description: Updated. The body is the product's detail after the change.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleCatalogProductDetail"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/WriteNotFound"
+        "409":
+          $ref: "#/components/responses/ProductWriteConflict"
+        "422":
+          $ref: "#/components/responses/CategoryUnavailable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/categories:
+    get:
+      summary: List the tenant's product categories (flat).
+      operationId: consoleListCatalogCategories
+      tags: [console-catalog]
+      description: >
+        Every category of the session's tenant that is not retired, ordered
+        `name ASC, categoryId ASC`. Categories are flat (no parent). The
+        list is not paginated: it is the whole set. The operation takes no
+        query parameter; any query key is 400 `validation_error`.
+
+        Not audited per request (decision O-6).
+      responses:
+        "200":
+          description: The tenant's active categories.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleCatalogCategoryList"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/products/{productId}/retire:
+    post:
+      summary: Retire a catalog product (interim, CAT-W1).
+      operationId: consoleRetireCatalogProduct
+      x-audit-action: catalog.product.retire
+      tags: [console-catalog]
+      description: >
+        Interim (pre Change Sets, decision 400). Retires one product of the
+        session's tenant: it reads `status: retired` from then on and the
+        POS read-down stops publishing it. Nothing is deleted. Its
+        identifiers stay bound and its store overrides stay as they are;
+        retiring cannot be undone on this surface. Roles `owner` /
+        `tenant_admin`. A product already retired is 409 `product_retired`;
+        a stale `expectedUpdatedAt` is 409 `stale_write`. Audited as
+        `catalog.product.retire`.
+      parameters:
+        - $ref: "#/components/parameters/ProductId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetireRequest"
+      responses:
+        "200":
+          description: Retired. The body is the product's detail, `status` `retired`.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleCatalogProductDetail"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/WriteNotFound"
+        "409":
+          $ref: "#/components/responses/ProductWriteConflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/products/{productId}/identifiers:
+    post:
+      summary: Add an identifier to a catalog product (interim, CAT-W1).
+      operationId: consoleAddProductIdentifier
+      x-audit-action: catalog.product_identifier.add
+      tags: [console-catalog]
+      description: >
+        Interim (pre Change Sets, decision 400). Binds one new active
+        identifier to a product of the session's tenant, tenant-wide or (not
+        for `external_pos_id`) scoped to one store in the caller's store
+        scope. Roles `owner` / `tenant_admin`. A retired product is 409
+        `product_retired`. An identifier already active in its scope (see
+        **Identifiers**), on any product, is 409 `alias_conflict` and never
+        discloses that product. A `storeId` outside the caller's store scope,
+        of another tenant or soft-deleted is the non-disclosing 404. There
+        is no move: an identifier bound elsewhere must be retired there
+        first (decision 317). A retried add that already succeeded is
+        `alias_conflict`. Audited as `catalog.product_identifier.add`.
+      parameters:
+        - $ref: "#/components/parameters/ProductId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductIdentifierKey"
+      responses:
+        "201":
+          description: Added. The body is the product's detail after the change.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleCatalogProductDetail"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/WriteNotFound"
+        "409":
+          $ref: "#/components/responses/IdentifierConflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/products/{productId}/identifiers/retire:
+    post:
+      summary: Retire one of a catalog product's identifiers (interim, CAT-W1).
+      operationId: consoleRetireProductIdentifier
+      x-audit-action: catalog.product_identifier.retire
+      tags: [console-catalog]
+      description: >
+        Interim (pre Change Sets, decision 400). Retires the ACTIVE
+        identifier of this product named by its full key (type, value,
+        store, source system); its value is then free to be added again, to
+        this or another product. Roles `owner` / `tenant_admin`. Allowed on a
+        retired product. An identifier that is not active on this product,
+        or whose store is outside the caller's store scope or soft-deleted,
+        is the non-disclosing 404 (whether or not another product holds the
+        value). Audited as `catalog.product_identifier.retire`.
+      parameters:
+        - $ref: "#/components/parameters/ProductId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductIdentifierKey"
+      responses:
+        "200":
+          description: Retired. The body is the product's detail after the change.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleCatalogProductDetail"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/WriteNotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/products/{productId}/store-overrides/{storeId}:
+    put:
+      summary: Set a store's availability / tax category override (interim, CAT-W2).
+      operationId: consoleUpsertStoreOverride
+      x-audit-action: catalog.store_override.upsert
+      tags: [console-catalog]
+      description: >
+        Interim (pre Change Sets, decision 400). Creates the store's active
+        override for the product, or changes it, with the given fields; a
+        field that is absent is left as is, and `null` clears it. Never
+        changes the override's `price` (O-2). Roles `owner` / `tenant_admin`
+        (any store in their store scope) and `store_manager` (a store in its
+        scope, `isActive` only; a `taxCategory` key is 403
+        `tax_override_forbidden`, O-4). `expectedUpdatedAt` is the active
+        override's `updatedAt`, or `null` when the caller saw none; a
+        mismatch either way is 409 `stale_write`. A retired product is 409
+        `product_retired`. A result with no overridden field left (no
+        `isActive`, no `taxCategory` and no price) is 422 `override_empty`:
+        retire the override instead. A store outside the caller's scope, of
+        another tenant or soft-deleted is the non-disclosing 404. Audited as
+        `catalog.store_override.upsert`.
+      parameters:
+        - $ref: "#/components/parameters/ProductId"
+        - $ref: "#/components/parameters/StoreIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertStoreOverrideRequest"
+      responses:
+        "200":
+          description: >
+            Created or changed. The body is the product's detail after the
+            change; its `storeOverrides` carry the new override.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleCatalogProductDetail"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OverrideForbidden"
+        "404":
+          $ref: "#/components/responses/WriteNotFound"
+        "409":
+          $ref: "#/components/responses/OverrideConflict"
+        "422":
+          $ref: "#/components/responses/OverrideEmpty"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/products/{productId}/store-overrides/{storeId}/retire:
+    post:
+      summary: Retire a store's override (interim, CAT-W2).
+      operationId: consoleRetireStoreOverride
+      x-audit-action: catalog.store_override.retire
+      tags: [console-catalog]
+      description: >
+        Interim (pre Change Sets, decision 400). Retires the store's active
+        override for the product; the store then resolves every field from
+        the tenant product. Roles `owner` / `tenant_admin` and
+        `store_manager` (a store in its scope, and only an override with no
+        tax category: else 403 `tax_override_forbidden`, O-4). An override
+        with a price is 409 `price_override_present` for every role (O-2).
+        A stale `expectedUpdatedAt` is 409 `stale_write`. No active override,
+        or a store outside the caller's scope, of another tenant or
+        soft-deleted, is the non-disclosing 404. Allowed on a retired
+        product. Audited as `catalog.store_override.retire`.
+      parameters:
+        - $ref: "#/components/parameters/ProductId"
+        - $ref: "#/components/parameters/StoreIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetireRequest"
+      responses:
+        "200":
+          description: Retired. The body is the product's detail after the change.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleCatalogProductDetail"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OverrideForbidden"
+        "404":
+          $ref: "#/components/responses/WriteNotFound"
+        "409":
+          $ref: "#/components/responses/OverrideConflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+      description: >
+        The human dashboard session cookie (httpOnly `dp2_session`), verified
+        by `SessionOnlyAdminGuard`. The only accepted credential on this
+        surface: a machine bearer, a POS `device` token or an
+        `operatorAuthorization` envelope is rejected (401). When a request
+        carries both a valid session cookie and an `Authorization` header,
+        the cookie authenticates it and the header is ignored (the repo-wide
+        `AuthGuard` rule, cookie preferred). `RolesGuard` +
+        `@Roles("owner", "tenant_admin", "store_manager")` gate every route
+        (default deny → 404). 401 semantics are owned by 028 (G10).
+
+  headers:
+    CacheControlNoStore:
+      description: >
+        `no-store` on every 200: the bodies carry tenant prices and store
+        data, so no shared or browser cache keeps them.
+      schema:
+        type: string
+        const: no-store
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5). Its own bound, 1 to 3600; it is not the POS
+        `RetryAfter` header.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+
+    IdempotentReplayed:
+      description: >
+        Present and `true` on a same-`Idempotency-Key` replay of
+        `consoleCreateCatalogProduct`, which carries the stored `201`.
+        Absent on a first-time create.
+      schema:
+        type: boolean
+    RetryAfterInProgress:
+      description: Seconds to wait before retrying a 425 with the same `Idempotency-Key` and body.
+      schema:
+        type: integer
+        minimum: 1
+
+  parameters:
+    SearchQuery:
+      name: q
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 100
+      description: >
+        One search term, used verbatim (see **Search** in the API
+        description): an exact match on an active `barcode`, `sku` or `plu`
+        identifier (leading zeros significant, no trimming) OR a
+        case-insensitive substring of the product name. Exact identifier
+        hits rank first. A value longer than 100 characters, empty, or given
+        more than once is 400 `validation_error`.
+    StatusQuery:
+      name: status
+      in: query
+      required: false
+      schema:
+        $ref: "#/components/schemas/ProductStatusFilter"
+      description: >
+        The product's TENANT status (not a store's effective availability).
+        Default `active`. `any` applies no status filter.
+    CategoryIdQuery:
+      name: category_id
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: >
+        Only products in this category. Case insensitive. A category the
+        tenant does not have matches nothing (an empty 200).
+    StoreIdQuery:
+      name: store_id
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: >
+        Adds each item's `storeView` for this store, and limits store-scoped
+        identifiers in the `q` match to this store. It does not filter the
+        products: a product the store does not sell is listed with
+        `storeView.effectiveActive: false`. Validated against the caller's
+        store scope: a store outside it, soft-deleted, or of another tenant,
+        is the non-disclosing 404. Case insensitive.
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 4096
+        pattern: "^[A-Za-z0-9_-]+$"
+      description: >
+        Opaque keyset cursor from a prior page's `nextCursor`, bound to the
+        operation, the tenant and every filter (`q`, `status`,
+        `category_id`, `store_id`). Do not decode or construct it; omit it
+        for the first page. Its keyset position includes the last product's
+        name (up to 500 characters), so it can be up to 4096 characters
+        long. A value the server did not issue, cannot decode,
+        or that is reused with other filters is 400 `validation_error`. The
+        caller's store scope is checked on every request and is never
+        carried by the cursor. The cursor carries only a keyset position and
+        a digest of the filters; its position is ANDed with the tenant and
+        the filters and never replaces them. It is never used to look a
+        product up.
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+      description: Maximum items per page. The server MAY return fewer.
+    ProductId:
+      name: productId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: >
+        The product id (`tenant_products.id`). Case insensitive. A value that
+        is not a UUID is 400 `validation_error` and never reaches the
+        database.
+
+    StoreIdPath:
+      name: storeId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: >
+        The store (`stores.id`) of the override. Case insensitive. A store
+        outside the caller's store scope, of another tenant or soft-deleted
+        is the non-disclosing 404.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: "^[\\x21-\\x7E]{16,128}$"
+      description: >
+        REQUIRED on `consoleCreateCatalogProduct`: 16 to 128 printable ASCII
+        characters with no whitespace, as the shared `IdempotencyInterceptor`
+        enforces. Keyed on the verified actor and tenant. An identical retry
+        replays the stored `201` with `Idempotent-Replayed: true`; key reuse
+        with a different body is 409 `idempotency_key_conflict`; a key still
+        being processed is 425 `idempotency_in_progress`. A missing key is
+        400 `idempotency_key_required`, a malformed one 400
+        `idempotency_key_malformed`.
+
+  schemas:
+    DecimalAmount:
+      type: string
+      pattern: '^[0-9]{1,15}(\.[0-9]{1,4})?$'
+      description: >
+        Exact-decimal non-negative amount as a string (never a float);
+        `numeric(19,4)` at rest. The currency's minor-unit digits, and more
+        only when the stored value has more significant fraction digits.
+    CurrencyCode:
+      type: string
+      pattern: '^[A-Z]{3}$'
+      description: ISO-4217 alphabetic currency code.
+    Money:
+      type: object
+      additionalProperties: false
+      required: [amount, currencyCode]
+      properties:
+        amount:
+          $ref: "#/components/schemas/DecimalAmount"
+        currencyCode:
+          $ref: "#/components/schemas/CurrencyCode"
+    ProductStatus:
+      type: string
+      enum: [active, inactive, retired]
+      description: >
+        The product's tenant status. `retired`: the product is retired
+        (`retired_at` set). `active` / `inactive`: not retired, and
+        `is_active` true / false.
+    ProductStatusFilter:
+      type: string
+      enum: [active, inactive, retired, any]
+      default: active
+    TrackingMode:
+      type: string
+      enum: [none, batch, serial]
+      description: The product's tracking profile mode (RT-448).
+    IdentifierType:
+      type: string
+      enum: [barcode, sku, plu, supplier_code, external_pos_id]
+
+    StoreView:
+      type: object
+      additionalProperties: false
+      required: [storeId, effectivePrice, effectiveActive, effectiveTaxCategory, hasOverride]
+      description: >
+        The product as one store resolves it: Tenant ⊕ Store Override
+        (003 §6.4), computed by the same resolver as the POS read-down. Each
+        overrideable field is the store's active override value when it has
+        one, else the tenant value.
+      properties:
+        storeId:
+          type: string
+          format: uuid
+          description: The `store_id` query value, lower case.
+        effectivePrice:
+          description: The resolved price; null when neither the override nor the product has one.
+          anyOf:
+            - $ref: "#/components/schemas/Money"
+            - type: "null"
+        effectiveActive:
+          type: boolean
+          description: >
+            The resolved `is_active`, and false for a retired product. True
+            does not by itself mean the POS sells it (it also needs a price).
+        effectiveTaxCategory:
+          type: string
+        hasOverride:
+          type: boolean
+          description: True when the store has an active override row for the product.
+
+    ConsoleCatalogProductSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - productId
+        - name
+        - status
+        - categoryId
+        - categoryName
+        - primarySku
+        - primaryBarcode
+        - defaultPrice
+        - taxCategory
+        - trackingMode
+        - updatedAt
+      description: One product in a list, and the summary of its detail.
+      properties:
+        productId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: The product name (`tenant_products.name`, 1 to 500 characters).
+        status:
+          $ref: "#/components/schemas/ProductStatus"
+        categoryId:
+          type: [string, "null"]
+          format: uuid
+        categoryName:
+          type: [string, "null"]
+          description: The category's name (also when the category is retired); null without a category.
+        primarySku:
+          type: [string, "null"]
+          description: >
+            The value of the product's oldest active tenant-wide `sku`
+            identifier (by creation time, then value); null when it has none.
+        primaryBarcode:
+          type: [string, "null"]
+          description: >
+            The value of the product's oldest active tenant-wide `barcode`
+            identifier (by creation time, then value); null when it has none.
+        defaultPrice:
+          description: The tenant default price; null when the product has none.
+          anyOf:
+            - $ref: "#/components/schemas/Money"
+            - type: "null"
+        taxCategory:
+          type: string
+          description: The tenant tax category.
+        trackingMode:
+          $ref: "#/components/schemas/TrackingMode"
+        updatedAt:
+          type: string
+          format: date-time
+        storeView:
+          $ref: "#/components/schemas/StoreView"
+          description: Present only when the list was requested with `store_id`.
+
+    ConsoleCatalogProductPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      description: One page of `consoleListCatalogProducts`.
+      properties:
+        items:
+          type: array
+          # Mirrors the limit maximum (100).
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/ConsoleCatalogProductSummary"
+        nextCursor:
+          type: [string, "null"]
+          description: >
+            Opaque cursor for the next page; `null` on the last page. A
+            non-null cursor may come with fewer than `limit` items; only
+            `null` ends the walk.
+
+    ProductIdentifier:
+      type: object
+      additionalProperties: false
+      required: [identifierType, value, storeId, sourceSystem, createdAt]
+      properties:
+        identifierType:
+          $ref: "#/components/schemas/IdentifierType"
+        value:
+          type: string
+          description: The identifier as stored (leading zeros preserved).
+        storeId:
+          type: [string, "null"]
+          format: uuid
+          description: Null for a tenant-wide identifier; else its store (always in the caller's scope).
+        sourceSystem:
+          type: [string, "null"]
+          description: The source system of an `external_pos_id`; null for every other type.
+        createdAt:
+          type: string
+          format: date-time
+
+    StoreOverride:
+      type: object
+      additionalProperties: false
+      required: [storeId, price, isActive, taxCategory, updatedAt]
+      description: One active store override. A null field is not overridden by the store.
+      properties:
+        storeId:
+          type: string
+          format: uuid
+        price:
+          anyOf:
+            - $ref: "#/components/schemas/Money"
+            - type: "null"
+        isActive:
+          type: [boolean, "null"]
+        taxCategory:
+          type: [string, "null"]
+        updatedAt:
+          type: string
+          format: date-time
+
+    ConsoleCatalogProductDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - summary
+        - description
+        - expiryRequired
+        - sourceGlobalProductId
+        - createdAt
+        - identifiers
+        - storeOverrides
+      description: >
+        One product: its summary (never with a `storeView`) plus the detail
+        fields. No user ids and no ERP mapping.
+      properties:
+        summary:
+          description: The product summary; never with a `storeView` (the detail takes no `store_id`).
+          allOf:
+            - $ref: "#/components/schemas/ConsoleCatalogProductSummary"
+            - not:
+                required: [storeView]
+        description:
+          type: [string, "null"]
+        expiryRequired:
+          type: boolean
+        sourceGlobalProductId:
+          type: [string, "null"]
+          format: uuid
+          description: The global product it was adopted from; null when it was not.
+        createdAt:
+          type: string
+          format: date-time
+        identifiers:
+          type: array
+          description: >
+            Active identifiers that are tenant-wide or scoped to a store in
+            the caller's scope, ordered by type, store (tenant-wide first),
+            then value.
+          items:
+            $ref: "#/components/schemas/ProductIdentifier"
+        storeOverrides:
+          type: array
+          description: Active overrides of stores in the caller's scope, ordered by `storeId`.
+          items:
+            $ref: "#/components/schemas/StoreOverride"
+
+    ConsoleCatalogCategory:
+      type: object
+      additionalProperties: false
+      required: [categoryId, name, description, updatedAt]
+      properties:
+        categoryId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: [string, "null"]
+        updatedAt:
+          type: string
+          format: date-time
+
+    ConsoleCatalogCategoryList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConsoleCatalogCategory"
+
+    # -----------------------------------------------------------------------
+    # Write requests (RT-738, CAT-W1 + CAT-W2). Strict: the tenant, the actor
+    # and every server-owned field (status, price, tracking, timestamps) are
+    # never taken from a body (§III, §XII).
+    # -----------------------------------------------------------------------
+    ProductName:
+      type: string
+      minLength: 1
+      maxLength: 500
+      pattern: '^[^\u0000]*[^\s\u0000][^\u0000]*$'
+      description: >
+        1 to 500 characters with at least one that is not whitespace, and no
+        NUL. Stored as sent (no trimming).
+    ProductDescription:
+      type: [string, "null"]
+      minLength: 1
+      maxLength: 2000
+      pattern: '^[^\u0000]*$'
+      description: 1 to 2000 characters with no NUL, stored as sent; `null` for none.
+    TaxCategoryValue:
+      type: string
+      minLength: 1
+      maxLength: 50
+      pattern: '^[^\u0000]*[^\s\u0000][^\u0000]*$'
+      description: >
+        A tax category, 1 to 50 characters with at least one that is not
+        whitespace, and no NUL. Stored as sent.
+    ExpectedUpdatedAt:
+      type: string
+      format: date-time
+      description: >
+        The `updatedAt` the caller last read; compared at millisecond
+        precision. Not the current value → 409 `stale_write`.
+
+    CreateCatalogProductRequest:
+      type: object
+      additionalProperties: false
+      required: [name, taxCategory]
+      description: >
+        A new product. No price (O-2), no tracking profile (it starts
+        `none`; `catalog/tracking-profile.yaml`), no identifier (add them
+        with `consoleAddProductIdentifier`).
+      properties:
+        name:
+          $ref: "#/components/schemas/ProductName"
+        description:
+          $ref: "#/components/schemas/ProductDescription"
+        categoryId:
+          type: [string, "null"]
+          format: uuid
+          description: A category of the tenant that is not retired; `null` or absent for none.
+        taxCategory:
+          $ref: "#/components/schemas/TaxCategoryValue"
+        isActive:
+          type: boolean
+          default: true
+          description: The tenant `is_active`; `true` when absent.
+
+    UpdateCatalogProductRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedUpdatedAt]
+      anyOf:
+        - required: [name]
+        - required: [description]
+        - required: [categoryId]
+        - required: [taxCategory]
+        - required: [isActive]
+      description: >
+        `expectedUpdatedAt` and at least one field to change. An absent
+        field is left as is; `description` and `categoryId` accept `null`
+        to clear. Price, status, tracking and identifiers are not here.
+      properties:
+        expectedUpdatedAt:
+          $ref: "#/components/schemas/ExpectedUpdatedAt"
+        name:
+          $ref: "#/components/schemas/ProductName"
+        description:
+          $ref: "#/components/schemas/ProductDescription"
+        categoryId:
+          type: [string, "null"]
+          format: uuid
+          description: A category of the tenant that is not retired; `null` clears the category.
+        taxCategory:
+          $ref: "#/components/schemas/TaxCategoryValue"
+        isActive:
+          type: boolean
+
+    RetireRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedUpdatedAt]
+      description: >
+        The precondition of a retire: the product's `summary.updatedAt`
+        (product retire) or the active override's `updatedAt` (override
+        retire).
+      properties:
+        expectedUpdatedAt:
+          $ref: "#/components/schemas/ExpectedUpdatedAt"
+
+    ProductIdentifierKey:
+      type: object
+      additionalProperties: false
+      required: [identifierType, value]
+      description: >
+        An identifier's full key: the body of `consoleAddProductIdentifier`
+        (the identifier to bind) and of `consoleRetireProductIdentifier` (the
+        active identifier to retire). `storeId` (absent or `null` for
+        tenant-wide) is never set on an `external_pos_id`; `sourceSystem` is
+        required on an `external_pos_id` and absent or `null` on every other
+        type.
+      properties:
+        identifierType:
+          $ref: "#/components/schemas/IdentifierType"
+        value:
+          type: string
+          minLength: 1
+          maxLength: 200
+          pattern: '^[^\s\u0000-\u001F\u007F]([^\u0000-\u001F\u007F]*[^\s\u0000-\u001F\u007F])?$'
+          description: >
+            1 to 200 characters, stored and compared byte for byte (leading
+            zeros significant). No control character and no leading or
+            trailing whitespace.
+        storeId:
+          type: [string, "null"]
+          format: uuid
+          description: >
+            A store in the caller's store scope for a store-scoped
+            identifier; absent or `null` for tenant-wide. Case insensitive.
+        sourceSystem:
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 100
+          pattern: '^[^\u0000]*[^\s\u0000][^\u0000]*$'
+          description: The source POS system of an `external_pos_id`.
+      allOf:
+        - if:
+            required: [identifierType]
+            properties:
+              identifierType:
+                const: external_pos_id
+          then:
+            required: [sourceSystem]
+            properties:
+              sourceSystem:
+                type: string
+              storeId:
+                type: "null"
+          else:
+            properties:
+              sourceSystem:
+                type: "null"
+
+    UpsertStoreOverrideRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedUpdatedAt]
+      anyOf:
+        - required: [isActive]
+        - required: [taxCategory]
+      description: >
+        `expectedUpdatedAt` and at least one of `isActive` / `taxCategory`.
+        An absent field is left as is; `null` clears it (the store then
+        follows the tenant value). No `price` (O-2). A `store_manager` may
+        send `isActive` only.
+      properties:
+        expectedUpdatedAt:
+          type: [string, "null"]
+          format: date-time
+          description: >
+            The active override's `updatedAt` the caller last read, or `null`
+            when the caller saw no active override for this store. Not the
+            current state → 409 `stale_write`.
+        isActive:
+          type: [boolean, "null"]
+          description: The store's availability override; `null` clears it.
+        taxCategory:
+          description: The store's tax category override (owner / tenant_admin only); `null` clears it.
+          anyOf:
+            - $ref: "#/components/schemas/TaxCategoryValue"
+            - type: "null"
+
+    IdempotencyInProgressBody:
+      type: object
+      additionalProperties: false
+      required: [error, retryAfterSec]
+      description: The shared `IdempotencyInterceptor`'s 425 body (not the `Error` envelope).
+      properties:
+        error:
+          type: string
+          const: idempotency_in_progress
+        retryAfterSec:
+          type: integer
+          minimum: 1
+
+    # -----------------------------------------------------------------------
+    # Canonical error envelope (auth / pos-sales / console-sales)
+    # -----------------------------------------------------------------------
+    Error:
+      type: object
+      required: [error]
+      description: >
+        Canonical error envelope. Out-of-scope and cross-tenant refusals are
+        non-disclosing (§II, §XII): they never name the cause.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id; the cause is recorded server-side.
+
+  responses:
+    ValidationFailure:
+      description: >
+        validation_error (400): a malformed path or query value, an unknown
+        query key, a query key given more than once, a `q` outside 1..100
+        characters, a `limit` outside 1..100, a `status` outside the enum, or
+        a cursor the server did not issue for this operation, tenant and
+        filters. Checked after the guards and before any database read.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: >
+        Unauthenticated (401): no valid session cookie, whether or not a
+        non-cookie credential (a bearer or an operator envelope) is sent.
+        Non-disclosing. Owned by 028 (G10).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: >
+        not_found (404), non-disclosing: identical for a role outside
+        `owner` / `tenant_admin` / `store_manager`, a `store_id` outside the
+        caller's scope, soft-deleted or of another tenant, a product of
+        another tenant and an absent product.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SystemFailure:
+      description: >
+        system_failure (500): unexpected server error; the cause is recorded
+        server-side under `request_id`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this
+        class of operation is spent. The body is the canonical error
+        envelope with a non-disclosing message (no budget, class or window);
+        its `request_id` equals the `X-Request-Id` response header. Honour
+        `Retry-After`. A 429 is not a 401: it never means the session ended.
+        The console limit is server-configured and may not be enforced, so a
+        client must handle a 429 but must not expect one.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body: the
+            inbound `X-Request-Id` when it is a well-formed UUID, otherwise a
+            server-minted one.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    WriteValidationFailure:
+      description: >
+        400 on a write, `error.code` one of: `validation_error` (a malformed
+        path id, a body that does not match the request schema, an unknown
+        or server-owned body key such as a price or a tenant id, an update
+        or upsert with no field to change); and on the create only
+        `idempotency_key_required` / `idempotency_key_malformed`. Checked
+        after the guards and before any database read. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OriginRejected:
+      description: >
+        403 `origin_rejected` (RT-430): a cookie-authenticated write whose
+        `Origin` header is missing, or is neither the API's own origin nor
+        listed in `ALLOWED_ORIGINS`. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OverrideForbidden:
+      description: >
+        403, `error.code` one of: `origin_rejected` (RT-430, as on every
+        write); `tax_override_forbidden` (a `store_manager` sending a
+        `taxCategory`, or retiring an override that has a tax category;
+        only `owner` / `tenant_admin` may change a store tax override, O-4).
+        Only for a store in the caller's scope; nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    WriteNotFound:
+      description: >
+        not_found (404), non-disclosing: identical for a role outside the
+        write's list, a product of another tenant, an absent product, a
+        `storeId` outside the caller's store scope, of another tenant or
+        soft-deleted, an identifier that is not active on the product, and
+        an override that is not active. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    CreateConflict:
+      description: >
+        409 `idempotency_key_conflict`: the same `Idempotency-Key` was used
+        with a different body. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ProductWriteConflict:
+      description: >
+        409, `error.code` one of: `product_retired` (the product is retired;
+        it cannot be edited or retired again); `stale_write`
+        (`expectedUpdatedAt` is not the product's current `updatedAt`;
+        reload and retry). Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    IdentifierConflict:
+      description: >
+        409, `error.code` one of: `product_retired` (no identifier is added
+        to a retired product); `alias_conflict` (the identifier is already
+        active in its scope, on this or another product). The body never
+        names, counts or hints at the product that holds it (FR-042).
+        Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OverrideConflict:
+      description: >
+        409, `error.code` one of: `stale_write` (`expectedUpdatedAt` does
+        not match the store's active override, or its absence); on the
+        upsert `product_retired` (the product is retired); on the retire
+        `price_override_present` (the override has a price, which these
+        writes never change, O-2). Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    CategoryUnavailable:
+      description: >
+        422 `category_unavailable`: `categoryId` names no category of the
+        tenant, or a retired one. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OverrideEmpty:
+      description: >
+        422 `override_empty`: after the change the override would hold no
+        overridden field (no `isActive`, no `taxCategory` and no price).
+        Retire it with `consoleRetireStoreOverride` instead. Nothing is
+        written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    IdempotencyInProgress:
+      description: >
+        425 `idempotency_in_progress`: the first create with this
+        `Idempotency-Key` is still being processed. Retry after
+        `Retry-After` seconds with the same key and body. Nothing is
+        written by this request.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfterInProgress"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/IdempotencyInProgressBody"
