@@ -30,6 +30,49 @@ export {
   type SettleAiReservationResult,
 } from "./helpers/ai-usage-settle";
 export {
+  AWAITING_POSTING_INTENT,
+  INVENTORY_SETTINGS_LOCK_NAMESPACE,
+  linkEffectsToPostingIntent,
+  readSaleEffectsActivation,
+  writeReturnEffects,
+  writeSaleLineEffects,
+  writeVoidEffects,
+  type LinkEffectsInput,
+  type ReturnEffectsInput,
+  type SaleEffectsInput,
+  type SaleEffectsOutcome,
+  type SkippedEffectLine,
+  type VoidEffectsInput,
+} from "./helpers/inventory-effects/sale-effects";
+export {
+  activateSaleEffects,
+  compareAnchorsToBin,
+  type ActivateSaleEffectsInput,
+  type ActivationOutcome,
+  type ActivationRefusal,
+  type ActivationRefusalCode,
+  type AnchorComparisonRow,
+  type AnchoredStore,
+} from "./helpers/inventory-effects/activation";
+export {
+  buildCutoverEquivalenceReport,
+  isStorePendingAware,
+  readPendingAwarePositions,
+  type CutoverEquivalenceRow,
+  type PendingAwarePosition,
+} from "./helpers/inventory-effects/pending-aware";
+export {
+  decideEffectLine,
+  returnLineEffectKey,
+  saleLineEffectKey,
+  SKIPPED_EFFECT_REASONS,
+  voidEffectKey,
+  type EffectLineDecision,
+  type EffectLineFacts,
+  type SaleEffectEvent,
+  type SkippedEffectReason,
+} from "./helpers/inventory-effects/effect-lines";
+export {
   createStockReconciliationRun,
   failStockReconciliationRun,
   STOCK_RECONCILIATION_RUN_COLUMNS,

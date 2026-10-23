@@ -48,7 +48,7 @@ import { PosOperatorAuthGuard } from "../../auth/pos-operator-auth.guard";
 import { PosOperatorEnvelopeSaleGuard } from "../../auth/pos-operator-envelope-sale.guard";
 import { PosWriteRateLimitGuard } from "../../auth/pos-write-rate-limit.guard";
 import { PosWriteRateLimitBucket } from "../../auth/pos-write-rate-limit.decorator";
-import { DeviceBearer } from "../../auth/route-auth";
+import { DeviceBearer, ReportsBuildIdentity } from "../../auth/route-auth";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { TenantContextGuard } from "../../context/tenant-context.guard";
 import type { TenantContextRequest } from "../../context/types";
@@ -67,6 +67,12 @@ import {
   RecordReturnRequestSchema,
   type RecordReturnRequestDto,
 } from "./dto/record-return-request.dto";
+import {
+  RefundAllocationExceedsTenderError,
+  RefundAllocationTenderInvalidError,
+  RefundInstrumentNotAllowedError,
+} from "./refund-allocation";
+import { isLegacyRefundEnabled } from "./refund-gates";
 import { isPosReturnsEnabled } from "./returns-gate";
 import {
   VoidApprovalInvalidError,
@@ -166,6 +172,24 @@ function toResponsibilityHttpError(err: unknown): unknown {
 const SALE_REF_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** RT-787: the RT-490 allocation refusals of `recordReturn` (`ReturnUnprocessable`, rule 1's 400). */
+const ALLOCATION_REFUSALS: ReadonlyArray<readonly [new () => Error, 400 | 422, string]> = [
+  [RefundAllocationTenderInvalidError, 400, "validation_error"],
+  [RefundInstrumentNotAllowedError, 422, "refund_instrument_not_allowed"],
+  [RefundAllocationExceedsTenderError, 422, "refund_allocation_exceeds_tender"],
+];
+
+/** Map a `recordReturn` service error: the allocation refusals, then every reversal error. */
+function toReturnHttpError(err: unknown): unknown {
+  for (const [type, status, code] of ALLOCATION_REFUSALS) {
+    if (err instanceof type) {
+      const body = { code, message: err.message };
+      return status === 400 ? new BadRequestException(body) : new UnprocessableEntityException(body);
+    }
+  }
+  return toReversalHttpError(err);
+}
+
 /**
  * Map a void / return service error to its contract response. Every code is
  * passed explicitly: the filter's status fallback has no 422 case.
@@ -250,6 +274,7 @@ export class SalesController {
   @PosWriteRateLimitBucket("posWriteSale")
   @Idempotent("required")
   @Auditable("sale.captured")
+  @ReportsBuildIdentity()
   async captureSale(
     @Req() request: TenantContextRequest,
     // RT-77: the schema is chosen per request by POS_SALE_TENDERS_ENABLED
@@ -448,7 +473,7 @@ export class SalesController {
       }
       return result.projection;
     } catch (err) {
-      throw toReversalHttpError(err);
+      throw toReturnHttpError(err);
     }
   }
 
@@ -463,6 +488,10 @@ export class SalesController {
     body: RecordRefundRequestDto,
     @Res({ passthrough: true }) res: Response,
   ): Promise<TerminalEventProjection> {
+    // RT-787 (RT-271 R-11): gated off by default, a provenance replay included.
+    if (!isLegacyRefundEnabled()) {
+      throw new NotFoundException("not_found");
+    }
     const ctx = request.context;
     if (!ctx || ctx.tenantId === null || ctx.userId === null) {
       throw new UnauthorizedException("Unauthorized");

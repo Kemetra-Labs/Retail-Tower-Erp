@@ -1,3 +1,4 @@
+import { linkClerkUsers } from "../_helpers/identity-links";
 import { hashToken } from "@data-pulse-2/auth";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Logger } from "@data-pulse-2/shared";
@@ -35,7 +36,7 @@ let dockerSkipped = false;
 
 beforeAll(async () => {
   try {
-    env = await startPgEnv();
+    env = await startPgEnv({ isolated: true }); // RT-815 §3.4: cluster-wide state
     await applyAllUpAndCreateAppRole(env);
     await env.admin.query(`
       CREATE ROLE ${LOOKUP_ROLE} LOGIN PASSWORD '${LOOKUP_PASSWORD}' BYPASSRLS;
@@ -46,11 +47,7 @@ beforeAll(async () => {
       GRANT UPDATE ON users TO ${LOOKUP_ROLE};
     `);
 
-    const host = env.container.getHost();
-    const port = env.container.getMappedPort(5432);
-    lookup = new Pool({
-      connectionString: `postgres://${LOOKUP_ROLE}:${LOOKUP_PASSWORD}@${host}:${port}/test`,
-    });
+    lookup = new Pool({ connectionString: env.uriFor(LOOKUP_ROLE, LOOKUP_PASSWORD) });
 
     await env.admin.query(
       `INSERT INTO tenants (id, slug, name) VALUES
@@ -66,6 +63,7 @@ beforeAll(async () => {
       `INSERT INTO users (id, email, clerk_user_id) VALUES ($1, 'pool-user@example.test', 'pool-clerk-user')`,
       [USER_A],
     );
+    await linkClerkUsers(env.admin);
     await env.admin.query(
       `INSERT INTO roles (id, tenant_id, code, name) VALUES ($1, $2, 'store_manager', 'Store Manager')`,
       [ROLE_A, TENANT_A],
@@ -301,7 +299,7 @@ describe("production database pool separation", () => {
 
     const shifts = new PosShiftsService(
       app,
-      { verify: async () => ({ sub: "pool-clerk-user" }) },
+      { verify: async () => ({ providerKey: "clerk", sub: "pool-clerk-user" }) },
       { warn: () => undefined } as unknown as Logger,
     );
     await expect(shifts.getStuck("verified-jwt", STORE_A, null)).resolves.toEqual({
