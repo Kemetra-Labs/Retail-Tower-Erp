@@ -1,7 +1,8 @@
-# Root CI for Backend-Core (RT-748 slice I-5). Defines the graph.yaml job keys bc/fast and
-# bc/db-integration (static rule 5) by reproducing the `fast` and `db-integration` jobs of
-# services/backend-core/.github/workflows/ci.yml at the imported tree (Backend-Core@8111982)
-# inside services/backend-core/. Job `name:` values are the graph keys, so each is a literal
+# Root CI for Backend-Core (RT-748 slices I-5 and I-11). Defines the graph.yaml job keys bc/fast,
+# bc/db-integration and bc/db-package (static rule 5) by reproducing the `fast`, `db-integration`
+# and `db-package` jobs of services/backend-core/.github/workflows/ci.yml inside
+# services/backend-core/. RT-845 (I-11) mirrors the product's RT-816 split: db + worker suites run
+# in bc/db-package, in parallel with the api suite in bc/db-integration. Job `name:` values are the graph keys, so each is a literal
 # with no expression and there is no matrix. The workflow `name:` must stay `backend-core`
 # (matched by the staged gate). PR-reachable: read-only token, no credentials, no
 # environment.
@@ -102,7 +103,7 @@ jobs:
         run: node --test tools/oasdiff/__tests__/consumer-impact.spec.mjs
 
       # The Testcontainers-backed outbox suites are excluded by default in
-      # apps/worker/jest.config.cjs; they run in bc/db-integration with
+      # apps/worker/jest.config.cjs; they run in bc/db-package with
       # WORKER_INCLUDE_DB_TESTS=1.
       - name: Test @data-pulse-2/worker (Docker-free suites)
         run: pnpm --filter @data-pulse-2/worker test
@@ -116,9 +117,10 @@ jobs:
   bc-db-integration:
     name: bc/db-integration
     runs-on: ubuntu-latest
-    # 40 minutes, as in the product workflow: the full api suite runs about 16.5 minutes with
-    # coverage on a 2-core host, plus the cold-runner build and image pull.
-    timeout-minutes: 40
+    # 25 minutes (RT-845): api-only since the db + worker suites moved to bc/db-package. Measured
+    # on this repo's 2-core runner on PR #14 (RT-841): setup about 1 minute + api 15.0 minutes.
+    # The product keeps 40 until it has more measurements; this repo uses its own measurement.
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -152,17 +154,6 @@ jobs:
       - name: Pre-pull postgres:16-alpine
         run: docker pull postgres:16-alpine
 
-      - name: Test @data-pulse-2/db (migrations + Testcontainers)
-        run: pnpm --filter @data-pulse-2/db test
-
-      # WORKER_INCLUDE_DB_TESTS=1 lifts the default exclusion of the three Testcontainers-backed
-      # outbox specs that bc/fast skips for lack of Docker. This re-runs the full worker suite;
-      # the unit-tier overlap with bc/fast is intentional, as in the product workflow.
-      - name: Test @data-pulse-2/worker (Testcontainers outbox suites)
-        env:
-          WORKER_INCLUDE_DB_TESTS: "1"
-        run: pnpm --filter @data-pulse-2/worker test
-
       # Read-only: prints the runner's size and Node's effective heap limit, so the heap setting
       # on the api step below is backed by a measurement from this runner.
       - name: Report runner size and Node heap limit
@@ -183,3 +174,53 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
         run: pnpm --filter @data-pulse-2/api test -- --coverage --forceExit
+
+  bc-db-package:
+    name: bc/db-package
+    runs-on: ubuntu-latest
+    # 20 minutes, as in the product's db-package job (RT-816). Measured on this repo's 2-core
+    # runner on PR #14 (RT-841): setup about 1 minute + db 10.8 + worker 2.5 minutes.
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Enable corepack and pin pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.0 --activate
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: services/backend-core/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build workspaces required by db/worker tests
+        run: >-
+          pnpm
+          --filter @data-pulse-2/shared
+          --filter @data-pulse-2/auth
+          --filter @data-pulse-2/db
+          --filter @data-pulse-2/worker
+          run build
+
+      - name: Pre-pull postgres:16-alpine
+        run: docker pull postgres:16-alpine
+
+      - name: Test @data-pulse-2/db (migrations + Testcontainers)
+        run: pnpm --filter @data-pulse-2/db test
+
+      # WORKER_INCLUDE_DB_TESTS=1 lifts the default exclusion of the three Testcontainers-backed
+      # outbox specs that bc/fast skips for lack of Docker. This re-runs the full worker suite;
+      # the unit-tier overlap with bc/fast is intentional, as in the product workflow.
+      - name: Test @data-pulse-2/worker (Testcontainers outbox suites)
+        env:
+          WORKER_INCLUDE_DB_TESTS: "1"
+        run: pnpm --filter @data-pulse-2/worker test
