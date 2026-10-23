@@ -29,6 +29,7 @@ jobs:
   admin/build-test: .github/workflows/admin-console.yml
   bc/fast: .github/workflows/backend-core.yml
   bc/db-integration: .github/workflows/backend-core.yml
+  bc/db-package: .github/workflows/backend-core.yml
   bc/oasdiff: .github/workflows/backend-core.yml
   bc/schemathesis: .github/workflows/backend-core.yml
   connector/unit-tests-and-lint: .github/workflows/erpnext-connector.yml
@@ -38,7 +39,7 @@ jobs:
 
 job_groups:
   pos-full: [pos/static, pos/test-shard-1, pos/test-shard-2, pos/test-shard-3, pos/test]
-  bc-full: [bc/fast, bc/db-integration, bc/oasdiff, bc/schemathesis]
+  bc-full: [bc/fast, bc/db-integration, bc/db-package, bc/oasdiff, bc/schemathesis]
 
 always_jobs: [boundary-check, dependency-review]
 e2e_job: e2e/smoke
@@ -125,7 +126,7 @@ products:
   backend-core:
     root: services/backend-core/
     toolchain: { manager: pnpm, lockfiles: [services/backend-core/pnpm-lock.yaml] }
-    ci_jobs: [bc/fast, bc/db-integration, bc/oasdiff, bc/schemathesis]
+    ci_jobs: [bc/fast, bc/db-integration, bc/db-package, bc/oasdiff, bc/schemathesis]
     high_jobs: ["@bc-full"]
     tiers:
       contracts:
