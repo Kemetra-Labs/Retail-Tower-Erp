@@ -21,6 +21,7 @@ LOCKFILE_NAMES = {
     "poetry.lock", "uv.lock", "pdm.lock", "Pipfile.lock", "Cargo.lock", "go.sum",
 }
 LOCKFILE_RE = re.compile(r"^(pylock(\.[^/]+)?\.toml|requirements[^/]*\.txt)$")
+CONFIG_NAMES = {"osv-scanner.toml", ".osv-scanner.toml"}  # per-directory ignore lists
 SCANNER_OK = (0, 1)  # 0 clean, 1 vulnerabilities found; 127 error and 128 no packages fail
 
 
@@ -43,11 +44,28 @@ def discover(root, skip=()):
     return sorted(found)
 
 
+def find_ignore_configs(root, skip=()):
+    """Any osv-scanner ignore config in the tree. Forbidden: this job has no ignore mechanism."""
+    skipped = {os.path.abspath(s) for s in skip}
+    hits = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames
+                       if d not in SKIP_DIRS and os.path.abspath(os.path.join(dirpath, d)) not in skipped]
+        hits += [os.path.relpath(os.path.join(dirpath, n), root).replace(os.sep, "/")
+                 for n in filenames if n in CONFIG_NAMES]
+    return sorted(hits)
+
+
 def run_scanner(osv, root, lockfiles):
     """Run osv-scanner in `root` over `lockfiles`; return the parsed JSON report."""
     with tempfile.TemporaryDirectory() as tmp:
         out = os.path.join(tmp, "osv.json")
-        cmd = [*osv, "scan", "source", "--format", "json", "--all-packages", "--output-file", out]
+        # A fixed empty config outside the checkout: stops osv-scanner from reading any
+        # osv-scanner.toml in the scanned tree, whose [[IgnoredVulns]] would hide advisories.
+        cfg = os.path.join(tmp, "empty-osv-scanner.toml")
+        open(cfg, "w", encoding="utf-8").close()
+        cmd = [*osv, "scan", "source", "--config", cfg, "--format", "json", "--all-packages",
+               "--output-file", out]
         for lock in lockfiles:
             cmd += ["-L", lock]
         proc = subprocess.run(cmd, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -105,6 +123,9 @@ def write_summary(path, head_counts, head_findings, base_findings, new):
 
 
 def audit(osv, head_root, base_root, required, summary_path):
+    configs = find_ignore_configs(head_root, skip=[base_root])
+    if configs:
+        raise AuditError(f"osv-scanner ignore config is not allowed (no ignore mechanism): {', '.join(configs)}")
     lockfiles = discover(head_root, skip=[base_root])
     if not lockfiles:
         raise AuditError("no lockfile found in the checkout")

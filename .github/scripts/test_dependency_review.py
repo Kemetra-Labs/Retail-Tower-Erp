@@ -22,6 +22,12 @@ args = sys.argv[1:]
 rc = os.environ.get("FAKE_RC")
 if rc and os.environ.get("FAKE_FAIL_IN", os.path.basename(os.getcwd())) == os.path.basename(os.getcwd()):
     sys.exit(int(rc))
+log = os.environ.get("FAKE_ARGS_LOG")
+if log:
+    cfg = args[args.index("--config") + 1] if "--config" in args else None
+    with open(log, "a") as fh:
+        fh.write(json.dumps({"cfg": cfg, "cfg_size": os.path.getsize(cfg) if cfg else None,
+                             "cwd": os.getcwd()}) + chr(10))
 out = args[args.index("--output-file") + 1]
 locks = [args[i + 1] for i, a in enumerate(args) if a == "-L"]
 results, vulnerable = [], False
@@ -59,7 +65,7 @@ class DependencyReviewTests(unittest.TestCase):
             fh.write(FAKE)
         self.osv = [sys.executable, fake]
         self.summary = os.path.join(self.tmp, "summary.md")
-        for key in ("FAKE_RC", "FAKE_FAIL_IN"):
+        for key in ("FAKE_RC", "FAKE_FAIL_IN", "FAKE_ARGS_LOG"):
             self.addCleanup(os.environ.pop, key, None)
 
     def lock(self, root, rel, pkgs):
@@ -155,6 +161,29 @@ class DependencyReviewTests(unittest.TestCase):
         self.both(NPM, CLEAN, VULN)  # vulnerable only in base: removing a finding must pass
         self.assertEqual(self.run_main(NPM), 0)
         self.assertEqual(dr.discover(self.head, skip=[self.base]), [NPM])
+
+    def test_scanner_is_given_an_empty_config_outside_the_checkout(self):
+        log = os.path.join(self.tmp, "args.jsonl")
+        os.environ["FAKE_ARGS_LOG"] = log
+        self.both(NPM, CLEAN, CLEAN)
+        self.assertEqual(self.run_main(NPM), 0)
+        with open(log, encoding="utf-8") as fh:
+            runs = [json.loads(line) for line in fh]
+        self.assertEqual(len(runs), 2)  # head and base
+        for run in runs:
+            self.assertIsNotNone(run["cfg"])
+            self.assertEqual(run["cfg_size"], 0)
+            self.assertFalse(os.path.abspath(run["cfg"]).startswith((self.head, self.base)))
+
+    def test_ignore_config_in_the_tree_fails_closed(self):
+        for name in ("osv-scanner.toml", ".osv-scanner.toml"):
+            with self.subTest(name=name):
+                self.both(NPM, VULN, CLEAN)
+                path = os.path.join(self.head, "apps", "pos", name)
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write('[[IgnoredVulns]]' + chr(10) + 'id = "GHSA-aaaa"' + chr(10))
+                self.assertEqual(self.run_main(NPM), 2)
+                os.remove(path)
 
     def test_discover_matches_known_lockfiles_and_skips_vendored_dirs(self):
         for rel in ("a/package-lock.json", "b/pylock.toml", "b/pylock.extra.toml", "c/requirements.txt",
