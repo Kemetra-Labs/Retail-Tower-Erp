@@ -14,9 +14,10 @@ export const shell = {
   "shell.nav.section.catalog": "الكتالوج",
   "shell.nav.section.cash": "النقدية",
   "shell.nav.shiftCloses": "إقفالات الورديات",
-  "shell.nav.catalog": "الكتالوج",
   "shell.nav.unknownItems": "أصناف غير معروفة",
   "shell.signOut": "تسجيل الخروج",
+  // RT-825: the compact-shell menu button and the navigation drawer it opens.
+  "shell.menu": "القائمة",
 
   "shell.overview.title": "نظرة عامة",
   "shell.overview.scope": "{tenant} · {store}",
@@ -49,4 +50,21 @@ export const shell = {
   "components.list.loadingDefault": "العناصر",
   "components.confirmDelete.label": "تأكيد: {action}",
   "components.confirmDelete.prompt": "{action} {name}؟ يمكن لمسؤول التراجع عن ذلك لاحقًا.",
+  "components.errorSummary.title": {
+    zero: "لا توجد أخطاء",
+    one: "خطأ واحد يحتاج إلى إصلاح",
+    two: "خطآن يحتاجان إلى إصلاح",
+    few: "{count} أخطاء تحتاج إلى إصلاح",
+    many: "{count} خطأً يحتاج إلى إصلاح",
+    other: "{count} خطأ يحتاج إلى إصلاح",
+  },
+
+  "platform.label": "المنصة",
+  "platform.nav.label": "المنصة",
+  "platform.nav.tenants": "المؤسسات",
+  "platform.tenants.emptyTitle": "لا توجد وجهات متاحة",
+  "platform.tenants.emptyBody": "لا توجد مؤسسات لعرضها حاليًا.",
+  "platform.noAccess.title": "غير متاح",
+  "platform.noAccess.body": "هذه الصفحة غير متاحة لحسابك.",
+  "platform.noAccess.home": "العودة إلى الرئيسية",
 } satisfies Messages;

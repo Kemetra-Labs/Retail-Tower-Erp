@@ -8,13 +8,16 @@ import { aiPlan } from "./en/aiPlan";
 import { audit } from "./en/audit";
 import { auth } from "./en/auth";
 import { cashPolicy } from "./en/cashPolicy";
+import { catalog } from "./en/catalog";
 import { common } from "./en/common";
 import { devices } from "./en/devices";
 import { erp } from "./en/erp";
 import { inventory } from "./en/inventory";
+import { metrics } from "./en/metrics";
 import { money } from "./en/money";
 import { operators } from "./en/operators";
 import { overview } from "./en/overview";
+import { platform } from "./en/platform";
 import { productRecon } from "./en/productRecon";
 import { saleSync } from "./en/saleSync";
 import { sales } from "./en/sales";
@@ -27,6 +30,7 @@ import type { MessagesOf } from "./types";
 export const EN_MODULES = {
   common,
   shell,
+  platform,
   auth,
   tenants,
   operators,
@@ -43,11 +47,14 @@ export const EN_MODULES = {
   cashPolicy,
   inventory,
   aiPlan,
+  catalog,
+  metrics,
 };
 
 export const en: MessagesOf<typeof ar> = {
   ...common,
   ...shell,
+  ...platform,
   ...auth,
   ...tenants,
   ...operators,
@@ -64,4 +71,6 @@ export const en: MessagesOf<typeof ar> = {
   ...cashPolicy,
   ...inventory,
   ...aiPlan,
+  ...catalog,
+  ...metrics,
 };

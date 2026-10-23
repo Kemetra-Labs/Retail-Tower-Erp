@@ -14,9 +14,9 @@ export const shell: MessagesOf<typeof ar> = {
   "shell.nav.section.catalog": "Catalog",
   "shell.nav.section.cash": "Cash",
   "shell.nav.shiftCloses": "Shift closes",
-  "shell.nav.catalog": "Catalog",
   "shell.nav.unknownItems": "Unknown items",
   "shell.signOut": "Sign out",
+  "shell.menu": "Menu",
 
   "shell.overview.title": "Overview",
   "shell.overview.scope": "{tenant} · {store}",
@@ -50,4 +50,17 @@ export const shell: MessagesOf<typeof ar> = {
   "components.list.loadingDefault": "items",
   "components.confirmDelete.label": "Confirm: {action}",
   "components.confirmDelete.prompt": "{action} {name}? It can be restored by an administrator.",
+  "components.errorSummary.title": {
+    one: "{count} problem needs fixing",
+    other: "{count} problems need fixing",
+  },
+
+  "platform.label": "Platform",
+  "platform.nav.label": "Platform",
+  "platform.nav.tenants": "Organizations",
+  "platform.tenants.emptyTitle": "No organizations available",
+  "platform.tenants.emptyBody": "There are no organizations to show yet.",
+  "platform.noAccess.title": "Not available",
+  "platform.noAccess.body": "This page isn't available for your account.",
+  "platform.noAccess.home": "Back to home",
 };

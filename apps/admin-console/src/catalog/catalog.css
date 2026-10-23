@@ -1,0 +1,247 @@
+/* RT-765 catalog product list. Built from existing tokens only; no new colour,
+ * font or dependency. Status carries its meaning in text. Logical properties
+ * throughout (RTL by structure). */
+
+.catalog-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-object);
+}
+.catalog-filters__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-inline-size: 320px;
+}
+.catalog-filters__field label {
+  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
+  color: var(--color-text-muted);
+}
+.catalog-filters__field .input {
+  inline-size: auto;
+  min-inline-size: 180px;
+}
+.catalog-filters__note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.catalog-filters__actions {
+  display: flex;
+  gap: var(--space-2);
+  align-self: flex-end;
+  margin-inline-start: auto;
+}
+
+/* The item name wraps to two lines, then clips: the number columns keep their
+ * width ("flex identity, anchor numbers", UX-10). */
+.catalog-item {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.catalog-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.catalog-partial {
+  display: block;
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-object);
+  color: var(--color-text-muted);
+}
+
+.catalog-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-control);
+}
+
+/* Narrow widths drop the metadata first: tax category, tracking and updated-at
+ * are always the last three columns (CatalogResults builds them last). */
+@media (max-width: 1100px) {
+  .catalog-table .data-table :is(th, td):nth-last-child(-n + 3) {
+    display: none;
+  }
+}
+
+/* RT-766 product detail. Same tokens; logical properties; no new colour. */
+.catalog-detail__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-block-start: var(--space-3);
+  border-block-start: 1px solid var(--color-border);
+}
+.catalog-detail__section .surface__section-title {
+  margin: 0;
+}
+.catalog-detail__note,
+.catalog-detail__empty {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+.catalog-detail__store {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.catalog-detail__store-name {
+  margin: 0;
+  font: var(--weight-strong) var(--text-control) / var(--leading-title) var(--font-sans);
+}
+
+/* Identifiers and tax categories are kept exactly as stored: leading zeros and
+ * inner spaces stay visible, and a long code wraps instead of overflowing. */
+.catalog-code {
+  font-family: var(--font-mono);
+  font-size: var(--text-machine);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.catalog-description {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Read-only tables: the shared table look, without a row to activate. */
+.catalog-readonly td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+/* RT-767 shared product picker. Tokens only. The active option (keyboard) is an
+ * outline and the selected one a border plus a wash, so neither depends on a
+ * fill: forced colors drop fills (UX-11). */
+.product-picker {
+  display: grid;
+  gap: var(--space-3);
+}
+.product-picker__search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.product-picker__search .field {
+  flex: 1 1 240px;
+}
+.product-picker__search > button {
+  align-self: flex-start;
+  margin-block-start: calc(var(--space-5) - var(--space-1));
+}
+.product-picker__list {
+  display: grid;
+  max-block-size: 20rem;
+  overflow-y: auto;
+  border: 1px solid var(--color-text-muted);
+  border-radius: var(--radius-control);
+}
+.product-picker__option {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-inline-start: 3px solid transparent;
+  border-block-end: 1px solid var(--color-border);
+  cursor: pointer;
+}
+.product-picker__option:last-child {
+  border-block-end: 0;
+}
+.product-picker__option[data-active="true"] {
+  background: var(--color-surface-sunken);
+}
+.product-picker__list:focus-visible .product-picker__option[data-active="true"] {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+.product-picker__option[aria-selected="true"] {
+  background: var(--color-primary-soft);
+  border-inline-start-color: var(--color-primary);
+  font-weight: var(--weight-strong);
+}
+.product-picker__name {
+  overflow-wrap: anywhere;
+}
+.product-picker__codes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.product-picker__status,
+.product-picker__more {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+
+/* RT-768 product edit form (CAT-C2a). The fieldset only groups the fields so a
+ * locked form can be disabled as one: it draws no frame of its own. */
+.catalog-form__fields {
+  display: grid;
+  gap: var(--space-5);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+.field > .catalog-form__check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+}
+.catalog-form__price {
+  margin: 0;
+}
+.catalog-form__price-hint {
+  display: block;
+  margin-block-start: var(--space-1);
+}
+
+/* RT-768 retire section: the quiet starter, or the inline confirmation. */
+.catalog-retire {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.catalog-retire .content__sub {
+  margin: 0;
+}
+.catalog-retire__actions {
+  margin-block-start: 0;
+}
+
+@media (forced-colors: active) {
+  .product-picker__list {
+    border-color: CanvasText;
+  }
+  .product-picker__option[aria-selected="true"] {
+    border-inline-start: 3px solid Highlight;
+  }
+  .product-picker__option[data-active="true"] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}

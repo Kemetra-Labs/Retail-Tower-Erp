@@ -6,8 +6,8 @@
  * API's non-disclosing 404.
  *
  *   - Items: `tenantAdminListErpnextItemMappings`,
- *     `tenantAdminSuggestErpnextItemMapping` (only for a product id already
- *     known from a mapping row: no catalog read contract exists yet),
+ *     `tenantAdminSuggestErpnextItemMapping` (for a product picked in the shared
+ *     catalog picker, RT-767, or the product of a row just retired),
  *     `tenantAdminConfirmErpnextItemMapping`, `tenantAdminRetireErpnextItemMapping`.
  *   - Warehouses: `tenantAdminListErpnextWarehouseMappings`,
  *     `tenantAdminSetErpnextWarehouseMapping`,
