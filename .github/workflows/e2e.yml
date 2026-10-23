@@ -1,0 +1,79 @@
+# Root e2e smoke (RT-851, RT-748 slice I-9). Defines the graph.yaml job key e2e/smoke.
+#
+# What it is: a fast, PR-time, black-box wire smoke against a REAL Backend-Core API with Postgres
+# and Redis. It brings the stack up with services/backend-core/tools/schemathesis/stack-up.sh
+# (unchanged; ephemeral, throwaway generated credentials, a DB-seeded operator envelope), then
+# tests/e2e/smoke.test.mjs captures a POS-shaped sale, replays it, checks the 409 on a diverging
+# replay, reads the sale back and checks the auth boundary. Payloads are synthetic and test-only.
+#
+# What it is NOT (RT-714 / G5 stays independent verification): no POS Electron or packaged build,
+# no old-POS or RT-713 compatibility snapshots, no Worker or outbox drain, no Connector, no
+# ERPNext or ERP invoice leg, no real identity provider, no tenant-isolation matrix. A green
+# e2e/smoke is never G5 evidence.
+#
+# The graph is the only selector: no `paths:` filter, and a selected job that is skipped fails
+# the gate, so the job always runs. PR-reachable: read-only token, no credentials, no
+# environment. The job `name:` is the graph key, a literal with no expression and no matrix.
+# timeout-minutes is a placeholder ceiling until the first PR run measures the job (RT-851).
+name: e2e
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Per-workflow prefix so the workflows never cancel each other on one ref; the push-SHA suffix
+  # stops consecutive pushes to main from cancelling each other.
+  group: e2e-${{ github.ref }}${{ github.event_name == 'push' && format('-{0}', github.sha) || '' }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-smoke:
+    name: e2e/smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FUZZ_PROJECT: e2e-smoke
+      API_PORT: "23100"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      # The stack-up script writes its throwaway credentials and the operator envelope under
+      # $FUZZ_OUT (the runner context is not available in job-level env, so it is set here).
+      - name: Start ephemeral Backend-Core stack
+        timeout-minutes: 10
+        run: |
+          echo "FUZZ_OUT=$RUNNER_TEMP/e2e-smoke" >> "$GITHUB_ENV"
+          FUZZ_OUT="$RUNNER_TEMP/e2e-smoke" bash services/backend-core/tools/schemathesis/stack-up.sh
+
+      - name: Run smoke scenarios
+        timeout-minutes: 5
+        env:
+          E2E_BASE_URL: http://127.0.0.1:23100
+        run: |
+          E2E_ENVELOPE_FILE="$FUZZ_OUT/envelope-operator" node --test tests/e2e/*.test.mjs
+
+      - name: Stack logs on failure
+        if: failure()
+        run: |
+          set -a; . "$FUZZ_OUT/stack.env" 2>/dev/null || true; set +a
+          export API_IMAGE=api-fuzz-api:local
+          docker compose -p "$FUZZ_PROJECT" -f services/backend-core/tools/schemathesis/compose.yml logs --no-color --tail 80 api || true
+
+      - name: Tear down
+        if: always()
+        run: |
+          if [ -f "$FUZZ_OUT/stack.env" ]; then
+            set -a; . "$FUZZ_OUT/stack.env"; set +a
+            export API_IMAGE=api-fuzz-api:local
+            docker compose -p "$FUZZ_PROJECT" -f services/backend-core/tools/schemathesis/compose.yml down -v
+          fi
+          rm -rf "$FUZZ_OUT"

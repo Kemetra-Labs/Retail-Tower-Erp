@@ -1,9 +1,8 @@
 """Acceptance checks against this repository's committed tree (HEAD).
 
 Every tracked path must classify, and the layer-1 boundary must be clean.
-Static rule 5 is expected to FAIL today: no root .github/workflows define the
-product jobs yet. That is a recorded gap (README), asserted here so it cannot
-silently disappear or grow."""
+Static rule 5 (every graph job is defined by a root workflow) holds since the last
+job, e2e/smoke (RT-851), landed; it is asserted here so a job cannot go missing again."""
 
 import pathlib
 import subprocess
@@ -40,11 +39,10 @@ class RealTreeTests(unittest.TestCase):
                if self.graph.classify(p).kind in ("unknown", "ambiguous")]
         self.assertEqual(bad, [])
 
-    def test_static_rules_only_gap_is_rule5(self):
+    def test_static_rules_have_no_gap(self):
         errors = validate_graph(self.data, tree_paths=self.paths,
                                 workflow_jobs=gitio.workflow_jobs(REPO, "HEAD"))
-        self.assertTrue(errors)
-        self.assertEqual({e.split(":", 1)[0] for e in errors}, {"CI_JOB_MISSING"})
+        self.assertEqual(errors, [])
 
     def test_root_and_staged_workflows_keep_privilege_invariants(self):
         from pgraph.privileges import scan_repo, workflow_files

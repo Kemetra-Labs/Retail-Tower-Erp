@@ -82,7 +82,7 @@ These were named but never defined in RT-710 comment 12882. They are **defined n
 
 ## Known gaps (named, not silently relaxed)
 
-1. **Static rule 5 fails on the real tree.** There are no root `.github/workflows` defining the product jobs: product CI still sits under each product's own `.github/`, and GitHub does not run it there. A gate built on this graph therefore fails **every** PR with `GRAPH_INVALID / CI_JOB_MISSING`. That is fail-closed and correct for now, and `tests/test_real_tree.py` pins it as the only static-rule failure. Moving product CI to root workflows is out of Substep A scope.
+1. **Static rule 5 holds on the real tree.** Root workflows define every graph job (the last one, `e2e/smoke`, landed with RT-851), and `tests/test_real_tree.py` asserts there are no static-rule errors, so a job cannot go missing again.
 2. **P15 deferred.** Merge Queue is off; `merge_group` is `UNKNOWN_EVENT`.
 3. **P17/P19 are logic-level only here.** The local tests show that forged and wrong-producer results are ignored and that workflow/aggregator edits are policy changes. The real proof is GitHub running the base-branch gate and enforcing the ruleset source pin: **RT-711**.
 4. **BC has no `low` tier.** The RT-582 rule (a low path quoted by code becomes high) needs a content scan that is not implemented. BC docs/specs/markdown are therefore `high` (over-selection).
