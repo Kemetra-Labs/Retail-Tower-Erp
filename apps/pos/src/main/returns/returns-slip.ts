@@ -14,6 +14,7 @@
  * operator envelope, operator or session ids, tenant/branch ids, customer data.
  * Pure: no clock, no I/O.
  */
+import { stripUnprintable, wrapColumns } from '../receipts/receipt-text.js';
 import { renderBands, utcStamp, type Band, type BandAlign } from '../receipts/template-engine.js';
 import type { RenderedReceipt } from '../receipts/print-pipeline.js';
 import { exponentFor, minorUnitsToDecimalString } from '../sales-sync/create-sale-sync-client.js';
@@ -23,12 +24,9 @@ import type { JournalEntry } from './returns-repository.js';
 /** Longest line name kept for the slip (0040 CHECK). */
 export const SLIP_LINE_NAME_MAX = 120;
 
-/** Control characters and bidi embeddings/overrides/isolates (no reordering tricks). */
-const UNPRINTABLE = /[\p{Cc}\u202A-\u202E\u2066-\u2069]/gu;
-
 /** A server line name made safe to print, or null when nothing printable remains. */
 export function slipLineName(raw: string): string | null {
-  const clean = raw.replace(UNPRINTABLE, '').trim();
+  const clean = stripUnprintable(raw).trim();
   if (clean === '') return null;
   return Array.from(clean).slice(0, SLIP_LINE_NAME_MAX).join('');
 }
@@ -70,54 +68,11 @@ export type ReturnSlipVariant =
 const DASH = '—';
 const UNNAMED_LINE = 'صنف مرتجع';
 
-/** The receipt's column width, and what a wrapped continuation line can hold. */
-const COLS = 42;
-const INDENT = '    ';
-const CONTINUATION = COLS - INDENT.length;
-
-/** Width in printed columns: code points, never UTF-16 units (astral = 1). */
-function width(text: string): number {
-  return Array.from(text).length;
-}
-
-/** A token longer than a continuation line, cut into pieces that fit. */
-function splitToken(word: string): string[] {
-  const chars = Array.from(word);
-  if (chars.length <= CONTINUATION) return [word];
-  const pieces: string[] = [];
-  for (let i = 0; i < chars.length; i += CONTINUATION) {
-    pieces.push(chars.slice(i, i + CONTINUATION).join(''));
-  }
-  return pieces;
-}
-
-/** Word-wrap to the roll by code points, with a hanging indent on continuations. */
-function wrapColumns(text: string): string[] {
-  const words = text
-    .split(' ')
-    .filter((w) => w !== '')
-    .flatMap(splitToken);
-  const out: string[] = [];
-  let current = '';
-  for (const word of words) {
-    const candidate = current === '' ? word : `${current} ${word}`;
-    const indent = out.length === 0 ? 0 : INDENT.length;
-    if (current !== '' && width(candidate) + indent > COLS) {
-      out.push(current);
-      current = word;
-    } else {
-      current = candidate;
-    }
-  }
-  if (current !== '') out.push(current);
-  return out.map((line, i) => (i === 0 ? line : `${INDENT}${line}`));
-}
-
 /**
  * THE way any dynamic value reaches the slip (Codex P2, a1703dc): made
  * printable (control and bidi characters stripped), capped, a dash when
  * empty, then — after its static `label` — hard-wrapped to the 42-column
- * roll by code points. Every printed line fits; nothing is clipped.
+ * roll by display cells. Every printed line fits; nothing is clipped.
  */
 export function slipText(value: string | null | undefined, label = ''): string[] {
   const clean = value === null || value === undefined ? null : slipLineName(value);

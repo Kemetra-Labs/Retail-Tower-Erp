@@ -35,17 +35,17 @@ colors:
   info-on: "#ffffff"
 typography:
   amount-hero:
-    fontFamily: "ui-monospace, 'Cascadia Code', 'JetBrains Mono', 'Consolas', monospace"
+    fontFamily: "'Dubai', 'Segoe UI', Tahoma, Arial, system-ui, sans-serif"
     fontSize: "2.75rem"
     fontWeight: 700
     lineHeight: 1.1
-    fontFeature: "'tnum'"
+    fontFeature: "'tnum', 'lnum'"
   amount-total:
-    fontFamily: "ui-monospace, 'Cascadia Code', 'JetBrains Mono', 'Consolas', monospace"
+    fontFamily: "'Dubai', 'Segoe UI', Tahoma, Arial, system-ui, sans-serif"
     fontSize: "1.875rem"
     fontWeight: 700
     lineHeight: 1.1
-    fontFeature: "'tnum'"
+    fontFeature: "'tnum', 'lnum'"
   screen-title:
     fontFamily: "'Dubai', 'Segoe UI', Tahoma, Arial, system-ui, sans-serif"
     fontSize: "1.25rem"
@@ -72,11 +72,11 @@ typography:
     fontWeight: 600
     lineHeight: 1.6
   money-row:
-    fontFamily: "ui-monospace, 'Cascadia Code', 'JetBrains Mono', 'Consolas', monospace"
+    fontFamily: "'Dubai', 'Segoe UI', Tahoma, Arial, system-ui, sans-serif"
     fontSize: "0.875rem"
     fontWeight: 600
     lineHeight: 1.4
-    fontFeature: "'tnum'"
+    fontFeature: "'tnum', 'lnum'"
   meta:
     fontFamily: "'Dubai', 'Segoe UI', Tahoma, Arial, system-ui, sans-serif"
     fontSize: "0.75rem"
@@ -126,7 +126,7 @@ components:
     height: "44px"
   button-ghost:
     backgroundColor: "transparent"
-    textColor: "{colors.text}"
+    textColor: "{colors.text-muted}"
     typography: "{typography.body-strong}"
     rounded: "{rounded.control}"
     height: "44px"
@@ -243,10 +243,10 @@ components:
 >   *(VN-S2)*. Do not describe them as shipped and do not implement them outside that slice's
 >   Jira issue ([`09-implementation-slices.md`](design/vnext/09-implementation-slices.md)).
 > - **Still open** (do not resolve them by design): the RT-24 §C confirmations — lazy cart,
->   same-device suspend/resume, key map (direct add vs confirm-first is resolved by owner decision
+>   same-device suspend/resume, key map (D-K1 deferred by the owner on 2026-10-20: wave 1 stays keyless; direct add vs confirm-first is resolved by owner decision
 >   D-C1, 2026-10-07: direct add, see `design/vnext/15-vnext-freeze-package.md` §3); OD-3's validation against real
->   Egyptian pharmacy receipts (printed receipts, Q-4); and the real-app capacity capture that must confirm Direction B
->   before VN-S12 ships.
+>   Egyptian pharmacy receipts (printed receipts, Q-4). Undo of the last add or delete (D-U1) shipped in #621 and was
+>   ratified by the owner on 2026-10-20.
 > - Superseded: the v3.5 navy / Inter / dark-default system and `docs/design/pos-v3.5/`
 >   (historical reference only).
 
@@ -262,10 +262,10 @@ lands.
 | Neutrals | The cool near-white values in the frontmatter | Low-chroma **mineral neutrals** ("Mineral Daylight") with a slight blue-green relation to Tower Teal. Exact values are not decided | UX-02 | A later token slice. It must pass UX-02's "Color Under Pressure" gate |
 | Accent | No accent role | No secondary brand accent | UX-02 | No change |
 | Theme | Light; the dark register is kept in CSS but not offered | Light-first; dark deferred; future themes remap semantic roles only | UX-02 | No change |
-| Money typeface | Monospace with tabular figures (`amount-hero`, `amount-total`, `money-row`) | The UI sans with **tabular lining numerals**; monospace only for IDs, codes and evidence | UX-03. Owner decision 2026-10-07: UX-03 wins over the Rebaseline's "superseded" wording | Mono money stays until the **RT-262** rendered same-screen A/B prototype proves the sans treatment better |
+| Money typeface | The UI sans (Dubai) with **tabular lining numerals** through `--font-family-money` (`amount-hero`, `amount-total`, `money-row`); monospace only for IDs, codes and evidence | The UI sans with **tabular lining numerals**; monospace only for IDs, codes and evidence | UX-03. Owner decision 2026-10-22 on RT-262: variant B | Done in the renderer by **RT-814**. Not covered: the printed receipt and the receipt-slip preview (RT-476); the void and recovery num classes were split by **RT-833** (`v5-void-id` stays mono; `v5-void-money` and `v5-recovery-money` use the money family) |
 | UI font | Dubai | Dubai stays the incumbent. IBM Plex Sans Arabic is the challenger; Noto Sans Arabic UI is the readability control | UX-03 | Only after a same-screen A/B (RT-262) shows a clear gain |
 | Type role names | `--type-*` aliases (RT-241), values unchanged | UX-03's role vocabulary (`money-hero`, `money-total`, `numeric-row`, `machine`, …) | UX-03 | Mapping in [Typography](#typography). Renaming waits for a later slice |
-| Icons | The semantic registry with vendored Fluent Regular glyphs is shipped (`src/renderer/icons/`, IC-1 / RT-692, no npm dependency), but product UI still draws the hand-drawn `V5Icon` set | Every consumer on the registry: **Fluent System Icons** by semantic name (`icon.sale`, `icon.cart`, …) | UX-03; RT-263 plan [25](design/vnext/25-rt263-icon-registry-fluent-poc.md) | IC-2 moves the POS consumers. The owner's visual sign-off is still needed before the pixel-changing slices (IC-2, IC-3) |
+| Icons | The semantic registry with vendored Fluent Regular glyphs is shipped (`src/renderer/icons/`, IC-1 / RT-692, no npm dependency), and every POS consumer uses it (IC-2 / RT-695, #760; `V5Icon` deleted) | Every consumer on the registry: **Fluent System Icons** by semantic name (`icon.sale`, `icon.cart`, …) | UX-03; RT-263 plan [25](design/vnext/25-rt263-icon-registry-fluent-poc.md) | Done for POS. Visual fit owner-approved 2026-10-20 (D-263-1, D-263-5, D-263-8) |
 | Radius | Control 10 px, panel 14 px, overlay 16 px, pill | Control **8 px**, contained object **12 px**, overlay **16 px**; work surfaces near-square; pills only for status, counts and tags | UX-04 | A staged migration in its own slice. Shipped tokens stay as they are until then |
 | Density | Two profiles: compact and comfortable | Three modes: Comfortable, Operational, Compact | UX-04 | Open (Q-1) |
 | Motion | 80 / 150 / 220 ms and `ease-out`; a fourth 320 ms duration token also exists | Contact 80 ms, Signal 150 ms, Continuity 220 ms, same easing; no arbitrary durations | UX-06 | No value change. New work uses only the three roles |
@@ -285,8 +285,8 @@ follows for now. It is marked **Selected — recommended option, owner may revis
   two shipped profiles under their current names and does not assign them UX-04 mode names. The
   slice that implements UX-04 density decides the mapping.
 - **Q-2 Brand name and the sidecar.** RT-261 renames the primary to «Tower Teal» but does not scope
-  `.impeccable/design.json`, which still names it "Pharmacy Teal" and still describes money as
-  "mono tabular". **Selected — recommended option, owner may revisit:** rename in this file only,
+  `.impeccable/design.json`, which still names it "Pharmacy Teal" (RT-814 corrected its money
+  wording to the UI sans with tabular lining numerals). **Selected — recommended option, owner may revisit:** rename in this file only,
   and leave the sidecar unchanged. Regenerate the sidecar in a later docs pass, with the same
   "shipped vs target" split as this file.
 - **Q-3 Freeze package wording.** 15 §4 still lists `--type-money-row 14 mono tnum` as the target
@@ -397,11 +397,11 @@ Light is the only offered theme (UX-02: light-first; dark deferred). The dark re
 **Body Font:** Dubai (with Segoe UI, Tahoma, Arial, system-ui)
 **Mono Font:** ui-monospace (with Cascadia Code, JetBrains Mono, Consolas)
 
-**Character:** one quiet Arabic-first system face for every word (Dubai ships with Windows 10/11), and, as shipped today, a monospace with tabular figures for every amount, quantity and code, so digits align in dense cart rows and totals never jitter. No font is bundled (OD-2: Dubai is kept for the pilot; the bundled-font option is declined), so the `no-brand-font` guard stays green.
+**Character:** one quiet Arabic-first system face for every word (Dubai ships with Windows 10/11), and the same face with tabular lining numerals for every amount and quantity (`--font-family-money`, RT-814), so digits align in dense cart rows and totals never jitter. No font is bundled (OD-2: Dubai is kept for the pilot; the bundled-font option is declined), so the `no-brand-font` guard stays green.
 
 **Type jurisdiction (UX-03).** The UI sans owns language. Tabular numerals own prices, quantities and comparable values. Monospace owns machine-readable IDs, codes and evidence (SKU, barcodes, sale and receipt references, terminal and request IDs). Monospace is never used on ordinary UI to look technical.
 
-- **Money typeface — shipped vs target.** Shipped: amounts use the monospace stack with tabular figures. Target *(UX-03)*: amounts use the UI sans with **tabular lining numerals**, and monospace is kept for IDs and evidence. The owner decided on 2026-10-07 that UX-03 wins over the Rebaseline's "superseded" wording: the shipped mono money stays until the RT-262 rendered same-screen A/B prototype proves the sans treatment better. Do not move money off mono outside that path.
+- **Money typeface — shipped.** Amounts and quantities use the UI sans (Dubai) with **tabular lining numerals** through `--font-family-money` (an alias of the sans token). Monospace is kept for IDs, SKUs, codes, PIN and reference fields, key hints and evidence. The owner decided on 2026-10-22 (RT-262, variant B) after the rendered same-screen A/B; RT-814 applied it. Dubai digits are already fixed-width and lining, so no font file or feature is added. The printed receipt and the receipt-slip preview keep their own typography (RT-476).
 - **Font — incumbent and challenger.** Dubai stays the incumbent and a legitimate long-term choice. IBM Plex Sans Arabic is the challenger, and Noto Sans Arabic UI is the readability control. A font change needs a rendered same-screen A/B on Retail Tower screens (RT-262) that clearly beats Dubai on readability, mixed-script behaviour, density and character *(UX-03)*.
 - **Hierarchy before size.** Show importance with placement, spacing, weight, alignment and colour before raising the size. Money stays the strongest numeric hierarchy on cashier surfaces.
 
@@ -423,13 +423,13 @@ The frontmatter roles map onto the shipped size scale. RT-241 shipped them as `-
 
 UX-03's `display` role is for rare expressive Admin use and has no POS equivalent.
 
-- **Amount hero** (700, 44px, 1.1, tabular; mono as shipped): the Checkout amount due and the completion amount. 36px at 1024.
-- **Amount total** (700, 30px, 1.1, tabular; mono as shipped): the Sale grand total and ledger totals. 24px at 1024 compact.
+- **Amount hero** (700, 44px, 1.1, tabular lining; UI sans): the Checkout amount due and the completion amount. 36px at 1024.
+- **Amount total** (700, 30px, 1.1, tabular lining; UI sans): the Sale grand total and ledger totals. 24px at 1024 compact.
 - **Screen title** (700, 20px, 1.3): one per screen, in the titlebar.
 - **Section** (700, 16px, 1.4): panel headings.
 - **Control large** (700, 16px, 1.3): the primary commit button and tender tile labels.
 - **Body / body strong** (400 / 600, 14px, 1.6): default cashier text; product names and button text are strong.
-- **Money row** (600, 14px, 1.4, tabular; mono as shipped): line prices and ledger rows.
+- **Money row** (600, 14px, 1.4, tabular lining; UI sans): line prices and ledger rows.
 - **Meta** (400–600, 12px, 1.5): hints, secondary names, timestamps.
 - **Kbd** (600, 11px, mono): keyboard-hint chips only — the one place below 12px is allowed.
 
@@ -456,8 +456,8 @@ Shipped today: the renderer's UX-12 formatter `src/renderer/ui/format/human-form
 Icons reinforce; text decides (UX-03). Domain, destructive, financial and recovery actions always show their text; an icon is a supporting cue, never the only meaning, and technical concepts (ERP posting, held sales, returns, shift operations) are never icon-only puzzles.
 
 - **Shipped, registry (IC-1 / RT-692):** `src/renderer/icons/` holds the semantic registry (`registry.ts`), the `Icon` component and vendored **Fluent System Icons** Regular path data (`fluent-paths.ts`, MIT notice alongside). It renders by meaning, owns RTL mirroring per name, and adds **no npm dependency** (D-263-2 vendored path data, D-263-3 no package). Do not add `@fluentui/*` packages.
-- **Shipped, consumers:** product UI still draws the closed, hand-drawn inline-SVG set (`V5Icon`, 24 grid, `currentColor`).
-- **Target *(UX-03, RT-263)*:** every consumer names icons through the registry, so product code never names a vendor glyph or a `V5Icon` shape. IC-2 moves the POS consumers ([25](design/vnext/25-rt263-icon-registry-fluent-poc.md) §8). Decisions D-263-1…9 were selected by the coordinator under the owner's standing delegation; the visual ones still need the owner's sign-off before the pixel-changing slices (IC-2, IC-3) ship.
+- **Shipped, consumers (IC-2 / RT-695, #760):** every POS consumer names icons through the registry. `V5Icon` is deleted; the brand cross is the `PharmacyCross` brand component. A test forbids raw `<svg>` in `src/renderer` outside `icons/` and the brand components.
+- **Target *(UX-03, RT-263)*:** every consumer names icons through the registry, so product code never names a vendor glyph or a `V5Icon` shape. Met for POS by IC-2 ([25](design/vnext/25-rt263-icon-registry-fluent-poc.md) §8). Decisions D-263-1…9 were selected by the coordinator under the owner's standing delegation; the owner approved the visual fit on 2026-10-20.
 - **One icon grammar:** never mix Fluent, Lucide, Phosphor and bespoke glyphs in ordinary product UI. A custom glyph needs a proven gap: a frequent concept whose library metaphor fails even with its label (the cash drawer is a candidate, not a requirement).
 - **Regular by default:** regular forms for wayfinding and actions; a filled form only for a persistent selected state when it helps recognition. Selection does not stack every signal (filled icon, strong teal, heavy fill, Signal Line and bold text) without need.
 - **Colour:** icons inherit `currentColor`; interaction and status tokens decide their colour. No category palettes and no decorative coloured icon tiles unless the surface is a real launcher.
@@ -473,8 +473,7 @@ Icons reinforce; text decides (UX-03). Domain, destructive, financial and recove
 
 | Aspect | 1280×800 (comfortable) | 1024×768 (compact) |
 |---|---|---|
-| Nav on an active sale (Sale, Checkout, completion — first item until «بيع جديد») | slim rail, icon + short label, ≈76px | slim rail, ≈76px |
-| Nav elsewhere (sign-in boundary, manager/admin screens) | labelled panel, 208px | labelled panel, 140px |
+| Nav, every screen (owner decision 2026-10-21; RT-242 kept the labelled panel off-sale) | slim rail, icon + short label, ≈76px | slim rail, ≈76px |
 | Sale | command bar (scan target, search, suspended-sales entry *(VN-S11)*) above a full-width cart; money column ≈320px on the inline end: total at the top, «الدفع», suspend *(VN-S11)* and cancel at the bottom | same, money column ≈280px; at least 6 cart rows visible |
 | Search results | drop down over the cart, 3–5 results, close on Esc or selection | same |
 | Checkout | order summary ≈280px · tender panel fluid · payment ledger ≈320px (amount due and commit pinned) | tender panel fluid · payment ledger ≈296px; summary collapses to a one-line strip with «عرض الأصناف» |
@@ -521,15 +520,21 @@ Gently rounded, consistent by role. **Shipped:** controls (buttons, fields, tile
 One vocabulary, one implementation each, under `src/renderer/v5/**` (the clean-room wall stays). The full state matrix is [`06-component-state-inventory.md`](design/vnext/06-component-state-inventory.md). The legacy 007 `ui/primitives/*`, `.btn`, `.v4-*`, the v3.5 tender classes and the four hand-rolled dialog mechanisms are retired vocabularies, kept alive only until their screens migrate.
 
 ### Buttons
-- **Shape:** control radius (10px); sizes medium 44px and large 56px.
-- **Primary / commit:** Tower Teal fill, white text. The commit (Checkout CTA, confirm payment, new sale) is large and full panel width. Hover deepens to Deep Teal.
-- **Secondary:** white surface with a Control Edge boundary and ink text — supporting actions next to a primary.
-- **Ghost:** transparent, ink text — cancel, back, low-commitment navigation.
-- **Danger / danger-quiet:** Consequence Red fill (or red ink on white for the quiet form) — void, cancel sale, cancel after handoff. Hover deepens to the danger emphasis.
-- **Focus:** `outline: 2px solid` the focus ring (primary) with a 2px offset on every focusable element — never only a box-shadow, which disappears in contrast themes.
+One shared system, `.v5-btn` (`src/renderer/v5/foundation/buttons.css`, loaded once from `main.tsx`). Every V5 button, the Checkout commits and the dialog buttons carry it; a surface keeps its own class only for placement. *Shipped on `feat/pos-button-system-transitions` (no Jira id yet).* The variants set role colours through `--btn-*`, so a state never repeats a colour per variant.
+
+- **Shape:** control radius (10px; UX-04 migrates it in its own slice); sizes medium 44px and large 56px.
+- **Secondary (`.v5-btn`):** white surface, Control Edge boundary, ink text. The default, and what a bordered cancel, back or close stays.
+- **Primary (`--primary`):** Tower Teal fill, white text. **Commit (`--commit`, with `--primary`):** the one next action, large and full panel width (Checkout CTA, confirm payment, the Sale «الدفع» handoff, new sale).
+- **Quiet (`--quiet`):** borderless, muted ink. Only for a cancel, back or close that is borderless today.
+- **Danger-quiet / danger:** danger-quiet (red ink and edge) *starts* a destructive flow (cancel sale, void, cancel payment, force-close a stuck shift); danger (red fill) *executes* it inside its confirm dialog or step.
+- **Hover:** neutral or one step deeper, over the Signal role. **Press:** one step deeper and a 1px drop, over the Contact role (80ms); none under reduced motion.
+- **Focus:** `outline: 2px solid` the focus ring (teal) with a 2px offset on every focusable element, never only a box-shadow, which disappears in contrast themes.
+- **Unavailable (`:disabled` and `aria-disabled`):** recessed, not faded. A sunken fill, a Control Edge hairline and muted ink; no opacity. **Unavailable commit:** the same, with a 2px dashed edge, so it never looks payable. The reason sits in the same region.
 - **Disabled-by-policy:** visibly present, sunken, with a reason line (the RT-103 internal-voucher tender tile is the reference case).
-- **Unavailable commit:** a commit that cannot proceed (for example a cash shortfall) is sunken with muted ink, never full teal, and the reason sits in the same region. It must not look payable.
-- **Density:** the commit is 56px compact and 60px comfortable; tender tiles are 72px and 84px, following the `v5-screen` container (see Layout).
+- **Busy:** `aria-busy="true"` shows the progress cursor.
+- **Keypad keys and tender tiles** stay their own components and share the same press and the teal focus ring.
+- **Forced colours:** every button keeps a 1px `ButtonText` edge; a filled primary or danger keeps a 3px one; unavailable reads `GrayText`, and an unavailable commit stays dashed.
+- **Density:** the commit is 56px compact and 60px comfortable; tender tiles are 72px and 84px, following the `v5-screen` container (see Layout). The density rules sit on the Checkout ledger slot and the Sale money column, not in the button system.
 
 ### Keyboard hints
 A Recessed Well pill with an 11–12px mono key, on the control it accelerates (for example «الدفع ‹F8›», once that key is bound). Always shown at comfortable density and on focus/hover at compact density. A hint appears **only if the binding exists in code** — no key is bound today; the key map awaits RT-24 confirmation and conflict testing *(VN-S5)*.
@@ -547,7 +552,7 @@ Cart rows show name (wrapping to two lines), quantity stepper, unit price and li
 `OrderSummary` (frozen), `TenderPicker` (tiles, including disabled-by-policy), `CashEntry` with `QuickAmounts`, `CardTerminalEntry`, `PaymentLedger` (amount due pinned at hero size), `PaymentOutcome` and `RecoveryPanel` for UNKNOWN, cancelling and reversal states. Selected tender tile: Teal Wash fill, Tower Teal ink and boundary. Money values are never animated (UX-06); `MoneyRoll` was removed by RT-243 F1 (#583) and must not return.
 
 ### Navigation
-- **Labelled panel** (208 / 140px) off-sale, **slim rail** (≈76px, icon + short 12px label) during an active sale.
+- **Slim rail** (≈76px, icon + short 12px label) on every screen, so the nav never changes shape between screens (owner decision 2026-10-21; RT-242 had a labelled 208 / 140px panel off-sale, its CSS remains as the unscoped base under `data-nav='slim'`).
 - **Default:** muted ink on canvas, control radius, 44px entries.
 - **Active:** Teal Wash fill, Tower Teal ink, a 2px inline-start bar and `aria-current="page"`.
 - Cashiers do not see unavailable or unauthorised placeholder routes (OD-6); manager and admin roles keep them *(VN-S10)*.
@@ -578,6 +583,7 @@ Motion explains a change; it never owns the meaning (UX-06). POS is predominantl
 
 All three use `ease-out` `cubic-bezier(0.2, 0.7, 0.25, 1)`. New state transitions use only these roles: no ad-hoc durations, and the shipped `--duration-4` (320ms) is not a motion role. The roles time state changes, not continuous activity loops: a genuine-activity spinner keeps the shipped `800ms linear infinite` rotation (`v5/foundation/messages.css`, `route-states.css`). UX-06 names no spinner token; one may be added by a later motion slice, which must not speed the loop up to a transition role. No springs, overshoot, bounce, shake or parallax.
 
+- **Settle-ins:** one 150ms Signal settle (`v5-settle`, a 4px drop and a fade) on the foundation Notice, Banner and Toast, the inline scan notice, the Checkout tender entry panel, and the completion outcome line (its glyph and sentence only, never the amounts or the panel). Danger-toned messages, every recovery surface and an UNKNOWN payment stay static, and dialogs keep the 220ms entry with no exit. Each has a `prefers-reduced-motion: reduce` path of `animation: none`. *Shipped on `feat/pos-button-system-transitions` (no Jira id yet).*
 - **Truth doesn't perform:** money, totals, tax, refunds and stock never roll, count up or morph through intermediate values; the correct value appears at once. `MoneyRoll` was removed by RT-243 F1 (#583).
 - **Success settles, risk suppresses expression:** a proven result gets a restrained acknowledgement, never celebration. Payment UNKNOWN and other critical uncertainty are near-static.
 - **Live does not mean animated:** connected, scanner-ready and healthy states are static. Spinners and progress move only during genuine processing, syncing or loading, stop when it stops, and stay on the control or surface that owns the action. No ambient pulsing, breathing buttons or moving gradients.
@@ -587,7 +593,7 @@ All three use `ease-out` `cubic-bezier(0.2, 0.7, 0.25, 1)`. New state transition
 ## Do's and Don'ts
 
 ### Do:
-- **Do** keep the total (Sale) and amount due (Checkout) as the largest numerals, with tabular figures (monospace as shipped until RT-262 decides), visible without scrolling at 1024×768 and 1280×800.
+- **Do** keep the total (Sale) and amount due (Checkout) as the largest numerals, with tabular lining figures in the UI sans, visible without scrolling at 1024×768 and 1280×800.
 - **Do** use exactly one filled-teal primary per region and reserve the large commit (56px, full width) for the one next action.
 - **Do** isolate every money value, quantity and code as an LTR run with Western digits and tabular figures, and format human money through the UX-12 formatter (`1,250.00 EGP`).
 - **Do** keep the money column in the same place from Sale through Checkout to completion (Direction B).

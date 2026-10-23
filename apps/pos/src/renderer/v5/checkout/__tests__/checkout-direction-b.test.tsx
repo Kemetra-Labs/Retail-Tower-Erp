@@ -10,6 +10,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -299,6 +300,63 @@ describe('Checkout focus and accessibility on Direction B', () => {
     expect(screen.getByTestId('tender-cash')).toHaveFocus();
   });
 
+  describe('held or doubled Enter right after the partial-apply refocus (RT-763)', () => {
+    // The Enter that applied the partial cash can be tapped twice while focus has just
+    // moved back onto «نقدي». Date.now is pinned, and moved well past the arrival window
+    // before the apply, so only the refocus itself can arm the guard.
+    const T = 1_700_000_000_000;
+    const ARM_MS = 400;
+    const LATER = T + 5_000;
+
+    async function partialApply(): Promise<HTMLElement> {
+      vi.spyOn(Date, 'now').mockReturnValue(T);
+      render(<PaymentSurface _testBridge={makeBridge()} />);
+      vi.spyOn(Date, 'now').mockReturnValue(LATER);
+      await act(async () => {
+        screen.getByTestId('tender-cash').click();
+        await Promise.resolve();
+      });
+      await screen.findByTestId('cash-entry');
+      fireEvent.change(screen.getByTestId('cash-entry-amount-input'), {
+        target: { value: '20' },
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('cash-entry-confirm'));
+        await Promise.resolve();
+      });
+      await settle();
+      const cash = screen.getByTestId('tender-cash');
+      expect(cash).toHaveFocus();
+      return cash;
+    }
+
+    it('swallows an Enter or Space inside the window the refocus armed', async () => {
+      const cash = await partialApply();
+      expect(fireEvent.keyDown(cash, { key: 'Enter' })).toBe(false);
+      expect(fireEvent.keyDown(cash, { key: ' ' })).toBe(false);
+    });
+
+    it('a real doubled Enter does not reopen the cash entry', async () => {
+      const user = userEvent.setup();
+      await partialApply();
+      await user.keyboard('{Enter}');
+      expect(screen.queryByTestId('cash-entry')).not.toBeInTheDocument();
+    });
+
+    it('allows a deliberate Enter or Space once the window has passed', async () => {
+      const cash = await partialApply();
+      vi.spyOn(Date, 'now').mockReturnValue(LATER + ARM_MS);
+      expect(fireEvent.keyDown(cash, { key: 'Enter' })).toBe(true);
+      expect(fireEvent.keyDown(cash, { key: ' ' })).toBe(true);
+    });
+
+    it('a pointer click right after the refocus still opens the entry', async () => {
+      await partialApply();
+      fireEvent.click(screen.getByTestId('tender-cash'));
+      expect(await screen.findByTestId('cash-entry')).toBeInTheDocument();
+    });
+  });
+
   it('is axe-clean with an open cash entry and recorded money', async () => {
     const { container } = render(<PaymentSurface _testBridge={makeBridge()} />);
     await act(async () => {
@@ -376,15 +434,15 @@ describe('Checkout action slots keep their place (A2, N-02) — CSS tripwire', (
   }
 
   it.each([
-    '.v5-ledger__actions .checkout-actions__slot--end',
-    '.v5-ledger__actions .checkout-actions__slot--start',
+    '.v5-ledger__actions .v5-checkout-actions__slot--end',
+    '.v5-ledger__actions .v5-checkout-actions__slot--start',
   ])('%s reserves its height at both densities', (selector) => {
     const sized = blocks(selector).filter((body) => /min-block-size:/.test(body));
     expect(sized.length).toBeGreaterThanOrEqual(2);
   });
 
   it('no rule collapses an empty action slot or the action band', () => {
-    expect(css).not.toMatch(/checkout-actions__slot[^{]*:empty/);
+    expect(css).not.toMatch(/v5-checkout-actions__slot[^{]*:empty/);
     expect(css).not.toMatch(/v5-ledger__actions[^{]*:not\(:has/);
   });
 });

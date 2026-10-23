@@ -425,7 +425,7 @@ function BackToSaleButton(
   return (
     <button
       type="button"
-      className="v5-checkout-back"
+      className="v5-checkout-back v5-btn"
       data-testid="payment-surface-back"
       disabled={!props.back.enabled}
       aria-disabled={props.back.ariaDisabled}
@@ -487,8 +487,8 @@ const RECOVERY_TEST_IDS = {
 
 /**
  * Freeze 15 §3.2 (Checkout default focus): the first enabled method tile. Focus
- * lands there on arrival (RT-761, covered by `guardTileKey`) and again after a
- * partial apply (not covered by that guard).
+ * lands there on arrival (RT-761) and again after a partial apply (RT-763); both
+ * are covered by `guardTileKey`.
  */
 const FIRST_ENABLED_TENDER_TILE = '[data-testid="tender-selection"] [role="radio"]:not([disabled])';
 
@@ -598,7 +598,8 @@ function PaymentSurfaceBody({
   // RT-238 / I-9: when focus is moved onto the settle commit, a held or doubled
   // Enter from the apply that preceded it must not settle on its own.
   const commitFocusedAtRef = useRef(0);
-  // RT-761: when arrival focus landed on the first method tile (see `guardTileKey`).
+  // RT-761/RT-763: when focus last landed on the first method tile, on arrival or after a
+  // partial apply (see `guardTileKey`).
   const tileFocusedAtRef = useRef(0);
   // RT-298 — the cancel this surface sent and has not finished (its own outcome
   // code updates the screen; see the hold-sync effect below).
@@ -621,7 +622,7 @@ function PaymentSurfaceBody({
   // bring it into view so the cashier never has to hunt for the amount field.
   useEffect(() => {
     if (phase !== 'entry') return;
-    const entry = document.querySelector('.payment-surface__entry');
+    const entry = document.querySelector('.v5-checkout__entry');
     // jsdom has no layout and no scrollIntoView; the real window always does.
     if (entry !== null && 'scrollIntoView' in entry) entry.scrollIntoView({ block: 'nearest' });
   }, [phase]);
@@ -1632,7 +1633,7 @@ function PaymentSurfaceBody({
       return (
         <button
           type="button"
-          className="checkout-commit"
+          className="v5-btn v5-btn--primary v5-btn--commit"
           data-testid="payment-surface-reread"
           onClick={retryFailedRead}
         >
@@ -1644,7 +1645,7 @@ function PaymentSurfaceBody({
     return (
       <button
         type="button"
-        className="payment-surface__confirm checkout-commit"
+        className="v5-btn v5-btn--primary v5-btn--commit"
         data-testid="payment-surface-confirm"
         disabled={isConfirming}
         aria-disabled={isConfirming || !fullyTendered ? 'true' : undefined}
@@ -1662,7 +1663,7 @@ function PaymentSurfaceBody({
     if (cancelOpen) return null;
     if (afterApply === 'failed') {
       return (
-        <output className="checkout-actions__reason" data-testid="payment-surface-reread-notice">
+        <output className="v5-checkout-actions__reason" data-testid="payment-surface-reread-notice">
           {readAfter === 'start' ? START_READ_FAILED_COPY : TENDER_READ_FAILED_COPY}
         </output>
       );
@@ -1671,7 +1672,7 @@ function PaymentSurfaceBody({
     return (
       <p
         id="payment-commit-reason"
-        className="checkout-actions__reason"
+        className="v5-checkout-actions__reason"
         data-testid="payment-surface-commit-reason"
       >
         المبلغ أقل من المستحق
@@ -1694,7 +1695,7 @@ function PaymentSurfaceBody({
           phase === 'entry' ? (
             <button
               type="button"
-              className="payment-surface__cancel"
+              className="v5-btn v5-btn--danger-quiet"
               data-testid="payment-surface-cancel"
               disabled={isCancelling}
               aria-disabled={isCancelling ? 'true' : undefined}
@@ -1819,7 +1820,7 @@ function PaymentSurfaceBody({
 
             {/* S3d mode: entry component for the selected tender. */}
             {entryOpen && (
-              <div className="payment-surface__entry" data-testid="payment-surface-entry">
+              <div className="v5-checkout__entry" data-testid="payment-surface-entry">
                 {selectedTender === 'cash' && (
                   <CashEntry
                     remainingBalanceMinor={remainingBalanceMinor}
@@ -1879,12 +1880,7 @@ function PaymentSurfaceBody({
 
         {/* Slice-1 mode: status banner only (no bridge wiring). */}
         {bridge === null && selectedTender !== null && (
-          <div
-            className="payment-surface__tender-selected"
-            data-testid="payment-surface-tender-selected"
-            role="status"
-            aria-live="polite"
-          >
+          <div data-testid="payment-surface-tender-selected" role="status" aria-live="polite">
             {TENDER_SELECTED_COPY[selectedTender]}
           </div>
         )}
@@ -1900,9 +1896,13 @@ function PaymentSurfaceBody({
             commitFocusedAtRef.current = Date.now();
           }}
         />
+        {/* RT-763: the refocus after a partial apply arms the same tile guard as arrival. */}
         <FocusWhen
           active={phase === 'tender_selection' && hasAppliedLine && !fullyTendered}
           find={() => document.querySelector<HTMLElement>(FIRST_ENABLED_TENDER_TILE)}
+          onFocused={() => {
+            tileFocusedAtRef.current = Date.now();
+          }}
         />
         {/* RT-761 / freeze 15 §3.2: arriving at Checkout puts focus on the first method tile. */}
         <FocusWhen
