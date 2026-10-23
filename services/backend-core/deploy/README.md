@@ -91,37 +91,14 @@ op run --env-file=deploy/prod.env -- \
   docker compose -f docker-compose.prod.yml run --rm --build migrate
 
 # 2. Domain-role grants for tables added by migrations. Runtime grants are not
-#    part of migrations (docs/operations/database-roles.md). The scripts are
-#    idempotent; run them on every deploy. Each one exits non-zero on failure,
-#    so stop here if one does. psql takes the migration-owner connection from
-#    the PG* variables in deploy/grants.env, never from a command-line URL.
-op run --env-file=deploy/grants.env -- sh -c \
-  'psql -X -v domain_role="$DOMAIN_DB_ROLE" \
-        -f docs/operations/sql/cashier-admissions-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" \
-        -f docs/operations/sql/shift-cash-up-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" \
-        -f docs/operations/sql/erpnext-posting-resolution-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" \
-        -f docs/operations/sql/inventory-effect-integration-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" \
-        -f docs/operations/sql/stock-locations-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" \
-        -f docs/operations/sql/tracking-foundation-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" \
-        -f docs/operations/sql/signin-memberships-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" \
-        -f docs/operations/sql/sale-reprints-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" \
-        -f docs/operations/sql/device-lifecycle-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" \
-        -f docs/operations/sql/sale-responsibilities-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" \
-        -f docs/operations/sql/shift-variance-policy-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" \
-        -f docs/operations/sql/sale-credit-reversals-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" \
-        -f docs/operations/sql/inventory-position-events-domain-grants.sql'
+#    part of migrations (docs/operations/database-roles.md). The script applies
+#    every routine docs/operations/sql/*-domain-grants.sql (the ones marked
+#    `-- deploy: every-release`) in name order. They are idempotent; run
+#    them on every deploy. It stops at the first failure and exits non-zero, so
+#    stop here if it does. psql takes the migration-owner connection from the
+#    PG* variables in deploy/grants.env, never from a command-line URL.
+#    Changed in RT-812: this used to be one psql -f line per script.
+op run --env-file=deploy/grants.env -- deploy/apply-domain-grants.sh
 
 # 3. Start everything (migrate re-runs as a no-op, then api/worker start).
 op run --env-file=deploy/prod.env -- \
@@ -345,7 +322,9 @@ fails, if any of these checks fails:
 - its commit is reachable from `main` (`compare` status `ahead` or `identical`);
 - the tarball holds only regular files and directories under one top-level
   directory, with nothing unlisted (checked before and after unpacking);
-- the latest `fast` and `db-integration` runs on that commit succeeded;
+- the latest `fast`, `db-integration` and `db-package` runs on that commit succeeded
+  (`db-package` only when that commit's own `ci.yml` defines it: before RT-816,
+  `db-integration` ran those suites; an unreadable `ci.yml` requires all three);
 - both levels of `SHA256SUMS` match, and every bundled file except the
   generated `release.env` is byte-for-byte the file at the release commit;
 - the manifest is published and has registry digests for that commit;
@@ -391,20 +370,7 @@ op run --env-file=deploy/prod.env -- docker compose -f docker-compose.prod.yml l
 # (1. migrate, 2. grants, 3. up, 4. catch-up). A bare `up` skips the grant step.
 git pull
 op run --env-file=deploy/prod.env -- docker compose -f docker-compose.prod.yml run --rm --build migrate
-op run --env-file=deploy/grants.env -- sh -c \
-  'psql -X -v domain_role="$DOMAIN_DB_ROLE" -f docs/operations/sql/cashier-admissions-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" -f docs/operations/sql/shift-cash-up-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" -f docs/operations/sql/erpnext-posting-resolution-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" -f docs/operations/sql/inventory-effect-integration-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" -f docs/operations/sql/stock-locations-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" -f docs/operations/sql/tracking-foundation-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" -f docs/operations/sql/signin-memberships-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" -f docs/operations/sql/sale-reprints-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" -f docs/operations/sql/device-lifecycle-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" -f docs/operations/sql/sale-responsibilities-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" -f docs/operations/sql/shift-variance-policy-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" -f docs/operations/sql/sale-credit-reversals-domain-grants.sql &&
-   psql -X -v domain_role="$DOMAIN_DB_ROLE" -f docs/operations/sql/inventory-position-events-domain-grants.sql'
+op run --env-file=deploy/grants.env -- deploy/apply-domain-grants.sh
 op run --env-file=deploy/prod.env -- docker compose -f docker-compose.prod.yml up -d --build
 op run --env-file=deploy/grants.env -- sh -c \
   'psql -X -f docs/operations/sql/erpnext-posting-resolution-catchup.sql &&

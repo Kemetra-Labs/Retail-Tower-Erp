@@ -24,6 +24,7 @@
 import {
   ALLOWED_METRIC_LABELS,
   FORBIDDEN_METRIC_LABELS,
+  METRIC_LABEL_SOURCES,
   assertMetricLabels,
   validateMetricLabels,
 } from "@data-pulse-2/shared";
@@ -155,10 +156,13 @@ describe("assertMetricLabels — strict variant throws with a useful message", (
 });
 
 describe("Drift contract: every signal in the catalogue is represented", () => {
-  // Lock the canonical signal name set against the docs/observability/signals.md
-  // §1, §2, §3 enumeration. Adding a signal to the docs without adding it
-  // here (or vice versa) fails this assertion — exactly the kind of drift
-  // FR-B-012's cardinality review is meant to catch.
+  // RT-812: the signals registered before the allowlist moved to one fragment
+  // per domain. FROZEN at origin/main 7847a9e9, like
+  // packages/shared/src/observability/metric-labels/baseline.labels.ts: never
+  // add a signal here. A new signal is registered by its own
+  // `metric-labels/<slug>.labels.ts` fragment and needs no edit to this file.
+  // Deleting a baseline signal (or its fragment entry) without removing it
+  // here still fails, and so does adding one to the baseline fragment.
   const expectedSignals = [
     // API
     "http_request_count",
@@ -214,6 +218,8 @@ describe("Drift contract: every signal in the catalogue is represented", () => {
     "erpnext_posting_reversal_deferred_dead_letter_total",
     // Sale re-drive sweep — RT-457. `reason` (closed set).
     "sale_redrive_total",
+    // Skipped sale / void / return effects — RT-427. `event_type`, `reason` (closed sets).
+    "inventory_sale_effect_skipped_total",
     // Connector boundary lifecycle — 018-POLISH (spec §FR-022a). Unlabeled.
     "connector_lifecycle_total",
     // Connector health — 020-POLISH (spec FR-018). Unlabeled.
@@ -238,9 +244,15 @@ describe("Drift contract: every signal in the catalogue is represented", () => {
     });
   }
 
-  it("does not register signals outside the catalogue", () => {
-    const registered = Object.keys(ALLOWED_METRIC_LABELS).sort();
-    const expected = [...expectedSignals].sort();
-    expect(registered).toEqual(expected);
+  it("the frozen baseline fragment registers exactly the baseline signals", () => {
+    const fromBaseline = Object.keys(METRIC_LABEL_SOURCES).filter((m) => METRIC_LABEL_SOURCES[m] === "baseline");
+    expect(fromBaseline.sort()).toEqual([...expectedSignals].sort());
+  });
+
+  it("registers every other signal through its own domain fragment", () => {
+    const baseline = new Set(expectedSignals);
+    for (const metric of Object.keys(ALLOWED_METRIC_LABELS).filter((m) => !baseline.has(m))) {
+      expect({ metric, source: METRIC_LABEL_SOURCES[metric] }).toEqual({ metric, source: expect.not.stringMatching(/^baseline$/) });
+    }
   });
 });

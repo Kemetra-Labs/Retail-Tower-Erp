@@ -38,10 +38,17 @@ const REPO = "Kemetra/Backend-Core";
 const TARGETS = ["api", "worker", "migrate"];
 const LAB_TARGETS = ["lab-01"];
 // The ci.yml jobs that run on a push to main; the same list release-images.yml requires.
-const REQUIRED_CHECKS = [
-  "fast (build + Docker-free tests)",
-  "db-integration (Testcontainers + RLS + migrations)",
-];
+const DB_PACKAGE_CHECK = "db-package (packages/db migrations + worker DB suites)";
+const PRE_SPLIT_CHECKS = ["fast (build + Docker-free tests)", "db-integration (Testcontainers + RLS + migrations)"];
+const REQUIRED_CHECKS = [...PRE_SPLIT_CHECKS, DB_PACKAGE_CHECK];
+// RT-816 split the packages/db + worker DB suites out of db-integration into a
+// db-package job. A release whose own ci.yml has no such job ran them inside
+// db-integration, so its two checks prove the same thing (equal strength).
+// Deliberately loose (any indent, quoted key, trailing comment or anchor, CRLF):
+// reading a post-split ci.yml as pre-split would drop a required check, while a
+// stray match only requires one more.
+const DB_PACKAGE_JOB_RE = /^[ \t]+["']?db-package["']?[ \t]*:/m;
+const RELEASE_CI_YML = path.join(".github", "workflows", "ci.yml");
 const REQUIRED_FILES = ["docker-compose.release.yml", "release.env"];
 // No evidence file is ever read past this size (the workflow caps the bundle the same way).
 const MAX_FILE_BYTES = 16 * 1024 * 1024;
@@ -56,6 +63,9 @@ const SUMS_LINE_RE = /^([0-9a-f]{64}) [ *](\S+)$/;
 const LS_TREE_RE = /^\d{6} (blob|tree) ([0-9a-f]{40})\t(.+)$/;
 // The ALLOWLIST=( ... ) array in deploy/release-bundle.sh (the same parse release-images.spec.ts uses).
 const ALLOWLIST_RE = /^ALLOWLIST=\(\r?\n([\s\S]*?)^\)/m;
+// RT-812: release-bundle.sh appends the routine grant scripts this selector lists.
+const ROUTINE_GRANTS_SELECTOR = "bash deploy/apply-domain-grants.sh --list";
+const ROUTINE_GRANT_MARKER = "-- deploy: every-release";
 // One plain assignment of a digest ref to an upper-case key: nothing a shell could expand or run.
 const ENV_LINE_RE = /^([A-Z][A-Z0-9_]{0,63})=(ghcr\.io\/kemetra\/backend-core-(?:api|worker|migrate)@sha256:[0-9a-f]{64})$/;
 const ROLE_ARN_RE = /^arn:aws:iam::\d{12}:role\/[\w+=,.@/-]+$/;
@@ -167,10 +177,34 @@ function checkCompare(cmp, sha, label = "release") {
   return problems;
 }
 
+/**
+ * The checks the release commit's own ci.yml (from `git archive <sha>`) runs.
+ * Unreadable or missing evidence requires every check: never a pass.
+ */
+function requiredChecksFor(sourceDir, runs) {
+  // Any db-package run on the SHA means the job existed there: always judged.
+  if (Array.isArray(runs) && runs.some((r) => r?.name === DB_PACKAGE_CHECK)) return REQUIRED_CHECKS;
+  // Each directory on the way must be real: a symlinked `.github` is not the release's own file.
+  for (const dir of [".github", path.join(".github", "workflows")]) {
+    if (!isRealDir(path.join(sourceDir, dir))) return REQUIRED_CHECKS;
+  }
+  const ci = readText(path.join(sourceDir, RELEASE_CI_YML));
+  if (ci === null) return REQUIRED_CHECKS;
+  return DB_PACKAGE_JOB_RE.test(ci) ? REQUIRED_CHECKS : PRE_SPLIT_CHECKS;
+}
+
+function isRealDir(dir) {
+  try {
+    return fs.lstatSync(dir).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 /** The most recent github-actions run of each required check must be a success. */
-function checkCiRuns(runs) {
+function checkCiRuns(runs, required = REQUIRED_CHECKS) {
   if (!Array.isArray(runs)) return ["CI check-run evidence missing or not a list"];
-  return REQUIRED_CHECKS.flatMap((name) => {
+  return required.flatMap((name) => {
     const latest = runs
       .filter((r) => r?.name === name && r.slug === "github-actions")
       .sort((a, b) => String(a.started_at).localeCompare(String(b.started_at)))
@@ -178,6 +212,11 @@ function checkCiRuns(runs) {
     const result = latest?.conclusion ?? "missing";
     return result === "success" ? [] : [`required check '${name}' is '${result}' on the release SHA`];
   });
+}
+
+/** checkCiRuns with the checks the release commit itself ran (RT-816). */
+function checkReleaseCiRuns(runs, sourceDir) {
+  return checkCiRuns(runs, requiredChecksFor(sourceDir, runs));
 }
 
 function parseSums(text, label) {
@@ -337,6 +376,23 @@ function checkBundle(dir, manifestBuf, manifest, images) {
   return problems;
 }
 
+/**
+ * RT-812: the routine grant scripts at the release commit, selected exactly as
+ * deploy/apply-domain-grants.sh --list selects them (a *-domain-grants.sql file
+ * under docs/operations/sql with the opt-in marker line).
+ */
+function routineGrantScripts(sourceDir) {
+  const sqlDir = path.join(sourceDir, "docs", "operations", "sql");
+  if (!fs.existsSync(sqlDir)) return [];
+  return fs
+    .readdirSync(sqlDir)
+    .filter((name) => name.endsWith("-domain-grants.sql"))
+    .filter((name) => fs.lstatSync(path.join(sqlDir, name)).isFile())
+    .filter((name) => (readText(path.join(sqlDir, name)) ?? "").replace(/\r/g, "").split("\n").includes(ROUTINE_GRANT_MARKER))
+    .sort()
+    .map((name) => `docs/operations/sql/${name}`);
+}
+
 /** The bundle allowlist that deploy/release-bundle.sh had at the release commit, or null. */
 function readAllowlist(sourceDir) {
   const script = readText(path.join(sourceDir, "deploy", "release-bundle.sh"));
@@ -346,6 +402,8 @@ function readAllowlist(sourceDir) {
     .split(/\r?\n/)
     .map((l) => l.replace(/#.*/, "").trim())
     .filter(Boolean);
+  // RT-812: from then on the bundle also appends the selector's routine grant scripts.
+  if (script.includes(ROUTINE_GRANTS_SELECTOR)) files.push(...routineGrantScripts(sourceDir));
   return files.length ? files : null;
 }
 
@@ -480,7 +538,7 @@ function verifyRelease(dir, ctx, sha) {
   const problems = [
     ...checkTagCommit(readText(path.join(dir, "tag-commit.txt")), sha, "release"),
     ...checkCompare(readJson(path.join(dir, "compare.json")), sha),
-    ...checkCiRuns(readJson(path.join(dir, "check-runs.json"))),
+    ...checkReleaseCiRuns(readJson(path.join(dir, "check-runs.json")), path.join(dir, "source")),
   ];
   const releaseDir = path.join(dir, "release");
   const outerSums = readText(path.join(releaseDir, "SHA256SUMS"));

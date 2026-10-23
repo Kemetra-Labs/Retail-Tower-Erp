@@ -145,7 +145,12 @@ Legitimate deployments never set a role option.
     `INSERT`, `UPDATE` (RT-418, migration 0051)
   - `cash_variance_policy_revisions`, `shift_close_approver_checks`: `SELECT`,
     `INSERT` (RT-387, migration 0050)
+  - `shift_forced_closes`: `SELECT`, `INSERT` (RT-742, migration 0070)
 
+  This list is historical and no longer extended (RT-812). The full required
+  set is assembled from the grants fragments in
+  [`apps/api/src/auth/grants/`](../../apps/api/src/auth/grants/), and each
+  fragment requires exactly the `GRANT`s of its deploy script (a test checks).
   A deploy that skips that grant step now fails to boot, and the error names
   each missing privilege and table, instead of starting healthy with those
   routes returning 500.
@@ -209,6 +214,25 @@ tenant/domain services.
 
 Runtime grants are provisioned outside migrations, so a migration that adds a
 table the domain role must use needs a matching grant step at deploy time.
+
+**From RT-812, a new grant step adds only its own files** (no section here, no
+README or bundle edit; see `CONTRIBUTING.md`):
+
+- `docs/operations/sql/<slug>-domain-grants.sql`, carrying the line
+  `-- deploy: every-release`. Its header documents the tables, the privileges
+  and why, and what must never be granted. That header is the documentation
+  for the grant step; the per-migration sections below are frozen history.
+  `deploy/apply-domain-grants.sh` (step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy)) applies every marked
+  script in name order, and `deploy/apply-domain-grants.sh --list` prints the
+  current set. `release-bundle.sh` ships the same set.
+- `apps/api/src/auth/grants/<slug>.grants.ts`, naming the script. Its
+  `domainRequired` must equal the script's `GRANT`s, so the API refuses to boot
+  without them. It also lists the new tables in `lookupForbidden`, or in
+  `lookupAllowed` with a written reason.
+
+A script without the marker, such as the owner-gated
+`ai-entitlements-domain-grants.sql`, is never run by step 2.
 
 - **Migration `0035_cashier_admissions` (RT-113 BC2).** Run
   [`sql/cashier-admissions-domain-grants.sql`](sql/cashier-admissions-domain-grants.sql)
@@ -411,6 +435,37 @@ table the domain role must use needs a matching grant step at deploy time.
   (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold no privilege on
   any of them (`AUTH_LOOKUP_FORBIDDEN_GRANTS`).
 
+- **Migration `0072_inventory_safety` (RT-449).** Run
+  [`sql/inventory-safety-domain-grants.sql`](sql/inventory-safety-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT`, `INSERT` and
+  `UPDATE` on `tenant_inventory_safety_revisions` (every safety command
+  upserts the tenant's revision; a trigger refuses any step back) and on
+  `tracking_holds` (a release updates the hold; a trigger lets only the
+  release be set, once); `SELECT` and `INSERT` on the append-only
+  `inventory_safety_changes`, `inventory_recalls` and
+  `tracking_identity_expiry_corrections`; and `UPDATE` on
+  `tracking_identities` (the expiry correction; 0072's guard lets only
+  `expiry_date` change, and only with its correction row written in the same
+  transaction). Never grant `DELETE` or `TRUNCATE` on any of them. Without
+  the grants the API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth
+  lookup role must hold no privilege on the five new tables
+  (`AUTH_LOOKUP_FORBIDDEN_GRANTS`).
+
+- **Migration `0067_refund_executions` (RT-787).** Run
+  [`sql/refund-executions-domain-grants.sql`](sql/refund-executions-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT` and `INSERT` on
+  `refund_executions` (a refund execution writes it; its replay, the return
+  reads and the posting feed read it). Append-only: never grant `UPDATE`,
+  `DELETE` or `TRUNCATE`. The new allocation columns on
+  `sale_return_tenders` and `sale_returns.posting_deferred` are covered by
+  those tables' existing grants. Without the grant the API refuses to boot
+  (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold no privilege on
+  it (`AUTH_LOOKUP_FORBIDDEN_GRANTS`).
+
 - **Migration `0056_inventory_position_events` (RT-435).** Run
   [`sql/inventory-position-events-domain-grants.sql`](sql/inventory-position-events-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of
@@ -425,6 +480,64 @@ table the domain role must use needs a matching grant step at deploy time.
   auth lookup role must hold no privilege on either
   (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0056 needs no maintenance window: both
   tables are new and only the new routes use them.
+
+- **Migration `0062_platform_support_sessions` (RT-414).** Run
+  [`sql/platform-support-sessions-domain-grants.sql`](sql/platform-support-sessions-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT`, `INSERT` and
+  `UPDATE` on `platform_support_sessions`: every platform-admin request into a
+  tenant the admin is not a member of reads the support session, opening one
+  inserts a row, and renewing or ending it updates the row (`FOR UPDATE`).
+  Rows are never deleted: never grant `DELETE` or `TRUNCATE`. The table's only
+  RLS policy admits the platform-admin GUC. Without the grants the API refuses
+  to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold no
+  privilege on it (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0062 needs no maintenance
+  window: the table is new.
+
+- **Migration `0063_inventory_effects_activation` (RT-427).** Run
+  [`sql/inventory-anchors-domain-grants.sql`](sql/inventory-anchors-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT` and `INSERT` on
+  `inventory_anchors` and `inventory_anchor_lines`: activating sale effects for
+  a tenant writes the Inventory Anchor of every store, and the comparison
+  reads it. Both are append-only: never grant `UPDATE`, `DELETE` or
+  `TRUNCATE`. The activation flag itself is two columns of
+  `tenant_inventory_settings`, already granted by 0056. Without the grants the
+  API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must
+  hold no privilege on either (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0063 needs no
+  maintenance window: the tables are new and every tenant stays OFF.
+
+- **Migration `0068_pos_device_health` (RT-327).** Run
+  [`sql/pos-device-health-domain-grants.sql`](sql/pos-device-health-domain-grants.sql)
+  after `migrate up` and BEFORE the API image that needs it is rolled, in the
+  same step 2 of [`deploy/README.md`](../../deploy/README.md#deploy), with the
+  same `-v domain_role=<role>`. It grants the domain role `SELECT`, `INSERT`
+  and `UPDATE` on `device_health` (every POS heartbeat upserts its device's row
+  and the Console reads it) and on `pos_version_policy` (the heartbeat and the
+  Console read it, the platform change creates and replaces it). Neither has a
+  `DELETE` policy: never grant `DELETE` or `TRUNCATE`. Without the grants the
+  API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must
+  hold no privilege on either (`AUTH_LOOKUP_FORBIDDEN_GRANTS`): it has
+  `BYPASSRLS`. 0068 needs no maintenance window: both tables are new. Its down
+  migration drops only these two tables and so discards the stored heartbeat
+  telemetry and the version policy.
+
+- **Migration `0070_shift_forced_closes` (RT-742).** Run
+  [`sql/shift-forced-closes-domain-grants.sql`](sql/shift-forced-closes-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT` and `INSERT` on
+  `shift_forced_closes`: `forceCloseShift` records a manager's not-counted
+  force close, and `closeShift` and the cash-up open re-delivery read whether
+  a shift was force-closed. Append-only: never grant `UPDATE`, `DELETE` or
+  `TRUNCATE`. The 0070 UNIQUEs on `shifts` and `devices` need no grant.
+  Without the grants the API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The
+  auth lookup role must hold no privilege on it
+  (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0070 holds `shifts` and `devices` for its
+  two UNIQUE builds (well under a second at pilot volume); run it with no POS
+  sync in flight.
 
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)
