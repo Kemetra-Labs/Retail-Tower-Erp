@@ -12,10 +12,12 @@ export const RECOVERY_COPY = Object.freeze({
   loading: 'جارٍ التحميل…',
   stuckTitle: 'دفع معلّق',
   noneStuck: 'لا يوجد دفع معلّق على هذه الطرفية.',
-  heldTitle: 'مبيعات محفوظة لموظفين آخرين',
-  noneHeld: 'لا توجد مبيعات محفوظة لموظفين آخرين.',
+  heldTitle: 'مبيعات محفوظة',
+  noneHeld: 'لا توجد مبيعات محفوظة.',
   owner: 'الموظف',
   someoneElse: 'موظف آخر',
+  // RT-837: the signed-in manager's own held sale.
+  you: 'أنت',
   lines: 'عدد الأصناف',
   total: 'الإجمالي',
   cash: 'نقدي مدفوع',
@@ -29,6 +31,9 @@ export const RECOVERY_COPY = Object.freeze({
   complete: 'إكمال البيع',
   cancelPayment: 'إلغاء الدفع',
   cancelSale: 'إلغاء البيع',
+  // RT-846 (Addendum A3/A4): shown instead of «إلغاء البيع» when no manager PIN is set.
+  cancelSaleNoPin:
+    'لا يمكن إلغاء المبيعات المحفوظة لأنه لا يوجد رقم سري مدير على هذه الطرفية. سجّله من شاشة الوردية.',
   cashReceived: 'النقدية المستلمة للمتبقي',
   confirmCash: 'أرجعتُ النقدية المدفوعة للعميل',
   confirmCard: 'ألغيتُ دفع البطاقة على جهاز البطاقة',
@@ -51,7 +56,8 @@ const REFUSALS: Readonly<Record<RecoveryRefusalReason | ManagerApprovalRefusalRe
   role_mismatch: 'هذه الشاشة للمدير فقط.',
   invalid_input: 'البيانات غير صحيحة.',
   not_found: 'لم يعد هذا البيع معلّقًا. حدّث القائمة.',
-  approval_invalid: 'انتهى التأكيد أو لا يخص هذا الإجراء. أكّد مرة أخرى.',
+  // RT-837: it covers an unknown, spent, expired or mismatched approval, so it names none of them.
+  approval_invalid: 'التأكيد غير صالح لهذا الإجراء. أكّد مرة أخرى.',
   approval_stale: 'تغيّر البيع منذ التأكيد. حدّث القائمة وأكّد مرة أخرى.',
   approval_unavailable: 'الرقم السري غير صحيح أو غير مفعّل.',
   not_applicable: 'لا يحتاج هذا الإجراء إلى تأكيد.',

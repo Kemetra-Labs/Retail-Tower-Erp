@@ -131,7 +131,7 @@ function CashField(
     <div className="v5-recovery-fields">
       <p>
         {RECOVERY_COPY.remaining}:{' '}
-        <bdi className="v5-recovery-num">{formatCheckoutMoney(props.stuck.remaining_minor)}</bdi>
+        <bdi className="v5-recovery-money">{formatCheckoutMoney(props.stuck.remaining_minor)}</bdi>
       </p>
       <label htmlFor={cashId}>{RECOVERY_COPY.cashReceived}</label>
       <input
@@ -189,7 +189,7 @@ function TenderConfirms(
           }}
         >
           {RECOVERY_COPY.confirmCash} (
-          <bdi className="v5-recovery-num">{formatCheckoutMoney(stuck.cash_minor)}</bdi>)
+          <bdi className="v5-recovery-money">{formatCheckoutMoney(stuck.cash_minor)}</bdi>)
         </Confirm>
       )}
       {stuck.card_minor > 0 && (
@@ -318,7 +318,7 @@ export function RecoveryActionDialog(props: Readonly<Props>): JSX.Element {
         <button
           ref={backRef}
           type="button"
-          className="v5-recovery-btn"
+          className="v5-recovery-btn v5-btn"
           disabled={busy}
           onClick={dismiss}
         >
@@ -326,7 +326,9 @@ export function RecoveryActionDialog(props: Readonly<Props>): JSX.Element {
         </button>
         <button
           type="button"
-          className="v5-recovery-btn v5-recovery-btn--primary"
+          className={`v5-recovery-btn v5-recovery-btn--primary v5-btn ${
+            action.kind === 'complete' ? 'v5-btn--primary' : 'v5-btn--danger'
+          }`}
           disabled={!ready || busy}
           onClick={press}
         >
