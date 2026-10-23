@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Data-Pulse-2 @ 62f8699fb785ddd9fb3fffd1f07e1235da95138c
+// Source: Data-Pulse-2 @ b9acd8c492c8d696987367c3c8b894907fb9b41c
 // Sources:
 // - packages/contracts/openapi/auth.openapi.yaml
 // - packages/contracts/openapi/context.openapi.yaml
@@ -20,6 +20,7 @@
 // - packages/contracts/openapi/erpnext-sync-ops/console-sync-ops.yaml
 // - packages/contracts/openapi/devices.openapi.yaml
 // - packages/contracts/openapi/console-sales.openapi.yaml
+// - packages/contracts/openapi/console-sales-summary.openapi.yaml
 // - packages/contracts/openapi/cash-variance-policy.openapi.yaml
 // - packages/contracts/openapi/console-telemetry.openapi.yaml
 // - packages/contracts/openapi/catalog/erpnext-item-map.yaml
@@ -30,6 +31,7 @@
 // - packages/contracts/openapi/inventory/inventory.yaml
 // - packages/contracts/openapi/catalog/console-catalog.yaml
 // - packages/contracts/openapi/ai-entitlements.openapi.yaml
+// - packages/contracts/openapi/platform-support-sessions.openapi.yaml
 //
 // The upstream OpenAPI files are separate documents with overlapping component
 // names, so this file namespaces each generated source and composes their path
@@ -198,7 +200,10 @@ export namespace AuthSchema {
         responses: never;
         parameters: never;
         requestBodies: never;
-        headers: never;
+        headers: {
+            /** @description Whole seconds the caller should wait before retrying, sent on every public-auth 429 (RT-623). Rounded up from the bucket's remaining window and clamped to 1 to 3600. */
+            PublicAuthRetryAfter: number;
+        };
         pathItems: never;
     }
     export type $defs = Record<string, never>;
@@ -245,9 +250,10 @@ export namespace AuthSchema {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description Rate-limited. */
+                /** @description Rate-limited (RT-623). `Retry-After` gives the whole seconds until the limiting bucket resets, 1 to 3600. */
                 429: {
                     headers: {
+                        "Retry-After": components["headers"]["PublicAuthRetryAfter"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -351,6 +357,16 @@ export namespace AuthSchema {
                     };
                     content?: never;
                 };
+                /** @description Rate-limited per client IP (RT-623). `Retry-After` gives the whole seconds until the bucket resets, 1 to 3600. */
+                429: {
+                    headers: {
+                        "Retry-After": components["headers"]["PublicAuthRetryAfter"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
             };
         };
         confirmPasswordReset: {
@@ -380,6 +396,16 @@ export namespace AuthSchema {
                 /** @description Invalid or expired token. */
                 400: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Rate-limited per client IP (RT-623). `Retry-After` gives the whole seconds until the bucket resets, 1 to 3600. */
+                429: {
+                    headers: {
+                        "Retry-After": components["headers"]["PublicAuthRetryAfter"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -1887,6 +1913,36 @@ export namespace AuditSchema {
             patch?: never;
             trace?: never;
         };
+        "/api/v1/platform/audit/events": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Query platform-scoped audit events (platform admins only).
+             * @description Platform-scoped audit rows: those stored with `tenant_id` null because they name no tenant. Today these are `auth.signin.ok`, `auth.signin.failed`, and `platform.cross_tenant.accessed` rows for a path tenant that is malformed or does not exist (RT-414), plus any other action written while no tenant is active. Tenant-scoped rows are never returned, by any filter: this is not a cross-tenant view (RT-431 decision 1). It is an operator view, not a compliance export (decision 2).
+             *
+             *     **Who may call it.** Only a platform admin: the session user's `users.is_platform_admin`, server-authenticated (RT-132 D6), over the `dp2_session` cookie. A bearer token, POS device token or operator envelope is 401. Every other signed-in user, including a tenant `owner`, gets 403 `forbidden`; the route exists, so there is no 404. A 401 here never means "no active tenant": a platform admin with no active tenant gets 200.
+             *
+             *     **Support sessions (RT-414).** This operation is not tenant-scoped: it has no path tenant and does not use the active tenant, so support-session enforcement does not cover it. The server MUST NOT require or use a support session for it; an open or expired support session changes nothing about the result. It MUST NOT write a `platform.cross_tenant.accessed` row for the call. This is the platform-scope read RT-414 named as a follow-up. A platform admin reads a tenant's own rows through `listAuditEvents` as before.
+             *
+             *     **Order and paging.** Newest first: `occurred_at` descending, then `id` descending, with the same microsecond-exact keyset as `listAuditEvents` (RT-211). `next_cursor` is stable under concurrent inserts and is valid only for this operation with the same filters (including `kind`). `from` and `to` are inclusive bounds on `occurred_at`.
+             *
+             *     **Filters.** All combine with AND. The set is closed: `action` (literal prefix), `kind` (RT-687), `actor_user_id`, `from`, `to`, `cursor` and `limit`. There is no `tenant_id` and no `store_id`; any other query parameter is a 400 `validation_error`. Every platform-scoped action today is classed `change`, so `kind=read` returns an empty page.
+             *
+             *     **Disclosure (constitution XIV).** Sign-in rows store an email in `actor_label` (the account email on `ok`, the typed address on `failed`, including for an unknown account). The server MUST NOT return it whole: a value containing `@` MUST be returned as the first Unicode code point before the last `@` (none, if that part is empty), `***`, and everything from the last `@` (`a***@example.com`); any other label (for example `platform_support`) is returned as stored. `actor_user_id` is returned as stored. Audit rows store no IP address, password, token or request body, so none is returned. `actor_label` and `metadata` are untrusted text: a client must escape them, never render them as markup. The call is not itself audited (decision 3, as for `listAuditEvents`).
+             */
+            get: operations["listPlatformAuditEvents"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
     }
     export type webhooks = Record<string, never>;
     export interface components {
@@ -1912,6 +1968,41 @@ export namespace AuditSchema {
                 /** Format: uuid */
                 request_id?: string | null;
                 metadata?: {
+                    [key: string]: unknown;
+                };
+            };
+            PlatformAuditEventList: {
+                items: components["schemas"]["PlatformAuditEvent"][];
+                /** @description Null on the last page. */
+                next_cursor: string | null;
+            };
+            /** @description The `AuditEvent` projection for a platform-scoped row. `tenant_id` is always null here, so a row that names a tenant fails this schema. */
+            PlatformAuditEvent: {
+                /** Format: uuid */
+                id: string;
+                /** Format: date-time */
+                occurred_at: string;
+                /** Format: uuid */
+                actor_user_id: string | null;
+                /** @description Masked per the operation's **Disclosure** rule: a value with `@` is its first code point, `***` and the text from the last `@`; any other label is as stored. Untrusted text. */
+                actor_label: null | string;
+                /** @description Always null, because tenant-scoped rows are never returned. */
+                tenant_id: null;
+                /** Format: uuid */
+                store_id: string | null;
+                action: string;
+                /**
+                 * @description Derived by the server from `action`, as on `AuditEvent`; an unclassified action is `change`.
+                 * @enum {string}
+                 */
+                kind: "read" | "change";
+                target_type: string | null;
+                /** Format: uuid */
+                target_id: string | null;
+                /** Format: uuid */
+                request_id: string | null;
+                /** @description Stored as written. Platform-scoped writers store an allowlist only (`{}` for sign-in rows; the route template, method, outcome and reason for `platform.cross_tenant.accessed`, never the concrete path, an email, a token or a body). Untrusted text. */
+                metadata: {
                     [key: string]: unknown;
                 };
             };
@@ -1941,7 +2032,21 @@ export namespace AuditSchema {
                 };
             };
         };
-        parameters: never;
+        parameters: {
+            /** @description Literal action-code prefix (for example `auth.signin.`); `%`, `_` and a backslash match themselves. */
+            PlatformAuditAction: string;
+            /** @description Only events of this action kind, as for `listAuditEvents`. Omitted: all platform-scoped events. */
+            PlatformAuditKind: "read" | "change";
+            /** @description Only events of this actor. An anonymous failed sign-in has no actor and never matches. */
+            PlatformAuditActor: string;
+            /** @description Inclusive lower bound on `occurred_at`. */
+            PlatformAuditFrom: string;
+            /** @description Inclusive upper bound on `occurred_at`. */
+            PlatformAuditTo: string;
+            /** @description Opaque `next_cursor` of a prior page of this operation. Do not construct or decode it; a malformed value is a 400 `validation_error`. */
+            PlatformAuditCursor: string;
+            PlatformAuditLimit: number;
+        };
         requestBodies: never;
         headers: {
             /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600; it is not the POS `RetryAfter` header. */
@@ -2004,6 +2109,68 @@ export namespace AuditSchema {
                         [name: string]: unknown;
                     };
                     content?: never;
+                };
+                429: components["responses"]["TooManyRequests"];
+            };
+        };
+        listPlatformAuditEvents: {
+            parameters: {
+                query?: {
+                    /** @description Literal action-code prefix (for example `auth.signin.`); `%`, `_` and a backslash match themselves. */
+                    action?: components["parameters"]["PlatformAuditAction"];
+                    /** @description Only events of this action kind, as for `listAuditEvents`. Omitted: all platform-scoped events. */
+                    kind?: components["parameters"]["PlatformAuditKind"];
+                    /** @description Only events of this actor. An anonymous failed sign-in has no actor and never matches. */
+                    actor_user_id?: components["parameters"]["PlatformAuditActor"];
+                    /** @description Inclusive lower bound on `occurred_at`. */
+                    from?: components["parameters"]["PlatformAuditFrom"];
+                    /** @description Inclusive upper bound on `occurred_at`. */
+                    to?: components["parameters"]["PlatformAuditTo"];
+                    /** @description Opaque `next_cursor` of a prior page of this operation. Do not construct or decode it; a malformed value is a 400 `validation_error`. */
+                    cursor?: components["parameters"]["PlatformAuditCursor"];
+                    limit?: components["parameters"]["PlatformAuditLimit"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PlatformAuditEventList"];
+                    };
+                };
+                /** @description `validation_error`: a query parameter is invalid or unknown (for example `tenant_id` or `store_id`, an unknown `kind`, a malformed `cursor`, an out-of-range `limit`, a non-UUID id, or a malformed date-time). */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Unauthenticated: a missing or invalid session cookie, or a non-cookie credential. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description `forbidden`: the session user is not a platform admin (a tenant `owner` included). */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
                 };
                 429: components["responses"]["TooManyRequests"];
             };
@@ -3361,7 +3528,7 @@ export namespace ErpnextReconciliationSchema {
             };
             /**
              * List the tenant's ERPNext posting dead-letter backlog.
-             * @description A LIVE read-projection over the 015 `erpnext_posting_status` rows with `status = 'permanently_rejected'` for the session tenant (READ, never mirrored). Each item carries its rejection class, originating sale/terminal-event reference, provenance, structured reason, and dead-letter time. Cursor-paginated; filter by store + class. Scoped to the session tenant (RLS); cross-tenant rows are never disclosed.
+             * @description A LIVE read-projection over the 015 `erpnext_posting_status` rows with `status = 'permanently_rejected'` for the session tenant (READ, never mirrored). Each item carries its rejection class, originating sale/terminal-event reference, provenance, rejection message (`reason`, RT-410), and dead-letter time. Cursor-paginated; filter by store + class. Scoped to the session tenant (RLS); cross-tenant rows are never disclosed.
              */
             get: operations["listPostingBacklog"];
             put?: never;
@@ -3545,7 +3712,7 @@ export namespace ErpnextReconciliationSchema {
                 workItemRef: string;
                 /** @enum {string} */
                 kind: "sale_post" | "reversal";
-                /** @description The 015 rejection category (`unmapped_item` / `unmapped_store` / `unmapped_account` / `validation` / `closed_period` / `retry_budget_exhausted` / RT-332 `reconciliation_required`). 015's vocabulary, read in place. */
+                /** @description The 015 rejection category (`unmapped_item` / `unmapped_store` / `unmapped_account` / `validation` / `closed_period` / `retry_budget_exhausted` / RT-332 `reconciliation_required` / `other`, which the ack path already stores for an unclassified Connector rejection). 015's vocabulary, read in place. */
                 rejectionCategory: string;
                 /**
                  * Format: uuid
@@ -3554,7 +3721,19 @@ export namespace ErpnextReconciliationSchema {
                 saleRef?: string | null;
                 sourceSystem: string;
                 externalId: string;
-                /** @description Structured rejection detail (no credentials / sensitive ERPNext internals). */
+                /**
+                 * @description RT-410 (1.3.0-draft, AD-POSTING-001 D-1 to D-5). The Connector's rejection message for this dead-letter: the posting-feed `RejectionReason.message` of the `permanently_rejected` or `reconciliation_required` ack, as plain text, at most 1000 characters. The Connector scrubs it, and Backend-Core sanitises it again before storing it: C0 and C1 control characters (except space) are removed and the result is trimmed, and credential values (`Bearer …`, and keys such as `token`, `password`, `passwd`, `pwd`, `secret`, `api_key` and `authorization`, matched as the end of an identifier, for example `dp2_token`) are replaced with `[redacted]`, and the result is then cut to 1000 characters (a replacement can lengthen the text). A message with nothing left after sanitising is stored as null. Sanitising never causes an ack to be rejected.
+                 *
+                 *     Content and classification: business data, PII-suspect free text from an external system. It may embed sale values (item codes, quantities, rates, totals, tender totals) and ERPNext names. It is NOT a money field and must never be parsed. It is not `rejectionCategory` and never repeats it; use `rejectionCategory` to group or filter.
+                 *
+                 *     Retention: the message exists only while the row is `permanently_rejected`. A repair that re-offers the row clears it, and a later rejection stores a fresh one. A re-ack of the same outcome is an O-3 echo and keeps the first stored message.
+                 *
+                 *     Null when: Backend-Core raised the dead-letter itself (`retry_budget_exhausted`, the worker's `unmapped_item` / `unmapped_store`); the RT-332 `reconciliation_required` was recorded from a `posted` ack echoing a superseded `resolutionVersion` (a `posted` ack carries no reason); the row was dead-lettered before the RT-410 storage migration; or nothing was left after sanitising.
+                 *
+                 *     Handling: readable only through this tenant-scoped, cookieAuth read model. Backend-Core never writes it to a log (length or hash only), audit metadata, a metric label, Sentry or Datadog. A consumer renders it as plain text, never as HTML, shows it only to the roles that can read this backlog, and does not copy it into exports or analytics.
+                 *
+                 *     Runtime transition: until the RT-410 storage and write path ship, the server still returns the category text here. Consumers must not depend on that, or on `reason` equalling `rejectionCategory`.
+                 */
                 reason?: string | null;
                 /**
                  * Format: date-time
@@ -3655,10 +3834,10 @@ export namespace ErpnextReconciliationSchema {
                 /** Format: uuid */
                 runId: string;
                 /**
-                 * @description 014's mismatch-class vocabulary (014 data-model §6.2). 017 owns no class. `negative_balance_flagged` is derived from the 009 `stock_movements` ledger (a negative Retail Tower on-hand balance); it is NOT an ERPNext Bin signal and must not be presented as "negative ERPNext stock". Negative ERPNext Bin quantities are surfaced by `listErpnextNegativeOnHand` / `listErpnextNegativeOnHandStores`.
+                 * @description 014's mismatch-class vocabulary (014 data-model §6.2). 017 owns no class. `negative_balance_flagged` is derived from the 009 `stock_movements` ledger (a negative Retail Tower on-hand balance); it is NOT an ERPNext Bin signal and must not be presented as "negative ERPNext stock". Negative ERPNext Bin quantities are surfaced by `listErpnextNegativeOnHand` / `listErpnextNegativeOnHandStores`. RT-428 (1.4.0-draft, RT-289 DC-7, Reconciliation 926–930): for a tenant with activated sale effects the compared Retail Tower side is the expected ERP book, i.e. the Inventory Anchor plus the effects since it, minus the effects ERPNext has not booked yet. Classes: `match` (926, in sync); `expected_pending_erp` (927, the gap is explained by effects with an ERP intent that ERPNext has not booked as-is: pending, rejected or reconciliation_required); `expected_pending_retail` (928, explained by Retail effects with no ERP intent yet, such as a manual adjustment); `erp_snapshot_stale` (929, the Bin was read before an effect's ERP confirmation); `quantity_divergence` (930, a residual the pending terms do not explain); `uom_mismatch` (the Retail Tower unit differs from the Bin stock UOM, never a quantity divergence). Every other tenant keeps the comparison against the raw 009 SUM and never receives the four RT-428 classes. A class is explanatory: no reconciliation result changes an effect or ERPNext stock. `detail` then also carries `expected_erp_book`, `pending_erp`, `pending_retail` and `legacy_on_hand`.
                  * @enum {string}
                  */
-                mismatchClass: "match" | "quantity_divergence" | "unmapped_store" | "unmapped_item" | "dp2_only" | "erpnext_only" | "negative_balance_flagged";
+                mismatchClass: "match" | "quantity_divergence" | "unmapped_store" | "unmapped_item" | "dp2_only" | "erpnext_only" | "negative_balance_flagged" | "expected_pending_erp" | "expected_pending_retail" | "erp_snapshot_stale" | "uom_mismatch";
                 /**
                  * Format: uuid
                  * @description The originating product ref for a stock line; null for an aggregate line.
@@ -6051,7 +6230,7 @@ export namespace DevicesSchema {
             RevokeReason: "lost" | "stolen" | "suspected_compromise" | "hardware_failure" | "replaced" | "moved" | "retired" | "admin_error" | "other";
             /** @description Operator free text: 1..500 characters and not blank (0040 CHECK `devices_revoke_note_shape`), and no NUL character, because Postgres `text` cannot store U+0000 (a NUL is 400 `validation_error`). For a recovery revoke: what happened and where the drawer cash physically is. No PII, no token, PIN or secret; never logged or audited. */
             RevokeNote: string;
-            /** @description One device, as listed. Every key is always present; a value that is not recorded is `null`. No tenant id, token hash, previous token or rotation window. */
+            /** @description One device, as listed. Every key is always present, except the optional `buildIdentity` (RT-719); a value that is not recorded is `null`. No tenant id, token hash, previous token or rotation window. */
             DeviceSummary: {
                 /** Format: uuid */
                 deviceId: string;
@@ -6112,6 +6291,8 @@ export namespace DevicesSchema {
                  * @description The open custody exception: the id of the open shift still on this revoked device (see "Custody exception" above). `null` when there is none, and always `null` on an active device.
                  */
                 custodyExceptionShiftId: string | null;
+                /** @description RT-719. The POS build the terminal last reported, or `null` when it has never reported one (unknown, never a default build). OPTIONAL: absent until the RT-719 runtime ships, and an absent key means the same as `null`. Self-reported; not a trust signal; not `lastSeenAt`. */
+                buildIdentity?: components["schemas"]["DeviceBuildIdentity"] | null;
             } & (components["schemas"]["TrustStateConsistency"] & components["schemas"]["LastSeenConsistency"]);
             /** @description One device with its revoke note and retire attribution. The summary fields are the `DeviceSummary` fields, with the same rules. A retired device always carries `retireReason`; any other device has `retireReason` and `retiredByUserId` null. */
             DeviceDetail: {
@@ -6141,6 +6322,7 @@ export namespace DevicesSchema {
                 replacedByDeviceId: string | null;
                 /** Format: uuid */
                 custodyExceptionShiftId: string | null;
+                buildIdentity?: components["schemas"]["DeviceBuildIdentity"] | null;
                 /** @description The note recorded with the revoke; `null` when none. Returned to the authorised operator only; never in the list, logs or audit. */
                 revokeNote: components["schemas"]["RevokeNote"] | null;
                 /**
@@ -6155,6 +6337,23 @@ export namespace DevicesSchema {
             TrustStateConsistency: unknown & unknown & unknown;
             /** @description `lastSeenSource` is null exactly when `lastSeenAt` is null. */
             LastSeenConsistency: unknown;
+            /** @description A full git commit SHA-1, 40 lower-case hexadecimal characters. Never abbreviated. */
+            GitCommit: string;
+            /** @description A semantic version without build metadata, at most 32 characters (`1.4.0`, `1.4.0-rc.1`). */
+            AppVersion: string;
+            /** @description The build identity a terminal last reported (RT-719). A value the terminal did not send is `null`, never a default. Self-reported; an inventory signal only. */
+            DeviceBuildIdentity: {
+                buildCommit: components["schemas"]["GitCommit"];
+                /** @description The POS semantic version; `null` while the build has none (POS has no signed release yet) or the terminal did not send one. */
+                appVersion: components["schemas"]["AppVersion"] | null;
+                /** @description The Backend-Core commit in the build's `contracts/backend-core/PIN`; `null` when the terminal did not send it. */
+                contractPinCommit: components["schemas"]["GitCommit"] | null;
+                /**
+                 * Format: date-time
+                 * @description The server clock when Backend-Core last stored this identity. Never a terminal clock; not `lastSeenAt`.
+                 */
+                reportedAt: string;
+            };
             /** @description A keyset page of devices, exception-first. */
             DevicePage: {
                 items: components["schemas"]["DeviceSummary"][];
@@ -7368,6 +7567,273 @@ export namespace ConsoleSalesSchema {
     }
 }
 
+export namespace ConsoleSalesSummarySchema {
+    export interface paths {
+        "/api/v1/sales-summary": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Deterministic received-sales KPIs per store, business date and currency.
+             * @description The KPIs of one store (`store_id`) or of every store in the caller's scope, for each business date of an inclusive range of at most 31 business days, with each store's range totals and the scope's totals. Read only; computed by the server over the facts it had received by `asOf` (see the API description for every rule). A `store_id` outside the caller's scope is the non-disclosing 404.
+             *     Audit: one `console_sales.summary_read` event per 200, with the scope mode, `store_id`, `from`, `to`, the store count and whether a cursor was used; no figure.
+             */
+            get: operations["consoleGetSalesSummary"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            /** @description Exact-decimal non-negative sum as a string (never a float) at the stored scale of four fractional digits, for example `"150.0000"`. */
+            DecimalTotal: string;
+            /** @description ISO-4217 alphabetic currency code. */
+            CurrencyCode: string;
+            /**
+             * Format: date
+             * @description A store business date, `YYYY-MM-DD` in the store's timezone.
+             */
+            BusinessDate: string;
+            /** @description An exact count over received facts. Zero is a real zero, never an unknown. */
+            Count: number;
+            CurrencyTotal: {
+                currencyCode: components["schemas"]["CurrencyCode"];
+                /** @description The facts in this currency (at least one, or the currency is absent). */
+                count: number;
+                total: components["schemas"]["DecimalTotal"];
+            };
+            /** @description A counted money fact. `count` is the sum of `byCurrency[].count`; `byCurrency` is ordered by `currencyCode` and empty when `count` is 0. Totals are never added across currencies. */
+            MoneyFacts: {
+                count: components["schemas"]["Count"];
+                byCurrency: components["schemas"]["CurrencyTotal"][];
+            };
+            /** @description The received sales of the bucket by their spec 032 `syncStatus` at `asOf` (`captured`, `synced`, `failed-retryable`, `failed-needs-repair`); the four add up to `receivedSales.count`. Backend-Core sale processing only: `synced` is NOT "posted to ERPNext". */
+            SyncStatusCounts: {
+                captured: components["schemas"]["Count"];
+                synced: components["schemas"]["Count"];
+                failedRetryable: components["schemas"]["Count"];
+                failedNeedsRepair: components["schemas"]["Count"];
+            };
+            /** @description The received sales of the bucket by their projected `erpPostingState` at `asOf` (the `console-sales` mapping: `posted`; `pending` and `failed_transient` → `pending`; `permanently_rejected` → `failed`; no posting row → `unknown`). The four add up to `receivedSales.count`. `unknown` NEVER means "not posted". Operational state only, never a tax or fiscal claim (OD-534-5). */
+            ErpPostingCounts: {
+                posted: components["schemas"]["Count"];
+                pending: components["schemas"]["Count"];
+                failed: components["schemas"]["Count"];
+                unknown: components["schemas"]["Count"];
+            };
+            /** @description Closes by their recorded `approvalMissing` tri-state (`shift-closes.openapi.yaml`, RT-384 / RT-387). `unknown` (the shift froze no policy) is never "no exception". The three add up to `shiftCloses.count`. */
+            ApprovalMissingCounts: {
+                yes: components["schemas"]["Count"];
+                no: components["schemas"]["Count"];
+                unknown: components["schemas"]["Count"];
+            };
+            /** @description Recorded shift closes bucketed by the store-local date of their `closedAt` (POS clock) in the store's current timezone. `normal + forced = count`. `withVariance` counts closes whose recorded `variance` is not zero. No cash amount is summed here. */
+            ShiftCloseOutcomes: {
+                count: components["schemas"]["Count"];
+                normal: components["schemas"]["Count"];
+                forced: components["schemas"]["Count"];
+                withVariance: components["schemas"]["Count"];
+                approvalMissing: components["schemas"]["ApprovalMissingCounts"];
+            };
+            /** @description The KPIs of one bucket (see the API description for every rule). */
+            SalesKpis: {
+                receivedSales: components["schemas"]["MoneyFacts"];
+                voids: components["schemas"]["MoneyFacts"];
+                returns: components["schemas"]["MoneyFacts"];
+                legacyRefunds: components["schemas"]["MoneyFacts"];
+                syncStatus: components["schemas"]["SyncStatusCounts"];
+                erpPosting: components["schemas"]["ErpPostingCounts"];
+                shiftCloses: components["schemas"]["ShiftCloseOutcomes"];
+            };
+            BusinessDateKpis: {
+                businessDate: components["schemas"]["BusinessDate"];
+                kpis: components["schemas"]["SalesKpis"];
+            };
+            StoreSalesSummary: {
+                /** Format: uuid */
+                storeRef: string;
+                /** @description The store's current IANA timezone (`stores.timezone`, `UTC` until configured): the zone that bucketed legacy refunds and shift closes, and the zone of `currentBusinessDate`. */
+                storeTimezone: string;
+                currentBusinessDate: components["schemas"]["BusinessDate"];
+                /** @description One entry per business date from `from` to `to`, ascending, zero-filled. */
+                days: components["schemas"]["BusinessDateKpis"][];
+                rangeTotals: components["schemas"]["SalesKpis"];
+            };
+            /** @description Server totals over EVERY store of the scope (not only the stores of this page). A date's figures add each store's figures for that store-local business date. */
+            ScopeSalesSummary: {
+                storeCount: components["schemas"]["Count"];
+                /** @description One entry per business date from `from` to `to`, ascending, zero-filled (also when `storeCount` is 0). */
+                days: components["schemas"]["BusinessDateKpis"][];
+                rangeTotals: components["schemas"]["SalesKpis"];
+            };
+            ConsoleSalesSummary: {
+                /**
+                 * @description `store` with `store_id`; `all_in_scope` without it.
+                 * @enum {string}
+                 */
+                scope: "store" | "all_in_scope";
+                /**
+                 * Format: uuid
+                 * @description The `store_id` value (lower case) for `scope: store`; null otherwise.
+                 */
+                storeRef: string | null;
+                from: components["schemas"]["BusinessDate"];
+                to: components["schemas"]["BusinessDate"];
+                /**
+                 * Format: date-time
+                 * @description Server time after the read's snapshot: every figure covers the facts received and committed by then, and no fact still queued on a terminal.
+                 */
+                asOf: string;
+                /**
+                 * @description Always `received_only`: the figures exclude everything still queued on a terminal, so they are never presented as complete.
+                 * @constant
+                 */
+                completeness: "received_only";
+                /** @description This page of stores, ordered by `storeRef` ascending. */
+                stores: components["schemas"]["StoreSalesSummary"][];
+                /** @description Cursor for the next page of stores; null on the last page (always null for `scope: store`). */
+                nextCursor: string | null;
+                scopeTotals: components["schemas"]["ScopeSalesSummary"];
+            };
+            /** @description Canonical error envelope. Out-of-scope and cross-tenant refusals are non-disclosing (§II, §XII): they never name the cause. */
+            Error: {
+                error: {
+                    /** @description Stable machine-readable error code. */
+                    code: string;
+                    /** @description Human-readable summary. No sensitive data, no cause enumeration. */
+                    message: string;
+                    /**
+                     * Format: uuid
+                     * @description Server-side correlation id; the cause is recorded server-side.
+                     */
+                    request_id?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description validation_error (400): a malformed query value, an unknown query key, a query key given more than once, a missing `from` or `to`, a date that is not a calendar date (`2026-02-30`), `to` before `from`, a range wider than 31 business days, a `page_size` outside 1..50, or a cursor the server did not issue for this operation, tenant, `store_id`, range and page size. Checked after the guards and before any database read. */
+            ValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated (401): a missing or invalid session cookie, or a non-cookie credential without a valid session cookie. Non-disclosing. Owned by 028 (G10). */
+            Unauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description not_found (404), non-disclosing: identical for a role outside `owner` / `tenant_admin` / `store_manager` and a `store_id` outside the caller's scope, of another tenant or absent. */
+            NotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description system_failure (500): unexpected server error; the cause is recorded server-side under `request_id`. */
+            SystemFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. The body is the canonical error envelope with a non-disclosing message (no budget, class or window); its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`. A 429 is not a 401: it never means the session ended. The console limit is server-configured and may not be enforced, so a client must handle a 429 but must not expect one. */
+            TooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    /** @description The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a well-formed UUID, otherwise a server-minted one. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+        parameters: {
+            /** @description Optional. The one store to summarise (`scope: store`). Validated against the caller's store scope: a store outside it, or of another tenant, is the non-disclosing 404. Case insensitive: the one lower-cased value is scope-checked, cursor-bound and queried. Omitted: every store in the caller's scope (`scope: all_in_scope`). A malformed or repeated value is 400 `validation_error`. */
+            StoreIdQuery: string;
+            /** @description First business date of the range, inclusive, in each store's timezone. */
+            BusinessDateFrom: string;
+            /** @description Last business date of the range, inclusive. `to >= from` and `to - from <= 30` (31 business days), else 400 `validation_error`. Never truncated. */
+            BusinessDateTo: string;
+            /** @description Opaque cursor from a prior response's `nextCursor`, bound to this operation, the tenant, `store_id` (or its absence), `from`, `to` and `page_size`. It carries only the last returned `storeRef`; the caller's store scope is re-read on every request and is never carried by the cursor, so a hand-built cursor can only skip stores the caller may already read. A value the server did not issue, cannot decode, or that is reused with another store, range or page size is 400 `validation_error`. Omit it for the first page. */
+            Cursor: string;
+            /** @description Maximum stores per response. The server returns exactly this many while more remain. */
+            PageSize: number;
+        };
+        requestBodies: never;
+        headers: {
+            /** @description `no-store` on every 200: the body carries the tenant's commercial figures, so no shared or browser cache keeps them. */
+            CacheControlNoStore: "no-store";
+            /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600. */
+            ConsoleRetryAfter: number;
+        };
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        consoleGetSalesSummary: {
+            parameters: {
+                query: {
+                    /** @description Optional. The one store to summarise (`scope: store`). Validated against the caller's store scope: a store outside it, or of another tenant, is the non-disclosing 404. Case insensitive: the one lower-cased value is scope-checked, cursor-bound and queried. Omitted: every store in the caller's scope (`scope: all_in_scope`). A malformed or repeated value is 400 `validation_error`. */
+                    store_id?: components["parameters"]["StoreIdQuery"];
+                    /** @description First business date of the range, inclusive, in each store's timezone. */
+                    from: components["parameters"]["BusinessDateFrom"];
+                    /** @description Last business date of the range, inclusive. `to >= from` and `to - from <= 30` (31 business days), else 400 `validation_error`. Never truncated. */
+                    to: components["parameters"]["BusinessDateTo"];
+                    /** @description Opaque cursor from a prior response's `nextCursor`, bound to this operation, the tenant, `store_id` (or its absence), `from`, `to` and `page_size`. It carries only the last returned `storeRef`; the caller's store scope is re-read on every request and is never carried by the cursor, so a hand-built cursor can only skip stores the caller may already read. A value the server did not issue, cannot decode, or that is reused with another store, range or page size is 400 `validation_error`. Omit it for the first page. */
+                    cursor?: components["parameters"]["Cursor"];
+                    /** @description Maximum stores per response. The server returns exactly this many while more remain. */
+                    page_size?: components["parameters"]["PageSize"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The summary of the requested scope and range. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConsoleSalesSummary"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+    }
+}
+
 export namespace CashVariancePolicySchema {
     export interface paths {
         "/api/pos/v1/store/cash-variance-policy": {
@@ -7841,6 +8307,12 @@ export namespace CashVariancePolicySchema {
             };
         };
         parameters: {
+            /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosBuildCommit: string;
+            /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosAppVersion: string;
+            /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosContractPin: string;
             /** @description Must be the session's tenant; another tenant, or a role outside the operation's list, is the non-disclosing 404. */
             TenantId: string;
             /** @description A store of the session's tenant within the caller's store scope; anything else is the non-disclosing 404. */
@@ -7856,6 +8328,10 @@ export namespace CashVariancePolicySchema {
         };
         requestBodies: never;
         headers: {
+            /** @description RT-639. Present only when this device credential has 15 days or less left: the ISO-8601 instant `expires_at - 15 days` (the same instant as `rotate_after` in the `posRotateTerminalToken` response). The terminal rotates at or after it. Absent while more than 15 days remain. Never carries token material. See `pos-terminal-pairing.openapi.yaml`, "Credential rotation". */
+            DeviceTokenRotateAfter: string;
+            /** @description RT-639. Sent with `X-Device-Token-Rotate-After`: `notice` (15 days or less left), `warning` (10 or less), `urgent` (3 or less, or already past `expires_at`). The server keeps no per-device state, so it sends the stage on every response while it holds; the terminal shows each stage the first time it sees it. */
+            DeviceTokenRotateStage: "notice" | "warning" | "urgent";
             /** @description Strong ETag: the quoted lowercase hex SHA-256 of the canonical JSON (keys sorted, no whitespace) of the resolved `policySource`, `policyRevisionId` and `policyValue`. `serverTime` is not part of it. Because it is computed over the resolved policy, it changes when a store override expires, with no write. */
             ETag: string;
             /** @description Always `no-cache, private`; the POS revalidates every read. */
@@ -7875,6 +8351,12 @@ export namespace CashVariancePolicySchema {
             parameters: {
                 query?: never;
                 header?: {
+                    /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Build-Commit"?: components["parameters"]["PosBuildCommit"];
+                    /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-App-Version"?: components["parameters"]["PosAppVersion"];
+                    /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Contract-Pin"?: components["parameters"]["PosContractPin"];
                     /** @description The last `ETag` received; omit it when the cached policy was lost. */
                     "If-None-Match"?: components["parameters"]["IfNoneMatch"];
                 };
@@ -7886,6 +8368,8 @@ export namespace CashVariancePolicySchema {
                 /** @description The resolved policy. */
                 200: {
                     headers: {
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
                         ETag: components["headers"]["ETag"];
                         "Cache-Control": components["headers"]["CacheControl"];
                         [name: string]: unknown;
@@ -7897,6 +8381,8 @@ export namespace CashVariancePolicySchema {
                 /** @description Unchanged since the `If-None-Match` ETag. No body. */
                 304: {
                     headers: {
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
                         ETag: components["headers"]["ETag"];
                         "Cache-Control": components["headers"]["CacheControl"];
                         [name: string]: unknown;
@@ -10368,6 +10854,70 @@ export namespace InventorySchema {
             patch?: never;
             trace?: never;
         };
+        "/api/inventory/v1/stores/{storeId}/status-moves": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Move stock between two inventory statuses at one location.
+             * @description RT-435 (RT-290 G4-2, decisions 842–844): one `adjustment` Business Event with exactly two effects at the same location: `-quantity` in `fromStatus` and `+quantity` in `toStatus`. Physical on-hand is unchanged. The `reasonCode` is required and must allow the `(fromStatus, toStatus)` pair (839, D1): `damage` sellable → damaged; `expiry` sellable → expired; `inspection_restock` return_inspection → sellable; `inspection_damage` return_inspection → damaged; `hold_release` quality_hold → sellable; `correction` any pair outside the two hold statuses, with a `note`. `quality_hold` and `recall` are reserved for the tracking-hold workflow and are refused here. The location defaults to the store's primary location; another location must be an active location of the path store. Both effects are `erp_neutral` (V1 mapping profile, M-5); no ERP posting intent is created. Owner, tenant_admin or store_manager (a store_manager only in its store scope); moving stock OUT of `damaged`, `expired`, `quality_hold` or `recall_hold` is sensitive and is owner / tenant_admin only (960, 961, D2). A tracked product is refused until tracked moves exist (G7-4). Idempotent via the `Idempotency-Key` header; a replay of the same command returns the recorded event and writes nothing.
+             */
+            post: operations["createStatusMove"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/stores/{storeId}/relocations": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Move stock between two locations of one store, same status.
+             * @description RT-435 (decisions 800, 814): one `adjustment` Business Event with exactly two effects in the same status: `-quantity` at `fromLocationId` and `+quantity` at `toLocationId`. A relocation is an internal move, not a shipment Transfer. Both locations must be active locations of the path store and must differ; a location of another store or tenant is a non-disclosing 404, an inactive one a 400. The status defaults to `sellable`. Physical and Sellable On Hand are unchanged. A `reasonCode` is optional (`correction` needs a `note`; the reserved hold codes are refused). Both effects are `erp_neutral`; no ERP posting intent is created. Owner, tenant_admin or store_manager (a store_manager only in its store scope). Idempotent via the `Idempotency-Key` header.
+             */
+            post: operations["createRelocation"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/settings/return-landing": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Read the tenant's return landing policy.
+             * @description RT-435 (RT-290 Q6, decision 849): where the tenant's return effects land: `sellable` (the default; `updatedAt` is null while unset) or `return_inspection`, from which stock leaves by a status move. Owner, tenant_admin or store_manager.
+             */
+            get: operations["getReturnLandingPolicy"];
+            /**
+             * Set the tenant's return landing policy.
+             * @description RT-435 (RT-290 Q6): set where the tenant's return effects land. Owner or tenant_admin. Setting the current value again is a no-op change and answers the same body; the change is audited.
+             */
+            put: operations["setReturnLandingPolicy"];
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
         "/api/inventory/v1/admin/sale-linked-backfill": {
             parameters: {
                 query?: never;
@@ -10533,10 +11083,10 @@ export namespace InventorySchema {
                  */
                 origin: "retail" | "erp_external";
                 /**
-                 * @description RT-425 (RT-289 G2-3): the effect's ERP integration state. `not_posted` = no ERP posting intent represents the effect; `pending` / `confirmed` / `rejected` / `reconciliation_required` follow its ERP posting intent; `external` = an ERP-origin effect. A confirmation never adds quantity (decision 771). Null only for a movement with no integration record.
+                 * @description RT-425 (RT-289 G2-3): the effect's ERP integration state. `not_posted` = no ERP posting intent represents the effect; `pending` / `confirmed` / `rejected` / `reconciliation_required` follow its ERP posting intent; `external` = an ERP-origin effect; `erp_neutral` (RT-435, RT-290 Q10) = an effect of a status move or relocation whose event nets to zero in its ERP mapping bucket, so it needs no ERP representation and never gets an intent. A confirmation never adds quantity (decision 771). Null only for a movement with no integration record.
                  * @enum {string|null}
                  */
-                integrationState?: "not_posted" | "pending" | "confirmed" | "rejected" | "reconciliation_required" | "external" | null;
+                integrationState?: "not_posted" | "pending" | "confirmed" | "rejected" | "reconciliation_required" | "external" | "erp_neutral" | null;
                 /**
                  * Format: date-time
                  * @description RT-425 (RT-289 G2-4): when ERPNext confirmed the effect (server time of the `posted` acknowledgement); null unless `integrationState` is `confirmed`.
@@ -10555,6 +11105,98 @@ export namespace InventorySchema {
                  * @description RT-448 (RT-50 G7-2): the tracking identity (batch / serial) of the movement's own product. Null for an untracked product, and for every movement written by this version (tracked selling is not active).
                  */
                 trackingIdentityId: string | null;
+            };
+            /**
+             * @description RT-435 (decision 839, D1): the governed Reason Code of a status move or relocation. Which `(fromStatus, toStatus)` pair each allows is in `createStatusMove`. `quality_hold` and `recall` are reserved for the tracking-hold workflow (RT-449) and are refused by both operations.
+             * @enum {string}
+             */
+            InventoryReasonCode: "damage" | "expiry" | "quality_hold" | "recall" | "inspection_restock" | "inspection_damage" | "hold_release" | "correction";
+            /** @description Strict command. The store is the PATH parameter; tenant and actor are resolved server-side. No tracking field is accepted yet (RT-451). */
+            CreateStatusMoveCommand: {
+                /** Format: uuid */
+                tenantProductRef: string;
+                quantity: components["schemas"]["PositiveDecimalQuantity"];
+                stockingUnit: components["schemas"]["StockingUnit"];
+                /**
+                 * Format: uuid
+                 * @description An active location of the path store; defaults to its primary location.
+                 */
+                stockLocationId?: string;
+                fromStatus: components["schemas"]["InventoryStatus"];
+                toStatus: components["schemas"]["InventoryStatus"];
+                reasonCode: components["schemas"]["InventoryReasonCode"];
+                /** @description Operator note (no PII). Required with `reasonCode` `correction`. */
+                note?: string;
+            };
+            /** @description Strict command. The store is the PATH parameter; both locations must be active locations of it. No tracking field is accepted yet (RT-451). */
+            CreateRelocationCommand: {
+                /** Format: uuid */
+                tenantProductRef: string;
+                quantity: components["schemas"]["PositiveDecimalQuantity"];
+                stockingUnit: components["schemas"]["StockingUnit"];
+                /** Format: uuid */
+                fromLocationId: string;
+                /** Format: uuid */
+                toLocationId: string;
+                /** @description The status of the moved stock; defaults to `sellable`. */
+                inventoryStatus?: components["schemas"]["InventoryStatus"];
+                reasonCode?: components["schemas"]["InventoryReasonCode"];
+                /** @description Operator note (no PII). Required with `reasonCode` `correction`. */
+                note?: string;
+            };
+            /** @description RT-435: the record of a status move or relocation and its two effects. Each effect is a `StockMovement` with `movementType` `adjustment`. A status move has `fromLocationId` = `toLocationId`; a relocation has `fromStatus` = `toStatus`. The effects sum to zero. */
+            InventoryPositionEvent: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                kind: "status_move" | "relocation";
+                /** Format: uuid */
+                storeId: string;
+                /** Format: uuid */
+                tenantProductRef: string;
+                /** @description The moved quantity (positive). */
+                quantity: components["schemas"]["DecimalQuantity"];
+                stockingUnit: string;
+                /** Format: uuid */
+                fromLocationId: string;
+                /** Format: uuid */
+                toLocationId: string;
+                fromStatus: components["schemas"]["InventoryStatus"];
+                toStatus: components["schemas"]["InventoryStatus"];
+                reasonCode: components["schemas"]["InventoryReasonCode"] | null;
+                note: string | null;
+                /**
+                 * Format: uuid
+                 * @description The tracking identity both effects carry (RT-50 G7-2). Null for every event this version records (tracked moves arrive with RT-451).
+                 */
+                trackingIdentityId: string | null;
+                /**
+                 * Format: uuid
+                 * @description The acting principal's user id (an internal actor reference, not PII).
+                 */
+                createdBy: string;
+                /** Format: date-time */
+                occurredAt: string;
+                /** @description The `-quantity` effect at (fromLocationId, fromStatus). */
+                fromEffect: components["schemas"]["StockMovement"];
+                /** @description The `+quantity` effect at (toLocationId, toStatus). */
+                toEffect: components["schemas"]["StockMovement"];
+            };
+            /**
+             * @description RT-435 (RT-290 Q6, decision 849): where a tenant's return effects land.
+             * @enum {string}
+             */
+            ReturnLandingStatus: "sellable" | "return_inspection";
+            ReturnLandingPolicy: {
+                returnLandingStatus: components["schemas"]["ReturnLandingStatus"];
+                /**
+                 * Format: date-time
+                 * @description When the policy was last set; null while the tenant runs on the default.
+                 */
+                updatedAt: string | null;
+            };
+            SetReturnLandingPolicyCommand: {
+                returnLandingStatus: components["schemas"]["ReturnLandingStatus"];
             };
             StockMovementList: {
                 /** @description Bounded by the `limit` query parameter ceiling (max 200), symmetric with the request-side caps. */
@@ -10724,6 +11366,15 @@ export namespace InventorySchema {
             };
             /** @description 409 — an `Idempotency-Key` replay with a DIFFERENT body (FR-030), or a provenance-pair conflict on the backfill path. */
             IdempotencyConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 409 — RT-435. `idempotency_key_conflict`: the `Idempotency-Key` was already used for a different command. `erp_transfer_intent_required`: the move does not net to zero in every ERP mapping bucket, which needs the Gate 8 transfer intent (never under the V1 profile). `tracking_identity_required`: the product is tracked, and tracked moves are not supported yet. Nothing is written. */
+            PositionEventConflict: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11012,6 +11663,133 @@ export namespace InventorySchema {
                 403: components["responses"]["ForbiddenOrOriginRejected"];
                 404: components["responses"]["NotFoundOrCrossTenant"];
                 409: components["responses"]["IdempotencyConflict"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        createStatusMove: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract; the backfill additionally dedups on its provenance pair). */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Store the request is scoped to; access is authorized server-side. */
+                    storeId: components["parameters"]["StoreIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateStatusMoveCommand"];
+                };
+            };
+            responses: {
+                /** @description Status move recorded as one event with two effects. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["InventoryPositionEvent"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                409: components["responses"]["PositionEventConflict"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        createRelocation: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract; the backfill additionally dedups on its provenance pair). */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Store the request is scoped to; access is authorized server-side. */
+                    storeId: components["parameters"]["StoreIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateRelocationCommand"];
+                };
+            };
+            responses: {
+                /** @description Relocation recorded as one event with two effects. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["InventoryPositionEvent"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                409: components["responses"]["PositionEventConflict"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        getReturnLandingPolicy: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The tenant's return landing policy. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReturnLandingPolicy"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        setReturnLandingPolicy: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetReturnLandingPolicyCommand"];
+                };
+            };
+            responses: {
+                /** @description The updated return landing policy. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReturnLandingPolicy"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
                 429: components["responses"]["TooManyRequests"];
                 "5XX": components["responses"]["SystemFailure"];
             };
@@ -12493,6 +13271,431 @@ export namespace AiEntitlementsSchema {
     }
 }
 
-export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths;
-export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components;
-export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations;
+export namespace PlatformSupportSessionsSchema {
+    export interface paths {
+        "/api/v1/platform/support-sessions": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Open a support session and enter a tenant.
+             * @description Opens a support session for `tenant_id`, then makes that tenant the auth session's active tenant (the active store is cleared). Any current support session of this auth session is ended first (`end_reason: replaced`), in the same transaction as the open. A suspended tenant opens a read-only session (see **Tenant state**). Writes `platform.support_session.opened`.
+             */
+            post: operations["openSupportSession"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/platform/support-sessions/current": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Read the caller's current support session.
+             * @description The support session of the caller's auth session, `active` or `expired`; `null` when there is none or it has ended. Not audited as `platform.cross_tenant.accessed` (it is not tenant-scoped).
+             */
+            get: operations["getCurrentSupportSession"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/platform/support-sessions/current/renew": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Renew the caller's current support session.
+             * @description Explicit renewal of an `active` support session (RT-414 decision 2: an expired one is not renewable). Sets `expires_at` to the earliest of now + 60 minutes, `renewal_cap_at` and the auth session's absolute expiry. Purpose and ticket reference are unchanged; to change them, open a new session. Writes `platform.support_session.renewed`.
+             */
+            post: operations["renewSupportSession"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/platform/support-sessions/current/end": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * End the caller's current support session and leave the tenant.
+             * @description Ends the support session (`end_reason: operator`), then clears the auth session's active tenant and store. Allowed on an `active` or `expired` session. Writes `platform.support_session.ended`.
+             */
+            post: operations["endSupportSession"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            /**
+             * @description Closed set of support purposes (RT-391 D2; RT-414 decision 1). A new value is a contract change.
+             * @enum {string}
+             */
+            SupportPurpose: "customer_support" | "incident" | "onboarding";
+            /** @description Optional external ticket reference (RT-414 decision 4): 1–64 characters, starting with a letter or digit, then letters, digits and `. _ : # / -`. No whitespace and no `@`, so it cannot hold an email address or free-text notes. It is shown to the tenant owner in the audit row; do not put customer data in it. */
+            TicketRef: string;
+            OpenSupportSessionRequest: {
+                /** Format: uuid */
+                tenant_id: string;
+                purpose: components["schemas"]["SupportPurpose"];
+                ticket_ref?: components["schemas"]["TicketRef"];
+            };
+            /**
+             * @description `active`: not ended and `expires_at` is in the future. `expired`: not ended and `expires_at` has passed; not renewable, only ended or replaced by a new support session. `ended`: closed for good.
+             * @enum {string}
+             */
+            SupportSessionStatus: "active" | "expired" | "ended";
+            /**
+             * @description `operator`: `endSupportSession`. `replaced`: a new support session was opened. `tenant_switched`: the auth session switched tenant. `signed_out`: the auth session was signed out or revoked.
+             * @enum {string}
+             */
+            SupportSessionEndReason: "operator" | "replaced" | "tenant_switched" | "signed_out";
+            /** @description `ended_at` and `end_reason` are set exactly when `status` is `ended`. */
+            SupportSession: {
+                /**
+                 * Format: uuid
+                 * @description Support session id; carried on every audit row it causes.
+                 */
+                id: string;
+                /** Format: uuid */
+                tenant_id: string;
+                purpose: components["schemas"]["SupportPurpose"];
+                ticket_ref: components["schemas"]["TicketRef"] | null;
+                status: components["schemas"]["SupportSessionStatus"];
+                /** Format: date-time */
+                opened_at: string;
+                /**
+                 * Format: date-time
+                 * @description Time of the latest renewal; null if never renewed.
+                 */
+                renewed_at: string | null;
+                /**
+                 * Format: date-time
+                 * @description Server-set; never later than `renewal_cap_at`.
+                 */
+                expires_at: string;
+                /**
+                 * Format: date-time
+                 * @description `opened_at` + 8 hours (RT-414 decision 2). No renewal goes past it.
+                 */
+                renewal_cap_at: string;
+                /** Format: date-time */
+                ended_at: string | null;
+                end_reason: components["schemas"]["SupportSessionEndReason"] | null;
+            };
+            CurrentSupportSession: {
+                /** @description The current support session, `active` or `expired`; null when there is none or it has ended. An `ended` session is never returned here. */
+                support_session: (components["schemas"]["SupportSession"] & {
+                    /** @enum {unknown} */
+                    status?: "active" | "expired";
+                }) | null;
+            };
+            /** @description Allowlisted `metadata` of `platform.support_session.opened`, `platform.support_session.renewed` and `platform.support_session.ended` rows. Nothing else is stored. Exactly one of `expires_at` (opened / renewed rows) and `end_reason` (ended rows) is present. */
+            SupportSessionAuditMetadata: {
+                /** @constant */
+                actor_kind: "platform_admin";
+                /** @constant */
+                outcome: "succeeded";
+                /** Format: uuid */
+                support_session_id: string;
+                purpose: components["schemas"]["SupportPurpose"];
+                ticket_ref: components["schemas"]["TicketRef"] | null;
+                /**
+                 * Format: date-time
+                 * @description On `opened` and `renewed` rows.
+                 */
+                expires_at?: string;
+                /** @description On `ended` rows only. */
+                end_reason?: components["schemas"]["SupportSessionEndReason"];
+            } & (unknown | unknown);
+            /** @description Allowlisted `metadata` of a `platform.cross_tenant.accessed` row. The route is the template (for example `/api/v1/sales/:saleId`), never the concrete path, query string or body. A `succeeded` row has a support session and no `reason`; a `rejected` row always has a `reason`, and a `support_session_expired`, `support_session_read_only` or `origin_rejected` rejection also names the support session and its purpose. */
+            CrossTenantAccessAuditMetadata: {
+                /** @constant */
+                actor_kind: "platform_admin";
+                /** @enum {string} */
+                outcome: "succeeded" | "rejected";
+                /**
+                 * @description On `rejected` rows only.
+                 * @enum {string}
+                 */
+                reason?: "support_session_required" | "support_session_expired" | "support_session_read_only" | "origin_rejected";
+                /**
+                 * Format: uuid
+                 * @description Null only when no support session exists.
+                 */
+                support_session_id: string | null;
+                purpose: components["schemas"]["SupportPurpose"] | null;
+                /** @enum {string} */
+                method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
+                route: string;
+            };
+            /** @description Canonical error envelope. */
+            Error: {
+                error: {
+                    /** @description Stable machine-readable error code. */
+                    code: string;
+                    /** @description Human-readable summary. No sensitive data. */
+                    message: string;
+                    /** Format: uuid */
+                    request_id?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description validation_error (400): a missing or unknown body key, a `tenant_id` that is not a UUID, a `purpose` outside the set, or a `ticket_ref` that breaks its pattern. */
+            ValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated (401): a missing or invalid session cookie, or a non-cookie credential. */
+            Unauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description forbidden (403): the session user is not a platform admin. Also `origin_rejected` (403) on a POST whose `Origin` is missing, or is neither the API's own origin nor in `ALLOWED_ORIGINS` (RT-414 decision 5). */
+            PlatformAdminRequired: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description not_found (404), non-disclosing: identical for a tenant that does not exist, a deleted tenant and one the caller may not enter (FR-ISO-4). A suspended tenant is not refused here: it opens a read-only support session (owner decision 2026-10-12, RT-414 comment 11737). */
+            TenantNotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Cross-cutting refusal on every `TenantContextGuard` route for a platform admin in a non-member tenant (403): `support_session_required`, `support_session_expired`, `support_session_read_only` (an unsafe method on a suspended tenant), or `origin_rejected` (an unsafe method admitted by a support session with a failing `Origin`). Written as one `platform.cross_tenant.accessed` row with `outcome: rejected`. */
+            SupportSessionRefused: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description system_failure (500): unexpected server error; the cause is recorded server-side under `request_id`. */
+            SystemFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. The body is the canonical error envelope with a non-disclosing message (no budget, class or window); its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`; never auto-retry a mutation. A 429 is not a 401: it never means the session ended. The console limit is server-configured and may not be enforced, so a client must handle a 429 but must not expect one. */
+            TooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    /** @description The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a well-formed UUID, otherwise a server-minted one. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+        parameters: never;
+        requestBodies: never;
+        headers: {
+            /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600; it is not the POS `RetryAfter` header. */
+            ConsoleRetryAfter: number;
+        };
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        openSupportSession: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OpenSupportSessionRequest"];
+                };
+            };
+            responses: {
+                /** @description Support session opened; the tenant is now active. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SupportSession"] & {
+                            /** @constant */
+                            status?: "active";
+                            renewed_at?: null;
+                        };
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["PlatformAdminRequired"];
+                404: components["responses"]["TenantNotFound"];
+                /** @description `already_member` (409): the caller is an active member of this tenant; use `switchActiveTenant` instead. Describes the caller's own membership only. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        getCurrentSupportSession: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The current support session, or null. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CurrentSupportSession"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["PlatformAdminRequired"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        renewSupportSession: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Renewed. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SupportSession"] & {
+                            /** @constant */
+                            status?: "active";
+                            renewed_at?: string;
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["PlatformAdminRequired"];
+                /** @description `support_session_absent` (409): the auth session has no support session, or it has ended. `support_session_expired` (409): it has expired; open a new support session with a purpose. `support_session_renewal_cap_reached` (409): the renewal would not move `expires_at` later, because it already equals `renewal_cap_at` or the auth session's absolute expiry; open a new support session after signing in again if needed. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        endSupportSession: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Ended. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SupportSession"] & {
+                            /** @constant */
+                            status?: "ended";
+                            /** @constant */
+                            end_reason?: "operator";
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["PlatformAdminRequired"];
+                /** @description `support_session_absent` (409): the auth session has no support session, or it has already ended. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+    }
+}
+
+export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & PlatformSupportSessionsSchema.paths;
+export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & PlatformSupportSessionsSchema.components;
+export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & PlatformSupportSessionsSchema.operations;

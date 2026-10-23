@@ -155,7 +155,31 @@ focus, copy, status and border/icon feedback stay intact.
   keeps its meaning. No gradients on tables, forms, operational buttons or status surfaces.
 - **Data color ≠ status color (UX-13):** chart categorical, sequential and diverging palettes
   are a separate token family, never reused success/warning/danger/info. Up/down is never
-  automatically green/red. No production data-viz token family exists yet.
+  automatically green/red.
+- **Data-viz tokens (RT-822, owner-ratified 2026-10-23).** `src/styles/tokens.css` ships the
+  `--color-viz-*` family in light and dark (the same values as
+  `design/claude-design-system/colors_and_type.css`). Design-system rule 8 sets how charts use
+  it.
+  - **Categorical** `--color-viz-cat-1`…`--color-viz-cat-8`: indigo, olive, magenta, orange,
+    cyan, crimson, violet, green. Assign in this order and never cycle. With more than eight series,
+    the first seven keep slots 1–7 and the rest fold into one "Other" series in slot 8. Adjacent slots stay apart under protanopia and deuteranopia (OKLab ΔE ≥ 13.9) and
+    for full colour vision (ΔE ≥ 21.5). For scatter plots and small multiples, where any two
+    marks can sit side by side, use at most the first three slots. Every slot sits at least
+    ΔE 10.5 from every status and intent colour. The nearest are olive, orange, cyan and
+    crimson, which sit ΔE 10.5–11.4 from success/warning, warning, info and danger in light.
+    Status keeps its icon and label.
+  - **Sequential** `--color-viz-seq-1`…`--color-viz-seq-5`: one indigo hue, where 1 is the
+    least. It runs from the surface outward: light to dark in the light theme and dark to light
+    in the dark theme.
+  - **Diverging** `--color-viz-div-neg-3`…`--color-viz-div-pos-3` around
+    `--color-viz-div-mid`. Orange runs below the baseline and violet above it. The midpoint is
+    the mineral border neutral. Neither side means good or bad.
+  - **Contrast** (`.design-sync/contrast-pairs.mjs`, both themes, all three layers): every
+    mark clears 3:1. The receding ends (`seq-1` and each arm's step 1) clear 2:1. The midpoint
+    has no minimum.
+  - **Forced colours:** marks draw in `CanvasText` and receding steps in `GrayText`. Identity,
+    magnitude and sign then come from direct labels, the legend, texture and the table view,
+    never colour alone. Charts own that work (VIZ-5).
 
 ### Visual signatures (grammar, not wallpaper)
 
@@ -284,8 +308,14 @@ focus, copy, status and border/icon feedback stay intact.
   boundary. Use **logical properties by default** (`margin-inline-start`, `inset-inline-end`,
   `border-inline-start`, `text-align: start`). Isolate machine data (amounts, SKUs, emails,
   request IDs) with `dir="ltr"` or `<bdi>`. Visual order and Tab order tell the same story.
-- **Targets:** the Admin Console may be denser than the POS 44px floor while staying above the
-  accessibility floor. The current controls use 36px.
+- **Targets:** above 768px the Admin Console may be denser than the POS 44px floor while staying
+  above the accessibility floor. The current controls use 36px.
+  - **Compact shell (≤768px, RT-785 D3, RT-825):** the menu button, the navigation drawer's
+    entries, its language, theme, sign-out and close controls, the scope button and the
+    scope-menu items, and the primary action of a Tier 1 page are at least 44×44px.
+  - Dense secondary controls keep the WCAG 2.2 AA floor of 24px: table sort headers (36px
+    effective hit area), inline links inside table cells and badges.
+  - Desktop density does not change.
 - **Evidence follows the touched surface:** static checks, component tests, a keyboard-only
   walk, axe where applicable, forced-colors captures and reduced-motion validation.
 
@@ -333,8 +363,15 @@ focus, copy, status and border/icon feedback stay intact.
 These classes exist on `main` and new work reuses them until a migration slice replaces them.
 **Bold** items are the deprecated identity each slice must not extend.
 
-- **Buttons:** `.btn-primary` (Tower Teal fill), `.btn-secondary`, `.btn-ghost`,
-  `.btn-destructive`. Keep one primary per context.
+- **Buttons:** five variants: `.btn-primary` (Tower Teal fill), `.btn-secondary`,
+  `.btn-ghost` (cancel, close, back), `.btn-danger-quiet` (red edge and text on surface) and
+  `.btn-destructive` (red fill). `.btn-danger-quiet` starts a destructive action;
+  `.btn-destructive` appears only in its confirm step. One primary per context. Hover is
+  neutral, never the selection wash. Unavailable is recessed, not faded. Press is Contact
+  (80ms).
+- **Motion:** route changes stay instant (UX-06). The drawer has an enter and an exit. New
+  banners, inline confirms and inline errors settle in on Signal (150ms); new table rows fade
+  in. All of it is zero under reduced motion.
 - **Badge** `.badge` (`--active` / `--suspended` / `--pending`). Status badges
   always carry text, so status is never color alone.
 - **Banner** `.rtc-alert--{danger,warning,success,info}`: persistent operational state, not a

@@ -178,19 +178,7 @@ export const stock = {
   "unknownItems.create.success": "تم إنشاء الصنف وربط المعرّف به. لم يعد الصنف في قائمة المراجعة.",
   "unknownItems.reopen.action": "إعادة فتح",
   "unknownItems.reopen.success": "أُعيد فتح الصنف وعاد إلى قائمة المراجعة.",
-  "unknownItems.select.column": "تحديد",
-  "unknownItems.select.row": "تحديد {value}",
-  "unknownItems.select.page": "تحديد كل أصناف هذه الصفحة",
-  "unknownItems.bulk.selected": {
-    zero: "لم يُحدَّد أي صنف",
-    one: "تم تحديد صنف واحد",
-    two: "تم تحديد صنفين",
-    few: "تم تحديد {count} أصناف",
-    many: "تم تحديد {count} صنفًا",
-    other: "تم تحديد {count} صنف",
-  },
   "unknownItems.bulk.action": "استبعاد المحدد",
-  "unknownItems.bulk.clear": "إلغاء التحديد",
   "unknownItems.bulk.resource": {
     zero: "لا أصناف",
     one: "صنف واحد",
@@ -242,4 +230,24 @@ export const stock = {
     "طلبات كثيرة جدًا في وقت قصير، فلم يتغير شيء. انتظر لحظة ثم حاول مرة أخرى.",
   "unknownItems.errors.inProgress":
     "لا يزال الطلب السابق قيد المعالجة. انتظر لحظة ثم حاول مرة أخرى.",
+
+  // RT-767: ربط صنف معلّق بصنف موجود يُختار من المنتقي المشترك.
+  "unknownItems.link.action": "ربط بصنف",
+  "unknownItems.link.legend": "ربط هذا المعرّف بصنف",
+  "unknownItems.link.lead":
+    "اختر الصنف الموجود الذي يعود إليه هذا المعرّف. لا يتغير شيء قبل التأكيد.",
+  "unknownItems.link.confirm.label": "تأكيد الربط",
+  "unknownItems.link.confirm.prompt":
+    "ربط المعرّف {identifier} بالصنف {product}؟ سيغادر الصنف قائمة المراجعة.",
+  "unknownItems.link.confirm.action": "ربط المعرّف",
+  "unknownItems.link.change": "اختيار صنف آخر",
+  "unknownItems.link.success": "تم ربط المعرّف بالصنف. لم يعد الصنف في قائمة المراجعة.",
+  "unknownItems.link.alreadyResolved":
+    "حسم شخص آخر هذا الصنف أثناء اختيارك، فلم يتم الربط. التفاصيل أدناه محدّثة.",
+  "unknownItems.errors.linkValidation":
+    "تعذّر ربط المعرّف بهذا الصنف. اختر الصنف مرة أخرى ثم حاول من جديد.",
+  "unknownItems.errors.linkAliasConflict":
+    "هذا المعرّف مرتبط بالفعل بصنف آخر، فلم يتم الربط. راجع الكتالوج قبل المتابعة.",
+  "unknownItems.errors.originRejected":
+    "رفض الخادم تغييرًا من هذه الصفحة، فلم يتغير شيء. أعد تحميل وحدة الإدارة ثم حاول مرة أخرى.",
 } satisfies Messages;

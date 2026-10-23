@@ -23,12 +23,14 @@ import { SignInRoute } from "@/shell/SignInRoute";
  * block navigation (useBlocker). The route tree is unchanged; the root layout
  * hosts the providers the routes read.
  */
+import { catalogRoutes } from "@/shell/catalogRoutes";
 import { deviceRoutes } from "@/shell/deviceRoutes";
 import { DirtyGuardProvider } from "@/shell/dirty-guard";
 import { erpStatusRoutes } from "@/shell/erpStatusRoutes";
 import { inventoryRoutes } from "@/shell/inventoryRoutes";
 import { NavigationBlocker } from "@/shell/navigation-blocker";
 import { payerRoutes } from "@/shell/payerRoutes";
+import { platformRoutes } from "@/shell/platformRoutes";
 import { productReconciliationRoutes } from "@/shell/productReconciliationRoutes";
 import { rf2Routes } from "@/shell/rf2Routes";
 import { rf4aRoutes } from "@/shell/rf4aRoutes";
@@ -74,12 +76,15 @@ const router = createBrowserRouter(
       <Route path="/signin" element={<SignInRoute />} />
       {/* Public accept-invitation (SF5-4, security: []) — sibling of /signin. */}
       <Route path="/accept-invitation" element={<AcceptInvitation />} />
+      {/* RT-780: the platform console has its own tenant-less gate. */}
+      {platformRoutes}
       <Route path="/" element={<ProtectedArea />}>
         <Route index element={<Overview />} />
         {rf2Routes}
         {rf4aRoutes}
         {rf5Routes}
         {rf6Routes}
+        {catalogRoutes}
         {payerRoutes}
         {stockDiscrepancyRoutes}
         {inventoryRoutes}
