@@ -303,6 +303,24 @@ jobs:
       - name: Package (Windows --dir, unsigned)
         run: npm run package:dir
 
+      # RT-830: Electron 44 has no install-time download; node_modules/electron/dist is fetched
+      # lazily on first use. verify-packaged.ts reads the stock electron.exe from there. The
+      # source POS job gets it as a side effect of its Playwright smoke step (not carried here),
+      # so fetch it explicitly (the same download electron-builder does for packaging).
+      - name: Fetch stock Electron binary (for the packaged-build checks)
+        run: node node_modules/electron/install.js
+
+      # RT-830 (RT-748 I-7): the packaged exe's fuse wire must equal electronFuses in
+      # electron-builder.yml (undeclared fuses keep the stock Electron value). Blocking.
+      - name: Fuse readback (packaged exe vs electron-builder.yml)
+        run: npx tsx scripts/verify-packaged.ts fuses
+
+      # RT-830 decision NV-6a: the hardened exe has runAsNode off, so the stock Electron from
+      # node_modules (verified identical to the packaged runtime) loads better-sqlite3 and argon2
+      # out of the packaged app.asar in node mode. No smoke switch ships in the app. Blocking.
+      - name: Native-load smoke (packaged better-sqlite3 + argon2)
+        run: npx tsx scripts/verify-packaged.ts native
+
       # Manual-smoke convenience artifact, not a gate: best-effort, main pushes only.
       - name: Upload unpacked Windows build
         if: github.event_name != 'pull_request'
