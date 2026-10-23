@@ -5,8 +5,12 @@
 # `name:` must stay `project-graph` (matched by the staged gate). PR-reachable: read-only
 # token, no credentials, no environment. Deliberately no `paths:` filter and no job `if:`:
 # the graph always selects this job, and a selected job that is skipped fails the gate.
-# `dependency-review` shares this workflow file in graph.yaml but has no source job yet
-# (RT-748 NV-4), so it is intentionally NOT defined here: a stub would be a false pass.
+# `dependency-review` (RT-850, owner decision on RT-748 NV-4) is a fail-closed osv-scanner
+# lockfile diff audit: GitHub's dependency-review action needs the dependency graph plus
+# GitHub Code Security, which a private repo on a personal account does not have. It fails on
+# any advisory that head has and base does not, and on every unprovable result (see
+# .github/scripts/dependency_review.py). Not covered, unlike the GitHub action: license policy,
+# severity thresholds and any ignore mechanism.
 name: project-graph
 
 on:
@@ -47,3 +51,61 @@ jobs:
       - name: Layer-1 boundary check
         working-directory: tools/project-graph
         run: python -m pgraph boundary --repo "$GITHUB_WORKSPACE" --rev HEAD
+
+  # The job `name:` is the graph key (static rule 5): a literal, no expression, no `if:`, no
+  # `paths:` filter. A selected job that is skipped fails the gate, so this always runs.
+  dependency-review:
+    name: dependency-review
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      # osv-scanner release binary, fetched anonymously over HTTPS and verified against this
+      # digest (the GitHub release-asset digest of v2.7.0, linux_amd64). Bump both together.
+      OSV_SCANNER_VERSION: v2.7.0
+      OSV_SCANNER_SHA256: 160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b
+    steps:
+      # Base for the diff: the PR base commit, or the pre-push commit on main. Anything else
+      # (missing, all zeros) fails here: there is no base to prove "nothing new" against.
+      - name: Resolve base commit
+        id: base
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if ! printf '%s' "$BASE_SHA" | grep -Eq '^[0-9a-f]{40}$' || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            echo "dependency-review: no usable base commit ('$BASE_SHA'); cannot diff, failing closed" >&2
+            exit 1
+          fi
+          echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ steps.base.outputs.sha }}
+          path: base
+          persist-credentials: false
+
+      # Stdlib unit tests with a fake scanner: new advisory fails, unchanged one passes, and
+      # every unprovable case (scanner error, missing/empty lockfile) fails.
+      - name: Audit logic tests
+        run: python3 -m unittest discover -s .github/scripts -p 'test_dependency_review.py' -v
+
+      - name: Install osv-scanner (pinned, hash-verified)
+        run: |
+          curl -fsSL --retry 3 --retry-all-errors -o "$RUNNER_TEMP/osv-scanner" \
+            "https://github.com/google/osv-scanner/releases/download/${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64"
+          echo "${OSV_SCANNER_SHA256}  $RUNNER_TEMP/osv-scanner" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/osv-scanner"
+
+      # The four required lockfiles must be present and parsed (> 0 packages); every other
+      # lockfile found in the tree is scanned too, so a new one cannot be forgotten.
+      - name: Lockfile diff audit
+        run: |
+          python3 .github/scripts/dependency_review.py \
+            --osv "$RUNNER_TEMP/osv-scanner" --head . --base base \
+            --require apps/pos/package-lock.json \
+            --require apps/admin-console/pnpm-lock.yaml \
+            --require services/backend-core/pnpm-lock.yaml \
+            --require integrations/erpnext-connector/pylock.toml
