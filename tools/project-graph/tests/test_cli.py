@@ -46,15 +46,15 @@ class CliTests(unittest.TestCase):
                      "--event", "pull_request", "--out", str(plan_path))
             self.assertEqual(r.returncode, 0, r.stderr)
             plan = json.loads(plan_path.read_text())
-            # Today the trusted graph fails rule 5 (no root product workflows),
-            # so every evaluation fails closed. This is the recorded gap.
-            self.assertEqual(plan["graph_validation"]["reasons"], ["GRAPH_INVALID"])
+            # The trusted graph passes the static rules (every job has a root workflow).
+            self.assertEqual(plan["graph_validation"]["reasons"], [])
             pathlib.Path(tmp, "checks.json").write_text("[]")
             pathlib.Path(tmp, "approvals.json").write_text("[]")
             r = _cli("aggregate", "--plan", str(plan_path), "--checks", str(pathlib.Path(tmp, "checks.json")),
                      "--approvals", str(pathlib.Path(tmp, "approvals.json")), "--repo", REPO, "--base", "HEAD")
-            self.assertEqual(r.returncode, 1)
-            self.assertEqual(json.loads(r.stdout)["conclusion"], "failure")
+            # No check runs yet for the needed jobs: pending (exit 3), never a pass.
+            self.assertEqual(r.returncode, 3)
+            self.assertEqual(json.loads(r.stdout)["conclusion"], "pending")
 
     def test_normalize_writes_records_and_completion(self):
         head, base, fp = "2" * 40, "1" * 40, "a" * 64
