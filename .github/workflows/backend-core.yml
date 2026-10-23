@@ -1,24 +1,36 @@
-# Root CI for Backend-Core (RT-748 slices I-5 and I-11). Defines the graph.yaml job keys bc/fast,
-# bc/db-integration and bc/db-package (static rule 5) by reproducing the `fast`, `db-integration`
-# and `db-package` jobs of services/backend-core/.github/workflows/ci.yml inside
-# services/backend-core/. RT-845 (I-11) mirrors the product's RT-816 split: db + worker suites run
-# in bc/db-package, in parallel with the api suite in bc/db-integration. Job `name:` values are the graph keys, so each is a literal
-# with no expression and there is no matrix. The workflow `name:` must stay `backend-core`
-# (matched by the staged gate). PR-reachable: read-only token, no credentials, no
+# Root CI for Backend-Core (RT-748 slices I-5, I-6 and I-11). Defines the graph.yaml job keys
+# bc/fast, bc/db-integration, bc/db-package, bc/oasdiff and bc/schemathesis (static rule 5) by
+# reproducing the `fast`, `db-integration`, `db-package`, `oasdiff` and `schemathesis` jobs of
+# services/backend-core/.github/workflows/ci.yml inside services/backend-core/. RT-845 (I-11)
+# mirrors the product's RT-816 split: db + worker suites run in bc/db-package, in parallel with
+# the api suite in bc/db-integration. Job `name:` values are the graph keys, so each is a literal
+# with no expression and there is no matrix on a graph job. The workflow `name:` must stay
+# `backend-core` (matched by the staged gate). PR-reachable: read-only token, no credentials, no
 # environment.
 #
-# NOT defined here, on purpose: bc/oasdiff and bc/schemathesis. Their scripts
-# (tools/oasdiff/check.sh, tools/schemathesis/*.sh) take the repository root from
-# `git rev-parse --show-toplevel`, which in this repository is the monorepo root, so
-# oasdiff would find no contracts, print "nothing to compare" and exit 0 (a false green).
-# They need an upstream script fix first (RT-748 NV-1, NV-2); they stay missing so rule 5
-# keeps failing closed.
+# bc/oasdiff and bc/schemathesis (RT-849, I-6). Their scripts (tools/oasdiff/check.sh,
+# tools/schemathesis/*.sh) locate the Backend-Core root from their own path since RT-801, so they
+# work from this repository's monorepo root. bc/schemathesis is the fan-in job of a 4-way shard
+# matrix (`schemathesis shard N`, an expression name, so it is not a graph key); the fan-in is the
+# only job named bc/schemathesis and it fails unless every shard succeeded and proved its files.
 #
 # Differences from the product workflow, all forced by the project graph:
 #  - the graph is the only selector, so the `changes` job (risk-tier classifier), the `ci`
 #    aggregate and the `needs.changes.outputs.* != 'false'` gates are gone; no `paths:`
-#    filter. A selected job that is skipped fails the gate, so both jobs always run (the
-#    product's own fail-open default for non-PR events, applied to every event).
+#    filter. A selected job that is skipped fails the gate, so every job always runs (the
+#    product's own fail-open default for non-PR events, applied to every event). That includes
+#    the product's `github.event_name == 'pull_request'` condition on oasdiff and Schemathesis:
+#    it is dropped here, so both also run on push to main (see the next two points).
+#  - oasdiff base: pull_request compares with `git merge-base origin/<base_ref> HEAD`, as the
+#    product does; push (where github.base_ref is empty) compares with github.event.before, the
+#    previous tip of main. Any other event, an empty or all-zero `before`, a base that is not a
+#    commit, or a base tree without packages/contracts/openapi fails the job. The last one
+#    closes the one path in check.sh that would otherwise print "nothing to compare" and exit 0.
+#  - Schemathesis: the shard and fan-in wiring is the product's (RT-809) with the `changes`
+#    dependency removed; the fan-in needs only the shard job and uses `!cancelled()`.
+#  - timeouts of bc/oasdiff and bc/schemathesis are the product's values (5, shard 30 with step
+#    limits 10/20/15, fan-in 10) and are NOT yet measured on this repo's 2-core runner; the first
+#    PR run is the measurement (RT-849).
 #  - the informational Codecov upload and its lcov check are not carried over (the upload
 #    needs a repo credential, which PR-reachable workflows must not use). Coverage is still
 #    collected and the Jest thresholds in apps/api/jest.config.cjs still gate the job.
@@ -224,3 +236,193 @@ jobs:
         env:
           WORKER_INCLUDE_DB_TESTS: "1"
         run: pnpm --filter @data-pulse-2/worker test
+
+  # Compares packages/contracts/openapi/** at the comparison base with the checked-out head, in
+  # oasdiff composed mode, and fails on WARN or higher (config and acknowledgement workflow:
+  # tools/oasdiff/README.md). Needs no install, DB or Docker. Timeout: the product's 5 minutes,
+  # not yet measured here.
+  bc-oasdiff:
+    name: bc/oasdiff
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      OASDIFF_VERSION: "1.32.1"
+      # sha256 of oasdiff_${OASDIFF_VERSION}_linux_amd64.tar.gz from the release checksums.txt
+      OASDIFF_SHA256: "7c8939fc49b75ee11fec66a5b83b37a2fca6aee109fed85013b1ba2ac2a1ee7f"
+    steps:
+      # fetch-depth 0: the merge-base and the push base need history.
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install oasdiff (pinned, checksum-verified)
+        run: |
+          archive="oasdiff_${OASDIFF_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL --proto '=https' --tlsv1.2 -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/oasdiff/oasdiff/releases/download/v${OASDIFF_VERSION}/$archive"
+          echo "${OASDIFF_SHA256}  $RUNNER_TEMP/$archive" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/oasdiff"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/oasdiff" oasdiff
+          echo "$RUNNER_TEMP/oasdiff" >> "$GITHUB_PATH"
+
+      # Event data reaches the script through env only. Every path that cannot name a real base
+      # with the contracts in its tree fails, so the check can never pass by comparing nothing.
+      - name: Resolve the comparison base
+        id: base
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*" >&2; exit 1; }
+          case "$EVENT" in
+            pull_request)
+              [[ -n "$BASE_REF" ]] || fail "empty github.base_ref on a pull_request event"
+              base="$(git merge-base "origin/$BASE_REF" HEAD)"
+              ;;
+            push)
+              [[ "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ ]] || fail "push event without a usable 'before' SHA ('$BEFORE')"
+              base="$BEFORE"
+              ;;
+            *) fail "unsupported event '$EVENT'" ;;
+          esac
+          git cat-file -e "$base^{commit}" || fail "base '$base' is not a commit in this checkout"
+          prefix="$(git rev-parse --show-prefix)"
+          # check.sh exits 0 with "nothing to compare" when the base tree has no contracts.
+          git cat-file -e "$base:${prefix}packages/contracts/openapi" \
+            || fail "base $base has no ${prefix}packages/contracts/openapi; refusing to compare nothing"
+          echo "Comparing against $EVENT base $base"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+
+      - name: Check for breaking changes
+        env:
+          BASE_SHA: ${{ steps.base.outputs.base }}
+        run: |
+          oasdiff --version
+          bash tools/oasdiff/check.sh "$BASE_SHA"
+
+  # Sharded 4 ways by the product (RT-809). Every shard boots its own ephemeral Backend-Core
+  # stack on its own runner (fresh Postgres + Redis, throwaway owner and platform sessions, no
+  # worker), then runs Schemathesis over its share of the cookieAuth contract files: the gate
+  # (not_a_server_error, fails on any 5xx not in tools/schemathesis/5xx-baseline.json) and the
+  # report (positive_data_acceptance, never fails the job). Either step fails if Schemathesis
+  # could not run. The plan is computed from ops.py at this SHA, and the fan-in below proves the
+  # shards ran every file exactly once.
+  #
+  # To change the shard count, change the matrix and SHARD_TOTAL in BOTH jobs together.
+  # The name is an expression, so it is not a graph job key and never equals bc/schemathesis.
+  # Timeouts are the product's, not yet measured on this repo's 2-core runner (job 30 minutes;
+  # steps 10, 20 and 15).
+  bc-schemathesis-shard:
+    name: schemathesis shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      # Every shard reports, so a failed one does not hide the others' evidence.
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    env:
+      # The scripts write to $RUNNER_TEMP/api-fuzz (the runner context is not available in
+      # job-level env, so the path is not set here).
+      FUZZ_PROJECT: api-fuzz
+      SHARD_TOTAL: "4"
+      SHARD_INDEX: ${{ matrix.shard }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Plan this shard's contract files
+        run: bash tools/schemathesis/shard.sh plan
+
+      - name: Start ephemeral stack
+        timeout-minutes: 10
+        run: bash tools/schemathesis/stack-up.sh
+
+      - name: "Gate: no 5xx (not_a_server_error)"
+        timeout-minutes: 20
+        run: bash tools/schemathesis/shard.sh run gate
+
+      # Findings never fail this step; it fails only if Schemathesis could not run.
+      - name: "Report (non-gating findings): positive_data_acceptance"
+        if: always()
+        timeout-minutes: 15
+        run: bash tools/schemathesis/shard.sh run report
+
+      # Plan, manifests, exit codes, SHA and findings only: no raw logs (their curl
+      # reproductions carry the session cookie) and nothing if a credential shows up in them.
+      # Runs before the teardown removes $RUNNER_TEMP/api-fuzz.
+      - name: Collect shard evidence
+        if: always()
+        run: bash tools/schemathesis/shard.sh collect
+
+      - name: Upload shard evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: schemathesis-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/st-shard/artifact
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
+      - name: Tear down
+        if: always()
+        run: |
+          out="$RUNNER_TEMP/api-fuzz"
+          if [ -f "$out/stack.env" ]; then
+            set -a; . "$out/stack.env"; set +a
+            export API_IMAGE=api-fuzz-api:local
+            docker compose -p "$FUZZ_PROJECT" -f tools/schemathesis/compose.yml down -v
+          fi
+          rm -rf "$out"
+
+  # Fail-closed fan-in: the single job named bc/schemathesis. It fails unless all shard jobs
+  # succeeded and the shards' artifacts prove that every (group, contract file, operationIds)
+  # of the inventory regenerated here ran exactly once in gate and in report, at this SHA, with
+  # no unbaselined 5xx. `!cancelled()` keeps it reporting when a shard failed.
+  bc-schemathesis:
+    name: bc/schemathesis
+    needs: bc-schemathesis-shard
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SHARD_TOTAL: "4"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Self-test the shard planner and fan-in
+        run: python3 tools/schemathesis/__tests__/shards.test.py
+
+      # A failed or missing download is not a verdict: the fan-in below fails on any shard
+      # artifact that is absent, so this step may not decide anything.
+      - name: Download shard evidence
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: schemathesis-shard-*
+          path: ${{ runner.temp }}/st-shard/downloaded
+
+      - name: Fan-in (coverage + gate)
+        env:
+          SHARDS_RESULT: ${{ needs.bc-schemathesis-shard.result }}
+        run: bash tools/schemathesis/shard.sh fanin
+
+      - name: Upload merged report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: schemathesis-merged
+          path: ${{ runner.temp }}/st-shard/merged/schemathesis-merged.md
+          if-no-files-found: warn
+          retention-days: 7
+          overwrite: true
