@@ -224,4 +224,4 @@ allowed_symlinks: []
 # personal login, so no login can yet be trusted as "human only". Every policy
 # change is denied until the owner names the login after Substep B moves agents
 # to kemetra-agent. Adding a login here is itself a policy change.
-policy_approvers: []
+policy_approvers: [Kemetra]

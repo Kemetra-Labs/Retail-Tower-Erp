@@ -19,8 +19,8 @@ cases:
     checks: auto
     approvals: [{login: test-human, kind: label}]
     expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [LABEL_NOT_SHA_BOUND]}
-  - name: real-graph-has-no-approver-yet
+  - name: real-graph-approver-is-kemetra-only
     changes: [{status: M, path: .github/workflows/pos.yml}]
     checks: auto
     approvals: [{login: ahmed-shaaban-94}]
-    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [APPROVER_UNRESOLVED]}
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [NOT_APPROVER]}
