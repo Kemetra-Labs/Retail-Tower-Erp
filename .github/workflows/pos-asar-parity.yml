@@ -1,0 +1,160 @@
+# RT-711 scope item 2, `app.asar` file list: manual, read-only parity check of the POS Windows package.
+#
+# Builds the POS Windows `--dir` package twice on windows-latest with the same steps as
+# `pos/package-windows` (npm ci, electron-rebuild argon2, build, package:dir): once from this
+# repo's apps/pos and once from the public source repo Kemetra/POS at the SHA that
+# tools/history/frozen.tsv pins, then compares the two `resources/app.asar` file lists with
+# .github/scripts/asar_parity.py. Verification only: nothing is published, signed, deployed or
+# written back, and the source repo is not modified.
+#
+# Not a graph job and not a gate input: `workflow_dispatch` only, so it never runs on a pull
+# request and `required` does not consume it. No secrets, no environment, read-only token. The
+# source repo is public, so the checkout needs no credential.
+#
+# Fails closed: a source SHA that is not 40 hex or a repo other than Kemetra/POS, a source tree
+# that differs from apps/pos (the two builds would not compare like with like), an unreadable or
+# empty archive and any file-list difference are all failures.
+name: pos-asar-parity
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pos-asar-parity-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  asar-parity:
+    name: asar-parity
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout Shadow
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      # frozen.tsv: product, subdirectory, source repo, frozen main SHA (tab separated).
+      - name: Resolve the pinned POS source commit
+        id: src
+        run: |
+          row="$(awk -F'\t' '$1 == "pos" { gsub(/\r/, ""); print $3 " " $4 }' tools/history/frozen.tsv)"
+          repo="${row%% *}"
+          sha="${row##* }"
+          if [ "$repo" != "POS" ]; then
+            echo "frozen.tsv pos source repo is '$repo', expected POS (Kemetra/POS)" >&2
+            exit 1
+          fi
+          if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "frozen.tsv pos SHA '$sha' is not 40 hex" >&2
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "POS source: $repo@$sha" >> "$GITHUB_STEP_SUMMARY"
+
+      # Outside the Shadow workspace on purpose: a checkout under the workspace would inherit any
+      # file the Shadow root adds later (.npmrc, tsconfig, package.json) and mask it in both builds.
+      # Kemetra/POS is public, so an anonymous fetch of the one pinned commit needs no credential.
+      - name: Fetch POS source at the pinned SHA
+        run: |
+          src="$RUNNER_TEMP/src-pos"
+          git init -q "$src"
+          git -C "$src" fetch -q --depth 1 https://github.com/Kemetra/POS.git "${{ steps.src.outputs.sha }}"
+          git -C "$src" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$src" rev-parse HEAD)" = "${{ steps.src.outputs.sha }}"
+
+      # Both sides must be the same code, or a file-list difference would not be a build difference.
+      - name: Source tree equals apps/pos
+        run: |
+          shadow="$(git rev-parse HEAD:apps/pos)"
+          source="$(git -C "$RUNNER_TEMP/src-pos" rev-parse 'HEAD^{tree}')"
+          echo "apps/pos tree: $shadow"
+          echo "source tree:   $source"
+          if [ "$shadow" != "$source" ]; then
+            echo "apps/pos differs from Kemetra/POS@${{ steps.src.outputs.sha }}; refusing to compare" >&2
+            exit 1
+          fi
+
+      - name: Setup Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/pos/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Unit tests for the asar comparison
+        run: python -m unittest discover -s .github/scripts -p 'test_asar_parity.py' -v
+
+      - name: Build and package (Shadow apps/pos)
+        working-directory: apps/pos
+        run: |
+          npm ci
+          npx electron-rebuild -f -w argon2
+          npm run build
+          npm run package:dir
+
+      - name: Build and package (POS source)
+        run: |
+          cd "$RUNNER_TEMP/src-pos"
+          npm ci
+          npx electron-rebuild -f -w argon2
+          npm run build
+          npm run package:dir
+
+      - name: Compare app.asar file lists
+        run: |
+          shadow_asar=apps/pos/dist-electron/win-unpacked/resources/app.asar
+          source_asar="$RUNNER_TEMP/src-pos/dist-electron/win-unpacked/resources/app.asar"
+          mkdir -p "$RUNNER_TEMP/asar-parity"
+          python .github/scripts/asar_parity.py list "$source_asar" > "$RUNNER_TEMP/asar-parity/source.list"
+          python .github/scripts/asar_parity.py list "$shadow_asar" > "$RUNNER_TEMP/asar-parity/shadow.list"
+          set +e
+          python .github/scripts/asar_parity.py compare --require package.json "$source_asar" "$shadow_asar" 2>&1 | tee "$RUNNER_TEMP/asar-parity/verdict.txt"
+          rc="${PIPESTATUS[0]}"
+          set -e
+          {
+            echo "### asar file list (A = POS source, B = Shadow apps/pos)"
+            echo '```'
+            cat "$RUNNER_TEMP/asar-parity/verdict.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+
+      # Informational: embedded per-file SHA-256 and sizes. A difference here is evidence to explain
+      # (RT-711: every diff is empty or explained); it does not fail the run.
+      - name: Compare app.asar content hashes (informational)
+        continue-on-error: true
+        run: |
+          set +e
+          python .github/scripts/asar_parity.py compare --strict-content \
+            "$RUNNER_TEMP/src-pos/dist-electron/win-unpacked/resources/app.asar" \
+            apps/pos/dist-electron/win-unpacked/resources/app.asar 2>&1 | tee "$RUNNER_TEMP/asar-parity/content.txt"
+          rc="${PIPESTATUS[0]}"
+          set -e
+          {
+            echo "### asar content hashes (informational)"
+            echo '```'
+            cat "$RUNNER_TEMP/asar-parity/content.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+
+      - name: Upload file lists
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pos-asar-parity-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/asar-parity
+          retention-days: 14
+          if-no-files-found: ignore
