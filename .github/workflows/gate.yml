@@ -191,8 +191,12 @@ jobs:
   post:
     name: gate/post
     needs: evaluate
-    # Runs even if evaluate failed, so a crash posts a failing `required`.
-    if: ${{ always() && needs.evaluate.outputs.head_sha != '' }}
+    # Runs even if evaluate failed after resolving the PR, so such a crash posts a failing
+    # `required`. NOT always(): that also runs post in a run cancelled by the per-SHA
+    # concurrency group and publishes a superseded or empty verdict; the run that
+    # cancelled it normally posts instead (if that one fails before the `pr` step
+    # nothing is posted until a re-run: fail-closed, `required` stays missing).
+    if: ${{ !cancelled() && needs.evaluate.outputs.head_sha != '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     environment: ci-gate
