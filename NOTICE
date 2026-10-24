@@ -1,0 +1,32 @@
+Retail Tower
+Copyright 2026 Kemetra-Labs
+
+This repository is licensed under the Apache License, Version 2.0.
+See the LICENSE file at the repository root for the full license text.
+
+Each product in this repository also carries its own LICENSE and NOTICE
+files; they are authoritative for that product:
+
+  apps/pos/                          (Retail Tower POS)
+  apps/admin-console/                (Retail Tower Admin Console)
+  services/backend-core/             (Retail Tower Backend Core)
+  integrations/erpnext-connector/    (Retail Tower ERPNext Connector)
+
+----------------------------------------------------------------------
+
+Third-party attributions
+
+This repository includes icon path data from Fluent UI System Icons
+(https://github.com/microsoft/fluentui-system-icons), vendored from
+@fluentui/svg-icons 1.1.344 into:
+
+  apps/pos/src/renderer/icons/fluent-paths.ts
+  apps/admin-console/src/components/icons/fluent-paths.ts
+
+Copyright (c) 2020 Microsoft Corporation
+Licensed under the MIT License. The full license text is in:
+
+  apps/pos/src/renderer/icons/LICENSE-fluentui-system-icons.txt
+  apps/admin-console/src/components/icons/LICENSE-fluentui-system-icons.txt
+
+and is reproduced in apps/pos/NOTICE and apps/admin-console/NOTICE.
