@@ -14,7 +14,7 @@
 # The graph is the only selector: no `paths:` filter, and a selected job that is skipped fails
 # the gate, so the job always runs. PR-reachable: read-only token, no credentials, no
 # environment. The job `name:` is the graph key, a literal with no expression and no matrix.
-# timeout-minutes is a placeholder ceiling until the first PR run measures the job (RT-851).
+# timeout-minutes is 10: owner-approved ceiling (RT-851); the job measures about 2m30s.
 name: e2e
 
 on:
@@ -36,7 +36,7 @@ jobs:
   e2e-smoke:
     name: e2e/smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     env:
       FUZZ_PROJECT: e2e-smoke
       API_PORT: "23100"
