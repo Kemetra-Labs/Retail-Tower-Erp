@@ -30,3 +30,66 @@ Licensed under the MIT License. The full license text is in:
   apps/admin-console/src/components/icons/LICENSE-fluentui-system-icons.txt
 
 and is reproduced in apps/pos/NOTICE and apps/admin-console/NOTICE.
+
+----------------------------------------------------------------------
+
+Impeccable design skill (Apache License 2.0)
+
+This repository vendors the Impeccable skill, version 3.0.7 (recorded in each
+SKILL.md), from https://github.com/pbakaus/impeccable into the directories
+below (apps/pos holds only selected files of it):
+
+  apps/admin-console/.claude/skills/impeccable/
+  apps/pos/.claude/skills/impeccable/
+
+Impeccable
+Copyright 2025-2026 Paul Bakaus
+
+Licensed under the Apache License, Version 2.0. The license text and the
+upstream NOTICE.md (copied unchanged from the upstream release tag
+skill-v3.0.7) are kept in each of those directories as LICENSE and NOTICE.md.
+That upstream NOTICE.md also credits Anthropic's frontend-design skill
+(Apache License 2.0, Copyright 2025 Anthropic, PBC), on which the skill builds,
+and ehmo's typecraft-guide-skill (https://github.com/ehmo/typecraft-guide-skill),
+from which tactical additions in reference/typography.md were merged.
+The vendored files were compared with that tag: they are identical to the
+upstream copy under .claude/skills/impeccable/, except two files in
+apps/admin-console/.claude/skills/impeccable/ that differ from it:
+reference/live.md (one example path) and scripts/live-server.mjs (engine
+file paths).
+
+----------------------------------------------------------------------
+
+modern-screenshot (MIT License)
+
+The Impeccable skill in apps/admin-console ships a minified, bundled copy of
+modern-screenshot (https://github.com/qq15725/modern-screenshot) as
+apps/admin-console/.claude/skills/impeccable/scripts/modern-screenshot.umd.js.
+The file is byte-identical to the one in upstream Impeccable skill-v3.0.7 and
+carries no license banner and no version string. Its license text is kept next
+to it in LICENSE-modern-screenshot.txt.
+
+Copyright (c) 2021-present wxm
+Licensed under the MIT License.
+
+----------------------------------------------------------------------
+
+GitHub Spec Kit (MIT License)
+
+The Spec Kit scaffolding installed by `specify init`
+(https://github.com/github/spec-kit) is included in:
+
+  apps/admin-console/.specify/ and .claude/skills/speckit-*/
+  apps/pos/.specify/
+  integrations/erpnext-connector/.specify/ and .claude/skills/speckit-*/
+  services/backend-core/.specify/
+
+Spec Kit 0.8.10 is recorded in .specify/init-options.json for admin-console
+and erpnext-connector; no version is recorded for pos and backend-core.
+
+Some of these files may have been adapted for these products; the Spec Kit
+portions remain under the MIT License.
+
+Copyright GitHub, Inc.
+Licensed under the MIT License. The license text is kept in LICENSE-spec-kit.txt
+inside each .specify/ directory.
