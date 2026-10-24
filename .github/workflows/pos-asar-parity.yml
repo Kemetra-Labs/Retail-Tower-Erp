@@ -161,9 +161,13 @@ jobs:
           allow=node_modules/better-sqlite3/build/Release/test_extension.node
           out="$RUNNER_TEMP/asar-parity"
           set +e
-          python .github/scripts/native_abi.py check --abi "${{ steps.electron.outputs.abi }}" --allow-non-addon "$allow"             "$RUNNER_TEMP/src-pos/dist-electron/win-unpacked/resources/app.asar" > "$out/native-abi.source.txt"
+          check() {
+            python .github/scripts/native_abi.py check --abi "${{ steps.electron.outputs.abi }}" \
+              --pe-arch x64 --allow-non-addon "$allow" "$1/dist-electron/win-unpacked/resources/app.asar"
+          }
+          check "$RUNNER_TEMP/src-pos" > "$out/native-abi.source.txt"
           src_rc=$?
-          python .github/scripts/native_abi.py check --abi "${{ steps.electron.outputs.abi }}" --allow-non-addon "$allow"             apps/pos/dist-electron/win-unpacked/resources/app.asar > "$out/native-abi.shadow.txt"
+          check apps/pos > "$out/native-abi.shadow.txt"
           shadow_rc=$?
           diff -u "$out/native-abi.source.txt" "$out/native-abi.shadow.txt" > "$out/native-abi.diff"
           diff_rc=$?

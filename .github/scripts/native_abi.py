@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Every shipped `.node` binary targets the Electron ABI (RT-711 scope item 2, POS Windows package).
 
-  native_abi.py check ASAR --abi N [--allow-non-addon PATH]...
+  native_abi.py check ASAR --abi N [--pe-arch x64] [--allow-non-addon PATH]...
                                      exit 0 all pass, 1 a problem, 2 unreadable input or bad --abi
 
 The `.node` list comes from the asar header (asar_parity.entries), not a directory walk, so it is
@@ -15,7 +15,8 @@ exports, as a NUL-terminated string-table entry (Mach-O adds a leading `_`):
 A binary with neither symbol is not a Node addon (for example a SQLite loadable extension) and fails
 unless its exact path is passed with --allow-non-addon; an allowed path that does not ship fails, so
 the allowlist cannot go stale. Foreign-platform prebuilds (ELF, Mach-O) are classified the same way:
-they never load on Windows, but one bound to the wrong ABI is still a failure. Loading the modules
+they never load on Windows, but one bound to the wrong ABI is still a failure. A Windows (PE) binary
+for another machine than --pe-arch fails, and so does a `.node` stored as an asar link. Loading the modules
 is RT-830's native smoke, not this check. Stdlib only; every unclear case is a failure.
 """
 import argparse
@@ -27,7 +28,7 @@ import sys
 from asar_parity import AsarError, entries
 
 NAPI_RE = re.compile(rb"\x00_?napi_register_module_v1\x00")
-ABI_RE = re.compile(rb"\x00_?node_register_module_v(\d+)\x00")
+ABI_RE = re.compile(rb"\x00_?node_register_module_v([1-9]\d*)\x00")
 PE_MACHINES = {0x8664: "x64", 0xAA64: "arm64", 0x14C: "ia32"}
 MACHO_MAGICS = {bytes.fromhex(m) for m in ("cffaedfe", "cefaedfe", "feedfacf", "feedface", "cafebabe")}
 
@@ -46,12 +47,14 @@ def binary_format(data):
     return None
 
 
-def classify(rel, data, expected_abi, allowed):
+def classify(rel, data, expected_abi, allowed, pe_arch="x64"):
     """(row, problem or None) for one unpacked `.node` file."""
     fmt = binary_format(data)
     row = {"path": rel, "format": fmt or "unknown", "kind": "unknown"}
     if fmt is None:
         return row, f"{rel}: not a PE, ELF or Mach-O binary"
+    if fmt.startswith("pe-") and fmt != f"pe-{pe_arch}":
+        return row, f"{rel}: Windows binary for {fmt[3:]}, the package is {pe_arch}"
     abis = sorted({int(n) for n in ABI_RE.findall(data)})
     if abis:
         row["kind"] = "abi-" + "+".join(map(str, abis))
@@ -68,14 +71,18 @@ def classify(rel, data, expected_abi, allowed):
     return row, f"{rel}: no Node addon registration symbol (N-API or ABI)"
 
 
-def check(asar, expected_abi, allow=()):
+def check(asar, expected_abi, allow=(), pe_arch="x64"):
     """(rows, problems) for every `.node` entry in the archive header."""
     allowed = set(allow)
-    nodes = {rel: e for rel, e in entries(asar).items() if rel.endswith(".node") and e["kind"] == "file"}
+    nodes = {rel: e for rel, e in entries(asar).items() if rel.endswith(".node") and e["kind"] != "dir"}
     if not nodes:
         return [], ["no .node file in the archive: nothing was checked"]
     rows, problems = [], []
     for rel, e in sorted(nodes.items()):
+        if e["kind"] == "link":
+            rows.append({"path": rel, "format": "link", "kind": "unknown"})
+            problems.append(f"{rel}: is a link to {e['link']} (not classified; refusing to pass)")
+            continue
         if not e["unpacked"]:
             rows.append({"path": rel, "format": "packed", "kind": "unknown"})
             problems.append(f"{rel}: packed inside app.asar (Electron cannot load it)")
@@ -90,7 +97,7 @@ def check(asar, expected_abi, allow=()):
             continue
         except OSError as exc:
             raise AsarError(f"{disk}: {exc}") from exc
-        row, problem = classify(rel, data, expected_abi, allowed)
+        row, problem = classify(rel, data, expected_abi, allowed, pe_arch)
         rows.append(row)
         if problem:
             problems.append(problem)
@@ -106,13 +113,15 @@ def main(argv=None):
     p_check.add_argument("--abi", required=True, help="NODE_MODULE_VERSION of the shipped Electron")
     p_check.add_argument("--allow-non-addon", action="append", default=[], metavar="PATH",
                          help="exact archive path of a .node file that is not a Node addon (repeatable)")
+    p_check.add_argument("--pe-arch", default="x64", choices=sorted(PE_MACHINES.values()),
+                         help="machine every Windows (PE) .node must target (default x64)")
     args = parser.parse_args(argv)
     if not re.fullmatch(r"[1-9][0-9]*", args.abi):
         print(f"native_abi: --abi must be a positive integer, got {args.abi!r}", file=sys.stderr)
         return 2
     expected = int(args.abi)
     try:
-        rows, problems = check(args.asar, expected, args.allow_non_addon)
+        rows, problems = check(args.asar, expected, args.allow_non_addon, args.pe_arch)
     except AsarError as exc:
         print(f"native_abi: {exc}", file=sys.stderr)
         return 2

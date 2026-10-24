@@ -127,6 +127,19 @@ class Classify(Pkg):
         _, problems = self.check({"node_modules/m/m.node": b"#!/bin/sh\0napi_register_module_v1\0"})
         self.assertEqual(problems, ["node_modules/m/m.node: not a PE, ELF or Mach-O binary"])
 
+    def test_pe_for_another_machine_fails(self):
+        _, problems = self.check({"node_modules/m/m.node": pe(NAPI, machine=0xAA64)})
+        self.assertEqual(problems, ["node_modules/m/m.node: Windows binary for arm64, the package is x64"])
+
+    def test_pe_arch_is_selectable(self):
+        rows, problems = na.check(self.build({"node_modules/m/m.node": pe(NAPI, machine=0x14C)}), 149, (), "ia32")
+        self.assertEqual(problems, [])
+
+    def test_leading_zero_abi_is_not_an_abi_symbol(self):
+        # Node looks up node_register_module_v149 by exact name; v0149 never registers.
+        _, problems = self.check({"node_modules/m/m.node": pe(b"\0node_register_module_v0149\0")})
+        self.assertEqual(problems, ["node_modules/m/m.node: no Node addon registration symbol (N-API or ABI)"])
+
     def test_truncated_pe_is_unknown(self):
         _, problems = self.check({"node_modules/m/m.node": b"MZ" + NAPI})
         self.assertEqual(len(problems), 1)
@@ -140,6 +153,13 @@ class Layout(Pkg):
     def test_missing_unpacked_file_fails(self):
         _, problems = self.check({"node_modules/m/m.node": pe(NAPI)}, skip_disk={"node_modules/m/m.node"})
         self.assertEqual(problems, ["node_modules/m/m.node: missing from app.asar.unpacked"])
+
+    def test_link_node_entry_fails(self):
+        make_asar({"node_modules": {"m": {"m.node": ("link", "node_modules/n/n.node")}},
+                   "package.json": b"{}"}, self.asar)
+        _, problems = na.check(self.asar, 149)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("is a link to node_modules/n/n.node", problems[0])
 
     def test_no_node_files_fails(self):
         _, problems = self.check({})
