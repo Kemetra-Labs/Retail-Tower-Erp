@@ -12,7 +12,7 @@ Design: tools/ci-gate/AGENT-BROKER.md. This file is in the `policy` class.
 Usage:
   python broker.py --check                        # mint, verify, revoke; print non-secret summary
   python broker.py -- claude                      # run a session as kemetra-agent[bot]
-  python broker.py --op-ref "op://tower/kemetra agent bot/private key" -- claude
+  python broker.py --op-ref "op://tower/kemetra agent bot/credential" -- claude
 """
 
 import argparse
@@ -30,7 +30,7 @@ import urllib.request
 APP_ID = 5373224
 INSTALLATION_ID = 173158171
 REPO_ID = 1425468661
-DEFAULT_OP_REF = "op://tower/kemetra agent bot/private key"
+DEFAULT_OP_REF = "op://tower/kemetra agent bot/credential"
 API = "https://api.github.com"
 PERMISSIONS = {
     "contents": "write",

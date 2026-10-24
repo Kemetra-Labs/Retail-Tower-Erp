@@ -19,7 +19,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$OpRef = 'op://tower/kemetra agent bot/private key',
+    [string]$OpRef = 'op://tower/kemetra agent bot/credential',
     # 1Password account holding the vault, when more than one is configured (sign-in address or ID).
     [string]$OpAccount = '',
     [switch]$Check,

@@ -11,8 +11,9 @@
    ```
 
    1Password asks you to unlock. The script mints a token, checks it covers only the Shadow with the 6 grants, revokes it, and prints only the expiry, the repo and the permissions.
-   - If the 1Password field isn't called `private key`, pass the exact reference: `-OpRef 'op://tower/kemetra agent bot/<field>'`. If the key is stored as an attached file, the field is the file's name.
+   - The default reference is `op://tower/kemetra agent bot/credential`. If the field is named differently, pass the exact reference: `-OpRef 'op://tower/kemetra agent bot/<field>'`. If the key is stored as an attached file, the field is the file's name.
 2. **Session:** run `.\tools\agent-broker\Start-KemetraAgentSession.ps1` (starts `claude`). Use `-Command pwsh` instead for a plain shell. The token is revoked when the command exits, and it expires after 1 hour either way.
+   Agent sessions must start from this shell: the broker sets `GH_TOKEN`, an empty `GH_CONFIG_DIR`, the bot git identity, a github.com-only credential helper, and an empty `GIT_CONFIG_GLOBAL` with `GIT_CONFIG_NOSYSTEM=1`, for that process tree only. It never touches your keyring or global gitconfig. A Claude desktop session cannot take a per-session token, so it still acts as `Kemetra`.
 3. Inside the first session, have the agent run acceptance checks A1–A7 below.
 
 ## Goal
