@@ -44,9 +44,9 @@ class RealTreeTests(unittest.TestCase):
                                 workflow_jobs=gitio.workflow_jobs(REPO, "HEAD"))
         self.assertEqual(errors, [])
 
-    def test_root_and_staged_workflows_keep_privilege_invariants(self):
+    def test_root_workflows_keep_privilege_invariants(self):
         from pgraph.privileges import scan_repo, workflow_files
-        self.assertTrue(any(f.name == "gate.yml.staged" for f in workflow_files(REPO)))
+        self.assertTrue(any(f.name == "gate.yml" for f in workflow_files(REPO)))
         self.assertEqual(scan_repo(REPO), [])
 
     def test_boundary_layer1_is_clean(self):
