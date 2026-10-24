@@ -9,7 +9,9 @@
  *   2. C6: a manager / admin session performs manager-allowed actions
  *      directly, so it asks for nothing (`not_applicable`), except the manager
  *      self-unlock (MA-4);
- *   3. a resolver for the kind (`not_applicable` until its consumer lands);
+ *   3. a reason the kind allows (`invalid_input`; RT-854: `cart.discount.manual`
+ *      takes only its closed list); a resolver for the kind (`not_applicable`
+ *      until its consumer lands);
  *      the subject as main sees it now (`approval_invalid` when it does not
  *      exist or is not in an approvable state for this session);
  *   4. the PIN against that approver's record, with the kind's credential
@@ -19,12 +21,15 @@
  *      subject unchanged (`approval_stale`);
  *   7. one `manager_approvals` row, bound to the subject's version and amount,
  *      expiring after `ttlMs` (120 s, C7), and `manager_approval.granted`.
+ *      RT-861: the row keeps the approving PIN record's role as it is now
+ *      (`approver_role`, migration 0056); a record without one gives none.
  *
  * `consume` (the action handler, inside the action's own transaction): the
  * approval exists, is unconsumed and unexpired, matches the kind, the subject,
  * the terminal and the requester (`approval_invalid`), and the subject's
  * version and amount are still the approved ones (`approval_stale`). On
- * success it is marked consumed, and the caller records the approver.
+ * success it is marked consumed, and the caller records the approver (and,
+ * RT-861, the approver's role when the approval holds one).
  *
  * Nothing that identifies the approver leaves main: the bridge answers an
  * opaque `approval_id`. The PIN is never stored, logged or echoed.
@@ -39,8 +44,14 @@ import type {
   ManagerApprovalRequest,
   ManagerApprover,
 } from '../../shared/operator/manager-approval.js';
+import { isManualDiscountReasonCode } from '../../shared/cart/manual-discount.js';
 import { credentialPolicyFor } from './manager-approval-policy.js';
-import type { ManagerPinScope, ManagerPinStore } from './manager-pin-store.js';
+import {
+  managerRoleOf,
+  type ManagerPinScope,
+  type ManagerPinStore,
+  type ManagerRole,
+} from './manager-pin-store.js';
 import type { OperatorSessionRecord } from './session-manager.js';
 
 /** C7: an approval lapses this long after it was issued. */
@@ -104,6 +115,8 @@ export type ConsumeApprovalOutcome =
       approverUserId: string;
       /** RT-608: the reason code the approval was granted for, for the action's audit. */
       reasonCode?: string;
+      /** RT-861: the approver's role at grant; absent when the approval holds none. */
+      approverRole?: ManagerRole;
     }
   | { kind: 'refused'; reason: 'approval_invalid' | 'approval_stale' };
 
@@ -150,6 +163,13 @@ interface ApprovalRow {
   issued_at: string;
   expires_at: string;
   consumed_at: string | null;
+  approver_role: string | null;
+}
+
+/** The approver a verified PIN names: their `users.id`, and (RT-861) their record's role. */
+interface VerifiedApprover {
+  userId: string;
+  role: ManagerRole | undefined;
 }
 
 type Run = { run(...params: unknown[]): { changes: number } };
@@ -159,13 +179,13 @@ const INSERT = `
   INSERT INTO manager_approvals
     (approval_id, tenant_id, branch_id, terminal_id, action_kind, subject_ref, subject_version,
      amount_minor, reason_code, reason_note, requester_operator_id, requester_user_id,
-     approver_user_id, policy_version, issued_at, expires_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+     approver_user_id, policy_version, issued_at, expires_at, approver_role)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
 const SELECT = `
   SELECT tenant_id, branch_id, terminal_id, action_kind, subject_ref, subject_version,
          amount_minor, requester_operator_id, approver_user_id, requester_user_id, policy_version,
-         reason_code, issued_at, expires_at, consumed_at
+         reason_code, issued_at, expires_at, consumed_at, approver_role
     FROM manager_approvals WHERE approval_id = ?`;
 
 const CONSUME = `UPDATE manager_approvals SET consumed_at = ?
@@ -182,6 +202,19 @@ function sameSubject(a: ApprovalSubject | null, b: ApprovalSubject | null): bool
 /** The requester's provider-neutral id: the admitted cashier's, or the manager's. */
 function requesterUserIdOf(session: OperatorSessionRecord): string | null {
   return (session.user_id ?? session.manager_user_id ?? null)?.toLowerCase() ?? null;
+}
+
+/**
+ * RT-854 (doc 28 §4.1, §11.2) — kinds whose reason is a closed list. The
+ * approval record keeps the reason, so the approval binds it; any other kind
+ * keeps the bridge's general reason-code pattern.
+ */
+const REASON_RULES: Partial<Record<ManagerActionKind, (code: string) => boolean>> = {
+  'cart.discount.manual': isManualDiscountReasonCode,
+};
+
+function reasonAllowed(kind: ManagerActionKind, code: string): boolean {
+  return REASON_RULES[kind]?.(code) ?? true;
 }
 
 /** RT-441 (RT-116 §5.2) — the manager recovery kinds. */
@@ -323,12 +356,13 @@ export function createManagerApprovalService(
       const admitted = admit(kind);
       if (admitted.kind !== 'ok') return admitted;
       const { session, scope } = admitted;
+      if (!reasonAllowed(kind, input.reason_code)) return refused('invalid_input');
       if (deps.resolvers[kind] === undefined) return refused('not_applicable');
       const before = resolve(kind, input.subject_ref, session);
       if (before === null) return refused('approval_invalid');
 
-      const approverUserId = await verifyApprover(input, session, scope, before.sellerUserId);
-      if (approverUserId === null) {
+      const approver = await verifyApprover(input, session, scope, before.sellerUserId);
+      if (approver === null) {
         audit({
           session,
           scope,
@@ -340,12 +374,12 @@ export function createManagerApprovalService(
       }
       if (movedDuringVerify(input, session, before)) return refused('approval_stale');
 
-      const approvalId = insertApproval({ input, session, scope, before, approverUserId });
+      const approvalId = insertApproval({ input, session, scope, before, approver });
       audit({
         session,
         scope,
         category: 'manager_approval.granted',
-        approverUserId,
+        approverUserId: approver.userId,
         payload: {
           approval_id: approvalId,
           action_kind: kind,
@@ -371,10 +405,12 @@ export function createManagerApprovalService(
       }
       const { changes } = (deps.db.prepare(CONSUME) as Run).run(now, input.approvalId);
       if (changes !== 1) return refused('approval_invalid') as ConsumeApprovalOutcome;
+      const approverRole = managerRoleOf(row.approver_role);
       return {
         kind: 'consumed',
         approverUserId: row.approver_user_id,
         reasonCode: row.reason_code,
+        ...(approverRole === undefined ? {} : { approverRole }),
       };
     },
 
@@ -391,16 +427,17 @@ export function createManagerApprovalService(
   };
 
   /**
-   * Steps 4 and 5: the approver's user id when the PIN verifies and the
-   * approver is allowed (four-eyes; the self-unlock is exempt; a recovery
-   * approver is the signed-in manager), otherwise null.
+   * Steps 4 and 5: the approver's user id (and, RT-861, their record's role)
+   * when the PIN verifies and the approver is allowed (four-eyes; the
+   * self-unlock is exempt; a recovery approver is the signed-in manager),
+   * otherwise null.
    */
   async function verifyApprover(
     input: ManagerApprovalRequest,
     session: OperatorSessionRecord,
     scope: ManagerPinScope,
     sellerUserId: string | undefined,
-  ): Promise<string | null> {
+  ): Promise<VerifiedApprover | null> {
     const verdict = await deps.managerPins.verify({
       scope,
       managerRef: input.approver_ref,
@@ -412,7 +449,7 @@ export function createManagerApprovalService(
     });
     if (verdict.kind !== 'verified') return null;
     const allowed = approverAllowed(input.action_kind, session, verdict.userId, sellerUserId);
-    return allowed ? verdict.userId : null;
+    return allowed ? { userId: verdict.userId, role: verdict.role } : null;
   }
 
   /** Step 6: after the PIN's await, a different or locked session, or a moved subject. */
@@ -432,7 +469,7 @@ export function createManagerApprovalService(
     session: OperatorSessionRecord;
     scope: ManagerPinScope;
     before: ApprovalSubject;
-    approverUserId: string;
+    approver: VerifiedApprover;
   }): string {
     const { input, session, scope, before } = grant;
     const approvalId = newId().toLowerCase();
@@ -450,10 +487,11 @@ export function createManagerApprovalService(
       input.reason_note ?? null,
       before.requesterOperatorId ?? session.operator_id,
       recordedRequesterUserId(input.action_kind, session),
-      grant.approverUserId,
+      grant.approver.userId,
       APPROVAL_POLICY_VERSION,
       issuedAt,
       new Date(Date.parse(issuedAt) + ttlMs).toISOString(),
+      grant.approver.role ?? null,
     );
     return approvalId;
   }
