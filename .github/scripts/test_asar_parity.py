@@ -221,5 +221,21 @@ class CliTests(Tmp):
         self.assertIn("asar_parity", err)
 
 
+class WorkflowPinTests(unittest.TestCase):
+    """The workflow's repo guard must match what tools/history/frozen.tsv really stores."""
+
+    ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+
+    def test_repo_guard_matches_frozen_tsv_pos_row(self):
+        with open(os.path.join(self.ROOT, "tools", "history", "frozen.tsv"), newline="") as fh:
+            rows = [line.rstrip("\r\n").split("\t") for line in fh if line.strip()]
+        pos = [r for r in rows if r[0] == "pos"]
+        self.assertEqual(len(pos), 1)
+        with open(os.path.join(self.ROOT, ".github", "workflows", "pos-asar-parity.yml")) as fh:
+            workflow = fh.read()
+        self.assertIn('[ "$repo" != "%s" ]' % pos[0][2], workflow)
+        self.assertIn("https://github.com/Kemetra/%s.git" % pos[0][2], workflow)
+
+
 if __name__ == "__main__":
     unittest.main()

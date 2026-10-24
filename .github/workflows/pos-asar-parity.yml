@@ -47,8 +47,8 @@ jobs:
           row="$(awk -F'\t' '$1 == "pos" { gsub(/\r/, ""); print $3 " " $4 }' tools/history/frozen.tsv)"
           repo="${row%% *}"
           sha="${row##* }"
-          if [ "$repo" != "Kemetra/POS" ]; then
-            echo "frozen.tsv pos source repo is '$repo', expected Kemetra/POS" >&2
+          if [ "$repo" != "POS" ]; then
+            echo "frozen.tsv pos source repo is '$repo', expected POS (Kemetra/POS)" >&2
             exit 1
           fi
           if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
