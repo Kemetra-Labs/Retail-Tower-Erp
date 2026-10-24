@@ -4,7 +4,8 @@
 # Builds the POS Windows `--dir` package twice on windows-latest with the same steps as
 # `pos/package-windows` (npm ci, electron-rebuild argon2, build, package:dir): once from this
 # repo's apps/pos and once from the public source repo Kemetra/POS at the SHA that
-# tools/history/frozen.tsv pins, then compares the two `resources/app.asar` file lists with
+# tools/history/frozen.tsv pins (after checking the two trees are equal apart from the pinned RT-710
+# license files), then compares the two `resources/app.asar` file lists with
 # .github/scripts/asar_parity.py. Then checks, on both packages, that every `.node` the archive ships
 # is unpacked and exports either the N-API symbol or `node_register_module_v<N>` with N equal to the
 # NODE_MODULE_VERSION of the shipped Electron (.github/scripts/native_abi.py). Verification only: nothing is published, signed, deployed or
@@ -15,8 +16,8 @@
 # source repo is public, so the checkout needs no credential.
 #
 # Fails closed: a source SHA that is not 40 hex or a repo other than Kemetra/POS, a source tree
-# that differs from apps/pos (the two builds would not compare like with like), an unreadable or
-# empty archive, any file-list difference, a `.node` built for another ABI or with no addon symbol
+# that differs from apps/pos outside the pinned license-file exceptions (the two builds would not
+# compare like with like), an unreadable or empty archive, any file-list difference, a `.node` built for another ABI or with no addon symbol
 # (outside the one allowlisted SQLite extension) and differing ABI reports are all failures.
 name: pos-asar-parity
 
@@ -73,17 +74,34 @@ jobs:
           git -C "$src" checkout -q --detach FETCH_HEAD
           test "$(git -C "$src" rev-parse HEAD)" = "${{ steps.src.outputs.sha }}"
 
-      # Both sides must be the same code, or a file-list difference would not be a build difference.
-      - name: Source tree equals apps/pos
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Unit tests for the parity scripts
         run: |
-          shadow="$(git rev-parse HEAD:apps/pos)"
-          source="$(git -C "$RUNNER_TEMP/src-pos" rev-parse 'HEAD^{tree}')"
-          echo "apps/pos tree: $shadow"
-          echo "source tree:   $source"
-          if [ "$shadow" != "$source" ]; then
-            echo "apps/pos differs from Kemetra/POS@${{ steps.src.outputs.sha }}; refusing to compare" >&2
-            exit 1
-          fi
+          python -m unittest discover -s .github/scripts -p 'test_asar_parity.py' -v
+          python -m unittest discover -s .github/scripts -p 'test_native_abi.py' -v
+          python -m unittest discover -s .github/scripts -p 'test_tree_parity.py' -v
+
+      # Both sides must be the same code, or a file-list difference would not be a build difference.
+      # The only exceptions are RT-710's license files, pinned path by path (.github/scripts/tree_parity.py):
+      # three Shadow-only files and Shadow's extended NOTICE, pinned to the source blob it extends. None
+      # of them is packed into app.asar: electron-builder `files` takes dist, package.json, node_modules
+      # and migrations, and NOTICE ships next to the exe as NOTICE.txt (extraFiles).
+      - name: Source tree equals apps/pos (pinned RT-710 license files excepted)
+        run: |
+          out="$RUNNER_TEMP/asar-parity"
+          mkdir -p "$out"
+          git -C "$RUNNER_TEMP/src-pos" ls-tree -r -z HEAD > "$out/source.tree"
+          git ls-tree -r -z HEAD:apps/pos > "$out/shadow.tree"
+          python .github/scripts/tree_parity.py compare "$out/source.tree" "$out/shadow.tree" \
+            --shadow-only .claude/skills/impeccable/LICENSE \
+            --shadow-only .claude/skills/impeccable/NOTICE.md \
+            --shadow-only .specify/LICENSE-spec-kit.txt \
+            --shadow-modified NOTICE=83cb4d398003b07cdeea5acefbe04962f962aa55 \
+            || { echo "apps/pos is not Kemetra/POS@${{ steps.src.outputs.sha }} plus the pinned exceptions (see above); refusing to compare" >&2; exit 1; }
 
       - name: Setup Node 24
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -91,16 +109,6 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: apps/pos/package-lock.json
-
-      - name: Setup Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-
-      - name: Unit tests for the asar comparison
-        run: |
-          python -m unittest discover -s .github/scripts -p 'test_asar_parity.py' -v
-          python -m unittest discover -s .github/scripts -p 'test_native_abi.py' -v
 
       - name: Build and package (Shadow apps/pos)
         working-directory: apps/pos
@@ -139,7 +147,8 @@ jobs:
 
       # Electron 44 fetches node_modules/electron/dist lazily (same step as pos/package-windows). The
       # stock binary is the packaged runtime: RT-830's drift check in pos/package-windows proves it on
-      # this tree, and the source tree is identical (checked above), so one ABI read serves both sides.
+      # this tree, and the source tree is identical apart from license files (checked above), so one ABI
+      # read serves both sides.
       - name: Read the shipped Electron ABI
         id: electron
         working-directory: apps/pos
