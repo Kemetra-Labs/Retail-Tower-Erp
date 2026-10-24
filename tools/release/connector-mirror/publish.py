@@ -121,11 +121,12 @@ def resolve_anchor(work, src, head, mirror_head, repo_slug, base, subdir):
 
 
 def plan_publish(work, src, head, mirror_head, anchor, repo_slug, subdir, tag_prefix, mirror_tags):
+    sha_map = {**mirror_map(work, mirror_head), anchor: mirror_head}
     if anchor == head or is_ancestor(src, head, anchor):
-        return Plan((), (), mirror_head)  # source is at or behind the mirror: monotonic no-op
+        # source is at or behind the mirror: no commits, but a tag added since still has to be mirrored
+        return Plan((), plan_tags(work, src, head, sha_map, subdir, tag_prefix, mirror_tags), mirror_head)
     if not is_ancestor(src, anchor, head, first_parent=True):
         raise Refusal(f"mirror provenance {anchor[:12]} is not on the first-parent history of the source head")
-    sha_map = {**mirror_map(work, mirror_head), anchor: mirror_head}
     prev_tree, tip, made = subtree(work, anchor, subdir), mirror_head, []
     for sha in git("rev-list", "--first-parent", "--reverse", f"{anchor}..{head}", git_dir=src).split():
         tree = subtree(work, sha, subdir)

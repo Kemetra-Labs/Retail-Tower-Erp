@@ -206,3 +206,18 @@ def test_verify_detects_tampered_tree(world):
                             env=ENV, input=msg, capture_output=True, text=True, check=True).stdout.strip()
     g(mirror, "update-ref", "refs/heads/main", forged)
     assert publish.main(["--mirror", str(mirror), "--source-repo", REPO, "--source-dir", str(src), "--verify"]) == 2
+
+
+def test_tag_added_after_commit_is_published_on_a_later_noop_run(world):
+    src, mirror, base, _ = world
+    c1 = commit(src, {f"{SUB}/pyproject.toml": "v1"}, "one")
+    run(src, mirror, base)  # commit published, no tag yet
+    g(src, "tag", f"{publish.TAG_PREFIX}v1.0.0", c1)
+    plan = run(src, mirror, base)  # source head == last published commit
+    assert not plan.commits and [t for t, _ in plan.tags] == ["v1.0.0"]
+    assert g(mirror, "rev-parse", "v1.0.0") == g(mirror, "rev-parse", "main")
+    c2 = commit(src, {f"{SUB}/pyproject.toml": "v2"}, "two")
+    run(src, mirror, base)
+    g(src, "tag", "-f", f"{publish.TAG_PREFIX}v1.0.0", c2)  # a moved source tag is still caught on a no-op run
+    with pytest.raises(publish.Refusal, match="immutable"):
+        run(src, mirror, base)
