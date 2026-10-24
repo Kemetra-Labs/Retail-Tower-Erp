@@ -165,6 +165,21 @@ class CompareTests(Tmp):
         self.assertEqual(len(problems), 1)
         self.assertIn("content differs: package.json", problems[0])
 
+    def test_empty_directory_difference_is_reported(self):
+        a = dict(BASE_TREE, **{"emptydir": {}})
+        problems = self.compare(a, BASE_TREE)
+        self.assertEqual(problems, ["only in A: emptydir"])
+
+    def test_require_reports_a_path_missing_on_either_side(self):
+        a = ap.entries(self.asar("a.asar", BASE_TREE))
+        b = ap.entries(self.asar("b.asar", {"dist": BASE_TREE["dist"]}))
+        problems = ap.compare(a, b, require=["package.json", "dist/preload.js"])
+        self.assertIn("required path missing in B: package.json", problems)
+        self.assertFalse([p for p in problems if "dist/preload.js" in p and "required" in p])
+
+    def test_require_passes_when_present_on_both_sides(self):
+        self.assertEqual(self.compare(BASE_TREE, BASE_TREE, require=["package.json"]), [])
+
     def test_both_empty_is_a_problem(self):
         self.assertEqual(self.compare({}, {}), ["both archives are empty: nothing was compared"])
 
@@ -193,6 +208,12 @@ class CliTests(Tmp):
         rc, out, err = self.run_cli("compare", a, b)
         self.assertEqual(rc, 1)
         self.assertIn("extra.js", out + err)
+
+    def test_require_flag_fails_when_path_absent(self):
+        a, b = self.asar("a.asar", {"x.js": b"1"}), self.asar("b.asar", {"x.js": b"1"})
+        rc, out, _ = self.run_cli("compare", a, b, "--require", "package.json")
+        self.assertEqual(rc, 1)
+        self.assertIn("required path missing in A: package.json", out)
 
     def test_unreadable_input_exits_two(self):
         rc, _, err = self.run_cli("compare", os.path.join(self.dir, "x"), os.path.join(self.dir, "y"))

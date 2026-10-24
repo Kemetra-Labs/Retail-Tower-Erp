@@ -58,19 +58,22 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "POS source: $repo@$sha" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Checkout POS source at the pinned SHA
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          repository: Kemetra/POS
-          ref: ${{ steps.src.outputs.sha }}
-          path: src-pos
-          persist-credentials: false
+      # Outside the Shadow workspace on purpose: a checkout under the workspace would inherit any
+      # file the Shadow root adds later (.npmrc, tsconfig, package.json) and mask it in both builds.
+      # Kemetra/POS is public, so an anonymous fetch of the one pinned commit needs no credential.
+      - name: Fetch POS source at the pinned SHA
+        run: |
+          src="$RUNNER_TEMP/src-pos"
+          git init -q "$src"
+          git -C "$src" fetch -q --depth 1 https://github.com/Kemetra/POS.git "${{ steps.src.outputs.sha }}"
+          git -C "$src" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$src" rev-parse HEAD)" = "${{ steps.src.outputs.sha }}"
 
       # Both sides must be the same code, or a file-list difference would not be a build difference.
       - name: Source tree equals apps/pos
         run: |
           shadow="$(git rev-parse HEAD:apps/pos)"
-          source="$(git -C src-pos rev-parse 'HEAD^{tree}')"
+          source="$(git -C "$RUNNER_TEMP/src-pos" rev-parse 'HEAD^{tree}')"
           echo "apps/pos tree: $shadow"
           echo "source tree:   $source"
           if [ "$shadow" != "$source" ]; then
@@ -102,8 +105,8 @@ jobs:
           npm run package:dir
 
       - name: Build and package (POS source)
-        working-directory: src-pos
         run: |
+          cd "$RUNNER_TEMP/src-pos"
           npm ci
           npx electron-rebuild -f -w argon2
           npm run build
@@ -112,12 +115,12 @@ jobs:
       - name: Compare app.asar file lists
         run: |
           shadow_asar=apps/pos/dist-electron/win-unpacked/resources/app.asar
-          source_asar=src-pos/dist-electron/win-unpacked/resources/app.asar
+          source_asar="$RUNNER_TEMP/src-pos/dist-electron/win-unpacked/resources/app.asar"
           mkdir -p "$RUNNER_TEMP/asar-parity"
           python .github/scripts/asar_parity.py list "$source_asar" > "$RUNNER_TEMP/asar-parity/source.list"
           python .github/scripts/asar_parity.py list "$shadow_asar" > "$RUNNER_TEMP/asar-parity/shadow.list"
           set +e
-          python .github/scripts/asar_parity.py compare "$source_asar" "$shadow_asar" | tee "$RUNNER_TEMP/asar-parity/verdict.txt"
+          python .github/scripts/asar_parity.py compare --require package.json "$source_asar" "$shadow_asar" 2>&1 | tee "$RUNNER_TEMP/asar-parity/verdict.txt"
           rc="${PIPESTATUS[0]}"
           set -e
           {
@@ -133,15 +136,25 @@ jobs:
       - name: Compare app.asar content hashes (informational)
         continue-on-error: true
         run: |
+          set +e
           python .github/scripts/asar_parity.py compare --strict-content \
-            src-pos/dist-electron/win-unpacked/resources/app.asar \
-            apps/pos/dist-electron/win-unpacked/resources/app.asar | tee -a "$GITHUB_STEP_SUMMARY"
+            "$RUNNER_TEMP/src-pos/dist-electron/win-unpacked/resources/app.asar" \
+            apps/pos/dist-electron/win-unpacked/resources/app.asar 2>&1 | tee "$RUNNER_TEMP/asar-parity/content.txt"
+          rc="${PIPESTATUS[0]}"
+          set -e
+          {
+            echo "### asar content hashes (informational)"
+            echo '```'
+            cat "$RUNNER_TEMP/asar-parity/content.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
 
       - name: Upload file lists
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: pos-asar-parity-${{ github.sha }}
+          name: pos-asar-parity-${{ github.sha }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/asar-parity
           retention-days: 14
           if-no-files-found: ignore

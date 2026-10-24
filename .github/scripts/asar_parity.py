@@ -2,7 +2,8 @@
 """`app.asar` file-list parity for the POS Windows package (RT-711 scope item 2).
 
   asar_parity.py list ASAR                         one line per entry: path, kind, unpacked, size, sha256
-  asar_parity.py compare A B [--strict-content]    exit 0 identical, 1 differ, 2 unreadable input
+  asar_parity.py compare A B [--strict-content] [--require PATH]...
+                                                   exit 0 identical, 1 differ, 2 unreadable input
 
 Reads only the asar header (Chromium Pickle: u32 4, u32 pickle size, u32 payload size, u32 JSON
 length, JSON), never the file bodies. The verdict is the file list: the set of paths, whether each is
@@ -49,6 +50,8 @@ def _walk(node, prefix, out, path):
     files = node.get("files")
     if not isinstance(files, dict):
         raise AsarError(f"{path}: directory entry '{prefix or '.'}' has no 'files' object")
+    if not files and prefix:
+        out[prefix.rstrip("/")] = {"kind": "dir", "link": None, "unpacked": False, "size": None, "sha256": None}
     for name, child in files.items():
         if name in ("", ".", "..") or "/" in name or "\\" in name:
             raise AsarError(f"{path}: unsafe entry name {name!r} under '{prefix or '.'}'")
@@ -82,10 +85,15 @@ def manifest(path):
     ]
 
 
-def compare(a, b, strict_content=False):
+def compare(a, b, strict_content=False, require=()):
     if not a and not b:
         return ["both archives are empty: nothing was compared"]
-    problems = [f"only in A: {p}" for p in sorted(set(a) - set(b))]
+    problems = []
+    for rel in require:
+        for side, found in (("A", a), ("B", b)):
+            if rel not in found:
+                problems.append(f"required path missing in {side}: {rel}")
+    problems += [f"only in A: {p}" for p in sorted(set(a) - set(b))]
     problems += [f"only in B: {p}" for p in sorted(set(b) - set(a))]
     for rel in sorted(set(a) & set(b)):
         x, y = a[rel], b[rel]
@@ -109,6 +117,8 @@ def main(argv=None):
     p_cmp.add_argument("a")
     p_cmp.add_argument("b")
     p_cmp.add_argument("--strict-content", action="store_true")
+    p_cmp.add_argument("--require", action="append", default=[], metavar="PATH",
+                       help="entry that must exist in both archives (repeatable)")
     args = parser.parse_args(argv)
     try:
         if args.cmd == "list":
@@ -118,7 +128,7 @@ def main(argv=None):
     except AsarError as exc:
         print(f"asar_parity: {exc}", file=sys.stderr)
         return 2
-    problems = compare(a, b, args.strict_content)
+    problems = compare(a, b, args.strict_content, args.require)
     if problems:
         print(f"asar file lists differ ({len(problems)}):")
         for line in problems:
