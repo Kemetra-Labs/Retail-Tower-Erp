@@ -64,6 +64,8 @@ concurrency:
 jobs:
   evaluate:
     name: gate/evaluate
+    # workflow_run for a push has no PR to evaluate; only PR-originated runs gate.
+    if: ${{ github.event_name == 'pull_request_target' || github.event.workflow_run.event == 'pull_request' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
