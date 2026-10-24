@@ -6,7 +6,7 @@
 #   BASE_SHA         source commit whose subtree is FROZEN_MIRROR_BARE's main (publish.py --base)
 #   FROZEN_MIRROR_BARE  bare clone of the frozen live Connector repo; it is COPIED, never pushed to
 # Everything is local: containers frappe/erpnext:v$1 + mariadb + redis on a private network, removed at the end.
-# The mirror is mounted into the container and cloned by `bench get-app file:///...` (same path as a remote URL).
+# The mirror is mounted into the container, served by `git daemon` and cloned by `bench get-app git://...` (a real clone, like a remote URL).
 # Test-only credentials below belong to the disposable containers.
 set -uo pipefail
 V="$1"; BASE="$3"
@@ -36,6 +36,9 @@ docker run -d --name "$N-bench" --network "$N" -v "$W:/w" --entrypoint bash "fra
 sleep 20
 dx "bench --version; python --version; node --version; bench version | tr '\n' ' '"
 
+# bench treats a local path as a repo to link, not clone; a git:// URL goes through the real clone path
+dx "(nohup git daemon --reuseaddr --base-path=/w --export-all --listen=127.0.0.1 /w >/tmp/gd.log 2>&1 &) ; sleep 2; git ls-remote git://127.0.0.1/ERPNext-Connector.git main" || fail git-daemon
+
 step "scratch site with ERPNext"
 dx "bench set-config -g db_host $N-db && bench set-config -g redis_cache redis://$N-redis:6379 && \
     bench set-config -g redis_queue redis://$N-redis:6379 && bench set-config -g redis_socketio redis://$N-redis:6379 && \
@@ -43,7 +46,7 @@ dx "bench set-config -g db_host $N-db && bench set-config -g redis_cache redis:/
   || fail new-site
 
 step "1. pinned install: bench get-app --branch v0.1.0 + install-app + migrate"
-dx "bench get-app file:///w/ERPNext-Connector.git --branch v0.1.0 2>&1 | tail -6 && \
+dx "bench get-app git://127.0.0.1/ERPNext-Connector.git --branch v0.1.0 2>&1 | tail -6 && \
     bench --site rt712.local install-app $APP 2>&1 | tail -3 && bench --site rt712.local migrate 2>&1 | tail -3 && \
     bench --site rt712.local list-apps && git -C apps/$APP describe --tags --exact-match && git -C apps/$APP log -1 --format='HEAD %h %s' && ls apps/$APP | head -20" \
   || fail pinned-install
@@ -55,16 +58,13 @@ dx "bench --site rt712.local uninstall-app $APP --yes --no-backup 2>&1 | tail -2
   || fail reinstall
 
 step "3. branch install at v0.1.0 tip, then publish v0.2.0 and bench update (fast-forward)"
-dx "bench get-app file:///w/ERPNext-Connector.git --branch main 2>&1 | tail -3 && bench --site rt712.local install-app $APP 2>&1 | tail -2 && \
-    git -C apps/$APP rev-parse HEAD > /tmp/head_before && cat /tmp/head_before" || fail branch-install
+dx "bench get-app git://127.0.0.1/ERPNext-Connector.git --branch main 2>&1 | tail -3 && bench --site rt712.local install-app $APP 2>&1 | tail -2 && \
+    git -C apps/$APP rev-parse HEAD > /tmp/head_before && cat /tmp/head_before &&     git -C apps/$APP remote -v && git -C apps/$APP status -sb | head -2" || fail branch-install
 "${PUB[@]}" --base "$BASE" || fail publish-v2
-dx "git -C apps/$APP fetch -q origin && git -C apps/$APP rev-list --count HEAD..origin/main; \
-    bench update --pull --apps $APP --no-backup 2>&1 | tail -8; \
-    git -C apps/$APP rev-parse HEAD > /tmp/head_after && cat /tmp/head_after && \
-    git -C apps/$APP merge-base --is-ancestor \$(cat /tmp/head_before) \$(cat /tmp/head_after) && echo 'ANCESTOR: old HEAD is an ancestor of new HEAD (fast-forward, no reset)' && \
-    git -C apps/$APP reflog -4 && git -C apps/$APP describe --tags --exact-match && \
-    bench --site rt712.local migrate 2>&1 | tail -3 && bench --site rt712.local list-apps | grep $APP" \
-  || fail bench-update
+# `bench update` runs `git pull` per app. The stock frappe/erpnext image ships frappe and erpnext WITHOUT .git, so the CLI
+# aborts on them (not on the connector). Try the CLI, record its output, then run the very same per-app step it performs.
+dx "git -C apps/$APP fetch -q upstream && echo behind=\$(git -C apps/$APP rev-list --count HEAD..upstream/main);     bench update --pull --apps $APP --no-backup 2>&1 | grep -vE '^\s*(\^|File|return|raise)' | tail -12;     echo \"HEAD after bench update CLI: \$(git -C apps/$APP rev-parse --short HEAD)\"" || true
+dx "[ \$(git -C apps/$APP rev-parse HEAD) != \$(git -C apps/$APP rev-parse upstream/main) ] && git -C apps/$APP pull --ff-only upstream main 2>&1 | tail -4;     git -C apps/$APP rev-parse HEAD > /tmp/head_after && cat /tmp/head_after &&     git -C apps/$APP merge-base --is-ancestor \$(cat /tmp/head_before) \$(cat /tmp/head_after) && echo 'ANCESTOR: old HEAD is an ancestor of new HEAD (fast-forward, no reset)' &&     [ \$(cat /tmp/head_before) != \$(cat /tmp/head_after) ] && echo 'HEAD MOVED' && git -C apps/$APP reflog -4 &&     git -C apps/$APP fetch -q --tags upstream && git -C apps/$APP describe --tags --exact-match &&     bench --site rt712.local migrate 2>&1 | tail -3 && bench --site rt712.local list-apps | grep $APP"   || fail bench-update
 
 step "4. tree equality of the checked-out app vs the monorepo subtree at the tagged source commit"
 SRC_TREE="$(git -C "$SRC" rev-parse "erpnext-connector/v0.2.0^{commit}:integrations/erpnext-connector")"

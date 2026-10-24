@@ -49,4 +49,4 @@ bash tools/release/connector-mirror/bench-proof.sh 15|16 <throwaway-source-clone
 ```
 
 `bench-proof.sh` needs Docker and runs `frappe/erpnext:v15` or `:v16` with mariadb and redis on a private
-network, cloning a local copy of the mirror through `bench get-app file:///...`. It never touches a real remote.
+network, cloning a local copy of the mirror through `bench get-app git://127.0.0.1/...` (bench links local paths instead of cloning). It never touches a real remote.
