@@ -104,6 +104,10 @@ class Compare(unittest.TestCase):
         problems = self.modified(SOURCE + ls((NOTICE, A)), SOURCE + ls((NOTICE, C, "120000")), {NOTICE: A})
         self.assertEqual(problems, [f"Shadow-modified path is not a regular file in Shadow: {NOTICE} (120000 blob)"])
 
+    def test_shadow_modified_mode_change_fails(self):
+        problems = self.modified(SOURCE + ls((NOTICE, A)), SOURCE + ls((NOTICE, C, "100755")), {NOTICE: A})
+        self.assertEqual(problems, [f"Shadow-modified path changed mode: {NOTICE} (source 100644, Shadow 100755)"])
+
     def test_path_in_both_lists_fails(self):
         problems = tp.compare(tp.parse(SOURCE + ls((NOTICE, A))), tp.parse(SOURCE + ls((NOTICE, C))),
                               [NOTICE], {NOTICE: A})
@@ -176,6 +180,13 @@ class Cli(unittest.TestCase):
             with self.subTest(bad=bad):
                 rc, _, _ = self.run_main(["compare", src, sh, "--shadow-modified", bad])
                 self.assertEqual(rc, 2)
+
+    def test_shadow_modified_flag_twice_exit_2(self):
+        src, sh = self.write("s", SOURCE), self.write("h", SOURCE)
+        rc, _, err = self.run_main(["compare", src, sh, "--shadow-modified", f"{NOTICE}={A}",
+                                    "--shadow-modified", f"{NOTICE}={B}"])
+        self.assertEqual(rc, 2)
+        self.assertIn("given twice", err)
 
     def test_missing_file_exit_2(self):
         rc, _, _ = self.run_main(["compare", os.path.join(self._td.name, "nope"), self.write("h", SOURCE)])

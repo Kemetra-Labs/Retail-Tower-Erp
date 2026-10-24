@@ -77,6 +77,8 @@ def _check_shadow_modified(source, shadow, path, pin):
     if shadow[path][:2] not in REGULAR:
         mode, kind, _ = shadow[path]
         return f"Shadow-modified path is not a regular file in Shadow: {path} ({mode} {kind})"
+    if shadow[path][0] != source[path][0]:
+        return f"Shadow-modified path changed mode: {path} (source {source[path][0]}, Shadow {shadow[path][0]})"
     if shadow[path] == source[path]:
         return f"Shadow-modified path equals source, drop the pin: {path}"
     return None
@@ -140,7 +142,11 @@ def main(argv=None):
                        help="exact path Shadow edited, pinned to the source object id (repeatable)")
     args = parser.parse_args(argv)
     try:
-        pins = dict(_pin(v) for v in args.shadow_modified)
+        pins = {}
+        for path, oid in map(_pin, args.shadow_modified):
+            if path in pins:
+                raise TreeError(f"--shadow-modified given twice for {path}")
+            pins[path] = oid
         source, shadow = _read(args.source_ls), _read(args.shadow_ls)
     except TreeError as exc:
         print(f"tree_parity: {exc}", file=sys.stderr)

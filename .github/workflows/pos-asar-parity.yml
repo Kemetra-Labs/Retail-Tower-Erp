@@ -101,7 +101,7 @@ jobs:
             --shadow-only .claude/skills/impeccable/NOTICE.md \
             --shadow-only .specify/LICENSE-spec-kit.txt \
             --shadow-modified NOTICE=83cb4d398003b07cdeea5acefbe04962f962aa55 \
-            || { echo "apps/pos differs from Kemetra/POS@${{ steps.src.outputs.sha }}; refusing to compare" >&2; exit 1; }
+            || { echo "apps/pos is not Kemetra/POS@${{ steps.src.outputs.sha }} plus the pinned exceptions (see above); refusing to compare" >&2; exit 1; }
 
       - name: Setup Node 24
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -148,7 +148,7 @@ jobs:
       # Electron 44 fetches node_modules/electron/dist lazily (same step as pos/package-windows). The
       # stock binary is the packaged runtime: RT-830's drift check in pos/package-windows proves it on
       # this tree, and the source tree is identical apart from license files (checked above), so one ABI
-# read serves both sides.
+      # read serves both sides.
       - name: Read the shipped Electron ABI
         id: electron
         working-directory: apps/pos
