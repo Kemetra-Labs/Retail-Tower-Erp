@@ -48,7 +48,7 @@ A policy change passes only with an **APPROVED** pull request review on the exac
 
 The fingerprint covers the base SHA, both graph hashes and every changed path/mode/blob. Any new head commit, base move or content change invalidates the approval. Labels never approve; they only re-trigger the gate.
 
-`policy_approvers` is **empty** on purpose. Agents still act under the owner's personal login, so no login can yet be trusted as human-only. Every policy change is denied until the owner names a login after agents move to `kemetra-agent` (Substep B).
+`policy_approvers` is `[Kemetra]` (RT-721 S1, owner decisions c13766/c13770). Accepted residual, Shadow only: agents still act under the same `Kemetra` token, so an approval by this login cannot be proven human. Full R1 separation (agents on `kemetra-agent`) is a cutover precondition before RT-715.
 
 ## Credential matrix (R5)
 
