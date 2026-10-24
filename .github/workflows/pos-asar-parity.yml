@@ -1,10 +1,13 @@
-# RT-711 scope item 2, `app.asar` file list: manual, read-only parity check of the POS Windows package.
+# RT-711 scope item 2, `app.asar` file list and per-`.node` Electron ABI: manual, read-only parity
+# check of the POS Windows package.
 #
 # Builds the POS Windows `--dir` package twice on windows-latest with the same steps as
 # `pos/package-windows` (npm ci, electron-rebuild argon2, build, package:dir): once from this
 # repo's apps/pos and once from the public source repo Kemetra/POS at the SHA that
 # tools/history/frozen.tsv pins, then compares the two `resources/app.asar` file lists with
-# .github/scripts/asar_parity.py. Verification only: nothing is published, signed, deployed or
+# .github/scripts/asar_parity.py. Then checks, on both packages, that every `.node` the archive ships
+# is unpacked and exports either the N-API symbol or `node_register_module_v<N>` with N equal to the
+# NODE_MODULE_VERSION of the shipped Electron (.github/scripts/native_abi.py). Verification only: nothing is published, signed, deployed or
 # written back, and the source repo is not modified.
 #
 # Not a graph job and not a gate input: `workflow_dispatch` only, so it never runs on a pull
@@ -13,7 +16,8 @@
 #
 # Fails closed: a source SHA that is not 40 hex or a repo other than Kemetra/POS, a source tree
 # that differs from apps/pos (the two builds would not compare like with like), an unreadable or
-# empty archive and any file-list difference are all failures.
+# empty archive, any file-list difference, a `.node` built for another ABI or with no addon symbol
+# (outside the one allowlisted SQLite extension) and differing ABI reports are all failures.
 name: pos-asar-parity
 
 on:
@@ -94,7 +98,9 @@ jobs:
           python-version: "3.12"
 
       - name: Unit tests for the asar comparison
-        run: python -m unittest discover -s .github/scripts -p 'test_asar_parity.py' -v
+        run: |
+          python -m unittest discover -s .github/scripts -p 'test_asar_parity.py' -v
+          python -m unittest discover -s .github/scripts -p 'test_native_abi.py' -v
 
       - name: Build and package (Shadow apps/pos)
         working-directory: apps/pos
@@ -130,6 +136,51 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$rc"
+
+      # Electron 44 fetches node_modules/electron/dist lazily (same step as pos/package-windows). The
+      # stock binary is the packaged runtime: RT-830's drift check in pos/package-windows proves it on
+      # this tree, and the source tree is identical (checked above), so one ABI read serves both sides.
+      - name: Read the shipped Electron ABI
+        id: electron
+        working-directory: apps/pos
+        run: |
+          node node_modules/electron/install.js
+          abi="$(ELECTRON_RUN_AS_NODE=1 node_modules/electron/dist/electron.exe -e 'process.stdout.write(String(process.versions.modules))')"
+          version="$(ELECTRON_RUN_AS_NODE=1 node_modules/electron/dist/electron.exe -e 'process.stdout.write(process.versions.electron)')"
+          if ! printf '%s' "$abi" | grep -Eq '^[1-9][0-9]*$'; then
+            echo "Electron NODE_MODULE_VERSION '$abi' is not a positive integer" >&2
+            exit 1
+          fi
+          echo "abi=$abi" >> "$GITHUB_OUTPUT"
+          echo "Electron $version, NODE_MODULE_VERSION $abi" >> "$GITHUB_STEP_SUMMARY"
+
+      # better-sqlite3 ships test_extension.node, a SQLite loadable extension (no Node addon symbol),
+      # unpacked next to the addon. It is the only allowed non-addon; any other one fails.
+      - name: Every .node targets the Electron ABI (both packages)
+        run: |
+          allow=node_modules/better-sqlite3/build/Release/test_extension.node
+          out="$RUNNER_TEMP/asar-parity"
+          set +e
+          check() {
+            python .github/scripts/native_abi.py check --abi "${{ steps.electron.outputs.abi }}" \
+              --pe-arch x64 --allow-non-addon "$allow" "$1/dist-electron/win-unpacked/resources/app.asar"
+          }
+          check "$RUNNER_TEMP/src-pos" > "$out/native-abi.source.txt"
+          src_rc=$?
+          check apps/pos > "$out/native-abi.shadow.txt"
+          shadow_rc=$?
+          diff -u "$out/native-abi.source.txt" "$out/native-abi.shadow.txt" > "$out/native-abi.diff"
+          diff_rc=$?
+          set -e
+          {
+            echo "### .node ABI (source rc=$src_rc, Shadow rc=$shadow_rc, report diff rc=$diff_rc)"
+            echo '```'
+            cat "$out/native-abi.shadow.txt"
+            cat "$out/native-abi.diff"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$out/native-abi.source.txt" "$out/native-abi.diff"
+          test "$src_rc" = 0 && test "$shadow_rc" = 0 && test "$diff_rc" = 0
 
       # Informational: embedded per-file SHA-256 and sizes. A difference here is evidence to explain
       # (RT-711: every diff is empty or explained); it does not fail the run.
