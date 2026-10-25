@@ -189,7 +189,7 @@ products:
       posting-sync:
         globs: [retail_tower_erpnext_connector/connector/posting/**, retail_tower_erpnext_connector/connector/bin_view/**, retail_tower_erpnext_connector/connector/doctype/posting_log/**, retail_tower_erpnext_connector/hooks.py, retail_tower_erpnext_connector/tests/posting/**, retail_tower_erpnext_connector/tests/test_scheduler_cadence.py]
         # bc/fast: semantic edge (MR-4), Backend-Core posting/outbox tests. connector/bench: the
-        # real-bench v15/v16 DB tests (RT-872).
+        # real-bench v16 DB tests (RT-872).
         jobs: [connector/unit-tests-and-lint, connector/bench, e2e/smoke, bc/fast]
       auth:
         globs: ["retail_tower_erpnext_connector/connector/posting/{credential_lifecycle,config}.py", "retail_tower_erpnext_connector/connector/doctype/{connector_settings,rt_store_customer_map_row}/**"]
