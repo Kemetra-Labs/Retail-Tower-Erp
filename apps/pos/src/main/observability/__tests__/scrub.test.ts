@@ -26,6 +26,17 @@ describe('sanitizeMessage — contract §3.2 patterns', () => {
     expect(sanitizeMessage(jwt)).toBe('[jwt]');
   });
 
+  it('masks every MariaDB Duplicate entry value in one message, not only the first', () => {
+    expect(
+      sanitizeMessage(
+        "Duplicate entry 'Jane Doe' for key 'name'; caused by: Duplicate entry 'Jim Roe' for key 'name'",
+      ),
+    ).toBe("Duplicate entry '...' for key 'name'; caused by: Duplicate entry '...' for key 'name'");
+    expect(sanitizeMessage("Duplicate entry 'a' for key 'k' Duplicate entry 'no-key-after")).toBe(
+      "Duplicate entry '...' for key 'k' Duplicate entry '...'",
+    );
+  });
+
   it('keeps an eyJ word with no dot (not a JWT)', () => {
     expect(sanitizeMessage('eyJustAWord here')).toBe('eyJustAWord here');
   });
