@@ -1,0 +1,53 @@
+id: X08
+spec: "NEW (RT-867, MR-4) - CI executes only selected jobs: every graph job outside always_jobs needs `plan` and is guarded on its own key, and so is every job it needs"
+cases:
+  - name: guarded-workflows-plan-normally
+    workflows: {}
+    changes: [{status: M, path: apps/pos/docs/a.md}]
+    expect_plan: {select: [pos], graph_validation: pass, reasons: [], e2e: false}
+  - name: graph-job-without-guard
+    workflows: {patch: [{op: delete, path: [.github/workflows/pos.yml, pos/static, if]}]}
+    changes: [{status: M, path: apps/pos/docs/a.md}]
+    expect_plan: {select: nothing, graph_validation: fail, reasons: [GRAPH_INVALID], details_contain: ["CI_JOB_UNGUARDED: pos/static"]}
+    checks: auto
+    expect_required: {conclusion: failure, reasons: [GRAPH_VALIDATION_FAILED]}
+  - name: graph-job-not-needing-plan
+    workflows: {patch: [{op: delete, path: [.github/workflows/backend-core.yml, bc/fast, needs]}]}
+    changes: [{status: M, path: apps/pos/docs/a.md}]
+    expect_plan: {select: nothing, graph_validation: fail, reasons: [GRAPH_INVALID], details_contain: ["CI_JOB_UNGUARDED: bc/fast"]}
+  - name: guard-on-another-key
+    workflows: {patch: [{op: set, path: [.github/workflows/admin-console.yml, admin/build-test, if], value: "contains(fromJSON(needs.plan.outputs.jobs), 'pos/static')"}]}
+    changes: [{status: M, path: apps/pos/docs/a.md}]
+    expect_plan: {select: nothing, graph_validation: fail, reasons: [GRAPH_INVALID], details_contain: ["CI_JOB_UNGUARDED: admin/build-test"]}
+  - name: guard-that-is-always-true
+    workflows: {patch: [{op: set, path: [.github/workflows/e2e.yml, e2e/smoke, if], value: "${{ always() || contains(fromJSON(needs.plan.outputs.jobs), 'e2e/smoke') }}"}]}
+    changes: [{status: M, path: apps/pos/docs/a.md}]
+    expect_plan: {select: nothing, graph_validation: fail, reasons: [GRAPH_INVALID], details_contain: ["CI_JOB_UNGUARDED: e2e/smoke"]}
+  - name: dependency-not-guarded-on-the-dependant
+    # pos/test needs a shard that runs only for its own key: selecting pos/test alone would skip it.
+    workflows: {patch: [{op: set, path: [.github/workflows/pos.yml, pos/test, needs], value: [plan, pos/test-shard-1]}]}
+    changes: [{status: M, path: apps/pos/docs/a.md}]
+    expect_plan: {select: nothing, graph_validation: fail, reasons: [GRAPH_INVALID], details_contain: ["CI_JOB_UNGUARDED: pos/test (via pos/test-shard-1)"]}
+  - name: dependency-guarded-on-the-dependant
+    workflows:
+      patch:
+        - {op: set, path: [.github/workflows/pos.yml, pos/test, needs], value: [plan, pos/test-shard-1]}
+        - {op: set, path: [.github/workflows/pos.yml, pos/test-shard-1, if], value: "contains(fromJSON(needs.plan.outputs.jobs), 'pos/test-shard-1') || contains(fromJSON(needs.plan.outputs.jobs), 'pos/test')"}
+    changes: [{status: M, path: apps/pos/docs/a.md}]
+    expect_plan: {select: [pos], graph_validation: pass, reasons: []}
+  - name: always-job-guarded
+    workflows: {patch: [{op: set, path: [.github/workflows/project-graph.yml, boundary-check, if], value: "contains(fromJSON(needs.plan.outputs.jobs), 'boundary-check')"}]}
+    changes: [{status: M, path: apps/pos/docs/a.md}]
+    expect_plan: {select: nothing, graph_validation: fail, reasons: [GRAPH_INVALID], details_contain: ["ALWAYS_JOB_GUARDED: boundary-check"]}
+  - name: plan-job-missing
+    workflows: {patch: [{op: delete, path: [.github/workflows/e2e.yml, plan]}]}
+    changes: [{status: M, path: apps/pos/docs/a.md}]
+    expect_plan: {select: nothing, graph_validation: fail, reasons: [GRAPH_INVALID], details_contain: ["CI_PLAN_MISSING: .github/workflows/e2e.yml"]}
+  - name: bc-sales-selects-pos-contract-jobs
+    workflows: {}
+    changes: [{status: M, path: services/backend-core/apps/api/src/catalog/sales/a.ts}]
+    expect_plan: {select: [backend-core, pos], graph_validation: pass, reasons: []}
+  - name: connector-posting-selects-bc-fast
+    workflows: {}
+    changes: [{status: M, path: integrations/erpnext-connector/retail_tower_erpnext_connector/connector/posting/a.py}]
+    expect_plan: {select: [erpnext-connector, backend-core], graph_validation: pass, reasons: []}

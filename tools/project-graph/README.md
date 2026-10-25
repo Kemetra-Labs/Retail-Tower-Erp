@@ -12,7 +12,7 @@ The design comes from [RT-709 §A](https://rahmaqanater.atlassian.net/wiki/space
 | --- | --- |
 | `graph.yaml` | Schema v1 graph. Single source for job selection, tiers and boundary edges. `policy` class |
 | `pgraph/globs.py` | Anchored glob dialect (A.1) |
-| `pgraph/graph.py` | Strict loader (size cap; no anchors, aliases or duplicate keys), static rules 1–6, classification |
+| `pgraph/graph.py` | Strict loader (size cap; no anchors, aliases or duplicate keys), static rules 1–6 plus the RT-867 plan guard, classification |
 | `pgraph/evaluate.py` | A.2 evaluator: metadata in, `plan.json` out. Never runs PR code |
 | `pgraph/aggregate.py` | A.5 `required` decision with R2 provenance and R1 SHA-bound approval |
 | `pgraph/github.py` | REST payloads → aggregator records (jobs `filter=all` joined to check-runs; review attestations) |
@@ -20,7 +20,7 @@ The design comes from [RT-709 §A](https://rahmaqanater.atlassian.net/wiki/space
 | `pgraph/gitio.py` | Git plumbing adapter (`diff --raw -z`, `ls-tree`, `cat-file --batch`); no checkout |
 | `pgraph/privileges.py` | R5 / T-A static check of root and staged workflows (`python -m pgraph privileges`) |
 | `boundary-todo.yaml` | Boundary ratchet (one entry, RT-715). Entries may only be removed; a stale entry fails `boundary` |
-| `fixtures/` | P01–P19 (RT-709 A.6) and X01–X07 (new, see below) with hand-written expectations |
+| `fixtures/` | P01–P19 (RT-709 A.6) and X01–X08 (new, see below) with hand-written expectations |
 | `tests/` | unittest suite, including the fixture runner and a real-tree acceptance check |
 | `../ci-gate/gate.yml.staged` | T-A gate template, kept outside `.github/workflows` |
 
@@ -34,6 +34,27 @@ python -m pgraph classify-tree --repo ../.. --rev HEAD
 python -m pgraph boundary --repo ../.. --rev HEAD
 python -m pgraph evaluate --repo ../.. --base <base> --head <head> --event pull_request --out plan.json
 ```
+
+## Selective execution (RT-867, MR-4)
+
+The graph decides which jobs **execute**, not only which results `required` counts. Each root product workflow (`pos`, `admin-console`, `backend-core`, `erpnext-connector`, `e2e`) starts with a `plan` job:
+
+1. It checks out history only and extracts `tools/project-graph` from the **trusted** commit with `git archive` (the PR base; the pushed commit on `push` to `main`). Head code is never run; the head tree is read as git data, as in the gate.
+2. It runs `python -m pgraph evaluate` with the PR's base and head SHAs and outputs `needed_jobs` as the JSON output `jobs`. A push to `main` is `FULL_RUN_EVENT` and selects everything. An invalid trusted graph selects nothing, so the plan job fails loudly instead.
+3. Every graph job outside `always_jobs` has `needs: plan` and `if: contains(fromJSON(needs.plan.outputs.jobs), '<key>')`. The jobs it needs are guarded on its key too: the POS shards also run for `pos/test`, and the Schemathesis shards run for `bc/schemathesis`.
+
+`boundary-check` and `dependency-review` are `always_jobs` and stay unguarded.
+
+**Plan-guard rule (static rule 5b).** `validate_graph(..., workflows=...)` checks the trusted root workflows. It fails the graph (`GRAPH_INVALID`, select all) on any of these:
+- `CI_JOB_UNGUARDED`: a graph job, or a job it needs transitively, does not need `plan` or lacks a guard on that key;
+- `CI_PLAN_MISSING`: the workflow has no unconditional `plan` job with a `jobs` output;
+- `ALWAYS_JOB_GUARDED`: an always-run job has a guard.
+
+Only the canonical guard shape is accepted (see `guard_keys`), so `always() || ...` is rejected. `tests/test_real_tree.py` asserts the rule on the committed tree, and fixture X08 covers the negatives.
+
+**Policy paths inside products.** Policy classes are checked before product ownership, and only a `policy_change` class may reach into a product root (rule 2), so a product path matched by `policy` never becomes `AMBIGUOUS_PATH`. The boundary check still treats such paths as product code (`Graph.product_of`). The graph globs themselves (`apps/*/.github/**`, `services/*/.github/**`, `integrations/*/.github/**`: root jobs execute scripts from there) land in a follow-up PR. The gate validates a proposed graph with the base validator, which predates this rule-2 relaxation and rejects them.
+
+**Semantic edges.** Backend-Core `sales`, `money` and `posting-sync` also select `pos/static` and `pos/test`. Connector `posting-sync` also selects `bc/fast`.
 
 ## Approval protocol (R1)
 
@@ -56,7 +77,7 @@ The fingerprint covers the base SHA, both graph hashes and every changed path/mo
 | --- | --- | --- | --- | --- |
 | `.github/workflows/project-graph-selftest.yml` | `pull_request`, `push` main | `contents: read` | none | none |
 | `tools/ci-gate/gate.yml.staged` (inactive) | `pull_request_target`, `workflow_run` | `contents/pull-requests/checks/actions: read` | `ci-gate` (main-only) | `CI_GATE_APP_PRIVATE_KEY`, used only in the last step; App token scoped to `checks: write` |
-| Product CI (future root workflows) | `pull_request` | read-only | none | none |
+| Product CI (`pos`, `admin-console`, `backend-core`, `erpnext-connector`, `e2e`, `project-graph`) | `pull_request`, `push` main | `contents: read` | none | none |
 | Per-product releases (RT-717) | protected `main` / tags only | product-specific identity | per-product environment | never reachable from PR code |
 
 `python -m pgraph privileges` enforces these rules for every workflow reachable from a PR:
@@ -66,7 +87,7 @@ The fingerprint covers the base SHA, both graph hashes and every changed path/mo
 
 GitHub repo-scoped `contents:write` tokens have **no path restriction**, so product isolation comes from protected branches, environments and per-product identities, never from paths. The Connector publisher App is installable only on the distribution mirror (RT-712), never on this repo.
 
-## X01–X07 (new in RT-721)
+## X01–X08 (new in RT-721 and RT-867)
 
 These were named but never defined in RT-710 comment 12882. They are **defined new here** from the RT-721 negatives, not restored:
 
@@ -79,10 +100,11 @@ These were named but never defined in RT-710 comment 12882. They are **defined n
 | X05 | Bot reviewer, unlisted login, label-only approval, empty approver list |
 | X06 | Path dialect: case, root anchoring, NFC, unmatched-in-product = `high`, BC docs SQL, push selects all |
 | X07 | Boundary: imports, `require`, dynamic `import()`, manifest `file:`, tsconfig `extends`, Python `sys.path` and relative imports, literal product paths, Dockerfile, ratchet. RT-873 adds: non-import JS/TS path literals (`path.resolve(__dirname, '../..')`, `new URL('../x', import.meta.url)`, `join(ROOT, '..', '..', ...)`, `${ROOT}/../..` templates), `*.config.*` files, JSON `extends`, `.vue`/`.svelte`, Python `Path(__file__).parents[n]` / `.parent` chains and climbing literals (`open('../../...')`), the MR-6 ERPNext/Frappe egress rule, and stale ratchet entries failing |
+| X08 | RT-867 plan guard: unguarded job, missing `needs: plan`, guard on another key, always-true guard, unguarded dependency, guarded always-job, missing plan job; semantic edges |
 
 ## Known gaps (named, not silently relaxed)
 
-1. **Static rule 5 holds on the real tree.** Root workflows define every graph job (the last one, `e2e/smoke`, landed with RT-851), and `tests/test_real_tree.py` asserts there are no static-rule errors, so a job cannot go missing again.
+1. **Static rule 5 and the plan guard hold on the real tree.** Root workflows define every graph job (the last one, `e2e/smoke`, landed with RT-851), and every non-always job is plan-guarded (RT-867). `tests/test_real_tree.py` asserts there are no static-rule errors, so a job cannot go missing or start running unselected again.
 2. **P15 deferred.** Merge Queue is off; `merge_group` is `UNKNOWN_EVENT`.
 3. **P17/P19 are logic-level only here.** The local tests show that forged and wrong-producer results are ignored and that workflow/aggregator edits are policy changes. The real proof is GitHub running the base-branch gate and enforcing the ruleset source pin: **RT-711**.
 4. **BC has no `low` tier.** The RT-582 rule (a low path quoted by code becomes high) needs a content scan that is not implemented. BC docs/specs/markdown are therefore `high` (over-selection).

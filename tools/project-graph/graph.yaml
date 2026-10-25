@@ -16,8 +16,10 @@ schema: retail-tower/project-graph@1
 trusted_check_producer: { app_id: 15368, app_slug: github-actions }
 
 # Every job the gate can require, and the root workflow that must define it
-# (static rule 5). None of these root workflows exists yet: product CI still
-# lives under each product's own .github/ (inactive in the monorepo).
+# (static rule 5). RT-867 (MR-4): the same selection also decides execution. Each
+# root workflow starts with a `plan` job (base-branch evaluator) and every job here
+# except `always_jobs` needs it and runs only if its key is selected; the jobs it
+# needs are guarded on its key too. The plan-guard rule enforces this.
 jobs:
   pos/static: .github/workflows/pos.yml
   pos/test-shard-1: .github/workflows/pos.yml
@@ -134,10 +136,11 @@ products:
         jobs: ["@bc-full", pos/static, pos/test, admin/build-test, connector/unit-tests-and-lint]
       money:
         globs: [apps/api/src/settlement/**, packages/db/src/schema/settlement/**, packages/db/src/schema/sales/sale-tenders.ts, packages/db/src/schema/catalog/price-history.ts]
-        jobs: ["@bc-full", e2e/smoke]
+        # pos/static + pos/test: semantic edge (MR-4), wire behaviour POS depends on.
+        jobs: ["@bc-full", e2e/smoke, pos/static, pos/test]
       sales:
         globs: [apps/api/src/catalog/sales/**, "apps/api/src/{pos-shifts,shift-closes}/**", apps/worker/src/sales/**, packages/db/src/schema/sales/**, "packages/db/src/schema/shift*.ts"]
-        jobs: ["@bc-full", e2e/smoke]
+        jobs: ["@bc-full", e2e/smoke, pos/static, pos/test]
       stock:
         globs: [apps/api/src/inventory/**, apps/worker/src/inventory/**, packages/db/src/schema/inventory/**, "apps/api/src/catalog/erpnext-{warehouse-map,bin-view}/**", packages/db/src/helpers/stock-reconciliation-run.ts]
         jobs: ["@bc-full", e2e/smoke]
@@ -149,7 +152,7 @@ products:
         jobs: ["@bc-full"]
       posting-sync:
         globs: [packages/shared/src/outbox/**, packages/db/src/outbox/**, "packages/db/src/schema/{outbox_events,connector*}.ts", "packages/db/src/schema/catalog/erpnext-*.ts", packages/db/src/helpers/posting-feed-lock.ts, "apps/api/src/{outbox,connector,connector-health}/**", "apps/api/src/catalog/{erpnext-*,read-down,sale-sync-ops}/**", "apps/worker/src/{outbox,erpnext-posting,erpnext-reconciliation,erpnext-product-reconciliation}/**"]
-        jobs: ["@bc-full", connector/unit-tests-and-lint, e2e/smoke]
+        jobs: ["@bc-full", connector/unit-tests-and-lint, e2e/smoke, pos/static, pos/test]
       deploy-security:
         globs: ["Dockerfile*", .dockerignore, Caddyfile, "docker-compose.*.yml", deploy/**]
         jobs: ["@bc-full"]
@@ -181,7 +184,8 @@ products:
         jobs: [connector/unit-tests-and-lint]
       posting-sync:
         globs: [retail_tower_erpnext_connector/connector/posting/**, retail_tower_erpnext_connector/connector/bin_view/**, retail_tower_erpnext_connector/connector/doctype/posting_log/**, retail_tower_erpnext_connector/hooks.py, retail_tower_erpnext_connector/tests/posting/**, retail_tower_erpnext_connector/tests/test_scheduler_cadence.py]
-        jobs: [connector/unit-tests-and-lint, e2e/smoke]
+        # bc/fast: semantic edge (MR-4), Backend-Core posting/outbox tests.
+        jobs: [connector/unit-tests-and-lint, e2e/smoke, bc/fast]
       auth:
         globs: ["retail_tower_erpnext_connector/connector/posting/{credential_lifecycle,config}.py", "retail_tower_erpnext_connector/connector/doctype/{connector_settings,rt_store_customer_map_row}/**"]
         jobs: [connector/unit-tests-and-lint]

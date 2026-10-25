@@ -98,8 +98,7 @@ class _Scanner:
         for name, root in self.graph.roots.items():
             if target + "/" == root:        # the product root directory itself
                 return name
-        c = self.graph.classify(target)
-        return c.owner if c.kind == "product" else "outside"
+        return self.graph.product_of(target) or "outside"
 
     def _allowed(self, product, target):
         return any(src == product and any(g.match(target) for g in via) for src, via in self.edges)
@@ -118,10 +117,9 @@ class _Scanner:
         self._report(rule, src, product, target, self._target_product(target), line)
 
     def scan_file(self, path, text):
-        c = self.graph.classify(path)
-        if c.kind != "product":
+        product = self.graph.product_of(path)
+        if product is None:
             return
-        product = c.owner
         root = self.graph.roots[product]
         rel = path[len(root):]
         name = posixpath.basename(path)
@@ -244,7 +242,7 @@ def scan(graph, files, ratchet, unscanned=()):
     for path in sorted(files):
         scanner.scan_file(path, files[path])
     for path in sorted(unscanned):
-        if graph.classify(path).kind == "product":
+        if graph.product_of(path):
             scanner.violations.append({"rule": "unscanned-file", "from": path, "to": path,
                                        "to_product": "unscanned", "line": 0})
     keys = {(r["rule"], r["from"], r["to"]) for r in ratchet}

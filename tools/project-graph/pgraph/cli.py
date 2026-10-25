@@ -46,11 +46,12 @@ def cmd_evaluate(args):
         diff_error = False
     except gitio.DiffUnavailable:
         changes, base_tree, head_tree, diff_error = (), None, None, True
+    workflows = None if diff_error else gitio.workflow_definitions(args.repo, args.base)
     inp = ev.EvalInput(
         event=args.event, base_sha=args.base_sha or args.base, head_sha=args.head_sha or args.head,
         changes=changes, trusted_text=trusted or "", proposed_text=proposed, diff_error=diff_error,
-        workflow_jobs=None if diff_error else gitio.workflow_jobs(args.repo, args.base),
-        base_tree=base_tree, head_tree=head_tree,
+        workflow_jobs=None if diff_error else gitio.workflow_jobs(args.repo, args.base, workflows),
+        workflows=workflows, base_tree=base_tree, head_tree=head_tree,
     )
     plan = ev.evaluate(inp)
     pathlib.Path(args.out).write_text(json.dumps(plan, indent=2, sort_keys=True, ensure_ascii=True),
