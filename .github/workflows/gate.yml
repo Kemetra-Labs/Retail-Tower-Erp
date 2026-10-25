@@ -43,7 +43,7 @@ on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
   workflow_run:
-    workflows: [pos, admin-console, backend-core, erpnext-connector, e2e, project-graph]
+    workflows: [pos, admin-console, backend-core, erpnext-connector, contracts, e2e, project-graph]
     types: [completed]
 
 permissions:

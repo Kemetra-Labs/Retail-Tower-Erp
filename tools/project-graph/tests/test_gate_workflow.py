@@ -17,7 +17,10 @@ import unittest
 
 import yaml
 
-GATE = pathlib.Path(__file__).resolve().parents[3] / ".github" / "workflows" / "gate.yml"
+import support
+
+REPO = pathlib.Path(__file__).resolve().parents[3]
+GATE = REPO / ".github" / "workflows" / "gate.yml"
 
 
 def _post_condition():
@@ -37,6 +40,28 @@ class GatePostCancellationTests(unittest.TestCase):
     def test_post_still_runs_after_an_evaluate_crash(self):
         # !cancelled() is true when evaluate merely fails, so a crash still posts a failing `required`.
         self.assertTrue(re.search(r"needs\.evaluate\.outputs\.head_sha\s*!=\s*''", _post_condition()))
+
+
+def _gate_triggers():
+    workflow = yaml.safe_load(GATE.read_text(encoding="utf-8"))
+    on = workflow.get("on", workflow.get(True))  # PyYAML reads a bare `on:` key as True
+    return set(on["workflow_run"]["workflows"])
+
+
+class GateWorkflowRunTriggerTests(unittest.TestCase):
+    """The gate re-evaluates only when a listed workflow completes. A workflow that defines a
+    graph job but is missing from the list can finish last and leave `required` at JOB_PENDING
+    (RT-868: `contracts` was added without being listed)."""
+
+    def test_every_graph_job_workflow_triggers_the_gate(self):
+        jobs = support.load_graph(support.trusted_text())["jobs"]
+        names = {}
+        for key, path in jobs.items():
+            name = yaml.safe_load((REPO / path).read_text(encoding="utf-8"))["name"]
+            names.setdefault(name, []).append(key)
+        missing = {name: keys for name, keys in names.items() if name not in _gate_triggers()}
+        self.assertEqual(missing, {}, "workflows defining graph jobs are missing from "
+                                      "gate.yml on.workflow_run.workflows")
 
 
 if __name__ == "__main__":
