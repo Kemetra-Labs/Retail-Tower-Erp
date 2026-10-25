@@ -72,8 +72,8 @@ def list_tree(repo, rev):
     return {p for p in proc.stdout.decode("utf-8", "surrogateescape").split("\0") if p}
 
 
-def workflow_jobs(repo, rev):
-    """Map job display name -> root workflow path, from the TRUSTED rev only."""
+def workflow_definitions(repo, rev):
+    """Map root workflow path -> its raw `jobs:` mapping, from the TRUSTED rev only."""
     out = {}
     for path in sorted(list_tree(repo, rev)):
         if posixpath.dirname(path) + "/" != WORKFLOW_DIR or not path.endswith((".yml", ".yaml")):
@@ -83,7 +83,15 @@ def workflow_jobs(repo, rev):
         except yaml.YAMLError:
             continue
         jobs = data.get("jobs") if isinstance(data, dict) else None
-        for key, job in (jobs or {}).items():
+        out[path] = jobs if isinstance(jobs, dict) else {}
+    return out
+
+
+def workflow_jobs(repo, rev, definitions=None):
+    """Map job display name -> root workflow path, from the TRUSTED rev only."""
+    out = {}
+    for path, jobs in (workflow_definitions(repo, rev) if definitions is None else definitions).items():
+        for key, job in jobs.items():
             name = job.get("name", key) if isinstance(job, dict) else key
             if isinstance(name, str) and "${{" not in name:
                 out[name] = path

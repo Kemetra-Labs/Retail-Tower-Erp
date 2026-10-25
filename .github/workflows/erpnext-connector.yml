@@ -3,8 +3,9 @@
 # integrations/erpnext-connector/. The job `name:` is the graph.yaml job key
 # (static rule 5), so it is a literal with no expression. The workflow `name:` must stay
 # `erpnext-connector` (matched by the staged gate). PR-reachable: read-only token, no
-# credentials, no environment. Deliberately no `paths:` filter and no job `if:`: the
-# project graph is the only selector, and a selected job that is skipped fails the gate.
+# credentials, no environment. Deliberately no `paths:` filter: the project graph is the
+# only selector. RT-867: the `plan` job runs the base-branch evaluator and the job runs only
+# if the graph selects it; a selected job that is skipped fails the gate.
 # The product's informational coverage upload is not carried over (it needs a repo
 # credential, which PR-reachable workflows must not use). coverage.xml is still produced.
 name: erpnext-connector
@@ -25,8 +26,95 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # RT-867 (MR-4): the project graph decides which jobs of this workflow EXECUTE, with the same
+  # selection the `required` gate enforces. The evaluator and graph.yaml come from the trusted
+  # commit (the PR base; the pushed main commit on push), extracted with `git archive` and never
+  # from the PR head, whose tree is read as git data only. On push to main the evaluator selects
+  # everything (FULL_RUN_EVENT). `jobs` is the JSON list of selected graph job keys. If this job
+  # fails, every guarded job is skipped and the gate fails (UNEXPECTED_SKIP / ABSENT_JOB).
+  plan:
+    name: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: .
+    outputs:
+      jobs: ${{ steps.plan.outputs.jobs }}
+    steps:
+      # Full history: the evaluator diffs the base and head commits with git plumbing. Only
+      # tools/project-graph is materialised; nothing from the checked-out tree is executed.
+      - name: Checkout (history only)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          sparse-checkout: tools/project-graph
+
+      - name: Resolve trusted, base and head commits
+        id: refs
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          case "$EVENT" in
+            pull_request) base="$PR_BASE"; head="$PR_HEAD" ;;
+            push) base="$SHA"; head="$SHA" ;;   # main itself is trusted; push selects all
+            *) echo "::error::unsupported event '$EVENT'"; exit 1 ;;
+          esac
+          [[ "$base" =~ ^[0-9a-f]{40}$ && "$head" =~ ^[0-9a-f]{40}$ ]]
+          git cat-file -e "$base^{commit}"
+          { echo "base=$base"; echo "head=$head"; } >> "$GITHUB_OUTPUT"
+
+      - name: Extract the trusted evaluator (git archive of the base commit)
+        env:
+          BASE_SHA: ${{ steps.refs.outputs.base }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pgraph-base"
+          git archive "$BASE_SHA" tools/project-graph | tar -x -C "$RUNNER_TEMP/pgraph-base"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned dependencies (from the base commit)
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: --no-deps \
+            -r "$RUNNER_TEMP/pgraph-base/tools/project-graph/requirements.txt"
+
+      - name: Evaluate the project graph
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ steps.refs.outputs.base }}
+          HEAD_SHA: ${{ steps.refs.outputs.head }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/pgraph-base/tools/project-graph"
+          python -m pgraph evaluate --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA" --head "$HEAD_SHA" \
+            --event "$EVENT" --out "$RUNNER_TEMP/plan.json"
+          plan="$RUNNER_TEMP/plan.json"
+          # An invalid trusted graph selects nothing; fail loudly instead of running nothing quietly.
+          if [ "$(jq '.products | length' "$plan")" = "0" ]; then
+            echo "::error::trusted graph invalid: $(jq -c .graph_validation "$plan")"; exit 1
+          fi
+          jobs="$(jq -c '.needed_jobs | if all(test("^[a-z0-9/-]+$")) then . else error("bad job key") end' "$plan")"
+          echo "jobs=$jobs" >> "$GITHUB_OUTPUT"
+          {
+            echo "### project graph plan"
+            echo "graph validation: \`$(jq -r .graph_validation.status "$plan")\` $(jq -c .graph_validation.reasons "$plan"), select_all: \`$(jq -r .select_all "$plan")\`"
+            echo
+            echo "selected: \`$jobs\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   connector-unit-tests-and-lint:
     name: connector/unit-tests-and-lint
+    needs: plan
+    if: contains(fromJSON(needs.plan.outputs.jobs), 'connector/unit-tests-and-lint')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:

@@ -2,7 +2,8 @@
 
 Every tracked path must classify, and the layer-1 boundary must be clean.
 Static rule 5 (every graph job is defined by a root workflow) holds since the last
-job, e2e/smoke (RT-851), landed; it is asserted here so a job cannot go missing again."""
+job, e2e/smoke (RT-851), landed; it is asserted here so a job cannot go missing again.
+The RT-867 plan-guard rule is asserted the same way: no graph job can run unselected."""
 
 import pathlib
 import subprocess
@@ -40,8 +41,10 @@ class RealTreeTests(unittest.TestCase):
         self.assertEqual(bad, [])
 
     def test_static_rules_have_no_gap(self):
+        workflows = gitio.workflow_definitions(REPO, "HEAD")
         errors = validate_graph(self.data, tree_paths=self.paths,
-                                workflow_jobs=gitio.workflow_jobs(REPO, "HEAD"))
+                                workflow_jobs=gitio.workflow_jobs(REPO, "HEAD", workflows),
+                                workflows=workflows)
         self.assertEqual(errors, [])
 
     def test_root_workflows_keep_privilege_invariants(self):

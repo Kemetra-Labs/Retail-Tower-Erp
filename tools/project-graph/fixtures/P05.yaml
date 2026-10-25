@@ -4,7 +4,8 @@ cases:
   - name: delete-posting-builder
     changes: [{status: D, path: integrations/erpnext-connector/retail_tower_erpnext_connector/connector/posting/builder.py}]
     expect_plan:
-      select: [erpnext-connector]
+      # backend-core: RT-867 semantic edge, Connector posting-sync also selects bc/fast.
+      select: [erpnext-connector, backend-core]
       graph_validation: pass
       reasons: []
       e2e: true
