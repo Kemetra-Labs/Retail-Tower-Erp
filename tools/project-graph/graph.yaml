@@ -28,13 +28,16 @@ jobs:
   pos/test: .github/workflows/pos.yml
   pos/package-windows: .github/workflows/pos.yml
   pos/docs: .github/workflows/pos.yml
+  pos/e2e-electron: .github/workflows/pos.yml
   admin/build-test: .github/workflows/admin-console.yml
+  admin/e2e: .github/workflows/admin-console.yml
   bc/fast: .github/workflows/backend-core.yml
   bc/db-integration: .github/workflows/backend-core.yml
   bc/db-package: .github/workflows/backend-core.yml
   bc/oasdiff: .github/workflows/backend-core.yml
   bc/schemathesis: .github/workflows/backend-core.yml
   connector/unit-tests-and-lint: .github/workflows/erpnext-connector.yml
+  connector/bench: .github/workflows/erpnext-connector.yml
   e2e/smoke: .github/workflows/e2e.yml
   boundary-check: .github/workflows/project-graph.yml
   dependency-review: .github/workflows/project-graph.yml
@@ -51,7 +54,7 @@ products:
   pos:
     root: apps/pos/
     toolchain: { manager: npm, lockfiles: [apps/pos/package-lock.json] }
-    ci_jobs: [pos/static, pos/test-shard-1, pos/test-shard-2, pos/test-shard-3, pos/test, pos/package-windows, pos/docs]
+    ci_jobs: [pos/static, pos/test-shard-1, pos/test-shard-2, pos/test-shard-3, pos/test, pos/package-windows, pos/docs, pos/e2e-electron]
     high_jobs: ["@pos-full", pos/package-windows]
     tiers:
       contracts:
@@ -74,10 +77,10 @@ products:
         jobs: ["@pos-full", pos/package-windows]
       electron-security:
         globs: [src/main/index.ts, src/main/app/**, src/main/secrets/**, src/main/ipc/**, src/preload/**, "src/shared/{bridge-api,secret-store}.ts", src/renderer/index.html, electron-builder.yml, src/tests/**]
-        jobs: ["@pos-full", pos/package-windows]
+        jobs: ["@pos-full", pos/package-windows, pos/e2e-electron]
       windows-packaging:
         globs: [electron-builder.yml, "vite.config*.ts", "tsconfig*.json", scripts/dev-electron.cjs, LICENSE, NOTICE]
-        jobs: [pos/package-windows]
+        jobs: [pos/package-windows, pos/e2e-electron]
       dependency:
         globs: [package.json, package-lock.json, .nvmrc]
         jobs: ["@pos-full", pos/package-windows, dependency-review]
@@ -91,36 +94,36 @@ products:
   admin-console:
     root: apps/admin-console/
     toolchain: { manager: pnpm, lockfiles: [apps/admin-console/pnpm-lock.yaml] }
-    ci_jobs: [admin/build-test]
-    high_jobs: [admin/build-test]
+    ci_jobs: [admin/build-test, admin/e2e]
+    high_jobs: [admin/build-test, admin/e2e]
     tiers:
       contracts:
         globs: [contracts/backend-core/PIN, src/generated/**, openapi-ts.config.ts, "src/lib/{contracts-pin,client,auth-interceptor,request-id}.ts", scripts/contracts-repin-pr.ts, "tests/unit/{contracts-pin,boundary}.test.ts", "tests/unit/*-boundary.test.ts"]
-        jobs: [admin/build-test, bc/oasdiff]
+        jobs: [admin/build-test, admin/e2e, bc/oasdiff]
       money:
         globs: ["src/{cash-policy,payers,shift-closes}/**", "src/lib/{cash-variance-policy,shift-close}-queries.ts"]
-        jobs: [admin/build-test]
+        jobs: [admin/build-test, admin/e2e]
       sales:
         globs: [src/sales/**, src/lib/sale-queries.ts]
-        jobs: [admin/build-test]
+        jobs: [admin/build-test, admin/e2e]
       stock:
         globs: ["src/{stock-discrepancies,unknown-items}/**", "src/lib/{stock-discrepancy,unknown-items}-queries.ts"]
-        jobs: [admin/build-test]
+        jobs: [admin/build-test, admin/e2e]
       auth:
         globs: ["src/{auth,context,operators,devices,tenants,stores}/**", "src/shell/{useSignOut,sign-out,SignInRoute,ScopeGate,scope-gate,scope-mismatch,ScopeMismatchBanner}*", src/lib/auth-interceptor.ts]
-        jobs: [admin/build-test]
+        jobs: [admin/build-test, admin/e2e]
       security:
         globs: [src/observability/**, index.html, release-artifact.ts]
-        jobs: [admin/build-test]
+        jobs: [admin/build-test, admin/e2e]
       release:
         globs: [release-artifact.ts, vite.config.ts]
-        jobs: [admin/build-test]
+        jobs: [admin/build-test, admin/e2e]
       dependency:
         globs: [package.json, pnpm-lock.yaml]
-        jobs: [admin/build-test, dependency-review]
+        jobs: [admin/build-test, admin/e2e, dependency-review]
       tooling:
         globs: [scripts/**, biome.json, vitest.config.ts, playwright.config.ts, e2e.config.ts, tsconfig.json, codecov.yml, .sonarcloud.properties, .coderabbit.yaml, .gitignore]
-        jobs: [admin/build-test]
+        jobs: [admin/build-test, admin/e2e]
       low:
         globs: [docs/**, specs/**, design/**, design_handoff_retail_tower_console/**, .design-sync/**, .claude/**, .specify/**, .impeccable/**, "*.md"]
         jobs: []
@@ -133,7 +136,7 @@ products:
     tiers:
       contracts:
         globs: [packages/contracts/**, apps/api/src/openapi/**, apps/api/test/contract-conformance.spec.ts, apps/api/test/openapi/**, tools/oasdiff/**, tools/schemathesis/**]
-        jobs: ["@bc-full", pos/static, pos/test, admin/build-test, connector/unit-tests-and-lint]
+        jobs: ["@bc-full", pos/static, pos/test, admin/build-test, admin/e2e, connector/unit-tests-and-lint]
       money:
         globs: [apps/api/src/settlement/**, packages/db/src/schema/settlement/**, packages/db/src/schema/sales/sale-tenders.ts, packages/db/src/schema/catalog/price-history.ts]
         # pos/static + pos/test: semantic edge (MR-4), wire behaviour POS depends on.
@@ -171,7 +174,7 @@ products:
   erpnext-connector:
     root: integrations/erpnext-connector/
     toolchain: { manager: uv, lockfiles: [integrations/erpnext-connector/pylock.toml] }
-    ci_jobs: [connector/unit-tests-and-lint]
+    ci_jobs: [connector/unit-tests-and-lint, connector/bench]
     high_jobs: [connector/unit-tests-and-lint]
     # §B.3.4 globs are relative to retail_tower_erpnext_connector/ unless they
     # start with `/` (product root); translated here to product-root-relative.
@@ -184,14 +187,15 @@ products:
         jobs: [connector/unit-tests-and-lint]
       posting-sync:
         globs: [retail_tower_erpnext_connector/connector/posting/**, retail_tower_erpnext_connector/connector/bin_view/**, retail_tower_erpnext_connector/connector/doctype/posting_log/**, retail_tower_erpnext_connector/hooks.py, retail_tower_erpnext_connector/tests/posting/**, retail_tower_erpnext_connector/tests/test_scheduler_cadence.py]
-        # bc/fast: semantic edge (MR-4), Backend-Core posting/outbox tests.
-        jobs: [connector/unit-tests-and-lint, e2e/smoke, bc/fast]
+        # bc/fast: semantic edge (MR-4), Backend-Core posting/outbox tests. connector/bench: the
+        # real-bench v15/v16 DB tests (RT-872).
+        jobs: [connector/unit-tests-and-lint, connector/bench, e2e/smoke, bc/fast]
       auth:
         globs: ["retail_tower_erpnext_connector/connector/posting/{credential_lifecycle,config}.py", "retail_tower_erpnext_connector/connector/doctype/{connector_settings,rt_store_customer_map_row}/**"]
         jobs: [connector/unit-tests-and-lint]
       migrations:
         globs: [retail_tower_erpnext_connector/patches.txt, retail_tower_erpnext_connector/patches/**, "retail_tower_erpnext_connector/connector/doctype/**/*.json", retail_tower_erpnext_connector/fixtures/**, retail_tower_erpnext_connector/connector/posting/index_guard.py, retail_tower_erpnext_connector/tests/test_g5_unique_index_db.py, retail_tower_erpnext_connector/modules.txt]
-        jobs: [connector/unit-tests-and-lint]
+        jobs: [connector/unit-tests-and-lint, connector/bench]
       observability:
         globs: [retail_tower_erpnext_connector/connector/observability/**, retail_tower_erpnext_connector/connector/request_id.py]
         jobs: [connector/unit-tests-and-lint]
