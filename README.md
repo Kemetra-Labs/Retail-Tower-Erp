@@ -1,27 +1,27 @@
-# Retail Tower Shadow monorepo
+# Retail Tower monorepo
 
-`Kemetra/Retail-Tower-Shadow` holds the four Retail Tower products in one repository, with one CI and one project graph. It is the shadow of the future canonical repository `Kemetra-Labs/Retail-Tower-Erp`: until the RT-715 cutover, product code is imported here from the four source repositories (see [CLAUDE.md](CLAUDE.md), landing rule).
+`Kemetra-Labs/Retail-Tower-Erp` holds the four Retail Tower products in one repository, with one CI and one project graph. It is the canonical repository since the RT-715 cutover (2026-10-25): all code lands here by PR to `main`. Before the cutover, product code was imported from the four source repositories, which are now frozen read-only and kept for history (see [CLAUDE.md](CLAUDE.md), landing rule).
 
 Architecture and the monorepo rules (MR-1…MR-9): [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## What lives where
 
-| Path | What | Source repo until cutover |
+| Path | What | Source repo before the cutover |
 | --- | --- | --- |
 | `apps/pos/` | POS: Windows cashier terminal (Electron, npm) | `Kemetra/POS` |
 | `apps/admin-console/` | Admin-Console: admin and operator web UI (Vite, pnpm) | `Kemetra/Admin-Console` |
 | `services/backend-core/` | Backend-Core: API, worker, database, OpenAPI contracts (pnpm workspace) | `Kemetra/Backend-Core` |
 | `integrations/erpnext-connector/` | ERPNext-Connector: the only ERPNext/Frappe adapter (Python, uv) | `Kemetra/ERPNext-Connector` |
-| `tests/e2e/` | Cross-product wire smoke against a real Backend-Core stack (`e2e/smoke`) | Shadow-native |
-| `tools/contracts-check/` | `contracts/check`: consumers against the in-tree Backend-Core contract (MR-2, [README](tools/contracts-check/README.md)) | Shadow-native |
-| `tools/project-graph/` | `graph.yaml` and `pgraph`: job selection, `required` verdict, boundary check ([README](tools/project-graph/README.md)) | Shadow-native |
-| `tools/ci-gate/` | Gate runbooks: R3 canary, agent token broker design | Shadow-native |
-| `tools/agent-broker/` | `kemetra-agent` token broker, run on the owner's machine | Shadow-native |
-| `tools/history/` | Import metadata: `frozen.tsv` (imported source SHA per product), crosswalks, refs | Shadow-native |
-| `tools/release/connector-mirror/` | Append-only publisher of the Connector subtree to its distribution mirror (RT-712) | Shadow-native |
-| `.github/workflows/` | Root CI: one workflow per product, `contracts`, `e2e`, `project-graph`, the selftest and the gate | Shadow-native |
+| `tests/e2e/` | Cross-product wire smoke against a real Backend-Core stack (`e2e/smoke`) | native (not imported) |
+| `tools/contracts-check/` | `contracts/check`: consumers against the in-tree Backend-Core contract (MR-2, [README](tools/contracts-check/README.md)) | native (not imported) |
+| `tools/project-graph/` | `graph.yaml` and `pgraph`: job selection, `required` verdict, boundary check ([README](tools/project-graph/README.md)) | native (not imported) |
+| `tools/ci-gate/` | Gate runbooks: R3 canary, agent token broker design | native (not imported) |
+| `tools/agent-broker/` | `kemetra-agent` token broker, run on the owner's machine | native (not imported) |
+| `tools/history/` | Import metadata: `frozen.tsv` (imported source SHA per product), crosswalks, refs | native (not imported) |
+| `tools/release/connector-mirror/` | Append-only publisher of the Connector subtree to its distribution mirror (RT-712) | native (not imported) |
+| `.github/workflows/` | Root CI: one workflow per product, `contracts`, `e2e`, `project-graph`, the selftest and the gate | native (not imported) |
 
-Each product directory keeps its own `README.md`, `CLAUDE.md`, toolchain and lockfile. The product's own `.github/workflows/` are imported with it but do not run here; only root workflows run.
+Each product directory keeps its own `README.md`, `CLAUDE.md`, toolchain and lockfile. Each product's own `.github/workflows/` came with the import but does not run here; only root workflows run.
 
 ## How CI selects jobs
 

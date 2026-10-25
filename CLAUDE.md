@@ -1,18 +1,18 @@
-# retail-tower-shadow - Agent Context
+# Retail-Tower-Erp - Agent Context
 
 ## RT Jira Issues - Operating System Contract
 
 Before creating, modifying, or reviewing any RT Jira issue, read and apply section 4A of the Retail Tower Project Operating System in Confluence. Do not proceed with issue changes that violate this contract.
 
-## Monorepo rules (Shadow)
+## Monorepo rules
 
 This repository holds all four products (layout: [README.md](README.md)). The rules are MR-1…MR-9 ([ARCHITECTURE.md](ARCHITECTURE.md), [Confluence](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/55771138)). The program-wide operating instructions below still apply; where they speak of separate repositories, read them per product directory here.
 
 ### Where changes land (MR-7)
 
-- **Product code** (`apps/pos/`, `apps/admin-console/`, `services/backend-core/`, `integrations/erpnext-connector/`, including each product's own `.github/`) lands in its source repository (`Kemetra/POS`, `Kemetra/Admin-Console`, `Kemetra/Backend-Core`, `Kemetra/ERPNext-Connector`) and reaches Shadow only by import. Never hand-edit a product subtree here. The imported source SHA per product is in `tools/history/frozen.tsv`; do not edit `tools/history/` by hand.
-- **Shadow-native code** (root `.github/`, `tools/`, `tests/e2e/`, root files) lands here, by PR to `main`.
-- After the RT-715 cutover everything lands in `Kemetra-Labs/Retail-Tower-Erp`.
+- **Everything lands here**, by PR to `main` in `Kemetra-Labs/Retail-Tower-Erp`: product code (`apps/pos/`, `apps/admin-console/`, `services/backend-core/`, `integrations/erpnext-connector/`, including each product's own `.github/`) and repo-wide code (root `.github/`, `tools/`, `tests/e2e/`, root files). This is the canonical repository since the RT-715 cutover (2026-10-25).
+- The former source repositories (`Kemetra/POS`, `Kemetra/Admin-Console`, `Kemetra/Backend-Core`, `Kemetra/ERPNext-Connector`) and `Kemetra/Retail-Tower-Shadow` are frozen read-only and kept for history. Do not open PRs or push there, and do not import from them again.
+- `tools/history/` is the frozen record of the import: `frozen.tsv` holds each product's last source SHA, and the crosswalks map source commits to commits here. Do not edit it.
 
 ### Policy class
 
