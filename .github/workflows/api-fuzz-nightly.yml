@@ -1,0 +1,78 @@
+# RT-877: nightly full Schemathesis run on main, ported from
+# services/backend-core/.github/workflows/api-fuzz.yml (RT-59, RT-582), which GitHub never runs
+# from a nested .github/ since the RT-715 cutover. Same scripts, baselines and steps, run inside
+# services/backend-core/:
+#
+#   - gate:   not_a_server_error. Fails on any 5xx that is not in
+#             tools/schemathesis/5xx-baseline.json.
+#   - report: positive_data_acceptance. Findings never fail the job; they are
+#             listed in the job summary.
+#
+# The PR-time check is the sharded bc/schemathesis in backend-core.yml, selected by the project
+# graph. This run covers main whatever changed, unsharded, as the product's nightly did. It is not
+# a graph job: the job name is not a graph.yaml key and the workflow is not in gate.yml
+# `workflow_run`, so it never feeds `required`. Everything it creates is local to the runner; see
+# services/backend-core/tools/schemathesis/README.md.
+#
+# Differences from the product workflow:
+#  - job timeout 60 minutes (product: 30). shard-timings.json puts the full surface at about
+#    24 minutes before the stack starts, on a runner not yet measured here; the first
+#    workflow_dispatch run is the measurement.
+#  - hardening, not parity: actions pinned to the SHAs the root workflows use, checkout does not
+#    persist credentials, top-level `permissions: read-all` with a read-only job grant.
+
+name: API fuzz nightly (Schemathesis)
+
+"on":
+  schedule:
+    - cron: "17 2 * * *" # 02:17 UTC daily, on the default branch
+  workflow_dispatch:
+
+permissions: read-all
+
+concurrency:
+  group: api-fuzz-nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: services/backend-core
+
+jobs:
+  schemathesis-nightly:
+    name: schemathesis-nightly (cookieAuth surface, full)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      # The scripts write to $RUNNER_TEMP/api-fuzz (the runner context is not
+      # available in job-level env, so the path is not set here).
+      FUZZ_PROJECT: api-fuzz
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Start ephemeral stack
+        run: bash tools/schemathesis/stack-up.sh
+
+      - name: "Gate: no 5xx (not_a_server_error)"
+        run: bash tools/schemathesis/run.sh gate
+
+      # Findings never fail this step; it fails only if Schemathesis could not run.
+      - name: "Report (non-gating findings): positive_data_acceptance"
+        if: always()
+        run: bash tools/schemathesis/run.sh report
+
+      - name: Tear down
+        if: always()
+        run: |
+          out="$RUNNER_TEMP/api-fuzz"
+          if [ -f "$out/stack.env" ]; then
+            set -a; . "$out/stack.env"; set +a
+            export API_IMAGE=api-fuzz-api:local
+            docker compose -p "$FUZZ_PROJECT" -f tools/schemathesis/compose.yml down -v
+          fi
+          rm -rf "$out"
