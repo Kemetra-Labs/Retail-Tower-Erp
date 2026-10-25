@@ -52,7 +52,7 @@ The graph decides which jobs **execute**, not only which results `required` coun
 
 Only the canonical guard shape is accepted (see `guard_keys`), so `always() || ...` is rejected. `tests/test_real_tree.py` asserts the rule on the committed tree, and fixture X08 covers the negatives.
 
-**Policy paths inside products.** `apps/*/.github/**`, `services/*/.github/**` and `integrations/*/.github/**` are in the `policy` class: root jobs execute scripts from there (for example `fetch-pinned-contracts.sh`). Policy classes are checked before product ownership, so these paths never become `AMBIGUOUS_PATH`. Only a `policy_change` class may reach into a product root. The boundary check still treats them as product code (`Graph.product_of`).
+**Policy paths inside products.** Policy classes are checked before product ownership, and only a `policy_change` class may reach into a product root (rule 2), so a product path matched by `policy` never becomes `AMBIGUOUS_PATH`. The boundary check still treats such paths as product code (`Graph.product_of`). The graph globs themselves (`apps/*/.github/**`, `services/*/.github/**`, `integrations/*/.github/**`: root jobs execute scripts from there) land in a follow-up PR. The gate validates a proposed graph with the base validator, which predates this rule-2 relaxation and rejects them.
 
 **Semantic edges.** Backend-Core `sales`, `money` and `posting-sync` also select `pos/static` and `pos/test`. Connector `posting-sync` also selects `bc/fast`.
 
@@ -100,7 +100,7 @@ These were named but never defined in RT-710 comment 12882. They are **defined n
 | X05 | Bot reviewer, unlisted login, label-only approval, empty approver list |
 | X06 | Path dialect: case, root anchoring, NFC, unmatched-in-product = `high`, BC docs SQL, push selects all |
 | X07 | Boundary: imports, `require`, dynamic `import()`, manifest `file:`, tsconfig `extends`, Python `sys.path` and relative imports, literal product paths, Dockerfile, ratchet |
-| X08 | RT-867 plan guard: unguarded job, missing `needs: plan`, guard on another key, always-true guard, unguarded dependency, guarded always-job, missing plan job; product `.github/**` is policy; semantic edges |
+| X08 | RT-867 plan guard: unguarded job, missing `needs: plan`, guard on another key, always-true guard, unguarded dependency, guarded always-job, missing plan job; semantic edges |
 
 ## Known gaps (named, not silently relaxed)
 

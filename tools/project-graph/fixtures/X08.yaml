@@ -43,10 +43,6 @@ cases:
     workflows: {patch: [{op: delete, path: [.github/workflows/e2e.yml, plan]}]}
     changes: [{status: M, path: apps/pos/docs/a.md}]
     expect_plan: {select: nothing, graph_validation: fail, reasons: [GRAPH_INVALID], details_contain: ["CI_PLAN_MISSING: .github/workflows/e2e.yml"]}
-  - name: product-github-dir-is-policy
-    workflows: {}
-    changes: [{status: M, path: apps/admin-console/.github/scripts/fetch-pinned-contracts.sh}]
-    expect_plan: {select: all, graph_validation: needs_approval, reasons: [POLICY_CHANGE], policy_change: true}
   - name: bc-sales-selects-pos-contract-jobs
     workflows: {}
     changes: [{status: M, path: services/backend-core/apps/api/src/catalog/sales/a.ts}]
