@@ -9,9 +9,9 @@ Covers: merge settings, secret scanning and push protection, Actions permissions
 environments with their deployment branch/tag policies and required reviewers, and the NAMES of
 repository and environment secrets and variables.
 
-Never reads, writes or prints a secret or variable VALUE: values are listed as owner TODOs. GitHub App
-installation (for example kemetra-ci-gate, whose integration id is referenced by required status checks)
-is an owner action and is listed as a TODO. All calls go through the authenticated `gh` CLI.
+Never reads, writes or prints a secret or variable VALUE: values are listed as owner TODOs. Installing a
+GitHub App whose integration id a required status check references is an owner action and is listed as a
+TODO. All calls go through the authenticated `gh` CLI.
 `export` and `plan` only read. `apply` writes only with --yes; without it, it prints the plan.
 """
 import argparse

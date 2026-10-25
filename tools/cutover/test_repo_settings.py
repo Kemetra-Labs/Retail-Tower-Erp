@@ -14,8 +14,8 @@ def snapshot(**over):
                           "conditions": {}, "bypass_actors": [], "rules": [{"type": "deletion"}]}],
             "environments": [{"name": "ci-gate", "deployment_branch_policy": {"custom_branch_policies": True},
                               "reviewers": [], "wait_timer": 0, "branch_policies": [{"name": "main", "type": "branch"}],
-                              "secret_names": ["CI_GATE_APP_PRIVATE_KEY"], "variable_names": ["CI_GATE_APP_ID"]}],
-            "secret_names": [], "variable_names": [], "app_integration_ids": [5373080]}
+                              "secret_names": ["EXAMPLE_PRIVATE_KEY"], "variable_names": ["EXAMPLE_APP_ID"]}],
+            "secret_names": [], "variable_names": [], "app_integration_ids": [999001]}
     base.update(over)
     return base
 
@@ -37,8 +37,8 @@ class PlanTests(unittest.TestCase):
         self.assertIn("ruleset-create", kinds)
         self.assertIn("env-create", kinds)
         todos = [d for k, d in acts if k == "todo-owner"]
-        self.assertTrue(any("CI_GATE_APP_PRIVATE_KEY" in d and "value by the owner" in d for d in todos))
-        self.assertTrue(any("5373080" in d for d in todos))
+        self.assertTrue(any("EXAMPLE_PRIVATE_KEY" in d and "value by the owner" in d for d in todos))
+        self.assertTrue(any("999001" in d for d in todos))
 
     def test_changed_ruleset_is_an_update(self):
         s = snapshot()

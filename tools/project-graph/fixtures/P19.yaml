@@ -1,7 +1,7 @@
 id: P19
 spec: "RT-709 A.6 P19 - a PR-branch workflow tries to post a required/product check"
 logic_level_only: true
-live_proof: "RT-711 (the ruleset source pin on kemetra-ci-gate is enforced by GitHub, not by this code)"
+live_proof: "RT-711 and RT-866 (a ruleset requiring `required` is enforced by GitHub, not by this code)"
 cases:
   - name: forged-checks-from-other-app-are-ignored
     changes: [{status: M, path: apps/pos/src/renderer/a.tsx}]
