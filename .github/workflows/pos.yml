@@ -1,10 +1,13 @@
 # Root CI for POS (RT-748 slice I-3). Defines the graph.yaml job keys pos/static,
-# pos/test-shard-1..3, pos/test, pos/package-windows, pos/docs and pos/e2e-electron (RT-872)
-# (static rule 5) by reproducing apps/pos/.github/workflows/ci.yml at the imported tree (POS@3c1cad5) inside
-# apps/pos/. Job `name:` values are the graph keys, so each is a literal with no
+# pos/test-shard-1..3, pos/test, pos/package-windows, pos/docs and pos/e2e-electron (static
+# rule 5) by reproducing apps/pos/.github/workflows/ci.yml as imported at POS@3c1cad5, inside
+# apps/pos/. The import is now at the POS SHA in tools/history/frozen.tsv. Product ci.yml
+# steps added since then: the RT-830 fuse readback and native-load smoke are carried (see
+# pos/package-windows); the RT-775 display step and RT-773 Playwright Electron smoke are
+# carried as the blocking job pos/e2e-electron (RT-872). Job `name:` values are the graph keys, so each is a literal with no
 # expression and there is no matrix (the three shards are three literal jobs). The
-# workflow `name:` must stay `pos` (matched by the staged gate). PR-reachable: read-only
-# token, no stored credentials, no environment. The only use of the job token is the
+# workflow `name:` must stay `pos` (listed in gate.yml `workflow_run`).
+# PR-reachable: read-only token, no stored credentials, no environment. The only use of the job token is the
 # "Fetch main tip" step in the three shard jobs (see the comment there).
 #
 # Differences from the product workflow, all forced by the project graph:

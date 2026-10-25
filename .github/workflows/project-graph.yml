@@ -2,7 +2,7 @@
 # `boundary-check` (static rule 5) by running the layer-1 boundary check that
 # project-graph-selftest.yml already runs as one of its steps, as its own job.
 # The job `name:` is the graph key, so it is a literal with no expression. The workflow
-# `name:` must stay `project-graph` (matched by the staged gate). PR-reachable: read-only
+# `name:` must stay `project-graph` (listed in gate.yml `workflow_run`). PR-reachable: read-only
 # token, no credentials, no environment. Deliberately no `paths:` filter and no job `if:`:
 # the graph always selects this job, and a selected job that is skipped fails the gate.
 # `dependency-review` (RT-850, owner decision on RT-748 NV-4) is a fail-closed osv-scanner

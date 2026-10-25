@@ -1,28 +1,24 @@
 # =============================================================================
-# STAGED ONLY - NOT A RUNNABLE WORKFLOW. Deliberately kept OUTSIDE
-# .github/workflows. RT-709 A.3 trusted gate (owner decision O-5 = T-A).
+# Trusted gate, RT-709 A.3 (owner decision O-5 = T-A). Posts the `required` check-run.
 #
-# Not operational, not security-verified. Activation needs ALL of:
-#   1. RT-721 Substep B, each step separately owner-authorized:
-#      - kemetra-ci-gate installed on Kemetra/Retail-Tower-Shadow ONLY, with
-#        checks:write, contents:read, pull_requests:read, actions:read,
-#        metadata:read and no webhook;
-#      - protected `ci-gate` environment restricted to `main`, holding
-#        vars.CI_GATE_APP_ID and secrets.CI_GATE_APP_PRIVATE_KEY
-#        (environment-scoped, never repository-level);
-#      - ruleset on main: require the `required` check with source pinned to
-#        kemetra-ci-gate, AND "require branches to be up to date before
-#        merging" (the gate evaluates against the PR's base SHA; without this a
-#        green result could merge onto a newer main);
-#      - product workflows trigger `pull_request` only for `branches: [main]`.
-#   2. A human login in graph.yaml `policy_approvers` (empty today = every
-#      policy change is denied).
-#   3. Root product workflows that define every job in graph.yaml `jobs`
-#      (static rule 5 fails until then, so this gate would fail every PR).
-#   4. RT-711 independent verification (P17/P19, PR-branch secret refusal,
-#      anti-spoof canary, latest-wins of multiple `required` check-runs per SHA).
-#      checks:write vs statuses:write for the source pin is "Needs
-#      verification" (A.8); do NOT widen App grants to work around it.
+# Status on main (RT-721 S3 moved it here from tools/ci-gate/, observe-only):
+#   - it runs on pull_request_target and on `workflow_run` of the product workflows, and
+#     `post` mints a kemetra-ci-gate token from the `ci-gate` environment
+#     (vars.CI_GATE_APP_ID, secrets.CI_GATE_APP_PRIVATE_KEY) to post `required`;
+#   - graph.yaml `policy_approvers` is [Kemetra] (RT-721 S1), so a policy change can pass
+#     with an APPROVED review by that login carrying the attestation line below;
+#   - root workflows define every graph.yaml job and every non-always job is plan-guarded
+#     (static rules 5 and 5b; tests/test_real_tree.py).
+# Not done yet:
+#   - a main ruleset that requires `required` with its source pinned to kemetra-ci-gate,
+#     plus "require branches to be up to date" (the S6 no-bypass ruleset, RT-866, open).
+#     The gate evaluates against the PR's base SHA, so without "up to date" a green result
+#     could merge onto a newer main;
+#   - RT-711 independent verification (P17/P19, PR-branch secret refusal, anti-spoof
+#     canary, latest-wins of multiple `required` check-runs per SHA). checks:write vs
+#     statuses:write for the source pin is "Needs verification" (A.8); do NOT widen App
+#     grants to work around it;
+#   - the delegated reviewer identity as approver, by numeric ID (MR-5, RT-870).
 #
 # Invariants this file must keep (review any change against them):
 #   - Runs only base-branch code: checkout of the BASE sha only. Head objects
@@ -47,7 +43,7 @@ on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
   workflow_run:
-    workflows: [pos, admin-console, backend-core, erpnext-connector, e2e, project-graph]
+    workflows: [pos, admin-console, backend-core, erpnext-connector, contracts, e2e, project-graph]
     types: [completed]
 
 permissions:
