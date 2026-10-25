@@ -1,4 +1,4 @@
-"""Command line entry points used by the selftest workflow and the staged gate.
+"""Command line entry points used by the selftest workflow, the plan jobs and the gate.
 
   evaluate       trusted base + head (data only) -> plan.json
   aggregate      plan.json + check-runs + approvals -> `required` verdict

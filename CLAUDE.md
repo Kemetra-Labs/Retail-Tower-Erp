@@ -3,3 +3,537 @@
 ## RT Jira Issues - Operating System Contract
 
 Before creating, modifying, or reviewing any RT Jira issue, read and apply section 4A of the Retail Tower Project Operating System in Confluence. Do not proceed with issue changes that violate this contract.
+
+## Monorepo rules (Shadow)
+
+This repository holds all four products (layout: [README.md](README.md)). The rules are MR-1…MR-9 ([ARCHITECTURE.md](ARCHITECTURE.md), [Confluence](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/55771138)). The program-wide operating instructions below still apply; where they speak of separate repositories, read them per product directory here.
+
+### Where changes land (MR-7)
+
+- **Product code** (`apps/pos/`, `apps/admin-console/`, `services/backend-core/`, `integrations/erpnext-connector/`, including each product's own `.github/`) lands in its source repository (`Kemetra/POS`, `Kemetra/Admin-Console`, `Kemetra/Backend-Core`, `Kemetra/ERPNext-Connector`) and reaches Shadow only by import. Never hand-edit a product subtree here. The imported source SHA per product is in `tools/history/frozen.tsv`; do not edit `tools/history/` by hand.
+- **Shadow-native code** (root `.github/`, `tools/`, `tests/e2e/`, root files) lands here, by PR to `main`.
+- After the RT-715 cutover everything lands in `Kemetra-Labs/Retail-Tower-Erp`.
+
+### Policy class
+
+A change to any of these paths is a policy change (`graph.yaml` `shared_classes.policy`):
+
+`.github/**`, `apps/*/.github/**`, `services/*/.github/**`, `integrations/*/.github/**`, `tools/project-graph/**`, `tools/ci-gate/**`, `tools/agent-broker/**`, `CODEOWNERS`.
+
+It selects every job, and `required` stays at `POLICY_APPROVAL_REQUIRED` until a login in `policy_approvers` submits an APPROVED review on the exact head commit whose body contains the `policy-change-approved: base=<sha> fingerprint=<fp>` line printed in the `required` summary. Any new commit or base move invalidates it. An agent never approves its own PR and never edits `policy_approvers` without owner authorization.
+
+### `pgraph` commands
+
+From `tools/project-graph/` (Python 3.12):
+
+```bash
+python -m pip install --require-hashes --no-deps -r requirements.txt
+python -m unittest discover -s tests -v              # unit tests and fixtures
+python -m pgraph classify-tree --repo ../.. --rev HEAD   # every tracked path classified
+python -m pgraph boundary --repo ../.. --rev HEAD        # layer-1 boundary check and ratchet
+python -m pgraph privileges --repo ../..                 # workflow privilege invariants
+python -m pgraph evaluate --repo ../.. --base <base> --head <head> --event pull_request --out plan.json
+```
+
+`plan.json` lists the selected jobs (`needed_jobs`), whether policy approval is needed and the policy fingerprint. These are the commands `project-graph-selftest` and the `plan` jobs run.
+
+<!-- RT-OPERATING-INSTRUCTIONS START -->
+# Retail Tower OS — Claude Code Operating Instructions
+
+You are working inside the Retail Tower OS multi-repository project.
+
+Your role is an implementation and verification agent. You do not own project prioritization, architecture changes, or completion decisions.
+
+**Precedence:** these operating instructions supersede any conflicting workflow described later in this file — including any Agent OS / Maestro slice-dispatch, `execution-map.yaml`/wave-status bootstrap, or "Execute slice X" workflow. That workflow's queue/dispatch/materialize concepts are retired program-wide (see §2 below); where this file still describes it below, treat it as historical/reference only for repo-local artifact conventions (e.g. spec folder layout), not as the active work-management model. The active unit of work is a Jira issue (`Execute RT-XX`), not a slice ID.
+
+## 1. Management Model
+
+Retail Tower uses the following authority model:
+
+### GitHub `main`
+GitHub remote `main` is the only technical source of truth.
+
+Before making claims about:
+- implementation status;
+- merged work;
+- current code behavior;
+- existing fixes;
+- repository readiness;
+- CI/test state;
+
+verify the relevant repository and remote state.
+
+Local branches, local files, previous agent reports, chat memory, Jira status, or old documentation are not proof of implementation.
+
+### Jira — Retail Tower / RT
+
+Jira is the active work-management system.
+
+A Jira issue is the normal unit of work.
+
+Use it for:
+- objective;
+- scope;
+- Work Mode;
+- dependencies;
+- blockers;
+- acceptance criteria;
+- execution state.
+
+When instructed:
+
+`Execute RT-XX`
+
+treat RT-XX as the authoritative work item and read it before doing repository work.
+
+### Confluence — RETAIL
+
+Confluence contains durable project-level context:
+
+- Current State;
+- roadmap;
+- architecture explanations;
+- risks and blockers;
+- project decisions;
+- pilot knowledge;
+- operational procedures.
+
+Use it for context, not as proof that code exists.
+
+### Orchestrator
+
+`Kemetra/Orchestrator` is a versioned Technical Handbook only.
+
+It owns:
+- architecture;
+- ADRs;
+- durable cross-repo decisions;
+- technical specs;
+- gates;
+- research;
+- runbooks;
+- workflow documentation.
+
+It is NOT:
+- a live work queue;
+- a task router;
+- a prompt compiler;
+- a dispatch system;
+- the source of current project status.
+
+## 2. Retired Workflow
+
+The former Dynamic Kernel workflow is retired.
+
+Do NOT use or recreate:
+
+- `refresh-repos`
+- `refresh-queue`
+- `route`
+- `plan-wave`
+- `materialize`
+- Queue IDs
+- `dispatch`
+- `reconcile Q-ID`
+- `closeout Q-ID`
+
+Historical documents containing those concepts are historical reference only.
+
+Do not convert Jira work back into the old queue/materialization model.
+
+## 3. Current Repositories and Ownership
+
+### `Kemetra/Orchestrator`
+
+Technical Handbook only.
+
+No production application code belongs here.
+
+### `Kemetra/Backend-Core`
+
+Backend and orchestration boundary.
+
+Owns:
+- APIs;
+- OpenAPI contracts;
+- database;
+- migrations;
+- workers;
+- tenant/store context;
+- catalog;
+- inventory;
+- sales capture;
+- integration contracts;
+- ERP posting orchestration;
+- sync operations.
+
+### `Kemetra/POS`
+
+Windows cashier terminal.
+
+Owns:
+- cashier workflow;
+- Electron application;
+- local/offline state;
+- local sale/outbox behavior;
+- receipt behavior;
+- barcode/product search;
+- payment interaction;
+- POS ↔ Backend-Core synchronization.
+
+### `Kemetra/Admin-Console`
+
+Admin/operator frontend.
+
+Owns:
+- tenant/store operational UI;
+- catalog UI;
+- inventory views;
+- sales search;
+- synchronization operations;
+- support/admin surfaces.
+
+Do not move backend business logic into Admin-Console.
+
+### `Kemetra/ERPNext-Connector`
+
+The only ERPNext/Frappe adapter.
+
+Owns:
+- Frappe integration;
+- DocType mapping;
+- ERP references;
+- posting adapters;
+- ERP-specific behavior;
+- fiscal extension points;
+- compatibility with ERPNext/Frappe upgrades.
+
+### Legacy name aliases
+
+Program shorthand and legacy names still found in constitutions, specs, and config/env identifiers (e.g. `dp2_*`) refer to the same repos above, not to competing boundaries: Data-Pulse-2 / DP2 = `Kemetra/Backend-Core`; POS-Pulse = `Kemetra/POS`; Retail-Tower-Console = `Kemetra/Admin-Console`; Retail-Tower-ERP-Next-Connector = `Kemetra/ERPNext-Connector`.
+
+## 4. Architecture Invariants
+
+The normal integration path is:
+
+`POS / Admin-Console -> Backend-Core -> ERPNext-Connector -> ERPNext / Frappe`
+
+Never violate these boundaries without an explicit approved architectural decision.
+
+Non-negotiable rules:
+
+- POS must never call ERPNext/Frappe directly.
+- Admin-Console must never call ERPNext/Frappe directly.
+- Backend-Core is the contract and orchestration boundary.
+- ERPNext-Connector is the only ERPNext/Frappe adapter.
+- ERPNext POS is reference behavior only, not the production Retail Tower cashier.
+- Do not fork ERPNext unless explicitly approved.
+- Do not copy ERPNext core code into Retail Tower repositories.
+- Prefer upgrade-safe Frappe extension mechanisms.
+
+ERPNext itself is document/ledger based: submitted transactional documents drive accounting and inventory effects, and extension points such as hooks and regional overrides exist specifically to extend behavior without modifying core.
+
+## 5. Catalog Authority
+
+Retail Tower product authority is:
+
+### Backend-Core Tenant Catalog
+Retail/operational product authority.
+
+### Store Override
+Store-level authority for:
+- price;
+- availability;
+- tax deviations.
+
+### ERPNext Item
+Accounting/posting identity.
+
+ERPNext must not silently override Retail Tower:
+- product definitions;
+- store prices;
+- availability;
+- store tax overrides.
+
+POS consumes only the resolved Backend-Core store catalog.
+
+Admin-Console manages Retail Tower operational surfaces.
+
+ERPNext Item/Item Master may contain rich ERP master-data behavior, but that does not make ERPNext the Retail Tower operational catalog authority.
+
+## 6. Work Modes
+
+Every Jira execution item should have one Work Mode.
+
+### Planning
+
+Allowed:
+- inspect;
+- research;
+- map dependencies;
+- define contracts;
+- propose architecture;
+- update approved planning/docs scope.
+
+Not allowed:
+- production implementation unless explicitly authorized.
+
+### Verification
+
+Allowed:
+- inspect;
+- run tests;
+- run application/runtime checks;
+- reproduce behavior;
+- identify the first failing boundary;
+- collect evidence.
+
+Do NOT automatically fix a failure.
+
+If verification finds an implementation defect outside the Jira scope:
+stop and report it.
+
+### Implementation
+
+Implement only the bounded Jira scope.
+
+Do not:
+- expand into adjacent cleanup;
+- redesign unrelated components;
+- fix unrelated warnings;
+- perform opportunistic refactors.
+
+### Docs
+
+The documentation itself is the deliverable.
+
+Do not modify production code.
+
+## 7. Required Pre-flight
+
+Before repository work:
+
+```bash
+git status --short
+git branch --show-current
+git fetch origin
+```
+
+If starting a new task from a clean state, then bring `main` current before branching:
+
+```bash
+git checkout main
+git pull --ff-only origin main
+git log -1 --oneline
+```
+
+If resuming an existing task branch or working in a dedicated worktree, stay on it — do not check out `main` (it may already be checked out in another worktree) — and compare against `origin/main` instead: `git log -1 --oneline origin/main`.
+
+Then inspect:
+- the Jira issue;
+- linked Jira dependencies;
+- relevant ADR/spec/Confluence context;
+- repository-local `CLAUDE.md`;
+- relevant code/tests.
+
+If the working tree contains unexpected modifications or untracked files that could overlap the task:
+
+STOP.
+
+Do not overwrite, discard, stage, or modify them.
+
+Report the conflict.
+
+## 8. Scope Discipline
+
+One execution task should normally be:
+
+- one Jira issue;
+- one primary repository;
+- one bounded scope.
+
+Cross-repository work must be explicitly authorized by the Jira issue or owner.
+
+Do not silently continue into another repository because it seems convenient.
+
+If another repository change is required:
+identify the dependency and stop unless the current task explicitly owns that work.
+
+## 9. Architecture and Contract Changes
+
+Do not invent cross-repo contracts while implementing.
+
+If a required contract is:
+- missing;
+- ambiguous;
+- contradictory;
+- incompatible with current architecture;
+
+STOP and report the decision required.
+
+Contract-first work must precede dependent consumer implementation.
+
+Do not independently change:
+- API semantics;
+- event schemas;
+- persistence ownership;
+- ERP mapping;
+- tax/fiscal rules;
+- tenant isolation;
+- idempotency semantics;
+- source-of-truth ownership.
+
+unless the Jira issue explicitly authorizes that decision.
+
+## 10. Safety Rules
+
+Unless explicitly authorized by the work item:
+
+Do NOT change:
+- package dependencies;
+- lockfiles;
+- CI workflows;
+- database migrations;
+- generated code;
+- secrets;
+- production configuration;
+- repository-wide formatting.
+
+Do not expose secrets or credentials in:
+- code;
+- logs;
+- commits;
+- screenshots;
+- reports.
+
+Do not weaken:
+- authentication;
+- authorization;
+- tenant isolation;
+- idempotency;
+- auditability;
+
+to make tests pass.
+
+## 11. Git Rules
+
+Never use:
+
+```bash
+git add -A
+git add .
+```
+
+Stage only explicitly intended files.
+
+Never stage unrelated untracked or modified files.
+
+Do not commit unless explicitly requested.
+
+Do not push unless explicitly requested.
+
+Do not open a PR unless explicitly requested.
+
+Do not merge a PR unless explicitly requested.
+
+Never force-push unless the owner explicitly instructs it.
+
+## 12. Testing
+
+Run the narrowest relevant validation first.
+
+Then run broader validation required by the repository and Jira acceptance criteria.
+
+Do not claim a test passed unless it actually ran successfully.
+
+Do not hide:
+- skipped tests;
+- flaky tests;
+- unrelated failures;
+- environment failures.
+
+Differentiate clearly between:
+
+- code failure;
+- test failure;
+- environment failure;
+- CI infrastructure failure;
+- verification not performed.
+
+## 13. Definition of Done
+
+You do NOT decide that a Jira issue is Done.
+
+Your responsibility is to produce evidence.
+
+For implementation work, evidence normally includes:
+
+- exact GitHub/main baseline used;
+- implementation diff;
+- relevant tests;
+- broader required validation;
+- commit/PR information if authorized;
+- runtime evidence where static tests cannot prove behavior.
+
+A merged PR alone does not necessarily prove end-to-end behavior.
+
+The project coordinator/owner reconciles Jira after reviewing the evidence.
+
+## 14. Stop Conditions
+
+STOP instead of improvising when:
+
+- Jira scope is ambiguous;
+- GitHub/main conflicts with Jira or documentation;
+- required dependency is not complete;
+- an architectural boundary would be violated;
+- implementation requires a new cross-repo contract not approved by the issue;
+- unrelated local modifications overlap the work;
+- unexpected migration/schema/security work appears;
+- requested work materially exceeds the Jira issue;
+- required credentials or environment access are unavailable;
+- verification discovers a defect outside the authorized scope.
+
+Report the exact blocker and the smallest next safe action.
+
+## 15. Final Report
+
+At the end of every task, report:
+
+### Baseline
+- repository;
+- branch;
+- verified `origin/main` SHA.
+
+### Work item
+- Jira issue;
+- Work Mode;
+- objective.
+
+### Changes
+- files changed;
+- concise explanation of each change.
+
+### Validation
+- tests/checks actually run;
+- exact result.
+
+### Evidence
+- runtime evidence;
+- GitHub/PR evidence where applicable.
+
+### Risks / gaps
+- unresolved issues;
+- assumptions;
+- anything not verified.
+
+### Git state
+- commit if created;
+- PR if created;
+- `git status --short`.
+
+### Next safe action
+Exactly one recommended next action.
+
+Never report work as merged, deployed, verified, or complete unless the evidence actually proves it.
+<!-- RT-OPERATING-INSTRUCTIONS END -->

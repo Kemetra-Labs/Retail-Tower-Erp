@@ -5,7 +5,7 @@
 # mirrors the product's RT-816 split: db + worker suites run in bc/db-package, in parallel with
 # the api suite in bc/db-integration. Job `name:` values are the graph keys, so each is a literal
 # with no expression and there is no matrix on a graph job. The workflow `name:` must stay
-# `backend-core` (matched by the staged gate). PR-reachable: read-only token, no credentials, no
+# `backend-core` (listed in gate.yml `workflow_run`). PR-reachable: read-only token, no credentials, no
 # environment.
 #
 # bc/oasdiff and bc/schemathesis (RT-849, I-6). Their scripts (tools/oasdiff/check.sh,
@@ -42,7 +42,7 @@
 #    a read-only step before it reports the runner's size (see the comments on those steps).
 #  - hardening, not parity: actions are pinned to SHAs (the product used floating @v4),
 #    checkout does not persist credentials, and pull_request is limited to branches: [main]
-#    (required by the staged gate).
+#    (the gate evaluates PRs against main only).
 #
 # Known, not fixed here (product test, upstream first): the api spec
 # apps/api/test/auth-contract-cleanup/auth-contract-cleanup.contract.spec.ts runs

@@ -1,9 +1,10 @@
 # RT-749 (planned in RT-748): root CI job for the ERPNext Connector.
 # Reproduces ERPNext-Connector@274589a ci.yml job `test` ("Unit tests and lint") inside
-# integrations/erpnext-connector/. The job `name:` is the graph.yaml job key
-# (static rule 5), so it is a literal with no expression. The workflow `name:` must stay
-# `erpnext-connector` (matched by the staged gate). PR-reachable: read-only token, no
-# credentials, no environment. Deliberately no `paths:` filter: the project graph is the
+# integrations/erpnext-connector/. That ci.yml is unchanged up to the Connector SHA in
+# tools/history/frozen.tsv, where the import now is. The job `name:` is the graph.yaml job
+# key (static rule 5), so it is a literal with no expression. The workflow `name:` must stay
+# `erpnext-connector` (listed in gate.yml `workflow_run`). PR-reachable:
+# read-only token, no credentials, no environment. Deliberately no `paths:` filter: the project graph is the
 # only selector. RT-867: the `plan` job runs the base-branch evaluator and the job runs only
 # if the graph selects it; a selected job that is skipped fails the gate.
 # The product's informational coverage upload is not carried over (it needs a repo
