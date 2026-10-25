@@ -272,9 +272,13 @@ def guard_keys(expr):
     body = expr.strip()
     if body.startswith("${{") and body.endswith("}}"):
         body = body[3:-2].strip()
-    body = _GUARD_PREFIX.sub("", body, count=1)
-    if body.startswith("(") and body.endswith(")"):
+    stripped = _GUARD_PREFIX.sub("", body, count=1)
+    prefixed, body = stripped != body, stripped
+    parenthesised = body.startswith("(") and body.endswith(")")
+    if parenthesised:
         body = body[1:-1].strip()
+    if prefixed and not parenthesised and "||" in body:
+        return None        # `&&` binds tighter: `p && a || b` would run b without the prefix
     keys = []
     for term in body.split("||"):
         m = _GUARD_TERM.match(term.strip())
@@ -306,13 +310,23 @@ def _check_guards(data, workflows, errs):
     `jobs:` mapping, read from the TRUSTED rev."""
     always = set(data["always_jobs"])
     plan_checked = set()
+    defined = {}                                      # key -> [(workflow, job id)] across ALL workflows
+    for wpath, wjobs in sorted(workflows.items()):
+        for jid, job in (wjobs.items() if isinstance(wjobs, dict) else ()):
+            if isinstance(job, dict) and _literal_name(jid, job) in data["jobs"]:
+                defined.setdefault(_literal_name(jid, job), []).append((wpath, jid))
     for key, path in sorted(data["jobs"].items()):
         jobs = workflows.get(path)
         if not isinstance(jobs, dict):
             continue                                  # rule 5 reports the missing job
+        # rule 5's name -> workflow map keeps only one definition, so a second job with the
+        # same key (here or in another workflow) would run unselected without this check.
+        if len(defined.get(key, [])) > 1:
+            errs.append(f"CI_JOB_UNGUARDED: {key} is defined by {len(defined[key])} jobs")
+            continue
         ids = [i for i, j in jobs.items() if isinstance(j, dict) and _literal_name(i, j) == key]
         if len(ids) != 1:
-            continue                                  # rule 5 / workflow review
+            continue                                  # rule 5 reports the missing job
         job = jobs[ids[0]]
         if key in always:
             if PLAN_JOB in _needs(job) or "if" in job:

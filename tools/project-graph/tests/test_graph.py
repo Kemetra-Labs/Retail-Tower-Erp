@@ -124,6 +124,14 @@ class StaticRuleTests(unittest.TestCase):
         del wfs[".github/workflows/e2e.yml"]["plan"]
         self.assertIn("CI_PLAN_MISSING: .github/workflows/e2e.yml", validate_graph(g, workflows=wfs))
 
+    def test_rule5b_duplicate_key_definitions(self):
+        g = _real()
+        for where in (".github/workflows/pos.yml", ".github/workflows/project-graph.yml"):
+            with self.subTest(where=where):
+                wfs = support.guarded_workflows(g)
+                wfs[where]["copy"] = {"name": "pos/static"}
+                self.assertIn("CI_JOB_UNGUARDED: pos/static is defined by 2 jobs", validate_graph(g, workflows=wfs))
+
     def test_rule5b_always_jobs_stay_unguarded(self):
         g = _real()
         wfs = support.guarded_workflows(g)
@@ -138,7 +146,9 @@ class StaticRuleTests(unittest.TestCase):
                          {"a"})
         for bad in (None, "", "true", "always() || " + c.format("a"), c.format("a") + " || true",
                     "!cancelled() && " + c.format("a"), "contains(needs.plan.outputs.jobs, 'a')",
-                    "contains(fromJSON(needs.other.outputs.jobs), 'a')"):
+                    "contains(fromJSON(needs.other.outputs.jobs), 'a')",
+                    # `&&` binds tighter than `||`: b would run without the prefix's checks
+                    "!cancelled() && needs.plan.result == 'success' && " + c.format("a") + " || " + c.format("b")):
             with self.subTest(expr=bad):
                 self.assertIsNone(guard_keys(bad))
 
