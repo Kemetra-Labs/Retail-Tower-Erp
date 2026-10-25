@@ -1,0 +1,82 @@
+# Root CI for consumer contracts (RT-868, decision MR-2). Defines the job `contracts/check`:
+# every consumer is checked against the in-tree Backend-Core contract
+# (services/backend-core/packages/contracts/openapi) at the same commit, so a change that breaks
+# POS, Admin-Console or the Connector fails in the PR that makes it. tools/contracts-check:
+#  - POS and Admin-Console PINs: each pinned file (read by blob SHA from this repository's object
+#    store) against the in-tree file with `oasdiff breaking` (WARN or higher fails, Backend-Core
+#    severity levels); every other change is listed as drift in the job summary.
+#  - Connector posting/bin_view contracts.py, parsed with `ast`: enums, patterns and field names
+#    against posting-feed.yaml / stock-view.yaml. Version-string drift is reported only.
+#  - The OBS-1 golden-vector copies must be byte-identical.
+# The job `name:` is a literal with no expression. The workflow `name:` must stay `contracts`.
+# PR-reachable: read-only token, no credentials, no environment.
+#
+# Not yet guarded by the RT-867 `plan` job: until RT-867 lands, this job runs on every PR and push
+# to main, like the other root graph jobs today.
+name: contracts
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Per-workflow prefix so the product workflows never cancel each other on one ref; the
+  # push-SHA suffix stops consecutive pushes to main from cancelling each other.
+  group: contracts-${{ github.ref }}${{ github.event_name == 'push' && format('-{0}', github.sha) || '' }}
+  cancel-in-progress: true
+
+jobs:
+  contracts-check:
+    name: contracts/check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      # Same pin and digest as bc/oasdiff (.github/workflows/backend-core.yml). Bump both together.
+      OASDIFF_VERSION: "1.32.1"
+      # sha256 of oasdiff_${OASDIFF_VERSION}_linux_amd64.tar.gz from the release checksums.txt
+      OASDIFF_SHA256: "7c8939fc49b75ee11fec66a5b83b37a2fca6aee109fed85013b1ba2ac2a1ee7f"
+    steps:
+      # fetch-depth 0: the pinned blobs come from older commits; a shallow clone lacks them and
+      # the check would fail closed on every pin.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # Hash-locked, wheels only, no transitive resolution (same file as project-graph).
+      - name: Install pinned dependencies
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: --no-deps -r tools/project-graph/requirements.txt
+
+      - name: Install oasdiff (pinned, checksum-verified)
+        run: |
+          archive="oasdiff_${OASDIFF_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL --proto '=https' --tlsv1.2 -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/oasdiff/oasdiff/releases/download/v${OASDIFF_VERSION}/$archive"
+          echo "${OASDIFF_SHA256}  $RUNNER_TEMP/$archive" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/oasdiff"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/oasdiff" oasdiff
+          "$RUNNER_TEMP/oasdiff/oasdiff" --version
+
+      # Includes the RT-868 acceptance probes against the real pinned blobs and real oasdiff:
+      # removing a POS-used field from pos-sales/sales.yaml fails, an additive field is drift.
+      - name: Unit tests
+        working-directory: tools/contracts-check
+        env:
+          CONTRACTS_CHECK_OASDIFF: ${{ runner.temp }}/oasdiff/oasdiff
+        run: python -m unittest discover -s tests -v
+
+      - name: Check consumers against the in-tree contract
+        working-directory: tools/contracts-check
+        run: |
+          python -m contracts_check --repo "$GITHUB_WORKSPACE" \
+            --oasdiff "$RUNNER_TEMP/oasdiff/oasdiff" --summary "$GITHUB_STEP_SUMMARY"
