@@ -1,9 +1,11 @@
-"""Loading, static validation (RT-709 A.1 rules 1-6) and path classification.
+"""Loading, static validation (RT-709 A.1 rules 1-6, plus the RT-867 plan guard)
+and path classification.
 
 `load_graph` parses untrusted text: size-capped, YAML safe loader only, and it
 rejects anchors, aliases and duplicate keys (all are ways for a proposed graph
 to hide or override content). This module never imports PR-head code."""
 
+import re
 from collections import namedtuple
 
 import yaml
@@ -13,6 +15,8 @@ from .globs import GlobError, compile_glob, normalize_path
 SCHEMA = "retail-tower/project-graph@1"
 MAX_GRAPH_BYTES = 256 * 1024
 LOW_RISK_TIERS = ("low", "tooling")
+PLAN_JOB = "plan"          # workflow job id of the RT-867 plan job
+PLAN_OUTPUT = "jobs"       # its output: JSON list of selected graph job keys
 
 Classification = namedtuple("Classification", "kind owner tiers")
 
@@ -193,6 +197,11 @@ def _check_shared(data, roots, errs):
             if g.text.startswith("**"):
                 errs.append(f"SHARED_GLOB_IN_PRODUCT: {name} glob {g.text} is unanchored")
                 continue
+            # A policy class outranks product ownership (Graph.classify), so it may reach into a
+            # product root: it only ever adds approval and selects everything (fail closed).
+            if cls.get("policy_change") is True:
+                by_prec.setdefault(cls["precedence"], []).append((name, g))
+                continue
             for pname, root in roots.items():
                 inside = (prefix + "/").startswith(root)
                 covers = multi_segment and (prefix == "" or root.startswith(prefix + "/"))
@@ -247,6 +256,91 @@ def _check_jobs(data, workflow_jobs, errs):
                 errs.append(f"CI_JOB_MISSING: {job}")
 
 
+_GUARD_PREFIX = re.compile(r"^!\s*cancelled\(\s*\)\s*&&\s*needs\.plan\.result\s*==\s*'success'\s*&&\s*")
+_GUARD_TERM = re.compile(r"^contains\(\s*fromJSON\(\s*needs\.plan\.outputs\.jobs\s*\)\s*,\s*'([^'\s]+)'\s*\)$")
+
+
+def guard_keys(expr):
+    """Graph job keys a job-level `if:` selects on, or None if it is not a plan guard.
+
+    Only one canonical shape is accepted, so the rule can tell what the guard selects:
+        [!cancelled() && needs.plan.result == 'success' &&] ( contains(fromJSON(needs.plan.outputs.jobs), 'KEY') [|| ...] )
+    with or without the `${{ }}` wrapper and the outer parentheses. Without the prefix GitHub
+    adds its implicit success(), so a failed or skipped plan skips the job."""
+    if not isinstance(expr, str):
+        return None
+    body = expr.strip()
+    if body.startswith("${{") and body.endswith("}}"):
+        body = body[3:-2].strip()
+    body = _GUARD_PREFIX.sub("", body, count=1)
+    if body.startswith("(") and body.endswith(")"):
+        body = body[1:-1].strip()
+    keys = []
+    for term in body.split("||"):
+        m = _GUARD_TERM.match(term.strip())
+        if not m:
+            return None
+        keys.append(m.group(1))
+    return frozenset(keys)
+
+
+def _needs(job):
+    needs = job.get("needs")
+    if isinstance(needs, str):
+        return [needs]
+    return [n for n in needs if isinstance(n, str)] if isinstance(needs, list) else []
+
+
+def _literal_name(job_id, job):
+    name = job.get("name", job_id)
+    return name if isinstance(name, str) and "${{" not in name else None
+
+
+def _check_guards(data, workflows, errs):
+    """Rule 5b (RT-867, MR-4): CI executes only what the graph selects.
+
+    Every graph job outside `always_jobs` must need the workflow's `plan` job and carry a
+    guard on its own key; every job it needs (transitively, e.g. POS shards, Schemathesis
+    shards) must be guarded on that key too, so a selected job never waits on a skipped
+    dependency. `always_jobs` must stay unguarded. `workflows` maps workflow path -> raw
+    `jobs:` mapping, read from the TRUSTED rev."""
+    always = set(data["always_jobs"])
+    plan_checked = set()
+    for key, path in sorted(data["jobs"].items()):
+        jobs = workflows.get(path)
+        if not isinstance(jobs, dict):
+            continue                                  # rule 5 reports the missing job
+        ids = [i for i, j in jobs.items() if isinstance(j, dict) and _literal_name(i, j) == key]
+        if len(ids) != 1:
+            continue                                  # rule 5 / workflow review
+        job = jobs[ids[0]]
+        if key in always:
+            if PLAN_JOB in _needs(job) or "if" in job:
+                errs.append(f"ALWAYS_JOB_GUARDED: {key}")
+            continue
+        if path not in plan_checked:
+            plan_checked.add(path)
+            plan = jobs.get(PLAN_JOB)
+            if not isinstance(plan, dict) or PLAN_OUTPUT not in (plan.get("outputs") or {}) \
+                    or "if" in plan or _needs(plan):
+                errs.append(f"CI_PLAN_MISSING: {path}")
+        stack, seen = [ids[0]], set()
+        while stack:
+            jid = stack.pop()
+            if jid in seen or jid == PLAN_JOB:
+                continue
+            seen.add(jid)
+            dep = jobs.get(jid)
+            where = "" if jid == ids[0] else f" (via {jid})"
+            if not isinstance(dep, dict):
+                errs.append(f"CI_JOB_UNGUARDED: {key}{where} is not defined")
+                continue
+            keys = guard_keys(dep.get("if"))
+            if PLAN_JOB not in _needs(dep) or keys is None or key not in keys:
+                errs.append(f"CI_JOB_UNGUARDED: {key}{where}")
+            stack.extend(_needs(dep))
+
+
 def _check_tree(data, tree_paths, errs):
     def any_match(glob_text):
         g = compile_glob(glob_text)
@@ -266,8 +360,11 @@ def _check_tree(data, tree_paths, errs):
                 errs.append(f"GENERATED_PATH_MISSING: {g}")
 
 
-def validate_graph(data, tree_paths=None, workflow_jobs=None):
-    """Return a list of 'CODE: detail' strings; empty means valid."""
+def validate_graph(data, tree_paths=None, workflow_jobs=None, workflows=None):
+    """Return a list of 'CODE: detail' strings; empty means valid.
+
+    `workflow_jobs` (job name -> workflow path) enables rule 5; `workflows` (workflow path ->
+    raw `jobs:` mapping) enables the RT-867 plan-guard rule. Both come from the trusted rev."""
     errs = _schema_errors(data)
     if errs:
         return errs
@@ -275,6 +372,8 @@ def validate_graph(data, tree_paths=None, workflow_jobs=None):
     _check_shared(data, roots, errs)
     _check_tiers(data, errs)
     _check_jobs(data, workflow_jobs, errs)
+    if workflows is not None:
+        _check_guards(data, workflows, errs)
     for edge in data["edges"]:
         _compile_all(edge["via"], "GLOB_INVALID", errs)
     for gen in data["generated"]:
@@ -307,21 +406,37 @@ class Graph:
             key=lambda item: (item[0], item[1]),
         )
         self.job_owner = {j: p for p, prod in data["products"].items() for j in prod["ci_jobs"]}
+        self._policy = {name for name, c in data["shared_classes"].items() if c.get("policy_change") is True}
+
+    def product_of(self, path):
+        """Product whose root contains `path` (None if none or overlapping), by root alone.
+        The boundary check uses this: a product's own .github/ is still that product's code."""
+        owners = [n for n, root in self.roots.items() if normalize_path(path).startswith(root)]
+        return owners[0] if len(owners) == 1 else None
+
+    def _class_hit(self, path, names=None):
+        for prec in sorted({c[0] for c in self._classes}):
+            hits = [name for p, name, globs in self._classes
+                    if p == prec and (names is None or name in names) and any(g.match(path) for g in globs)]
+            if len(hits) > 1:
+                return Classification("ambiguous", tuple(hits), ())
+            if hits:
+                return Classification("class", hits[0], ())
+        return None
 
     def classify(self, path):
         path = normalize_path(path)
+        # Policy classes win over product ownership (RT-867): e.g. apps/*/.github/** holds
+        # scripts that root CI jobs execute, so a change there needs approval like .github/**.
+        policy = self._class_hit(path, self._policy)
+        if policy:
+            return policy
         owners = [n for n, root in self.roots.items() if path.startswith(root)]
         if len(owners) > 1:
             return Classification("ambiguous", tuple(sorted(owners)), ())
         if owners:
             return Classification("product", owners[0], self._product_tiers(owners[0], path))
-        for prec in sorted({c[0] for c in self._classes}):
-            hits = [name for p, name, globs in self._classes if p == prec and any(g.match(path) for g in globs)]
-            if len(hits) > 1:
-                return Classification("ambiguous", tuple(hits), ())
-            if hits:
-                return Classification("class", hits[0], ())
-        return Classification("unknown", None, ())
+        return self._class_hit(path) or Classification("unknown", None, ())
 
     def _product_tiers(self, product, path):
         rel = path[len(self.roots[product]):]

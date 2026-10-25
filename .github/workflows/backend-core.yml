@@ -17,8 +17,10 @@
 # Differences from the product workflow, all forced by the project graph:
 #  - the graph is the only selector, so the `changes` job (risk-tier classifier), the `ci`
 #    aggregate and the `needs.changes.outputs.* != 'false'` gates are gone; no `paths:`
-#    filter. A selected job that is skipped fails the gate, so every job always runs (the
-#    product's own fail-open default for non-PR events, applied to every event). That includes
+#    filter. RT-867: the `plan` job runs the base-branch evaluator and every job runs only if
+#    the graph selects it (the Schemathesis shards run for bc/schemathesis); a selected job that
+#    is skipped fails the gate. Push to main selects everything. The product's
+#    event-based conditions are not carried over. That includes
 #    the product's `github.event_name == 'pull_request'` condition on oasdiff and Schemathesis:
 #    it is dropped here, so both also run on push to main (see the next two points).
 #  - oasdiff base: pull_request compares with `git merge-base origin/<base_ref> HEAD`, as the
@@ -69,8 +71,95 @@ defaults:
     working-directory: services/backend-core
 
 jobs:
+  # RT-867 (MR-4): the project graph decides which jobs of this workflow EXECUTE, with the same
+  # selection the `required` gate enforces. The evaluator and graph.yaml come from the trusted
+  # commit (the PR base; the pushed main commit on push), extracted with `git archive` and never
+  # from the PR head, whose tree is read as git data only. On push to main the evaluator selects
+  # everything (FULL_RUN_EVENT). `jobs` is the JSON list of selected graph job keys. If this job
+  # fails, every guarded job is skipped and the gate fails (UNEXPECTED_SKIP / ABSENT_JOB).
+  plan:
+    name: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: .
+    outputs:
+      jobs: ${{ steps.plan.outputs.jobs }}
+    steps:
+      # Full history: the evaluator diffs the base and head commits with git plumbing. Only
+      # tools/project-graph is materialised; nothing from the checked-out tree is executed.
+      - name: Checkout (history only)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          sparse-checkout: tools/project-graph
+
+      - name: Resolve trusted, base and head commits
+        id: refs
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          case "$EVENT" in
+            pull_request) base="$PR_BASE"; head="$PR_HEAD" ;;
+            push) base="$SHA"; head="$SHA" ;;   # main itself is trusted; push selects all
+            *) echo "::error::unsupported event '$EVENT'"; exit 1 ;;
+          esac
+          [[ "$base" =~ ^[0-9a-f]{40}$ && "$head" =~ ^[0-9a-f]{40}$ ]]
+          git cat-file -e "$base^{commit}"
+          { echo "base=$base"; echo "head=$head"; } >> "$GITHUB_OUTPUT"
+
+      - name: Extract the trusted evaluator (git archive of the base commit)
+        env:
+          BASE_SHA: ${{ steps.refs.outputs.base }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pgraph-base"
+          git archive "$BASE_SHA" tools/project-graph | tar -x -C "$RUNNER_TEMP/pgraph-base"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned dependencies (from the base commit)
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: --no-deps \
+            -r "$RUNNER_TEMP/pgraph-base/tools/project-graph/requirements.txt"
+
+      - name: Evaluate the project graph
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ steps.refs.outputs.base }}
+          HEAD_SHA: ${{ steps.refs.outputs.head }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/pgraph-base/tools/project-graph"
+          python -m pgraph evaluate --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA" --head "$HEAD_SHA" \
+            --event "$EVENT" --out "$RUNNER_TEMP/plan.json"
+          plan="$RUNNER_TEMP/plan.json"
+          # An invalid trusted graph selects nothing; fail loudly instead of running nothing quietly.
+          if [ "$(jq '.products | length' "$plan")" = "0" ]; then
+            echo "::error::trusted graph invalid: $(jq -c .graph_validation "$plan")"; exit 1
+          fi
+          jobs="$(jq -c '.needed_jobs | if all(test("^[a-z0-9/-]+$")) then . else error("bad job key") end' "$plan")"
+          echo "jobs=$jobs" >> "$GITHUB_OUTPUT"
+          {
+            echo "### project graph plan"
+            echo "graph validation: \`$(jq -r .graph_validation.status "$plan")\` $(jq -c .graph_validation.reasons "$plan"), select_all: \`$(jq -r .select_all "$plan")\`"
+            echo
+            echo "selected: \`$jobs\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   bc-fast:
     name: bc/fast
+    needs: plan
+    if: contains(fromJSON(needs.plan.outputs.jobs), 'bc/fast')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -128,6 +217,8 @@ jobs:
 
   bc-db-integration:
     name: bc/db-integration
+    needs: plan
+    if: contains(fromJSON(needs.plan.outputs.jobs), 'bc/db-integration')
     runs-on: ubuntu-latest
     # 25 minutes (RT-845): api-only since the db + worker suites moved to bc/db-package. Measured
     # on this repo's 2-core runner on PR #14 (RT-841): setup about 1 minute + api 15.0 minutes.
@@ -189,6 +280,8 @@ jobs:
 
   bc-db-package:
     name: bc/db-package
+    needs: plan
+    if: contains(fromJSON(needs.plan.outputs.jobs), 'bc/db-package')
     runs-on: ubuntu-latest
     # 20 minutes, as in the product's db-package job (RT-816). Measured on this repo's 2-core
     # runner on PR #14 (RT-841): setup about 1 minute + db 10.8 + worker 2.5 minutes.
@@ -243,6 +336,8 @@ jobs:
   # not yet measured here.
   bc-oasdiff:
     name: bc/oasdiff
+    needs: plan
+    if: contains(fromJSON(needs.plan.outputs.jobs), 'bc/oasdiff')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -318,6 +413,8 @@ jobs:
   # steps 10, 20 and 15).
   bc-schemathesis-shard:
     name: schemathesis shard ${{ matrix.shard }}
+    needs: plan
+    if: contains(fromJSON(needs.plan.outputs.jobs), 'bc/schemathesis')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -388,8 +485,8 @@ jobs:
   # no unbaselined 5xx. `!cancelled()` keeps it reporting when a shard failed.
   bc-schemathesis:
     name: bc/schemathesis
-    needs: bc-schemathesis-shard
-    if: ${{ !cancelled() }}
+    needs: [plan, bc-schemathesis-shard]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON(needs.plan.outputs.jobs), 'bc/schemathesis') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:

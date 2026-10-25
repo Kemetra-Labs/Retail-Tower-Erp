@@ -84,9 +84,26 @@ def changes(entries):
     return out
 
 
+def guarded_workflows(graph):
+    """Trusted root workflows as the RT-867 plan-guard rule expects them: one `plan` job per
+    workflow, every graph job guarded on its own key, `always_jobs` unguarded. Job ids are the keys."""
+    workflows = {}
+    for key, path in graph["jobs"].items():
+        jobs = workflows.setdefault(path, {"plan": {"name": "plan", "outputs": {"jobs": "${{ steps.plan.outputs.jobs }}"}}})
+        if key in graph["always_jobs"]:
+            jobs[key] = {"name": key}
+        else:
+            jobs[key] = {"name": key, "needs": "plan",
+                         "if": f"contains(fromJSON(needs.plan.outputs.jobs), '{key}')"}
+    return workflows
+
+
 def eval_input(case):
     trusted, proposed = graph_texts(case)
     graph = load_graph(trusted)
+    workflows = None
+    if "workflows" in case:      # {patch: [...]} applied to guarded_workflows(trusted graph)
+        workflows = _apply_patch(guarded_workflows(graph), case["workflows"].get("patch", []))
     return ev.EvalInput(
         event=case.get("event", "pull_request"),
         base_sha=BASE,
@@ -95,6 +112,7 @@ def eval_input(case):
         trusted_text=trusted,
         proposed_text=proposed,
         workflow_jobs=dict(graph["jobs"]),
+        workflows=workflows,
     )
 
 

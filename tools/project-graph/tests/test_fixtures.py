@@ -19,7 +19,7 @@ class FixtureTests(unittest.TestCase):
     def test_all_fixture_cases(self):
         files = support.fixture_files()
         ids = sorted(support.load_fixture(f)["id"] for f in files)
-        expected_ids = [f"P{n:02d}" for n in range(1, 20)] + [f"X{n:02d}" for n in range(1, 8)]
+        expected_ids = [f"P{n:02d}" for n in range(1, 20)] + [f"X{n:02d}" for n in range(1, 9)]
         self.assertEqual(ids, expected_ids)
         for path in files:
             fx = support.load_fixture(path)
@@ -59,6 +59,11 @@ class FixtureTests(unittest.TestCase):
         if want["select"] == "all":
             self.assertTrue(plan["select_all"], plan["graph_validation"])
             self.assertEqual(selected, PRODUCTS)
+        elif want["select"] == "nothing":
+            # An invalid TRUSTED graph cannot place any job: nothing is needed, and the
+            # workflows' plan job fails, so `required` fails with GRAPH_VALIDATION_FAILED.
+            self.assertTrue(plan["select_all"], plan["graph_validation"])
+            self.assertEqual((selected, plan["needed_jobs"]), (set(), []))
         else:
             self.assertFalse(plan["select_all"], plan["graph_validation"])
             self.assertEqual(selected, set(want["select"]))
@@ -69,6 +74,9 @@ class FixtureTests(unittest.TestCase):
                 self.assertEqual(plan[key], want[key], key)
         if "e2e" in want:
             self.assertEqual(plan["e2e"]["run"], want["e2e"])
+        for text in want.get("details_contain", []):
+            details = [d for ds in plan["graph_validation"]["details"].values() for d in ds]
+            self.assertTrue(any(text in d for d in details), details)
         if "notes" in want:
             self.assertEqual(set(plan["notes"]), set(want["notes"]))
         for product, tiers in want.get("product_tiers", {}).items():
