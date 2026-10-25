@@ -38,6 +38,7 @@ class EvalInput:
     proposed_text: str = None          # None: graph unchanged at head
     diff_error: bool = False
     workflow_jobs: dict = None         # job -> workflow at base (rule 5)
+    workflows: dict = None             # workflow -> raw jobs at base (RT-867 plan guard)
     base_tree: frozenset = None        # rule 4 for the trusted graph
     head_tree: frozenset = None        # rule 4 for the proposed graph
 
@@ -80,11 +81,11 @@ def policy_fingerprint(base_sha, trusted_sha, proposed_sha, changes):
     return hashlib.sha256(_canonical(payload).encode("utf-8")).hexdigest()
 
 
-def _load(text, workflow_jobs, tree):
+def _load(text, workflow_jobs, tree, workflows=None):
     """Return (data, None) or (None, error-string)."""
     try:
         data = load_graph(text)
-        errors = validate_graph(data, tree_paths=tree, workflow_jobs=workflow_jobs)
+        errors = validate_graph(data, tree_paths=tree, workflow_jobs=workflow_jobs, workflows=workflows)
     except GraphError as exc:
         return None, str(exc)
     except (GlobError, TypeError, KeyError, AttributeError) as exc:
@@ -234,7 +235,7 @@ def _finish(acc, inp, trusted, trusted_sha, proposed_sha):
 def evaluate(inp):
     acc = _Acc()
     trusted_sha = _sha256(inp.trusted_text)
-    trusted_data, err = _load(inp.trusted_text, inp.workflow_jobs, inp.base_tree)
+    trusted_data, err = _load(inp.trusted_text, inp.workflow_jobs, inp.base_tree, inp.workflows)
     if trusted_data is None:
         acc.fail("GRAPH_INVALID", f"trusted: {err}")
         return _finish(acc, inp, None, trusted_sha, None)
