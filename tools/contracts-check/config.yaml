@@ -59,3 +59,11 @@ identical:
       - services/backend-core/packages/shared/__tests__/observability/obs1-golden-vectors.json
       - apps/pos/src/main/observability/__tests__/obs1-golden-vectors.json
       - integrations/erpnext-connector/retail_tower_erpnext_connector/tests/obs1-golden-vectors.json
+      - apps/admin-console/tests/unit/obs1-golden-vectors.json
+  # RT-879: the union of the rules any runtime masks, checked in all four Sentry scrubbers.
+  - name: RT-879 redaction vectors
+    paths:
+      - services/backend-core/packages/shared/__tests__/observability/rt879-redaction-vectors.json
+      - apps/pos/src/main/observability/__tests__/rt879-redaction-vectors.json
+      - apps/admin-console/tests/unit/rt879-redaction-vectors.json
+      - integrations/erpnext-connector/retail_tower_erpnext_connector/tests/rt879-redaction-vectors.json
