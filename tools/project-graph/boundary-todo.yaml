@@ -1,5 +1,11 @@
 # Boundary ratchet (RT-709 B.1, Packwerk package_todo pattern).
 # Entries may only be REMOVED. Adding one is a policy change (this file is in
-# the `policy` class) and needs SHA-bound human approval.
+# the `policy` class) and needs SHA-bound human approval. A stale entry (one
+# that no longer matches a violation) fails `pgraph boundary` (RT-873).
 # Shape: - { rule: import, from: <repo path>, to: <resolved target>, ticket: RT-xxx }
-[]
+
+# Admin-Console client codegen falls back to a sibling Data-Pulse-2 checkout
+# (`resolve(repoRoot, "..", "Data-Pulse-2")`) when DATA_PULSE_2_REPO is unset.
+# Product code is not edited in Shadow (MR-7). Removed by RT-715 step 6, when
+# Admin-Console generates from the in-tree contract path. Approved under MR-5.
+- { rule: config-path, from: apps/admin-console/openapi-ts.config.ts, to: apps/Data-Pulse-2, ticket: RT-715 }

@@ -19,7 +19,7 @@ The design comes from [RT-709 §A](https://rahmaqanater.atlassian.net/wiki/space
 | `pgraph/boundary.py` | B.1 layer-1 cross-product reference check (dependency-free `scan`), hardened by RT-873 |
 | `pgraph/gitio.py` | Git plumbing adapter (`diff --raw -z`, `ls-tree`, `cat-file --batch`); no checkout |
 | `pgraph/privileges.py` | R5 / T-A static check of root and staged workflows (`python -m pgraph privileges`) |
-| `boundary-todo.yaml` | Boundary ratchet (empty). Entries may only be removed; a stale entry fails `boundary` |
+| `boundary-todo.yaml` | Boundary ratchet (one entry, RT-715). Entries may only be removed; a stale entry fails `boundary` |
 | `fixtures/` | P01–P19 (RT-709 A.6) and X01–X07 (new, see below) with hand-written expectations |
 | `tests/` | unittest suite, including the fixture runner and a real-tree acceptance check |
 | `../ci-gate/gate.yml.staged` | T-A gate template, kept outside `.github/workflows` |
