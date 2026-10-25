@@ -9,25 +9,26 @@ repository builds and publishes the bundle; it does not deploy it.
 
 ## Producing a release
 
-1. Merge to `main` and wait for the **CI** workflow to pass on that push.
-2. Run **Release artifact** (`.github/workflows/release-artifact.yml`) from the
-   Actions tab with the branch set to `main`.
+Since the monorepo cutover (RT-715) the release is the root workflow
+`.github/workflows/release-admin-console.yml` (RT-871): an `admin-console/vX.Y.Z` tag push,
+or a manual dispatch that defaults to a dry-run. Its build job runs `pnpm build` and then
+`release-artifact.ts`, which writes `dist/version.json`. The product workflow
+`release-artifact.yml` that this page first described was retired in RT-878 (GitHub never
+ran it from a nested `.github/`).
 
-The workflow refuses to release when:
+The build refuses to release when:
 
-- it was dispatched from any ref other than `main`;
-- CI has no successful `push` run on `main` for that exact commit. CI cancels
-  superseded runs, so a commit that was quickly replaced on `main` never gets a
-  successful run and cannot be released; release the newer commit;
+- the release SHA is not on `main`, or a non-dry-run is not on an `admin-console/vX.Y.Z` tag;
 - `VITE_API_BASE_URL` is set, either in the build environment or in a root
   `.env*` file that `vite build` loads. Vite inlines it into the bundle and would
   replace the same-origin API default;
-- `dist/` lacks `index.html` or `assets/`, or contains source maps or `.env*` files;
-- a tag or release named `admin-console-<sha12>` already exists. Published
-  artifacts are never overwritten.
+- `dist/` lacks `index.html` or `assets/`, or contains source maps or `.env*` files.
 
-The owner may additionally enable GitHub's repository-level immutable releases
-setting; the workflow does not change repository settings.
+Publication (GitHub release assets) is not enabled yet: real releases are RT-717. Until then
+the tarball and its release manifest are workflow artifacts, named
+`admin-console-dist-<sha12>.tar.gz`. The tag and asset names in the contract below are the
+retired workflow's; RT-717 decides the published names. The archive content (`dist/` with
+`version.json`) and the serving rules are unchanged.
 
 ## Artifact contract (consumed by RT-336)
 

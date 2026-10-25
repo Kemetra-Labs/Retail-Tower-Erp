@@ -16,7 +16,8 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const read = (rel: string): string =>
   readFileSync(path.join(REPO_ROOT, rel), 'utf8').replaceAll('\r\n', '\n');
 
-const WORKFLOW = '.github/workflows/lab-update-drill.yml';
+// RT-878: GitHub runs only root workflows, so the drill lives in the monorepo's .github/.
+const WORKFLOW = '../../.github/workflows/pos-lab-update-drill.yml';
 const SPIKE = 'scripts/lab/ci/run-lab-spike.ps1';
 
 describe('RT-803 lab update drill workflow (P0 spike)', () => {

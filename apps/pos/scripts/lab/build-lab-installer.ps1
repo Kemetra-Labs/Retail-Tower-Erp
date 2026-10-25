@@ -35,8 +35,17 @@ $ErrorActionPreference = 'Stop'
 $marker = 'LAB TEST - NOT FOR PRODUCTION'
 $fixtureRel = 'migrations/9999_rt772_lab_fixture.sql'
 
-$repo = (git rev-parse --show-toplevel).Trim()
+# The POS product root (apps/pos in the monorepo), not the git top level.
+$repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 Set-Location $repo
+# `git status --porcelain` prints paths from the git top level. Limit it to the product and strip
+# the product's prefix, so the checks below read product-relative paths in the monorepo too.
+$prefix = (git rev-parse --show-prefix).Trim()
+function Get-ProductStatus([string[]]$Paths = @('.')) {
+  git status --porcelain -uall -- @Paths | ForEach-Object {
+    if ($prefix) { $_.Substring(0, 3) + $_.Substring(3).Replace($prefix, '') } else { $_ }
+  }
+}
 if (-not (Test-Path 'electron-builder.lab.yml')) { throw 'run from a checkout that contains electron-builder.lab.yml' }
 
 # 1. The packaged app must be exactly the recorded commit: nothing that ends up in
@@ -44,7 +53,7 @@ if (-not (Test-Path 'electron-builder.lab.yml')) { throw 'run from a checkout th
 #    HEAD. The lab scripts and docs themselves may be uncommitted. The one allowed
 #    extra is the throwaway fixture migration, on request.
 $appPaths = '^..\s+(src/|migrations/|package(-lock)?\.json|electron-builder\.yml|vite\.|tsconfig|postcss|tailwind)'
-$dirty = @(git status --porcelain -uall | Where-Object { $_ -match $appPaths })
+$dirty = @(Get-ProductStatus | Where-Object { $_ -match $appPaths })
 if ($LabFixtureMigration) {
   if (-not (Test-Path $fixtureRel)) { throw "-LabFixtureMigration needs $fixtureRel to exist" }
   $dirty = @($dirty | Where-Object { $_ -notmatch [regex]::Escape($fixtureRel) })
@@ -64,7 +73,7 @@ if ($dirty.Count -gt 0) {
   })
 }
 $gitSha = (git rev-parse HEAD).Trim()
-$labFilesUncommitted = @(git status --porcelain -- scripts/lab electron-builder.lab.yml docs/runbook | Where-Object { $_ }).Count -gt 0
+$labFilesUncommitted = @(Get-ProductStatus scripts/lab, electron-builder.lab.yml, docs/runbook | Where-Object { $_ }).Count -gt 0
 
 # 2. Lab certificate must exist and carry the lab marker.
 if (-not $CertSha1) { throw 'set -CertSha1 or RT772_LAB_CERT_SHA1 (see new-lab-signing-cert.ps1)' }

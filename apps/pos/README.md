@@ -24,7 +24,6 @@
   <a href="src/renderer"><img alt="React 19" src="https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=61dafb&labelColor=0a0f24&style=flat-square"></a>
   <a href="vite.config.ts"><img alt="Vite 8" src="https://img.shields.io/badge/Vite-8-646cff?logo=vite&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
   <a href="tailwind.config.ts"><img alt="Tailwind 4" src="https://img.shields.io/badge/Tailwind-4-06b6d4?logo=tailwindcss&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
-  <a href="https://github.com/Kemetra/POS/blob/badges/loc.svg"><img alt="LOC" src="https://raw.githubusercontent.com/Kemetra/POS/badges/loc.svg"></a>
 </p>
 
 <p align="center">
@@ -236,9 +235,9 @@ Open the [interactive Three.js terminal map](docs/architecture/pos-pulse-live-ma
 | `tests` | Contract, integration and unit coverage outside process-local source test folders |
 | `specs` | Spec Kit artifacts, `001`–`023` plus `0xx-insurance-copay`: design records, not the authority for current behavior (see [`specs/README.md`](specs/README.md)) |
 | `docs` | Documentation index · current architecture · hardware matrix · product · design system and RT-104 VNext package · runbooks · assets |
-| `scripts` | OpenAPI codegen and verification · contract re-pin · dev-electron launcher · perf seed · LOC badge automation |
+| `scripts` | OpenAPI codegen and verification · contract re-pin · dev-electron launcher · perf seed · lab installer and update drill |
 | `.specify` | Spec Kit infrastructure · constitution v1.7.0 · templates |
-| `.github` | CI workflow (static, test, Windows package, docs fast path) · PR template · CODEOWNERS |
+| CI | The monorepo's root `.github/workflows/pos.yml` (static, test, Windows package, docs, Electron e2e) and `pos-lab-update-drill.yml` (manual lab drill) |
 
 ### What this repo owns
 The Windows 10/11 x64 Electron cashier terminal: cashier workflow · secure process boundaries and the typed preload bridge · local and offline state (SQLite, outbox) · receipt behavior · barcode and product search · payment interaction · POS ↔ Backend-Core synchronization · pairing, operator sessions, audit, logging · POS UI primitives and design tokens · MVP hardware compatibility docs.

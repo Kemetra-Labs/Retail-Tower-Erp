@@ -59,7 +59,7 @@ products:
     high_jobs: ["@pos-full", pos/package-windows]
     tiers:
       contracts:
-        globs: [contracts/backend-core/**, "scripts/{codegen-api,verify-codegen,contracts-pin,contracts-repin,contracts-repin-pr,merge-readdown-contract}.ts", src/shared/api-types.ts, tests/contract/**, src/main/observability/__tests__/obs1-golden-vectors.json]
+        globs: [contracts/backend-core/**, "scripts/{codegen-api,verify-codegen,contracts-pin,contracts-repin}.ts", src/shared/api-types.ts, tests/contract/**, src/main/observability/__tests__/obs1-golden-vectors.json]
         jobs: [pos/static, "@pos-full", bc/oasdiff, contracts/check]
       money:
         globs: ["src/main/{payments,shift-cashup,drawer}/**", "src/shared/{payments,money,shift-cashup}/**", src/shared/money.ts, src/preload/shift-cashup.ts, "migrations/*payment*", "migrations/*cash*"]
@@ -99,7 +99,7 @@ products:
     high_jobs: [admin/build-test, admin/e2e]
     tiers:
       contracts:
-        globs: [contracts/backend-core/PIN, src/generated/**, openapi-ts.config.ts, "src/lib/{contracts-pin,client,auth-interceptor,request-id}.ts", scripts/contracts-repin-pr.ts, "tests/unit/{contracts-pin,boundary}.test.ts", "tests/unit/*-boundary.test.ts"]
+        globs: [contracts/backend-core/PIN, src/generated/**, openapi-ts.config.ts, "src/lib/{contracts-pin,client,auth-interceptor,request-id}.ts", "tests/unit/{contracts-pin,boundary}.test.ts", "tests/unit/*-boundary.test.ts"]
         jobs: [admin/build-test, admin/e2e, bc/oasdiff, contracts/check]
       money:
         globs: ["src/{cash-policy,payers,shift-closes}/**", "src/lib/{cash-variance-policy,shift-close}-queries.ts"]

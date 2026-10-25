@@ -1,7 +1,7 @@
 // RT-337: pinned Admin Console release artifact.
 //
-// `.github/workflows/release-artifact.yml` executes this file with Node 22 type
-// stripping after `pnpm build`. It refuses a build that would break same-origin
+// The monorepo's root `.github/workflows/release-admin-console.yml` (RT-871, RT-878)
+// executes this file with Node 22 type stripping after `pnpm build`. It refuses a build that would break same-origin
 // hosting (RT-315), checks the `dist/` layout, and writes `dist/version.json`.
 // Packaging (tar + SHA-256) and publishing stay in the workflow. Kept at the
 // repo root next to openapi-ts.config.ts, so no extra scripts directory.

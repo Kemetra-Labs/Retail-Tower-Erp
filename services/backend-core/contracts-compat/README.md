@@ -2,7 +2,9 @@
 
 Installed POS terminals never update atomically, so every Backend-Core change must stay
 compatible with every **supported, actually installed** POS contract snapshot. The
-`contracts-compat (POS supported snapshots)` job in `.github/workflows/ci.yml` enforces it.
+`contracts-compat (POS supported snapshots)` job of the product's former `ci.yml` enforced it. In the
+monorepo the root release (`.github/workflows/release-backend-core.yml`) requires a `bc/contracts-compat`
+run, and that root CI job is not wired yet.
 Design: RT-709 §C.1 (Confluence page 43712707). Owner authorization: RT-713 comment 13209.
 
 ## What the job does

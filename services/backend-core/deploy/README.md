@@ -260,6 +260,12 @@ op run --env-file=deploy/prod.env -- \
 
 ## Image release (RT-533)
 
+> **Retired workflow (RT-878).** GitHub runs only root workflows since the monorepo
+> cutover (RT-715), so `release-images.yml` below never ran here and was deleted. The
+> monorepo's image release is the root `.github/workflows/release-backend-core.yml`
+> (RT-871, dry-run until RT-717). This section describes the releases already published
+> from `Kemetra/Backend-Core`, which the commands below still verify.
+
 The manual `Release images` workflow (`.github/workflows/release-images.yml`)
 builds the `api`, `worker` and `migrate` images from one exact tip-of-`main`
 SHA. With `publish: true` it pushes them to GHCR as
@@ -314,6 +320,13 @@ in [Deploy](#deploy). Drop `--build`
 from those commands, since the images are pulled, not built.
 
 ## Lab deploy workflow (RT-703 preflight, RT-842 live job)
+
+> **Retired workflow (RT-878).** `deploy-lab.yml` never ran from the monorepo's nested
+> `.github/` and was deleted. Its trust chain (signer workflow, required check names,
+> GitHub OIDC subject) names `Kemetra/Backend-Core`, so the lab deploy is to be rebuilt
+> on the monorepo release. The verifier (`deploy/lab/verify-release.cjs`), the SSM
+> documents and their tests stay; this section describes how the retired workflow
+> used them.
 
 The manual `Deploy lab` workflow (`.github/workflows/deploy-lab.yml`) checks
 that a published release is safe to deploy to the AWS lab, and writes a planned

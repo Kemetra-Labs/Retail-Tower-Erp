@@ -49,7 +49,8 @@ REDIS_URL=redis://localhost:6379
 Every PR should include:
 
 - A short summary of what changed and why.
-- A completed Constitution Check from `.github/pull_request_template.md`.
+- A Constitution Check: the principles in `.specify/memory/constitution.md` the
+  change touches, and how it complies.
 - A test plan with commands run locally.
 - Migration/deployment notes when schema, queues, environment variables, or
   runtime wiring changes.
@@ -150,5 +151,5 @@ old `.js`, which would still load.
 CodeRabbit is the primary AI reviewer, but it is capped at about one review per
 hour, so `.coderabbit.yaml` reviews only the first push of a PR automatically
 (`auto_incremental_review: false`). Add the `skip-coderabbit` label to opt a PR
-out. For High-tier PRs (the risk tiers in `.github/scripts/ci-tier.sh`,
-RT-582), comment `@coderabbitai review` on the final head once it is pushed.
+out. For high-risk PRs (contracts, migrations, auth, tenant isolation, money, tax,
+posting or sync), comment `@coderabbitai review` on the final head once it is pushed.

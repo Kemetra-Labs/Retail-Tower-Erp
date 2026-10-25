@@ -117,8 +117,22 @@ jobs:
 
       # The generated API client is committed and checked against the PIN by admin/build-test
       # on main; the release builds exactly what is committed. vite.config.ts stamps GITHUB_SHA.
+      # No env and no secrets: VITE_* values are inlined into the bundle, and same-origin hosting
+      # (RT-315) needs VITE_API_BASE_URL unset. Vite reads it in this step, so it is refused here;
+      # release-artifact.ts repeats the check and also covers committed .env* files.
       - name: Build
-        run: pnpm build
+        run: |
+          if [ -n "${VITE_API_BASE_URL+set}" ]; then
+            echo "::error::VITE_API_BASE_URL must not be set for a release build (same-origin hosting, RT-315)."
+            exit 1
+          fi
+          pnpm build
+
+      # RT-878: carried over from the retired product release-artifact.yml (RT-337). Checks the
+      # dist/ layout and writes the public dist/version.json (sha, build time, Backend-Core contract
+      # pin) that Backend-Core's Console hosting serves and checks (deploy/console-smoke.sh).
+      - name: Write version.json
+        run: node --experimental-strip-types release-artifact.ts
 
       # Deterministic tarball: sorted names, fixed mtime and owner, gzip without a timestamp.
       - name: Package dist/

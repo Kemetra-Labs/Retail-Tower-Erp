@@ -93,7 +93,8 @@ if (-not ($env:GITHUB_ACTIONS -eq 'true' -and $env:RUNNER_ENVIRONMENT -eq 'githu
   exit 2
 }
 
-$repo = (git rev-parse --show-toplevel).Trim()
+# The POS product root (apps/pos in the monorepo), not the git top level.
+$repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 New-Item -ItemType Directory -Force -Path $Evidence, $work | Out-Null
 $results = [System.Collections.Generic.List[object]]::new()
 $failed = $false

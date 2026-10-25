@@ -245,33 +245,6 @@ export const RT_306_PAIRING_TOKEN_BINDING_EXEMPT_PREFIXES = [
 ] as const satisfies readonly ForbiddenPathPrefix[];
 
 /**
- * `bot/backend-core-repin` is the contracts-repin bot's PR branch (RT-676,
- * `.github/workflows/contracts-repin.yml`). A repin that adds a pairing error
- * code turns the drift guard in
- * `src/main/pairing/__tests__/failure-mapping.test.ts` red until a human lists
- * the new code there (first case: terminal-pairing 1.2.0 `REPLACEMENT_BLOCKED`,
- * whose dedicated mapping is RT-591).
- *
- * Authority: owner decision (option A, "narrow exemption"), 2026-10-18, for
- * Kemetra/POS#755, citing RT-676 and RT-591.
- *
- * RT-869: `src/shared/api-types.ts` is generated only from the vendored contract
- * set, so a repin regenerates it and the bot commits it with the contracts. CI's
- * `codegen:verify` proves the committed file is exactly the codegen output.
- *
- * Exemption is narrow, and deliberately not a prefix exemption: exactly TWO
- * files, on exactly ONE branch (exact name, no `startsWith`). No other
- * `src/main/pairing/` path, and every forbidden prefix stays blocked for every
- * other file and branch. Narrowness is asserted by
- * `source-scope-guard-rt676.test.ts`.
- */
-export const RT_676_REPIN_BRANCH = 'bot/backend-core-repin' as const;
-export const RT_676_REPIN_EXEMPT_FILES = [
-  'src/main/pairing/__tests__/failure-mapping.test.ts',
-  'src/shared/api-types.ts',
-] as const satisfies readonly string[];
-
-/**
  * `claude/rt-591-replacement-blocked-af1e3e` implements Jira RT-591: the
  * terminal-pairing error `REPLACEMENT_BLOCKED` (409, RT-367) gets its own
  * `replacement_blocked` outcome and cashier guidance instead of the generic
@@ -302,14 +275,6 @@ export function isRt591ExemptFile(branch: string, file: string): boolean {
   return (
     branch === RT_591_REPLACEMENT_BLOCKED_BRANCH &&
     (RT_591_REPLACEMENT_BLOCKED_EXEMPT_FILES as readonly string[]).includes(file)
-  );
-}
-
-/** True when `file` is one of the files the RT-676 exemption allows on `branch`. */
-export function isRt676ExemptFile(branch: string, file: string): boolean {
-  return (
-    branch === RT_676_REPIN_BRANCH &&
-    (RT_676_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
 

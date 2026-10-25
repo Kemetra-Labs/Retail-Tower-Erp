@@ -25,7 +25,8 @@ $ErrorActionPreference = 'Stop'
 $marker = 'LAB TEST - NOT FOR PRODUCTION'
 $work = Join-Path $env:RUNNER_TEMP 'lab-spike'
 $statePath = Join-Path $work 'state.json'
-$repo = (git rev-parse --show-toplevel).Trim()
+# The POS product root (apps/pos in the monorepo), not the git top level.
+$repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 
 function Remove-LabTrust {
   if (-not (Test-Path -LiteralPath $statePath)) { return }

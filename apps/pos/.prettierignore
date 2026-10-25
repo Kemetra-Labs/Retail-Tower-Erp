@@ -25,15 +25,6 @@ scripts/openapi-snapshot.json
 # unformatted-style warnings on the .mjs helper scripts.
 .claude/
 
-# PR #221's CI utility workflow file landed in a state that fails
-# `prettier --check`. Feature PRs cannot reformat it because
-# `.github/workflows/` is on the source-scope guard's forbidden list
-# (a `ci/` branch is required to touch CI config). Ignoring it in
-# prettier breaks the Catch-22: feature PRs no longer inherit the
-# format failure. A future `ci/` branch may format the workflow
-# properly and remove this entry.
-.github/workflows/update-loc-badge.yml
-
 # Architecture artifact doc — hand/tool-authored, not subject to project
 # prettier conventions (it has its own embedded styling/markup). Ignoring it
 # keeps the lint job green without a churny full-file reformat that could

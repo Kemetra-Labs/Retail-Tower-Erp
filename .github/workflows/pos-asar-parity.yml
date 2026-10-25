@@ -15,6 +15,12 @@
 # request and `required` does not consume it. No secrets, no environment, read-only token. The
 # source repo is public, so the checkout needs no credential.
 #
+# Where to run it: apps/pos is canonical here since the RT-715 cutover, and RT-878 is the first POS
+# change made in this repository, so on later commits apps/pos no longer equals the frozen source and
+# the tree precondition refuses by design. Dispatch it from a branch or tag at a commit where apps/pos
+# still equals Kemetra/POS@frozen: the RT-877 merge da54cdb is one (apps/pos tree af3b236a, equal to
+# the source commit's root tree).
+#
 # Fails closed: a source SHA that is not 40 hex or a repo other than Kemetra/POS, a source tree
 # that differs from apps/pos outside the pinned license-file exceptions (the two builds would not
 # compare like with like), an unreadable or empty archive, any file-list difference, a `.node` built for another ABI or with no addon symbol
