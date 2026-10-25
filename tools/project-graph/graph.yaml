@@ -41,6 +41,7 @@ jobs:
   e2e/smoke: .github/workflows/e2e.yml
   boundary-check: .github/workflows/project-graph.yml
   dependency-review: .github/workflows/project-graph.yml
+  contracts/check: .github/workflows/contracts.yml
 
 job_groups:
   pos-full: [pos/static, pos/test-shard-1, pos/test-shard-2, pos/test-shard-3, pos/test]
@@ -58,8 +59,8 @@ products:
     high_jobs: ["@pos-full", pos/package-windows]
     tiers:
       contracts:
-        globs: [contracts/backend-core/**, "scripts/{codegen-api,verify-codegen,contracts-pin,contracts-repin,contracts-repin-pr,merge-readdown-contract}.ts", scripts/openapi-snapshot.json, src/shared/api-types.ts, tests/contract/**]
-        jobs: [pos/static, "@pos-full", bc/oasdiff]
+        globs: [contracts/backend-core/**, "scripts/{codegen-api,verify-codegen,contracts-pin,contracts-repin,contracts-repin-pr,merge-readdown-contract}.ts", scripts/openapi-snapshot.json, src/shared/api-types.ts, tests/contract/**, src/main/observability/__tests__/obs1-golden-vectors.json]
+        jobs: [pos/static, "@pos-full", bc/oasdiff, contracts/check]
       money:
         globs: ["src/main/{payments,shift-cashup,drawer}/**", "src/shared/{payments,money,shift-cashup}/**", src/shared/money.ts, src/preload/shift-cashup.ts, "migrations/*payment*", "migrations/*cash*"]
         jobs: ["@pos-full", pos/package-windows, e2e/smoke]
@@ -99,7 +100,7 @@ products:
     tiers:
       contracts:
         globs: [contracts/backend-core/PIN, src/generated/**, openapi-ts.config.ts, "src/lib/{contracts-pin,client,auth-interceptor,request-id}.ts", scripts/contracts-repin-pr.ts, "tests/unit/{contracts-pin,boundary}.test.ts", "tests/unit/*-boundary.test.ts"]
-        jobs: [admin/build-test, admin/e2e, bc/oasdiff]
+        jobs: [admin/build-test, admin/e2e, bc/oasdiff, contracts/check]
       money:
         globs: ["src/{cash-policy,payers,shift-closes}/**", "src/lib/{cash-variance-policy,shift-close}-queries.ts"]
         jobs: [admin/build-test, admin/e2e]
@@ -135,8 +136,8 @@ products:
     high_jobs: ["@bc-full"]
     tiers:
       contracts:
-        globs: [packages/contracts/**, apps/api/src/openapi/**, apps/api/test/contract-conformance.spec.ts, apps/api/test/openapi/**, tools/oasdiff/**, tools/schemathesis/**]
-        jobs: ["@bc-full", pos/static, pos/test, admin/build-test, admin/e2e, connector/unit-tests-and-lint]
+        globs: [packages/contracts/**, apps/api/src/openapi/**, apps/api/test/contract-conformance.spec.ts, apps/api/test/openapi/**, tools/oasdiff/**, tools/schemathesis/**, packages/shared/__tests__/observability/obs1-golden-vectors.json]
+        jobs: ["@bc-full", pos/static, pos/test, admin/build-test, admin/e2e, connector/unit-tests-and-lint, contracts/check]
       money:
         globs: [apps/api/src/settlement/**, packages/db/src/schema/settlement/**, packages/db/src/schema/sales/sale-tenders.ts, packages/db/src/schema/catalog/price-history.ts]
         # pos/static + pos/test: semantic edge (MR-4), wire behaviour POS depends on.
@@ -181,7 +182,7 @@ products:
     tiers:
       contracts:
         globs: [retail_tower_erpnext_connector/connector/posting/contracts.py, retail_tower_erpnext_connector/connector/bin_view/contracts.py, retail_tower_erpnext_connector/connector/schema.py, retail_tower_erpnext_connector/tests/**/test_contracts.py, retail_tower_erpnext_connector/tests/**/test_resolution_contracts.py, retail_tower_erpnext_connector/tests/obs1-golden-vectors.json]
-        jobs: [connector/unit-tests-and-lint, bc/fast]
+        jobs: [connector/unit-tests-and-lint, bc/fast, contracts/check]
       money:
         globs: ["retail_tower_erpnext_connector/connector/posting/{tender,uom,builder,return_builder,reversal_builder,reversal_policy,stock_policy,representation_check}.py", "retail_tower_erpnext_connector/connector/doctype/{rt_tender_mode_map_row,rt_uom_map_row}/**"]
         jobs: [connector/unit-tests-and-lint]
