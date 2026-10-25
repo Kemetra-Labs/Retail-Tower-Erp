@@ -6,11 +6,6 @@ from pgraph.graph import Graph, GraphError, guard_keys, load_graph, validate_gra
 import support
 
 
-# RT-867 4(b): product-root .github/** as policy. Added to graph.yaml in a follow-up PR, because
-# main's validator (before this change) rejects shared globs inside product roots.
-PRODUCT_GITHUB_GLOBS = ["apps/*/.github/**", "services/*/.github/**", "integrations/*/.github/**"]
-
-
 def _real():
     return load_graph(support.trusted_text())
 
@@ -159,7 +154,6 @@ class StaticRuleTests(unittest.TestCase):
 
     def test_policy_class_may_reach_into_product_roots(self):
         g = _real()
-        g["shared_classes"]["policy"]["globs"] += PRODUCT_GITHUB_GLOBS
         self.assertEqual(validate_graph(g, workflow_jobs=dict(g["jobs"])), [])
         g["shared_classes"]["tooling"]["globs"].append("apps/*/.github/**")
         self.assertIn("SHARED_GLOB_IN_PRODUCT", _codes(validate_graph(g, workflow_jobs=dict(g["jobs"]))))
@@ -197,9 +191,7 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.g.classify("docs/a.md").owner, "docs")
 
     def test_product_github_dirs_are_policy(self):
-        data = _real()
-        data["shared_classes"]["policy"]["globs"] += PRODUCT_GITHUB_GLOBS
-        g = Graph(data)
+        g = self.g
         for path in ("apps/pos/.github/workflows/ci.yml", "apps/admin-console/.github/scripts/fetch-pinned-contracts.sh",
                      "services/backend-core/.github/scripts/ci-tier.sh",
                      "integrations/erpnext-connector/.github/workflows/ci.yml"):
@@ -209,9 +201,7 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(g.classify("apps/pos/src/.github/x").kind, "product")
 
     def test_boundary_still_scans_product_github_dirs(self):
-        data = _real()
-        data["shared_classes"]["policy"]["globs"] += PRODUCT_GITHUB_GLOBS
-        g = Graph(data)
+        g = self.g
         self.assertEqual(g.classify("apps/admin-console/.github/scripts/x.mjs").owner, "policy")
         self.assertEqual(g.product_of("apps/admin-console/.github/scripts/x.mjs"), "admin-console")
         result = bd.scan(g, {"apps/admin-console/.github/scripts/x.mjs": "import x from '../../../pos/src/a.js'\n"}, [])
