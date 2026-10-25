@@ -69,10 +69,16 @@ describe('OBS-1 §3.5 golden vectors (Bearer/Authorization and phones)', () => {
       'jane@example.invalid,authorization=x',
       '[email]',
     ],
+    // RT-879: `id_token` is a credential key, so its whole value is masked before the JWT rule.
     [
       'a JWT before authorization= in one word',
       'id_token=eyJa.b.c;authorization=x',
-      'id_token=[jwt]',
+      'id_token=[redacted]',
+    ],
+    [
+      'a JWT before authorization= in one word, not a credential key',
+      'id=eyJa.b.c;authorization=x',
+      'id=[jwt]',
     ],
     [
       'a phone before an empty Authorization value',
