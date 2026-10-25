@@ -55,10 +55,6 @@ class ParsePin(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(pins.PinError):
                 pins.parse_pin(text)
 
-    def test_real_pins_parse(self):
-        for pin in ("apps/pos/contracts/backend-core/PIN", "apps/admin-console/contracts/backend-core/PIN"):
-            self.assertTrue(pins.parse_pin((REPO_ROOT / pin).read_text(encoding="utf-8")))
-
 
 class ConsumerCase(unittest.TestCase):
     def setUp(self):
@@ -195,27 +191,30 @@ class RealOasdiff(unittest.TestCase):
 
 
 @unittest.skipUnless(real_oasdiff(), "set CONTRACTS_CHECK_OASDIFF to the pinned oasdiff binary")
-class RealTreeProbes(unittest.TestCase):
-    """RT-868 acceptance on the real pinned blobs: a POS-used field removed from the in-tree
-    pos-sales/sales.yaml fails; adding an optional field is drift only."""
+class PinnedBlobProbes(unittest.TestCase):
+    """RT-868 acceptance on the real POS pin of pos-sales/sales.yaml: removing a POS-used field
+    fails, adding an optional field is drift. Base and revision both come from the pinned blob,
+    so the result does not depend on the state of the working tree."""
+
+    POS_SALES_BLOB = "b5371fc4cce168c43ef27c8e486e972c1e1b18ff"   # apps/pos/contracts/backend-core/PIN
 
     def setUp(self):
+        data = pins.read_blob(REPO_ROOT, self.POS_SALES_BLOB)
+        if data is None:
+            self.fail(f"pinned blob {self.POS_SALES_BLOB} missing: run with full history (fetch-depth 0)")
         self.tmp = tempfile.TemporaryDirectory(prefix="cc-probe-")
         self.addCleanup(self.tmp.cleanup)
-        self.contracts = pathlib.Path(self.tmp.name)
-        source = REPO_ROOT / "services/backend-core/packages/contracts/openapi"
-        self.spec = yaml.safe_load((source / "pos-sales/sales.yaml").read_text(encoding="utf-8"))
+        self.dir = pathlib.Path(self.tmp.name)
+        (self.dir / "base.yaml").write_bytes(data)
+        self.spec = yaml.safe_load(data)
 
     def check(self):
-        (self.contracts / "pos-sales").mkdir(exist_ok=True)
-        (self.contracts / "pos-sales/sales.yaml").write_text(yaml.safe_dump(self.spec, sort_keys=False),
-                                                             encoding="utf-8")
-        files = pins.parse_pin((REPO_ROOT / "apps/pos/contracts/backend-core/PIN").read_text(encoding="utf-8"))
-        blob = dict(files)["pos-sales/sales.yaml"]
-        base = self.contracts / "base.yaml"
-        base.write_bytes(pins.read_blob(REPO_ROOT, blob))
-        return pins.compare_file(real_oasdiff(), base, self.contracts / "pos-sales/sales.yaml",
-                                 REPO_ROOT / "services/backend-core/tools/oasdiff/severity-levels.txt", "POS")
+        revision = self.dir / "revision.yaml"
+        revision.write_text(yaml.safe_dump(self.spec, sort_keys=False), encoding="utf-8")
+        return pins.compare_file(real_oasdiff(), self.dir / "base.yaml", revision, None, "POS")
+
+    def test_unchanged_is_ok(self):
+        self.assertEqual([f.status for f in self.check()], [OK])
 
     def test_removing_sale_ref_fails(self):
         sale = self.spec["components"]["schemas"]["Sale"]

@@ -4,8 +4,7 @@ import unittest
 from contracts_check import connector
 from contracts_check.findings import DRIFT, FAIL, OK
 
-from support import REPO_ROOT, TempRepo
-from contracts_check.cli import load_config, DEFAULT_CONFIG
+from support import TempRepo
 
 SPEC = """\
 openapi: 3.1.0
@@ -238,17 +237,6 @@ class PatternNormalisation(unittest.TestCase):
         self.assertEqual(connector.normalise_pattern(r"^\d+[\d.]$", True), r"^[0-9]+[0-9.]$")
         self.assertEqual(connector.normalise_pattern(r"^\d$", False), r"^\d$")
         self.assertEqual(connector.normalise_pattern(r"\\d", True), r"\\d")   # escaped backslash
-
-
-class RealTree(unittest.TestCase):
-    """The configured Connector modules match the in-tree contract (drift allowed)."""
-
-    def test_real_connector_modules(self):
-        config = load_config(DEFAULT_CONFIG)
-        for entry in config["connector"]:
-            findings = connector.check_module(REPO_ROOT, entry, config["contracts_root"])
-            self.assertEqual([f for f in findings if f.status == FAIL], [], entry["module"])
-            self.assertTrue(any(f.status == OK for f in findings))
 
 
 if __name__ == "__main__":

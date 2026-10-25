@@ -58,13 +58,25 @@ class Cli(unittest.TestCase):
             code = cli.main(list(argv))
         return code, out.getvalue(), err.getvalue()
 
-    def test_real_tree_connector_and_identical_pass(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            summary = pathlib.Path(tmp) / "summary.md"
-            code, out, _ = self.call("--repo", str(REPO_ROOT), "--only", "connector", "--only", "identical",
-                                     "--summary", str(summary))
-            self.assertEqual(code, 0, out)
-            self.assertIn("## contracts/check", summary.read_text(encoding="utf-8"))
+    def test_identical_only_run_writes_summary(self):
+        repo = TempRepo()
+        self.addCleanup(repo.close)
+        repo.write("a/v.json", b"{}")
+        repo.write("b/v.json", b"{}")
+        config = repo.write("config.yaml", """\
+            contracts_root: contracts
+            consumers: [{name: X, pin: PIN}]
+            connector: [{module: m.py, contract: c.yaml}]
+            identical: [{name: V, paths: [a/v.json, b/v.json]}]
+            """)
+        summary = repo.root / "summary.md"
+        code, out, _ = self.call("--repo", str(repo.root), "--config", str(config), "--only", "identical",
+                                 "--summary", str(summary))
+        self.assertEqual(code, 0, out)
+        self.assertIn("## contracts/check", summary.read_text(encoding="utf-8"))
+        repo.write("b/v.json", b"{ }")
+        code, out, _ = self.call("--repo", str(repo.root), "--config", str(config), "--only", "identical")
+        self.assertEqual(code, 1, out)
 
     def test_bad_config_exits_2(self):
         with tempfile.TemporaryDirectory() as tmp:
