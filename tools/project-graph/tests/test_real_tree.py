@@ -53,9 +53,10 @@ class RealTreeTests(unittest.TestCase):
         self.assertEqual(scan_repo(REPO), [])
 
     def test_boundary_layer1_is_clean(self):
-        files, unscanned = bd.read_worktree_files(REPO, self.paths)
-        result = bd.scan(self.graph, files, bd.load_ratchet(REPO), unscanned=unscanned)
+        files, unscanned = bd.read_rev_files(REPO, "HEAD")
+        result = bd.scan(self.graph, files, bd.load_ratchet(REPO, "HEAD"), unscanned=unscanned)
         self.assertEqual(result["violations"], [])
+        self.assertEqual(result["stale_ratchet"], [])
 
 
 if __name__ == "__main__":
