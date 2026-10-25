@@ -33,7 +33,7 @@ Layer 1 (`pgraph boundary`, every PR) also rejects ERPNext/Frappe REST routes (`
 
 - **pins**: each file in the POS and Admin-Console `PIN`, read by blob SHA from this repository, against the in-tree file with `oasdiff breaking`. A WARN or ERR finding fails; other changes are listed as drift in the job summary.
 - **connector**: `posting/contracts.py` and `bin_view/contracts.py`, parsed with `ast`, against `posting-feed.yaml` and `stock-view.yaml`: enums, patterns, field names and required fields. A version-string mismatch is reported, not failed.
-- **identical**: the three OBS-1 `obs1-golden-vectors.json` copies must be byte-identical (MR-6c).
+- **identical**: the four OBS-1 `obs1-golden-vectors.json` copies and the four RT-879 `rt879-redaction-vectors.json` copies must each be byte-identical (MR-6c).
 
 Anything it cannot compare fails. It does not compare Connector field types or inline literals, and has no acknowledgement file (see its README). The graph selects it from the Backend-Core `contracts` tier and from each consumer's `contracts` tier; that Backend-Core tier also selects `pos/static`, `pos/test`, `admin/build-test`, `connector/unit-tests-and-lint` and `bc/oasdiff`.
 
