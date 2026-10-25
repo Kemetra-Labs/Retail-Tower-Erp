@@ -4,7 +4,7 @@ The project graph, fail-closed evaluator, `required` aggregator and layer-1 boun
 
 The design comes from [RT-709 §A](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/43548700) and [§B](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/43778136), hardened by A.8 (R1, R2, R5).
 
-**Status: operational, observe-only, not independently verified.** The plan jobs use the evaluator to select which jobs run (RT-867), and `.github/workflows/gate.yml` posts the `required` check through the `kemetra-ci-gate` App from the `ci-gate` environment (RT-721 S3). Making `required` a required check on `main` (S6 no-bypass ruleset) is RT-866, still open. Independent verification is RT-711.
+**Status: operational, observe-only, not independently verified.** The plan jobs use the evaluator to select which jobs run (RT-867), and `.github/workflows/gate.yml` posts the `required` check with its own `GITHUB_TOKEN` (`checks: write`) from the `ci-gate` environment (RT-721 S3; no `kemetra-ci-gate` App since the owner decision of 2026-10-25). Making `required` a required check on `main` (S6 no-bypass ruleset) is RT-866, still open. Independent verification is RT-711.
 
 ## Layout
 
@@ -76,12 +76,12 @@ The fingerprint covers the base SHA, both graph hashes and every changed path/mo
 | Workflow | Triggers | Token permissions | Environment | Secrets |
 | --- | --- | --- | --- | --- |
 | `.github/workflows/project-graph-selftest.yml` | `pull_request`, `push` main | `contents: read` | none | none |
-| `.github/workflows/gate.yml` | `pull_request_target`, `workflow_run` | `contents/pull-requests/checks/actions: read` | `ci-gate` (main-only) | `CI_GATE_APP_PRIVATE_KEY`, used only in the last step; App token scoped to `checks: write` |
+| `.github/workflows/gate.yml` | `pull_request_target`, `workflow_run` | `contents/pull-requests/checks/actions: read` | `ci-gate` (main-only) | none; `post` alone holds `checks: write` on its `GITHUB_TOKEN` |
 | Product CI (`pos`, `admin-console`, `backend-core`, `erpnext-connector`, `e2e`, `project-graph`) | `pull_request`, `push` main | `contents: read` | none | none |
 | Per-product releases (RT-717) | protected `main` / tags only | product-specific identity | per-product environment | never reachable from PR code |
 
 `python -m pgraph privileges` enforces these rules for every workflow reachable from a PR:
-- No `write` scope, and permissions must be declared.
+- No `write` scope, and permissions must be declared. The one exception is `checks: write` alone, in a `ci-gate` job (the gate's `post`).
 - No `secrets.*` outside a `ci-gate` job.
 - In `pull_request_target`/`workflow_run`: no head-ref checkout, no `actions/cache` and no `actions/download-artifact`.
 
@@ -113,7 +113,7 @@ These were named but never defined in RT-710 comment 12882. They are **defined n
 7. **e2e trigger interpretation.** `e2e_runs_when: any_product_selected` is read as "any product has a non-`low` tier", so a docs-only product change does not run e2e.
 8. **Gate: Needs verification.** Two behaviours are unconfirmed:
    - whether a `pull_request_target` run's `head_sha` makes it appear in `actions/runs?head_sha=` (the gate excludes its own workflow path regardless);
-   - whether the source pin accepts a `checks:write` App check (A.8).
+   - whether the source pin accepts a `checks:write` App check (A.8). Moot since 2026-10-25: `required` is posted by GitHub Actions, so a source pin cannot separate it from another workflow's check.
 9. **Root LICENSE and NOTICE are deferred** (OA-5, OA-6, OA-7). Not added.
 
 ### Review findings recorded, not fixed (2026-10-19 code + security review)

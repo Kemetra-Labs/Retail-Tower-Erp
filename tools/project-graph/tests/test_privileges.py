@@ -57,6 +57,38 @@ class PrivilegeTests(unittest.TestCase):
         """
         self.assertEqual(_codes(text), set())
 
+    def test_checks_write_inside_ci_gate_environment_is_allowed(self):
+        text = """
+        on: pull_request_target
+        permissions: {contents: read}
+        jobs:
+          post:
+            runs-on: x
+            environment: ci-gate
+            permissions: {checks: write}
+            steps: []
+        """
+        self.assertEqual(_codes(text), set())
+
+    def test_other_write_inside_ci_gate_environment_fails(self):
+        for perms in ("{checks: write, contents: write}", "{pull-requests: write}", "write-all"):
+            with self.subTest(perms=perms):
+                text = f"""
+                on: pull_request_target
+                permissions: {{contents: read}}
+                jobs:
+                  post:
+                    runs-on: x
+                    environment: ci-gate
+                    permissions: {perms}
+                    steps: []
+                """
+                self.assertIn("PERM_WRITE", _codes(text))
+
+    def test_top_level_checks_write_fails(self):
+        text = "on: pull_request_target\npermissions: {checks: write}\njobs: {}\n"
+        self.assertIn("PERM_WRITE", _codes(text))
+
     def test_privileged_head_checkout_fails(self):
         for ref in ("${{ github.event.pull_request.head.sha }}", "refs/pull/1/merge",
                     "${{ github.event.workflow_run.head_sha }}"):

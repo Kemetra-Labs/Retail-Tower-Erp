@@ -5,7 +5,10 @@ Scope is an ALLOW-list: a workflow whose only triggers are push, schedule or
 workflow_dispatch is out of scope; every other trigger (pull_request,
 pull_request_target, workflow_run, issue_comment, pull_request_review,
 check_*, workflow_call, ...) is in scope. For in-scope workflows:
-  - token permissions must be declared and contain no `write` scope;
+  - token permissions must be declared and contain no `write` scope, except
+    `checks: write` alone in a job whose environment is `ci-gate` (the gate's
+    `post` job writes `required` with its own GITHUB_TOKEN, owner decision
+    2026-10-25: no kemetra-ci-gate App);
   - any `secrets` reference (secrets.X, secrets['X'], toJSON(secrets),
     `secrets: inherit`) may appear only inside a job whose environment is
     `ci-gate` (main-only), never at workflow level;
@@ -15,8 +18,9 @@ and for privileged triggers (anything in scope except pull_request):
   - no checkout from run steps (gh pr checkout, git checkout/switch/worktree);
   - no actions/cache and no actions/download-artifact (untrusted inputs).
 GitHub repo-scoped write tokens have no path restriction, so the only safe
-PR-reachable token is read-only. This is defence in depth: the primary
-control is that `.github/**` is a policy-class path."""
+PR-reachable token is read-only, apart from the gate's checks-only token.
+This is defence in depth: the primary control is that `.github/**` is a
+policy-class path."""
 
 import pathlib
 import re
@@ -26,6 +30,7 @@ import yaml
 SAFE_TRIGGERS = frozenset({"push", "schedule", "workflow_dispatch"})
 UNPRIVILEGED_PR = "pull_request"
 GATE_ENVIRONMENT = "ci-gate"
+GATE_WRITE_SCOPES = frozenset({"checks"})
 SECRET_REF = re.compile(r"\bsecrets\b")
 BASE_REF = re.compile(r"^(?:\$\{\{\s*steps\.[\w-]+\.outputs\.base_sha\s*\}\}|[0-9a-f]{40})$")
 RUN_CHECKOUT = re.compile(r"\bgh\s+pr\s+checkout\b|\bgit\s+(?:checkout|switch|worktree\s+add)\b")
@@ -40,12 +45,13 @@ def _triggers(data):
     return set(on or {})
 
 
-def _has_write(perms):
+def _write_scopes(perms):
+    """The scopes granted `write`; {"*"} for write-all or any other string form."""
     if isinstance(perms, str):
-        return perms == "write-all" or perms.endswith("write")
+        return {"*"} if perms == "write-all" or perms.endswith("write") else set()
     if isinstance(perms, dict):
-        return any(v == "write" for v in perms.values())
-    return False
+        return {k for k, v in perms.items() if v == "write"}
+    return set()
 
 
 def _environment_name(job):
@@ -74,7 +80,9 @@ def _step_problems(name, step):
 
 def _job_problems(name, job, privileged):
     problems = []
-    if _has_write(job.get("permissions")):
+    writes = _write_scopes(job.get("permissions"))
+    in_gate = _environment_name(job) == GATE_ENVIRONMENT
+    if writes and not (in_gate and writes <= GATE_WRITE_SCOPES):
         problems.append(("PERM_WRITE", f"job {name}"))
     if _mentions_secrets(job) and _environment_name(job) != GATE_ENVIRONMENT:
         problems.append(("SECRET_OUTSIDE_ENV", f"job {name}"))
@@ -99,7 +107,7 @@ def scan_workflow(path, text):
     problems = []
     if "permissions" not in data:
         problems.append(("PERMISSIONS_MISSING", "top level"))
-    elif _has_write(data["permissions"]):
+    elif _write_scopes(data["permissions"]):
         problems.append(("PERM_WRITE", "top level"))
     if _mentions_secrets({k: v for k, v in data.items() if k != "jobs"}):
         problems.append(("SECRET_OUTSIDE_ENV", "workflow level"))

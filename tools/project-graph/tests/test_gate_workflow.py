@@ -64,5 +64,28 @@ class GateWorkflowRunTriggerTests(unittest.TestCase):
                                       "gate.yml on.workflow_run.workflows")
 
 
+class GatePostTokenTests(unittest.TestCase):
+    """Owner decision (2026-10-25, after the RT-715 cutover): `post` writes `required` with the
+    workflow's own GITHUB_TOKEN, scoped to checks:write, instead of a kemetra-ci-gate App token.
+    The gate then needs no App installation, variable or secret."""
+
+    def _post(self):
+        return yaml.safe_load(GATE.read_text(encoding="utf-8"))["jobs"]["post"]
+
+    def test_post_needs_no_app_variable_or_secret(self):
+        text = yaml.safe_dump(self._post())
+        for needle in ("create-github-app-token", "secrets.", "vars."):
+            with self.subTest(needle=needle):
+                self.assertNotIn(needle, text)
+
+    def test_post_token_is_checks_write_only(self):
+        self.assertEqual(self._post()["permissions"], {"checks": "write"})
+
+    def test_evaluate_stays_read_only(self):
+        workflow = yaml.safe_load(GATE.read_text(encoding="utf-8"))
+        self.assertNotIn("permissions", workflow["jobs"]["evaluate"])
+        self.assertNotIn("write", yaml.safe_dump(workflow["permissions"]))
+
+
 if __name__ == "__main__":
     unittest.main()

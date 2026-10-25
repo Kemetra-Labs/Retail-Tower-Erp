@@ -3,33 +3,36 @@
 #
 # Status on main (RT-721 S3 moved it here from tools/ci-gate/, observe-only):
 #   - it runs on pull_request_target and on `workflow_run` of the product workflows, and
-#     `post` mints a kemetra-ci-gate token from the `ci-gate` environment
-#     (vars.CI_GATE_APP_ID, secrets.CI_GATE_APP_PRIVATE_KEY) to post `required`;
+#     `post` posts `required` with the workflow's own GITHUB_TOKEN, scoped to checks:write,
+#     in the `ci-gate` environment. Owner decision 2026-10-25 (after the RT-715 cutover):
+#     no kemetra-ci-gate App, so the gate needs no App installation, variable or secret.
+#     Trade-off: `required` is now authored by github-actions, the same producer as every
+#     other check, so a ruleset source pin cannot tell the gate's `required` from one posted
+#     by another workflow holding checks:write. `.github/**` being policy class is the control;
 #   - graph.yaml `policy_approvers` is [Kemetra] (RT-721 S1), so a policy change can pass
 #     with an APPROVED review by that login carrying the attestation line below;
 #   - root workflows define every graph.yaml job and every non-always job is plan-guarded
 #     (static rules 5 and 5b; tests/test_real_tree.py).
 # Not done yet:
-#   - a main ruleset that requires `required` with its source pinned to kemetra-ci-gate,
-#     plus "require branches to be up to date" (the S6 no-bypass ruleset, RT-866, open).
+#   - a main ruleset that requires `required`, plus "require branches to be up to date"
+#     (the S6 no-bypass ruleset, RT-866, open).
 #     The gate evaluates against the PR's base SHA, so without "up to date" a green result
 #     could merge onto a newer main;
-#   - RT-711 independent verification (P17/P19, PR-branch secret refusal, anti-spoof
-#     canary, latest-wins of multiple `required` check-runs per SHA). checks:write vs
-#     statuses:write for the source pin is "Needs verification" (A.8); do NOT widen App
-#     grants to work around it;
+#   - RT-711 independent verification (P17/P19, latest-wins of multiple `required`
+#     check-runs per SHA). The App source pin and its anti-spoof canary no longer apply;
 #   - the delegated reviewer identity as approver, by numeric ID (MR-5, RT-870).
 #
 # Invariants this file must keep (review any change against them):
 #   - Runs only base-branch code: checkout of the BASE sha only. Head objects
 #     are fetched and read with git plumbing (names, modes, blobs) - never
 #     checked out, installed or executed. No artifact is downloaded.
-#   - Two jobs: `evaluate` touches all untrusted data and has NO environment
-#     and no secrets; `post` holds `ci-gate`, reads only validated job outputs
-#     (conclusion enum, 40-hex SHA, base64 summary) and runs no repo code.
+#   - Two jobs: `evaluate` touches all untrusted data and has NO environment,
+#     no secrets and a read-only token; `post` holds `ci-gate`, reads only
+#     validated job outputs (conclusion enum, 40-hex SHA, base64 summary) and
+#     runs no repo code.
 #   - Every value from the event or API reaches shell via env vars, never
 #     inline ${{ }} in a run script (script injection).
-#   - The App token is scoped to checks:write and minted only in `post`.
+#   - The only write scope in this file is checks:write, on `post` alone.
 #   - Approval = APPROVED review with the SHA-bound line, verified by pgraph
 #     (A.8 R1). Labels only re-trigger the gate; they never carry authority.
 #     Dismissing a review does NOT re-trigger (pull_request_review would run
@@ -196,7 +199,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     environment: ci-gate
-    permissions: {}
+    permissions:
+      checks: write
     steps:
       - name: Validate job outputs
         id: v
@@ -211,17 +215,9 @@ jobs:
           [[ "$SUMMARY_B64" =~ ^[A-Za-z0-9+/=]*$ ]] || SUMMARY_B64="$(printf 'reasons: NO_RESULT' | base64 -w0)"
           { echo "conclusion=$c"; echo "summary_b64=$SUMMARY_B64"; } >> "$GITHUB_OUTPUT"
 
-      - name: Mint kemetra-ci-gate token (checks:write only)
-        id: app
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.CI_GATE_APP_ID }}
-          private-key: ${{ secrets.CI_GATE_APP_PRIVATE_KEY }}
-          permission-checks: write
-
       - name: Post the `required` check
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ needs.evaluate.outputs.head_sha }}
           CONCLUSION: ${{ steps.v.outputs.conclusion }}
