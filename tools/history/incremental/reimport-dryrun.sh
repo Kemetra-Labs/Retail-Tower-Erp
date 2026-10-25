@@ -55,6 +55,8 @@ declare -A NEXT=(
   [run]="Read the failing run's RESULT.txt; it names the first failing boundary and its next action."
   [repro]="Diff the two manifest.txt files and find the non-pinned input before any execution run."
   [tags]="Stop: the owner reviews evidence/<prod>.xwalk-diff.tsv NEW_TAG rows; only the owner may add approved lines to ANCHOR_DIR/approved-tags.tsv, then rerun into a new OUT_DIR."
+  [tagroot]="Stop: a new tag points at a commit that is not on the anchored main (tag-only lineage). The verifier cannot accept it; ask the owner to decline the tag or move it onto main in the source repository."
+  [prevtip]="Stop: Shadow main's import merge and its committed crosswalk disagree about the previous imported tip. Attach the evidence to RT-710; do not repair Shadow main from here."
   [incremental]="Stop: read evidence/incremental.txt and the FAIL line; report it on RT-760 (do not repair the candidate)."
 )
 fail() { RESULT="$*"; echo "FAIL[$STEP]: $*" >&2; exit 1; }
@@ -96,8 +98,9 @@ check_pins() {
 # once an earlier re-import landed through a PR). Same rule as base_tip() in tools/history/verify_incremental.py:
 # subject match, pinned author identity, and no newer candidate may descend from it. Prints the merge or fails.
 newest_import() {
-  local g="$1" repo="$2" dir="$3" c s o a p hit newer cands=() newest=()
-  while IFS=$'\t' read -r c s; do
+  local g="$1" repo="$2" dir="$3" line c s o a p hit newer cands=() newest=()
+  while IFS= read -r line; do
+    c="${line%%$'\t'*}"; s="${line#*$'\t'}"   # no IFS splitting: a subject that starts with a TAB stays as written
     hit=0   # literal prefixes (no regex): Import|import|Re-Import|Re-import <repo> history (<dir>)
     for p in "Import" "import" "Re-Import" "Re-import"; do
       [[ "$s" == "$p $repo history ($dir)"* ]] && hit=1
@@ -240,7 +243,16 @@ cmd_run() {
     py "$CHECK" xwalk "$hist" "$ev" "$prod" > "$ev/$prod.xwalk.txt"
     STEP="tags"
     py "$CHECK" tagsgate "$hist" "$ev" "$prod" "$anc/approved-tags.tsv" > "$ev/$prod.tagsgate.txt"
-    STEP="crosswalk"
+    # Every tag that is not yet in the committed tags.tsv must point at a commit on the anchored main. A tag-only
+    # lineage adds crosswalk rows that no merge imports, which the verifier can never accept.
+    STEP="tagroot"
+    local tref ttype tobj tpeeled
+    while read -r tref ttype tobj tpeeled; do
+      awk -F'\t' -v p="$prod" -v r="$tref" '$1==p && $2==r {f=1} END{exit f?0:1}' "$hist/crosswalk/tags.tsv" && continue
+      git -C "$out/src/$prod.git" merge-base --is-ancestor "${tpeeled:-$tobj}" "$new" \
+        || fail "$prod: new tag $tref targets ${tpeeled:-$tobj}, which is not on the anchored main $new"
+    done < "$ev/$prod.tags-old.txt"
+    STEP="prevtip"
     local imported tip_old tip_new
     imported="$(newest_import "$out/shadow.git" "$repo" "$dir")" || fail "no unique newest import merge for $repo on Shadow main"
     tip_old="$(git -C "$out/shadow.git" rev-parse "$imported^2")"
@@ -250,6 +262,7 @@ cmd_run() {
     git -C "$work" merge-base --is-ancestor "$tip_old" "$tip_new" \
       || fail "$prod: Shadow's imported tip $tip_old is not an ancestor of the re-filtered tip $tip_new"
     printf '%s\t%s\t%s\n' "$prod" "$tip_old" "$tip_new" >> "$ev/filtered-tips.tsv"
+    STEP="crosswalk"
   done < "$anc/anchors.tsv"
 
   # step 4: incremental --no-ff merges in a clone of Shadow main
@@ -426,16 +439,20 @@ cmd_selftest() {
     git -C "$wt" push -q origin main
     rm -rf "$wt"
   done
-  local ac="$root/srcs/Admin-Console.git" bc="$root/srcs/Backend-Core.git" tagc
+  local ac="$root/srcs/Admin-Console.git"
+  # One new lightweight tag on the new Admin-Console main commit (exercises the tag gate and the tag import).
   git -C "$ac" update-ref "refs/tags/admin-console-$(git -C "$ac" rev-parse --short=12 main)" "$(git -C "$ac" rev-parse main)"
-  # Backend-Core: main unchanged, one new tag on an off-main commit (tag-only lineage, exercises tag import + LFS scan).
-  tagc="$(cd "$root" && PIN_DATE="2026-10-20T00:00:00Z" pin git -C "$bc" commit-tree -p main -m "test: RT-760 tag-only synthetic commit" "main^{tree}")"
-  git -C "$bc" update-ref "refs/tags/backend-core-${tagc:0:12}" "$tagc"
   SRC_BASE="$root/srcs" SHADOW_URL="$shadow_local" PIN_DATE="2026-10-20T00:00:00Z" "$SELF" anchors "$root/anchors"
-  # SYNTHETIC owner approval for the two synthetic tags only. A live run never writes this file; the owner does.
-  printf 'admin-console\trefs/tags/admin-console-%s\t%s\nbackend-core\trefs/tags/backend-core-%s\t%s\n' \
-    "$(git -C "$ac" rev-parse --short=12 main)" "$(git -C "$ac" rev-parse main)" "${tagc:0:12}" "$tagc" > "$root/anchors/approved-tags.tsv"
+  # SYNTHETIC owner approval for that tag only. A live run never writes this file; the owner does.
+  # Format: three tab-separated fields per line, no comment or blank lines (the verifier rejects them).
+  printf 'admin-console\trefs/tags/admin-console-%s\t%s\n' \
+    "$(git -C "$ac" rev-parse --short=12 main)" "$(git -C "$ac" rev-parse main)" > "$root/anchors/approved-tags.tsv"
   SRC_BASE="$root/srcs" SHADOW_URL="$shadow_local" "$SELF" repro "$root/anchors" "$root/r"
+  # End to end: the metadata step with the pinned verifier must accept the selftest's own output.
+  git -C "$shadow_local" show origin/main:tools/history/verify_incremental.py > "$root/verifier.py"
+  BASE="$(cut -f2 "$root/anchors/shadow.tsv")" VERIFIER="$root/verifier.py" \
+    MANIFEST_SHA256="$(sha256sum "$root/r/a/manifest.txt" | cut -d' ' -f1)" SRC_MIRRORS="$root/srcs" \
+    "$HERE/meta2.sh" repro "$root/r" "$root/anchors" "$root/meta"
 }
 
 case "${1:-}" in

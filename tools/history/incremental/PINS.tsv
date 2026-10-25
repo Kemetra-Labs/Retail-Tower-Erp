@@ -1,8 +1,8 @@
 kind	name	sha256	note
-file	README.md	445a2cffed59f4ac5e9125f585f8e3c5a6c35ea8ad3ae4627b09818e22587a39	Documentation. Hand-maintained.
-file	meta2.sh	4237e2e904f826980db3ee000f0109bd40eea83c48d58423bb42ebbccd557da2	RE-CREATED 2026-10-25 (RT-710 owner override). Not the lost original a697db5e...; not independently verified.
-file	negtest.sh	1d875c67b153e2dc4d685426983e84d62fababe68f0e31e1012fe71fcb8d2e50	RE-CREATED from the RT-760 negtest.sh (6e2f4b0f...): machine-specific paths became NEG_ROOT and SHADOW_LOCAL.
-file	reimport-dryrun.sh	daf3819afdce65550685cdc87a167f8dc3ac5b207ce5b588868026aca9c001be	RE-CREATED 2026-10-25 (RT-710 owner override): RT-760 477519cf plus the RT-831 c13568 previous-tip change plus hardening. Not the lost original f3d7284a...; not independently verified.
+file	README.md	53c2642c70fc5436f23ef2e69e831d047883596f1a764f9e726f92383b5ba343	Documentation. Hand-maintained.
+file	meta2.sh	afc5035d49945e7ebc5638183defcf678d59c03229c6563edfb7922949bc5b6f	RE-CREATED 2026-10-25 (RT-710 owner override). Not the lost original a697db5e...; not independently verified.
+file	negtest.sh	1f751fd90382b89342d84a5e40029e54e1a2642678f60907986356eeec26d44b	RE-CREATED from the RT-760 negtest.sh (6e2f4b0f...): machine-specific paths became NEG_ROOT and SHADOW_LOCAL.
+file	reimport-dryrun.sh	6b7bcf44de0597b9519ea81aaf71661298d5f57c3bdb1a2466adca58910a46ea	RE-CREATED 2026-10-25 (RT-710 owner override): RT-760 477519cf plus the RT-831 c13568 previous-tip change plus hardening. Not the lost original f3d7284a...; not independently verified.
 file	rt760_check.py	3d92cd5e57bdb1fe11f3095d6f6add014b36c574b8f92416b50e330862f1b38b	Byte-identical to the RT-760 script (RT-760 c13129).
 external	tools/history/verify_incremental.py	feefd51e55ebffe86fd79d8856f2fc0195f32752cb641064f513d76fc5c99756	Trusted verifier, committed on Shadow main; not copied here (RT-776 c13217).
 external	git-filter-repo v2.47.0	67447413e273fc76809289111748870b6f6072f08b17efe94863a92d810b7d94	Upstream newren/git-filter-repo, blob a40bce548d2c; downloaded, never vendored (RT-710 c12913).

@@ -16,8 +16,8 @@
 #
 # Required environment (no defaults, so nothing is trusted implicitly):
 #   BASE             the anchored Shadow main sha (must equal ANCHOR_DIR/shadow.tsv)
-#   VERIFIER         path of the TRUSTED verify_incremental.py copy (not the one in the candidate)
-#   VERIFIER_SHA256  its pinned sha256; the copy committed at BASE must be byte-identical to it
+#   VERIFIER         path of the TRUSTED verify_incremental.py copy (not the one in the candidate); its sha256 must
+#                    equal PIN_VERIFIER_SHA256 below, which only an owner-reviewed edit of this file may change
 #   MANIFEST_SHA256  sha256 of the dry run's manifest.txt (the value recorded in the evidence)
 #   SRC_MIRRORS      directory with <Repo>.git mirrors (full history, tags, main at the anchored head)
 set -Eeuo pipefail
@@ -29,6 +29,9 @@ PIN_NAME="Retail Tower history import"
 PIN_EMAIL="history-import@kemetra.invalid"
 MSG="Update history metadata for incremental re-import (RT-776)"   # fixed by the verifier (META_MESSAGE)
 H=tools/history
+PIN_VERIFIER_SHA256="feefd51e55ebffe86fd79d8856f2fc0195f32752cb641064f513d76fc5c99756"   # RT-776 c13217; also in PINS.tsv
+VERIFIER_SHA256="$PIN_VERIFIER_SHA256"
+PIN_GIT="git version 2.43.0"; PIN_PY="3.12."
 VERIFIER_PATH="$H/verify_incremental.py"
 
 die() { echo "FAIL: $*" >&2; exit 1; }
@@ -45,13 +48,14 @@ expect_reject() {  # errfile, expected text of the FAIL line (fixed string), the
 
 [ "${1:-}" = repro ] && [ $# -eq 4 ] || { grep -E '^#   (meta2\.sh|RUN_ROOT|ANCHOR_DIR|OUT_ROOT)' "$0" | sed 's/^# *//' >&2; exit 2; }
 RUN="$(cd "$2" && pwd)"; ANC="$(cd "$3" && pwd)"; OUT="$(realpath -m "$4")"
-for v in BASE VERIFIER VERIFIER_SHA256 MANIFEST_SHA256 SRC_MIRRORS; do [ -n "${!v:-}" ] || die "$v is not set"; done
+for v in BASE VERIFIER MANIFEST_SHA256 SRC_MIRRORS; do [ -n "${!v:-}" ] || die "$v is not set"; done
 [[ "$BASE" =~ ^[0-9a-f]{40}$ ]] || die "BASE is not a 40-hex sha"
-[[ "$VERIFIER_SHA256" =~ ^[0-9a-f]{64}$ ]] || die "VERIFIER_SHA256 is not a 64-hex sha256"
+[ "$(git --version)" = "$PIN_GIT" ] || die "git is not $PIN_GIT"
+python3 -c "import sys; sys.exit(0 if sys.version.startswith('$PIN_PY') else 1)" || die "python3 is not $PIN_PY"
 [[ "$MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]] || die "MANIFEST_SHA256 is not a 64-hex sha256"
 [ ! -e "$OUT" ] || die "$OUT exists"
 VER="$(realpath "$VERIFIER")"; MIRRORS="$(cd "$SRC_MIRRORS" && pwd)"
-[ "$(sha "$VER")" = "$VERIFIER_SHA256" ] || die "trusted verifier does not match VERIFIER_SHA256"
+[ "$(sha "$VER")" = "$VERIFIER_SHA256" ] || die "trusted verifier does not match the pin in meta2.sh"
 (cd "$ANC" && sha256sum --quiet -c SHA256SUMS) || die "anchor files changed since capture"
 [ "$(cut -f2 "$ANC/shadow.tsv")" = "$BASE" ] || die "BASE != anchored Shadow main"
 PIN_DATE="$(cut -f2 "$ANC/pin.tsv")"
@@ -97,7 +101,14 @@ build() {  # r  -> OUT/r : candidate + one metadata commit; touches only frozen.
     sed -i -E "s|^($prod\t$dir\t$repo\t)$frozen\$|\1$new|" "$M/$H/frozen.tsv"
     cp "$ev/$prod.crosswalk.tsv" "$M/$H/crosswalk/$prod.tsv"
   done < "$ANC/anchors.tsv"
-  cat "$ev"/*.tags.tsv | sort > "$M/$H/crosswalk/tags.tsv"
+  # Only the per-product tag files that anchors.tsv names (bound to the manifest); anything else in evidence/ is refused.
+  local f t=()
+  for f in "$ev"/*.tags.tsv; do
+    prod="$(basename "$f" .tags.tsv)"
+    cut -f1 "$ANC/anchors.tsv" | grep -qx -F "$prod" || die "unexpected evidence file $f"
+  done
+  while IFS=$'	' read -r prod dir repo frozen new; do t+=("$ev/$prod.tags.tsv"); done < "$ANC/anchors.tsv"
+  cat "${t[@]}" | sort > "$M/$H/crosswalk/tags.tsv"
   git -C "$M" add "$H/frozen.tsv" "$H/crosswalk"
   GIT_AUTHOR_NAME="$PIN_NAME" GIT_AUTHOR_EMAIL="$PIN_EMAIL" GIT_AUTHOR_DATE="$PIN_DATE" \
   GIT_COMMITTER_NAME="$PIN_NAME" GIT_COMMITTER_EMAIL="$PIN_EMAIL" GIT_COMMITTER_DATE="$PIN_DATE" \
@@ -122,7 +133,9 @@ check_and_verify() {  # r
   if [ "$merges" -gt 0 ]; then   # without merges the verifier legitimately needs no --src-base
     expect_reject "$OUT/$r.verify-nosrc.err" "--src-base is required" "$M" "$BASE" "$h" --pin-date "$PIN_DATE" "${APPROVED[@]}" || die "verifier accepted REV without --src-base"
   fi
-  expect_reject "$OUT/$r.verify-stale.err" "does not match the re-import merges" "$M" "$BASE" "$h~1" --pin-date "$PIN_DATE" --src-base "$MIRRORS" "${APPROVED[@]}" || die "verifier accepted the stale candidate (no metadata commit)"
+  local stale_why="does not match the re-import merges"
+  [ "$merges" -gt 0 ] || stale_why="tag refs differ from tags.tsv"   # no merges: h~1 is BASE, only the tags differ
+  expect_reject "$OUT/$r.verify-stale.err" "$stale_why" "$M" "$BASE" "$h~1" --pin-date "$PIN_DATE" --src-base "$MIRRORS" "${APPROVED[@]}" || die "verifier accepted the stale candidate (no metadata commit)"
   # BASE against itself runs in the dry run's own Shadow clone: it holds BASE's tags only, not the candidate's new ones.
   ver "$RUN/$r/shadow.git" "$BASE" "$BASE" --pin-date "$PIN_DATE" > "$OUT/$r.verify-base.txt"
   ver "$M" "$h" "$h" --pin-date "$PIN_DATE" --src-base "$MIRRORS" "${APPROVED[@]}" > "$OUT/$r.verify-next-base.txt"
@@ -150,6 +163,7 @@ manifest() {  # r  (prints; identical for a and b when the build is reproducible
 }
 
 mkdir -p "$OUT"
+for r in a b; do bind_to_dryrun "$r"; done   # both runs are bound before anything is built
 for r in a b; do build "$r"; check_and_verify "$r"; done
 manifest a > "$OUT/manifest-a.txt"; manifest b > "$OUT/manifest-b.txt"
 cmp -s "$OUT/manifest-a.txt" "$OUT/manifest-b.txt" || die "metadata manifests differ between run a and run b"
