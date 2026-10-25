@@ -59,7 +59,7 @@ products:
     high_jobs: ["@pos-full", pos/package-windows]
     tiers:
       contracts:
-        globs: [contracts/backend-core/**, "scripts/{codegen-api,verify-codegen,contracts-pin,contracts-repin,contracts-repin-pr,merge-readdown-contract}.ts", scripts/openapi-snapshot.json, src/shared/api-types.ts, tests/contract/**, src/main/observability/__tests__/obs1-golden-vectors.json]
+        globs: [contracts/backend-core/**, "scripts/{codegen-api,verify-codegen,contracts-pin,contracts-repin,contracts-repin-pr,merge-readdown-contract}.ts", src/shared/api-types.ts, tests/contract/**, src/main/observability/__tests__/obs1-golden-vectors.json]
         jobs: [pos/static, "@pos-full", bc/oasdiff, contracts/check]
       money:
         globs: ["src/main/{payments,shift-cashup,drawer}/**", "src/shared/{payments,money,shift-cashup}/**", src/shared/money.ts, src/preload/shift-cashup.ts, "migrations/*payment*", "migrations/*cash*"]
@@ -226,7 +226,7 @@ edges:   # allowed cross-product references; anything else is a boundary violati
   - { from: erpnext-connector, to: backend-core, kind: semantic, via: [services/backend-core/packages/contracts/openapi/erpnext-connector/**, services/backend-core/packages/contracts/openapi/connector/**] }
 
 generated:   # an output may change only together with at least one declared source (§B.2)
-  - { outputs: [apps/pos/src/shared/api-types.ts], sources: [apps/pos/scripts/openapi-snapshot.json, apps/pos/scripts/codegen-api.ts, apps/pos/package-lock.json] }
+  - { outputs: [apps/pos/src/shared/api-types.ts], sources: [apps/pos/contracts/backend-core/PIN, apps/pos/contracts/backend-core/openapi/**, apps/pos/scripts/codegen-api.ts, apps/pos/package-lock.json] }
   - { outputs: [apps/admin-console/src/generated/schema.d.ts], sources: [apps/admin-console/contracts/backend-core/PIN, apps/admin-console/openapi-ts.config.ts, apps/admin-console/pnpm-lock.yaml, services/backend-core/packages/contracts/openapi/**] }
 
 allowed_symlinks: []
