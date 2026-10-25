@@ -195,7 +195,7 @@ products:
         globs: ["retail_tower_erpnext_connector/connector/posting/{credential_lifecycle,config}.py", "retail_tower_erpnext_connector/connector/doctype/{connector_settings,rt_store_customer_map_row}/**"]
         jobs: [connector/unit-tests-and-lint]
       migrations:
-        globs: [retail_tower_erpnext_connector/patches.txt, retail_tower_erpnext_connector/patches/**, "retail_tower_erpnext_connector/connector/doctype/**/*.json", retail_tower_erpnext_connector/fixtures/**, retail_tower_erpnext_connector/connector/posting/index_guard.py, retail_tower_erpnext_connector/tests/test_g5_unique_index_db.py, retail_tower_erpnext_connector/modules.txt]
+        globs: [retail_tower_erpnext_connector/patches.txt, retail_tower_erpnext_connector/patches/**, "retail_tower_erpnext_connector/connector/doctype/**/*.json", retail_tower_erpnext_connector/fixtures/**, retail_tower_erpnext_connector/connector/posting/index_guard.py, retail_tower_erpnext_connector/tests/test_g5_unique_index_db.py, retail_tower_erpnext_connector/tests/test_foundation.py, retail_tower_erpnext_connector/modules.txt]
         jobs: [connector/unit-tests-and-lint, connector/bench]
       observability:
         globs: [retail_tower_erpnext_connector/connector/observability/**, retail_tower_erpnext_connector/connector/request_id.py]
