@@ -1,12 +1,12 @@
-# Retail Tower Shadow monorepo
+# Retail Tower monorepo
 
-`Kemetra/Retail-Tower-Shadow` holds the four Retail Tower products in one repository, with one CI and one project graph. It is the shadow of the future canonical repository `Kemetra-Labs/Retail-Tower-Erp`: until the RT-715 cutover, product code is imported here from the four source repositories (see [CLAUDE.md](CLAUDE.md), landing rule).
+`Kemetra-Labs/Retail-Tower-Erp` holds the four Retail Tower products in one repository, with one CI and one project graph. It is the canonical repository since the RT-715 cutover (2026-10-25): all code lands here by PR to `main`. Before the cutover, product code was imported from the four source repositories, which are now frozen read-only and kept for history (see [CLAUDE.md](CLAUDE.md), landing rule).
 
 Architecture and the monorepo rules (MR-1…MR-9): [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## What lives where
 
-| Path | What | Source repo until cutover |
+| Path | What | Imported from until the cutover |
 | --- | --- | --- |
 | `apps/pos/` | POS: Windows cashier terminal (Electron, npm) | `Kemetra/POS` |
 | `apps/admin-console/` | Admin-Console: admin and operator web UI (Vite, pnpm) | `Kemetra/Admin-Console` |

@@ -62,6 +62,6 @@ A Backend-Core release and lab deploy require `contracts-compat` for the release
 | MR-4 | CI runs only what `graph.yaml` selects; the same selection decides the `required` verdict. |
 | MR-5 | Policy approval is delegated to a Claude reviewer under its own identity, listed by numeric ID; the owner keeps admin break-glass. |
 | MR-6 | Boundaries enforced at two layers; exceptions only as a shrinking, ticketed ratchet; one copy of each shared policy artifact; one declared runtime version per product; no shared lint/tsconfig package. |
-| MR-7 | Until cutover, product code lands in the source repos and reaches Shadow by import; Shadow-native code (root `.github/`, `tools/`) lands here. |
+| MR-7 | Since the RT-715 cutover (2026-10-25), all code, product and repo-wide, lands in this repository by PR to `main`; the former source repos and Shadow are frozen read-only and kept for history. Before the cutover, product code landed in the source repos and reached Shadow by import. |
 | MR-8 | One verified incremental re-import before the RT-711 parity runs; otherwise imports are paused until the RT-715 freeze. |
 | MR-9 | RT-715 cutover starts only when RT-868, RT-869, RT-867, RT-870, RT-863, RT-866 and RT-871 are done and verified on Shadow. |
