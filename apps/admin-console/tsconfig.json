@@ -1,11 +1,10 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
     "useDefineForClassFields": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "types": ["node", "vite/client"],
-    "skipLibCheck": true,
 
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
@@ -15,7 +14,6 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
-    "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
