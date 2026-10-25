@@ -100,6 +100,16 @@ def export(repo, skip):
     return snap
 
 
+def covers(got, want):
+    """True when `got` holds everything `want` asks for. GitHub fills in defaults (for example a ruleset's
+    dismissal_restriction on organization repos), so extra keys on the target are not a difference."""
+    if isinstance(want, dict):
+        return isinstance(got, dict) and all(k in got and covers(got[k], v) for k, v in want.items())
+    if isinstance(want, list):
+        return isinstance(got, list) and len(got) == len(want) and all(covers(g, w) for g, w in zip(got, want))
+    return got == want
+
+
 def plan(snap, current):
     """Pure diff of a snapshot against the target's current export. Returns a list of (action, detail)."""
     acts = []
@@ -117,7 +127,7 @@ def plan(snap, current):
     for rs in snap["rulesets"]:
         if rs["name"] not in cur_rs:
             acts.append(("ruleset-create", rs["name"]))
-        elif cur_rs[rs["name"]] != rs:
+        elif not covers(cur_rs[rs["name"]], rs):
             acts.append(("ruleset-update", rs["name"]))
     cur_env = {e["name"]: e for e in current["environments"]}
     for e in snap["environments"]:

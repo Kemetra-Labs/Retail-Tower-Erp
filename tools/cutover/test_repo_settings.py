@@ -45,6 +45,15 @@ class PlanTests(unittest.TestCase):
         cur = dict(s, rulesets=[dict(s["rulesets"][0], enforcement="disabled")])
         self.assertIn(("ruleset-update", "main-pr-protection"), rs.plan(s, cur))
 
+    def test_target_defaults_are_not_a_difference(self):
+        s = snapshot(rulesets=[{"name": "r", "rules": [{"type": "pull_request", "parameters": {"x": 1}}]}])
+        cur = dict(s, rulesets=[{"name": "r", "rules": [{"type": "pull_request",
+                                 "parameters": {"x": 1, "dismissal_restriction": {"enabled": False}}}]}],
+                   app_integration_ids=[])
+        self.assertNotIn("ruleset-update", [k for k, _ in rs.plan(s, cur)])
+        cur["rulesets"][0]["rules"][0]["parameters"]["x"] = 2
+        self.assertIn(("ruleset-update", "r"), rs.plan(s, cur))
+
     def test_normalize_drops_ids(self):
         out = rs.normalize_ruleset({"id": 1, "node_id": "x", "name": "n", "target": "branch", "enforcement": "active",
                                     "conditions": {}, "bypass_actors": [], "_links": {}, "source": "o/r",
