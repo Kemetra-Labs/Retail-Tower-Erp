@@ -27,9 +27,17 @@ Layer 1 (`pgraph boundary`, every PR) also rejects ERPNext/Frappe REST routes (`
 
 ## Contract source (MR-2)
 
-`services/backend-core/packages/contracts/openapi` is the only contract source. Today the consumers still read pinned copies: POS from `apps/pos/contracts/backend-core/`, Admin-Console from the Backend-Core commit named in `apps/admin-console/contracts/backend-core/PIN`, and the Connector from its own DTOs. Before cutover, a root check compares every consumer with the in-tree contract at the same commit (RT-868) and POS generates its types from its pinned contract (RT-869). At cutover (RT-715) POS and Admin-Console generate from the in-tree path and the pins and repin bots are retired.
+`services/backend-core/packages/contracts/openapi` is the only contract source. The consumers still read pinned copies: POS and Admin-Console through `contracts/backend-core/PIN` (POS also vendors the pinned files), and the Connector through its own Python DTOs.
 
-A Backend-Core `contracts` change already selects the consumer jobs (`pos/static`, `pos/test`, `admin/build-test`, `connector/unit-tests-and-lint`) and `bc/oasdiff`.
+`contracts/check` (`.github/workflows/contracts.yml`, `tools/contracts-check/`, RT-868) compares every consumer with the in-tree contract at the same commit, so a break fails in the PR that makes it:
+
+- **pins**: each file in the POS and Admin-Console `PIN`, read by blob SHA from this repository, against the in-tree file with `oasdiff breaking`. A WARN or ERR finding fails; other changes are listed as drift in the job summary.
+- **connector**: `posting/contracts.py` and `bin_view/contracts.py`, parsed with `ast`, against `posting-feed.yaml` and `stock-view.yaml`: enums, patterns, field names and required fields. A version-string mismatch is reported, not failed.
+- **identical**: the three OBS-1 `obs1-golden-vectors.json` copies must be byte-identical (MR-6c).
+
+Anything it cannot compare fails. It does not compare Connector field types or inline literals, and has no acknowledgement file (see its README). The graph selects it from the Backend-Core `contracts` tier and from each consumer's `contracts` tier; that Backend-Core tier also selects `pos/static`, `pos/test`, `admin/build-test`, `connector/unit-tests-and-lint` and `bc/oasdiff`.
+
+Still to come: POS generates its types from its pinned contract (RT-869). At cutover (RT-715) POS and Admin-Console generate from the in-tree path, and the pins and repin bots are retired.
 
 ## Gate
 

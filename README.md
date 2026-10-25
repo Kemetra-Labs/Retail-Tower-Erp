@@ -13,12 +13,13 @@ Architecture and the monorepo rules (MR-1…MR-9): [ARCHITECTURE.md](ARCHITECTUR
 | `services/backend-core/` | Backend-Core: API, worker, database, OpenAPI contracts (pnpm workspace) | `Kemetra/Backend-Core` |
 | `integrations/erpnext-connector/` | ERPNext-Connector: the only ERPNext/Frappe adapter (Python, uv) | `Kemetra/ERPNext-Connector` |
 | `tests/e2e/` | Cross-product wire smoke against a real Backend-Core stack (`e2e/smoke`) | Shadow-native |
+| `tools/contracts-check/` | `contracts/check`: consumers against the in-tree Backend-Core contract (MR-2, [README](tools/contracts-check/README.md)) | Shadow-native |
 | `tools/project-graph/` | `graph.yaml` and `pgraph`: job selection, `required` verdict, boundary check ([README](tools/project-graph/README.md)) | Shadow-native |
 | `tools/ci-gate/` | Gate runbooks: R3 canary, agent token broker design | Shadow-native |
 | `tools/agent-broker/` | `kemetra-agent` token broker, run on the owner's machine | Shadow-native |
 | `tools/history/` | Import metadata: `frozen.tsv` (imported source SHA per product), crosswalks, refs | Shadow-native |
 | `tools/release/connector-mirror/` | Append-only publisher of the Connector subtree to its distribution mirror (RT-712) | Shadow-native |
-| `.github/workflows/` | Root CI: one workflow per product, `e2e`, `project-graph`, the selftest and the gate | Shadow-native |
+| `.github/workflows/` | Root CI: one workflow per product, `contracts`, `e2e`, `project-graph`, the selftest and the gate | Shadow-native |
 
 Each product directory keeps its own `README.md`, `CLAUDE.md`, toolchain and lockfile. The product's own `.github/workflows/` are imported with it but do not run here; only root workflows run.
 
@@ -27,7 +28,7 @@ Each product directory keeps its own `README.md`, `CLAUDE.md`, toolchain and loc
 `tools/project-graph/graph.yaml` is the only selector (MR-4). For a pull request:
 
 1. **Graph.** Every changed path is classified: a shared class (`policy`, `tooling`, `e2e`, `docs`, `root`) or a product risk tier (`contracts`, `money`, `sales`, ...). Each class or tier names the jobs it needs. Paths a product does not classify count as `high`, which selects the product's full suite. Fail closed: when in doubt, more jobs run.
-2. **Plan job.** Each root product workflow (`pos`, `admin-console`, `backend-core`, `erpnext-connector`, `e2e`) starts with a `plan` job. It takes `tools/project-graph` from the trusted commit (the PR base) with `git archive`, runs `python -m pgraph evaluate` on the base and head SHAs, and outputs the selected job keys. PR code is read as data, never run.
+2. **Plan job.** Each root product workflow (`pos`, `admin-console`, `backend-core`, `erpnext-connector`, `contracts`, `e2e`) starts with a `plan` job. It takes `tools/project-graph` from the trusted commit (the PR base) with `git archive`, runs `python -m pgraph evaluate` on the base and head SHAs, and outputs the selected job keys. PR code is read as data, never run.
 3. **Guarded jobs.** Every graph job needs `plan` and runs only if its key is in the plan output. `boundary-check` and `dependency-review` (in `project-graph.yml`) always run. A push to `main` selects everything.
 4. **`required`.** `.github/workflows/gate.yml` re-evaluates the PR from the base branch, collects the results of the selected jobs from the GitHub Actions app, and posts one check-run named `required`. A selected job that fails, is cancelled or is skipped fails it (`JOB_FAILED`, `JOB_CANCELLED`, `UNEXPECTED_SKIP`). A change to a `policy` path also needs an APPROVED review on the head commit by a login in `policy_approvers`, containing the exact `policy-change-approved:` line the gate prints; until then `required` reports `POLICY_APPROVAL_REQUIRED`.
 
@@ -86,6 +87,14 @@ python -m pytest -q retail_tower_erpnext_connector/tests
 export FUZZ_OUT="$PWD/.e2e-smoke"
 bash services/backend-core/tools/schemathesis/stack-up.sh   # throwaway stack; writes the operator envelope under $FUZZ_OUT
 E2E_BASE_URL=http://127.0.0.1:23100 E2E_ENVELOPE_FILE="$FUZZ_OUT/envelope-operator" node --test tests/e2e/*.test.mjs
+```
+
+**Consumer contracts** (`tools/contracts-check/`, Python 3.12; needs full git history and the `oasdiff` 1.32.1 binary that `bc/oasdiff` pins)
+
+```bash
+python -m pip install --require-hashes --only-binary=:all: --no-deps -r ../project-graph/requirements.txt
+CONTRACTS_CHECK_OASDIFF=/path/to/oasdiff python -m unittest discover -s tests -v
+python -m contracts_check --repo ../.. --oasdiff /path/to/oasdiff
 ```
 
 **Project graph** (`tools/project-graph/`, Python 3.12)
