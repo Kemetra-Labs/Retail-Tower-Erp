@@ -4,10 +4,10 @@ cases:
   - name: api-types-alone
     changes: [{status: M, path: apps/pos/src/shared/api-types.ts}]
     expect_plan: {select: all, graph_validation: fail, reasons: [GENERATED_WITHOUT_SOURCE]}
-  - name: api-types-with-snapshot
+  - name: api-types-with-contract-pin
     changes:
       - {status: M, path: apps/pos/src/shared/api-types.ts}
-      - {status: M, path: apps/pos/scripts/openapi-snapshot.json}
+      - {status: M, path: apps/pos/contracts/backend-core/PIN}
     # POS contracts tier forces BC oasdiff (B.3.1), so backend-core is selected too
     expect_plan: {select: [pos, backend-core], graph_validation: pass, reasons: [], product_tiers: {pos: [contracts]}}
   - name: admin-schema-with-bc-openapi-glob-source
