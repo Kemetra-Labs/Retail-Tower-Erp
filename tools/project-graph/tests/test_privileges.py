@@ -53,7 +53,7 @@ class PrivilegeTests(unittest.TestCase):
               - uses: actions/checkout@abc
                 with: {ref: '${{ steps.pr.outputs.base_sha }}'}
               - uses: actions/create-github-app-token@abc
-                with: {private-key: '${{ secrets.CI_GATE_APP_PRIVATE_KEY }}'}
+                with: {private-key: '${{ secrets.EXAMPLE_PRIVATE_KEY }}'}
         """
         self.assertEqual(_codes(text), set())
 

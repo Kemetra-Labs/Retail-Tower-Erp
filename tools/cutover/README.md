@@ -20,8 +20,9 @@ repository and environment secrets and variables.
 **Owner actions it lists as TODOs, never does:**
 
 * every secret and variable **value**: the script never reads or prints one;
-* the GitHub App installation (`kemetra-ci-gate`; the `ci-gate` environment's `CI_GATE_APP_ID` names it).
-  Required status checks reference apps by integration id, and those apps must be installed on the target.
+* the installation of any GitHub App that a required status check references by integration id; that app
+  must be installed on the target. The gate needs none: since the owner decision of 2026-10-25,
+  `gate.yml` posts `required` with its own `GITHUB_TOKEN` (the `kemetra-ci-gate` App was retired).
 
 **Not covered:**
 
