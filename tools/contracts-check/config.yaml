@@ -1,0 +1,61 @@
+# contracts/check configuration (RT-868, decision MR-2).
+#
+# Every path is relative to the repository root. The check reads the in-tree Backend-Core
+# contract at the checked-out commit and compares each consumer against it. Nothing here is
+# fetched from another repository: a pinned blob missing from this repository's object store
+# fails the check (fail closed).
+
+contracts_root: services/backend-core/packages/contracts/openapi
+
+# oasdiff severity overrides: the Backend-Core gate's own file, so a consumer sees the same
+# WARN/ERR levels the producer gate does.
+severity_levels: services/backend-core/tools/oasdiff/severity-levels.txt
+
+# Consumers that pin Backend-Core contract files by git blob SHA (`file: <path> <blob>`).
+# `vendored` is the directory holding copies of the pinned files, when the consumer keeps
+# them; each copy must hash to its pinned blob.
+consumers:
+  - name: POS
+    pin: apps/pos/contracts/backend-core/PIN
+    vendored: apps/pos/contracts/backend-core/openapi
+  - name: Admin-Console
+    pin: apps/admin-console/contracts/backend-core/PIN
+
+# Connector read-models parsed with `ast` (never imported; they live in a Frappe app).
+# Each class with a `from_wire` or `to_wire` method must name a schema under
+# components/schemas of `contract` (same name). Every module-level frozenset-of-str constant
+# and every module-level `re.compile` must be listed under `enums`, `patterns` or `local`,
+# so a new wire constant cannot go unchecked.
+connector:
+  - module: integrations/erpnext-connector/retail_tower_erpnext_connector/connector/posting/contracts.py
+    contract: erpnext-connector/posting-feed.yaml
+    enums:
+      REJECTION_CATEGORIES: RejectionReason/properties/category
+      OUTCOMES: OutcomeAckRequest/properties/outcome
+      WORK_ITEM_KINDS: PostingWorkItem/properties/kind
+      REVERSAL_KINDS: ReversalRef/properties/reversalKind
+      TENDER_METHODS: SaleTender/properties/method
+    patterns:
+      _NON_NEGATIVE_DECIMAL_RE: NonNegativeDecimalAmount
+      _TENDER_REFERENCE_RE: SaleTender/properties/reference
+      _RETURN_QUANTITY_RE: ReturnLine/properties/quantity
+    local:
+      # Subset of REVERSAL_KINDS used for the RT-63 business-date rule, not a wire enum.
+      _DATED_REVERSAL_KINDS: connector rule (subset of ReversalRef.reversalKind)
+      # JSON Schema `format: date` / `format: date-time`, which the contract states as a
+      # format, not a pattern.
+      _CALENDAR_DATE_RE: format date
+      _RFC3339_DATE_TIME_RE: format date-time
+  - module: integrations/erpnext-connector/retail_tower_erpnext_connector/connector/bin_view/contracts.py
+    contract: erpnext-connector/stock-view.yaml
+    enums: {}
+    patterns: {}
+    local: {}
+
+# Copies of one file that must stay byte-identical.
+identical:
+  - name: OBS-1 golden vectors
+    paths:
+      - services/backend-core/packages/shared/__tests__/observability/obs1-golden-vectors.json
+      - apps/pos/src/main/observability/__tests__/obs1-golden-vectors.json
+      - integrations/erpnext-connector/retail_tower_erpnext_connector/tests/obs1-golden-vectors.json
