@@ -95,7 +95,7 @@ products:
     high_jobs: [admin/build-test]
     tiers:
       contracts:
-        globs: [contracts/backend-core/PIN, src/generated/**, openapi-ts.config.ts, "src/lib/{contracts-pin,client,auth-interceptor,request-id}.ts", .github/scripts/fetch-pinned-contracts.sh, scripts/contracts-repin-pr.ts, "tests/unit/{contracts-pin,boundary}.test.ts", "tests/unit/*-boundary.test.ts"]
+        globs: [contracts/backend-core/PIN, src/generated/**, openapi-ts.config.ts, "src/lib/{contracts-pin,client,auth-interceptor,request-id}.ts", scripts/contracts-repin-pr.ts, "tests/unit/{contracts-pin,boundary}.test.ts", "tests/unit/*-boundary.test.ts"]
         jobs: [admin/build-test, bc/oasdiff]
       money:
         globs: ["src/{cash-policy,payers,shift-closes}/**", "src/lib/{cash-variance-policy,shift-close}-queries.ts"]
@@ -207,7 +207,9 @@ products:
 
 shared_classes:   # precedence: lower wins; two matches at the SAME precedence = AMBIGUOUS_PATH
   # tools/agent-broker/** runs on the owner's machine with 1Password access, so any change to it is a policy change.
-  policy:  { precedence: 1, globs: [.github/**, tools/project-graph/**, tools/ci-gate/**, tools/agent-broker/**, CODEOWNERS], selects: all, policy_change: true }
+  # A policy class outranks product ownership (RT-867): each product's own .github/** holds scripts
+  # that root CI jobs execute (e.g. admin-console fetch-pinned-contracts.sh), so they need approval.
+  policy:  { precedence: 1, globs: [.github/**, tools/project-graph/**, tools/ci-gate/**, tools/agent-broker/**, CODEOWNERS, "apps/*/.github/**", "services/*/.github/**", "integrations/*/.github/**"], selects: all, policy_change: true }
   tooling: { precedence: 2, globs: [tools/**], selects: all }
   e2e:     { precedence: 3, globs: [tests/e2e/**], selects: [e2e] }
   docs:    { precedence: 3, globs: [docs/**], selects: [] }
