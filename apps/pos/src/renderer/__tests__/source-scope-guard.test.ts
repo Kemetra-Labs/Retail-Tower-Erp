@@ -22,7 +22,6 @@ import {
   RT_228_PAIRING_ERROR_ENVELOPE_EXEMPT_PREFIXES,
   RT_306_PAIRING_TOKEN_BINDING_BRANCH_PREFIX,
   RT_306_PAIRING_TOKEN_BINDING_EXEMPT_PREFIXES,
-  isRt676ExemptFile,
   isRt591ExemptFile,
   isRt307ExemptFile,
   isRt869ExemptFile,
@@ -181,7 +180,6 @@ describe('source-scope guard (T006)', () => {
     const violations = changedFiles.filter(
       (file) =>
         effectiveForbidden.some((prefix) => file === prefix || file.startsWith(prefix)) &&
-        !isRt676ExemptFile(currentBranch, file) &&
         !isRt591ExemptFile(currentBranch, file) &&
         !isRt307ExemptFile(currentBranch, file) &&
         !isRt869ExemptFile(currentBranch, file),

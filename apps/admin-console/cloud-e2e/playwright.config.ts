@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 import type { LocaleFixtures } from "../tests/e2e/fixtures";
 
-// RT-750: BrowserStack cloud smoke of the existing E2E spec (workflow: .github/workflows/cross-browser-cloud.yml).
+// RT-750: BrowserStack cloud smoke of the existing E2E spec (workflow: the monorepo's root .github/workflows/admin-cross-browser-cloud.yml).
 // The required Chromium CI uses ../playwright.config.ts and is untouched by this file.
 //
 // Locale: browserstack-node-sdk replaces project names and drops PROJECT-level `use`, so the

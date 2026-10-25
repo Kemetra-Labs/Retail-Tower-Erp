@@ -1,6 +1,7 @@
 /**
- * RT-842 (RT-532 S4) — the two SSM Command documents the live `Deploy lab` job
- * runs: RT-BackendLabBackup on lab-02 and RT-BackendLabDeploy on lab-01. The
+ * RT-842 (RT-532 S4) — the two SSM Command documents the live lab deploy runs:
+ * RT-BackendLabBackup on lab-02 and RT-BackendLabDeploy on lab-01 (the product
+ * workflow that ran them, deploy-lab.yml, was retired in RT-878). The
  * owner creates them in AWS from these files, and the SSM agent runs them as
  * root, so the files are the security boundary. The checks are static (no AWS,
  * no host): strict parameters that never reach shell text, the RT-532 gate
@@ -328,16 +329,6 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
 
   it("extracts a fetched bundle world-readable (no secrets in it; containers bind-mount its files)", () => {
     expect(b).toMatch(/\(umask 022 && mkdir "\$WORK\/extract" \\\n\s+&& tar -xzf/);
-  });
-
-  it("finishes inside the deploy role session: each poll window is its document timeout plus a minute", () => {
-    const wf = read(".github/workflows/deploy-lab.yml");
-    const poll = (doc: string): number => Number(new RegExp(`${doc} "\\$LIVE/\\w+-params\\.json" (\\d+)`).exec(wf)?.[1]);
-    const session = Number(/role-duration-seconds: (\d+)/.exec(wf)?.[1]);
-    expect(poll("RT-BackendLabBackup")).toBe(Number(backup.doc.mainSteps[0]?.inputs.timeoutSeconds) + 60);
-    expect(poll("RT-BackendLabDeploy")).toBe(Number(deploy.doc.mainSteps[0]?.inputs.timeoutSeconds) + 60);
-    // the claim print, credentials and node lookups need a few minutes too
-    expect(poll("RT-BackendLabBackup") + poll("RT-BackendLabDeploy") + 600).toBeLessThanOrEqual(session);
   });
 
   it("never downgrades the database", () => {

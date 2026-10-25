@@ -22,7 +22,6 @@
   <a href="tsconfig.base.json"><img alt="TypeScript strict" src="https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
   <a href="apps/api"><img alt="NestJS 11" src="https://img.shields.io/badge/NestJS-11-e0234e?logo=nestjs&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
   <a href="packages/contracts/openapi"><img alt="OpenAPI 3.1" src="https://img.shields.io/badge/OpenAPI-3.1-6ba539?logo=openapiinitiative&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
-  <a href="https://github.com/Kemetra/Backend-Core/blob/badges/loc.svg"><img alt="LOC" src="https://raw.githubusercontent.com/Kemetra/Backend-Core/badges/loc.svg"></a>
 </p>
 
 <p align="center">
@@ -325,8 +324,8 @@ The platform that stands behind every branch — multi-tenant architecture, cata
 | `apps/worker/src/{outbox,erpnext-*,sales,inventory,audit,email,cleanup}` | Outbox drainer and consumers · ERP posting and reconciliation runs · sale processing and dead-letter · inventory backfill · audit fan-out and retention · email · soft-delete sweep |
 | `docs` | Architecture · live control map · documentation index · brand · agent-os · presentation assets |
 | `.specify` | Constitution v3.0.0 · architecture impact · redaction matrix · slice templates · integration manifests |
-| `.github` | CI workflows · PR + issue templates |
-| `scripts`, `tools`, `loadtests` | LOC badge automation · custom ESLint rules · k6 perf scenarios |
+| CI | The monorepo's root `.github/workflows/backend-core.yml` (selected by the project graph), `api-fuzz-nightly.yml` and `release-backend-core.yml` |
+| `tools`, `loadtests` | Custom ESLint rules, schemathesis and oasdiff gates · k6 perf scenarios |
 
 ### What this repo owns
 Backend and orchestration boundary: APIs and OpenAPI contracts · database schema, migrations and tenant/store context · tenant catalog and store overrides · inventory ledger · sales capture and sync operations · settlement and receivables · ERP posting orchestration and the integration contracts the connector consumes · worker runtime and queue patterns · shared platform primitives for auth, observability, validation, and errors.

@@ -90,7 +90,7 @@ describe('source-scope guard — RT-591 exemption is narrow', () => {
     );
     expect(guard.match(/isRt591ExemptFile/g)).toHaveLength(2); // import + use
     expect(guard).toMatch(
-      /effectiveForbidden\.some\(\(prefix\) => file === prefix \|\| file\.startsWith\(prefix\)\) &&\s*!isRt676ExemptFile\(currentBranch, file\) &&\s*!isRt591ExemptFile\(currentBranch, file\)/,
+      /effectiveForbidden\.some\(\(prefix\) => file === prefix \|\| file\.startsWith\(prefix\)\) &&\s*!isRt591ExemptFile\(currentBranch, file\)/,
     );
   });
 });

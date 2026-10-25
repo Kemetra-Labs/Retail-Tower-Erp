@@ -1,6 +1,6 @@
 # OpenAPI breaking-change gate
 
-The `oasdiff (breaking changes vs merge-base)` job in `.github/workflows/ci.yml`
+The `bc/oasdiff` job in the monorepo's root `.github/workflows/backend-core.yml`
 runs [oasdiff](https://github.com/oasdiff/oasdiff) on every pull request, whatever
 its risk tier. It compares all contracts under `packages/contracts/openapi/`
 at the PR merge-base with the PR head, in composed mode, and fails when it finds a

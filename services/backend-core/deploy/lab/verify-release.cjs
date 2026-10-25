@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // RT-703: verify a published Backend-Core release for the manual lab deploy
-// workflow (.github/workflows/deploy-lab.yml) and write a planned-deployment
+// (the product's deploy-lab.yml, retired in RT-878 until the lab deploy is rebuilt on
+// the monorepo release) and write a planned-deployment
 // ledger. Slice 1 is a dry run: this script only reads evidence files the
 // workflow collected from the GitHub API. It makes no network calls, reads no
 // secrets, changes nothing anywhere and writes only under --out.
@@ -72,7 +73,7 @@ const JIRA_RE = /^RT-[1-9]\d*$/;
 const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
 const SUMS_LINE_RE = /^([0-9a-f]{64}) [ *](\S+)$/;
 const LS_TREE_RE = /^\d{6} (blob|tree) ([0-9a-f]{40})\t(.+)$/;
-// The ALLOWLIST=( ... ) array in deploy/release-bundle.sh (the same parse release-images.spec.ts uses).
+// The ALLOWLIST=( ... ) array in deploy/release-bundle.sh (the same parse release-bundle.spec.ts uses).
 const ALLOWLIST_RE = /^ALLOWLIST=\(\r?\n([\s\S]*?)^\)/m;
 // RT-812: release-bundle.sh appends the routine grant scripts this selector lists.
 const ROUTINE_GRANTS_SELECTOR = "bash deploy/apply-domain-grants.sh --list";

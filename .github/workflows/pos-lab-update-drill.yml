@@ -1,30 +1,34 @@
-# RT-803 (RT-322 S-E) — manual LAB update drill. `stage` picks one stage per run: `p0` (default, the
-# spike below) or `p1` (automatic update N -> N+1, see the second job).
+# RT-878: manual POS LAB update drill, ported from apps/pos/.github/workflows/lab-update-drill.yml
+# (RT-803, RT-322 S-E), which GitHub never runs from a nested .github/ since the RT-715 cutover. Same
+# jobs and scripts, run inside apps/pos/. `stage` picks one stage per run: `p0` (default, the spike)
+# or `p1` (automatic update N -> N+1).
 #
-# P0 spike (job p0-spike):
-#
-# LAB ONLY. Builds one per-user NSIS installer signed with an EPHEMERAL self-signed test
-# certificate (subject marker `LAB TEST - NOT FOR PRODUCTION`, created on the runner, never
-# exported, removed again), trusts only its PUBLIC root on the ephemeral runner, verifies the
-# Authenticode signature, installs silently and launches the packaged app. It proves the runner
-# can host the RT-322 S-D drill; it does NOT run any of the eight S-D cases and is NOT evidence
-# for RT-324 (production-signed, real-terminal). The production signing path is RT-321 and is
-# unchanged.
-#
-# Not part of the PR gate: manual `workflow_dispatch` only, no `push`/`pull_request` trigger, not
-# listed in the `ci` aggregate. No secrets, read-only token, nothing is published or released;
-# the evidence bundle (logs, manifest, public root certificate, one screenshot) is kept 14 days
-# and never contains the installer.
+# P0 spike (job p0-spike): LAB ONLY. Builds one per-user NSIS installer signed with an EPHEMERAL
+# self-signed test certificate (subject marker `LAB TEST - NOT FOR PRODUCTION`, created on the runner,
+# never exported, removed again), trusts only its PUBLIC root on the ephemeral runner, verifies the
+# Authenticode signature, installs silently and launches the packaged app. It proves the runner can
+# host the RT-322 S-D drill; it does NOT run any of the eight S-D cases and is NOT evidence for RT-324
+# (production-signed, real-terminal). The production signing path is RT-321 and is unchanged.
 #
 # P1 update drill (job p1-update): builds two lab installers from the SAME commit that differ only in
 # version (0.1.0 = N, 0.1.1 = N+1), installs N, serves N+1 from an isolated HTTPS lab feed
 # (rt772-lab.test, hosts entry to 127.0.0.1, ephemeral TLS certificate, all removed afterwards) and
 # lets the real UpdateService take the installed N to N+1 at its app-start safe point. Signature,
-# publisher pin and TLS validation stay on. Proves case 1 only (reboot, shift close, GUI, negative
-# cases and production signing are other slices). The driver refuses to run off a GitHub-hosted runner.
-# GitHub runs the workflow file found at the dispatched ref, and `ref` below is what gets built, so
-# before this is merged dispatch both: `gh workflow run lab-update-drill.yml --ref <branch> -f stage=p1 -f ref=<branch>`.
-name: lab-update-drill
+# publisher pin and TLS validation stay on. Proves case 1 only. The driver refuses to run off a
+# GitHub-hosted runner.
+#
+# Not a graph job and not a gate input: manual `workflow_dispatch` only, the job names are not
+# graph.yaml keys and the workflow is not in gate.yml `workflow_run`. No secrets, read-only token,
+# nothing is published or released; the evidence bundle (logs, manifest, public root certificate,
+# one screenshot) is kept 14 days and never contains the installer. Guarded by
+# apps/pos/scripts/__tests__/lab-update-drill-workflow.test.ts.
+#
+# GitHub runs the workflow file found at the dispatched ref, and `ref` below is what gets built:
+# `gh workflow run pos-lab-update-drill.yml --ref <branch> -f stage=p1 -f ref=<branch>`.
+#
+# Differences from the product workflow: actions pinned to the SHAs the root workflows use, and
+# `uses:` steps name the product paths explicitly (`defaults.run` does not apply to them).
+name: pos-lab-update-drill
 
 on:
   workflow_dispatch:
@@ -47,8 +51,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: lab-update-drill-${{ github.ref }}
+  group: pos-lab-update-drill-${{ github.ref }}
   cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: apps/pos
 
 jobs:
   p0-spike:
@@ -57,18 +65,19 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Setup Node 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: apps/pos/package-lock.json
 
-      # Same two install steps as the `package` job in ci.yml: the lab installer packages the same app.
+      # Same two install steps as pos/package-windows in pos.yml: the lab installer packages the same app.
       - name: Install dependencies
         run: npm ci
 
@@ -86,7 +95,7 @@ jobs:
 
       - name: Upload evidence bundle
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: lab-update-drill-p0-${{ github.run_id }}
           path: ${{ runner.temp }}/evidence
@@ -99,16 +108,17 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Setup Node 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: apps/pos/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -127,7 +137,7 @@ jobs:
 
       - name: Upload evidence bundle
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: lab-update-drill-p1-${{ github.run_id }}
           path: ${{ runner.temp }}/evidence

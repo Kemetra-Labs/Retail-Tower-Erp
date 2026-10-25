@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// RT-863: the POS compatibility gate for image release (.github/workflows/release-images.yml)
-// and lab deploy (deploy/lab/verify-release.cjs). Owner decision MR-3 (RT-863 comment 13811),
+// RT-863: the POS compatibility gate for image release (the product's release-images.yml, retired
+// in RT-878; the monorepo's .github/release/compat-gate.cjs is its root port) and lab deploy (deploy/lab/verify-release.cjs). Owner decision MR-3 (RT-863 comment 13811),
 // option (b) with automatic tightening:
 //
 //   - The release SHA's own `contracts-compat (POS supported snapshots)` check run (ci.yml,
