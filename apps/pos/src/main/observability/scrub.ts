@@ -15,6 +15,11 @@
  *     is capped at 2,000 chars before scanning and the output at 300; index
  *     scans only, no backtracking regex on library input. §3.5's golden
  *     vectors pin the exact output.
+ *   - RT-879: also every rule another runtime masks (shared
+ *     `rt879-redaction-vectors.json`): two-segment JWTs, the query/fragment
+ *     of a scheme-less URL or path, MariaDB `Duplicate entry` values,
+ *     credential `key=value` pairs, `exception.type`, a URL frame filename's
+ *     query, and a scan cap that never splits a word.
  *
  * POS deviations from the reference, both stricter:
  *   - `server_name` is dropped: on a till it is the Windows machine name,
@@ -91,6 +96,12 @@ const POSTGRES_ROW_MARKERS = [
   { marker: 'Key (', mask: 'Key (...)=(...)' },
   { marker: 'Failing row contains (', mask: 'Failing row contains (...)' },
 ] as const;
+// MariaDB 1062 `Duplicate entry '<value>' for key '<index>'`: only the value is
+// masked (RT-879, the Connector rule).
+const DUPLICATE_ENTRY = "Duplicate entry '";
+const DUPLICATE_KEY = "' for key ";
+/** Characters that open a URL query or fragment. */
+const QUERY_MARKS: ReadonlySet<string> = new Set(['?', '#']);
 const SCHEME_CHAR = /^[a-z0-9+.-]$/i;
 const TRAILING_PUNCTUATION: ReadonlySet<string> = new Set([`"`, "'", ')', ']', ',', ';', '.', '>']);
 const REDACTED = '[redacted]';
@@ -98,7 +109,21 @@ const REDACTED = '[redacted]';
 const WORD_WRAPPERS = `"'{[(,:)]}`;
 const QUOTES = `"'`;
 const IDENTIFIER_CHAR = /^[a-z0-9_-]$/i;
-const AUTHORIZATION_KEY = 'authorization';
+// A credential key matches as the END of an identifier: `Authorization`,
+// `dp2_token`, `client_secret`, `api-key` (RT-879, the Connector rule; OBS-1
+// §3.2 requires `authorization`, stricter is allowed).
+const CREDENTIAL_SUFFIXES: readonly string[] = [
+  'token',
+  'password',
+  'passwd',
+  'pwd',
+  'secret',
+  'apikey',
+  'api_key',
+  'api-key',
+  'authorization',
+  'dsn',
+];
 // After `Authorization:`, a scheme word means the credential is the word after it.
 const AUTH_SCHEMES: ReadonlySet<string> = new Set([
   'bearer',
@@ -138,6 +163,33 @@ function maskPostgresRowValues(value: string): string {
   return out;
 }
 
+/** `Duplicate entry '<value>' for key 'x'` -> `Duplicate entry '...' for key 'x'`. */
+function maskDuplicateEntry(value: string): string {
+  const at = value.indexOf(DUPLICATE_ENTRY);
+  if (at === -1) return value;
+  const valueStart = at + DUPLICATE_ENTRY.length;
+  const keyAt = value.indexOf(DUPLICATE_KEY, valueStart);
+  return `${value.slice(0, valueStart)}...${keyAt === -1 ? "'" : value.slice(keyAt)}`;
+}
+
+/**
+ * The first `MAX_SCAN_LENGTH` chars, cut back to whitespace so the cap never
+ * splits a word: a cut `jane@exa` has no dot after its `@` and would dodge the
+ * email mask (RT-879, the Connector rule).
+ */
+function capped(value: string): string {
+  if (value.length <= MAX_SCAN_LENGTH) return value;
+  let end = MAX_SCAN_LENGTH;
+  while (end > 0 && value.charAt(end).trim() !== '') end--;
+  // No whitespace at all: keep the hard cut. Inside one word every mask that
+  // shortens the text drops the rest of the word, so the cut tail never surfaces.
+  return value.slice(0, end > 0 ? end : MAX_SCAN_LENGTH);
+}
+
+function isCredentialKey(key: string): boolean {
+  return CREDENTIAL_SUFFIXES.some((suffix) => key.endsWith(suffix));
+}
+
 /**
  * How to treat the word after this one (§3.2): scrub it as usual, mask it as a
  * credential, or (after a bare `Authorization` key, RT-694) take a leading
@@ -154,9 +206,9 @@ interface ScrubbedWord {
 /**
  * One whitespace-delimited token of an exception message. Secrets are masked
  * wherever they sit in it (`token=eyJ…`, `"https://u:p@host/x?api_key=…"`):
- * `Bearer` first, then URLs (userinfo and query), `Authorization` values,
- * JWTs, emails and phones. Index scans only, so the work stays linear on
- * untrusted input.
+ * `Bearer` first, then URLs (userinfo and query), any other query or
+ * fragment, credential values (`Authorization`, `password=`, …), JWTs, emails
+ * and phones. Index scans only, so the work stays linear on untrusted input.
  */
 class MessageToken {
   private readonly text: string;
@@ -167,12 +219,16 @@ class MessageToken {
 
   scrubbed(): ScrubbedWord {
     if (this.unwrapped() === 'bearer') return { text: REDACTED, next: 'mask' };
-    const url = this.withoutUrl();
-    const authorization = url.maskedAuthorization();
+    const urlOnly = this.withoutUrl();
+    const url = urlOnly.withoutQuery();
+    const credential = url.maskedCredential();
     // The part before `authorization=` still gets the JWT/email/phone masks.
-    const masked = (authorization ? new MessageToken(authorization.text) : url).withoutJwt();
+    const masked = (credential ? new MessageToken(credential.text) : url).withoutJwt();
     const text = masked.isEmailLike() ? '[email]' : maskPhones(masked.text);
-    return { text, next: authorization?.next ?? this.nextAfterKey() };
+    const next = credential?.next ?? this.nextAfterKey();
+    // A credential key inside the dropped query (`?authorization=`) still passes its signal on.
+    const hidden = urlOnly.maskedCredential();
+    return { text, next: hidden ? stricter(next, hidden.next) : next };
   }
 
   /**
@@ -184,10 +240,10 @@ class MessageToken {
     return this.isSeparator(0) ? this.valueAfter(0) : null;
   }
 
-  /** A word ending in an `Authorization` key, quotes ignored, waits for a separator word. */
+  /** A word ending in a credential key (`Authorization`), quotes ignored, waits for a separator word. */
   private nextAfterKey(): NextWord {
     const key = this.keyBefore(this.text.length);
-    return key.endsWith(AUTHORIZATION_KEY) ? 'authorizationSeparator' : 'scrub';
+    return isCredentialKey(key) ? 'authorizationSeparator' : 'scrub';
   }
 
   /** An auth-scheme word (`Bearer`, `'Basic`): the credential is the next word. */
@@ -196,14 +252,14 @@ class MessageToken {
   }
 
   /**
-   * `Authorization:<value>` / `"authorization":` / `headers.authorization=`:
-   * the value after the first such separator is masked, or the next word
-   * when the value is empty. A scheme value (`Bearer`) means the credential
-   * is the next word.
+   * `Authorization:<value>` / `"authorization":` / `headers.authorization=` /
+   * `password=<value>`: the value after the first such separator is masked, or
+   * the next word when the value is empty. A scheme value (`Bearer`) means the
+   * credential is the next word.
    */
-  private maskedAuthorization(): ScrubbedWord | null {
+  private maskedCredential(): ScrubbedWord | null {
     for (let sep = 0; sep < this.text.length; sep++) {
-      if (this.isAuthorizationSeparator(sep)) return this.valueAfter(sep);
+      if (this.isCredentialSeparator(sep)) return this.valueAfter(sep);
     }
     return null;
   }
@@ -227,9 +283,9 @@ class MessageToken {
     return this.text.slice(start, end).toLowerCase();
   }
 
-  /** A `:` or `=` whose key ends in `authorization` (`Proxy-Authorization:`, `"authorization":`). */
-  private isAuthorizationSeparator(sep: number): boolean {
-    return this.isSeparator(sep) && this.keyBefore(sep).endsWith(AUTHORIZATION_KEY);
+  /** A `:` or `=` whose key is a credential key (`Proxy-Authorization:`, `dp2_token=`). */
+  private isCredentialSeparator(sep: number): boolean {
+    return this.isSeparator(sep) && isCredentialKey(this.keyBefore(sep));
   }
 
   private isSeparator(at: number): boolean {
@@ -250,7 +306,7 @@ class MessageToken {
   }
 
   /** Keep scheme + host + path; drop userinfo, query, fragment. Unparsable -> `[url]`. */
-  private withoutUrl(): MessageToken {
+  withoutUrl(): MessageToken {
     const sep = this.text.indexOf('://');
     const start = sep > 0 ? this.schemeStart(sep) : sep;
     if (start < 0 || start === sep) return this;
@@ -266,10 +322,34 @@ class MessageToken {
     return new MessageToken(`${this.text.slice(0, start)}${safe}${raw.slice(end)}`);
   }
 
-  /** Mask a JWT (operator envelope, Clerk token) and everything after it. */
+  /**
+   * Drop a query or fragment the URL pass did not see (`/v1/x?phone=…`,
+   * `host/x#token=…`, `?phone=…`), RT-879, the Admin-Console rule. A `?` or
+   * `#` that ends the token, or opens it without any `key=value` ("valid?",
+   * "#42"), is not one, so ordinary sentences survive.
+   */
+  withoutQuery(): MessageToken {
+    if (QUERY_MARKS.has(this.text.charAt(0)) && this.text.includes('=')) {
+      return new MessageToken('');
+    }
+    for (let i = 1; i < this.text.length - 1; i++) {
+      if (QUERY_MARKS.has(this.text.charAt(i))) return new MessageToken(this.text.slice(0, i));
+    }
+    return this;
+  }
+
+  toString(): string {
+    return this.text;
+  }
+
+  /**
+   * Mask a JWT (operator envelope, Clerk token) and everything after it. Two
+   * segments are enough (RT-879): a header.payload without signature still
+   * carries the claims.
+   */
   private withoutJwt(): MessageToken {
     const at = this.text.indexOf('eyJ');
-    if (at === -1 || this.text.slice(at).split('.').length < 3) return this;
+    if (at === -1 || !this.text.includes('.', at)) return this;
     return new MessageToken(`${this.text.slice(0, at)}[jwt]`);
   }
 
@@ -339,7 +419,7 @@ function scrubWords(parts: readonly string[]): string {
 
 /** Contract §3.2: cap, mask secrets anywhere in the text, truncate. */
 export function sanitizeMessage(value: string): string {
-  const words = maskPostgresRowValues(value.slice(0, MAX_SCAN_LENGTH)).split(/(\s+)/);
+  const words = maskDuplicateEntry(maskPostgresRowValues(capped(value))).split(/(\s+)/);
   const cleaned = scrubWords(words);
   return cleaned.length > MAX_MESSAGE_LENGTH
     ? `${cleaned.slice(0, MAX_MESSAGE_LENGTH - 3)}...`
@@ -366,7 +446,13 @@ export function relativeFrameFilename(filename: string): string {
 
 function scrubFrame(frame: SentryFrameLike): Record<string, unknown> {
   const out = pickDefined(frame, FRAME_LOCATION_KEYS);
-  if (typeof frame.filename === 'string') out['filename'] = relativeFrameFilename(frame.filename);
+  if (typeof frame.filename === 'string') {
+    // RT-879: a URL filename keeps scheme + host + path only, as in the Console.
+    const filename = new MessageToken(
+      relativeFrameFilename(frame.filename).slice(0, MAX_SCAN_LENGTH),
+    );
+    out['filename'] = filename.withoutUrl().withoutQuery().toString();
+  }
   const fn = label(frame.function);
   if (fn !== undefined) out['function'] = fn;
   const mod = label(frame.module);
@@ -376,8 +462,9 @@ function scrubFrame(frame: SentryFrameLike): Record<string, unknown> {
 
 function scrubException(entry: SentryExceptionValueLike): SentryExceptionValueLike {
   const out: SentryExceptionValueLike = {};
-  const type = label(entry.type);
-  if (type !== undefined) out.type = type;
+  // `type` is the error's name, which code can set to any text (RT-879: masked like a message).
+  if (typeof entry.type === 'string')
+    out.type = sanitizeMessage(entry.type).slice(0, MAX_LABEL_LENGTH);
   if (typeof entry.value === 'string') out.value = sanitizeMessage(entry.value);
   if (entry.mechanism !== undefined) out.mechanism = pickDefined(entry.mechanism, MECHANISM_KEYS);
   const frames = entry.stacktrace?.frames;

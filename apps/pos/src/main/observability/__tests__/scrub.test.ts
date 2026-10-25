@@ -21,11 +21,12 @@ function exceptionEvent(value: string, extra: Partial<SentryEventLike> = {}): Se
 describe('sanitizeMessage — contract §3.2 patterns', () => {
   it('masks a JWT anywhere in the text', () => {
     const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl';
-    expect(sanitizeMessage(`token=${jwt} rejected`)).toBe('token=[jwt] rejected');
+    // Not a credential key: `token=` would mask the whole value as a credential first (RT-879).
+    expect(sanitizeMessage(`id=${jwt} rejected`)).toBe('id=[jwt] rejected');
     expect(sanitizeMessage(jwt)).toBe('[jwt]');
   });
 
-  it('keeps an eyJ prefix that is not a three-segment JWT', () => {
+  it('keeps an eyJ word with no dot (not a JWT)', () => {
     expect(sanitizeMessage('eyJustAWord here')).toBe('eyJustAWord here');
   });
 
