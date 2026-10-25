@@ -16,10 +16,10 @@ The design comes from [RT-709 §A](https://rahmaqanater.atlassian.net/wiki/space
 | `pgraph/evaluate.py` | A.2 evaluator: metadata in, `plan.json` out. Never runs PR code |
 | `pgraph/aggregate.py` | A.5 `required` decision with R2 provenance and R1 SHA-bound approval |
 | `pgraph/github.py` | REST payloads → aggregator records (jobs `filter=all` joined to check-runs; review attestations) |
-| `pgraph/boundary.py` | B.1 layer-1 cross-product reference check (dependency-free `scan`) |
-| `pgraph/gitio.py` | Git plumbing adapter (`diff --raw -z`, `ls-tree`, `show`); no checkout |
+| `pgraph/boundary.py` | B.1 layer-1 cross-product reference check (dependency-free `scan`), hardened by RT-873 |
+| `pgraph/gitio.py` | Git plumbing adapter (`diff --raw -z`, `ls-tree`, `cat-file --batch`); no checkout |
 | `pgraph/privileges.py` | R5 / T-A static check of root and staged workflows (`python -m pgraph privileges`) |
-| `boundary-todo.yaml` | Boundary ratchet (empty). Entries may only be removed |
+| `boundary-todo.yaml` | Boundary ratchet (empty). Entries may only be removed; a stale entry fails `boundary` |
 | `fixtures/` | P01–P19 (RT-709 A.6) and X01–X07 (new, see below) with hand-written expectations |
 | `tests/` | unittest suite, including the fixture runner and a real-tree acceptance check |
 | `../ci-gate/gate.yml.staged` | T-A gate template, kept outside `.github/workflows` |
@@ -78,7 +78,7 @@ These were named but never defined in RT-710 comment 12882. They are **defined n
 | X04 | Approval at head A, then head moved to B; base moved; policy content changed (fingerprint) |
 | X05 | Bot reviewer, unlisted login, label-only approval, empty approver list |
 | X06 | Path dialect: case, root anchoring, NFC, unmatched-in-product = `high`, BC docs SQL, push selects all |
-| X07 | Boundary: imports, `require`, dynamic `import()`, manifest `file:`, tsconfig `extends`, Python `sys.path` and relative imports, literal product paths, Dockerfile, ratchet |
+| X07 | Boundary: imports, `require`, dynamic `import()`, manifest `file:`, tsconfig `extends`, Python `sys.path` and relative imports, literal product paths, Dockerfile, ratchet. RT-873 adds: non-import JS/TS path literals (`path.resolve(__dirname, '../..')`, `new URL('../x', import.meta.url)`, `join(ROOT, '..', '..', ...)`, `${ROOT}/../..` templates), `*.config.*` files, JSON `extends`, `.vue`/`.svelte`, Python `Path(__file__).parents[n]` / `.parent` chains and climbing literals (`open('../../...')`), the MR-6 ERPNext/Frappe egress rule, and stale ratchet entries failing |
 
 ## Known gaps (named, not silently relaxed)
 
@@ -99,8 +99,8 @@ These were named but never defined in RT-710 comment 12882. They are **defined n
 All HIGH findings were fixed test-first (`tests/test_review_fixes.py`). These lower ones stay open:
 
 10. **`boundary_review` is a flag only.** A cross-product rename sets it, but nothing blocks on it. Whether it should require approval is an owner decision.
-11. **Ratchet is not removal-only in code.** `stale_ratchet` is reported but not failing. The only control on new entries is the `policy` class. A `(rule, from, to)` entry also covers any later violation with the same triple.
-12. **The boundary scan misses non-import relative paths in JS**, such as `path.resolve(__dirname, '../..')` or `new URL('../x', import.meta.url)`. It also ignores `.vue`/`.svelte`, and `boundary` reads the working tree rather than `--rev`.
+11. **Ratchet additions are controlled only by the `policy` class.** Closed by RT-873: a stale entry now fails `boundary` (`ok: false`, exit 1). Still open: a `(rule, from, to)` entry also covers any later violation with the same triple.
+12. **Layer-1 path detection is lexical (RT-873).** Closed: non-import JS/TS path literals, `*.config.*`, JSON `extends`, `.vue`/`.svelte`, Python `Path(__file__)` climbs and climbing literals, and `boundary --rev` reading blobs at the rev. Still open, by design of a regex scan: paths built by `+` concatenation, computed segments, `os.path.dirname` chains, and Frappe routes split across literals are not seen. A climbing literal with an unknown base (cwd, a `ROOT` constant) is resolved against every directory from the file up to the product root; it is reported when one of them reaches another product, or when it leaves the product even from the file's own directory. The MR-6 egress rule (`erp-egress`, `apps/**` only) matches a literal only when the whole literal is a `/api/resource/<x>` or `/api/method/<x>` route (optionally behind a scheme+host or a leading `${...}`), so UI copy and test deny-lists do not match. Layer 2 (RT-873 layer 2) waits for cutover.
 13. **Approvers are matched by login.** Matching by numeric user id would survive renames and recycled logins.
 14. **Dismissing a review does not re-trigger the gate.** A `pull_request_review` trigger would run workflow code from the PR merge ref. A green `required` stays until the next push or label event.
 15. **The gate does not re-run `privileges` on head workflows.** That is defence in depth only; the primary control is that `.github/**` and `tools/ci-gate/**` are `policy` paths.

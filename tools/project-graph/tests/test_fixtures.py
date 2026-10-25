@@ -96,6 +96,8 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(got, want, result["violations"])
         if "expect_ratcheted" in case:
             self.assertEqual(len(result["ratcheted"]), case["expect_ratcheted"])
+        self.assertEqual(len(result["stale_ratchet"]), case.get("expect_stale", 0))
+        self.assertEqual(result["ok"], not want and not case.get("expect_stale", 0))
 
     def _fingerprint_case(self, case):
         fa = ev.policy_fingerprint(support.BASE, "t", "p", support.changes(case["a"]))

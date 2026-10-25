@@ -35,3 +35,64 @@ cases:
       - {rule: import, from: apps/admin-console/src/c.ts, to: apps/pos/src/main/z, ticket: RT-000}
     expect_violations: []
     expect_ratcheted: 1
+  # RT-873: non-import path literals, configs, JSON extends, .vue/.svelte, Python paths
+  - name: path-literals-js
+    kind: boundary
+    files:
+      apps/pos/src/main/p1.ts: "const p = path.resolve(__dirname, '../../../../services/backend-core/apps/api/src/x');\n"
+      apps/pos/src/main/p2.ts: "const u = new URL('../../../../integrations/erpnext-connector/x', import.meta.url);\n"
+      apps/pos/scripts/p3.ts: "const t = join(ROOT, '..', '..', 'services', 'backend-core', 'x');\n"
+      apps/pos/src/main/p4.ts: "const t = `${ROOT}/../../services/backend-core/x`;\n"
+      apps/pos/tools/p5.mjs: "const out = resolve(__dirname, '../..');\n"
+      apps/admin-console/openapi-ts.config.ts: "const s = resolve(repoRoot, '..', 'pos', 'src', 'x.ts');\n"
+      apps/admin-console/biome.json: "{\n  \"extends\": [\"../pos/biome.json\"]\n}\n"
+      apps/pos/src/renderer/C.vue: "<script setup>\nimport x from '../../../admin-console/src/x';\n</script>\n"
+      apps/admin-console/src/S.svelte: "<script>\nconst f = new URL('../../pos/src/y', import.meta.url);\n</script>\n"
+      apps/pos/scripts/ok.ts: "const c = resolve(__dirname, '../../../services/backend-core/packages/contracts/openapi/pos-sales/x.yaml');\nconst d = join(__dirname, '..', 'docs');\nvi.mock('../shared/y');\nconst e = '../shared/z';\n"
+      apps/pos/src/main/returns/__tests__/ok.test.ts: "const evil = '../../../api/method/frappe.client.get';\n"
+    ratchet: []
+    expect_violations:
+      - {from: apps/pos/src/main/p1.ts, to_product: backend-core, rule: path-literal}
+      - {from: apps/pos/src/main/p2.ts, to_product: erpnext-connector, rule: path-literal}
+      - {from: apps/pos/scripts/p3.ts, to_product: backend-core, rule: path-literal}
+      - {from: apps/pos/src/main/p4.ts, to_product: backend-core, rule: path-literal}
+      - {from: apps/pos/tools/p5.mjs, to_product: outside, rule: path-literal}
+      - {from: apps/admin-console/openapi-ts.config.ts, to_product: pos, rule: config-path}
+      - {from: apps/admin-console/biome.json, to_product: pos, rule: config-path}
+      - {from: apps/pos/src/renderer/C.vue, to_product: admin-console, rule: import}
+      - {from: apps/admin-console/src/S.svelte, to_product: pos, rule: path-literal}
+  - name: path-literals-python
+    kind: boundary
+    files:
+      integrations/erpnext-connector/retail_tower_erpnext_connector/connector/p.py: "SPEC = Path(__file__).parents[4] / 'services' / 'backend-core' / 'x'\n"
+      integrations/erpnext-connector/retail_tower_erpnext_connector/connector/q.py: "ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent / \"services\"\n"
+      integrations/erpnext-connector/scripts/o.py: "with open('../../services/backend-core/x.yaml') as fh:\n    pass\n"
+      services/backend-core/tools/ok.py: "HERE = Path(__file__).parents[1] / 'docs'\nwith open('../README.md') as fh:\n    pass\n"
+    ratchet: []
+    expect_violations:
+      - {from: integrations/erpnext-connector/retail_tower_erpnext_connector/connector/p.py, to_product: backend-core, rule: python-path}
+      - {from: integrations/erpnext-connector/retail_tower_erpnext_connector/connector/q.py, to_product: outside, rule: python-path}
+      - {from: integrations/erpnext-connector/scripts/o.py, to_product: backend-core, rule: python-path}
+  # MR-6: POS and Admin-Console never call ERPNext/Frappe REST routes
+  - name: erp-egress
+    kind: boundary
+    files:
+      apps/pos/src/main/erp.ts: "await fetch('/api/resource/Item');\n"
+      apps/admin-console/src/erp2.ts: "const u = `${ERP}/api/method/frappe.client.get_list`;\n"
+      apps/admin-console/src/erp3.vue: "<script>\nconst u = \"https://erp.example.com/api/resource/Sales Invoice\";\nconst v = \"https://erp.example.com/api/resource/Customer\";\n</script>\n"
+      apps/admin-console/src/a/b/copy.ts: "const msg = 'Synced to ERPNext via /api/resource/Item';\nconst deny = ['/api/resource', \"/api/method\"];\nconst evil = '../../../api/method/frappe.client.get';\nconst title = 'ERPNext';\n"
+      services/backend-core/apps/api/src/erp.ts: "await fetch('/api/resource/Item');\n"
+    ratchet: []
+    expect_violations:
+      - {from: apps/pos/src/main/erp.ts, to_product: erpnext, rule: erp-egress}
+      - {from: apps/admin-console/src/erp2.ts, to_product: erpnext, rule: erp-egress}
+      - {from: apps/admin-console/src/erp3.vue, to_product: erpnext, rule: erp-egress}
+  # README known gap 11 closed: a stale ratchet entry fails the check
+  - name: stale-ratchet-entry-fails
+    kind: boundary
+    files:
+      apps/admin-console/src/c.ts: "const z = 1;\n"
+    ratchet:
+      - {rule: import, from: apps/admin-console/src/c.ts, to: apps/pos/src/main/z, ticket: RT-000}
+    expect_violations: []
+    expect_stale: 1

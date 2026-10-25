@@ -70,7 +70,12 @@ class BoundaryUnscannedTests(unittest.TestCase):
             os.makedirs(os.path.join(tmp, "apps/pos/src"))
             with open(os.path.join(tmp, path), "w") as fh:
                 fh.write("//" + "x" * (bd.MAX_FILE_BYTES + 10))
-            files, unscanned = bd.read_worktree_files(tmp, {path})
+            env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1",
+                       GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t.invalid",
+                       GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t.invalid")
+            for cmd in (["init", "-q"], ["add", path], ["commit", "-q", "-m", "big"]):
+                subprocess.run(["git", "-C", tmp, *cmd], check=True, capture_output=True, env=env)
+            files, unscanned = bd.read_rev_files(tmp, "HEAD")
         self.assertEqual(files, {})
         graph = Graph(load_graph(support.trusted_text()))
         result = bd.scan(graph, files, [], unscanned=unscanned)

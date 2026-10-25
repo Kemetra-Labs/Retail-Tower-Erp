@@ -18,9 +18,9 @@ class DiffUnavailable(RuntimeError):
     pass
 
 
-def _git(repo, *args):
+def _git(repo, *args, data=None):
     cmd = ["git", "-C", repo, "-c", "core.quotepath=off", *args]
-    return subprocess.run(cmd, capture_output=True, check=False)
+    return subprocess.run(cmd, input=data, capture_output=True, check=False)
 
 
 def _commit_exists(repo, rev):
@@ -88,3 +88,45 @@ def workflow_jobs(repo, rev):
             if isinstance(name, str) and "${{" not in name:
                 out[name] = path
     return out
+
+
+def read_blobs(repo, rev, wanted, max_bytes):
+    """Read regular-file blobs at `rev` whose path satisfies `wanted(path)`.
+
+    Returns (texts, unreadable). Oversize or missing blobs are listed in
+    `unreadable`, never read: sizes come from `ls-tree -l`. Symlinks and
+    submodules are skipped. Text is decoded with replacement."""
+    proc = _git(repo, "ls-tree", "-r", "-z", "-l", "--full-tree", rev)
+    if proc.returncode != 0:
+        raise DiffUnavailable(proc.stderr.decode("utf-8", "replace").strip())
+    blobs, unreadable = {}, []
+    for entry in proc.stdout.decode("utf-8", "surrogateescape").split("\0"):
+        if not entry:
+            continue
+        meta, path = entry.split("\t", 1)
+        mode, kind, obj, size = meta.split()
+        if kind != "blob" or mode not in ("100644", "100755") or not wanted(path):
+            continue
+        if int(size) > max_bytes:
+            unreadable.append(path)
+        else:
+            blobs.setdefault(obj, []).append(path)
+    texts = {}
+    if blobs:
+        batch = _git(repo, "cat-file", "--batch", data="".join(o + "\n" for o in blobs).encode())
+        if batch.returncode != 0:
+            raise DiffUnavailable(batch.stderr.decode("utf-8", "replace").strip())
+        out, pos = batch.stdout, 0
+        while pos < len(out):
+            eol = out.index(b"\n", pos)
+            header = out[pos:eol].decode().split()
+            if len(header) != 3:            # "<obj> missing": report, never skip silently
+                unreadable.extend(blobs[header[0]])
+                pos = eol + 1
+                continue
+            obj, _, size = header
+            body = out[eol + 1:eol + 1 + int(size)]
+            pos = eol + 1 + int(size) + 1
+            for path in blobs[obj]:
+                texts[path] = body.decode("utf-8", errors="replace")
+    return texts, unreadable

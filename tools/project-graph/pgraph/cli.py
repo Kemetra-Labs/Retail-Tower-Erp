@@ -3,7 +3,7 @@
   evaluate       trusted base + head (data only) -> plan.json
   aggregate      plan.json + check-runs + approvals -> `required` verdict
   classify-tree  classify every tracked path at a rev (exit 1 on unknown/ambiguous)
-  boundary       layer-1 boundary check over the working tree (exit 1 on violations)
+  boundary       layer-1 boundary check of the blobs at --rev (exit 1 on violations or stale ratchet)
 
 Output is ASCII JSON so it is safe on any console encoding."""
 
@@ -118,11 +118,10 @@ def cmd_classify_tree(args):
 
 def cmd_boundary(args):
     graph = _graph_from(args.graph)
-    paths = gitio.list_tree(args.repo, args.rev)
-    files, unscanned = bd.read_worktree_files(args.repo, paths)
-    result = bd.scan(graph, files, bd.load_ratchet(args.repo), unscanned=unscanned)
-    _emit({"scanned_files": len(files), **result})
-    return 1 if result["violations"] else 0
+    files, unscanned = bd.read_rev_files(args.repo, args.rev)
+    result = bd.scan(graph, files, bd.load_ratchet(args.repo, args.rev), unscanned=unscanned)
+    _emit({"rev": args.rev, "scanned_files": len(files), **result})
+    return 0 if result["ok"] else 1
 
 
 def cmd_privileges(args):
