@@ -109,7 +109,40 @@ class ConnectorCase(unittest.TestCase):
         self.assertEqual(self.by_subject(findings, "version").status, OK)
         self.assertEqual(self.by_subject(findings, "METHODS").status, OK)
         self.assertEqual(self.by_subject(findings, "DOCTYPES").status, OK)    # const
-        self.assertEqual(self.by_subject(findings, "_AMOUNT_RE").status, OK)  # \d under re.ASCII
+        # \d under re.ASCII equals [0-9]; the trailing Python `$` is reported as drift.
+        self.assertEqual(self.by_subject(findings, "_AMOUNT_RE").status, DRIFT)
+        self.assertIn("trailing newline", self.by_subject(findings, "_AMOUNT_RE").message)
+
+    def test_end_anchor_z_is_exact(self):
+        module = MODULE.replace('{1,6}$")', '{1,6}\\Z")')
+        spec = SPEC.replace("'^[A-Z0-9]{1,6}$'", "'^[A-Z0-9]{1,6}\\Z'")
+        self.assertEqual(self.by_subject(self.check(module=module, spec=spec), "_REF_RE").status, OK)
+
+    def test_escaped_dollar_is_not_an_anchor(self):
+        self.assertFalse(connector._ends_with_dollar(r"^a\$"))
+        self.assertTrue(connector._ends_with_dollar(r"^a\\$"))
+        self.assertTrue(connector._ends_with_dollar("^a$"))
+
+    def test_unicode_word_class_without_ascii_fails(self):
+        module = MODULE.replace('_REF_RE = re.compile(r"^[A-Z0-9]{1,6}$")', '_REF_RE = re.compile(r"^\\w{1,6}$")')
+        spec = SPEC.replace("'^[A-Z0-9]{1,6}$'", "'^\\w{1,6}$'")
+        f = self.by_subject(self.check(module=module, spec=spec), "_REF_RE")
+        self.assertEqual(f.status, FAIL)
+        self.assertIn("non-ASCII", f.message)
+        ok = self.by_subject(self.check(module=module.replace('{1,6}$")', '{1,6}$", re.ASCII)'), spec=spec), "_REF_RE")
+        self.assertNotEqual(ok.status, FAIL)
+
+    def test_keyword_bound_helper_field_is_read(self):
+        module = MODULE.replace('_amount(w, "amount", "Tender")', '_amount(w, name="Tender", field="amt")')
+        f = self.by_subject(self.check(module=module), "Tender")
+        self.assertEqual(f.status, FAIL)
+        self.assertIn("{amt}", f.message)
+
+    def test_unresolvable_read_key_fails(self):
+        module = MODULE.replace('cls(wire["kind"], wire.get("recordedAt"))', 'cls(wire["kind"], wire.get(KEY))')
+        f = self.by_subject(self.check(module=module), "Reversal")
+        self.assertEqual(f.status, FAIL)
+        self.assertIn("cannot be resolved", f.message)
 
     def test_enum_value_only_in_contract_fails(self):
         f = self.by_subject(self.check(spec=SPEC.replace("[cash, card_external]", "[cash, card_external, voucher]")),

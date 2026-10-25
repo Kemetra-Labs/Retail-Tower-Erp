@@ -171,39 +171,47 @@ def _params(func):
     return [a.arg for a in func.args.posonlyargs + func.args.args]
 
 
-def collect_reads(func, wire, module_functions, bound=None, top=True, depth=0, hard=None, soft=None):
-    """(hard, soft) field names read from the wire mapping. Hard: bare `wire["x"]` in the
-    top-level `from_wire`. Soft: `.get`, and any read inside a module helper the wire mapping
-    is passed to (helpers are followed, with `field`-style string arguments bound)."""
+def collect_reads(func, wire, module_functions, bound=None, top=True, depth=0, hard=None, soft=None,
+                  unresolved=None):
+    """(hard, soft, unresolved) for the wire mapping. Hard: bare `wire["x"]` in the top-level
+    `from_wire`. Soft: `.get`, and any read inside a module helper the wire mapping is passed to
+    (helpers are followed, with string arguments bound by position or keyword). Unresolved:
+    reads whose key is not a literal or a bound argument, which cannot be compared."""
     bound = bound or {}
     hard = set() if hard is None else hard
     soft = set() if soft is None else soft
+    unresolved = set() if unresolved is None else unresolved
     wire = _aliases(func, wire)
     for node in ast.walk(func):
         if (isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load)
                 and isinstance(node.value, ast.Name) and node.value.id in wire):
             key = _resolve(node.slice, bound)
-            if key is not None:
+            if key is None:
+                unresolved.add(f"{func.name}: {ast.unparse(node)}")
+            else:
                 (hard if top else soft).add(key)
         elif isinstance(node, ast.Call):
             fn = node.func
             if (isinstance(fn, ast.Attribute) and fn.attr == "get" and isinstance(fn.value, ast.Name)
                     and fn.value.id in wire and node.args):
                 key = _resolve(node.args[0], bound)
-                if key is not None:
+                if key is None:
+                    unresolved.add(f"{func.name}: {ast.unparse(node)}")
+                else:
                     soft.add(key)
             elif (isinstance(fn, ast.Name) and fn.id in module_functions and depth < _MAX_HELPER_DEPTH):
                 helper = module_functions[fn.id]
                 params = _params(helper)
-                pairs = list(zip(params, node.args))
+                pairs = list(zip(params, node.args)) + [(k.arg, k.value) for k in node.keywords if k.arg in params]
                 passed = {p for p, a in pairs if isinstance(a, ast.Name) and a.id in wire}
                 if passed:
                     sub_bound = {p: _resolve(a, bound) for p, a in pairs
                                  if p not in passed and _resolve(a, bound) is not None}
-                    collect_reads(helper, passed, module_functions, sub_bound, False, depth + 1, hard, soft)
+                    collect_reads(helper, passed, module_functions, sub_bound, False, depth + 1, hard, soft,
+                                  unresolved)
     if top:
         hard -= soft
-    return hard, soft
+    return hard, soft, unresolved
 
 
 def collect_writes(func):
@@ -300,6 +308,17 @@ def normalise_pattern(pattern, ascii_digits):
     return "".join(out)
 
 
+_UNICODE_CLASS = re.compile(r"(?<!\\)(?:\\\\)*\\[wWsSbB]")
+
+
+def _ends_with_dollar(pattern):
+    """An unescaped trailing `$` (an odd number of backslashes before it escapes it)."""
+    if not pattern.endswith("$"):
+        return False
+    backslashes = len(pattern[:-1]) - len(pattern[:-1].rstrip("\\"))
+    return backslashes % 2 == 0
+
+
 def _fmt(values):
     return "{" + ", ".join(sorted(values)) + "}"
 
@@ -378,10 +397,19 @@ def check_module(repo, entry, contracts_root):
         if extra:
             add(const, FAIL, f"re flag(s) {extra} change the pattern's meaning against {pointer}")
             continue
-        have = normalise_pattern(pattern, bool(flags & {"ASCII", "A"}))
+        ascii_only = bool(flags & {"ASCII", "A"})
+        if not ascii_only and _UNICODE_CLASS.search(pattern):
+            add(const, FAIL, f"{pattern!r}: \\w/\\s/\\b without re.ASCII also match non-ASCII, unlike {pointer}")
+            continue
+        have = normalise_pattern(pattern, ascii_only)
         if have != normalise_pattern(want, True):
             hint = " (\\d without re.ASCII also matches non-ASCII digits)" if "\\d" in have else ""
             add(const, FAIL, f"pattern mismatch with {pointer}: connector {pattern!r}, contract {want!r}{hint}")
+        elif _ends_with_dollar(pattern):
+            # Python `$` (with .match/.search) also matches before one trailing newline; ECMA `$`
+            # does not. The connector then accepts "X\n" where the contract rejects it.
+            add(const, DRIFT, f"= {pointer} {want!r}, but Python `$` also accepts a trailing newline "
+                              "(use \\Z or fullmatch to match the contract exactly)")
         else:
             add(const, OK, f"= {pointer} {want!r}")
 
@@ -401,8 +429,10 @@ def check_module(repo, entry, contracts_root):
             if len(params) < 2:
                 add(cls, FAIL, "from_wire takes no wire argument")
                 continue
-            hard, soft = collect_reads(func, {params[1]}, module.functions)
+            hard, soft, unresolved = collect_reads(func, {params[1]}, module.functions)
             reads = hard | soft
+            if unresolved:
+                problems.append(f"read(s) with a key that cannot be resolved: {_fmt(unresolved)}")
             if reads - props:
                 problems.append(f"reads field(s) not in the contract: {_fmt(reads - props)}")
             if hard - required:
