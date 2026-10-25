@@ -146,6 +146,12 @@ class ConsumerCase(unittest.TestCase):
                 [f] = self.run_check(self.fake(**kw))
                 self.assertEqual(f.status, FAIL)
 
+    def test_every_drift_change_is_listed(self):
+        self.pin()
+        out = json.dumps([{"id": f"change-{i}", "level": 1, "text": f"t{i}"} for i in range(40)])
+        [f] = self.run_check(self.fake(changelog_out=out))
+        self.assertIn("change-39", f.message)
+
     def test_non_breaking_change_is_drift(self):
         self.pin()
         out = json.dumps([{"id": "response-optional-property-added", "level": 1, "text": "added"}])

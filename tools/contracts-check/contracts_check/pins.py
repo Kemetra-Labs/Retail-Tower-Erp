@@ -21,7 +21,6 @@ _HEADER_KEYS = ("repo", "commit", "source")
 # oasdiff JSON levels: 1 INFO, 2 WARN, 3 ERR. The Backend-Core gate fails on WARN.
 _BREAKING_LEVEL = 2
 _LEVEL_NAME = {1: "INFO", 2: "WARN", 3: "ERR"}
-MAX_FINDINGS_LISTED = 20
 
 
 class PinError(ValueError):
@@ -104,10 +103,8 @@ def _describe(change):
 
 
 def _summarise(changes):
-    lines = [_describe(c) for c in changes[:MAX_FINDINGS_LISTED]]
-    if len(changes) > MAX_FINDINGS_LISTED:
-        lines.append(f"... and {len(changes) - MAX_FINDINGS_LISTED} more")
-    return "; ".join(lines)
+    # Every change is listed: a truncated list could hide exactly the drift a reviewer needs.
+    return "; ".join(_describe(c) for c in changes)
 
 
 def compare_file(oasdiff, base_path, revision_path, severity_levels, subject):
