@@ -48,6 +48,13 @@
       "mustContain": ["open api.example.invalid/app", " now"]
     },
     {
+      "id": "Q6",
+      "rule": "M3 query of a word without a slash or key=value",
+      "input": "lookup host?opaque-998877 failed",
+      "mustNotContain": ["opaque-998877"],
+      "mustContain": ["lookup host", " failed"]
+    },
+    {
       "id": "Q5",
       "rule": "M3 negative: a sentence-ending ? and a bare #42 are not queries",
       "input": "Is it valid? row #42 ok",
