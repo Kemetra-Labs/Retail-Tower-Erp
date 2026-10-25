@@ -34,7 +34,7 @@ Each product directory keeps its own `README.md`, `CLAUDE.md`, toolchain and loc
 
 Making `required` a required check on `main` (S6 no-bypass ruleset) is RT-866, still open. Details: [tools/project-graph/README.md](tools/project-graph/README.md).
 
-Other root workflows, outside the graph: `project-graph-selftest.yml` (pgraph tests, `classify-tree`, `privileges`, `boundary` on every PR), `pos-asar-parity.yml` and `r3-canary.yml` (manual only).
+Other root workflows, outside the graph: `project-graph-selftest.yml` (pgraph tests, `classify-tree`, `privileges`, `boundary` and the `.github/release/` specs on every PR), `pos-asar-parity.yml` and `r3-canary.yml` (manual only), and the four `release-<product>.yml` workflows (RT-871: product tag or manual dry-run only; see [ARCHITECTURE.md](ARCHITECTURE.md#release-model-mr-1-mr-3)).
 
 ## Running each product
 

@@ -1,0 +1,259 @@
+# RT-871 (MR-1, MR-9): ERPNext-Connector release, independent of the other products.
+# Shadow: dry-run only.
+#
+# Triggers: an `erpnext-connector/vX.Y.Z` tag push, or a manual dispatch whose default is a
+# dry-run. No pull_request trigger: PR code can never start this workflow with the release
+# environment.
+#
+#   resolve   the release SHA (always github.sha) must be on main; a release needs an
+#             erpnext-connector/vX.Y.Z tag ref, a dry-run needs nothing else.
+#   build     the distribution is the append-only mirror (RT-712, tools/release/connector-mirror).
+#             The publisher runs against a DISPOSABLE local bare mirror, seeded with a commit
+#             whose tree is the subtree at the first main commit that has it, then `--verify`
+#             re-checks every published commit (tree == subtree) and the mirror tip tree must
+#             equal the subtree at the release SHA. The artifacts are the app tarball (`git
+#             archive` of the subtree, gzip without a timestamp) and a git bundle of the
+#             disposable mirror. The live mirror is never contacted.
+#   manifest  release-manifest.json + unsigned provenance + SHA256SUMS (.github/release/manifest.py):
+#             source SHA, integrations/erpnext-connector tree hash, app and mirror digests,
+#             Backend-Core contract tree and the two contract trees the Connector mirrors
+#             (graph.yaml edges, kind: semantic), CI URL. Every run, dry-run included.
+#   publish   release mode only, behind the `release-erpnext-connector` environment. Pushing to
+#             the live mirror is not enabled on Shadow (real releases are RT-717), so it refuses
+#             once admitted.
+#   env-probe manual negative probe (input probe_environment): asks for the environment from the
+#             dispatched ref; from anything but an erpnext-connector/v* tag it must never start.
+#
+# Every job is environment-free and secret-free except publish and env-probe. The token is
+# read-only (workflow `permissions: {}`, contents: read per job).
+name: release-erpnext-connector
+
+"on":
+  push:
+    tags: ["erpnext-connector/v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Dry-run (build + manifest, publish nothing). false needs a erpnext-connector/vX.Y.Z tag ref.
+        type: boolean
+        default: true
+      probe_environment:
+        description: Negative probe of the release-erpnext-connector environment from the dispatched ref
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: release-erpnext-connector-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: release/resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      mode: ${{ steps.resolve.outputs.mode }}
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - name: Checkout (history only, for the main-ancestry check)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          sparse-checkout: .github/release
+
+      - name: Resolve SHA, mode and tag
+        id: resolve
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          TAG_RE='^refs/tags/erpnext-connector/v[0-9]+\.[0-9]+\.[0-9]+$'
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || fail "unexpected SHA '$SHA'"
+          case "$EVENT" in
+            push) [[ "$REF" =~ $TAG_RE ]] || fail "tag $REF is not erpnext-connector/vX.Y.Z"; mode=release ;;
+            workflow_dispatch)
+              if [ "$DRY_RUN" = "true" ]; then mode=dry-run
+              else [[ "$REF" =~ $TAG_RE ]] || fail "a non-dry-run dispatch must run on a erpnext-connector/vX.Y.Z tag ref, not $REF"; mode=release
+              fi ;;
+            *) fail "unsupported event $EVENT" ;;
+          esac
+          git merge-base --is-ancestor "$SHA" refs/remotes/origin/main || fail "$SHA is not on main"
+          tag=""
+          if [ "$mode" = release ]; then tag="${REF#refs/tags/}"; fi
+          { echo "sha=$SHA"; echo "mode=$mode"; echo "tag=$tag"; } >> "$GITHUB_OUTPUT"
+          echo "### release-erpnext-connector: $mode ${tag:-(no tag)} at \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: release/build (app tarball + disposable mirror, --verify)
+    needs: resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      mirror_tip: ${{ steps.mirror.outputs.tip }}
+      mirror_baseline: ${{ steps.mirror.outputs.baseline }}
+    steps:
+      # Full history and tags: the publisher walks main's first-parent line and mirrors
+      # erpnext-connector/v* tags.
+      - name: Checkout the release SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: App tarball (the subtree at the release SHA)
+        env:
+          SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/connector-release"
+          mkdir -p "$out"
+          git archive --format=tar --prefix=erpnext-connector/ "$SHA:integrations/erpnext-connector" \
+            | gzip -n -9 > "$out/erpnext-connector-${SHA:0:12}.tar.gz"
+          sha256sum "$out"/*.tar.gz
+
+      - name: Publish to a disposable mirror, then --verify
+        id: mirror
+        env:
+          SHA: ${{ needs.resolve.outputs.sha }}
+          SOURCE_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          sub=integrations/erpnext-connector
+          base=""
+          for c in $(git rev-list --first-parent --reverse "$SHA"); do
+            if git rev-parse -q --verify "$c:$sub" > /dev/null; then base="$c"; break; fi
+          done
+          [ -n "$base" ] || fail "no first-parent commit of $SHA has $sub"
+          work="$RUNNER_TEMP/mirror"
+          mirror="$work/mirror.git"
+          git init -q --bare "$mirror"
+          git rev-parse --absolute-git-dir | sed 's#$#/objects#' > "$mirror/objects/info/alternates"
+          date="$(git log -1 --format=%cI "$base")"
+          seed="$(GIT_AUTHOR_NAME=disposable GIT_AUTHOR_EMAIL=disposable@kemetra.invalid GIT_AUTHOR_DATE="$date" \
+            GIT_COMMITTER_NAME=disposable GIT_COMMITTER_EMAIL=disposable@kemetra.invalid GIT_COMMITTER_DATE="$date" \
+            git --git-dir="$mirror" -c commit.gpgsign=false commit-tree "$(git rev-parse "$base:$sub")" \
+            -m "disposable mirror baseline (RT-871 dry-run): subtree at $base")"
+          git --git-dir="$mirror" update-ref refs/heads/main "$seed"
+          git --git-dir="$mirror" repack -a -d -q
+          rm "$mirror/objects/info/alternates"
+          python3 tools/release/connector-mirror/publish.py --mirror "$mirror" --source-repo "$SOURCE_REPO" \
+            --source-ref "$SHA" --base "$base"
+          python3 tools/release/connector-mirror/publish.py --mirror "$mirror" --source-repo "$SOURCE_REPO" \
+            --source-ref "$SHA" --verify
+          tip="$(git --git-dir="$mirror" rev-parse refs/heads/main)"
+          [ "$(git --git-dir="$mirror" rev-parse "$tip^{tree}")" = "$(git rev-parse "$SHA:$sub")" ] \
+            || fail "mirror tip tree != $sub at $SHA"
+          git --git-dir="$mirror" bundle create "$RUNNER_TEMP/connector-release/erpnext-connector-mirror-${SHA:0:12}.bundle" --all
+          { echo "tip=$tip"; echo "baseline=$base"; } >> "$GITHUB_OUTPUT"
+          echo "disposable mirror: baseline $base, tip $tip (tree == subtree at $SHA)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: erpnext-connector-package-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/connector-release/
+          if-no-files-found: error
+          retention-days: 7
+
+  manifest:
+    name: release/manifest
+    needs: [resolve, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the release SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Download the build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: erpnext-connector-package-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/pkg
+
+      - name: Write the release manifest
+        env:
+          SHA: ${{ needs.resolve.outputs.sha }}
+          MODE: ${{ needs.resolve.outputs.mode }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          TIP: ${{ needs.build.outputs.mirror_tip }}
+          BASELINE: ${{ needs.build.outputs.mirror_baseline }}
+          REPOSITORY: ${{ github.repository }}
+          CI_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apps=("$RUNNER_TEMP"/pkg/*.tar.gz)
+          bundles=("$RUNNER_TEMP"/pkg/*.bundle)
+          [ "${#apps[@]}" -eq 1 ] && [ "${#bundles[@]}" -eq 1 ] || { echo "::error::expected one app tarball and one mirror bundle"; exit 1; }
+          args=(--product erpnext-connector --sha "$SHA" --mode "$MODE" --repository "$REPOSITORY" --ci-url "$CI_URL"
+                --artifact "erpnext-connector-app=${apps[0]}" --artifact "erpnext-connector-mirror=${bundles[0]}"
+                --note "mirror=disposable local mirror, baseline $BASELINE, tip $TIP; publish.py --verify passed; live mirror not contacted"
+                --out "$RUNNER_TEMP/manifest")
+          if [ -n "$TAG" ]; then args+=(--tag "$TAG"); fi
+          python3 .github/release/manifest.py "${args[@]}"
+          { echo '```json'; cat "$RUNNER_TEMP/manifest/release-manifest.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the release manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: erpnext-connector-release-manifest-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/manifest/
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    name: release/publish (disabled until RT-717)
+    needs: [resolve, manifest]
+    if: needs.resolve.outputs.mode == 'release'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: release-erpnext-connector
+    permissions: {}
+    steps:
+      - name: Refuse publication (Shadow)
+        run: |
+          echo "::error::publication is not enabled on Shadow (RT-871 builds and dry-runs the release path; real releases are RT-717). Nothing was published."
+          exit 1
+
+  env-probe:
+    name: release/env-probe (must not start outside a erpnext-connector/v* tag)
+    if: github.event_name == 'workflow_dispatch' && inputs.probe_environment
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: release-erpnext-connector
+    permissions: {}
+    steps:
+      - name: Report what the environment admitted
+        env:
+          REF: ${{ github.ref }}
+          PROBE: ${{ secrets.RELEASE_ENV_PROBE }}
+        run: |
+          visible=no
+          if [ -n "$PROBE" ]; then visible=yes; fi
+          if [[ "$REF" =~ ^refs/tags/erpnext-connector/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "release-erpnext-connector admitted the release tag $REF, as intended (probe secret visible: $visible)"
+            exit 0
+          fi
+          echo "::error::release-erpnext-connector admitted $REF (probe secret visible: $visible). Only erpnext-connector/v* tags may use this environment: set its deployment policy."
+          exit 1
