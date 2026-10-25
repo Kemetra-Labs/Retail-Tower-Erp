@@ -59,14 +59,15 @@ repository checkout. bash 4.4 or newer is required (Linux/WSL; macOS system bash
 FILTER_REPO=/path/to/git-filter-repo  PIN_DATE=<run date>T00:00:00Z
 1. reimport-dryrun.sh anchors ANCHOR_DIR          # reads live remotes; GIT_ASKPASS set by the caller if needed
 2. reimport-dryrun.sh repro   ANCHOR_DIR RUN_ROOT # two runs, identical manifests
-3. BASE=... VERIFIER=... VERIFIER_SHA256=... MANIFEST_SHA256=... SRC_MIRRORS=... \
+3. BASE=... VERIFIER=... MANIFEST_SHA256=... SRC_MIRRORS=... \
    meta2.sh repro RUN_ROOT ANCHOR_DIR META_ROOT   # metadata commit, trusted verifier, two identical builds
 4. independent verification by a reviewer who did not write the candidate
 5. **push of the re-import branch, PR, merge commit (never squash or rebase)**
 ```
 
-Steps 1 and 2 read live remotes; step 3 reads only local mirrors. None of them pushes or changes a repository (the
-selftest and negtest push only into scratch copies of local mirrors). New tags are never auto-approved: only the
+Steps 1 and 2 read live remotes; step 3 reads only local mirrors. None of them pushes to a remote or changes a source
+repository. They write only local scratch copies: the selftest and negtest push into scratch mirrors, and the dry run
+fetches Shadow's open branches and PR heads into its own candidate repository for the branch report. New tags are never auto-approved: only the
 owner writes `ANCHOR_DIR/approved-tags.tsv`, one line per tag, `prod<TAB>refs/tags/<name><TAB><40-hex source sha>`,
 **no comment or blank lines** (the verifier rejects them).
 
@@ -92,13 +93,16 @@ anchored head of each product (for example `git clone --mirror`, taken at anchor
 * **Fail-late cases** (they stop at `meta2.sh`, never pass): `rt760_check.py` tolerates comment lines and CRLF in
   `approved-tags.tsv` while the verifier does not; a tag added to Shadow between the anchors and the run is caught only
   by the verifier's tag check. Write `approved-tags.tsv` strictly as described above.
+* **Tags on commits that are not on the anchored `main`** (tag-only lineage) are refused by the dry run at the
+  `tagroot` step: the verifier cannot accept the crosswalk rows they add. Decline such a tag or move it onto `main`.
+* **The verifier pin is in `meta2.sh`** (`PIN_VERIFIER_SHA256`, also in `PINS.tsv`). A new verifier needs an
+  owner-reviewed edit of both. The selftest ends by running `meta2.sh` on its own output (end-to-end check).
 * `write_manifest` in the dry run records an empty value if a helper command inside it fails (for example
   `pgraph.ci-job-missing`), and both runs record the same empty value. Read the manifest, do not only compare it.
-* Neither script hashes itself against `PINS.tsv`; run the check command above first. It hashes working-tree files and
-  fails on a CRLF checkout: compare `git show <rev>:<path> | sha256sum` instead.
-* Validation to date was by the author, one independent read-only review of the code (twice) and offline runs on a
-  copy of real history; no review executed the negative controls itself. A deep independent pass is recommended
-  before MR-8 runs on real anchors.
+* Neither script hashes itself against `PINS.tsv`; run the check command above first. `.gitattributes` here keeps
+  the files LF on checkout; on an older CRLF checkout compare `git show <rev>:<path> | sha256sum` instead.
+* Validation: author tests, two read-only code reviews and one external review that executed the selftest, negtest
+  and its own attacks offline (RT-710). An independent run on real anchors is still required before MR-8.
 
 ## Security
 
