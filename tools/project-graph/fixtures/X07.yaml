@@ -50,6 +50,7 @@ cases:
       apps/admin-console/src/S.svelte: "<script>\nconst f = new URL('../../pos/src/y', import.meta.url);\n</script>\n"
       apps/pos/scripts/ok.ts: "const c = resolve(__dirname, '../../../services/backend-core/packages/contracts/openapi/pos-sales/x.yaml');\nconst d = join(__dirname, '..', 'docs');\nvi.mock('../shared/y');\nconst e = '../shared/z';\n"
       apps/pos/src/main/returns/__tests__/ok.test.ts: "const evil = '../../../api/method/frappe.client.get';\n"
+      apps/admin-console/src/pages/settings/ok.ts: "import P from '../pos/Panel';\nconst Q = require('../pos/Q');\nconst R = await import('../pos/R');\n"
     ratchet: []
     expect_violations:
       - {from: apps/pos/src/main/p1.ts, to_product: backend-core, rule: path-literal}

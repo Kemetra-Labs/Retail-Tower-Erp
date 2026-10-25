@@ -133,8 +133,10 @@ class _Scanner:
             for m in STRING_LITERAL.finditer(text):
                 self._relative("config-path", path, product, base_dir, m.group(1), self._line(text, m.start()))
         if name.endswith(JS_EXT):
+            # import specifiers have a known base (the file's directory): never guess one for them
+            specifiers = {m.start(1) - 1 for pattern in JS_PATTERNS for m in pattern.finditer(text)}
             self._scan_literals("config-path" if config else "path-literal", JS_LITERAL_RUN,
-                                path, product, root, text)
+                                path, product, root, text, skip=specifiers)
         if name.endswith((".json", ".jsonc")):
             self._scan_json_extends(path, product, base_dir, text)
         if path.startswith(EGRESS_ROOTS) and name.endswith(JS_EXT):
@@ -157,7 +159,7 @@ class _Scanner:
                 if spec.startswith("."):
                     self._relative("import", path, product, base_dir, spec, self._line(text, m.start()))
 
-    def _scan_literals(self, rule, pattern, path, product, root, text):
+    def _scan_literals(self, rule, pattern, path, product, root, text, skip=()):
         """A climbing literal's base is unknown (__dirname, cwd, a ROOT
         constant), so every directory from the file up to the product root is
         tried. The first base that reaches another product is reported;
@@ -169,7 +171,7 @@ class _Scanner:
             d = posixpath.dirname(d)
         bases.append(d)
         for m in pattern.finditer(text):
-            spec = _run_path(m.group(0))
+            spec = None if m.start() in skip else _run_path(m.group(0))
             if spec is None:
                 continue
             targets = [posixpath.normpath(posixpath.join(b, spec)) for b in bases]
