@@ -1,0 +1,341 @@
+# RT-871 (MR-1, MR-3, MR-9): Backend-Core release, independent of the other products.
+# Shadow: dry-run only.
+#
+# Triggers: a `backend-core/vX.Y.Z` tag push, or a manual dispatch whose default is a dry-run.
+# No pull_request trigger: PR code can never start this workflow with the release environment.
+#
+#   resolve   the release SHA (always github.sha) must be on main; a release needs a
+#             backend-core/vX.Y.Z tag ref, a dry-run needs nothing else.
+#   guard     MR-3 compat guard, ported from Kemetra/Backend-Core deploy/release-compat-gate.cjs
+#             (RT-863) as .github/release/compat-gate.cjs: the latest github-actions run of
+#             bc/fast, bc/db-integration, bc/db-package and bc/contracts-compat on the SHA must be
+#             `success`, the release commit's contracts-compat fleet baseline must be fresh, and
+#             replay NOT_PROVEN is recorded, not blocking, until every supported snapshot has a
+#             recorded fixture. Red or missing refuses. It runs in dry-runs too, so a dry-run
+#             shows whether the SHA is releasable. Today Shadow's Backend-Core import predates
+#             RT-713: there is no contracts-compat/ and no bc/contracts-compat job, so every SHA
+#             is refused until the MR-8 re-import and the root compat job land.
+#   build     api, worker and migrate images (services/backend-core/Dockerfile targets), built
+#             without cache into OCI layouts. Nothing is pushed: the digests are OCI manifest
+#             digests, the ones a later push of the same layout would carry.
+#   manifest  release-manifest.json + unsigned in-toto provenance for the three images
+#             (.github/release/manifest.py): source SHA, services/backend-core tree hash, image
+#             digests, Backend-Core contract tree, guard verdict, CI URL. Every run. In release
+#             mode it refuses unless the guard passed.
+#   publish   release mode only, needs the guard, behind the `release-backend-core` environment.
+#             GHCR push, signed attestations and the GitHub release are not enabled on Shadow
+#             (real releases are RT-717), so it refuses once admitted.
+#   env-probe manual negative probe (input probe_environment): asks for the environment from the
+#             dispatched ref; from anything but a backend-core/v* tag it must never start.
+#
+# Every job is environment-free and secret-free except publish and env-probe. The token is
+# read-only (workflow `permissions: {}`; contents: read per job, plus checks: read for guard).
+name: release-backend-core
+
+"on":
+  push:
+    tags: ["backend-core/v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Dry-run (guard + build + manifest, publish nothing). false needs a backend-core/vX.Y.Z tag ref.
+        type: boolean
+        default: true
+      probe_environment:
+        description: Negative probe of the release-backend-core environment from the dispatched ref
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: release-backend-core-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: release/resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      mode: ${{ steps.resolve.outputs.mode }}
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - name: Checkout (history only, for the main-ancestry check)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          sparse-checkout: .github/release
+
+      - name: Resolve SHA, mode and tag
+        id: resolve
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          TAG_RE='^refs/tags/backend-core/v[0-9]+\.[0-9]+\.[0-9]+$'
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || fail "unexpected SHA '$SHA'"
+          case "$EVENT" in
+            push) [[ "$REF" =~ $TAG_RE ]] || fail "tag $REF is not backend-core/vX.Y.Z"; mode=release ;;
+            workflow_dispatch)
+              if [ "$DRY_RUN" = "true" ]; then mode=dry-run
+              else [[ "$REF" =~ $TAG_RE ]] || fail "a non-dry-run dispatch must run on a backend-core/vX.Y.Z tag ref, not $REF"; mode=release
+              fi ;;
+            *) fail "unsupported event $EVENT" ;;
+          esac
+          git merge-base --is-ancestor "$SHA" refs/remotes/origin/main || fail "$SHA is not on main"
+          tag=""
+          if [ "$mode" = release ]; then tag="${REF#refs/tags/}"; fi
+          { echo "sha=$SHA"; echo "mode=$mode"; echo "tag=$tag"; } >> "$GITHUB_OUTPUT"
+          echo "### release-backend-core: $mode ${tag:-(no tag)} at \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+
+  guard:
+    name: release/compat-guard (MR-3)
+    needs: resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: read
+    outputs:
+      verdict: ${{ steps.gate.outputs.verdict }}
+      evidence: ${{ steps.gate.outputs.evidence }}
+    steps:
+      # The gate reads the release commit's files and runs contracts-compat's parser from the
+      # same commit (the SHA resolve proved is on main); it executes nothing else from it.
+      - name: Checkout the release SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/release
+            services/backend-core/contracts-compat
+
+      - name: Setup Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Read the check runs of the release SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
+            --jq '.check_runs[] | {name, conclusion, slug: .app.slug, started_at}' | jq -s . > "$RUNNER_TEMP/check-runs.json"
+          jq -r '.[] | "\(.name): \(.conclusion) (\(.slug))"' "$RUNNER_TEMP/check-runs.json"
+
+      - name: Compat guard
+        id: gate
+        env:
+          # Root graph jobs that run on every push to main (backend-core.yml), plus the compat
+          # job (MR-3). bc/oasdiff and bc/schemathesis are PR-only and enforced at merge time.
+          REQUIRED_CHECKS: '["bc/fast","bc/db-integration","bc/db-package","bc/contracts-compat"]'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/compat-gate.txt"
+          status=0
+          node .github/release/compat-gate.cjs --checks "$RUNNER_TEMP/check-runs.json" --required "$REQUIRED_CHECKS" \
+            --source services/backend-core --lib services/backend-core/contracts-compat/lib > "$out" || status=$?
+          cat "$out"
+          {
+            echo "### POS compatibility guard (MR-3)"
+            echo
+            sed 's/^::error:://; s/^/- /' "$out"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -eq 0 ]; then verdict=PASS; else verdict=REFUSED; fi
+          {
+            echo "verdict=$verdict"
+            echo "evidence=$(sed 's/^::error:://' "$out" | tr -d '\r' | paste -sd ';' -)"
+          } >> "$GITHUB_OUTPUT"
+          [ "$status" -eq 0 ] || { echo "::error::compat guard refused ${GITHUB_SHA} (bc/contracts-compat, MR-3)"; exit 1; }
+
+  build:
+    name: release/build (api, worker, migrate images; not pushed)
+    needs: resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      api: ${{ steps.api.outputs.digest }}
+      worker: ${{ steps.worker.outputs.digest }}
+      migrate: ${{ steps.migrate.outputs.digest }}
+    steps:
+      - name: Checkout the release SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: Prepare the output directory
+        run: mkdir -p "$RUNNER_TEMP/images"
+
+      - name: Build api (OCI layout, no push)
+        id: api
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: services/backend-core
+          target: api
+          push: false
+          no-cache: true
+          provenance: false
+          sbom: false
+          outputs: type=oci,dest=${{ runner.temp }}/images/backend-core-api.oci.tar
+          labels: |
+            org.opencontainers.image.revision=${{ needs.resolve.outputs.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Build worker (OCI layout, no push)
+        id: worker
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: services/backend-core
+          target: worker
+          push: false
+          no-cache: true
+          provenance: false
+          sbom: false
+          outputs: type=oci,dest=${{ runner.temp }}/images/backend-core-worker.oci.tar
+          labels: |
+            org.opencontainers.image.revision=${{ needs.resolve.outputs.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Build migrate (OCI layout, no push)
+        id: migrate
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: services/backend-core
+          target: migrate
+          push: false
+          no-cache: true
+          provenance: false
+          sbom: false
+          outputs: type=oci,dest=${{ runner.temp }}/images/backend-core-migrate.oci.tar
+          labels: |
+            org.opencontainers.image.revision=${{ needs.resolve.outputs.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Check the image digests
+        env:
+          API: ${{ steps.api.outputs.digest }}
+          WORKER: ${{ steps.worker.outputs.digest }}
+          MIGRATE: ${{ steps.migrate.outputs.digest }}
+        run: |
+          set -euo pipefail
+          for d in "$API" "$WORKER" "$MIGRATE"; do
+            [[ "$d" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::bad image digest '$d'"; exit 1; }
+          done
+          printf 'api %s\nworker %s\nmigrate %s\n' "$API" "$WORKER" "$MIGRATE"
+          sha256sum "$RUNNER_TEMP"/images/*.oci.tar
+
+      - name: Upload the images
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: backend-core-images-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/images/
+          if-no-files-found: error
+          retention-days: 3
+
+  # Runs whatever the guard decided, so a refused dry-run still records its verdict.
+  manifest:
+    name: release/manifest
+    needs: [resolve, guard, build]
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the release SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Download the images
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: backend-core-images-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/images
+
+      - name: Write the release manifest
+        env:
+          SHA: ${{ needs.resolve.outputs.sha }}
+          MODE: ${{ needs.resolve.outputs.mode }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+          CI_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          API: ${{ needs.build.outputs.api }}
+          WORKER: ${{ needs.build.outputs.worker }}
+          MIGRATE: ${{ needs.build.outputs.migrate }}
+          VERDICT: ${{ needs.guard.outputs.verdict || 'MISSING' }}
+          EVIDENCE: ${{ needs.guard.outputs.evidence }}
+        run: |
+          set -euo pipefail
+          img="$RUNNER_TEMP/images"
+          args=(--product backend-core --sha "$SHA" --mode "$MODE" --repository "$REPOSITORY" --ci-url "$CI_URL"
+                --artifact "backend-core-api=$img/backend-core-api.oci.tar" --artifact-digest "backend-core-api=$API"
+                --artifact "backend-core-worker=$img/backend-core-worker.oci.tar" --artifact-digest "backend-core-worker=$WORKER"
+                --artifact "backend-core-migrate=$img/backend-core-migrate.oci.tar" --artifact-digest "backend-core-migrate=$MIGRATE"
+                --compat-verdict "$VERDICT" --compat-evidence "$EVIDENCE"
+                --note "images=OCI layouts built without cache, not pushed; image_digest is the OCI manifest digest"
+                --out "$RUNNER_TEMP/manifest")
+          if [ -n "$TAG" ]; then args+=(--tag "$TAG"); fi
+          python3 .github/release/manifest.py "${args[@]}"
+          { echo '```json'; cat "$RUNNER_TEMP/manifest/release-manifest.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the release manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: backend-core-release-manifest-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/manifest/
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    name: release/publish (disabled until RT-717)
+    needs: [resolve, guard, manifest]
+    if: needs.resolve.outputs.mode == 'release'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: release-backend-core
+    permissions: {}
+    steps:
+      - name: Refuse publication (Shadow)
+        run: |
+          echo "::error::publication is not enabled on Shadow (RT-871 builds and dry-runs the release path; GHCR push, attestations and the GitHub release are RT-717). Nothing was published."
+          exit 1
+
+  env-probe:
+    name: release/env-probe (must not start outside a backend-core/v* tag)
+    if: github.event_name == 'workflow_dispatch' && inputs.probe_environment
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: release-backend-core
+    permissions: {}
+    steps:
+      - name: Report what the environment admitted
+        env:
+          REF: ${{ github.ref }}
+          PROBE: ${{ secrets.RELEASE_ENV_PROBE }}
+        run: |
+          visible=no
+          if [ -n "$PROBE" ]; then visible=yes; fi
+          if [[ "$REF" =~ ^refs/tags/backend-core/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "release-backend-core admitted the release tag $REF, as intended (probe secret visible: $visible)"
+            exit 0
+          fi
+          echo "::error::release-backend-core admitted $REF (probe secret visible: $visible). Only backend-core/v* tags may use this environment: set its deployment policy."
+          exit 1

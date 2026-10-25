@@ -42,3 +42,25 @@ jobs:
       - name: Layer-1 boundary check
         working-directory: tools/project-graph
         run: python -m pgraph boundary --repo "$GITHUB_WORKSPACE" --rev HEAD
+
+  # RT-871: the release scripts the root release workflows run (.github/release/). The release
+  # workflows only run on a product tag or a dispatch from main, so their specs run here, on
+  # every PR. Read-only token, no secrets.
+  release-selftest:
+    name: release/selftest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Compat guard spec (MR-3, red or missing compat refuses)
+        run: node --test .github/release/compat-gate.test.cjs
+      - name: Release manifest spec
+        run: python -m unittest discover -s .github/release -p 'test_*.py' -v

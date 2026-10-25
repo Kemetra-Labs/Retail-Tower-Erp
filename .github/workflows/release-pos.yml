@@ -1,0 +1,231 @@
+# RT-871 (MR-1, MR-9): POS release, independent of the other products. Shadow: dry-run only.
+#
+# Triggers: a `pos/vX.Y.Z` tag push, or a manual dispatch whose default is a dry-run. No
+# pull_request trigger: PR code can never start this workflow with the release environment.
+#
+#   resolve   the release SHA (always github.sha) must be on main; a release needs a
+#             pos/vX.Y.Z tag ref, a dry-run needs nothing else.
+#   build     the Windows package, UNSIGNED until RT-321 (the same steps as pos/package-windows,
+#             including the RT-830 fuse readback and native-load smoke), zipped and uploaded as
+#             a workflow artifact. No cache: a release build reads nothing a PR could write.
+#   manifest  release-manifest.json + unsigned provenance + SHA256SUMS (.github/release/manifest.py):
+#             source SHA, apps/pos tree hash, package digest, Backend-Core contract tree and the
+#             POS contract PIN, CI URL. Every run, dry-run included.
+#   publish   release mode only, behind the `release-pos` environment. Publication is not enabled
+#             on Shadow (real releases are RT-717), so it refuses after the environment admits it.
+#   env-probe manual negative probe (input probe_environment): asks for the environment from the
+#             dispatched ref; from anything but a pos/v* tag it must never start.
+#
+# Every job is environment-free and secret-free except publish and env-probe. The token is
+# read-only (workflow `permissions: {}`, contents: read per job).
+name: release-pos
+
+"on":
+  push:
+    tags: ["pos/v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Dry-run (build + manifest, publish nothing). false needs a pos/vX.Y.Z tag ref.
+        type: boolean
+        default: true
+      probe_environment:
+        description: Negative probe of the release-pos environment from the dispatched ref
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: release-pos-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: release/resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      mode: ${{ steps.resolve.outputs.mode }}
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - name: Checkout (history only, for the main-ancestry check)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          sparse-checkout: .github/release
+
+      - name: Resolve SHA, mode and tag
+        id: resolve
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          TAG_RE='^refs/tags/pos/v[0-9]+\.[0-9]+\.[0-9]+$'
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || fail "unexpected SHA '$SHA'"
+          case "$EVENT" in
+            push) [[ "$REF" =~ $TAG_RE ]] || fail "tag $REF is not pos/vX.Y.Z"; mode=release ;;
+            workflow_dispatch)
+              if [ "$DRY_RUN" = "true" ]; then mode=dry-run
+              else [[ "$REF" =~ $TAG_RE ]] || fail "a non-dry-run dispatch must run on a pos/vX.Y.Z tag ref, not $REF"; mode=release
+              fi ;;
+            *) fail "unsupported event $EVENT" ;;
+          esac
+          git merge-base --is-ancestor "$SHA" refs/remotes/origin/main || fail "$SHA is not on main"
+          tag=""
+          if [ "$mode" = release ]; then tag="${REF#refs/tags/}"; fi
+          { echo "sha=$SHA"; echo "mode=$mode"; echo "tag=$tag"; } >> "$GITHUB_OUTPUT"
+          echo "### release-pos: $mode ${tag:-(no tag)} at \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: release/build (Windows package, unsigned)
+    needs: resolve
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/pos
+    steps:
+      - name: Checkout the release SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      # Full install: postinstall runs electron-rebuild -f -w better-sqlite3.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Rebuild argon2 for Electron ABI (packaging)
+        run: npx electron-rebuild -f -w argon2
+
+      - name: Build (renderer + main + preload)
+        run: npm run build
+
+      # Unsigned until RT-321: electron-builder finds no signing credential in this job.
+      - name: Package (Windows --dir, unsigned)
+        run: npm run package:dir
+
+      - name: Fetch stock Electron binary (for the packaged-build checks)
+        run: node node_modules/electron/install.js
+
+      - name: Fuse readback (packaged exe vs electron-builder.yml)
+        run: npx tsx scripts/verify-packaged.ts fuses
+
+      - name: Native-load smoke (packaged better-sqlite3 + argon2)
+        run: npx tsx scripts/verify-packaged.ts native
+
+      - name: Zip the package
+        env:
+          SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/pos-release"
+          mkdir -p "$out"
+          (cd dist-electron/win-unpacked && 7z a -tzip -mx=9 "$out/pos-win-unpacked-${SHA:0:12}.zip" . > /dev/null)
+          sha256sum "$out"/*.zip
+
+      - name: Upload the package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pos-package-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/pos-release/
+          if-no-files-found: error
+          retention-days: 7
+
+  manifest:
+    name: release/manifest
+    needs: [resolve, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the release SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Download the package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: pos-package-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/pkg
+
+      - name: Write the release manifest
+        env:
+          SHA: ${{ needs.resolve.outputs.sha }}
+          MODE: ${{ needs.resolve.outputs.mode }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+          CI_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          zips=("$RUNNER_TEMP"/pkg/*.zip)
+          [ "${#zips[@]}" -eq 1 ] || { echo "::error::expected one package zip, found ${#zips[@]}"; exit 1; }
+          args=(--product pos --sha "$SHA" --mode "$MODE" --repository "$REPOSITORY" --ci-url "$CI_URL"
+                --artifact "pos-win-unpacked=${zips[0]}" --note "signing=unsigned until RT-321"
+                --out "$RUNNER_TEMP/manifest")
+          if [ -n "$TAG" ]; then args+=(--tag "$TAG"); fi
+          python3 .github/release/manifest.py "${args[@]}"
+          { echo '```json'; cat "$RUNNER_TEMP/manifest/release-manifest.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the release manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pos-release-manifest-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/manifest/
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    name: release/publish (disabled until RT-717)
+    needs: [resolve, manifest]
+    if: needs.resolve.outputs.mode == 'release'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: release-pos
+    permissions: {}
+    steps:
+      - name: Refuse publication (Shadow)
+        run: |
+          echo "::error::publication is not enabled on Shadow (RT-871 builds and dry-runs the release path; real releases are RT-717). Nothing was published."
+          exit 1
+
+  env-probe:
+    name: release/env-probe (must not start outside a pos/v* tag)
+    if: github.event_name == 'workflow_dispatch' && inputs.probe_environment
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: release-pos
+    permissions: {}
+    steps:
+      - name: Report what the environment admitted
+        env:
+          REF: ${{ github.ref }}
+          PROBE: ${{ secrets.RELEASE_ENV_PROBE }}
+        run: |
+          visible=no
+          if [ -n "$PROBE" ]; then visible=yes; fi
+          if [[ "$REF" =~ ^refs/tags/pos/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "release-pos admitted the release tag $REF, as intended (probe secret visible: $visible)"
+            exit 0
+          fi
+          echo "::error::release-pos admitted $REF (probe secret visible: $visible). Only pos/v* tags may use this environment: set its deployment policy."
+          exit 1

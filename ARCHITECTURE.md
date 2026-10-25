@@ -48,9 +48,9 @@ Still to come: POS generates its types from its pinned contract (RT-869). At cut
 
 ## Release model (MR-1, MR-3)
 
-Each product keeps its own version and release tag: `pos/vX.Y.Z`, `admin-console/vX.Y.Z`, `backend-core/vX.Y.Z`, `erpnext-connector/vX.Y.Z`. There is no lockstep version and no shared runtime package across products. There are no root release workflows on `main` yet; per-product release workflows, dry-run only on Shadow, are RT-871. The Connector is distributed through an append-only mirror whose root is `integrations/erpnext-connector/` (`tools/release/connector-mirror/`, RT-712).
+Each product keeps its own version and release tag: `pos/vX.Y.Z`, `admin-console/vX.Y.Z`, `backend-core/vX.Y.Z`, `erpnext-connector/vX.Y.Z`. There is no lockstep version and no shared runtime package across products. Each product has a root release workflow (`.github/workflows/release-<product>.yml`, RT-871), started only by its own tag or by a manual dispatch that defaults to a dry-run. Every run builds the product's artifact and writes a release manifest (`.github/release/manifest.py`): source SHA, product tree hash, artifact digests, contract snapshot and CI URL. Publish jobs sit behind one environment per product (`release-<product>`) and refuse on Shadow: nothing is published until RT-717. The Connector is distributed through an append-only mirror whose root is `integrations/erpnext-connector/` (`tools/release/connector-mirror/`, RT-712).
 
-A Backend-Core release and lab deploy require `contracts-compat` for the release SHA (MR-3, RT-863). Until recorded replay fixtures exist (RT-714), the PR-mode result and the stale-fleet check must pass and the release evidence records `NOT_PROVEN`.
+A Backend-Core release and lab deploy require `contracts-compat` for the release SHA (MR-3, RT-863). Until recorded replay fixtures exist (RT-714), the PR-mode result and the stale-fleet check must pass and the release evidence records `NOT_PROVEN`. The root release guard is `.github/release/compat-gate.cjs`, ported from the product's RT-863 gate; it requires a green `bc/contracts-compat` run, which Shadow does not have until the MR-8 re-import brings `contracts-compat/` and a root job runs it, so until then it refuses every Backend-Core SHA.
 
 ## MR-1…MR-9 in one line each
 
