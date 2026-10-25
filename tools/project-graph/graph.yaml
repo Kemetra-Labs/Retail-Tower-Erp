@@ -56,7 +56,7 @@ products:
     high_jobs: ["@pos-full", pos/package-windows]
     tiers:
       contracts:
-        globs: [contracts/backend-core/**, "scripts/{codegen-api,verify-codegen,contracts-pin,contracts-repin,contracts-repin-pr,merge-readdown-contract}.ts", scripts/openapi-snapshot.json, src/shared/api-types.ts, tests/contract/**]
+        globs: [contracts/backend-core/**, "scripts/{codegen-api,verify-codegen,contracts-pin,contracts-repin,contracts-repin-pr,merge-readdown-contract}.ts", scripts/openapi-snapshot.json, src/shared/api-types.ts, tests/contract/**, src/main/observability/__tests__/obs1-golden-vectors.json]
         jobs: [pos/static, "@pos-full", bc/oasdiff, contracts/check]
       money:
         globs: ["src/main/{payments,shift-cashup,drawer}/**", "src/shared/{payments,money,shift-cashup}/**", src/shared/money.ts, src/preload/shift-cashup.ts, "migrations/*payment*", "migrations/*cash*"]
@@ -133,7 +133,7 @@ products:
     high_jobs: ["@bc-full"]
     tiers:
       contracts:
-        globs: [packages/contracts/**, apps/api/src/openapi/**, apps/api/test/contract-conformance.spec.ts, apps/api/test/openapi/**, tools/oasdiff/**, tools/schemathesis/**]
+        globs: [packages/contracts/**, apps/api/src/openapi/**, apps/api/test/contract-conformance.spec.ts, apps/api/test/openapi/**, tools/oasdiff/**, tools/schemathesis/**, packages/shared/__tests__/observability/obs1-golden-vectors.json]
         jobs: ["@bc-full", pos/static, pos/test, admin/build-test, connector/unit-tests-and-lint, contracts/check]
       money:
         globs: [apps/api/src/settlement/**, packages/db/src/schema/settlement/**, packages/db/src/schema/sales/sale-tenders.ts, packages/db/src/schema/catalog/price-history.ts]
