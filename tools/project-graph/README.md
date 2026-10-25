@@ -1,6 +1,6 @@
 # tools/project-graph
 
-The project graph, fail-closed evaluator, `required` aggregator and layer-1 boundary check for the private, **non-authoritative** `Kemetra/Retail-Tower-Shadow` (RT-721 Substep A).
+The project graph, fail-closed evaluator, `required` aggregator and layer-1 boundary check for `Kemetra-Labs/Retail-Tower-Erp`, the canonical monorepo since the RT-715 cutover (built in RT-721 Substep A).
 
 The design comes from [RT-709 §A](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/43548700) and [§B](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/43778136), hardened by A.8 (R1, R2, R5).
 
