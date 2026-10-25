@@ -187,13 +187,21 @@ function maskPostgresRowValues(value: string): string {
   return out;
 }
 
-/** `Duplicate entry '<value>' for key 'x'` -> `Duplicate entry '...' for key 'x'`. */
+/**
+ * `Duplicate entry '<value>' for key 'x'` -> `Duplicate entry '...' for key 'x'`, for
+ * every occurrence (a wrapped or aggregated error can carry several).
+ */
 function maskDuplicateEntry(value: string): string {
-  const at = value.indexOf(DUPLICATE_ENTRY);
-  if (at === -1) return value;
-  const valueStart = at + DUPLICATE_ENTRY.length;
-  const keyAt = value.indexOf(DUPLICATE_KEY, valueStart);
-  return `${value.slice(0, valueStart)}...${keyAt === -1 ? "'" : value.slice(keyAt)}`;
+  let out = "";
+  let from = 0;
+  for (let at = value.indexOf(DUPLICATE_ENTRY); at !== -1; at = value.indexOf(DUPLICATE_ENTRY, from)) {
+    const valueStart = at + DUPLICATE_ENTRY.length;
+    const keyAt = value.indexOf(DUPLICATE_KEY, valueStart);
+    out += `${value.slice(from, valueStart)}...`;
+    if (keyAt === -1) return `${out}'`;
+    from = keyAt;
+  }
+  return out + value.slice(from);
 }
 
 /**

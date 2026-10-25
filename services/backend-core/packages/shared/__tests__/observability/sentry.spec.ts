@@ -431,6 +431,16 @@ describe("RT-879 redaction vectors (union of the four runtimes' rules)", () => {
     for (const secret of vector.mustNotContain ?? []) expect(serialized).not.toContain(secret);
   });
 
+  it("masks every MariaDB Duplicate entry value in one message, not only the first", () => {
+    const out = scrubValue(
+      "Duplicate entry 'Jane Doe' for key 'name'; caused by: Duplicate entry 'Jim Roe' for key 'name'",
+    );
+    expect(out).toBe("Duplicate entry '...' for key 'name'; caused by: Duplicate entry '...' for key 'name'");
+    expect(scrubValue("Duplicate entry 'a' for key 'k' Duplicate entry 'no-key-after")).toBe(
+      "Duplicate entry '...' for key 'k' Duplicate entry '...'",
+    );
+  });
+
   it("stays linear on the RT-879 adversarial inputs", () => {
     const { inputs, maxOutputLength, maxTotalMs } = unionVectors.linearTime;
     const started = Date.now();
