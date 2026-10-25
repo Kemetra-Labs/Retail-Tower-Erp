@@ -17,8 +17,9 @@ function scrubbedValue(value: string): string | undefined {
 
 describe("scrubSentryEvent — message masks (contract 3.2)", () => {
   test("masks a JWT in the middle of a token and keeps the surrounding text", () => {
-    expect(scrubbedValue("auth failed token=eyJhbGciOi.eyJzdWIiOiIx.c2ln rest")).toBe(
-      "auth failed token=[jwt] rest",
+    // Not a credential key: `token=` would mask the whole value as a credential first (RT-879).
+    expect(scrubbedValue("auth failed id=eyJhbGciOi.eyJzdWIiOiIx.c2ln rest")).toBe(
+      "auth failed id=[jwt] rest",
     );
   });
 
