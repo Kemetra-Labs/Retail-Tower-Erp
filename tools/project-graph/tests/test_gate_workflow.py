@@ -1,4 +1,4 @@
-"""Structural checks on the staged gate workflow (RT-711 S5 / RT-721).
+"""Structural checks on the gate workflow, .github/workflows/gate.yml (RT-711 S5 / RT-721).
 
 The gate runs one evaluation per head SHA with `cancel-in-progress: true`, so a
 newer `workflow_run` cancels an older evaluation that is still running. `always()`

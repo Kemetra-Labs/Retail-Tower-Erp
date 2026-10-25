@@ -4,7 +4,7 @@ The project graph, fail-closed evaluator, `required` aggregator and layer-1 boun
 
 The design comes from [RT-709 §A](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/43548700) and [§B](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/43778136), hardened by A.8 (R1, R2, R5).
 
-**Status: staged, not operational and not security-verified.** Nothing here is wired as a required check. App installation, the `ci-gate` environment and the ruleset are RT-721 Substep B, and each needs separate owner authorization. Independent verification is RT-711.
+**Status: operational, observe-only, not independently verified.** The plan jobs use the evaluator to select which jobs run (RT-867), and `.github/workflows/gate.yml` posts the `required` check through the `kemetra-ci-gate` App from the `ci-gate` environment (RT-721 S3). Making `required` a required check on `main` (S6 no-bypass ruleset) is RT-866, still open. Independent verification is RT-711.
 
 ## Layout
 
@@ -18,11 +18,11 @@ The design comes from [RT-709 §A](https://rahmaqanater.atlassian.net/wiki/space
 | `pgraph/github.py` | REST payloads → aggregator records (jobs `filter=all` joined to check-runs; review attestations) |
 | `pgraph/boundary.py` | B.1 layer-1 cross-product reference check (dependency-free `scan`), hardened by RT-873 |
 | `pgraph/gitio.py` | Git plumbing adapter (`diff --raw -z`, `ls-tree`, `cat-file --batch`); no checkout |
-| `pgraph/privileges.py` | R5 / T-A static check of root and staged workflows (`python -m pgraph privileges`) |
+| `pgraph/privileges.py` | R5 / T-A static check of the root workflows (and any `tools/ci-gate/*.staged` file) (`python -m pgraph privileges`) |
 | `boundary-todo.yaml` | Boundary ratchet (one entry, RT-715). Entries may only be removed; a stale entry fails `boundary` |
 | `fixtures/` | P01–P19 (RT-709 A.6) and X01–X08 (new, see below) with hand-written expectations |
 | `tests/` | unittest suite, including the fixture runner and a real-tree acceptance check |
-| `../ci-gate/gate.yml.staged` | T-A gate template, kept outside `.github/workflows` |
+| `../../.github/workflows/gate.yml` | T-A trusted gate that posts `required` (moved from `tools/ci-gate/` in RT-721 S3) |
 
 ## Commands
 
@@ -76,7 +76,7 @@ The fingerprint covers the base SHA, both graph hashes and every changed path/mo
 | Workflow | Triggers | Token permissions | Environment | Secrets |
 | --- | --- | --- | --- | --- |
 | `.github/workflows/project-graph-selftest.yml` | `pull_request`, `push` main | `contents: read` | none | none |
-| `tools/ci-gate/gate.yml.staged` (inactive) | `pull_request_target`, `workflow_run` | `contents/pull-requests/checks/actions: read` | `ci-gate` (main-only) | `CI_GATE_APP_PRIVATE_KEY`, used only in the last step; App token scoped to `checks: write` |
+| `.github/workflows/gate.yml` | `pull_request_target`, `workflow_run` | `contents/pull-requests/checks/actions: read` | `ci-gate` (main-only) | `CI_GATE_APP_PRIVATE_KEY`, used only in the last step; App token scoped to `checks: write` |
 | Product CI (`pos`, `admin-console`, `backend-core`, `erpnext-connector`, `e2e`, `project-graph`) | `pull_request`, `push` main | `contents: read` | none | none |
 | Per-product releases (RT-717) | protected `main` / tags only | product-specific identity | per-product environment | never reachable from PR code |
 
@@ -111,7 +111,7 @@ These were named but never defined in RT-710 comment 12882. They are **defined n
 5. **Layer-2 per-product boundaries** (POS process ESLint rules, Admin Biome, BC internal graph, Connector import-linter) belong to product slices and are not implemented here.
 6. **Forced checks not yet in the §B.5 job map** are mapped to the nearest existing job: Admin Playwright e2e → `admin/build-test`; POS fuse readback and native-load smoke → `pos/package-windows`; BC compat matrix/replay → `bc/oasdiff`. B.4 dependency checks are one `dependency-review` job. These need real jobs before G2.
 7. **e2e trigger interpretation.** `e2e_runs_when: any_product_selected` is read as "any product has a non-`low` tier", so a docs-only product change does not run e2e.
-8. **Staged gate: Needs verification.** Two behaviours are unconfirmed:
+8. **Gate: Needs verification.** Two behaviours are unconfirmed:
    - whether a `pull_request_target` run's `head_sha` makes it appear in `actions/runs?head_sha=` (the gate excludes its own workflow path regardless);
    - whether the source pin accepts a `checks:write` App check (A.8).
 9. **Root LICENSE and NOTICE are deferred** (OA-5, OA-6, OA-7). Not added.

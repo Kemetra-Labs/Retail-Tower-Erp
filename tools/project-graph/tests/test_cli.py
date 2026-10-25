@@ -1,5 +1,5 @@
-"""End-to-end CLI checks: the commands the selftest workflow and the staged
-gate call, run as subprocesses against this repository."""
+"""End-to-end CLI checks: the commands the selftest workflow and the gate
+call, run as subprocesses against this repository."""
 
 import json
 import pathlib

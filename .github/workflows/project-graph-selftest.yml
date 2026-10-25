@@ -1,6 +1,6 @@
 # Read-only selftest of tools/project-graph (RT-721 Substep A).
 # Runs PR code with a read-only token and no secrets. It is NOT the trust gate:
-# the gate is tools/ci-gate/gate.yml.staged, inactive until RT-721 Substep B.
+# the gate is .github/workflows/gate.yml, which runs only base-branch code.
 name: project-graph-selftest
 
 on:
