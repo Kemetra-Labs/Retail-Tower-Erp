@@ -1,0 +1,189 @@
+# RT-877: nightly real-bench run of the Connector's Frappe tests (test_foundation + the Gate G5
+# real-DB index test), ported from integrations/erpnext-connector/.github/workflows/bench-nightly.yml
+# (RT-581), which GitHub never runs from a nested .github/ since the RT-715 cutover.
+#
+# The PR-time lane is connector/bench in erpnext-connector.yml, selected by the project graph
+# (RT-872). This run covers main whatever changed. It is not a graph job: the job name is not a
+# graph.yaml key and the workflow is not in gate.yml `workflow_run`, so it never feeds `required`.
+#
+# Same pins as the product's nightly and the RT-872 lane: the RT-494 validated pair on Frappe v16,
+# the only supported line, and MariaDB 11.8. Bump them deliberately, together with that policy.
+#
+# Differences from the product workflow:
+#  - bench clones an app with `git clone`, so the Connector subtree is staged as a standalone
+#    repository first (git archive of the checked-out commit), as the RT-872 lane does.
+#  - job timeout 30 minutes (product: 20), the RT-872 lane's value.
+#  - hardening, not parity: actions pinned to the SHAs the root workflows use, top-level
+#    `permissions: read-all` with a read-only job grant.
+name: Connector bench nightly
+
+on:
+  schedule:
+    - cron: "23 2 * * *" # 02:23 UTC daily, on the default branch
+  workflow_dispatch:
+
+permissions: read-all
+
+concurrency:
+  group: connector-bench-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: integrations/erpnext-connector
+
+env:
+  FRAPPE_REF: v16.52.0
+  ERPNEXT_REF: v16.51.0
+  BENCH_VERSION: "5.31.0"
+  PYTEST_VERSION: "9.1.1"
+  APP: retail_tower_erpnext_connector
+  SITE: test_site
+
+jobs:
+  bench:
+    name: Bench tests (Frappe v16, MariaDB)
+    runs-on: ubuntu-latest
+    # A full run takes about 2-3 minutes. No dependency cache on purpose: bench 5.x already installs
+    # with uv, and a measured uv+yarn cache (~0.9 GB) restored in 13 s for no net gain (RT-581).
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    # Throwaway service containers that live only for this job; the root password below is a
+    # job-local value, not a secret.
+    services:
+      redis-cache:
+        image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+        ports:
+          - 13000:6379
+      redis-queue:
+        image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+        ports:
+          - 11000:6379
+      mariadb:
+        image: mariadb:11.8@sha256:f16d7a344413e519dff518f27bdb221388f84b0d274c97c4fb5f2cb0dc1b34fa
+        env:
+          MARIADB_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mariadb-admin ping -h 127.0.0.1"
+          --health-interval=5s --health-timeout=2s --health-retries=20
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      # Frappe v16 requires Python 3.14 and Node 24 (RT-494).
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      - name: Install MariaDB client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mariadb-client
+
+      - name: Initialise bench
+        run: |
+          pip install --only-binary :all: "frappe-bench==${BENCH_VERSION}"
+          bench init --frappe-branch "${FRAPPE_REF}" --skip-redis-config-generation --skip-assets \
+            --python "$(which python)" ~/frappe-bench
+
+      - name: Stage the Connector as a standalone repository
+        run: |
+          src="$RUNNER_TEMP/app-src/$APP"
+          mkdir -p "$src"
+          git archive HEAD:integrations/erpnext-connector | tar -x -C "$src"
+          git -C "$src" init -q -b main
+          git -C "$src" add -A
+          git -C "$src" -c user.name=ci -c user.email=ci@invalid commit -q -m "connector at $GITHUB_SHA"
+
+      - name: Get apps and create the throwaway site
+        working-directory: /home/runner/frappe-bench
+        env:
+          CI: "Yes"
+        run: |
+          bench get-app --branch "${ERPNEXT_REF}" --skip-assets https://github.com/frappe/erpnext
+          bench get-app --skip-assets "$RUNNER_TEMP/app-src/$APP"
+          bench setup requirements --dev
+          # The app's frappe-free unit-test modules import pytest; bench discovery imports every
+          # test_*.py, so it must be importable even though bench runs only unittest TestCases.
+          bench pip install --only-binary :all: "pytest==${PYTEST_VERSION}"
+          bench new-site --db-host 127.0.0.1 --db-root-password root --admin-password admin "${SITE}"
+          bench --site "${SITE}" install-app erpnext
+          bench --site "${SITE}" install-app "${APP}"
+
+      - name: Run app tests
+        working-directory: /home/runner/frappe-bench
+        env:
+          CI: "Yes"
+        run: |
+          bench --site "${SITE}" set-config allow_tests true
+          bench --site "${SITE}" run-tests --app "${APP}" --junit-xml-output "${RUNNER_TEMP}/bench-junit.xml"
+
+      # Lists every failing test and fails if any real-DB G5 test method was skipped or never
+      # collected, so a silent skip can't pass for a green run.
+      - name: Summarise results
+        if: always()
+        env:
+          JUNIT: ${{ runner.temp }}/bench-junit.xml
+        shell: python
+        run: |
+          import os
+          import sys
+          import xml.etree.ElementTree as ET
+
+          out = open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8")
+          out.write("## Connector bench nightly\n\n")
+          path = os.environ["JUNIT"]
+          if not os.path.exists(path):
+              out.write("No JUnit report: the tests did not run (see the earlier steps).\n")
+              sys.exit(1)
+
+          results = {}
+          for case in ET.parse(path).iter("testcase"):
+              test_id = f"{case.get('classname')}.{case.get('name')}"
+              status = "passed"
+              for tag in ("failure", "error", "skipped"):
+                  if case.find(tag) is not None:
+                      status = tag
+              results[test_id] = status
+
+          counts = {}
+          for status in results.values():
+              counts[status] = counts.get(status, 0) + 1
+          out.write(f"Total: {len(results)} — " + ", ".join(f"{k}: {v}" for k, v in sorted(counts.items())) + "\n\n")
+          bad = sorted(t for t, s in results.items() if s in ("failure", "error"))
+          if bad:
+              out.write("Failing tests:\n\n" + "".join(f"- `{t}` ({results[t]})\n" for t in bad) + "\n")
+
+          # Every G5 method must have run: keep this set in step with test_g5_unique_index_db.py.
+          expected = {
+              "test_index_is_installed",
+              "test_duplicate_provenance_is_rejected_by_the_unique_index",
+              "test_distinct_provenance_is_accepted",
+              "test_null_provenance_is_not_deduplicated",
+          }
+          g5 = {t.rsplit(".", 1)[-1]: s for t, s in results.items() if "TestSalesInvoiceProvenanceUniqueIndex" in t}
+          missing = sorted(expected - set(g5))
+          skipped = sorted(m for m, s in g5.items() if s == "skipped")
+          if missing or skipped:
+              out.write(f"**The Gate G5 real-DB test did not fully run.** Missing: {missing}; skipped: {skipped}\n")
+              print(f"::error::Gate G5 real-DB test incomplete. Missing: {missing}; skipped: {skipped}")
+              sys.exit(1)
+
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bench-junit
+          path: ${{ runner.temp }}/bench-junit.xml
+          if-no-files-found: warn
+          retention-days: 14
