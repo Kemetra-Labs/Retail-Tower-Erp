@@ -610,6 +610,20 @@ These come from the constitution and are repeated here for quick agent reference
     holds the DSN and talks to Sentry; it refuses a DSN outside `*.ingest.de.sentry.io`
     (`src/main/observability/config.ts`). Renderer errors reach it over `app:report-error`.
 
+## Backend-Core HTTP clients (RT-880)
+
+- **Every new main-process Backend-Core client uses the shared transport**
+  [`src/main/http/transport.ts`](src/main/http/transport.ts) (`createBackendTransport`): bearer
+  auth, per-call timeout, byte-capped JSON body, transport faults → `null`, and `statusOutcome`
+  for the client's own status table. Do not hand-roll `fetch` calls, `Authorization` headers,
+  timeouts or body reading in a new client.
+- Build it on the shared `backendFetch` from `index.ts`. That fetch adds `X-Request-Id`
+  (`withRequestId`), the build identity and the terminal-status observer; the transport never
+  mints a request id itself.
+- Older clients move onto the transport only when they are touched for another reason, one per
+  PR, with characterization tests first and unchanged public signatures. Migrated so far:
+  `sale-history/sale-history-client.ts`.
+
 ## Useful commands
 
 ```bash

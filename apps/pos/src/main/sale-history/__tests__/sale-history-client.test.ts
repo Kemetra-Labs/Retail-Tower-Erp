@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createSaleHistoryClient, type SaleHistoryCredential } from '../sale-history-client.js';
+import {
+  createSaleHistoryClient,
+  SALE_HISTORY_MAX_BODY_BYTES,
+  SALE_HISTORY_PATH,
+  SALE_HISTORY_REQUEST_TIMEOUT_MS,
+  type SaleHistoryCredential,
+} from '../sale-history-client.js';
 import { SALE_REF, wireDetail, wirePage, wireReprint } from './__helpers__/wire-fixtures.js';
 
 const BASE = 'https://bc.test/';
@@ -197,5 +203,87 @@ describe('RT-542 sale-history client — reprint authorize', () => {
       kind: 'invalid',
     });
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('RT-880 sale-history client — characterization (transport migration)', () => {
+  const REQUEST = {
+    saleRef: SALE_REF,
+    kind: 'duplicate' as const,
+    printedAt: '2026-10-16T11:00:00.000Z',
+    idempotencyKey: 'pos-pulse-reprint:0190a3c4-0000-4000-8000-000000000001',
+  };
+
+  it('arms a 15 s timeout by default and honours an injected one', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    const fetch = respond(200, wirePage());
+    await createSaleHistoryClient({ baseUrl: BASE, fetch }).list(QUERY, ENVELOPE);
+    expect(timeout).toHaveBeenLastCalledWith(15_000);
+    expect(requestOf(fetch).init.signal).toBeInstanceOf(AbortSignal);
+    await createSaleHistoryClient({ baseUrl: BASE, fetch, timeoutMs: 250 }).read(
+      SALE_REF,
+      ENVELOPE,
+    );
+    expect(timeout).toHaveBeenLastCalledWith(250);
+    timeout.mockRestore();
+  });
+
+  it('adds no X-Request-Id of its own (the shared backend fetch mints it)', async () => {
+    const fetch = respond(200, wireDetail());
+    await createSaleHistoryClient({ baseUrl: BASE, fetch }).read(SALE_REF, DEVICE);
+    expect(headersOf(fetch)).toEqual({
+      Authorization: 'Bearer device-token',
+      'X-Cashier-Admission': ADMISSION,
+    });
+  });
+
+  it('sends the reprint headers with the device credential, no body on a GET', async () => {
+    const fetch = respond(201, wireReprint());
+    const client = createSaleHistoryClient({ baseUrl: 'https://bc.test', fetch });
+    await client.authorizeReprint(REQUEST, DEVICE);
+    expect(headersOf(fetch)).toEqual({
+      'Content-Type': 'application/json',
+      'Idempotency-Key': REQUEST.idempotencyKey,
+      Authorization: 'Bearer device-token',
+      'X-Cashier-Admission': ADMISSION,
+    });
+    await client.read(SALE_REF, ENVELOPE);
+    const [, init] = fetch.mock.calls[1] as unknown as [string, RequestInit];
+    expect(init).not.toHaveProperty('body');
+  });
+
+  it('skips a body whose Content-Length is over 2 MB', async () => {
+    const fetch = respond(200, wirePage(), { 'content-length': '2000001' });
+    const client = createSaleHistoryClient({ baseUrl: BASE, fetch });
+    expect(await client.list(QUERY, ENVELOPE)).toEqual({ kind: 'unreadable' });
+  });
+
+  it('maps the reprint transport faults and off-contract answers', async () => {
+    const down = createSaleHistoryClient({
+      baseUrl: BASE,
+      fetch: vi.fn(() => Promise.reject(new TypeError('fetch failed'))),
+    });
+    expect(await down.authorizeReprint(REQUEST, ENVELOPE)).toEqual({ kind: 'unreachable' });
+    const busy = createSaleHistoryClient({ baseUrl: BASE, fetch: respond(503, {}) });
+    expect(await busy.authorizeReprint(REQUEST, ENVELOPE)).toEqual({ kind: 'server_error' });
+    const odd = createSaleHistoryClient({ baseUrl: BASE, fetch: respond(201, { x: 1 }) });
+    expect(await odd.authorizeReprint(REQUEST, ENVELOPE)).toEqual({ kind: 'unreadable' });
+    const wrongOk = createSaleHistoryClient({ baseUrl: BASE, fetch: respond(200, wireReprint()) });
+    expect(await wrongOk.authorizeReprint(REQUEST, ENVELOPE)).toEqual({ kind: 'server_error' });
+  });
+
+  it('makes no reprint request without a usable credential', async () => {
+    const fetch = respond(201, wireReprint());
+    const client = createSaleHistoryClient({ baseUrl: BASE, fetch });
+    expect(
+      await client.authorizeReprint(REQUEST, { kind: 'device', token: '', admissionId: ADMISSION }),
+    ).toEqual({ kind: 'unreachable' });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps the exported wire constants', () => {
+    expect(SALE_HISTORY_PATH).toBe('/api/pos/v1/sale-history');
+    expect(SALE_HISTORY_REQUEST_TIMEOUT_MS).toBe(15_000);
+    expect(SALE_HISTORY_MAX_BODY_BYTES).toBe(2_000_000);
   });
 });

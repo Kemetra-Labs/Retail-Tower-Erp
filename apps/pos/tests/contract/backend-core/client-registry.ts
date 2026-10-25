@@ -154,7 +154,10 @@ export interface ClientCall {
 
 export interface ClientModule {
   readonly module: string;
-  /** Exact count of injected-`fetch` call expressions in the module. */
+  /**
+   * Exact count of injected-`fetch` call expressions in the module; 0 for a client
+   * built on the shared transport (RT-880), which makes the call on its behalf.
+   */
   readonly fetchCallSites: number;
   /**
    * For factory-built clients: build one, so the suite can compare its method set
@@ -250,7 +253,7 @@ export const CLIENT_MODULES: readonly ClientModule[] = [
   // RT-530: the sale void, under the requester's own operator envelope only.
   { module: 'src/main/sale-void/sale-void-client.ts', fetchCallSites: 1, surface: saleVoidClient },
   // RT-542: the store-wide sales history (envelope or device + cashier admission).
-  { module: SALE_HISTORY_MODULE, fetchCallSites: 1, surface: saleHistoryClient },
+  { module: SALE_HISTORY_MODULE, fetchCallSites: 0, surface: saleHistoryClient },
   { module: SHIFT_SYNC_CLIENT, fetchCallSites: 1, surface: shiftSyncClient },
   { module: `${VOUCHER_DIR}/validate.ts`, fetchCallSites: 1 },
   { module: `${VOUCHER_DIR}/redeem.ts`, fetchCallSites: 1 },
@@ -276,6 +279,25 @@ export const NON_BACKEND_CORE_TRANSPORTS: ReadonlyArray<{
     fetchCallSites: 1,
     reason:
       'RT-792 Descope password sign-in (the alternative identity provider) — mints the operator-identity JWT; not a Backend-Core route.',
+  },
+];
+
+/**
+ * RT-880 — the SHARED TRANSPORT: it makes the HTTP call for the clients built on it,
+ * with the path, credential and headers that registered client passes, so the
+ * client's calls stay registered (and driven) under the client module. Each needs a
+ * reason.
+ */
+export const SHARED_TRANSPORTS: ReadonlyArray<{
+  readonly module: string;
+  readonly fetchCallSites: number;
+  readonly reason: string;
+}> = [
+  {
+    module: 'src/main/http/transport.ts',
+    fetchCallSites: 1,
+    reason:
+      'RT-880 createBackendTransport sends the request a registered client builds (sale history so far): it joins the base URL and the client path, adds Authorization: Bearer <the client credential>, and arms the timeout; it originates no path of its own.',
   },
 ];
 
