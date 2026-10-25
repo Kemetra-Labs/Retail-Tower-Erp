@@ -15,6 +15,7 @@ import {
   type SentryEventLike,
 } from "../../src/observability/sentry";
 import goldenVectors from "./obs1-golden-vectors.json";
+import unionVectors from "./rt879-redaction-vectors.json";
 
 const VALID_DSN = "https://abc123@o1.ingest.de.sentry.io/42";
 const SERVICE = "backend-api";
@@ -275,7 +276,8 @@ describe("scrubSentryEvent (AC-2)", () => {
     scrubSentryEvent({ exception: { values: [{ type: "Error", value }] } })!.exception!.values![0]!.value!;
 
   it.each([
-    ["key=value prefix", "token=eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1In0.c2ln rejected"],
+    // Not a credential key: `token=` would mask the whole value as a credential first (RT-879).
+    ["key=value prefix", "id=eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1In0.c2ln rejected"],
     ["quoted", 'bad "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1In0.c2ln" token'],
   ])("masks a JWT that is not at the start of its token (%s)", (_label, value) => {
     const out = scrubValue(value);
@@ -360,7 +362,9 @@ describe("OBS-1 §3.5 golden vectors (RT-682, RT-694: Bearer/Authorization and p
     ["a trailing Authorization with nothing after it", "missing Authorization:", "missing Authorization:"],
     ["a phone before authorization= in one word", '{"phone":"01012345678","authorization":"x"}', '{"phone":"[phone]","authorization":[redacted]'],
     ["an email before authorization= in one word", "jane@example.invalid,authorization=x", "[email]"],
-    ["a JWT before authorization= in one word", "id_token=eyJa.b.c;authorization=x", "id_token=[jwt]"],
+    // RT-879: `id_token` is a credential key, so its whole value is masked before the JWT rule.
+    ["a JWT before authorization= in one word", "id_token=eyJa.b.c;authorization=x", "id_token=[redacted]"],
+    ["a JWT before authorization= in one word, not a credential key", "id=eyJa.b.c;authorization=x", "id=[jwt]"],
     ["a phone before an empty Authorization value", "+201000000638;Authorization: Bearer x", "[phone];Authorization: [redacted] [redacted]"],
     ["a separator word across newlines", "Authorization\n:\nBearer x y", "Authorization\n:\n[redacted] [redacted] y"],
     ["a quoted key before a separator word", "headers={'Authorization' : 'Bearer x'} y", "headers={'Authorization' : [redacted] [redacted] y"],
@@ -398,6 +402,52 @@ describe("OBS-1 §3.5 golden vectors (RT-682, RT-694: Bearer/Authorization and p
     const started = Date.now();
     for (const value of adversarial) expect(scrubValue(value).length).toBeLessThanOrEqual(300);
     expect(Date.now() - started).toBeLessThan(500);
+  });
+});
+
+// RT-879: the union of the rules any runtime masks, shared unchanged by POS, Admin-Console,
+// Backend-Core and the Connector. A vector names what must not survive (and, for negatives,
+// what must be kept); the exact §3.2 outputs stay pinned by the OBS-1 vectors above.
+describe("RT-879 redaction vectors (union of the four runtimes' rules)", () => {
+  const allowed = new Set(unionVectors.topLevelAllowlist);
+  const scrubValue = (value: string): string =>
+    scrubSentryEvent({ exception: { values: [{ type: "Error", value }] } })!.exception!.values![0]!.value!;
+
+  it.each(unionVectors.messages.map((v) => [v.id, v] as const))("%s: leaks nothing it names", (_id, vector) => {
+    const value = scrubValue(vector.input);
+    for (const secret of vector.mustNotContain) expect(value).not.toContain(secret);
+    for (const kept of vector.mustContain) expect(value).toContain(kept);
+  });
+
+  it.each(unionVectors.events.map((v) => [v.id, v] as const))("%s: drops or rebuilds the event", (_id, vector) => {
+    const out = scrubSentryEvent(vector.event as SentryEventLike);
+    if ("drop" in vector && vector.drop) {
+      expect(out).toBeNull();
+      return;
+    }
+    expect(out).not.toBeNull();
+    for (const key of Object.keys(out!)) expect(allowed).toContain(key);
+    const serialized = JSON.stringify(out);
+    for (const secret of vector.mustNotContain ?? []) expect(serialized).not.toContain(secret);
+  });
+
+  it("masks every MariaDB Duplicate entry value in one message, not only the first", () => {
+    const out = scrubValue(
+      "Duplicate entry 'Jane Doe' for key 'name'; caused by: Duplicate entry 'Jim Roe' for key 'name'",
+    );
+    expect(out).toBe("Duplicate entry '...' for key 'name'; caused by: Duplicate entry '...' for key 'name'");
+    expect(scrubValue("Duplicate entry 'a' for key 'k' Duplicate entry 'no-key-after")).toBe(
+      "Duplicate entry '...' for key 'k' Duplicate entry '...'",
+    );
+  });
+
+  it("stays linear on the RT-879 adversarial inputs", () => {
+    const { inputs, maxOutputLength, maxTotalMs } = unionVectors.linearTime;
+    const started = Date.now();
+    for (const { pattern, repeat } of inputs) {
+      expect(scrubValue(pattern.repeat(repeat)).length).toBeLessThanOrEqual(maxOutputLength);
+    }
+    expect(Date.now() - started).toBeLessThan(maxTotalMs);
   });
 });
 
