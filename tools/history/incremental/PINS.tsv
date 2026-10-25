@@ -1,0 +1,15 @@
+kind	name	sha256	note
+file	README.md	445a2cffed59f4ac5e9125f585f8e3c5a6c35ea8ad3ae4627b09818e22587a39	Documentation. Hand-maintained.
+file	meta2.sh	4237e2e904f826980db3ee000f0109bd40eea83c48d58423bb42ebbccd557da2	RE-CREATED 2026-10-25 (RT-710 owner override). Not the lost original a697db5e...; not independently verified.
+file	negtest.sh	1d875c67b153e2dc4d685426983e84d62fababe68f0e31e1012fe71fcb8d2e50	RE-CREATED from the RT-760 negtest.sh (6e2f4b0f...): machine-specific paths became NEG_ROOT and SHADOW_LOCAL.
+file	reimport-dryrun.sh	daf3819afdce65550685cdc87a167f8dc3ac5b207ce5b588868026aca9c001be	RE-CREATED 2026-10-25 (RT-710 owner override): RT-760 477519cf plus the RT-831 c13568 previous-tip change plus hardening. Not the lost original f3d7284a...; not independently verified.
+file	rt760_check.py	3d92cd5e57bdb1fe11f3095d6f6add014b36c574b8f92416b50e330862f1b38b	Byte-identical to the RT-760 script (RT-760 c13129).
+external	tools/history/verify_incremental.py	feefd51e55ebffe86fd79d8856f2fc0195f32752cb641064f513d76fc5c99756	Trusted verifier, committed on Shadow main; not copied here (RT-776 c13217).
+external	git-filter-repo v2.47.0	67447413e273fc76809289111748870b6f6072f08b17efe94863a92d810b7d94	Upstream newren/git-filter-repo, blob a40bce548d2c; downloaded, never vendored (RT-710 c12913).
+toolchain	git	git version 2.43.0	checked by reimport-dryrun.sh
+toolchain	python	3.12.x	checked by reimport-dryrun.sh
+toolchain	PyYAML	6.0.1	drift from the requirements.txt pin 6.0.3 is the owner-accepted precondition of 2026-10-20.
+lost	reimport-dryrun.sh v2	f3d7284a557aa47ffcf47e77f05ec1d18c38ce42b711cb3f4dfc5343467edb01	LOST original (RT-831 c13568). Reference only: do not use or compare.
+lost	meta2.sh	a697db5ebd2376199e7bdca859cbbb2d2cf1c3db4e5152eee433aeab5f9c993f	LOST original (RT-831 c13568). Reference only: do not use or compare.
+lost	negtest.sh (RT-760)	6e2f4b0f25ed6071dc304e47fb36f38ea037405b367e1392432b469176bcfb44	RT-760 original with machine-specific paths; replaced by the parametrized negtest.sh.
+lost	reimport-dryrun.sh (RT-760 v1)	477519cfb11b533771dce36d033040d13a6700231e652bf37853c30cff9e1c53	RT-760 original; the base of the re-created script.
