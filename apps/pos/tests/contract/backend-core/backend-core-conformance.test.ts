@@ -26,6 +26,7 @@ import {
   CLIENT_MODULES,
   NON_BACKEND_CORE_TRANSPORTS,
   SENTINEL,
+  SHARED_TRANSPORTS,
   TRANSPORT_DECORATORS,
   type ClientCall,
   type ClientModule,
@@ -116,7 +117,13 @@ describe('POS Backend-Core client registry is complete', () => {
       .filter(([, scan]) => scan.fetchCallSites > 0)
       .map(([module, scan]) => countLine({ module, fetchCallSites: scan.fetchCallSites }))
       .sort();
-    const declared = [...CLIENT_MODULES, ...NON_BACKEND_CORE_TRANSPORTS, ...TRANSPORT_DECORATORS]
+    const declared = [
+      ...CLIENT_MODULES,
+      ...NON_BACKEND_CORE_TRANSPORTS,
+      ...SHARED_TRANSPORTS,
+      ...TRANSPORT_DECORATORS,
+    ]
+      .filter((m) => m.fetchCallSites > 0)
       .map(countLine)
       .sort();
     expect(
@@ -162,6 +169,7 @@ describe('POS Backend-Core client registry is complete', () => {
     for (const mod of [
       ...CLIENT_MODULES,
       ...NON_BACKEND_CORE_TRANSPORTS,
+      ...SHARED_TRANSPORTS,
       ...TRANSPORT_DECORATORS,
     ]) {
       expect(existsSync(path.join(REPO_ROOT, mod.module)), mod.module).toBe(true);

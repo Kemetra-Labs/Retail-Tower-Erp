@@ -29,10 +29,19 @@
  *   network / timeout / no credential → unreachable
  *   a body over 2 MB → unreadable (bounded memory on an untrusted answer)
  * Never throws.
+ *
+ * RT-880: the HTTP exchange (bearer, timeout, bounded body, transport faults)
+ * runs on the shared Backend-Core transport (`../http/transport.ts`).
  */
 
 import type { SaleHistoryReprintKind } from '../../shared/sale-history/types.js';
-import { isUuid, parseJsonBody } from '../returns/returns-wire.js';
+import {
+  createBackendTransport,
+  statusOutcome,
+  type BackendAnswer,
+  type FetchLike,
+} from '../http/transport.js';
+import { isUuid } from '../returns/returns-wire.js';
 import {
   isServerCursor,
   readHistoryDetail,
@@ -94,13 +103,8 @@ export interface SaleHistoryClient {
 
 export interface CreateSaleHistoryClientDeps {
   readonly baseUrl: string;
-  readonly fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  readonly fetch: FetchLike;
   readonly timeoutMs?: number;
-}
-
-interface HttpAnswer {
-  readonly status: number;
-  readonly json: unknown;
 }
 
 const FAILURE_BY_STATUS: Readonly<Record<number, Failure>> = {
@@ -117,51 +121,25 @@ const SERVER_ERROR: Failure = { kind: 'server_error' };
 export const SALE_HISTORY_MAX_BODY_BYTES = 2_000_000;
 
 function failureOf(status: number): Failure {
-  return FAILURE_BY_STATUS[status] ?? SERVER_ERROR;
+  return statusOutcome(status, FAILURE_BY_STATUS, SERVER_ERROR);
 }
 
-/**
- * The body as text, read incrementally and abandoned (the stream cancelled) as
- * soon as it passes the cap, whatever Content-Length says; null when too large.
- */
-async function boundedText(response: Response): Promise<string | null> {
-  if (response.body === null) return '';
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let text = '';
-  let bytes = 0;
-  for (;;) {
-    const chunk = await reader.read();
-    if (chunk.done) return text + decoder.decode();
-    bytes += chunk.value.byteLength;
-    if (bytes > SALE_HISTORY_MAX_BODY_BYTES) {
-      await reader.cancel();
-      return null;
-    }
-    text += decoder.decode(chunk.value, { stream: true });
-  }
-}
-
-/** The parsed body, or undefined when it is too large to read. */
-async function boundedJson(response: Response): Promise<unknown> {
-  const declared = Number(response.headers.get('content-length') ?? '0');
-  if (declared > SALE_HISTORY_MAX_BODY_BYTES) return undefined;
-  const text = await boundedText(response);
-  return text === null ? undefined : parseJsonBody(text);
-}
-
-/** The auth headers of a usable credential, or null (→ no request). */
-function authHeaders(credential: SaleHistoryCredential): Record<string, string> | null {
+/** The bearer and selector headers of a usable credential, or null (→ no request). */
+function credentialParts(
+  credential: SaleHistoryCredential,
+): { bearer: string; headers: Record<string, string> } | null {
   if (credential.token.length === 0) return null;
-  const authorization = { Authorization: `Bearer ${credential.token}` };
-  if (credential.kind === 'envelope') return authorization;
+  if (credential.kind === 'envelope') return { bearer: credential.token, headers: {} };
   if (!isUuid(credential.admissionId)) return null;
-  return { ...authorization, 'X-Cashier-Admission': credential.admissionId };
+  return {
+    bearer: credential.token,
+    headers: { 'X-Cashier-Admission': credential.admissionId },
+  };
 }
 
 /** Maps a 2xx answer through `read`, else the status failure. */
 function okOr<T, R extends { readonly kind: 'ok' }>(
-  answer: HttpAnswer | null,
+  answer: BackendAnswer | null,
   okStatus: number,
   read: (json: unknown) => T | null,
   wrap: (value: T) => R,
@@ -183,28 +161,28 @@ function listUrl(query: ListQuery): string {
 }
 
 export function createSaleHistoryClient(deps: CreateSaleHistoryClientDeps): SaleHistoryClient {
-  const root = deps.baseUrl.replace(/\/$/, '');
-  const timeoutMs = deps.timeoutMs ?? SALE_HISTORY_REQUEST_TIMEOUT_MS;
+  const transport = createBackendTransport({
+    baseUrl: deps.baseUrl,
+    fetch: deps.fetch,
+    timeoutMs: deps.timeoutMs ?? SALE_HISTORY_REQUEST_TIMEOUT_MS,
+    maxBodyBytes: SALE_HISTORY_MAX_BODY_BYTES,
+  });
 
   /** One HTTP exchange; null on no credential or any transport fault. */
   async function exchange(
     path: string,
     request: { method: 'GET' | 'POST'; headers: Record<string, string>; body?: string },
     credential: SaleHistoryCredential,
-  ): Promise<HttpAnswer | null> {
-    const auth = authHeaders(credential);
-    if (auth === null) return null;
-    try {
-      const response = await deps.fetch(`${root}${SALE_HISTORY_PATH}${path}`, {
-        method: request.method,
-        ...(request.body === undefined ? {} : { body: request.body }),
-        headers: { ...request.headers, ...auth },
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      return { status: response.status, json: await boundedJson(response) };
-    } catch {
-      return null;
-    }
+  ): Promise<BackendAnswer | null> {
+    const parts = credentialParts(credential);
+    if (parts === null) return null;
+    return transport.send({
+      method: request.method,
+      path: `${SALE_HISTORY_PATH}${path}`,
+      bearer: parts.bearer,
+      headers: { ...request.headers, ...parts.headers },
+      ...(request.body === undefined ? {} : { body: request.body }),
+    });
   }
 
   return {
