@@ -60,7 +60,8 @@
  * Hold (RT-856): while `discountCaptureSupported` is off, a sale whose
  * `lines_json` carries a line `discount` is left out of the due list: no POST,
  * no state write, no attempt, never dead-lettered. It stays pending and drains
- * on the first tick after the switch is turned on (RT-858).
+ * on the first tick after the switch is turned on (RT-858). With it on, only a
+ * discount the capture cannot send (no recorded approver role) stays held.
  *
  * Shutdown (RT-198, as the shift sync engine and the returns resolver): once
  * `isStopped()` is true a tick reads and writes nothing more. It is checked before
@@ -89,10 +90,11 @@ import {
 import type { SaleRow } from '../sales/repositories/sales.repository.js';
 import type { SaleRoute, SellingUserIdResolver } from './selling-user-id.js';
 import { settledWithin } from './settled-within.js';
-import { saleHasLineDiscount } from './discount-hold.js';
+import { isSaleHeldFromSync } from './discount-hold.js';
 import {
   buildCapturePayload,
   TenderNotSendableError,
+  DiscountNotSendableError,
   type CaptureSalePayload,
 } from './capture-payload.js';
 
@@ -252,8 +254,9 @@ export interface SaleSyncEngineDeps {
   isStopped?: () => boolean;
   /**
    * RT-856: whether the capture path can send a discounted sale. Off (the
-   * default, `SALE_DISCOUNT_CAPTURE_SUPPORTED` until RT-858): a sale with a line
-   * `discount` is held — skipped untouched, still pending, never dead-lettered.
+   * default): a sale with a line `discount` is held — skipped untouched, still
+   * pending, never dead-lettered. On (`SALE_DISCOUNT_CAPTURE_SUPPORTED` since
+   * RT-858): only a discount with no recorded approver role is held.
    */
   discountCaptureSupported?: boolean;
 }
@@ -376,10 +379,12 @@ export function createSaleSyncEngine(deps: SaleSyncEngineDeps): SaleSyncEngine {
         receiptSince: deps.receiptSince,
       });
     } catch (err) {
-      if (!(err instanceof TenderNotSendableError)) throw err;
+      if (!isNotSendable(err)) throw err;
       // RT-10 D2: a sale whose tenders cannot be sent faithfully (voucher, unknown
       // method, corrupt amounts) is dead-lettered observably — never POSTed, never
       // given a fabricated method. The typed reason goes to `onDeadLetter`.
+      // RT-858: likewise a corrupt frozen discount (its amount no longer the
+      // RT-699 math on the line gross): the server would answer 422 anyway.
       stateRepo.markDeadLetter({ saleId, tenantId, branchId, now: now() });
       deps.sellingUsers?.forget(saleId);
       notify(() => deps.onDeadLetter?.(saleId, err.message));
@@ -645,9 +650,14 @@ export function createSaleSyncEngine(deps: SaleSyncEngineDeps): SaleSyncEngine {
       .filter((sale): sale is SaleRow => sale !== null && !isHeld(sale));
   }
 
-  /** RT-856: held from sync while discount capture is off. */
+  /** A sale the builder refuses to send faithfully (RT-10 D2 tenders, RT-858 discount). */
+  function isNotSendable(err: unknown): err is TenderNotSendableError | DiscountNotSendableError {
+    return err instanceof TenderNotSendableError || err instanceof DiscountNotSendableError;
+  }
+
+  /** RT-856 / RT-858: held from sync (`isSaleHeldFromSync`). */
   function isHeld(sale: SaleRow): boolean {
-    return deps.discountCaptureSupported !== true && saleHasLineDiscount(sale);
+    return isSaleHeldFromSync(sale, deps.discountCaptureSupported === true);
   }
 
   /** One durable Sale; a failing read skips that sale only (it stays queued). */

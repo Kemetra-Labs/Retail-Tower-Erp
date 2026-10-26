@@ -36,7 +36,10 @@ export interface SaleSyncStatusReaderDeps {
   resolveTerminalId: () => string | null | Promise<string | null>;
   /** RT-224: the engine's live paused reason (`SaleSyncEngine.pausedReason`). */
   pausedReason: () => SaleSyncPausedReason | null | Promise<SaleSyncPausedReason | null>;
-  /** RT-856: the engine's discount-capture switch; off by default (held). */
+  /**
+   * RT-856: the engine's discount-capture switch; off by default (every
+   * discounted sale held). On (RT-858), only a discount the capture cannot send.
+   */
   discountCaptureSupported?: boolean;
 }
 
@@ -54,8 +57,7 @@ export function createSaleSyncStatusReader(
   };
 
   function heldFor(scope: DrainScope): SaleSyncHold | null {
-    if (deps.discountCaptureSupported === true) return null;
-    const count = deps.stateRepo.countDiscountHeld(scope);
+    const count = deps.stateRepo.countDiscountHeld(scope, deps.discountCaptureSupported === true);
     return count === 0 ? null : { reason: 'discount_capture_unavailable', count };
   }
 }

@@ -61,16 +61,15 @@ export function createTerminalSyncAggregateReader(
       terminalId: await deps.resolveTerminalId(),
     };
     const counts = deps.stateRepo.readSyncStatus(scope);
-    const holding = deps.discountCaptureSupported !== true;
+    const supported = deps.discountCaptureSupported === true;
     // Two reads, so a sale enqueued in between could make held exceed pending.
-    const held = holding ? Math.min(deps.stateRepo.countDiscountHeld(scope), counts.pending) : 0;
+    // RT-858: with capture on, the held set is only the unsendable discounts.
+    const held = Math.min(deps.stateRepo.countDiscountHeld(scope, supported), counts.pending);
     const aggregate: TerminalSyncAggregate = {
       pending: counts.pending,
       heldPreviousPairing: counts.heldPreviousPairing,
       deadLetter: counts.deadLetter,
-      oldestPendingAt: holding
-        ? deps.stateRepo.readOldestUnheldPendingAt(scope)
-        : deps.stateRepo.readOldestPendingAt(scope),
+      oldestPendingAt: deps.stateRepo.readOldestUnheldPendingAt(scope, supported),
       paused: await deps.pausedReason(),
       lastSuccessAt: counts.lastSuccessAt,
     };

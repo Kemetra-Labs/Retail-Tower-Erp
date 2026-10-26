@@ -95,7 +95,12 @@
  * (→ dead-letter, observable). Currency is single-store EGP in v1.
  */
 
-import type { CaptureSalePayload, CaptureSaleReceipt } from './capture-payload.js';
+import type {
+  CaptureSaleLineDiscount,
+  CaptureSalePayload,
+  CaptureSaleReceipt,
+} from './capture-payload.js';
+import type { PosSalesSales } from '../../shared/api-types.js';
 import { parseRetryAfterMs } from './retry-after.js';
 import type {
   CaptureConflictCode,
@@ -255,6 +260,43 @@ interface CaptureSaleLineWire {
   lineAmount: string;
   unit: string;
   tenantProductRef?: string;
+  /** RT-858 (RT-740 C-A): only on a discounted line; `lineAmount` is then the net. */
+  discount?: CaptureSaleLineDiscountWire;
+}
+
+/**
+ * The generated `CaptureSaleLineDiscount` (`sales.yaml` 1.14.0-draft), less the
+ * optional `approverUserId`: the till knows its approver as a POS operator id,
+ * not a verified `users.id`, and a provenance claim is never guessed.
+ */
+type CaptureSaleLineDiscountWire = Omit<
+  PosSalesSales.components['schemas']['CaptureSaleLineDiscount'],
+  'approverUserId'
+>;
+
+/**
+ * RT-858: the line discount on the wire. `value` is the whole percent as text,
+ * or for an amount the same exact decimal as `amount`; `amount` is the frozen
+ * minor amount in the `posTotal` exponent. No till id crosses.
+ */
+function discountWire(
+  discount: CaptureSaleLineDiscount | undefined,
+  exponent: number,
+): { discount?: CaptureSaleLineDiscountWire } {
+  if (discount === undefined) return {};
+  return {
+    discount: {
+      kind: discount.kind,
+      value:
+        discount.kind === 'percent'
+          ? String(discount.value)
+          : minorUnitsToDecimalString(discount.value, exponent),
+      amount: minorUnitsToDecimalString(discount.amountMinor, exponent),
+      reasonCode: discount.reasonCode,
+      authoritySource: discount.authoritySource,
+      approverRole: discount.approverRole,
+    },
+  };
 }
 
 /**
@@ -334,6 +376,7 @@ export function toWireBody(payload: CaptureSalePayload, currencyCode: string): C
       lineAmount: minorUnitsToDecimalString(line.lineAmountMinor, exponent),
       unit: DEFAULT_LINE_UNIT,
       ...tenantProductRefFor(line.productRef),
+      ...discountWire(line.discount, exponent),
     })),
     ...(tenders === undefined ? {} : { tenders }),
     ...(receipt === undefined ? {} : { receipt }),
