@@ -2,4 +2,4 @@
 # Lines are counted the way `wc -l` counts them: the number of newline (LF) characters.
 # The file may only shrink. When it does, lower this number to the new count in the same PR.
 # Exactly one integer below; lines starting with # are comments.
-2526
+2437

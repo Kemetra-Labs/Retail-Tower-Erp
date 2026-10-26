@@ -15,16 +15,10 @@ import { createSenderGuardedIpcMain } from './ipc/sender-guard.js';
 import { createSessionLockGuardedIpcMain } from './ipc/session-lock-guard.js';
 import { createRecoveryModeGuardedIpcMain } from './ipc/recovery-mode-guard.js';
 import { registerRecoveryHandlers } from './ipc/recovery.js';
-import { registerSaleVoidHandlers } from './ipc/sale-void.js';
 import { registerPrinterHandlers } from './ipc/printer.js';
 import { bindPrinterSettingRepository } from './printer/printer-setting-repository.js';
 import { createPrinterService } from './printer/printer-service.js';
-import {
-  composeSaleVoid,
-  SALE_VOID_DRAIN_TIMEOUT_MS,
-  scheduleSaleVoidSync,
-  type ComposedSaleVoid,
-} from './sale-void/compose-sale-void.js';
+import { type ComposedSaleVoid } from './sale-void/compose-sale-void.js';
 import {
   createManagerRecovery,
   createRecoveryPaymentPort,
@@ -136,12 +130,6 @@ import { parseReceiptSince, parseTendersSince } from './sales-sync/capture-paylo
 import { createSaleSyncClient } from './sales-sync/create-sale-sync-client.js';
 import { SALE_SYNC_DRAIN_TIMEOUT_MS, scheduleSaleSync } from './sales-sync/schedule-sale-sync.js';
 import { registerSalesSyncHandlers } from './ipc/sales-sync.js';
-import { registerReturnsHandlers } from './ipc/returns.js';
-import {
-  composeReturns,
-  RETURNS_DRAIN_TIMEOUT_MS,
-  scheduleReturnsResolver,
-} from './returns/compose-returns.js';
 import {
   composeShiftCashupService,
   pairedShiftScope,
@@ -186,6 +174,8 @@ import { createWindowFactory } from './app/bootstrap-window.js';
 import { createDatabaseHolder } from './app/bootstrap-db.js';
 import { resolveApiBaseUrl, resolveClerkExchanger, resolveMigrationsDir } from './bootstrap/env.js';
 import { registerCatalogue } from './bootstrap/catalogue.js';
+import { registerReturns } from './bootstrap/returns.js';
+import { registerSaleVoid } from './bootstrap/sale-void.js';
 import { registerShift } from './bootstrap/shift.js';
 import { registerUpdater, startUpdater } from './bootstrap/updater.js';
 import {
@@ -2348,117 +2338,38 @@ singleInstanceReady
       }
     }
 
-    // ── RT-15 S2 — cashier returns (main-process domain; no renderer UI yet) ──
-    //
-    // The `returns:*` handlers are registered UNCONDITIONALLY (T094c lesson: the
-    // renderer gets a typed `feature_disabled` refusal, never "no handler"). The
-    // service re-reads `POS_PULSE_FEATURE_RETURNS` per call (default off, AC1),
-    // requires a manager/admin operator session (D-b), and talks only to
-    // Backend-Core `/api/pos/v1/sales/...` (AC7) with the operator envelope of
-    // the admitted authorization snapshot (RT-197 A5). The background resolver
-    // (startup + interval) re-sends `pending` / `unknown` returns with the
-    // identical request; it is scheduled with the flag on and resolves pairing +
-    // operator live on every tick.
-    // ── RT-530 — manager-approved void of a finalized sale ──
-    //
-    // The `saleVoid:*` handlers are registered UNCONDITIONALLY (the renderer
-    // gets a typed `feature_disabled` refusal, never "no handler"); the service
-    // re-reads `POS_PULSE_FEATURE_SALE_VOID` per call (default off). A request
-    // spends a single-use RT-114 manager approval and journals the void; the
-    // send engine posts it later under the REQUESTER's own operator envelope
-    // only (the same in-process envelope reader sale sync uses), once the sale
-    // has synced. No device bearer is involved.
-    const saleVoidDomain = composeSaleVoid({
+    // RT-530 — the manager-approved sale void: `saleVoid:*` IPC and the flag-gated background send
+    // (RT-893 extraction 5; see `bootstrap/sale-void.ts`).
+    registerSaleVoid({
+      guardedIpcMain,
       db,
-      http: {
-        baseUrl: resolveApiBaseUrl(),
-        fetch: backendFetch,
-      },
-      getOperatorEnvelope: createSaleSyncTokenReader(
-        operatorSessionManager,
-        operatorEnvelopeHolder,
-      ),
-      getSession: () => operatorSessionManager.getCurrent(),
-      getTerminalId: () => pairingStore.getCurrentTerminalId(),
-      isSessionLocked: () => operatorSessionManager.getCurrent()?.lock_state === 'locked',
-      isEnabled: () => parseFeatureFlags(process.env).saleVoid,
-      approvals: managerApprovals,
-      auditSink: auditEmitter,
-      // RT-741: `saleVoid.lookup` runs the shared RT-546 gate; its refusals are
-      // `sale.access.refused`, written like the sales and receipts bridges' own.
-      accessAudit: createSaleAuditEmitter({ sink: { write: forwardAuditEvent } }),
-      logger: mainLogger,
-      now: () => new Date().toISOString(),
+      backendFetch,
+      operatorSessionManager,
+      operatorEnvelopeHolder,
+      pairingStore,
+      managerApprovals,
+      auditEmitter,
+      forwardAuditEvent,
+      workerRegistry,
+      mainLogger,
+      saleVoidRef,
     });
-    saleVoidRef.current = saleVoidDomain;
-    registerSaleVoidHandlers(guardedIpcMain, {
-      service: saleVoidDomain.service,
-      logger: mainLogger,
-    });
-    if (parseFeatureFlags(process.env).saleVoid) {
-      // Each pass resolves its sender live (the signed-in operator and their
-      // envelope), so a requester who signs in later is picked up without a restart.
-      const SALE_VOID_SEND_INTERVAL_MS = 5_000;
-      const stopSaleVoidSync = scheduleSaleVoidSync({
-        sync: saleVoidDomain.sync,
-        stopDomain: saleVoidDomain.stop,
-        intervalMs: SALE_VOID_SEND_INTERVAL_MS,
-        drainTimeoutMs: SALE_VOID_DRAIN_TIMEOUT_MS,
-        logger: mainLogger,
-      });
-      workerRegistry.register('sale-void interval', () => {
-        void stopSaleVoidSync();
-      });
-    }
 
-    const returnsDomain = composeReturns({
+    // RT-15 S2 — cashier returns: `returns:*` IPC and the flag-gated background resolver
+    // (RT-893 extraction 5; see `bootstrap/returns.ts`).
+    registerReturns({
+      guardedIpcMain,
       db,
-      http: {
-        baseUrl: resolveApiBaseUrl(),
-        fetch: backendFetch,
-      },
-      // RT-197 A5: read only into the authorization snapshot (and at a
-      // recheck); every send carries the snapshot's envelope explicitly.
-      getOperatorEnvelope: createSaleSyncTokenReader(
-        operatorSessionManager,
-        operatorEnvelopeHolder,
-      ),
-      isEnabled: () => parseFeatureFlags(process.env).returns,
-      getSession: () =>
-        resolveSessionScope(
-          operatorSessionManager.getCurrent(),
-          pairingStore.getCurrentTerminalId(),
-        ),
-      isSessionLocked: () => operatorSessionManager.getCurrent()?.lock_state === 'locked',
-      auditSink: auditEmitter,
-      logger: mainLogger,
-      now: () => new Date().toISOString(),
-      // RT-15 S4: the SAME drawer port and print pipeline as sales (no new
-      // hardware path): the payout kicks the drawer, the slip prints through
-      // the receipt pipeline's path selection.
-      drawer: drawerKickTransport,
-      printer: printPipeline,
+      backendFetch,
+      operatorSessionManager,
+      operatorEnvelopeHolder,
+      pairingStore,
+      auditEmitter,
+      drawerKickTransport,
+      printPipeline,
+      workerRegistry,
+      mainLogger,
     });
-    registerReturnsHandlers(guardedIpcMain, { service: returnsDomain.service });
-    if (parseFeatureFlags(process.env).returns) {
-      // Scheduled regardless of pairing: each tick resolves the paired terminal
-      // and an eligible (unlocked manager/admin) operator live, so in-process
-      // pairing needs no restart; until then every tick is a no-op.
-      const RETURNS_RESOLVER_INTERVAL_MS = 30_000;
-      const stopReturnsResolver = scheduleReturnsResolver({
-        resolver: returnsDomain.resolver,
-        stopDomain: returnsDomain.stop,
-        intervalMs: RETURNS_RESOLVER_INTERVAL_MS,
-        drainTimeoutMs: RETURNS_DRAIN_TIMEOUT_MS,
-        logger: mainLogger,
-      });
-      // Synchronous like every worker stop: latches the domain stopped (no
-      // send starts; an in-flight send writes nothing when it settles), so the
-      // DB may close right after. The drain promise is not awaited here.
-      workerRegistry.register('returns resolver', () => {
-        void stopReturnsResolver();
-      });
-    }
 
     // RT-17 slice 3 + slice 4 — the shift cash-up sync engine and IPC (RT-893 extraction 4);
     // both flag-gated, default off (see `bootstrap/shift.ts`).

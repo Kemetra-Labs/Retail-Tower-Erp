@@ -104,10 +104,11 @@ describe.each(SOURCES)('RT-203 index.ts boots only behind the lock (%s)', (_eol,
     ['the paired workers', /createPairedWorkers\(/],
     ['the printer pipeline', /createPrintPipeline\(/],
     ['the drawer dispatcher', /createDrawerKickDispatcher\(/],
-    // RT-15 S4: the returns domain (payout + its drawer kick) and its resolver.
+    // RT-15 S4: the returns domain (payout + its drawer kick) and its resolver, and the sale
+    // void domain, now behind their bootstrap modules (RT-893 extraction 5).
     ['the drawer kick transport', /const drawerKickTransport: DrawerKickTransport =/],
-    ['the returns domain (payout)', /\bcomposeReturns\(/],
-    ['the returns resolver', /\bscheduleReturnsResolver\(/],
+    ['the returns wiring (domain + resolver)', /\bregisterReturns\(/],
+    ['the sale void wiring (domain + send)', /\bregisterSaleVoid\(/],
     ['the window', /\bcreateWindow\(\)/],
   ])('runs %s only inside the lock-gated boot (every call)', (_what, needle) => {
     const gate = indexOfOrFail(BOOT_GATE);

@@ -58,14 +58,15 @@ describe('the returns client passes its exported timeout to AbortSignal.timeout'
   });
 });
 
-describe('main/index.ts bounds the returns drain by the exported constant', () => {
-  // `index.ts` cannot be imported under vitest (it runs `app.whenReady()`).
-  const source = readFileSync(resolve(__dirname, '../../index.ts'), 'utf-8');
+describe('bootstrap/returns.ts bounds the returns drain by the exported constant', () => {
+  // RT-893 extraction 5: the resolver scheduling moved out of `main/index.ts` (which cannot be
+  // imported under vitest: it runs `app.whenReady()`) into `bootstrap/returns.ts`.
+  const source = readFileSync(resolve(__dirname, '../../bootstrap/returns.ts'), 'utf-8');
 
   it('imports RETURNS_DRAIN_TIMEOUT_MS and defines no local copy', () => {
     expect(source).not.toMatch(/const RETURNS_DRAIN_TIMEOUT_MS\b/);
     expect(source).toMatch(
-      /import \{[^}]*\bRETURNS_DRAIN_TIMEOUT_MS\b[^}]*\} from '\.\/returns\/compose-returns\.js';/,
+      /import \{[^}]*\bRETURNS_DRAIN_TIMEOUT_MS\b[^}]*\} from '\.\.\/returns\/compose-returns\.js';/,
     );
   });
 
