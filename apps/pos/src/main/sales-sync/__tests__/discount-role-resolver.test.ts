@@ -584,4 +584,64 @@ describe('RT-906 AC3 — anything short of the full chain stays held', () => {
     expect(failures).toEqual([1]);
     expect(h.deadLetters).toEqual([]);
   });
+
+  it('a held sale whose lookup throws never keeps a later held sale from resolving', async () => {
+    await heldWorld();
+    signIn('manager');
+    seedSale(w.raw, {
+      sale_id: 'sale-old',
+      subtotal_minor: 8100,
+      lines_json: rolelessLines({ placeholder_id: 'dp-old' }),
+    });
+    seedOutbox(w.raw, { sale_id: 'sale-old', enqueued_at: '2026-10-27T08:00:00.000Z' });
+    // The older sale's audit lookup fails (a store error); the newer one's does not.
+    const failing: DatabaseHandle = {
+      ...w.db,
+      prepare: (sql: string) => {
+        const stmt = w.db.prepare(sql) as { get: (...p: unknown[]) => unknown };
+        if (!sql.includes('cart.discount.manager_authorized')) return stmt;
+        return {
+          get: (...params: unknown[]) => {
+            if (params[2] === 'dp-old') throw new Error('disk I/O error');
+            return stmt.get(...params);
+          },
+        };
+      },
+    };
+    const roles = createDiscountRoleResolver({
+      db: failing,
+      emit: (event) => {
+        w.audit.emit(event);
+      },
+      now: () => T,
+      newEventId: () => '00000000-0000-4000-8000-0000000000bb',
+    });
+    expect(() => roles.resolve(SCOPE)).toThrow('disk I/O error');
+    expect(resolutions()).toEqual([
+      ['sale-held', 'dp-1', APPROVAL_ID, 'manager', 'pin_record_refresh', T],
+    ]);
+  });
+
+  it('a resolution read that throws holds that sale only: the rest of the tick drains', async () => {
+    await heldWorld();
+    signIn('manager');
+    w.roles.resolve(SCOPE);
+    const failures: number[] = [];
+    const unreadable: SaleDiscountRoles = {
+      resolve: () => 0,
+      rolesFor: () => {
+        throw new Error('disk I/O error');
+      },
+    };
+    const h = engineDeps([OK, OK], {
+      discountRoles: unreadable,
+      onDependencyFailure: () => failures.push(1),
+    });
+    await tick(h.deps);
+    expect(sentOf(h.client)).toEqual([]);
+    expect(sentOf(h.client, PLAIN_ID)).toHaveLength(1);
+    expect(w.stateRepo.read('sale-held')).toBeNull();
+    expect(failures).toEqual([1]);
+    expect(h.deadLetters).toEqual([]);
+  });
 });

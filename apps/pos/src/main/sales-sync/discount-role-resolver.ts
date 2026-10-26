@@ -268,6 +268,25 @@ export function createDiscountRoleResolver(deps: DiscountRoleResolverDeps): Sale
     return written;
   }
 
+  /**
+   * Every held sale is tried on its own: one that throws (a store error) never
+   * keeps a later sale from resolving. The first failure is rethrown once all
+   * were tried, so the drain still reports it; that sale simply stays held.
+   */
+  function resolveEach(held: readonly HeldSale[], resolvedAt: string): number {
+    let written = 0;
+    let failure: Error | null = null;
+    for (const sale of held) {
+      try {
+        written += resolveSale(sale, resolvedAt);
+      } catch (err) {
+        failure ??= err instanceof Error ? err : new Error('discount role resolution failed');
+      }
+    }
+    if (failure !== null) throw failure;
+    return written;
+  }
+
   return {
     resolve(scope) {
       const held = (db.prepare(HELD_SALES_SQL) as PrepareAll<HeldSale>).all(
@@ -277,7 +296,7 @@ export function createDiscountRoleResolver(deps: DiscountRoleResolverDeps): Sale
       );
       if (held.length === 0) return 0;
       const resolvedAt = deps.now();
-      return held.reduce((sum, sale) => sum + resolveSale(sale, resolvedAt), 0);
+      return resolveEach(held, resolvedAt);
     },
     rolesFor(saleId) {
       return readResolvedRoles(db, saleId);

@@ -660,7 +660,17 @@ export function createSaleSyncEngine(deps: SaleSyncEngineDeps): SaleSyncEngine {
     return stateRepo
       .eligible({ tenantId, branchId, terminalId }, now())
       .map((due) => readSale(due.sale_id))
-      .filter((sale): sale is SaleRow => sale !== null && !isHeld(sale));
+      .filter((sale): sale is SaleRow => sale !== null && !isHeldOrUnreadable(sale));
+  }
+
+  /** RT-906: a hold check that throws (the resolution read) holds that sale only, this tick. */
+  function isHeldOrUnreadable(sale: SaleRow): boolean {
+    try {
+      return isHeld(sale);
+    } catch {
+      dependencyFailed();
+      return true;
+    }
   }
 
   /** A sale the builder refuses to send faithfully (RT-10 D2 tenders, RT-858 discount). */
