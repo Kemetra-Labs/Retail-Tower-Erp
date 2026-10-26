@@ -278,6 +278,19 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=4096
         run: pnpm --filter @data-pulse-2/api test -- --coverage --forceExit
 
+      # RT-901: hand the api lcov (Jest's default reporters include lcov) to sonar.yml, which scans
+      # each push to main. A push-only, credential-free upload that cannot change this job's
+      # result; PR runs upload nothing. The paths in it are relative to apps/api.
+      - name: Upload lcov for the Sonar scan (main pushes only)
+        if: github.event_name == 'push' && !cancelled()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sonar-coverage-backend-core
+          path: services/backend-core/apps/api/coverage/lcov.info
+          if-no-files-found: warn
+          retention-days: 3
+
   bc-db-package:
     name: bc/db-package
     needs: plan
