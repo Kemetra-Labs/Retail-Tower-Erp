@@ -87,7 +87,7 @@ function expectRequestMatches(call: ClientCall, req: ObservedRequest): void {
 
 describe('Backend-Core contract snapshot (contracts/backend-core)', () => {
   it('is pinned to one Backend-Core commit', () => {
-    expect(PIN.repo).toBe('Kemetra/Backend-Core');
+    expect(PIN.repo).toBe('Kemetra-Labs/Retail-Tower-Erp');
     expect(PIN.source).toBe(BACKEND_CORE_OPENAPI_ROOT);
     expect(PIN.commit).toMatch(/^[0-9a-f]{40}$/);
   });

@@ -339,3 +339,30 @@ export function isRt869ExemptFile(branch: string, file: string): boolean {
     (RT_869_MONOREPO_READINESS_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * `claude/rt-889-in-tree-contracts` implements Jira RT-889 (scope 4): POS repins
+ * to the in-tree Backend-Core contract of this monorepo and regenerates
+ * `src/shared/api-types.ts` from it. The generated file is a forbidden path, so
+ * the regeneration cannot land without an exemption.
+ *
+ * Authority: Jira RT-889 scope (owner-authored), following the RT-307 / RT-869
+ * file-list pattern.
+ *
+ * Exemption is narrow, and deliberately not a prefix exemption: exactly ONE
+ * file, on exactly ONE branch (exact name, no `startsWith`). Every forbidden
+ * prefix stays blocked for every other file and branch. Narrowness is asserted
+ * by `source-scope-guard-rt889.test.ts`.
+ */
+export const RT_889_IN_TREE_CONTRACTS_BRANCH = 'claude/rt-889-in-tree-contracts' as const;
+export const RT_889_IN_TREE_CONTRACTS_EXEMPT_FILES = [
+  'src/shared/api-types.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is one of the files the RT-889 exemption allows on `branch`. */
+export function isRt889ExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_889_IN_TREE_CONTRACTS_BRANCH &&
+    (RT_889_IN_TREE_CONTRACTS_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}
