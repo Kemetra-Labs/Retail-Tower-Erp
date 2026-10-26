@@ -181,7 +181,8 @@ products:
     # start with `/` (product root); translated here to product-root-relative.
     tiers:
       contracts:
-        globs: [retail_tower_erpnext_connector/connector/posting/contracts.py, retail_tower_erpnext_connector/connector/bin_view/contracts.py, retail_tower_erpnext_connector/connector/schema.py, retail_tower_erpnext_connector/tests/**/test_contracts.py, retail_tower_erpnext_connector/tests/**/test_resolution_contracts.py, retail_tower_erpnext_connector/tests/obs1-golden-vectors.json, retail_tower_erpnext_connector/tests/rt879-redaction-vectors.json]
+        # RT-704: the Connector PIN of the in-tree Backend-Core contract, so a repin runs contracts/check.
+        globs: [contracts/backend-core/**, retail_tower_erpnext_connector/connector/posting/contracts.py, retail_tower_erpnext_connector/connector/bin_view/contracts.py, retail_tower_erpnext_connector/connector/schema.py, retail_tower_erpnext_connector/tests/**/test_contracts.py, retail_tower_erpnext_connector/tests/**/test_resolution_contracts.py, retail_tower_erpnext_connector/tests/obs1-golden-vectors.json, retail_tower_erpnext_connector/tests/rt879-redaction-vectors.json]
         jobs: [connector/unit-tests-and-lint, bc/fast, contracts/check]
       money:
         globs: ["retail_tower_erpnext_connector/connector/posting/{tender,uom,builder,return_builder,reversal_builder,reversal_policy,stock_policy,representation_check}.py", "retail_tower_erpnext_connector/connector/doctype/{rt_tender_mode_map_row,rt_uom_map_row}/**"]
