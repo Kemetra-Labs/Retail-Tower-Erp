@@ -12,6 +12,9 @@ import {
 } from '../../terminal-status/terminal-status-store';
 import { useAttentionDeadline } from '../../terminal-status/use-attention-deadline';
 import { useBannerState } from '../../ui/receipts/useBannerState';
+import { useOperatorSessionStore } from '../../stores/operator-session-store';
+import { PrinterStatusRow } from '../printer/PrinterStatusRow';
+import { usePrinterChoiceSync } from '../printer/printer-store';
 import { Icon } from '../../icons/Icon';
 import type { IconName } from '../../icons/registry';
 import './status-indicator.css';
@@ -47,8 +50,14 @@ function RowContent({ row }: Readonly<{ row: IndicatorRow }>): JSX.Element {
 /**
  * RT-604 (VN-S6 S6-3, doc 24 §4.2) — the nav footer's status indicator
  * (DESIGN.md §Navigation): connection, sale sync, held discounted sales
- * (RT-887, neutral) and printer, each a glyph plus text. Fed by the `terminalStatus` push; the printer row reads the
- * existing `banner_state` feed and appears only while the last print failed.
+ * (RT-887, neutral) and printer, each a glyph plus text. Fed by the
+ * `terminalStatus` push; the printer row reads the existing `banner_state`
+ * feed and, with no operator signed in, appears only while the last print
+ * failed.
+ *
+ * RT-886 (RT-839 D4): for a signed-in operator (any role) the printer row is
+ * always shown. It names the printer receipts go to and opens the «الطابعة»
+ * panel; while the last print failed it still leads with «فشل آخر إيصال».
  *
  * Only the connection row is a polite live region, so a connection change is
  * announced and a count change is not. In the slim rail the rows collapse to
@@ -59,6 +68,10 @@ export function StatusIndicator(): JSX.Element {
   useEffect(() => connectTerminalStatus(terminalStatusBridge()), []);
   useAttentionDeadline(snapshot);
   const printFailure = useBannerState();
+  const sessionId = useOperatorSessionStore((s) =>
+    s.state.kind === 'signedIn' ? s.state.session.id : undefined,
+  );
+  usePrinterChoiceSync(sessionId);
 
   const view = mapTerminalStatus(snapshot, Date.now());
   const printer = printerRow(printFailure !== null);
@@ -85,10 +98,14 @@ export function StatusIndicator(): JSX.Element {
           <RowContent row={view.held} />
         </p>
       )}
-      {printer !== null && (
-        <p className="v5-status__row" data-row="printer" data-tone={printer.tone}>
-          <RowContent row={printer} />
-        </p>
+      {sessionId !== undefined ? (
+        <PrinterStatusRow lastPrintFailed={printFailure !== null} />
+      ) : (
+        printer !== null && (
+          <p className="v5-status__row" data-row="printer" data-tone={printer.tone}>
+            <RowContent row={printer} />
+          </p>
+        )
       )}
     </div>
   );

@@ -187,10 +187,13 @@ describe('StatusIndicator — printer row (D-6-7)', () => {
     expect(row('printer')).toHaveAttribute('data-tone', 'warning');
   });
 
-  it('shows no printer row otherwise, and never «جاهز»', async () => {
+  it('RT-886: shows no failure otherwise, and never «جاهز»', async () => {
     installApi(snap('online'));
     await renderAt();
-    expect(row('printer')).toBeNull();
+    // RT-886 (RT-839 D4): a signed-in operator always has the printer row (it
+    // opens the «الطابعة» panel); it no longer means only "the last print failed".
+    expect(row('printer')).not.toHaveTextContent('فشل آخر إيصال');
+    expect(row('printer')).not.toHaveAttribute('data-tone', 'warning');
     expect(indicator()).not.toHaveTextContent('جاهز');
   });
 });

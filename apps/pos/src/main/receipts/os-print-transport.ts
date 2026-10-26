@@ -91,6 +91,14 @@ export interface OsPrintTransportConfig {
    * print-queue name, so mapping a specific BIXOLON queue is a follow-up.
    */
   deviceName?: string;
+  /**
+   * RT-886 — the operator's printer choice, read on EVERY print so a change
+   * applies without a restart. Returns the exact queue name, or `undefined`
+   * for «Windows default» / no choice. When present it replaces `deviceName`.
+   * A chosen queue that is not installed fails the print loudly
+   * (`os_print_printer_missing`); it never falls back to another printer.
+   */
+  resolveDeviceName?: () => string | undefined;
   /** Round-trip deadline (ms). Defaults to 15_000. */
   timeoutMs?: number;
   /** Optional structural logger; defaults to no-op. Never receives slip content. */
@@ -117,6 +125,20 @@ export function resolvePrinterDeviceName(
   if (configured !== undefined && configured !== '') return configured;
   const fallback = printers.find((p) => p.isDefault);
   return fallback?.name ?? '';
+}
+
+/**
+ * RT-886 — a named printer that the discovered list does not hold. An empty
+ * list proves nothing (discovery may have failed, or no window exists yet):
+ * the name then goes to Electron, which refuses an unknown device itself. So a
+ * missing chosen printer always fails, and never prints elsewhere.
+ */
+export function isNamedPrinterMissing(
+  printers: readonly PrinterInfoLike[],
+  deviceName: string,
+): boolean {
+  if (deviceName === '' || printers.length === 0) return false;
+  return !printers.some((p) => p.name === deviceName);
 }
 
 /**
@@ -245,8 +267,17 @@ export function createOsPrintTransport(config: OsPrintTransportConfig): OsPrintF
 
     void (async (): Promise<void> => {
       try {
+        // RT-886: the choice is read per print, before any await, so the job
+        // goes where the choice stood when the print was asked for.
+        const configured =
+          config.resolveDeviceName === undefined ? config.deviceName : config.resolveDeviceName();
         const printers = await config.listPrinters().catch(() => [] as PrinterInfoLike[]);
-        const deviceName = resolvePrinterDeviceName(printers, config.deviceName);
+        const deviceName = resolvePrinterDeviceName(printers, configured);
+        if (isNamedPrinterMissing(printers, deviceName)) {
+          // Loud failure: the dispatcher records it and raises the banner.
+          settle(false, 'os_print_printer_missing');
+          return;
+        }
         win = config.createPrintWindow();
         // Wrap the bare template fragment in a full styled print document so
         // the OS-path slip matches the recorded render-quality smoke.

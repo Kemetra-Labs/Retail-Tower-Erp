@@ -171,6 +171,10 @@ const MAIN_ONLY_AUDIT_CATEGORIES: ReadonlySet<string> = new Set([
   'sale.return.slip_printed',
   'sale.return.slip_print_failed',
   'sale.return.slip_reprinted',
+  // RT-886 — the printer choice and its test page, written only by main's
+  // printer service after it checked the session.
+  'terminal.printer.selected',
+  'terminal.printer.test_printed',
 ]);
 
 function asEmitAuditEventRequest(value: unknown): EmitAuditEventRequest | null {

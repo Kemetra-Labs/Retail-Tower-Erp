@@ -20,6 +20,7 @@ import type { SaleVoidBridgeAPI } from './sale-void/types.js';
 import type { SaleHistoryBridgeAPI } from './sale-history/types.js';
 import type { TerminalStatusSnapshot } from './terminal-status/types.js';
 import type { UpdateStatusSnapshot } from './update-status/types.js';
+import type { PrinterBridgeAPI } from './printer/types.js';
 
 export type {
   ReturnJournalView,
@@ -909,6 +910,14 @@ export interface PreloadBridgeAPI {
    * trigger and no channel or origin setter.
    */
   updateStatus?: UpdateStatusBridgeAPI;
+
+  /**
+   * RT-886 (RT-839 S1): the receipt printer choice (`printer.*`): list the
+   * installed Windows printers, read and save the choice, send a test page.
+   * Any signed-in role; main checks for a live, unlocked session on every call.
+   * Printer names and closed codes only.
+   */
+  printer?: PrinterBridgeAPI;
 }
 
 /**
