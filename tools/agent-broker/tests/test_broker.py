@@ -375,5 +375,100 @@ class SessionTests(unittest.TestCase):
             broker.main(["--op-ref", "op://tower/x/y"])
 
 
+REVIEWER_GRANT = {
+    "token": TOKEN,
+    "expires_at": "2027-01-15T08:00:00Z",
+    "permissions": {"pull_requests": "write", "metadata": "read"},
+    "repository_selection": "selected",
+    "repositories": [{"id": 1430288487, "full_name": "Kemetra-Labs/Retail-Tower-Erp"}],
+}
+
+
+class ReviewerProfileTests(unittest.TestCase):
+    """RT-870: the reviewer App can review but never push, merge or edit files."""
+
+    def test_reviewer_asks_for_exactly_review_and_metadata(self):
+        self.assertEqual(broker.REVIEWER.permissions, {"pull_requests": "write", "metadata": "read"})
+        self.assertNotIn("contents", broker.REVIEWER.permissions)
+        self.assertNotIn("workflows", broker.REVIEWER.permissions)
+
+    def test_profiles_never_share_app_key_or_scope(self):
+        self.assertNotEqual(broker.REVIEWER.app_id, broker.AGENT.app_id)
+        self.assertNotEqual(broker.REVIEWER.installation_id, broker.AGENT.installation_id)
+        self.assertNotEqual(broker.REVIEWER.repo_id, broker.AGENT.repo_id)
+        self.assertNotEqual(broker.REVIEWER.op_ref, broker.AGENT.op_ref)
+
+    def test_mint_request_targets_the_canonical_repo_only(self):
+        http = FakeHttp([(201, REVIEWER_GRANT)])
+        broker.mint_installation_token("JWT", http, broker.REVIEWER)
+        call = http.calls[0]
+        self.assertEqual(call["url"], "https://api.github.com/app/installations/175598150/access_tokens")
+        self.assertEqual(json.loads(call["body"]),
+                         {"repository_ids": [1430288487],
+                          "permissions": {"pull_requests": "write", "metadata": "read"}})
+
+    def test_jwt_is_issued_for_the_reviewer_app(self):
+        _, pem = _throwaway_key()
+        jwt = broker.build_jwt(pem, broker.REVIEWER.app_id, NOW)
+        self.assertEqual(json.loads(_b64d(jwt.split(".")[1]))["iss"], 5485955)
+
+    def test_good_reviewer_grant_passes(self):
+        broker.check_grant(REVIEWER_GRANT, broker.REVIEWER)
+
+    def test_reviewer_grant_with_contents_is_refused(self):
+        for level in ("read", "write"):
+            with self.subTest(level=level):
+                grant = {**REVIEWER_GRANT, "permissions": {**REVIEWER_GRANT["permissions"], "contents": level}}
+                with self.assertRaises(broker.BrokerError) as ctx:
+                    broker.check_grant(grant, broker.REVIEWER)
+                self.assertIn("contents", str(ctx.exception))
+
+    def test_reviewer_grant_is_not_accepted_for_the_agent_profile_or_the_other_way_round(self):
+        with self.assertRaises(broker.BrokerError):
+            broker.check_grant(REVIEWER_GRANT, broker.AGENT)
+        with self.assertRaises(broker.BrokerError):
+            broker.check_grant(GOOD_GRANT, broker.REVIEWER)
+
+    def test_reviewer_grant_on_another_repo_is_refused(self):
+        grant = {**REVIEWER_GRANT, "repositories": [{"id": 1430288487}, {"id": 1425468661}]}
+        with self.assertRaises(broker.BrokerError):
+            broker.check_grant(grant, broker.REVIEWER)
+
+    def test_session_env_commits_as_the_reviewer_bot(self):
+        env = broker.child_env({"PATH": "/bin", "GH_TOKEN": "owner"}, TOKEN, "/tmp/g", broker.REVIEWER)
+        self.assertEqual(env["GH_TOKEN"], TOKEN)
+        self.assertEqual(env["GIT_AUTHOR_NAME"], "kemetra-reviewer[bot]")
+        self.assertEqual(env["GIT_COMMITTER_EMAIL"], "348508063+kemetra-reviewer[bot]@users.noreply.github.com")
+
+    def test_reviewer_check_reports_the_canonical_repo_and_revokes(self):
+        _, pem = _throwaway_key()
+        http = FakeHttp([(201, REVIEWER_GRANT), (204, None)])
+        summary = broker.check_only("op://tower/x/y", run=lambda c: pem, http=http, now=NOW,
+                                    profile=broker.REVIEWER)
+        self.assertEqual(summary, {"expires_at": "2027-01-15T08:00:00Z",
+                                   "repositories": ["Kemetra-Labs/Retail-Tower-Erp"],
+                                   "permissions": {"pull_requests": "write", "metadata": "read"},
+                                   "revoked": True})
+        self.assertEqual(http.calls[-1]["method"], "DELETE")
+
+    def test_cli_profile_selects_reviewer_defaults(self):
+        seen = {}
+
+        def fake_check(op_ref, **kwargs):
+            seen.update(op_ref=op_ref, profile=kwargs["profile"])
+            return {}
+        original = broker.check_only
+        broker.check_only = fake_check
+        try:
+            self.assertEqual(broker.main(["--profile", "reviewer", "--check"]), 0)
+            self.assertEqual(seen, {"op_ref": "op://tower/kemetra-reviewer/credential",
+                                    "profile": broker.REVIEWER})
+            self.assertEqual(broker.main(["--check"]), 0)
+            self.assertEqual(seen["profile"], broker.AGENT)
+            self.assertEqual(seen["op_ref"], "op://tower/kemetra agent bot/credential")
+        finally:
+            broker.check_only = original
+
+
 if __name__ == "__main__":
     unittest.main()
