@@ -38,6 +38,7 @@ import type {
 } from '../sales/repositories/print-events.repository.js';
 import type { SaleAuditEmitter } from '../sales/audit-emitter.js';
 import type { ReceiptPayload } from '../../shared/receipts/types.js';
+import type { PrinterSource } from '../../shared/printer/types.js';
 
 /**
  * Structural logger port — only the levels the dispatcher uses. Injected so
@@ -73,6 +74,13 @@ export interface PrintDispatcherDependencies {
   newPrintEventId(): string;
   /** Optional structural logger; defaults to a no-op. Never receives slip content. */
   logger?: PrintDispatchLogger;
+  /**
+   * RT-886 — which printer an OS print goes to: the operator's chosen queue or
+   * the Windows default. Read just before the print and stamped on
+   * `sale.receipt.printed` as `printer_source`, so a lab audit shows which
+   * printer path a receipt took. Omitted → the field is not written.
+   */
+  printerSource?: () => PrinterSource;
 }
 
 export interface PrintDispatcher {
@@ -183,6 +191,10 @@ export function createPrintDispatcher(deps: PrintDispatcherDependencies): PrintD
       successAuditExtra?: Readonly<Record<string, unknown>>;
     },
   ): Promise<{ result: PrintAdapterResult; print_event_id: string; printed_at: string }> {
+    // RT-886: read where the print goes as it is asked for (the transport
+    // reads the same choice at the same moment).
+    const printerSource =
+      opts.successCategory === 'sale.receipt.printed' ? deps.printerSource?.() : undefined;
     const result = await pipeline.render(payload);
     const print_event_id = deps.newPrintEventId();
     const created_at = now();
@@ -214,6 +226,10 @@ export function createPrintDispatcher(deps: PrintDispatcherDependencies): PrintD
           sale_id: ctx.sale_id,
           print_event_id,
           render_path: result.render_path,
+          // RT-886: only the OS-print path goes through a Windows printer.
+          ...(printerSource !== undefined && result.render_path === 'os_print'
+            ? { printer_source: printerSource }
+            : {}),
           ...opts.successAuditExtra,
         },
       });

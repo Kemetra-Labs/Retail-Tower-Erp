@@ -20,6 +20,7 @@ import type { ActionCategory } from './event-shape.js';
 import type { SaleFinalizationRefusalReason } from '../sales/types.js';
 import type { DeviceRevokedSource } from '../pairing-types.js';
 import type { ManualDiscountKind, ManualDiscountReasonCode } from '../cart/manual-discount.js';
+import type { PrinterSource, TestPrintFailure } from '../printer/types.js';
 
 // ─── shift.open ────────────────────────────────────────────────────────────
 
@@ -715,6 +716,32 @@ export interface ManagerApprovalRefusedPayload {
   subject_ref: string;
 }
 
+// ─── RT-886 — the terminal's receipt printer choice ───────────────────────
+
+/**
+ * `terminal.printer.selected` — an operator changed the printer. The actor is
+ * the envelope's `acting_operator_id`. `previous_source` is null when no
+ * printer had been chosen before; a name is present iff its source is `chosen`.
+ */
+export interface TerminalPrinterSelectedPayload {
+  previous_source: PrinterSource | null;
+  previous_printer_name: string | null;
+  printer_source: PrinterSource;
+  printer_name: string | null;
+}
+
+/**
+ * `terminal.printer.test_printed` — a test page was sent. `accepted` means
+ * Windows accepted the job, never that paper came out. `printer_source` is
+ * null when no printer had been chosen (Windows default by absence).
+ */
+export interface TerminalPrinterTestPrintedPayload {
+  printer_source: PrinterSource | null;
+  printer_name: string | null;
+  outcome: 'accepted' | 'failed';
+  failure_reason: TestPrintFailure | null;
+}
+
 // ─── Discriminated map (ActionCategory → payload type) ────────────────────
 
 /**
@@ -809,6 +836,9 @@ export type AuditPayloadMap = {
   'sale.number_day_rule.switched': SaleNumberDayRuleSwitchedPayload;
   // RT-542
   'sale.history.reprinted': SaleHistoryReprintedPayload;
+  // RT-886
+  'terminal.printer.selected': TerminalPrinterSelectedPayload;
+  'terminal.printer.test_printed': TerminalPrinterTestPrintedPayload;
 };
 
 // Compile-time assertions: AuditPayloadMap and ActionCategory are in sync.

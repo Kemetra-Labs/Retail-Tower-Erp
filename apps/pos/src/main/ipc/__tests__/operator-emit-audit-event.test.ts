@@ -504,6 +504,10 @@ describe('operator:emit-audit-event — main-only categories (RT-117 §A4 L1)', 
     // count auth failures from it) and the per-row resend are main-only.
     'sale.return.attempt_unknown',
     'sale.return.resend_requested',
+    // RT-886: the printer choice and its test page are written only by main's
+    // printer service, after its session check.
+    'terminal.printer.selected',
+    'terminal.printer.test_printed',
   ])('refuses a renderer-forged %s and never emits it', async (action_category) => {
     const emit = vi.fn();
     const { emitAuditEvent } = setup({ auditEmitter: fakeAuditEmitter({ emit }) });

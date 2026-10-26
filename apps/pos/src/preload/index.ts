@@ -48,6 +48,7 @@ import type {
 import { subscribeSessionState } from './session-state.js';
 import { subscribePairingStatus } from './pairing-status.js';
 import { invokePairingRecheck } from './pairing-recheck.js';
+import { printer } from './printer.js';
 import type { OperatorRefusal } from '../shared/audit/event-shape';
 import type { LogRecord } from '../shared/log-record';
 import type { AppConfig } from '../shared/app-config';
@@ -229,6 +230,9 @@ const api: PreloadBridgeAPI = {
   // RT-322 (S-B) — updateStatus.* (get + the push). Read-only; every payload is
   // validated here. No install trigger, no channel or origin setter.
   updateStatus: createUpdateStatusBridge(ipcRenderer),
+  // RT-886 — printer.* (list / get / set / testPrint): the receipt printer
+  // choice. Main checks for a live session (any role) on every call.
+  printer,
 };
 
 contextBridge.exposeInMainWorld('api', api);

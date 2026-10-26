@@ -1,0 +1,143 @@
+/*
+ * RT-886 (RT-839 D4) — the «الطابعة» panel and the footer printer row.
+ * Foundation aliases only. The panel sits in the one v5 Dialog; its choice
+ * lines follow the void dialog's 44px radio lines (VD-Void).
+ */
+
+.v5-dialog:has(.v5-printer-choices) {
+  inline-size: min(480px, calc(100% - var(--space-5)));
+  gap: var(--space-4);
+}
+
+.v5-printer-title {
+  margin: 0;
+  font-size: var(--font-size-lg, 18px);
+  font-weight: var(--font-weight-bold);
+  line-height: 1.375;
+}
+
+.v5-dialog:has(.v5-printer-choices) p {
+  margin: 0;
+}
+
+.v5-printer-choices {
+  display: grid;
+  gap: var(--space-1);
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.v5-printer-choices legend {
+  margin-block-end: 6px;
+  padding: 0;
+  font-weight: var(--font-weight-semibold);
+}
+
+/* The whole line is the target (44px), not only the radio. */
+.v5-printer-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-block-size: var(--v5-target, 44px);
+  margin: 0;
+  padding-block: var(--space-1);
+  padding-inline: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  font-weight: var(--font-weight-regular);
+  cursor: pointer;
+}
+
+.v5-printer-choice input {
+  flex: none;
+  inline-size: 20px;
+  block-size: 20px;
+  margin: 0;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.v5-printer-choice input:focus-visible {
+  outline: 3px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.v5-printer-choice:has(input:checked) {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.v5-printer-choice__text {
+  display: grid;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.v5-printer-choice__hint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* Always mounted, so the layout does not jump when an outcome arrives. */
+.v5-printer-slot {
+  min-block-size: 40px;
+}
+
+.v5-printer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.v5-printer-actions .v5-btn {
+  min-inline-size: 104px;
+}
+
+/* ── the footer row (RT-604 indicator): a control, styled as a status row ── */
+.v5-status__row--action {
+  inline-size: 100%;
+  min-block-size: var(--v5-target, 44px);
+  padding: var(--space-1) 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.v5-status__row--action:hover {
+  color: var(--color-primary-emphasis);
+}
+
+.v5-status__row--action:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
+}
+
+.v5-status__line {
+  display: block;
+}
+
+/* Read by assistive tech only: the row names what it controls. */
+.v5-printer-sr {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (forced-colors: active) {
+  .v5-printer-choice:has(input:checked) {
+    border: 2px solid Highlight;
+  }
+
+  .v5-status__row--action:focus-visible {
+    outline-color: Highlight;
+  }
+}

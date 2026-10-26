@@ -8,6 +8,7 @@ import { useBannerState } from '../../ui/receipts/useBannerState';
 import { DrawerNoticeBanner, useDrawerNoticeFeed } from '../../ui/receipts/DrawerNotice';
 import { ShiftNotice } from '../shift/ShiftNotice';
 import { SaleVoidNotice } from '../void/SaleVoidNotice';
+import { PrinterChoicePrompt } from '../printer/PrinterChoicePrompt';
 import {
   OfflineBanner,
   SyncAttentionBanner,
@@ -66,6 +67,10 @@ function useRecoveryAction(action: RecoveryAction): (saleId: string) => void {
  * signal join the stack, danger first: sync attention (M-O3), shift closed,
  * offline (M-O1, moved here from the frame's 007 banner), then printer,
  * drawer, shift and void as before.
+ *
+ * RT-886 (RT-839 Q1): the once-only, non-blocking printer prompt follows the
+ * printer banner. It shows only on the Sale screen, while no printer was ever
+ * chosen.
  */
 export function V5OperationalNotices(): JSX.Element {
   const sessionState = useOperatorSessionStore((s) => s.state);
@@ -90,6 +95,7 @@ export function V5OperationalNotices(): JSX.Element {
       )}
       {status.offline && <OfflineBanner />}
       <PrinterFailureBanner printFailure={printFailure} onReprint={reprint} />
+      <PrinterChoicePrompt />
       <DrawerNoticeBanner now={new Date().toISOString()} onManualOverride={manualOverride} />
       <ShiftNotice />
       <SaleVoidNotice />
