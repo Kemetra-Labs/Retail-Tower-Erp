@@ -1,5 +1,7 @@
 # Retail Tower monorepo
 
+![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/Kemetra-Labs/Retail-Tower-Erp?utm_source=oss&utm_medium=github&utm_campaign=Kemetra-Labs%2FRetail-Tower-Erp&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+
 `Kemetra-Labs/Retail-Tower-Erp` holds the four Retail Tower products in one repository, with one CI and one project graph. It is the canonical repository since the RT-715 cutover (2026-10-25): all code lands here by PR to `main`. Before the cutover, product code was imported from the four source repositories, which are now frozen read-only and kept for history (see [CLAUDE.md](CLAUDE.md), landing rule).
 
 Architecture and the monorepo rules (MR-1…MR-9): [ARCHITECTURE.md](ARCHITECTURE.md).
