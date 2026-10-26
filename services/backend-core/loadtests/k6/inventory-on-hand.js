@@ -66,7 +66,7 @@ function targetFor(tenantSlug) {
   return { storeId, productId };
 }
 
-export default function () {
+export default function inventoryOnHand() {
   const tenantSlug = pickTenantForVu(__VU, SYNTHETIC_TENANTS);
   const session = signIn(tenantSlug);
   if (!session || !session.cookies) {

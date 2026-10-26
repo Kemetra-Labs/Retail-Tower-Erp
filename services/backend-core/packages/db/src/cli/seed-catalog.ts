@@ -200,6 +200,98 @@ async function setContext(client: Client, tenantId: string): Promise<void> {
   await client.query("SELECT set_config('app.is_platform_admin', 'false', true)");
 }
 
+/** Resolve-or-create one category (idempotent on (tenant_id, name)); returns its id. */
+async function seedCategory(
+  client: Client,
+  cfg: SeedConfig,
+  name: string,
+  summary: SeedSummary,
+): Promise<string> {
+  const existing = await client.query<{ id: string }>(
+    'SELECT id FROM tenant_product_categories WHERE tenant_id = $1 AND name = $2 AND retired_at IS NULL',
+    [cfg.tenantId, name],
+  );
+  if (existing.rows[0]) return existing.rows[0].id;
+  const inserted = await client.query<{ id: string }>(
+    `INSERT INTO tenant_product_categories (tenant_id, name, created_by)
+     VALUES ($1, $2, $3) RETURNING id`,
+    [cfg.tenantId, name, cfg.seedActorUserId],
+  );
+  const id = inserted.rows[0]?.id;
+  if (!id) throw new Error(`category insert returned no id for "${name}"`);
+  summary.categories_inserted += 1;
+  return id;
+}
+
+/** Resolve-or-create one product (idempotent on (tenant_id, name)); returns its id. */
+async function seedProduct(
+  client: Client,
+  cfg: SeedConfig,
+  p: PilotProduct,
+  categoryId: string | undefined,
+  summary: SeedSummary,
+): Promise<string> {
+  const existing = await client.query<{ id: string }>(
+    'SELECT id FROM tenant_products WHERE tenant_id = $1 AND name = $2 AND retired_at IS NULL',
+    [cfg.tenantId, p.name],
+  );
+  if (existing.rows[0]) {
+    summary.products_skipped += 1;
+    return existing.rows[0].id;
+  }
+  const currency = p.currencyCode ?? cfg.currency;
+  const inserted = await client.query<{ id: string }>(
+    `INSERT INTO tenant_products
+       (tenant_id, name, description, category_id, default_price,
+        default_currency_code, is_active, tax_category, created_by, updated_by)
+     VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, $8) RETURNING id`,
+    [
+      cfg.tenantId,
+      p.name,
+      p.description ?? null,
+      categoryId ?? null,
+      p.price,
+      currency,
+      TAX_CATEGORY,
+      cfg.seedActorUserId,
+    ],
+  );
+  const id = inserted.rows[0]?.id;
+  if (!id) throw new Error(`product insert returned no id for "${p.name}"`);
+  summary.products_inserted += 1;
+  return id;
+}
+
+/** Aliases: skus -> 'sku', barcodes -> 'barcode' (both source_system NULL). */
+async function seedAliases(
+  client: Client,
+  cfg: SeedConfig,
+  p: PilotProduct,
+  productId: string,
+  summary: SeedSummary,
+): Promise<void> {
+  const aliasRows: Array<{ type: 'sku' | 'barcode'; value: string }> = [
+    ...p.skus!.map((value) => ({ type: 'sku' as const, value })),
+    ...p.barcodes!.map((value) => ({ type: 'barcode' as const, value })),
+  ];
+  for (const a of aliasRows) {
+    const existingAlias = await client.query<{ id: string }>(
+      `SELECT id FROM product_aliases
+       WHERE tenant_id = $1 AND product_id = $2 AND identifier_type = $3
+         AND value = $4 AND retired_at IS NULL`,
+      [cfg.tenantId, productId, a.type, a.value],
+    );
+    if (existingAlias.rows[0]) continue;
+    await client.query(
+      `INSERT INTO product_aliases
+         (tenant_id, product_id, identifier_type, value, source_system, created_by)
+       VALUES ($1, $2, $3, $4, NULL, $5)`,
+      [cfg.tenantId, productId, a.type, a.value, cfg.seedActorUserId],
+    );
+    summary.aliases_inserted += 1;
+  }
+}
+
 async function seed(
   client: Client,
   cfg: SeedConfig,
@@ -217,81 +309,13 @@ async function seed(
   const categoryIds = new Map<string, string>();
   const distinctCategories = [...new Set(products.map((p) => p.category))];
   for (const name of distinctCategories) {
-    const existing = await client.query<{ id: string }>(
-      'SELECT id FROM tenant_product_categories WHERE tenant_id = $1 AND name = $2 AND retired_at IS NULL',
-      [cfg.tenantId, name],
-    );
-    if (existing.rows[0]) {
-      categoryIds.set(name, existing.rows[0].id);
-      continue;
-    }
-    const inserted = await client.query<{ id: string }>(
-      `INSERT INTO tenant_product_categories (tenant_id, name, created_by)
-       VALUES ($1, $2, $3) RETURNING id`,
-      [cfg.tenantId, name, cfg.seedActorUserId],
-    );
-    const id = inserted.rows[0]?.id;
-    if (!id) throw new Error(`category insert returned no id for "${name}"`);
-    categoryIds.set(name, id);
-    summary.categories_inserted += 1;
+    categoryIds.set(name, await seedCategory(client, cfg, name, summary));
   }
 
   // Products + aliases.
   for (const p of products) {
-    const existing = await client.query<{ id: string }>(
-      'SELECT id FROM tenant_products WHERE tenant_id = $1 AND name = $2 AND retired_at IS NULL',
-      [cfg.tenantId, p.name],
-    );
-    let productId: string;
-    if (existing.rows[0]) {
-      productId = existing.rows[0].id;
-      summary.products_skipped += 1;
-    } else {
-      const categoryId = categoryIds.get(p.category);
-      const currency = p.currencyCode ?? cfg.currency;
-      const inserted = await client.query<{ id: string }>(
-        `INSERT INTO tenant_products
-           (tenant_id, name, description, category_id, default_price,
-            default_currency_code, is_active, tax_category, created_by, updated_by)
-         VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, $8) RETURNING id`,
-        [
-          cfg.tenantId,
-          p.name,
-          p.description ?? null,
-          categoryId ?? null,
-          p.price,
-          currency,
-          TAX_CATEGORY,
-          cfg.seedActorUserId,
-        ],
-      );
-      const id = inserted.rows[0]?.id;
-      if (!id) throw new Error(`product insert returned no id for "${p.name}"`);
-      productId = id;
-      summary.products_inserted += 1;
-    }
-
-    // Aliases: skus -> 'sku', barcodes -> 'barcode' (both source_system NULL).
-    const aliasRows: Array<{ type: 'sku' | 'barcode'; value: string }> = [
-      ...p.skus!.map((value) => ({ type: 'sku' as const, value })),
-      ...p.barcodes!.map((value) => ({ type: 'barcode' as const, value })),
-    ];
-    for (const a of aliasRows) {
-      const existingAlias = await client.query<{ id: string }>(
-        `SELECT id FROM product_aliases
-         WHERE tenant_id = $1 AND product_id = $2 AND identifier_type = $3
-           AND value = $4 AND retired_at IS NULL`,
-        [cfg.tenantId, productId, a.type, a.value],
-      );
-      if (existingAlias.rows[0]) continue;
-      await client.query(
-        `INSERT INTO product_aliases
-           (tenant_id, product_id, identifier_type, value, source_system, created_by)
-         VALUES ($1, $2, $3, $4, NULL, $5)`,
-        [cfg.tenantId, productId, a.type, a.value, cfg.seedActorUserId],
-      );
-      summary.aliases_inserted += 1;
-    }
+    const productId = await seedProduct(client, cfg, p, categoryIds.get(p.category), summary);
+    await seedAliases(client, cfg, p, productId, summary);
   }
 
   return summary;

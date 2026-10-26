@@ -616,6 +616,22 @@ export function outboxDrainerRunnerProviderFactory(
 }
 
 /**
+ * Shared teardown for the gauge registrars: stops the registered gauge
+ * handle once and clears it, so a repeated shutdown is a no-op.
+ */
+abstract class GaugeHandleOwner implements OnModuleDestroy {
+  protected handle: { stop: () => void } | null = null;
+
+  onModuleDestroy(): void {
+    const h = this.handle;
+    this.handle = null;
+    if (h !== null) {
+      h.stop();
+    }
+  }
+}
+
+/**
  * Nest-aware registrar for the `db_pool_in_use` and `db_pool_waiters`
  * ObservableGauge callbacks (P4 W1).
  *
@@ -626,21 +642,13 @@ export function outboxDrainerRunnerProviderFactory(
  * to wire regardless of the runtime environment.
  */
 @Injectable()
-export class WorkerDbPoolGaugeRegistrar implements OnModuleInit, OnModuleDestroy {
-  private handle: { stop: () => void } | null = null;
-
-  constructor(private readonly wrapper: AuditDbPool) {}
+export class WorkerDbPoolGaugeRegistrar extends GaugeHandleOwner implements OnModuleInit {
+  constructor(private readonly wrapper: AuditDbPool) {
+    super();
+  }
 
   onModuleInit(): void {
     this.handle = registerDbPoolGauges({ pool: this.wrapper.pool });
-  }
-
-  onModuleDestroy(): void {
-    const h = this.handle;
-    this.handle = null;
-    if (h !== null) {
-      h.stop();
-    }
   }
 }
 
@@ -719,21 +727,13 @@ export class QueueLagGaugeRegistrar implements OnModuleInit, OnModuleDestroy {
  * shared `AuditDbPool` wrapper owns pool teardown for both.
  */
 @Injectable()
-export class OutboxPendingGaugeRegistrar implements OnModuleInit, OnModuleDestroy {
-  private handle: { stop: () => void } | null = null;
-
-  constructor(private readonly wrapper: AuditDbPool) {}
+export class OutboxPendingGaugeRegistrar extends GaugeHandleOwner implements OnModuleInit {
+  constructor(private readonly wrapper: AuditDbPool) {
+    super();
+  }
 
   onModuleInit(): void {
     this.handle = registerOutboxPendingGauge({ pool: this.wrapper.pool });
-  }
-
-  onModuleDestroy(): void {
-    const h = this.handle;
-    this.handle = null;
-    if (h !== null) {
-      h.stop();
-    }
   }
 }
 

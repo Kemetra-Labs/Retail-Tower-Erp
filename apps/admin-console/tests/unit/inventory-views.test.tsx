@@ -276,7 +276,7 @@ describe("InventoryProduct (RT-728)", () => {
     expect(qty.textContent).toBe("-1.2500 kg");
     expect(screen.getByTestId("on-hand-sellable").textContent).toBe("-1.2500 kg");
     expect(screen.getByText(/On-hand is below zero/)).toBeDefined();
-    expect(screen.getByText("Damaged")).toBeDefined();
+    expect(screen.getByRole("rowheader", { name: "Damaged" })).toBeDefined();
     expect(api.getOnHand).toHaveBeenCalledWith(STORE, PRODUCT);
   });
 

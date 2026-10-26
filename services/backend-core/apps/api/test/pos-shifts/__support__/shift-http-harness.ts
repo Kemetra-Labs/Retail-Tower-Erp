@@ -172,7 +172,9 @@ export class SwitchRateLimiter {
     const allowed = !(bucket === "posWriteShift" && key === this.denyKey);
     return { allowed, count: 1, remaining: 0, resetMs: 30_000 };
   }
-  async release(): Promise<void> {}
+  async release(): Promise<void> {
+    // No-op: this fake limiter holds no slot to release.
+  }
 }
 
 /** Every log line any logger of the app wrote, as raw JSON text. */

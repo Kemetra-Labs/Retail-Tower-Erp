@@ -23,6 +23,9 @@ const catalogueSource = readFileSync(resolve(__dirname, '../bootstrap/catalogue.
 // RT-893 extraction 4: the RT-17 shift sync client wiring moved into `bootstrap/shift.ts`.
 const shiftSource = readFileSync(resolve(__dirname, '../bootstrap/shift.ts'), 'utf-8');
 
+// RT-900 extraction 6c: the sale-sync device path wiring moved into `bootstrap/sale-sync.ts`.
+const saleSyncSource = readFileSync(resolve(__dirname, '../bootstrap/sale-sync.ts'), 'utf-8');
+
 function count(pattern: RegExp): number {
   return source.match(pattern)?.length ?? 0;
 }
@@ -49,9 +52,21 @@ describe('main/index.ts wires RT-215 (device revoked + pairing recovery)', () =>
     expect(countShift(/getDeviceToken: readSendableDeviceToken/g)).toBe(1);
     // RT-215 × RT-224: the sale-sync device path reads through the sendable read
     // (null unless paired and not revoked), behind #547's never-reject reader.
-    expect(source).toMatch(
-      /composeSaleSyncDevicePath\(\{\s*db,\s*readToken: createSendableDeviceTokenRead\(\{\s*pairingStore,\s*secretStore,\s*deviceTokenKey: DEVICE_TOKEN_KEY,\s*\}\),/,
+    expect(saleSyncSource).toMatch(
+      /composeSaleSyncDevicePath\(\{\s*db,\s*readToken: createSendableDeviceTokenRead\(\{\s*pairingStore,\s*secretStore,\s*deviceTokenKey,\s*\}\),/,
     );
+    // The composition root hands the starter the real device-token key (the starter's own tests
+    // use a stand-in key), so a wrong key at this call cannot pass unnoticed.
+    expect(source).toMatch(
+      /startSaleSyncEngine\(\s*\{\s*guardedIpcMain,\s*db,\s*salesRepo,\s*backendFetch,\s*operatorSessionManager,\s*operatorEnvelopeHolder,\s*pairingStore,\s*secretStore,\s*deviceTokenKey: DEVICE_TOKEN_KEY,/,
+    );
+    // Same registry as the finalize listener and every other worker, so `workerRegistry.stopAll()`
+    // at quit stops the sale-sync interval before the DB handle closes.
+    expect(source).toMatch(
+      /startSaleSyncEngine\(\s*\{[^}]*deviceAuthDetector,\s*terminalStatusPublisher,\s*workerRegistry,\s*mainLogger,?\s*\},\s*pairingStatus,?\s*\)/,
+    );
+    expect(count(/const workerRegistry = createWorkerRegistry\(/g)).toBe(1);
+    expect(count(/workerRegistry\.stopAll\(\)/g)).toBe(1);
     expect(source).toMatch(/\(await readSendableDeviceToken\(\)\) \?\? ''/); // sign-in attestation
   });
 
@@ -65,7 +80,9 @@ describe('main/index.ts wires RT-215 (device revoked + pairing recovery)', () =>
     expect(countCatalogue(/withDeviceAuthObservation\(/g)).toBe(1);
     // RT-215 × RT-224: the sale-sync DEVICE path is tagged at its own fetch (the
     // capture route is shared with the envelope path; the URL table is not widened).
-    expect(source).toMatch(/deviceAuth: \{ fetch: backendFetch, detector: deviceAuthDetector \},/);
+    expect(saleSyncSource).toMatch(
+      /deviceAuth: \{ fetch: backendFetch, detector: deviceAuthDetector \},/,
+    );
     expect(count(/fetch: admissionsFetch/g)).toBe(1);
     expect(source).toMatch(
       /createCashierAdmissionClient\(\{\s*baseUrl: apiBaseUrl,\s*fetch: admissionsFetch,/,

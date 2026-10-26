@@ -199,3 +199,109 @@ test("S2: store_manager sees on-hand but never requests tracking identities", as
   await expect(p.getByRole("heading", { name: t("inventory.tracking.title") })).toHaveCount(0);
   expect(seen.tracking).toBe(0);
 });
+
+/**
+ * RT-436: the on-hand page labels Physical / Sellable / ERP Book separately
+ * (ERP Book is only a link to the store's ERPNext snapshot view, never a
+ * number), and the status-disposition action posts one status move.
+ */
+const STATUS_MOVES = `**${INV}/stores/${CAIRO}/status-moves`;
+
+test("S3: owner records a Sellable → Damaged move; the on-hand is re-read", async ({
+  page: p,
+  t,
+}) => {
+  const seen = await mockBase(p, "owner");
+  const posts: { key: string | undefined; body: unknown }[] = [];
+  await p.route(STATUS_MOVES, (r) => {
+    posts.push({
+      key: r.request().headers()["idempotency-key"],
+      body: r.request().postDataJSON(),
+    });
+    return r.fulfill(
+      json({ id: "0190f000-0000-7000-8000-000000000b01", kind: "status_move" }, 201),
+    );
+  });
+  await p.goto(`/inventory/stores/${CAIRO}/products/${PRODUCT}`);
+  await expect(p.getByTestId("on-hand-quantity")).toHaveText("12.0000 kg");
+  await expect(p.getByTestId("on-hand-sellable")).toHaveText("12.0000 kg");
+  const erp = p.getByTestId("on-hand-erp-book");
+  await expect(erp).toContainText(t("inventory.onHand.erpBookLink"));
+  await expect(erp.getByRole("link")).toHaveAttribute("href", `/stock-discrepancies/${CAIRO}`);
+  // A single-location store: no location field (simple-retailer UX).
+  await expect(p.getByLabel(t("inventory.move.location"))).toHaveCount(0);
+  await expectNoAxeViolations(p, "inventory status move form");
+
+  await p.getByLabel(t("inventory.move.quantity"), { exact: false }).fill("2.5");
+  await p.getByRole("button", { name: t("inventory.move.submit") }).click();
+  await expect(p.getByText(t("inventory.move.recorded"))).toBeVisible();
+  expect(posts).toHaveLength(1);
+  expect(posts[0].key).toMatch(/^[\x21-\x7E]{16,128}$/);
+  expect(posts[0].body).toEqual({
+    tenantProductRef: PRODUCT,
+    quantity: "2.5",
+    stockingUnit: "kg",
+    fromStatus: "sellable",
+    toStatus: "damaged",
+    reasonCode: "damage",
+  });
+  expect(seen.methods.filter((m) => m !== "GET")).toEqual([]);
+});
+
+test("S4: a backend refusal is shown as the server sent it", async ({ page: p, t }) => {
+  await mockBase(p, "store_manager");
+  await p.route(STATUS_MOVES, (r) =>
+    r.fulfill(
+      json(
+        {
+          error: {
+            code: "tracking_identity_required",
+            message: "This product is tracked; tracked moves are not supported yet.",
+            request_id: "0190f000-0000-7000-8000-0000000007e1",
+          },
+        },
+        409,
+      ),
+    ),
+  );
+  await p.goto(`/inventory/stores/${CAIRO}/products/${PRODUCT}`);
+  await expect(p.getByTestId("on-hand-quantity")).toHaveText("12.0000 kg");
+  // A store_manager is not offered damaged / expired as a source.
+  await expect(p.getByLabel(t("inventory.move.from")).locator("option")).toHaveCount(2);
+  await p.getByLabel(t("inventory.move.quantity"), { exact: false }).fill("1");
+  await p.getByRole("button", { name: t("inventory.move.submit") }).click();
+  const box = p.getByTestId("move-rejection");
+  await expect(box).toContainText("This product is tracked; tracked moves are not supported yet.");
+  await expect(box).toContainText("tracking_identity_required");
+  await expect(p.getByText(t("inventory.move.recorded"))).toHaveCount(0);
+});
+
+test("S5: a cashier gets no status-move form", async ({ page: p, t }) => {
+  await mockBase(p, "cashier");
+  await p.goto(`/inventory/stores/${CAIRO}/products/${PRODUCT}`);
+  await expect(p.getByRole("heading", { name: t("inventory.move.title") })).toHaveCount(0);
+});
+
+test("S6: a store with a second active location offers it", async ({ page: p, t }) => {
+  await mockBase(p, "owner");
+  await p.route(`**${INV}/stores/${CAIRO}/locations`, (r) =>
+    r.fulfill(
+      json({
+        items: [
+          ...locations.items,
+          {
+            id: "0190f000-0000-7000-8000-0000000007d2",
+            storeId: CAIRO,
+            code: "BACK",
+            name: "Back room",
+            kind: "storage",
+            isActive: true,
+          },
+        ],
+      }),
+    ),
+  );
+  await p.goto(`/inventory/stores/${CAIRO}/products/${PRODUCT}`);
+  await expect(p.getByLabel(t("inventory.move.location"))).toBeVisible();
+  await expect(p.getByLabel(t("inventory.move.location")).locator("option")).toHaveCount(2);
+});

@@ -20,14 +20,14 @@
  * interceptor's job.
  */
 import { Inject, Injectable } from "@nestjs/common";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 
 import { runWithTenantContext } from "@data-pulse-2/db";
 import { newId } from "@data-pulse-2/shared";
 
 import { PG_POOL } from "../auth/auth.module";
 import { recordSettlementReceivable } from "../observability/metrics/api.metrics";
-import { decideReconciliation } from "./reconcile-decision";
+import { decideReconciliation, type ReconcileOutcome } from "./reconcile-decision";
 import { insertSettlementAudit } from "./transactional-audit";
 import type {
   ClaimBody,
@@ -87,6 +87,49 @@ function sumScaled(amounts: readonly string[]): string {
   let total = 0n;
   for (const a of amounts) total += toScaledInt(a);
   return fromScaledInt(total);
+}
+
+interface ClaimedLine {
+  readonly id: string;
+  readonly outstanding_balance: string;
+}
+
+/**
+ * Move the remittance onto the claimed receivables' BALANCES (Codex #581 P1 — the
+ * money must move, not only the state). Runs on the caller's tenant-scoped tx.
+ */
+async function applyRemittanceToReceivables(
+  client: PoolClient,
+  outcome: ReconcileOutcome,
+  remittedAmount: string,
+  lines: readonly ClaimedLine[],
+): Promise<void> {
+  if (outcome === "settled" || outcome === "flagged") {
+    for (const line of lines) {
+      await client.query(
+        `UPDATE receivable SET outstanding_balance = 0, state = $2,
+                version = version + 1, updated_at = now()
+          WHERE id = $1::uuid`,
+        [line.id, outcome],
+      );
+    }
+    return;
+  }
+  // partial — FIFO apportion the remitted amount across the claimed lines.
+  let remaining = toScaledInt(remittedAmount);
+  for (const line of lines) {
+    if (remaining <= 0n) break;
+    const balance = toScaledInt(line.outstanding_balance);
+    const applied = remaining < balance ? remaining : balance;
+    if (applied <= 0n) continue;
+    remaining -= applied;
+    await client.query(
+      `UPDATE receivable SET outstanding_balance = $2,
+              version = version + 1, updated_at = now()
+        WHERE id = $1::uuid`,
+      [line.id, fromScaledInt(balance - applied)],
+    );
+  }
 }
 
 @Injectable()
@@ -256,42 +299,12 @@ export class ClaimService {
           ],
         );
 
-        // Apply the remittance to the receivable BALANCES (Codex #581 P1 — the
-        // money must move, not only the state):
-        //   - settled  (remitted == claimed): debt cleared → balance 0, settled.
-        //   - flagged  (remitted >  claimed): over-remittance, debt fully paid →
-        //                balance 0, flagged (the variance anomaly is recorded).
-        //   - partial  (remitted <  claimed): FIFO-apply `remitted` across the
-        //                lines (by id); each line drops by min(remaining, balance);
-        //                lines stay 'claimed' (still owed) with reduced balances.
-        if (decision.outcome === "settled" || decision.outcome === "flagged") {
-          const nextState = decision.outcome === "settled" ? "settled" : "flagged";
-          for (const line of lines.rows) {
-            await client.query(
-              `UPDATE receivable SET outstanding_balance = 0, state = $2,
-                      version = version + 1, updated_at = now()
-                WHERE id = $1::uuid`,
-              [line.id, nextState],
-            );
-          }
-        } else {
-          // partial — FIFO apportion the remitted amount across the claimed lines.
-          let remaining = toScaledInt(input.remittedAmount);
-          for (const line of lines.rows) {
-            if (remaining <= 0n) break;
-            const balance = toScaledInt(line.outstanding_balance);
-            const applied = remaining < balance ? remaining : balance;
-            if (applied <= 0n) continue;
-            const newBalance = balance - applied;
-            remaining -= applied;
-            await client.query(
-              `UPDATE receivable SET outstanding_balance = $2,
-                      version = version + 1, updated_at = now()
-                WHERE id = $1::uuid`,
-              [line.id, fromScaledInt(newBalance)],
-            );
-          }
-        }
+        await applyRemittanceToReceivables(
+          client,
+          decision.outcome,
+          input.remittedAmount,
+          lines.rows,
+        );
         await client.query(
           `UPDATE claim SET status = 'reconciled', version = version + 1,
                   updated_at = now()
