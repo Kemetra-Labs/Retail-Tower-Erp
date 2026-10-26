@@ -64,6 +64,7 @@ class Cli(unittest.TestCase):
         repo.write("a/v.json", b"{}")
         repo.write("b/v.json", b"{}")
         config = repo.write("config.yaml", """\
+            repository: x/y
             contracts_root: contracts
             consumers: [{name: X, pin: PIN}]
             connector: [{module: m.py, contract: c.yaml}]
