@@ -81,7 +81,7 @@ export function decodeCursor(raw: string): AuditCursor {
   const idPart = decoded.slice(sep + 1);
   const occurredAt = new Date(isoPart);
   if (Number.isNaN(occurredAt.getTime())) {
-    throw new Error("cursor: invalid occurred_at");
+    throw new TypeError("cursor: invalid occurred_at");
   }
   if (!UUID_RE.test(idPart)) {
     throw new Error("cursor: invalid id");

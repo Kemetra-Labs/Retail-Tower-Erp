@@ -144,7 +144,7 @@ export interface RefreshResult {
 @Injectable()
 export class AuthService {
   private readonly db: NodePgDatabase;
-  private readonly rateLimiter: RateLimiter;
+  protected readonly rateLimiter: RateLimiter; // controller-level limits today; kept for injection
   private readonly emailJobs: EmailJobEnqueuer;
   private readonly auditEnqueuer: AuditJobEnqueuer;
   private readonly listMemberships: SignInMembershipsReader;
@@ -192,8 +192,6 @@ export class AuthService {
    * Throws a uniform UnauthorizedException for ALL failure modes.
    */
   async signIn(input: SignInInput): Promise<SignInResult> {
-    void this.rateLimiter; // controller-level limits today
-
     const { email, password } = input;
     const userRow = await this.findActiveUserByEmail(email);
 
@@ -328,7 +326,7 @@ export class AuthService {
    * latency to queue health.
    */
   private fireAndForgetAudit(payload: AuditJobPayload): void {
-    void this.auditEnqueuer.enqueue(payload).catch(() => {
+    this.auditEnqueuer.enqueue(payload).catch(() => {
       // Swallow — see method docstring.
     });
   }

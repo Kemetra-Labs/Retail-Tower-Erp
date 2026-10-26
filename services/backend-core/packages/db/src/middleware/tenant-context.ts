@@ -59,7 +59,7 @@ function validateContext(ctx: TenantContext): void {
     }
   }
   if (typeof ctx.isPlatformAdmin !== "boolean") {
-    throw new Error(
+    throw new TypeError(
       "runWithTenantContext: isPlatformAdmin must be a boolean",
     );
   }
