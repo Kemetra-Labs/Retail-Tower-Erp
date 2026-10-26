@@ -283,4 +283,44 @@ export const catalog = {
   "catalog.retire.confirm": "نعم، أخرج الصنف",
   "catalog.retire.done": "أُخرج {name} من الكتالوج. وهو للقراءة فقط الآن.",
   "catalog.retire.reloaded": "تم تحميل أحدث نسخة. أخرج الصنف مرة أخرى إذا كنت لا تزال تريد ذلك.",
+  // --- معرّفات الصنف: إضافة وإزالة (RT-769, CAT-C2b) ---------------------------------
+  "catalog.identifier.col.actions": "إجراءات",
+  "catalog.identifier.add.start": "إضافة معرّف",
+  "catalog.identifier.add.title": "إضافة معرّف",
+  "catalog.identifier.add.submit": "إضافة المعرّف",
+  "catalog.identifier.field.type": "النوع",
+  "catalog.identifier.field.scope": "النطاق",
+  "catalog.identifier.field.scopeHint": "المعرّف الخاص بمتجر واحد لا يُتعرَّف عليه إلا في ذلك المتجر.",
+  "catalog.identifier.field.source": "النظام المصدر",
+  "catalog.identifier.field.sourceHint":
+    "اسم نظام نقطة البيع الخارجية الذي جاء منه هذا المعرّف، حتى 100 حرف.",
+  "catalog.identifier.field.value": "القيمة",
+  "catalog.identifier.field.valueHint":
+    "حتى 200 حرف. يمكنك إدخالها بالماسح الضوئي. تُحفظ كما أُدخلت تمامًا: لا تُحذف مسافات ولا تُحوَّل حروف أو أرقام.",
+  "catalog.identifier.warning.arabicDigits":
+    "تحتوي القيمة على أرقام غير 0-9 (مثل الأرقام العربية المشرقية). الماسحات الضوئية ترسل الأرقام 0-9، فقد لا يُعثر على الصنف عند المسح. ستُحفظ القيمة كما أدخلتها.",
+  "catalog.identifier.error.valueRequired": "أدخل القيمة.",
+  "catalog.identifier.error.valueControl":
+    "تحتوي القيمة على حرف تحكم غير مرئي (مثل مسافة الجدولة). احذفه.",
+  "catalog.identifier.error.valueEdgeSpace":
+    "تبدأ القيمة أو تنتهي بمسافة. احذفها: تُحفظ القيمة كما أُدخلت تمامًا.",
+  "catalog.identifier.error.valueTooLong": "يجب ألا تتجاوز القيمة 200 حرف.",
+  "catalog.identifier.error.sourceRequired": "أدخل النظام المصدر.",
+  "catalog.identifier.error.sourceControl": "يحتوي النظام المصدر على حرف غير مسموح به. احذفه.",
+  "catalog.identifier.error.sourceTooLong": "يجب ألا يتجاوز النظام المصدر 100 حرف.",
+  "catalog.identifier.error.aliasConflict": "هذه القيمة مستخدمة بالفعل لصنف آخر.",
+  "catalog.identifier.error.validation":
+    "رفض الخادم هذا المعرّف. راجع النوع والقيمة والنطاق ثم حاول مرة أخرى.",
+  "catalog.identifier.error.notFound": "هذا الصنف أو المتجر المختار لم يعد متاحًا لك.",
+  "catalog.identifier.error.retired": "أُخرج هذا الصنف من الكتالوج، فلا يمكن إضافة معرّفات إليه.",
+  "catalog.identifier.error.gone":
+    "لم يعد هذا المعرّف نشطًا على هذا الصنف. ستُعاد قراءة الصنف عند إغلاق هذه النافذة.",
+  "catalog.identifier.retire.title": "إزالة معرّف",
+  "catalog.identifier.retire.consequence":
+    "تتحرر قيمته، فيمكن إضافتها من جديد لهذا الصنف أو لصنف آخر. وحتى ذلك الحين لن يجد المسح بها أي صنف.",
+  "catalog.identifier.retire.confirm": "نعم، أزل المعرّف",
+  "catalog.identifier.retire.start": "إزالة",
+  "catalog.identifier.retire.rowLabel": "إزالة {type} {value}",
+  "catalog.identifier.added": "أُضيف المعرّف.",
+  "catalog.identifier.retiredDone": "أُزيل المعرّف. قيمته متاحة للاستخدام من جديد.",
 } satisfies Messages;

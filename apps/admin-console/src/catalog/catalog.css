@@ -265,6 +265,35 @@
   margin: 0;
 }
 
+/* RT-769 identifiers: the Add control with the outcome of the last write, and each
+ * row's Retire control. The warning is a non-blocking notice, never an error: an
+ * always-present polite region that takes no room while it is empty. */
+.catalog-identifiers__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-block-end: var(--space-3);
+}
+.catalog-identifiers__status {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-control);
+}
+.catalog-identifiers__action {
+  white-space: nowrap;
+}
+.field__warning {
+  display: block;
+  margin: 0;
+  color: var(--color-warning);
+  font-size: var(--text-machine);
+  line-height: var(--leading-body);
+}
+.catalog-identifier__value {
+  unicode-bidi: isolate;
+}
+
 @media (forced-colors: active) {
   .product-picker__list {
     border-color: CanvasText;

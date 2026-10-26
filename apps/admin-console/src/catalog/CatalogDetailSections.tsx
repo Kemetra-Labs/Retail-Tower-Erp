@@ -119,9 +119,11 @@ function StoreName({ label }: Readonly<{ label: StoreLabel }>): React.JSX.Elemen
 function IdentifierRow({
   identifier,
   storeLabel,
+  rowAction,
 }: Readonly<{
   identifier: CatalogIdentifier;
   storeLabel: (id: string) => StoreLabel;
+  rowAction?: (identifier: CatalogIdentifier) => React.ReactNode;
 }>): React.JSX.Element {
   const t = useT();
   return (
@@ -138,20 +140,31 @@ function IdentifierRow({
         )}
       </td>
       <td>{identifier.sourceSystem ? <Code value={identifier.sourceSystem} /> : "—"}</td>
+      {rowAction ? <td className="catalog-identifiers__action">{rowAction(identifier)}</td> : null}
     </tr>
   );
 }
 
+/**
+ * The item's active identifiers. Read-only by default; RT-769 passes, for a
+ * writer on an item that is not retired, `actions` (the Add control and the
+ * outcome of the last write) and `rowAction` (each row's Retire control).
+ */
 export function Identifiers({
   identifiers,
   storeLabel,
+  actions,
+  rowAction,
 }: Readonly<{
   identifiers: readonly CatalogIdentifier[];
   storeLabel: (id: string) => StoreLabel;
+  actions?: React.ReactNode;
+  rowAction?: (identifier: CatalogIdentifier) => React.ReactNode;
 }>): React.JSX.Element {
   const t = useT();
   return (
     <Section id="catalog-detail-identifiers" title={t("catalog.detail.identifiers.title")}>
+      {actions}
       {identifiers.length === 0 ? (
         <p className="catalog-detail__empty">{t("catalog.detail.identifiers.empty")}</p>
       ) : (
@@ -165,6 +178,7 @@ export function Identifiers({
               <th scope="col">{t("catalog.detail.identifiers.col.value")}</th>
               <th scope="col">{t("catalog.detail.identifiers.col.scope")}</th>
               <th scope="col">{t("catalog.detail.identifiers.col.source")}</th>
+              {rowAction ? <th scope="col">{t("catalog.identifier.col.actions")}</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -173,6 +187,7 @@ export function Identifiers({
                 key={identifierKey(identifier)}
                 identifier={identifier}
                 storeLabel={storeLabel}
+                rowAction={rowAction}
               />
             ))}
           </tbody>

@@ -3,15 +3,16 @@ import { describe, expect, test } from "vitest";
 import { readSource, sourcesUnder } from "./source-scan";
 
 /**
- * RT-765 / RT-766 / RT-768 / RT-770 boundary (RT-752 AC 5, CAT-C1a / C1b / C2a /
- * C2c). The catalog reads the three read operations of `console-catalog.yaml`
- * and writes exactly four of its RT-738 operations: edit and retire a product
- * (RT-768), upsert and retire a store override (RT-770), all through the
- * generated client in `src/lib/catalog-queries.ts`.
+ * RT-765 / RT-766 / RT-768 / RT-769 / RT-770 boundary (RT-752 AC 5, CAT-C1a /
+ * C1b / C2a / C2b / C2c). The catalog reads the three read operations of
+ * `console-catalog.yaml` and writes exactly six of its RT-738 operations: edit
+ * and retire a product (RT-768), add and retire an identifier (RT-769), upsert
+ * and retire a store override (RT-770), all through the generated client in
+ * `src/lib/catalog-queries.ts`.
  *
  * Product CREATE is held by owner decision D9 (RT-768 comment 13487) until
  * pricing lands (RT-484 / RT-485): no create wrapper, no create call, no `/new`
- * route. The identifier writes belong to RT-769.
+ * route.
  * Nothing here reaches POS, ERPNext or the Connector, hand-rolls a fetch, or
  * sets an Authorization header (cookie transport). Static source scan, comments
  * stripped.
@@ -27,7 +28,6 @@ const FORBIDDEN: readonly [name: string, pattern: RegExp][] = [
     "product create (held by D9)",
     /consoleCreateCatalogProduct|CreateCatalogProductRequest|"\/api\/v1\/catalog\/products"\s*,\s*\{[^}]*body/,
   ],
-  ["an identifier write (RT-769)", /consoleAddProductIdentifier|consoleRetireProductIdentifier/],
   ["a POS route", /\/api\/pos\//],
   ["a POS credential", /X-Cashier-Admission|operatorAuthorization/i],
   ["an ERPNext / Frappe call", /frappe|\/api\/resource|\/api\/method/i],
@@ -36,17 +36,19 @@ const FORBIDDEN: readonly [name: string, pattern: RegExp][] = [
   ["an Authorization or Bearer header", /[Aa]uthorization\s*:|[Bb]earer\s+/],
 ];
 
-describe("console catalog boundary (RT-765, RT-766, RT-768, RT-770)", () => {
-  test("exactly the three reads, the two RT-768 writes and the two RT-770 writes are exported", () => {
+describe("console catalog boundary (RT-765, RT-766, RT-768, RT-769, RT-770)", () => {
+  test("exactly the three reads and the six writes (RT-768, RT-769, RT-770) are exported, on their paths", () => {
     const exported = Object.entries(queries)
       .filter(([, value]) => typeof value === "function")
       .map(([name]) => name)
       .sort();
     expect(exported).toEqual([
+      "consoleAddProductIdentifier",
       "consoleGetCatalogProduct",
       "consoleListCatalogCategories",
       "consoleListCatalogProducts",
       "consoleRetireCatalogProduct",
+      "consoleRetireProductIdentifier",
       "consoleRetireStoreOverride",
       "consoleUpdateCatalogProduct",
       "consoleUpsertStoreOverride",
@@ -55,17 +57,25 @@ describe("console catalog boundary (RT-765, RT-766, RT-768, RT-770)", () => {
     expect(wrapperSrc).toContain('"/api/v1/catalog/products/{productId}"');
     expect(wrapperSrc).toContain('"/api/v1/catalog/categories"');
     expect(wrapperSrc).toContain('"/api/v1/catalog/products/{productId}/retire"');
+    expect(wrapperSrc).toContain('"/api/v1/catalog/products/{productId}/identifiers"');
+    expect(wrapperSrc).toContain('"/api/v1/catalog/products/{productId}/identifiers/retire"');
   });
 
-  test("the writes are a PATCH and a retire POST on the product, a PUT and a retire POST on a store override", () => {
+  test("the writes are one PATCH and one retire POST on the product, two identifier POSTs, and a PUT and a retire POST on a store override", () => {
     expect(wrapperSrc.match(/apiClient\.PATCH\(/g)).toHaveLength(1);
-    expect(wrapperSrc.match(/apiClient\.POST\(/g)).toHaveLength(2);
+    expect(wrapperSrc.match(/apiClient\.POST\(/g)).toHaveLength(4);
     expect(wrapperSrc.match(/apiClient\.PUT\(/g)).toHaveLength(1);
     expect(wrapperSrc).toMatch(
       /apiClient\.PATCH\(\s*"\/api\/v1\/catalog\/products\/\{productId\}"/,
     );
     expect(wrapperSrc).toMatch(
       /apiClient\.POST\(\s*"\/api\/v1\/catalog\/products\/\{productId\}\/retire"/,
+    );
+    expect(wrapperSrc).toMatch(
+      /apiClient\.POST\(\s*"\/api\/v1\/catalog\/products\/\{productId\}\/identifiers"/,
+    );
+    expect(wrapperSrc).toMatch(
+      /apiClient\.POST\(\s*"\/api\/v1\/catalog\/products\/\{productId\}\/identifiers\/retire"/,
     );
     expect(wrapperSrc).toMatch(
       /apiClient\.PUT\(\s*"\/api\/v1\/catalog\/products\/\{productId\}\/store-overrides\/\{storeId\}"/,

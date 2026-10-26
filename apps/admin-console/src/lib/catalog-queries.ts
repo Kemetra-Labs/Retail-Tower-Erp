@@ -16,15 +16,26 @@
  *   - `consoleRetireCatalogProduct`: POST the product's retire (irreversible on
  *     this surface).
  *
+ * RT-769 adds TWO more writes, the identifier ones (CAT-C2b):
+ *
+ *   - `consoleAddProductIdentifier`: POST one identifier to bind, by its full
+ *     key (`ProductIdentifierKey`), tenant-wide or scoped to one store.
+ *   - `consoleRetireProductIdentifier`: POST the full key of an active
+ *     identifier to retire, which frees its value.
+ *
+ * Neither takes an Idempotency-Key in the contract: a repeated add is 409
+ * `alias_conflict` and a repeated retire is 404, so a retry never writes twice.
+ *
  * RT-770 adds the two store-override writes (CAT-C2c), on the generated client:
  *
  *   - `consoleUpsertStoreOverride`: PUT a store's availability / tax category
  *     override (never its price, O-2), with `expectedUpdatedAt`.
  *   - `consoleRetireStoreOverride`: POST the store override's retire.
  *
- * Boundary: these seven operations are all that is wrapped. Product CREATE is
- * held by owner decision D9 (RT-768 comment 13487) until pricing lands (RT-484 /
- * RT-485), and the identifier writes belong to RT-769.
+ * Boundary: these nine operations (three reads and six writes: edit and retire
+ * a product; add and retire an identifier; upsert and retire a store override)
+ * are all that is wrapped. Product CREATE is held by owner decision D9 (RT-768
+ * comment 13487) until pricing lands (RT-484 / RT-485).
  * No POS route and no ERP call. Same `{ status, data?, error? }` shape as `src/lib/sale-queries.ts`;
  * cookie transport is on the generated client. No hand-rolled fetch.
  */
@@ -55,6 +66,8 @@ export interface CatalogStoreOverrideUpsert {
   isActive?: boolean | null;
   taxCategory?: string | null;
 }
+export type CatalogIdentifierKey = Schemas["ProductIdentifierKey"];
+export type CatalogIdentifierType = Schemas["IdentifierType"];
 export type CatalogListQuery =
   ConsoleCatalogSchema.operations["consoleListCatalogProducts"]["parameters"]["query"];
 
@@ -96,6 +109,31 @@ export async function consoleRetireCatalogProduct(productId: string, expectedUpd
   const { data, error, response } = await apiClient.POST(
     "/api/v1/catalog/products/{productId}/retire",
     { params: { path: { productId } }, body: { expectedUpdatedAt } },
+  );
+  return { status: response.status, data, error };
+}
+
+/**
+ * POST /api/v1/catalog/products/{productId}/identifiers: 201 returns the detail
+ * with the identifier bound. The key is sent exactly as given: nothing here
+ * trims, folds or converts the value.
+ */
+export async function consoleAddProductIdentifier(productId: string, body: CatalogIdentifierKey) {
+  const { data, error, response } = await apiClient.POST(
+    "/api/v1/catalog/products/{productId}/identifiers",
+    { params: { path: { productId } }, body },
+  );
+  return { status: response.status, data, error };
+}
+
+/** POST /api/v1/catalog/products/{productId}/identifiers/retire: 200 returns the detail without it. */
+export async function consoleRetireProductIdentifier(
+  productId: string,
+  body: CatalogIdentifierKey,
+) {
+  const { data, error, response } = await apiClient.POST(
+    "/api/v1/catalog/products/{productId}/identifiers/retire",
+    { params: { path: { productId } }, body },
   );
   return { status: response.status, data, error };
 }

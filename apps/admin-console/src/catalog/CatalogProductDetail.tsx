@@ -5,11 +5,13 @@
  * D8: the UI never computes `override ?? tenant`). The page itself edits
  * nothing. RT-768 adds, for owner and tenant_admin only and only on an item that
  * is not retired, a link to the edit route and the Retire action; a retired item
- * and `store_manager` see no Edit or Retire. RT-770 (CAT-C2c) adds, for owner,
- * tenant_admin and store_manager on an item that is not retired, a drawer that
- * sets or clears one store's deviation (availability; tax for owner and
- * tenant_admin only), opened from that store's override or, for the store in
- * scope, from "Set values". Identifiers are CAT-C2b. A product the API
+ * and `store_manager` see no Edit or Retire. RT-769 (CAT-C2b) adds, under the
+ * same rule (owner and tenant_admin, item not retired), the identifier Add /
+ * Retire drawers. RT-770 (CAT-C2c) adds, for owner, tenant_admin and
+ * store_manager on an item that is not retired, a drawer that sets or clears
+ * one store's deviation (availability; tax for owner and tenant_admin only),
+ * opened from that store's override or, for the store in scope, from "Set
+ * values". A product the API
  * refuses (another tenant, a role outside the catalog, an id that is not a UUID)
  * is one non-disclosing "not available" state. With a store in scope the page
  * links to that store's on-hand stock (RT-728); it shows no ERP data.
@@ -22,8 +24,9 @@ import { useT } from "@/i18n";
 import type { CatalogProductDetail as ProductDetail } from "@/lib/catalog-queries";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
-import { Identifiers, StoreOverrides, TenantValues } from "./CatalogDetailSections";
+import { StoreOverrides, TenantValues } from "./CatalogDetailSections";
 import { Notice } from "./CatalogPager";
+import { ProductIdentifiers } from "./ProductIdentifiers";
 import { ProductRetire } from "./ProductRetire";
 import { type OverrideOutcome, StoreOverrideDrawer } from "./StoreOverrideDrawer";
 import { inventoryPath, isProductId } from "./catalogDetailLogic";
@@ -186,7 +189,12 @@ function Loaded({
         <Banner variant="info" message={t("catalog.detail.retiredNotice")} />
       ) : null}
       <TenantValues product={product} />
-      <Identifiers identifiers={product.identifiers} storeLabel={storeLabel} />
+      <ProductIdentifiers
+        product={product}
+        writableTenantId={canWrite ? scope.tenantId : null}
+        storeLabel={storeLabel}
+        reload={reload}
+      />
       <StoreOverrides
         product={product}
         storeLabel={storeLabel}

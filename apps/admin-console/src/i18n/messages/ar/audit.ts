@@ -43,6 +43,15 @@ export const audit = {
     "تعذّر تحميل المزيد من أحداث التدقيق. تبقى الأحداث المعروضة أعلاه كما هي.",
   "audit.continuation.retry": "إعادة المحاولة",
 
+  // RT-784: labels for the platform support-session rows the tenant sees
+  // (RT-414 decision 3). Shown beside the action code, never instead of it; an
+  // action without a label renders as its code alone.
+  "audit.action.supportSessionOpened": "فُتحت جلسة دعم",
+  "audit.action.supportSessionRenewed": "جُدّدت جلسة دعم",
+  "audit.action.supportSessionEnded": "انتهت جلسة دعم",
+  "audit.action.crossTenantAccessed": "وصول دعم المنصة",
+  "audit.action.crossTenantRefused": "رُفض وصول دعم المنصة",
+
   "audit.table.caption": "أحداث التدقيق",
   "audit.table.requestShort": "المرجع",
 

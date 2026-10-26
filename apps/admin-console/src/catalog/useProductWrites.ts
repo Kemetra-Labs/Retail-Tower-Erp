@@ -57,7 +57,7 @@ function resultOf(op: ProductWriteOp, res: WriteResponse): ProductWriteResult {
 }
 
 /** The item lists and the shared product picker (RT-767) both show names and status. */
-function markListsStale(qc: QueryClient, tenantId: string | null): void {
+export function markListsStale(qc: QueryClient, tenantId: string | null): void {
   void qc.invalidateQueries({ queryKey: ["catalog", "products", tenantId] });
   void qc.invalidateQueries({ queryKey: pickerQueryKeys.all(tenantId) });
 }
