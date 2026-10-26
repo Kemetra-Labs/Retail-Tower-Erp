@@ -23,6 +23,11 @@ const source = readFileSync(INDEX_PATH, 'utf-8');
 /** `source` with line and block comments removed, so prose cannot satisfy or trip a check. */
 const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
+/** RT-893: `resolveMigrationsDir` moved to `bootstrap/env.ts`; it takes the shipped identity as a parameter. */
+const envCode = readFileSync(resolve(__dirname, '../bootstrap/env.ts'), 'utf-8')
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/^\s*\/\/.*$/gm, '');
+
 describe('main/index.ts keys security decisions on the shipped app (RT-165)', () => {
   it('imports the shared predicate', () => {
     expect(code).toMatch(
@@ -59,9 +64,11 @@ describe('main/index.ts keys security decisions on the shipped app (RT-165)', ()
   });
 
   it('resolves the migrations directory from the shipped identity', () => {
-    const start = code.search(/function resolveMigrationsDir\(\)/);
+    const start = envCode.search(/function resolveMigrationsDir\(shippedApp: boolean\)/);
     expect(start).toBeGreaterThan(-1);
-    const body = code.slice(start, code.indexOf('}', start));
+    const body = envCode.slice(start, envCode.indexOf('}', start));
     expect(body).toMatch(/return shippedApp\b/);
+    // The composition root hands it the shipped identity, never `app.isPackaged`.
+    expect(code).toMatch(/resolveMigrationsDir\(shippedApp\)/);
   });
 });

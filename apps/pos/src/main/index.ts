@@ -10,7 +10,7 @@ import {
 } from 'electron';
 import * as Sentry from '@sentry/electron/main';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { createSenderGuardedIpcMain } from './ipc/sender-guard.js';
 import { createSessionLockGuardedIpcMain } from './ipc/session-lock-guard.js';
 import { createRecoveryModeGuardedIpcMain } from './ipc/recovery-mode-guard.js';
@@ -188,11 +188,7 @@ import { registerReceiptsHandlers } from './ipc/receipts.js';
 import { createPrintPipeline } from './receipts/print-pipeline.js';
 import { createEscposAdapter } from './receipts/escpos-adapter.js';
 import { createOsPrintAdapter } from './receipts/os-print-adapter.js';
-import {
-  createOsPrintTransport,
-  createDefaultPrintWindow,
-  type PrinterInfoLike,
-} from './receipts/os-print-transport.js';
+import { createOsPrintTransport, createDefaultPrintWindow } from './receipts/os-print-transport.js';
 import { withPrintRefocus } from './receipts/print-refocus.js';
 import { createPrintDispatcher } from './receipts/print-dispatcher.js';
 import { dispatchFirstPrintOnFinalize } from './receipts/dispatch-first-print-on-finalize.js';
@@ -202,6 +198,12 @@ import { randomUUID } from 'node:crypto';
 import { createWorkerRegistry } from './app/bootstrap-workers.js';
 import { createWindowFactory } from './app/bootstrap-window.js';
 import { createDatabaseHolder } from './app/bootstrap-db.js';
+import { resolveApiBaseUrl, resolveClerkExchanger, resolveMigrationsDir } from './bootstrap/env.js';
+import {
+  broadcastToWindows,
+  getCurrentPrinters,
+  resolveRendererOrigin as resolveRendererOriginFor,
+} from './bootstrap/window.js';
 import {
   assessCashierProfile,
   describeCashierProfileRefusal,
@@ -240,8 +242,6 @@ import { bindAuditEventsStoreDb } from './audit/audit-events-store.js';
 import { createNetwork } from './pairing/network.js';
 import { createPairingService } from './pairing/service.js';
 import { createPairingLog } from './pairing/log.js';
-import type { ClerkExchanger } from './operator/clerk-client.js';
-import { resolveOperatorExchanger } from './operator/resolve-exchanger.js';
 import { createBackendClient } from './operator/backend-client.js';
 import { SessionManager } from './operator/session-manager.js';
 import { CashierSignInHandler, SignInHandler } from './operator/sign-in-handler.js';
@@ -320,64 +320,12 @@ const singleInstanceReady = acquireSingleInstance(app, () => {
 });
 
 /**
- * 002-terminal-pairing US2: API base URL for the pair endpoint. Reads
- * `VITE_API_BASE_URL` from `process.env` (Vite does NOT prefix-filter
- * the main bundle — main is built with tsc, not Vite). Falls back to
- * a non-routable placeholder when unset.
- *
- * Public hardening: source must not publish live environment endpoints.
- * Configure the real Data-Pulse-2 host per environment via `VITE_API_BASE_URL`;
- * the default intentionally fails closed.
- */
-const DEFAULT_API_BASE_URL = 'https://example.invalid';
-
-/** Sends one payload to every open app window; a closing one never starves the others. */
-function broadcastToWindows(channel: string, payload: unknown): void {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (win.isDestroyed() || win.webContents.isDestroyed()) continue;
-    try {
-      win.webContents.send(channel, payload);
-    } catch {
-      // Skip it; the next change reaches the windows still open.
-    }
-  }
-}
-
-function resolveApiBaseUrl(): string {
-  const fromEnv = process.env['VITE_API_BASE_URL'];
-  if (typeof fromEnv === 'string' && fromEnv.trim().length > 0) return fromEnv;
-  return DEFAULT_API_BASE_URL;
-}
-
-/**
  * 002-terminal-pairing US1: SecretStore key under which the device
  * token is held. Single source of truth — re-used by the pairing store
  * here AND any future feature that reads the token to set
  * `X-Terminal-Token` on backend calls.
  */
 const DEVICE_TOKEN_KEY = makeSecretKey('terminal.device-token');
-
-/**
- * 004-operator-session / RT-792 — resolve the production `ClerkExchanger`.
- *
- * `OPERATOR_IDENTITY_PROVIDER` picks Clerk (default) or Descope; see
- * `operator/resolve-exchanger.ts`. When the provider's setting is unset or
- * malformed, returns a stub that always refuses so the app still launches
- * (the `/sign-in` route renders; submit fails with the generic
- * `invalid_input` refusal).
- *
- * The fetch is the raw global, not `withRequestId`: the identity provider is
- * a third party, not Backend-Core.
- */
-function resolveClerkExchanger(logger: {
-  warn(payload: object, msg: string): void;
-}): ClerkExchanger {
-  return resolveOperatorExchanger({
-    env: process.env,
-    fetch: globalThis.fetch.bind(globalThis),
-    logger,
-  });
-}
 
 // __dirname is a CJS global; ESM (NodeNext output) requires this polyfill.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -401,19 +349,8 @@ const LAUNCH_REFUSAL_LOG_DRAIN_MS = 2000;
 /** RT-772 — room for a shift close's answer to reach the renderer before an update install quits. */
 const SHIFT_CLOSE_REPLY_MARGIN_MS = 4_000;
 
-/**
- * The trusted renderer origin allow-list. Dev = the Vite server; prod = the
- * packaged renderer dir on disk (`pathToFileURL` → a normalized `file://` URL,
- * forward slashes on Windows). SINGLE SOURCE OF TRUTH (#370): consumed by BOTH
- * the `will-navigate` block in `createWindow` AND the IPC `createSenderGuardedIpcMain`
- * wiring in `whenReady`, so the navigation check and the IPC sender check can
- * never drift apart.
- */
-function resolveRendererOrigin(): string {
-  return isDev
-    ? 'http://localhost:5173'
-    : pathToFileURL(path.join(__dirname, '../renderer/')).toString();
-}
+/** The trusted renderer origin allow-list (#370); the resolver lives in `bootstrap/window.ts`. */
+const resolveRendererOrigin = (): string => resolveRendererOriginFor(isDev, __dirname);
 
 /**
  * Window construction and the renderer trust boundary now live in
@@ -437,47 +374,6 @@ const buildMainWindow = createWindowFactory({
 const createWindow = (): void => {
   mainWindow = buildMainWindow();
 };
-
-/**
- * Enumerate the system printers via a live window's webContents
- * (`getPrintersAsync` is a webContents method). Returns `[]` if no window is
- * available yet — the OS-print transport then resolves an empty device name and
- * Electron falls back to the system default printer. Wrapped so a discovery
- * failure never throws into the print path (the print still attempts the
- * default printer; a real fault surfaces as a recorded failure + banner).
- */
-async function getCurrentPrinters(): Promise<PrinterInfoLike[]> {
-  const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
-  if (win === undefined) return [];
-  try {
-    const printers = await win.webContents.getPrintersAsync();
-    // Electron 40's PrinterInfo carries no portable `isDefault` flag (the
-    // default lives in platform-specific `options`). We do NOT try to infer it
-    // here: when no device is configured, the transport resolves an empty
-    // deviceName and Electron's silent-print path picks the system default
-    // itself. The list is surfaced only so a CONFIGURED exact name can be
-    // honored / logged.
-    return printers.map((p) => ({ name: p.name, isDefault: false }));
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Resolve the directory where migration *.sql files live.
- *   - Dev (`npm run dev`): repo-root `./migrations` (cwd is the repo root).
- *   - Packaged: bundled into the app via electron-builder `files: [migrations/**]`,
- *     so they sit at `<app.getAppPath()>/migrations` (inside `app.asar`; the
- *     builder-patched `fs` reads them transparently). Using cwd here crashes the
- *     packaged exe (cwd is wherever the user launched it, not the repo).
- *   - RT-165: keyed on `shippedApp`, so a renamed shipped exe also reads the
- *     bundled migrations, never `*.sql` from whatever directory it ran in.
- */
-function resolveMigrationsDir(): string {
-  return shippedApp
-    ? path.join(app.getAppPath(), 'migrations')
-    : path.join(process.cwd(), 'migrations');
-}
 
 /**
  * 021 S2 — process-lifetime DB handle OWNERSHIP.
@@ -620,7 +516,7 @@ singleInstanceReady
 
     // RT-320 — roll-forward safety (ADR-0006): refuse a DB a newer build has
     // migrated, and snapshot to <userData>/backups/ before pending migrations.
-    const files = readMigrationsFromDisk(resolveMigrationsDir());
+    const files = readMigrationsFromDisk(resolveMigrationsDir(shippedApp));
     const migrated = runStartupMigrations({
       db: bindMigrationsDb(db),
       files,

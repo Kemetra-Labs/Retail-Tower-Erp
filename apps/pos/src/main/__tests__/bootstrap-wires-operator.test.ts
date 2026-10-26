@@ -36,8 +36,12 @@ describe('main/index.ts wires the operator namespace (004 S1)', () => {
   });
 
   it('builds the production ClerkExchanger through the RT-792 provider resolver', () => {
-    expect(source).toContain('resolveOperatorExchanger({');
-    expect(source).toContain("from './operator/resolve-exchanger.js'");
+    // RT-893: `resolveClerkExchanger` moved to `bootstrap/env.ts`; index.ts imports and calls it.
+    const envSource = readFileSync(resolve(__dirname, '../bootstrap/env.ts'), 'utf-8');
+    expect(source).toContain('resolveClerkExchanger(mainLogger)');
+    expect(source).toContain("from './bootstrap/env.js'");
+    expect(envSource).toContain('resolveOperatorExchanger({');
+    expect(envSource).toContain("from '../operator/resolve-exchanger.js'");
     expect(resolverSource).toContain('createClerkExchanger');
     expect(resolverSource).toContain("from './clerk-client.js'");
   });
