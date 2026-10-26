@@ -214,7 +214,8 @@ shared_classes:   # precedence: lower wins; two matches at the SAME precedence =
   # tools/agent-broker/** runs on the owner's machine with 1Password access, so any change to it is a policy change.
   # A policy class outranks product ownership (RT-867): each product's own .github/** holds scripts
   # that root CI jobs execute (e.g. admin-console fetch-pinned-contracts.sh), so they need approval.
-  policy:  { precedence: 1, globs: [.github/**, tools/project-graph/**, tools/ci-gate/**, tools/agent-broker/**, CODEOWNERS, "apps/*/.github/**", "services/*/.github/**", "integrations/*/.github/**"], selects: all, policy_change: true }
+  # .gitleaks.toml and .gitleaksignore (RT-876) decide what the root secret scan ignores, so widening them is a policy change too.
+  policy:  { precedence: 1, globs: [.github/**, tools/project-graph/**, tools/ci-gate/**, tools/agent-broker/**, CODEOWNERS, .gitleaks.toml, .gitleaksignore, "apps/*/.github/**", "services/*/.github/**", "integrations/*/.github/**"], selects: all, policy_change: true }
   tooling: { precedence: 2, globs: [tools/**], selects: all }
   e2e:     { precedence: 3, globs: [tests/e2e/**], selects: [e2e] }
   docs:    { precedence: 3, globs: [docs/**], selects: [] }
