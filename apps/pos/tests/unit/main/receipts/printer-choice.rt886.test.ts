@@ -258,21 +258,47 @@ describe('RT-886 — printer_source on sale.receipt.printed', () => {
     expect(warn).toHaveBeenCalledWith({
       msg: 'receipt.printer_source_unavailable',
       sale_id: 'sale-1',
-      print_event_id: 'pe-1',
       err_name: 'RangeError',
     });
   });
 
-  it('reads printer_source only after a successful OS print', async () => {
+  it('stamps the source captured before the render, even if the choice changes mid-print', async () => {
+    let current: 'chosen' | 'os_default' = 'chosen';
+    const emitted: { action_category: string; payload: Record<string, unknown> }[] = [];
+    const d = createPrintDispatcher({
+      pipeline: {
+        render: () => {
+          // A printer.set lands while the print is in flight.
+          current = 'os_default';
+          return Promise.resolve({ ok: true, render_path: 'os_print' });
+        },
+        printRendered: vi.fn(),
+      },
+      printEventsRepo: { insert: vi.fn() } as unknown as PrintEventsRepository,
+      auditEmitter: {
+        emitRaw: (e: { action_category: string; payload: Record<string, unknown> }) => {
+          emitted.push(e);
+        },
+      } as unknown as SaleAuditEmitter,
+      now: () => '2026-10-26T10:00:00.000Z',
+      newPrintEventId: () => 'pe-1',
+      printerSource: () => current,
+    });
+    await d.dispatchFirstPrint(PAYLOAD, CTX);
+    expect(emitted[0]?.payload['printer_source']).toBe('chosen');
+  });
+
+  it('stamps printer_source only on a successful OS print', async () => {
     const source = vi.fn(() => 'chosen' as const);
     const failed = dispatcher(
       { ok: false, render_path: 'os_print', failure_reason: 'os_print_error' },
       source,
     );
     await failed.d.dispatchFirstPrint(PAYLOAD, CTX);
+    expect(failed.emitted[0]?.payload).not.toHaveProperty('printer_source');
     const escpos = dispatcher({ ok: true, render_path: 'escpos_direct' }, source);
     await escpos.d.dispatchFirstPrint(PAYLOAD, CTX);
-    expect(source).not.toHaveBeenCalled();
+    expect(escpos.emitted[0]?.payload).not.toHaveProperty('printer_source');
   });
 
   it('a failed print (e.g. the chosen printer is missing) records a failure row and print_failed', async () => {
