@@ -11,12 +11,15 @@
  * free of enums, parameter properties and path aliases.
  */
 
-/** Where the OpenAPI sources live in Backend-Core. */
-export const BACKEND_CORE_REPO = "Kemetra/Backend-Core";
-export const BACKEND_CORE_OPENAPI_ROOT = "packages/contracts/openapi";
+/**
+ * Where the OpenAPI sources live: the in-tree Backend-Core contract of this
+ * monorepo (RT-889). `commit:` is a commit of this repository.
+ */
+export const BACKEND_CORE_REPO = "Kemetra-Labs/Retail-Tower-Erp";
+export const BACKEND_CORE_OPENAPI_ROOT = "services/backend-core/packages/contracts/openapi";
 
 export interface PinnedFile {
-  /** Path relative to `source` (`packages/contracts/openapi/`). */
+  /** Path relative to `source` (`BACKEND_CORE_OPENAPI_ROOT`). */
   readonly path: string;
   /** Git blob SHA-1 of the file's bytes at `commit`. */
   readonly blobSha: string;

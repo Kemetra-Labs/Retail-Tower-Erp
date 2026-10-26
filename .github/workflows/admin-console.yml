@@ -8,11 +8,11 @@
 # (listed in gate.yml `workflow_run`). PR-reachable: read-only token, no
 # credentials, no environment.
 #
-# The pinned Backend-Core contracts are still fetched over the network, anonymously, by
-# .github/scripts/fetch-pinned-contracts.sh (RT-748 NV-8, owner-approved). Backend-Core is
-# public and the pin commit is read from apps/admin-console/openapi-ts.config.ts, so no
-# credential is involved. Drift detection stays fail-closed: the client is regenerated at the
-# pin and the job fails if src/generated/ differs from the committed output.
+# RT-889: the pinned Backend-Core contracts are read from this repository's own history (the
+# in-tree services/backend-core/packages/contracts/openapi at the commit in
+# apps/admin-console/contracts/backend-core/PIN), so admin/build-test checks out with
+# fetch-depth: 0 and makes no network git clone. Drift detection stays fail-closed: the client
+# is regenerated at the pin and the job fails if src/generated/ differs from the committed output.
 #
 # Differences from the product workflow, all forced by the project graph:
 #  - the graph is the only selector, so there is no `paths:` filter. RT-867: the `plan` job
@@ -150,9 +150,12 @@ jobs:
     # RT-584: default is 360 min; the job's p90 is ~2 min, so a hang fails fast.
     timeout-minutes: 20
     steps:
+      # fetch-depth 0 (RT-889): `pnpm generate:client` reads the contract sources with
+      # `git show <pin>:<path>` from this repository, and the pin is an older commit.
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       # The action reads `packageManager` from a path relative to the workspace root, not
@@ -174,15 +177,10 @@ jobs:
 
       # RT-584: the generated client is committed, so drift from the pinned
       # Backend-Core contract (hand edit, stale regen, generator bump) must fail
-      # before merge. Pins come from openapi-ts.config.ts; no credential needed
-      # (Backend-Core is public). Runs before Build so drift fails fast.
-      - name: Fetch pinned Backend-Core contracts
-        run: .github/scripts/fetch-pinned-contracts.sh "$RUNNER_TEMP/backend-core"
-
+      # before merge. RT-889: the sources come from this repository's history at the
+      # PIN commit (local git, no network). Runs before Build so drift fails fast.
       - name: Regenerate API client
         run: pnpm generate:client
-        env:
-          DATA_PULSE_2_REPO: ${{ runner.temp }}/backend-core
 
       - name: Check API client is up to date
         run: |

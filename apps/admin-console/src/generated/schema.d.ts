@@ -3,35 +3,35 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Data-Pulse-2 @ 24196757a490f0d188927c11da23c809d285799e
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 73ee5636f4a0f04d249c6990150518b4e39eee8b
 // Sources:
-// - packages/contracts/openapi/auth.openapi.yaml
-// - packages/contracts/openapi/context.openapi.yaml
-// - packages/contracts/openapi/tenants.openapi.yaml
-// - packages/contracts/openapi/stores.openapi.yaml
-// - packages/contracts/openapi/memberships.openapi.yaml
-// - packages/contracts/openapi/audit.openapi.yaml
-// - packages/contracts/openapi/catalog/unknown-items.yaml
-// - packages/contracts/openapi/settlement/settlement.yaml
-// - packages/contracts/openapi/erpnext-reconciliation/reconciliation.yaml
-// - packages/contracts/openapi/shift-closes.openapi.yaml
-// - packages/contracts/openapi/connector/connector-admin.yaml
-// - packages/contracts/openapi/erpnext-connector/connector-health.yaml
-// - packages/contracts/openapi/erpnext-sync-ops/console-sync-ops.yaml
-// - packages/contracts/openapi/devices.openapi.yaml
-// - packages/contracts/openapi/console-sales.openapi.yaml
-// - packages/contracts/openapi/console-sales-summary.openapi.yaml
-// - packages/contracts/openapi/cash-variance-policy.openapi.yaml
-// - packages/contracts/openapi/console-telemetry.openapi.yaml
-// - packages/contracts/openapi/catalog/erpnext-item-map.yaml
-// - packages/contracts/openapi/catalog/erpnext-warehouse-map.yaml
-// - packages/contracts/openapi/catalog/product-reconciliation.yaml
-// - packages/contracts/openapi/catalog/tracking-profile.yaml
-// - packages/contracts/openapi/sale-sync-ops/sale-sync-ops.yaml
-// - packages/contracts/openapi/inventory/inventory.yaml
-// - packages/contracts/openapi/catalog/console-catalog.yaml
-// - packages/contracts/openapi/ai-entitlements.openapi.yaml
-// - packages/contracts/openapi/platform-support-sessions.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/context.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/tenants.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/stores.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/memberships.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/audit.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/catalog/unknown-items.yaml
+// - services/backend-core/packages/contracts/openapi/settlement/settlement.yaml
+// - services/backend-core/packages/contracts/openapi/erpnext-reconciliation/reconciliation.yaml
+// - services/backend-core/packages/contracts/openapi/shift-closes.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/connector/connector-admin.yaml
+// - services/backend-core/packages/contracts/openapi/erpnext-connector/connector-health.yaml
+// - services/backend-core/packages/contracts/openapi/erpnext-sync-ops/console-sync-ops.yaml
+// - services/backend-core/packages/contracts/openapi/devices.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/console-sales.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/console-sales-summary.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/cash-variance-policy.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/console-telemetry.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/catalog/erpnext-item-map.yaml
+// - services/backend-core/packages/contracts/openapi/catalog/erpnext-warehouse-map.yaml
+// - services/backend-core/packages/contracts/openapi/catalog/product-reconciliation.yaml
+// - services/backend-core/packages/contracts/openapi/catalog/tracking-profile.yaml
+// - services/backend-core/packages/contracts/openapi/sale-sync-ops/sale-sync-ops.yaml
+// - services/backend-core/packages/contracts/openapi/inventory/inventory.yaml
+// - services/backend-core/packages/contracts/openapi/catalog/console-catalog.yaml
+// - services/backend-core/packages/contracts/openapi/ai-entitlements.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/platform-support-sessions.openapi.yaml
 //
 // The upstream OpenAPI files are separate documents with overlapping component
 // names, so this file namespaces each generated source and composes their path
@@ -854,6 +854,8 @@ export namespace TenantsSchema {
                 id?: string;
                 slug?: string;
                 name?: string;
+                /** @enum {string} */
+                status: "active" | "suspended" | "pending";
             };
             Tenant: components["schemas"]["TenantSummary"] & {
                 /** @enum {string} */
