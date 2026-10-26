@@ -11,6 +11,8 @@ from contracts_check.findings import DRIFT, FAIL, OK
 from support import REPO_ROOT, TempRepo, fake_oasdiff, real_oasdiff
 
 SHA = "a" * 40
+THIS_REPO = "Kemetra-Labs/Retail-Tower-Erp"
+HEADER = f"repo: {THIS_REPO}\ncommit: {SHA}\nsource: contracts\n"
 SPEC = """\
 openapi: 3.1.0
 info: {title: t, version: 1.0.0}
@@ -65,14 +67,15 @@ class ConsumerCase(unittest.TestCase):
         self.blob = self.repo.blob(SPEC)
         self.repo.write("contracts/pos-sales/sales.yaml", SPEC)
 
-    def pin(self, blob=None, path="pos-sales/sales.yaml"):
-        self.repo.write("app/PIN", f"repo: x/y\nfile: {path} {blob or self.blob}\n")
+    def pin(self, blob=None, path="pos-sales/sales.yaml", header=HEADER):
+        self.repo.write("app/PIN", f"{header}file: {path} {blob or self.blob}\n")
 
     def run_check(self, oasdiff, vendored=None):
         consumer = {"name": "POS", "pin": "app/PIN"}
         if vendored:
             consumer["vendored"] = vendored
-        return pins.check_consumer(self.repo.root, consumer, "contracts", oasdiff, None)
+        return pins.check_consumer(self.repo.root, consumer, "contracts", oasdiff, None,
+                                   repository=THIS_REPO)
 
     def fake(self, **kw):
         return fake_oasdiff(self.bin.name, **kw)
@@ -80,6 +83,29 @@ class ConsumerCase(unittest.TestCase):
     def test_identical_is_ok(self):
         self.pin()
         self.assertEqual([f.status for f in self.run_check(self.fake())], [OK])
+
+    def test_foreign_repo_fails(self):
+        """RT-889: a PIN that names another repository fails before anything is compared."""
+        for repo in ("Kemetra/Backend-Core", "Kemetra-Labs/Retail-Tower-Erp-fork", "x/y"):
+            with self.subTest(repo=repo):
+                self.pin(header=HEADER.replace(f"repo: {THIS_REPO}", f"repo: {repo}"))
+                [f] = self.run_check(self.fake())
+                self.assertEqual(f.status, FAIL)
+                self.assertIn(f"PIN names repo '{repo}', not this repository", f.message)
+
+    def test_foreign_source_fails(self):
+        self.pin(header=HEADER.replace("source: contracts", "source: packages/contracts/openapi"))
+        [f] = self.run_check(self.fake())
+        self.assertEqual(f.status, FAIL)
+        self.assertIn("PIN names source 'packages/contracts/openapi'", f.message)
+
+    def test_bad_or_missing_header_fails(self):
+        for header in (HEADER.replace(SHA, "abc"), HEADER.replace(f"repo: {THIS_REPO}\n", ""),
+                       HEADER.replace("source: contracts\n", ""), HEADER + f"repo: {THIS_REPO}\n"):
+            with self.subTest(header=header):
+                self.pin(header=header)
+                [f] = self.run_check(self.fake())
+                self.assertEqual(f.status, FAIL)
 
     def test_missing_blob_fails_closed(self):
         self.pin(blob="0" * 40)
@@ -156,6 +182,19 @@ class ConsumerCase(unittest.TestCase):
         self.assertIn("1 non-breaking change(s)", f.message)
 
 
+class RealPinHeaders(unittest.TestCase):
+    """RT-889: config.yaml names this repository, and both real consumer PINs name it and the
+    in-tree contract (no oasdiff needed)."""
+
+    def test_config_names_this_repository(self):
+        config = yaml.safe_load((REPO_ROOT / "tools/contracts-check/config.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(config["repository"], THIS_REPO)
+        for consumer in config["consumers"]:
+            with self.subTest(consumer=consumer["name"]):
+                header = pins.parse_header((REPO_ROOT / consumer["pin"]).read_text(encoding="utf-8"))
+                self.assertIsNone(pins.check_header(header, THIS_REPO, config["contracts_root"]))
+
+
 @unittest.skipUnless(real_oasdiff(), "set CONTRACTS_CHECK_OASDIFF to the pinned oasdiff binary")
 class RealOasdiff(unittest.TestCase):
     """The acceptance cases against the real, pinned oasdiff (CI always sets it)."""
@@ -163,12 +202,12 @@ class RealOasdiff(unittest.TestCase):
     def setUp(self):
         self.repo = TempRepo()
         self.addCleanup(self.repo.close)
-        self.repo.write("app/PIN", f"file: pos-sales/sales.yaml {self.repo.blob(SPEC)}\n")
+        self.repo.write("app/PIN", f"{HEADER}file: pos-sales/sales.yaml {self.repo.blob(SPEC)}\n")
 
     def run_with(self, current):
         self.repo.write("contracts/pos-sales/sales.yaml", current)
         return pins.check_consumer(self.repo.root, {"name": "POS", "pin": "app/PIN"}, "contracts",
-                                   real_oasdiff(), None)
+                                   real_oasdiff(), None, repository=THIS_REPO)
 
     def test_unchanged_is_ok(self):
         self.assertEqual([f.status for f in self.run_with(SPEC)], [OK])

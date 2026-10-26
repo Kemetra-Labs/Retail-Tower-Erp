@@ -120,6 +120,17 @@ export namespace CatalogReadDown {
                 sku: string;
                 /** @description Resolved tax category (tenant ⊕ override). */
                 tax_category: string;
+                tracking?: components["schemas"]["SellableRowTracking"];
+            };
+            /** @description RT-450 (RT-50 G7-1): the product's Tracking Profile, projected from Catalog (`catalog/tracking-profile.yaml`, the source of truth). Absent means untracked (`mode: none`). The POS MUST NOT infer a profile from an ERPNext flag. Not yet emitted: see the 1.1.0-draft note. */
+            SellableRowTracking: {
+                /** @description True only with `mode: batch`: the product's batches carry an expiry date, so the till expects `expiryDate` on the lots it is offered (386). */
+                expiry_required: boolean;
+                /**
+                 * @description `none` = untracked; `batch` = every unit belongs to a lot and a sale needs `posValidateTrackedLine`; `serial` = every unit has its own serial number. The enum already carries `serial`, so a later serial release adds no response enum value. Serial selling stays refused (fail closed) until a separate serial issue (RT-50 Q11): the till MUST NOT sell a `serial` product, and `posValidateTrackedLine` refuses it as `not_sellable`.
+                 * @enum {string}
+                 */
+                mode: "none" | "batch" | "serial";
             };
         };
         responses: {
@@ -176,11 +187,22 @@ export namespace CatalogReadDown {
             Limit: number;
             /** @description Opaque continuation token returned in the previous page's `next_page_token`. Treated as opaque — clients MUST NOT decode or construct it. All pages of one snapshot/delta read reflect the SAME consistent cursor point (FR-012). */
             PageToken: string;
+            /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosAppVersion: string;
+            /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosBuildCommit: string;
+            /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosContractPin: string;
             /** @description The opaque `cursor` returned by a prior snapshot or delta page (both page schemas expose the advanced server cursor as `cursor`). Treated as opaque — clients MUST NOT decode or construct it. Scope-bound: a cursor presented under a foreign scope is refused non-disclosingly (FR-024); a cursor older than the retained horizon returns `snapshot_required` (FR-023). */
             Since: string;
         };
         requestBodies: never;
-        headers: never;
+        headers: {
+            /** @description RT-639. Present only when this device credential has 15 days or less left: the ISO-8601 instant `expires_at - 15 days` (the same instant as `rotate_after` in the `posRotateTerminalToken` response). The terminal rotates at or after it. Absent while more than 15 days remain. Never carries token material. See `pos-terminal-pairing.openapi.yaml`, "Credential rotation". */
+            DeviceTokenRotateAfter: string;
+            /** @description RT-639. Sent with `X-Device-Token-Rotate-After`: `notice` (15 days or less left), `warning` (10 or less), `urgent` (3 or less, or already past `expires_at`). The server keeps no per-device state, so it sends the stage on every response while it holds; the terminal shows each stage the first time it sees it. */
+            DeviceTokenRotateStage: "notice" | "warning" | "urgent";
+        };
         pathItems: never;
     }
     export type $defs = Record<string, never>;
@@ -197,7 +219,14 @@ export namespace CatalogReadDown {
                     /** @description The opaque `cursor` returned by a prior snapshot or delta page (both page schemas expose the advanced server cursor as `cursor`). Treated as opaque — clients MUST NOT decode or construct it. Scope-bound: a cursor presented under a foreign scope is refused non-disclosingly (FR-024); a cursor older than the retained horizon returns `snapshot_required` (FR-023). */
                     since: components["parameters"]["Since"];
                 };
-                header?: never;
+                header?: {
+                    /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-App-Version"?: components["parameters"]["PosAppVersion"];
+                    /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Build-Commit"?: components["parameters"]["PosBuildCommit"];
+                    /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Contract-Pin"?: components["parameters"]["PosContractPin"];
+                };
                 path?: never;
                 cookie?: never;
             };
@@ -206,6 +235,8 @@ export namespace CatalogReadDown {
                 /** @description Ordered sellable-stream changes after `since`, with the advanced cursor. Cursor-paginated via `next_page_token`. */
                 200: {
                     headers: {
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -229,7 +260,14 @@ export namespace CatalogReadDown {
                     /** @description Opaque continuation token returned in the previous page's `next_page_token`. Treated as opaque — clients MUST NOT decode or construct it. All pages of one snapshot/delta read reflect the SAME consistent cursor point (FR-012). */
                     page_token?: components["parameters"]["PageToken"];
                 };
-                header?: never;
+                header?: {
+                    /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-App-Version"?: components["parameters"]["PosAppVersion"];
+                    /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Build-Commit"?: components["parameters"]["PosBuildCommit"];
+                    /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Contract-Pin"?: components["parameters"]["PosContractPin"];
+                };
                 path?: never;
                 cookie?: never;
             };
@@ -238,6 +276,8 @@ export namespace CatalogReadDown {
                 /** @description A page of the resolved sellable catalogue at a consistent server cursor. The final page carries the snapshot `cursor`; subsequent pages are fetched via `next_page_token`. */
                 200: {
                     headers: {
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -516,9 +556,21 @@ export namespace PosCashierAdmissions {
                 };
             };
         };
-        parameters: never;
+        parameters: {
+            /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosAppVersion: string;
+            /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosBuildCommit: string;
+            /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosContractPin: string;
+        };
         requestBodies: never;
-        headers: never;
+        headers: {
+            /** @description RT-639. Present only when this device credential has 15 days or less left: the ISO-8601 instant `expires_at - 15 days` (the same instant as `rotate_after` in the `posRotateTerminalToken` response). The terminal rotates at or after it. Absent while more than 15 days remain. Never carries token material. See `pos-terminal-pairing.openapi.yaml`, "Credential rotation". */
+            DeviceTokenRotateAfter: string;
+            /** @description RT-639. Sent with `X-Device-Token-Rotate-After`: `notice` (15 days or less left), `warning` (10 or less), `urgent` (3 or less, or already past `expires_at`). The server keeps no per-device state, so it sends the stage on every response while it holds; the terminal shows each stage the first time it sees it. */
+            DeviceTokenRotateStage: "notice" | "warning" | "urgent";
+        };
         pathItems: never;
     }
     export type $defs = Record<string, never>;
@@ -526,7 +578,14 @@ export namespace PosCashierAdmissions {
         posCreateCashierAdmission: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-App-Version"?: components["parameters"]["PosAppVersion"];
+                    /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Build-Commit"?: components["parameters"]["PosBuildCommit"];
+                    /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Contract-Pin"?: components["parameters"]["PosContractPin"];
+                };
                 path?: never;
                 cookie?: never;
             };
@@ -539,6 +598,8 @@ export namespace PosCashierAdmissions {
                 /** @description Either `admitted` or the minimum-disclosure `active_elsewhere` signal. The body is a tagged union on `kind`. Clients MUST switch on `kind` and MUST NOT assume any other field until the variant is confirmed. */
                 200: {
                     headers: {
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -555,7 +616,14 @@ export namespace PosCashierAdmissions {
         posEndCashierAdmission: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-App-Version"?: components["parameters"]["PosAppVersion"];
+                    /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Build-Commit"?: components["parameters"]["PosBuildCommit"];
+                    /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Contract-Pin"?: components["parameters"]["PosContractPin"];
+                };
                 path: {
                     /** @description The `admission_id` from the latest `admitted` response for this cashier on this device. */
                     admission_id: string;
@@ -571,6 +639,8 @@ export namespace PosCashierAdmissions {
                 /** @description The admission is not live on this device (any of the cases above). */
                 200: {
                     headers: {
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -584,7 +654,14 @@ export namespace PosCashierAdmissions {
         posListCashierAdmissionRoster: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-App-Version"?: components["parameters"]["PosAppVersion"];
+                    /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Build-Commit"?: components["parameters"]["PosBuildCommit"];
+                    /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Contract-Pin"?: components["parameters"]["PosContractPin"];
+                };
                 path?: never;
                 cookie?: never;
             };
@@ -593,6 +670,8 @@ export namespace PosCashierAdmissions {
                 /** @description The cashiers of the device's store. May be empty. */
                 200: {
                     headers: {
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -1841,6 +1920,12 @@ export namespace PosSalesSaleHistory {
             OperatorUserIdQuery: string;
             /** @description Maximum items per page (OD-534-4). The server MAY return fewer. */
             PageSize: number;
+            /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosAppVersion: string;
+            /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosBuildCommit: string;
+            /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosContractPin: string;
             /** @description Exact match on the captured receipt `saleNumber` (`CaptureSaleReceipt.saleNumber` in `sales.yaml`). A sale captured without a receipt snapshot has none and never matches. The RT-249 short number is not defined here; it will be added additively once RT-249 defines it (Q-7). */
             SaleNumberQuery: string;
             /** @description Stable server-issued sale reference. Resolves only within the caller's visibility; any other ref is the non-disclosing 404. */
@@ -1848,6 +1933,10 @@ export namespace PosSalesSaleHistory {
         };
         requestBodies: never;
         headers: {
+            /** @description RT-639. Present only when this device credential has 15 days or less left: the ISO-8601 instant `expires_at - 15 days` (the same instant as `rotate_after` in the `posRotateTerminalToken` response). The terminal rotates at or after it. Absent while more than 15 days remain. Never carries token material. See `pos-terminal-pairing.openapi.yaml`, "Credential rotation". */
+            DeviceTokenRotateAfter: string;
+            /** @description RT-639. Sent with `X-Device-Token-Rotate-After`: `notice` (15 days or less left), `warning` (10 or less), `urgent` (3 or less, or already past `expires_at`). The server keeps no per-device state, so it sends the stage on every response while it holds; the terminal shows each stage the first time it sees it. */
+            DeviceTokenRotateStage: "notice" | "warning" | "urgent";
             /** @description Present and `true` on every idempotent-replay response. Clients detect a replay by this header, not by the status code. */
             IdempotentReplayed: boolean;
             /** @description Seconds the caller should wait before retrying, on a 429 (ADR 0009). */
@@ -1878,6 +1967,12 @@ export namespace PosSalesSaleHistory {
                 header?: {
                     /** @description REQUIRED with the `device` scheme and MUST be absent with `operatorAuthorization` (an envelope request that carries it is the generic 401). The `admission_id` of the cashier admission the terminal holds (`pos-cashier-admissions.openapi.yaml`). It is a selector, not a credential: the device token is the credential, the same trust posture as `operatorUserId` on `captureSale`. The server requires the admission to be of this device, store and tenant; live NOW (not ended, not expired), or for a `record`-mode reprint covering `printedAt` under the captureSale window rules instead; and the cashier still eligible (the RT-113 rules, re-checked live). Every refusal from a valid device is the generic 403 `refused`. On this path the idempotency `clientId` is the admission's user. */
                     "X-Cashier-Admission"?: components["parameters"]["CashierAdmission"];
+                    /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-App-Version"?: components["parameters"]["PosAppVersion"];
+                    /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Build-Commit"?: components["parameters"]["PosBuildCommit"];
+                    /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Contract-Pin"?: components["parameters"]["PosContractPin"];
                 };
                 path?: never;
                 cookie?: never;
@@ -1887,6 +1982,8 @@ export namespace PosSalesSaleHistory {
                 /** @description One page of the caller's visible sales. */
                 200: {
                     headers: {
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -1906,6 +2003,12 @@ export namespace PosSalesSaleHistory {
                 header?: {
                     /** @description REQUIRED with the `device` scheme and MUST be absent with `operatorAuthorization` (an envelope request that carries it is the generic 401). The `admission_id` of the cashier admission the terminal holds (`pos-cashier-admissions.openapi.yaml`). It is a selector, not a credential: the device token is the credential, the same trust posture as `operatorUserId` on `captureSale`. The server requires the admission to be of this device, store and tenant; live NOW (not ended, not expired), or for a `record`-mode reprint covering `printedAt` under the captureSale window rules instead; and the cashier still eligible (the RT-113 rules, re-checked live). Every refusal from a valid device is the generic 403 `refused`. On this path the idempotency `clientId` is the admission's user. */
                     "X-Cashier-Admission"?: components["parameters"]["CashierAdmission"];
+                    /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-App-Version"?: components["parameters"]["PosAppVersion"];
+                    /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Build-Commit"?: components["parameters"]["PosBuildCommit"];
+                    /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Contract-Pin"?: components["parameters"]["PosContractPin"];
                 };
                 path: {
                     /** @description Stable server-issued sale reference. Resolves only within the caller's visibility; any other ref is the non-disclosing 404. */
@@ -1918,6 +2021,8 @@ export namespace PosSalesSaleHistory {
                 /** @description The detail projection. */
                 200: {
                     headers: {
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -1940,6 +2045,12 @@ export namespace PosSalesSaleHistory {
                     "Idempotency-Key": components["parameters"]["IdempotencyKey"];
                     /** @description REQUIRED with the `device` scheme and MUST be absent with `operatorAuthorization` (an envelope request that carries it is the generic 401). The `admission_id` of the cashier admission the terminal holds (`pos-cashier-admissions.openapi.yaml`). It is a selector, not a credential: the device token is the credential, the same trust posture as `operatorUserId` on `captureSale`. The server requires the admission to be of this device, store and tenant; live NOW (not ended, not expired), or for a `record`-mode reprint covering `printedAt` under the captureSale window rules instead; and the cashier still eligible (the RT-113 rules, re-checked live). Every refusal from a valid device is the generic 403 `refused`. On this path the idempotency `clientId` is the admission's user. */
                     "X-Cashier-Admission"?: components["parameters"]["CashierAdmission"];
+                    /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-App-Version"?: components["parameters"]["PosAppVersion"];
+                    /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Build-Commit"?: components["parameters"]["PosBuildCommit"];
+                    /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Contract-Pin"?: components["parameters"]["PosContractPin"];
                 };
                 path: {
                     /** @description Stable server-issued sale reference. Resolves only within the caller's visibility; any other ref is the non-disclosing 404. */
@@ -1957,6 +2068,8 @@ export namespace PosSalesSaleHistory {
                 201: {
                     headers: {
                         "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -1993,11 +2106,37 @@ export namespace PosSalesSales {
              * @description Create the immutable `sales` header + frozen `sale_lines` snapshot from a completed POS sale. The authenticated principal supplies `tenant_id` and `store_id` (spec 002); body-supplied tenant / store / created_by / received_at / business_date / processed_at / mismatch_flag are rejected (FR-061). POS-reported totals are preserved verbatim (FR-030); the SaaS computes a per-line / half-up comparison total for an ADVISORY mismatch flag only — it never rewrites the POS total. Line snapshots (`line_name` / `unit_price` / `tax_amount` / `unit`) are frozen at capture and are unaffected by later catalog edits (FR-003). A line that resolves to no tenant product is still snapshotted; no tenant product is auto-created (FR-004).
              *     Idempotency: the `Idempotency-Key` header is REQUIRED. Dedup is on `(tenant, sourceSystem, externalId)` (FR-050) — replays return the same stable sale reference deterministically (FR-100), with no double-apply.
              *     Tender (RT-10 D1, from RT-77): the optional `tenders` list records how the sale was paid. Each `amount` is NET of change (cash = tendered − change), each entry is one tender line (RT-359: `tenderRef` / `sequence`; see the `tenders` field for the per-sale rules). When `responsibilities` is absent, the amounts MUST sum to `posTotal` exactly (else 422 `sale_tender_mismatch`); nothing is recorded on either failure. When it is present, the combined coverage rule replaces this one (RT-417, see Payer responsibilities below): the tenders cover only the part paid at the till. The tender list is hashed into the payload, so a replay that adds, drops or changes tenders is a different payload (409). An absent list is a tender-unknown sale (RT-10 D8): it is captured exactly as before, and the server NEVER derives tender from `posTotal`.
-             *     Line pricing (RT-105): every line must satisfy the `CaptureSaleLine` price invariant, else 422 `sale_line_pricing_invalid`; nothing is recorded. The coverage rule (tender-only or combined) is checked first, so a body that breaks both answers `sale_tender_mismatch` (or, with `responsibilities`, `sale_responsibility_mismatch`). The invariant applies to a first capture only: a replay of a sale captured before RT-105 is never re-checked, and still returns 200 with the stored projection.
+             *     Line pricing (RT-105): every line must satisfy the `CaptureSaleLine` price invariant, else 422 `sale_line_pricing_invalid`; nothing is recorded. A line with a manual `discount` (RT-740) satisfies it with its net: `lineAmount = unitPrice × quantity − discount.amount`, and the discount's own arithmetic must hold (see `CaptureSaleLineDiscount`). The coverage rule (tender-only or combined) is checked first, so a body that breaks both answers `sale_tender_mismatch` (or, with `responsibilities`, `sale_responsibility_mismatch`). The invariant applies to a first capture only: a replay of a sale captured before RT-105 is never re-checked, and still returns 200 with the stored projection.
              *     Cashier attribution (RT-224): a sale may instead be sent with the `device` scheme (the paired terminal's device bearer) plus the cashier's `operatorUserId` in the body. The presence of `operatorUserId` selects this path; without it the request is an `operatorAuthorization` request exactly as before. On this path the device row supplies the tenant, store and device, and the server accepts the sale only if the device is active, a cashier admission of that device and store for that user covers `occurredAt` (see `operatorUserId`), and the cashier's membership, store access and account are still live. A missing, invalid or revoked device credential is the same generic 401 as an invalid envelope. A refused cashier claim from an authenticated device (no covering admission, an ineligible cashier, a sale outside the window or beyond the dating caps, an unknown or foreign `operatorUserId`) is the generic 403 `refused`, with one body for every cause: it never reveals whether the user or the admission exists, and it is never a sign that the device was revoked. A malformed body from an authenticated device is the usual 400. Idempotency, provenance dedup, the 409 divergence rule and the per-device rate limit apply unchanged; the idempotency key is scoped to the verified cashier, as it is scoped to the operator on the envelope path.
              *     Admission check time (RT-225): on this path the body may also carry `admissionCheckAt`, which then replaces `occurredAt` in the admission-window comparison only (see the field). Sent without `operatorUserId`, it is a 400.
              *     Payer responsibilities (RT-417, from RT-418): the optional `responsibilities` list records who owes the part of the sale not paid by `tenders`. When it is present, `sum(tenders) + sum(responsibilities) = posTotal` must hold exactly (else 422 `sale_responsibility_mismatch`), and every payer must be eligible (else 422 `sale_responsibility_payer_invalid`); see the field and `CaptureUnprocessable`. Responsibilities are accepted only on the `operatorAuthorization` path (owner decision 2026-10-16, option A). On the `device` path a body with `responsibilities` is 422 `sale_responsibility_offline_refused`, decided before the coverage rule and after authentication and the RT-224 cashier-claim check (403 `refused`). On the envelope path the role check (403 `sale_responsibility_role_refused`) is decided after authentication and before every 422. Order of the 422s: the device-path offline refusal, then the coverage rule, then the line price invariant, then the payers (as in `CaptureUnprocessable`). A replay of an already-captured sale answers after authentication and the RT-224 cashier-claim check (403 `refused`), and before the role check (403 `sale_responsibility_role_refused`) and every 422, so a payer suspended after capture never turns a stored result into a 403 or a 422. Nothing is recorded on any failure.
              *     Receipt snapshot (RT-537): the body may carry the optional `receipt` (see `CaptureSaleReceipt`). The server stores it first-write-wins and keeps it out of the `payload_hash`. From RT-539 the order of `lines` is stored as the receipt line order.
+             *     Tracked lines (RT-450, from RT-451; RT-50 G7-9, Q5): a line of a tracked product carries `tracking` (`CaptureSaleLineTracking`), the identity the till sold, chosen after an online validation (`posValidateTrackedLine`, `pos-sales/tracked-lines.yaml`). `tracking` is frozen on the line, included in the `payload_hash` and echoed by `SaleLine`; the same `Idempotency-Key` re-sent with different tracking is the existing conflict (409 `idempotency_key_conflict`), and under another key (a provenance replay) the stored sale is returned and its stored tracking is never rewritten, like every other line field. Capture NEVER rejects a real sale for tracking reasons: a refusal would only strand the fact in the till's dead-letter. The server accepts the sale and classifies each tracked line. When several rows match, the lower (more severe) row wins:
+             *
+             *       1. Valid: a known identity of this product, a `validationId` that
+             *          matches an accepted validation of that identity (same tenant,
+             *          store and identity), and not expired at the business date. The
+             *          sale is accepted; its Inventory effect is at the identity and
+             *          the ERP Batch ref is frozen with the posting intent. No finding.
+             *       2. Exact identity, but no `validationId` or one that does not match,
+             *          or held or recalled at `occurredAt`. Accepted; the effect is
+             *          normal (the goods left). Critical finding: "tracked line without
+             *          online validation" or "sold under hold".
+             *       3. Exact identity, but expired at the business date, or with no ERP
+             *          edge-map row. Accepted; the effect is at the identity and the
+             *          ERP posting intent is held, never sent. Critical finding; an
+             *          edge map is repaired and re-posted, an expired lot goes to the
+             *          owner (RT-50 B1).
+             *       4. Unrepresentable: a tracked product's line without `tracking`, an
+             *          unknown `identityId`, or another product's identity. Accepted;
+             *          the whole sale is `tracking_unresolved`: no Inventory effect and
+             *          no ERP posting intent. Critical finding; resolved only by a
+             *          governed Tracking Resolution (high sensitivity, audited) that
+             *          binds an existing identity and then commits the effects and the
+             *          intent together (RT-50 DC-2). Tracking Resolution is a later
+             *          contract.
+             *
+             *     The response is the same `Sale` projection whatever the classification: this version adds no status code, no error code and no classification field to capture. The findings surface through Inventory Health and the Tracking Resolution queue (later issues). Known gap: an ad-hoc line (no `tenantProductRef`) can never be tracked, so the till MUST NOT sell a tracked product as an ad-hoc line. `safetyRevision` and `safetySyncedAt` record the Inventory Safety Revision the till held and when it last synced it (RT-50 G7-7), which lets the server tell a line sold under a hold the till had not yet seen. Tracked lines are never completed offline: they need a successful `posValidateTrackedLine`.
              */
             post: operations["captureSale"];
             delete?: never;
@@ -2082,6 +2221,8 @@ export namespace PosSalesSales {
              * @deprecated
              * @description DEPRECATED (RT-14 D1): not for new use — record a line-aware return with `recordReturn` instead. Existing refund rows stay readable. The amount-only refund never reaches the posting feed as an amount, so since RT-71 the Connector rejects refund reversals instead of posting a full-value credit note.
              *
+             *     GATED OFF (RT-271 R-11, RT-490): since RT-787 the route answers 404 `not_found` and records nothing, a provenance replay of an earlier refund included, unless the deployment enables the legacy refund gate. The gate is off by default, the same posture as `POS_RETURNS_ENABLED` on `recordReturn`. An amount-only refund is not capped by the return quantity caps, and it carries no refund allocation, so it cannot be settled by a refund execution. A refund already recorded counts against the cash pool of the refundable-balance rule (R-5) for later returns of the sale. No POS calls it. A later breaking contract version removes the operation; existing refund rows stay readable.
+             *
              *     Create a refund terminal event referencing the sale, stamping `refundedAt` from the server clock and preserving the POS-reported refund amount verbatim (FR-012/030). The original sale is NEVER mutated. No tender / payment data is accepted or persisted (gate A.5 — deferred to 010); the refund records ONLY the POS-reported amount. Refund workflow depth (partial / multi-step) is out of scope (FR-015).
              *     Idempotency: the `Idempotency-Key` header is REQUIRED; a re-delivered refund (same provenance) is not double-applied (FR-013).
              *     Credit sales (RT-577, from the RT-577 runtime): a refund of a sale with payer responsibilities is refused with 403 `credit_sale_reversal_restricted` for every operator (see `CreditSaleReversalRestricted`); there is no amount-only refund of a credit sale. The refusal is decided after the sale resolves (404) and a provenance replay (200, or its 409 provenance conflict), and before every other check (422 `already_applied`). Nothing is recorded.
@@ -2100,27 +2241,157 @@ export namespace PosSalesSales {
                 path?: never;
                 cookie?: never;
             };
-            get?: never;
+            /**
+             * List the returns recorded against a sale, with their refund settlement.
+             * @description RT-271 R-8 (RT-490). Every return recorded against the sale through `recordReturn`, oldest first (`recordedAt`, then `returnRef`), each with its derived refund settlement (see `recordReturn`, Refund obligation). Credit-sale reversals (`recordCreditSaleReversal`, returns included, outside RT-490) and legacy refunds (`recordRefund`) are not listed. A sale with no return answers 200 with an empty `returns`. Not paginated in this version.
+             *
+             *     Object-level authz as on `readSale`: a sale outside the caller's resolved (tenant, store) scope is a non-disclosing 404, identical to an unknown sale. The read is NOT behind `POS_RETURNS_ENABLED`: it reads facts already recorded, and a gated 404 could not be told apart from an unknown sale. It records nothing.
+             */
+            get: operations["listSaleReturns"];
             put?: never;
             /**
              * Record a line-aware return against a sale.
-             * @description RT-14 D1. Return some or all of the quantity on one or more of a sale's lines, and record how the refund was paid out. Replaces the amount-only `recordRefund` for new use. The original sale and its lines are NEVER mutated; the return is a separate append-only record.
+             * @description RT-14 D1. Return some or all of the quantity on one or more of a sale's lines, and allocate how the refund is to be paid (RT-490). Replaces the amount-only `recordRefund` for new use. The original sale and its lines are NEVER mutated; the return is a separate append-only record. Accepting the return is not paying it: the payout is a separate refund execution (`recordRefundExecution`, RT-271 R-1).
              *
              *     DEPLOYMENT GATE (RT-73 AC4): the route is live but answers 404 `not_found` and records nothing unless the API runs with `POS_RETURNS_ENABLED=true`. Enable it only once the Connector posts `reversalKind: return` (RT-16) AND supports settlement (RT-78). Before RT-16 a return would be dead-lettered as an unparseable work-item; before RT-78 it would post as an outstanding credit note (terminal) although cash was paid out (RT-76, `erpnext-connector/posting-feed.yaml` INVARIANT).
              *
              *     Money (RT-14 D1, amended by option (a) — RT-73 comment 10406): the client sends quantities only; the server prices every returned line from the frozen sale line. For a line sold with `quantity` Q and `lineAmount` A, of which c is already returned, a return of `quantity` q is priced `lineAmount = round4(A × (c + q) / Q) − round4(A × c / Q)`, and the line's snapshot `taxAmount` is split the same way (a null line tax stays null). The amount depends only on cumulative quantities (`readSale` exposes `returnedQuantity`), so a client can recompute it exactly, and all returns on a line sum to A once it is fully returned. `round4` is `round(numeric, 4)` in Postgres `numeric`, never a float. A line captured under the RT-105 price invariant (`lineAmount = unitPrice × quantity`, minor-unit precision, whole quantity) prices to exactly `unitPrice × q` at every step, which ERPNext can post, because its returned quantities are whole too: a line sold in a whole quantity accepts only a whole return `quantity` (`"1.000000"` is whole), else 400 `validation_error` (with a fractional q, round4 is not `unitPrice × q`: 0.01 × 0.333333 prices to 0.0033). A line captured before RT-105 may still price to more fractional digits than its currency allows; one sold in a fractional quantity still accepts fractional returns. `returnTotal` = Σ returned `lineAmount`, the same basis as capture's `posTotal` = Σ `lineAmount`; the tax share is carried inside it for posting, not added on top.
              *
-             *     Tender (D3): `refundTenders` records how the refund was paid out, as a fact. The amounts MUST sum to the server-computed `returnTotal`, else 422 `return_tender_mismatch`. Cash only for the pilot; the `method` enum stays cash-only under RT-10 D2. ERP settlement: the Connector pays the return out with these refund tenders on the reversing invoice (RT-10 D6).
+             *     Refund allocation (D3, reinterpreted by RT-271 R-2; RT-490): `refundTenders` are the return's refund ALLOCATIONS: how the refund is to be paid, by which instrument and against which original tender. They are NOT a record that cash left the drawer. The POS pays out after the return is confirmed and reports that payout separately, as a refund execution (`recordRefundExecution`). The amounts MUST sum to the server-computed `returnTotal`, else 422 `return_tender_mismatch`. Cash only for the pilot; the `method` enum stays cash-only under RT-10 D2 and R-12.
+             *
+             *     Allocation rules (RT-490; R-5, R-6, R-12; normative from the F-2 runtime):
+             *     1. Fields. Either every allocation of the request carries an
+             *        `allocationRef` or none does; each `allocationRef` appears at most
+             *        once per request (it is unique within the return); and an
+             *        `originalTenderRef` must be the `tenderRef` of a tender line of
+             *        THIS sale. Otherwise 400 `validation_error`. These 400s are
+             *        checked with the line checks (400), before the 409 `over_return`.
+             *
+             *     2. Instrument (R-12, Sales & Returns 1057). Pilot returns are cash-only
+             *        and for all-cash sales only. A return of a sale that carries any
+             *        tender whose `method` is not `cash` is 422
+             *        `refund_instrument_not_allowed`. While that holds, an
+             *        `originalTenderRef` can only name a cash tender; the rule that it
+             *        names a tender of the allocation's instrument is stated now so it
+             *        survives the post-pilot instruments. Card, wallet, store-credit
+             *        and receivable-reduction refunds are post-pilot (R-10, R-12).
+             *
+             *     3. Refundable balance (R-5, 1055/1056), on a sale captured with
+             *        tenders. For a sale tender T, `refundable(T) = T.amount − Σ amount
+             *        of the allocations that reference T`, summed over every accepted
+             *        return of the sale, this one included. An allocation that
+             *        references T is accepted only if the result stays ≥ 0. An
+             *        allocation that references no tender is charged against the sale's
+             *        cash tenders together (a legacy tender is addressed by `(sale,
+             *        method)`, RT-264 D2): Σ of every cash allocation on the sale,
+             *        referenced or not, plus Σ of the sale's legacy `recordRefund`
+             *        amounts, stays ≤ Σ of the sale's cash tenders. The rule counts
+             *        ALLOCATED amounts, never settled ones, and every allocation
+             *        recorded before this version counts (it references no tender). It
+             *        is checked under the same `sales` row lock as the quantity cap, so
+             *        two concurrent returns can never over-allocate a tender.
+             *        Otherwise 422 `refund_allocation_exceeds_tender`.
+             *
+             *     4. Tender-unknown sale (R-6; a sale captured with no tenders,
+             *        `tender_count = 0`): rule 3 does not apply. A cash allocation with
+             *        no `originalTenderRef` is accepted, capped only by the per-line
+             *        quantity cap. An `originalTenderRef` on such a sale is 400 (rule
+             *        1).
+             *
+             *     The 422s are checked in the order `return_tender_mismatch`, `refund_instrument_not_allowed`, `refund_allocation_exceeds_tender` (see `ReturnUnprocessable`), after every 400 and 409. Until the F-2 runtime the server records `method` and `amount` only, and its strict DTO rejects the three new fields (400). No return pricing rule changes: the frozen-economics pricing above and the per-line quantity cap are unchanged.
+             *
+             *     Refund obligation (R-1, R-4; from the F-2 runtime): an accepted return owes its `returnTotal`. Its obligation is `open` until settled cash executions are recorded against its allocations, `partially_settled` while they sum to less than `returnTotal`, and `settled` once they sum to it. The state is derived from the append-only acceptance, allocation and execution facts and is never stored (RT-277). A return whose `returnTotal` is 0 owes nothing and is settled at acceptance, with or without `allocationRef`. Any other return whose allocations carry no `allocationRef` cannot be settled through executions; its settlement is not tracked (`settlement: null` on the reads), exactly as for a return recorded before F-2. Disposition stays implicit in V1 (R-1): the ERPNext credit note restocks.
              *
              *     Invariants (D2), enforced in the database under a row lock on the sale as well as in the service: per line, cumulative returned ≤ sold (409 `over_return`); a voided sale cannot be returned and a sale with any return cannot be voided (409 `already_reversed`). Each `lineRef` must be a line of THIS sale and appear at most once per request, and each `quantity` must be > 0 and, on a line sold in a whole quantity, whole (RT-105) — otherwise 400 `validation_error`. A replay is never re-checked: a return recorded before the whole-quantity rule still replays 200. Online-only (D4) and same-terminal lookup (D5) are POS rules.
              *
              *     Credit sales (RT-577, from the RT-577 runtime): a return of a sale with payer responsibilities is refused with 403 `credit_sale_reversal_restricted` for every operator (see `CreditSaleReversalRestricted`), because its refund tenders must equal the whole `returnTotal` and part of that was never collected; it is returned only through `recordCreditSaleReversal`. The refusal is decided after the returns gate and the sale resolve (404) and a provenance replay (200, or its 409 `conflict`), and before reversal exclusivity (409), the line checks (400, 409 `over_return`) and the tender check (422). Nothing is recorded.
              *
-             *     Idempotency: the `Idempotency-Key` header is REQUIRED and the return is deduped on its own `(tenant, sourceSystem, externalId)` provenance. The same provenance with the same payload replays (200); with a different payload or against a different sale it is 409 `conflict`.
+             *     Idempotency: the `Idempotency-Key` header is REQUIRED and the return is deduped on its own `(tenant, sourceSystem, externalId)` provenance. The same provenance with the same payload replays (200); with a different payload or against a different sale it is 409 `conflict`. The allocation fields are part of that payload (R-3): re-sending a recorded return with an `allocationRef`, `originalTenderRef` or `instrument` added, removed or changed is 409 `conflict`. A return recorded without them still replays (200) when it is re-sent without them; a replay is never re-checked against the allocation rules. An absent `instrument` means `cash` but hashes differently, so the POS re-sends exactly the bytes it first sent (as it already does).
              *
-             *     Posting: each return becomes a `reversal` work-item with `reversalKind: return` on the ERPNext posting feed (`erpnext-connector/posting-feed.yaml`). Backend-Core MUST NOT emit it before the Connector supports it (RT-16) and supports settlement (RT-78).
+             *     Posting: each return becomes ONE `reversal` work-item with `reversalKind: return` on the ERPNext posting feed (`erpnext-connector/posting-feed.yaml`). Backend-Core MUST NOT emit it before the Connector supports it (RT-16) and supports settlement (RT-78). Settle before post (R-7, from the F-2 runtime, behind a deploy flag). Each return is emitted exactly once, at one of two moments: (a) at acceptance, as before RT-490, when the flag is off at acceptance, or when the return cannot be settled through executions (its allocations carry no `allocationRef`), or when its `returnTotal` is 0; (b) otherwise at settlement, in the transaction of the execution that settles the obligation, with `refundTenders` projected from the return's settled cash executions. A return that took path (b) is emitted at its settlement whatever the flag says by then, so turning the flag off again never strands it, and a return emitted at acceptance is never emitted again. A return recorded through `recordCreditSaleReversal` keeps its RT-577 posting unchanged.
              */
             post: operations["recordReturn"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/pos/v1/sales/{saleRef}/returns/{returnRef}/executions": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Record that one refund allocation of a return was paid out.
+             * @description RT-271 R-1, R-3, R-4 (RT-490). Records a REFUND EXECUTION: the fact that money was actually paid out for one allocation of an accepted return (`RefundTender.allocationRef`). It is append-only and distinct from the acceptance and from the allocation. A settled execution is never rolled back or edited (Sales & Returns 1063): a receipt or printing failure after it changes nothing. For the pilot the POS reports only `settled` cash executions, after its payout reached `paid_out` (a drawer kick that `opened`, or a manual attestation); a confirmed but unpaid return reports nothing (R-4). The executions drive the return's refund obligation (see `recordReturn`, Refund obligation), its ERP posting (R-7) and the shift-close cross-check (R-9, `pos-shifts.openapi.yaml` `closeShift`).
+             *
+             *     Checks, in this order:
+             *     1. The sale resolves in the caller's (tenant, store) scope and
+             *        `returnRef` is a return of THIS sale recorded through
+             *        `recordReturn`, else 404 `not_found` (non-disclosing, one body). A
+             *        return recorded through `recordCreditSaleReversal` is outside
+             *        RT-490: it carries no allocation an execution can name, so it is
+             *        this 404. Its posting and its shift-close count are unchanged
+             *        (see `pos-shifts.openapi.yaml` `closeShift`).
+             *
+             *     2. Provenance replay: the execution is deduped on its own `(tenant,
+             *        sourceSystem, externalId)` provenance. The same provenance with the
+             *        same payload on the same return replays (200, `Idempotent-Replayed:
+             *        true`). The same provenance with a different payload or against
+             *        another return, or an `executionRef` (unique within the tenant)
+             *        already recorded with another provenance or payload, is 409
+             *        `conflict` (R-3). A replay is never re-checked against the rules
+             *        below.
+             *
+             *     3. `allocationRef` names an allocation of THIS return, else 400
+             *        `validation_error` (a return recorded without `allocationRef` has
+             *        no allocation an execution can name). `evidence.paidAt` is at
+             *        most 120 s after the server clock, else 400 `validation_error`;
+             *        it is not compared with the return's `recordedAt` (an offline
+             *        payout is reported later). One shift per return (V1): every
+             *        execution of a return carries the same `evidence.shiftRef`, else
+             *        400 `validation_error`, because a return is claimed by one shift's
+             *        close only (R-9).
+             *
+             *     4. Under the `sales` row lock (the R-5 lock): the settled executions
+             *        of the allocation, this one included, sum to at most the
+             *        allocation's `amount`, else 422
+             *        `refund_execution_exceeds_allocation`.
+             *
+             *     The execution's instrument and currency are its allocation's (cash, in the return's currency); the body carries neither. `evidence.shiftRef` is recorded as reported and is not checked against a recorded shift here, because that shift's open can still be on its way (the POS drains each outbox in order); `closeShift` binds it (R-9).
+             *
+             *     Settle before post (R-7, see `recordReturn`, Posting): for a return that was not emitted at acceptance, the execution whose amount brings the return's settled total to its `returnTotal` emits the return's `reversal` work item in its own transaction, exactly once, whatever the deploy flag says at that moment; a return whose work item was already emitted at acceptance is never emitted again.
+             *
+             *     Idempotency: the `Idempotency-Key` header is REQUIRED. The POS sends the same bytes with the same key on every retry, so a crash between the payout and the send still reports exactly once (F-5). The route is NOT behind `POS_RETURNS_ENABLED`: it only settles a return already accepted, and a gated 404 would strand a payout the drawer already made.
+             */
+            post: operations["recordRefundExecution"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/pos/v1/sales/{saleRef}/returns/by-provenance": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Read the return recorded against a sale under a given provenance.
+             * @description RT-271 R-8 (RT-490), for RT-196. The server-side truth for one return the POS journaled: the return recorded against THIS sale whose provenance is `(sourceSystem, externalId)`, with its derived refund settlement. The `saleReturn` is the same projection `recordReturn` answered with, so the POS can compare it with its journal row (`externalId`, `saleRef`, `returnTotal`, `currencyCode`, `lines`). Sales & Returns 1050 (an unknown return blocks a duplicate) stays a POS rule in V1 (R-8); this read only reports what the server recorded and never confirms, edits or clears anything.
+             *
+             *     404 `not_found` (non-disclosing, one body) when the sale does not resolve in the caller's (tenant, store) scope, or when no return of THIS sale recorded through `recordReturn` has that provenance. A return with that provenance against another sale, and a credit-sale reversal, are the same 404. A 404 is a point-in-time answer: a request still in flight can be recorded after it, so it is not by itself proof that the return was never recorded (RT-196 owns the reconcile rule). Not behind `POS_RETURNS_ENABLED`, for the reason given on `listSaleReturns`. It records nothing.
+             */
+            get: operations["readReturnByProvenance"];
+            put?: never;
+            post?: never;
             delete?: never;
             options?: never;
             head?: never;
@@ -2177,9 +2448,12 @@ export namespace PosSalesSales {
             /**
              * @description A sold line. Snapshot fields are frozen at capture (FR-002/003). `tenantProductRef` is optional lineage only — ad-hoc lines have none (FR-004) and no tenant product is auto-created from a line.
              *     Price invariant (RT-105, RT-87 decision D), compared numerically in exact decimal (`"3.3300"` equals `"3.33"`): `unitPrice` and `lineAmount` have no more significant fractional digits than the line currency's ISO-4217 minor unit (JPY 0, EGP 2, OMR 3, CLF 4 — the exponent of the line's `currencyCode`, never an assumed 2; a code with no ISO-4217 minor unit, such as `XAU` or an unassigned code, cannot meet it); `lineAmount = unitPrice × quantity` exactly; and `quantity` is a whole number (`"2.000000"` is whole; fractional quantities, such as weighed goods, are not accepted yet). A line that breaks any of them is 422 `sale_line_pricing_invalid`.
+             *     Manual discount (RT-740): when `discount` is present, `lineAmount` is the line's NET and the price condition becomes `lineAmount = unitPrice × quantity − discount.amount` exactly; the minor-unit and whole-quantity conditions are unchanged, and `discount.amount` must fit the minor unit too. Without `discount` the condition is `lineAmount = unitPrice × quantity`, exactly as before.
+             *     Tracking (RT-450): a line of a batch-tracked product also carries `tracking` (`CaptureSaleLineTracking`). It does not change the price invariant or any other rule of the line; how it is classified is stated on `captureSale`.
              */
             CaptureSaleLine: {
                 currencyCode: components["schemas"]["CurrencyCode"];
+                discount?: components["schemas"]["CaptureSaleLineDiscount"];
                 lineAmount: components["schemas"]["NonNegativeDecimalAmount"];
                 lineName: string;
                 /** @description Line quantity as reported (exact-decimal string, no float). Bound is numeric(19,6): at most 13 integer digits and 6 fractional digits. */
@@ -2190,8 +2464,82 @@ export namespace PosSalesSales {
                  * @description Optional lineage to a tenant product (FR-003). Never the live source of values.
                  */
                 tenantProductRef?: string;
+                tracking?: components["schemas"]["CaptureSaleLineTracking"];
                 unit: string;
                 unitPrice: components["schemas"]["NonNegativeDecimalAmount"];
+            };
+            /**
+             * @description RT-740 (RT-699 doc 28 option C-A): the line's one manual discount (OD-28-5: per line only; OD-28-6: at most one per line). Absent means the line is not discounted. A line's gross is `unitPrice × quantity`, and its `lineAmount` is gross − `amount` (the net). Every rule below is checked in exact decimal. A malformed object (an unknown key, a `value` that does not fit its `kind`, a value outside an enum) is 400 `validation_error`. Arithmetic that does not hold is 422 `sale_line_pricing_invalid`, and nothing is recorded.
+             *
+             *     `kind` `percent` (OD-28-2): `value` is a whole percent from `1` to `100`, and `amount` is the line gross × `value` / 100, rounded half up to the line currency's ISO-4217 minor unit (OD-28-3: computed once per line, on the line gross, never per unit). `100` makes a free line (OD-28-4), and a percent so small that it rounds to `0` gives an `amount` of `0`. `kind` `amount`: `value` is the money taken off the line, and `amount` equals it numerically. In both kinds `amount` is at most the line gross, because the net `lineAmount` is never negative.
+             *
+             *     Zero total (owner decision, RT-699 comment 12975): a sale whose every line is discounted 100% has `posTotal` `0` and is accepted. Without `tenders` it is a tender-unknown sale, as before (RT-10 D8). With `tenders`, the list holds one `cash` entry of amount `0`, so the tenders still sum to `posTotal`. A free line is returned like any other line: its `returnTotal` is `0`, and the return sends one `cash` refund tender of amount `0`, because an empty `refundTenders` list is 400 (`recordReturn` is unchanged).
+             *
+             *     Storage (this version): the object is validated and hashed into the sale's payload hash and the `Idempotency-Key` fingerprint, but it is not stored, so it does not round-trip: `SaleLine` (`readSale`, `captureSale`), the sale history and detail and the reprint do not return it. Only the net `lineAmount` is stored. The discount amount can be derived as `unitPrice × quantity − lineAmount`, but its kind, reason and approver are not kept on the sale. The till's `cart.discount.manager_authorized` audit event records the kind and reason, but Backend-Core cannot join it to the sale line today (`lineRef` is server-generated and the event names the till's cart line), and the ingest does not persist the event's approver.
+             *
+             *     Returns: `readSale`, the sale history and returns use the net `lineAmount`, so a full return of a discounted line refunds exactly its net. A partial return is priced on the net by the cumulative-difference rule (`recordReturn`). When the net does not divide evenly by `quantity`, a partial return can price to more fractional digits than the currency's minor unit: a net of 2.99 over 3 units returns one unit as 0.9967. The RT-105 promise that every return prices to exactly `unitPrice × q` holds only for a line without `discount`.
+             *
+             *     Personal data: `reasonCode` is a code from a closed list, never free text. No field here is a PIN, a credential, a name or customer data.
+             */
+            CaptureSaleLineDiscount: {
+                /** @description The money taken off the line, in the line currency, as an exact-decimal string like every other money field here (not an integer of minor units). It fits the currency's minor unit. `lineAmount = unitPrice × quantity − amount`. */
+                amount: components["schemas"]["NonNegativeDecimalAmount"];
+                /**
+                 * @description The approver's POS operator role (the `PosOperatorSummary.role` vocabulary). On the till every manual discount is authorized by a manager or an admin (RT-608). A client claim: the server does not verify or store it.
+                 * @enum {string}
+                 */
+                approverRole: "manager" | "admin";
+                /**
+                 * Format: uuid
+                 * @description Optional. The approver's `users.id`, the provider-neutral user identity that RT-224 uses for `operatorUserId`. It is never a Clerk subject, a PIN or a credential. This is a provenance claim only: it is hashed with the sale, but it is not verified, not stored and never used for authorization or attribution. The sale's attribution stays the authenticated operator (or, on the `device` path, the RT-224 cashier).
+                 */
+                approverUserId?: string;
+                /**
+                 * @description How the discount was authorized on the till (RT-608 / RT-114): `cashier_approval` means a cashier's add consumed a manager approval, and `manager_session` means a manager or admin session applied it directly (D2). A client claim: the server does not check it against the operator envelope or the device path, and does not store it.
+                 * @enum {string}
+                 */
+                authoritySource: "cashier_approval" | "manager_session";
+                /**
+                 * @description OD-28-1 (both kinds; one discount per line).
+                 * @enum {string}
+                 */
+                kind: "percent" | "amount";
+                /**
+                 * @description OD-28-9 (closed list, required on both paths): `promotion` (عرض ترويجي), `loyal_or_contract_customer` (عميل دائم / تعاقد), `near_expiry_or_damaged` (قرب انتهاء / عبوة تالفة), `price_correction` (تصحيح سعر). A code only, never free text.
+                 * @enum {string}
+                 */
+                reasonCode: "promotion" | "loyal_or_contract_customer" | "near_expiry_or_damaged" | "price_correction";
+                /** @description For `percent`: a whole percent, `1` to `100`, with no leading zero and no fraction (`^(100|[1-9][0-9]?)$`). For `amount`: a positive exact-decimal amount in the line currency, equal to `amount`. */
+                value: string;
+            } & (unknown & unknown);
+            /**
+             * @description RT-450 (RT-50 G7-9, G7-13; contract-only until RT-451): the tracking identity a line of a batch-tracked product sold. One identity per line: a quantity from two lots is two lines (G7-4). Absent on a line of an untracked product. The line freezes this snapshot at capture (437), and it is included in the sale `payload_hash`.
+             *     Source of truth, field by field: `identityId`, `code` and `expiryDate` are the Backend-Core Inventory tracking identity record (G7-2), as the till received them from the validation; they are never defined by the till and never taken from the ERPNext Batch. The ERP Batch ref is not here: it comes from the Inventory edge map and is frozen with the posting intent. `selection` and `validationId` are the till's account of how the lot was chosen and which online validation covered it.
+             *     `validationId` and `expiryDate` are optional on purpose, so that no row of the G7-9 classification table (see `captureSale`) needs a 400: a line sent without `validationId` is classified as a tracked line without online validation, never refused. A malformed object (an unknown key, a `selection` outside the enum, a non-UUID id) is a 400 `validation_error`, as for any body field; a well-formed `tracking` that names an unknown or wrong identity is accepted and classified.
+             */
+            CaptureSaleLineTracking: {
+                /** @description The lot number exactly as recorded on the identity (`TrackingIdentity.code`, at most 128 characters), matched exactly, never fuzzily. A snapshot: it is not re-read from the identity later. */
+                code: string;
+                /**
+                 * Format: date
+                 * @description The identity's calendar expiry date as the validation returned it. Omit it for a lot without an expiry. The identity record is the source of truth: a value that differs from it is recorded as sent and never changes the classification.
+                 */
+                expiryDate?: string;
+                /**
+                 * Format: uuid
+                 * @description The Inventory tracking identity (`TrackingIdentity.id`) sold on this line, as returned by `posValidateTrackedLine` or `posListTrackedLots`. Backend-Core Inventory is its source of truth.
+                 */
+                identityId: string;
+                /**
+                 * @description How the lot was chosen on the till (RT-50 G7-13): `scanned` (its code was scanned or typed), `fefo_suggested` (the till took the server's FEFO suggestion) or `operator_selected` (the cashier picked another lot). FEFO is suggest-only: choosing another lot needs no approval in V1 and is recorded, never refused.
+                 * @enum {string}
+                 */
+                selection: "scanned" | "fefo_suggested" | "operator_selected";
+                /**
+                 * Format: uuid
+                 * @description The `validationId` of the accepted `posValidateTrackedLine` that covered this line. Optional: its absence, or a value that does not match an accepted validation of this identity in this tenant and store, is classified (G7-9 row 2), not rejected.
+                 */
+                validationId?: string;
             };
             /**
              * @description OPTIONAL (RT-537; [GATED] approval Jira RT-537 comment 12057). The facts the original receipt printed that are not otherwise sale facts, so a duplicate printed on another terminal of the store can match the original (RT-534 OD-534-3, RT-537 Q-3). Accepted from RT-539; do not send before then (see the versioning note).
@@ -2258,6 +2606,13 @@ export namespace PosSalesSales {
                 receipt?: components["schemas"]["CaptureSaleReceipt"];
                 /** @description OPTIONAL (RT-417, owner decision R-1) — who owes the part of the sale not paid at the till: one entry per payer, each an amount in the sale's currency. At most one payer per sale in this version: the posting feed acknowledges one Sales Invoice per work item, and an ERPNext Sales Invoice bills one Customer, so a multi-payer sale needs a later version once RT-419 decides its ERPNext shape (Codex review of #779). Accepted from RT-418; do not send before then (see the versioning note). Only on the `operatorAuthorization` path, for an envelope operator whose role is `owner`, `tenant_admin` or `store_manager` (else 403 `sale_responsibility_role_refused`), captured synchronously before finalize; on the `device` path the body is 422 `sale_responsibility_offline_refused`. When present, the coverage rule `sum(tenders) + sum(responsibilities) = posTotal` must hold in exact decimal arithmetic, no rounding (else 422 `sale_responsibility_mismatch`). It replaces the RT-76 tender-only rule for this body: an absent `tenders` counts as zero, so a sale whose payers cover the whole `posTotal` is a full-credit sale and is NOT a tender-unknown sale (RT-10 D8 applies only when both lists are absent). Per-sale rules, each a 400 `validation_error`: `payerRef` is unique within the sale; `sequence` is unique within the sale. The list is part of the sale `payload_hash`, so a replay that adds, drops or changes a responsibility is a different payload (409). An absent list leaves the `payload_hash` of the sale unchanged, so sales captured without it replay as before. */
                 responsibilities?: components["schemas"]["SaleResponsibility"][];
+                /** @description OPTIONAL (RT-450; RT-50 G7-7). The tenant's Inventory Safety Revision in the last safety data the till synced, as the till held it when it finalized the sale. Source of truth: Backend-Core Inventory, which increments the per-tenant revision on every hold, recall, expiry correction and tracking-profile change; the till only echoes the value it received. It is a provenance claim, never a credential and never used for authorization. Send it together with `safetySyncedAt` when the till holds safety data; each is recorded as sent, and an absent value is recorded as unknown. Not part of the sale `payload_hash`; part of the idempotency fingerprint. A provenance replay never rewrites the stored value. Accepted from RT-451; do not send before then (see the versioning note). */
+                safetyRevision?: number;
+                /**
+                 * Format: date-time
+                 * @description OPTIONAL (RT-450; RT-50 G7-7). The till's instant of its last successful safety sync. Like `sourceClockAt` it is preserved as provenance and NEVER consulted for a security, TTL or expiry decision (FR-022): the server compares its own clocks. Not part of the sale `payload_hash`; part of the idempotency fingerprint. Accepted from RT-451; do not send before then.
+                 */
+                safetySyncedAt?: string;
                 /**
                  * Format: date-time
                  * @description OPTIONAL POS-reported clock, preserved as provenance. NEVER consulted for any security / TTL / expiry / rate-limit decision (FR-022).
@@ -2384,6 +2739,31 @@ export namespace PosSalesSales {
                  */
                 payerRef: string;
             };
+            /** @description RT-490 (RT-271 R-3, R-4). One refund execution: the payout of one allocation of the path's return (see `recordRefundExecution`). Strict: the instrument, the currency, `recordedAt`, tenant, store and actor resolve server-side and are rejected if body-supplied (FR-061). Auth: the operator-authorization envelope in `Authorization: Bearer <envelope>` (`operatorAuthorization`), re-verified live per request (G-4). */
+            RecordRefundExecutionRequest: {
+                /**
+                 * Format: uuid
+                 * @description The allocation paid out: an `allocationRef` of THIS return's `refundTenders`, else 400.
+                 */
+                allocationRef: string;
+                /** @description The amount paid out for the allocation, in the return's currency. The allocation's settled executions sum to at most its `amount`, else 422 `refund_execution_exceeds_allocation`. The pilot POS pays an allocation out in one execution. */
+                amount: components["schemas"]["PositiveDecimalAmount"];
+                evidence: components["schemas"]["RefundExecutionEvidence"];
+                /**
+                 * Format: uuid
+                 * @description The execution's own stable identity, minted by the POS (UUIDv7) when it records the payout, and part of the payload, so it never changes on a retry (R-3).
+                 */
+                executionRef: string;
+                /** @description POS-side execution identifier; with `sourceSystem`, the execution's dedup key. */
+                externalId: string;
+                /**
+                 * @description R-4: the pilot reports `settled` executions only. The other outcome events (`requested`, `failed`, `unknown`) are a later, post-pilot version.
+                 * @enum {string}
+                 */
+                outcome: "settled";
+                /** @description Provenance + dedup key of the execution itself (FR-013). */
+                sourceSystem: string;
+            };
             /** @description Refund terminal event. Records ONLY the POS-reported refund amount — no tender / payment data (gate A.5). `refundedAt` / tenant / store / actor resolve server-side (FR-061). Auth (031 D1+D2): the operator-authorization envelope in `Authorization: Bearer <envelope>` (`operatorAuthorization`); predicate re-verified live per request (G-4). */
             RecordRefundRequest: {
                 currencyCode: components["schemas"]["CurrencyCode"];
@@ -2399,7 +2779,7 @@ export namespace PosSalesSales {
                 lines: components["schemas"]["ReturnLineRequest"][];
                 /** @description Optional free-text return reason. No PII. */
                 reason?: string;
-                /** @description How the refund was paid out (D3). The amounts MUST sum to the server-computed `returnTotal`, else 422 `return_tender_mismatch`. */
+                /** @description The refund allocations: how the refund is to be paid (D3, RT-271 R-2), not a payout record. The amounts MUST sum to the server-computed `returnTotal`, else 422 `return_tender_mismatch`. From the F-2 runtime the allocation rules of `recordReturn` apply: `allocationRef` on every entry or on none, the instrument rule (422 `refund_instrument_not_allowed`) and the refundable-balance rule (422 `refund_allocation_exceeds_tender`). */
                 refundTenders: components["schemas"]["RefundTender"][];
                 /** @description Provenance + dedup key of the return itself (FR-013). */
                 sourceSystem: string;
@@ -2415,14 +2795,93 @@ export namespace PosSalesSales {
                 externalId: string;
                 sourceSystem: string;
             };
-            /** @description One refund payout, recorded as a fact (RT-14 D3), in the sale's currency. The Connector pays the return out with it on the reversing invoice (RT-10 D6). */
+            /** @description RT-490. Wire projection of a recorded refund execution. A separate append-only record; the return and its allocations are unchanged. Carries no `tenant_id`, no `payload_hash`, no `created_by`. */
+            RefundExecution: {
+                /** Format: uuid */
+                allocationRef: string;
+                amount: components["schemas"]["PositiveDecimalAmount"];
+                currencyCode: components["schemas"]["CurrencyCode"];
+                evidence: components["schemas"]["RefundExecutionEvidence"];
+                /** Format: uuid */
+                executionRef: string;
+                externalId: string;
+                /**
+                 * @description The allocation's instrument.
+                 * @enum {string}
+                 */
+                instrument: "cash";
+                /** @enum {string} */
+                outcome: "settled";
+                /**
+                 * Format: date-time
+                 * @description Server-clock stamp of the execution (never a client time).
+                 */
+                recordedAt: string;
+                /**
+                 * Format: uuid
+                 * @description The return whose allocation was paid out.
+                 */
+                returnRef: string;
+                /**
+                 * Format: uuid
+                 * @description The sale the return is against.
+                 */
+                saleRef: string;
+                sourceSystem: string;
+            };
+            /** @description RT-490. The evidence that settles a cash execution (RT-271 §4, Sales & Returns 1059): the drawer opened, or a manual attestation was given, with the time and the shift whose drawer paid. */
+            RefundExecutionEvidence: {
+                /**
+                 * @description `drawer` — the drawer kick reported `opened`. `manual` — a manual payout attestation on the terminal (for example when the kick's outcome was unknown). An unknown kick alone never settles.
+                 * @enum {string}
+                 */
+                method: "drawer" | "manual";
+                /**
+                 * Format: date-time
+                 * @description When the cash was paid out (device clock). Recorded as reported; at most 120 s after the server clock, else 400; no lower bound (an offline payout is reported later).
+                 */
+                paidAt: string;
+                /**
+                 * Format: uuid
+                 * @description The `shiftId` (`pos-shifts.openapi.yaml`) of the shift whose drawer paid the cash. Recorded as reported; every execution of one return carries the same `shiftRef` (else 400); `closeShift` checks it (R-9).
+                 */
+                shiftRef: string;
+            };
+            /** @description RT-490 (RT-271 R-1). The refund obligation of one return, derived from its allocations and settled executions (never stored, RT-277); see `recordReturn`, Refund obligation. */
+            RefundSettlement: {
+                /** @description The return's executions, oldest first (`recordedAt`, then `executionRef`). */
+                executions: components["schemas"]["RefundExecution"][];
+                /** @description Σ amount of the return's settled executions. */
+                settledAmount: components["schemas"]["NonNegativeDecimalAmount"];
+                /**
+                 * @description `open` — nothing settled yet; `partially_settled` — the settled executions sum to less than `returnTotal`; `settled` — they sum to `returnTotal` (a return whose `returnTotal` is 0 is `settled` with no execution).
+                 * @enum {string}
+                 */
+                state: "open" | "partially_settled" | "settled";
+            };
+            /** @description One refund ALLOCATION (RT-14 D3, reinterpreted by RT-271 R-2; RT-490), in the sale's currency: the part of the return's refund that is owed, by which instrument and against which original tender. It says how the refund is to be paid; it is NOT a payout fact. The payout is a separate refund execution (`recordRefundExecution`). For a return whose allocations carry `allocationRef`, only settled executions affect the drawer count at close (R-9) and, once the R-7 flag is on, the ERP refund. An allocation without `allocationRef` (every allocation recorded before RT-490, and any sent without one) stays valid and is accepted, but no execution can name it, so its return's settlement is not tracked. The three RT-490 fields are accepted from the F-2 runtime (see `recordReturn`, Allocation rules). Credit-sale returns are outside RT-490. On `recordCreditSaleReversal`, whose credit `return` applies this shape on top of `CreditReversalRefundTender`, the three fields are not accepted: that schema does not declare them and is closed. Its RT-577 refund semantics, its posting and its shift-close count (its recorded refund tenders) are unchanged, and no refund execution is recorded for it. */
             RefundTender: {
+                /**
+                 * Format: uuid
+                 * @description OPTIONAL (R-3) — the allocation's own stable identity, minted by the POS (UUIDv7) when it creates the return and part of the return's payload, so it never changes on a retry. Unique within the return. A refund execution names its allocation by it. Absent = a ref-less allocation that no execution can settle.
+                 */
+                allocationRef?: string;
                 amount: components["schemas"]["NonNegativeDecimalAmount"];
                 /**
-                 * @description Cash only (RT-14 D3). RT-10 D2 left refunds cash-only; a card refund is not recorded here.
+                 * @description OPTIONAL (R-2, R-10) — the refund instrument. Absent means `cash`. `cash` only for the pilot (R-12); `card_external`, `store_credit` and `receivable_reduction` are post-pilot and arrive in a later version.
+                 * @enum {string}
+                 */
+                instrument?: "cash";
+                /**
+                 * @description Cash only (RT-14 D3). RT-10 D2 left refunds cash-only; a card refund is not recorded here. The ERP payment method the refund posts as.
                  * @enum {string}
                  */
                 method: "cash";
+                /**
+                 * Format: uuid
+                 * @description OPTIONAL (R-2; Sales & Returns 1055/1057) — the `tenderRef` of the sale tender line this allocation is refunded against; must be a tender of this sale (else 400). Absent = the allocation is charged against the sale's cash tenders together (a legacy tender is addressed by `(sale, method)`, RT-264 D2), or, on a sale captured with no tenders, against none (R-6). See `recordReturn`, Allocation rules.
+                 */
+                originalTenderRef?: string;
             };
             /** @description One returned line as priced by the server, with the line's remaining returnability. */
             ReturnLine: {
@@ -2447,6 +2906,12 @@ export namespace PosSalesSales {
                 lineRef: string;
                 /** @description Quantity returned, exact-decimal string (no float), same bound as the sale line's `quantity`. MUST be > 0 and ≤ the line's `returnableQuantity` (else 400 / 409 `over_return`). MUST be a whole number when the line was sold in a whole quantity (RT-105; else 400 `validation_error`). */
                 quantity: string;
+            };
+            /** @description RT-490 (R-8). One recorded return with its refund settlement, on `readReturnByProvenance` and `listSaleReturns`. */
+            ReturnRead: {
+                saleReturn: components["schemas"]["SaleReturn"];
+                /** @description The return's refund obligation; null when it is not tracked (a return with a non-zero `returnTotal` whose allocations carry no `allocationRef`). A zero-total return is `settled`. */
+                settlement: components["schemas"]["RefundSettlement"] | null;
             };
             /** @description Wire projection of a captured sale. Decoupled from the `sales` / `sale_lines` DB schema (§IV). Carries no `tenant_id` (implicit in the authenticated scope), no `payload_hash`, no `created_by`, and no device. Tender facts ride `tenders` (RT-10 D1) only. */
             Sale: {
@@ -2476,6 +2941,13 @@ export namespace PosSalesSales {
                 receivedAt: string;
                 /** @description The sale's payer responsibilities as captured (RT-417). Absent for a sale captured without them; at most one in this version, matching the capture request and the posting feed. Emitted from RT-418; optional until then. */
                 responsibilities?: components["schemas"]["SaleResponsibility"][];
+                /** @description RT-450 (RT-50 G7-7): the Inventory Safety Revision the till reported at capture (`CaptureSaleRequest.safetyRevision`), echoed as recorded. Null when the sale was captured without it; absent from a Backend-Core that predates RT-451. Optional. */
+                safetyRevision?: number | null;
+                /**
+                 * Format: date-time
+                 * @description RT-450 (RT-50 G7-7): the till's reported last safety sync time (`CaptureSaleRequest.safetySyncedAt`), echoed as recorded. Null when absent at capture; absent from a Backend-Core that predates RT-451. Provenance only, never a security clock. Optional.
+                 */
+                safetySyncedAt?: string | null;
                 /**
                  * Format: uuid
                  * @description Stable server-issued reference (= `sales.id`).
@@ -2515,8 +2987,24 @@ export namespace PosSalesSales {
                 taxAmount?: components["schemas"]["DecimalAmount"] | null;
                 /** @description Optional lineage to a tenant product; null for ad-hoc lines (FR-004). */
                 tenantProductRef?: string | null;
+                tracking?: components["schemas"]["SaleLineTracking"];
                 unit: string;
                 unitPrice: components["schemas"]["DecimalAmount"];
+            };
+            /** @description RT-450 (RT-50 G7-9): the tracking snapshot a line was captured with, echoed as recorded (`CaptureSaleLineTracking`). Absent on a line captured without it and from a Backend-Core that predates RT-451; optional, never in `SaleLine.required`. The identity fields are the Backend-Core Inventory tracking identity as the till reported it: the line freezes the snapshot, and a later change of the identity record does not rewrite it. A return takes the identity from this line through `lineRef`; a client never supplies it (G7-10). */
+            SaleLineTracking: {
+                code: string;
+                /** Format: date */
+                expiryDate?: string | null;
+                /** Format: uuid */
+                identityId: string;
+                /** @enum {string} */
+                selection: "scanned" | "fefo_suggested" | "operator_selected";
+                /**
+                 * Format: uuid
+                 * @description Null when the line was captured without a `validationId`.
+                 */
+                validationId?: string | null;
             };
             /** @description One payer's share of the sale (RT-417, owner decision R-1), in the sale's currency. Part of the immutable sale fact. NOT a receivable: no balance, no state; ERPNext owns what is later collected. The amount is a gross share of `posTotal`; tax is not split per payer (035 OQ-2, tax deactivated in v1). */
             SaleResponsibility: {
@@ -2545,6 +3033,7 @@ export namespace PosSalesSales {
                  * @description Server-clock stamp of the return (never a client time).
                  */
                 recordedAt: string;
+                /** @description The return's refund allocations as recorded (RT-490), not payouts. From the F-2 runtime each entry carries the `allocationRef`, `originalTenderRef` and `instrument` it was recorded with; an allocation recorded without them carries none (never backfilled). */
                 refundTenders: components["schemas"]["RefundTender"][];
                 /**
                  * Format: uuid
@@ -2559,6 +3048,13 @@ export namespace PosSalesSales {
                  */
                 saleRef: string;
                 sourceSystem: string;
+            };
+            /** @description RT-490 (R-8). The returns recorded against one sale (`listSaleReturns`). */
+            SaleReturnList: {
+                /** @description Oldest first (`recordedAt`, then `returnRef`); empty when the sale has no return. */
+                returns: components["schemas"]["ReturnRead"][];
+                /** Format: uuid */
+                saleRef: string;
             };
             /** @description One way a sale was paid (RT-10 D1), in the sale's currency. Recorded as part of the immutable sale fact; not a payment ledger (ADR-0005). */
             SaleTender: {
@@ -2659,7 +3155,7 @@ export namespace PosSalesSales {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 422 on `captureSale`. `error.code` is one of: `sale_tender_mismatch` (RT-10 D1) — the capture's `tenders` amounts do not sum to `posTotal` exactly; `sale_line_pricing_invalid` (RT-105) — a line breaks the `CaptureSaleLine` price invariant; `sale_responsibility_mismatch` (RT-417) — `responsibilities` is present and `sum(tenders) + sum(responsibilities)` does not equal `posTotal` exactly; `sale_responsibility_payer_invalid` (RT-417) — a `payerRef` that does not exist, belongs to another tenant, is scoped to another store, is `suspended`, or has no `externalRef` (no ERPNext Customer link: null or blank), with one body for every cause, never naming which; `sale_responsibility_offline_refused` (RT-417, owner decision 2026-10-16) — `responsibilities` sent on the `device` path (credit is accepted only on the `operatorAuthorization` path). `sale_tender_mismatch` is returned only when `responsibilities` is absent; with it, the combined rule replaces the tender-only rule. Order: `sale_responsibility_offline_refused` first, then the coverage rule (tender or combined), then the line price invariant, then the payers. Deterministic; nothing is recorded. */
+            /** @description 422 on `captureSale`. `error.code` is one of: `sale_tender_mismatch` (RT-10 D1) — the capture's `tenders` amounts do not sum to `posTotal` exactly; `sale_line_pricing_invalid` (RT-105) — a line breaks the `CaptureSaleLine` price invariant (with a RT-740 `discount`: the net condition, or the discount's own arithmetic in `CaptureSaleLineDiscount`); `sale_responsibility_mismatch` (RT-417) — `responsibilities` is present and `sum(tenders) + sum(responsibilities)` does not equal `posTotal` exactly; `sale_responsibility_payer_invalid` (RT-417) — a `payerRef` that does not exist, belongs to another tenant, is scoped to another store, is `suspended`, or has no `externalRef` (no ERPNext Customer link: null or blank), with one body for every cause, never naming which; `sale_responsibility_offline_refused` (RT-417, owner decision 2026-10-16) — `responsibilities` sent on the `device` path (credit is accepted only on the `operatorAuthorization` path). `sale_tender_mismatch` is returned only when `responsibilities` is absent; with it, the combined rule replaces the tender-only rule. Order: `sale_responsibility_offline_refused` first, then the coverage rule (tender or combined), then the line price invariant, then the payers. Deterministic; nothing is recorded. */
             CaptureUnprocessable: {
                 headers: {
                     [name: string]: unknown;
@@ -2704,7 +3200,7 @@ export namespace PosSalesSales {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description FR-101 `not-found` — the sale ref does not resolve within the caller's (tenant, store) scope. Non-disclosing: identical for cross-tenant, out-of-scope, and genuinely-absent ids, with no existence leak via any response or error shape (FR-102, SI-004, §II/§XII). */
+            /** @description FR-101 `not-found` — the sale ref does not resolve within the caller's (tenant, store) scope, or (RT-490) the return ref or return provenance does not resolve as a return of that sale. Non-disclosing: identical for cross-tenant, out-of-scope, and genuinely-absent ids, with no existence leak via any response or error shape (FR-102, SI-004, §II/§XII). */
             NotFound: {
                 headers: {
                     [name: string]: unknown;
@@ -2713,8 +3209,26 @@ export namespace PosSalesSales {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 422 `return_tender_mismatch` (RT-14 D3) — the `refundTenders` amounts do not sum to the server-computed `returnTotal`. Deterministic; nothing is recorded. */
-            ReturnTenderMismatch: {
+            /** @description 409 on `recordRefundExecution` (RT-490). `error.code` is one of: `idempotency_key_conflict` — the same `Idempotency-Key` reused with a different payload; `conflict` — the execution's `(sourceSystem, externalId)` provenance was already used with a different payload or for another return, or its `executionRef` was already recorded with another provenance or payload (R-3). Deterministic; nothing is recorded. */
+            RefundExecutionConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 422 `refund_execution_exceeds_allocation` on `recordRefundExecution` (RT-490) — the allocation's settled executions, this one included, would sum to more than the allocation's `amount`. Checked under the `sales` row lock. Deterministic; nothing is recorded and the obligation is unchanged. */
+            RefundExecutionUnprocessable: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 422 on `recordReturn` (renamed from `ReturnTenderMismatch` in RT-490). `error.code` is one of, in this order: `return_tender_mismatch` (RT-14 D3) — the `refundTenders` amounts do not sum to the server-computed `returnTotal`; `refund_instrument_not_allowed` (RT-490, R-12; from the F-2 runtime) — the sale carries a tender whose `method` is not `cash` (pilot returns are cash-only, for all-cash sales only); `refund_allocation_exceeds_tender` (RT-490, R-5; from the F-2 runtime) — the allocations would exceed a tender's refundable balance, counted over every accepted return and legacy refund of the sale (see `recordReturn`, Allocation rules). Deterministic; nothing is recorded. */
+            ReturnUnprocessable: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2790,11 +3304,27 @@ export namespace PosSalesSales {
         parameters: {
             /** @description REQUIRED on every write. 16 to 128 printable ASCII characters with no whitespace, as the interceptor enforces (RT-181); any other value is a 400. Reuses the existing `IdempotencyInterceptor` (FR-051) — keyed on `(method, route template, resolved path parameters, clientId = the authenticated operator's user id, key)`, per RT-82 K1. The same key on a DIFFERENT `saleRef` is therefore a separate operation and is never answered with another sale's stored response. An identical retry on the same route and resource replays the stored response with its stored status and `Idempotent-Replayed: true`; key-reuse with a different logical payload returns 409 `idempotency_key_conflict` (FR-051, 005 FR-021c). No new idempotency primitive is introduced. */
             IdempotencyKey: string;
+            /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosAppVersion: string;
+            /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosBuildCommit: string;
+            /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosContractPin: string;
+            /** @description RT-490. The `externalId` the return was sent with (`RecordReturnRequest.externalId`), compared exactly. A POS-side return identifier, never PII. */
+            ReturnExternalId: string;
+            /** @description RT-490. Stable server-issued return reference (`SaleReturn.returnRef`) returned by `recordReturn`. Resolves only as a return of the path's sale, within the caller's (tenant, store) scope; anything else is a non-disclosing 404. */
+            ReturnRef: string;
+            /** @description RT-490. The `sourceSystem` the return was sent with (`RecordReturnRequest.sourceSystem`), compared exactly. */
+            ReturnSourceSystem: string;
             /** @description Stable server-issued sale reference returned by `captureSale`. Resolves only within the caller's (tenant, store) scope — out-of-scope refs are non-disclosing 404s (FR-063/102). */
             SaleRef: string;
         };
         requestBodies: never;
         headers: {
+            /** @description RT-639. Present only when this device credential has 15 days or less left: the ISO-8601 instant `expires_at - 15 days` (the same instant as `rotate_after` in the `posRotateTerminalToken` response). The terminal rotates at or after it. Absent while more than 15 days remain. Never carries token material. See `pos-terminal-pairing.openapi.yaml`, "Credential rotation". */
+            DeviceTokenRotateAfter: string;
+            /** @description RT-639. Sent with `X-Device-Token-Rotate-After`: `notice` (15 days or less left), `warning` (10 or less), `urgent` (3 or less, or already past `expires_at`). The server keeps no per-device state, so it sends the stage on every response while it holds; the terminal shows each stage the first time it sees it. */
+            DeviceTokenRotateStage: "notice" | "warning" | "urgent";
             /** @description Present and `true` on every idempotent-replay response: a provenance replay (`200`) and a same-`Idempotency-Key` replay, which carries the stored status (normally `201`) per RT-82 K4. Clients MUST detect a replay by this header, not by the status code (mirrors the `posCaptureItem` convention). Absent on a first-time create. */
             IdempotentReplayed: boolean;
             /** @description Seconds the caller should wait before retrying, on a 429 (ADR 0009). Clamped to [1, 300]. A POS client treats a 429 as TRANSIENT (retry after this delay), NOT a permanent dead-letter (POS `classifyStatus`). */
@@ -2810,6 +3340,12 @@ export namespace PosSalesSales {
                 header: {
                     /** @description REQUIRED on every write. 16 to 128 printable ASCII characters with no whitespace, as the interceptor enforces (RT-181); any other value is a 400. Reuses the existing `IdempotencyInterceptor` (FR-051) — keyed on `(method, route template, resolved path parameters, clientId = the authenticated operator's user id, key)`, per RT-82 K1. The same key on a DIFFERENT `saleRef` is therefore a separate operation and is never answered with another sale's stored response. An identical retry on the same route and resource replays the stored response with its stored status and `Idempotent-Replayed: true`; key-reuse with a different logical payload returns 409 `idempotency_key_conflict` (FR-051, 005 FR-021c). No new idempotency primitive is introduced. */
                     "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                    /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-App-Version"?: components["parameters"]["PosAppVersion"];
+                    /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Build-Commit"?: components["parameters"]["PosBuildCommit"];
+                    /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Contract-Pin"?: components["parameters"]["PosContractPin"];
                 };
                 path?: never;
                 cookie?: never;
@@ -2824,6 +3360,8 @@ export namespace PosSalesSales {
                 200: {
                     headers: {
                         "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -2834,6 +3372,8 @@ export namespace PosSalesSales {
                 201: {
                     headers: {
                         "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -2971,6 +3511,32 @@ export namespace PosSalesSales {
                 500: components["responses"]["SystemFailure"];
             };
         };
+        listSaleReturns: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Stable server-issued sale reference returned by `captureSale`. Resolves only within the caller's (tenant, store) scope — out-of-scope refs are non-disclosing 404s (FR-063/102). */
+                    saleRef: components["parameters"]["SaleRef"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The sale's returns, oldest first. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SaleReturnList"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
         recordReturn: {
             parameters: {
                 query?: never;
@@ -3015,7 +3581,88 @@ export namespace PosSalesSales {
                 403: components["responses"]["CreditSaleReversalRestricted"];
                 404: components["responses"]["NotFound"];
                 409: components["responses"]["ReversalConflict"];
-                422: components["responses"]["ReturnTenderMismatch"];
+                422: components["responses"]["ReturnUnprocessable"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        recordRefundExecution: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED on every write. 16 to 128 printable ASCII characters with no whitespace, as the interceptor enforces (RT-181); any other value is a 400. Reuses the existing `IdempotencyInterceptor` (FR-051) — keyed on `(method, route template, resolved path parameters, clientId = the authenticated operator's user id, key)`, per RT-82 K1. The same key on a DIFFERENT `saleRef` is therefore a separate operation and is never answered with another sale's stored response. An identical retry on the same route and resource replays the stored response with its stored status and `Idempotent-Replayed: true`; key-reuse with a different logical payload returns 409 `idempotency_key_conflict` (FR-051, 005 FR-021c). No new idempotency primitive is introduced. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description RT-490. Stable server-issued return reference (`SaleReturn.returnRef`) returned by `recordReturn`. Resolves only as a return of the path's sale, within the caller's (tenant, store) scope; anything else is a non-disclosing 404. */
+                    returnRef: components["parameters"]["ReturnRef"];
+                    /** @description Stable server-issued sale reference returned by `captureSale`. Resolves only within the caller's (tenant, store) scope — out-of-scope refs are non-disclosing 404s (FR-063/102). */
+                    saleRef: components["parameters"]["SaleRef"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RecordRefundExecutionRequest"];
+                };
+            };
+            responses: {
+                /** @description Provenance replay — this execution was already recorded with the same provenance and payload, and no live replay entry exists for this `Idempotency-Key` (a different key, or the same key after its 72h replay window). Returns the identical execution projection with `Idempotent-Replayed: true`; no duplicate record. A same-`Idempotency-Key` retry returns the stored `201` instead (RT-82 K4). */
+                200: {
+                    headers: {
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RefundExecution"];
+                    };
+                };
+                /** @description Execution recorded for the first time. A retry with the same `Idempotency-Key` on the same return replays this stored `201` with `Idempotent-Replayed: true` (RT-82 K4). */
+                201: {
+                    headers: {
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RefundExecution"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["RefundExecutionConflict"];
+                422: components["responses"]["RefundExecutionUnprocessable"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        readReturnByProvenance: {
+            parameters: {
+                query: {
+                    /** @description RT-490. The `externalId` the return was sent with (`RecordReturnRequest.externalId`), compared exactly. A POS-side return identifier, never PII. */
+                    externalId: components["parameters"]["ReturnExternalId"];
+                    /** @description RT-490. The `sourceSystem` the return was sent with (`RecordReturnRequest.sourceSystem`), compared exactly. */
+                    sourceSystem: components["parameters"]["ReturnSourceSystem"];
+                };
+                header?: never;
+                path: {
+                    /** @description Stable server-issued sale reference returned by `captureSale`. Resolves only within the caller's (tenant, store) scope — out-of-scope refs are non-disclosing 404s (FR-063/102). */
+                    saleRef: components["parameters"]["SaleRef"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The recorded return and its refund settlement. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReturnRead"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
                 500: components["responses"]["SystemFailure"];
             };
         };
@@ -3086,7 +3733,7 @@ export namespace PosShifts {
              * Open a shift (record the opening float) on this terminal.
              * @description Records the immutable `ShiftOpened` fact for the authenticated terminal: the client-generated `shiftId`, the POS-clock `openedAt`, the opening cashier, the shift's single currency and the opening float. The device is the credential's device (see the info description); no tenant, store or device field is accepted.
              *
-             *     At most one open shift per device: if this device already has an open shift with a different `shiftId`, the answer is 409 `shift_already_open` and nothing is recorded. Re-sending the same open (same `shiftId`, same payload) is a replay and returns the shift's current projection, even after it has been closed.
+             *     At most one open shift per device: if this device already has an open shift with a different `shiftId`, the answer is 409 `shift_already_open` and nothing is recorded. Re-sending the same open (same `shiftId`, same payload) is a replay and returns the shift's current projection, even after it has been closed. One exception (RT-742): a shift a manager closed with `forceCloseShift` has no `ShiftClose` to project, so the same open re-delivered under ANOTHER `Idempotency-Key` is 409 `shift_force_closed` and nothing is recorded; the device is free to open a new shift. The same open under the SAME `Idempotency-Key` is answered by the shared `IdempotencyInterceptor` with the stored open response and status (RT-82 K4, within the replay window) before the handler runs, so it is not re-evaluated and cannot carry `shift_force_closed`: the POS learns of the force close from its next movement (409 `shift_closed`) or close (409 `shift_force_closed`), never from an open replay.
              *
              *     **Scope of `shiftId`** (as for `recordCashMovement` and `closeShift`). The natural-key replay resolves `shiftId` only within the caller's tenant, store and device. A `shiftId` already recorded anywhere else (another device, another store or another tenant) is 409 `shift_payload_conflict`, the same answer as a different payload: it never returns that shift's projection and nothing is recorded. One exception: an OPEN shift that the audit-ingest `shift.open` event already recorded for this same tenant, store and device, with the same `openedAt` and opening user, is adopted by this open and answered `201` like a first open. Any other audit-ingest shift with this `shiftId` is 409 `shift_payload_conflict`.
              *
@@ -3118,7 +3765,7 @@ export namespace PosShifts {
              * Record a pay-in or pay-out on an open shift.
              * @description Records an immutable `CashMovement` fact on an open shift of this device: cash put into the drawer (`pay_in`) or taken out of it (`pay_out`), with a reason code. The amount is in the shift's currency. A movement is never edited or deleted; a mistake is corrected with an opposite movement.
              *
-             *     The shift must be open: a NEW movement on a closed shift is 409 `shift_closed`. Re-sending a movement that is already recorded (same `movementId`, same payload) is a replay, even after the close. The replay resolves `movementId` only on the path `shift_id`: a `movementId` already recorded on any other shift (of this device or not) is 409 `shift_payload_conflict` and is never returned. A shift that does not resolve to this device is the non-disclosing 404 `shift_not_found`.
+             *     The shift must be open: a NEW movement on a closed shift, including one a manager closed with `forceCloseShift` (RT-742), is 409 `shift_closed`. Re-sending a movement that is already recorded (same `movementId`, same payload) is a replay, even after the close. The replay resolves `movementId` only on the path `shift_id`: a `movementId` already recorded on any other shift (of this device or not) is 409 `shift_payload_conflict` and is never returned. A shift that does not resolve to this device is the non-disclosing 404 `shift_not_found`.
              *
              *     Attribution: on the device path the verified `operatorUserId` is the movement's actor; on the envelope path the envelope operator is.
              */
@@ -3142,11 +3789,30 @@ export namespace PosShifts {
              * Close a shift with its cash-up (counted cash and variance).
              * @description Records the immutable `ShiftClosed` fact and moves the shift from open to closed, once. The POS computed the cash-up and is authoritative for it; the server records the POS totals verbatim and never rewrites them (Constitution §III).
              *
-             *     **Arithmetic invariant**, checked on ingest in exact decimal: `expectedCash = openingFloat + cashSalesTotal − cashRefundsTotal + payInTotal − payOutTotal` and `variance = countedCash − expectedCash`. `openingFloat` must equal the float recorded at open. If any of these does not hold, the answer is 422 `shift_cashup_inconsistent` and nothing is recorded. The server does not check `cashSalesTotal`, `cashRefundsTotal`, `payInTotal`, `payOutTotal` or `saleCount` against the sales, returns and movements it has recorded: a movement or a sale can still be on its way, or dead-lettered. That comparison is a read-side flag (RT-18), never a block.
+             *     **Arithmetic invariant**, checked on ingest in exact decimal: `expectedCash = openingFloat + cashSalesTotal − cashRefundsTotal + payInTotal − payOutTotal` and `variance = countedCash − expectedCash`. `openingFloat` must equal the float recorded at open. If any of these does not hold, the answer is 422 `shift_cashup_inconsistent` and nothing is recorded. The server does not check `cashSalesTotal`, `payInTotal`, `payOutTotal` or `saleCount` against the sales and movements it has recorded: a movement or a sale can still be on its way, or dead-lettered. That comparison is a read-side flag (RT-18), never a block. `cashRefundsTotal` is the exception from the F-3 runtime: it is checked against the settled refund executions (see below, R-9).
              *
              *     **Refund references.** `cashRefundReturnRefs` names the returns whose cash refund was paid from this drawer during the shift. Each must be a return of the caller's tenant and store with a cash refund tender, and not already claimed by another shift's close, else 422 `refund_ref_invalid` (the same answer for an unknown, foreign or already-claimed ref). A ref whose refund was paid in a currency other than the shift's is 422 `currency_mismatch`.
              *
-             *     **Forced close.** `closeKind: forced` closes a shift the cashier could not close (a stuck shift) and requires `forcedReason`. Forced close is manager-envelope only: it is accepted on the `operatorAuthorization` path only, and a forced close sent with the `device` scheme is the generic 403 `refused`.
+             *     **Refund cross-check** (RT-271 R-9, RT-490; normative from the F-3 runtime). Only a settled cash refund execution (`pos-sales/sales.yaml` `recordRefundExecution`) moves cash out of the drawer for a return; accepting the return does not (R-1). The rule covers returns recorded through `recordReturn`. A credit-sale return (`recordCreditSaleReversal`) is outside RT-490: it has no executions, so it is not checked against them, and its cash refund counts at its recorded refund tenders, as before RT-490. So, after the refund-reference checks above: 1. every claimed `recordReturn` return with a non-zero
+             *        `returnTotal` must be fully SETTLED in this shift: its settled
+             *        cash executions whose `evidence.shiftRef` is this shift's
+             *        `shiftId` sum to its `returnTotal` (its refund obligation is
+             *        `settled`), else 422 `refund_ref_unsettled` (one answer for every
+             *        such ref, naming none). A partly paid return cannot be claimed:
+             *        because every execution of a return carries the same `shiftRef`,
+             *        a payout recorded after the close would otherwise be left out of
+             *        every close. Once claimed, the return is settled, so a further
+             *        execution for it is refused (422
+             *        `refund_execution_exceeds_allocation`). A zero-total return owes
+             *        nothing, has no execution and is exempt;
+             *     2. `cashRefundsTotal` must equal, in exact decimal, the sum of the
+             *        amounts of the settled cash executions of the claimed
+             *        `recordReturn` returns whose `evidence.shiftRef` is this shift,
+             *        plus the recorded cash refund tenders of the claimed credit-sale
+             *        returns, else 422 `cash_refunds_total_mismatch`.
+             *     A settled execution recorded with this shift's `shiftRef` for a return the close does not claim is not counted and does not block the close (a read-side flag, RT-18). Every execution of one return carries the same `shiftRef` (`recordRefundExecution`), so a return is never split across two closes. ORDERING (normative for the POS, F-5): executions and closes travel on different POS outboxes, so the POS MUST NOT send a shift's close until every refund execution it recorded with that shift's `shiftId` has been acknowledged (201 or a replay). With that rule, both 422s are deterministic, like every other 422 here: they mean the close and the executions disagree, and the POS dead-letters the close for repair instead of retrying it. A replay of a close recorded before F-3 is never re-checked.
+             *
+             *     **Forced close.** `closeKind: forced` closes a shift the cashier could not close (a stuck shift) and requires `forcedReason`. Forced close is manager-envelope only: it is accepted on the `operatorAuthorization` path only, and a forced close sent with the `device` scheme is the generic 403 `refused`. This close is for the terminal that holds the drawer's cash-up. A stuck shift opened on ANOTHER terminal is 404 `shift_not_found` here, as for any shift outside this device; a manager clears it with `forceCloseShift` (RT-742), which records no cash-up.
              *
              *     **Variance approval.** `varianceApprovedByUserId` is the manager who approved the variance on the terminal. The POS asks for a manager PIN according to the shift variance policy frozen on the shift's open (RT-384, AD-CASH-001 K-2): under a frozen `limit`, when `|variance| > limitAmount`; under `none`, the System default, never. A shift opened before the upgrade applies no limit. The server records the approver and re-checks that user's manager role for the persisted `approverCheck`, but never refuses the close because of that role or of the policy. It must name a user of the caller's tenant, else 400 `validation_error`.
              *
@@ -3154,9 +3820,49 @@ export namespace PosShifts {
              *
              *     Attribution: on the device path `closingUserId` MUST equal the verified `operatorUserId`, else 403 `refused`. On the envelope path the envelope operator is the actor and `closingUserId` is recorded as stated; it must be a user of the caller's tenant with access to the store, else 403 `refused`.
              *
-             *     Re-sending the same close (same payload) is a replay. A different close for a shift that is already closed is 409 `shift_payload_conflict`. A shift that does not resolve to this device is the non-disclosing 404 `shift_not_found`.
+             *     Re-sending the same close (same payload) is a replay. A different close for a shift that is already closed is 409 `shift_payload_conflict`. A shift of this device that a manager closed with `forceCloseShift` (RT-742) takes no close: it is 409 `shift_force_closed` and nothing is recorded, whatever the payload. A shift that does not resolve to this device, force-closed or not, is the non-disclosing 404 `shift_not_found`; the new code never reaches another device.
              */
             post: operations["closeShift"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/pos/v1/shifts/{shift_id}/forced-close": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Force-close a stuck shift of this store from any terminal, as not counted.
+             * @description A manager clears a STUCK shift from any terminal of the same tenant and store, without the drawer's cash-up. Terminal B can close a shift opened on terminal A; `closeShift` cannot (it resolves `shift_id` only on the caller's own device, and needs the cash-up totals only the opening terminal holds). RT-554 owner decision, 2026-10-19.
+             *
+             *     **Authentication.** The `operatorAuthorization` envelope only; the `device` scheme is not accepted (a device token is the generic 401). The envelope operator is the actor; the body carries no user id. The envelope's live re-check on every request (membership, device, store access, expiry and role: the `operatorAuthorization` scheme) is the generic 401. The role rule is the manager and admin surface of `GET /shifts/stuck`: only `owner`, `tenant_admin` and `store_manager` pass, so a `store_staff` operator, an operator demoted since sign-in, and a manager whose store access was removed are all the generic 401. The operation has no 403: no failure reaches it past that check. Tenant and store come only from the envelope, never the request (Constitution §II, §XII).
+             *
+             *     **Scope.** `shift_id` resolves to a shift of the envelope's tenant and store, opened on ANY device of that store, including the caller's own. A legacy shift (no cash-up facts; `GET /shifts/stuck` lists it) is eligible too, so a stuck legacy shift no longer blocks the store. Another store, another tenant and an unknown id are the same non-disclosing 404 `shift_not_found`.
+             *
+             *     **Eligibility** (its own predicate, evaluated at the call). The shift is open, was opened longer ago than the staleness threshold, and its opening cashier has no active `pos_operator` session on the store other than the caller's own envelope session. Otherwise 409 `shift_not_stuck`: a manager cannot close a live drawer from another terminal. This is the `GET /shifts/stuck` predicate with ONE difference: that list counts every active session, the caller's included, so it hides a shift whose opening cashier is the manager now signed in on another terminal (their fresh session makes the drawer look live), while this operation does not. That shift is eligible here but not listed: `GET /shifts/stuck` is unchanged and does not surface it, so the manager supplies its `shift_id` (their own shift). Widening the list is a separate owner decision. A shift already closed with a cash-up is 409 `shift_closed`.
+             *
+             *     **What it records.** One immutable fact: the closing manager (the envelope operator), the server clock as `closedAt`, the terminal the request came from, the terminal that opened the shift, and `forcedReason`. It records NO cash-up: `cashCount` is `not_counted`, and there is no `countedCash`, `expectedCash`, `variance` or other total. The server never computes or rewrites a POS cash-up (Constitution §III), and the manager's terminal does not hold it. This is not a `ShiftClose`: it is never returned by `closeShift`, `openShift` or the console reads of recorded cash-ups. When the drawer was counted, close the shift on the terminal that holds it with `closeShift`, `closeKind: forced`, which records the count.
+             *
+             *     **Effect.** The shift is no longer open: `GET /shifts/stuck` stops listing it, the store timezone change is no longer refused for it (409 `STORE_HAS_OPEN_SHIFT`, RT-544), and its terminal may open a new shift. Nothing already recorded for it is edited or deleted: its movements, and the sales and refund executions of its terminal, stay as recorded. A refund execution whose `evidence.shiftRef` is this shift is claimed by no close.
+             *
+             *     **Not counted** (normative). The recorded fact is not a counted zero: it has no `countedCash`, `expectedCash`, `variance`, total or `saleCount` at all, never `"0.00"`, so no reader can mistake it for a drawer that balanced. It is EXCLUDED from every variance flag (the RT-384 `approvalRequiredByPolicy`, `approvalMissing` and `approverCheck`, which exist only on a `ShiftClose`) and from the console reads of recorded cash-ups. It is also outside the R-9 cash refund cross-check (`closeShift`, Refund cross-check): no close exists for the shift, so no return is claimed, `cashRefundsTotal` is not checked, and a cash refund execution whose `evidence.shiftRef` is this shift stays settled by its execution alone and is claimed by no close.
+             *
+             *     **Late facts** (POS-visible, normative for the POS). The opening terminal does not know yet. For this shift every later `closeShift` from the device that holds it (any payload) and every `openShift` re-delivery under another `Idempotency-Key` is 409 `shift_force_closed`; nothing is recorded. Any other device still gets the non-disclosing 404 `shift_not_found` on `closeShift`, as for any shift outside its device, so the code is no oracle for another terminal. An `openShift` re-delivered under the SAME key gets the stored open response (the shared interceptor answers it before the handler), not this code. A later NEW `recordCashMovement` keeps the existing 409 `shift_closed` (a movement recorded BEFORE the force close still replays as `200`). The POS treats `shift_force_closed` as final for that shift, not as a transient or a payload conflict (`shift_payload_conflict`): it stops sending that shift's facts and shows that a manager closed it. A POS change to do so is a separate ticket.
+             *
+             *     **Idempotency.** `Idempotency-Key` is REQUIRED, scoped to the verified actor as on every shift write. The natural key is `shift_id` with the payload hash of `forcedReason`, never the actor: the same force close sent again under another key, even by another manager, is a `200` replay of the recorded fact. A different `forcedReason` for a shift already force-closed is 409 `shift_force_closed`.
+             *
+             *     **Order.** Authentication, including the live manager/admin check (401), then scope (404 `shift_not_found`), then the natural-key replay (`200`) or, for a different `forcedReason`, 409 `shift_force_closed`, then 409 `shift_closed`, then the stuck rule (409 `shift_not_stuck`). A same-key replay is answered by the shared `IdempotencyInterceptor` before the handler, so before this order and its scope check. The interceptor partitions a replay by tenant, route, `shift_id`, actor and key, NOT by store: the same actor repeating the same key and body from the envelope of another store of the same tenant gets that actor's OWN stored response, not the 404. This is the one stated exception to the store-scoped 404; it discloses nothing the actor was not already given, and every first request is scope-checked. A replay of a recorded force close is never answered `shift_not_stuck`.
+             *
+             *     **Audit.** One audit event records the closing manager, the terminal the request came from, the terminal that opened the shift and the shift. The reason is stored with the fact and never logged.
+             */
+            post: operations["forceCloseShift"];
             delete?: never;
             options?: never;
             head?: never;
@@ -3175,6 +3881,8 @@ export namespace PosShifts {
              * @description Returns all shifts on the requested branch whose `lifecycle_state` is `'open'`, whose `opened_at` is older than the server-configured staleness threshold (default 15 minutes), and whose opening cashier has no active `pos_operator` auth-token row on that branch.
              *
              *     Only managers and admins may call this endpoint; store_staff (cashier) callers receive a generic 401.
+             *
+             *     RT-742: a listed `shift_id` is all a manager needs to clear the shift with `forceCloseShift`, from any terminal of the store; the list adds no field for it (that close takes no totals). One eligible shift this list does not show is the caller's own (see `forceCloseShift`, Eligibility).
              */
             get: operations["posShiftsGetStuck"];
             put?: never;
@@ -3253,7 +3961,7 @@ export namespace PosShifts {
              *     Arithmetic invariant, checked on ingest in exact decimal: `expectedCash = openingFloat + cashSalesTotal − cashRefundsTotal + payInTotal − payOutTotal` and `variance = countedCash − expectedCash`, with `openingFloat` equal to the float recorded at open; else 422 `shift_cashup_inconsistent`. `forcedReason` is required when `closeKind` is `forced` and must be absent otherwise.
              */
             CloseShiftRequest: {
-                /** @description The returns whose cash refund was paid from this drawer during the shift (their server return references); may be empty, at most 1000. Ids are case-insensitive (normalised to lower case, so one return in two spellings is a duplicate, 400). Each must resolve to a return of the caller's tenant and store with a cash refund tender not claimed by another shift's close, else 422 `refund_ref_invalid`; one refunded in another currency is 422 `currency_mismatch`. */
+                /** @description The returns whose cash refund was paid from this drawer during the shift (their server return references); may be empty, at most 1000. Ids are case-insensitive (normalised to lower case, so one return in two spellings is a duplicate, 400). Each must resolve to a return of the caller's tenant and store with a cash refund tender not claimed by another shift's close, else 422 `refund_ref_invalid`; one refunded in another currency is 422 `currency_mismatch`. From the F-3 runtime each non-zero `recordReturn` return must also be fully settled by cash refund executions in this shift (422 `refund_ref_unsettled`), and `cashRefundsTotal` must equal the sum of those executions plus the cash refund tenders of any claimed credit-sale return (422 `cash_refunds_total_mismatch`); see `closeShift`, Refund cross-check (R-9). */
                 cashRefundReturnRefs: string[];
                 cashRefundsTotal: components["schemas"]["NonNegativeDecimalAmount"];
                 cashSalesTotal: components["schemas"]["NonNegativeDecimalAmount"];
@@ -3304,6 +4012,55 @@ export namespace PosShifts {
                     /** @example 018f1234-0000-7000-8000-000000000099 */
                     request_id: string | null;
                 };
+            };
+            /** @description RT-742. A shift closed by a manager as not counted. It is NOT a `Shift`: `status` is `force_closed`, never `closed`, and it carries `forcedClose` where a closed `Shift` carries a `close` (a `ShiftClose` cash-up). Internal ids (tenant, store, device) are never returned. A LEGACY shift (opened before the cash-up facts, through the audit-ingest `shift.open` event) is eligible and closes the same way: it has no currency, no opening float and no server receipt, so `currencyCode`, `openingFloat` and `receivedAt` are `null` for it (always present, never omitted); they are non-null for a cash-up shift. */
+            ForceClosedShift: {
+                /** @description The shift's currency; `null` for a legacy shift. */
+                currencyCode: components["schemas"]["CurrencyCode"] | null;
+                forcedClose: components["schemas"]["ForcedCloseRecord"];
+                /** Format: date-time */
+                openedAt: string;
+                /** @description The recorded opening float; `null` for a legacy shift. */
+                openingFloat: components["schemas"]["NonNegativeDecimalAmount"] | null;
+                /** Format: uuid */
+                openingUserId: string;
+                /**
+                 * Format: date-time
+                 * @description When the server recorded the open (server clock); `null` for a legacy shift.
+                 */
+                receivedAt: string | null;
+                /** Format: uuid */
+                shiftId: string;
+                /** @constant */
+                status: "force_closed";
+            };
+            /** @description RT-742. The only input is the reason. The actor is the envelope operator, the time is the server clock, and tenant, store and device come from the credential; the body carries none of them and no cash-up total (a force close records none). */
+            ForceCloseShiftRequest: {
+                /** @description Why the manager closed the shift from another terminal. 1 to 200 characters. No PII. Never logged. Part of the natural-key payload hash. */
+                forcedReason: string;
+            };
+            /** @description The recorded force close. No cash-up is recorded, so no counted cash, expected cash, variance or other total exists on it. No internal id (tenant, store, device) is returned; terminals are named by their human-readable label, as on `GET /shifts/stuck`. */
+            ForcedCloseRecord: {
+                /**
+                 * @description Always `not_counted`: the drawer was not counted by this close, and the server derives no figure for it.
+                 * @constant
+                 */
+                cashCount: "not_counted";
+                /**
+                 * Format: date-time
+                 * @description When the server recorded the force close (server clock).
+                 */
+                closedAt: string;
+                /**
+                 * Format: uuid
+                 * @description The `users.id` of the closing manager (the envelope operator).
+                 */
+                closedByUserId: string;
+                /** @description Label of the terminal the force-close request came from; `null` when that terminal has no label (a device label is optional). */
+                closedFromTerminalLabel: string | null;
+                forcedReason: string;
+                /** @description Label of the terminal that opened the shift (the stuck list's `terminal_label`); `null` when it has no label. The same terminal as above when the manager closed it from the terminal that opened it. */
+                openedOnTerminalLabel: string | null;
             };
             /** @description RT-384: the shift variance policy the POS froze at this open (AD-CASH-001 D-6). All three members are required, so the policy is all-or-none by construction. `policyRevisionId` is a uuid for source `tenant` or `store` and `null` for `system` or `fallback`; anything else is 400 `validation_error`. Every policy-ground mismatch is accepted and flagged, never refused (see `openShift`). */
             FrozenPolicy: {
@@ -3496,7 +4253,7 @@ export namespace PosShifts {
             };
         };
         responses: {
-            /** @description 409 on `recordCashMovement`. `error.code` is one of: `idempotency_key_conflict` (the same `Idempotency-Key` reused with a different payload); `shift_payload_conflict` (this `movementId` is already recorded with a different payload or on another shift); `shift_closed` (the shift is closed, so a new movement cannot be added). Deterministic; nothing is recorded. */
+            /** @description 409 on `recordCashMovement`. `error.code` is one of: `idempotency_key_conflict` (the same `Idempotency-Key` reused with a different payload); `shift_payload_conflict` (this `movementId` is already recorded with a different payload or on another shift); `shift_closed` (the shift is closed, so a new movement cannot be added; this includes a shift a manager closed with `forceCloseShift`, RT-742). Deterministic; nothing is recorded. */
             CashMovementConflict: {
                 headers: {
                     [name: string]: unknown;
@@ -3505,7 +4262,7 @@ export namespace PosShifts {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
-            /** @description 409 on `closeShift`. `error.code` is one of: `idempotency_key_conflict` (the same `Idempotency-Key` reused with a different payload); `shift_payload_conflict` (the shift is already closed with a different close; a shift closes once). Deterministic; nothing is recorded. */
+            /** @description 409 on `closeShift`. `error.code` is one of: `idempotency_key_conflict` (the same `Idempotency-Key` reused with a different payload); `shift_payload_conflict` (the shift is already closed with a different close; a shift closes once); `shift_force_closed` (RT-742: a manager closed this device's shift with `forceCloseShift`, so it takes no close; final for that shift, the POS dead-letters the close as already closed by a manager; a shift of another device is 404 `shift_not_found`, never this code). Deterministic; nothing is recorded. */
             CloseShiftConflict: {
                 headers: {
                     [name: string]: unknown;
@@ -3514,8 +4271,17 @@ export namespace PosShifts {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
-            /** @description 422 on `closeShift`. `error.code` is one of: `shift_cashup_inconsistent` (the arithmetic invariant does not hold, or `openingFloat` is not the float recorded at open); `currency_mismatch` (a `cashRefundReturnRefs` return was refunded in a currency other than the shift's); `refund_ref_invalid` (a `cashRefundReturnRefs` entry is not a cash-refunded return of the caller's tenant and store, or is already claimed by another shift's close; the same answer for each case). Deterministic; nothing is recorded. */
+            /** @description 422 on `closeShift`. `error.code` is one of: `shift_cashup_inconsistent` (the arithmetic invariant does not hold, or `openingFloat` is not the float recorded at open); `currency_mismatch` (a `cashRefundReturnRefs` return was refunded in a currency other than the shift's); `refund_ref_invalid` (a `cashRefundReturnRefs` entry is not a cash-refunded return of the caller's tenant and store, or is already claimed by another shift's close; the same answer for each case); from the F-3 runtime (RT-490, R-9) `refund_ref_unsettled` (a claimed non-zero `recordReturn` return is not fully settled by cash refund executions in this shift) and `cash_refunds_total_mismatch` (`cashRefundsTotal` is not the sum of the claimed returns' settled cash executions in this shift plus the claimed credit-sale returns' cash refund tenders). Order: `shift_cashup_inconsistent`, then `refund_ref_invalid` / `currency_mismatch`, then `refund_ref_unsettled`, then `cash_refunds_total_mismatch`. Deterministic; nothing is recorded. */
             CloseShiftUnprocessable: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description 409 on `forceCloseShift`. `error.code` is one of: `idempotency_key_conflict` (the same `Idempotency-Key` reused with a different payload); `shift_not_stuck` (the shift is open but is not stuck now: it is younger than the staleness threshold, or its opening cashier has an active `pos_operator` session on the store other than the caller's own); `shift_closed` (the shift is already closed with a cash-up); `shift_force_closed` (the shift is already force-closed with a different `forcedReason`). Deterministic; nothing is recorded. */
+            ForceCloseShiftConflict: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3533,7 +4299,7 @@ export namespace PosShifts {
                     "application/json": components["schemas"]["IdempotencyInProgressBody"];
                 };
             };
-            /** @description 409 on `openShift`. `error.code` is one of: `idempotency_key_conflict` (the same `Idempotency-Key` reused with a different payload); `shift_payload_conflict` (this `shiftId` is already recorded with a different payload); `shift_already_open` (this device already has an open shift with another `shiftId`; close it first). Deterministic; nothing is recorded. */
+            /** @description 409 on `openShift`. `error.code` is one of: `idempotency_key_conflict` (the same `Idempotency-Key` reused with a different payload); `shift_payload_conflict` (this `shiftId` is already recorded with a different payload); `shift_already_open` (this device already has an open shift with another `shiftId`; close it first); `shift_force_closed` (RT-742: this `shiftId` is a shift a manager closed with `forceCloseShift`, re-delivered under another `Idempotency-Key`; final for that shift). Deterministic; nothing is recorded. */
             OpenShiftConflict: {
                 headers: {
                     [name: string]: unknown;
@@ -3553,6 +4319,15 @@ export namespace PosShifts {
             };
             /** @description 404 `shift_not_found`: `shift_id` does not resolve to a shift of the caller's tenant, store and device. Non-disclosing: identical for an unknown id and for a shift of another tenant, another store or another device (Constitution §II, §XII). */
             ShiftNotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description 404 `shift_not_found` on `forceCloseShift`: `shift_id` does not resolve to a shift of the envelope's tenant and store. Any device of the store qualifies. Non-disclosing: identical for an unknown id and for a shift of another store or another tenant (Constitution §II, §XII). */
+            ShiftNotFoundInStore: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3601,11 +4376,23 @@ export namespace PosShifts {
         parameters: {
             /** @description REQUIRED on every cash-up write. 16 to 128 printable ASCII characters with no whitespace, as the `IdempotencyInterceptor` enforces (RT-181, the `pos-sales/sales.yaml` rule); any other value is a 400. Keyed on `(method, route template, resolved path parameters, clientId = the verified actor's user id, key)` (RT-82 K1), so the same key on a different `shift_id` is a separate operation. An identical retry replays the stored response with its stored status and `Idempotent-Replayed: true`; key reuse with a different payload is 409 `idempotency_key_conflict`; a key whose first request is still being processed is 425 `idempotency_in_progress`. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. No new idempotency primitive. */
             IdempotencyKey: string;
+            /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosAppVersion: string;
+            /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosBuildCommit: string;
+            /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosContractPin: string;
             /** @description The client-generated `shiftId` given to `openShift`. Resolves only to a shift of the caller's tenant, store and device; anything else is the non-disclosing 404 `shift_not_found`. */
             ShiftId: string;
+            /** @description RT-742. The `shiftId` of the shift to force-close. Resolves to a shift of the envelope's tenant and store opened on ANY device of that store (the `shift_id` that `GET /shifts/stuck` lists); anything else is the non-disclosing 404 `shift_not_found`. */
+            StoreShiftId: string;
         };
         requestBodies: never;
         headers: {
+            /** @description RT-639. Present only when this device credential has 15 days or less left: the ISO-8601 instant `expires_at - 15 days` (the same instant as `rotate_after` in the `posRotateTerminalToken` response). The terminal rotates at or after it. Absent while more than 15 days remain. Never carries token material. See `pos-terminal-pairing.openapi.yaml`, "Credential rotation". */
+            DeviceTokenRotateAfter: string;
+            /** @description RT-639. Sent with `X-Device-Token-Rotate-After`: `notice` (15 days or less left), `warning` (10 or less), `urgent` (3 or less, or already past `expires_at`). The server keeps no per-device state, so it sends the stage on every response while it holds; the terminal shows each stage the first time it sees it. */
+            DeviceTokenRotateStage: "notice" | "warning" | "urgent";
             /** @description Present and `true` on every idempotent-replay response: a natural-key replay (`200`) and a same-`Idempotency-Key` replay, which carries the stored status (normally `201`, RT-82 K4). Clients MUST detect a replay by this header, not by the status code. Absent on a first-time record. */
             IdempotentReplayed: boolean;
             /** @description Seconds the caller should wait before retrying, on a 429 (ADR 0009). Clamped to [1, 300]. A POS client treats a 429 as TRANSIENT, not as a dead-letter. */
@@ -3623,6 +4410,12 @@ export namespace PosShifts {
                 header: {
                     /** @description REQUIRED on every cash-up write. 16 to 128 printable ASCII characters with no whitespace, as the `IdempotencyInterceptor` enforces (RT-181, the `pos-sales/sales.yaml` rule); any other value is a 400. Keyed on `(method, route template, resolved path parameters, clientId = the verified actor's user id, key)` (RT-82 K1), so the same key on a different `shift_id` is a separate operation. An identical retry replays the stored response with its stored status and `Idempotent-Replayed: true`; key reuse with a different payload is 409 `idempotency_key_conflict`; a key whose first request is still being processed is 425 `idempotency_in_progress`. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. No new idempotency primitive. */
                     "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                    /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-App-Version"?: components["parameters"]["PosAppVersion"];
+                    /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Build-Commit"?: components["parameters"]["PosBuildCommit"];
+                    /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Contract-Pin"?: components["parameters"]["PosContractPin"];
                 };
                 path?: never;
                 cookie?: never;
@@ -3637,6 +4430,8 @@ export namespace PosShifts {
                 200: {
                     headers: {
                         "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -3647,6 +4442,8 @@ export namespace PosShifts {
                 201: {
                     headers: {
                         "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -3668,6 +4465,12 @@ export namespace PosShifts {
                 header: {
                     /** @description REQUIRED on every cash-up write. 16 to 128 printable ASCII characters with no whitespace, as the `IdempotencyInterceptor` enforces (RT-181, the `pos-sales/sales.yaml` rule); any other value is a 400. Keyed on `(method, route template, resolved path parameters, clientId = the verified actor's user id, key)` (RT-82 K1), so the same key on a different `shift_id` is a separate operation. An identical retry replays the stored response with its stored status and `Idempotent-Replayed: true`; key reuse with a different payload is 409 `idempotency_key_conflict`; a key whose first request is still being processed is 425 `idempotency_in_progress`. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. No new idempotency primitive. */
                     "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                    /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-App-Version"?: components["parameters"]["PosAppVersion"];
+                    /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Build-Commit"?: components["parameters"]["PosBuildCommit"];
+                    /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Contract-Pin"?: components["parameters"]["PosContractPin"];
                 };
                 path: {
                     /** @description The client-generated `shiftId` given to `openShift`. Resolves only to a shift of the caller's tenant, store and device; anything else is the non-disclosing 404 `shift_not_found`. */
@@ -3685,6 +4488,8 @@ export namespace PosShifts {
                 200: {
                     headers: {
                         "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -3695,6 +4500,8 @@ export namespace PosShifts {
                 201: {
                     headers: {
                         "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -3717,6 +4524,12 @@ export namespace PosShifts {
                 header: {
                     /** @description REQUIRED on every cash-up write. 16 to 128 printable ASCII characters with no whitespace, as the `IdempotencyInterceptor` enforces (RT-181, the `pos-sales/sales.yaml` rule); any other value is a 400. Keyed on `(method, route template, resolved path parameters, clientId = the verified actor's user id, key)` (RT-82 K1), so the same key on a different `shift_id` is a separate operation. An identical retry replays the stored response with its stored status and `Idempotent-Replayed: true`; key reuse with a different payload is 409 `idempotency_key_conflict`; a key whose first request is still being processed is 425 `idempotency_in_progress`. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. No new idempotency primitive. */
                     "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                    /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-App-Version"?: components["parameters"]["PosAppVersion"];
+                    /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Build-Commit"?: components["parameters"]["PosBuildCommit"];
+                    /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Contract-Pin"?: components["parameters"]["PosContractPin"];
                 };
                 path: {
                     /** @description The client-generated `shiftId` given to `openShift`. Resolves only to a shift of the caller's tenant, store and device; anything else is the non-disclosing 404 `shift_not_found`. */
@@ -3734,6 +4547,8 @@ export namespace PosShifts {
                 200: {
                     headers: {
                         "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -3744,6 +4559,8 @@ export namespace PosShifts {
                 201: {
                     headers: {
                         "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -3756,6 +4573,54 @@ export namespace PosShifts {
                 404: components["responses"]["ShiftNotFound"];
                 409: components["responses"]["CloseShiftConflict"];
                 422: components["responses"]["CloseShiftUnprocessable"];
+                425: components["responses"]["IdempotencyInProgress"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        forceCloseShift: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED on every cash-up write. 16 to 128 printable ASCII characters with no whitespace, as the `IdempotencyInterceptor` enforces (RT-181, the `pos-sales/sales.yaml` rule); any other value is a 400. Keyed on `(method, route template, resolved path parameters, clientId = the verified actor's user id, key)` (RT-82 K1), so the same key on a different `shift_id` is a separate operation. An identical retry replays the stored response with its stored status and `Idempotent-Replayed: true`; key reuse with a different payload is 409 `idempotency_key_conflict`; a key whose first request is still being processed is 425 `idempotency_in_progress`. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. No new idempotency primitive. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description RT-742. The `shiftId` of the shift to force-close. Resolves to a shift of the envelope's tenant and store opened on ANY device of that store (the `shift_id` that `GET /shifts/stuck` lists); anything else is the non-disclosing 404 `shift_not_found`. */
+                    shift_id: components["parameters"]["StoreShiftId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ForceCloseShiftRequest"];
+                };
+            };
+            responses: {
+                /** @description Replay. Either the same `Idempotency-Key` again (the stored response with its stored status, RT-82 K4) or the same force close re-delivered under another key (`200` with the recorded projection). Both carry `Idempotent-Replayed: true`. */
+                200: {
+                    headers: {
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ForceClosedShift"];
+                    };
+                };
+                /** @description Shift force-closed for the first time. A retry with the same `Idempotency-Key` replays this stored `201` with `Idempotent-Replayed: true`. */
+                201: {
+                    headers: {
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ForceClosedShift"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["ShiftNotFoundInStore"];
+                409: components["responses"]["ForceCloseShiftConflict"];
                 425: components["responses"]["IdempotencyInProgress"];
                 429: components["responses"]["TooManyRequests"];
                 500: components["responses"]["SystemFailure"];

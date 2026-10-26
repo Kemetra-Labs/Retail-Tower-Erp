@@ -10,7 +10,9 @@ import unittest
 sys.path.insert(0, os.path.dirname(__file__))
 import manifest  # noqa: E402
 
-PIN = "repo: Kemetra/Backend-Core\ncommit: {c}\nsource: packages/contracts/openapi\nfile: a.yaml 0123\n"
+# RT-889: consumer PINs name this repository and the in-tree Backend-Core contract.
+PIN = ("repo: Kemetra-Labs/Retail-Tower-Erp\ncommit: {c}\n"
+       "source: services/backend-core/packages/contracts/openapi\nfile: a.yaml 0123\n")
 
 
 def sh(repo, *args):
@@ -65,6 +67,8 @@ class ManifestTest(unittest.TestCase):
         snap = m["contract_snapshot"]
         self.assertEqual(snap["backend_core_contract_tree"], sh(self.repo, "rev-parse", f"{self.sha}:{manifest.CONTRACTS}"))
         self.assertEqual(snap["consumer_pin"]["commit"], "a" * 40)
+        self.assertEqual(snap["consumer_pin"]["repo"], "Kemetra-Labs/Retail-Tower-Erp")
+        self.assertEqual(snap["consumer_pin"]["source"], manifest.CONTRACTS)
         self.assertEqual(m["ci_url"], "https://github.com/x/actions/runs/1")
         self.assertFalse(m["published"])
         sums = pathlib.Path(out, "SHA256SUMS").read_text()

@@ -8,9 +8,9 @@ import { formatPin, gitBlobSha, parsePin, parseRepinArgs } from '../../../script
 describe('contracts PIN', () => {
   it('round-trips and rejects unsafe paths', () => {
     const pin = {
-      repo: 'Kemetra/Backend-Core',
+      repo: 'Kemetra-Labs/Retail-Tower-Erp',
       commit: 'a'.repeat(40),
-      source: 'packages/contracts/openapi',
+      source: 'services/backend-core/packages/contracts/openapi',
       files: [{ path: 'pos-sales/sales.yaml', blobSha: 'b'.repeat(40) }],
     };
     expect(parsePin(formatPin(pin))).toEqual(pin);

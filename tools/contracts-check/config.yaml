@@ -7,6 +7,11 @@
 
 contracts_root: services/backend-core/packages/contracts/openapi
 
+# This repository. Every consumer PIN must name it as `repo:` and `contracts_root` as
+# `source:` (RT-889): a PIN that still names the frozen Kemetra/Backend-Core, or any other
+# repository, fails.
+repository: Kemetra-Labs/Retail-Tower-Erp
+
 # oasdiff severity overrides: the Backend-Core gate's own file, so a consumer sees the same
 # WARN/ERR levels the producer gate does.
 severity_levels: services/backend-core/tools/oasdiff/severity-levels.txt

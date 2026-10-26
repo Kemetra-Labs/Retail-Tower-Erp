@@ -4,7 +4,8 @@ For every `file: <path> <blob>` line of a consumer PIN, the pinned blob is read 
 repository's object store (Backend-Core history was imported with identical blobs) and
 compared with the in-tree file at the checked-out commit by `oasdiff breaking` (WARN or
 higher fails, as in the Backend-Core gate) and `oasdiff changelog` (every other change is
-reported as drift). Anything that cannot be compared fails: a malformed PIN, a missing blob,
+reported as drift). Anything that cannot be compared fails: a malformed PIN, a PIN whose
+`repo:`/`source:` header does not name this repository's in-tree contract (RT-889), a missing blob,
 a vendored copy that does not hash to its pin, a pinned file gone from the tree, or an
 oasdiff run that does not end in a clean verdict."""
 
@@ -61,6 +62,37 @@ def parse_pin(text):
     if not files:
         raise PinError("no `file:` lines")
     return files
+
+
+def parse_header(text):
+    """`{repo, commit, source}` of a PIN. Each must appear exactly once (RT-889)."""
+    header = {}
+    for number, raw in enumerate(text.splitlines(), 1):
+        key, sep, value = raw.strip().partition(":")
+        if not sep or key not in _HEADER_KEYS:
+            continue
+        if key in header:
+            raise PinError(f"line {number}: duplicate `{key}:` line")
+        header[key] = value.strip()
+    missing = [key for key in _HEADER_KEYS if key not in header]
+    if missing:
+        raise PinError(f"no `{missing[0]}:` line")
+    return header
+
+
+def check_header(header, repository, contracts_root):
+    """Why the PIN does not name this repository's in-tree contract, or None (RT-889).
+
+    The pinned blobs are read from this repository, so a PIN that names another repository
+    (such as the frozen Kemetra/Backend-Core) or another source directory is not describing
+    what the check compares, and a repin from that repository would go unnoticed."""
+    if header["repo"] != repository:
+        return f"PIN names repo {header['repo']!r}, not this repository {repository!r}"
+    if header["source"] != contracts_root:
+        return f"PIN names source {header['source']!r}, not the in-tree contract {contracts_root!r}"
+    if not _SHA.match(header["commit"]):
+        return f"PIN commit {header['commit']!r} is not a 40-hex commit"
+    return None
 
 
 def read_blob(repo, blob):
@@ -128,13 +160,18 @@ def compare_file(oasdiff, base_path, revision_path, severity_levels, subject):
     return [Finding("pins", subject, OK, "identical API surface")]
 
 
-def check_consumer(repo, consumer, contracts_root, oasdiff, severity_levels):
+def check_consumer(repo, consumer, contracts_root, oasdiff, severity_levels, *, repository):
     repo = pathlib.Path(repo)
     name, pin_path = consumer["name"], consumer["pin"]
     try:
-        files = parse_pin((repo / pin_path).read_text(encoding="utf-8"))
+        text = (repo / pin_path).read_text(encoding="utf-8")
+        files = parse_pin(text)
+        header = parse_header(text)
     except (OSError, UnicodeDecodeError, PinError) as exc:
         return [Finding("pins", f"{name} {pin_path}", FAIL, f"unreadable PIN: {exc}")]
+    foreign = check_header(header, repository, contracts_root)
+    if foreign is not None:
+        return [Finding("pins", f"{name} {pin_path}", FAIL, f"{foreign}; repin from this repository")]
     findings = []
     with tempfile.TemporaryDirectory(prefix="contracts-check-") as tmp:
         for path, blob in files:

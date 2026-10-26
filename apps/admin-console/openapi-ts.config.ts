@@ -1,17 +1,22 @@
 // D-2 / C-4: Generated OpenAPI client toolchain configuration and runner.
 //
 // `pnpm generate:client` executes this file with Node 22 type stripping. It
-// reads Data-Pulse-2 OpenAPI sources from the pinned git commit, generates
+// reads the in-tree Backend-Core OpenAPI sources of this monorepo
+// (services/backend-core/packages/contracts/openapi) from the pinned commit
+// with local git, no network (RT-889), generates
 // openapi-typescript output for each source, and composes the path types into
 // `src/generated/schema.d.ts`. Keeping the runner here avoids adding an
 // extra scripts directory outside the slice 002 scaffold surface.
 //
 //   pnpm generate:client                 regenerate at the pinned commit
-//   pnpm generate:client --repin <ref>   resolve <ref> in DATA_PULSE_2_REPO,
+//   pnpm generate:client --repin <ref>   resolve <ref> to a commit of this repository,
 //                                        rewrite contracts/backend-core/PIN, regenerate
+//
+// The pinned commit must be in the local clone: a shallow clone needs its
+// history (CI checks out with fetch-depth: 0).
 
 import { type ExecFileSyncOptionsWithStringEncoding, execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -34,7 +39,9 @@ export const PIN_FILE_PATH = "contracts/backend-core/PIN" as const;
 
 /**
  * Data-Pulse-2 pin (C-4). The generator reads OpenAPI sources from this
- * commit. Sources live in `packages/contracts/openapi/` upstream:
+ * commit. Sources live in `services/backend-core/packages/contracts/openapi/`
+ * of this monorepo (RT-889; before it, `packages/contracts/openapi/` of the
+ * standalone Backend-Core repository):
  *   - auth.openapi.yaml     (signIn, signOut, refreshSession)
  *   - context.openapi.yaml  (getActiveContext, switch/clear context)
  *   - tenants.openapi.yaml  (listTenants, readTenant, createTenant, updateTenant, softDeleteTenant, listMembers) — RF-2/RF-5
@@ -251,7 +258,7 @@ export const DATA_PULSE_2_PIN: string = BACKEND_CORE_PIN.commit;
  * - RF-4a boundary: catalog/unknown-items (the review-queue read surface;
  *   specs/007-rf4a-unknown-items/contracts/rf4a-unknown-items.md).
  *
- * `path` is relative to the Data-Pulse-2 repo root at the pinned SHA; `name` is
+ * `path` is relative to this monorepo's root at the pinned SHA; `name` is
  * the TypeScript namespace the source is emitted under; an optional `pin`
  * overrides `DATA_PULSE_2_PIN` for that one source. Since RT-677 the single-commit
  * PIN file cannot describe a hold, so the generator refuses one (re-pin instead).
@@ -264,90 +271,138 @@ export interface OpenApiSourceSpec {
 }
 
 export const OPENAPI_SOURCE_SPECS: readonly OpenApiSourceSpec[] = [
-  { name: "Auth", path: "packages/contracts/openapi/auth.openapi.yaml" },
-  { name: "Context", path: "packages/contracts/openapi/context.openapi.yaml" },
-  { name: "Tenants", path: "packages/contracts/openapi/tenants.openapi.yaml" },
-  { name: "Stores", path: "packages/contracts/openapi/stores.openapi.yaml" },
-  { name: "Memberships", path: "packages/contracts/openapi/memberships.openapi.yaml" },
-  { name: "Audit", path: "packages/contracts/openapi/audit.openapi.yaml" },
-  { name: "UnknownItems", path: "packages/contracts/openapi/catalog/unknown-items.yaml" },
+  { name: "Auth", path: "services/backend-core/packages/contracts/openapi/auth.openapi.yaml" },
+  {
+    name: "Context",
+    path: "services/backend-core/packages/contracts/openapi/context.openapi.yaml",
+  },
+  {
+    name: "Tenants",
+    path: "services/backend-core/packages/contracts/openapi/tenants.openapi.yaml",
+  },
+  { name: "Stores", path: "services/backend-core/packages/contracts/openapi/stores.openapi.yaml" },
+  {
+    name: "Memberships",
+    path: "services/backend-core/packages/contracts/openapi/memberships.openapi.yaml",
+  },
+  { name: "Audit", path: "services/backend-core/packages/contracts/openapi/audit.openapi.yaml" },
+  {
+    name: "UnknownItems",
+    path: "services/backend-core/packages/contracts/openapi/catalog/unknown-items.yaml",
+  },
   // Settlement boundary (017): payer accounts only. settlement.yaml 2.0.0
   // (Backend-Core #779, RT-417) retired the receivable/claim/remittance/
   // apply-payment operations (018/019); RT-421 removed their screens and
   // wrappers, so the temporary per-source hold is gone and Settlement reads at
   // the global pin. Consume-only; specs author no YAML.
-  { name: "Settlement", path: "packages/contracts/openapi/settlement/settlement.yaml" },
+  {
+    name: "Settlement",
+    path: "services/backend-core/packages/contracts/openapi/settlement/settlement.yaml",
+  },
   // ERPNext reconciliation (RT-178): the negative on-hand read pair plus the
   // `triggerReconciliationRun` refresh. Consume-only; no YAML authored here.
   {
     name: "ErpnextReconciliation",
-    path: "packages/contracts/openapi/erpnext-reconciliation/reconciliation.yaml",
+    path: "services/backend-core/packages/contracts/openapi/erpnext-reconciliation/reconciliation.yaml",
   },
   // Admin shift-close read API (RT-383 / RT-18): `consoleListShiftCloses`,
   // `consoleGetShiftClose`. Consume-only; no YAML authored here.
-  { name: "ShiftCloses", path: "packages/contracts/openapi/shift-closes.openapi.yaml" },
+  {
+    name: "ShiftCloses",
+    path: "services/backend-core/packages/contracts/openapi/shift-closes.openapi.yaml",
+  },
   // ERP connection & sync status, Phase A (RT-560 / spec 016). Regenerated at
   // the same pin (no re-pin): connector instances (018), connector health (020)
   // and the console sync-ops read model (025). Read-only consumption; the
   // credential lifecycle and heartbeat ops are in the documents but not wrapped.
-  { name: "ConnectorAdmin", path: "packages/contracts/openapi/connector/connector-admin.yaml" },
+  {
+    name: "ConnectorAdmin",
+    path: "services/backend-core/packages/contracts/openapi/connector/connector-admin.yaml",
+  },
   {
     name: "ConnectorHealth",
-    path: "packages/contracts/openapi/erpnext-connector/connector-health.yaml",
+    path: "services/backend-core/packages/contracts/openapi/erpnext-connector/connector-health.yaml",
   },
-  { name: "SyncOps", path: "packages/contracts/openapi/erpnext-sync-ops/console-sync-ops.yaml" },
+  {
+    name: "SyncOps",
+    path: "services/backend-core/packages/contracts/openapi/erpnext-sync-ops/console-sync-ops.yaml",
+  },
   // Console device registry (RT-365 contract #777 / runtime #781; RT-371): the
   // fleet list and device detail reads. Consume-only; no YAML authored here.
-  { name: "Devices", path: "packages/contracts/openapi/devices.openapi.yaml" },
+  {
+    name: "Devices",
+    path: "services/backend-core/packages/contracts/openapi/devices.openapi.yaml",
+  },
   // Console sales read (RT-561 contract #780 / RT-562 runtime #783; RT-587,
   // spec 012): `consoleListSales`, `consoleGetSale`. Read-only consumption;
   // no YAML authored here.
-  { name: "ConsoleSales", path: "packages/contracts/openapi/console-sales.openapi.yaml" },
+  {
+    name: "ConsoleSales",
+    path: "services/backend-core/packages/contracts/openapi/console-sales.openapi.yaml",
+  },
   // Console sales summary (RT-649 contract #859 / RT-739 runtime #864; RT-818,
   // RT-751 slice 1): `consoleGetSalesSummary`. Read-only consumption; no YAML
   // authored here.
   {
     name: "ConsoleSalesSummary",
-    path: "packages/contracts/openapi/console-sales-summary.openapi.yaml",
+    path: "services/backend-core/packages/contracts/openapi/console-sales-summary.openapi.yaml",
   },
   // Shift variance policy (RT-384 contract #778 / RT-387 runtime #797; RT-389):
   // the tenant default and store override reads, revision lists and publishes.
   // The POS device read in the same document is not wrapped here.
   {
     name: "CashVariancePolicy",
-    path: "packages/contracts/openapi/cash-variance-policy.openapi.yaml",
+    path: "services/backend-core/packages/contracts/openapi/cash-variance-policy.openapi.yaml",
   },
   // Console Sentry tunnel (RT-632 contract #817 / runtime #818; RT-673): only
   // `consoleGetTelemetryConfig` is wrapped. The SDK posts envelopes to the
   // tunnel itself, so `consoleForwardTelemetryEnvelope` is not called here.
   {
     name: "ConsoleTelemetry",
-    path: "packages/contracts/openapi/console-telemetry.openapi.yaml",
+    path: "services/backend-core/packages/contracts/openapi/console-telemetry.openapi.yaml",
   },
   // Console sources for the ERP mapping, sale sync-ops, product reconciliation
   // and inventory read views (RT-723). Composed only: nothing wraps them yet,
   // the screens that call them are follow-ups. Consume-only; no YAML authored here.
-  { name: "ErpnextItemMap", path: "packages/contracts/openapi/catalog/erpnext-item-map.yaml" },
+  {
+    name: "ErpnextItemMap",
+    path: "services/backend-core/packages/contracts/openapi/catalog/erpnext-item-map.yaml",
+  },
   {
     name: "ErpnextWarehouseMap",
-    path: "packages/contracts/openapi/catalog/erpnext-warehouse-map.yaml",
+    path: "services/backend-core/packages/contracts/openapi/catalog/erpnext-warehouse-map.yaml",
   },
   {
     name: "ProductReconciliation",
-    path: "packages/contracts/openapi/catalog/product-reconciliation.yaml",
+    path: "services/backend-core/packages/contracts/openapi/catalog/product-reconciliation.yaml",
   },
-  { name: "TrackingProfile", path: "packages/contracts/openapi/catalog/tracking-profile.yaml" },
-  { name: "SaleSyncOps", path: "packages/contracts/openapi/sale-sync-ops/sale-sync-ops.yaml" },
-  { name: "Inventory", path: "packages/contracts/openapi/inventory/inventory.yaml" },
+  {
+    name: "TrackingProfile",
+    path: "services/backend-core/packages/contracts/openapi/catalog/tracking-profile.yaml",
+  },
+  {
+    name: "SaleSyncOps",
+    path: "services/backend-core/packages/contracts/openapi/sale-sync-ops/sale-sync-ops.yaml",
+  },
+  {
+    name: "Inventory",
+    path: "services/backend-core/packages/contracts/openapi/inventory/inventory.yaml",
+  },
   // Console catalog read (RT-729 contract #855; RT-737): product list, product
   // detail and categories. Composed only: nothing wraps it yet, the runtime
   // is RT-730 and the screens are follow-ups. Consume-only; no YAML authored here.
-  { name: "ConsoleCatalog", path: "packages/contracts/openapi/catalog/console-catalog.yaml" },
+  {
+    name: "ConsoleCatalog",
+    path: "services/backend-core/packages/contracts/openapi/catalog/console-catalog.yaml",
+  },
   // AI entitlements (RT-662 contract #865; RT-665): the protected tenant read
   // `consoleGetTenantAiEntitlements`. Only the read is wrapped. The owner opt-out
   // write (`consolePutTenantAiFeatureOptOut`) is composed but not called, and the
   // server-internal `check` shapes have no path. Consume-only; no YAML authored here.
-  { name: "AiEntitlements", path: "packages/contracts/openapi/ai-entitlements.openapi.yaml" },
+  {
+    name: "AiEntitlements",
+    path: "services/backend-core/packages/contracts/openapi/ai-entitlements.openapi.yaml",
+  },
   // Platform support sessions (RT-777 S1a / RT-779; contract #741, runtime #876):
   // `openSupportSession`, `getCurrentSupportSession`, `renewSupportSession`,
   // `endSupportSession` for the /platform pilot path. Composed only: the /platform
@@ -355,7 +410,7 @@ export const OPENAPI_SOURCE_SPECS: readonly OpenApiSourceSpec[] = [
   // no YAML authored here.
   {
     name: "PlatformSupportSessions",
-    path: "packages/contracts/openapi/platform-support-sessions.openapi.yaml",
+    path: "services/backend-core/packages/contracts/openapi/platform-support-sessions.openapi.yaml",
   },
 ];
 
@@ -375,23 +430,6 @@ export const OUTPUT_PATH = "src/generated/schema.d.ts" as const;
  */
 export const CREDENTIALS_MODE = "include" as const;
 
-const DATA_PULSE_2_REPO_ENV = "DATA_PULSE_2_REPO" as const;
-
-function resolveDataPulseRepo(): string {
-  const configuredRepo = process.env[DATA_PULSE_2_REPO_ENV];
-  const candidate = configuredRepo
-    ? resolve(configuredRepo)
-    : resolve(repoRoot, "..", "Data-Pulse-2");
-
-  if (!existsSync(join(candidate, ".git"))) {
-    throw new Error(
-      `Data-Pulse-2 repo not found at ${candidate}. Set ${DATA_PULSE_2_REPO_ENV} to the repo root.`,
-    );
-  }
-
-  return candidate;
-}
-
 /** The SHA a source is read at: its own `pin` (a temporary hold), else the global pin. */
 export function pinOf(spec: OpenApiSourceSpec): string {
   return spec.pin ?? DATA_PULSE_2_PIN;
@@ -403,14 +441,26 @@ const GIT_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
   windowsHide: true,
 };
 
-function git(dataPulseRepo: string, args: readonly string[]): string {
+function git(monorepoRoot: string, args: readonly string[]): string {
   // `git` is resolved from PATH on purpose: this is a developer/CI tool run from the
   // caller's own shell (as release-artifact.ts does), so PATH is theirs to trust.
-  return execFileSync("git", ["-C", dataPulseRepo, ...args], GIT_OPTIONS); // NOSONAR S4036
+  return execFileSync("git", ["-C", monorepoRoot, ...args], GIT_OPTIONS); // NOSONAR S4036
 }
 
-function readPinnedSource(dataPulseRepo: string, sourcePath: string, pin: string): string {
-  return git(dataPulseRepo, ["show", `${pin}:${sourcePath}`]);
+/**
+ * The root of this monorepo, whose history holds the in-tree Backend-Core
+ * contract (RT-889). Source paths and the PIN commit are relative to it.
+ */
+function resolveMonorepoRoot(): string {
+  try {
+    return git(repoRoot, ["rev-parse", "--show-toplevel"]).trim();
+  } catch {
+    throw new Error(`${repoRoot} is not inside a git checkout of ${BACKEND_CORE_REPO}`);
+  }
+}
+
+function readPinnedSource(monorepoRoot: string, sourcePath: string, pin: string): string {
+  return git(monorepoRoot, ["show", `${pin}:${sourcePath}`]);
 }
 
 /**
@@ -429,7 +479,7 @@ function pinnedSpecs(): readonly OpenApiSourceSpec[] {
 }
 
 /** The blob SHA of every pinned source in Backend-Core at `commit`. */
-function readBlobShas(dataPulseRepo: string, pin: ContractsPin, commit: string): PinnedFile[] {
+function readBlobShas(monorepoRoot: string, pin: ContractsPin, commit: string): PinnedFile[] {
   const prefix = `${pin.source}/`;
   return pinnedSpecs().map((spec) => {
     if (!spec.path.startsWith(prefix)) {
@@ -438,7 +488,7 @@ function readBlobShas(dataPulseRepo: string, pin: ContractsPin, commit: string):
     try {
       return {
         path: spec.path.slice(prefix.length),
-        blobSha: git(dataPulseRepo, ["rev-parse", "--verify", `${commit}:${spec.path}`]).trim(),
+        blobSha: git(monorepoRoot, ["rev-parse", "--verify", `${commit}:${spec.path}`]).trim(),
       };
     } catch {
       throw new Error(`${spec.path} does not exist in Backend-Core at ${commit}`);
@@ -447,18 +497,18 @@ function readBlobShas(dataPulseRepo: string, pin: ContractsPin, commit: string):
 }
 
 /** Fail unless the repo holds exactly the PIN's contracts: right commit, right blobs. */
-function verifyPin(dataPulseRepo: string, pin: ContractsPin): void {
+function verifyPin(monorepoRoot: string, pin: ContractsPin): void {
   if (pin.repo !== BACKEND_CORE_REPO || pin.source !== BACKEND_CORE_OPENAPI_ROOT) {
     throw new Error(
       `${PIN_FILE_PATH} must pin ${BACKEND_CORE_REPO} ${BACKEND_CORE_OPENAPI_ROOT}, found ${pin.repo} ${pin.source}`,
     );
   }
   try {
-    git(dataPulseRepo, ["cat-file", "-e", `${pin.commit}^{commit}`]);
+    git(monorepoRoot, ["cat-file", "-e", `${pin.commit}^{commit}`]);
   } catch {
-    throw new Error(`Backend-Core commit ${pin.commit} not found in ${dataPulseRepo}`);
+    throw new Error(`Backend-Core commit ${pin.commit} not found in ${monorepoRoot}`);
   }
-  const problems = comparePinFiles(pin.files, readBlobShas(dataPulseRepo, pin, pin.commit));
+  const problems = comparePinFiles(pin.files, readBlobShas(monorepoRoot, pin, pin.commit));
   if (problems.length > 0) {
     throw new Error(
       `${PIN_FILE_PATH} does not match Backend-Core @ ${pin.commit}:\n  ${problems.join("\n  ")}\nRun 'pnpm generate:client --repin <ref>' to rewrite it.`,
@@ -466,15 +516,20 @@ function verifyPin(dataPulseRepo: string, pin: ContractsPin): void {
   }
 }
 
-/** The PIN for `ref` in `dataPulseRepo`, with fresh blob SHAs. Does not write it. */
-function resolveRepin(dataPulseRepo: string, current: ContractsPin, ref: string): ContractsPin {
+/**
+ * The PIN for `ref` in `monorepoRoot`, with fresh blob SHAs. Does not write it.
+ * A repin always names this repository's in-tree contract (RT-889), whatever
+ * repository and source the current PIN named.
+ */
+function resolveRepin(monorepoRoot: string, current: ContractsPin, ref: string): ContractsPin {
   let commit: string;
   try {
-    commit = git(dataPulseRepo, ["rev-parse", "--verify", `${ref}^{commit}`]).trim();
+    commit = git(monorepoRoot, ["rev-parse", "--verify", `${ref}^{commit}`]).trim();
   } catch {
-    throw new Error(`--repin: cannot resolve "${ref}" to a commit in ${dataPulseRepo}`);
+    throw new Error(`--repin: cannot resolve "${ref}" to a commit in ${monorepoRoot}`);
   }
-  return { ...current, commit, files: readBlobShas(dataPulseRepo, current, commit) };
+  const target = { ...current, repo: BACKEND_CORE_REPO, source: BACKEND_CORE_OPENAPI_ROOT };
+  return { ...target, commit, files: readBlobShas(monorepoRoot, target, commit) };
 }
 
 async function generateSourceTypes(sourceFilePath: string): Promise<string> {
@@ -506,7 +561,7 @@ function composeSchema(generatedTypesBySource: readonly string[], pinCommit: str
   const intersection = (member: string): string =>
     OPENAPI_SOURCE_SPECS.map((spec) => `${spec.name}Schema.${member}`).join(" & ");
 
-  return `${COMMENT_HEADER}// Source: Data-Pulse-2 @ ${pinCommit}
+  return `${COMMENT_HEADER}// Source: ${BACKEND_CORE_REPO} @ ${pinCommit}
 // Sources:
 ${sourceList}
 //
@@ -522,10 +577,10 @@ export type operations = ${intersection("operations")};
 `;
 }
 
-async function generateClientSchema(dataPulseRepo: string, pin: ContractsPin): Promise<void> {
+async function generateClientSchema(monorepoRoot: string, pin: ContractsPin): Promise<void> {
   const pinOfSpec = (spec: OpenApiSourceSpec): string => spec.pin ?? pin.commit;
   for (const held of new Set(OPENAPI_SOURCE_SPECS.map(pinOfSpec))) {
-    git(dataPulseRepo, ["cat-file", "-e", `${held}^{commit}`]);
+    git(monorepoRoot, ["cat-file", "-e", `${held}^{commit}`]);
   }
 
   const tempDir = mkdtempSync(join(tmpdir(), "retail-tower-console-openapi-"));
@@ -534,7 +589,7 @@ async function generateClientSchema(dataPulseRepo: string, pin: ContractsPin): P
       const sourceFilePath = join(tempDir, `${spec.name.toLowerCase()}.openapi.yaml`);
       writeFileSync(
         sourceFilePath,
-        readPinnedSource(dataPulseRepo, spec.path, pinOfSpec(spec)),
+        readPinnedSource(monorepoRoot, spec.path, pinOfSpec(spec)),
         "utf8",
       );
       return generateSourceTypes(sourceFilePath);
@@ -542,7 +597,7 @@ async function generateClientSchema(dataPulseRepo: string, pin: ContractsPin): P
   );
 
   writeFileSync(resolve(repoRoot, OUTPUT_PATH), composeSchema(generatedTypes, pin.commit), "utf8");
-  console.log(`Generated ${OUTPUT_PATH} from Data-Pulse-2 @ ${pin.commit}`);
+  console.log(`Generated ${OUTPUT_PATH} from ${BACKEND_CORE_REPO} @ ${pin.commit}`);
 }
 
 /** `--repin <ref>` or nothing; anything else is a typo worth failing on. */
@@ -557,15 +612,15 @@ function parseCliArgs(argv: readonly string[]): { readonly repinRef?: string } {
 
 async function main(argv: readonly string[]): Promise<void> {
   const { repinRef } = parseCliArgs(argv);
-  const dataPulseRepo = resolveDataPulseRepo();
+  const monorepoRoot = resolveMonorepoRoot();
   let pin = BACKEND_CORE_PIN;
   if (repinRef !== undefined) {
-    pin = resolveRepin(dataPulseRepo, BACKEND_CORE_PIN, repinRef);
+    pin = resolveRepin(monorepoRoot, BACKEND_CORE_PIN, repinRef);
     writeFileSync(resolve(repoRoot, PIN_FILE_PATH), formatPin(pin), "utf8");
     console.log(`Re-pinned ${PIN_FILE_PATH}: ${BACKEND_CORE_PIN.commit} -> ${pin.commit}`);
   }
-  verifyPin(dataPulseRepo, pin);
-  await generateClientSchema(dataPulseRepo, pin);
+  verifyPin(monorepoRoot, pin);
+  await generateClientSchema(monorepoRoot, pin);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === thisFilePath) {

@@ -28,7 +28,7 @@ def load_config(path):
         raise ConfigError(f"cannot read {path}: {exc}") from None
     if not isinstance(data, dict):
         raise ConfigError("config is not a mapping")
-    for key in ("contracts_root", "consumers", "connector", "identical"):
+    for key in ("repository", "contracts_root", "consumers", "connector", "identical"):
         if key not in data:
             raise ConfigError(f"config has no {key!r}")
     for key in ("consumers", "connector", "identical"):
@@ -46,7 +46,8 @@ def run(repo, config, oasdiff, only=CHECKS):
         if severity is not None and not severity.is_file():
             raise ConfigError(f"severity_levels file {config['severity_levels']} is missing")
         for consumer in config["consumers"]:
-            findings += pins.check_consumer(repo, consumer, root, oasdiff, severity)
+            findings += pins.check_consumer(repo, consumer, root, oasdiff, severity,
+                                            repository=config["repository"])
     if "connector" in only:
         for entry in config["connector"]:
             findings += connector.check_module(repo, entry, root)

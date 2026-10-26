@@ -18,7 +18,7 @@ import {
 
 const HEAD = 'c'.repeat(39) + '3';
 const PIN_COMMIT = 'd'.repeat(39) + '4';
-const PIN_TEXT = `# header\nrepo: Kemetra/Backend-Core\ncommit: ${PIN_COMMIT}\nsource: packages/contracts/openapi\n`;
+const PIN_TEXT = `# header\nrepo: Kemetra-Labs/Retail-Tower-Erp\ncommit: ${PIN_COMMIT}\nsource: services/backend-core/packages/contracts/openapi\n`;
 
 describe('buildIdentityStamp', () => {
   it('stamps the commit and the pinned Backend-Core commit', () => {

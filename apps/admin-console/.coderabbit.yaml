@@ -69,13 +69,5 @@ reviews:
         the change is a re-pin or a regeneration at the same SHA. Flag a pin
         change without regenerated output, and any manual edit to generated
         files.
-    - path: ".github/scripts/fetch-pinned-contracts.sh"
-      instructions: |
-        Feeds the CI client-drift check. It must fetch exactly the set of commits
-        that `openapi-ts.config.ts` derives (`pinOf` over `OPENAPI_SOURCE_SPECS`:
-        the global pin plus any per-source hold), so several distinct commits are
-        legitimate. Flag a hard-coded pin, any unpinned or branch-relative fetch,
-        a fetch set that differs from the derived one, and any change that makes
-        the drift check pass without regenerating.
 chat:
   auto_reply: true
