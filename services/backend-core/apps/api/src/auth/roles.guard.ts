@@ -204,9 +204,9 @@ export class RolesGuard implements CanActivate {
     work: (client: PoolClient | undefined) => Promise<T>,
   ): Promise<T> {
     if (!this.pool) {
-      return work(undefined);
+      return await work(undefined);
     }
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: "00000000-0000-0000-0000-000000000000", isPlatformAdmin: true },
       (client) => work(client),
@@ -226,7 +226,7 @@ export class RolesGuard implements CanActivate {
   ): Promise<boolean> {
     if (principal.kind !== "session") return false;
     if (request.context?.isPlatformAdmin === true) return true;
-    return this.memberships.isPlatformAdmin(principal.userId);
+    return await this.memberships.isPlatformAdmin(principal.userId);
   }
 }
 

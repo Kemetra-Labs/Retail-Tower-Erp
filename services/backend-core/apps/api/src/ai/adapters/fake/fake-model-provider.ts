@@ -62,7 +62,7 @@ export class FakeModelProvider implements ModelProviderPort {
       case "throw":
         throw this.behavior.error;
       case "hang":
-        return new Promise<ModelResult>((resolve) => {
+        return await new Promise<ModelResult>((resolve) => {
           signal.addEventListener("abort", () => resolve({ kind: "unavailable", cause: "timeout" }), {
             once: true,
           });

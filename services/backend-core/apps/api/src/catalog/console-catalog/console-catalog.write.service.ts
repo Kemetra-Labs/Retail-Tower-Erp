@@ -187,7 +187,7 @@ export class ConsoleCatalogWriteService {
 
   /** consoleCreateCatalogProduct — a new product with no price, identifier or override. */
   async createProduct(input: CatalogWriteInput, body: CreateCatalogProductBody): Promise<ConsoleCatalogProductDetail> {
-    return this.write(input, async (client) => {
+    return await this.write(input, async (client) => {
       const categoryId = body.categoryId ?? null;
       if (categoryId !== null) await this.requireUsableCategory(client, input, { categoryId });
       const productId = newId();
@@ -232,7 +232,7 @@ export class ConsoleCatalogWriteService {
     body: UpdateCatalogProductBody,
   ): Promise<ConsoleCatalogProductDetail> {
     const { productId } = target;
-    return this.write(input, async (client) => {
+    return await this.write(input, async (client) => {
       const current = await this.lockProduct(client, input, target);
       requireLiveProduct(current);
       requireExpected(current, body);
@@ -281,7 +281,7 @@ export class ConsoleCatalogWriteService {
   /** consoleRetireCatalogProduct — sets `retired_at`; identifiers and overrides stay. */
   async retireProduct(input: CatalogWriteInput, target: ProductTarget, body: RetireBody): Promise<ConsoleCatalogProductDetail> {
     const { productId } = target;
-    return this.write(input, async (client) => {
+    return await this.write(input, async (client) => {
       const current = await this.lockProduct(client, input, target);
       requireLiveProduct(current);
       requireExpected(current, body);
@@ -309,7 +309,7 @@ export class ConsoleCatalogWriteService {
     key: ProductIdentifierKeyBody,
   ): Promise<ConsoleCatalogProductDetail> {
     const { productId } = target;
-    return this.write(input, async (client) => {
+    return await this.write(input, async (client) => {
       const current = await this.lockProduct(client, input, target);
       const storeId = key.storeId ?? null;
       if (storeId !== null) await this.requireStoreInScope(client, input, { storeId });
@@ -357,7 +357,7 @@ export class ConsoleCatalogWriteService {
     key: ProductIdentifierKeyBody,
   ): Promise<ConsoleCatalogProductDetail> {
     const { productId } = target;
-    return this.write(input, async (client) => {
+    return await this.write(input, async (client) => {
       await this.lockProduct(client, input, target);
       const storeId = key.storeId ?? null;
       if (storeId !== null) await this.requireStoreInScope(client, input, { storeId });
@@ -389,7 +389,7 @@ export class ConsoleCatalogWriteService {
     body: UpsertStoreOverrideBody,
   ): Promise<ConsoleCatalogProductDetail> {
     const { productId, storeId } = target;
-    return this.write(input, async (client) => {
+    return await this.write(input, async (client) => {
       const product = await this.lockProduct(client, input, target);
       const access = await this.requireStoreInScope(client, input, target);
       if ("taxCategory" in body) requireTaxRole(access);
@@ -424,7 +424,7 @@ export class ConsoleCatalogWriteService {
     body: RetireBody,
   ): Promise<ConsoleCatalogProductDetail> {
     const { productId, storeId } = target;
-    return this.write(input, async (client) => {
+    return await this.write(input, async (client) => {
       await this.lockProduct(client, input, target);
       const access = await this.requireStoreInScope(client, input, target);
       const current = await this.lockOverride(client, input, target);

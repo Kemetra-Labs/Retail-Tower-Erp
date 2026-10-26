@@ -80,7 +80,7 @@ export class AuditController {
     // future guard-ordering changes.
     if (!ctx.tenantId) throw new UnauthorizedException("Unauthorized");
 
-    return this.auditService.list({
+    return await this.auditService.list({
       tenantId: ctx.tenantId,
       isPlatformAdmin: ctx.isPlatformAdmin,
       action: query.action,

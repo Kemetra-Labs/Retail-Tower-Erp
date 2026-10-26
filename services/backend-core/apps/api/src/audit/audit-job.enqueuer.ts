@@ -28,7 +28,8 @@ export interface AuditJobEnqueuer {
  */
 @Injectable()
 export class NoOpAuditJobEnqueuer implements AuditJobEnqueuer {
-  async enqueue(_payload: AuditJobPayload): Promise<void> {
+  enqueue(_payload: AuditJobPayload): Promise<void> {
+    return Promise.resolve();
     // intentionally empty — no job is queued, no audit event is emitted
   }
 }

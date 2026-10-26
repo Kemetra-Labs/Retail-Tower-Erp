@@ -163,7 +163,7 @@ export class NegativeOnHandService {
     const { tenantId } = input;
     const after = input.cursor !== null ? decodeStoreCursor({ tenantId, cursor: input.cursor }) : null;
 
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId, isPlatformAdmin: false },
       async (client): Promise<StoreNegativeOnHandSummaryPage> => {
@@ -208,7 +208,7 @@ export class NegativeOnHandService {
     const { storeId } = scope;
     const cursor = input.cursor !== null ? decodeItemCursor({ ...scope, cursor: input.cursor }) : null;
 
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client): Promise<StoreNegativeOnHandPage> => {

@@ -281,7 +281,7 @@ export class ErpnextSyncOpsReadModelService {
    */
   async listPostingBacklog(input: ListInput): Promise<Page<PostingBacklogItem>> {
     const limit = Math.min(Math.max(1, input.limit), LIST_MAX_PAGE);
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client) => {
@@ -339,7 +339,7 @@ export class ErpnextSyncOpsReadModelService {
     input: RunListInput,
   ): Promise<Page<ReconciliationRunView>> {
     const limit = Math.min(Math.max(1, input.limit), LIST_MAX_PAGE);
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client) => {

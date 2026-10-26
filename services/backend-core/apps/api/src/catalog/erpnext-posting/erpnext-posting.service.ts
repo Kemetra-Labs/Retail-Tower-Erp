@@ -212,7 +212,7 @@ export class ErpnextPostingService {
   async pullPostings(input: PullPostingsInput): Promise<PullPostingsResult> {
     const limit = Math.min(Math.max(1, input.limit), POSTING_FEED_MAX_PAGE);
 
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client) => {
@@ -414,7 +414,7 @@ export class ErpnextPostingService {
     row: TerminalRow,
   ): Promise<AckOutcomeResult> {
     if (reportsReconciliation(input, row) && row.status === "permanently_rejected") {
-      return this.reconcileTerminal(client, input, row);
+      return await this.reconcileTerminal(client, input, row);
     }
     // A post from a superseded resolution is never confirmed as posted — not
     // even on a row a current-version post already completed.
@@ -477,19 +477,19 @@ export class ErpnextPostingService {
       case "posted":
         // RT-332: a post made from a superseded resolution version is not the
         // intent's current one — record it for reconciliation, never as posted.
-        return isStaleResolution(input, row)
+        return await (isStaleResolution(input, row)
           ? this.applyReconciliation(client, input)
-          : this.applyPosted(client, input);
+          : this.applyPosted(client, input));
       case "reconciliation_required":
-        return this.applyReconciliation(client, input);
+        return await this.applyReconciliation(client, input);
       case "permanently_rejected":
-        return this.applyRejected(client, {
+        return await this.applyRejected(client, {
           workItemRef: input.workItemRef,
           category: input.reason?.category ?? "other",
           message: sanitizeRejectionMessage(input.reason?.message),
         });
       case "failed_transient":
-        return this.applyTransient(client, input.workItemRef, row.retry_count);
+        return await this.applyTransient(client, input.workItemRef, row.retry_count);
     }
   }
 

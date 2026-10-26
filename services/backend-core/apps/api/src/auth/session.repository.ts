@@ -32,13 +32,15 @@ export interface SessionCache {
 }
 
 class NoOpSessionCache implements SessionCache {
-  async get(_id: string): Promise<SessionRow | null> {
-    return null;
+  get(_id: string): Promise<SessionRow | null> {
+    return Promise.resolve(null);
   }
-  async set(_session: SessionRow): Promise<void> {
+  set(_session: SessionRow): Promise<void> {
+    return Promise.resolve();
     // intentionally empty
   }
-  async invalidate(_id: string): Promise<void> {
+  invalidate(_id: string): Promise<void> {
+    return Promise.resolve();
     // intentionally empty
   }
 }

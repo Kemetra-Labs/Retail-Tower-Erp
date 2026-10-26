@@ -44,6 +44,6 @@ export class PlatformAuditController {
   async listPlatformAuditEvents(
     @Query(new ZodValidationPipe(PlatformAuditQuerySchema)) query: PlatformAuditQueryParsed,
   ): Promise<ListPlatformAuditEventsResponse> {
-    return this.service.list(query);
+    return await this.service.list(query);
   }
 }

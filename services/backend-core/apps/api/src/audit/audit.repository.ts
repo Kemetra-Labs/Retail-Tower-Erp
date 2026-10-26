@@ -173,7 +173,7 @@ export class DrizzleAuditRepository implements AuditRepository, PlatformAuditRep
     const rows = await this.tx(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: input.isPlatformAdmin },
-      async (client) => this.runQuery(input, { kind: "tenant", tenantId: input.tenantId }, client),
+      async (client) => await this.runQuery(input, { kind: "tenant", tenantId: input.tenantId }, client),
     );
     // tenantId column is nullable, but the explicit predicate guarantees
     // a non-null value here; coerce defensively for the type system.
@@ -184,7 +184,7 @@ export class DrizzleAuditRepository implements AuditRepository, PlatformAuditRep
     const rows = await this.tx(
       this.pool,
       { tenantId: null, isPlatformAdmin: true },
-      async (client) => this.runQuery(input, { kind: "platform" }, client),
+      async (client) => await this.runQuery(input, { kind: "platform" }, client),
     );
     return rows.map((row) => ({ ...toRecord(row), tenantId: null }));
   }

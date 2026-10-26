@@ -61,15 +61,18 @@ export interface EmailJobEnqueuer {
  */
 @Injectable()
 export class NoOpEmailJobEnqueuer implements EmailJobEnqueuer {
-  async enqueuePasswordReset(_job: PasswordResetEmailJob): Promise<void> {
+  enqueuePasswordReset(_job: PasswordResetEmailJob): Promise<void> {
+    return Promise.resolve();
     // intentionally empty — no email is sent, no job is queued
   }
-  async enqueueEmailVerification(
+  enqueueEmailVerification(
     _job: EmailVerificationEmailJob,
   ): Promise<void> {
+    return Promise.resolve();
     // intentionally empty — no email is sent, no job is queued
   }
-  async enqueueInvitation(_job: InvitationEmailJob): Promise<void> {
+  enqueueInvitation(_job: InvitationEmailJob): Promise<void> {
+    return Promise.resolve();
     // intentionally empty — no email is sent, no job is queued
   }
 }

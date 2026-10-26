@@ -132,7 +132,7 @@ export class SaleSyncOpsController {
   ): Promise<SaleSyncStatusBody> {
     const scoped = this.requireTenant(request);
     this.assertSaleRef(saleRef);
-    return this.withNotFound(() =>
+    return await this.withNotFound(() =>
       this.service.getSaleSyncStatus(scoped, saleRef),
     );
   }
@@ -172,7 +172,7 @@ export class SaleSyncOpsController {
   ): Promise<SaleAuditTimelineBody> {
     const scoped = this.requireTenant(request);
     this.assertSaleRef(saleRef);
-    return this.withNotFound(() =>
+    return await this.withNotFound(() =>
       this.service.getSaleAuditTimeline(scoped, saleRef),
     );
   }

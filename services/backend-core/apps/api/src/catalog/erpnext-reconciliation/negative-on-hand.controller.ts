@@ -69,7 +69,7 @@ export class NegativeOnHandController {
     @Query(new ZodValidationPipe(NegativeOnHandQuerySchema)) query: NegativeOnHandQuery,
   ): Promise<StoreNegativeOnHandSummaryPage> {
     const { ctx, tenantId } = requireTenant(request);
-    return mapErrors(() =>
+    return await mapErrors(() =>
       this.service.listStores({
         tenantId,
         context: ctx,
@@ -90,7 +90,7 @@ export class NegativeOnHandController {
     @Query(new ZodValidationPipe(NegativeOnHandQuerySchema)) query: NegativeOnHandQuery,
   ): Promise<StoreNegativeOnHandPage> {
     const { ctx, tenantId } = requireTenant(request);
-    return mapErrors(() =>
+    return await mapErrors(() =>
       this.service.listItems({
         tenantId,
         context: ctx,
