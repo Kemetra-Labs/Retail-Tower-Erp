@@ -19,11 +19,47 @@ cases:
     checks: auto
     approvals: [{login: test-human, kind: label}]
     expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [LABEL_NOT_SHA_BOUND]}
-  - name: real-graph-approver-is-kemetra-only
+  - name: real-graph-unlisted-login-cannot-approve
     changes: [{status: M, path: .github/workflows/pos.yml}]
     checks: auto
-    approvals: [{login: ahmed-shaaban-94}]
+    approvals: [{login: ahmed-shaaban-94, actor_id: 1}]
     expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [NOT_APPROVER]}
+  # RT-870: the real graph.yaml lists exactly the owner and the reviewer App, by id and type
+  - name: real-graph-owner-by-id-can-approve
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    checks: auto
+    approvals: [{login: Kemetra, actor_type: User, actor_id: 206601658}]
+    expect_required: {conclusion: success, reasons: []}
+  - name: real-graph-reviewer-app-by-id-can-approve
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    checks: auto
+    approvals: [{login: "kemetra-reviewer[bot]", actor_type: Bot, actor_id: 348508063}]
+    expect_required: {conclusion: success, reasons: []}
+  - name: real-graph-reviewer-login-with-another-id-cannot-approve
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    checks: auto
+    approvals: [{login: "kemetra-reviewer[bot]", actor_type: Bot, actor_id: 1}]
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [NOT_APPROVER]}
+  - name: real-graph-owner-login-with-another-id-cannot-approve
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    checks: auto
+    approvals: [{login: Kemetra, actor_type: User, actor_id: 1}]
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [NOT_APPROVER]}
+  - name: real-graph-author-bot-cannot-approve
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    checks: auto
+    approvals: [{login: "kemetra-agent[bot]", actor_type: Bot, actor_id: 344537132}]
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [NOT_APPROVER]}
+  - name: real-graph-reviewer-id-with-the-wrong-type-cannot-approve
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    checks: auto
+    approvals: [{login: "kemetra-reviewer[bot]", actor_type: User, actor_id: 348508063}]
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [NOT_APPROVER]}
+  - name: real-graph-reviewer-with-a-stale-head-cannot-approve
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    checks: auto
+    approvals: [{login: "kemetra-reviewer[bot]", actor_type: Bot, actor_id: 348508063, head: "dddddddddddddddddddddddddddddddddddddddd"}]
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [STALE_HEAD]}
   # RT-870: approvers listed by immutable numeric id and actor type (a Bot can be one)
   - name: reviewer-bot-listed-by-id-and-type-can-approve
     trusted_overrides: {policy_approvers: [{id: 5001, type: Bot, login: "kemetra-reviewer[bot]"}]}
