@@ -42,7 +42,6 @@ import { createLockStateReader, createSafePointProbe } from './operator/lock-sta
 import { wireSessionStatePush } from './operator/session-state-push.js';
 import { wireSessionLockAudit } from './operator/session-lock-audit.js';
 import { createSaleSyncTokenReader } from './operator/sale-sync-token.js';
-import { createManagerEnvelopeReader } from './operator/manager-envelope-token.js';
 import { SESSION_LOCK_IPC_CHANNELS } from '../shared/operator/channels.js';
 import { registerPingHandler } from './ipc/ping.js';
 import { registerAppVersionHandler } from './ipc/app-version.js';
@@ -146,10 +145,7 @@ import {
 import {
   composeShiftCashupService,
   pairedShiftScope,
-  registerShiftSync,
-  startShiftSync,
 } from './shift-cashup/compose-shift-cashup.js';
-import { registerShiftCashupIpc } from './ipc/shift-cashup.js';
 import { createManagerCredentialAudit } from './operator/manager-credential-audit.js';
 import {
   createManagerPinStore,
@@ -190,6 +186,7 @@ import { createWindowFactory } from './app/bootstrap-window.js';
 import { createDatabaseHolder } from './app/bootstrap-db.js';
 import { resolveApiBaseUrl, resolveClerkExchanger, resolveMigrationsDir } from './bootstrap/env.js';
 import { registerCatalogue } from './bootstrap/catalogue.js';
+import { registerShift } from './bootstrap/shift.js';
 import { registerUpdater, startUpdater } from './bootstrap/updater.js';
 import {
   getCurrentPrinters,
@@ -264,10 +261,7 @@ import {
 } from './app/device-revocation-flow.js';
 import { createRevocationRecheck } from './app/revocation-recheck.js';
 import { purgeOtherTerminalPinRecords } from './operator/pin-records-purge.js';
-import {
-  managerIdentityOf,
-  registerManagerRoleRefresh,
-} from './operator/manager-pin-enrollment.js';
+import { registerManagerRoleRefresh } from './operator/manager-pin-enrollment.js';
 import { PAIRING_PUSH_CHANNELS, type PairingRecheckResult } from '../shared/pairing-types.js';
 import { createJwtHolder } from './operator/jwt-holder.js';
 import { ProtoSessionStore, TakeoverHandler } from './operator/takeover-handler.js';
@@ -2466,79 +2460,24 @@ singleInstanceReady
       });
     }
 
-    // ── RT-17 slice 3 — shift cash-up sync (flag-gated, default off) ──
-    //
-    // With POS_PULSE_FEATURE_SHIFT_CASHUP off (default, owner approval 10920)
-    // nothing is registered: the shift sync engine never starts. With it on,
-    // the engine is a paired-only worker like sale sync: the same device token
-    // reader (null unless paired, null once revoked), the same live current-
-    // terminal resolver (RT-221) and the RT-215 detector on every answer, one
-    // tick every 5 s, stopped with the other workers before the DB closes.
-    registerShiftSync({
-      enabled: parseFeatureFlags(process.env).shiftCashup,
-      pairedWorkers: pairedWorkersLatch,
-      workers: workerRegistry,
-      start: (terminal) =>
-        startShiftSync({
-          db,
-          terminal,
-          client: {
-            baseUrl: resolveApiBaseUrl(),
-            fetch: backendFetch,
-            detector: deviceAuthDetector,
-            getDeviceToken: readSendableDeviceToken,
-            currentTerminalId: () => pairingStore.getCurrentTerminalId(),
-            // RT-554 (b): a forced close goes out under a manager / admin's envelope only.
-            getEnvelope: createManagerEnvelopeReader(
-              operatorSessionManager,
-              operatorEnvelopeHolder,
-            ),
-          },
-          resolveTerminalId: createCurrentTerminalResolver(() => pairingStore.getStatus()),
-          logger: mainLogger,
-          onDrainNow: (drainNow) => {
-            shiftSyncDrainNowRef.current = drainNow;
-          },
-        }),
-    });
-
-    // ── RT-17 slice 4 part 1 — shift cash-up IPC (flag-gated, default off) ──
-    //
-    // Registered only with POS_PULSE_FEATURE_SHIFT_CASHUP on, on the
-    // lock-guarded ipcMain (no shift channel is on the lock allowlist). The
-    // service re-reads the flag and requires the live operator session on the
-    // paired terminal on every call; a fact needs an admitted cashier.
-    // Part 2 (RT-17 10943): a variance close takes a manager PIN, verified
-    // against the local manager PIN records (sealed with safeStorage); a
-    // manager signed in online enrols theirs. Re-checks after an await read
-    // the RT-215 pairing epoch (F2, 10944).
-    registerShiftCashupIpc({
-      enabled: parseFeatureFlags(process.env).shiftCashup,
-      ipcMain: guardedIpcMain,
+    // RT-17 slice 3 + slice 4 — the shift cash-up sync engine and IPC (RT-893 extraction 4);
+    // both flag-gated, default off (see `bootstrap/shift.ts`).
+    registerShift({
+      guardedIpcMain,
       db,
-      isEnabled: () => parseFeatureFlags(process.env).shiftCashup,
-      getSession: () =>
-        resolveSessionScope(
-          operatorSessionManager.getCurrent(),
-          pairingStore.getCurrentTerminalId(),
-        ),
-      isSessionLocked: () => operatorSessionManager.getCurrent()?.lock_state === 'locked',
-      pairedScope: async () => pairedShiftScope(await pairingStore.getStatus()),
-      pairingEpoch: () => pairingStore.getPairingEpoch(),
-      getManager: () => managerIdentityOf(operatorSessionManager.getCurrent()),
-      onSessionStarted: (listener) => {
-        operatorSessionManager.onStarted(listener);
-      },
-      currentTerminalId: () => pairingStore.getCurrentTerminalId(),
+      pairingStore,
+      pairedWorkersLatch,
+      workerRegistry,
+      operatorSessionManager,
+      operatorEnvelopeHolder,
+      mainLogger,
+      backendFetch,
+      deviceAuthDetector,
+      readSendableDeviceToken,
       safeStorage,
-      now: () => new Date().toISOString(),
-      logger: mainLogger,
-      // RT-443: the one store, shared with the approval service (audited there).
       managerPins,
-      // RT-772: the cashier's shift close is a safe-point trigger for an update install.
-      onShiftClosed: () => {
-        updateService.notifyShiftClosed();
-      },
+      updateService,
+      shiftSyncDrainNowRef,
     });
 
     // RT-772: after the last IPC registration, so a download that completes at once

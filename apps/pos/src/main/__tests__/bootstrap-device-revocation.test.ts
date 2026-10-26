@@ -20,6 +20,8 @@ const source = readFileSync(resolve(__dirname, '../index.ts'), 'utf-8');
 // RT-893 extraction 3: the read-down client wiring moved out of `index.ts` into
 // `bootstrap/catalogue.ts`; its device-bearer assertions read that module.
 const catalogueSource = readFileSync(resolve(__dirname, '../bootstrap/catalogue.ts'), 'utf-8');
+// RT-893 extraction 4: the RT-17 shift sync client wiring moved into `bootstrap/shift.ts`.
+const shiftSource = readFileSync(resolve(__dirname, '../bootstrap/shift.ts'), 'utf-8');
 
 function count(pattern: RegExp): number {
   return source.match(pattern)?.length ?? 0;
@@ -29,16 +31,22 @@ function countCatalogue(pattern: RegExp): number {
   return catalogueSource.match(pattern)?.length ?? 0;
 }
 
+function countShift(pattern: RegExp): number {
+  return shiftSource.match(pattern)?.length ?? 0;
+}
+
 describe('main/index.ts wires RT-215 (device revoked + pairing recovery)', () => {
   it('never reads the device token for sending except through the sendable reader', () => {
     expect(count(/secretStore\.get\(\s*DEVICE_TOKEN_KEY\s*\)/g)).toBe(0);
     expect(source).toMatch(/createSendableDeviceTokenReader\(\{\s*pairingStore,/);
-    // probe, admissions, RT-17 shift sync (index.ts) + read-down (bootstrap/catalogue.ts)
+    // probe, admissions (index.ts) + read-down (bootstrap/catalogue.ts) + RT-17 shift sync (bootstrap/shift.ts)
     expect(
       count(/getDeviceToken: readSendableDeviceToken/g) +
-        countCatalogue(/getDeviceToken: readSendableDeviceToken/g),
+        countCatalogue(/getDeviceToken: readSendableDeviceToken/g) +
+        countShift(/getDeviceToken: readSendableDeviceToken/g),
     ).toBe(4);
     expect(countCatalogue(/getDeviceToken: readSendableDeviceToken/g)).toBe(1);
+    expect(countShift(/getDeviceToken: readSendableDeviceToken/g)).toBe(1);
     // RT-215 × RT-224: the sale-sync device path reads through the sendable read
     // (null unless paired and not revoked), behind #547's never-reject reader.
     expect(source).toMatch(
@@ -157,7 +165,8 @@ describe('main/index.ts wires RT-215 (device revoked + pairing recovery)', () =>
     // The default send paths are unchanged (the counts above still hold).
     expect(
       count(/getDeviceToken: readSendableDeviceToken/g) +
-        countCatalogue(/getDeviceToken: readSendableDeviceToken/g),
+        countCatalogue(/getDeviceToken: readSendableDeviceToken/g) +
+        countShift(/getDeviceToken: readSendableDeviceToken/g),
     ).toBe(4);
     expect(
       count(/withDeviceAuthObservation\(/g) + countCatalogue(/withDeviceAuthObservation\(/g),

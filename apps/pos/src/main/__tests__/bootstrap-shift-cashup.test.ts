@@ -23,58 +23,85 @@ import { describe, expect, it } from 'vitest';
  *    the other terminals' manager PIN records with the cashier ones.
  */
 
-const source = readFileSync(resolve(__dirname, '../index.ts'), 'utf-8');
+const indexSource = readFileSync(resolve(__dirname, '../index.ts'), 'utf-8');
+// RT-893 extraction 4: the shift sync engine and the shift cash-up IPC registration moved,
+// verbatim, out of `index.ts` into `bootstrap/shift.ts` (`registerShift`). Their assertions
+// read that module; the forced-close handler and the PIN purge stay in `index.ts`.
+const shiftSource = readFileSync(resolve(__dirname, '../bootstrap/shift.ts'), 'utf-8');
 
 function count(pattern: RegExp): number {
-  return source.match(pattern)?.length ?? 0;
+  return shiftSource.match(pattern)?.length ?? 0;
 }
 
-describe('main/index.ts wires the RT-17 shift sync engine', () => {
+describe('main/index.ts hands the RT-17 shift wiring to bootstrap/shift.ts', () => {
+  it('calls registerShift exactly once, with the shift code gone from index.ts', () => {
+    expect(indexSource.match(/registerShift\(/g)?.length ?? 0).toBe(1);
+    expect(indexSource).toMatch(/import \{ registerShift \} from '\.\/bootstrap\/shift\.js';/);
+    expect(indexSource).not.toMatch(/registerShiftSync\(/);
+    expect(indexSource).not.toMatch(/startShiftSync\(/);
+    expect(indexSource).not.toMatch(/registerShiftCashupIpc\(/);
+  });
+
+  it('keeps the boot order: after the returns wiring, before startUpdater', () => {
+    const returns = indexSource.indexOf("workerRegistry.register('returns resolver'");
+    const shift = indexSource.indexOf('registerShift({');
+    const updater = indexSource.indexOf('startUpdater({ updateService })');
+    expect(returns).toBeGreaterThan(-1);
+    expect(shift).toBeGreaterThan(returns);
+    expect(updater).toBeGreaterThan(shift);
+  });
+
+  it('does not import from index.ts', () => {
+    expect(shiftSource).not.toMatch(/from '\.\.?\/index(\.js)?'/);
+  });
+});
+
+describe('bootstrap/shift.ts wires the RT-17 shift sync engine', () => {
   it('registers the engine once, gated on the shift cash-up flag', () => {
     expect(count(/registerShiftSync\(/g)).toBe(1);
     expect(count(/startShiftSync\(/g)).toBe(1);
-    expect(source).toMatch(
+    expect(shiftSource).toMatch(
       /registerShiftSync\(\{\s*enabled: parseFeatureFlags\(process\.env\)\.shiftCashup,\s*pairedWorkers: pairedWorkersLatch,\s*workers: workerRegistry,/,
     );
   });
 
   it('uses the sale-sync device sources and the RT-215 detector', () => {
-    expect(source).toMatch(
+    expect(shiftSource).toMatch(
       /startShiftSync\(\{\s*db,\s*terminal,\s*client: \{\s*baseUrl: resolveApiBaseUrl\(\),\s*fetch: backendFetch,\s*detector: deviceAuthDetector,\s*getDeviceToken: readSendableDeviceToken,\s*currentTerminalId: \(\) => pairingStore\.getCurrentTerminalId\(\),\s*(?:\/\/[^\n]*\n\s*)?getEnvelope: createManagerEnvelopeReader\(\s*operatorSessionManager,\s*operatorEnvelopeHolder,?\s*\),\s*\},\s*resolveTerminalId: createCurrentTerminalResolver\(\(\) => pairingStore\.getStatus\(\)\),\s*logger: mainLogger,\s*onDrainNow: \(drainNow\) => \{\s*shiftSyncDrainNowRef\.current = drainNow;\s*\},\s*\}\)/,
     );
   });
 
   it('RT-554 (b): sends a forced close under the manager envelope only, and kicks the drain from the handler', () => {
     // The envelope reader is the manager / admin one, never the sale-sync (any-role) reader.
-    expect(source).toMatch(/getEnvelope: createManagerEnvelopeReader\(/);
+    expect(shiftSource).toMatch(/getEnvelope: createManagerEnvelopeReader\(/);
     // The forced-close handler is built over the cash-up tables, with the drain-now seam.
-    expect(source).toMatch(
+    expect(indexSource).toMatch(
       /forcedCloseHandler: new ForcedCloseHandler\(\{[\s\S]*?shiftCashup: composeShiftCashupService\(\{[\s\S]*?\}\),\s*deliverNow: \(\) =>\s*shiftSyncDrainNowRef\.current === null\s*\? Promise\.resolve\(false\)\s*: shiftSyncDrainNowRef\.current\(\),/,
     );
   });
 
   it('registers the shift cash-up IPC once, only with the flag on, on the lock-guarded ipcMain', () => {
     expect(count(/registerShiftCashupIpc\(/g)).toBe(1);
-    expect(source).not.toMatch(/registerShiftCashupHandlers\(/);
-    expect(source).toMatch(
+    expect(shiftSource).not.toMatch(/registerShiftCashupHandlers\(/);
+    expect(shiftSource).toMatch(
       /registerShiftCashupIpc\(\{\s*enabled: parseFeatureFlags\(process\.env\)\.shiftCashup,\s*ipcMain: guardedIpcMain,\s*db,\s*isEnabled: \(\) => parseFeatureFlags\(process\.env\)\.shiftCashup,/,
     );
   });
 
   it('gates every shift call on the live operator session on the paired terminal', () => {
-    expect(source).toMatch(
-      /registerShiftCashupIpc\(\{[^}]*getSession: \(\) =>\s*resolveSessionScope\(\s*operatorSessionManager\.getCurrent\(\),\s*pairingStore\.getCurrentTerminalId\(\),\s*\),\s*isSessionLocked: \(\) => operatorSessionManager\.getCurrent\(\)\?\.lock_state === 'locked',\s*pairedScope: async \(\) => pairedShiftScope\(await pairingStore\.getStatus\(\)\),/,
+    expect(shiftSource).toMatch(
+      /registerShiftCashupIpc\(\{[^}]*getSession: \(\) =>\s*resolveSessionScope\(\s*operatorSessionManager\.getCurrent\(\),\s*pairingStore\.getCurrentTerminalId\(\),?\s*\),\s*isSessionLocked: \(\) => operatorSessionManager\.getCurrent\(\)\?\.lock_state === 'locked',\s*pairedScope: async \(\) => pairedShiftScope\(await pairingStore\.getStatus\(\)\),/,
     );
   });
 
   it('wires the pairing epoch, the manager identity and the PIN seal (part 2)', () => {
-    expect(source).toMatch(
+    expect(shiftSource).toMatch(
       /registerShiftCashupIpc\(\{[^}]*pairedScope: async \(\) => pairedShiftScope\(await pairingStore\.getStatus\(\)\),\s*pairingEpoch: \(\) => pairingStore\.getPairingEpoch\(\),\s*getManager: \(\) => managerIdentityOf\(operatorSessionManager\.getCurrent\(\)\),\s*onSessionStarted: \(listener\) => \{\s*operatorSessionManager\.onStarted\(listener\);\s*\},\s*currentTerminalId: \(\) => pairingStore\.getCurrentTerminalId\(\),\s*safeStorage,/,
     );
   });
 
   it('purges the other terminals’ manager PIN records on a re-pair, with the cashier ones', () => {
-    expect(source).toMatch(
+    expect(indexSource).toMatch(
       /purgeOtherTerminalPins: \(terminalId\) =>\s*purgeOtherTerminalPinRecords\(db, terminalId\) \+\s*purgeOtherTerminalManagerPinRecords\(db, terminalId\),/,
     );
   });
