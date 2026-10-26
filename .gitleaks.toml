@@ -2,9 +2,10 @@
 #
 # Runs the gitleaks default rules. The allowlists below cover only the findings triaged at
 # b2b42a72 (full history, gitleaks 8.30.1): 94 hits, 0 live secrets. They are idempotency keys,
-# redaction-test sentinels, fake JWTs and doc placeholders. Each allowlist is scoped to the rule
-# that fired and to the exact files it fired in, so a real credential shape (AWS, GitHub, private
-# key, ...) is still reported in those files, and a new generic hit anywhere else fails the scan.
+# redaction-test sentinels, fake JWTs and doc placeholders. Each allowlist needs all three to
+# match (condition AND): the rule that fired, one of the exact files it fired in, and one of the
+# exact triaged values. A new value in a listed file still fails the scan, as does any other
+# credential shape (AWS, GitHub, private key, ...) and any hit anywhere else.
 #
 # This file and .gitleaksignore are policy class (graph.yaml): widening the allowlist needs
 # owner approval, like any workflow change.
@@ -20,6 +21,61 @@ useDefault = true
 [[allowlists]]
 description = "RT-876 triaged generic-api-key fixtures and placeholders"
 targetRules = ["generic-api-key"]
+condition = "AND"
+regexes = [
+  '''^0f8fad5b-d9cb-469f-a165-70867728950e$''',
+  '''^AlongValidPass123$''',
+  '''^SENTINEL_T097_secret_material_blob$''',
+  '''^abcd1234efgh5678$''',
+  '''^abcdef1234567890abcdef1234500001$''',
+  '''^abcdef1234567890abcdef1234500002$''',
+  '''^abcdef1234567890abcdef1234567200$''',
+  '''^abcdef1234567890abcdef1234567510$''',
+  '''^abcdef1234567890abcdef1234567513$''',
+  '''^abcdef1234567890abcdef1234567514$''',
+  '''^abcdef1234567890abcdef1234567515$''',
+  '''^abcdef1234567890abcdef1234567516$''',
+  '''^abcdef1234567890abcdef1234567517$''',
+  '''^abcdef1234567890abcdef1234567534$''',
+  '''^abcdef1234567890abcdef1234567535$''',
+  '''^abcdef1234567890abcdef1234567536$''',
+  '''^abcdef1234567890abcdef1234567537$''',
+  '''^abcdef1234567890abcdef1234567601$''',
+  '''^abcdef1234567890abcdef1234567602$''',
+  '''^abcdef1234567890abcdef1234567603$''',
+  '''^abcdef1234567890abcdef1234567604$''',
+  '''^abcdef1234567890abcdef1234567605$''',
+  '''^abcdef1234567890abcdef1234567890$''',
+  '''^adj-key-dispute-0001$''',
+  '''^bulk-t055-boundary-key-000001$''',
+  '''^e289-final-key-001$''',
+  '''^eyJhbGciOiJSUzI1NiJ9\.eyJzdWIiOiJ1In0\.c2ln$''',
+  '''^eyJhbGciOi\.eyJzdWIiOiIx\.c2ln$''',
+  '''^eyJraWQiOiJzZWNyZXQtand0LXNpZ24tb3V0In0\.x\.y$''',
+  '''^eyJraWQiOiJzZWNyZXQtand0LXZhbHVlIn0\.x\.y$''',
+  '''^idempotency-key-t020-1$''',
+  '''^ikey-t100-fixture-dev$''',
+  '''^ikey-t100-fixture-noflag$''',
+  '''^ikey-t100-fixture-pkg$''',
+  '''^p2-api-p95-latency$''',
+  '''^pgowner0123456789abcdef01234567$''',
+  '''^pos-cashier-adm-1f0e3c1e-61a4-4c84-a3b1-9d0b2c7c8e11$''',
+  '''^pos-operator-envelope-SECRET-abc123$''',
+  '''^receipt-20260514-001$''',
+  '''^remove-ipc-latch-0001$''',
+  '''^remove-latch-0001$''',
+  '''^rt113-key-0123456789$''',
+  '''^rt662-idempotency-key-0001$''',
+  '''^rt664-harness-key-0001$''',
+  '''^secret-idempotency-key-123456$''',
+  '''^sk_live_abcd1234efgh$''',
+  '''^t071-j4-forbid-key-00001$''',
+  '''^t071-j4-notfound-key-001$''',
+  '''^t071-j4-resolved-key-0001$''',
+  '''^t071-j5-ceiling-key-0001$''',
+  '''^test-idempotency-key-0001$''',
+  '''^test-idempotency-key-9999$''',
+]
 paths = [
   '''^apps/admin-console/tests/unit/observability-scrub\.test\.ts$''',
   '''^apps/admin-console/tests/unit/product-recon-queries\.test\.ts$''',
@@ -84,6 +140,11 @@ paths = [
 [[allowlists]]
 description = "RT-876 Connector scrubber test placeholders"
 targetRules = ["stripe-access-token"]
+condition = "AND"
+regexes = [
+  '''^sk_live_abcd1234efgh$''',
+  '''^sk_live_deadbeef1234$''',
+]
 paths = [
   '''^integrations/erpnext-connector/retail_tower_erpnext_connector/tests/posting/test_reasons\.py$''',
 ]
@@ -92,6 +153,10 @@ paths = [
 [[allowlists]]
 description = "RT-876 Backend-Core operator validation report curl example"
 targetRules = ["curl-auth-header"]
+condition = "AND"
+regexes = [
+  '''^invalid-opaque-token-xyz$''',
+]
 paths = [
   '''^services/backend-core/docs/observability/operator-validation-report\.md$''',
 ]
