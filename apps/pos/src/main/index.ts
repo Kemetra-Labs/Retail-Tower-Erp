@@ -190,6 +190,7 @@ import {
   createDefaultPrintWindow,
   type PrinterInfoLike,
 } from './receipts/os-print-transport.js';
+import { withPrintRefocus } from './receipts/print-refocus.js';
 import { createPrintDispatcher } from './receipts/print-dispatcher.js';
 import { dispatchFirstPrintOnFinalize } from './receipts/dispatch-first-print-on-finalize.js';
 import { createDrawerKickDispatcher } from './drawer/drawer-kick.js';
@@ -2000,11 +2001,17 @@ singleInstanceReady
           statusTimeoutMs: 3000,
         }),
         osPrintAdapter: createOsPrintAdapter({
-          print: createOsPrintTransport({
-            createPrintWindow: createDefaultPrintWindow,
-            listPrinters: () => getCurrentPrinters(),
-            logger: mainLogger,
-          }),
+          // RT-847: a printer driver that opens its own window takes the
+          // foreground; give the cashier window its activation back once the
+          // print is over (never while a print is still in flight).
+          print: withPrintRefocus(
+            createOsPrintTransport({
+              createPrintWindow: createDefaultPrintWindow,
+              listPrinters: () => getCurrentPrinters(),
+              logger: mainLogger,
+            }),
+            { getWindow: () => mainWindow, logger: mainLogger },
+          ),
         }),
         // Route to the OS-print path: it is the proven transport (the ESC/POS
         // direct path is unverified). The cashier never sees which path ran

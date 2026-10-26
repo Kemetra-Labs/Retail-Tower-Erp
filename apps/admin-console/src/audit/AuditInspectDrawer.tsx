@@ -9,9 +9,13 @@
  * RT-399: `occurred_at` is evidence — exact UTC (`formatEvidenceTime`), with a
  * UTC label. Action codes, IDs, request refs and metadata are machine data:
  * never translated, LTR-isolated.
+ *
+ * RT-784: a platform support-session row shows its recognisable label above
+ * the verbatim action code, as in the table.
  */
 import { Drawer } from "@/components/Drawer";
 import { formatEvidenceTime, useT } from "@/i18n";
+import { auditActionLabelKey } from "./auditActionLabel";
 import type { AuditRow } from "./useAuditSearch";
 import "./audit.css";
 
@@ -52,6 +56,7 @@ export function AuditInspectDrawer({
   }
 
   const metadataEntries = Object.entries(row.metadata ?? {});
+  const labelKey = auditActionLabelKey(row);
 
   return (
     <Drawer title={t("audit.inspect.title")} onClose={onClose}>
@@ -61,7 +66,21 @@ export function AuditInspectDrawer({
           value={<bdi dir="ltr">{formatEvidenceTime(row.occurred_at)}</bdi>}
           mono
         />
-        <Field label={t("audit.field.action")} value={<bdi dir="ltr">{row.action}</bdi>} mono />
+        {labelKey ? (
+          <Field
+            label={t("audit.field.action")}
+            value={
+              <span className="audit-action">
+                <span className="audit-action__label">{t(labelKey)}</span>
+                <bdi dir="ltr" className="field-row__value--mono">
+                  {row.action}
+                </bdi>
+              </span>
+            }
+          />
+        ) : (
+          <Field label={t("audit.field.action")} value={<bdi dir="ltr">{row.action}</bdi>} mono />
+        )}
         <Field label={t("audit.field.actor")} value={actorValue(row)} />
         <Field
           label={t("audit.field.target")}

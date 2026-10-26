@@ -11,7 +11,7 @@ import { resolve } from 'node:path';
 
 import { render, screen, cleanup, fireEvent, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 
 import { CompletionPanel, type CompletionPanelProps } from '../CompletionPanel';
 import { expectNoAxeViolations } from '../../../test-utils/axe-config.js';
@@ -200,6 +200,68 @@ describe('RT-243 completion — «بيع جديد» focus and the held-Enter gua
   it('is a safe no-op without a handler', () => {
     renderPanel({ onNewSale: undefined });
     expect(() => fireEvent.click(screen.getByTestId(IDS.newSale))).not.toThrow();
+  });
+});
+
+describe('RT-847 completion — focus and ring come back when the window is re-activated', () => {
+  /** The `focus()` options of every call made on `element` since `spy` started. */
+  function focusOptionsOn(
+    spy: MockInstance<HTMLElement['focus']>,
+    element: HTMLElement,
+  ): (FocusOptions | undefined)[] {
+    return spy.mock.calls
+      .filter((_, i) => spy.mock.contexts[i] === element)
+      .map(([options]) => options);
+  }
+
+  it('re-asks for the ring on «بيع جديد» when it still holds focus', () => {
+    renderPanel();
+    const button = screen.getByTestId(IDS.newSale);
+    const spy = vi.spyOn(HTMLElement.prototype, 'focus');
+
+    window.dispatchEvent(new FocusEvent('focus'));
+
+    expect(focusOptionsOn(spy, button)).toEqual([{ focusVisible: true }]);
+    expect(button).toHaveFocus();
+    spy.mockRestore();
+  });
+
+  it('restores focus to «بيع جديد» when it fell to the page', () => {
+    renderPanel();
+    const button = screen.getByTestId(IDS.newSale);
+    button.blur();
+    expect(button).not.toHaveFocus();
+    const spy = vi.spyOn(HTMLElement.prototype, 'focus');
+
+    window.dispatchEvent(new FocusEvent('focus'));
+
+    expect(focusOptionsOn(spy, button)).toEqual([{ focusVisible: true }]);
+    expect(button).toHaveFocus();
+    spy.mockRestore();
+  });
+
+  it('leaves focus the cashier moved elsewhere where it is', () => {
+    renderPanel({ drawerNotice: <button type="button">درج</button> });
+    const other = screen.getByRole('button', { name: 'درج' });
+    other.focus();
+    const spy = vi.spyOn(HTMLElement.prototype, 'focus');
+
+    window.dispatchEvent(new FocusEvent('focus'));
+
+    expect(spy).not.toHaveBeenCalled();
+    expect(other).toHaveFocus();
+    spy.mockRestore();
+  });
+
+  it('stops listening once the screen is gone', () => {
+    renderPanel();
+    cleanup();
+    const spy = vi.spyOn(HTMLElement.prototype, 'focus');
+
+    window.dispatchEvent(new FocusEvent('focus'));
+
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 });
 
