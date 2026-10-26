@@ -27,6 +27,8 @@ export interface ParkResumeDeps {
   auditEmitter: Pick<AuditEmitter, 'emit'>;
   prices: PriceLookup;
   clock?: () => Date;
+  /** RT-308 — the monotonic clock (ms) for the offline authority bound. */
+  monotonicNow?: () => number;
   logger?: Pick<Logger, 'info' | 'error'>;
 }
 

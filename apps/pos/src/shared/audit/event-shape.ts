@@ -35,6 +35,12 @@ export const AUDIT_ACTION_CATEGORIES = [
   // per grant, attributed to that grant's operator; payload `{reason}` only.
   // Main-only (a renderer cannot forge it). Open-set at the SQL layer (0004).
   'operator.offline_grant.invalidated',
+  // RT-308 (RT-113 P3, 10763 §3) — a cashier admitted offline from a valid
+  // sealed grant, or refused offline after the PIN matched. Main-only. Payloads
+  // carry a closed category or nothing: never a grant field, PIN or secret.
+  // Open-set at the SQL layer (0004). Local only (no Backend-Core catalogue).
+  'operator.signin.offline_admitted',
+  'operator.signin.offline_refused',
   'cashier.pin.reset',
   'cashier.pin.unlock',
   // 019-cashier-pin-provisioning (R-2) — first-PIN create path; sibling to

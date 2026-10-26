@@ -484,6 +484,9 @@ describe('operator:emit-audit-event — main-only categories (RT-117 §A4 L1)', 
     'operator.session.locked',
     'operator.session.unlocked',
     'operator.offline_grant.invalidated',
+    // RT-308: the offline admission outcomes are recorded by main only.
+    'operator.signin.offline_admitted',
+    'operator.signin.offline_refused',
     // RT-551: the sale-number day-rule switch is written only by finalize.
     'sale.number_day_rule.switched',
     // RT-15 S2/S4 — the return facts are written only by main's returns-audit

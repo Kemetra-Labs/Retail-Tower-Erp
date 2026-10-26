@@ -691,6 +691,34 @@ describe('cart.undoLast — cart lifecycle and authority', () => {
     expect(stateDigest(f.db)).toEqual(digest);
   });
 
+  it('RT-308: an expired offline session may not restore the only line of an emptied cart', async () => {
+    const f = await fixture();
+    const a = await add(f, 'a-1');
+    await f.handlers.linesRemove({
+      cart_id: f.cart_id,
+      line_id: a.line_id,
+      version: 1,
+      idempotency_key: 'r-1',
+    });
+    // Admitted offline; its grant expired (both bounds in the past).
+    const expired = f.make({
+      session: session({
+        authority: 'offline_grant',
+        authority_valid_until_ms: 0,
+        authority_deadline_mono_ms: 0,
+      }),
+    });
+    const digest = stateDigest(f.db);
+    expect(
+      await expired.undoLast({
+        cart_id: f.cart_id,
+        target_action_id: 'r-1',
+        idempotency_key: 'u-1',
+      }),
+    ).toEqual({ kind: 'refused', reason: 'offline_authority_expired' });
+    expect(stateDigest(f.db)).toEqual(digest);
+  });
+
   it('a latched session may still undo within the current non-empty sale', async () => {
     const f = await fixture();
     await add(f, 'a-1');

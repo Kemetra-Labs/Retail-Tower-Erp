@@ -19,6 +19,12 @@ export type CartRefusalReason =
    */
   | 'authority_conflict'
   /**
+   * RT-308 (RT-113 P3, 10763 D6) — the session was admitted offline from a
+   * sealed grant and that grant has expired: no NEW sale may start. The
+   * current sale may still complete or be held; nothing is reversed.
+   */
+  | 'offline_authority_expired'
+  /**
    * RT-254 — `cart.undoLast`: the named action is no longer the cart's
    * eligible last action (a later mutation, handoff, or changed line state).
    * Generic: the renderer only dismisses its Undo affordance.

@@ -1109,6 +1109,16 @@ singleInstanceReady
       protoStore: operatorProtoStore,
       secretStore,
       sessionAdmission,
+      // RT-308 (RT113-P3) — Backend-Core unreachable: admit the cashier only
+      // from a valid sealed grant on this terminal (one use persisted first).
+      offline: {
+        grants: offlineGrants,
+        audit: new AuditEmitter(bindAuditEventsStoreDb(db)),
+        uuid: () => randomUUID(),
+        now: () => new Date(),
+        monotonicNow: () => performance.now(),
+        logger: mainLogger,
+      },
       logger: mainLogger,
     });
     const operatorSignOutHandler = new SignOutHandler({
@@ -1144,6 +1154,8 @@ singleInstanceReady
     });
     const operatorRosterHandler = new RosterHandler({
       cashierAdmissions: cashierAdmissionClient,
+      // RT-308 (D11) — offline: only cashiers with a valid grant on this terminal.
+      offlineCashiers: () => offlineGrants.listAdmissible(new Date()),
       logger: mainLogger,
     });
     const operatorInactivityMonitor = new InactivityMonitor({
