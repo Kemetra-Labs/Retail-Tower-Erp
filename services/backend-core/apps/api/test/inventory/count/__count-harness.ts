@@ -44,7 +44,6 @@ import {
 import {
   seedCatalogIsolationFixture,
   ACTOR_A,
-  PRODUCT_A_ACTIVE,
   PRODUCT_A_RETIRED,
   STORE_A_X,
   TENANT_A,
@@ -57,12 +56,14 @@ import { InventoryService } from '../../../src/inventory/inventory.service';
 
 export {
   ACTOR_A,
-  PRODUCT_A_ACTIVE,
   PRODUCT_A_RETIRED,
   STORE_A_X,
   TENANT_A,
   type PgTestEnv,
 };
+export {
+  PRODUCT_A_ACTIVE,
+} from '../../catalog/__support__/isolation-harness';
 
 export function idempKey(suffix: string): string {
   return (suffix + '0'.repeat(32)).slice(0, 32).replace(/[^a-z0-9]/g, '0');

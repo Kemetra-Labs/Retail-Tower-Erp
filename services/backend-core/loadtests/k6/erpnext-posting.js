@@ -39,7 +39,7 @@ import { pickTenantForVu } from "./lib/tenants.js";
 import { baseUrl, sleepJitter } from "./lib/util.js";
 
 const DURATION = __ENV.LOAD_DURATION || "10m";
-const VUS = parseInt(__ENV.LOAD_VUS || "20", 10);
+const VUS = Number.parseInt(__ENV.LOAD_VUS || "20", 10);
 const PAGE_LIMIT = __ENV.LOAD_PAGE_LIMIT || "100";
 
 export const options = {
@@ -100,7 +100,7 @@ export function setup() {
 // (the connector's steady-state poll). Scope (tenant) comes from the token, so
 // no query scope is ever sent (§XII).
 export default function erpnextPosting(data) {
-  if (!data || !data.enabled) {
+  if (!data?.enabled) {
     // Prerequisite unmet — do not generate synthetic load or fake measurements.
     return;
   }
@@ -133,7 +133,7 @@ export default function erpnextPosting(data) {
   } catch (_e) {
     // Non-JSON body: no cursor to follow, so re-baseline below.
   }
-  __ENV.__K6_CURSOR = body && body.next_page_token ? body.cursor : "";
+  __ENV.__K6_CURSOR = body?.next_page_token ? body.cursor : "";
 
   sleepJitter();
 }

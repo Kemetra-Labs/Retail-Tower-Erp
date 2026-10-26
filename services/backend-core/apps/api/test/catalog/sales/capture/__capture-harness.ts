@@ -61,11 +61,7 @@ import {
 import {
   seedCatalogIsolationFixture,
   TENANT_A,
-  TENANT_B,
   STORE_A_X,
-  STORE_A_Y,
-  STORE_B_X,
-  PRODUCT_A_ACTIVE,
 } from "../../__support__/isolation-harness";
 
 // The capture controller/service do not exist yet — these imports are the RED
@@ -88,13 +84,15 @@ import {
 
 export {
   TENANT_A,
-  TENANT_B,
   STORE_A_X,
+  type PgTestEnv,
+};
+export {
+  TENANT_B,
   STORE_A_Y,
   STORE_B_X,
   PRODUCT_A_ACTIVE,
-  type PgTestEnv,
-};
+} from "../../__support__/isolation-harness";
 
 /** Stand-in POS device principal id (`req.context.userId`). */
 export const DEVICE_USER_ID = "0d000000-0000-7000-8000-0000000005d1";

@@ -42,7 +42,7 @@ import { pickTenantForVu } from "./lib/tenants.js";
 import { baseUrl, uuidv4, sleepJitter } from "./lib/util.js";
 
 const DURATION = __ENV.LOAD_DURATION || "10m";
-const VUS = parseInt(__ENV.LOAD_VUS || "20", 10);
+const VUS = Number.parseInt(__ENV.LOAD_VUS || "20", 10);
 
 export const options = {
   scenarios: {
@@ -123,7 +123,7 @@ export function setup() {
 }
 
 export default function salesCapture(data) {
-  if (!data || !data.enabled) {
+  if (!data?.enabled) {
     // Prerequisite unmet — do not generate synthetic load or fake measurements.
     return;
   }

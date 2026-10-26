@@ -39,7 +39,7 @@ import {
 } from "../../../_helpers/postgres-container";
 import { SALE_A_X, SALE_A_Y, SALE_B_X, SALES_SOURCE_SYSTEM } from "../../sales/__support__/seed-sales";
 import { PRODUCT_A_ACTIVE, STORE_A_X, STORE_A_Y, STORE_B_X, TENANT_A, TENANT_B } from "../../__support__/isolation-harness";
-import { POSTING_DEADLETTER_A, RUN_A, seedReconciliationFixture } from "./seed-reconciliation";
+import { RUN_A, seedReconciliationFixture } from "./seed-reconciliation";
 
 // ---------------------------------------------------------------------------
 // IDs
@@ -87,7 +87,7 @@ export const SPECIFIC_SESSIONS: ReadonlyArray<readonly [string, string]> = [
 ];
 
 /** Dead-letters, in insertion (= `sequence`) order after the fixture's X1. */
-export const DL_X1 = POSTING_DEADLETTER_A;
+export { POSTING_DEADLETTER_A as DL_X1 } from "./seed-reconciliation";
 export const DL_Y1 = "0a000000-0000-7000-8000-0000019205a1";
 export const DL_X2 = "0a000000-0000-7000-8000-0000019205a2";
 export const DL_Y2 = "0a000000-0000-7000-8000-0000019205a3";

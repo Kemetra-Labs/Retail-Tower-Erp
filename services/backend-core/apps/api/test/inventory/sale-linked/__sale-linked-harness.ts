@@ -57,7 +57,6 @@ import {
   seedSalesFixture,
   SALE_A_X,
   LINE_A_X_1,
-  LINE_A_X_2,
 } from '../../catalog/sales/__support__/seed-sales';
 
 import { MembershipRepository } from '../../../src/context/membership.repository';
@@ -71,9 +70,11 @@ export {
   TENANT_A,
   SALE_A_X,
   LINE_A_X_1,
-  LINE_A_X_2,
   type PgTestEnv,
 };
+export {
+  LINE_A_X_2,
+} from '../../catalog/sales/__support__/seed-sales';
 
 export function idempKey(suffix: string): string {
   return (suffix + '0'.repeat(32)).slice(0, 32).replace(/[^a-z0-9]/g, '0');

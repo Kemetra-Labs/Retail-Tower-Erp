@@ -416,7 +416,7 @@ export interface ShiftCall {
   readonly key?: string | null | undefined;
 }
 
-export const newKey = (): string => randomUUID().replace(/-/g, "");
+export const newKey = (): string => randomUUID().replaceAll("-", "");
 
 export function post(call: ShiftCall): request.Test {
   const req = http().post(call.path);

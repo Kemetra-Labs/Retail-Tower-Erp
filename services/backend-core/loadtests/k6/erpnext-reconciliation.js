@@ -36,7 +36,7 @@ import { pickTenantForVu } from "./lib/tenants.js";
 import { baseUrl, sleepJitter } from "./lib/util.js";
 
 const DURATION = __ENV.LOAD_DURATION || "10m";
-const VUS = parseInt(__ENV.LOAD_VUS || "20", 10);
+const VUS = Number.parseInt(__ENV.LOAD_VUS || "20", 10);
 
 export const options = {
   scenarios: {
@@ -82,7 +82,7 @@ export function setup() {
 }
 
 export default function erpnextReconciliation(data) {
-  if (!data || !data.enabled) {
+  if (!data?.enabled) {
     return; // Prerequisite unmet — no synthetic load, no faked measurement.
   }
   const tenantSlug = pickTenantForVu(__VU, SYNTHETIC_TENANTS);

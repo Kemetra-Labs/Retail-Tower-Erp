@@ -36,13 +36,9 @@ import {
 } from "../../../_helpers/postgres-container";
 import {
   TENANT_A,
-  TENANT_B,
   STORE_A_X,
-  STORE_A_Y,
-  STORE_B_X,
 } from "../../__support__/isolation-harness";
 import {
-  READ_DOWN_FIXTURE_IDS,
   seedReadDownFixture,
 } from "../__support__/seed-read-down";
 
@@ -51,13 +47,17 @@ import { ReadDownService } from "../../../../src/catalog/read-down/read-down.ser
 
 export {
   TENANT_A,
-  TENANT_B,
   STORE_A_X,
-  STORE_A_Y,
-  STORE_B_X,
-  READ_DOWN_FIXTURE_IDS,
   type PgTestEnv,
 };
+export {
+  TENANT_B,
+  STORE_A_Y,
+  STORE_B_X,
+} from "../../__support__/isolation-harness";
+export {
+  READ_DOWN_FIXTURE_IDS,
+} from "../__support__/seed-read-down";
 
 /** Stand-in POS device principal id (`req.context.userId`). */
 export const DEVICE_USER_ID = "0d000000-0000-7000-8000-0000000010d1";

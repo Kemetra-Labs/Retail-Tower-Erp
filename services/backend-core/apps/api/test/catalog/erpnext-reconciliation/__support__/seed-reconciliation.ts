@@ -29,12 +29,10 @@
  * catalog / 008 / 013 / 014 / 015 corpora.
  */
 import {
-  POSTING_STATUS_FIXTURE_IDS,
   seedPostingStatusFixture,
 } from "../../erpnext-posting/__support__/seed-posting-status";
 import {
   SALE_A_X,
-  SALE_B_X,
   SALES_SOURCE_SYSTEM,
   type SeedableEnv,
 } from "../../sales/__support__/seed-sales";
