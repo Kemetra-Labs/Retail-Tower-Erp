@@ -19,6 +19,7 @@ import {
   acceptPrinterChoice,
   closePrinterPanel,
   printerBridge,
+  printerChoiceGeneration,
   usePrinterStore,
 } from './printer-store';
 import './printer.css';
@@ -168,13 +169,14 @@ export function PrinterPanel({
   const save = async (): Promise<boolean> => {
     if (bridge === undefined || selected === null) return false;
     if (!dirty) return true;
+    const asked = printerChoiceGeneration();
     const answer = await bridge.set({ choice: choiceOf(selected) });
     if (answer.kind !== 'ok') {
       setMessage({ tone: 'warning', text: refusalMessage(answer.reason) });
       return false;
     }
-    acceptPrinterChoice(answer.choice);
-    return true;
+    // A save answered after the session changed must not repopulate the next session's view.
+    return acceptPrinterChoice(answer.choice, asked);
   };
 
   const run = (kind: 'save' | 'test', task: () => Promise<void>): void => {

@@ -65,9 +65,20 @@ export async function refreshPrinterChoice(
   }
 }
 
-/** Main saved this choice. */
-export function acceptPrinterChoice(choice: PrinterChoice): void {
+/** The current session-scoped generation; capture it before awaiting a save. */
+export function printerChoiceGeneration(): number {
+  return generation;
+}
+
+/**
+ * Main saved this choice. An answer to a save asked under an older generation
+ * (the session changed while it was in flight) is dropped; returns whether it
+ * was applied.
+ */
+export function acceptPrinterChoice(choice: PrinterChoice, asked: number = generation): boolean {
+  if (asked !== generation) return false;
   usePrinterStore.setState({ loaded: true, choice, promptDismissed: true });
+  return true;
 }
 
 export function openPrinterPanel(): void {

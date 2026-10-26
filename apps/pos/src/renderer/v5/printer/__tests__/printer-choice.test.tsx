@@ -10,6 +10,7 @@
  */
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
+import type { JSX } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   PrinterBridgeAPI,
@@ -198,6 +199,50 @@ describe('printer store', () => {
       view.rerender(<Probe id={undefined} />);
     });
     expect(usePrinterStore.getState()).toMatchObject({ loaded: false, choice: null });
+  });
+
+  it('drops a save answered after the session changed', async () => {
+    const pending: { resolve: (r: PrinterSetResponse) => void } = { resolve: () => undefined };
+    const bridge = fakeBridge({
+      get: () => Promise.resolve({ kind: 'ok', choice: { source: 'os_default' } }),
+      set: () =>
+        new Promise<PrinterSetResponse>((resolve) => {
+          pending.resolve = resolve;
+        }),
+    });
+    installBridge(bridge);
+    function Probe({ id }: Readonly<{ id: string }>): JSX.Element {
+      usePrinterChoiceSync(id);
+      return (
+        <DialogHost>
+          {id === 'session-1' && <PrinterPanel bridge={bridge} onClose={() => undefined} />}
+        </DialogHost>
+      );
+    }
+    const view = render(<Probe id="session-1" />);
+    fireEvent.click(await screen.findByRole('radio', { name: 'BIXOLON SRP-330II' }));
+    fireEvent.click(screen.getByRole('button', { name: 'حفظ' }));
+    expect(bridge.set).toHaveBeenCalledWith({ choice: BIXOLON });
+    // Session 1 ends while its save is in flight; session 2 reads its own choice.
+    await act(async () => {
+      view.rerender(<Probe id="session-2" />);
+      await Promise.resolve();
+    });
+    expect(usePrinterStore.getState().choice).toEqual({ source: 'os_default' });
+    // Session 1's save answer lands last and does not repopulate session 2's view.
+    await act(async () => {
+      pending.resolve({ kind: 'ok', choice: BIXOLON });
+      await Promise.resolve();
+    });
+    expect(usePrinterStore.getState()).toMatchObject({
+      loaded: true,
+      choice: { source: 'os_default' },
+    });
+  });
+
+  it('applies a save answered in the same session', () => {
+    expect(acceptPrinterChoice(BIXOLON)).toBe(true);
+    expect(usePrinterStore.getState().choice).toEqual(BIXOLON);
   });
 
   it('marks the Sale screen only while it is mounted', () => {
