@@ -43,7 +43,7 @@ describe('main/index.ts hands the RT-17 shift wiring to bootstrap/shift.ts', () 
   });
 
   it('keeps the boot order: after the returns wiring, before startUpdater', () => {
-    const returns = indexSource.indexOf("workerRegistry.register('returns resolver'");
+    const returns = indexSource.indexOf('registerReturns({');
     const shift = indexSource.indexOf('registerShift({');
     const updater = indexSource.indexOf('startUpdater({ updateService })');
     expect(returns).toBeGreaterThan(-1);
