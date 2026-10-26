@@ -37,6 +37,6 @@ export class DeviceHeartbeatController {
     @Req() request: TenantContextRequest,
     @Body(new ZodValidationPipe(HeartbeatReportSchema)) body: HeartbeatReport,
   ): Promise<HeartbeatAckBody> {
-    return this.service.report(deviceScopeOf(request), body);
+    return await this.service.report(deviceScopeOf(request), body);
   }
 }

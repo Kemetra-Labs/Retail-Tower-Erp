@@ -128,7 +128,7 @@ export class InventorySafetyController {
     @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Body(new ZodValidationPipe(PlaceQualityHoldSchema)) body: PlaceQualityHoldDto,
   ): Promise<TrackingHoldResult> {
-    return this.holds.placeQualityHold({
+    return await this.holds.placeQualityHold({
       ...actor(request),
       idempotencyKey: requireKey(idempotencyKey),
       trackingIdentityId: body.trackingIdentityId,
@@ -144,7 +144,7 @@ export class InventorySafetyController {
     @Req() request: TenantContextRequest,
     @Param('holdId', new ZodValidationPipe(UuidSchema)) holdId: string,
   ): Promise<TrackingHoldBody> {
-    return this.holds.getHold(actor(request).tenantId, holdId);
+    return await this.holds.getHold(actor(request).tenantId, holdId);
   }
 
   /** Release a hold: owner only (965, H1). */
@@ -156,7 +156,7 @@ export class InventorySafetyController {
     @Param('holdId', new ZodValidationPipe(UuidSchema)) holdId: string,
     @Body(new ZodValidationPipe(ReleaseTrackingHoldSchema)) body: ReleaseTrackingHoldDto,
   ): Promise<TrackingHoldResult> {
-    return this.holds.releaseHold({ ...actor(request), holdId, note: body?.note ?? null });
+    return await this.holds.releaseHold({ ...actor(request), holdId, note: body?.note ?? null });
   }
 
   /** Recall listed identities of one product (860). */
@@ -169,7 +169,7 @@ export class InventorySafetyController {
     @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Body(new ZodValidationPipe(CreateInventoryRecallSchema)) body: CreateInventoryRecallDto,
   ): Promise<InventoryRecallResult> {
-    return this.recalls.createRecall({
+    return await this.recalls.createRecall({
       ...actor(request),
       idempotencyKey: requireKey(idempotencyKey),
       tenantProductRef: body.tenantProductRef,
@@ -188,7 +188,7 @@ export class InventorySafetyController {
     @Req() request: TenantContextRequest,
     @Param('recallId', new ZodValidationPipe(UuidSchema)) recallId: string,
   ): Promise<InventoryRecallBody> {
-    return this.recalls.getRecall(actor(request).tenantId, recallId);
+    return await this.recalls.getRecall(actor(request).tenantId, recallId);
   }
 
   /** Correct an identity's expiry date, with history (G7-2, H7). */
@@ -202,7 +202,7 @@ export class InventorySafetyController {
     @Param('identityId', new ZodValidationPipe(UuidSchema)) identityId: string,
     @Body(new ZodValidationPipe(CorrectExpirySchema)) body: CorrectExpiryDto,
   ): Promise<ExpiryCorrectionResult> {
-    return this.expiry.correctExpiry({
+    return await this.expiry.correctExpiry({
       ...actor(request),
       idempotencyKey: requireKey(idempotencyKey),
       trackingIdentityId: identityId,

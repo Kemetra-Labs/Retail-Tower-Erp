@@ -161,7 +161,7 @@ export class PairingCodesService {
   /** Issue one code (see the class header). The returned `code` is the only copy. */
   async issue(input: IssuePairingCodeInput): Promise<PairingCodeIssued> {
     const body = input.body;
-    return this.inTenant(input, async (client) => {
+    return await this.inTenant(input, async (client) => {
       const { scope } = await resolveDeviceCaller(this.memberships, client, input);
       const storeVisible = await storeInCallerScope(client, {
         tenantId: input.tenantId,
@@ -198,7 +198,7 @@ export class PairingCodesService {
   /** The live pending codes in scope, newest first. The cursor is decoded (400) before any read. */
   async list(input: ListPairingCodesInput): Promise<PairingCodePage> {
     const keyset = input.cursor === null ? null : decodePairingCodeCursor({ tenantId: input.tenantId, cursor: input.cursor });
-    return this.inTenant(input, async (client) => {
+    return await this.inTenant(input, async (client) => {
       const { scope } = await resolveDeviceCaller(this.memberships, client, input);
       await assertStoreFilterVisible(client, input, scope);
       const r = await client.query<PairingCodeReadRow>(LIST_SQL, [
@@ -215,7 +215,7 @@ export class PairingCodesService {
 
   /** Cancel a pending code (expired or not). Idempotent; a used code is `PairingCodeUsedError`. */
   async cancel(input: CancelPairingCodeInput): Promise<PairingCodeCancelResult> {
-    return this.inTenant(input, async (client) => {
+    return await this.inTenant(input, async (client) => {
       const { scope } = await resolveDeviceCaller(this.memberships, client, input);
       const locked = await client.query<{ store_id: string; status: PairingCodeReadRow["status"] }>(
         `SELECT store_id, status FROM pairing_codes WHERE id = $1::uuid AND tenant_id = $2::uuid FOR UPDATE`,

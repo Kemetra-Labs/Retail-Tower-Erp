@@ -124,7 +124,7 @@ export class ConsoleSalesReadService {
   async list(input: ListConsoleSalesInput): Promise<ConsoleSalePage> {
     const binding: ConsoleCursorBinding = { tenantId: input.tenantId, storeId: input.storeId, filters: input.filters };
     const keyset = input.cursor === null ? null : decodeConsoleSaleCursor(binding, input.cursor);
-    return this.inTenant(input, async (client) => {
+    return await this.inTenant(input, async (client) => {
       const scope = await callerStoreScope(client, this.memberships, input);
       if (!inStoreScope(scope, input.storeId)) throw new StoreNotInScopeError();
       const store = await client.query<{ timezone: string }>(STORE_TIMEZONE_SQL, [input.storeId, input.tenantId]);
@@ -155,7 +155,7 @@ export class ConsoleSalesReadService {
 
   /** The full recorded detail of one sale in the caller's scope; ConsoleSaleNotFoundError otherwise. */
   async get(input: ScopedReadInput, saleRef: string): Promise<ConsoleSaleDetail> {
-    return this.inTenant(input, async (client) => {
+    return await this.inTenant(input, async (client) => {
       const storeId = await this.scopedSaleStore(client, input, saleRef);
       const detail = await loadDetail(client, { tenantId: input.tenantId, storeId, visibility: { kind: "store" } }, saleRef);
       if (detail === null) throw new ConsoleSaleNotFoundError();

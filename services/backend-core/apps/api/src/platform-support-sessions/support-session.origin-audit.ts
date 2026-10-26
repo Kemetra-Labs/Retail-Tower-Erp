@@ -60,7 +60,7 @@ export async function auditSupportSessionOriginRefusal(
 }
 
 async function isPlatformAdmin(pool: Pool, userId: string): Promise<boolean> {
-  return withSupportSessionCtx(pool, async (client) => {
+  return await withSupportSessionCtx(pool, async (client) => {
     const { rows } = await client.query<{ is_platform_admin: boolean }>(
       `SELECT is_platform_admin FROM users WHERE id = $1 AND deleted_at IS NULL`,
       [userId],

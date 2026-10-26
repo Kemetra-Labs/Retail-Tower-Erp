@@ -227,7 +227,7 @@ export class SaleSyncOpsReadModelService {
     input: ListNeedsRepairInput,
   ): Promise<Page<NeedsRepairItem>> {
     const limit = Math.min(Math.max(1, input.limit), LIST_MAX_PAGE);
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client) => {

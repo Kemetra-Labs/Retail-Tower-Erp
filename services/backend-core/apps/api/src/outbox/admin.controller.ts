@@ -95,7 +95,7 @@ export class OutboxAdminController {
     @Query(new ZodValidationPipe(OutboxAdminListQuerySchema))
     query: OutboxAdminListQueryParsed,
   ): Promise<ListOutboxDeadLettersResponse> {
-    return this.service.list({
+    return await this.service.list({
       eventType: query.event_type,
       tenantId: query.tenant_id,
       cursor: query.cursor,

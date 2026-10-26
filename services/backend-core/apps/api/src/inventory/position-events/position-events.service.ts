@@ -179,7 +179,7 @@ export class InventoryPositionEventsService {
     );
     const base = untrackedCommand(input, 'status_move', note);
 
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client) => {
@@ -213,7 +213,7 @@ export class InventoryPositionEventsService {
     const base = untrackedCommand(input, 'relocation', note);
     const status = input.inventoryStatus ?? 'sellable';
 
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client) => {

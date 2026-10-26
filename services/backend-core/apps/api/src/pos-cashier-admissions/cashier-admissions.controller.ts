@@ -98,12 +98,12 @@ export class CashierAdmissionsController {
     @Body(new ZodValidationPipe(EndRequestSchema)) body: EndRequestInput,
   ): Promise<EndedBody> {
     const target = { admissionId, generation: body?.admission_generation ?? null };
-    return this.service.end(deviceScopeOf(request), target, request.requestId ?? null);
+    return await this.service.end(deviceScopeOf(request), target, request.requestId ?? null);
   }
 
   @Get("roster")
   @ReportsBuildIdentity()
   async roster(@Req() request: TenantContextRequest): Promise<RosterBody> {
-    return this.service.roster(deviceScopeOf(request));
+    return await this.service.roster(deviceScopeOf(request));
   }
 }

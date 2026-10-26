@@ -92,7 +92,7 @@ export class TrackingProfileService {
     readonly tenantId: string;
     readonly productId: string;
   }): Promise<GetTrackingProfileResult> {
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client): Promise<GetTrackingProfileResult> => {

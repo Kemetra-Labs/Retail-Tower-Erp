@@ -57,7 +57,7 @@ export class TrackingIdentitiesController {
   ): Promise<TrackingIdentityListBody> {
     const tenantId = request.context?.tenantId;
     if (!tenantId) throw new UnauthorizedException('Unauthorized');
-    return this.inventoryService.listTrackingIdentities({
+    return await this.inventoryService.listTrackingIdentities({
       tenantId,
       productId,
       limit,

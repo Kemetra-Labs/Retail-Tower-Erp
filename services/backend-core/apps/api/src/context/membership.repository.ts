@@ -244,7 +244,7 @@ export class MembershipRepository {
     tenantId: string,
     client?: PoolClient,
   ): Promise<boolean> {
-    return hasLiveMembership(client ? drizzle(client) : this.db, { userId, tenantId });
+    return await hasLiveMembership(client ? drizzle(client) : this.db, { userId, tenantId });
   }
 
   /**

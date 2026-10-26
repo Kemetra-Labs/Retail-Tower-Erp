@@ -116,7 +116,7 @@ export class CashierAdmissionsService {
       policy: this.ports.policy(),
       requestId,
     };
-    return this.ports.tx(scope.tenantId, async (client) =>
+    return await this.ports.tx(scope.tenantId, async (client) =>
       this.admitInTx({ ...request, client, at: await this.lockAndReadClock(client, request) }),
     );
   }
@@ -191,7 +191,7 @@ export class CashierAdmissionsService {
   /** Only a fresh takeover consumes the per-device budget. */
   private async takeoverAllowed(ctx: AdmitContext): Promise<boolean> {
     if (!ctx.takeover) return true;
-    return this.ports.takeoverLimit.allow(ctx.scope.deviceId, ctx.policy.takeoverLimit);
+    return await this.ports.takeoverLimit.allow(ctx.scope.deviceId, ctx.policy.takeoverLimit);
   }
 
   private async refuse(ctx: AdmitContext, reason: RefusalReason): Promise<AdmitOutcome> {
@@ -231,9 +231,9 @@ export class CashierAdmissionsService {
     action: "create" | "renew" | "takeover",
     live: LiveAdmission | null,
   ): Promise<AdmissionRecord> {
-    if (action === "renew") return this.renew(ctx, live!.id);
-    if (action === "takeover") return this.takeOver(ctx, live!.id);
-    return this.create(ctx, null);
+    if (action === "renew") return await this.renew(ctx, live!.id);
+    if (action === "takeover") return await this.takeOver(ctx, live!.id);
+    return await this.create(ctx, null);
   }
 
   private async renew(ctx: AdmitContext, admissionId: string): Promise<AdmissionRecord> {

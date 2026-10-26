@@ -152,7 +152,7 @@ export class ConsoleSalesSummaryService {
       pageSize: input.pageSize,
     };
     const after = input.cursor === null ? null : decodeSalesSummaryCursor(binding, input.cursor);
-    return runWithTenantContext(this.pool, { tenantId: input.tenantId, isPlatformAdmin: false }, async (client) => {
+    return await runWithTenantContext(this.pool, { tenantId: input.tenantId, isPlatformAdmin: false }, async (client) => {
       const storeIds = await this.scopedStoreIds(client, input);
       const raw = await client.query<RawRow>(SUMMARY_SQL, [input.tenantId, storeIds, input.from, input.to]);
       const storeRows = raw.rows.filter((r) => r.kind === "store");

@@ -42,10 +42,10 @@ export async function applyItemStoreScope(
   scope: StoreScope | undefined,
   itemId: string,
 ): Promise<void> {
-  if (scope?.kind === "tenant") return setStoreGuc(client, ALL_STORES);
+  if (scope?.kind === "tenant") return await setStoreGuc(client, ALL_STORES);
   const storeIds = scopedStoreIds(scope);
-  if (storeIds.length > 1) return pinToItemStore(client, storeIds, itemId);
-  return setStoreGuc(client, storeIds[0] ?? NO_STORE);
+  if (storeIds.length > 1) return await pinToItemStore(client, storeIds, itemId);
+  return await setStoreGuc(client, storeIds[0] ?? NO_STORE);
 }
 
 /**

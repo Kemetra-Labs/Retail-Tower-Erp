@@ -68,7 +68,7 @@ export class ConnectorHealthHeartbeatController {
     const connector = request.connector;
     if (!connector) throw new UnauthorizedException("Unauthorized");
     // Identity STRICTLY from the 018 guard-attached context — never the body.
-    return this.service.recordHeartbeat(
+    return await this.service.recordHeartbeat(
       { registrationId: connector.registrationId, tenantId: connector.tenantId },
       body,
     );

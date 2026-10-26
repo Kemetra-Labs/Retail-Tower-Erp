@@ -54,7 +54,7 @@ export class PosVersionPolicyController {
   @ConsoleRateLimit("cheapRead")
   @Header("Cache-Control", "no-store")
   async list(): Promise<{ items: PosVersionPolicyEntryBody[] }> {
-    return this.service.list();
+    return await this.service.list();
   }
 
   /** PUT: replace one channel's policy (compare-and-set on `expectedRevision`). */
