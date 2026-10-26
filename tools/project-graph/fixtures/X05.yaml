@@ -24,3 +24,40 @@ cases:
     checks: auto
     approvals: [{login: ahmed-shaaban-94}]
     expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [NOT_APPROVER]}
+  # RT-870: approvers listed by immutable numeric id and actor type (a Bot can be one)
+  - name: reviewer-bot-listed-by-id-and-type-can-approve
+    trusted_overrides: {policy_approvers: [{id: 5001, type: Bot, login: "kemetra-reviewer[bot]"}]}
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    checks: auto
+    approvals: [{login: "kemetra-reviewer[bot]", actor_type: Bot, actor_id: 5001}]
+    expect_required: {conclusion: success, reasons: []}
+  - name: renamed-login-with-the-same-id-still-approves
+    trusted_overrides: {policy_approvers: [{id: 5001, type: Bot, login: "kemetra-reviewer[bot]"}]}
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    checks: auto
+    approvals: [{login: "renamed[bot]", actor_type: Bot, actor_id: 5001}]
+    expect_required: {conclusion: success, reasons: []}
+  - name: recycled-login-with-another-id-cannot-approve
+    trusted_overrides: {policy_approvers: [{id: 5001, type: Bot, login: "kemetra-reviewer[bot]"}]}
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    checks: auto
+    approvals: [{login: "kemetra-reviewer[bot]", actor_type: Bot, actor_id: 9999}]
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [NOT_APPROVER]}
+  - name: listed-id-with-the-wrong-type-cannot-approve
+    trusted_overrides: {policy_approvers: [{id: 5001, type: Bot, login: "kemetra-reviewer[bot]"}]}
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    checks: auto
+    approvals: [{login: "kemetra-reviewer[bot]", actor_type: User, actor_id: 5001}]
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [NOT_APPROVER]}
+  - name: missing-actor-id-cannot-approve
+    trusted_overrides: {policy_approvers: [{id: 5001, type: Bot, login: "kemetra-reviewer[bot]"}]}
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    checks: auto
+    approvals: [{login: "kemetra-reviewer[bot]", actor_type: Bot}]
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [NOT_APPROVER]}
+  - name: listed-bot-with-a-stale-head-cannot-approve
+    trusted_overrides: {policy_approvers: [{id: 5001, type: Bot, login: "kemetra-reviewer[bot]"}]}
+    changes: [{status: M, path: .github/workflows/pos.yml}]
+    checks: auto
+    approvals: [{login: "kemetra-reviewer[bot]", actor_type: Bot, actor_id: 5001, head: "dddddddddddddddddddddddddddddddddddddddd"}]
+    expect_required: {conclusion: failure, reasons: [POLICY_APPROVAL_REQUIRED], approval_problems: [STALE_HEAD]}

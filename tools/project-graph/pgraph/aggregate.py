@@ -5,8 +5,10 @@ from the job's declared workflow, for the plan's exact head SHA and job event,
 and is the single result of the latest run/attempt. Anything else (missing,
 stale, duplicated, foreign, forged) can never turn `required` green.
 
-Policy approval is valid only as a SHA-bound review by a human login listed in
-the TRUSTED graph, matching the plan's head, base and policy fingerprint."""
+Policy approval is valid only as a SHA-bound review by an approver listed in the
+TRUSTED graph, matching the plan's head, base and policy fingerprint. An approver is
+either a plain login string (legacy; a `User` only) or an `{id, type}` entry that
+matches the actor's immutable numeric id and its type (`User` or `Bot`, RT-870)."""
 
 from . import PLAN_SCHEMA
 
@@ -66,6 +68,30 @@ def _judge_job(job, runs, plan, graph, deadline_passed, rejected):
     return CONCLUSION_REASON.get(run.get("conclusion"), "JOB_NOT_SUCCESS")
 
 
+def _is_listed_by_id(approval, approvers):
+    """True when the actor is a `{id, type}` approver: numeric account id AND actor type both match.
+    The id is immutable (a login can be renamed or recycled), so it is the identity; `login` in the
+    entry is only a label. A missing or non-int actor id never matches (fail closed)."""
+    actor_id = approval.get("actor_id")
+    if type(actor_id) is not int:
+        return False
+    return any(isinstance(e, dict) and type(e.get("id")) is int and e["id"] == actor_id
+               and e.get("type") == approval.get("actor_type") for e in approvers)
+
+
+def _approver_problems(approval, approvers):
+    """Why this actor is not a listed approver; empty when it is.
+    A plain-string entry is the legacy login form and applies to a `User` only."""
+    if _is_listed_by_id(approval, approvers):
+        return []
+    problems = []
+    if approval.get("login") not in [e for e in approvers if isinstance(e, str)]:
+        problems.append("NOT_APPROVER")
+    if approval.get("actor_type") != "User":
+        problems.append("NOT_HUMAN")
+    return problems
+
+
 def check_approval(plan, approvals, approvers):
     """Return (valid, problems). Problems are collected across all records."""
     if not approvers:
@@ -77,10 +103,7 @@ def check_approval(plan, approvals, approvers):
         issues = []
         if a.get("kind") != "review":
             issues.append("LABEL_NOT_SHA_BOUND")
-        if a.get("login") not in approvers:
-            issues.append("NOT_APPROVER")
-        if a.get("actor_type") != "User":
-            issues.append("NOT_HUMAN")
+        issues.extend(_approver_problems(a, approvers))
         if a.get("head_sha") != plan["head_sha"]:
             issues.append("STALE_HEAD")
         if a.get("base_sha") != plan["base_sha"]:
