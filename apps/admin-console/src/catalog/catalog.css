@@ -233,6 +233,38 @@
   margin-block-start: 0;
 }
 
+/* RT-770 store overrides: a store's name with its write controls, and the
+ * drawer's availability tri-state (a named group, no frame of its own). */
+.catalog-detail__store-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.catalog-detail__store-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.catalog-override__choices {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+.catalog-override__choices legend {
+  padding: 0;
+  margin-block-end: var(--space-2);
+  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
+  color: var(--color-text);
+}
+.catalog-override__choices .field__hint {
+  margin: 0;
+}
+
 /* RT-769 identifiers: the Add control with the outcome of the last write, and each
  * row's Retire control. The warning is a non-blocking notice, never an error: an
  * always-present polite region that takes no room while it is empty. */

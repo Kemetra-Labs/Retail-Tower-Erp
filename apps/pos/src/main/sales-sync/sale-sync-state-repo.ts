@@ -181,6 +181,12 @@ export interface SaleSyncStateRepo {
    */
   readOldestPendingAt(scope: DrainScope): string | null;
   /**
+   * RT-887: as {@link readOldestPendingAt}, but over the pending sales that are
+   * NOT discount-held (the complement of {@link countDiscountHeld}), so a held
+   * sale never ages into the terminal-status attention rule. A read.
+   */
+  readOldestUnheldPendingAt(scope: DrainScope): string | null;
+  /**
    * RT-856: how many of the CURRENT terminal's unsent sales (the `pending` set)
    * carry a line `discount`, the ones the drain holds while discount capture is
    * off. An unreadable `lines_json` counts, as the drain holds it too. 0 when
@@ -213,6 +219,26 @@ interface PrepareAll<Row> {
 interface PrepareRun {
   run(...params: unknown[]): unknown;
 }
+
+/**
+ * RT-856: whether the joined sale `sa` is held while discount capture is off.
+ * A line is discounted when its `discount` is present and not JSON null, as in
+ * `saleHasLineDiscount`; a snapshot that is not a JSON array counts. A scalar
+ * element is not a line, and a JSON path on it would raise `malformed JSON`, so
+ * only object elements are inspected. RT-887 shares it with the oldest-age read.
+ */
+const DISCOUNT_HELD_SALE_SQL = `CASE
+               WHEN json_valid(sa.lines_json) AND json_type(sa.lines_json) = 'array'
+               THEN EXISTS (
+                 SELECT 1 FROM json_each(sa.lines_json) j
+                 WHERE CASE
+                   WHEN j.type = 'object'
+                   THEN COALESCE(json_type(j.value, '$.discount'), 'null') <> 'null'
+                   ELSE 0
+                 END
+               )
+               ELSE 1
+             END`;
 
 export function createSaleSyncStateRepo(db: DatabaseHandle): SaleSyncStateRepo {
   function read(saleId: string): SaleSyncStateRow | null {
@@ -369,11 +395,8 @@ export function createSaleSyncStateRepo(db: DatabaseHandle): SaleSyncStateRepo {
 
   function countDiscountHeld(scope: DrainScope): number {
     if (scope.terminalId === null) return 0;
-    // The `pending` set of readSyncStatus, joined to the durable Sale. A line is
-    // discounted when its `discount` is present and not JSON null, as in
-    // `saleHasLineDiscount`; a snapshot that is not a JSON array is counted. A
-    // scalar element is not a line, and a JSON path on it would raise
-    // `malformed JSON`, so only object elements are inspected.
+    // The `pending` set of readSyncStatus, joined to the durable Sale, filtered
+    // by DISCOUNT_HELD_SALE_SQL.
     const stmt = db.prepare(
       `SELECT COUNT(*) AS n
        FROM sale_sync_outbox o
@@ -381,18 +404,7 @@ export function createSaleSyncStateRepo(db: DatabaseHandle): SaleSyncStateRepo {
        LEFT JOIN sale_sync_state s ON s.sale_id = o.sale_id
        WHERE o.tenant_id = ? AND o.branch_id = ? AND o.terminal_id = ?
          AND (s.sale_id IS NULL OR s.sync_status = 'pending')
-         AND CASE
-               WHEN json_valid(sa.lines_json) AND json_type(sa.lines_json) = 'array'
-               THEN EXISTS (
-                 SELECT 1 FROM json_each(sa.lines_json) j
-                 WHERE CASE
-                   WHEN j.type = 'object'
-                   THEN COALESCE(json_type(j.value, '$.discount'), 'null') <> 'null'
-                   ELSE 0
-                 END
-               )
-               ELSE 1
-             END`,
+         AND ${DISCOUNT_HELD_SALE_SQL}`,
     ) as PrepareGet<{ n: number }>;
     return stmt.get(scope.tenantId, scope.branchId, scope.terminalId)?.n ?? 0;
   }
@@ -408,6 +420,23 @@ export function createSaleSyncStateRepo(db: DatabaseHandle): SaleSyncStateRepo {
        LEFT JOIN sale_sync_state s ON s.sale_id = o.sale_id
        WHERE o.tenant_id = ? AND o.branch_id = ? AND o.terminal_id = ?
          AND (s.sale_id IS NULL OR s.sync_status = 'pending')`,
+    ) as PrepareGet<{ t: string | null }>;
+    return stmt.get(scope.tenantId, scope.branchId, scope.terminalId)?.t ?? null;
+  }
+
+  function readOldestUnheldPendingAt(scope: DrainScope): string | null {
+    // RT-887: the `readOldestPendingAt` set minus the `countDiscountHeld` set.
+    // That count joins `sales`, so an outbox row with no sale row is not held
+    // and stays in this set.
+    if (scope.terminalId === null) return null;
+    const stmt = db.prepare(
+      `SELECT MIN(o.enqueued_at) AS t
+       FROM sale_sync_outbox o
+       LEFT JOIN sales sa ON sa.sale_id = o.sale_id
+       LEFT JOIN sale_sync_state s ON s.sale_id = o.sale_id
+       WHERE o.tenant_id = ? AND o.branch_id = ? AND o.terminal_id = ?
+         AND (s.sale_id IS NULL OR s.sync_status = 'pending')
+         AND (sa.sale_id IS NULL OR NOT ${DISCOUNT_HELD_SALE_SQL})`,
     ) as PrepareGet<{ t: string | null }>;
     return stmt.get(scope.tenantId, scope.branchId, scope.terminalId)?.t ?? null;
   }
@@ -467,6 +496,7 @@ export function createSaleSyncStateRepo(db: DatabaseHandle): SaleSyncStateRepo {
     eligible,
     readSyncStatus,
     readOldestPendingAt,
+    readOldestUnheldPendingAt,
     countDiscountHeld,
     markSynced,
     markDeadLetter,

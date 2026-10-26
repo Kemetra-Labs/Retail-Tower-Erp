@@ -1,11 +1,19 @@
-import { useRef, type JSX, type ReactNode } from 'react';
+import { useRef, useState, type JSX, type ReactNode } from 'react';
 import type { CartBridgeAPI, CatalogueBridgeAPI } from '../../../shared/bridge-api';
 import { CartState } from '../../../shared/cart/cart-state';
-import type { PaymentIntentEnvelope } from '../../../shared/cart/handoff-envelope';
+import {
+  envelopeAmountDue,
+  type PaymentIntentEnvelope,
+} from '../../../shared/cart/handoff-envelope';
+import type { ManagerApprovalBridgeAPI } from '../../../shared/operator/manager-approval';
 import type { Role } from '../../../shared/operator/role';
 import type { AddBlock } from '../../sale/useDirectSaleAdd';
 import { useAddLane } from '../../sale/useAddLane';
-import { useSaleCartController } from '../../sale/useSaleCartController';
+import {
+  useSaleCartController,
+  type CartLineItem,
+  type DiscountPlaceholderSeed,
+} from '../../sale/useSaleCartController';
 import { useLineFlagsStore } from '../../stores/line-flags-store';
 import { useCartStore } from '../../stores/cart-store';
 import { useFeatureFlagsStore } from '../../stores/feature-flags-store';
@@ -20,6 +28,7 @@ import { FitGuard } from '../foundation/FitGuard';
 import { ParkAction, ParkedNotice, ParkedSalesButton, useParkedCount } from '../park/ParkControls';
 import { parkBridgeOf, windowCartBridge } from '../park/park-bridge';
 import { ReprintLastSlot } from './ReprintLastReceipt';
+import { DiscountControl } from './discount/DiscountControl';
 import './sale-screen.css';
 import './live-sale.css';
 import './sale-direction-b.css';
@@ -30,6 +39,14 @@ interface Props {
   onPaymentContinue: () => void;
   /** RT-445: open the parked list (`/app/cart/parked`). Without it, no park controls show. */
   onShowParked?: () => void;
+  /** RT-855: the RT-114 approval bridge (tests); production reads `window.api.approval`. */
+  approvalBridge?: ManagerApprovalBridgeAPI | null;
+}
+
+/** `window.api.approval`, or null when the preload has no approval namespace. */
+function windowApprovalBridge(): ManagerApprovalBridgeAPI | null {
+  const api = (window as unknown as { api?: { approval?: ManagerApprovalBridgeAPI } }).api;
+  return api?.approval ?? null;
 }
 
 /**
@@ -68,6 +85,7 @@ function LiveSaleScreen(props: Readonly<Props>): JSX.Element {
       {...props}
       catalogueEnabled={productSearchEnabled}
       role={session.session.role}
+      displayName={session.session.display_name}
     />
   );
 }
@@ -84,6 +102,45 @@ function canVoidCart(state: CartState | null, role: Role, paid: boolean): boolea
 
 function frozenSubtotal(frozen: boolean, envelope: PaymentIntentEnvelope | null): number | null {
   return frozen && envelope !== null ? envelope.subtotal_minor : null;
+}
+
+/** RT-855: the frozen envelope's discount and amount due, as main froze them. */
+function frozenDiscountTotals(
+  frozen: boolean,
+  envelope: PaymentIntentEnvelope | null,
+): { frozenDiscountMinor?: number; frozenDueMinor?: number | null } {
+  if (!frozen || envelope === null) return {};
+  return {
+    frozenDiscountMinor: envelope.discount_total_minor ?? 0,
+    frozenDueMinor: envelopeAmountDue(envelope),
+  };
+}
+
+/** A row focus picks the line until the next add (OD-1); `nonce` is that add's. */
+interface FocusedLine {
+  readonly lineId: string;
+  readonly nonce: number;
+}
+
+/**
+ * RT-855 (D1 OD-1) — the line «خصم» acts on: the row that last had focus,
+ * until the next add; otherwise the last line added; otherwise the cart's
+ * last line. Null on an empty cart.
+ */
+function selectedLineOf(
+  lines: readonly CartLineItem[],
+  focused: FocusedLine | null,
+  lastAdd: { readonly lineId: string; readonly nonce: number } | null,
+): CartLineItem | null {
+  const find = (lineId: string | undefined): CartLineItem | undefined =>
+    lineId === undefined ? undefined : lines.find((line) => line.lineId === lineId);
+  const nonce = lastAdd?.nonce ?? 0;
+  const byFocus = focused?.nonce === nonce ? find(focused.lineId) : undefined;
+  return byFocus ?? find(lastAdd?.lineId) ?? lines.at(-1) ?? null;
+}
+
+function hasDiscount(discounts: readonly DiscountPlaceholderSeed[], lineId: string): boolean {
+  return discounts.some((discount) => discount.lineId === lineId);
 }
 
 /**
@@ -158,7 +215,9 @@ function addBlockOf(state: CartState | null, paid: boolean): AddBlock {
   return null;
 }
 
-function LiveSaleActive(props: Props & { catalogueEnabled: boolean; role: Role }): JSX.Element {
+function LiveSaleActive(
+  props: Props & { catalogueEnabled: boolean; role: Role; displayName: string },
+): JSX.Element {
   const paymentsEnabled = useFeatureFlagsStore((state) => state.payments);
   const cartState = useCartStore((state) => state.activeCart?.state ?? null);
   const cartId = useCartStore((state) => state.activeCart?.cart_id ?? null);
@@ -182,6 +241,7 @@ function LiveSaleActive(props: Props & { catalogueEnabled: boolean; role: Role }
   paidRef.current = paid;
   const addBlock = (): AddBlock =>
     addBlockOf(useCartStore.getState().activeCart?.state ?? null, paidRef.current);
+  const [focusedLine, setFocusedLine] = useState<FocusedLine | null>(null);
 
   // An existing cart whose persisted lines are not known yet: show only a
   // small state. No catalogue (so no cart create and no add into an unknown
@@ -210,6 +270,24 @@ function LiveSaleActive(props: Props & { catalogueEnabled: boolean; role: Role }
       {parkedButton}
       <ReprintLastSlot role={props.role} cartState={cartState} lineCount={cart.lines.length} />
     </>
+  );
+  const editing = cartState === CartState.editing && !paid;
+  const selectedLine = editing ? selectedLineOf(cart.lines, focusedLine, actions.lastAdd) : null;
+  const discountControl = (
+    <DiscountControl
+      line={selectedLine}
+      enabled={
+        selectedLine !== null && !hasDiscount(cart.discountPlaceholders, selectedLine.lineId)
+      }
+      needsApproval={!isManagerRole(props.role)}
+      selfName={props.displayName}
+      cartId={cartId}
+      approvalBridge={
+        props.approvalBridge === undefined ? windowApprovalBridge() : props.approvalBridge
+      }
+      onAdd={actions.onAddDiscount}
+      onCartRefusal={actions.onDiscountRefused}
+    />
   );
   const parkControl =
     park !== null && props.onShowParked !== undefined ? (
@@ -259,6 +337,13 @@ function LiveSaleActive(props: Props & { catalogueEnabled: boolean; role: Role }
           subtotalMinor={cart.subtotalMinor}
           itemCount={cart.itemCount}
           frozenSubtotalMinor={frozenSubtotal(frozen, cart.envelope)}
+          {...frozenDiscountTotals(frozen, cart.envelope)}
+          discountControl={discountControl}
+          selectedLineId={selectedLine?.lineId ?? null}
+          onSelectLine={(lineId) => {
+            setFocusedLine({ lineId, nonce: actions.lastAdd?.nonce ?? 0 });
+          }}
+          discountNotice={actions.discountNotice}
           lastAddedLineId={actions.lastAdd?.lineId ?? null}
           lastAddNonce={actions.lastAdd?.nonce ?? 0}
           canHandoff={cartState === CartState.editing && cart.lines.length > 0 && !lane.busy}

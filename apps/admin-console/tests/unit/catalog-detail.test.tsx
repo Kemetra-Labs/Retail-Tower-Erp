@@ -426,16 +426,19 @@ describe("CatalogProductDetail (RT-766, CAT-C1b)", () => {
   });
 
   // RT-766 asserted a page with no control at all. RT-768 gives owner and tenant_admin an Edit
-  // link and a Retire action, so the "no control" guarantee now belongs to the roles and states
-  // that stay read-only (store_manager; a retired item, covered in catalog-product-retire).
-  test("read-only role: no form, no field and no action button on a loaded page", async () => {
+  // link and a Retire action; RT-770 gives every override role (store_manager included) one
+  // control per store deviation, which opens a drawer. Until it is opened the page holds no
+  // form and no field, and store_manager gets no Edit or Retire of the item.
+  test("store_manager: only the store deviation's control; no form, no field, no item edit", async () => {
     activeContext.mockReturnValue(ctx("store_manager", "t1", CAIRO_STORE));
     consoleGetCatalogProduct.mockResolvedValue(
       one(detail({ storeOverrides: [override({ isActive: false })] })),
     );
     renderDetail();
     await loaded();
-    expect(screen.queryAllByRole("button")).toEqual([]);
+    expect(screen.queryAllByRole("button").map((b) => b.textContent)).toEqual([
+      "Change values for Cairo Festival",
+    ]);
     expect(screen.queryAllByRole("textbox")).toEqual([]);
     expect(screen.queryAllByRole("checkbox")).toEqual([]);
     expect(screen.queryAllByRole("combobox")).toEqual([]);

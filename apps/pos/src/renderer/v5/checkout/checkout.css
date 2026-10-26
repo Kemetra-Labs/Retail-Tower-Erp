@@ -223,6 +223,47 @@
   font-weight: var(--font-weight-semibold);
 }
 
+/* RT-855 (D1 ZeroCheckout, OD-3): a discounted line's «خصم 10%» row, and «إجمالي الخصم». */
+.v5-order-summary__line[data-discounted='true'] {
+  grid-template-areas:
+    'name amount'
+    'qty amount'
+    'disc discamount';
+}
+
+.v5-order-summary__discount,
+.v5-order-summary__discount-amount {
+  color: var(--color-primary-emphasis);
+  font-size: var(--font-size-xs);
+}
+
+.v5-order-summary__discount {
+  grid-area: disc;
+}
+
+.v5-order-summary__discount-amount {
+  grid-area: discamount;
+  justify-self: end;
+  font-family: var(--font-family-money);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+.v5-order-summary__total:has(+ .v5-order-summary__total--discount) {
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+}
+
+.v5-order-summary__total--discount {
+  padding-block-start: 0;
+  border-block-start: 0;
+}
+
+.v5-order-summary__total--discount .v5-order-summary__amount {
+  color: var(--color-primary-emphasis);
+}
+
 /* ── Tender panel ───────────────────────────────────────────────────────── */
 
 .v5-checkout__tender {

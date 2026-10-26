@@ -170,7 +170,9 @@ describe('LiveSaleCart controls', () => {
     });
     render(<LiveSaleCart {...props} />);
     const user = userEvent.setup();
-    expect(screen.getByText('خصم قيد المعالجة')).toBeInTheDocument();
+    // RT-855: a discount whose value this renderer does not know reads «خصم», amount and net «—».
+    expect(screen.getByText('خصم')).toBeInTheDocument();
+    expect(screen.getByText('الإجمالي الحالي').nextElementSibling).toHaveTextContent('—');
     expect(screen.queryByText(/op-secret/)).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'إزالة الخصم' }));
     expect(props.onRemoveDiscount).toHaveBeenCalledWith('dp-1');

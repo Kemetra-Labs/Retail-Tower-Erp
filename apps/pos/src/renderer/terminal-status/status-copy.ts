@@ -14,7 +14,8 @@ function counted(forms: Omit<ArabicPluralForms, 'other' | 'zero'>): ArabicPlural
  * RT-604 (VN-S6 S6-3) — the indicator's cashier copy. Each string is verbatim
  * from its approved source; `status-mapping.test.ts` (and, for the counted
  * forms, `counted-copy.test.ts`) checks them against the documents, so the
- * copy cannot drift. No other indicator copy exists.
+ * copy cannot drift. The one exception is RT-887's held line, new copy for
+ * owner review (listed in its PR). No other indicator copy exists.
  */
 export const STATUS_COPY = {
   /** M-O4, doc 15 §M-O: healthy, only from a real signal. */
@@ -38,6 +39,17 @@ export const STATUS_COPY = {
     two: 'عمليتان بانتظار الإرسال',
     few: '{n} عمليات بانتظار الإرسال',
     many: '{n} عملية بانتظار الإرسال',
+  }),
+  /**
+   * RT-887 (new, for owner review): the neutral held line — discounted sales
+   * RT-856 holds from sync until RT-858. «إرسال ‹n› عمليات بخصم مؤجَّل»,
+   * count-aware like S16; the dual is genitive after «إرسال». Never «sending».
+   */
+  heldDiscount: counted({
+    one: 'إرسال عملية واحدة بخصم مؤجَّل',
+    two: 'إرسال عمليتين بخصم مؤجَّل',
+    few: 'إرسال {n} عمليات بخصم مؤجَّل',
+    many: 'إرسال {n} عملية بخصم مؤجَّل',
   }),
   /** D-6-7, doc 24 §4.2: only while the last print failed. */
   printerFailed: 'فشل آخر إيصال',

@@ -99,16 +99,10 @@
 }
 
 .v5-live-freshness,
-.v5-live-line-actions,
-.v5-live-discount {
+.v5-live-line-actions {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-}
-
-.v5-live-discount {
-  padding: var(--space-2) var(--space-4);
-  border-block-end: 1px solid var(--color-border);
 }
 
 .v5-live-line-actions button,
