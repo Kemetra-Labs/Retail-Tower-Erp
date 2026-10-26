@@ -95,10 +95,6 @@ import type { ActionCategory as Audit004ActionCategory } from '../shared/audit/e
 import type { OperatorSessionForPayments } from './payments/require-operator-session.js';
 import { resolveSessionScope } from './operator/resolve-session-scope.js';
 // 008-sale-finalization-and-receipts Slice 1c.3 (T094c) — AD-2 worker + sales.* bridge.
-import { registerSalesHandlers } from './ipc/sales.js';
-import { bindSalesRepository } from './sales/repositories/sales.repository.js';
-import { bindPrintEventsRepository } from './sales/repositories/print-events.repository.js';
-import { bindDrawerEventsRepository } from './sales/repositories/drawer-events.repository.js';
 import { bindSaleSyncOutboxRepository } from './sync-outbox/sale-sync-outbox.repository.js';
 // 011 sale-sync — S5 live HTTP client + engine + status IPC (#349 cleared).
 import { createSaleSyncStateRepo } from './sales-sync/sale-sync-state-repo.js';
@@ -144,29 +140,16 @@ import { registerManagerApprovalHandlers } from './ipc/manager-approval.js';
 import { postHandoffCancelApprovalResolver } from './cart/post-handoff-approval.js';
 import { manualDiscountApprovalResolver } from './cart/discount-approval.js';
 import { bindSaleNumberAllocator } from './sales/sale-number-allocator.js';
-import { createSaleAuditEmitter, type SaleAuditEvent } from './sales/audit-emitter.js';
+import type { SaleAuditEvent } from './sales/audit-emitter.js';
 import { bindFinalizeTransaction } from './sales/finalize-transaction.js';
 import { buildFinalizeInput } from './sales/finalize-dispatch.js';
 import { createFinalizeListener } from './sales/finalize-listener.js';
-import { createSalesBridge, type OperatorSessionForSales } from './sales/sales-bridge.js';
-import { bindBannerStateProjector } from './sales/banner-state-projector.js';
-import { createReceiptsBridge } from './receipts/receipts-bridge.js';
-import { createSaleHistoryClient } from './sale-history/sale-history-client.js';
-import { createSaleHistoryCredentialResolver } from './sale-history/sale-history-credential.js';
-import { createSaleHistoryLocalReads } from './sale-history/sale-history-local.js';
-import { createSaleHistoryService } from './sale-history/sale-history-service.js';
-import { createStoreZoneMonitor } from './sale-history/store-zone-monitor.js';
-import { registerSaleHistoryHandlers } from './ipc/sale-history.js';
-import { createSaleVoidRepository } from './sale-void/sale-void-repository.js';
-import { registerReceiptsHandlers } from './ipc/receipts.js';
 import { createPrintPipeline } from './receipts/print-pipeline.js';
 import { createEscposAdapter } from './receipts/escpos-adapter.js';
 import { createOsPrintAdapter } from './receipts/os-print-adapter.js';
 import { createOsPrintTransport, createDefaultPrintWindow } from './receipts/os-print-transport.js';
 import { withPrintRefocus } from './receipts/print-refocus.js';
-import { createPrintDispatcher } from './receipts/print-dispatcher.js';
 import { dispatchFirstPrintOnFinalize } from './receipts/dispatch-first-print-on-finalize.js';
-import { createDrawerKickDispatcher } from './drawer/drawer-kick.js';
 import type { DrawerKickTransport } from './drawer/drawer-kick-transport.js';
 import { randomUUID } from 'node:crypto';
 import { createWorkerRegistry } from './app/bootstrap-workers.js';
@@ -176,6 +159,7 @@ import { resolveApiBaseUrl, resolveClerkExchanger, resolveMigrationsDir } from '
 import { registerCatalogue } from './bootstrap/catalogue.js';
 import { registerReturns } from './bootstrap/returns.js';
 import { registerSaleVoid } from './bootstrap/sale-void.js';
+import { registerSalesBridges } from './bootstrap/sales-bridges.js';
 import { registerShift } from './bootstrap/shift.js';
 import { registerUpdater, startUpdater } from './bootstrap/updater.js';
 import {
@@ -1845,154 +1829,25 @@ singleInstanceReady
     // reach a POS surface at all (the renderer is walled at /pairing), so a
     // non-paired status here means "nothing to finalize" and we skip start.
     if (getAppConfig().features?.saleFinalization === true) {
-      const salesRepo = bindSalesRepository(db);
-      const printEventsRepo = bindPrintEventsRepository(db);
-      const drawerEventsRepo = bindDrawerEventsRepository(db);
-      // RT-542: read-only use of the void journal (the OD-534-8 reprint guard).
-      const saleVoidReads = createSaleVoidRepository(db);
-
-      // Read-only `sales.*` + `receipts.preview` bridges for the renderer.
-      // Registered UNCONDITIONALLY whenever the flag is on — NOT gated on
-      // pairing status. Pairing happens in-renderer (PairingForm navigates
-      // to /paired without a process relaunch), so a terminal that boots
-      // unpaired and pairs later in the same process must still have these
-      // handlers; otherwise the renderer's reads reject at the IPC layer. Both
-      // bridges gate on the live session at call time, so they are inert until
-      // an operator signs in regardless of pairing timing.
-      // #380 (F-007 FIXED) — same extracted seam as the payments adapter; the
-      // returned payments-shaped scope is a structural superset of
-      // OperatorSessionForSales. Real terminal_id from the pairing store; null
-      // on no-session or unpaired.
-      const getCurrentSalesSession = (): OperatorSessionForSales | null =>
-        resolveSessionScope(
-          operatorSessionManager.getCurrent(),
-          pairingStore.getCurrentTerminalId(),
-        );
-      // RT-546 — the sales/receipts role gate refuses a locked session and
-      // audits a refusal (`sale.access.refused`). Hoisted so both bridges get it.
-      const isSalesSessionLocked = (): boolean =>
-        operatorSessionManager.getCurrent()?.lock_state === 'locked';
-      const saleAuditEmitter = createSaleAuditEmitter({
-        sink: { write: forwardAuditEvent },
-      });
-      const salesBridge = createSalesBridge({
-        getCurrentSession: getCurrentSalesSession,
-        isSessionLocked: isSalesSessionLocked,
-        auditEmitter: saleAuditEmitter,
-        salesRepo,
-        printEventsRepo,
-        drawerEventsRepo,
-        // Snapshot-subscribe projector (008 follow-up): sales.subscribe returns
-        // the current banner_state / recent projection; the renderer polls it.
-        bannerStateProjector: bindBannerStateProjector(db),
-        newSubscriptionToken: () => randomUUID(),
-      });
-      registerSalesHandlers(guardedIpcMain, { salesBridge });
-
-      // 008 Slice 3 — print dispatcher (used by both the auto-fire finalize
-      // seam AND the renderer-callable receipts.retryPrint handler). Built
-      // here (not inside the paired branch) so the receipts bridge can be
-      // registered UNCONDITIONALLY — the T094c lesson: IPC handlers must be
-      // present regardless of pairing, since pairing is in-renderer with no
-      // relaunch. The dispatcher needs only the DB + repos + audit sink, none
-      // of which are pairing-specific; the paired branch reuses it for the
-      // finalize-listener wiring.
-      // Shared clock for the print dispatcher + receipts bridge so a reprint's
-      // rendered slip time (bridge) matches the print_events.printed_at the
-      // dispatcher writes for the same logical event (one clock read per event).
-      const receiptsClock = (): string => new Date().toISOString();
-      const printDispatcher = createPrintDispatcher({
-        pipeline: printPipeline,
-        printEventsRepo,
-        auditEmitter: saleAuditEmitter,
-        now: receiptsClock,
-        newPrintEventId: () => randomUUID(),
-        logger: mainLogger,
-        // RT-886: `printer_source` on `sale.receipt.printed`.
-        printerSource: () => (chosenPrinterName() === undefined ? 'os_default' : 'chosen'),
-      });
-
-      // 008 Slice 4 — drawer-kick dispatcher (AD-8 separate command). Chains
-      // after a successful first print for cash-inclusive sales. The real
-      // DK1/DK2 transport (node-thermal-printer `openCashDrawer` ↔ the Epson's
-      // DRAWER port driving the APG VBS320) is the §A3 HARDWARE bring-up (T200),
-      // deferred — same posture as the print transport above. Until then an
-      // honest STUB reports `no_drawer_configured`, which (RT-531) the
-      // dispatcher records as a `suppressed` drawer row — no drawer-failure
-      // notice — while the Sale stays durable; no fake "opened" is recorded
-      // (PRODUCT.md Principle 3). T200 swaps the shared `drawerKickTransport` (hoisted above,
-      // also used by the RT-15 S4 return payout) for the real one; nothing else
-      // changes.
-      const drawerKickDispatcher = createDrawerKickDispatcher({
-        drawerEventsRepo,
-        transport: drawerKickTransport,
-        auditEmitter: saleAuditEmitter,
-        now: () => new Date().toISOString(),
-        newDrawerEventId: () => randomUUID(),
-        logger: mainLogger,
-      });
-
-      // 008 Slice 2 + 3 — receipts.preview (read-only render) + retryPrint
-      // (mutating; gated server-side). Registered unconditionally (T094c).
-      const receiptsBridge = createReceiptsBridge({
-        getCurrentSession: getCurrentSalesSession,
-        isSessionLocked: isSalesSessionLocked,
-        salesRepo,
-        printEventsRepo,
-        printDispatcher,
-        // S4: a retry-success runs drawer gating (FR-052 — retry-success is the
-        // canonical first print). Same STUB transport as the auto-fired path
-        // until the T200 hardware bring-up.
-        drawerKickDispatcher,
-        // S5: same clock as printDispatcher so the reprint slip time matches the
-        // print_events.printed_at row.
-        now: receiptsClock,
-        // S6 manualOverride: writes the override print_events row directly +
-        // emits sale.receipt.manual_override (no slip rendered → no dispatcher).
-        auditEmitter: saleAuditEmitter,
-        newPrintEventId: () => randomUUID(),
-        // RT-542 (OD-534-8 B): a sale with a live void gets no unmarked duplicate.
-        isSaleVoided: (saleId) => saleVoidReads.liveForSale(saleId) !== null,
-      });
-      registerReceiptsHandlers(guardedIpcMain, { receiptsBridge });
-
-      // RT-542 (RT-534 S6) — the store-wide sales history, sale detail and
-      // reprint through Backend-Core (sale-history.yaml). The RT-546 gate and
-      // OD-534-1/2 run in main; the credential follows the role (the envelope
-      // for a manager/admin, the device token + the session's own cashier
-      // admission for a cashier) and never crosses the bridge. Offline, or with
-      // no credential, it answers this device's sales only (the RT-541 read).
-      registerSaleHistoryHandlers(guardedIpcMain, {
-        service: createSaleHistoryService({
-          getCurrentSession: getCurrentSalesSession,
-          isSessionLocked: isSalesSessionLocked,
-          auditEmitter: saleAuditEmitter,
-          resolveCredential: createSaleHistoryCredentialResolver({
-            getSessionRecord: () => operatorSessionManager.getCurrent(),
-            getEnvelope: (backendSessionId) => operatorEnvelopeHolder.get(backendSessionId),
-            readDeviceToken: createSendableDeviceTokenRead({
-              pairingStore,
-              secretStore,
-              deviceTokenKey: DEVICE_TOKEN_KEY,
-            }),
-          }),
-          client: createSaleHistoryClient({
-            baseUrl: resolveApiBaseUrl(),
-            fetch: backendFetch,
-          }),
-          local: createSaleHistoryLocalReads(db),
-          salesRepo,
-          printEventsRepo,
-          // OD-534-8 B: a live local void forbids a duplicate and marks the record.
-          isSaleVoided: (saleId) => saleVoidReads.liveForSale(saleId) !== null,
-          printer: printPipeline,
-          now: receiptsClock,
-          newIdempotencyKey: () => `pos-pulse-reprint:${randomUUID()}`,
-          // RT-553: warns (once) and flags when the store zone is not Africa/Cairo.
-          storeZone: createStoreZoneMonitor({ logger: mainLogger }),
-        }),
-        logger: mainLogger,
-      });
+      // RT-893 extraction 6a — the read-only `sales.*` + `receipts.*` bridges and the sale-history
+      // handlers (see `bootstrap/sales-bridges.ts`). Registered whenever the flag is on, NOT gated
+      // on pairing: pairing happens in-renderer with no relaunch (T094c).
+      const { salesRepo, saleAuditEmitter, printDispatcher, drawerKickDispatcher } =
+        registerSalesBridges({
+          guardedIpcMain,
+          db,
+          backendFetch,
+          operatorSessionManager,
+          operatorEnvelopeHolder,
+          pairingStore,
+          secretStore,
+          deviceTokenKey: DEVICE_TOKEN_KEY,
+          forwardAuditEvent,
+          printPipeline,
+          chosenPrinterName,
+          drawerKickTransport,
+          mainLogger,
+        });
 
       // The AD-2 finalize WORKER, by contrast, IS terminal-scoped and only
       // starts for a paired terminal — it needs the pairing row's scope to
@@ -2003,9 +1858,10 @@ singleInstanceReady
       pairedWorkersLatch.register('finalize listener + sale-sync engine', (pairingStatus) => {
         const outboxRepo = bindSaleSyncOutboxRepository(db);
         const allocator = bindSaleNumberAllocator(db);
-        // saleAuditEmitter + printPipeline + printDispatcher are hoisted above
-        // the receipts-bridge registration (T094c — unconditional handlers);
-        // the paired branch reuses them for the finalize-listener wiring.
+        // saleAuditEmitter + printPipeline + printDispatcher are built by
+        // `registerSalesBridges` above the receipts-bridge registration (T094c —
+        // unconditional handlers); the paired branch reuses them for the
+        // finalize-listener wiring.
         const finalizeTransaction = bindFinalizeTransaction({
           db: db,
           salesRepo,
