@@ -110,16 +110,25 @@ export function StatusMoveSection({ scope, storeId, productId, onHand }: Readonl
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    setOutcome(null);
     const draft = { productId, from, to, reason, quantity, note, locationId, stockingUnit };
     const found = validateMove(draft);
     setErrors(found);
     if (Object.keys(found).length > 0) return;
     const command = buildCommand(draft);
     held.current = keyFor(held.current, command);
-    const result = await move.mutateAsync({
-      command,
-      idempotencyKey: held.current.key,
-    });
+    let result: MoveOutcome;
+    try {
+      result = await move.mutateAsync({
+        command,
+        idempotencyKey: held.current.key,
+      });
+    } catch {
+      // No response at all (offline, aborted): the result is unknown. Keep the
+      // held key so a retry of the same command cannot record it twice.
+      setOutcome({ kind: "failed" });
+      return;
+    }
     setOutcome(result);
     if (result.kind === "recorded") {
       held.current = null;
@@ -263,6 +272,9 @@ export function StatusMoveSection({ scope, storeId, productId, onHand }: Readonl
         <Banner variant="success" message={t("inventory.move.recorded")} />
       ) : null}
       {outcome?.kind === "rejected" ? <Rejection outcome={outcome} /> : null}
+      {outcome?.kind === "failed" ? (
+        <Banner variant="danger" message={t("inventory.move.failed")} />
+      ) : null}
       <p className="inventory__note">{t("inventory.move.note.physical")}</p>
     </section>
   );

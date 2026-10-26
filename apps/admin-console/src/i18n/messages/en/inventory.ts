@@ -146,6 +146,8 @@ export const inventory: MessagesOf<typeof ar> = {
     "Status move recorded. The quantities above are re-read from the server.",
   "inventory.move.note.physical":
     "The server decides who may move stock and between which statuses; any refusal is shown as sent.",
+  "inventory.move.failed":
+    "No answer came back, so it is not known whether the move was recorded. Retrying the same move is safe: it cannot be recorded twice.",
   "inventory.move.rejected.title": "The status move was not recorded",
   "inventory.move.rejected.noBody":
     "The server refused the request (status {status}) without a reason.",

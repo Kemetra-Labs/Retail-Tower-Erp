@@ -323,3 +323,23 @@ describe("no stocking unit (RT-436)", () => {
     expect(api.createStatusMove).not.toHaveBeenCalled();
   });
 });
+
+describe("no response from the server (RT-436)", () => {
+  test("a thrown request failure is reported as unknown, clears the old banner and keeps the key", async () => {
+    renderProduct();
+    await fillDamage();
+    const submit = screen.getByRole("button", { name: "Record status move" });
+    fireEvent.click(submit);
+    expect(await screen.findByText(/Status move recorded/)).toBeDefined();
+
+    api.createStatusMove.mockRejectedValue(new TypeError("Failed to fetch"));
+    type(/^Quantity/, "3");
+    fireEvent.click(submit);
+    expect(await screen.findByText(/not known whether the move was recorded/)).toBeDefined();
+    expect(screen.queryByText(/Status move recorded/)).toBeNull();
+
+    fireEvent.click(submit);
+    await waitFor(() => expect(api.createStatusMove).toHaveBeenCalledTimes(3));
+    expect(api.createStatusMove.mock.calls[2][2]).toBe(api.createStatusMove.mock.calls[1][2]);
+  });
+});

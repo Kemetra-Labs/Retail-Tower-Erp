@@ -158,6 +158,8 @@ export const inventory = {
   "inventory.move.recorded": "سُجّل نقل الحالة. تُعاد قراءة الكميات أعلاه من الخادم.",
   "inventory.move.note.physical":
     "الخادم هو الذي يقرّر من يحق له نقل المخزون وبين أي حالات؛ ويُعرض أي رفض كما ورد.",
+  "inventory.move.failed":
+    "لم يصل أي رد، فلا يُعرف إن كان النقل قد سُجّل. إعادة المحاولة بالنقل نفسه آمنة: لن يُسجَّل مرتين.",
   "inventory.move.rejected.title": "لم يُسجَّل نقل الحالة",
   "inventory.move.rejected.noBody": "رفض الخادم الطلب (الحالة {status}) دون ذكر سبب.",
   "inventory.move.rejected.code": "الرمز: {code}",

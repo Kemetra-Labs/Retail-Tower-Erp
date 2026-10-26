@@ -173,6 +173,8 @@ interface BackendError {
 
 export type MoveOutcome =
   | { kind: "recorded" }
+  /** The request got no response at all: whether it was recorded is unknown. */
+  | { kind: "failed" }
   | {
       kind: "rejected";
       status: number;
