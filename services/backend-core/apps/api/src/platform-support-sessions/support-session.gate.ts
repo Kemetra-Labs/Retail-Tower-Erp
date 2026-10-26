@@ -182,7 +182,7 @@ export class SupportSessionGate {
 
   /** Whether `userId` has a live membership in `tenantId`, whatever the tenant status. */
   async isMember(member: { readonly userId: string; readonly tenantId: string }): Promise<boolean> {
-    return this.withPlatformCtx((client) => hasLiveMembership(drizzle(client), member));
+    return await this.withPlatformCtx((client) => hasLiveMembership(drizzle(client), member));
   }
 
   /**
@@ -192,7 +192,7 @@ export class SupportSessionGate {
    */
   async tenantRowExists(tenantId: string): Promise<boolean> {
     if (!UUID_RE.test(tenantId)) return false;
-    return this.withPlatformCtx(async (client) => {
+    return await this.withPlatformCtx(async (client) => {
       const { rows } = await client.query(`SELECT 1 FROM tenants WHERE id = $1`, [tenantId]);
       return rows.length > 0;
     });

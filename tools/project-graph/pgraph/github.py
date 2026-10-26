@@ -60,6 +60,7 @@ def approvals_from_reviews(reviews):
         user = review.get("user") or {}
         out.append({
             "login": user.get("login"),
+            "actor_id": user.get("id"),
             "actor_type": user.get("type"),
             "kind": "review",
             "head_sha": review.get("commit_id"),

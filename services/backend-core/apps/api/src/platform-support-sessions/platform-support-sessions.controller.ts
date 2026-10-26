@@ -48,18 +48,18 @@ export class PlatformSupportSessionsController {
     @Req() request: AuthedRequest,
     @Body(new ZodValidationPipe(OpenSupportSessionSchema)) body: OpenSupportSessionInput,
   ): Promise<SupportSessionBody> {
-    return this.service.open(request.principal, body, request.requestId ?? null);
+    return await this.service.open(request.principal, body, request.requestId ?? null);
   }
 
   @Get("current")
   async current(@Req() request: AuthedRequest): Promise<CurrentSupportSessionBody> {
-    return this.service.current(request.principal);
+    return await this.service.current(request.principal);
   }
 
   @Post("current/renew")
   @HttpCode(HttpStatus.OK)
   async renew(@Req() request: AuthedRequest): Promise<SupportSessionBody> {
-    return this.service.renew(request.principal, request.requestId ?? null);
+    return await this.service.renew(request.principal, request.requestId ?? null);
   }
 
   @Post("current/end")
@@ -67,6 +67,6 @@ export class PlatformSupportSessionsController {
   // RT-619 (RT-574 D3): leaving must not starve behind ordinary writes.
   @ConsoleRateLimit("incidentControl")
   async end(@Req() request: AuthedRequest): Promise<SupportSessionBody> {
-    return this.service.end(request.principal, request.requestId ?? null);
+    return await this.service.end(request.principal, request.requestId ?? null);
   }
 }

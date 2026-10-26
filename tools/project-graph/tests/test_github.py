@@ -57,8 +57,9 @@ class NormalizeRunsTests(unittest.TestCase):
         self.assertFalse(github.all_runs_completed([]))
 
 
-def _review(body, login="human", user_type="User", state="APPROVED", commit=HEAD):
-    return {"user": {"login": login, "type": user_type}, "body": body, "state": state, "commit_id": commit}
+def _review(body, login="human", user_type="User", state="APPROVED", commit=HEAD, user_id=1001):
+    return {"user": {"login": login, "type": user_type, "id": user_id}, "body": body, "state": state,
+            "commit_id": commit}
 
 
 class ApprovalsFromReviewsTests(unittest.TestCase):
@@ -66,7 +67,7 @@ class ApprovalsFromReviewsTests(unittest.TestCase):
     def test_review_with_attestation_line(self):
         body = f"LGTM\npolicy-change-approved: base={BASE} fingerprint={FP}\n"
         [a] = github.approvals_from_reviews([_review(body)])
-        self.assertEqual(a, {"login": "human", "actor_type": "User", "kind": "review",
+        self.assertEqual(a, {"login": "human", "actor_id": 1001, "actor_type": "User", "kind": "review",
                              "head_sha": HEAD, "base_sha": BASE, "fingerprint": FP})
 
     def test_review_without_line_or_dismissed_is_ignored(self):
@@ -87,6 +88,19 @@ class ApprovalsFromReviewsTests(unittest.TestCase):
         body = f"policy-change-approved: base={BASE} fingerprint={FP}"
         [a] = github.approvals_from_reviews([_review(body, login="kemetra-agent[bot]", user_type="Bot")])
         self.assertEqual(a["actor_type"], "Bot")
+
+    def test_reviewer_bot_review_carries_its_numeric_id(self):
+        body = f"policy-change-approved: base={BASE} fingerprint={FP}"
+        [a] = github.approvals_from_reviews(
+            [_review(body, login="kemetra-reviewer[bot]", user_type="Bot", user_id=348508063)])
+        self.assertEqual((a["actor_id"], a["actor_type"]), (348508063, "Bot"))
+
+    def test_review_without_a_user_id_keeps_none(self):
+        body = f"policy-change-approved: base={BASE} fingerprint={FP}"
+        review = _review(body)
+        del review["user"]["id"]
+        [a] = github.approvals_from_reviews([review])
+        self.assertIsNone(a["actor_id"])
 
 
 if __name__ == "__main__":

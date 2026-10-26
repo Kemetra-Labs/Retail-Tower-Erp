@@ -139,9 +139,9 @@ export class ContextService {
 
   async getActiveContext(principal: Principal): Promise<ContextResponseBody> {
     if (principal.kind === "session") {
-      return this.getActiveContextForSession(principal);
+      return await this.getActiveContextForSession(principal);
     }
-    return this.getActiveContextForToken(principal);
+    return await this.getActiveContextForToken(principal);
   }
 
   // ----- SWITCH TENANT ---------------------------------------------
@@ -482,7 +482,7 @@ export class ContextService {
     work: (client: PoolClient | undefined) => Promise<T>,
   ): Promise<T> {
     if (!this.pool) {
-      return work(undefined);
+      return await work(undefined);
     }
     // Use the nil UUID (all-zeros) rather than null/empty-string so the
     // `::uuid` cast in RLS policies succeeds. The comparison
@@ -491,7 +491,7 @@ export class ContextService {
     // `is_platform_admin = 'true'` OR-branch. Passing null would set the
     // GUC to "" which throws `invalid input syntax for type uuid: ""` at
     // the cast site before PostgreSQL can short-circuit the OR.
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: "00000000-0000-0000-0000-000000000000", isPlatformAdmin: true },
       (client) => work(client),

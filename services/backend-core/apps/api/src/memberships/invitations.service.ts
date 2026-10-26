@@ -175,7 +175,7 @@ export class InvitationsService {
     const row = await this.tx(
       this.pool,
       PLATFORM_ADMIN_CTX,
-      async (client) => this.invitations.findByTokenHash(client, tokenHash),
+      async (client) => await this.invitations.findByTokenHash(client, tokenHash),
     );
 
     if (!row) {
@@ -225,7 +225,7 @@ export class InvitationsService {
     const user = await this.tx(
       this.pool,
       PLATFORM_ADMIN_CTX,
-      async (client) => this.invitations.findUserByEmail(client, invitation.email),
+      async (client) => await this.invitations.findUserByEmail(client, invitation.email),
     );
     if (!user) {
       throw new NotFoundException("No account found for this invitation email. Please register first.");

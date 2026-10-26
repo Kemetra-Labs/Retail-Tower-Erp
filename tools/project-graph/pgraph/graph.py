@@ -106,6 +106,20 @@ def _is_str_list(value):
     return isinstance(value, list) and all(isinstance(v, str) for v in value)
 
 
+APPROVER_TYPES = ("User", "Bot")
+
+
+def _approver_valid(entry):
+    """A policy approver is a legacy login string, or a mapping with exactly `id` (a positive int,
+    never a bool) and `type`, plus an optional informational `login`. Anything else is invalid."""
+    if isinstance(entry, str):
+        return True
+    if not isinstance(entry, dict) or not {"id", "type"} <= set(entry) <= {"id", "type", "login"}:
+        return False
+    return (type(entry["id"]) is int and entry["id"] > 0 and entry["type"] in APPROVER_TYPES
+            and isinstance(entry.get("login", ""), str))
+
+
 def _schema_errors(data):
     errs = []
     if data.get("schema") != SCHEMA:
@@ -127,8 +141,11 @@ def _schema_errors(data):
         return errs
     if not isinstance(data["trusted_check_producer"].get("app_id"), int):
         errs.append("SCHEMA: trusted_check_producer.app_id must be an int")
-    if not _is_str_list(data["policy_approvers"]) or not _is_str_list(data["allowed_symlinks"]):
-        errs.append("SCHEMA: policy_approvers/allowed_symlinks must be string lists")
+    if not all(_approver_valid(e) for e in data["policy_approvers"]):
+        errs.append("SCHEMA: policy_approvers entries must be a login string or {id: int > 0, "
+                    "type: User|Bot, login?: str}")
+    if not _is_str_list(data["allowed_symlinks"]):
+        errs.append("SCHEMA: allowed_symlinks must be a string list")
     if not all(isinstance(k, str) and isinstance(v, str) for k, v in data["jobs"].items()):
         errs.append("SCHEMA: jobs must map job name to workflow path")
     for name, prod in data["products"].items():

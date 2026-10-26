@@ -98,7 +98,7 @@ export class MembershipsService {
    *   7. Return the updated `MembershipDetail`.
    */
   async update(ctx: ResolvedContext, membershipId: string, dto: MembershipUpdateDto): Promise<MembershipDetail> {
-    return this.tx(this.pool, txCtx(ctx), async (client) => {
+    return await this.tx(this.pool, txCtx(ctx), async (client) => {
       const tenantId = ctx.tenantId as string;
 
       // Step 1: load existing row (404 gate)

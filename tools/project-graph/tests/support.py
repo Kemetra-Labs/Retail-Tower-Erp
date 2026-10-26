@@ -150,6 +150,7 @@ def approvals(case, plan):
     for a in case.get("approvals", []):
         out.append({
             "login": a["login"],
+            "actor_id": a.get("actor_id"),
             "actor_type": a.get("actor_type", "User"),
             "kind": a.get("kind", "review"),
             "head_sha": a.get("head", plan["head_sha"]),
