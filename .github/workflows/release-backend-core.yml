@@ -12,9 +12,8 @@
 #             `success`, the release commit's contracts-compat fleet baseline must be fresh, and
 #             replay NOT_PROVEN is recorded, not blocking, until every supported snapshot has a
 #             recorded fixture. Red or missing refuses. It runs in dry-runs too, so a dry-run
-#             shows whether the SHA is releasable. Today Shadow's Backend-Core import predates
-#             RT-713: there is no contracts-compat/ and no bc/contracts-compat job, so every SHA
-#             is refused until the MR-8 re-import and the root compat job land.
+#             shows whether the SHA is releasable. bc/contracts-compat is the root job in
+#             backend-core.yml (RT-863); it runs on every push to main, like the other three.
 #   build     api, worker and migrate images (services/backend-core/Dockerfile targets), built
 #             without cache into OCI layouts. Nothing is pushed: the digests are OCI manifest
 #             digests, the ones a later push of the same layout would carry.

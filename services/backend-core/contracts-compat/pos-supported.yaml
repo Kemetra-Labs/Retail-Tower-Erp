@@ -16,15 +16,20 @@ supported:
   - kind: build
     build_id: 9dfd7d977267806a907d4c03a566382570cbd0c9
     device_label: RT9 Lab Counter 1
+    # RT-863: re-keyed to this repository after the RT-715 cutover. The terminal's build_id stays
+    # the Kemetra/POS SHA it reports. The snapshot was Kemetra/Backend-Core 1711813d (the commit the
+    # PIN file itself still names); tools/history/crosswalk/backend-core.tsv maps it to 30cff009,
+    # and every listed blob is unchanged, so snapshot_sha256 is unchanged. The PIN blob is the same
+    # file at POS commit 9dfd7d97, imported as 7f64688e (crosswalk/pos.tsv).
     pos_pin:
-      repo: Kemetra/POS
-      path: contracts/backend-core/PIN
+      repo: Kemetra-Labs/Retail-Tower-Erp
+      path: apps/pos/contracts/backend-core/PIN
       blob: 4f160c6ec622585c51faeb5389bc8f6c6e808b73
-      bc_commit: 1711813df1f36d7ed60db1096f9a23c2be1e81c3
+      bc_commit: 30cff009d4731de4e71b93ecdc2238eb593ea6aa
     contract_ref:
-      repo: Kemetra/Backend-Core
-      commit: 1711813df1f36d7ed60db1096f9a23c2be1e81c3
-      root: packages/contracts/openapi
+      repo: Kemetra-Labs/Retail-Tower-Erp
+      commit: 30cff009d4731de4e71b93ecdc2238eb593ea6aa
+      root: services/backend-core/packages/contracts/openapi
       files:
         - path: catalog/read-down.yaml
           blob: bd8e3abf4f02760d267bc74efc72c7e6ebd72768

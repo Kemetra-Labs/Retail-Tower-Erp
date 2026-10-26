@@ -19,9 +19,9 @@
 //   - paths: the release commit's Backend-Core tree is services/backend-core/ (--source), and
 //     contracts-compat's parser comes from --lib (the workflow's own checkout), not __dirname.
 //   - the required check names are the root workflow's (bc/fast, ...), passed with --required.
-//   - Shadow's Backend-Core import (tools/history/frozen.tsv) predates RT-713, so today both
-//     the compat check run and contracts-compat/ are absent and every release SHA is refused.
-//     That is the intended fail-closed state until the MR-8 re-import and a root compat job.
+//   - the compat check run is the root job bc/contracts-compat (backend-core.yml, RT-863), and
+//     the matrix references snapshots by commits of this repository (re-keyed through
+//     tools/history/crosswalk/ after the RT-715 cutover).
 //
 // Reads only files and a check-run list; makes no network call and fails closed: anything it
 // cannot read or parse is a refusal. Parsing is never re-implemented: contracts-compat's own

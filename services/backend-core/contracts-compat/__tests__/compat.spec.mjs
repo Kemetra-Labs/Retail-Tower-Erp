@@ -77,7 +77,7 @@ test("digest is derived from the listed path/blob pairs", () => {
 test("missing blob: FAIL_MISSING_SNAPSHOT", () => {
   const r = evaluate(fresh(), { blobAt: () => null });
   assert.equal(r.state, "FAIL_MISSING_SNAPSHOT");
-  assert.match(r.problems[0], /not found at 1711813d/);
+  assert.match(r.problems[0], /not found at 30cff009/);
 });
 
 test("blob that differs from git history: FAIL_MISSING_SNAPSHOT", () => {
