@@ -252,7 +252,7 @@ function cookieValue(header: string, name: string): string | null {
   return null;
 }
 
-function readBearerToken(request: AuthedRequest): string | null {
+export function readBearerToken(request: AuthedRequest): string | null {
   const header = request.headers["authorization"];
   if (typeof header !== "string") return null;
   if (header.length < BEARER_PREFIX.length) return null;
