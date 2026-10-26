@@ -16,7 +16,7 @@
  *   - `consoleRetireCatalogProduct`: POST the product's retire (irreversible on
  *     this surface).
  *
- * RT-769 adds exactly TWO more writes, the identifier ones (CAT-C2b):
+ * RT-769 adds TWO more writes, the identifier ones (CAT-C2b):
  *
  *   - `consoleAddProductIdentifier`: POST one identifier to bind, by its full
  *     key (`ProductIdentifierKey`), tenant-wide or scoped to one store.
@@ -26,9 +26,16 @@
  * Neither takes an Idempotency-Key in the contract: a repeated add is 409
  * `alias_conflict` and a repeated retire is 404, so a retry never writes twice.
  *
- * Boundary: these seven operations are all that is wrapped. Product CREATE is
- * held by owner decision D9 (RT-768 comment 13487) until pricing lands (RT-484 /
- * RT-485), and the store-override writes belong to RT-770.
+ * RT-770 adds the two store-override writes (CAT-C2c), on the generated client:
+ *
+ *   - `consoleUpsertStoreOverride`: PUT a store's availability / tax category
+ *     override (never its price, O-2), with `expectedUpdatedAt`.
+ *   - `consoleRetireStoreOverride`: POST the store override's retire.
+ *
+ * Boundary: these nine operations (three reads and six writes: edit and retire
+ * a product; add and retire an identifier; upsert and retire a store override)
+ * are all that is wrapped. Product CREATE is held by owner decision D9 (RT-768
+ * comment 13487) until pricing lands (RT-484 / RT-485).
  * No POS route and no ERP call. Same `{ status, data?, error? }` shape as `src/lib/sale-queries.ts`;
  * cookie transport is on the generated client. No hand-rolled fetch.
  */
@@ -48,6 +55,17 @@ export type CatalogMoney = Schemas["Money"];
 export type CatalogCategory = Schemas["ConsoleCatalogCategory"];
 export type CatalogStatusFilter = Schemas["ProductStatusFilter"];
 export type CatalogProductUpdate = Schemas["UpdateCatalogProductRequest"];
+/**
+ * RT-770: the upsert body (`UpsertStoreOverrideRequest`). The generated schema is a
+ * `oneOf` union with `unknown` members, which collapses to `unknown`, so the shape
+ * is restated here field for field. An absent field is left as is; `null` clears
+ * it. There is no price (O-2).
+ */
+export interface CatalogStoreOverrideUpsert {
+  expectedUpdatedAt: string | null;
+  isActive?: boolean | null;
+  taxCategory?: string | null;
+}
 export type CatalogIdentifierKey = Schemas["ProductIdentifierKey"];
 export type CatalogIdentifierType = Schemas["IdentifierType"];
 export type CatalogListQuery =
@@ -116,6 +134,35 @@ export async function consoleRetireProductIdentifier(
   const { data, error, response } = await apiClient.POST(
     "/api/v1/catalog/products/{productId}/identifiers/retire",
     { params: { path: { productId } }, body },
+  );
+  return { status: response.status, data, error };
+}
+
+/**
+ * PUT /api/v1/catalog/products/{productId}/store-overrides/{storeId} (RT-770):
+ * 200 returns the detail after the change, its `storeOverrides` carrying the new override.
+ */
+export async function consoleUpsertStoreOverride(
+  productId: string,
+  storeId: string,
+  body: CatalogStoreOverrideUpsert,
+) {
+  const { data, error, response } = await apiClient.PUT(
+    "/api/v1/catalog/products/{productId}/store-overrides/{storeId}",
+    { params: { path: { productId, storeId } }, body },
+  );
+  return { status: response.status, data, error };
+}
+
+/** POST /api/v1/catalog/products/{productId}/store-overrides/{storeId}/retire (RT-770): 200 returns the detail. */
+export async function consoleRetireStoreOverride(
+  productId: string,
+  storeId: string,
+  expectedUpdatedAt: string,
+) {
+  const { data, error, response } = await apiClient.POST(
+    "/api/v1/catalog/products/{productId}/store-overrides/{storeId}/retire",
+    { params: { path: { productId, storeId } }, body: { expectedUpdatedAt } },
   );
   return { status: response.status, data, error };
 }
