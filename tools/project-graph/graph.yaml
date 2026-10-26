@@ -35,6 +35,7 @@ jobs:
   bc/db-integration: .github/workflows/backend-core.yml
   bc/db-package: .github/workflows/backend-core.yml
   bc/oasdiff: .github/workflows/backend-core.yml
+  bc/contracts-compat: .github/workflows/backend-core.yml
   bc/schemathesis: .github/workflows/backend-core.yml
   connector/unit-tests-and-lint: .github/workflows/erpnext-connector.yml
   connector/bench: .github/workflows/erpnext-connector.yml
@@ -45,7 +46,9 @@ jobs:
 
 job_groups:
   pos-full: [pos/static, pos/test-shard-1, pos/test-shard-2, pos/test-shard-3, pos/test]
-  bc-full: [bc/fast, bc/db-integration, bc/db-package, bc/oasdiff, bc/schemathesis]
+  # bc/contracts-compat (RT-863, MR-3): the POS compatibility matrix; release-backend-core.yml
+  # requires its run on the release SHA.
+  bc-full: [bc/fast, bc/db-integration, bc/db-package, bc/oasdiff, bc/contracts-compat, bc/schemathesis]
 
 always_jobs: [boundary-check, dependency-review]
 e2e_job: e2e/smoke
@@ -132,7 +135,7 @@ products:
   backend-core:
     root: services/backend-core/
     toolchain: { manager: pnpm, lockfiles: [services/backend-core/pnpm-lock.yaml] }
-    ci_jobs: [bc/fast, bc/db-integration, bc/db-package, bc/oasdiff, bc/schemathesis]
+    ci_jobs: [bc/fast, bc/db-integration, bc/db-package, bc/oasdiff, bc/contracts-compat, bc/schemathesis]
     high_jobs: ["@bc-full"]
     tiers:
       contracts:

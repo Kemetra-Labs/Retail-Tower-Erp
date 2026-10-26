@@ -3,8 +3,10 @@
 Installed POS terminals never update atomically, so every Backend-Core change must stay
 compatible with every **supported, actually installed** POS contract snapshot. The
 `contracts-compat (POS supported snapshots)` job of the product's former `ci.yml` enforced it. In the
-monorepo the root release (`.github/workflows/release-backend-core.yml`) requires a `bc/contracts-compat`
-run, and that root CI job is not wired yet.
+monorepo it is the root graph job `bc/contracts-compat` (`.github/workflows/backend-core.yml`, RT-863),
+and the root release (`.github/workflows/release-backend-core.yml`) requires its run on the release SHA.
+Snapshots are referenced by commits of this repository; entries seeded before the RT-715 cutover were
+re-keyed through `tools/history/crosswalk/`.
 Design: RT-709 §C.1 (Confluence page 43712707). Owner authorization: RT-713 comment 13209.
 
 ## What the job does
@@ -17,7 +19,7 @@ Design: RT-709 §C.1 (Confluence page 43712707). Owner authorization: RT-713 com
    **referenced by commit and blob, never copied**, so it cannot drift from history.
 3. Extracts those files with `git show` and runs `oasdiff breaking --composed --fail-on WARN`
    (same severity file as `tools/oasdiff/check.sh`) from the snapshot to the current
-   `packages/contracts/openapi`.
+   `packages/contracts/openapi`. `<root>` is repository-relative (`services/backend-core/...`).
 4. Runs the idempotency rules (`lib/semantics.mjs`) snapshot -> current. Only rules oasdiff does
    not already enforce live there (probes show oasdiff passes each regression): an operation
    the snapshot marks `x-idempotency: required` still does, and still requires the

@@ -1,6 +1,7 @@
 # Root CI for Backend-Core (RT-748 slices I-5, I-6 and I-11). Defines the graph.yaml job keys
-# bc/fast, bc/db-integration, bc/db-package, bc/oasdiff and bc/schemathesis (static rule 5) by
-# reproducing the `fast`, `db-integration`, `db-package`, `oasdiff` and `schemathesis` jobs of
+# bc/fast, bc/db-integration, bc/db-package, bc/oasdiff, bc/contracts-compat and bc/schemathesis
+# (static rule 5) by reproducing the `fast`, `db-integration`, `db-package`, `oasdiff`,
+# `contracts-compat` (RT-863) and `schemathesis` jobs of the product's former
 # services/backend-core/.github/workflows/ci.yml inside services/backend-core/. RT-845 (I-11)
 # mirrors the product's RT-816 split: db + worker suites run in bc/db-package, in parallel with
 # the api suite in bc/db-integration. Job `name:` values are the graph keys, so each is a literal
@@ -411,6 +412,58 @@ jobs:
         run: |
           oasdiff --version
           bash tools/oasdiff/check.sh "$BASE_SHA"
+
+  # RT-863 (MR-3): the POS compatibility matrix (RT-713), the product's `contracts-compat (POS
+  # supported snapshots)` job. It re-reads each supported POS build's contract snapshot from git
+  # history (commit + blob, verified) and runs oasdiff, the envelope/idempotency rules and the
+  # offline replay from it to the current packages/contracts/openapi (contracts-compat/README.md).
+  # PR mode: replay NOT_PROVEN and a stale fleet baseline are reported, not failed; the release
+  # guard (.github/release/compat-gate.cjs) applies the release rules to this run's result. In
+  # @bc-full, so it runs for every Backend-Core change and on every push to main, which is the
+  # run release-backend-core.yml requires on the release SHA. No install, DB or Docker.
+  # fetch-depth 0: the snapshot commits are in history. Node is pinned (the product used the
+  # runner's default).
+  bc-contracts-compat:
+    name: bc/contracts-compat
+    needs: plan
+    if: contains(fromJSON(needs.plan.outputs.jobs), 'bc/contracts-compat')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      OASDIFF_VERSION: "1.32.1"
+      # sha256 of oasdiff_${OASDIFF_VERSION}_linux_amd64.tar.gz from the release checksums.txt
+      OASDIFF_SHA256: "7c8939fc49b75ee11fec66a5b83b37a2fca6aee109fed85013b1ba2ac2a1ee7f"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - name: Install oasdiff (pinned, checksum-verified)
+        run: |
+          archive="oasdiff_${OASDIFF_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL --proto '=https' --tlsv1.2 -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/oasdiff/oasdiff/releases/download/v${OASDIFF_VERSION}/$archive"
+          echo "${OASDIFF_SHA256}  $RUNNER_TEMP/$archive" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/oasdiff"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/oasdiff" oasdiff
+          echo "$RUNNER_TEMP/oasdiff" >> "$GITHUB_PATH"
+
+      - name: contracts-compat spec
+        env:
+          CONTRACTS_COMPAT_REQUIRE_OASDIFF: "1"
+        run: node --test contracts-compat/__tests__/compat.spec.mjs
+
+      - name: Check POS supported snapshots
+        run: |
+          oasdiff --version
+          node contracts-compat/check.mjs --mode pr
 
   # Sharded 4 ways by the product (RT-809). Every shard boots its own ephemeral Backend-Core
   # stack on its own runner (fresh Postgres + Redis, throwaway owner and platform sessions, no
