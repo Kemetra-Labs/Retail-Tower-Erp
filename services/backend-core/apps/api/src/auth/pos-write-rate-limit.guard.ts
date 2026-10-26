@@ -156,6 +156,6 @@ export class PosWriteRateLimitGuard implements CanActivate {
     posDeviceId: string | undefined,
   ): Promise<string | null> {
     if (principal.scope === "pos") return posDeviceId ?? null;
-    return this.reverifier.recoverDeviceId(principal.tokenId as string);
+    return await this.reverifier.recoverDeviceId(principal.tokenId as string);
   }
 }

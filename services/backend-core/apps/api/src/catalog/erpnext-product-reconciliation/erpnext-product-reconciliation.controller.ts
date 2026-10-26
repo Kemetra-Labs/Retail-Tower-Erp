@@ -113,7 +113,7 @@ export class ErpnextProductReconciliationController {
       query.class === "suggestion_unconfirmed"
         ? query.class
         : undefined;
-    return this.service.listBacklog({
+    return await this.service.listBacklog({
       tenantId,
       cursor: query.cursor ?? null,
       limit: query.limit ?? 100,
@@ -150,7 +150,7 @@ export class ErpnextProductReconciliationController {
       ...(body.erpnextItemRef ? { erpnextItemRef: body.erpnextItemRef } : {}),
       ...(body.version !== undefined ? { version: body.version } : {}),
     };
-    return this.handleRepair(
+    return await this.handleRepair(
       () =>
         body.runId && body.resultId
           ? this.service.repairResult({ ...base, runId: body.runId, resultId: body.resultId })
@@ -174,7 +174,7 @@ export class ErpnextProductReconciliationController {
     _body: TriggerProductRunBody,
   ): Promise<ProductReconciliationRunBody> {
     const { tenantId, userId } = this.requireContext(request);
-    return this.service.triggerRun({ tenantId, actorUserId: userId });
+    return await this.service.triggerRun({ tenantId, actorUserId: userId });
   }
 
   /** GET — the tenant's reconciliation runs (US3), newest first. */
@@ -186,7 +186,7 @@ export class ErpnextProductReconciliationController {
     @Query(new ZodValidationPipe(ListRunsQuerySchema)) query: ListRunsQuery,
   ): Promise<{ items: ProductReconciliationRunBody[]; nextCursor: string | null }> {
     const tenantId = this.requireTenant(request);
-    return this.service.listRuns({
+    return await this.service.listRuns({
       tenantId,
       cursor: query.cursor ?? null,
       limit: query.limit ?? 100,

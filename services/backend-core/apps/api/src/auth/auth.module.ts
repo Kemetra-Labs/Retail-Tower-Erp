@@ -188,23 +188,23 @@ export function emailJobEnqueuerFactory(): EmailJobEnqueuer {
  * intentionally loud.
  */
 export class AlwaysAllowRedis implements RedisLike {
-  async incrWindow(_key: string, _ttlMs: number): Promise<WindowHit> {
-    return { count: 1, ttlMs: -1 };
+  incrWindow(_key: string, _ttlMs: number): Promise<WindowHit> {
+    return Promise.resolve({ count: 1, ttlMs: -1 });
   }
-  async pttl(_key: string): Promise<number> {
-    return -1;
+  pttl(_key: string): Promise<number> {
+    return Promise.resolve(-1);
   }
-  async decr(_key: string): Promise<number> {
-    return 0;
+  decr(_key: string): Promise<number> {
+    return Promise.resolve(0);
   }
-  async get(_key: string): Promise<string | null> {
-    return null;
+  get(_key: string): Promise<string | null> {
+    return Promise.resolve(null);
   }
-  async set(_key: string, _value: string, _opts: { px: number } | { nx: true; ex: number }): Promise<"OK" | null> {
-    return "OK";
+  set(_key: string, _value: string, _opts: { px: number } | { nx: true; ex: number }): Promise<"OK" | null> {
+    return Promise.resolve("OK");
   }
-  async del(_key: string): Promise<number> {
-    return 0;
+  del(_key: string): Promise<number> {
+    return Promise.resolve(0);
   }
 }
 

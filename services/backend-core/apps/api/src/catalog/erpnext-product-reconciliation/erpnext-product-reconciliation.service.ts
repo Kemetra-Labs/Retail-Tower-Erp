@@ -133,7 +133,7 @@ export class ErpnextProductReconciliationService {
     nextCursor: string | null;
   }> {
     const limit = Math.min(Math.max(1, input.limit), PAGE_MAX);
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client) => {
@@ -494,7 +494,7 @@ export class ErpnextProductReconciliationService {
     limit: number;
   }): Promise<{ items: ProductReconciliationRunBody[]; nextCursor: string | null }> {
     const limit = Math.min(Math.max(1, input.limit), PAGE_MAX);
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client) => {
@@ -522,7 +522,7 @@ export class ErpnextProductReconciliationService {
     mismatchClass?: string;
   }): Promise<{ items: ProductReconciliationResultBody[]; nextCursor: string | null }> {
     const limit = Math.min(Math.max(1, input.limit), PAGE_MAX);
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client) => {

@@ -317,7 +317,7 @@ export class ErpnextBinViewService {
     // pure read, so re-baselining is harmless + idempotent.
     const since = input.since && UUID_RE.test(input.since) ? input.since : null;
 
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client): Promise<PullRequestsResult> => {

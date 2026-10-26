@@ -283,7 +283,7 @@ export class ConsoleCatalogReadService {
     const binding: CatalogCursorBinding = { tenantId: input.tenantId, filters: input.filters };
     const keyset = input.cursor === null ? null : decodeCatalogCursor(binding, input.cursor);
     const { status, storeId } = input.filters;
-    return this.inTenant(input, async (client) => {
+    return await this.inTenant(input, async (client) => {
       const scope = await callerStoreScope(client, this.memberships, input);
       if (storeId !== null) {
         await this.requireStoreInScope(client, input.tenantId, scope, storeId);
@@ -296,7 +296,7 @@ export class ConsoleCatalogReadService {
 
   /** One product of the tenant with its in-scope identifiers and overrides; CatalogProductNotFoundError otherwise. */
   async get(input: ScopedCatalogReadInput, productId: string): Promise<ConsoleCatalogProductDetail> {
-    return this.inTenant(input, (client) => this.detailIn(client, input, productId));
+    return await this.inTenant(input, (client) => this.detailIn(client, input, productId));
   }
 
   /**
@@ -324,7 +324,7 @@ export class ConsoleCatalogReadService {
 
   /** The tenant's active categories, flat, by name. */
   async listCategories(input: ScopedCatalogReadInput): Promise<ConsoleCatalogCategory[]> {
-    return this.inTenant(input, async (client) => {
+    return await this.inTenant(input, async (client) => {
       const r = await client.query<CategoryRow>(CATEGORIES_SQL, [input.tenantId]);
       return r.rows.map(toCategory);
     });

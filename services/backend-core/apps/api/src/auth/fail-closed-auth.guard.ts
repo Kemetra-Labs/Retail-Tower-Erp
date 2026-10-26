@@ -55,7 +55,7 @@ export class FailClosedAuthGuard implements CanActivate {
     if (this.reflector.getAllAndOverride<boolean>(DEVICE_BEARER_KEY, targets) === true) {
       return true;
     }
-    return this.authenticate(context);
+    return await this.authenticate(context);
   }
 
   private async authenticate(context: ExecutionContext): Promise<boolean> {

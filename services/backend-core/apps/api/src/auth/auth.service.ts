@@ -85,8 +85,8 @@ export interface RateLimiter {
 }
 
 class NoOpRateLimiter implements RateLimiter {
-  async checkAndConsume(_key: string): Promise<{ allowed: boolean }> {
-    return { allowed: true };
+  checkAndConsume(_key: string): Promise<{ allowed: boolean }> {
+    return Promise.resolve({ allowed: true });
   }
 }
 
@@ -167,7 +167,7 @@ export class AuthService {
     this.rateLimiter = opts.rateLimiter ?? new NoOpRateLimiter();
     this.emailJobs = emailJobs ?? new NoOpEmailJobEnqueuer();
     this.auditEnqueuer = opts.auditEnqueuer ?? new NoOpAuditJobEnqueuer();
-    this.listMemberships = opts.listMemberships ?? (async () => []);
+    this.listMemberships = opts.listMemberships ?? (() => Promise.resolve([]));
     this.endSupportSessions = opts.endSupportSessions ?? (() => Promise.resolve());
   }
 

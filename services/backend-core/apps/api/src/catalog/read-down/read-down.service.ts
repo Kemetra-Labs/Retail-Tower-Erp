@@ -124,7 +124,7 @@ export class ReadDownService {
   ): Promise<CatalogSnapshotPage> {
     const limit = clampLimit(opts.limit);
 
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId, isPlatformAdmin: false },
       async (client): Promise<CatalogSnapshotPage> => {
@@ -226,7 +226,7 @@ export class ReadDownService {
     // Decode + scope-validate the opaque since cursor (throws on foreign scope).
     const since = decodeCursor(sinceToken, tenantId, storeId);
 
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId, isPlatformAdmin: false },
       async (client): Promise<DeltaResult> => {

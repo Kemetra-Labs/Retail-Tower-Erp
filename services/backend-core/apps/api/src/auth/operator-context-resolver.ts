@@ -215,7 +215,7 @@ export class PgOperatorContextResolver implements OperatorContextResolver {
     // caller would refuse them with `membership_revoked`. Order so the ACTIVE grant
     // (revoked_at / deleted_at both NULL) sorts first; the caller still inspects
     // revoked_at/deleted_at, so a genuinely revoked-only user is unchanged.
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId, isPlatformAdmin: false },
       async (client) => {
@@ -240,7 +240,7 @@ export class PgOperatorContextResolver implements OperatorContextResolver {
     membershipId: string,
     storeId: string,
   ): Promise<boolean> {
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId, isPlatformAdmin: false },
       async (client) => {

@@ -133,7 +133,7 @@ export class AiEntitlementsController {
   ): Promise<FullViewBody | MinimalViewBody> {
     const ctx = sessionTenant(request, tenantId);
     if (!NoQuerySchema.safeParse(query ?? {}).success) throw validation("No query parameter is accepted.");
-    return mapErrors(async () => this.service.read(ctx.tenantId, await this.viewFor(ctx)));
+    return await mapErrors(async () => this.service.read(ctx.tenantId, await this.viewFor(ctx)));
   }
 
   @Put(`${PATH}/opt-outs/:feature_id`)
