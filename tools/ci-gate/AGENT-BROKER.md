@@ -16,6 +16,24 @@
    Agent sessions must start from this shell: the broker sets `GH_TOKEN`, an empty `GH_CONFIG_DIR`, the bot git identity, a github.com-only credential helper, and an empty `GIT_CONFIG_GLOBAL` with `GIT_CONFIG_NOSYSTEM=1`, for that process tree only. It never touches your keyring or global gitconfig. A Claude desktop session cannot take a per-session token, so it still acts as `Kemetra`.
 3. Inside the first session, have the agent run acceptance checks A1–A7 below.
 
+## Reviewer profile (RT-870)
+
+`broker.py --profile reviewer` (or `Start-KemetraAgentSession.ps1 -Profile reviewer`) acts as **`kemetra-reviewer[bot]`**, the independent reviewer on `Kemetra-Labs/Retail-Tower-Erp`. It is a different App, key, installation and 1Password item from `kemetra-agent`.
+
+| Item | Value |
+| --- | --- |
+| App | `kemetra-reviewer`, App ID **5485955**, owned by `Kemetra-Labs` |
+| Installation | **175598150**, only repository `Kemetra-Labs/Retail-Tower-Erp` (id **1430288487**) |
+| Bot user | `kemetra-reviewer[bot]`, id **348508063**, type `Bot` |
+| Key | `op://tower/kemetra-reviewer/credential` (1Password vault `tower`) |
+| Token permissions | `pull_requests: write`, `metadata: read`. **No `contents`**, so the token cannot push, merge or edit files |
+
+Rules for the reviewer:
+- The owner starts it from their own shell, in a **separate session** from the one that authors the PR. The same session under another token is not review authority.
+- The key is never read in an authoring session. An authoring session must not run `--profile reviewer`.
+- The reviewer reads the evidence (diff, checks, the `required` summary) and then submits an APPROVED review whose body carries the `policy-change-approved: base=<sha> fingerprint=<fp>` line for a policy change. It does not approve mechanically.
+- `--check` is the dry run: it mints, verifies the grant is no broader than requested, revokes and prints only the expiry, repository and permissions.
+
 ## Goal
 
 Agent sessions working on `Kemetra/Retail-Tower-Shadow` act as **`kemetra-agent[bot]`**, never as the owner account `Kemetra`. This closes F2 (RT-721 comment 12997) and makes the A.8 R1 split real: a human `Kemetra` action can then only come from the owner.

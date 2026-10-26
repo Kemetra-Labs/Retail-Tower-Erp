@@ -9,14 +9,23 @@ passed to the child, or printed; the token is never printed.
 
 Design: tools/ci-gate/AGENT-BROKER.md. This file is in the `policy` class.
 
+Two profiles share this code (RT-870 added `reviewer`):
+  agent     kemetra-agent[bot], the AUTHOR identity (Shadow, contents:write).
+  reviewer  kemetra-reviewer[bot], the independent REVIEWER identity on the canonical repo.
+            Its App has only pull_requests:write + metadata:read, so its token cannot push code.
+The reviewer key must only ever be read in a shell that does not author PRs.
+
 Usage:
   python broker.py --check                        # mint, verify, revoke; print non-secret summary
   python broker.py -- claude                      # run a session as kemetra-agent[bot]
+  python broker.py --profile reviewer --check     # same dry run for the reviewer App
+  python broker.py --profile reviewer -- claude   # a separate REVIEW session as kemetra-reviewer[bot]
   python broker.py --op-ref "op://tower/kemetra agent bot/credential" -- claude
 """
 
 import argparse
 import base64
+import dataclasses
 import json
 import os
 import shutil
@@ -27,21 +36,48 @@ import time
 import urllib.error
 import urllib.request
 
-APP_ID = 5373224
-INSTALLATION_ID = 173158171
-REPO_ID = 1425468661
-DEFAULT_OP_REF = "op://tower/kemetra agent bot/credential"
 API = "https://api.github.com"
-PERMISSIONS = {
-    "contents": "write",
-    "pull_requests": "write",
-    "issues": "read",
-    "checks": "read",
-    "actions": "read",
-    "metadata": "read",
-}
-BOT_NAME = "kemetra-agent[bot]"
-BOT_EMAIL = "344537132+kemetra-agent[bot]@users.noreply.github.com"
+
+
+@dataclasses.dataclass(frozen=True)
+class Profile:
+    """One GitHub App identity: what it may be granted, where, and who it commits as."""
+    name: str
+    app_id: int
+    installation_id: int
+    repo_id: int
+    repo_name: str
+    permissions: dict
+    op_ref: str
+    bot_name: str
+    bot_email: str
+
+
+AGENT = Profile(
+    name="agent", app_id=5373224, installation_id=173158171, repo_id=1425468661,
+    repo_name="Kemetra/Retail-Tower-Shadow",
+    permissions={"contents": "write", "pull_requests": "write", "issues": "read",
+                 "checks": "read", "actions": "read", "metadata": "read"},
+    op_ref="op://tower/kemetra agent bot/credential",
+    bot_name="kemetra-agent[bot]", bot_email="344537132+kemetra-agent[bot]@users.noreply.github.com")
+# RT-870: the independent reviewer. No contents permission, so its token cannot push, merge or
+# edit files. It can read PRs (metadata) and submit reviews (pull_requests:write).
+REVIEWER = Profile(
+    name="reviewer", app_id=5485955, installation_id=175598150, repo_id=1430288487,
+    repo_name="Kemetra-Labs/Retail-Tower-Erp",
+    permissions={"pull_requests": "write", "metadata": "read"},
+    op_ref="op://tower/kemetra-reviewer/credential",
+    bot_name="kemetra-reviewer[bot]", bot_email="348508063+kemetra-reviewer[bot]@users.noreply.github.com")
+PROFILES = {AGENT.name: AGENT, REVIEWER.name: REVIEWER}
+
+# Module-level names kept for the agent profile (existing callers and tests).
+APP_ID = AGENT.app_id
+INSTALLATION_ID = AGENT.installation_id
+REPO_ID = AGENT.repo_id
+DEFAULT_OP_REF = AGENT.op_ref
+PERMISSIONS = AGENT.permissions
+BOT_NAME = AGENT.bot_name
+BOT_EMAIL = AGENT.bot_email
 OWNER_CREDENTIAL_VARS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
                          "GIT_ASKPASS", "SSH_ASKPASS", "GH_CONFIG_DIR", "SSH_AUTH_SOCK", "SSH_AGENT_PID",
                          "GIT_SSH", "GIT_SSH_COMMAND")
@@ -80,15 +116,16 @@ def _headers(bearer):
             "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "kemetra-agent-broker"}
 
 
-def mint_installation_token(jwt, http):
-    body = json.dumps({"repository_ids": [REPO_ID], "permissions": PERMISSIONS})
-    status, data = http("POST", f"{API}/app/installations/{INSTALLATION_ID}/access_tokens", _headers(jwt), body)
+def mint_installation_token(jwt, http, profile=AGENT):
+    body = json.dumps({"repository_ids": [profile.repo_id], "permissions": profile.permissions})
+    status, data = http("POST", f"{API}/app/installations/{profile.installation_id}/access_tokens",
+                        _headers(jwt), body)
     if status != 201 or not isinstance(data, dict):
         raise BrokerError(f"token request failed with HTTP {status}")
     return data
 
 
-def check_grant(grant):
+def check_grant(grant, profile=AGENT):
     token = grant.get("token")
     if not isinstance(token, str) or not token.startswith("ghs_"):
         raise BrokerError("response has no installation token")
@@ -97,10 +134,10 @@ def check_grant(grant):
     if grant.get("repository_selection") != "selected":
         raise BrokerError("token is not limited to selected repositories")
     repo_ids = [r.get("id") for r in grant.get("repositories") or []]
-    if repo_ids != [REPO_ID]:
-        raise BrokerError(f"token repositories are {repo_ids}, expected only {REPO_ID}")
+    if repo_ids != [profile.repo_id]:
+        raise BrokerError(f"token repositories are {repo_ids}, expected only {profile.repo_id}")
     for name, level in (grant.get("permissions") or {}).items():
-        wanted = PERMISSIONS.get(name)
+        wanted = profile.permissions.get(name)
         if wanted is None or LEVEL.get(level, 99) > LEVEL[wanted]:
             raise BrokerError(f"token grants {name}:{level}, more than requested")
 
@@ -110,7 +147,7 @@ def revoke(token, http):
     return status == 204
 
 
-def child_env(base_env, token, gh_config_dir):
+def child_env(base_env, token, gh_config_dir, profile=AGENT):
     env = {k: v for k, v in base_env.items() if k not in OWNER_CREDENTIAL_VARS}
     pairs = [
         ("credential.helper", ""),                                   # drop GCM / gh / owner helpers
@@ -127,8 +164,8 @@ def child_env(base_env, token, gh_config_dir):
         "GIT_CONFIG_GLOBAL": os.path.join(gh_config_dir, "bot-gitconfig"),
         "GIT_CONFIG_NOSYSTEM": "1",
         "GCM_INTERACTIVE": "never",
-        "GIT_AUTHOR_NAME": BOT_NAME, "GIT_COMMITTER_NAME": BOT_NAME,
-        "GIT_AUTHOR_EMAIL": BOT_EMAIL, "GIT_COMMITTER_EMAIL": BOT_EMAIL,
+        "GIT_AUTHOR_NAME": profile.bot_name, "GIT_COMMITTER_NAME": profile.bot_name,
+        "GIT_AUTHOR_EMAIL": profile.bot_email, "GIT_COMMITTER_EMAIL": profile.bot_email,
         "GIT_CONFIG_COUNT": str(len(pairs)),
     })
     for i, (key, value) in enumerate(pairs):
@@ -159,13 +196,13 @@ def read_key(op_ref, run, account=None):
     return out
 
 
-def _mint(op_ref, run, http, now, account=None):
+def _mint(op_ref, run, http, now, account=None, profile=AGENT):
     key = read_key(op_ref, run, account)
     try:
-        jwt = build_jwt(key, APP_ID, now)
+        jwt = build_jwt(key, profile.app_id, now)
     finally:
         del key
-    return mint_installation_token(jwt, http)
+    return mint_installation_token(jwt, http, profile)
 
 
 def _revoke_if_token(grant, http):
@@ -179,19 +216,19 @@ def _revoke_if_token(grant, http):
     return False
 
 
-def run_session(argv, op_ref, *, run, http, spawn, now, base_env, gh_config_dir, account=None):
-    grant = _mint(op_ref, run, http, now, account)
+def run_session(argv, op_ref, *, run, http, spawn, now, base_env, gh_config_dir, account=None, profile=AGENT):
+    grant = _mint(op_ref, run, http, now, account, profile)
     try:
-        check_grant(grant)
-        return spawn(argv, child_env(base_env, grant["token"], gh_config_dir))
+        check_grant(grant, profile)
+        return spawn(argv, child_env(base_env, grant["token"], gh_config_dir, profile))
     finally:
         _revoke_if_token(grant, http)
 
 
-def check_only(op_ref, *, run, http, now, account=None):
-    grant = _mint(op_ref, run, http, now, account)
+def check_only(op_ref, *, run, http, now, account=None, profile=AGENT):
+    grant = _mint(op_ref, run, http, now, account, profile)
     try:
-        check_grant(grant)
+        check_grant(grant, profile)
         summary = {"expires_at": grant["expires_at"],
                    "repositories": [r.get("full_name") for r in grant["repositories"]],
                    "permissions": grant["permissions"]}
@@ -239,23 +276,28 @@ def main(argv=None):
     command = argv[argv.index("--") + 1:] if "--" in argv else []
     own = argv[:argv.index("--")] if "--" in argv else argv
     parser = argparse.ArgumentParser(prog="broker.py", description=__doc__.split("\n\n")[0])
-    parser.add_argument("--op-ref", default=DEFAULT_OP_REF, help="1Password op:// reference to the PEM")
+    parser.add_argument("--profile", choices=sorted(PROFILES), default=AGENT.name,
+                        help="which App identity to act as (default: agent)")
+    parser.add_argument("--op-ref", default=None,
+                        help="1Password op:// reference to the PEM (default: the profile's own)")
     parser.add_argument("--op-account", default=None,
                         help="1Password account (sign-in address or ID) holding the key, when several are configured")
     parser.add_argument("--check", action="store_true", help="mint, verify and revoke; print a non-secret summary")
     args = parser.parse_args(own)
+    profile = PROFILES[args.profile]
+    op_ref = args.op_ref or profile.op_ref
     if not args.check and not command:
         parser.error("give a command after `--`, e.g. `-- claude`, or use --check")
     try:
         if args.check:
-            summary = check_only(args.op_ref, run=_run_op, http=_http, now=int(time.time()),
-                                 account=args.op_account)
+            summary = check_only(op_ref, run=_run_op, http=_http, now=int(time.time()),
+                                 account=args.op_account, profile=profile)
             print(json.dumps(summary, indent=2))
             return 0
-        with tempfile.TemporaryDirectory(prefix="kemetra-agent-gh-") as gh_dir:
-            return run_session(command, args.op_ref, run=_run_op, http=_http, spawn=_spawn,
+        with tempfile.TemporaryDirectory(prefix=f"kemetra-{profile.name}-gh-") as gh_dir:
+            return run_session(command, op_ref, run=_run_op, http=_http, spawn=_spawn,
                                now=int(time.time()), base_env=dict(os.environ), gh_config_dir=gh_dir,
-                               account=args.op_account)
+                               account=args.op_account, profile=profile)
     except BrokerError as exc:
         print(f"broker: {exc}", file=sys.stderr)
         return 2
