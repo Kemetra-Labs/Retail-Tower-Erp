@@ -37,13 +37,28 @@ export function printerBridge(): PrinterBridgeAPI | undefined {
   return api?.printer;
 }
 
-/** Read the saved choice from main. A refusal or failure leaves it unknown. */
+/**
+ * Bumped whenever the session-scoped state is cleared (session change, sign-out,
+ * reset). A read that started under an older generation is dropped, so a slow
+ * answer from the previous session can never restore its view.
+ */
+let generation = 0;
+
+/** Forget what was read for the previous session; keep `promptDismissed` (per app run). */
+function clearSessionState(): void {
+  generation += 1;
+  usePrinterStore.setState({ loaded: false, choice: null, panelOpen: false });
+}
+
+/** Read the saved choice from main. A refusal, failure or stale answer leaves it unknown. */
 export async function refreshPrinterChoice(
   bridge: PrinterBridgeAPI | undefined = printerBridge(),
 ): Promise<void> {
   if (bridge === undefined) return;
+  const asked = generation;
   try {
     const answer = await bridge.get();
+    if (asked !== generation) return;
     if (answer.kind === 'ok') usePrinterStore.setState({ loaded: true, choice: answer.choice });
   } catch {
     // Unknown stays unknown: no row text guess, no prompt.
@@ -69,18 +84,22 @@ export function dismissPrinterPrompt(): void {
 
 /** Tests only: back to the first-launch state. */
 export function resetPrinterStore(): void {
+  generation += 1;
   usePrinterStore.setState({ ...INITIAL });
 }
 
 /**
  * Read the choice once per signed-in operator (the session key changes on
- * sign-in). A panel left open never carries over to the next session.
+ * sign-in). The session-scoped view (`loaded`, `choice`, `panelOpen`) is
+ * cleared before each read and on cleanup, so nothing from one session shows
+ * in the next; `promptDismissed` is per app run and stays.
  */
 export function usePrinterChoiceSync(sessionKey: string | undefined): void {
   useEffect(() => {
     if (sessionKey === undefined) return;
+    clearSessionState();
     void refreshPrinterChoice();
-    return closePrinterPanel;
+    return clearSessionState;
   }, [sessionKey]);
 }
 

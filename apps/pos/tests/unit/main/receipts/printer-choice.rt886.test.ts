@@ -183,7 +183,9 @@ describe('RT-886 — printer_source on sale.receipt.printed', () => {
     emitted: { action_category: string; payload: Record<string, unknown> }[];
     d: ReturnType<typeof createPrintDispatcher>;
     rows: unknown[];
+    warn: ReturnType<typeof vi.fn>;
   } {
+    const warn = vi.fn();
     const emitted: { action_category: string; payload: Record<string, unknown> }[] = [];
     const rows: unknown[] = [];
     const pipeline: PrintPipeline = {
@@ -200,9 +202,10 @@ describe('RT-886 — printer_source on sale.receipt.printed', () => {
       } as unknown as SaleAuditEmitter,
       now: () => '2026-10-26T10:00:00.000Z',
       newPrintEventId: () => 'pe-1',
+      logger: { info: vi.fn(), warn },
       ...(printerSource === undefined ? {} : { printerSource }),
     });
-    return { emitted, d, rows };
+    return { emitted, d, rows, warn };
   }
 
   it('stamps the chosen printer source on a first print', async () => {
@@ -238,6 +241,37 @@ describe('RT-886 — printer_source on sale.receipt.printed', () => {
     await reprint.d.dispatchRetryPrint(PAYLOAD, CTX, ['pe-0']);
     expect(reprint.emitted).toHaveLength(2);
     expect(reprint.emitted.some((e) => 'printer_source' in e.payload)).toBe(false);
+    expect(source).not.toHaveBeenCalled();
+  });
+
+  it('a printer_source read that throws never costs the print its row or success audit', async () => {
+    const { emitted, d, rows, warn } = dispatcher({ ok: true, render_path: 'os_print' }, () => {
+      throw new RangeError('db closed');
+    });
+    const out = await d.dispatchFirstPrint(PAYLOAD, CTX);
+    expect(out.result.ok).toBe(true);
+    expect(rows).toEqual([expect.objectContaining({ outcome: 'success' })]);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]?.action_category).toBe('sale.receipt.printed');
+    // Omitted, never guessed as os_default.
+    expect(emitted[0]?.payload).not.toHaveProperty('printer_source');
+    expect(warn).toHaveBeenCalledWith({
+      msg: 'receipt.printer_source_unavailable',
+      sale_id: 'sale-1',
+      print_event_id: 'pe-1',
+      err_name: 'RangeError',
+    });
+  });
+
+  it('reads printer_source only after a successful OS print', async () => {
+    const source = vi.fn(() => 'chosen' as const);
+    const failed = dispatcher(
+      { ok: false, render_path: 'os_print', failure_reason: 'os_print_error' },
+      source,
+    );
+    await failed.d.dispatchFirstPrint(PAYLOAD, CTX);
+    const escpos = dispatcher({ ok: true, render_path: 'escpos_direct' }, source);
+    await escpos.d.dispatchFirstPrint(PAYLOAD, CTX);
     expect(source).not.toHaveBeenCalled();
   });
 

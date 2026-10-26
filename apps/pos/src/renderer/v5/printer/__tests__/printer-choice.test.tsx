@@ -143,6 +143,63 @@ describe('printer store', () => {
     expect(usePrinterStore.getState().panelOpen).toBe(false);
   });
 
+  it('clears the previous session before reading, keeps the dismissed prompt, and drops a stale answer', async () => {
+    const first: { resolve: (r: PrinterGetResponse) => void } = { resolve: () => undefined };
+    let calls = 0;
+    const bridge = fakeBridge({
+      get: () => {
+        calls += 1;
+        if (calls === 1) {
+          return new Promise<PrinterGetResponse>((resolve) => {
+            first.resolve = resolve;
+          });
+        }
+        return Promise.resolve({ kind: 'ok', choice: { source: 'os_default' } });
+      },
+    });
+    installBridge(bridge);
+    function Probe({ id }: Readonly<{ id: string | undefined }>): null {
+      usePrinterChoiceSync(id);
+      return null;
+    }
+    // A previous session's view, with the prompt already answered this run.
+    usePrinterStore.setState({
+      loaded: true,
+      choice: BIXOLON,
+      panelOpen: true,
+      promptDismissed: true,
+    });
+    const view = render(<Probe id="session-1" />);
+    // Cleared before the read: no stale name, no open panel.
+    expect(usePrinterStore.getState()).toMatchObject({
+      loaded: false,
+      choice: null,
+      panelOpen: false,
+      promptDismissed: true,
+    });
+    // Session 1 ends while its read is still in flight; session 2 reads.
+    await act(async () => {
+      view.rerender(<Probe id="session-2" />);
+      await Promise.resolve();
+    });
+    expect(usePrinterStore.getState().choice).toEqual({ source: 'os_default' });
+    // Session 1's slow answer lands last and is dropped.
+    await act(async () => {
+      first.resolve({ kind: 'ok', choice: BIXOLON });
+      await Promise.resolve();
+    });
+    expect(usePrinterStore.getState()).toMatchObject({
+      loaded: true,
+      choice: { source: 'os_default' },
+      promptDismissed: true,
+    });
+    // Sign-out clears the session view again.
+    act(() => {
+      view.rerender(<Probe id={undefined} />);
+    });
+    expect(usePrinterStore.getState()).toMatchObject({ loaded: false, choice: null });
+  });
+
   it('marks the Sale screen only while it is mounted', () => {
     function Sale(): null {
       useSaleScreenMark();

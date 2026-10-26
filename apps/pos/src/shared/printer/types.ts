@@ -39,9 +39,12 @@ export interface InstalledPrinter {
 
 /** Why main refused a printer call (nothing was changed or printed). */
 export const PRINTER_REFUSALS = [
-  /** No operator session (any role is enough). */
+  /**
+   * No operator session (any role is enough), or the session that asked ended
+   * or was replaced by another one while the call was running.
+   */
   'not_signed_in',
-  /** The session is locked. */
+  /** The session is locked (also when it locked while the call was running). */
   'session_locked',
   /** The request does not have the closed shape. */
   'invalid_input',

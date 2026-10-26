@@ -76,9 +76,10 @@ export interface PrintDispatcherDependencies {
   logger?: PrintDispatchLogger;
   /**
    * RT-886 — which printer an OS print goes to: the operator's chosen queue or
-   * the Windows default. Read just before the print and stamped on
+   * the Windows default. Read after a successful OS print and stamped on
    * `sale.receipt.printed` as `printer_source`, so a lab audit shows which
-   * printer path a receipt took. Omitted → the field is not written.
+   * printer path a receipt took. Omitted, or a read that throws → the field is
+   * not written.
    */
   printerSource?: () => PrinterSource;
 }
@@ -169,6 +170,27 @@ export function createPrintDispatcher(deps: PrintDispatcherDependencies): PrintD
   }
 
   /**
+   * RT-886 — `printer_source` for a successful OS print. Read only after the
+   * print succeeded, and guarded: a failing read never costs the print its
+   * `print_events` row or its success audit. The field is then OMITTED (it is
+   * optional on `sale.receipt.printed`), never guessed as `os_default`.
+   */
+  function readPrinterSource(sale_id: string, print_event_id: string): PrinterSource | undefined {
+    if (deps.printerSource === undefined) return undefined;
+    try {
+      return deps.printerSource();
+    } catch (err) {
+      logger.warn({
+        msg: 'receipt.printer_source_unavailable',
+        sale_id,
+        print_event_id,
+        err_name: err instanceof Error ? err.name : typeof err,
+      });
+      return undefined;
+    }
+  }
+
+  /**
    * Shared attempt recorder for first-print and retry. Writes the print_events
    * row + emits the matching audit event; never logs/audits slip content
    * (T242). `successCategory` distinguishes the first-print
@@ -191,10 +213,6 @@ export function createPrintDispatcher(deps: PrintDispatcherDependencies): PrintD
       successAuditExtra?: Readonly<Record<string, unknown>>;
     },
   ): Promise<{ result: PrintAdapterResult; print_event_id: string; printed_at: string }> {
-    // RT-886: read where the print goes as it is asked for (the transport
-    // reads the same choice at the same moment).
-    const printerSource =
-      opts.successCategory === 'sale.receipt.printed' ? deps.printerSource?.() : undefined;
     const result = await pipeline.render(payload);
     const print_event_id = deps.newPrintEventId();
     const created_at = now();
@@ -206,6 +224,10 @@ export function createPrintDispatcher(deps: PrintDispatcherDependencies): PrintD
     const printed_at = base.printed_at;
 
     if (result.ok) {
+      const printerSource =
+        opts.successCategory === 'sale.receipt.printed' && result.render_path === 'os_print'
+          ? readPrinterSource(ctx.sale_id, print_event_id)
+          : undefined;
       printEventsRepo.insert({
         ...base,
         outcome: 'success',
@@ -227,9 +249,7 @@ export function createPrintDispatcher(deps: PrintDispatcherDependencies): PrintD
           print_event_id,
           render_path: result.render_path,
           // RT-886: only the OS-print path goes through a Windows printer.
-          ...(printerSource !== undefined && result.render_path === 'os_print'
-            ? { printer_source: printerSource }
-            : {}),
+          ...(printerSource === undefined ? {} : { printer_source: printerSource }),
           ...opts.successAuditExtra,
         },
       });

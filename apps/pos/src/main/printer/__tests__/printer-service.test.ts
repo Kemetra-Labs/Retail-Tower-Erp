@@ -41,6 +41,7 @@ function setup(
     session?: PrinterOperatorScope | null;
     getSession?: () => PrinterOperatorScope | null;
     locked?: boolean;
+    isLocked?: () => boolean;
     choice?: PrinterChoice | null;
     printers?: () => Promise<InstalledPrinter[]>;
     print?: (r: RenderedReceipt) => Promise<PrintAdapterResult>;
@@ -56,7 +57,7 @@ function setup(
   const logger = { info: vi.fn(), warn: vi.fn() };
   const service = createPrinterService({
     getSession: over.getSession ?? (() => (over.session === undefined ? CASHIER : over.session)),
-    isSessionLocked: () => over.locked ?? false,
+    isSessionLocked: over.isLocked ?? (() => over.locked ?? false),
     repo,
     listPrinters: over.printers ?? (() => Promise.resolve(PRINTERS)),
     printer: { printRendered: print },
@@ -219,6 +220,81 @@ describe('printer service — set (AC5: each change audited with the operator)',
     const { service, logger } = setup();
     await service.set({ choice: { source: 'chosen', printer_name: 'BIXOLON SRP-330II' } });
     expect(JSON.stringify(logger.info.mock.calls)).not.toContain('BIXOLON');
+  });
+});
+
+describe('printer service — test page: the asking session is re-checked after discovery', () => {
+  const chosen = { source: 'chosen', printer_name: 'BIXOLON SRP-330II' } as const;
+
+  /** A session that becomes `after` while the printer list is read. */
+  function changingDuring(after: PrinterOperatorScope | null, lockAfter = false) {
+    let session: PrinterOperatorScope | null = CASHIER;
+    let locked = false;
+    return setup({
+      choice: chosen,
+      getSession: () => session,
+      isLocked: () => locked,
+      printers: () => {
+        session = after;
+        locked = lockAfter;
+        return Promise.resolve(PRINTERS);
+      },
+    });
+  }
+
+  it('refuses, prints nothing and audits nothing when the session ended', async () => {
+    const { service, print, events } = changingDuring(null);
+    expect(await service.testPrint()).toEqual({ kind: 'refused', reason: 'not_signed_in' });
+    expect(print).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+  });
+
+  it('refuses when the session locked meanwhile', async () => {
+    const { service, print, events } = changingDuring(CASHIER, true);
+    expect(await service.testPrint()).toEqual({ kind: 'refused', reason: 'session_locked' });
+    expect(print).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+  });
+
+  it('refuses when another session took its place (sign-out / sign-in, takeover)', async () => {
+    const other = { ...CASHIER, operator_id: 'user_manager', operator_session_id: 'sess-2' };
+    const { service, print, events } = changingDuring(other);
+    expect(await service.testPrint()).toEqual({ kind: 'refused', reason: 'not_signed_in' });
+    expect(print).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+  });
+
+  it('a printer_missing outcome is not audited for a session that changed', async () => {
+    const other = { ...CASHIER, operator_session_id: 'sess-2' };
+    let session: PrinterOperatorScope | null = CASHIER;
+    const { service, events } = setup({
+      choice: { source: 'chosen', printer_name: 'Gone' },
+      getSession: () => session,
+      printers: () => {
+        session = other;
+        return Promise.resolve(PRINTERS);
+      },
+    });
+    expect(await service.testPrint()).toEqual({ kind: 'refused', reason: 'not_signed_in' });
+    expect(events).toEqual([]);
+  });
+
+  it('set refuses too when another session took its place', async () => {
+    const other = { ...CASHIER, operator_session_id: 'sess-2' };
+    let session: PrinterOperatorScope | null = CASHIER;
+    const { service, repo, events } = setup({
+      getSession: () => session,
+      printers: () => {
+        session = other;
+        return Promise.resolve(PRINTERS);
+      },
+    });
+    expect(await service.set({ choice: chosen })).toEqual({
+      kind: 'refused',
+      reason: 'not_signed_in',
+    });
+    expect(repo.writes).toEqual([]);
+    expect(events).toEqual([]);
   });
 });
 

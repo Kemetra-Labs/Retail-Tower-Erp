@@ -104,6 +104,18 @@ export function createPrinterService(deps: PrinterServiceDeps): PrinterService {
   };
   const isRefused = (value: PrinterOperatorScope | PrinterRefused): value is PrinterRefused =>
     'kind' in value;
+  /**
+   * After an await: the session that asked must still be live, unlocked and
+   * the SAME session. A different session (sign-out then sign-in, takeover)
+   * means the asker is no longer signed in, so nothing is sent or audited.
+   */
+  const recheck = (asked: PrinterOperatorScope): PrinterOperatorScope | PrinterRefused => {
+    const current = gate();
+    if (isRefused(current)) return current;
+    return current.operator_session_id === asked.operator_session_id
+      ? current
+      : refused('not_signed_in');
+  };
 
   const installed = async (): Promise<InstalledPrinter[]> =>
     cleanList(await deps.listPrinters().catch(() => []));
@@ -139,8 +151,6 @@ export function createPrinterService(deps: PrinterServiceDeps): PrinterService {
   };
 
   const sendTestPage = async (choice: PrinterChoice | null): Promise<TestPrintFailure | null> => {
-    const missing = await testTarget(choice);
-    if (missing !== null) return missing;
     try {
       const result = await deps.printer.printRendered(renderTestPrintSlip(choice, deps.now()));
       return result.ok ? null : 'print_failed';
@@ -172,8 +182,8 @@ export function createPrinterService(deps: PrinterServiceDeps): PrinterService {
           return refused('printer_not_found');
         }
       }
-      // The session may have ended or locked while the list was read.
-      const current = gate();
+      // The session may have ended, locked or changed while the list was read.
+      const current = recheck(scope);
       if (isRefused(current)) return current;
       const previous = deps.repo.get();
       if (sameChoice(previous, choice)) return { kind: 'ok', choice };
@@ -199,10 +209,14 @@ export function createPrinterService(deps: PrinterServiceDeps): PrinterService {
       const scope = gate();
       if (isRefused(scope)) return scope;
       const choice = deps.repo.get();
-      const failure = await sendTestPage(choice);
+      const missing = await testTarget(choice);
+      // Discovery awaited: send and audit only for the session that asked.
+      const current = recheck(scope);
+      if (isRefused(current)) return current;
+      const failure = missing ?? (await sendTestPage(choice));
       try {
         deps.audit.emit(
-          auditEvent(scope, 'terminal.printer.test_printed', {
+          auditEvent(current, 'terminal.printer.test_printed', {
             printer_source: choice?.source ?? null,
             printer_name: nameOf(choice),
             outcome: failure === null ? 'accepted' : 'failed',

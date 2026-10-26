@@ -41,9 +41,11 @@
 --
 -- ## Rollback
 --
--- Pre-0057 code never reads the table. `DROP TABLE IF EXISTS
--- terminal_printer_setting;` restores 0056; prints then go to the Windows
--- default again.
+-- Downgrades are unsupported. A pre-0057 build refuses a database that lists
+-- 0057 as applied (`SchemaAheadError`, RT-320), so dropping the table is not a
+-- production downgrade path. To recover, re-run the current release. The
+-- RT-320 pre-migration snapshot taken before 0057 is for support-assisted
+-- recovery only; restoring it discards everything recorded after it.
 
 CREATE TABLE IF NOT EXISTS terminal_printer_setting (
   id                      INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
