@@ -1061,53 +1061,13 @@ export class UnknownItemsService {
           actorUserId: input.actorUserId,
         });
         outcomes.push({ id, outcome: "dismissed" });
-        // FR-070a / FR-064 / SC-004: the shipped single-dismiss audit
-        // (`unknown_item.dismissed`) is emitted ROUTE-level by @Auditable +
-        // AuditEmitterInterceptor — but the bulk path calls the service method
-        // directly, bypassing that decorator. So emit the per-item dismiss audit
-        // PROGRAMMATICALLY (one event per transitioned item). Guard the optional
-        // enqueuer explicitly, then fire-and-forget (`void`) so a best-effort
-        // audit never blocks the per-item loop and a dropped enqueue never fails
-        // the item (CodeRabbit #409: don't await best-effort work; the prior
-        // `?.enqueue().catch()` was correct by optional-chaining short-circuit
-        // but this is clearer and non-blocking). Skipped when the optional
-        // enqueuer is absent (existing single-route specs construct PG_POOL-only).
-        if (this.auditEnqueuer) {
-          void this.auditEnqueuer
-            .enqueue({
-              actor_user_id: input.actorUserId,
-              actor_label: null,
-              tenant_id: input.tenantId,
-              store_id: input.storeId,
-              action: "unknown_item.dismissed",
-              target_type: "unknown_item",
-              target_id: id,
-              request_id: correlationId,
-              metadata: { via: "bulk_dismiss" },
-            })
-            .catch(() => {
-              // Best-effort — a dropped bulk-dismiss audit must not fail the item.
-            });
-        }
+        this.emitBulkDismissAudit(input, id, correlationId);
       } catch (err: unknown) {
         if (err instanceof ConflictException) {
           // already_reconciled — the row is in-scope but terminal. Read its
           // current lifecycle state (RLS-scoped) to surface prior_state; the
           // row is visible to this caller, so this is not a disclosure.
-          let priorState: string | null = null;
-          try {
-            const row = await this.findByIdForTenant({
-              id,
-              tenantId: input.tenantId,
-              storeScope: input.storeScope,
-            });
-            priorState = row.resolutionStatus;
-          } catch {
-            // If the follow-up read 404s (race: row dismissed+filtered between
-            // the conflict and the read), omit prior_state rather than fail the
-            // whole item — the outcome is still already_reconciled.
-            priorState = null;
-          }
+          const priorState = await this.readPriorState(input, id);
           // CodeRabbit #409 F2: `details` is OPTIONAL in the wire contract
           // (`{ id, outcome, details? }`) — include it only when there's a
           // prior_state to report; never serialize `details: null`.
@@ -1130,5 +1090,60 @@ export class UnknownItemsService {
     }
 
     return { outcomes };
+  }
+
+  /**
+   * FR-070a / FR-064 / SC-004: the shipped single-dismiss audit
+   * (`unknown_item.dismissed`) is emitted ROUTE-level by @Auditable +
+   * AuditEmitterInterceptor — but the bulk path calls the service method
+   * directly, bypassing that decorator. So emit the per-item dismiss audit
+   * PROGRAMMATICALLY (one event per transitioned item), fire-and-forget so a
+   * best-effort audit never blocks the per-item loop and a dropped enqueue never
+   * fails the item. Skipped when the optional enqueuer is absent (existing
+   * single-route specs construct PG_POOL-only).
+   */
+  private emitBulkDismissAudit(
+    input: { readonly tenantId: string; readonly storeId: string | null; readonly actorUserId: string },
+    id: string,
+    correlationId: string,
+  ): void {
+    if (!this.auditEnqueuer) return;
+    this.auditEnqueuer
+      .enqueue({
+        actor_user_id: input.actorUserId,
+        actor_label: null,
+        tenant_id: input.tenantId,
+        store_id: input.storeId,
+        action: "unknown_item.dismissed",
+        target_type: "unknown_item",
+        target_id: id,
+        request_id: correlationId,
+        metadata: { via: "bulk_dismiss" },
+      })
+      .catch(() => {
+        // Best-effort — a dropped bulk-dismiss audit must not fail the item.
+      });
+  }
+
+  /**
+   * The lifecycle state of an already-reconciled item (RLS-scoped read; the row
+   * is visible to the caller, so this is not a disclosure). If the follow-up
+   * read 404s (race: row dismissed+filtered between the conflict and the read),
+   * returns null rather than failing the whole item.
+   */
+  private async readPriorState(
+    input: { readonly tenantId: string; readonly storeScope: StoreScope },
+    id: string,
+  ): Promise<string | null> {
+    try {
+      const row = await this.findByIdForTenant({
+        id,
+        tenantId: input.tenantId,
+        storeScope: input.storeScope,
+      });
+      return row.resolutionStatus;
+    } catch {
+      return null;
+    }
   }
 }

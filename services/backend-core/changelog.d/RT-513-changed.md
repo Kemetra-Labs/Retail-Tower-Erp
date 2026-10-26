@@ -1,0 +1,2 @@
+### Changed
+- RT-513: SonarCloud complexity and duplication refactors in Backend-Core — extracted helpers to cut cognitive complexity (S3776) in the ERPNext product-reconciliation repair and run processor, read-down deltas, unknown-items bulk dismiss, idempotency interceptor, membership update, claim reconciliation, pairing-code and catalog-seed CLIs; shared base classes remove the identical `onModuleDestroy` bodies (S4144). No behaviour change.

@@ -143,54 +143,76 @@ function fail(message: string): never {
   process.exit(3);
 }
 
+function requireNonBlank(value: string | undefined, message: string): string {
+  if (!value || value.trim() === "") fail(message);
+  return value;
+}
+
+function requirePattern(value: string | undefined, pattern: RegExp, message: string): string {
+  if (!value || !pattern.test(value)) fail(message);
+  return value;
+}
+
+function parseExpiresInMinutes(raw: string | undefined): number {
+  if (raw === undefined) return DEFAULT_EXPIRES_IN_MINUTES;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isInteger(n) || n <= 0) fail("PAIRING_EXPIRES_IN_MINUTES must be a positive integer");
+  return n;
+}
+
 function readConfig(argv: string[]): PairingConfig {
-  const tenantId = readArg(argv, "tenant-id", "PAIRING_TENANT_ID");
-  const storeId = readArg(argv, "store-id", "PAIRING_STORE_ID");
-  const terminalLabel = readArg(argv, "terminal-label", "PAIRING_TERMINAL_LABEL");
-  const branchName = readArg(argv, "branch-name", "PAIRING_BRANCH_NAME");
-  const branchAddress = readArg(argv, "branch-address", "PAIRING_BRANCH_ADDRESS");
-  const taxRegistrationId = readArg(argv, "tax-registration-id", "PAIRING_TAX_REGISTRATION_ID");
-  const printerVendorId = readArg(argv, "printer-vendor-id", "PAIRING_PRINTER_VENDOR_ID");
-  const printerProductId = readArg(argv, "printer-product-id", "PAIRING_PRINTER_PRODUCT_ID");
+  const tenantIdRaw = readArg(argv, "tenant-id", "PAIRING_TENANT_ID");
+  const storeIdRaw = readArg(argv, "store-id", "PAIRING_STORE_ID");
+  const terminalLabelRaw = readArg(argv, "terminal-label", "PAIRING_TERMINAL_LABEL");
+  const branchNameRaw = readArg(argv, "branch-name", "PAIRING_BRANCH_NAME");
+  const branchAddressRaw = readArg(argv, "branch-address", "PAIRING_BRANCH_ADDRESS");
+  const taxRegistrationIdRaw = readArg(argv, "tax-registration-id", "PAIRING_TAX_REGISTRATION_ID");
+  const printerVendorIdRaw = readArg(argv, "printer-vendor-id", "PAIRING_PRINTER_VENDOR_ID");
+  const printerProductIdRaw = readArg(argv, "printer-product-id", "PAIRING_PRINTER_PRODUCT_ID");
   const printerComPortRaw = readArg(argv, "printer-com-port", "PAIRING_PRINTER_COM_PORT");
   const suppliedCode = readArg(argv, "code", "PAIRING_CODE");
   const expiresRaw = readArg(argv, "expires-in-minutes", "PAIRING_EXPIRES_IN_MINUTES");
 
   // Required, validated against the migration's CHECK constraints so a bad value
   // fails HERE with a clear message rather than as an opaque 23514 at INSERT.
-  if (!tenantId || !UUID_RE.test(tenantId)) fail("PAIRING_TENANT_ID must be a UUID");
-  if (!storeId || !UUID_RE.test(storeId)) fail("PAIRING_STORE_ID must be a UUID");
+  const tenantId = requirePattern(tenantIdRaw, UUID_RE, "PAIRING_TENANT_ID must be a UUID");
+  const storeId = requirePattern(storeIdRaw, UUID_RE, "PAIRING_STORE_ID must be a UUID");
+  const terminalLabel = requireNonBlank(
+    terminalLabelRaw,
+    "PAIRING_TERMINAL_LABEL is required, non-empty, and ≤ 64 characters",
+  );
   // Count code points (`[...s].length`), matching Postgres `length()` in the
   // schema CHECK — JS `.length` counts UTF-16 units and would under-count
   // astral characters (emoji/CJK), letting a >64-codepoint label pass here and
   // fail opaquely as a 23514 at INSERT.
-  if (!terminalLabel || terminalLabel.trim() === "" || [...terminalLabel].length > 64) {
+  if ([...terminalLabel].length > 64) {
     fail("PAIRING_TERMINAL_LABEL is required, non-empty, and ≤ 64 characters");
   }
-  if (!branchName || branchName.trim() === "") fail("PAIRING_BRANCH_NAME is required, non-empty");
-  if (!branchAddress || branchAddress.trim() === "") {
-    fail("PAIRING_BRANCH_ADDRESS is required, non-empty");
-  }
-  if (!taxRegistrationId || taxRegistrationId.trim() === "") {
-    fail("PAIRING_TAX_REGISTRATION_ID is required, non-empty");
-  }
-  if (!printerVendorId || !PRINTER_HEX.test(printerVendorId)) {
-    fail("PAIRING_PRINTER_VENDOR_ID must match 0xHHHH (4 hex digits), e.g. 0x04b8");
-  }
-  if (!printerProductId || !PRINTER_HEX.test(printerProductId)) {
-    fail("PAIRING_PRINTER_PRODUCT_ID must match 0xHHHH (4 hex digits), e.g. 0x0e15");
-  }
+  const branchName = requireNonBlank(branchNameRaw, "PAIRING_BRANCH_NAME is required, non-empty");
+  const branchAddress = requireNonBlank(
+    branchAddressRaw,
+    "PAIRING_BRANCH_ADDRESS is required, non-empty",
+  );
+  const taxRegistrationId = requireNonBlank(
+    taxRegistrationIdRaw,
+    "PAIRING_TAX_REGISTRATION_ID is required, non-empty",
+  );
+  const printerVendorId = requirePattern(
+    printerVendorIdRaw,
+    PRINTER_HEX,
+    "PAIRING_PRINTER_VENDOR_ID must match 0xHHHH (4 hex digits), e.g. 0x04b8",
+  );
+  const printerProductId = requirePattern(
+    printerProductIdRaw,
+    PRINTER_HEX,
+    "PAIRING_PRINTER_PRODUCT_ID must match 0xHHHH (4 hex digits), e.g. 0x0e15",
+  );
   const printerComPort =
     printerComPortRaw !== undefined && printerComPortRaw.trim() !== ""
       ? printerComPortRaw.trim()
       : null;
 
-  let expiresInMinutes = DEFAULT_EXPIRES_IN_MINUTES;
-  if (expiresRaw !== undefined) {
-    const n = Number.parseInt(expiresRaw, 10);
-    if (!Number.isInteger(n) || n <= 0) fail("PAIRING_EXPIRES_IN_MINUTES must be a positive integer");
-    expiresInMinutes = n;
-  }
+  const expiresInMinutes = parseExpiresInMinutes(expiresRaw);
 
   const generate = argv.includes("--generate");
   // The secret must EITHER be supplied (default; never echoed) OR explicitly

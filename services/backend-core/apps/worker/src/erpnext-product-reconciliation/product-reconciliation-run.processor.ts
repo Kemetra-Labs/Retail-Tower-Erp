@@ -96,7 +96,6 @@ export class ProductReconciliationRunProcessor {
 
         // (1) The connector item-view (stub-tolerant; never throws on absence).
         const view: ErpnextItemView = await this.view.fetch({ tenantId: input.tenantId });
-        const erpnextItems = new Map(view.items.map((i) => [i.erpnextItemRef, i]));
 
         // (2) DP2 confirmed mapping set (013) — the DP2 side of the compare.
         const confirmed = await client.query<ConfirmedMappingRow>(
@@ -123,73 +122,12 @@ export class ProductReconciliationRunProcessor {
         );
 
         const counts: Record<string, number> = {};
-        const matchedErpnextRefs = new Set<string>();
 
-        // Confirmed mappings → match / attribute_drift / sellable_state_divergence
-        // (only when the view is available; an absent view leaves these unverified —
-        // we do NOT fabricate any ERPNext-side class from an absent view, FR-007).
         if (view.status !== "unavailable") {
-          for (const m of confirmed.rows) {
-            const item = erpnextItems.get(m.erpnext_item_ref);
-            if (!item) {
-              // The DP2 mapping points at an item the connector did not report.
-              // With an AVAILABLE complete view this is a real DP2-only mapping;
-              // with a PARTIAL view it may simply be off-page — record as a
-              // DP2-side line, not an ERPNext-side fabrication.
-              await this.insert(client, input.runId, input.tenantId, {
-                mismatchClass: "unmapped_dp2_product",
-                tenantProductId: m.tenant_product_id,
-                erpnextItemRef: m.erpnext_item_ref,
-              });
-              this.bump(counts, "unmapped_dp2_product");
-              continue;
-            }
-            matchedErpnextRefs.add(m.erpnext_item_ref);
-            // Sellable-state divergence (013 OQ-5) — reported, NEVER silently flipped.
-            if (item.sellable === false) {
-              await this.insert(client, input.runId, input.tenantId, {
-                mismatchClass: "sellable_state_divergence",
-                tenantProductId: m.tenant_product_id,
-                erpnextItemRef: m.erpnext_item_ref,
-                detail: { erpnext_sellable: false },
-              });
-              this.bump(counts, "sellable_state_divergence");
-            } else {
-              await this.insert(client, input.runId, input.tenantId, {
-                mismatchClass: "match",
-                tenantProductId: m.tenant_product_id,
-                erpnextItemRef: m.erpnext_item_ref,
-              });
-              this.bump(counts, "match");
-            }
-          }
-
-          // unmapped_erpnext_item: an item in the view that NO confirmed mapping
-          // resolves to. Only ever derived from a PRESENT view (never fabricated).
-          for (const [ref, item] of erpnextItems) {
-            if (matchedErpnextRefs.has(ref)) continue;
-            await this.insert(client, input.runId, input.tenantId, {
-              mismatchClass: "unmapped_erpnext_item",
-              tenantProductId: null,
-              erpnextItemRef: ref,
-              ...(item.attributes ? { detail: { attributes: item.attributes } } : {}),
-            });
-            this.bump(counts, "unmapped_erpnext_item");
-          }
+          await this.recordViewClasses(client, input, view, confirmed.rows, counts);
         }
 
-        // DP2-side backlog classes (always determinable, view-independent).
-        for (const u of unmapped.rows) {
-          const cls: ProductMismatchClass = u.has_inert_mapping
-            ? "suggestion_unconfirmed"
-            : "unmapped_dp2_product";
-          await this.insert(client, input.runId, input.tenantId, {
-            mismatchClass: cls,
-            tenantProductId: u.tenant_product_id,
-            erpnextItemRef: null,
-          });
-          this.bump(counts, cls);
-        }
+        await this.recordBacklogClasses(client, input, unmapped.rows, counts);
 
         await this.complete(client, input.runId, view.status, counts);
         return {
@@ -200,6 +138,91 @@ export class ProductReconciliationRunProcessor {
         };
       },
     );
+  }
+
+  /**
+   * Confirmed mappings → match / sellable_state_divergence / unmapped_dp2_product,
+   * then unmapped_erpnext_item for view items no confirmed mapping resolves to.
+   * Only called when the view is available; an absent view leaves these
+   * unverified — we do NOT fabricate any ERPNext-side class from an absent view
+   * (FR-007).
+   */
+  private async recordViewClasses(
+    client: PoolClient,
+    input: { runId: string; tenantId: string },
+    view: ErpnextItemView,
+    confirmed: readonly ConfirmedMappingRow[],
+    counts: Record<string, number>,
+  ): Promise<void> {
+    const erpnextItems = new Map(view.items.map((i) => [i.erpnextItemRef, i]));
+    const matchedErpnextRefs = new Set<string>();
+    for (const m of confirmed) {
+      const item = erpnextItems.get(m.erpnext_item_ref);
+      if (!item) {
+        // The DP2 mapping points at an item the connector did not report.
+        // With an AVAILABLE complete view this is a real DP2-only mapping;
+        // with a PARTIAL view it may simply be off-page — record as a
+        // DP2-side line, not an ERPNext-side fabrication.
+        await this.insert(client, input.runId, input.tenantId, {
+          mismatchClass: "unmapped_dp2_product",
+          tenantProductId: m.tenant_product_id,
+          erpnextItemRef: m.erpnext_item_ref,
+        });
+        this.bump(counts, "unmapped_dp2_product");
+        continue;
+      }
+      matchedErpnextRefs.add(m.erpnext_item_ref);
+      // Sellable-state divergence (013 OQ-5) — reported, NEVER silently flipped.
+      if (item.sellable === false) {
+        await this.insert(client, input.runId, input.tenantId, {
+          mismatchClass: "sellable_state_divergence",
+          tenantProductId: m.tenant_product_id,
+          erpnextItemRef: m.erpnext_item_ref,
+          detail: { erpnext_sellable: false },
+        });
+        this.bump(counts, "sellable_state_divergence");
+      } else {
+        await this.insert(client, input.runId, input.tenantId, {
+          mismatchClass: "match",
+          tenantProductId: m.tenant_product_id,
+          erpnextItemRef: m.erpnext_item_ref,
+        });
+        this.bump(counts, "match");
+      }
+    }
+
+    // unmapped_erpnext_item: an item in the view that NO confirmed mapping
+    // resolves to. Only ever derived from a PRESENT view (never fabricated).
+    for (const [ref, item] of erpnextItems) {
+      if (matchedErpnextRefs.has(ref)) continue;
+      await this.insert(client, input.runId, input.tenantId, {
+        mismatchClass: "unmapped_erpnext_item",
+        tenantProductId: null,
+        erpnextItemRef: ref,
+        ...(item.attributes ? { detail: { attributes: item.attributes } } : {}),
+      });
+      this.bump(counts, "unmapped_erpnext_item");
+    }
+  }
+
+  /** DP2-side backlog classes (always determinable, view-independent). */
+  private async recordBacklogClasses(
+    client: PoolClient,
+    input: { runId: string; tenantId: string },
+    unmapped: readonly UnmappedProductRow[],
+    counts: Record<string, number>,
+  ): Promise<void> {
+    for (const u of unmapped) {
+      const cls: ProductMismatchClass = u.has_inert_mapping
+        ? "suggestion_unconfirmed"
+        : "unmapped_dp2_product";
+      await this.insert(client, input.runId, input.tenantId, {
+        mismatchClass: cls,
+        tenantProductId: u.tenant_product_id,
+        erpnextItemRef: null,
+      });
+      this.bump(counts, cls);
+    }
   }
 
   private bump(counts: Record<string, number>, cls: string): void {

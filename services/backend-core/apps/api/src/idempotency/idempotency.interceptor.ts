@@ -227,6 +227,128 @@ export class IdempotencyInterceptor implements NestInterceptor {
     );
   }
 
+  /**
+   * Another request holds the in-progress marker for this tuple: write the 425
+   * directly and return EMPTY so NestJS does not attempt a second serialization
+   * pass (EMPTY completes with no values).
+   */
+  private respondInProgress(execCtx: ExecutionContext): Observable<unknown> {
+    // Write the response directly and return EMPTY so NestJS does not
+    // attempt a second serialization pass (EMPTY completes with no values).
+    const rawRes = execCtx.switchToHttp().getResponse<{
+      status(code: number): unknown;
+      setHeader(name: string, value: string): void;
+      headersSent: boolean;
+      json(body: unknown): void;
+    }>();
+    rawRes.setHeader("Retry-After", "2");
+    rawRes.status(425 as unknown as number);
+    rawRes.json({ error: "idempotency_in_progress", retryAfterSec: 2 });
+    return EMPTY;
+  }
+
+  /** Replay path — short-circuit before the handler, never as a 2xx for a non-replayable route. */
+  private replayStored(
+    execCtx: ExecutionContext,
+    entry: { result: { status: number; body: unknown } },
+    opts: { route: string; replayForbidden: boolean },
+  ): Observable<unknown> {
+    const { route, replayForbidden } = opts;
+    // K3: a non-replayable route (or any stored marker) is never replayed
+    // as a 2xx — the secret was never stored, so the only answer is 409.
+    if (replayForbidden || isNonReplayableMarker(entry.result.body)) {
+      recordIdempotencyConflict({ route });
+      throw idempotencyConflict(NON_REPLAYABLE_MESSAGE);
+    }
+    recordIdempotencyReplay({ route });
+    const rawRes = execCtx.switchToHttp().getResponse<{
+      status(code: number): unknown;
+      setHeader(name: string, value: string): void;
+      json(body: unknown): void;
+    }>();
+    rawRes.setHeader("Idempotent-Replayed", "true");
+    rawRes.status(entry.result.status);
+    rawRes.json(entry.result.body);
+    return EMPTY;
+  }
+
+  /**
+   * Same key, different body — conflict. Always throws 409 after the
+   * platform-axis counter and (on the unknown-items capture route only) the
+   * catalog-axis counter + audit subject.
+   */
+  private rejectCollision(
+    req: {
+      context?: ResolvedContext;
+      principal?: { userId?: string };
+    },
+    route: string,
+    routePath: string,
+  ): never {
+    // Platform-axis observability (001): operator-dashboard counter.
+    // Fires for EVERY idempotent route's collision — this is the
+    // cross-cutting platform signal and is intentionally unscoped.
+    recordIdempotencyConflict({ route });
+    // The catalog-axis side effects below (FR-021c counter + FR-082
+    // audit subject) are domain-specific to the 005 unknown-items
+    // capture route and MUST NOT fire for unrelated idempotent routes
+    // (e.g. POST /api/v1/memberships/invite). This global APP_INTERCEPTOR
+    // sees every @Idempotent route, so we gate on the route template.
+    // `routePath` is `req.route?.path` (or `req.url`); we match by
+    // suffix so the check is agnostic to Express's leading-slash
+    // normalization and to any future mount-prefix changes. The
+    // `:id`-suffixed sibling routes (dismiss/link/create-product) do
+    // not match `/catalog/unknown-items` exactly, so this is precise.
+    // No HTTP-verb guard is needed: the only OTHER route whose path
+    // ends in `/catalog/unknown-items` is the GET LIST endpoint, which
+    // carries no @Idempotent decorator and so never reaches this
+    // collision branch. A `method === "POST"` arm here would be a
+    // permanently-uncovered branch (collision is POST-only by routing).
+    const isUnknownItemsCaptureRoute =
+      routePath.endsWith("/catalog/unknown-items");
+    // Catalog-axis observability (005 FR-021c): per-tenant capture-flow
+    // counter. Co-increments with the platform counter on a capture-route
+    // collision — intentional, see signals.md §1.1.
+    if (isUnknownItemsCaptureRoute) {
+      recordIdempotencyTokenMismatch();
+    }
+    // Catalog-domain audit subject (005 FR-082): fire-and-forget.
+    // The enqueue promise is NOT awaited — if the audit pipeline
+    // rejects (BullMQ outage, Redis disconnect), the 409 contract
+    // must NOT be replaced by an audit failure. The .catch() logs
+    // and swallows. Mirrors AuditEmitterInterceptor's pattern.
+    // Skipped when not on the capture route, or when AUDIT_JOB_ENQUEUER
+    // is not wired (legacy test fixtures that don't import AuditModule).
+    if (isUnknownItemsCaptureRoute && this.auditEnqueuer !== null) {
+      const principal = req.principal;
+      const ctx = req.context;
+      const requestId = (req as unknown as { requestId?: string })
+        .requestId;
+      const payload: AuditJobPayload = {
+        actor_user_id: principal?.userId ?? null,
+        actor_label: null,
+        tenant_id: ctx?.tenantId ?? null,
+        store_id: ctx?.storeId ?? null,
+        action: "unknown_item.idempotency_mismatch_rejected",
+        target_type: null,
+        target_id: null,
+        request_id: requestId ?? null,
+        metadata: null,
+      };
+      this.auditEnqueuer.enqueue(payload).catch((err: unknown) => {
+        this.logger?.error(
+          { err, action: payload.action },
+          "IdempotencyInterceptor: catalog audit enqueue failed on collision",
+        );
+      });
+    }
+    throw new ConflictException({
+      code: "idempotency_key_conflict",
+      message:
+        "The provided Idempotency-Key has already been used for a different request body. Generate a new key.",
+    });
+  }
+
   private async handle(
     execCtx: ExecutionContext,
     next: CallHandler,
@@ -292,18 +414,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
     if (!markerOwned) {
       // Another request is in flight for this tuple.
       recordIdempotencyInProgress({ route });
-      // Write the response directly and return EMPTY so NestJS does not
-      // attempt a second serialization pass (EMPTY completes with no values).
-      const rawRes = execCtx.switchToHttp().getResponse<{
-        status(code: number): unknown;
-        setHeader(name: string, value: string): void;
-        headersSent: boolean;
-        json(body: unknown): void;
-      }>();
-      rawRes.setHeader("Retry-After", "2");
-      rawRes.status(425 as unknown as number);
-      rawRes.json({ error: "idempotency_in_progress", retryAfterSec: 2 });
-      return EMPTY;
+      return this.respondInProgress(execCtx);
     }
 
     try {
@@ -324,90 +435,13 @@ export class IdempotencyInterceptor implements NestInterceptor {
       if (stored.hit === true) {
         // Replay path — short-circuit before handler.
         await this.marker.del(tuple);
-        const entry = stored.entry;
-        // K3: a non-replayable route (or any stored marker) is never replayed
-        // as a 2xx — the secret was never stored, so the only answer is 409.
-        if (replayForbidden || isNonReplayableMarker(entry.result.body)) {
-          recordIdempotencyConflict({ route });
-          throw idempotencyConflict(NON_REPLAYABLE_MESSAGE);
-        }
-        recordIdempotencyReplay({ route });
-        const rawRes = execCtx.switchToHttp().getResponse<{
-          status(code: number): unknown;
-          setHeader(name: string, value: string): void;
-          json(body: unknown): void;
-        }>();
-        rawRes.setHeader("Idempotent-Replayed", "true");
-        rawRes.status(entry.result.status);
-        rawRes.json(entry.result.body);
-        return EMPTY;
+        return this.replayStored(execCtx, stored.entry, { route, replayForbidden });
       }
 
       if (stored.hit === "collision") {
         // Same key, different body — conflict.
         await this.marker.del(tuple);
-        // Platform-axis observability (001): operator-dashboard counter.
-        // Fires for EVERY idempotent route's collision — this is the
-        // cross-cutting platform signal and is intentionally unscoped.
-        recordIdempotencyConflict({ route });
-        // The catalog-axis side effects below (FR-021c counter + FR-082
-        // audit subject) are domain-specific to the 005 unknown-items
-        // capture route and MUST NOT fire for unrelated idempotent routes
-        // (e.g. POST /api/v1/memberships/invite). This global APP_INTERCEPTOR
-        // sees every @Idempotent route, so we gate on the route template.
-        // `routePath` is `req.route?.path` (or `req.url`); we match by
-        // suffix so the check is agnostic to Express's leading-slash
-        // normalization and to any future mount-prefix changes. The
-        // `:id`-suffixed sibling routes (dismiss/link/create-product) do
-        // not match `/catalog/unknown-items` exactly, so this is precise.
-        // No HTTP-verb guard is needed: the only OTHER route whose path
-        // ends in `/catalog/unknown-items` is the GET LIST endpoint, which
-        // carries no @Idempotent decorator and so never reaches this
-        // collision branch. A `method === "POST"` arm here would be a
-        // permanently-uncovered branch (collision is POST-only by routing).
-        const isUnknownItemsCaptureRoute =
-          routePath.endsWith("/catalog/unknown-items");
-        // Catalog-axis observability (005 FR-021c): per-tenant capture-flow
-        // counter. Co-increments with the platform counter on a capture-route
-        // collision — intentional, see signals.md §1.1.
-        if (isUnknownItemsCaptureRoute) {
-          recordIdempotencyTokenMismatch();
-        }
-        // Catalog-domain audit subject (005 FR-082): fire-and-forget.
-        // The enqueue promise is NOT awaited — if the audit pipeline
-        // rejects (BullMQ outage, Redis disconnect), the 409 contract
-        // must NOT be replaced by an audit failure. The .catch() logs
-        // and swallows. Mirrors AuditEmitterInterceptor's pattern.
-        // Skipped when not on the capture route, or when AUDIT_JOB_ENQUEUER
-        // is not wired (legacy test fixtures that don't import AuditModule).
-        if (isUnknownItemsCaptureRoute && this.auditEnqueuer !== null) {
-          const principal = req.principal;
-          const ctx = req.context;
-          const requestId = (req as unknown as { requestId?: string })
-            .requestId;
-          const payload: AuditJobPayload = {
-            actor_user_id: principal?.userId ?? null,
-            actor_label: null,
-            tenant_id: ctx?.tenantId ?? null,
-            store_id: ctx?.storeId ?? null,
-            action: "unknown_item.idempotency_mismatch_rejected",
-            target_type: null,
-            target_id: null,
-            request_id: requestId ?? null,
-            metadata: null,
-          };
-          this.auditEnqueuer.enqueue(payload).catch((err: unknown) => {
-            this.logger?.error(
-              { err, action: payload.action },
-              "IdempotencyInterceptor: catalog audit enqueue failed on collision",
-            );
-          });
-        }
-        throw new ConflictException({
-          code: "idempotency_key_conflict",
-          message:
-            "The provided Idempotency-Key has already been used for a different request body. Generate a new key.",
-        });
+        this.rejectCollision(req, route, routePath);
       }
 
       if (
