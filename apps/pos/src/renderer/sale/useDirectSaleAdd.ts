@@ -11,6 +11,7 @@ import { useAddLane, type AddLane } from './useAddLane';
 import {
   SALE_ADD_FAILED_MESSAGE,
   SALE_FROZEN_MESSAGE,
+  SALE_LINE_DISCOUNTED_MESSAGE,
   SCAN_AMBIGUOUS_MESSAGE,
   SCAN_CATALOGUE_UNAVAILABLE_MESSAGE,
   SCAN_SALE_COMPLETE_MESSAGE,
@@ -103,21 +104,27 @@ async function addProduct(job: AddJob, product: ProductSnapshotDisplay): Promise
   const actionId = crypto.randomUUID();
   const res = await sendAdd(job.opts, cartId, product, actionId);
   if (!job.isCurrent()) return;
-  if (res === null) job.opts.notify(SALE_ADD_FAILED_MESSAGE);
-  else job.opts.onLineAdded(addedLine(res), actionId, product, job.ticket);
+  if (res?.kind === 'ok') job.opts.onLineAdded(addedLine(res), actionId, product, job.ticket);
+  else job.opts.notify(addRefusedMessage(res));
 }
 
-/** `cart.lines.add` of one unit; `null` for a refusal or a failed transport. */
+/** RT-855: a merge into a discounted line is refused `line_discounted` (OD-28-7). */
+function addRefusedMessage(res: CartLinesAddResponse | null): string {
+  return res?.kind === 'refused' && res.reason === 'line_discounted'
+    ? SALE_LINE_DISCOUNTED_MESSAGE
+    : SALE_ADD_FAILED_MESSAGE;
+}
+
+/** `cart.lines.add` of one unit; `null` for a failed transport. */
 async function sendAdd(
   opts: DirectSaleAddOptions,
   cartId: string,
   product: ProductSnapshotDisplay,
   actionId: string,
-): Promise<Extract<CartLinesAddResponse, { kind: 'ok' }> | null> {
-  const res = await (opts.bridge ?? readCartBridge()).lines
+): Promise<CartLinesAddResponse | null> {
+  return (opts.bridge ?? readCartBridge()).lines
     .add({ cart_id: cartId, item_ref: product.product_id, quantity: 1, idempotency_key: actionId })
     .catch(() => null);
-  return res?.kind === 'ok' ? res : null;
 }
 
 /** False (with its notice) when the cart on screen cannot take a line. */

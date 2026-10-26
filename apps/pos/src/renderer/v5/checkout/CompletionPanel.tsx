@@ -2,6 +2,7 @@ import { useEffect, useRef, type JSX, type KeyboardEvent, type ReactNode } from 
 import { focusVisibly } from '../foundation/focus-visibly';
 import { Notice } from '../foundation/Notice';
 import { formatHumanMoney } from '../../ui/format/human-format';
+import { DISCOUNT_COPY } from '../sale/discount/discount-copy';
 import { ProofList, type ProofItem } from './ProofList';
 import './completion.css';
 
@@ -45,7 +46,7 @@ export interface CompletionTestIds {
 }
 
 export interface CompletionPanelProps {
-  /** The amount taken, integer minor units (the handoff subtotal). */
+  /** The amount taken, integer minor units (the envelope's amount due; 0 for a zero total). */
   readonly paidMinor: number;
   /** Main's change to hand back over the applied lines; 0 for none. */
   readonly changeDueMinor: number;
@@ -98,7 +99,9 @@ export function CompletionPanel({
     {
       id: 'payment',
       tone: 'success',
-      label: 'تم استلام المبلغ',
+      // RT-855 (OZ-1 = Z-A, D1 ZeroCompletion): a zero-total sale took no money,
+      // so it never says «تم استلام المبلغ» (and has no change).
+      label: paidMinor === 0 ? DISCOUNT_COPY.noAmountDue : 'تم استلام المبلغ',
       value: formatHumanMoney(paidMinor),
       // FR-16: the settled amount stays the dominant figure, change or not.
       emphasis: 'hero',

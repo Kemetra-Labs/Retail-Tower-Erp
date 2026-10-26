@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CartBridgeAPI, PreloadBridgeAPI } from '../../shared/bridge-api';
-import type { CartSnapshot, CartSnapshotResponse } from '../../shared/cart/bridge-types';
+import type {
+  CartDiscountPlaceholdersAddResponse,
+  CartSnapshot,
+  CartSnapshotResponse,
+} from '../../shared/cart/bridge-types';
 import type { PaymentIntentEnvelope } from '../../shared/cart/handoff-envelope';
+import type { ManualDiscountReasonCode } from '../../shared/cart/manual-discount';
+import type { CartRefusalReason } from '../../shared/cart/refusal';
 import { CartState } from '../../shared/cart/cart-state';
 import { useCartStore } from '../stores/cart-store';
+import { useDiscountDetailsStore, type DiscountDetail } from '../stores/discount-details-store';
 import { useCatalogueSearchStore } from '../stores/catalogueSearchStore';
 import { usePaymentStore } from '../stores/payment-store';
 import { resetSaleStores } from './reset-sale-stores';
@@ -33,6 +40,26 @@ export interface DiscountPlaceholderSeed {
   placeholderId: string;
   attribution_operator_id: string | null;
   lineId?: string | null;
+  /**
+   * RT-855 — the canonical token, reason and approver name, when this renderer
+   * knows them (it added the discount, or the frozen envelope names the
+   * token). Display only; null when unknown.
+   */
+  token?: string | null;
+  reasonCode?: ManualDiscountReasonCode | null;
+  approverName?: string | null;
+}
+
+/** RT-855 — one manual discount the Sale asks main to add (doc 28 §4.1 / §4.2). */
+export interface DiscountAddInput {
+  readonly lineId: string;
+  /** The canonical `manual_pct_<P>` / `manual_amt_<M>` token; main computes the amount. */
+  readonly token: string;
+  readonly reasonCode: ManualDiscountReasonCode;
+  /** Cashier path: the RT-114 approval for exactly this cart, line and token. */
+  readonly approvalId?: string;
+  /** Shown on the line as «بموافقة: …»; never sent to main. */
+  readonly approverName: string | null;
 }
 
 interface SaleCartControllerOptions {
@@ -68,6 +95,34 @@ function linesFromSnapshot(snapshot: CartSnapshot): CartLineItem[] {
     note: line.note,
     version: line.version,
   }));
+}
+
+/**
+ * The cart's placeholders, with what this renderer knows about each: the
+ * details it remembered when it added them, else the token the frozen envelope
+ * names. Attribution is deliberately not projected to the renderer.
+ */
+function seedsFromSnapshot(
+  snapshot: CartSnapshot,
+  known: Readonly<Record<string, DiscountDetail>>,
+): DiscountPlaceholderSeed[] {
+  const frozenTokens = new Map(
+    (snapshot.envelope?.discount_placeholders ?? []).map((dp) => [
+      dp.placeholder_id,
+      dp.placeholder_kind,
+    ]),
+  );
+  return snapshot.discount_placeholders.map((dp) => {
+    const detail = known[dp.placeholder_id];
+    return {
+      placeholderId: dp.placeholder_id,
+      lineId: dp.line_id,
+      attribution_operator_id: null,
+      token: detail?.token ?? frozenTokens.get(dp.placeholder_id) ?? null,
+      reasonCode: detail?.reasonCode ?? null,
+      approverName: detail?.approverName ?? null,
+    };
+  });
 }
 
 /** A successful read of exactly the cart that was asked for. */
@@ -125,7 +180,8 @@ export function useSaleCartController(options: SaleCartControllerOptions = {}): 
   subtotalMinor: number;
   itemCount: number;
   acceptAddedLine: (result: AddedLineResult) => void;
-  incrementLine: (lineId: string, version: number) => Promise<void>;
+  /** Resolves to main's refusal reason, or null once applied (or with no cart). */
+  incrementLine: (lineId: string, version: number) => Promise<CartRefusalReason | null>;
   /** The update's key once main confirms it (main records a decrement past zero as a remove). */
   decrementLine: (lineId: string, version: number) => Promise<string | null>;
   removeLine: (lineId: string, version: number) => Promise<string | null>;
@@ -135,6 +191,8 @@ export function useSaleCartController(options: SaleCartControllerOptions = {}): 
   handoff: () => Promise<void>;
   voidCart: () => Promise<boolean>;
   removeDiscount: (placeholderId: string) => Promise<void>;
+  /** RT-855 — add one manual discount; null when the transport failed or there is no cart. */
+  addDiscount: (input: DiscountAddInput) => Promise<CartDiscountPlaceholdersAddResponse | null>;
   continueToPayment: (onContinue?: () => void) => void;
   startNewSale: () => void;
 } {
@@ -165,12 +223,7 @@ export function useSaleCartController(options: SaleCartControllerOptions = {}): 
   const applySnapshot = useCallback((snapshot: CartSnapshot): void => {
     setLines(linesFromSnapshot(snapshot));
     setDiscountPlaceholders(
-      snapshot.discount_placeholders.map((dp) => ({
-        placeholderId: dp.placeholder_id,
-        lineId: dp.line_id,
-        // Attribution is deliberately not projected to the renderer.
-        attribution_operator_id: null,
-      })),
+      seedsFromSnapshot(snapshot, useDiscountDetailsStore.getState().byPlaceholder),
     );
     setEnvelope(snapshot.envelope);
     setHydratedPaid(snapshot.paid);
@@ -265,9 +318,9 @@ export function useSaleCartController(options: SaleCartControllerOptions = {}): 
   }, []);
 
   const incrementLine = useCallback(
-    async (lineId: string, version: number): Promise<void> => {
+    async (lineId: string, version: number): Promise<CartRefusalReason | null> => {
       const cart = useCartStore.getState().activeCart;
-      if (!cart) return;
+      if (!cart) return null;
       const res = await getBridge().lines.update({
         cart_id: cart.cart_id,
         line_id: lineId,
@@ -275,7 +328,7 @@ export function useSaleCartController(options: SaleCartControllerOptions = {}): 
         version,
         idempotency_key: crypto.randomUUID(),
       });
-      if (res.kind !== 'ok') return;
+      if (res.kind !== 'ok') return res.reason;
       setLines((prev) =>
         prev.map((line) => {
           if (line.lineId !== lineId) return line;
@@ -288,6 +341,7 @@ export function useSaleCartController(options: SaleCartControllerOptions = {}): 
           };
         }),
       );
+      return null;
     },
     [getBridge],
   );
@@ -452,10 +506,54 @@ export function useSaleCartController(options: SaleCartControllerOptions = {}): 
         idempotency_key: crypto.randomUUID(),
       });
       if (res.kind === 'ok') {
+        useDiscountDetailsStore.getState().forget(placeholderId);
         setDiscountPlaceholders((prev) =>
           prev.filter((item) => item.placeholderId !== placeholderId),
         );
       }
+    },
+    [getBridge],
+  );
+
+  /**
+   * RT-855 (doc 28 §4.1 step 5, §4.2) — the cashier's add carries only the
+   * approval id (the approval binds the value and the reason); the manager's
+   * or admin's direct add carries the reason code. The token is the only value
+   * sent: main computes the amount. Nothing changes locally unless main
+   * confirms; then the line shows the discount with what the Sale knows.
+   */
+  const addDiscount = useCallback(
+    async (input: DiscountAddInput): Promise<CartDiscountPlaceholdersAddResponse | null> => {
+      const cart = useCartStore.getState().activeCart;
+      if (!cart) return null;
+      const res = await getBridge()
+        .discountPlaceholders.add({
+          cart_id: cart.cart_id,
+          line_id: input.lineId,
+          placeholder_kind: input.token,
+          idempotency_key: crypto.randomUUID(),
+          ...(input.approvalId === undefined
+            ? { reason_code: input.reasonCode }
+            : { approval_id: input.approvalId }),
+        })
+        .catch(() => null);
+      if (res?.kind !== 'ok') return res;
+      const detail: DiscountDetail = {
+        token: input.token,
+        reasonCode: input.reasonCode,
+        approverName: input.approverName,
+      };
+      useDiscountDetailsStore.getState().remember(res.placeholder_id, detail);
+      setDiscountPlaceholders((prev) => [
+        ...prev.filter((item) => item.placeholderId !== res.placeholder_id),
+        {
+          placeholderId: res.placeholder_id,
+          lineId: input.lineId,
+          attribution_operator_id: null,
+          ...detail,
+        },
+      ]);
+      return res;
     },
     [getBridge],
   );
@@ -512,6 +610,7 @@ export function useSaleCartController(options: SaleCartControllerOptions = {}): 
     handoff,
     voidCart,
     removeDiscount,
+    addDiscount,
     continueToPayment,
     startNewSale,
   };

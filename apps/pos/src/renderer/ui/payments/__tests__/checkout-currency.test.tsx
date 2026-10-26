@@ -93,6 +93,7 @@ describe('EGP amounts stay left-to-right in the RTL checkout', () => {
               lines: [
                 { line_id: 'l-1', display_name: 'بنادول', quantity: 1, line_subtotal_minor: 1500 },
               ],
+              discount_placeholders: [],
             } as never
           }
         />
