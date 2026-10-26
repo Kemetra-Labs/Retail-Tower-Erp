@@ -5,7 +5,11 @@
  * D8: the UI never computes `override ?? tenant`). The page itself edits
  * nothing. RT-768 adds, for owner and tenant_admin only and only on an item that
  * is not retired, a link to the edit route and the Retire action; a retired item
- * and `store_manager` see no control. The other edit surfaces are CAT-C2b / C2c. A product the API
+ * and `store_manager` see no Edit or Retire. RT-770 (CAT-C2c) adds, for owner,
+ * tenant_admin and store_manager on an item that is not retired, a drawer that
+ * sets or clears one store's deviation (availability; tax for owner and
+ * tenant_admin only), opened from that store's override or, for the store in
+ * scope, from "Set values". Identifiers are CAT-C2b. A product the API
  * refuses (another tenant, a role outside the catalog, an id that is not a UUID)
  * is one non-disclosing "not available" state. With a store in scope the page
  * links to that store's on-hand stock (RT-728); it shows no ERP data.
@@ -21,11 +25,18 @@ import { Link, useParams } from "react-router";
 import { Identifiers, StoreOverrides, TenantValues } from "./CatalogDetailSections";
 import { Notice } from "./CatalogPager";
 import { ProductRetire } from "./ProductRetire";
+import { type OverrideOutcome, StoreOverrideDrawer } from "./StoreOverrideDrawer";
 import { inventoryPath, isProductId } from "./catalogDetailLogic";
 import { canReadCatalog } from "./catalogLogic";
 import { canWriteCatalog } from "./productFormLogic";
+import { canWriteOverrides } from "./storeOverrideLogic";
 import { type CatalogScope, useCatalogScope } from "./useCatalog";
-import { type CatalogProductError, useCatalogProduct, useStoreLabels } from "./useCatalogProduct";
+import {
+  type CatalogProductError,
+  type StoreLabel,
+  useCatalogProduct,
+  useStoreLabels,
+} from "./useCatalogProduct";
 import "../shell/surface.css";
 import "./catalog.css";
 
@@ -89,6 +100,11 @@ function ReadFailure({
   );
 }
 
+/** A store as copy names it: its name when known, else its id. */
+function storeNameOf(label: StoreLabel): string {
+  return label.name ?? label.id;
+}
+
 function Loaded({
   product,
   scope,
@@ -116,6 +132,19 @@ function Loaded({
     needsNames,
   );
   const onHand = inventoryPath(scope.role, scope.activeStoreId, summary.productId);
+  // RT-770: store deviations are writable by every override role while the item is not retired.
+  const overridesWritable = canWriteOverrides(scope.role) && !retired && scope.tenantId !== null;
+  const [editingStore, setEditingStore] = useState<string | null>(null);
+  const [overrideDone, setOverrideDone] = useState<{
+    outcome: OverrideOutcome;
+    store: string;
+  } | null>(null);
+  const activeStoreId = scope.activeStoreId;
+  const activeHasOverride = product.storeOverrides.some((o) => o.storeId === activeStoreId);
+  function openOverride(storeId: string): void {
+    setOverrideDone(null);
+    setEditingStore(storeId);
+  }
   return (
     <div className="surface">
       <BackLink />
@@ -126,7 +155,9 @@ function Loaded({
           </h1>
           <p className="content__sub">
             {t.rich(
-              canWriteCatalog(scope.role) ? "catalog.detail.subWriter" : "catalog.detail.sub",
+              canWriteCatalog(scope.role) || canWriteOverrides(scope.role)
+                ? "catalog.detail.subWriter"
+                : "catalog.detail.sub",
               {
                 tenant: <bdi>{scope.tenantName}</bdi>,
               },
@@ -156,7 +187,68 @@ function Loaded({
       ) : null}
       <TenantValues product={product} />
       <Identifiers identifiers={product.identifiers} storeLabel={storeLabel} />
-      <StoreOverrides product={product} storeLabel={storeLabel} />
+      <StoreOverrides
+        product={product}
+        storeLabel={storeLabel}
+        storeActions={
+          overridesWritable
+            ? (storeId, label) => (
+                <div className="catalog-detail__store-actions">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    aria-haspopup="dialog"
+                    onClick={() => openOverride(storeId)}
+                  >
+                    {t("catalog.override.change", { store: storeNameOf(label) })}
+                  </button>
+                </div>
+              )
+            : undefined
+        }
+      >
+        {overrideDone ? (
+          <Banner
+            variant="success"
+            message={t(
+              overrideDone.outcome === "saved"
+                ? "catalog.override.saved"
+                : "catalog.override.removed",
+              { store: overrideDone.store },
+            )}
+          />
+        ) : null}
+        {overridesWritable && activeStoreId && !activeHasOverride ? (
+          <div className="surface__actions catalog-retire__actions">
+            <button
+              type="button"
+              className="btn-secondary"
+              aria-haspopup="dialog"
+              onClick={() => openOverride(activeStoreId)}
+            >
+              {t("catalog.override.add", { store: storeNameOf(storeLabel(activeStoreId)) })}
+            </button>
+          </div>
+        ) : null}
+        {overridesWritable && !activeStoreId ? (
+          <p className="catalog-detail__note">{t("catalog.override.chooseStore")}</p>
+        ) : null}
+      </StoreOverrides>
+      {editingStore && scope.tenantId ? (
+        <StoreOverrideDrawer
+          product={product}
+          storeId={editingStore}
+          storeName={storeNameOf(storeLabel(editingStore))}
+          role={scope.role}
+          tenantId={scope.tenantId}
+          reload={reload}
+          onClose={() => setEditingStore(null)}
+          onDone={(outcome) => {
+            setOverrideDone({ outcome, store: storeNameOf(storeLabel(editingStore)) });
+            setEditingStore(null);
+          }}
+        />
+      ) : null}
       {canWrite && scope.tenantId ? (
         <ProductRetire
           product={product}

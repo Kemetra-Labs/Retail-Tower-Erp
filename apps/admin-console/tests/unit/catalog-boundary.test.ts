@@ -3,14 +3,15 @@ import { describe, expect, test } from "vitest";
 import { readSource, sourcesUnder } from "./source-scan";
 
 /**
- * RT-765 / RT-766 / RT-768 boundary (RT-752 AC 5, CAT-C1a / C1b / C2a). The
- * catalog reads the three read operations of `console-catalog.yaml` and, since
- * RT-768, writes exactly two of its RT-738 operations (edit a product, retire a
- * product), all through the generated client in `src/lib/catalog-queries.ts`.
+ * RT-765 / RT-766 / RT-768 / RT-770 boundary (RT-752 AC 5, CAT-C1a / C1b / C2a /
+ * C2c). The catalog reads the three read operations of `console-catalog.yaml`
+ * and writes exactly four of its RT-738 operations: edit and retire a product
+ * (RT-768), upsert and retire a store override (RT-770), all through the
+ * generated client in `src/lib/catalog-queries.ts`.
  *
  * Product CREATE is held by owner decision D9 (RT-768 comment 13487) until
  * pricing lands (RT-484 / RT-485): no create wrapper, no create call, no `/new`
- * route. The identifier and store-override writes belong to RT-769 / RT-770.
+ * route. The identifier writes belong to RT-769.
  * Nothing here reaches POS, ERPNext or the Connector, hand-rolls a fetch, or
  * sets an Authorization header (cookie transport). Static source scan, comments
  * stripped.
@@ -21,15 +22,12 @@ const surface = [{ file: "src/lib/catalog-queries.ts", src: wrapperSrc }, ...fea
 
 /** What no file of the catalog surface (the wrapper included) may contain. */
 const FORBIDDEN: readonly [name: string, pattern: RegExp][] = [
-  ["a PUT or DELETE through the generated client", /apiClient\.(PUT|DELETE)/],
+  ["a DELETE through the generated client", /apiClient\.DELETE/],
   [
     "product create (held by D9)",
     /consoleCreateCatalogProduct|CreateCatalogProductRequest|"\/api\/v1\/catalog\/products"\s*,\s*\{[^}]*body/,
   ],
-  [
-    "an identifier or store-override write (RT-769 / RT-770)",
-    /consoleAddProductIdentifier|consoleRetireProductIdentifier|consoleUpsertStoreOverride|consoleRetireStoreOverride/,
-  ],
+  ["an identifier write (RT-769)", /consoleAddProductIdentifier|consoleRetireProductIdentifier/],
   ["a POS route", /\/api\/pos\//],
   ["a POS credential", /X-Cashier-Admission|operatorAuthorization/i],
   ["an ERPNext / Frappe call", /frappe|\/api\/resource|\/api\/method/i],
@@ -38,8 +36,8 @@ const FORBIDDEN: readonly [name: string, pattern: RegExp][] = [
   ["an Authorization or Bearer header", /[Aa]uthorization\s*:|[Bb]earer\s+/],
 ];
 
-describe("console catalog boundary (RT-765, RT-766, RT-768)", () => {
-  test("exactly the three reads and the two RT-768 writes are exported, on their paths", () => {
+describe("console catalog boundary (RT-765, RT-766, RT-768, RT-770)", () => {
+  test("exactly the three reads, the two RT-768 writes and the two RT-770 writes are exported", () => {
     const exported = Object.entries(queries)
       .filter(([, value]) => typeof value === "function")
       .map(([name]) => name)
@@ -49,7 +47,9 @@ describe("console catalog boundary (RT-765, RT-766, RT-768)", () => {
       "consoleListCatalogCategories",
       "consoleListCatalogProducts",
       "consoleRetireCatalogProduct",
+      "consoleRetireStoreOverride",
       "consoleUpdateCatalogProduct",
+      "consoleUpsertStoreOverride",
     ]);
     expect(wrapperSrc).toContain('"/api/v1/catalog/products"');
     expect(wrapperSrc).toContain('"/api/v1/catalog/products/{productId}"');
@@ -57,15 +57,33 @@ describe("console catalog boundary (RT-765, RT-766, RT-768)", () => {
     expect(wrapperSrc).toContain('"/api/v1/catalog/products/{productId}/retire"');
   });
 
-  test("the writes are one PATCH on the product and one POST on its retire, nothing else", () => {
+  test("the writes are a PATCH and a retire POST on the product, a PUT and a retire POST on a store override", () => {
     expect(wrapperSrc.match(/apiClient\.PATCH\(/g)).toHaveLength(1);
-    expect(wrapperSrc.match(/apiClient\.POST\(/g)).toHaveLength(1);
+    expect(wrapperSrc.match(/apiClient\.POST\(/g)).toHaveLength(2);
+    expect(wrapperSrc.match(/apiClient\.PUT\(/g)).toHaveLength(1);
     expect(wrapperSrc).toMatch(
       /apiClient\.PATCH\(\s*"\/api\/v1\/catalog\/products\/\{productId\}"/,
     );
     expect(wrapperSrc).toMatch(
       /apiClient\.POST\(\s*"\/api\/v1\/catalog\/products\/\{productId\}\/retire"/,
     );
+    expect(wrapperSrc).toMatch(
+      /apiClient\.PUT\(\s*"\/api\/v1\/catalog\/products\/\{productId\}\/store-overrides\/\{storeId\}"/,
+    );
+    expect(wrapperSrc).toMatch(
+      /apiClient\.POST\(\s*"\/api\/v1\/catalog\/products\/\{productId\}\/store-overrides\/\{storeId\}\/retire"/,
+    );
+  });
+
+  test("no store-override write can carry a price (O-2)", () => {
+    const upsert = wrapperSrc.slice(wrapperSrc.indexOf("interface CatalogStoreOverrideUpsert"));
+    const shape = upsert.slice(0, upsert.indexOf("}"));
+    expect(shape).not.toMatch(/price/i);
+    const feature = sourcesUnder("src/catalog").filter(({ file }) => /[Oo]verride/.test(file));
+    expect(feature.length).toBeGreaterThan(0);
+    for (const { file, src } of feature) {
+      expect(src, file).not.toMatch(/\bprice\s*:/);
+    }
   });
 
   test("product create is not shipped: no create wrapper, no /new route, no create UI", () => {
@@ -80,7 +98,7 @@ describe("console catalog boundary (RT-765, RT-766, RT-768)", () => {
   });
 
   test("the writes are reached only through the wrappers, never the client directly", () => {
-    const direct = feature.filter(({ src }) => /apiClient\.(POST|PATCH)/.test(src));
+    const direct = feature.filter(({ src }) => /apiClient\.(POST|PATCH|PUT)/.test(src));
     expect(direct.map((f) => f.file)).toEqual([]);
   });
 

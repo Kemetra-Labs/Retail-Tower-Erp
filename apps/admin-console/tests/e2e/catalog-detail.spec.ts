@@ -153,10 +153,15 @@ test("D1: the list row opens the detail; read-only, only the product is read", a
   await expect(identifiers.getByText("0012345678905")).toBeVisible();
   await expect(p.getByRole("region", { name: t("catalog.detail.overrides.title") })).toBeVisible();
 
-  // No field and no form. For an owner (RT-768) the one button is the Retire starter, which
-  // opens a confirmation and writes nothing until it is confirmed.
+  // No field and no form. For an owner the buttons are each store deviation's Change (RT-770,
+  // which opens a drawer) and the Retire starter (RT-768, which opens a confirmation); none of
+  // them writes anything until it is confirmed.
   await expect(p.getByRole("main").getByRole("textbox")).toHaveCount(0);
-  await expect(p.getByRole("main").getByRole("button")).toHaveText([t("catalog.retire.start")]);
+  await expect(p.getByRole("main").getByRole("button")).toHaveText([
+    t("catalog.override.change", { store: "Cairo Festival" }),
+    t("catalog.override.change", { store: "New York Flagship" }),
+    t("catalog.retire.start"),
+  ]);
   await expect(p.locator("main form, main input, main textarea, main select")).toHaveCount(0);
 
   expect(reads).toEqual([`GET /api/v1/catalog/products/${P1}`]);

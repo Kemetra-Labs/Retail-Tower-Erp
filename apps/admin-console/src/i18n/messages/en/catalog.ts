@@ -143,6 +143,60 @@ export const catalog: MessagesOf<typeof ar> = {
   "catalog.detail.overrides.col.store": "Store value",
   "catalog.detail.overrides.col.tenant": "Tenant value",
 
+  // --- Store overrides: set / remove (RT-770, CAT-C2c) ------------------------------
+  "catalog.override.change": "Change values for {store}",
+  "catalog.override.add": "Set values for {store}",
+  "catalog.override.chooseStore":
+    "To set a store's own values for this item, choose that store in the scope bar.",
+  "catalog.override.saved": "The values for {store} are saved.",
+  "catalog.override.removed": "{store} now follows the tenant values for this item.",
+  "catalog.override.drawer.title": "Values for {store}",
+  "catalog.override.drawer.sub":
+    "These values apply in {store} only. The store's price is not changed here.",
+  "catalog.override.availability.legend": "Availability in this store",
+  "catalog.override.availability.inherit": "Follow the tenant",
+  "catalog.override.availability.available": "Available",
+  "catalog.override.availability.unavailable": "Not available",
+  "catalog.override.availability.tenantHint": "Tenant availability: {value}.",
+  "catalog.override.taxCategory": "Tax category in this store",
+  "catalog.override.taxCategoryHint":
+    "Leave it empty to follow the tenant tax category, {tax}. Up to 50 characters; spaces at the ends are removed.",
+  "catalog.override.taxReadOnly":
+    "Tax category in this store: {tax}. Only owners and tenant admins can change it.",
+  "catalog.override.priceKept": "This store has its own price. It is kept and is not changed here.",
+  "catalog.override.save": "Save store values",
+  "catalog.override.reloaded":
+    "The latest values are loaded. What you chose is kept. Check it, then save again.",
+  "catalog.override.retire.title": "Remove the store deviation",
+  "catalog.override.retire.sub":
+    "{store} then follows the tenant values for availability and tax category.",
+  "catalog.override.retire.start": "Remove store deviation",
+  "catalog.override.retire.confirmLabel": "Confirm: remove the store deviation",
+  "catalog.override.retire.prompt": "Remove the deviation of {store}?",
+  "catalog.override.retire.confirm": "Yes, remove",
+  "catalog.override.error.taxCategoryTooLong":
+    "The tax category can be at most 50 characters. Shorten it, or leave it empty.",
+  "catalog.override.error.validation":
+    "The server rejected these values. Check the tax category, then try again.",
+  "catalog.override.error.taxForbidden":
+    "Only owners and tenant admins can change a store's tax category.",
+  "catalog.override.error.forbidden": "You do not have permission to change this store's values.",
+  "catalog.override.error.notFound":
+    "This item, store or store deviation is no longer available to you.",
+  "catalog.override.error.conflict":
+    "The store deviation is in a state that does not allow this change. Reload and try again.",
+  "catalog.override.error.pricePresent":
+    "This store has its own price, which is kept. A store price cannot be removed here, so the store deviation stays.",
+  "catalog.override.error.stale":
+    "The values of this store changed since you opened them. Reload to get the latest version. What you chose is kept.",
+  "catalog.override.error.staleRetire":
+    "The values of this store changed since you opened them. Reload to get the latest version, then decide again.",
+  "catalog.override.error.retired":
+    "This item is retired, so its store values can no longer be changed.",
+  "catalog.override.error.empty":
+    "Nothing would be left in this store deviation. To make the store follow the tenant values, remove the store deviation instead.",
+  "catalog.override.error.emptyAction": "Remove the store deviation instead",
+
   // RT-767: the shared product picker (active products only, no price).
   "catalog.picker.search": "Search active products",
   "catalog.picker.searchNote":

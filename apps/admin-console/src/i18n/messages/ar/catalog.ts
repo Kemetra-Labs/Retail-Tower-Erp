@@ -144,6 +144,54 @@ export const catalog = {
   "catalog.detail.overrides.col.store": "قيمة المتجر",
   "catalog.detail.overrides.col.tenant": "قيمة المؤسسة",
 
+  // --- تخصيصات المتاجر: التحديد والإزالة (RT-770, CAT-C2c) ----------------------------
+  "catalog.override.change": "تغيير قيم {store}",
+  "catalog.override.add": "تحديد قيم خاصة بـ{store}",
+  "catalog.override.chooseStore":
+    "لتحديد قيم خاصة بمتجر لهذا الصنف، اختر ذلك المتجر من شريط النطاق.",
+  "catalog.override.saved": "حُفظت قيم {store}.",
+  "catalog.override.removed": "يتبع {store} الآن قيم المؤسسة لهذا الصنف.",
+  "catalog.override.drawer.title": "قيم {store}",
+  "catalog.override.drawer.sub": "تسري هذه القيم في {store} فقط. لا يُغيَّر سعر المتجر من هنا.",
+  "catalog.override.availability.legend": "التوفر في هذا المتجر",
+  "catalog.override.availability.inherit": "يتبع المؤسسة",
+  "catalog.override.availability.available": "متاح",
+  "catalog.override.availability.unavailable": "غير متاح",
+  "catalog.override.availability.tenantHint": "توفر المؤسسة: {value}.",
+  "catalog.override.taxCategory": "فئة الضريبة في هذا المتجر",
+  "catalog.override.taxCategoryHint":
+    "اتركها فارغة ليتبع المتجر فئة ضريبة المؤسسة، {tax}. حتى 50 حرفًا، وتُحذف المسافات في طرفيها.",
+  "catalog.override.taxReadOnly":
+    "فئة الضريبة في هذا المتجر: {tax}. لا يغيّرها إلا مالك المؤسسة أو مسؤولها.",
+  "catalog.override.priceKept": "لهذا المتجر سعر خاص به. يبقى كما هو ولا يُغيَّر من هنا.",
+  "catalog.override.save": "حفظ قيم المتجر",
+  "catalog.override.reloaded":
+    "تم تحميل أحدث القيم. ما اخترته محفوظ في النموذج. راجعه ثم احفظ مرة أخرى.",
+  "catalog.override.retire.title": "إزالة تخصيص المتجر",
+  "catalog.override.retire.sub": "بعدها يتبع {store} قيم المؤسسة في التوفر وفئة الضريبة.",
+  "catalog.override.retire.start": "إزالة التخصيص",
+  "catalog.override.retire.confirmLabel": "تأكيد: إزالة تخصيص المتجر",
+  "catalog.override.retire.prompt": "إزالة تخصيص {store}؟",
+  "catalog.override.retire.confirm": "نعم، أزِل التخصيص",
+  "catalog.override.error.taxCategoryTooLong":
+    "يجب ألا تتجاوز فئة الضريبة 50 حرفًا. اختصرها أو اتركها فارغة.",
+  "catalog.override.error.validation": "رفض الخادم هذه القيم. راجع فئة الضريبة ثم حاول مرة أخرى.",
+  "catalog.override.error.taxForbidden": "لا يغيّر فئة ضريبة المتجر إلا مالك المؤسسة أو مسؤولها.",
+  "catalog.override.error.forbidden": "ليست لديك صلاحية تغيير قيم هذا المتجر.",
+  "catalog.override.error.notFound": "هذا الصنف أو المتجر أو تخصيصه لم يعد متاحًا لك.",
+  "catalog.override.error.conflict":
+    "حالة تخصيص المتجر لا تسمح بهذا التغيير. أعد التحميل ثم حاول مرة أخرى.",
+  "catalog.override.error.pricePresent":
+    "لهذا المتجر سعر خاص به يبقى كما هو. لا يمكن إزالة سعر المتجر من هنا، لذلك يبقى تخصيص المتجر.",
+  "catalog.override.error.stale":
+    "تغيّرت قيم هذا المتجر منذ فتحتها. أعد التحميل للحصول على أحدث نسخة. ما اخترته محفوظ في النموذج.",
+  "catalog.override.error.staleRetire":
+    "تغيّرت قيم هذا المتجر منذ فتحتها. أعد التحميل للحصول على أحدث نسخة ثم قرّر من جديد.",
+  "catalog.override.error.retired": "أُخرج هذا الصنف من الكتالوج، فلم يعد تغيير قيم متاجره ممكنًا.",
+  "catalog.override.error.empty":
+    "لن يبقى في تخصيص المتجر أي قيمة خاصة به. ليتبع المتجر قيم المؤسسة، أزِل تخصيص المتجر بدلًا من ذلك.",
+  "catalog.override.error.emptyAction": "إزالة التخصيص بدلًا من ذلك",
+
   // RT-767: المنتقي المشترك للأصناف (الأصناف النشطة فقط، دون سعر).
   "catalog.picker.search": "البحث في الأصناف النشطة",
   "catalog.picker.searchNote":

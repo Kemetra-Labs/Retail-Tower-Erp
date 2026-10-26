@@ -4,7 +4,9 @@
  * price is a value, not a disabled input. Overrides are the store's raw
  * deviations beside the labelled tenant value; nothing here computes what a
  * store resolves (RT-752 D8). Codes are isolated LTR and kept as stored
- * (`white-space: pre-wrap`, so leading zeros and inner spaces survive).
+ * (`white-space: pre-wrap`, so leading zeros and inner spaces survive). RT-770
+ * lets the page put each store's write controls beside its name; the section
+ * itself still edits nothing.
  */
 import { DateTime, Money, type T, useT } from "@/i18n";
 import type { CatalogIdentifier, CatalogMoney, CatalogProductDetail } from "@/lib/catalog-queries";
@@ -218,13 +220,29 @@ function DeviationRow({
 function StoreOverride({
   deviations,
   label,
-}: Readonly<{ deviations: Deviation[]; label: StoreLabel }>): React.JSX.Element {
+  actions,
+}: Readonly<{
+  deviations: Deviation[];
+  label: StoreLabel;
+  /** RT-770: the store's write controls, beside its name; none for a reader. */
+  actions?: React.ReactNode;
+}>): React.JSX.Element {
   const t = useT();
+  const name = (
+    <h3 className="catalog-detail__store-name">
+      <StoreName label={label} />
+    </h3>
+  );
   return (
     <div className="catalog-detail__store">
-      <h3 className="catalog-detail__store-name">
-        <StoreName label={label} />
-      </h3>
+      {actions ? (
+        <div className="catalog-detail__store-head">
+          {name}
+          {actions}
+        </div>
+      ) : (
+        name
+      )}
       {deviations.length === 0 ? (
         <p className="catalog-detail__empty">{t("catalog.detail.overrides.noValues")}</p>
       ) : (
@@ -253,25 +271,36 @@ function StoreOverride({
 export function StoreOverrides({
   product,
   storeLabel,
+  storeActions,
+  children,
 }: Readonly<{
   product: CatalogProductDetail;
   storeLabel: (id: string) => StoreLabel;
+  /** RT-770: the write controls of one store's override, for a role that may write. */
+  storeActions?: (storeId: string, label: StoreLabel) => React.ReactNode;
+  /** RT-770: the outcome of the last write and the control to add a store's values. */
+  children?: React.ReactNode;
 }>): React.JSX.Element {
   const t = useT();
   const stores = storeDeviations(product.storeOverrides, product.summary);
   return (
     <Section id="catalog-detail-overrides" title={t("catalog.detail.overrides.title")}>
       <p className="catalog-detail__note">{t("catalog.detail.overrides.sub")}</p>
+      {children}
       {stores.length === 0 ? (
         <p className="catalog-detail__empty">{t("catalog.detail.overrides.empty")}</p>
       ) : (
-        stores.map((store) => (
-          <StoreOverride
-            key={store.storeId}
-            deviations={store.deviations}
-            label={storeLabel(store.storeId)}
-          />
-        ))
+        stores.map((store) => {
+          const label = storeLabel(store.storeId);
+          return (
+            <StoreOverride
+              key={store.storeId}
+              deviations={store.deviations}
+              label={label}
+              actions={storeActions?.(store.storeId, label)}
+            />
+          );
+        })
       )}
     </Section>
   );
