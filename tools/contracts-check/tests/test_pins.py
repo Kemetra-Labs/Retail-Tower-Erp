@@ -276,12 +276,12 @@ CONNECTOR_APP = REPO_ROOT / "integrations/erpnext-connector/retail_tower_erpnext
 CONNECTOR = CONNECTOR_APP / "connector"
 # Every Connector module that calls Backend-Core over HTTP (RT-704 inventory), relative to CONNECTOR.
 CONNECTOR_TRANSPORTS = ("posting/transport.py", "bin_view/transport.py", "health/heartbeat.py")
-# The one module allowed to call `requests` directly: `_RequestsTransport`, the HttpTransport the
+# The one module allowed to import an HTTP library: `_RequestsTransport`, the HttpTransport the
 # transports above call through `self._transport`. It takes the path as an argument and has no
 # path of its own.
 CONNECTOR_HTTP_ADAPTERS = ("posting/poller.py",)
 _HTTP_VERBS = ("get", "post", "put", "patch", "delete", "request")
-_HTTP_LIBRARIES = ("requests", "httpx", "urllib3", "aiohttp")
+_HTTP_LIBRARIES = ("requests", "httpx", "urllib3", "aiohttp", "urllib.request", "http.client")
 _TEMPLATE_PARAM = re.compile(r"\{[^}]*\}")
 
 
@@ -292,10 +292,16 @@ def _is_transport_call(node):
             and node.func.value.attr == "_transport")
 
 
-def _is_library_call(node):
-    """`requests.<verb>(...)` and the like: HTTP that bypasses the HttpTransport."""
-    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-            and isinstance(node.func.value, ast.Name) and node.func.value.id in _HTTP_LIBRARIES)
+def _imports_http_library(node):
+    """An import of an HTTP library in any form (`import requests as http`, `from requests import
+    post`, `from urllib import request`): whatever the alias, the module can bypass the HttpTransport."""
+    def is_http(name):
+        return any(name == lib or name.startswith(lib + ".") for lib in _HTTP_LIBRARIES)
+    if isinstance(node, ast.Import):
+        return any(is_http(alias.name) for alias in node.names)
+    if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+        return is_http(node.module) or any(is_http(f"{node.module}.{alias.name}") for alias in node.names)
+    return False
 
 
 def _api_paths(tree):
@@ -306,8 +312,9 @@ def _api_paths(tree):
 
 
 def connector_http_modules():
-    """`(talks_to_backend, calls_http_library)`: Connector modules (tests excluded) that hold an
-    `/api/` path or make an HttpTransport call, and modules that call an HTTP library directly."""
+    """`(talks_to_backend, imports_http_library)`: Connector modules (tests excluded) that hold a
+    string containing `/api/` (a path or an absolute URL) or make an HttpTransport call, and
+    modules that import an HTTP library."""
     talks, library = set(), set()
     for path in sorted(CONNECTOR_APP.rglob("*.py")):
         rel = path.relative_to(CONNECTOR_APP)
@@ -317,10 +324,10 @@ def connector_http_modules():
         nodes = list(ast.walk(tree))
         key = path.relative_to(CONNECTOR).as_posix() if CONNECTOR in path.parents else rel.as_posix()
         has_api_literal = any(isinstance(n, ast.Constant) and isinstance(n.value, str)
-                              and n.value.startswith("/api/") for n in nodes)
+                              and "/api/" in n.value for n in nodes)
         if has_api_literal or any(_is_transport_call(n) for n in nodes):
             talks.add(key)
-        if any(_is_library_call(n) for n in nodes):
+        if any(_imports_http_library(n) for n in nodes):
             library.add(key)
     return talks, library
 
@@ -380,7 +387,7 @@ class ConnectorPin(unittest.TestCase):
 
     def test_transport_inventory_is_complete(self):
         """A new module that talks to Backend-Core must join CONNECTOR_TRANSPORTS, and only the
-        HttpTransport adapter may call an HTTP library directly."""
+        HttpTransport adapter may import an HTTP library."""
         talks, library = connector_http_modules()
         self.assertEqual(sorted(talks), sorted(CONNECTOR_TRANSPORTS))
         self.assertEqual(sorted(library), sorted(CONNECTOR_HTTP_ADAPTERS))
