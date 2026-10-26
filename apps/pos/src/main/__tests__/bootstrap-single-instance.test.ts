@@ -103,7 +103,9 @@ describe.each(SOURCES)('RT-203 index.ts boots only behind the lock (%s)', (_eol,
     ['IPC registration', /register\w+Handlers?\(/],
     ['the paired workers', /createPairedWorkers\(/],
     ['the printer pipeline', /createPrintPipeline\(/],
-    ['the drawer dispatcher', /createDrawerKickDispatcher\(/],
+    // RT-893 extraction 6a: the drawer and print dispatchers and the sales / receipts /
+    // sale-history handlers now sit behind `bootstrap/sales-bridges.ts`.
+    ['the sales bridges (dispatchers + handlers)', /\bregisterSalesBridges\(/],
     // RT-15 S4: the returns domain (payout + its drawer kick) and its resolver, and the sale
     // void domain, now behind their bootstrap modules (RT-893 extraction 5).
     ['the drawer kick transport', /const drawerKickTransport: DrawerKickTransport =/],
