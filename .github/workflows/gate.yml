@@ -43,6 +43,8 @@
 #     to a newer head, is "not applicable": `evaluate` ends green after the `pr` step and
 #     `post` is skipped, so no `required` of any conclusion is published for it. Every
 #     other unresolved shape still fails closed (tests/test_gate_resolve.py).
+#   - Gate runs for one head SHA queue, they never cancel each other (RT-903,
+#     `cancel-in-progress: false`): no gate job is killed mid-run and shown red on a PR.
 # =============================================================================
 name: gate
 
@@ -61,8 +63,12 @@ permissions:
 
 concurrency:
   # One key per head SHA for both triggers, so two gate runs cannot race.
+  # RT-903: queue, don't cancel. A newer run waits while one is running; GitHub keeps at
+  # most one pending run per group and replaces it before its jobs start, so a superseded
+  # run creates no gate/evaluate or gate/post check-run. The running one finishes, and the
+  # newest pending run evaluates after it, so the last `required` reflects the latest state.
   group: gate-${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   evaluate:
@@ -246,10 +252,10 @@ jobs:
     name: gate/post
     needs: evaluate
     # Runs even if evaluate failed after resolving the PR, so such a crash posts a failing
-    # `required`. NOT always(): that also runs post in a run cancelled by the per-SHA
-    # concurrency group and publishes a superseded or empty verdict; the run that
-    # cancelled it normally posts instead (if that one fails before the `pr` step
-    # nothing is posted until a re-run: fail-closed, `required` stays missing).
+    # `required`. NOT always(): that also runs post in a cancelled run and publishes an
+    # empty or partial verdict. Concurrency no longer cancels a started run (RT-903: it
+    # queues), so a cancelled run is a manual cancel; it posts nothing and the next gate
+    # run posts instead (until then `required` keeps its last posted value, or stays missing).
     # Never for resolution=not_applicable (RT-888: a late workflow_run for a closed PR or a
     # superseded head): that run has no verdict, so it must publish no `required` at all.
     if: ${{ !cancelled() && needs.evaluate.outputs.resolution == 'pr' && needs.evaluate.outputs.head_sha != '' }}
