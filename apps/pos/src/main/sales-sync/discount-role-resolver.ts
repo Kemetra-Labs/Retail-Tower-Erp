@@ -191,24 +191,26 @@ export function createDiscountRoleResolver(deps: DiscountRoleResolverDeps): Sale
     return approvalId;
   }
 
-  /** Steps 2 and 3: the approval's approver on the sale's terminal, and their record's role. */
+  /**
+   * Steps 1–3. The line's approver's live record role is read first, by key:
+   * a sale that never resolves (the decided residual) costs one lookup a tick.
+   * Only then the audit row and the approval, which must name the same user.
+   */
   function approverOf(sale: HeldSale, discount: RolelessDiscount): ResolvedApprover | null {
-    const approvalId = approvalIdOf(sale, discount);
-    if (approvalId === null) return null;
     const scope = [sale.tenant_id, sale.branch_id, sale.terminal_id];
-    const approval = (db.prepare(APPROVAL_SQL) as PrepareGet<{ approver_user_id: string }>).get(
-      approvalId,
-      ...scope,
-    );
-    if (approval === undefined || !sameUser(approval.approver_user_id, discount.approver)) {
-      return null;
-    }
-    const userId = approval.approver_user_id.toLowerCase();
+    const userId = discount.approver.toLowerCase();
     const role = (db.prepare(PIN_ROLE_SQL) as PrepareGet<{ role: unknown }>).get(
       ...scope,
       userId,
     )?.role;
     if (!CAPTURE_APPROVER_ROLES.has(role)) return null;
+    const approvalId = approvalIdOf(sale, discount);
+    if (approvalId === null) return null;
+    const approval = (db.prepare(APPROVAL_SQL) as PrepareGet<{ approver_user_id: string }>).get(
+      approvalId,
+      ...scope,
+    );
+    if (approval === undefined || !sameUser(approval.approver_user_id, userId)) return null;
     return {
       approval_id: approvalId,
       approver_user_id: userId,
