@@ -14,13 +14,19 @@ import { describe, it, expect } from 'vitest';
 const source = readFileSync(resolve(__dirname, '../index.ts'), 'utf-8');
 const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
+// RT-893: `resolveClerkExchanger` (and its raw `globalThis.fetch`) moved to `bootstrap/env.ts`.
+const envSource = readFileSync(resolve(__dirname, '../bootstrap/env.ts'), 'utf-8');
+const envCode = envSource.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
 describe('main/index.ts observability wiring (RT-634)', () => {
   it('every raw fetch except Clerk is wrapped with X-Request-Id', () => {
-    const lines = code.split('\n').filter((line) => line.includes('globalThis.fetch'));
+    const lines = [...code.split('\n'), ...envCode.split('\n')].filter((line) =>
+      line.includes('globalThis.fetch'),
+    );
     const unwrapped = lines.filter((line) => !line.includes('withRequestId(globalThis.fetch'));
     // The single unwrapped fetch is the Clerk exchanger (not Backend-Core).
     expect(unwrapped).toHaveLength(1);
-    const clerkBlock = code.slice(code.indexOf('function resolveClerkExchanger'));
+    const clerkBlock = envCode.slice(envCode.indexOf('function resolveClerkExchanger'));
     expect(clerkBlock.slice(0, clerkBlock.indexOf('\n}\n'))).toContain(unwrapped[0]?.trim());
   });
 
