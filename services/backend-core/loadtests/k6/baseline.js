@@ -120,7 +120,7 @@ function createInvitation() {
     // Non-JSON body (e.g. an error page): no token, so acceptInvitation skips.
   }
   // No optional chaining: the pinned k6 0.50 runtime cannot parse `?.`.
-  const token = body?.token || body?.invitation?.token || null;
+  const token = (body && (body.token || (body.invitation && body.invitation.token))) || null;
   return { res, token };
 }
 
@@ -164,10 +164,10 @@ function updateMembershipFromContext() {
     return null;
   }
   // members might be { data: [...] } or [...] depending on envelope; try both.
-  const arr = Array.isArray(members) ? members : members?.data || [];
+  const arr = Array.isArray(members) ? members : (members && members.data) || [];
   if (!arr.length) return null;
   const target = arr[Math.floor(Math.random() * arr.length)];
-  if (!target?.id) return null;
+  if (!target || !target.id) return null;
 
   const url = baseUrl() + "/api/v1/memberships/" + target.id;
   const res = http.patch(

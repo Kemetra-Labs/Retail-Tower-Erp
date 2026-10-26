@@ -82,7 +82,7 @@ export function setup() {
 }
 
 export default function erpnextReconciliation(data) {
-  if (!data?.enabled) {
+  if (!data || !data.enabled) {
     return; // Prerequisite unmet — no synthetic load, no faked measurement.
   }
   const tenantSlug = pickTenantForVu(__VU, SYNTHETIC_TENANTS);

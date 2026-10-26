@@ -88,7 +88,7 @@ export function setup() {
 }
 
 export default function catalogReadDown(data) {
-  if (!data?.enabled) {
+  if (!data || !data.enabled) {
     // Prerequisite unmet — do not generate synthetic load or fake measurements.
     return;
   }

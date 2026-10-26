@@ -123,7 +123,7 @@ export function setup() {
 }
 
 export default function salesCapture(data) {
-  if (!data?.enabled) {
+  if (!data || !data.enabled) {
     // Prerequisite unmet — do not generate synthetic load or fake measurements.
     return;
   }

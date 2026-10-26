@@ -100,7 +100,7 @@ export function setup() {
 // (the connector's steady-state poll). Scope (tenant) comes from the token, so
 // no query scope is ever sent (§XII).
 export default function erpnextPosting(data) {
-  if (!data?.enabled) {
+  if (!data || !data.enabled) {
     // Prerequisite unmet — do not generate synthetic load or fake measurements.
     return;
   }
@@ -133,7 +133,7 @@ export default function erpnextPosting(data) {
   } catch (_e) {
     // Non-JSON body: no cursor to follow, so re-baseline below.
   }
-  __ENV.__K6_CURSOR = body?.next_page_token ? body.cursor : "";
+  __ENV.__K6_CURSOR = body && body.next_page_token ? body.cursor : "";
 
   sleepJitter();
 }

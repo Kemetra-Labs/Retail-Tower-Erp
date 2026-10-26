@@ -69,7 +69,7 @@ function targetFor(tenantSlug) {
 export default function inventoryOnHand() {
   const tenantSlug = pickTenantForVu(__VU, SYNTHETIC_TENANTS);
   const session = signIn(tenantSlug);
-  if (!session?.cookies) {
+  if (!session || !session.cookies) {
     // No dashboard session → cannot measure; skip without faking a number.
     return;
   }

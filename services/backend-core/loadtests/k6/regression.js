@@ -229,7 +229,7 @@ function ratio(current, prior) {
 // Works against both the live `data` argument and a previously exported
 // summary file (same shape).
 function extractFlowMetrics(summary) {
-  if (!summary?.metrics) return {};
+  if (!summary || !summary.metrics) return {};
   const out = {};
 
   for (const flow of TRACKED_FLOWS) {
@@ -250,7 +250,7 @@ function extractFlowMetrics(summary) {
 }
 
 function extractPercentile(metric, key) {
-  if (!metric?.values) return 0;
+  if (!metric || !metric.values) return 0;
   const v = metric.values[key];
   return typeof v === "number" ? v : 0;
 }

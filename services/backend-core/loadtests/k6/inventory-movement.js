@@ -81,7 +81,7 @@ function movementBody(productId) {
 export default function inventoryMovement() {
   const tenantSlug = pickTenantForVu(__VU, SYNTHETIC_TENANTS);
   const session = signIn(tenantSlug);
-  if (!session?.cookies) {
+  if (!session || !session.cookies) {
     return;
   }
   const { storeId, productId } = targetFor(tenantSlug);

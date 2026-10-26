@@ -87,10 +87,10 @@ function updateOneMembership(tenantId) {
   } catch (_e) {
     return null;
   }
-  const arr = Array.isArray(members) ? members : members?.data || [];
+  const arr = Array.isArray(members) ? members : (members && members.data) || [];
   if (!arr.length) return null;
   const target = arr[Math.floor(Math.random() * arr.length)];
-  if (!target?.id) return null;
+  if (!target || !target.id) return null;
   return http.patch(
     baseUrl() + "/api/v1/memberships/" + target.id,
     JSON.stringify({ role_code: target.role_code || "viewer" }),
