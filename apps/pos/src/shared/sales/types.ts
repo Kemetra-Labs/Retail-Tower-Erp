@@ -64,6 +64,13 @@ export interface TenderLineSummary {
   change_due_minor?: number;
   external_reference?: string;
   voucher_authority_redemption_id?: string;
+  /**
+   * RT-362: the source tender line, frozen at finalize. Absent on a sale
+   * finalized before RT-362 (or whose lines could not all be identified).
+   */
+  tender_line_id?: string;
+  /** RT-362: 1-based rank of the line among the sale's applied lines, by `apply_order`. */
+  sequence?: number;
 }
 
 // ── Print-event projection (latest by timestamp) ─────────────────────────────

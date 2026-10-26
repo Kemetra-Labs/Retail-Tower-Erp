@@ -102,6 +102,8 @@ interface AttemptRow {
 }
 
 interface TenderLineRow {
+  tender_line_id: string;
+  apply_order: number;
   tender_type: string;
   amount_applied_minor: number;
   change_due_minor: number | null;
@@ -183,6 +185,53 @@ function saleLines(db: DatabaseHandle, cart_id: string, attempt: AttemptRow): Sa
   });
 }
 
+/** The non-NULL columns of `fields`: a SQL NULL is an absent key, never `null`. */
+function presentColumns<T extends object>(fields: T): { [K in keyof T]?: NonNullable<T[K]> } {
+  return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== null)) as {
+    [K in keyof T]?: NonNullable<T[K]>;
+  };
+}
+
+function toTenderSummary(row: TenderLineRow): FinalizeTenderLineSummary {
+  return {
+    tender_type: row.tender_type as SalesTenderType,
+    amount_applied_minor: row.amount_applied_minor,
+    tender_line_id: row.tender_line_id,
+    apply_order: row.apply_order,
+    ...presentColumns({
+      change_due_minor: row.change_due_minor,
+      external_reference: row.external_reference,
+      voucher_authority_redemption_id: row.voucher_authority_redemption_id,
+    }),
+  };
+}
+
+/**
+ * Step 3: the attempt's applied tender lines and the cash change due. RT-362:
+ * each line carries its identity; the id breaks an `apply_order` tie so a
+ * re-dispatch reads the lines in the same order.
+ */
+function appliedTenders(
+  db: DatabaseHandle,
+  payment_attempt_id: string,
+): Pick<FinalizeInput, 'tender_lines_summary' | 'total_change_due_minor'> {
+  const tenderStmt = db.prepare(
+    `SELECT tender_line_id, apply_order, tender_type, amount_applied_minor, change_due_minor,
+            external_reference, voucher_authority_redemption_id
+       FROM payment_tender_lines
+      WHERE payment_attempt_id = ? AND state = 'applied'
+      ORDER BY apply_order ASC, tender_line_id ASC`,
+  ) as PrepareAll<TenderLineRow>;
+  const tenderRows = tenderStmt.all(payment_attempt_id);
+  return {
+    tender_lines_summary: tenderRows.map(toTenderSummary),
+    total_change_due_minor: tenderRows.reduce(
+      (sum, row) => sum + (row.tender_type === 'cash' ? (row.change_due_minor ?? 0) : 0),
+      0,
+    ),
+  };
+}
+
 export function buildFinalizeInput(deps: BuildFinalizeInputDeps): BuildFinalizeInputResult {
   const { db, handoff_action_id } = deps;
 
@@ -243,32 +292,9 @@ export function buildFinalizeInput(deps: BuildFinalizeInputDeps): BuildFinalizeI
   }
 
   // 3 — the applied tender lines (the durable source of the tender summary).
-  const tenderStmt = db.prepare(
-    `SELECT tender_type, amount_applied_minor, change_due_minor,
-            external_reference, voucher_authority_redemption_id
-       FROM payment_tender_lines
-      WHERE payment_attempt_id = ? AND state = 'applied'
-      ORDER BY apply_order ASC`,
-  ) as PrepareAll<TenderLineRow>;
-  const tenderRows = tenderStmt.all(payment_attempt_id);
-  const tender_lines_summary: FinalizeTenderLineSummary[] = tenderRows.map((row) => {
-    const summary: FinalizeTenderLineSummary = {
-      tender_type: row.tender_type as SalesTenderType,
-      amount_applied_minor: row.amount_applied_minor,
-    };
-    if (row.change_due_minor !== null) summary.change_due_minor = row.change_due_minor;
-    if (row.external_reference !== null) summary.external_reference = row.external_reference;
-    if (row.voucher_authority_redemption_id !== null) {
-      summary.voucher_authority_redemption_id = row.voucher_authority_redemption_id;
-    }
-    return summary;
-  });
-  const total_change_due_minor = tenderRows.reduce(
-    (sum, row) => sum + (row.tender_type === 'cash' ? (row.change_due_minor ?? 0) : 0),
-    0,
-  );
+  const { tender_lines_summary, total_change_due_minor } = appliedTenders(db, payment_attempt_id);
 
-  // 4 — the terminal_assignment row (single row at id = 1).
+  // 4 —the terminal_assignment row (single row at id = 1).
   const assignmentStmt = db.prepare(
     `SELECT terminal_label, branch_name, branch_address, tenant_tax_registration_id
        FROM terminal_assignment WHERE id = 1`,
