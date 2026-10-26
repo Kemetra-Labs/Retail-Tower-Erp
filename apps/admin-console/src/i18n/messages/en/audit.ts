@@ -35,6 +35,12 @@ export const audit: MessagesOf<typeof ar> = {
   "audit.continuation.failed": "Could not load more audit events. The events above are kept.",
   "audit.continuation.retry": "Retry",
 
+  "audit.action.supportSessionOpened": "Support session opened",
+  "audit.action.supportSessionRenewed": "Support session renewed",
+  "audit.action.supportSessionEnded": "Support session ended",
+  "audit.action.crossTenantAccessed": "Platform support access",
+  "audit.action.crossTenantRefused": "Platform support access refused",
+
   "audit.table.caption": "Audit events",
   "audit.table.requestShort": "Req",
 
