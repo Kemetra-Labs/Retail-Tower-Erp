@@ -60,6 +60,13 @@ describe('main/index.ts wires RT-215 (device revoked + pairing recovery)', () =>
     expect(source).toMatch(
       /startSaleSyncEngine\(\s*\{\s*guardedIpcMain,\s*db,\s*salesRepo,\s*backendFetch,\s*operatorSessionManager,\s*operatorEnvelopeHolder,\s*pairingStore,\s*secretStore,\s*deviceTokenKey: DEVICE_TOKEN_KEY,/,
     );
+    // Same registry as the finalize listener and every other worker, so `workerRegistry.stopAll()`
+    // at quit stops the sale-sync interval before the DB handle closes.
+    expect(source).toMatch(
+      /startSaleSyncEngine\(\s*\{[^}]*deviceAuthDetector,\s*terminalStatusPublisher,\s*workerRegistry,\s*mainLogger,?\s*\},\s*pairingStatus,?\s*\)/,
+    );
+    expect(count(/const workerRegistry = createWorkerRegistry\(/g)).toBe(1);
+    expect(count(/workerRegistry\.stopAll\(\)/g)).toBe(1);
     expect(source).toMatch(/\(await readSendableDeviceToken\(\)\) \?\? ''/); // sign-in attestation
   });
 
