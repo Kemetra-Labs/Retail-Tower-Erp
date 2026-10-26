@@ -29,6 +29,10 @@
  * with the same whole quantities, none twice (in `returns-dispatch`).
  */
 import { compareCodeUnits } from '../../shared/compare-code-units.js';
+import {
+  computeManualDiscount,
+  type ManualDiscountKind,
+} from '../../shared/cart/manual-discount.js';
 import { exponentFor } from '../sales-sync/create-sale-sync-client.js';
 import { amount4ToMinor, parseAmount4, parseWholeQuantity } from './returns-money.js';
 import type { JournalLine } from './returns-repository.js';
@@ -45,19 +49,27 @@ interface SnapshotLine {
 
 /**
  * RT-858: the line amount the capture sent — the gross, or for a discounted
- * line the net. Null (never equal to a server amount) when the frozen discount
- * has no safe integer `amount_minor`.
+ * line the net. The frozen discount must hold as the capture checks it: its
+ * kind and value give its `amount_minor` on the gross by the RT-699 math.
+ * Anything else is null, which never equals a server amount (fail closed).
  */
 function snapshotLineAmount(line: SnapshotLine): unknown {
   const { discount, line_subtotal_minor: gross } = line;
   if (discount === undefined || discount === null) return gross;
-  const amount =
-    typeof discount === 'object'
-      ? (discount as Record<string, unknown>)['amount_minor']
-      : undefined;
-  return Number.isSafeInteger(amount) && Number.isSafeInteger(gross)
-    ? (gross as number) - (amount as number)
-    : null;
+  if (typeof discount !== 'object' || typeof gross !== 'number') return null;
+  return frozenNet(gross, discount as Record<string, unknown>);
+}
+
+function isDiscountKind(kind: unknown): kind is ManualDiscountKind {
+  return kind === 'percent' || kind === 'amount';
+}
+
+/** The net a frozen discount gives on the gross, or null when it does not hold. */
+function frozenNet(gross: number, frozen: Record<string, unknown>): number | null {
+  const { kind, value, amount_minor } = frozen;
+  if (!isDiscountKind(kind) || typeof value !== 'number') return null;
+  const priced = computeManualDiscount(gross, { kind, value });
+  return priced !== null && priced.amount_minor === amount_minor ? priced.net_minor : null;
 }
 
 function lineKey(parts: readonly unknown[]): string {

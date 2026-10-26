@@ -128,12 +128,13 @@ describe('RT-858 — return lookup on a discounted sale', () => {
     expect(isExpectedSale(gross, EXPECTED)).toBe(false);
   });
 
-  it('a malformed frozen discount matches nothing (fail closed)', () => {
-    const broken = JSON.stringify([
-      { ...LINES[0], discount: { kind: 'percent', value: 10 } },
-      LINES[1],
-      LINES[2],
-    ]);
+  it.each<[string, Record<string, unknown>]>([
+    ['no amount', { kind: 'percent', value: 10 }],
+    ['an amount alone', { amount_minor: 250 }],
+    ['an amount the kind and value do not give', { kind: 'percent', value: 20, amount_minor: 250 }],
+    ['an unknown kind', { kind: 'bogo', value: 10, amount_minor: 250 }],
+  ])('a malformed frozen discount (%s) matches nothing (fail closed)', (_name, frozen) => {
+    const broken = JSON.stringify([{ ...LINES[0], discount: frozen }, LINES[1], LINES[2]]);
     expect(isExpectedSale(servedSale(LINES_JSON), { ...EXPECTED, linesJson: broken })).toBe(false);
   });
 
