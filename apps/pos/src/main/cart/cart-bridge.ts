@@ -3,6 +3,11 @@ import { randomUUID } from 'node:crypto';
 import type { Logger } from 'pino';
 
 import type { OperatorSessionRecord } from '../operator/session-manager.js';
+import {
+  authorityClockOf,
+  newSaleBlock,
+  type NewSaleBlock,
+} from '../operator/offline-authority.js';
 import type {
   CartCreateRequest,
   CartCreateResponse,
@@ -223,6 +228,11 @@ export interface CartBridgeHandlersDeps {
   resolveItemRef?: ItemRefResolver;
   /** Optional clock for testability. Defaults to `() => new Date()`. */
   clock?: () => Date;
+  /**
+   * RT-308 — the monotonic clock (ms) for the offline authority bound.
+   * Defaults to `performance.now()`.
+   */
+  monotonicNow?: () => number;
 
   /**
    * Optional audit emitter. Required for post-handoff cancel audit emission.
@@ -684,6 +694,11 @@ export class CartBridgeHandlers {
     this.clock = deps.clock ?? ((): Date => new Date());
   }
 
+  /** RT-113 P2 / RT-308 — why this session may not start a new sale, or null. */
+  private newSaleBlock(session: OperatorSessionRecord): NewSaleBlock | null {
+    return newSaleBlock(session, authorityClockOf(this.clock, this.deps.monotonicNow));
+  }
+
   // ── cart.create ─────────────────────────────────────────────────────
 
   async create(req: CartCreateRequest): Promise<CartCreateResponse> {
@@ -698,7 +713,9 @@ export class CartBridgeHandlers {
     // RT-113 P2 — a session that lost its authority may finish or void the
     // current sale but must not start a new one. (The safe-point re-check
     // after this call runs at the IPC choke point, `sale-boundary-guard.ts`.)
-    if (session.authority_latch !== undefined) return refuse('authority_conflict');
+    // RT-308 — nor may an offline-admitted session past its grant's expiry.
+    const blocked = this.newSaleBlock(session);
+    if (blocked !== null) return refuse(blocked);
 
     // #380 (F-007) — resolve the REAL terminal_id before doing any work. An
     // unpaired terminal cannot stamp a cart row (carts.terminal_id is NOT
@@ -798,12 +815,11 @@ export class CartBridgeHandlers {
     // RT-113 P2 — while the session is latched, an EMPTY cart is a safe point,
     // not the start of a new sale: refuse. The current non-empty sale may grow.
     // Checked AFTER the lookup await (the heartbeat may latch the session
-    // during it) and before the synchronous write below.
-    if (
-      gated.session.authority_latch !== undefined &&
-      store.getActiveLines(req.cart_id).length === 0
-    ) {
-      return refuse('authority_conflict');
+    // during it) and before the synchronous write below. RT-308: the same for
+    // an offline-admitted session past its grant's expiry.
+    const blocked = this.newSaleBlock(gated.session);
+    if (blocked !== null && store.getActiveLines(req.cart_id).length === 0) {
+      return refuse(blocked);
     }
 
     // Q4 merge path — application-layer uniqueness on (cart_id, item_ref) among active lines.
@@ -1098,14 +1114,15 @@ export class CartBridgeHandlers {
     const plan = planUndo(store, cart, req);
     if (plan.kind !== 'ok') return plan;
 
-    // RT-113 P2 — same safe-point rule as `linesAdd`: a latched session may
-    // not bring an emptied cart back to life.
+    // RT-113 P2 — same safe-point rule as `linesAdd`: a latched session (or,
+    // RT-308, an expired offline one) may not bring an emptied cart back.
+    const blocked = this.newSaleBlock(session);
     if (
       plan.effect === 'restored' &&
-      session.authority_latch !== undefined &&
+      blocked !== null &&
       store.getActiveLines(req.cart_id).length === 0
     ) {
-      return refuse('authority_conflict');
+      return refuse(blocked);
     }
 
     const now = this.clock().toISOString();

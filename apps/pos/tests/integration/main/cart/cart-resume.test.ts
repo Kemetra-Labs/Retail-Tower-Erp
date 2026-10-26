@@ -465,6 +465,26 @@ describe('cart.resume — other refusals', () => {
     });
   });
 
+  it('RT-308: an expired offline session may hold its current sale but not resume one', async () => {
+    const parked = await parkedSale([PARA]);
+    const current = await openSale(w, [IBUP]);
+    const s = w.session;
+    if (s === null) throw new Error('no session');
+    // Admitted offline from a sealed grant that has since expired (both bounds past).
+    w.session = {
+      ...s,
+      authority: 'offline_grant',
+      authority_valid_until_ms: 0,
+      authority_deadline_mono_ms: 0,
+    };
+    expect(w.parks.park({ cart_id: current, idempotency_key: 'k-hold-expired' })).toEqual({
+      kind: 'parked',
+    });
+    expect(w.parks.resume(resumeReq(parked))).toMatchObject({
+      reason: 'offline_authority_expired',
+    });
+  });
+
   it('replays the first outcome, and refuses a different request under the same key', async () => {
     const cart = await parkedSale([PARA]);
     const req = resumeReq(cart);

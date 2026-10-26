@@ -127,6 +127,9 @@ const MAIN_ONLY_AUDIT_CATEGORIES: ReadonlySet<string> = new Set([
   'operator.session.locked',
   'operator.session.unlocked',
   'operator.offline_grant.invalidated',
+  // RT-308 — emitted only by the offline cashier admission.
+  'operator.signin.offline_admitted',
+  'operator.signin.offline_refused',
   'pairing.device_revoked',
   'pairing.device_revoked_cleared',
   // RT-438 (MA-1) — manager PIN lifecycle, emitted only by the credential store.
