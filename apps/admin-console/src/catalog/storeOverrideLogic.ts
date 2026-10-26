@@ -150,7 +150,8 @@ export function buildOverrideBody(
 /**
  * After a `stale_write` the product is read again. What the person changed is
  * kept; every other field takes the fresh value, so the next write cannot put
- * back somebody else's change.
+ * back somebody else's change. A tax category that differs only by spaces at
+ * its ends is no edit (D5, as in the body), so it takes the fresh value too.
  */
 export function mergeOverrideReload(
   oldBase: OverrideFormValues,
@@ -161,7 +162,9 @@ export function mergeOverrideReload(
     availability:
       typed.availability === oldBase.availability ? freshBase.availability : typed.availability,
     taxCategory:
-      typed.taxCategory === oldBase.taxCategory ? freshBase.taxCategory : typed.taxCategory,
+      typed.taxCategory.trim() === oldBase.taxCategory.trim()
+        ? freshBase.taxCategory
+        : typed.taxCategory,
   };
 }
 

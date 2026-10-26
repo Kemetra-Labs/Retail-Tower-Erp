@@ -166,6 +166,16 @@ describe("stale write: the reload keeps what the person changed", () => {
       taxCategory: "reduced",
     });
   });
+
+  test("a tax category that differs only by spaces at its ends is no edit: it takes the fresh value (D5)", () => {
+    const oldBase = { availability: "inherit", taxCategory: "zero" } as const;
+    const typed = { availability: "inherit", taxCategory: " zero " } as const;
+    const fresh = { availability: "inherit", taxCategory: "reduced" } as const;
+    const merged = mergeOverrideReload(oldBase, typed, fresh);
+    expect(merged.taxCategory).toBe("reduced");
+    // So the next Save sends nothing and cannot put back "zero" over the other change.
+    expect(buildOverrideBody(fresh, merged, "t1", true)).toBeNull();
+  });
 });
 
 describe("where each failure goes", () => {
