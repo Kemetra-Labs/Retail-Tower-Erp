@@ -1,9 +1,11 @@
 import { useRef, useState } from 'react';
 import type { CartBridgeAPI } from '../../../shared/bridge-api';
 import type { ProductSnapshotDisplay } from '../../../shared/catalogue/product-snapshot';
+import type { CartDiscountPlaceholdersAddResponse } from '../../../shared/cart/bridge-types';
 import type {
   AddedLineResult,
   CartLineItem,
+  DiscountAddInput,
   useSaleCartController,
 } from '../../sale/useSaleCartController';
 import { useSaleUndo } from '../../sale/useSaleUndo';
@@ -12,6 +14,7 @@ import { focusScanOwner } from '../../scan/scan-anchor';
 import { useCartStore } from '../../stores/cart-store';
 import { useLineFlagsStore } from '../../stores/line-flags-store';
 import { acknowledgeDrawerNotice } from '../../ui/receipts/drawer-notice-store';
+import { DISCOUNT_COPY } from './discount/discount-copy';
 
 type SaleCart = ReturnType<typeof useSaleCartController>;
 
@@ -48,6 +51,8 @@ export function useLiveSaleActions(
   // RT-445: the sale just parked (its label, if any); acknowledged until the next line lands.
   const [parked, setParked] = useState<{ label: string | null } | null>(null);
   const [lastAdd, setLastAdd] = useState<LastAdd | null>(null);
+  // RT-855: a discount refusal shown beside the total until the next cart action.
+  const [discountNotice, setDiscountNotice] = useState<string | null>(null);
   const removalsRef = useRef(new Set<string>());
   const undo = useSaleUndo({
     resync: cart.resync,
@@ -62,6 +67,7 @@ export function useLiveSaleActions(
     lane.cancelPending();
     cart.startNewSale();
     setLastAdd(null);
+    setDiscountNotice(null);
     undo.clear();
     focusScanOwner();
   };
@@ -71,6 +77,7 @@ export function useLiveSaleActions(
     voided,
     parked,
     lastAdd,
+    discountNotice,
     acceptAddedLine: (
       line: AddedLineResult,
       actionId: string,
@@ -79,6 +86,7 @@ export function useLiveSaleActions(
     ): void => {
       setVoided(false);
       setParked(null);
+      setDiscountNotice(null);
       cart.acceptAddedLine(line);
       // 15 §3.1 rule 6: after an add the next scan is the next thing the cashier does.
       focusScanOwner();
@@ -92,7 +100,11 @@ export function useLiveSaleActions(
     onAddQueued: undo.withdraw,
     onIncrement: (line: CartLineItem): void => {
       undo.dismiss();
-      void cart.incrementLine(line.lineId, line.version);
+      setDiscountNotice(null);
+      void cart.incrementLine(line.lineId, line.version).then((refused) => {
+        // OD-28-7 fallback (D1 QtyRefused): the stepper is disabled on a discounted line.
+        if (refused === 'line_discounted') setDiscountNotice(DISCOUNT_COPY.qtyRefused);
+      });
     },
     // Only a noted one-unit line reaches here at quantity 1: main records that
     // decrement as a remove, so it is undoable and, like Delete, sent once at a time.
@@ -111,6 +123,7 @@ export function useLiveSaleActions(
     onRemove: (line: CartLineItem): void => {
       // A repeat press while the first remove is in flight changes nothing: keep its offer.
       if (cart.isRemoving(line.lineId)) return;
+      setDiscountNotice(null);
       const ticket = undo.withdraw();
       const cartId = useCartStore.getState().activeCart?.cart_id;
       void cart.removeLine(line.lineId, line.version).then((actionId) => {
@@ -125,12 +138,23 @@ export function useLiveSaleActions(
     },
     onRemoveDiscount: (id: string): void => {
       undo.dismiss();
+      setDiscountNotice(null);
       void cart.removeDiscount(id);
     },
+    /** RT-855: a manual discount add; like every other mutation it withdraws the Undo offer. */
+    onAddDiscount: (
+      input: DiscountAddInput,
+    ): Promise<CartDiscountPlaceholdersAddResponse | null> => {
+      undo.dismiss();
+      setDiscountNotice(null);
+      return cart.addDiscount(input);
+    },
+    onDiscountRefused: setDiscountNotice,
     // Never raced against an add: the freeze waits until every admitted add has settled.
     onHandoff: (): void => {
       if (lane.busy) return;
       undo.dismiss();
+      setDiscountNotice(null);
       void cart.handoff();
     },
     // Reset only after the bridge confirms the void; a refusal or rejected

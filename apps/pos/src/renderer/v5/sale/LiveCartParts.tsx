@@ -1,4 +1,5 @@
-import { useRef, useState, type JSX, type MouseEvent } from 'react';
+import { useId, useRef, useState, type JSX, type MouseEvent } from 'react';
+import type { ManualDiscountReasonCode } from '../../../shared/cart/manual-discount';
 import type { CartLineItem } from '../../sale/useSaleCartController';
 import { formatHumanMoney } from '../../ui/format/human-format';
 import { Icon } from '../../icons/Icon';
@@ -8,6 +9,8 @@ import { focusScanOwner } from '../../scan/scan-anchor';
 import type { RemovalControl } from './useRemovalFocus';
 import { SaleProductFlags } from './SaleProductFlags';
 import type { LineFlags } from '../../stores/line-flags-store';
+import { approvedByLabel, DISCOUNT_COPY, reasonLabel } from './discount/discount-copy';
+import { DiscountAmount, DiscountKindLabel } from './discount/DiscountParts';
 
 // Legacy LineNotePopover parity: same length cap, unchanged-save and empty-clear guards.
 const NOTE_MAX_LENGTH = 200;
@@ -16,8 +19,25 @@ export function money(minor: number): string {
   return formatHumanMoney(minor);
 }
 
+/** RT-855 — the manual discount on one line, as the cart shows it. */
+export interface LineDiscountView {
+  readonly placeholderId: string;
+  readonly token: string | null;
+  readonly reasonCode: ManualDiscountReasonCode | null;
+  readonly approverName: string | null;
+  /** The discount amount; null when this renderer cannot compute it (shown as «—»). */
+  readonly amountMinor: number | null;
+}
+
 interface LineProps {
   line: CartLineItem;
+  /** RT-855 — the line's manual discount, if any (OD-28-6: at most one). */
+  discount?: LineDiscountView | null | undefined;
+  /** RT-855 (OD-1) — the line «خصم» acts on. */
+  selected?: boolean;
+  /** Focus entered the row: it becomes the selected line. */
+  onSelect?: ((line: CartLineItem) => void) | undefined;
+  onRemoveDiscount?: ((placeholderId: string) => void) | undefined;
   /** RT-242 (M-S9): the add-time product flags, shown as a badge beside the name. */
   flags?: LineFlags | undefined;
   index: number;
@@ -52,14 +72,20 @@ function settleRowFocus(event: MouseEvent<HTMLButtonElement>, keyboardPlan?: () 
  */
 export function CartLineRow(props: Readonly<LineProps>): JSX.Element {
   const { line } = props;
+  const qtyNoteId = useId();
+  const discount = props.discount ?? null;
   return (
     <li
       className="v5-sale-cart-line"
       data-fit-row
       data-line-id={line.lineId}
       data-last-added={props.lastAdded === true ? 'true' : undefined}
+      data-selected={props.selected === true ? 'true' : undefined}
       data-flash={props.flashing === true ? 'true' : undefined}
       tabIndex={-1}
+      onFocus={() => {
+        props.onSelect?.(line);
+      }}
     >
       <span className="v5-sale-line-index" dir="ltr">
         {props.index + 1}
@@ -69,7 +95,10 @@ export function CartLineRow(props: Readonly<LineProps>): JSX.Element {
         {props.flags && <SaleProductFlags product={props.flags} />}
         {line.note && <span className="v5-sale-line-meta">ملاحظة: {line.note}</span>}
       </div>
-      <QuantityControl {...props} />
+      <QuantityControl
+        {...props}
+        frozenBy={discount !== null && props.editable ? qtyNoteId : null}
+      />
       <span className="v5-sale-line-unit" dir="ltr">
         {money(line.unitPriceMinor)}
       </span>
@@ -103,12 +132,79 @@ export function CartLineRow(props: Readonly<LineProps>): JSX.Element {
           </>
         )}
       </div>
+      {discount !== null && (
+        <LineDiscountRow
+          discount={discount}
+          editable={props.editable}
+          onRemove={props.onRemoveDiscount}
+        />
+      )}
+      {discount !== null && props.editable && (
+        <p id={qtyNoteId} className="v5-discount-qty-note">
+          {DISCOUNT_COPY.qtyDisabled}
+        </p>
+      )}
     </li>
   );
 }
 
-function QuantityControl(props: Readonly<LineProps>): JSX.Element {
+/**
+ * RT-855 (D1 Discounted, OD-28-11) — the row under a discounted line: «خصم
+ * 10%» (or «خصم» for an amount), the reason, «بموافقة: …», the amount in the
+ * line-total column and «إزالة الخصم» (any role, D4). The line's own total
+ * stays its gross.
+ */
+function LineDiscountRow(
+  props: Readonly<{
+    discount: LineDiscountView;
+    editable: boolean;
+    onRemove: ((placeholderId: string) => void) | undefined;
+  }>,
+): JSX.Element {
+  const { discount } = props;
+  return (
+    <div className="v5-discount-row">
+      <span className="v5-discount-what">
+        <DiscountKindLabel token={discount.token} />
+        {discount.reasonCode !== null && (
+          <span className="v5-discount-meta">{reasonLabel(discount.reasonCode)}</span>
+        )}
+        {discount.approverName !== null && (
+          <span className="v5-discount-meta">
+            <bdi>{approvedByLabel(discount.approverName)}</bdi>
+          </span>
+        )}
+      </span>
+      <DiscountAmount minor={discount.amountMinor} className="v5-discount-amount" />
+      <div className="v5-live-line-actions">
+        {props.editable && (
+          <button
+            type="button"
+            data-row-action="remove-discount"
+            onClick={(event) => {
+              // Keyboard: the button goes with the discount, so the row keeps focus.
+              const row = event.currentTarget.closest<HTMLElement>('li');
+              settleRowFocus(event, () => row?.focus());
+              props.onRemove?.(discount.placeholderId);
+            }}
+          >
+            {DISCOUNT_COPY.removeDiscount}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * OD-28-7 / D1 OD-4 (QtyDisabled): a discounted line's quantity cannot change,
+ * so its stepper is disabled and names why (`frozenBy` is the note's id).
+ * «حذف» still removes the line.
+ */
+function QuantityControl(props: Readonly<LineProps & { frozenBy: string | null }>): JSX.Element {
   const { line } = props;
+  const frozen = props.frozenBy !== null;
+  const describedBy = props.frozenBy ?? undefined;
   // Legacy stepper parity: at one, a note-less line is removed; a noted line decrements.
   function decrement(event: MouseEvent<HTMLButtonElement>): void {
     if (line.quantity <= 1 && line.note === null) {
@@ -128,6 +224,8 @@ function QuantityControl(props: Readonly<LineProps>): JSX.Element {
           type="button"
           data-row-action="decrement"
           aria-label={`إنقاص كمية ${line.displayName}`}
+          aria-describedby={describedBy}
+          disabled={frozen}
           onClick={decrement}
         >
           <Icon name="remove" />
@@ -139,6 +237,8 @@ function QuantityControl(props: Readonly<LineProps>): JSX.Element {
           type="button"
           data-row-action="increment"
           aria-label={`زيادة كمية ${line.displayName}`}
+          aria-describedby={describedBy}
+          disabled={frozen}
           onClick={(event) => {
             settleRowFocus(event);
             props.onIncrement(line);
