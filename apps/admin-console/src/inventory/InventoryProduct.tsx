@@ -4,7 +4,12 @@
  * Shows the derived physical on-hand, its sellable share and the split by
  * inventory status, exactly as the API's strings, with the API's negative
  * flag. A failed read is Unknown, never zero. This is Retail Tower's derived
- * on-hand, not ERPNext book stock (that stays on the stock-discrepancy view).
+ * on-hand, not ERPNext book stock: ERP Book is labelled separately and only
+ * links to the store's ERPNext snapshot view (RT-436: no typed per-product
+ * read of it exists in Backend-Core, so no number is shown).
+ *
+ * RT-436 adds the status-disposition action (StatusMoveSection) for the roles
+ * `createStatusMove` accepts.
  *
  * Tracking identities (`listTrackingIdentities`) are requested only for owner /
  * tenant_admin, the API's roles; a 403 / 404 omits the section. Read-only.
@@ -16,7 +21,9 @@ import { useT } from "@/i18n";
 import type { OnHand, TrackingIdentity } from "@/lib/inventory-queries";
 import { ScopeMismatchBanner } from "@/shell/ScopeMismatchBanner";
 import { useSignOut } from "@/shell/useSignOut";
-import { useParams } from "react-router";
+import { canReadStockDiscrepancies } from "@/stock-discrepancies/stockDiscrepancyLogic";
+import { Link, useParams } from "react-router";
+import { StatusMoveSection } from "./StatusMoveSection";
 import {
   canReadInventory,
   canReadTracking,
@@ -26,6 +33,7 @@ import {
   trackingKindKey,
 } from "./inventoryLogic";
 import { BackLink, LoadMore, Machine, Quantity, ReadError, StaleError, Unknown } from "./parts";
+import { canMoveStock } from "./statusMoveLogic";
 import {
   type InventoryScope,
   type PagedState,
@@ -49,7 +57,36 @@ function Unit({ unit }: Readonly<{ unit: string | null | undefined }>): React.JS
   return unit ? <Machine value={unit} /> : <Unknown />;
 }
 
-function OnHandFigures({ onHand }: Readonly<{ onHand: OnHand }>): React.JSX.Element {
+/**
+ * ERP Book is ERPNext's own recorded quantity. Backend-Core exposes no typed
+ * per-product read of it (only the store's negative-quantity list and untyped
+ * reconciliation detail), so no number is shown here: the label points to the
+ * store's ERPNext snapshot view, which is the existing surface for it.
+ */
+function ErpBookEntry({
+  storeId,
+  role,
+}: Readonly<{ storeId: string; role: string | null }>): React.JSX.Element {
+  const t = useT();
+  return (
+    <div>
+      <dt>{t("inventory.onHand.erpBook")}</dt>
+      <dd data-testid="on-hand-erp-book" className="inventory__erp-book">
+        {canReadStockDiscrepancies(role) ? (
+          <Link to={`/stock-discrepancies/${storeId}`}>{t("inventory.onHand.erpBookLink")}</Link>
+        ) : (
+          t("inventory.onHand.erpBookNone")
+        )}
+      </dd>
+    </div>
+  );
+}
+
+function OnHandFigures({
+  onHand,
+  storeId,
+  role,
+}: Readonly<{ onHand: OnHand; storeId: string; role: string | null }>): React.JSX.Element {
   const t = useT();
   return (
     <>
@@ -69,6 +106,7 @@ function OnHandFigures({ onHand }: Readonly<{ onHand: OnHand }>): React.JSX.Elem
             <Quantity value={onHand.sellableQuantity} /> <Unit unit={onHand.stockingUnit} />
           </dd>
         </div>
+        <ErpBookEntry storeId={storeId} role={role} />
       </dl>
       <div className="table-scroll">
         <table className="data-table">
@@ -94,11 +132,20 @@ function OnHandFigures({ onHand }: Readonly<{ onHand: OnHand }>): React.JSX.Elem
         </table>
       </div>
       <p className="inventory__note">{t("inventory.onHand.note")}</p>
+      <p className="inventory__note">{t("inventory.onHand.erpBookNote")}</p>
     </>
   );
 }
 
-function OnHandSection({ onHand }: Readonly<{ onHand: ReadState<OnHand> }>): React.JSX.Element {
+function OnHandSection({
+  onHand,
+  storeId,
+  role,
+}: Readonly<{
+  onHand: ReadState<OnHand>;
+  storeId: string;
+  role: string | null;
+}>): React.JSX.Element {
   const t = useT();
   let body: React.JSX.Element;
   if (onHand.isLoading) {
@@ -106,7 +153,7 @@ function OnHandSection({ onHand }: Readonly<{ onHand: ReadState<OnHand> }>): Rea
   } else if (onHand.data) {
     body = (
       <>
-        <OnHandFigures onHand={onHand.data} />
+        <OnHandFigures onHand={onHand.data} storeId={storeId} role={role} />
         <StaleError error={onHand.inlineError} onRetry={onHand.retry} />
       </>
     );
@@ -245,7 +292,15 @@ function ProductView({
           </p>
         </div>
       </header>
-      <OnHandSection onHand={onHand} />
+      <OnHandSection onHand={onHand} storeId={target.storeId} role={scope.role} />
+      {canMoveStock(scope.role) ? (
+        <StatusMoveSection
+          scope={scope}
+          storeId={target.storeId}
+          productId={target.productId}
+          onHand={onHand}
+        />
+      ) : null}
       {canReadTracking(scope.role) ? <TrackingSection target={{ scope, ...target }} /> : null}
     </div>
   );
