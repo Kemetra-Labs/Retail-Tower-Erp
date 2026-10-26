@@ -79,11 +79,11 @@ export class PgReplayPurgeRepository implements ReplayPurgeRepository {
 
 /** No-DB path (dev / CI without DATABASE_URL): nothing to purge. */
 export class NoOpReplayPurgeRepository implements ReplayPurgeRepository {
-  async listTenantIds(): Promise<string[]> {
-    return [];
+  listTenantIds(): Promise<string[]> {
+    return Promise.resolve([]);
   }
 
-  async purgeExpiredBatch(_tenantId: string, _batchSize: number): Promise<number> {
-    return 0;
+  purgeExpiredBatch(_tenantId: string, _batchSize: number): Promise<number> {
+    return Promise.resolve(0);
   }
 }

@@ -180,7 +180,7 @@ export class ShiftClosesReadService {
     const keyset =
       input.cursor === null ? null : decodeShiftCloseCursor({ tenantId: input.tenantId, cursor: input.cursor });
     const { filters } = input;
-    return this.inTenant(input, async (client) => {
+    return await this.inTenant(input, async (client) => {
       const scope = await this.scopeOf(client, input);
       if (filters.storeId !== undefined) await this.assertStoreInScope(client, input.tenantId, scope, filters.storeId);
       const r = await client.query<ShiftCloseReadRow>(LIST_SQL, [
@@ -216,7 +216,7 @@ export class ShiftClosesReadService {
    * foreign, out of scope or not closed → `ShiftCloseNotFoundError`.
    */
   async get(input: ScopedReadInput, shiftId: string): Promise<ShiftCloseDetail> {
-    return this.inTenant(input, async (client) => {
+    return await this.inTenant(input, async (client) => {
       const scoped = scopeStoreIds(await this.scopeOf(client, input));
       const r = await client.query<ShiftCloseDetailRow>(DETAIL_SQL, [shiftId, input.tenantId, scoped]);
       const row = r.rows[0];

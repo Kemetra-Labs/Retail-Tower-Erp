@@ -186,7 +186,7 @@ export class StoresService {
    * the high-level catalog.
    */
   async list(ctx: ResolvedContext): Promise<StoreRecord[]> {
-    return this.tx(this.pool, txCtx(ctx), (client) =>
+    return await this.tx(this.pool, txCtx(ctx), (client) =>
       this.stores.listInTenant(client),
     );
   }
@@ -268,7 +268,7 @@ export class StoresService {
     // because the caller has a real active tenant). Sharing a
     // transaction also gives the access check and the row read a
     // consistent snapshot.
-    return this.tx(this.pool, txCtx(ctx), async (client) => {
+    return await this.tx(this.pool, txCtx(ctx), async (client) => {
       // Stage 1: store-access policy for non-admin, non-token callers.
       // Token principals don't have memberships in this slice — we let
       // them through to RLS. Platform-admin sessions skip the check.
@@ -322,7 +322,7 @@ export class StoresService {
     timezoneChange?: TimezoneChange,
     meta: StoreWriteMeta = NO_REQUEST_META,
   ): Promise<StoreRecord> {
-    return this.tx(this.pool, txCtx(ctx), async (client) => {
+    return await this.tx(this.pool, txCtx(ctx), async (client) => {
       if (timezoneChange) {
         return this.updateWithTimezone(client, ctx, storeId, next, timezoneChange, meta);
       }
@@ -405,7 +405,7 @@ export class StoresService {
     storeId: string,
     proposedTimezone: string,
   ): Promise<TimezoneChangePreview> {
-    return this.tx(this.pool, txCtx(ctx), async (client) => {
+    return await this.tx(this.pool, txCtx(ctx), async (client) => {
       const store = await this.stores.findById(client, storeId);
       if (!store) throw notFound();
 

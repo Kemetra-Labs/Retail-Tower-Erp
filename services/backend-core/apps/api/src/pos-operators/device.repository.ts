@@ -165,7 +165,7 @@ export class DeviceRepository {
    */
   async findActiveByAttestation(rawAttestation: string): Promise<AuthDeviceRow | null> {
     if (rawAttestation.length === 0) return null;
-    return this.findActive(attestationMatch(hashToken(rawAttestation)));
+    return await this.findActive(attestationMatch(hashToken(rawAttestation)));
   }
 
   /**
@@ -244,7 +244,7 @@ export class DeviceRepository {
    * the device id from the operator envelope's `auth_tokens` row.
    */
   async findActiveById(deviceId: string): Promise<AuthDeviceRow | null> {
-    return this.findActive(eq(devices.id, deviceId));
+    return await this.findActive(eq(devices.id, deviceId));
   }
 
   /**

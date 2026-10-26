@@ -202,7 +202,7 @@ export class StockRunSweepProcessor {
 
   /** Process a job without a known scheduled time (period from the clock). */
   async process(jobName: string, data: unknown): Promise<StockRunSweepResult> {
-    return this.processJob({ name: jobName, data });
+    return await this.processJob({ name: jobName, data });
   }
 
   async processJob(job: SweepJob): Promise<StockRunSweepResult> {

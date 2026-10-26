@@ -55,7 +55,7 @@ export class DrizzleAuditRetentionRepository implements AuditRetentionRepository
  */
 @Injectable()
 export class NoOpAuditRetentionRepository implements AuditRetentionRepository {
-  async markBatch(_cutoff: Date, _markedAt: Date, _batchSize: number): Promise<number> {
-    return 0;
+  markBatch(_cutoff: Date, _markedAt: Date, _batchSize: number): Promise<number> {
+    return Promise.resolve(0);
   }
 }

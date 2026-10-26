@@ -982,7 +982,7 @@ async function defaultPendingQuery(pool: Pool): Promise<OutboxPendingRow[]> {
       }) => Promise<T>,
     ) => Promise<T>;
   };
-  return runWithTenantContext(
+  return await runWithTenantContext(
     pool,
     { tenantId: null, isPlatformAdmin: true },
     async (client) => {

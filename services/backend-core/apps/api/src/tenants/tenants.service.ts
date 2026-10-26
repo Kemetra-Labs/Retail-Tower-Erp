@@ -318,7 +318,7 @@ export class TenantsService {
       this.pool,
       { tenantId, isPlatformAdmin: isAdmin },
       async (client) => {
-        return this.memberships.listForTenant(client, tenantId);
+        return await this.memberships.listForTenant(client, tenantId);
       },
     );
   }
@@ -348,7 +348,7 @@ export class TenantsService {
   ): Promise<boolean> {
     if (principal.kind !== "session") return false;
     if (!userId) return false;
-    return this.memberships.isPlatformAdmin(userId);
+    return await this.memberships.isPlatformAdmin(userId);
   }
 
 }

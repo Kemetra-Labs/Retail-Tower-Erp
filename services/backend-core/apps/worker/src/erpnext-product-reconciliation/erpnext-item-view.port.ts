@@ -29,16 +29,16 @@ export interface ErpnextItemViewSource {
 
 /** The v1 stub: UNAVAILABLE, no items — a REPORTED condition, never a failure. */
 export const EMPTY_ERPNEXT_ITEM_VIEW: ErpnextItemViewSource = {
-  async fetch(): Promise<ErpnextItemView> {
-    return { status: "unavailable", items: [] };
+  fetch(): Promise<ErpnextItemView> {
+    return Promise.resolve({ status: "unavailable", items: [] });
   },
 };
 
 /** A recorded/stub adapter usable in tests: returns a fixed item view. */
 export function recordedItemView(view: ErpnextItemView): ErpnextItemViewSource {
   return {
-    async fetch(): Promise<ErpnextItemView> {
-      return view;
+    fetch(): Promise<ErpnextItemView> {
+      return Promise.resolve(view);
     },
   };
 }

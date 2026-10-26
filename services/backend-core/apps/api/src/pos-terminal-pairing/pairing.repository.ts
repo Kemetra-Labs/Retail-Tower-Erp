@@ -185,7 +185,7 @@ export class PairingRepository {
     const rawToken = generateRawToken();
     const tokenHash = hashToken(rawToken);
 
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client: PoolClient): Promise<BurnOutcome> => {

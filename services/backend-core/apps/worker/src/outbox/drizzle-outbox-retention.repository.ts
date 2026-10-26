@@ -122,10 +122,10 @@ export class DrizzleOutboxRetentionRepository implements OutboxRetentionReposito
  */
 @Injectable()
 export class NoOpOutboxRetentionRepository implements OutboxRetentionRepository {
-  async purgeBatch(
+  purgeBatch(
     _cutoffs: RetentionCutoffs,
     _batchSize: number,
   ): Promise<number> {
-    return 0;
+    return Promise.resolve(0);
   }
 }

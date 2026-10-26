@@ -100,7 +100,8 @@ export class DrizzleAuditDbAdapter implements AuditDbLike {
  */
 @Injectable()
 export class NoOpAuditDbAdapter implements AuditDbLike {
-  async insertAuditEvent(_row: AuditEventInsertRow): Promise<void> {
+  insertAuditEvent(_row: AuditEventInsertRow): Promise<void> {
+    return Promise.resolve();
     // intentionally empty — dev/test environments without DATABASE_URL
   }
 }

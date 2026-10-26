@@ -167,7 +167,7 @@ export class ShiftCashUpController {
   ): Promise<ShiftProjection> {
     const ctx = shiftWriteContext(request);
     const { operatorUserId: _claim, ...fact } = body;
-    return respond(res, () => this.shifts.openShift(ctx, fact));
+    return await respond(res, () => this.shifts.openShift(ctx, fact));
   }
 
   @Post(":shift_id/cash-movements")
@@ -186,7 +186,7 @@ export class ShiftCashUpController {
   ): Promise<CashMovementProjection> {
     const ctx = shiftWriteContext(request);
     const { operatorUserId: _claim, ...fact } = body;
-    return respond(res, () => this.shifts.recordCashMovement(ctx, shiftId, fact));
+    return await respond(res, () => this.shifts.recordCashMovement(ctx, shiftId, fact));
   }
 
   @Post(":shift_id/close")
@@ -210,7 +210,7 @@ export class ShiftCashUpController {
   ): Promise<ShiftProjection> {
     const ctx = shiftWriteContext(request);
     const { operatorUserId: _claim, ...fact } = body;
-    return respond(res, () => this.shifts.closeShift(ctx, shiftId, fact));
+    return await respond(res, () => this.shifts.closeShift(ctx, shiftId, fact));
   }
 
   @Post(":shift_id/forced-close")

@@ -87,7 +87,7 @@ export class PgSaleRedriveRepository implements SaleRedriveRepository {
   constructor(private readonly pool: Pool) {}
 
   async listTenantIds(): Promise<string[]> {
-    return runWithTenantContext(this.pool, { tenantId: null, isPlatformAdmin: true }, async (client) => {
+    return await runWithTenantContext(this.pool, { tenantId: null, isPlatformAdmin: true }, async (client) => {
       const r = await client.query<{ id: string }>(
         `SELECT id FROM tenants WHERE deleted_at IS NULL ORDER BY id`,
       );
@@ -96,7 +96,7 @@ export class PgSaleRedriveRepository implements SaleRedriveRepository {
   }
 
   async findUnprocessedSales(tenantId: string, window: SaleRedriveWindow, limit: number): Promise<StrandedSale[]> {
-    return runWithTenantContext(this.pool, { tenantId, isPlatformAdmin: false }, async (client) => {
+    return await runWithTenantContext(this.pool, { tenantId, isPlatformAdmin: false }, async (client) => {
       const r = await client.query<{ id: string; store_id: string }>(
         `SELECT id, store_id FROM sales
           WHERE tenant_id = $1 AND processed_at IS NULL
@@ -111,7 +111,7 @@ export class PgSaleRedriveRepository implements SaleRedriveRepository {
   }
 
   async reemitMissingIntents(tenantId: string, window: SaleRedriveWindow, limit: number): Promise<ReemittedIntents> {
-    return runWithTenantContext(this.pool, { tenantId, isPlatformAdmin: false }, async (client) => {
+    return await runWithTenantContext(this.pool, { tenantId, isPlatformAdmin: false }, async (client) => {
       // Two overlapping ticks (a retry, or a tick slower than the interval)
       // would otherwise both pass the checks below and both emit.
       const locked = await client.query<{ locked: boolean }>(
@@ -176,15 +176,15 @@ export class PgSaleRedriveRepository implements SaleRedriveRepository {
 
 /** No-DB path (non-production, no pool): the sweep is an empty pass. */
 export class NoOpSaleRedriveRepository implements SaleRedriveRepository {
-  async listTenantIds(): Promise<string[]> {
-    return [];
+  listTenantIds(): Promise<string[]> {
+    return Promise.resolve([]);
   }
 
-  async findUnprocessedSales(): Promise<StrandedSale[]> {
-    return [];
+  findUnprocessedSales(): Promise<StrandedSale[]> {
+    return Promise.resolve([]);
   }
 
-  async reemitMissingIntents(): Promise<ReemittedIntents> {
-    return { salePost: 0, reversal: 0 };
+  reemitMissingIntents(): Promise<ReemittedIntents> {
+    return Promise.resolve({ salePost: 0, reversal: 0 });
   }
 }
