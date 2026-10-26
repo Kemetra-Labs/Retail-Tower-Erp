@@ -14,13 +14,15 @@ import { describe, expect, it } from 'vitest';
  * stays synchronous in the worker registry; the drain promise is not awaited.
  */
 
-const source = readFileSync(resolve(__dirname, '../index.ts'), 'utf-8');
+// RT-900 extraction 6c: the engine, latch and interval wiring moved out of `index.ts` into
+// `bootstrap/sale-sync.ts`; these assertions read that module.
+const source = readFileSync(resolve(__dirname, '../bootstrap/sale-sync.ts'), 'utf-8');
 
 function count(pattern: RegExp): number {
   return source.match(pattern)?.length ?? 0;
 }
 
-describe('main/index.ts wires the sale-sync shutdown latch', () => {
+describe('bootstrap/sale-sync.ts wires the sale-sync shutdown latch', () => {
   it('schedules the sale-sync drain once, through scheduleSaleSync', () => {
     expect(count(/scheduleSaleSync\(/g)).toBe(1);
     expect(source).not.toMatch(/saleSyncEngine\.runTickOnce\(/);
@@ -39,7 +41,7 @@ describe('main/index.ts wires the sale-sync shutdown latch', () => {
     expect(source).not.toMatch(/const SALE_SYNC_DRAIN_TIMEOUT_MS\b/);
     expect(source).not.toMatch(/drainTimeoutMs: \d/);
     expect(source).toMatch(
-      /import \{[^}]*\bSALE_SYNC_DRAIN_TIMEOUT_MS\b[^}]*\} from '\.\/sales-sync\/schedule-sale-sync\.js';/,
+      /import \{[^}]*\bSALE_SYNC_DRAIN_TIMEOUT_MS\b[^}]*\} from '\.\.\/sales-sync\/schedule-sale-sync\.js';/,
     );
     expect(source).toMatch(/drainTimeoutMs: SALE_SYNC_DRAIN_TIMEOUT_MS,/);
   });

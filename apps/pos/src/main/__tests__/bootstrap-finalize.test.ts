@@ -6,8 +6,8 @@ import { describe, expect, it } from 'vitest';
  * RT-893 extraction 6b — static guard on the composition root (`src/main/index.ts` cannot be
  * imported under vitest: it runs `app.whenReady()` at load; same posture as
  * `bootstrap-sales-bridges`). The AD-2 finalize listener wiring moved, verbatim, out of the
- * paired-only starter in `index.ts` into `bootstrap/finalize.ts`. The paired starter itself and
- * the sale-sync engine stay in `index.ts` until their own extraction.
+ * paired-only starter in `index.ts` into `bootstrap/finalize.ts`. The paired starter itself stays
+ * in `index.ts`; * the sale-sync engine wiring moved after it in extraction 6c (see `bootstrap-sale-sync`).
  */
 const indexSource = readFileSync(resolve(__dirname, '../index.ts'), 'utf-8');
 const finalizeSource = readFileSync(resolve(__dirname, '../bootstrap/finalize.ts'), 'utf-8');
@@ -40,7 +40,7 @@ describe('main/index.ts hands the finalize listener to bootstrap/finalize.ts', (
   it('starts the listener first inside the paired starter, before the sale-sync engine', () => {
     const latch = indexSource.indexOf(LATCH);
     const call = indexSource.indexOf('startFinalizeListener(');
-    const engine = indexSource.indexOf('createSaleSyncEngine(');
+    const engine = indexSource.indexOf('startSaleSyncEngine(');
     expect(latch).toBeGreaterThan(-1);
     expect(call).toBeGreaterThan(latch);
     expect(engine).toBeGreaterThan(call);

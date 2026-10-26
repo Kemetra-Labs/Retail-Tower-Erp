@@ -35,7 +35,6 @@ import { registerCashierPinStatusHandler } from './ipc/cashier-pin-status.js';
 import { createLockStateReader, createSafePointProbe } from './operator/lock-state-reader.js';
 import { wireSessionStatePush } from './operator/session-state-push.js';
 import { wireSessionLockAudit } from './operator/session-lock-audit.js';
-import { createSaleSyncTokenReader } from './operator/sale-sync-token.js';
 import { SESSION_LOCK_IPC_CHANNELS } from '../shared/operator/channels.js';
 import { registerPingHandler } from './ipc/ping.js';
 import { registerAppVersionHandler } from './ipc/app-version.js';
@@ -95,35 +94,15 @@ import type { ActionCategory as Audit004ActionCategory } from '../shared/audit/e
 import type { OperatorSessionForPayments } from './payments/require-operator-session.js';
 import { resolveSessionScope } from './operator/resolve-session-scope.js';
 // 011 sale-sync — S5 live HTTP client + engine + status IPC (#349 cleared).
-import { createSaleSyncStateRepo } from './sales-sync/sale-sync-state-repo.js';
-import {
-  CASHIER_CLAIM_REFUSED_RESET_ENV,
-  isCashierClaimRefusedResetRequested,
-  resetCashierClaimRefusedOnStart,
-} from './sales-sync/cashier-claim-refused-reset.js';
-import {
-  createSaleSyncEngine,
-  logSaleSyncPauseTransition,
-  SALE_SYNC_BACKOFF_POLICY,
-} from './sales-sync/sale-sync-engine.js';
-import { createSaleSyncStatusReader } from './sales-sync/sale-sync-status-reader.js';
-import { SALE_DISCOUNT_CAPTURE_SUPPORTED } from './sales-sync/discount-hold.js';
 import { composeTerminalStatus } from './terminal-status/compose-terminal-status.js';
 import { createTerminalStatusPublisher } from './terminal-status/terminal-status-publisher.js';
-import { createTerminalSyncAggregateReader } from './terminal-status/sync-aggregate.js';
 import { registerTerminalStatusHandlers } from './ipc/terminal-status.js';
 import { TERMINAL_STATUS_IPC_CHANNELS } from '../shared/terminal-status/types.js';
-import { composeSaleSyncDevicePath } from './sales-sync/compose-device-path.js';
-import { createCurrentTerminalResolver } from './sales-sync/current-terminal.js';
 import {
   createPairedWorkers,
   withPairedNotification,
   type PairedWorkers,
 } from './app/paired-workers.js';
-import { parseReceiptSince, parseTendersSince } from './sales-sync/capture-payload.js';
-import { createSaleSyncClient } from './sales-sync/create-sale-sync-client.js';
-import { SALE_SYNC_DRAIN_TIMEOUT_MS, scheduleSaleSync } from './sales-sync/schedule-sale-sync.js';
-import { registerSalesSyncHandlers } from './ipc/sales-sync.js';
 import {
   composeShiftCashupService,
   pairedShiftScope,
@@ -153,6 +132,7 @@ import { registerCatalogue } from './bootstrap/catalogue.js';
 import { registerReturns } from './bootstrap/returns.js';
 import { registerSaleVoid } from './bootstrap/sale-void.js';
 import { startFinalizeListener } from './bootstrap/finalize.js';
+import { startSaleSyncEngine } from './bootstrap/sale-sync.js';
 import { registerSalesBridges } from './bootstrap/sales-bridges.js';
 import { registerShift } from './bootstrap/shift.js';
 import { registerUpdater, startUpdater } from './bootstrap/updater.js';
@@ -217,7 +197,6 @@ import {
 } from './pairing/device-auth-detector.js';
 import {
   createRevocationRecheckTokenRead,
-  createSendableDeviceTokenRead,
   createSendableDeviceTokenReader,
 } from './pairing/device-token.js';
 import {
@@ -1866,206 +1845,26 @@ singleInstanceReady
           pairingStatus,
         );
 
-        // 011 S5 (T061/T062, #349 cleared) — wire the live sale-sync engine. It
-        // drains the (008-owned) outbox UP to DP2 captureSale on an interval,
-        // authenticating per-POST with the operator session JWT (read in-process;
-        // never bridged). The engine pauses when no operator session is present and
-        // resumes on the next tick once a session returns. Idempotency, retry/
-        // backoff, and dead-letter are owned by the engine + state repo (unchanged);
-        // the live client only transforms the payload + maps HTTP outcomes.
-        const saleSyncStateRepo = createSaleSyncStateRepo(db);
-        // 016 (D5/D7 + review HIGH): the sale-sync POST authenticates with the
-        // opaque pos_operator ENVELOPE only (`operatorAuthorization` scheme) — read
-        // in-process per POST through the SEPARATE envelope holder. This is the only
-        // pair of call sites that read the envelope; sign-out / stuck-shifts / the
-        // takeover-confirm CALL all read the JWT holder (`operator-identity`). 016
-        // (D7): X-Device-Attestation is retired from the sale wire (#559), so the
-        // client takes no getDeviceAttestation dep. The device token keeps its proper
-        // roles (read-down Bearer + sign-in attestation body) elsewhere — untouched.
-        // RT-224 step 2 (Option B, Backend-Core #709) — device-path sale capture: a
-        // sale with its cashier's `selling_user_id` goes out with the device bearer
-        // + that id; any other sale keeps the envelope path. Wiring and its tests:
-        // `sales-sync/compose-device-path.ts`. RT-215 × RT-224: the token is the
-        // sendable read (null unless paired, null once revoked), and the device
-        // path gets its own fetch, tagged for the 2×401 detector.
-        const saleSyncDevicePath = composeSaleSyncDevicePath({
-          db,
-          readToken: createSendableDeviceTokenRead({
+        // RT-900 extraction 6c — the 011 sale-sync engine: capture client, rollout gates, engine,
+        // status handler, terminal-status sync axis and drain interval (see `bootstrap/sale-sync.ts`).
+        startSaleSyncEngine(
+          {
+            guardedIpcMain,
+            db,
+            salesRepo,
+            backendFetch,
+            operatorSessionManager,
+            operatorEnvelopeHolder,
             pairingStore,
             secretStore,
             deviceTokenKey: DEVICE_TOKEN_KEY,
-          }),
-          currentTerminalId: () => pairingStore.getCurrentTerminalId(),
-          deviceAuth: { fetch: backendFetch, detector: deviceAuthDetector },
-          logger: mainLogger,
-        });
-        const saleSyncClient = createSaleSyncClient({
-          baseUrl: resolveApiBaseUrl(),
-          fetch: backendFetch,
-          getOperatorToken: createSaleSyncTokenReader(
-            operatorSessionManager,
-            operatorEnvelopeHolder,
-          ),
-          ...saleSyncDevicePath.client,
-          // RT-15 S1: a 200/201 without a usable saleRef — the sale is captured but
-          // the till cannot return it. Logs the opaque externalId + a closed-set
-          // reason only (never the body or the rejected value; P7).
-          onSaleRefUnavailable: ({ externalId, reason }) => {
-            mainLogger.warn({ external_id: externalId, reason }, 'sale_sync:sale_ref_unavailable');
+            deviceAuthDetector,
+            terminalStatusPublisher,
+            workerRegistry,
+            mainLogger,
           },
-        });
-        // RT-79 rollout gate: unset = never send tenders (default). Only sales finalized
-        // at/after this explicit-zone ISO instant carry `tenders`. Ops MUST choose a
-        // FUTURE instant, later than BOTH the Backend-Core tender switch going ON and
-        // the restart that loads it here: then no sale at/after the cutoff can have
-        // been sent without tenders by an earlier process (its retry body stays
-        // identical). A past cutoff re-opens that window. Unparseable = off + warning.
-        const tendersSinceRaw = process.env['POS_PULSE_FEATURE_SALE_TENDERS_SINCE'];
-        const tendersSince = parseTendersSince(tendersSinceRaw);
-        if (
-          tendersSinceRaw !== undefined &&
-          tendersSinceRaw.trim() !== '' &&
-          tendersSince === null
-        ) {
-          mainLogger.warn('sale_sync:tenders_since_unparseable_tenders_off');
-        }
-        // RT-540 rollout gate (same rule as the tenders gate above): unset = never send the
-        // `receipt` snapshot (default). Ops MUST choose a FUTURE instant, later than BOTH the
-        // Backend-Core RT-539 deploy and the restart that loads it here, so no sale at/after
-        // the cutoff can already have been sent without it (a changed body under the same
-        // Idempotency-Key is a 409). Unparseable = off + warning.
-        const receiptSinceRaw = process.env['POS_PULSE_FEATURE_SALE_RECEIPT_SINCE'];
-        const receiptSince = parseReceiptSince(receiptSinceRaw);
-        if (
-          receiptSinceRaw !== undefined &&
-          receiptSinceRaw.trim() !== '' &&
-          receiptSince === null
-        ) {
-          mainLogger.warn('sale_sync:receipt_since_unparseable_receipt_off');
-        }
-        // RT-221: the drain (and the pending / held counts) is scoped to the
-        // CURRENT pairing's terminal_id, read live from the pairing status each
-        // tick. After a re-pair, the earlier pairing's queued sales are held —
-        // never replayed under the new device identity (RT-138 L6). Unpaired /
-        // invalid → nothing is eligible.
-        const resolveSaleSyncTerminalId = createCurrentTerminalResolver(() =>
-          pairingStore.getStatus(),
+          pairingStatus,
         );
-        // RT-225 step 3 — support-only repair: with
-        // POS_PULSE_SUPPORT_RESET_CASHIER_CLAIM_REFUSED=1, this terminal's sales
-        // dead-lettered as `cashier_claim_refused` go back to pending before the
-        // drain's first tick, so they are re-sent (with `admissionCheckAt` where it
-        // applies). Unset = nothing. Logs a count only (P7); never throws.
-        resetCashierClaimRefusedOnStart({
-          requested: isCashierClaimRefusedResetRequested(
-            process.env[CASHIER_CLAIM_REFUSED_RESET_ENV],
-          ),
-          stateRepo: saleSyncStateRepo,
-          scope: {
-            tenantId: pairingStatus.tenant_id,
-            branchId: pairingStatus.branch_id,
-            terminalId: pairingStore.getCurrentTerminalId(),
-          },
-          now: new Date().toISOString(),
-          logger: mainLogger,
-        });
-        // RT-198: the shutdown latch, read by the engine (`isStopped`) and set by the
-        // worker stop below, synchronously, before the DB handle closes.
-        let saleSyncStopped = false;
-        const saleSyncEngine = createSaleSyncEngine({
-          client: saleSyncClient,
-          tendersSince,
-          receiptSince,
-          stateRepo: saleSyncStateRepo,
-          salesRepo,
-          tenantId: pairingStatus.tenant_id,
-          branchId: pairingStatus.branch_id,
-          resolveTerminalId: resolveSaleSyncTerminalId,
-          getOperatorToken: createSaleSyncTokenReader(
-            operatorSessionManager,
-            operatorEnvelopeHolder,
-          ),
-          ...saleSyncDevicePath.engine,
-          now: () => new Date().toISOString(),
-          // Exponential backoff: 1s base, capped at 5 min.
-          backoff: { ...SALE_SYNC_BACKOFF_POLICY },
-          onDeadLetter: (saleId: string, reason?: string) => {
-            mainLogger.warn({ sale_id: saleId, reason }, 'sale_sync:dead_letter');
-          },
-          // RT-15 S1: a capture answer's saleRef differed from the stored one; the
-          // stored one is kept. Only the opaque externalId is logged (P7).
-          onSaleRefMismatch: ({ externalId }) => {
-            mainLogger.warn({ external_id: externalId }, 'sale_sync:sale_ref_mismatch');
-          },
-          // RT-190: a capture 409 — the server holds a different sale for this
-          // provenance. Dead-lettered (`payload_divergence`), never retried. Only
-          // the opaque externalId + the closed-set error code are logged (P7).
-          onPayloadDivergence: ({ externalId, errorCode }) => {
-            mainLogger.warn(
-              { external_id: externalId, error_code: errorCode },
-              'sale_sync:payload_divergence',
-            );
-          },
-          // RT-224: the drain is paused while it holds no sale credential at all, or
-          // no envelope while envelope-routed sales are due. Log it once per transition — the
-          // closed-set `sale_sync:paused_no_operator_credential` and its resume
-          // line — with { reason, pending } only (P7).
-          onPauseTransition: (event) => {
-            logSaleSyncPauseTransition(mainLogger, event);
-          },
-          isStopped: () => saleSyncStopped,
-          // RT-856: discounted sales are held (pending, never dead-lettered) until
-          // RT-858 ships the capture rule and flips this constant. Not an env var.
-          discountCaptureSupported: SALE_DISCOUNT_CAPTURE_SUPPORTED,
-        });
-
-        // Read-only status surface for the renderer (counts + last-success + the
-        // RT-224 closed-set paused reason; no token/PII/raw body crosses the
-        // bridge). No write/trigger handler.
-        registerSalesSyncHandlers(guardedIpcMain, {
-          readStatus: createSaleSyncStatusReader({
-            stateRepo: saleSyncStateRepo,
-            tenantId: pairingStatus.tenant_id,
-            branchId: pairingStatus.branch_id,
-            resolveTerminalId: resolveSaleSyncTerminalId,
-            pausedReason: () => saleSyncEngine.pausedReason(),
-            discountCaptureSupported: SALE_DISCOUNT_CAPTURE_SUPPORTED,
-          }),
-        });
-        // RT-603 — the terminal status sync axis reads the same queue (sales only,
-        // D-6-4). The publisher's stop (before the DB closes) unbinds it, so a late
-        // `terminalStatus:get` reads the empty axis rather than a closed DB.
-        terminalStatusPublisher.setSyncReader(
-          createTerminalSyncAggregateReader({
-            stateRepo: saleSyncStateRepo,
-            tenantId: pairingStatus.tenant_id,
-            branchId: pairingStatus.branch_id,
-            resolveTerminalId: resolveSaleSyncTerminalId,
-            pausedReason: () => saleSyncEngine.pausedReason(),
-            // RT-887: held discounted sales are neither "sending" nor ageing.
-            discountCaptureSupported: SALE_DISCOUNT_CAPTURE_SUPPORTED,
-          }),
-        );
-
-        // Background drain on an interval. Single-flight in the engine coalesces
-        // overlapping ticks; the interval is cleared and the engine latched stopped
-        // on quit (closeDbHandle), so a send in flight writes nothing locally.
-        const SALE_SYNC_INTERVAL_MS = 5_000;
-        const stopSaleSync = scheduleSaleSync({
-          engine: saleSyncEngine,
-          latchStopped: () => {
-            saleSyncStopped = true;
-          },
-          intervalMs: SALE_SYNC_INTERVAL_MS,
-          drainTimeoutMs: SALE_SYNC_DRAIN_TIMEOUT_MS,
-          logger: mainLogger,
-        });
-        // Synchronous like every worker stop: the latch makes the DB close safe
-        // right after; the drain promise is not awaited here.
-        workerRegistry.register('sale-sync interval', () => {
-          void stopSaleSync();
-        });
-        mainLogger.info({ terminal_id: pairingStatus.terminal_id }, 'sale_sync_engine:started');
       });
       if (bootPairing.kind !== 'paired') {
         // Boot-time fact only: the starter above runs when the pairing completes.

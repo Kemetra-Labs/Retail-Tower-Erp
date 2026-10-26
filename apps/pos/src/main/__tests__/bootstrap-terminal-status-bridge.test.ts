@@ -12,6 +12,8 @@ import { describe, expect, it } from 'vitest';
  */
 
 const source = readFileSync(resolve(__dirname, '../index.ts'), 'utf-8');
+// RT-900 extraction 6c: the sync reader bind moved into `bootstrap/sale-sync.ts`.
+const saleSyncSource = readFileSync(resolve(__dirname, '../bootstrap/sale-sync.ts'), 'utf-8');
 
 describe('main/index.ts wires the terminal status bridge (RT-603)', () => {
   it('registers terminalStatus:get on the guarded ipcMain before any paired-only starter', () => {
@@ -35,8 +37,9 @@ describe('main/index.ts wires the terminal status bridge (RT-603)', () => {
     const starter = source.indexOf(
       "pairedWorkersLatch.register('finalize listener + sale-sync engine'",
     );
-    const bind = source.indexOf('terminalStatusPublisher.setSyncReader(');
+    const call = source.indexOf('startSaleSyncEngine(');
     expect(starter).toBeGreaterThan(0);
-    expect(bind).toBeGreaterThan(starter);
+    expect(call).toBeGreaterThan(starter);
+    expect(saleSyncSource).toContain('terminalStatusPublisher.setSyncReader(');
   });
 });
