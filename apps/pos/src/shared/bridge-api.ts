@@ -975,8 +975,10 @@ export interface SaleSyncStatusResponse {
   /**
    * RT-856: the pending sales held from sync, with a closed-set reason; null when
    * none is held. `discount_capture_unavailable` = a manually discounted sale,
-   * held (still pending, never dead-lettered) until the capture path can send it
-   * (RT-858). A subset of `pending`. Additive: the fields above keep their meaning.
+   * held (still pending, never dead-lettered) until the capture path can send it.
+   * Since RT-858 that is only a discount with no recorded approver role, which
+   * `sales.yaml` requires. A subset of `pending`. Additive: the fields above keep
+   * their meaning.
    */
   held: { reason: 'discount_capture_unavailable'; count: number } | null;
 }
