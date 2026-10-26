@@ -11,8 +11,13 @@
  * by locale (`formatEvidenceTime`), and the column header names UTC. Action
  * codes, IDs and request refs are machine data: never translated, LTR-isolated
  * so an RTL page can't reorder them.
+ *
+ * RT-784: a platform support-session row also shows a recognisable label above
+ * its code (`auditActionLabelKey`). The code itself is unchanged; an action
+ * without a label renders as before.
  */
 import { formatEvidenceTime, useT } from "@/i18n";
+import { auditActionLabelKey } from "./auditActionLabel";
 import type { AuditRow } from "./useAuditSearch";
 import "./audit.css";
 
@@ -24,6 +29,13 @@ export interface AuditTableProps {
 function shortId(id?: string | null): string {
   if (!id) return "—";
   return id.length > 8 ? `${id.slice(0, 8)}…` : id;
+}
+
+/** The row's recognisable label, if its action has one (RT-784). */
+function ActionLabel({ row }: Readonly<{ row: AuditRow }>): React.JSX.Element | null {
+  const t = useT();
+  const key = auditActionLabelKey(row);
+  return key ? <span className="audit-action__label">{t(key)}</span> : null;
 }
 
 export function AuditTable({ rows, onInspect }: Readonly<AuditTableProps>): React.JSX.Element {
@@ -49,6 +61,7 @@ export function AuditTable({ rows, onInspect }: Readonly<AuditTableProps>): Reac
             </td>
             <td>
               <button type="button" className="audit-table__action" onClick={() => onInspect(row)}>
+                <ActionLabel row={row} />
                 <bdi dir="ltr">{row.action}</bdi>
               </button>
             </td>
