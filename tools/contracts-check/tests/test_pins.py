@@ -1,5 +1,7 @@
+import ast
 import json
 import pathlib
+import re
 import tempfile
 import unittest
 
@@ -268,6 +270,99 @@ class PinnedBlobProbes(unittest.TestCase):
         [f] = self.check()
         self.assertEqual(f.status, DRIFT)
         self.assertIn("probeNote", f.message)
+
+
+CONNECTOR = REPO_ROOT / "integrations/erpnext-connector/retail_tower_erpnext_connector/connector"
+# Every Connector module that calls Backend-Core over HTTP (RT-704 inventory).
+CONNECTOR_TRANSPORTS = ("posting/transport.py", "bin_view/transport.py", "health/heartbeat.py")
+_TEMPLATE_PARAM = re.compile(r"\{[^}]*\}")
+
+
+def connector_calls():
+    """`{(METHOD, path)}` of every `<x>.get/post(<PATH constant>[.format(...)], ...)` call in the
+    Connector transports, read with `ast` (the modules live in a Frappe app, never imported).
+    Path parameters are normalised to `{}`: the Connector names them in snake_case."""
+    calls = set()
+    for rel in CONNECTOR_TRANSPORTS:
+        tree = ast.parse((CONNECTOR / rel).read_text(encoding="utf-8"))
+        paths = {node.targets[0].id: node.value.value for node in tree.body
+                 if isinstance(node, ast.Assign) and len(node.targets) == 1
+                 and isinstance(node.targets[0], ast.Name) and isinstance(node.value, ast.Constant)
+                 and isinstance(node.value.value, str) and node.value.value.startswith("/api/")}
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in ("get", "post", "put", "patch", "delete") and node.args):
+                continue
+            arg = node.args[0]
+            if (isinstance(arg, ast.Call) and isinstance(arg.func, ast.Attribute)
+                    and arg.func.attr == "format"):
+                arg = arg.func.value
+            if isinstance(arg, ast.Name) and arg.id in paths:
+                calls.add((node.func.attr.upper(), _TEMPLATE_PARAM.sub("{}", paths[arg.id])))
+    return calls
+
+
+class ConnectorPin(unittest.TestCase):
+    """RT-704: the Connector PIN covers what the Connector actually calls and what the
+    `connector` check compares, so a Backend-Core break on any of it fails `pins`."""
+
+    def setUp(self):
+        self.config = yaml.safe_load((REPO_ROOT / "tools/contracts-check/config.yaml").read_text(encoding="utf-8"))
+        [consumer] = [c for c in self.config["consumers"] if c["name"] == "ERPNext-Connector"]
+        self.pinned = dict(pins.parse_pin((REPO_ROOT / consumer["pin"]).read_text(encoding="utf-8")))
+
+    def test_connector_check_contracts_are_pinned(self):
+        for entry in self.config["connector"]:
+            with self.subTest(module=entry["module"]):
+                self.assertIn(entry["contract"], self.pinned)
+
+    def test_every_connector_call_is_in_a_pinned_contract(self):
+        served = set()
+        for path, blob in self.pinned.items():
+            data = pins.read_blob(REPO_ROOT, blob)
+            if data is None:
+                self.fail(f"pinned blob {blob} ({path}) missing: run with full history (fetch-depth 0)")
+            for route, item in (yaml.safe_load(data).get("paths") or {}).items():
+                served |= {(method.upper(), _TEMPLATE_PARAM.sub("{}", route)) for method in item
+                           if method in ("get", "post", "put", "patch", "delete")}
+        calls = connector_calls()
+        # The five calls of the RT-704 inventory: a transport rewrite that hides them fails here.
+        self.assertGreaterEqual(len(calls), 5, calls)
+        self.assertEqual(sorted(calls - served), [])
+
+
+@unittest.skipUnless(real_oasdiff(), "set CONTRACTS_CHECK_OASDIFF to the pinned oasdiff binary")
+class ConnectorPinnedBlobProbe(unittest.TestCase):
+    """RT-704 acceptance on the real Connector pin of erpnext-connector/posting-feed.yaml:
+    removing a field the Connector reads from a work item fails."""
+
+    POSTING_FEED_BLOB = "589832818845812c1deb30370d5c6b0ab07ca0bf"   # integrations/erpnext-connector PIN
+
+    def setUp(self):
+        data = pins.read_blob(REPO_ROOT, self.POSTING_FEED_BLOB)
+        if data is None:
+            self.fail(f"pinned blob {self.POSTING_FEED_BLOB} missing: run with full history (fetch-depth 0)")
+        self.tmp = tempfile.TemporaryDirectory(prefix="cc-probe-")
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = pathlib.Path(self.tmp.name)
+        (self.dir / "base.yaml").write_bytes(data)
+        self.spec = yaml.safe_load(data)
+
+    def check(self):
+        revision = self.dir / "revision.yaml"
+        revision.write_text(yaml.safe_dump(self.spec, sort_keys=False), encoding="utf-8")
+        return pins.compare_file(real_oasdiff(), self.dir / "base.yaml", revision, None, "ERPNext-Connector")
+
+    def test_unchanged_is_ok(self):
+        self.assertEqual([f.status for f in self.check()], [OK])
+
+    def test_removing_payload_hash_fails(self):
+        item = self.spec["components"]["schemas"]["PostingWorkItem"]
+        del item["properties"]["payloadHash"]
+        item["required"].remove("payloadHash")
+        [f] = self.check()
+        self.assertEqual(f.status, FAIL)
+        self.assertIn("payloadHash", f.message)
 
 
 if __name__ == "__main__":
