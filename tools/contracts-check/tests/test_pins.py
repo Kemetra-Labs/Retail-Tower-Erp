@@ -272,34 +272,81 @@ class PinnedBlobProbes(unittest.TestCase):
         self.assertIn("probeNote", f.message)
 
 
-CONNECTOR = REPO_ROOT / "integrations/erpnext-connector/retail_tower_erpnext_connector/connector"
-# Every Connector module that calls Backend-Core over HTTP (RT-704 inventory).
+CONNECTOR_APP = REPO_ROOT / "integrations/erpnext-connector/retail_tower_erpnext_connector"
+CONNECTOR = CONNECTOR_APP / "connector"
+# Every Connector module that calls Backend-Core over HTTP (RT-704 inventory), relative to CONNECTOR.
 CONNECTOR_TRANSPORTS = ("posting/transport.py", "bin_view/transport.py", "health/heartbeat.py")
+# The one module allowed to call `requests` directly: `_RequestsTransport`, the HttpTransport the
+# transports above call through `self._transport`. It takes the path as an argument and has no
+# path of its own.
+CONNECTOR_HTTP_ADAPTERS = ("posting/poller.py",)
+_HTTP_VERBS = ("get", "post", "put", "patch", "delete", "request")
+_HTTP_LIBRARIES = ("requests", "httpx", "urllib3", "aiohttp")
 _TEMPLATE_PARAM = re.compile(r"\{[^}]*\}")
 
 
+def _is_transport_call(node):
+    """`<x>._transport.<verb>(...)`: the HttpTransport calls of the Connector clients."""
+    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and node.func.attr in _HTTP_VERBS and isinstance(node.func.value, ast.Attribute)
+            and node.func.value.attr == "_transport")
+
+
+def _is_library_call(node):
+    """`requests.<verb>(...)` and the like: HTTP that bypasses the HttpTransport."""
+    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name) and node.func.value.id in _HTTP_LIBRARIES)
+
+
+def _api_paths(tree):
+    return {node.targets[0].id: node.value.value for node in tree.body
+            if isinstance(node, ast.Assign) and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name) and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str) and node.value.value.startswith("/api/")}
+
+
+def connector_http_modules():
+    """`(talks_to_backend, calls_http_library)`: Connector modules (tests excluded) that hold an
+    `/api/` path or make an HttpTransport call, and modules that call an HTTP library directly."""
+    talks, library = set(), set()
+    for path in sorted(CONNECTOR_APP.rglob("*.py")):
+        rel = path.relative_to(CONNECTOR_APP)
+        if rel.parts[0] == "tests":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        nodes = list(ast.walk(tree))
+        key = path.relative_to(CONNECTOR).as_posix() if CONNECTOR in path.parents else rel.as_posix()
+        has_api_literal = any(isinstance(n, ast.Constant) and isinstance(n.value, str)
+                              and n.value.startswith("/api/") for n in nodes)
+        if has_api_literal or any(_is_transport_call(n) for n in nodes):
+            talks.add(key)
+        if any(_is_library_call(n) for n in nodes):
+            library.add(key)
+    return talks, library
+
+
 def connector_calls():
-    """`{(METHOD, path)}` of every `<x>.get/post(<PATH constant>[.format(...)], ...)` call in the
+    """`({(METHOD, path)}, [unresolved])` for every `<x>._transport.<verb>(...)` call in the
     Connector transports, read with `ast` (the modules live in a Frappe app, never imported).
-    Path parameters are normalised to `{}`: the Connector names them in snake_case."""
-    calls = set()
+    A call resolves when its target is a module-level `/api/` constant, optionally `.format(...)`ed;
+    any other target is unresolved, so it cannot escape the check. Path parameters are normalised
+    to `{}`: the Connector names them in snake_case."""
+    calls, unresolved = set(), []
     for rel in CONNECTOR_TRANSPORTS:
         tree = ast.parse((CONNECTOR / rel).read_text(encoding="utf-8"))
-        paths = {node.targets[0].id: node.value.value for node in tree.body
-                 if isinstance(node, ast.Assign) and len(node.targets) == 1
-                 and isinstance(node.targets[0], ast.Name) and isinstance(node.value, ast.Constant)
-                 and isinstance(node.value.value, str) and node.value.value.startswith("/api/")}
+        paths = _api_paths(tree)
         for node in ast.walk(tree):
-            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                    and node.func.attr in ("get", "post", "put", "patch", "delete") and node.args):
+            if not _is_transport_call(node):
                 continue
-            arg = node.args[0]
+            arg = node.args[0] if node.args else None
             if (isinstance(arg, ast.Call) and isinstance(arg.func, ast.Attribute)
                     and arg.func.attr == "format"):
                 arg = arg.func.value
-            if isinstance(arg, ast.Name) and arg.id in paths:
+            if node.func.attr != "request" and isinstance(arg, ast.Name) and arg.id in paths:
                 calls.add((node.func.attr.upper(), _TEMPLATE_PARAM.sub("{}", paths[arg.id])))
-    return calls
+            else:
+                unresolved.append(f"{rel}:{node.lineno} {ast.unparse(node.func)}(...)")
+    return calls, unresolved
 
 
 class ConnectorPin(unittest.TestCase):
@@ -325,23 +372,38 @@ class ConnectorPin(unittest.TestCase):
             for route, item in (yaml.safe_load(data).get("paths") or {}).items():
                 served |= {(method.upper(), _TEMPLATE_PARAM.sub("{}", route)) for method in item
                            if method in ("get", "post", "put", "patch", "delete")}
-        calls = connector_calls()
+        calls, unresolved = connector_calls()
+        self.assertEqual(unresolved, [], "HttpTransport call whose target is not a module-level /api/ constant")
         # The five calls of the RT-704 inventory: a transport rewrite that hides them fails here.
         self.assertGreaterEqual(len(calls), 5, calls)
         self.assertEqual(sorted(calls - served), [])
 
+    def test_transport_inventory_is_complete(self):
+        """A new module that talks to Backend-Core must join CONNECTOR_TRANSPORTS, and only the
+        HttpTransport adapter may call an HTTP library directly."""
+        talks, library = connector_http_modules()
+        self.assertEqual(sorted(talks), sorted(CONNECTOR_TRANSPORTS))
+        self.assertEqual(sorted(library), sorted(CONNECTOR_HTTP_ADAPTERS))
+
+
+def connector_pinned_blob(path):
+    """The blob the Connector PIN (from config.yaml) pins for `path`."""
+    config = yaml.safe_load((REPO_ROOT / "tools/contracts-check/config.yaml").read_text(encoding="utf-8"))
+    [consumer] = [c for c in config["consumers"] if c["name"] == "ERPNext-Connector"]
+    return dict(pins.parse_pin((REPO_ROOT / consumer["pin"]).read_text(encoding="utf-8")))[path]
+
 
 @unittest.skipUnless(real_oasdiff(), "set CONTRACTS_CHECK_OASDIFF to the pinned oasdiff binary")
 class ConnectorPinnedBlobProbe(unittest.TestCase):
-    """RT-704 acceptance on the real Connector pin of erpnext-connector/posting-feed.yaml:
-    removing a field the Connector reads from a work item fails."""
-
-    POSTING_FEED_BLOB = "589832818845812c1deb30370d5c6b0ab07ca0bf"   # integrations/erpnext-connector PIN
+    """RT-704 acceptance on the real Connector pin of erpnext-connector/posting-feed.yaml (read
+    from the PIN, so a repin moves the probe with it): removing a field the Connector reads from
+    a work item fails."""
 
     def setUp(self):
-        data = pins.read_blob(REPO_ROOT, self.POSTING_FEED_BLOB)
+        blob = connector_pinned_blob("erpnext-connector/posting-feed.yaml")
+        data = pins.read_blob(REPO_ROOT, blob)
         if data is None:
-            self.fail(f"pinned blob {self.POSTING_FEED_BLOB} missing: run with full history (fetch-depth 0)")
+            self.fail(f"pinned blob {blob} missing: run with full history (fetch-depth 0)")
         self.tmp = tempfile.TemporaryDirectory(prefix="cc-probe-")
         self.addCleanup(self.tmp.cleanup)
         self.dir = pathlib.Path(self.tmp.name)
