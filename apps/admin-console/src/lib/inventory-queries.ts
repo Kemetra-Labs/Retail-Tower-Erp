@@ -12,9 +12,10 @@
  *   - `listTrackingIdentities`: a product's batches / serials (owner /
  *     tenant_admin; any other role is a non-disclosing 404).
  *
- * Boundary: reads only. `createStockMovement`, `createStockTransfer`,
- * `recordStockCount` and the sale-linked backfill are NOT wrapped and NOT
- * called (RT-728 non-goals). Same `{ status, data?, error?, retryAfter? }`
+ * RT-436 adds the one write the status-disposition action needs:
+ * `createStatusMove` (RT-435). Boundary: `createStockMovement`,
+ * `createStockTransfer`, `recordStockCount`, `createRelocation`, the tracking
+ * holds / recalls and the sale-linked backfill are NOT wrapped and NOT called. Same `{ status, data?, error?, retryAfter? }`
  * shape as `src/lib/sale-sync-ops-queries.ts`. Cookie transport is on the
  * generated client.
  */
@@ -34,6 +35,9 @@ export type OnHand = Schemas["OnHand"];
 export type InventoryStatus = Schemas["InventoryStatus"];
 export type TrackingIdentity = Schemas["TrackingIdentity"];
 export type TrackingIdentityList = Schemas["TrackingIdentityList"];
+export type InventoryReasonCode = Schemas["InventoryReasonCode"];
+export type CreateStatusMoveCommand = Schemas["CreateStatusMoveCommand"];
+export type InventoryPositionEvent = Schemas["InventoryPositionEvent"];
 
 export interface PageQuery {
   cursor?: string;
@@ -91,6 +95,24 @@ export async function listTrackingIdentities(productId: string, query: PageQuery
   return resultOf(
     await apiClient.GET("/api/inventory/v1/products/{productId}/tracking-identities", {
       params: { path: { productId }, query },
+    }),
+  );
+}
+
+/**
+ * POST /api/inventory/v1/stores/{storeId}/status-moves (RT-435): one status move
+ * (`-quantity` in `fromStatus`, `+quantity` in `toStatus`, same location).
+ * `Idempotency-Key` is required; the same key with the same body replays.
+ */
+export async function createStatusMove(
+  storeId: string,
+  command: CreateStatusMoveCommand,
+  idempotencyKey: string,
+) {
+  return resultOf(
+    await apiClient.POST("/api/inventory/v1/stores/{storeId}/status-moves", {
+      params: { path: { storeId }, header: { "Idempotency-Key": idempotencyKey } },
+      body: command,
     }),
   );
 }

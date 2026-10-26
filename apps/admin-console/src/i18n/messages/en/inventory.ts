@@ -122,4 +122,42 @@ export const inventory: MessagesOf<typeof ar> = {
   "inventory.tracking.loadFailed": "Tracking identities could not be loaded.",
   "inventory.tracking.empty": "No batches or serials are recorded for this product.",
   "inventory.tracking.loadMore": "Load more",
+
+  // --- RT-436: ERP Book label and the status-disposition action ---------------
+  "inventory.onHand.erpBook": "ERP Book (ERPNext snapshot)",
+  "inventory.onHand.erpBookLink": "See this store's ERPNext snapshot",
+  "inventory.onHand.erpBookNone": "Not shown for your role",
+  "inventory.onHand.erpBookNote":
+    "ERP Book is ERPNext's own recorded quantity. It is not read per product here, so no number is shown; the ERPNext snapshot view holds it.",
+  "inventory.move.title": "Move stock between statuses",
+  "inventory.move.sub":
+    "Reclassify stock that is already at this store, for example Sellable to Damaged. Physical on-hand does not change.",
+  "inventory.move.unitUnknown": "The stocking unit is not known, so a move cannot be recorded:",
+  "inventory.move.from": "Move from",
+  "inventory.move.to": "Move to",
+  "inventory.move.reason": "Reason",
+  "inventory.move.quantity": "Quantity",
+  "inventory.move.location": "Location",
+  "inventory.move.location.primary": "Primary location",
+  "inventory.move.note": "Note",
+  "inventory.move.optional": "(optional)",
+  "inventory.move.submit": "Record status move",
+  "inventory.move.recorded":
+    "Status move recorded. The quantities above are re-read from the server.",
+  "inventory.move.note.physical":
+    "The server decides who may move stock and between which statuses; any refusal is shown as sent.",
+  "inventory.move.rejected.title": "The status move was not recorded",
+  "inventory.move.rejected.noBody":
+    "The server refused the request (status {status}) without a reason.",
+  "inventory.move.rejected.code": "Code: {code}",
+  "inventory.move.reason.damage": "Damage",
+  "inventory.move.reason.expiry": "Expiry",
+  "inventory.move.reason.inspection_restock": "Inspection: return to sellable",
+  "inventory.move.reason.inspection_damage": "Inspection: damaged",
+  "inventory.move.reason.correction": "Correction (note required)",
+  "inventory.move.error.quantity": "Enter a quantity above zero, with at most 4 decimal places.",
+  "inventory.move.error.reason": "Choose a reason that fits these two statuses.",
+  "inventory.move.error.note": "Add a note of up to 500 characters; a correction needs one.",
+  "inventory.move.error.unit":
+    "The product's stocking unit is not known, so a move cannot be recorded.",
 };
