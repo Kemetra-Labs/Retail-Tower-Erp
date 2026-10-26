@@ -26,11 +26,20 @@ export type TerminalStatusPausedReason = (typeof TERMINAL_STATUS_PAUSED_REASONS)
 export interface TerminalStatusSync {
   /** This terminal's unsent sales. */
   readonly pending: number;
+  /**
+   * RT-887: the subset of `pending` held from sync while discount capture is
+   * off (RT-856, until RT-858). Not "sending" and never attention. Present only
+   * when > 0; absent means none.
+   */
+  readonly held?: number;
   /** Unsent sales queued under an earlier pairing (RT-221; held, never sent). */
   readonly heldPreviousPairing: number;
   /** Every dead-lettered sale, payload divergences included. */
   readonly deadLetter: number;
-  /** Outbox enqueue time of the oldest pending sale (ISO), or null. */
+  /**
+   * Outbox enqueue time of the oldest pending sale (ISO), or null. RT-887: of
+   * the non-held pending sales only, so a held sale never ages into attention.
+   */
   readonly oldestPendingAt: string | null;
   /** Why the drain cannot send right now (RT-224), or null. */
   readonly paused: TerminalStatusPausedReason | null;

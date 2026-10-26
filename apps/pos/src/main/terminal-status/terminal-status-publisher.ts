@@ -82,7 +82,7 @@ export interface TerminalStatusPublisher {
 }
 
 function toSync(aggregate: TerminalSyncAggregate): TerminalStatusSync {
-  return {
+  const sync: TerminalStatusSync = {
     pending: aggregate.pending,
     heldPreviousPairing: aggregate.heldPreviousPairing,
     deadLetter: aggregate.deadLetter,
@@ -90,6 +90,10 @@ function toSync(aggregate: TerminalSyncAggregate): TerminalStatusSync {
     paused: aggregate.paused,
     lastSuccessAt: aggregate.lastSuccessAt,
   };
+  // RT-887: the discount-held count only when there is one, so a terminal with
+  // no held sale publishes exactly the RT-603 snapshot.
+  const held = aggregate.held ?? 0;
+  return held > 0 ? { ...sync, held } : sync;
 }
 
 interface ConnectionAxis {

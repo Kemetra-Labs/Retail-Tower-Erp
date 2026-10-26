@@ -68,7 +68,11 @@ function parseSync(value: unknown): TerminalStatusSync | null {
   if (!isCount(deadLetter)) return null;
   if (!isIsoOrNull(oldestPendingAt) || !isIsoOrNull(lastSuccessAt)) return null;
   if (!isPausedOrNull(paused)) return null;
-  return { pending, heldPreviousPairing, deadLetter, oldestPendingAt, paused, lastSuccessAt };
+  const sync = { pending, heldPreviousPairing, deadLetter, oldestPendingAt, paused, lastSuccessAt };
+  // RT-887: `held` is optional; absent stays absent, present must be a count.
+  const { held } = value;
+  if (held === undefined) return sync;
+  return isCount(held) ? { ...sync, held } : null;
 }
 
 /** The validated snapshot, rebuilt from known fields only; null if anything fails. */
