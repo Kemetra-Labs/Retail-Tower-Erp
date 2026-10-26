@@ -1,0 +1,195 @@
+# RT-901: SonarQube Cloud analysis of the four products, one project each (org kemetra-labs),
+# for every push to main. Informational: not a graph.yaml job, not listed in gate.yml
+# `workflow_run`, so it is not a required check and a failure here never blocks a PR.
+#
+# Why a separate, push-only workflow. `pgraph privileges` allows a `secrets` reference only in a
+# job whose environment is `ci-gate`, in any workflow a PR can reach. A workflow whose only
+# triggers are push and workflow_dispatch is out of that scope. So the Sonar tokens live here and
+# nowhere else, and no PR (fork or not) ever runs a job that can read one. The cost: this workflow
+# does not run for pull requests, so there is NO PR analysis or PR decoration yet (RT-901 gap; it
+# needs an owner decision on the privilege rule, not a workaround here).
+#
+# Coverage is not recomputed. The product workflows run the tests on the same push and, on push
+# only, upload the coverage file as a `sonar-coverage-*` artifact (pos/test, admin/build-test,
+# bc/db-integration, connector/unit-tests-and-lint). Each job below waits for its product
+# workflow's run on this commit, downloads that artifact, rewrites its paths to be relative to the
+# project base directory (failing if any file is missing), and scans. A product whose run
+# produced no coverage artifact fails its job instead of posting an analysis without coverage.
+#
+# One matrix entry per project. The entry holds the project key and the secret NAME for that
+# project; the key is passed to the scanner by this file only (never read from a properties file),
+# so one product cannot publish into another project. fail-fast is off: the four are independent.
+# Scope, exclusions and coverage paths per product are in .github/sonar/<product>.properties.
+name: sonar
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  # A newer push replaces an older scan that is still waiting; Sonar only needs the latest main.
+  group: sonar-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: sonar/${{ matrix.product }}
+    # workflow_dispatch can pick any ref; only main publishes to the main branch of the projects.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    # Waits for the product workflow (the slowest, backend, runs about 25 minutes) plus the scan.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - product: pos
+            workflow: pos.yml
+            project_key: kemetra-labs_Retail-Tower-Erp_pos
+            token_secret: SONAR_TOKEN_POS
+            base_dir: apps/pos
+            artifact: sonar-coverage-pos
+            kind: lcov
+            report: lcov.info
+            lcov_prefix: ""
+            source_subdir: ""
+          - product: admin-console
+            workflow: admin-console.yml
+            project_key: kemetra-labs_Retail-Tower-Erp_admin-console
+            token_secret: SONAR_TOKEN_ADMIN_CONSOLE
+            base_dir: apps/admin-console
+            artifact: sonar-coverage-admin-console
+            kind: lcov
+            report: lcov.info
+            lcov_prefix: ""
+            source_subdir: ""
+          - product: backend-core
+            workflow: backend-core.yml
+            project_key: kemetra-labs_Retail-Tower-Erp_backend-core
+            token_secret: SONAR_TOKEN_BACKEND
+            base_dir: services/backend-core
+            artifact: sonar-coverage-backend-core
+            kind: lcov
+            report: lcov.info
+            # Jest runs from apps/api, so its lcov paths are `src/...`.
+            lcov_prefix: apps/api/
+            source_subdir: ""
+          - product: erpnext-connector
+            workflow: erpnext-connector.yml
+            project_key: kemetra-labs_Retail-Tower-Erp_erpnext-connector
+            token_secret: SONAR_TOKEN_CONNECTOR
+            base_dir: integrations/erpnext-connector
+            artifact: sonar-coverage-erpnext-connector
+            kind: cobertura
+            report: coverage.xml
+            lcov_prefix: ""
+            # pytest-cov --cov=PKG writes `filename` relative to the package directory.
+            source_subdir: retail_tower_erpnext_connector
+    env:
+      INCOMING: ${{ github.workspace }}/.sonar-incoming
+    steps:
+      # Fail in seconds, before the wait, if the project's token secret is not set. The value is
+      # never printed.
+      - name: Check the project token secret exists
+        env:
+          SONAR_TOKEN: ${{ secrets[matrix.token_secret] }}
+          TOKEN_SECRET: ${{ matrix.token_secret }}
+        run: |
+          if [ -z "$SONAR_TOKEN" ]; then
+            echo "::error::repository secret $TOKEN_SECRET is missing or empty"; exit 1
+          fi
+
+      # Full history: the scanner reads blame and new-code data from git.
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Self-test the coverage path rewriter
+        run: python3 -m unittest discover -s .github/scripts -p 'test_sonar_coverage_prep.py' -v
+
+      # The product workflow's run for this commit. It may not be queued yet when this starts, so
+      # an empty list is waited on too. Any conclusion is accepted here: the artifact download
+      # below is what proves coverage exists.
+      - name: Wait for the ${{ matrix.workflow }} run on this commit
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          WORKFLOW: ${{ matrix.workflow }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 3300))
+          while :; do
+            row="$(gh run list --repo "$REPO" --workflow "$WORKFLOW" --commit "$SHA" --event push \
+              --limit 1 --json databaseId,status,conclusion \
+              --jq '.[0] // empty | "\(.databaseId) \(.status) \(.conclusion)"')"
+            if [ -n "$row" ]; then
+              read -r run_id status conclusion <<<"$row"
+              echo "$WORKFLOW run $run_id: $status ${conclusion:-}"
+              if [ "$status" = completed ]; then
+                echo "run_id=$run_id" >> "$GITHUB_OUTPUT"; exit 0
+              fi
+            else
+              echo "no $WORKFLOW push run for $SHA yet"
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::$WORKFLOW did not complete for $SHA within 55 minutes"; exit 1
+            fi
+            sleep 30
+          done
+
+      - name: Download the coverage artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ matrix.artifact }}
+          run-id: ${{ steps.run.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ env.INCOMING }}
+
+      # Rewrites paths to be relative to the base directory and FAILS if a file is missing, so the
+      # scanner cannot import "successfully" while dropping every coverage line.
+      - name: Make the coverage importable (path check)
+        env:
+          BASE_DIR: ${{ matrix.base_dir }}
+          KIND: ${{ matrix.kind }}
+          REPORT: ${{ matrix.report }}
+          LCOV_PREFIX: ${{ matrix.lcov_prefix }}
+          SOURCE_SUBDIR: ${{ matrix.source_subdir }}
+          PRODUCT: ${{ matrix.product }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$BASE_DIR/.sonar-coverage"
+          args=()
+          [ -n "$LCOV_PREFIX" ] && args+=(--prefix "$LCOV_PREFIX")
+          [ -n "$SOURCE_SUBDIR" ] && args+=(--source-subdir "$SOURCE_SUBDIR")
+          python3 .github/scripts/sonar_coverage_prep.py "$KIND" "$INCOMING/$REPORT" \
+            "$BASE_DIR/.sonar-coverage/$REPORT" --base "$BASE_DIR" "${args[@]}" | tee "$RUNNER_TEMP/prep.txt"
+          { echo "### $PRODUCT coverage import"; echo; echo "\`$(cat "$RUNNER_TEMP/prep.txt")\`"; } >> "$GITHUB_STEP_SUMMARY"
+
+      # The scanner reads sonar-project.properties from the project base directory. `project.settings`
+      # cannot be used instead: Sonar documents it as incompatible with sonar.projectBaseDir, which
+      # the scan action always sets. The copy exists only in this job's workspace, never in git.
+      - name: Place the product scanner settings in its base directory
+        env:
+          BASE_DIR: ${{ matrix.base_dir }}
+          PRODUCT: ${{ matrix.product }}
+        run: cp ".github/sonar/$PRODUCT.properties" "$BASE_DIR/sonar-project.properties"
+
+      - name: SonarQube Cloud scan
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        env:
+          SONAR_TOKEN: ${{ secrets[matrix.token_secret] }}
+        with:
+          projectBaseDir: ${{ matrix.base_dir }}
+          args: >-
+            -Dsonar.host.url=https://sonarcloud.io
+            -Dsonar.organization=kemetra-labs
+            -Dsonar.projectKey=${{ matrix.project_key }}
