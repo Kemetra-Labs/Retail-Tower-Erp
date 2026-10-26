@@ -241,4 +241,47 @@ export const catalog: MessagesOf<typeof ar> = {
   "catalog.retire.confirm": "Yes, retire item",
   "catalog.retire.done": "{name} is retired. It is read-only now.",
   "catalog.retire.reloaded": "The latest version is loaded. Retire again if you still want to.",
+  // --- Item identifiers: add and retire (RT-769, CAT-C2b) ---------------------------------
+  "catalog.identifier.col.actions": "Actions",
+  "catalog.identifier.add.start": "Add identifier",
+  "catalog.identifier.add.title": "Add identifier",
+  "catalog.identifier.add.submit": "Add identifier",
+  "catalog.identifier.field.type": "Type",
+  "catalog.identifier.field.scope": "Applies to",
+  "catalog.identifier.field.scopeHint":
+    "An identifier for one store is recognised only in that store.",
+  "catalog.identifier.field.source": "Source system",
+  "catalog.identifier.field.sourceHint":
+    "The external POS system this id comes from. Up to 100 characters.",
+  "catalog.identifier.field.value": "Value",
+  "catalog.identifier.field.valueHint":
+    "Up to 200 characters. You can scan it. Saved exactly as entered: no spaces removed, no letters or digits converted.",
+  "catalog.identifier.warning.arabicDigits":
+    "This value has digits other than 0-9 (such as Arabic-Indic digits). Scanners send 0-9, so a scan may not find this item. The value is saved as you entered it.",
+  "catalog.identifier.error.valueRequired": "Enter the value.",
+  "catalog.identifier.error.valueControl":
+    "The value contains an invisible control character (such as a tab). Remove it.",
+  "catalog.identifier.error.valueEdgeSpace":
+    "The value starts or ends with a space. Remove it: the value is saved exactly as entered.",
+  "catalog.identifier.error.valueTooLong": "The value must be at most 200 characters.",
+  "catalog.identifier.error.sourceRequired": "Enter the source system.",
+  "catalog.identifier.error.sourceControl":
+    "The source system contains a character that is not allowed. Remove it.",
+  "catalog.identifier.error.sourceTooLong": "The source system must be at most 100 characters.",
+  "catalog.identifier.error.aliasConflict": "Already used by another item.",
+  "catalog.identifier.error.validation":
+    "The server refused this identifier. Check the type, value and scope, then try again.",
+  "catalog.identifier.error.notFound":
+    "This item, or the chosen store, is no longer available to you.",
+  "catalog.identifier.error.retired": "This item is retired, so no identifier can be added to it.",
+  "catalog.identifier.error.gone":
+    "This identifier is no longer active on this item. The item is read again when you close this panel.",
+  "catalog.identifier.retire.title": "Retire identifier",
+  "catalog.identifier.retire.consequence":
+    "Its value is freed: it can be added again, to this item or another one. Until then, scanning it finds no item.",
+  "catalog.identifier.retire.confirm": "Yes, retire identifier",
+  "catalog.identifier.retire.start": "Retire",
+  "catalog.identifier.retire.rowLabel": "Retire {type} {value}",
+  "catalog.identifier.added": "Identifier added.",
+  "catalog.identifier.retiredDone": "Identifier retired. Its value is free to use again.",
 };
