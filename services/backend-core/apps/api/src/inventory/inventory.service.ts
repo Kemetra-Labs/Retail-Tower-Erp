@@ -658,7 +658,7 @@ export class InventoryService {
         throw err;
       }
     }
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client): Promise<StockMovementListBody> => {
@@ -755,7 +755,7 @@ export class InventoryService {
     readonly cursor?: TrackingIdentityCursor | undefined;
   }): Promise<TrackingIdentityListBody> {
     const limit = Math.min(Math.max(input.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client): Promise<TrackingIdentityListBody> => {
@@ -826,7 +826,7 @@ export class InventoryService {
     const movementId = newId();
     const auditId = newId();
 
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client): Promise<StockMovementBody> => {
@@ -1023,7 +1023,7 @@ export class InventoryService {
     const inId = newId();
     const auditId = newId();
 
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client): Promise<StockTransferBody> => {
@@ -1198,7 +1198,7 @@ export class InventoryService {
     const stockCountId = newId();
     const auditId = newId();
 
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client): Promise<StockCountResultBody> => {
@@ -1369,7 +1369,7 @@ export class InventoryService {
       provenanceError: 'backfill requires a non-empty sourceSystem and externalId',
     });
 
-    return this.runBackfillTransaction(input, f, {
+    return await this.runBackfillTransaction(input, f, {
       movementType: 'outbound',
       conflictError:
         'InventoryService.backfillSaleLinkedOutbound: conflict with no matching provenance row',
@@ -1414,7 +1414,7 @@ export class InventoryService {
       provenanceError: 'restock requires a non-empty sourceSystem and externalId',
     });
 
-    return this.runBackfillTransaction(input, f, {
+    return await this.runBackfillTransaction(input, f, {
       movementType: 'inbound',
       conflictError:
         'InventoryService.backfillRestockInbound: conflict with no matching provenance row',

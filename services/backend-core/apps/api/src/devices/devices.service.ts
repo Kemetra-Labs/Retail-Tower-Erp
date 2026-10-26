@@ -201,7 +201,7 @@ export class DevicesService {
    */
   async list(input: ListDevicesInput): Promise<DevicePage> {
     const keyset = input.cursor === null ? null : decodeDeviceCursor({ tenantId: input.tenantId, cursor: input.cursor });
-    return this.inTenant(input, async (client) => {
+    return await this.inTenant(input, async (client) => {
       const { scope } = await this.callerOf(client, input);
       if (input.storeId !== undefined) await this.assertStoreInScope(client, input.tenantId, scope, input.storeId);
       const r = await client.query<DeviceReadRow>(LIST_SQL, [
@@ -231,7 +231,7 @@ export class DevicesService {
 
   /** One device. Absent, foreign or out of scope → `DeviceNotFoundError`. */
   async get(input: ScopedInput, deviceId: string): Promise<DeviceDetail> {
-    return this.inTenant(input, async (client) => {
+    return await this.inTenant(input, async (client) => {
       const { scope } = await this.callerOf(client, input);
       return this.readDetail(client, input.tenantId, deviceId, scopeStoreIds(scope));
     });
@@ -243,7 +243,7 @@ export class DevicesService {
    * current state and nothing changes.
    */
   async revoke(input: RevokeDeviceInput): Promise<DeviceRevokeResult> {
-    return this.inTenant(input, async (client) => {
+    return await this.inTenant(input, async (client) => {
       const caller = await this.callerOf(client, input);
       const device = await this.lockInScope(client, input, caller.scope);
       // The impact read, under the locks: the decision and a 409's impact see one state.
@@ -299,7 +299,7 @@ export class DevicesService {
    * ever written, and no row is ever deleted.
    */
   async retire(input: RetireDeviceInput): Promise<DeviceRetireResult> {
-    return this.inTenant(input, async (client) => {
+    return await this.inTenant(input, async (client) => {
       const caller = await this.callerOf(client, input);
       const device = await this.lockInScope(client, input, caller.scope);
       const scoped = scopeStoreIds(caller.scope);
@@ -369,7 +369,7 @@ export class DevicesService {
    * Absent, foreign or out of scope → `DeviceNotFoundError`.
    */
   async impact(input: DeviceImpactInput): Promise<DeviceImpactPreview> {
-    return this.inTenant(input, async (client) => {
+    return await this.inTenant(input, async (client) => {
       const caller = await this.callerOf(client, input);
       const row = await this.readImpact(client, input.tenantId, input.deviceId, scopeStoreIds(caller.scope));
       const reason = revokeReasonOf(input.action, input.reason);

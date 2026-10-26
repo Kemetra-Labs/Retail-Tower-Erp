@@ -123,7 +123,7 @@ export class InventoryPositionEventsController {
   ): Promise<InventoryPositionEventBody> {
     const actor = this.actor(request, idempotencyKey);
     authorizeInventoryStore(this.context(request), storeId);
-    return this.service.createStatusMove({
+    return await this.service.createStatusMove({
       ...actor,
       storeId,
       tenantProductRef: body.tenantProductRef,
@@ -150,7 +150,7 @@ export class InventoryPositionEventsController {
   ): Promise<InventoryPositionEventBody> {
     const actor = this.actor(request, idempotencyKey);
     authorizeInventoryStore(this.context(request), storeId);
-    return this.service.createRelocation({
+    return await this.service.createRelocation({
       ...actor,
       storeId,
       tenantProductRef: body.tenantProductRef,
@@ -169,7 +169,7 @@ export class InventoryPositionEventsController {
   @Roles('owner', 'tenant_admin', 'store_manager', { denyAs: 403 })
   async getReturnLandingPolicy(@Req() request: TenantContextRequest): Promise<ReturnLandingPolicyBody> {
     const ctx = this.context(request);
-    return this.service.getReturnLandingPolicy(ctx.tenantId as string);
+    return await this.service.getReturnLandingPolicy(ctx.tenantId as string);
   }
 
   /** Set the tenant's return landing policy (Q6, 849). */
@@ -180,7 +180,7 @@ export class InventoryPositionEventsController {
     @Body(new ZodValidationPipe(SetReturnLandingSchema)) body: SetReturnLandingDto,
   ): Promise<ReturnLandingPolicyBody> {
     const ctx = this.context(request);
-    return this.service.setReturnLandingPolicy({
+    return await this.service.setReturnLandingPolicy({
       tenantId: ctx.tenantId as string,
       userId: ctx.userId as string,
       returnLandingStatus: body.returnLandingStatus,

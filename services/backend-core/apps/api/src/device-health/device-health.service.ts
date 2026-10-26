@@ -143,7 +143,7 @@ export class DeviceHealthService {
   /** One page of device health by device id. A foreign cursor is a 400 before any read. */
   async list(input: ListDeviceHealthInput): Promise<DeviceHealthPage> {
     const after = input.cursor === null ? null : decodeDeviceHealthCursor({ tenantId: input.tenantId, cursor: input.cursor });
-    return this.inTenant(input, async (client) => {
+    return await this.inTenant(input, async (client) => {
       const { scope } = await resolveDeviceCaller(this.memberships, client, input);
       if (input.storeId !== undefined) await this.assertStoreInScope(client, input, scope, input.storeId);
       const now = new Date();
@@ -161,7 +161,7 @@ export class DeviceHealthService {
 
   /** One device's health. Absent, foreign or out of scope → `DeviceHealthNotFoundError`. */
   async get(input: ScopedInput, deviceId: string): Promise<DeviceHealthViewBody> {
-    return this.inTenant(input, async (client) => {
+    return await this.inTenant(input, async (client) => {
       const { scope } = await resolveDeviceCaller(this.memberships, client, input);
       const res = await client.query<DeviceHealthReadRow>(GET_SQL, [input.tenantId, scopeStoreIds(scope), deviceId]);
       const row = res.rows[0];

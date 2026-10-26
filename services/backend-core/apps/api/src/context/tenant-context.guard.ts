@@ -189,9 +189,9 @@ export class TenantContextGuard implements CanActivate {
     access: RequestAccess = UNKNOWN_ACCESS,
   ): Promise<ResolvedContext> {
     if (principal.kind === "token") {
-      return this.resolveToken(principal);
+      return await this.resolveToken(principal);
     }
-    return this.resolveSession(principal, access);
+    return await this.resolveSession(principal, access);
   }
 
   private async resolveToken(

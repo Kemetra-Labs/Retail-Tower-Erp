@@ -148,7 +148,7 @@ export class PgIdempotencyMirror implements PgMirrorWriter, PgMirrorReader {
     key: string;
   }): Promise<IdempotencyEntry | null> {
     if (!isTenantUuid(params.tenantId)) return null;
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: params.tenantId, isPlatformAdmin: false },
       async (client) => {

@@ -68,7 +68,7 @@ export class ContextController {
   async me(@Req() request: AuthedRequest): Promise<ContextResponseBody> {
     const principal = request.principal;
     if (!principal) throw new UnauthorizedException("Unauthorized");
-    return this.contextService.getActiveContext(principal);
+    return await this.contextService.getActiveContext(principal);
   }
 
   @Auditable("context.switch.tenant")
@@ -80,7 +80,7 @@ export class ContextController {
   ): Promise<ContextResponseBody> {
     const principal = request.principal;
     if (!principal) throw new UnauthorizedException("Unauthorized");
-    return this.contextService.switchTenant(
+    return await this.contextService.switchTenant(
       principal,
       body.tenant_id,
       request.requestId ?? null,
@@ -96,7 +96,7 @@ export class ContextController {
   ): Promise<ContextResponseBody> {
     const principal = request.principal;
     if (!principal) throw new UnauthorizedException("Unauthorized");
-    return this.contextService.switchStore(
+    return await this.contextService.switchStore(
       principal,
       body.store_id,
       request.requestId ?? null,
@@ -111,6 +111,6 @@ export class ContextController {
   ): Promise<ContextResponseBody> {
     const principal = request.principal;
     if (!principal) throw new UnauthorizedException("Unauthorized");
-    return this.contextService.clearStore(principal);
+    return await this.contextService.clearStore(principal);
   }
 }

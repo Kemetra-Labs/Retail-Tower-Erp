@@ -166,7 +166,7 @@ export class TenantCatalogService {
       isPlatformAdmin: false,
     };
 
-    return this.tx(this.pool, ctx, async (client) => {
+    return await this.tx(this.pool, ctx, async (client) => {
       // Insert the product row. `created_by` / `updated_by` are NOT NULL
       // on `tenant_products` (no FK) — both default to the actor.
       // RLS WITH CHECK enforces tenant_id matches the GUC we just set.

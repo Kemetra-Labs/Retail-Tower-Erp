@@ -147,7 +147,7 @@ export class StoreOverrideService {
     const id = newId();
 
     // (3) Open a tenant-scoped transaction.
-    return this.tx(
+    return await this.tx(
       this.pool,
       { tenantId: dto.tenantId, isPlatformAdmin: false },
       async (client) => {

@@ -40,6 +40,6 @@ export class PosApproversController {
     @Req() request: TenantContextRequest,
     @Body(new ZodValidationPipe(ApproverEligibilityRequestSchema)) body: ApproverEligibilityRequestInput,
   ): Promise<ApproverEligibilityResponseBody> {
-    return this.service.check(deviceScopeOf(request), body.user_ids, request.requestId ?? null);
+    return await this.service.check(deviceScopeOf(request), body.user_ids, request.requestId ?? null);
   }
 }

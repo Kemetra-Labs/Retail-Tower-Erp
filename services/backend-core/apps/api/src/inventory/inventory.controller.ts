@@ -185,7 +185,7 @@ export class InventoryController {
   ): Promise<OnHandBody> {
     const ctx = this.requireContext(request);
     this.authorizeStore(ctx, storeId);
-    return this.inventoryService.getOnHand({
+    return await this.inventoryService.getOnHand({
       tenantId: ctx.tenantId as string,
       storeId,
       productId,
@@ -219,7 +219,7 @@ export class InventoryController {
     if (productId !== undefined && scope !== undefined) {
       throw new BadRequestException('scope applies only when productId is omitted');
     }
-    return this.inventoryService.listStockMovements({
+    return await this.inventoryService.listStockMovements({
       tenantId: ctx.tenantId as string,
       storeId,
       productId: productId ?? null,
@@ -249,7 +249,7 @@ export class InventoryController {
   ): Promise<StockMovementBody> {
     const ctx = this.requireContext(request);
     this.authorizeStore(ctx, storeId);
-    return this.inventoryService.createStockMovement({
+    return await this.inventoryService.createStockMovement({
       tenantId: ctx.tenantId as string,
       storeId,
       userId: ctx.userId as string,
@@ -281,7 +281,7 @@ export class InventoryController {
   ): Promise<StockLocationListBody> {
     const ctx = this.requireContext(request);
     this.authorizeStore(ctx, storeId);
-    return this.inventoryService.listStockLocations({
+    return await this.inventoryService.listStockLocations({
       tenantId: ctx.tenantId as string,
       storeId,
     });
@@ -314,7 +314,7 @@ export class InventoryController {
     // store access too (RT-61); the service still validates it under RLS.
     this.authorizeStore(ctx, body.sourceStoreId);
     this.authorizeDestinationStore(ctx, body.destinationStoreId);
-    return this.inventoryService.createStockTransfer({
+    return await this.inventoryService.createStockTransfer({
       tenantId: ctx.tenantId as string,
       userId: ctx.userId as string,
       sourceStoreId: body.sourceStoreId,
@@ -346,7 +346,7 @@ export class InventoryController {
   ): Promise<StockCountResultBody> {
     const ctx = this.requireContext(request);
     this.authorizeStore(ctx, storeId);
-    return this.inventoryService.recordStockCount({
+    return await this.inventoryService.recordStockCount({
       tenantId: ctx.tenantId as string,
       storeId,
       userId: ctx.userId as string,

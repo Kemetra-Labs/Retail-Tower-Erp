@@ -708,7 +708,7 @@ export class SalesService {
   async recordRefund(input: RecordRefundInput): Promise<TerminalEventResult> {
     const { tenantId, storeId, actorUserId, saleRef, body } = input;
     const payloadHash = sha256CanonicalHex(body);
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId, isPlatformAdmin: false },
       async (client): Promise<TerminalEventResult> => {
