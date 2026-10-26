@@ -106,43 +106,11 @@ export class MembershipsService {
       if (!existing) throw new NotFoundException("Not Found");
 
       // Step 2: role validation
-      let roleId: string | undefined;
-      if (dto.role_code !== undefined) {
-        if (dto.role_code === PLATFORM_ADMIN_CODE) {
-          throw new BadRequestException("platform_admin is a platform-level role and cannot be assigned to a tenant membership");
-        }
-        const found = await this.memberships.findRoleId(client, tenantId, dto.role_code);
-        if (!found) throw new BadRequestException(`Unknown role_code: ${dto.role_code}`);
-        roleId = found;
-      }
+      const roleId = await this.resolveRoleId(client, tenantId, dto.role_code);
 
-      // Step 3/5: store_ids without explicit kind change
-      if (dto.store_ids !== undefined && dto.store_access_kind === undefined) {
-        if (existing.storeAccessKind !== "specific") {
-          throw new BadRequestException(
-            "store_ids can only be updated without store_access_kind when the existing access kind is 'specific'",
-          );
-        }
-      }
-
-      // Step 4: validate store_ids belong to active tenant
-      const effectiveKind = dto.store_access_kind ?? existing.storeAccessKind;
+      // Steps 3-5: validate the store-access change
       const storeIds = dto.store_ids;
-      const isStoreAccessUpdate = dto.store_access_kind === "specific" || storeIds !== undefined;
-      if (effectiveKind === "specific" && isStoreAccessUpdate && (!storeIds || storeIds.length === 0)) {
-        throw new BadRequestException("store_ids must be non-empty when store_access_kind is 'specific'");
-      }
-      if (effectiveKind === "specific" && storeIds && storeIds.length > 0) {
-        const invalid = await this.memberships.findInvalidStoreIds(client, tenantId, storeIds);
-        if (invalid.length > 0) {
-          throw new BadRequestException(`store_ids not found in active tenant: ${invalid.join(", ")}`);
-        }
-        // Deduplicate (Zod allows duplicates in arrays)
-        const deduped = [...new Set(storeIds)];
-        if (deduped.length !== storeIds.length) {
-          throw new BadRequestException("store_ids must not contain duplicates");
-        }
-      }
+      await this.validateStoreAccess(client, tenantId, dto, existing.storeAccessKind);
 
       // Step 6/7: apply and return
       return this.memberships.update(client, existing, {
@@ -151,5 +119,54 @@ export class MembershipsService {
         storeIds: storeIds && storeIds.length > 0 ? [...new Set(storeIds)] : storeIds,
       });
     });
+  }
+
+  /** Step 2: resolve `role_code` to a role id in the tenant; undefined when not changing the role. */
+  private async resolveRoleId(
+    client: PoolClient,
+    tenantId: string,
+    roleCode: string | undefined,
+  ): Promise<string | undefined> {
+    if (roleCode === undefined) return undefined;
+    if (roleCode === PLATFORM_ADMIN_CODE) {
+      throw new BadRequestException("platform_admin is a platform-level role and cannot be assigned to a tenant membership");
+    }
+    const found = await this.memberships.findRoleId(client, tenantId, roleCode);
+    if (!found) throw new BadRequestException(`Unknown role_code: ${roleCode}`);
+    return found;
+  }
+
+  /** Steps 3-5: `store_ids` / `store_access_kind` consistency, tenant membership and uniqueness. */
+  private async validateStoreAccess(
+    client: PoolClient,
+    tenantId: string,
+    dto: MembershipUpdateDto,
+    existingKind: string,
+  ): Promise<void> {
+    // Step 3/5: store_ids without explicit kind change
+    if (dto.store_ids !== undefined && dto.store_access_kind === undefined && existingKind !== "specific") {
+      throw new BadRequestException(
+        "store_ids can only be updated without store_access_kind when the existing access kind is 'specific'",
+      );
+    }
+
+    // Step 4: validate store_ids belong to active tenant
+    const effectiveKind = dto.store_access_kind ?? existingKind;
+    const storeIds = dto.store_ids;
+    const isStoreAccessUpdate = dto.store_access_kind === "specific" || storeIds !== undefined;
+    if (effectiveKind !== "specific") return;
+    if (isStoreAccessUpdate && (!storeIds || storeIds.length === 0)) {
+      throw new BadRequestException("store_ids must be non-empty when store_access_kind is 'specific'");
+    }
+    if (storeIds && storeIds.length > 0) {
+      const invalid = await this.memberships.findInvalidStoreIds(client, tenantId, storeIds);
+      if (invalid.length > 0) {
+        throw new BadRequestException(`store_ids not found in active tenant: ${invalid.join(", ")}`);
+      }
+      // Deduplicate (Zod allows duplicates in arrays)
+      if (new Set(storeIds).size !== storeIds.length) {
+        throw new BadRequestException("store_ids must not contain duplicates");
+      }
+    }
   }
 }

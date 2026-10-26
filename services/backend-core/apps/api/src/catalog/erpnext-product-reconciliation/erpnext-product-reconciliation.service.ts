@@ -51,6 +51,12 @@ import {
 /** Hard ceiling on a single page — the 012/009/017 500/req convention. */
 export const PAGE_MAX = 500;
 
+/** The result of one 013 repair path, before the attempt + audit are recorded. */
+interface RepairStep {
+  readonly outcome: RepairOutcome;
+  readonly resolvedItemMapId: string | null;
+}
+
 /** The addressed product / mapping does not resolve in the tenant scope. 404. */
 export class ProductNotFoundError extends Error {
   constructor() {
@@ -244,6 +250,94 @@ export class ErpnextProductReconciliationService {
     return result;
   }
 
+  /** `confirm` / `re_point`: confirm an existing 013 suggestion under 013's version guard. */
+  private async repairByConfirm(
+    client: PoolClient,
+    input: RepairInput,
+  ): Promise<RepairStep> {
+    let outcome: RepairOutcome;
+    let resolvedItemMapId: string | null = null;
+    // Confirm an existing 013 suggestion under 013's version guard. For an
+    // already-confirmed-active mapping the confirm is a 0-row no-op echo
+    // (FR-011); a stale version is a conflict (FR-012).
+    const r = await this.itemMap.confirmOnClient(client, {
+      tenantId: input.tenantId,
+      id: input.mappingId!,
+      version: input.version!,
+      actorUserId: input.actorUserId,
+    });
+    if (r.kind === "ok") {
+      outcome = "mapped";
+      resolvedItemMapId = r.row.id;
+    } else if (r.kind === "conflict") {
+      // Distinguish "already confirmed-and-active" (no_op_echo) from a true
+      // stale-version conflict by inspecting the row's current state.
+      const existing = await client.query<{ id: string; state: string; retired_at: Date | null }>(
+        `SELECT id, state, retired_at FROM erpnext_item_map WHERE id = $1 LIMIT 1`,
+        [input.mappingId!],
+      );
+      const row = existing.rows[0];
+      if (row?.state === "confirmed" && row.retired_at === null) {
+        outcome = "no_op_echo";
+        resolvedItemMapId = row.id;
+      } else {
+        outcome = "conflict";
+      }
+    } else {
+      outcome = "still_unmapped";
+    }
+    return { outcome, resolvedItemMapId };
+  }
+
+  /** `suggest_confirm`: record a 013 suggestion, then confirm it (one tx). */
+  private async repairBySuggestConfirm(
+    client: PoolClient,
+    input: RepairInput,
+  ): Promise<RepairStep> {
+    let outcome: RepairOutcome;
+    let resolvedItemMapId: string | null = null;
+    // suggest_confirm: record a 013 suggestion then confirm it — both on 021's
+    // tx client (so the whole chain is atomic with the audit).
+    const sug = await this.itemMap.suggestOnClient(client, {
+      tenantId: input.tenantId,
+      tenantProductId: input.tenantProductId,
+      erpnextItemRef: input.erpnextItemRef!,
+      actorUserId: input.actorUserId,
+    });
+    if (sug.kind === "not_found") {
+      outcome = "still_unmapped";
+    } else if (sug.kind === "conflict") {
+      // An active mapping already exists for this product (013 1:1) → no_op_echo
+      // if it's confirmed-active, else conflict.
+      const active = await client.query<{ id: string; state: string }>(
+        `SELECT id, state FROM erpnext_item_map
+          WHERE tenant_product_id = $1 AND retired_at IS NULL LIMIT 1`,
+        [input.tenantProductId],
+      );
+      const row = active.rows[0];
+      if (row?.state === "confirmed") {
+        outcome = "no_op_echo";
+        resolvedItemMapId = row.id;
+      } else {
+        outcome = "conflict";
+      }
+    } else {
+      const conf = await this.itemMap.confirmOnClient(client, {
+        tenantId: input.tenantId,
+        id: sug.row.id,
+        version: sug.row.version,
+        actorUserId: input.actorUserId,
+      });
+      if (conf.kind === "ok") {
+        outcome = "mapped";
+        resolvedItemMapId = conf.row.id;
+      } else {
+        outcome = "still_unmapped";
+      }
+    }
+    return { outcome, resolvedItemMapId };
+  }
+
   /**
    * The shared 021 repair core — runs ON the caller's tenant-scoped tx client.
    * Drives 013's EXISTING lifecycle (confirm / suggest_confirm / re_point), maps
@@ -256,80 +350,10 @@ export class ErpnextProductReconciliationService {
     targetKind: "backlog_item" | "result",
     targetRefId: string,
   ): Promise<RepairResult> {
-    let outcome: RepairOutcome;
-    let resolvedItemMapId: string | null = null;
-
-    if (input.repairKind === "confirm" || input.repairKind === "re_point") {
-      // Confirm an existing 013 suggestion under 013's version guard. For an
-      // already-confirmed-active mapping the confirm is a 0-row no-op echo
-      // (FR-011); a stale version is a conflict (FR-012).
-      const r = await this.itemMap.confirmOnClient(client, {
-        tenantId: input.tenantId,
-        id: input.mappingId!,
-        version: input.version!,
-        actorUserId: input.actorUserId,
-      });
-      if (r.kind === "ok") {
-        outcome = "mapped";
-        resolvedItemMapId = r.row.id;
-      } else if (r.kind === "conflict") {
-        // Distinguish "already confirmed-and-active" (no_op_echo) from a true
-        // stale-version conflict by inspecting the row's current state.
-        const existing = await client.query<{ id: string; state: string; retired_at: Date | null }>(
-          `SELECT id, state, retired_at FROM erpnext_item_map WHERE id = $1 LIMIT 1`,
-          [input.mappingId!],
-        );
-        const row = existing.rows[0];
-        if (row?.state === "confirmed" && row.retired_at === null) {
-          outcome = "no_op_echo";
-          resolvedItemMapId = row.id;
-        } else {
-          outcome = "conflict";
-        }
-      } else {
-        outcome = "still_unmapped";
-      }
-    } else {
-      // suggest_confirm: record a 013 suggestion then confirm it — both on 021's
-      // tx client (so the whole chain is atomic with the audit).
-      const sug = await this.itemMap.suggestOnClient(client, {
-        tenantId: input.tenantId,
-        tenantProductId: input.tenantProductId,
-        erpnextItemRef: input.erpnextItemRef!,
-        actorUserId: input.actorUserId,
-      });
-      if (sug.kind === "not_found") {
-        outcome = "still_unmapped";
-      } else if (sug.kind === "conflict") {
-        // An active mapping already exists for this product (013 1:1) → no_op_echo
-        // if it's confirmed-active, else conflict.
-        const active = await client.query<{ id: string; state: string }>(
-          `SELECT id, state FROM erpnext_item_map
-            WHERE tenant_product_id = $1 AND retired_at IS NULL LIMIT 1`,
-          [input.tenantProductId],
-        );
-        const row = active.rows[0];
-        if (row?.state === "confirmed") {
-          outcome = "no_op_echo";
-          resolvedItemMapId = row.id;
-        } else {
-          outcome = "conflict";
-        }
-      } else {
-        const conf = await this.itemMap.confirmOnClient(client, {
-          tenantId: input.tenantId,
-          id: sug.row.id,
-          version: sug.row.version,
-          actorUserId: input.actorUserId,
-        });
-        if (conf.kind === "ok") {
-          outcome = "mapped";
-          resolvedItemMapId = conf.row.id;
-        } else {
-          outcome = "still_unmapped";
-        }
-      }
-    }
+    const { outcome, resolvedItemMapId } =
+      input.repairKind === "confirm" || input.repairKind === "re_point"
+        ? await this.repairByConfirm(client, input)
+        : await this.repairBySuggestConfirm(client, input);
 
     const recordedAt = await this.recordRepairAttempt(client, {
       tenantId: input.tenantId,

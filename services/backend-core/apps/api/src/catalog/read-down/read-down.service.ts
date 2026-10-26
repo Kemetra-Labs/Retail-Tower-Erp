@@ -285,31 +285,7 @@ export class ReadDownService {
         let lastSeq = since.sequence;
         for (const ch of pageRows) {
           lastSeq = ch.max_seq;
-          const rowCursor = encodeCursor({ tenantId, storeId, sequence: ch.max_seq });
-          const resolvedRow = byId.get(ch.product_id);
-          const sellable = resolvedRow
-            ? this.classifySellable(resolvedRow)
-            : ({ kind: "excluded", priceRelated: false } as const);
-          if (sellable.kind === "sellable") {
-            ops.push({
-              op: "upsert",
-              product_id: ch.product_id,
-              row: toSellableRow(sellable.row, rowCursor),
-              row_cursor: rowCursor,
-            });
-          } else {
-            // Not currently sellable → tombstone (retired / deactivated /
-            // unpriced / hard-deleted). The row is omitted; the consumer drops
-            // it by product_id. (A product deleted entirely won't be in `byId`.)
-            if (sellable.kind === "excluded" && sellable.priceRelated) {
-              recordCatalogUnpricedIssue();
-            }
-            ops.push({
-              op: "remove_from_sellable",
-              product_id: ch.product_id,
-              row_cursor: rowCursor,
-            });
-          }
+          ops.push(this.toDeltaOp(ch, byId, { tenantId, storeId }));
         }
 
         // Advance the cursor: the last emitted sequence (so the next `since`
@@ -323,6 +299,44 @@ export class ReadDownService {
         return { kind: "ok", page: { ops, cursor, next_page_token } };
       },
     );
+  }
+
+  /**
+   * One changed product → its advisory delta op: an upsert when it is still
+   * sellable, else a tombstone (retired / deactivated / unpriced / hard-deleted;
+   * the consumer drops it by product_id). A product deleted entirely is not in
+   * `byId`, so it classifies as excluded.
+   */
+  private toDeltaOp(
+    ch: { product_id: string; max_seq: string },
+    byId: ReadonlyMap<string, ResolvedRow>,
+    scope: { tenantId: string; storeId: string },
+  ): CatalogDeltaOp {
+    const rowCursor = encodeCursor({
+      tenantId: scope.tenantId,
+      storeId: scope.storeId,
+      sequence: ch.max_seq,
+    });
+    const resolvedRow = byId.get(ch.product_id);
+    const sellable = resolvedRow
+      ? this.classifySellable(resolvedRow)
+      : ({ kind: "excluded", priceRelated: false } as const);
+    if (sellable.kind === "sellable") {
+      return {
+        op: "upsert",
+        product_id: ch.product_id,
+        row: toSellableRow(sellable.row, rowCursor),
+        row_cursor: rowCursor,
+      };
+    }
+    if (sellable.kind === "excluded" && sellable.priceRelated) {
+      recordCatalogUnpricedIssue();
+    }
+    return {
+      op: "remove_from_sellable",
+      product_id: ch.product_id,
+      row_cursor: rowCursor,
+    };
   }
 
   /**

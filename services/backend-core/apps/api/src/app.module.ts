@@ -56,6 +56,22 @@ import {
 } from "./observability/metrics/db.metrics";
 
 /**
+ * Shared teardown for the gauge registrars: stops the registered gauge
+ * handle once and clears it, so a repeated shutdown is a no-op.
+ */
+abstract class GaugeHandleOwner implements OnModuleDestroy {
+  protected handle: { stop: () => void } | null = null;
+
+  onModuleDestroy(): void {
+    const h = this.handle;
+    this.handle = null;
+    if (h !== null) {
+      h.stop();
+    }
+  }
+}
+
+/**
  * Nest-aware registrar for the `db_pool_in_use` and `db_pool_waiters`
  * ObservableGauge callbacks (T483 / P4 W1).
  *
@@ -68,21 +84,13 @@ import {
  * no re-entrancy risk, no async I/O.
  */
 @Injectable()
-class ApiDbPoolGaugeRegistrar implements OnModuleInit, OnModuleDestroy {
-  private handle: { stop: () => void } | null = null;
-
-  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+class ApiDbPoolGaugeRegistrar extends GaugeHandleOwner implements OnModuleInit {
+  constructor(@Inject(PG_POOL) private readonly pool: Pool) {
+    super();
+  }
 
   onModuleInit(): void {
     this.handle = registerDbPoolGauges({ pool: this.pool });
-  }
-
-  onModuleDestroy(): void {
-    const h = this.handle;
-    this.handle = null;
-    if (h !== null) {
-      h.stop();
-    }
   }
 }
 
@@ -184,10 +192,10 @@ export async function countMigrationFiles(
  * as the total so `pending=1` is always observed — never a false "applied" signal.
  */
 @Injectable()
-class ApiDbMigrationStatusGaugeRegistrar implements OnModuleInit, OnModuleDestroy {
-  private handle: { stop: () => void } | null = null;
-
-  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+class ApiDbMigrationStatusGaugeRegistrar extends GaugeHandleOwner implements OnModuleInit {
+  constructor(@Inject(PG_POOL) private readonly pool: Pool) {
+    super();
+  }
 
   async onModuleInit(): Promise<void> {
     let totalMigrations: number;
@@ -210,14 +218,6 @@ class ApiDbMigrationStatusGaugeRegistrar implements OnModuleInit, OnModuleDestro
       pool: this.pool,
       totalMigrations,
     });
-  }
-
-  onModuleDestroy(): void {
-    const h = this.handle;
-    this.handle = null;
-    if (h !== null) {
-      h.stop();
-    }
   }
 }
 

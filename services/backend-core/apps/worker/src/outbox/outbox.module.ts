@@ -85,6 +85,25 @@ export class NoOpAuditQueue implements AuditQueueLike {
 // ---------------------------------------------------------------------------
 
 /**
+ * Shared shutdown for the outbox queue wrappers: Nest only fires lifecycle
+ * hooks on class-instance providers, so each wrapper closes its underlying
+ * queue here. Idempotent; a null `closeFn` (NoOp path) makes it a no-op.
+ */
+abstract class ClosableQueueWrapper implements OnModuleDestroy {
+  private destroyed = false;
+
+  constructor(private readonly closeFn: (() => Promise<void>) | null) {}
+
+  async onModuleDestroy(): Promise<void> {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    if (this.closeFn !== null) {
+      await this.closeFn();
+    }
+  }
+}
+
+/**
  * Class-token wrapper around the underlying queue (real BullMQ `Queue` or
  * `NoOpAuditQueue`) so Nest can fire `onModuleDestroy` on shutdown.
  *
@@ -100,13 +119,15 @@ export class NoOpAuditQueue implements AuditQueueLike {
  * no-op — there is no Redis connection to release.
  */
 @Injectable()
-export class OutboxAuditQueue implements AuditQueueLike, OnModuleDestroy {
-  private destroyed = false;
-
+export class OutboxAuditQueue
+  extends ClosableQueueWrapper
+  implements AuditQueueLike {
   constructor(
     private readonly inner: AuditQueueLike,
-    private readonly closeFn: (() => Promise<void>) | null,
-  ) {}
+    closeFn: (() => Promise<void>) | null,
+  ) {
+    super(closeFn);
+  }
 
   async add(
     name: string,
@@ -114,24 +135,6 @@ export class OutboxAuditQueue implements AuditQueueLike, OnModuleDestroy {
     opts?: Record<string, unknown>,
   ): Promise<unknown> {
     return this.inner.add(name, data, opts);
-  }
-
-  /**
-   * Nest lifecycle hook — fires on `app.close()` from `main.ts`.
-   *
-   * Idempotent: a second invocation is a no-op (the `destroyed` flag flips
-   * before awaiting `closeFn`, mirroring `AuditDbPool.onModuleDestroy`).
-   *
-   * For the real `Queue` path this calls `Queue.close()`, which drains the
-   * internal connection pool. For the NoOp path `closeFn` is null and this
-   * is a no-op.
-   */
-  async onModuleDestroy(): Promise<void> {
-    if (this.destroyed) return;
-    this.destroyed = true;
-    if (this.closeFn !== null) {
-      await this.closeFn();
-    }
   }
 }
 
@@ -197,14 +200,14 @@ export class NoOpSaleProcessingQueue implements SaleProcessingQueueLike {
  */
 @Injectable()
 export class OutboxSaleProcessingQueue
-  implements SaleProcessingQueueLike, OnModuleDestroy
-{
-  private destroyed = false;
-
+  extends ClosableQueueWrapper
+  implements SaleProcessingQueueLike {
   constructor(
     private readonly inner: SaleProcessingQueueLike,
-    private readonly closeFn: (() => Promise<void>) | null,
-  ) {}
+    closeFn: (() => Promise<void>) | null,
+  ) {
+    super(closeFn);
+  }
 
   async add(
     name: string,
@@ -212,19 +215,6 @@ export class OutboxSaleProcessingQueue
     opts?: Record<string, unknown>,
   ): Promise<unknown> {
     return this.inner.add(name, data, opts);
-  }
-
-  /**
-   * Nest lifecycle hook — fires on `app.close()` from `main.ts`. Idempotent;
-   * the NoOp path passes a null `closeFn` so this is itself a no-op. Mirrors
-   * `OutboxAuditQueue.onModuleDestroy`.
-   */
-  async onModuleDestroy(): Promise<void> {
-    if (this.destroyed) return;
-    this.destroyed = true;
-    if (this.closeFn !== null) {
-      await this.closeFn();
-    }
   }
 }
 
