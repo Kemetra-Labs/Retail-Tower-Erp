@@ -129,3 +129,109 @@ describe('RosterHandler (device roster)', () => {
     expect(serialized).not.toContain('0192f6a0');
   });
 });
+
+/**
+ * RT-308 (RT-113 P3, 10763 D11) — the offline roster: only when Backend-Core
+ * is unreachable, only cashiers with a currently valid grant on this terminal
+ * (`offlineCashiers`), `source: 'offline'`, the same three fields.
+ */
+describe('RosterHandler (offline roster)', () => {
+  const OFFLINE = [
+    { operator_id: 'user_clerk_1', display_name: 'Ali Hassan' },
+    { operator_id: 'user_clerk_2', display_name: 'Sara Nabil' },
+  ];
+
+  it.each([[{ kind: 'no_connection' }], [{ kind: 'unavailable' }]] as const)(
+    '%o → the cashiers with a valid grant, source offline',
+    async (result) => {
+      const offlineCashiers = vi.fn(() => OFFLINE);
+      const handler = new RosterHandler({
+        cashierAdmissions: fakeClient(result).client,
+        offlineCashiers,
+      });
+      await expect(handler.listRoster()).resolves.toEqual({
+        kind: 'roster',
+        source: 'offline',
+        cashiers: [
+          { id: 'user_clerk_1', display_name: 'Ali Hassan', role: 'cashier' },
+          { id: 'user_clerk_2', display_name: 'Sara Nabil', role: 'cashier' },
+        ],
+      });
+      expect(offlineCashiers).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([
+    [{ kind: 'device_unauthorized' }, 'invalid_input'],
+    [{ kind: 'no_token' }, 'invalid_input'],
+    [{ kind: 'rejected' }, 'invalid_input'],
+  ] as const)('%o (an answer, not unreachable) never falls back offline', async (result, cat) => {
+    const offlineCashiers = vi.fn(() => OFFLINE);
+    const handler = new RosterHandler({
+      cashierAdmissions: fakeClient(result).client,
+      offlineCashiers,
+    });
+    await expect(handler.listRoster()).resolves.toEqual({ kind: 'refused', category: cat });
+    expect(offlineCashiers).not.toHaveBeenCalled();
+  });
+
+  it('a live roster never consults the offline source', async () => {
+    const offlineCashiers = vi.fn(() => OFFLINE);
+    const handler = new RosterHandler({
+      cashierAdmissions: fakeClient(ROSTER).client,
+      offlineCashiers,
+    });
+    await expect(handler.listRoster()).resolves.toMatchObject({ source: 'online' });
+    expect(offlineCashiers).not.toHaveBeenCalled();
+  });
+
+  it('nobody with a valid grant, or a failing source, is no_connection', async () => {
+    const empty = new RosterHandler({
+      cashierAdmissions: fakeClient({ kind: 'no_connection' }).client,
+      offlineCashiers: () => [],
+    });
+    await expect(empty.listRoster()).resolves.toEqual({
+      kind: 'refused',
+      category: 'no_connection',
+    });
+    const failing = new RosterHandler({
+      cashierAdmissions: fakeClient({ kind: 'no_connection' }).client,
+      offlineCashiers: () => {
+        throw new Error('store down');
+      },
+    });
+    await expect(failing.listRoster()).resolves.toEqual({
+      kind: 'refused',
+      category: 'no_connection',
+    });
+  });
+
+  it('only the three allowlisted fields cross; names never reach the logger', async () => {
+    const logCalls: unknown[] = [];
+    const logger = {
+      info: (...args: unknown[]) => logCalls.push(...args),
+    } as unknown as NonNullable<ConstructorParameters<typeof RosterHandler>[0]['logger']>;
+    const leaky = [
+      {
+        operator_id: 'user_clerk_1',
+        display_name: 'Ali Hassan',
+        user_id: 'u-1',
+        admission_id: 'adm-1',
+      },
+    ];
+    const handler = new RosterHandler({
+      cashierAdmissions: fakeClient({ kind: 'no_connection' }).client,
+      offlineCashiers: () => leaky,
+      logger,
+    });
+    await expect(handler.listRoster()).resolves.toEqual({
+      kind: 'roster',
+      source: 'offline',
+      cashiers: [{ id: 'user_clerk_1', display_name: 'Ali Hassan', role: 'cashier' }],
+    });
+    const serialized = JSON.stringify(logCalls);
+    expect(serialized).toContain('"source":"offline"');
+    expect(serialized).not.toContain('Ali Hassan');
+    expect(serialized).not.toContain('user_clerk_1');
+  });
+});

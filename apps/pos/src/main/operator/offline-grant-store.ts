@@ -2,6 +2,7 @@ import type { Logger } from 'pino';
 
 import {
   OFFLINE_GRANT_INVALIDATION_REASONS,
+  OFFLINE_SIGNIN_REFUSAL_CATEGORIES,
   type OfflineGrantInvalidationReason,
 } from '../../shared/audit/payload-schemas.js';
 import type { DatabaseHandle } from '../db/client.js';
@@ -70,17 +71,11 @@ export const OFFLINE_CLOCK_TOLERANCE_MS = 5 * 60 * 1000;
 /** Why a grant was invalidated (10763 D4, OD6, OD8). Closed set, shared with the audit payload. */
 export { OFFLINE_GRANT_INVALIDATION_REASONS, type OfflineGrantInvalidationReason };
 
-/** Why there is no proof. Closed set; logged and audited as-is, never a field. */
-export const OFFLINE_GRANT_REFUSAL_CATEGORIES = [
-  'grant_missing',
-  'grant_invalidated',
-  'grant_expired',
-  'count_exhausted',
-  'clock_suspect',
-  'scope_mismatch',
-  'tampered',
-  'storage',
-] as const;
+/**
+ * Why there is no proof. Closed set; logged and audited as-is, never a field.
+ * RT-308: shared with the `operator.signin.offline_refused` audit payload.
+ */
+export const OFFLINE_GRANT_REFUSAL_CATEGORIES = OFFLINE_SIGNIN_REFUSAL_CATEGORIES;
 
 export type OfflineGrantRefusalCategory = (typeof OFFLINE_GRANT_REFUSAL_CATEGORIES)[number];
 
@@ -198,6 +193,12 @@ export interface OfflineGrantStore {
   purgeAll(prior_epoch?: number): PurgeResult;
   /** Is there proof for an offline admission now? Read-only but for the clock mark. */
   evaluate(scope: OfflineGrantScope, user_id: string, nowWall: Date): OfflineGrantEvaluation;
+  /**
+   * RT-308 (10763 D11) — every grant of the scope that is admissible now: the
+   * offline roster. Read-only but for the clock mark. Never throws: any
+   * failure lists nobody.
+   */
+  listAdmissible(scope: OfflineGrantScope, nowWall: Date): OfflineGrant[];
   /** Use one offline admission: evaluate, then increment and re-seal (P3 calls it). */
   consumeOfflineUse(
     scope: OfflineGrantScope,
@@ -894,6 +895,28 @@ export function createOfflineGrantStore(deps: OfflineGrantStoreDeps): OfflineGra
       }
       if (!judged.admissible) return refused(judged.category);
       return { admissible: true, grant: grantView(judged.body) };
+    },
+
+    listAdmissible(scope, nowWall) {
+      const now_ms = nowWall.getTime();
+      try {
+        if (!isValidScope(scope) || !isCount(now_ms)) return [];
+        const rows = stmt(SELECT_SCOPE_USERS).all(
+          scope.tenant_id,
+          scope.branch_id,
+          scope.terminal_id,
+        ) as { user_id: unknown }[];
+        const out: OfflineGrant[] = [];
+        for (const { user_id } of rows) {
+          if (!isText(user_id)) continue;
+          const judged = judge(scope, user_id, now_ms);
+          if (judged.admissible) out.push(grantView(judged.body));
+        }
+        return out;
+      } catch {
+        log('warn', { event: 'operator.offline_grant.storage_failed', op: 'list' });
+        return [];
+      }
     },
 
     consumeOfflineUse(scope, user_id, nowWall) {
