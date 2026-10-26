@@ -175,6 +175,9 @@ const MAIN_ONLY_AUDIT_CATEGORIES: ReadonlySet<string> = new Set([
   // printer service after it checked the session.
   'terminal.printer.selected',
   'terminal.printer.test_printed',
+  // RT-906 — a held discount's resolved approver role, written only by main's
+  // sale-sync resolver. A forged row would claim a role that releases a sale.
+  'sale.discount.approver_role_resolved',
 ]);
 
 function asEmitAuditEventRequest(value: unknown): EmitAuditEventRequest | null {

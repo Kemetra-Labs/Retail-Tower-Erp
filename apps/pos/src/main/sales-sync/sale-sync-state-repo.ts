@@ -232,13 +232,27 @@ interface PrepareRun {
  * RT-858: with discount capture on, a discounted line is held only when its
  * `discount.approver_role` is not one the capture contract accepts, the SQL
  * twin of `isSaleHeldFromSync`. A constant per mode: no input reaches the text.
+ *
+ * RT-906: as `captureRoleOf`, a discount with NO frozen `approver_role` (the
+ * path absent, not JSON null) is sendable once
+ * `sale_discount_role_resolutions` holds a role for its text `placeholder_id`
+ * on the same sale. The resolver also scans its candidates with this text.
  */
 const DISCOUNTED_LINE_SQL = `COALESCE(json_type(j.value, '$.discount'), 'null') <> 'null'`;
+const RESOLVED_LINE_SQL = `json_type(j.value, '$.discount.approver_role') IS NULL
+                     AND json_type(j.value, '$.discount.placeholder_id') = 'text'
+                     AND EXISTS (
+                       SELECT 1 FROM sale_discount_role_resolutions r
+                       WHERE r.sale_id = sa.sale_id
+                         AND r.placeholder_id = json_extract(j.value, '$.discount.placeholder_id')
+                         AND r.approver_role IN ('manager', 'admin')
+                     )`;
 const UNSENDABLE_LINE_SQL = `${DISCOUNTED_LINE_SQL}
                      AND COALESCE(json_extract(j.value, '$.discount.approver_role'), '')
-                       NOT IN ('manager', 'admin')`;
+                       NOT IN ('manager', 'admin')
+                     AND NOT (${RESOLVED_LINE_SQL})`;
 
-function discountHeldSaleSql(discountCaptureSupported: boolean): string {
+export function discountHeldSaleSql(discountCaptureSupported: boolean): string {
   return `CASE
                WHEN json_valid(sa.lines_json) AND json_type(sa.lines_json) = 'array'
                THEN EXISTS (

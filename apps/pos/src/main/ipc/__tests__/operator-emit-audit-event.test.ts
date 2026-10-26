@@ -511,6 +511,8 @@ describe('operator:emit-audit-event — main-only categories (RT-117 §A4 L1)', 
     // printer service, after its session check.
     'terminal.printer.selected',
     'terminal.printer.test_printed',
+    // RT-906: a held discount's resolved approver role, written only by the resolver.
+    'sale.discount.approver_role_resolved',
   ])('refuses a renderer-forged %s and never emits it', async (action_category) => {
     const emit = vi.fn();
     const { emitAuditEvent } = setup({ auditEmitter: fakeAuditEmitter({ emit }) });

@@ -13,6 +13,11 @@
  * A discount with no recorded approver role cannot be sent (`sales.yaml`
  * requires `approverRole`), so that sale alone stays held, under the same
  * reason, in the drain and in both status reads.
+ *
+ * RT-906: such a line is sendable once `sale_discount_role_resolutions` holds a
+ * role for its placeholder (migration 0058). The frozen role always wins; the
+ * resolution counts only when none is frozen. The drain predicate, its SQL twin
+ * and the payload builder agree on every shape.
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 
@@ -34,6 +39,8 @@ import {
   isSaleHeldFromSync,
   saleHasLineDiscount,
 } from '../discount-hold.js';
+import { readResolvedRoles } from '../discount-role-resolutions.js';
+import { buildCapturePayload, DiscountNotSendableError } from '../capture-payload.js';
 
 beforeAll(async () => {
   await initSalesSyncSql();
@@ -281,6 +288,100 @@ describe('RT-858 — switch on: a discount with no recorded approver role stays 
       isSaleHeldFromSync({ lines_json }, false),
     );
     expect(stateRepo.countDiscountHeld(SCOPE)).toBe(heldOff.length);
+    db.close();
+  });
+});
+
+describe('RT-906 — the resolved role: predicate, SQL and payload agree', () => {
+  const APPROVAL = '0190f5a2-3b4c-7d8e-9f01-000000000001';
+  const NULL_ROLE = DISCOUNTED_LINES.replace('"approver_role":"manager"', '"approver_role":null');
+  const SECOND_LINE = JSON.stringify([
+    ...(JSON.parse(ROLELESS_LINES) as unknown[]),
+    {
+      ...(JSON.parse(ROLELESS_LINES) as Record<string, Record<string, unknown>>[])[0],
+      line_id: 'l-2',
+      discount: {
+        ...(JSON.parse(ROLELESS_LINES) as Record<string, Record<string, unknown>>[])[0]?.[
+          'discount'
+        ],
+        placeholder_id: 'dp-2',
+      },
+    },
+  ]);
+  /** Each shape, and the placeholders resolved for it (role `admin`). */
+  const shapes: Record<string, [string, string[]]> = {
+    resolved: [ROLELESS_LINES, ['dp-1']],
+    otherPlaceholder: [ROLELESS_LINES, ['dp-9']],
+    neither: [ROLELESS_LINES, []],
+    frozenWins: [DISCOUNTED_LINES, ['dp-1']],
+    nullRoleResolved: [NULL_ROLE, ['dp-1']],
+    unknownRoleResolved: [DISCOUNTED_LINES.replace('"manager"', '"cashier"'), ['dp-1']],
+    numericPlaceholder: [
+      ROLELESS_LINES.replace('"placeholder_id":"dp-1"', '"placeholder_id":5'),
+      ['5'],
+    ],
+    oneOfTwoResolved: [SECOND_LINE, ['dp-1']],
+    bothResolved: [SECOND_LINE, ['dp-1', 'dp-2']],
+    unreadableResolved: ['not json', ['dp-1']],
+    plain: ['[{"line_id":"l-1"}]', ['dp-1']],
+  };
+
+  function seeded() {
+    const db = freshSalesSyncDb();
+    const handle = handleFor(db);
+    for (const [id, [lines_json, placeholders]] of Object.entries(shapes)) {
+      seedSale(db, { sale_id: id, subtotal_minor: 8100, lines_json });
+      seedOutbox(db, { sale_id: id });
+      for (const placeholder of placeholders) {
+        db.run(
+          `INSERT INTO sale_discount_role_resolutions
+             (sale_id, placeholder_id, approval_id, approver_role, source, resolved_at)
+           VALUES (?, ?, ?, 'admin', 'pin_record_refresh', '2026-10-27T10:00:00.000Z')`,
+          [id, placeholder, APPROVAL],
+        );
+      }
+    }
+    return { db, handle, stateRepo: createSaleSyncStateRepo(handle) };
+  }
+
+  it('the drain predicate and the SQL count agree, shape by shape', () => {
+    const { db, handle, stateRepo } = seeded();
+    const held = Object.entries(shapes)
+      .filter(([id, [lines_json]]) =>
+        isSaleHeldFromSync({ lines_json }, true, readResolvedRoles(handle, id)),
+      )
+      .map(([id]) => id);
+    expect(held).toEqual([
+      'otherPlaceholder',
+      'neither',
+      'nullRoleResolved',
+      'unknownRoleResolved',
+      'numericPlaceholder',
+      'oneOfTwoResolved',
+      'unreadableResolved',
+    ]);
+    expect(stateRepo.countDiscountHeld(SCOPE, true)).toBe(held.length);
+    // With capture off, a resolution releases nothing.
+    expect(stateRepo.countDiscountHeld(SCOPE)).toBe(
+      Object.values(shapes).filter(([lines_json]) => isSaleHeldFromSync({ lines_json }, false))
+        .length,
+    );
+    db.close();
+  });
+
+  it('the payload takes the frozen role first, the resolved one only when none is frozen', () => {
+    const { db, handle } = seeded();
+    const sale = (id: string) => nn(bindSalesRepository(handle).readById(id));
+    const roleOf = (id: string, resolved = readResolvedRoles(handle, id)) =>
+      buildCapturePayload(sale(id), { resolvedRoles: resolved }).lines.map(
+        (line) => line.discount?.approverRole,
+      );
+    expect(roleOf('resolved')).toEqual(['admin']);
+    expect(roleOf('frozenWins')).toEqual(['manager']);
+    expect(roleOf('bothResolved')).toEqual(['admin', 'admin']);
+    // No resolution passed: only the frozen role counts, so a role-less line cannot be built.
+    expect(() => buildCapturePayload(sale('resolved'))).toThrow(DiscountNotSendableError);
+    expect(() => roleOf('otherPlaceholder')).toThrow(DiscountNotSendableError);
     db.close();
   });
 });

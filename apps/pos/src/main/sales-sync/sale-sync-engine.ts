@@ -62,6 +62,8 @@
  * no state write, no attempt, never dead-lettered. It stays pending and drains
  * on the first tick after the switch is turned on (RT-858). With it on, only a
  * discount the capture cannot send (no recorded approver role) stays held.
+ * RT-906: each tick first freezes the roles that became resolvable
+ * (`discountRoles.resolve`); the hold and the payload then read them per sale.
  *
  * Shutdown (RT-198, as the shift sync engine and the returns resolver): once
  * `isStopped()` is true a tick reads and writes nothing more. It is checked before
@@ -90,7 +92,12 @@ import {
 import type { SaleRow } from '../sales/repositories/sales.repository.js';
 import type { SaleRoute, SellingUserIdResolver } from './selling-user-id.js';
 import { settledWithin } from './settled-within.js';
-import { isSaleHeldFromSync } from './discount-hold.js';
+import { isSaleHeldFromSync, saleHasLineDiscount } from './discount-hold.js';
+import {
+  NO_RESOLVED_ROLES,
+  type ResolvedDiscountRoles,
+  type SaleDiscountRoles,
+} from './discount-role-resolutions.js';
 import {
   buildCapturePayload,
   TenderNotSendableError,
@@ -259,6 +266,11 @@ export interface SaleSyncEngineDeps {
    * RT-858): only a discount with no recorded approver role is held.
    */
   discountCaptureSupported?: boolean;
+  /**
+   * RT-906: the held discount roles. Resolved at the start of every tick, read
+   * by the hold and the payload. Absent: only the frozen role counts.
+   */
+  discountRoles?: SaleDiscountRoles;
 }
 
 export type TickAdmission =
@@ -377,6 +389,7 @@ export function createSaleSyncEngine(deps: SaleSyncEngineDeps): SaleSyncEngine {
       payload = buildCapturePayload(sale, {
         tendersSince: deps.tendersSince,
         receiptSince: deps.receiptSince,
+        resolvedRoles: rolesOf(sale),
       });
     } catch (err) {
       if (!isNotSendable(err)) throw err;
@@ -647,7 +660,17 @@ export function createSaleSyncEngine(deps: SaleSyncEngineDeps): SaleSyncEngine {
     return stateRepo
       .eligible({ tenantId, branchId, terminalId }, now())
       .map((due) => readSale(due.sale_id))
-      .filter((sale): sale is SaleRow => sale !== null && !isHeld(sale));
+      .filter((sale): sale is SaleRow => sale !== null && !isHeldOrUnreadable(sale));
+  }
+
+  /** RT-906: a hold check that throws (the resolution read) holds that sale only, this tick. */
+  function isHeldOrUnreadable(sale: SaleRow): boolean {
+    try {
+      return isHeld(sale);
+    } catch {
+      dependencyFailed();
+      return true;
+    }
   }
 
   /** A sale the builder refuses to send faithfully (RT-10 D2 tenders, RT-858 discount). */
@@ -657,7 +680,25 @@ export function createSaleSyncEngine(deps: SaleSyncEngineDeps): SaleSyncEngine {
 
   /** RT-856 / RT-858: held from sync (`isSaleHeldFromSync`). */
   function isHeld(sale: SaleRow): boolean {
-    return isSaleHeldFromSync(sale, deps.discountCaptureSupported === true);
+    return isSaleHeldFromSync(sale, deps.discountCaptureSupported === true, rolesOf(sale));
+  }
+
+  /** RT-906: the sale's resolved roles; read only for a discounted sale. */
+  function rolesOf(sale: SaleRow): ResolvedDiscountRoles {
+    const roles = deps.discountRoles;
+    return roles === undefined || !saleHasLineDiscount(sale)
+      ? NO_RESOLVED_ROLES
+      : roles.rolesFor(sale.sale_id);
+  }
+
+  /** RT-906: freeze the newly resolvable roles; a throw holds them, never the tick. */
+  async function resolveDiscountRoles(roles: SaleDiscountRoles): Promise<void> {
+    try {
+      const terminalId = isStopped() ? null : await resolveTerminalId();
+      if (terminalId !== null && !isStopped()) roles.resolve({ tenantId, branchId, terminalId });
+    } catch {
+      dependencyFailed();
+    }
   }
 
   /** One durable Sale; a failing read skips that sale only (it stays queued). */
@@ -747,6 +788,7 @@ export function createSaleSyncEngine(deps: SaleSyncEngineDeps): SaleSyncEngine {
 
   async function runTick(): Promise<void> {
     try {
+      if (deps.discountRoles !== undefined) await resolveDiscountRoles(deps.discountRoles);
       if (!(await admitTick())) return;
       // RT-221: drain only the current pairing's rows; no pairing → nothing.
       const terminalId = await resolveTerminalId();

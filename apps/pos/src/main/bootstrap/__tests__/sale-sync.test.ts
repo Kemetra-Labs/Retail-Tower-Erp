@@ -18,6 +18,9 @@ const m = vi.hoisted(() => ({
   parseReceiptSince: vi.fn(),
   scheduleSaleSync: vi.fn(),
   resolveApiBaseUrl: vi.fn(),
+  createDiscountRoleResolver: vi.fn(),
+  auditEmit: vi.fn(),
+  bindAuditEventsStoreDb: vi.fn(),
 }));
 
 vi.mock('../../sales-sync/sale-sync-state-repo.js', () => ({
@@ -66,6 +69,20 @@ vi.mock('../../sales-sync/schedule-sale-sync.js', () => ({
   scheduleSaleSync: m.scheduleSaleSync,
 }));
 vi.mock('../env.js', () => ({ resolveApiBaseUrl: m.resolveApiBaseUrl }));
+vi.mock('../../sales-sync/discount-role-resolver.js', () => ({
+  createDiscountRoleResolver: m.createDiscountRoleResolver,
+}));
+vi.mock('../../audit/audit-events-store.js', () => ({
+  bindAuditEventsStoreDb: m.bindAuditEventsStoreDb,
+}));
+vi.mock('../../audit/audit-emitter.js', () => ({
+  AuditEmitter: class {
+    constructor(readonly store: unknown) {}
+    emit(event: unknown): void {
+      m.auditEmit(this.store, event);
+    }
+  },
+}));
 
 import { startSaleSyncEngine } from '../sale-sync.js';
 import type { SaleSyncDeps } from '../sale-sync.js';
@@ -123,6 +140,8 @@ function makeHarness(): Harness {
     return stopSaleSync;
   });
   m.resolveApiBaseUrl.mockReturnValue('https://api.example.test');
+  m.createDiscountRoleResolver.mockReturnValue({ marker: 'discountRoles' });
+  m.bindAuditEventsStoreDb.mockReturnValue({ marker: 'auditStore' });
   const deps = {
     guardedIpcMain: { marker: 'ipcMain' },
     db: { marker: 'db' },
@@ -282,6 +301,29 @@ describe('startSaleSyncEngine (RT-900 extraction 6c)', () => {
     expect(reset.now).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(reset.logger).toBe(h.logger);
     expect(h.events.indexOf('reset')).toBeLessThan(h.events.indexOf('engine'));
+  });
+
+  it('RT-906: gives the engine the discount role resolver, auditing on the same handle', () => {
+    const h = makeHarness();
+    startSaleSyncEngine(h.deps, TERMINAL);
+    expect(engineDeps()['discountRoles']).toEqual({ marker: 'discountRoles' });
+    expect(m.bindAuditEventsStoreDb).toHaveBeenCalledWith(h.deps.db);
+    const r = m.createDiscountRoleResolver.mock.calls[0]?.[0] as {
+      db: unknown;
+      emit: (event: { payload: Record<string, unknown> }) => void;
+      now: () => string;
+      newEventId: () => string;
+    };
+    expect(r.db).toBe(h.deps.db);
+    expect(r.now()).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(r.newEventId()).toMatch(/^[0-9a-f-]{36}$/);
+    const event = { payload: { sale_id: 'sale-9', approver_role: 'manager' } };
+    r.emit(event);
+    expect(m.auditEmit).toHaveBeenCalledWith({ marker: 'auditStore' }, event);
+    expect(h.logger.info).toHaveBeenCalledWith(
+      { sale_id: 'sale-9' },
+      'sale_sync:discount_role_resolved',
+    );
   });
 
   it('logs the engine callbacks with opaque ids and closed-set reasons only', () => {
