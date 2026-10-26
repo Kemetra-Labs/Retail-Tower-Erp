@@ -151,11 +151,11 @@ export async function claimBatch(
   batchSize = 50,
 ): Promise<ClaimedOutboxEvent[]> {
   assertPositiveBatchSize(batchSize);
-  return runWithTenantContext(
+  return await runWithTenantContext(
     pool,
     { tenantId: null, isPlatformAdmin: true },
     async (client) => {
-      return _claimBatchOnClient(client, batchSize);
+      return await _claimBatchOnClient(client, batchSize);
     },
   );
 }
@@ -175,7 +175,7 @@ export async function reclaimStaleClaims(
     throw new RangeError('reclaimStaleClaims: leaseMs must be a positive integer');
   }
   assertPositiveBatchSize(batchSize);
-  return runWithTenantContext(
+  return await runWithTenantContext(
     pool,
     { tenantId: null, isPlatformAdmin: true },
     async (client) => {
@@ -209,7 +209,7 @@ export async function reclaimStaleClaims(
 
 /** Renew only the current claim generation; a reclaimed attempt cannot renew. */
 export async function heartbeatClaim(pool: Pool, eventId: string, attempts: number): Promise<boolean> {
-  return runWithTenantContext(
+  return await runWithTenantContext(
     pool,
     { tenantId: null, isPlatformAdmin: true },
     async (client) => {
@@ -717,7 +717,7 @@ export async function listDeadLettered(
 ): Promise<OutboxDeadLetterRecord[]> {
   assertPositiveBatchSize(input.limit);
 
-  return runWithTenantContext(
+  return await runWithTenantContext(
     pool,
     { tenantId: null, isPlatformAdmin: true },
     async (client) => {
@@ -813,7 +813,7 @@ export async function getDeadLettered(
   pool: Pool,
   eventId: string,
 ): Promise<OutboxDeadLetterRecord | null> {
-  return runWithTenantContext(
+  return await runWithTenantContext(
     pool,
     { tenantId: null, isPlatformAdmin: true },
     async (client) => {

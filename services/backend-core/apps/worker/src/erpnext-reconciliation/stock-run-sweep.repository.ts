@@ -146,7 +146,7 @@ export class PgStockRunSweepRepository implements StockRunSweepRepository {
 
   async sweepStore({ target, period }: SweepStoreInput): Promise<SweepStoreResult> {
     const { tenantId, storeId } = target;
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId, isPlatformAdmin: false },
       async (client): Promise<SweepStoreResult> => {
@@ -276,19 +276,19 @@ export class PgStockRunSweepRepository implements StockRunSweepRepository {
 
 /** No-DB path (dev / CI without DATABASE_URL): nothing to sweep. */
 export class NoOpStockRunSweepRepository implements StockRunSweepRepository {
-  async listActiveTenantIds(): Promise<string[]> {
-    return [];
+  listActiveTenantIds(): Promise<string[]> {
+    return Promise.resolve([]);
   }
 
-  async listMappedStoreIds(_tenantId: string): Promise<string[]> {
-    return [];
+  listMappedStoreIds(_tenantId: string): Promise<string[]> {
+    return Promise.resolve([]);
   }
 
-  async sweepStore(_input: SweepStoreInput): Promise<SweepStoreResult> {
-    throw new Error("NoOpStockRunSweepRepository.sweepStore: no database configured");
+  sweepStore(_input: SweepStoreInput): Promise<SweepStoreResult> {
+    return Promise.reject( new Error("NoOpStockRunSweepRepository.sweepStore: no database configured"));
   }
 
-  async expireStaleRuns(_tenantId: string, _now: Date): Promise<ExpireStaleRunsResult> {
-    throw new Error("NoOpStockRunSweepRepository.expireStaleRuns: no database configured");
+  expireStaleRuns(_tenantId: string, _now: Date): Promise<ExpireStaleRunsResult> {
+    return Promise.reject( new Error("NoOpStockRunSweepRepository.expireStaleRuns: no database configured"));
   }
 }

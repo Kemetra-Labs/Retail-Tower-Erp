@@ -195,7 +195,7 @@ export async function emitInNewTransaction(
   ctx: TenantContext,
   input: OutboxEmitInput,
 ): Promise<string> {
-  return runWithTenantContext(pool, ctx, async (client) => {
-    return emit(client, input);
+  return await runWithTenantContext(pool, ctx, async (client) => {
+    return await emit(client, input);
   });
 }

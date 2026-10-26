@@ -156,7 +156,7 @@ export class ShiftCashUpService {
    */
   async openShift(ctx: ShiftWriteContext, fact: OpenShiftFact): Promise<ShiftWriteResult<ShiftProjection>> {
     const hash = openHash(fact);
-    return this.inTenant(ctx, async (client) => {
+    return await this.inTenant(ctx, async (client) => {
       // An exact replay is answered before the envelope path's live check of
       // the stated opener (RT-17 comment 10931 #4); see replaysBeforeLiveCheck.
       const existing = await this.repo.findShift(client, ctx.scope, fact.shiftId);
@@ -193,7 +193,7 @@ export class ShiftCashUpService {
     shiftId: string,
     fact: CashMovementFact,
   ): Promise<ShiftWriteResult<CashMovementProjection>> {
-    return this.inTenant(ctx, async (client) => {
+    return await this.inTenant(ctx, async (client) => {
       const shift = await this.lockMovementShift(client, { scope: ctx.scope, shiftId, fact });
       const hash = movementHash(shift, fact);
       const existing = await this.repo.findMovement(client, shift, fact.movementId);

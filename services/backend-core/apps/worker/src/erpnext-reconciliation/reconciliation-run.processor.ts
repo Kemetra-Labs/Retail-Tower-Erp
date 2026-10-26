@@ -74,8 +74,8 @@ export interface BinReportView {
 
 /** A stub-tolerant view: no connector report present → reports nothing. */
 export const EMPTY_BIN_VIEW: ErpnextBinView = {
-  async fetchBinView(): Promise<ReadonlyMap<string, string>> {
-    return new Map();
+  fetchBinView(): Promise<ReadonlyMap<string, string>> {
+    return Promise.resolve(new Map());
   },
 };
 

@@ -57,7 +57,7 @@ export async function hashPassword(plaintext: string): Promise<string> {
       `password must be at most ${MAX_PASSWORD_CODE_POINTS} code points`,
     );
   }
-  return argon2.hash(plaintext, ARGON2_PARAMS);
+  return await argon2.hash(plaintext, ARGON2_PARAMS);
 }
 
 /**

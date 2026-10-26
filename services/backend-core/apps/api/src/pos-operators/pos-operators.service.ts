@@ -755,7 +755,7 @@ export class PosOperatorsService {
     tenantId: string,
     userId: string,
   ): Promise<MembershipLookupRow | null> {
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId, isPlatformAdmin: false },
       async (client) => {
@@ -782,7 +782,7 @@ export class PosOperatorsService {
     membershipId: string,
     storeId: string,
   ): Promise<boolean> {
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId, isPlatformAdmin: false },
       async (client) => {

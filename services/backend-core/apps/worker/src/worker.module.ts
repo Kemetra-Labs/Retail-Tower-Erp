@@ -196,7 +196,7 @@ export class BullMqWorkerFactory implements WorkerFactory {
     const client = new InstrumentedRedis(this.redisUrl);
     const worker = new BullMqWorker(
       queueName,
-      async (job) => handler({ name: job.name, data: job.data, id: job.id }),
+      async (job) => await handler({ name: job.name, data: job.data, id: job.id }),
       { connection: client, ...options },
     );
     // RT-698: a job's last failure goes to Sentry (retried attempts do not).

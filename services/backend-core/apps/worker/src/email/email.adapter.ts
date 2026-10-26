@@ -77,7 +77,8 @@ export const EMAIL_ADAPTER = "EMAIL_ADAPTER";
  */
 @Injectable()
 export class NoOpEmailAdapter implements EmailAdapter {
-  async send(_message: EmailMessage): Promise<void> {
+  send(_message: EmailMessage): Promise<void> {
+    return Promise.resolve();
     // intentionally empty — no provider chosen yet (PQ-1)
   }
 }

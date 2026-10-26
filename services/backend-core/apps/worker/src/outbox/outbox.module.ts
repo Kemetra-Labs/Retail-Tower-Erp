@@ -74,9 +74,9 @@ export const OUTBOX_SALE_PROCESSING_QUEUE = "OUTBOX_SALE_PROCESSING_QUEUE";
  * underlying connection to close.
  */
 export class NoOpAuditQueue implements AuditQueueLike {
-  async add(_name: string, _data: unknown, _opts?: Record<string, unknown>): Promise<unknown> {
+  add(_name: string, _data: unknown, _opts?: Record<string, unknown>): Promise<unknown> {
     // intentionally empty — dev/test environments without REDIS_URL
-    return null;
+    return Promise.resolve(null);
   }
 }
 
@@ -134,7 +134,7 @@ export class OutboxAuditQueue
     data: unknown,
     opts?: Record<string, unknown>,
   ): Promise<unknown> {
-    return this.inner.add(name, data, opts);
+    return await this.inner.add(name, data, opts);
   }
 }
 
@@ -214,7 +214,7 @@ export class OutboxSaleProcessingQueue
     data: unknown,
     opts?: Record<string, unknown>,
   ): Promise<unknown> {
-    return this.inner.add(name, data, opts);
+    return await this.inner.add(name, data, opts);
   }
 }
 

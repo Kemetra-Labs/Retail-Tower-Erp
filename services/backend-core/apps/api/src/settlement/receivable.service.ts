@@ -452,7 +452,7 @@ export class ReceivableService {
    */
   async list(input: ListInput): Promise<ReceivablePage> {
     const limit = Math.min(Math.max(1, input.limit), LIST_MAX_PAGE);
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client): Promise<ReceivablePage> => {
@@ -488,7 +488,7 @@ export class ReceivableService {
    */
   async storeInScope(tenantId: string, storeId?: string): Promise<boolean> {
     if (!storeId) return true;
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId, isPlatformAdmin: false },
       async (client) => {
@@ -504,10 +504,10 @@ export class ReceivableService {
   /** Same non-disclosing scope check for a filter `payer_ref`. */
   async payerRefInScope(tenantId: string, payerRef?: string): Promise<boolean> {
     if (!payerRef) return true;
-    return runWithTenantContext(
+    return await runWithTenantContext(
       this.pool,
       { tenantId, isPlatformAdmin: false },
-      async (client) => this.payerInScope(client, payerRef),
+      async (client) => await this.payerInScope(client, payerRef),
     );
   }
 

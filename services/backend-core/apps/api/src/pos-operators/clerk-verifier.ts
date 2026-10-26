@@ -72,10 +72,10 @@ export function clerkVerifierFactory(): OperatorTokenVerifier {
     // the dev / CI machine bootable without a real Clerk secret while
     // ensuring no request can succeed without one.
     return {
-      async verify(): Promise<OperatorTokenClaims> {
-        throw new Error(
+      verify(): Promise<OperatorTokenClaims> {
+        return Promise.reject( new Error(
           "clerk verifier: CLERK_SECRET_KEY not configured (fail closed)",
-        );
+        ));
       },
     };
   }
