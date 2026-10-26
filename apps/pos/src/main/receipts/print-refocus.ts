@@ -89,8 +89,13 @@ export function withPrintRefocus(print: OsPrintFn, config: PrintRefocusConfig): 
   let disarmWatch: (() => void) | undefined;
 
   const reactivate = (win: RefocusWindow, trigger: 'settle' | 'blur'): void => {
-    win.focus();
-    logger.info({ msg: 'os_print:refocus', trigger });
+    // A refocus failure must never change or swallow the print outcome.
+    try {
+      win.focus();
+      logger.info({ msg: 'os_print:refocus', trigger });
+    } catch {
+      // best effort: the cashier can still click back into the window
+    }
   };
 
   const armWatch = (win: RefocusWindow): void => {

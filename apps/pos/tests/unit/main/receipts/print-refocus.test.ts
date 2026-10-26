@@ -216,6 +216,42 @@ describe('RT-847 withPrintRefocus — re-activation after the print', () => {
   });
 });
 
+describe('RT-847 withPrintRefocus — a refocus failure never touches the print outcome', () => {
+  it('still reports the outcome when focus throws on settle', () => {
+    const win = fakeWindow();
+    win.focus = () => {
+      throw new Error('window gone');
+    };
+    const inner = manualPrint();
+    const callback = vi.fn();
+
+    withPrintRefocus(inner.print, { getWindow: () => win })(HTML, callback);
+    win.loseFocus();
+
+    expect(() => {
+      inner.complete(true);
+    }).not.toThrow();
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(callback).toHaveBeenCalledWith(true, undefined);
+  });
+
+  it('swallows a focus failure on the deferred grace-period blur', async () => {
+    const win = fakeWindow();
+    const inner = manualPrint();
+    const callback = vi.fn();
+
+    withPrintRefocus(inner.print, { getWindow: () => win })(HTML, callback);
+    inner.complete(true);
+    win.focus = () => {
+      throw new Error('window gone');
+    };
+    win.loseFocus();
+
+    await expect(vi.runOnlyPendingTimersAsync()).resolves.not.toThrow();
+    expect(callback).toHaveBeenCalledWith(true, undefined);
+  });
+});
+
 describe('RT-847 withPrintRefocus — never steals focus', () => {
   it('waits for every print in flight: a dialog inside a second print is not interrupted', () => {
     const win = fakeWindow();
