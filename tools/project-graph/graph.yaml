@@ -241,6 +241,10 @@ allowed_symlinks: []
 # label; a renamed or recycled login cannot match). Adding or changing an entry is itself a
 # policy change.
 #   - Kemetra, id 206601658, User: the owner. RT-721 S1 (owner decisions c13766/c13770).
+#     Accepted residual: agent sessions on this machine still act under the Kemetra token, so
+#     an approval by this account cannot be proven human, and it can approve a policy PR that
+#     another actor (for example kemetra-agent[bot]) authored. Full A.8 R1 separation (agents
+#     off the Kemetra credentials) is still open.
 #   - kemetra-reviewer[bot], id 348508063, Bot: the independent reviewer App (RT-870, owner
 #     decision 2026-10-26). Its token has only pull_requests:write + metadata:read, so it
 #     can review but cannot push, merge or edit files. It runs in a separate session from the
