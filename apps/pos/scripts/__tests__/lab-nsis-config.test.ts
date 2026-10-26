@@ -126,9 +126,10 @@ describe('RT-322 differential download stays on, with a full-download fallback',
     expect(lab).not.toMatch(/target:\s*portable/);
   });
 
-  it('no updater wiring (src/main/update/**, src/main/index.ts) disables differential download', () => {
+  it('no updater wiring (src/main/update/**, src/main/bootstrap/updater.ts, src/main/index.ts) disables differential download', () => {
     const files = [
       'src/main/index.ts',
+      'src/main/bootstrap/updater.ts',
       ...readdirSync(path.join(REPO_ROOT, 'src/main/update'), { recursive: true })
         .map(String)
         .filter((f) => f.endsWith('.ts') && !f.includes('__tests__'))

@@ -133,8 +133,6 @@ import { composeTerminalStatus } from './terminal-status/compose-terminal-status
 import { createTerminalStatusPublisher } from './terminal-status/terminal-status-publisher.js';
 import { createTerminalSyncAggregateReader } from './terminal-status/sync-aggregate.js';
 import { registerTerminalStatusHandlers } from './ipc/terminal-status.js';
-import { registerUpdateStatusHandlers, wireUpdateStatusPush } from './ipc/update-status.js';
-import { UPDATE_STATUS_IPC_CHANNELS } from '../shared/update-status/types.js';
 import { TERMINAL_STATUS_IPC_CHANNELS } from '../shared/terminal-status/types.js';
 import { composeSaleSyncDevicePath } from './sales-sync/compose-device-path.js';
 import { createCurrentTerminalResolver } from './sales-sync/current-terminal.js';
@@ -199,8 +197,8 @@ import { createWorkerRegistry } from './app/bootstrap-workers.js';
 import { createWindowFactory } from './app/bootstrap-window.js';
 import { createDatabaseHolder } from './app/bootstrap-db.js';
 import { resolveApiBaseUrl, resolveClerkExchanger, resolveMigrationsDir } from './bootstrap/env.js';
+import { registerUpdater, startUpdater } from './bootstrap/updater.js';
 import {
-  broadcastToWindows,
   getCurrentPrinters,
   resolveRendererOrigin as resolveRendererOriginFor,
 } from './bootstrap/window.js';
@@ -216,16 +214,7 @@ import { openDatabase } from './db/client.js';
 import { bindMigrationsDb, readMigrationsFromDisk } from './db/migrate.js';
 import { bindVacuumInto } from './db/pre-migration-snapshot.js';
 import { runStartupMigrations } from './app/startup-migrations.js';
-// RT-772 — packaged-only, fail-closed updater (ADR-0006). electron-updater is CJS: default
-// import, and its singleton is only touched once every guard in UpdateService holds.
-import electronUpdater from 'electron-updater';
-import { createPowerShellProbe } from './update/powershell-signature-probe.js';
-import { createPrintActivity, trackPrintPipeline } from './update/print-activity.js';
-import { createSafePointGate } from './update/safe-point-gate.js';
-import { createSafePointInputs } from './update/safe-point-inputs.js';
-import { createFailClosedVerifier } from './update/signature-verifier.js';
-import { readPublisherPins, resolveUpdateConfig } from './update/update-config.js';
-import { createUpdateService } from './update/update-service.js';
+import { trackPrintPipeline } from './update/print-activity.js';
 import type { UpdateService } from './update/update-service.js';
 import { createSecretStore } from './secrets/index.js';
 import { createLogger, waitForLogDrain } from './logging/logger.js';
@@ -345,9 +334,6 @@ const shippedApp = isShippedApp({
 
 /** RT-164 — longest a refused launch waits for its log line to reach disk. */
 const LAUNCH_REFUSAL_LOG_DRAIN_MS = 2000;
-
-/** RT-772 — room for a shift close's answer to reach the renderer before an update install quits. */
-const SHIFT_CLOSE_REPLY_MARGIN_MS = 4_000;
 
 /** The trusted renderer origin allow-list (#370); the resolver lives in `bootstrap/window.ts`. */
 const resolveRendererOrigin = (): string => resolveRendererOriginFor(isDev, __dirname);
@@ -803,42 +789,16 @@ singleInstanceReady
     const operatorEnvelopeHolder = createJwtHolder(refuseWhileRevoked);
     const operatorSessionManager = new SessionManager();
 
-    // RT-772 slice 2 — the POS updater (ADR-0006; design §4-§6). Constructed here,
-    // before the shift close paths and the print dispatcher that report to it, and
-    // started after the last IPC registration. It does nothing unless this is the
-    // shipped app AND an origin is configured AND a publisher is pinned (fail
-    // closed). It installs only at a safe point: no open shift, nothing in flight.
-    const printActivity = createPrintActivity();
-    const updateConfig = resolveUpdateConfig(process.env);
-    const updateService = createUpdateService({
-      isShippedApp: shippedApp,
-      origin: updateConfig.origin,
-      channel: updateConfig.channel,
-      readPublisherPins: () =>
-        readPublisherPins(path.join(process.resourcesPath, 'app-update.yml')),
-      getUpdater: () => electronUpdater.autoUpdater,
-      gate: createSafePointGate(createSafePointInputs(db, printActivity)),
-      isBeforeSignIn: () => operatorSessionManager.getCurrent() === null,
-      logger: mainLogger,
-      // electron-updater's own Windows verifier resolves "valid" when its PowerShell check cannot
-      // run; this one returns null only on positive proof (see signature-verifier.ts).
-      verifier: createFailClosedVerifier(createPowerShellProbe()),
-      // Both close paths notify only once their own work is done (the forced close after its
-      // delivery, see ForcedCloseHandler); this is just room for the answer to reach the renderer.
-      afterShiftCloseDelayMs: SHIFT_CLOSE_REPLY_MARGIN_MS,
+    // RT-772 / RT-322 — the POS updater and its status bridge (bootstrap/updater.ts, RT-893).
+    // Built here, before the shift close paths and the print dispatcher that report to it.
+    const { updateService, printActivity } = registerUpdater({
+      guardedIpcMain,
+      db,
+      shippedApp,
+      operatorSessionManager,
+      mainLogger,
     });
     updateServiceHandle = updateService;
-    // RT-322 (S-B) — the read-only update status bridge: `updateStatus:get` plus the
-    // `updateStatus:changed` push to the app windows. Sanitized in main; no install
-    // trigger and no channel or origin setter cross it.
-    registerUpdateStatusHandlers(guardedIpcMain, { read: () => updateService.getStatus() });
-    // The listener lives as long as the service; there is nothing to stop at quit.
-    wireUpdateStatusPush({
-      subscribe: (listener) => updateService.onStatusChange(listener),
-      send: (snapshot) => {
-        broadcastToWindows(UPDATE_STATUS_IPC_CHANNELS.CHANGED, snapshot);
-      },
-    });
     sessionLockProbe.isLocked = () => operatorSessionManager.isLocked();
     recoveryModeProbe.active = () => operatorSessionManager.getCurrent()?.recovery_of !== undefined;
     // RT-444 (RT-116 S3, §4) — ONE sign-in admission guard for every path
@@ -2679,7 +2639,7 @@ singleInstanceReady
 
     // RT-772: after the last IPC registration, so a download that completes at once
     // already sees the real shift, cart, payment, return and print state.
-    updateService.start();
+    startUpdater({ updateService });
 
     createWindow();
     mainLogger.info('app:ready');
