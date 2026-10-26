@@ -8,6 +8,11 @@
  * pending, so turning the switch on drains it with no requeue step. The sync
  * status names the hold (`discount_capture_unavailable`) and counts it. An
  * undiscounted sale is sent exactly as before, in the same tick.
+ *
+ * RT-858 turns the switch on: the held sale drains once, with its discount.
+ * A discount with no recorded approver role cannot be sent (`sales.yaml`
+ * requires `approverRole`), so that sale alone stays held, under the same
+ * reason, in the drain and in both status reads.
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 
@@ -24,7 +29,11 @@ import { createFakeSaleSyncClient } from '../sale-sync-client-types.js';
 import { bindSalesRepository } from '../../sales/repositories/sales.repository.js';
 import { createSaleSyncEngine, type SaleSyncEngineDeps } from '../sale-sync-engine.js';
 import { createSaleSyncStatusReader } from '../sale-sync-status-reader.js';
-import { SALE_DISCOUNT_CAPTURE_SUPPORTED, saleHasLineDiscount } from '../discount-hold.js';
+import {
+  SALE_DISCOUNT_CAPTURE_SUPPORTED,
+  isSaleHeldFromSync,
+  saleHasLineDiscount,
+} from '../discount-hold.js';
 
 beforeAll(async () => {
   await initSalesSyncSql();
@@ -48,12 +57,16 @@ const DISCOUNTED_LINES = JSON.stringify([
       placeholder_id: 'dp-1',
       reason_code: 'promotion',
       authority_source: 'cashier_approval',
+      approver_role: 'manager',
       approver_operator_id: 'mgr-1',
     },
   },
 ]);
 
-function harness(over: Partial<SaleSyncEngineDeps> = {}) {
+/** The same sale frozen with no `approver_role` (a PIN record with no role yet, RT-861). */
+const ROLELESS_LINES = DISCOUNTED_LINES.replace('"approver_role":"manager",', '');
+
+function harness(over: Partial<SaleSyncEngineDeps> = {}, discountedLines = DISCOUNTED_LINES) {
   const db = freshSalesSyncDb();
   const handle = handleFor(db);
   const stateRepo = createSaleSyncStateRepo(handle);
@@ -75,11 +88,26 @@ function harness(over: Partial<SaleSyncEngineDeps> = {}) {
     onDeadLetter: (saleId) => deadLetters.push(saleId),
     ...over,
   };
-  seedSale(db, { sale_id: 'sale-disc', subtotal_minor: 8100, lines_json: DISCOUNTED_LINES });
+  seedSale(db, { sale_id: 'sale-disc', subtotal_minor: 8100, lines_json: discountedLines });
   seedOutbox(db, { sale_id: 'sale-disc', enqueued_at: '2026-10-24T10:00:00.000Z' });
   seedSale(db, { sale_id: 'sale-plain' });
   seedOutbox(db, { sale_id: 'sale-plain', enqueued_at: '2026-10-24T10:01:00.000Z' });
   return { db, deps, stateRepo, client, deadLetters };
+}
+
+/** The `sales:syncStatus` snapshot for SCOPE, in the given capture mode. */
+function statusOf(
+  stateRepo: ReturnType<typeof createSaleSyncStateRepo>,
+  discountCaptureSupported?: boolean,
+) {
+  return createSaleSyncStatusReader({
+    stateRepo,
+    tenantId: SCOPE.tenantId,
+    branchId: SCOPE.branchId,
+    resolveTerminalId: () => SCOPE.terminalId,
+    pausedReason: () => null,
+    ...(discountCaptureSupported === undefined ? {} : { discountCaptureSupported }),
+  })();
 }
 
 async function tick(deps: SaleSyncEngineDeps): Promise<void> {
@@ -92,8 +120,8 @@ function postedIds(client: ReturnType<typeof createFakeSaleSyncClient>): string[
 }
 
 describe('RT-856 — the capability switch', () => {
-  it('is off on main until RT-858 turns it on', () => {
-    expect(SALE_DISCOUNT_CAPTURE_SUPPORTED).toBe(false);
+  it('is on since RT-858', () => {
+    expect(SALE_DISCOUNT_CAPTURE_SUPPORTED).toBe(true);
   });
 
   it('a sale is discounted when any line carries a discount', () => {
@@ -108,7 +136,7 @@ describe('RT-856 — the capability switch', () => {
 
 describe('RT-856 — switch off (default): the discounted sale is held', () => {
   it('is never sent, never touched, never dead-lettered; the undiscounted sale syncs', async () => {
-    const h = harness();
+    const h = harness({ discountCaptureSupported: false });
     await tick(h.deps);
     await tick({ ...h.deps, now: () => '2027-01-01T00:00:00.000Z' });
     expect(h.client.calls).toHaveLength(1);
@@ -136,13 +164,7 @@ describe('RT-856 — switch off (default): the discounted sale is held', () => {
   it('the status names the hold and counts it; pending still includes it', async () => {
     const h = harness();
     await tick(h.deps);
-    const status = await createSaleSyncStatusReader({
-      stateRepo: h.stateRepo,
-      tenantId: SCOPE.tenantId,
-      branchId: SCOPE.branchId,
-      resolveTerminalId: () => SCOPE.terminalId,
-      pausedReason: () => null,
-    })();
+    const status = await statusOf(h.stateRepo);
     expect(status.pending).toBe(1);
     expect(status.held).toEqual({ reason: 'discount_capture_unavailable', count: 1 });
     h.db.close();
@@ -159,18 +181,107 @@ describe('RT-856 — switch on (RT-858): the same stored sale drains with no req
     h.db.close();
   });
 
+  it('RT-858: sends it exactly once, at its net, with the discount and attribution', async () => {
+    const h = harness();
+    const on = { ...h.deps, discountCaptureSupported: SALE_DISCOUNT_CAPTURE_SUPPORTED };
+    await tick(h.deps);
+    await tick(on);
+    await tick({ ...on, now: () => '2027-01-01T00:00:00.000Z' });
+    const sent = h.client.calls.filter((call) => call.externalId === 'pos-pulse:handoff-sale-disc');
+    expect(sent).toHaveLength(1);
+    expect(nn(sent[0]).totalMinor).toBe(8100);
+    expect(nn(sent[0]).lines).toEqual([
+      expect.objectContaining({
+        unitPriceMinor: 4500,
+        lineAmountMinor: 8100,
+        discount: {
+          kind: 'percent',
+          value: 10,
+          amountMinor: 900,
+          reasonCode: 'promotion',
+          authoritySource: 'cashier_approval',
+          approverRole: 'manager',
+        },
+      }),
+    ]);
+    expect(h.stateRepo.eligible(SCOPE, '2027-01-01T00:00:00.000Z')).toEqual([]);
+    expect(h.deadLetters).toEqual([]);
+    h.db.close();
+  });
+
+  it('RT-858: a transient answer re-sends the same body under the same key (replay-safe)', async () => {
+    const h = harness();
+    const client = createFakeSaleSyncClient([{ kind: 'transient' }, { kind: 'ok', saleRef: null }]);
+    const deps = { ...h.deps, client, discountCaptureSupported: true };
+    await tick(deps);
+    await tick({ ...deps, now: () => '2027-01-01T00:00:00.000Z' });
+    const sent = client.calls.filter((call) => call.externalId === 'pos-pulse:handoff-sale-disc');
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toEqual(sent[0]);
+    expect(nn(h.stateRepo.read('sale-disc')).sync_status).toBe('synced');
+    h.db.close();
+  });
+
   it('the status reports no hold', async () => {
     const h = harness();
-    const status = await createSaleSyncStatusReader({
-      stateRepo: h.stateRepo,
-      tenantId: SCOPE.tenantId,
-      branchId: SCOPE.branchId,
-      resolveTerminalId: () => SCOPE.terminalId,
-      pausedReason: () => null,
-      discountCaptureSupported: true,
-    })();
+    const status = await statusOf(h.stateRepo, true);
     expect(status.held).toBeNull();
     h.db.close();
+  });
+});
+
+describe('RT-858 — switch on: a discount with no recorded approver role stays held', () => {
+  it('is never sent or dead-lettered; the other sales drain', async () => {
+    const h = harness({ discountCaptureSupported: true }, ROLELESS_LINES);
+    await tick(h.deps);
+    await tick({ ...h.deps, now: () => '2027-01-01T00:00:00.000Z' });
+    expect(postedIds(h.client)).toEqual(['pos-pulse:handoff-sale-plain']);
+    expect(h.stateRepo.read('sale-disc')).toBeNull();
+    expect(h.deadLetters).toEqual([]);
+    h.db.close();
+  });
+
+  it('the status names and counts it, as the drain holds it', async () => {
+    const h = harness({}, ROLELESS_LINES);
+    const status = await statusOf(h.stateRepo, true);
+    expect(status.held).toEqual({ reason: 'discount_capture_unavailable', count: 1 });
+    h.db.close();
+  });
+
+  it('the drain predicate and the SQL count agree, line shape by line shape', () => {
+    const shapes: Record<string, string> = {
+      sendable: DISCOUNTED_LINES,
+      roleless: ROLELESS_LINES,
+      unknownRole: DISCOUNTED_LINES.replace('"manager"', '"cashier"'),
+      scalarDiscount: '[{"line_id":"l-1","discount":7}]',
+      nullDiscount: '[{"line_id":"l-1","discount":null}]',
+      plain: '[{"line_id":"l-1"}]',
+      scalarLines: '["corrupt", 7, null]',
+      unreadable: 'not json',
+      notAList: '{"line_id":"l-1"}',
+    };
+    const db = freshSalesSyncDb();
+    const stateRepo = createSaleSyncStateRepo(handleFor(db));
+    for (const [id, lines_json] of Object.entries(shapes)) {
+      seedSale(db, { sale_id: id, lines_json });
+      seedOutbox(db, { sale_id: id });
+    }
+    const held = Object.entries(shapes).filter(([, lines_json]) =>
+      isSaleHeldFromSync({ lines_json }, true),
+    );
+    expect(held.map(([id]) => id)).toEqual([
+      'roleless',
+      'unknownRole',
+      'scalarDiscount',
+      'unreadable',
+      'notAList',
+    ]);
+    expect(stateRepo.countDiscountHeld(SCOPE, true)).toBe(held.length);
+    const heldOff = Object.values(shapes).filter((lines_json) =>
+      isSaleHeldFromSync({ lines_json }, false),
+    );
+    expect(stateRepo.countDiscountHeld(SCOPE)).toBe(heldOff.length);
+    db.close();
   });
 });
 
@@ -205,13 +316,7 @@ describe('RT-856 — countDiscountHeld', () => {
     const stateRepo = createSaleSyncStateRepo(handleFor(db));
     seedSale(db, { sale_id: 'sale-plain' });
     seedOutbox(db, { sale_id: 'sale-plain' });
-    const status = await createSaleSyncStatusReader({
-      stateRepo,
-      tenantId: SCOPE.tenantId,
-      branchId: SCOPE.branchId,
-      resolveTerminalId: () => SCOPE.terminalId,
-      pausedReason: () => null,
-    })();
+    const status = await statusOf(stateRepo);
     expect(status.held).toBeNull();
     db.close();
   });

@@ -9,7 +9,10 @@
  *   • `lineRef`s are unique;
  *   • the lines correspond one-to-one to the till's frozen snapshot
  *     (`sales.lines_json`) on whole quantity, unit price and line amount in
- *     minor units, order-independent.
+ *     minor units, order-independent. RT-858: a discounted line's amount is its
+ *     net (`line_subtotal_minor − discount.amount_minor`), as the capture sent
+ *     it and Backend-Core stores it (RT-740 C-A); a malformed frozen discount
+ *     matches nothing (fail closed).
  * Why the snapshot match is exact (Backend-Core main 1e7c5b2): capture inserts
  * one `sale_lines` row per request line, values verbatim
  * (`apps/api/src/catalog/sales/sales.service.ts:342-364`; the pipe only
@@ -19,7 +22,8 @@
  * projection `:773-784`) — only the decimal scale ("15.00" → "15.0000",
  * "3" → "3.000000") and the order (`ORDER BY sl.line_name`) differ, which the
  * minor-unit, order-independent comparison absorbs. The POS sends exactly the
- * snapshot (`capture-payload.ts` `buildCapturePayload` → `toWireBody`).
+ * snapshot (`capture-payload.ts` `buildCapturePayload` → `toWireBody`), with a
+ * discounted line at its net (RT-858).
  *
  * recordReturn confirmation: exactly the lines the journal asked to return,
  * with the same whole quantities, none twice (in `returns-dispatch`).
@@ -35,6 +39,25 @@ interface SnapshotLine {
   readonly quantity?: unknown;
   readonly unit_price_minor?: unknown;
   readonly line_subtotal_minor?: unknown;
+  /** RT-856: the frozen manual discount, when the line has one. */
+  readonly discount?: unknown;
+}
+
+/**
+ * RT-858: the line amount the capture sent — the gross, or for a discounted
+ * line the net. Null (never equal to a server amount) when the frozen discount
+ * has no safe integer `amount_minor`.
+ */
+function snapshotLineAmount(line: SnapshotLine): unknown {
+  const { discount, line_subtotal_minor: gross } = line;
+  if (discount === undefined || discount === null) return gross;
+  const amount =
+    typeof discount === 'object'
+      ? (discount as Record<string, unknown>)['amount_minor']
+      : undefined;
+  return Number.isSafeInteger(amount) && Number.isSafeInteger(gross)
+    ? (gross as number) - (amount as number)
+    : null;
 }
 
 function lineKey(parts: readonly unknown[]): string {
@@ -69,7 +92,7 @@ function snapshotKeys(linesJson: string): string[] | null {
   }
   if (!Array.isArray(parsed)) return null;
   return (parsed as SnapshotLine[]).map((l) =>
-    lineKey([l.quantity, l.unit_price_minor, l.line_subtotal_minor]),
+    lineKey([l.quantity, l.unit_price_minor, snapshotLineAmount(l)]),
   );
 }
 

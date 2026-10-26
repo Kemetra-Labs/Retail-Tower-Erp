@@ -12,8 +12,9 @@
  *    sale never ages into the 24 h attention rule. A projection change, not a
  *    sync change: it is still a read.
  *
- * With the switch on (RT-858) nothing is held and the discounted sale ages
- * like any other.
+ * With the switch on (RT-858) a sendable discounted sale is not held and ages
+ * like any other; one with no recorded approver role stays held (the drain
+ * holds it too) and never ages.
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 
@@ -55,6 +56,12 @@ const DISCOUNTED_LINES = JSON.stringify([
     },
   },
 ]);
+
+/** RT-858: the same discount with a recorded approver role, which the capture can send. */
+const SENDABLE_LINES = DISCOUNTED_LINES.replace(
+  '"approver_operator_id"',
+  '"approver_role":"manager","approver_operator_id"',
+);
 
 function enqueue(
   db: SqlDb,
@@ -160,13 +167,26 @@ describe('RT-887 sync aggregate — none held', () => {
     db.close();
   });
 
-  it('switch on (RT-858): nothing is held and the discounted sale ages like any other', async () => {
+  it.each([
+    [
+      'a sendable discounted sale is not held and ages like any other',
+      SENDABLE_LINES,
+      undefined,
+      '2026-10-01T08:00:00.000Z',
+    ],
+    [
+      'a discount with no recorded approver role stays held, never ages',
+      DISCOUNTED_LINES,
+      1,
+      '2026-10-17T09:00:00.000Z',
+    ],
+  ])('switch on (RT-858): %s', async (_name, lines_json, held, oldestPendingAt) => {
     const db = freshSalesSyncDb();
-    enqueue(db, 'sale-disc', '2026-10-01T08:00:00.000Z', { lines_json: DISCOUNTED_LINES });
+    enqueue(db, 'sale-disc', '2026-10-01T08:00:00.000Z', { lines_json });
     enqueue(db, 'sale-plain', '2026-10-17T09:00:00.000Z');
     const result = await readerFor(handleFor(db), true)();
-    expect(result).not.toHaveProperty('held');
-    expect(result).toMatchObject({ pending: 2, oldestPendingAt: '2026-10-01T08:00:00.000Z' });
+    expect(result.held).toBe(held);
+    expect(result).toMatchObject({ pending: 2, oldestPendingAt });
     db.close();
   });
 

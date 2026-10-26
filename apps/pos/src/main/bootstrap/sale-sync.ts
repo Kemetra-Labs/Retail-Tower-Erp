@@ -221,8 +221,8 @@ export function startSaleSyncEngine(deps: SaleSyncDeps, pairingStatus: PairedTer
       logSaleSyncPauseTransition(mainLogger, event);
     },
     isStopped: () => saleSyncStopped,
-    // RT-856: discounted sales are held (pending, never dead-lettered) until
-    // RT-858 ships the capture rule and flips this constant. Not an env var.
+    // RT-856 / RT-858: the capture sends the line discount, so discounted sales
+    // drain; one with no recorded approver role stays held. Not an env var.
     discountCaptureSupported: SALE_DISCOUNT_CAPTURE_SUPPORTED,
   });
 

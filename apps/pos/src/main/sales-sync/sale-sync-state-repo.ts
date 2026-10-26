@@ -185,14 +185,16 @@ export interface SaleSyncStateRepo {
    * NOT discount-held (the complement of {@link countDiscountHeld}), so a held
    * sale never ages into the terminal-status attention rule. A read.
    */
-  readOldestUnheldPendingAt(scope: DrainScope): string | null;
+  readOldestUnheldPendingAt(scope: DrainScope, discountCaptureSupported?: boolean): string | null;
   /**
    * RT-856: how many of the CURRENT terminal's unsent sales (the `pending` set)
-   * carry a line `discount`, the ones the drain holds while discount capture is
-   * off. An unreadable `lines_json` counts, as the drain holds it too. 0 when
-   * `scope.terminalId` is null. A read.
+   * the drain holds: with discount capture off (the default), every sale with a
+   * line `discount`; with it on (RT-858), only a sale whose discount has no
+   * recorded approver role (`isSaleHeldFromSync`). An unreadable `lines_json`
+   * counts either way, as the drain holds it too. 0 when `scope.terminalId` is
+   * null. A read.
    */
-  countDiscountHeld(scope: DrainScope): number;
+  countDiscountHeld(scope: DrainScope, discountCaptureSupported?: boolean): number;
   markSynced(input: MarkSyncedInput): MarkSyncedResult;
   markDeadLetter(input: MarkDeadLetterInput): void;
   recordTransient(input: RecordTransientInput): void;
@@ -226,19 +228,30 @@ interface PrepareRun {
  * `saleHasLineDiscount`; a snapshot that is not a JSON array counts. A scalar
  * element is not a line, and a JSON path on it would raise `malformed JSON`, so
  * only object elements are inspected. RT-887 shares it with the oldest-age read.
+ *
+ * RT-858: with discount capture on, a discounted line is held only when its
+ * `discount.approver_role` is not one the capture contract accepts, the SQL
+ * twin of `isSaleHeldFromSync`. A constant per mode: no input reaches the text.
  */
-const DISCOUNT_HELD_SALE_SQL = `CASE
+const DISCOUNTED_LINE_SQL = `COALESCE(json_type(j.value, '$.discount'), 'null') <> 'null'`;
+const UNSENDABLE_LINE_SQL = `${DISCOUNTED_LINE_SQL}
+                     AND COALESCE(json_extract(j.value, '$.discount.approver_role'), '')
+                       NOT IN ('manager', 'admin')`;
+
+function discountHeldSaleSql(discountCaptureSupported: boolean): string {
+  return `CASE
                WHEN json_valid(sa.lines_json) AND json_type(sa.lines_json) = 'array'
                THEN EXISTS (
                  SELECT 1 FROM json_each(sa.lines_json) j
                  WHERE CASE
                    WHEN j.type = 'object'
-                   THEN COALESCE(json_type(j.value, '$.discount'), 'null') <> 'null'
+                   THEN ${discountCaptureSupported ? UNSENDABLE_LINE_SQL : DISCOUNTED_LINE_SQL}
                    ELSE 0
                  END
                )
                ELSE 1
              END`;
+}
 
 export function createSaleSyncStateRepo(db: DatabaseHandle): SaleSyncStateRepo {
   function read(saleId: string): SaleSyncStateRow | null {
@@ -393,10 +406,10 @@ export function createSaleSyncStateRepo(db: DatabaseHandle): SaleSyncStateRepo {
     };
   }
 
-  function countDiscountHeld(scope: DrainScope): number {
+  function countDiscountHeld(scope: DrainScope, discountCaptureSupported = false): number {
     if (scope.terminalId === null) return 0;
     // The `pending` set of readSyncStatus, joined to the durable Sale, filtered
-    // by DISCOUNT_HELD_SALE_SQL.
+    // by the held predicate of the capture mode.
     const stmt = db.prepare(
       `SELECT COUNT(*) AS n
        FROM sale_sync_outbox o
@@ -404,7 +417,7 @@ export function createSaleSyncStateRepo(db: DatabaseHandle): SaleSyncStateRepo {
        LEFT JOIN sale_sync_state s ON s.sale_id = o.sale_id
        WHERE o.tenant_id = ? AND o.branch_id = ? AND o.terminal_id = ?
          AND (s.sale_id IS NULL OR s.sync_status = 'pending')
-         AND ${DISCOUNT_HELD_SALE_SQL}`,
+         AND ${discountHeldSaleSql(discountCaptureSupported)}`,
     ) as PrepareGet<{ n: number }>;
     return stmt.get(scope.tenantId, scope.branchId, scope.terminalId)?.n ?? 0;
   }
@@ -424,7 +437,10 @@ export function createSaleSyncStateRepo(db: DatabaseHandle): SaleSyncStateRepo {
     return stmt.get(scope.tenantId, scope.branchId, scope.terminalId)?.t ?? null;
   }
 
-  function readOldestUnheldPendingAt(scope: DrainScope): string | null {
+  function readOldestUnheldPendingAt(
+    scope: DrainScope,
+    discountCaptureSupported = false,
+  ): string | null {
     // RT-887: the `readOldestPendingAt` set minus the `countDiscountHeld` set.
     // That count joins `sales`, so an outbox row with no sale row is not held
     // and stays in this set.
@@ -436,7 +452,7 @@ export function createSaleSyncStateRepo(db: DatabaseHandle): SaleSyncStateRepo {
        LEFT JOIN sale_sync_state s ON s.sale_id = o.sale_id
        WHERE o.tenant_id = ? AND o.branch_id = ? AND o.terminal_id = ?
          AND (s.sale_id IS NULL OR s.sync_status = 'pending')
-         AND (sa.sale_id IS NULL OR NOT ${DISCOUNT_HELD_SALE_SQL})`,
+         AND (sa.sale_id IS NULL OR NOT ${discountHeldSaleSql(discountCaptureSupported)})`,
     ) as PrepareGet<{ t: string | null }>;
     return stmt.get(scope.tenantId, scope.branchId, scope.terminalId)?.t ?? null;
   }

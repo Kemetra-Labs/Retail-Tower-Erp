@@ -32,9 +32,28 @@
  *     pattern: a body that changes under one Idempotency-Key is a 409). Sent whole or
  *     not at all (`deriveReceipt`); line order is the order of `lines[]`. The sale
  *     number is sent as stored — its generation is not touched here.
+ *   • RT-858 (`sales.yaml` 1.14.0-draft, RT-740 option C-A): a line frozen with a
+ *     manual `discount` (RT-856) is sent at its NET `lineAmountMinor` (gross −
+ *     `amount_minor`) with the `discount` and its attribution
+ *     (`readCaptureDiscount`). The amount is re-derived with the RT-699 math on the
+ *     frozen gross and must equal the frozen one; anything else is
+ *     `DiscountNotSendableError`. Every discounted sale was held until RT-858, so
+ *     none was ever POSTed: an undiscounted line, and so an undiscounted body, is
+ *     byte-identical to before.
+ *   • RT-858 (doc 28 OZ-1 = Z-A): a discounted sale whose total is 0 sends one
+ *     `cash` tender of 0, so Backend-Core records a zero-total sale, not a
+ *     tender-unknown one. It applies where tenders are sent (the RT-79 cutoff).
  */
 
 import type { SaleRow } from '../sales/repositories/sales.repository.js';
+import {
+  computeManualDiscount,
+  isManualDiscountReasonCode,
+  type ManualDiscountKind,
+  type ManualDiscountReasonCode,
+} from '../../shared/cart/manual-discount.js';
+import type { SaleLineDiscountAuthoritySource } from '../../shared/sales/sale-line-discount.js';
+import { CAPTURE_APPROVER_ROLES, saleHasLineDiscount } from './discount-hold.js';
 
 /** A single line in the capture payload. Money is integer minor units. */
 export interface CaptureSaleLine {
@@ -44,7 +63,24 @@ export interface CaptureSaleLine {
   lineName: string;
   quantity: number;
   unitPriceMinor: number;
+  /** The line's NET: gross − `discount.amountMinor` when discounted (RT-858). */
   lineAmountMinor: number;
+  /** RT-858: the line's manual discount (RT-740 C-A); absent when not discounted. */
+  discount?: CaptureSaleLineDiscount;
+}
+
+/**
+ * RT-858: the frozen line discount as captured. `value` is a whole percent, or
+ * the amount in minor units; `amountMinor` is the money taken off the line
+ * gross. The placeholder and approver operator ids stay on the till.
+ */
+export interface CaptureSaleLineDiscount {
+  kind: ManualDiscountKind;
+  value: number;
+  amountMinor: number;
+  reasonCode: ManualDiscountReasonCode;
+  authoritySource: SaleLineDiscountAuthoritySource;
+  approverRole: 'manager' | 'admin';
 }
 
 /** One way the sale was paid. `amountMinor` is NET of change. No card data/reference (D-A). */
@@ -112,6 +148,19 @@ export class TenderNotSendableError extends Error {
   }
 }
 
+/**
+ * RT-858: a frozen line discount that cannot be sent faithfully (malformed, or
+ * its amount not the RT-699 math on the line gross). The engine dead-letters it
+ * like `TenderNotSendableError`: the server would refuse it 400 / 422 anyway.
+ * A discount with no recorded approver role never gets here: the drain holds it.
+ */
+export class DiscountNotSendableError extends Error {
+  constructor(reason: string) {
+    super(`discount not sendable: ${reason}`);
+    this.name = 'DiscountNotSendableError';
+  }
+}
+
 export const SOURCE_SYSTEM = 'pos-pulse' as const;
 
 /** The frozen line snapshot shape persisted in `sales.lines_json` (008 T028a). */
@@ -122,6 +171,86 @@ interface PersistedLineSnapshot {
   quantity: number;
   unit_price_minor: number;
   line_subtotal_minor: number;
+  /** RT-856: the frozen manual discount (`SaleLineDiscount`), when the line has one. */
+  discount?: unknown;
+}
+
+const AUTHORITY_SOURCES: ReadonlySet<unknown> = new Set(['cashier_approval', 'manager_session']);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** The frozen discount's attribution, or null when a field is outside its closed set. */
+function attributionOf(
+  frozen: Record<string, unknown>,
+): Pick<CaptureSaleLineDiscount, 'reasonCode' | 'authoritySource' | 'approverRole'> | null {
+  const { reason_code, authority_source, approver_role } = frozen;
+  if (!isManualDiscountReasonCode(reason_code)) return null;
+  if (!AUTHORITY_SOURCES.has(authority_source) || !CAPTURE_APPROVER_ROLES.has(approver_role)) {
+    return null;
+  }
+  return {
+    reasonCode: reason_code,
+    authoritySource: authority_source as SaleLineDiscountAuthoritySource,
+    approverRole: approver_role as CaptureSaleLineDiscount['approverRole'],
+  };
+}
+
+/**
+ * RT-858: the line's capture discount, or undefined when it has none. The
+ * amount is recomputed from the frozen kind and value on the frozen gross with
+ * the RT-699 math (percent half up, once per line; amount verbatim, at most the
+ * gross) and must equal the frozen `amount_minor`, so POS and Backend-Core can
+ * never disagree on the net. Throws `DiscountNotSendableError` otherwise.
+ */
+function readCaptureDiscount(line: PersistedLineSnapshot): CaptureSaleLineDiscount | undefined {
+  const frozen = frozenDiscountOf(line);
+  if (frozen === undefined) return undefined;
+  const priced = pricedDiscount(line.line_subtotal_minor, frozen);
+  if (priced === null || priced.amountMinor !== frozen['amount_minor']) {
+    throw new DiscountNotSendableError(`line ${line.line_id} amount`);
+  }
+  const attribution = attributionOf(frozen);
+  if (attribution === null) throw new DiscountNotSendableError(`line ${line.line_id} attribution`);
+  return { ...priced, ...attribution };
+}
+
+/** The line's frozen discount object; undefined when it has none, a throw when it is not an object. */
+function frozenDiscountOf(line: PersistedLineSnapshot): Record<string, unknown> | undefined {
+  const frozen = line.discount;
+  if (frozen === undefined || frozen === null) return undefined;
+  if (!isRecord(frozen)) throw new DiscountNotSendableError(`line ${line.line_id} malformed`);
+  return frozen;
+}
+
+function isDiscountKind(kind: unknown): kind is ManualDiscountKind {
+  return kind === 'percent' || kind === 'amount';
+}
+
+/** The frozen kind and value with the RT-699 amount on the gross, or null when refused. */
+function pricedDiscount(
+  gross: number,
+  frozen: Record<string, unknown>,
+): Pick<CaptureSaleLineDiscount, 'kind' | 'value' | 'amountMinor'> | null {
+  const { kind, value } = frozen;
+  if (!isDiscountKind(kind) || typeof value !== 'number') return null;
+  const result = computeManualDiscount(gross, { kind, value });
+  return result === null ? null : { kind, value, amountMinor: result.amount_minor };
+}
+
+function captureLine(s: PersistedLineSnapshot): CaptureSaleLine {
+  const discount = readCaptureDiscount(s);
+  return {
+    lineRef: s.line_id,
+    productRef: s.item_ref,
+    lineName: s.display_name,
+    quantity: s.quantity,
+    unitPriceMinor: s.unit_price_minor,
+    lineAmountMinor:
+      discount === undefined ? s.line_subtotal_minor : s.line_subtotal_minor - discount.amountMinor,
+    ...(discount === undefined ? {} : { discount }),
+  };
 }
 
 /** The frozen summary line shape (`buildRedactedTenderLinesSummary`). */
@@ -240,6 +369,24 @@ function buildTenders(sale: SaleRow): CaptureSaleTender[] {
       method,
       amountMinor,
     }));
+}
+
+/** The sale's tenders: its frozen summary, or the RT-858 zero-total tender when that is empty. */
+function tendersOf(sale: SaleRow): CaptureSaleTender[] {
+  const tenders = buildTenders(sale);
+  return tenders.length > 0 ? tenders : zeroTotalTenders(sale);
+}
+
+/**
+ * RT-858 (doc 28 OZ-1 = Z-A): a discounted sale with total 0 (every line free)
+ * sends one `cash` tender of 0, so Backend-Core records a zero-total sale
+ * rather than a tender-unknown one. Only a discounted sale: those were all held
+ * until RT-858, so no body already POSTed changes. Any other sale: none.
+ */
+function zeroTotalTenders(sale: SaleRow): CaptureSaleTender[] {
+  return sale.subtotal_minor === 0 && saleHasLineDiscount(sale)
+    ? [{ method: 'cash', amountMinor: 0 }]
+    : [];
 }
 
 /** A rollout cutoff is on and the sale was finalized at/after it. */
@@ -370,16 +517,9 @@ export function buildCapturePayload(
   options: BuildCapturePayloadOptions = {},
 ): CaptureSalePayload {
   const snapshots = JSON.parse(sale.lines_json) as PersistedLineSnapshot[];
-  const lines: CaptureSaleLine[] = snapshots.map((s) => ({
-    lineRef: s.line_id,
-    productRef: s.item_ref,
-    lineName: s.display_name,
-    quantity: s.quantity,
-    unitPriceMinor: s.unit_price_minor,
-    lineAmountMinor: s.line_subtotal_minor,
-  }));
+  const lines: CaptureSaleLine[] = snapshots.map(captureLine);
 
-  const tenders = finalizedAtOrAfter(sale, options.tendersSince) ? buildTenders(sale) : [];
+  const tenders = finalizedAtOrAfter(sale, options.tendersSince) ? tendersOf(sale) : [];
   const admissionCheckAt = deriveAdmissionCheckAt(sale);
   const receipt = deriveReceipt(sale, options.receiptSince);
 
