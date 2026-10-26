@@ -37,7 +37,7 @@ export interface FinalizeListenerDeps {
  * steady-state tick. `index.ts` calls it as the first step of the paired-only starter it registers
  * on the latch (`pairedWorkersLatch.register('finalize listener + sale-sync engine', …)`), at the
  * exact position the inline code held, so a terminal that pairs mid-process runs it the same way a
- * paired boot does. The sale-sync engine wiring stays inline after the call until its own extraction.
+ * paired boot does. The sale-sync engine wiring follows it in `bootstrap/sale-sync.ts`.
  */
 export function startFinalizeListener(
   deps: FinalizeListenerDeps,
