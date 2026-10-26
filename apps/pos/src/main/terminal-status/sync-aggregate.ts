@@ -9,6 +9,12 @@
  * Counts, ISO timestamps and one closed-set code only — no sale, terminal,
  * tenant or cashier id (P7 / A4-3). `payloadDivergence` stays out: the dead-
  * letter count already includes it.
+ *
+ * RT-887 (RT-856 residual): while discount capture is off, the discounted
+ * sales the drain holds stay in `pending` and are also reported as `held`
+ * (only when > 0). `oldestPendingAt` is then taken over the non-held sales
+ * only, so a held sale never ages into the 24 h attention rule. A projection
+ * change: the drain and its switch are untouched.
  */
 import type { SaleSyncPausedReason } from '../sales-sync/sale-sync-engine.js';
 import type { SaleSyncStateRepo } from '../sales-sync/sale-sync-state-repo.js';
@@ -16,11 +22,13 @@ import type { SaleSyncStateRepo } from '../sales-sync/sale-sync-state-repo.js';
 export interface TerminalSyncAggregate {
   /** This terminal's unsent sales. */
   readonly pending: number;
+  /** RT-887: the discount-held subset of `pending`; present only when > 0. */
+  readonly held?: number;
   /** Unsent sales queued under an earlier pairing (RT-221; held, never sent). */
   readonly heldPreviousPairing: number;
   /** Every dead-lettered sale, payload divergences included. */
   readonly deadLetter: number;
-  /** Outbox enqueue time of the oldest pending sale (ISO), or null. */
+  /** Outbox enqueue time of the oldest non-held pending sale (ISO), or null. */
   readonly oldestPendingAt: string | null;
   /** Why the drain cannot send right now (RT-224), or null. */
   readonly paused: SaleSyncPausedReason | null;
@@ -29,13 +37,18 @@ export interface TerminalSyncAggregate {
 }
 
 export interface TerminalSyncAggregateReaderDeps {
-  stateRepo: Pick<SaleSyncStateRepo, 'readSyncStatus' | 'readOldestPendingAt'>;
+  stateRepo: Pick<
+    SaleSyncStateRepo,
+    'readSyncStatus' | 'readOldestPendingAt' | 'readOldestUnheldPendingAt' | 'countDiscountHeld'
+  >;
   tenantId: string;
   branchId: string;
   /** The current pairing's terminal_id, read live; null when unpaired. */
   resolveTerminalId: () => string | null | Promise<string | null>;
   /** The engine's live paused reason (`SaleSyncEngine.pausedReason`). */
   pausedReason: () => SaleSyncPausedReason | null | Promise<SaleSyncPausedReason | null>;
+  /** RT-887: the engine's discount-capture switch (RT-856); off by default (held). */
+  discountCaptureSupported?: boolean;
 }
 
 export function createTerminalSyncAggregateReader(
@@ -48,13 +61,19 @@ export function createTerminalSyncAggregateReader(
       terminalId: await deps.resolveTerminalId(),
     };
     const counts = deps.stateRepo.readSyncStatus(scope);
-    return {
+    const holding = deps.discountCaptureSupported !== true;
+    // Two reads, so a sale enqueued in between could make held exceed pending.
+    const held = holding ? Math.min(deps.stateRepo.countDiscountHeld(scope), counts.pending) : 0;
+    const aggregate: TerminalSyncAggregate = {
       pending: counts.pending,
       heldPreviousPairing: counts.heldPreviousPairing,
       deadLetter: counts.deadLetter,
-      oldestPendingAt: deps.stateRepo.readOldestPendingAt(scope),
+      oldestPendingAt: holding
+        ? deps.stateRepo.readOldestUnheldPendingAt(scope)
+        : deps.stateRepo.readOldestPendingAt(scope),
       paused: await deps.pausedReason(),
       lastSuccessAt: counts.lastSuccessAt,
     };
+    return held > 0 ? { ...aggregate, held } : aggregate;
   };
 }

@@ -154,13 +154,16 @@ test("D1: the list row opens the detail; read-only, only the product is read", a
   await expect(p.getByRole("region", { name: t("catalog.detail.overrides.title") })).toBeVisible();
 
   // No field and no form. For an owner the buttons only start something that writes nothing
-  // until it is confirmed: Add identifier and each identifier's Retire (RT-769, drawers), and
-  // the item's Retire starter (RT-768, an inline confirmation). This item has two identifiers.
+  // until it is confirmed, in page order: Add identifier and each identifier's Retire (RT-769,
+  // drawers; this item has two identifiers), each store deviation's Change (RT-770, a drawer),
+  // and the item's Retire starter (RT-768, an inline confirmation).
   await expect(p.getByRole("main").getByRole("textbox")).toHaveCount(0);
   await expect(p.getByRole("main").getByRole("button")).toHaveText([
     t("catalog.identifier.add.start"),
     t("catalog.identifier.retire.start"),
     t("catalog.identifier.retire.start"),
+    t("catalog.override.change", { store: "Cairo Festival" }),
+    t("catalog.override.change", { store: "New York Flagship" }),
     t("catalog.retire.start"),
   ]);
   await expect(p.locator("main form, main input, main textarea, main select")).toHaveCount(0);

@@ -188,6 +188,37 @@ export interface OperatorOfflineGrantInvalidatedPayload {
   reason: OfflineGrantInvalidationReason;
 }
 
+// ─── operator.signin.offline_* (RT-308, RT-113 P3) ───────────────────────────
+
+/**
+ * `operator.signin.offline_admitted` — a cashier was admitted offline from a
+ * valid sealed grant on this terminal. The event's attribution records who,
+ * where and which session; the payload adds nothing (no grant field).
+ */
+export type OperatorSigninOfflineAdmittedPayload = Record<string, never>;
+
+/**
+ * Why an offline sign-in was refused after the PIN matched. Closed set: the
+ * grant store's refusal categories (10763 §3).
+ */
+export const OFFLINE_SIGNIN_REFUSAL_CATEGORIES = [
+  'grant_missing',
+  'grant_invalidated',
+  'grant_expired',
+  'count_exhausted',
+  'clock_suspect',
+  'scope_mismatch',
+  'tampered',
+  'storage',
+] as const;
+
+export type OfflineSigninRefusalCategory = (typeof OFFLINE_SIGNIN_REFUSAL_CATEGORIES)[number];
+
+/** `operator.signin.offline_refused` — the category only; never a grant field. */
+export interface OperatorSigninOfflineRefusedPayload {
+  category: OfflineSigninRefusalCategory;
+}
+
 // ─── operator.session.takeover ─────────────────────────────────────────────
 
 export interface OperatorSessionTakeoverPayload {
@@ -738,6 +769,9 @@ export type AuditPayloadMap = {
   'operator.signin.refused_unresolved_payment': OperatorSigninRefusedUnresolvedPaymentPayload;
   // RT-113 P1.2 (OD10)
   'operator.offline_grant.invalidated': OperatorOfflineGrantInvalidatedPayload;
+  // RT-308 (RT-113 P3)
+  'operator.signin.offline_admitted': OperatorSigninOfflineAdmittedPayload;
+  'operator.signin.offline_refused': OperatorSigninOfflineRefusedPayload;
   'cashier.pin.reset': CashierPinResetPayload;
   'cashier.pin.unlock': CashierPinUnlockPayload;
   'cashier.pin.provisioned': CashierPinProvisionedPayload;
