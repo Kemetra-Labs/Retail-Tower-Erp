@@ -54,6 +54,8 @@ connector:
       # format, not a pattern.
       _CALENDAR_DATE_RE: format date
       _RFC3339_DATE_TIME_RE: format date-time
+      # SaleTender.tenderRef is `format: uuid` (RT-359), likewise a format, not a pattern.
+      _TENDER_REF_RE: format uuid
   - module: integrations/erpnext-connector/retail_tower_erpnext_connector/connector/bin_view/contracts.py
     contract: erpnext-connector/stock-view.yaml
     enums: {}
