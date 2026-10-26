@@ -55,6 +55,11 @@ describe('main/index.ts wires RT-215 (device revoked + pairing recovery)', () =>
     expect(saleSyncSource).toMatch(
       /composeSaleSyncDevicePath\(\{\s*db,\s*readToken: createSendableDeviceTokenRead\(\{\s*pairingStore,\s*secretStore,\s*deviceTokenKey,\s*\}\),/,
     );
+    // The composition root hands the starter the real device-token key (the starter's own tests
+    // use a stand-in key), so a wrong key at this call cannot pass unnoticed.
+    expect(source).toMatch(
+      /startSaleSyncEngine\(\s*\{\s*guardedIpcMain,\s*db,\s*salesRepo,\s*backendFetch,\s*operatorSessionManager,\s*operatorEnvelopeHolder,\s*pairingStore,\s*secretStore,\s*deviceTokenKey: DEVICE_TOKEN_KEY,/,
+    );
     expect(source).toMatch(/\(await readSendableDeviceToken\(\)\) \?\? ''/); // sign-in attestation
   });
 
