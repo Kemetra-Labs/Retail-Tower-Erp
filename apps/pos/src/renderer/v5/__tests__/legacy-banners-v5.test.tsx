@@ -125,7 +125,7 @@ describe('PrinterFailureBanner — V5 warning banner', () => {
     expect(tone?.compareDocumentPosition(source as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
-  it('keeps the copy and the three actions as V5 banner buttons', () => {
+  it('keeps the copy and the three actions as V5 banner buttons, plus RT-886 «تغيير الطابعة»', () => {
     const banner = renderBanner();
     expect(banner).toHaveTextContent('فشل طباعة الإيصال · جرّب مرة أخرى أو حوّل للوضع اليدوي');
     const actions = banner.querySelector('.v5-banner__actions') as HTMLElement;
@@ -134,7 +134,7 @@ describe('PrinterFailureBanner — V5 warning banner', () => {
       within(actions)
         .getAllByRole('button')
         .map((b) => b.textContent),
-    ).toEqual(['إعادة المحاولة', 'نسخة', 'إيصال يدوي']);
+    ).toEqual(['إعادة المحاولة', 'نسخة', 'إيصال يدوي', 'تغيير الطابعة']);
   });
 
   it('keeps the reprint gating and aria-busy on the running action', () => {

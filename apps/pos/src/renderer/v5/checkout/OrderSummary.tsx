@@ -1,8 +1,11 @@
 import { useId, useState, type FocusEvent, type JSX, type KeyboardEvent } from 'react';
 
 import type { PaymentIntentEnvelope } from '../../../shared/cart/handoff-envelope';
+import { lineDiscountMinor } from '../../../shared/cart/manual-discount';
 import { formatHumanCount, formatHumanMoney } from '../../ui/format/human-format';
 import { Icon } from '../../icons/Icon';
+import { DISCOUNT_COPY } from '../sale/discount/discount-copy';
+import { DiscountAmount, DiscountKindLabel } from '../sale/discount/DiscountParts';
 
 /**
  * RT-243 W1-C (freeze 15 §4, 06 `OrderSummary`; DESIGN.md Frame — Direction B)
@@ -25,6 +28,21 @@ import { Icon } from '../../icons/Icon';
 
 export interface OrderSummaryProps {
   envelope: Readonly<PaymentIntentEnvelope>;
+}
+
+/**
+ * RT-855 (D1 ZeroCheckout, OD-3) — each frozen line's manual discount: the
+ * token main froze, and its amount from the shared math on the frozen gross
+ * (display only; the envelope's own totals are what main charges).
+ */
+function frozenLineDiscount(
+  envelope: Readonly<PaymentIntentEnvelope>,
+  line: PaymentIntentEnvelope['lines'][number],
+): { token: string; amountMinor: number | null } | null {
+  const placeholder = envelope.discount_placeholders.find((dp) => dp.line_id === line.line_id);
+  if (placeholder === undefined) return null;
+  const token = placeholder.placeholder_kind;
+  return { token, amountMinor: lineDiscountMinor(line.line_subtotal_minor, token) };
 }
 
 /** Sum of quantities; a non-safe sum renders as the formatter's dash. */
@@ -86,21 +104,39 @@ export function OrderSummary({ envelope }: Readonly<OrderSummaryProps>): JSX.Ele
       {/* A long cart scrolls inside the list; tabIndex lets a keyboard reach it
           (axe scrollable-region-focusable). Collapsed at 1024, it is display:none. */}
       <ol className="v5-order-summary__lines" id={listId} aria-label="أصناف السلة" tabIndex={0}>
-        {envelope.lines.map((line, idx) => (
-          <li key={line.line_id} className="v5-order-summary__line">
-            <span className="v5-order-summary__name">{line.display_name}</span>
-            <span className="v5-order-summary__qty" aria-label="الكمية">
-              <bdi dir="ltr">{`×${formatHumanCount(line.quantity)}`}</bdi>
-            </span>
-            <span
-              className="v5-order-summary__amount"
-              dir="ltr"
-              data-testid={`payment-summary-line-subtotal-${idx.toString()}`}
+        {envelope.lines.map((line, idx) => {
+          const discount = frozenLineDiscount(envelope, line);
+          return (
+            <li
+              key={line.line_id}
+              className="v5-order-summary__line"
+              data-discounted={discount === null ? undefined : 'true'}
             >
-              {formatHumanMoney(line.line_subtotal_minor)}
-            </span>
-          </li>
-        ))}
+              <span className="v5-order-summary__name">{line.display_name}</span>
+              <span className="v5-order-summary__qty" aria-label="الكمية">
+                <bdi dir="ltr">{`×${formatHumanCount(line.quantity)}`}</bdi>
+              </span>
+              <span
+                className="v5-order-summary__amount"
+                dir="ltr"
+                data-testid={`payment-summary-line-subtotal-${idx.toString()}`}
+              >
+                {formatHumanMoney(line.line_subtotal_minor)}
+              </span>
+              {discount !== null && (
+                <>
+                  <span className="v5-order-summary__discount">
+                    <DiscountKindLabel token={discount.token} />
+                  </span>
+                  <DiscountAmount
+                    minor={discount.amountMinor}
+                    className="v5-order-summary__discount-amount"
+                  />
+                </>
+              )}
+            </li>
+          );
+        })}
       </ol>
 
       <div className="v5-order-summary__total">
@@ -109,6 +145,15 @@ export function OrderSummary({ envelope }: Readonly<OrderSummaryProps>): JSX.Ele
           {formatHumanMoney(envelope.subtotal_minor)}
         </span>
       </div>
+      {(envelope.discount_total_minor ?? 0) > 0 && (
+        <div className="v5-order-summary__total v5-order-summary__total--discount">
+          <span>{DISCOUNT_COPY.totalDiscount}</span>
+          <DiscountAmount
+            minor={envelope.discount_total_minor ?? null}
+            className="v5-order-summary__amount"
+          />
+        </div>
+      )}
     </section>
   );
 }

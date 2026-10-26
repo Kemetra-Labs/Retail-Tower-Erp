@@ -3,6 +3,8 @@ import { useEffect, useState, type JSX } from 'react';
 import type { ReceiptsBridgeAPI, SalesBridgeAPI } from '../../../shared/bridge-api.js';
 import type { SaleId } from '../../../shared/sales/types.js';
 import { Banner } from '../../v5/foundation/Banner';
+import { PRINTER_COPY } from '../../v5/printer/printer-copy';
+import { openPrinterPanel } from '../../v5/printer/printer-store';
 
 /**
  * T290 — `<PrinterFailureBanner>` (008 Slice 3, /impeccable craft against §A1 §(f)).
@@ -48,6 +50,11 @@ import { Banner } from '../../v5/foundation/Banner';
  * glyph (never the offline banner's triangle). The spinner is now
  * `.v5-banner__spinner`. Copy, actions, reprint gating, `aria-busy` and the
  * `banner_state` feed are unchanged.
+ *
+ * RT-886 (RT-839 D4): a fourth action, «تغيير الطابعة», opens the «الطابعة»
+ * panel, so a print that went to the wrong (or a missing) printer can be
+ * redirected and retried. It is not a mutation, so the in-flight lock leaves it
+ * alone.
  */
 
 /** The projected banner state: which sale's print failed + whether reprint is eligible. */
@@ -223,6 +230,14 @@ export function PrinterFailureBanner({
           >
             {mutationPhase === 'manual_override' && <BusySpinner />}
             <span lang="ar">إيصال يدوي</span>
+          </button>
+          <button
+            type="button"
+            className="v5-btn"
+            aria-haspopup="dialog"
+            onClick={openPrinterPanel}
+          >
+            <span lang="ar">{PRINTER_COPY.changePrinter}</span>
           </button>
         </>
       }

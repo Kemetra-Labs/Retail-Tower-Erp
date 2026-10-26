@@ -24,6 +24,9 @@ import { cashDraft } from '../../v5/checkout/cash-draft.js';
 import { RecoveryPanel } from '../../v5/checkout/RecoveryPanel.js';
 import { ConfirmDialog } from '../../v5/foundation/ConfirmDialog.js';
 import { ToneIcon } from '../../v5/foundation/ToneIcon.js';
+import { Notice } from '../../v5/foundation/Notice.js';
+import { DISCOUNT_COPY } from '../../v5/sale/discount/discount-copy.js';
+import { envelopeAmountDue } from '../../../shared/cart/handoff-envelope.js';
 import '../../v5/checkout/checkout.css';
 import { CashEntry } from './CashEntry.js';
 import { CheckoutActionBar, FocusWhen, PrimarySlotContext } from './CheckoutActionBar.js';
@@ -496,6 +499,25 @@ const FIRST_ENABLED_TENDER_TILE = '[data-testid="tender-selection"] [role="radio
 const CARD_CANCEL_TITLE = 'إلغاء الدفع هنا لا يلغي الخصم على جهاز البطاقات.';
 const CARD_CANCEL_BODY = 'ألغِ العملية على الجهاز أولاً، ثم أكّد.';
 
+/**
+ * RT-855 (OZ-1 = Z-A, D1 ZeroCheckout) — the tender panel at 0 due: no method
+ * tiles, only why none is needed. «إتمام البيع» is the money column's commit.
+ */
+function ZeroDueTender(): JSX.Element {
+  return (
+    <section
+      className="v5-tender-picker"
+      data-testid="tender-zero-due"
+      aria-labelledby="v5-tender-picker-title"
+    >
+      <h2 className="v5-checkout-heading" id="v5-tender-picker-title">
+        طريقة الدفع
+      </h2>
+      <Notice tone="info">{DISCOUNT_COPY.zeroDue}</Notice>
+    </section>
+  );
+}
+
 /** RT-239 (M-S7): a scan on a completed sale starts nothing; it says what to do. */
 function notifySaleComplete(): void {
   useScanNoticeStore.getState().show(SCAN_SALE_COMPLETE_MESSAGE);
@@ -873,6 +895,12 @@ function PaymentSurfaceBody({
   }
 
   const { display_name, role } = sessionState.session;
+  // RT-854 / RT-855 — what the payment must cover: the envelope's net
+  // `total_due_minor` (Σ gross on an envelope frozen before RT-854). An
+  // unreadable value falls back to the gross, which main then refuses.
+  const dueMinor = envelopeAmountDue(envelope) ?? envelope.subtotal_minor;
+  // OZ-1 = Z-A: a fully discounted sale completes with no tender (D1 ZeroCheckout).
+  const zeroDue = dueMinor === 0;
 
   async function handleTenderSelect(tender: TenderKind): Promise<void> {
     // Defence in depth behind the disabled tile: never start or select a
@@ -906,46 +934,68 @@ function PaymentSurfaceBody({
       return;
     }
 
+    const startedAttemptId = await startAttempt();
+    if (startedAttemptId === null) return;
+    setPhase('entry');
+    // The start succeeded, so a failure from here on is a read failure, never
+    // «could not start» (RT-341).
+    await readAfterStart(startedAttemptId);
+  }
+
+  /**
+   * `payments.start` for this envelope, on the amount due (RT-854: the net).
+   * Resolves to the started attempt's id, or null after showing the refusal.
+   */
+  async function startAttempt(): Promise<string | null> {
+    if (bridge === null || envelope === null) return null;
     setIsStarting(true);
-    let startedAttemptId: string;
     try {
       const startResponse = await bridge.payments.start({
         envelope_handoff_action_id: envelope.handoff_action_id,
         envelope_cart_id: envelope.cart_id,
-        envelope_subtotal_minor: envelope.subtotal_minor,
+        envelope_subtotal_minor: dueMinor,
         envelope_version: 'v1',
         idempotency_key: crypto.randomUUID(),
       });
 
       if (startResponse.kind === 'refused') {
         setBridgeRefusalCopy('تعذّر بدء عملية الدفع. يرجى المحاولة مرة أخرى.');
-        return;
+        return null;
       }
-
-      setPhase('entry');
-      startedAttemptId = startResponse.payment_attempt_id;
 
       // Main now holds a started attempt: record it at once, so an open
       // payment is known (and V5 sign-out blocked) even if the read below is
       // slow or fails. The read then replaces this with main's snapshot.
       usePaymentStore.getState().applyAttemptSnapshot({
-        payment_attempt_id: startedAttemptId,
+        payment_attempt_id: startResponse.payment_attempt_id,
         state: 'started',
-        envelope_subtotal_minor: envelope.subtotal_minor,
+        envelope_subtotal_minor: dueMinor,
         started_at: new Date().toISOString(),
         tender_lines: [],
       });
+      return startResponse.payment_attempt_id;
     } catch {
       // Bridge rejection (network / IPC layer error). Treat as a generic
       // refusal — no structured reason crosses into the DOM (FR-005 / FR-017).
       setBridgeRefusalCopy('تعذّر بدء عملية الدفع. يرجى المحاولة مرة أخرى.');
-      return;
+      return null;
     } finally {
       setIsStarting(false);
     }
-    // The start succeeded, so a failure from here on is a read failure, never
-    // «could not start» (RT-341).
-    await readAfterStart(startedAttemptId);
+  }
+
+  /**
+   * RT-855 (OZ-1 = Z-A, D1 ZeroCheckout) — «إتمام البيع» at 0 due: start the
+   * attempt on 0 (unless one is already open) and confirm it with no tender
+   * line; main settles on Σ = 0. A refused or lost confirm reads main back as
+   * any other settle does (RT-340).
+   */
+  async function handleCompleteZero(): Promise<void> {
+    if (bridge === null || isStarting || isConfirming || cancelHold !== 'none') return;
+    setBridgeRefusalCopy(null);
+    const attemptId = paymentAttemptId ?? (await startAttempt());
+    if (attemptId === null) return;
+    await handleConfirm(attemptId);
   }
 
   /**
@@ -1137,7 +1187,7 @@ function PaymentSurfaceBody({
         return;
       }
     }
-    if (sumApplied < envelope.subtotal_minor) {
+    if (sumApplied < dueMinor) {
       setSelectedTender(null);
       setPhase('tender_selection');
     }
@@ -1449,11 +1499,11 @@ function PaymentSurfaceBody({
     }
   }
 
-  async function handleConfirm(): Promise<void> {
-    if (bridge === null || paymentAttemptId === null) {
+  async function handleConfirm(startedAttemptId?: string): Promise<void> {
+    const attemptId = startedAttemptId ?? paymentAttemptId;
+    if (bridge === null || attemptId === null) {
       return;
     }
-    const attemptId = paymentAttemptId;
     setBridgeRefusalCopy(null);
     setIsConfirming(true);
     try {
@@ -1537,7 +1587,7 @@ function PaymentSurfaceBody({
     sumAppliedMinor += line.amount_applied_minor;
   }
   const remainingBalanceMinor = Number.isSafeInteger(sumAppliedMinor)
-    ? Math.max(envelope.subtotal_minor - sumAppliedMinor, 0)
+    ? Math.max(dueMinor - sumAppliedMinor, 0)
     : 0;
 
   // RT-237 — the change to hand back is main's `change_due_minor` on the
@@ -1641,6 +1691,24 @@ function PaymentSurfaceBody({
         </button>
       );
     }
+    // As the settle commit: nothing is offered while main is being read back.
+    if (zeroDue) {
+      if (afterApply !== 'idle') return null;
+      return (
+        <button
+          type="button"
+          className="v5-btn v5-btn--primary v5-btn--commit"
+          data-testid="payment-surface-complete-zero"
+          disabled={isStarting || isConfirming}
+          onKeyDown={guardCommitKey}
+          onClick={() => {
+            void handleCompleteZero();
+          }}
+        >
+          {DISCOUNT_COPY.completeSale}
+        </button>
+      );
+    }
     if (!showSettle) return null;
     return (
       <button
@@ -1738,7 +1806,7 @@ function PaymentSurfaceBody({
       <>
         <SettledScanOwner />
         <CompletionPanel
-          paidMinor={envelope.subtotal_minor}
+          paidMinor={dueMinor}
           changeDueMinor={appliedChangeDueMinor}
           saleFinalization={saleFinalizationFlag}
           cardVoidCopy={cardVoidRequired ? BACK_REASON_COPY.card_void : null}
@@ -1807,16 +1875,20 @@ function PaymentSurfaceBody({
           <OrderSummary envelope={envelope} />
 
           <div className="v5-checkout__tender">
-            <TenderPicker
-              envelope={envelope}
-              selectedTender={selectedTender}
-              voucherEnabled={voucherTenderFlag}
-              cardEnabled={cardTenderFlag}
-              onTileKeyDown={guardTileKey}
-              onTenderSelect={(tender) => {
-                void handleTenderSelect(tender);
-              }}
-            />
+            {zeroDue ? (
+              <ZeroDueTender />
+            ) : (
+              <TenderPicker
+                envelope={envelope}
+                selectedTender={selectedTender}
+                voucherEnabled={voucherTenderFlag}
+                cardEnabled={cardTenderFlag}
+                onTileKeyDown={guardTileKey}
+                onTenderSelect={(tender) => {
+                  void handleTenderSelect(tender);
+                }}
+              />
+            )}
 
             {/* S3d mode: entry component for the selected tender. */}
             {entryOpen && (
@@ -1902,6 +1974,16 @@ function PaymentSurfaceBody({
           find={() => document.querySelector<HTMLElement>(FIRST_ENABLED_TENDER_TILE)}
           onFocused={() => {
             tileFocusedAtRef.current = Date.now();
+          }}
+        />
+        {/* RT-855: at 0 due there is no tile; arrival focus lands on «إتمام البيع», armed. */}
+        <FocusWhen
+          active={arriving && zeroDue && cancelHold === 'none'}
+          find={() =>
+            document.querySelector<HTMLElement>('[data-testid="payment-surface-complete-zero"]')
+          }
+          onFocused={() => {
+            commitFocusedAtRef.current = Date.now();
           }}
         />
         {/* RT-761 / freeze 15 §3.2: arriving at Checkout puts focus on the first method tile. */}

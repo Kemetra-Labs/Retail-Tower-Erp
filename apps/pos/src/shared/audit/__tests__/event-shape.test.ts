@@ -48,6 +48,11 @@ describe('audit/event-shape (T007 — FR-025)', () => {
     expect(record.action_category).toBe('operator.session.takeover');
   });
 
+  it('RT-886: the catalogue carries the two printer categories', () => {
+    expect(AUDIT_ACTION_CATEGORIES).toContain('terminal.printer.selected');
+    expect(AUDIT_ACTION_CATEGORIES).toContain('terminal.printer.test_printed');
+  });
+
   it('action-category catalogue includes the 004-owned categories', () => {
     expect(AUDIT_ACTION_CATEGORIES).toContain('shift.forced_close');
     expect(AUDIT_ACTION_CATEGORIES).toContain('operator.session.takeover');

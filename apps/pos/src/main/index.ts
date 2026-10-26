@@ -16,6 +16,9 @@ import { createSessionLockGuardedIpcMain } from './ipc/session-lock-guard.js';
 import { createRecoveryModeGuardedIpcMain } from './ipc/recovery-mode-guard.js';
 import { registerRecoveryHandlers } from './ipc/recovery.js';
 import { registerSaleVoidHandlers } from './ipc/sale-void.js';
+import { registerPrinterHandlers } from './ipc/printer.js';
+import { bindPrinterSettingRepository } from './printer/printer-setting-repository.js';
+import { createPrinterService } from './printer/printer-service.js';
 import {
   composeSaleVoid,
   SALE_VOID_DRAIN_TIMEOUT_MS,
@@ -1989,6 +1992,17 @@ singleInstanceReady
     // (node-thermal-printer ↔ printer status byte) remains unverified (a5
     // findings) and is NOT selected. We route to OS-print via
     // `probeEscposSupport: false`, the proven path.
+    // RT-886 (RT-839 S1): the operator's receipt printer choice (migration 0057).
+    // The OS-print transport reads it on EVERY print, so a change applies without
+    // a restart and covers the sale receipt, the return slip and every reprint
+    // (they share this one pipeline). No choice, or «Windows default», leaves the
+    // device name unset (the Windows default printer). A chosen printer that is
+    // not installed fails the print loudly; it never prints elsewhere.
+    const printerSettingRepo = bindPrinterSettingRepository(db);
+    const chosenPrinterName = (): string | undefined => {
+      const choice = printerSettingRepo.get();
+      return choice?.source === 'chosen' ? choice.printer_name : undefined;
+    };
     // RT-772: every print (receipt, cash return slip, sale-history reprint) is counted here, so an
     // update never installs mid-print.
     const printPipeline = trackPrintPipeline(
@@ -2004,10 +2018,13 @@ singleInstanceReady
           // RT-847: a printer driver that opens its own window takes the
           // foreground; give the cashier window its activation back once the
           // print is over (never while a print is still in flight).
+          // RT-886: the transport resolves the chosen printer per print, inside
+          // the wrapper, so the test page and every receipt get the same refocus.
           print: withPrintRefocus(
             createOsPrintTransport({
               createPrintWindow: createDefaultPrintWindow,
               listPrinters: () => getCurrentPrinters(),
+              resolveDeviceName: chosenPrinterName,
               logger: mainLogger,
             }),
             { getWindow: () => mainWindow, logger: mainLogger },
@@ -2033,6 +2050,43 @@ singleInstanceReady
     const drawerKickTransport: DrawerKickTransport = {
       kick: () => Promise.resolve({ ok: false, failure_reason: 'no_drawer_configured' }),
     };
+
+    // RT-886 — `printer.*`: list the installed printers, read / save the choice,
+    // send a test page. Any signed-in role (owner decision, RT-839 comment
+    // 13968); the service checks for a live, unlocked session on every call and
+    // audits each change and test page. Registered whatever the feature flags,
+    // like the print pipeline itself.
+    registerPrinterHandlers(guardedIpcMain, {
+      service: createPrinterService({
+        getSession: () => {
+          const scope = resolveSessionScope(
+            operatorSessionManager.getCurrent(),
+            pairingStore.getCurrentTerminalId(),
+          );
+          return scope === null
+            ? null
+            : {
+                operator_id: scope.operator_id,
+                operator_session_id: scope.operator_session_id,
+                tenant_id: scope.tenant_id,
+                branch_id: scope.branch_id,
+                terminal_id: scope.terminal_id,
+              };
+        },
+        isSessionLocked: () => operatorSessionManager.getCurrent()?.lock_state === 'locked',
+        repo: printerSettingRepo,
+        listPrinters: () => getCurrentPrinters(),
+        printer: printPipeline,
+        audit: auditEmitter,
+        transaction: (fn) => {
+          db.transaction(fn)();
+        },
+        now: () => new Date().toISOString(),
+        newEventId: () => randomUUID(),
+        logger: mainLogger,
+      }),
+      logger: mainLogger,
+    });
 
     // ── 008-sale-finalization-and-receipts Slice 1c.3 (T094c) ──────────────
     //
@@ -2110,6 +2164,8 @@ singleInstanceReady
         now: receiptsClock,
         newPrintEventId: () => randomUUID(),
         logger: mainLogger,
+        // RT-886: `printer_source` on `sale.receipt.printed`.
+        printerSource: () => (chosenPrinterName() === undefined ? 'os_default' : 'chosen'),
       });
 
       // 008 Slice 4 — drawer-kick dispatcher (AD-8 separate command). Chains
@@ -2507,6 +2563,8 @@ singleInstanceReady
             branchId: pairingStatus.branch_id,
             resolveTerminalId: resolveSaleSyncTerminalId,
             pausedReason: () => saleSyncEngine.pausedReason(),
+            // RT-887: held discounted sales are neither "sending" nor ageing.
+            discountCaptureSupported: SALE_DISCOUNT_CAPTURE_SUPPORTED,
           }),
         );
 

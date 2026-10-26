@@ -56,3 +56,11 @@ export const SALE_ADD_FAILED_MESSAGE = 'تعذّرت الإضافة — حاول
  * Proposed copy, pending owner approval: the catalogue (15 §5) has no row for it.
  */
 export const SALE_FROZEN_MESSAGE = 'السلة مُسلّمة للدفع؛ لا تُضاف إليها أصناف.';
+
+/**
+ * RT-855 (D1 QtyRefused, OD-28-7; owner-approved copy, RT-853) — a quantity
+ * change on a line that holds a manual discount: a stepper press, or a scan
+ * that would merge into it (main refuses both `line_discounted`).
+ */
+export const SALE_LINE_DISCOUNTED_MESSAGE =
+  'لا يمكن تغيير كمية صنف عليه خصم. أزل الخصم أولًا ثم غيّر الكمية.';
