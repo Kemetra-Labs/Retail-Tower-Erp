@@ -79,6 +79,15 @@ describe('check-index-size', () => {
     expect(res.stderr).toContain('must hold exactly one non-negative integer');
   });
 
+  it.each([
+    ['above Number.MAX_SAFE_INTEGER', '9007199254740993\n'],
+    ['too large for a finite number', `${'9'.repeat(400)}\n`],
+  ])('refuses a baseline %s (exit 2), so it cannot disable the ratchet', (_label, baselineText) => {
+    const res = run(lines(1), baselineText);
+    expect(res.status).toBe(2);
+    expect(res.stderr).toContain('must hold a safe integer');
+  });
+
   it('refuses a missing index file (exit 2)', () => {
     const baseline = path.join(dir, 'index-size.baseline');
     writeFileSync(baseline, '1\n');

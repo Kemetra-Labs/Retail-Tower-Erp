@@ -64,7 +64,12 @@ function parseBaseline(text, file) {
   if (values.length !== 1 || !/^\d+$/.test(values[0])) {
     throw new InputError(`${file} must hold exactly one non-negative integer (plus # comments)`);
   }
-  return Number(values[0]);
+  const baseline = Number(values[0]);
+  // An oversized value would round (or become Infinity) and silently disable the ratchet.
+  if (!Number.isSafeInteger(baseline)) {
+    throw new InputError(`${file} must hold a safe integer (at most ${Number.MAX_SAFE_INTEGER})`);
+  }
+  return baseline;
 }
 
 function main() {
