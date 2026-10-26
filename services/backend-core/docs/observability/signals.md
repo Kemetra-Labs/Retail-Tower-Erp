@@ -139,6 +139,15 @@ Emitted by `ConsoleRateLimitGuard` only when `CONSOLE_RATE_LIMIT_MODE` is `repor
 | `console_rate_limit_total` | counter | `class` ∈ {`cheapRead`, `expensiveRead`, `write`, `jobOrPreview`, `onboarding`, `incidentControl`, `exempt`}; `outcome` ∈ {`allowed` (under 50% of budget), `near_limit` (allowed, 50% or more), `would_limit` (over budget, report mode), `limited` (over budget, enforce mode: 429), `fail_open` (limiter error, timeout or open breaker)}; `route` (route template, the same bounded label as `http_error_4xx_total`). One increment per console request the guard evaluates. No user, tenant or IP label | RT-574 D6 / RT-619 |
 | `console_rate_limit_utilisation` | histogram | `class`, `route` as above. Value = count / limit of the caller's bucket at each successful check (above 1 = over budget); buckets 0.1, 0.25, 0.5, 0.75, 0.9, 1, 2 | RT-574 D6 / RT-619 |
 
+### Pre-auth rate-limit signals (RT-630)
+
+REPORT-ONLY. Emitted by `PreAuthRateLimitReporter` (called by `FailClosedAuthGuard` after `AuthGuard` answers 401) only when `PREAUTH_RATE_LIMIT_MODE` is `report` (default `off`: no emission, no Redis call). Each failed-auth request is counted per client IP in a fixed window (`rl:preauth_ip:<ip>`, default 300 per 5 minutes, an owner calibration number); the request is never refused. Sizes residual risk R1 (owner ruling O5) in `docs/decisions/rt-574-console-rate-limiting.md`.
+
+| Signal | Type | Labels (low-cardinality only) | Source |
+|---|---|---|---|
+| `preauth_rate_limit_total` | counter | `cause` ∈ {`missing` (no credential), `bad_token` (a session cookie or bearer that did not authenticate)}; `outcome` ∈ {`allowed` (under 50% of the per-IP ceiling), `near_limit` (50% or more), `would_limit` (over the ceiling; still answered 401 as before), `fail_open` (limiter error, timeout or open breaker: not counted)}. One increment per failed-auth request. No IP, user or tenant label | RT-630 |
+| `preauth_rate_limit_utilisation` | histogram | `cause` as above. Value = count / limit of the client IP's window at each counted request (above 1 = over the ceiling); buckets 0.1, 0.25, 0.5, 0.75, 0.9, 1, 2, 5, 10 | RT-630 |
+
 ## 1.4 AI gateway signals (RT-655)
 
 Emitted by `AiGateway.run` (apps/api/src/ai). No vendor adapter exists yet: with the default wiring the gateway denies before any provider request, so `ai_gateway_provider_call_total` stays at zero until an approved route is allowlisted. Per-tenant cost and usage are NOT metrics; they live in the usage ledger owned by RT-663 (AD-AI-PROV-001 D-6).

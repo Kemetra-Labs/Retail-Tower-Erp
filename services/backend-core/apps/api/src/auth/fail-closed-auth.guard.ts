@@ -5,11 +5,21 @@
  * `@Public()` is the only way to skip authentication. Operator-token and
  * device-attested routes declare their credential and do not fall through
  * to the opaque-token lookup, which would reject an identity-provider JWT.
+ *
+ * RT-630: when AuthGuard refuses with 401, the optional report-only
+ * PreAuthRateLimitReporter counts the failure per client IP, then the same
+ * 401 is rethrown unchanged. The reporter never refuses and never throws.
  */
-import { CanActivate, type ExecutionContext, Injectable } from "@nestjs/common";
+import {
+  CanActivate,
+  type ExecutionContext,
+  Injectable,
+  Optional,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 
-import { AuthGuard } from "./auth.guard";
+import { AuthGuard, type AuthedRequest } from "./auth.guard";
 import { OperatorBearerGuard } from "./operator-bearer.guard";
 import { DeviceAttestedGuard } from "./device-attested.guard";
 import {
@@ -18,6 +28,7 @@ import {
   DEVICE_BEARER_KEY,
   IS_PUBLIC_KEY,
 } from "./route-auth";
+import { PreAuthRateLimitReporter } from "../preauth-rate-limit/preauth-rate-limit.reporter";
 
 @Injectable()
 export class FailClosedAuthGuard implements CanActivate {
@@ -27,6 +38,7 @@ export class FailClosedAuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly authGuard: AuthGuard,
+    @Optional() private readonly preAuthReporter?: PreAuthRateLimitReporter,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -43,6 +55,17 @@ export class FailClosedAuthGuard implements CanActivate {
     if (this.reflector.getAllAndOverride<boolean>(DEVICE_BEARER_KEY, targets) === true) {
       return true;
     }
-    return this.authGuard.canActivate(context);
+    return this.authenticate(context);
+  }
+
+  private async authenticate(context: ExecutionContext): Promise<boolean> {
+    try {
+      return await this.authGuard.canActivate(context);
+    } catch (err) {
+      if (err instanceof UnauthorizedException && this.preAuthReporter) {
+        await this.preAuthReporter.report(context.switchToHttp().getRequest<AuthedRequest>());
+      }
+      throw err;
+    }
   }
 }
