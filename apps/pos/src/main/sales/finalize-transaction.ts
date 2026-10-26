@@ -51,6 +51,7 @@ import type { SalesTenderType, SaleFinalizationRefusalReason } from '../../share
 import type { SaleLineSnapshot } from './freeze-line-discounts.js';
 import { findForbiddenKey } from '../audit/find-forbidden-key.js';
 import { redactTenderLine } from './redact-tender-line.js';
+import { freezeTenderLineIdentities } from './tender-line-identity.js';
 import { bindSaleNumberDayRuleSwitch, saleNumberDayOf } from './sale-number-day-rule.js';
 
 // ─── Narrow better-sqlite3 surface (mirrors repositories) ───────────────────
@@ -80,6 +81,9 @@ export interface FinalizeTenderLineSummary {
   change_due_minor?: number;
   external_reference?: string;
   voucher_authority_redemption_id?: string;
+  /** RT-362: the line's identity; frozen with its rank as `sequence`, never as itself. */
+  tender_line_id?: string;
+  apply_order?: number;
 }
 
 export interface FinalizeInput {
@@ -199,14 +203,20 @@ const FINALIZE_FORBIDDEN_KEYS = new Set<string>([
   'pin_record_id',
 ]);
 
-/** The tender summary as persisted on the sale: card references masked, no secrets. */
+/**
+ * The tender summary as persisted on the sale: card references masked, no
+ * secrets. RT-362: each line's `tender_line_id` and `sequence` go last, so a
+ * legacy line is an exact prefix of the new shape.
+ */
 function buildRedactedTenderLinesSummary(input: FinalizeInput): Array<Record<string, unknown>> {
-  return input.tender_lines_summary.map((line) => ({
+  const identities = freezeTenderLineIdentities(input.tender_lines_summary);
+  return input.tender_lines_summary.map((line, i) => ({
     ...redactTenderLine(line),
     ...(line.tender_type === 'internal_voucher' &&
     line.voucher_authority_redemption_id !== undefined
       ? { voucher_authority_redemption_id: line.voucher_authority_redemption_id }
       : {}),
+    ...identities?.[i],
   }));
 }
 
