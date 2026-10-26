@@ -236,10 +236,15 @@ generated:   # an output may change only together with at least one declared sou
 
 allowed_symlinks: []
 
-# Human GitHub logins whose SHA-bound attestation can approve a policy change.
-# RT-721 S1 (owner decisions c13766/c13770): Kemetra, the owner's personal login.
-# Accepted residual, Shadow only: agents still act under the same Kemetra token, so an
-# approval by this login cannot be proven human. Full A.8 R1 separation (agents off the
-# Kemetra credentials) is a cutover precondition before RT-715. Adding or changing a
-# login here is itself a policy change.
-policy_approvers: [Kemetra]
+# Accounts whose SHA-bound attestation can approve a policy change. Matched by the review
+# author's immutable numeric account id AND actor type, never by login (`login` is only a
+# label; a renamed or recycled login cannot match). Adding or changing an entry is itself a
+# policy change.
+#   - Kemetra, id 206601658, User: the owner. RT-721 S1 (owner decisions c13766/c13770).
+#   - kemetra-reviewer[bot], id 348508063, Bot: the independent reviewer App (RT-870, owner
+#     decision 2026-10-26). Its token has only pull_requests:write + metadata:read, so it
+#     can review but cannot push, merge or edit files. It runs in a separate session from the
+#     one that authors the PR; GitHub does not let an author approve their own PR.
+policy_approvers:
+  - { id: 206601658, type: User, login: Kemetra }
+  - { id: 348508063, type: Bot, login: "kemetra-reviewer[bot]" }
