@@ -32,6 +32,19 @@ export type AuthorityLatchCause = Extract<
   'superseded_by_takeover' | 'account_disabled_mid_session' | 'terminal_session_terminated'
 >;
 
+/**
+ * RT-308 (RT-113 P3, 10763 D6/D7) — a cashier session admitted OFFLINE from a
+ * valid sealed grant (main-only). It holds no server admission: no
+ * `admission_id`, so the heartbeat keeper never arms it and never `end`s one.
+ */
+export interface OfflineAdmissionFields {
+  user_id: string;
+  /** The grant's expiry on the wall clock (ms since the epoch). */
+  valid_until_ms: number;
+  /** The same instant on the monotonic clock (`performance.now()`). */
+  deadline_mono_ms: number;
+}
+
 /** RT-113 P2 — the live cashier admission a session holds (main-only). */
 export interface CashierAdmissionFields {
   admission_id: string;
@@ -101,6 +114,13 @@ export interface OperatorSessionRecord {
   /** See {@link CashierAdmissionFields.admission_requested_at_ms}. Main-only. */
   admission_requested_at_ms?: number;
   /**
+   * RT-308 (10763 D6) — set only on an `offline_grant` session: the grant's
+   * expiry, on the wall clock and on the monotonic clock. After it no NEW sale
+   * may start (`offline-authority.ts`). Main-only.
+   */
+  authority_valid_until_ms?: number;
+  authority_deadline_mono_ms?: number;
+  /**
    * RT-113 P2 — set when the session lost its authority; it ends at its next
    * safe point. Main-only. The first cause wins.
    */
@@ -123,6 +143,11 @@ export interface CreateSessionInput {
   started_at?: string;
   /** RT-113 P2 — the cashier's live online admission (sign-in or takeover). */
   cashier_admission?: CashierAdmissionFields & { user_id: string };
+  /**
+   * RT-308 — a cashier admitted offline from a sealed grant. Applied only to a
+   * `cashier` session, and never together with `cashier_admission` (which wins).
+   */
+  offline_admission?: OfflineAdmissionFields;
   /**
    * RT-17 slice 4 part 2 — the `users.id` of the online sign-in response.
    * Kept only on a manager / admin session (see `manager_user_id`).
@@ -153,6 +178,14 @@ function managerFieldsOf(
   const userId = input.manager_user_id ?? '';
   if (input.role === 'cashier' || userId.length === 0) return {};
   return { manager_user_id: userId.toLowerCase(), manager_signed_in_at: new Date().toISOString() };
+}
+
+/** RT-308 — an offline-admitted cashier session: its identity and its bound. */
+function applyOfflineAdmission(record: OperatorSessionRecord, o: OfflineAdmissionFields): void {
+  record.user_id = o.user_id;
+  record.authority = 'offline_grant';
+  record.authority_valid_until_ms = o.valid_until_ms;
+  record.authority_deadline_mono_ms = o.deadline_mono_ms;
 }
 
 export class SessionManager {
@@ -213,6 +246,8 @@ export class SessionManager {
       if (a.admission_requested_at_ms !== undefined) {
         record.admission_requested_at_ms = a.admission_requested_at_ms;
       }
+    } else if (input.offline_admission !== undefined && input.role === 'cashier') {
+      applyOfflineAdmission(record, input.offline_admission);
     }
     this.current = record;
     // #380 — fire start subscribers (e.g. the orphan-attempt sweep). A

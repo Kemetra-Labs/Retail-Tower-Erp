@@ -11,6 +11,7 @@ import type {
 } from './cashier-admission.js';
 import type {
   InvalidatedGrant,
+  OfflineGrant,
   OfflineGrantEvaluation,
   OfflineGrantInvalidationReason,
   OfflineGrantRefusalCategory,
@@ -52,9 +53,10 @@ import type {
  * Clock (OD7): the high-water mark is raised at start and every 60 s; the
  * tick stops through the RT-198 latch (`stop()`): nothing runs afterwards.
  *
- * No session is created here. `evaluate` and `consumeOfflineUse` are the P3
- * entry points; nothing calls them yet. A grant carries the server's last
- * `admission_id` but no `admission_generation` (RT-219), so P3 must never arm
+ * No session is created here. `consumeOfflineUse` (the offline sign-in) and
+ * `listAdmissible` (the offline roster) are the RT-308 (P3) entry points. A
+ * grant carries the server's last `admission_id` but no `admission_generation`
+ * (RT-219), so P3 must never arm
  * an offline-admitted session as online-admitted: it must not heartbeat or
  * `end` a server admission, only reconcile later (P4).
  *
@@ -92,6 +94,12 @@ export interface OfflineGrantWiring {
   setScope(scope: OfflineGrantScope | null): void;
   /** Is there proof for an offline admission (P3)? Tombstones first. Never throws. */
   evaluate(user_id: string, nowWall: Date): OfflineGrantEvaluation;
+  /**
+   * RT-308 (D11) — the grants admissible now on this terminal, for the offline
+   * roster. A terminal-wide hold lists nobody; a per-user hold drops that
+   * user. Never throws: any failure lists nobody.
+   */
+  listAdmissible(nowWall: Date): OfflineGrant[];
   /** Use one offline admission (P3). Tombstones first. Never throws. */
   consumeOfflineUse(user_id: string, nowWall: Date): OfflineGrantEvaluation;
   /**
@@ -540,6 +548,19 @@ export function createOfflineGrantWiring(deps: OfflineGrantWiringDeps): OfflineG
 
     consumeOfflineUse(user_id, nowWall) {
       return judged(user_id, (at) => deps.store.consumeOfflineUse(at, user_id, nowWall));
+    },
+
+    listAdmissible(nowWall) {
+      const at = scope;
+      if (terminalTombstone !== null || at === null) return [];
+      try {
+        return deps.store
+          .listAdmissible(at, nowWall)
+          .filter((grant) => !userTombstones.has(grant.user_id));
+      } catch {
+        log('warn', { event: 'operator.offline_grant.storage_failed', op: 'list' });
+        return [];
+      }
     },
 
     onPairingChange(reason, prior_epoch) {

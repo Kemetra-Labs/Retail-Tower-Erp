@@ -26,6 +26,7 @@ import {
   type Admitted,
   type ParkResumeDeps,
 } from './park-context.js';
+import { authorityClockOf, newSaleBlock } from '../../operator/offline-authority.js';
 import { hashRequest } from './park-rules.js';
 import { diffFor, hasRoom, ownParkedCart, parkOne } from './park-service.js';
 import type { ParkCartRow } from './park-store.js';
@@ -208,7 +209,9 @@ export function resume(deps: ParkResumeDeps, req: CartResumeRequest): CartResume
   );
   if (replay !== null) return replay;
   // RT-113 P2: a session that lost its authority may not bring a sale back.
-  if (at.session.authority_latch !== undefined) return refused('authority_conflict');
+  // RT-308: nor may an offline-admitted session past its grant's expiry.
+  const blocked = newSaleBlock(at.session, authorityClockOf(deps.clock, deps.monotonicNow));
+  if (blocked !== null) return refused(blocked);
   const planned = plan(deps, at, req, hash);
   return 'kind' in planned ? planned : commit(deps, planned, req);
 }

@@ -31,6 +31,8 @@ export const CART_PARK_REFUSAL_REASONS = [
   'idempotency_payload_mismatch',
   // RT-113 P2: a session that lost its authority may not bring a sale back.
   'authority_conflict',
+  // RT-308: an offline-admitted session past its grant's expiry may not either.
+  'offline_authority_expired',
 ] as const;
 export type CartParkRefusalReason = (typeof CART_PARK_REFUSAL_REASONS)[number];
 

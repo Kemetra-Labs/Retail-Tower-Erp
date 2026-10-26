@@ -13,7 +13,7 @@ import type { OperatorRefusal } from '../../shared/audit/event-shape.js';
 
 import type { ClerkExchanger } from './clerk-client.js';
 import type { BackendClient } from './backend-client.js';
-import type { SessionManager } from './session-manager.js';
+import type { OperatorSessionRecord, SessionManager } from './session-manager.js';
 import type { JwtHolder } from './jwt-holder.js';
 import type { DatabaseHandle } from '../db/client.js';
 import type { SafeStorageLike } from '../secrets/safe-storage.js';
@@ -26,6 +26,13 @@ import {
   refuseLostSession,
   type CashierAdmissionDeps,
 } from './cashier-admission.js';
+import {
+  auditOfflineAdmitted,
+  backendUnreachable,
+  consumeOfflineAdmission,
+  type OfflineAdmissionDeps,
+  type OfflineAdmissionSubject,
+} from './offline-admission.js';
 import { unsealPinMaterial } from './pin-seal.js';
 import { verifyPinWithWindow, rowMatchesScope, type PinScope } from './pin-lockout.js';
 import type { PinRow } from './pin-credential.js';
@@ -326,8 +333,12 @@ export class SignInHandler {
  *      Backend-Core cashier-admissions resource (10763 D2; replaces the
  *      Clerk-gated `GET /operators/active-session`, RT-182). `admitted` →
  *      signed_in; `active_elsewhere` → takeover_required; anything else → the
- *      generic refusal. Offline (no connection) the sign-in is refused, as
- *      before; offline admission is RT113-P3.
+ *      generic refusal.
+ *   8. RT-308 (RT113-P3) — when Backend-Core cannot be reached (transport
+ *      failure or 5xx), and only then, the cashier is admitted offline from a
+ *      valid sealed grant on this terminal (`offline-admission.ts`): one use
+ *      is spent and persisted first, then the session is created through the
+ *      same `sessionManager.create` path. Any refusal is `no_connection`.
  */
 
 /** DB row returned by the cashier_pin_records SELECT. Local to this module. */
@@ -394,6 +405,12 @@ export interface CashierSignInHandlerDeps {
    * tests may omit.
    */
   sessionAdmission?: SessionAdmission;
+  /**
+   * RT-308 (RT113-P3) — offline admission from a sealed grant when Backend-Core
+   * is unreachable. Production wires it; without it an unreachable Backend-Core
+   * refuses the sign-in (`no_connection`), as before.
+   */
+  offline?: OfflineAdmissionDeps;
   /** Optional logger. Tests omit it. */
   logger?: Logger;
 }
@@ -505,6 +522,14 @@ export class CashierSignInHandler {
       return { kind: 'takeover_required', pending_takeover_id } satisfies TakeoverRequiredResponse;
     }
     if (admission.kind !== 'admitted') {
+      if (this.deps.offline !== undefined && backendUnreachable(admission.kind)) {
+        return await this.signInOffline(this.deps.offline, req, {
+          scope,
+          user_id,
+          pairing,
+          candidate,
+        });
+      }
       const refusal = refusalForAdmission(admission);
       this.logRefusal(refusal.category, `admission_${admission.kind}`);
       return refusal;
@@ -548,6 +573,71 @@ export class CashierSignInHandler {
       },
     });
 
+    return await this.answerSignedIn(record, scope, user_id);
+  }
+
+  /**
+   * RT-308 (RT113-P3, 10763 D3–D7, D10) — Backend-Core is unreachable: admit
+   * the cashier from a valid sealed grant, or refuse `no_connection`. The PIN
+   * has matched; the RT-444 guard ran before the network call and runs again
+   * right before create(). One offline use is spent and PERSISTED before the
+   * session exists. From the pairing re-check to create() nothing awaits.
+   */
+  private async signInOffline(
+    offline: OfflineAdmissionDeps,
+    req: CashierSignInRequest,
+    at: {
+      scope: PinScope;
+      user_id: string;
+      pairing: ReturnType<typeof capturePairingEpoch>;
+      candidate: { operator_id: string; role: 'cashier' };
+    },
+  ): Promise<SignInResponse> {
+    // RT-215: revoked or re-paired while the admission call was in flight.
+    if (!pairingEpochHolds(at.pairing)) {
+      this.logRefusal('invalid_input', 'pairing_changed');
+      return REFUSE_INVALID;
+    }
+    const who: OfflineAdmissionSubject = {
+      user_id: at.user_id,
+      operator_id: req.cashier_clerk_user_id,
+      tenant_id: at.scope.tenant_id,
+      branch_id: at.scope.branch_id,
+      terminal_id: at.scope.terminal_id,
+    };
+    const admitted = consumeOfflineAdmission(offline, who);
+    if (admitted.kind === 'refused') {
+      this.logRefusal('no_connection', `offline_${admitted.category}`);
+      return REFUSE_NO_CONN;
+    }
+    // RT-444 — re-check, and end a locked session, right before create().
+    const refusedAtCreate = admissionRefusal(this.deps.sessionAdmission, 'admit', at.candidate);
+    if (refusedAtCreate !== null) return refusedAtCreate;
+    // The same create() path as an online admission (OD12 guardrail): the same
+    // cashier identity, no backend session and no server admission.
+    const record = this.deps.sessionManager.create({
+      operator_id: req.cashier_clerk_user_id,
+      display_name: admitted.display_name,
+      role: 'cashier',
+      tenant_id: at.scope.tenant_id,
+      branch_id: at.scope.branch_id,
+      backend_session_id: '',
+      offline_admission: admitted.fields,
+    });
+    auditOfflineAdmitted(offline, who, record.id);
+    return await this.answerSignedIn(record, at.scope, at.user_id);
+  }
+
+  /**
+   * The `signed_in` answer for a session just created (online or offline),
+   * with the forced-close notice; or the refusal if the session was lost
+   * meanwhile.
+   */
+  private async answerSignedIn(
+    record: OperatorSessionRecord,
+    scope: PinScope,
+    user_id: string,
+  ): Promise<SignInResponse> {
     // T091 — check for an undismissed forced-close shift on this cashier.
     const forced_close_notice = await this.resolveForcedCloseNotice(scope, user_id);
 
