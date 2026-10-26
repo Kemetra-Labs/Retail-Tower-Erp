@@ -1,5 +1,7 @@
+import ast
 import json
 import pathlib
+import re
 import tempfile
 import unittest
 
@@ -268,6 +270,168 @@ class PinnedBlobProbes(unittest.TestCase):
         [f] = self.check()
         self.assertEqual(f.status, DRIFT)
         self.assertIn("probeNote", f.message)
+
+
+CONNECTOR_APP = REPO_ROOT / "integrations/erpnext-connector/retail_tower_erpnext_connector"
+CONNECTOR = CONNECTOR_APP / "connector"
+# Every Connector module that calls Backend-Core over HTTP (RT-704 inventory), relative to CONNECTOR.
+CONNECTOR_TRANSPORTS = ("posting/transport.py", "bin_view/transport.py", "health/heartbeat.py")
+# The one module allowed to import an HTTP library: `_RequestsTransport`, the HttpTransport the
+# transports above call through `self._transport`. It takes the path as an argument and has no
+# path of its own.
+CONNECTOR_HTTP_ADAPTERS = ("posting/poller.py",)
+_HTTP_VERBS = ("get", "post", "put", "patch", "delete", "request")
+_HTTP_LIBRARIES = ("requests", "httpx", "urllib3", "aiohttp", "urllib.request", "http.client")
+_TEMPLATE_PARAM = re.compile(r"\{[^}]*\}")
+
+
+def _is_transport_call(node):
+    """`<x>._transport.<verb>(...)`: the HttpTransport calls of the Connector clients."""
+    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and node.func.attr in _HTTP_VERBS and isinstance(node.func.value, ast.Attribute)
+            and node.func.value.attr == "_transport")
+
+
+def _imports_http_library(node):
+    """An import of an HTTP library in any form (`import requests as http`, `from requests import
+    post`, `from urllib import request`): whatever the alias, the module can bypass the HttpTransport."""
+    def is_http(name):
+        return any(name == lib or name.startswith(lib + ".") for lib in _HTTP_LIBRARIES)
+    if isinstance(node, ast.Import):
+        return any(is_http(alias.name) for alias in node.names)
+    if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+        return is_http(node.module) or any(is_http(f"{node.module}.{alias.name}") for alias in node.names)
+    return False
+
+
+def _api_paths(tree):
+    return {node.targets[0].id: node.value.value for node in tree.body
+            if isinstance(node, ast.Assign) and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name) and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str) and node.value.value.startswith("/api/")}
+
+
+def connector_http_modules():
+    """`(talks_to_backend, imports_http_library)`: Connector modules (tests excluded) that hold a
+    string containing `/api/` (a path or an absolute URL) or make an HttpTransport call, and
+    modules that import an HTTP library."""
+    talks, library = set(), set()
+    for path in sorted(CONNECTOR_APP.rglob("*.py")):
+        rel = path.relative_to(CONNECTOR_APP)
+        if rel.parts[0] == "tests":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        nodes = list(ast.walk(tree))
+        key = path.relative_to(CONNECTOR).as_posix() if CONNECTOR in path.parents else rel.as_posix()
+        has_api_literal = any(isinstance(n, ast.Constant) and isinstance(n.value, str)
+                              and "/api/" in n.value for n in nodes)
+        if has_api_literal or any(_is_transport_call(n) for n in nodes):
+            talks.add(key)
+        if any(_imports_http_library(n) for n in nodes):
+            library.add(key)
+    return talks, library
+
+
+def connector_calls():
+    """`({(METHOD, path)}, [unresolved])` for every `<x>._transport.<verb>(...)` call in the
+    Connector transports, read with `ast` (the modules live in a Frappe app, never imported).
+    A call resolves when its target is a module-level `/api/` constant, optionally `.format(...)`ed;
+    any other target is unresolved, so it cannot escape the check. Path parameters are normalised
+    to `{}`: the Connector names them in snake_case."""
+    calls, unresolved = set(), []
+    for rel in CONNECTOR_TRANSPORTS:
+        tree = ast.parse((CONNECTOR / rel).read_text(encoding="utf-8"))
+        paths = _api_paths(tree)
+        for node in ast.walk(tree):
+            if not _is_transport_call(node):
+                continue
+            arg = node.args[0] if node.args else None
+            if (isinstance(arg, ast.Call) and isinstance(arg.func, ast.Attribute)
+                    and arg.func.attr == "format"):
+                arg = arg.func.value
+            if node.func.attr != "request" and isinstance(arg, ast.Name) and arg.id in paths:
+                calls.add((node.func.attr.upper(), _TEMPLATE_PARAM.sub("{}", paths[arg.id])))
+            else:
+                unresolved.append(f"{rel}:{node.lineno} {ast.unparse(node.func)}(...)")
+    return calls, unresolved
+
+
+class ConnectorPin(unittest.TestCase):
+    """RT-704: the Connector PIN covers what the Connector actually calls and what the
+    `connector` check compares, so a Backend-Core break on any of it fails `pins`."""
+
+    def setUp(self):
+        self.config = yaml.safe_load((REPO_ROOT / "tools/contracts-check/config.yaml").read_text(encoding="utf-8"))
+        [consumer] = [c for c in self.config["consumers"] if c["name"] == "ERPNext-Connector"]
+        self.pinned = dict(pins.parse_pin((REPO_ROOT / consumer["pin"]).read_text(encoding="utf-8")))
+
+    def test_connector_check_contracts_are_pinned(self):
+        for entry in self.config["connector"]:
+            with self.subTest(module=entry["module"]):
+                self.assertIn(entry["contract"], self.pinned)
+
+    def test_every_connector_call_is_in_a_pinned_contract(self):
+        served = set()
+        for path, blob in self.pinned.items():
+            data = pins.read_blob(REPO_ROOT, blob)
+            if data is None:
+                self.fail(f"pinned blob {blob} ({path}) missing: run with full history (fetch-depth 0)")
+            for route, item in (yaml.safe_load(data).get("paths") or {}).items():
+                served |= {(method.upper(), _TEMPLATE_PARAM.sub("{}", route)) for method in item
+                           if method in ("get", "post", "put", "patch", "delete")}
+        calls, unresolved = connector_calls()
+        self.assertEqual(unresolved, [], "HttpTransport call whose target is not a module-level /api/ constant")
+        # The five calls of the RT-704 inventory: a transport rewrite that hides them fails here.
+        self.assertGreaterEqual(len(calls), 5, calls)
+        self.assertEqual(sorted(calls - served), [])
+
+    def test_transport_inventory_is_complete(self):
+        """A new module that talks to Backend-Core must join CONNECTOR_TRANSPORTS, and only the
+        HttpTransport adapter may import an HTTP library."""
+        talks, library = connector_http_modules()
+        self.assertEqual(sorted(talks), sorted(CONNECTOR_TRANSPORTS))
+        self.assertEqual(sorted(library), sorted(CONNECTOR_HTTP_ADAPTERS))
+
+
+def connector_pinned_blob(path):
+    """The blob the Connector PIN (from config.yaml) pins for `path`."""
+    config = yaml.safe_load((REPO_ROOT / "tools/contracts-check/config.yaml").read_text(encoding="utf-8"))
+    [consumer] = [c for c in config["consumers"] if c["name"] == "ERPNext-Connector"]
+    return dict(pins.parse_pin((REPO_ROOT / consumer["pin"]).read_text(encoding="utf-8")))[path]
+
+
+@unittest.skipUnless(real_oasdiff(), "set CONTRACTS_CHECK_OASDIFF to the pinned oasdiff binary")
+class ConnectorPinnedBlobProbe(unittest.TestCase):
+    """RT-704 acceptance on the real Connector pin of erpnext-connector/posting-feed.yaml (read
+    from the PIN, so a repin moves the probe with it): removing a field the Connector reads from
+    a work item fails."""
+
+    def setUp(self):
+        blob = connector_pinned_blob("erpnext-connector/posting-feed.yaml")
+        data = pins.read_blob(REPO_ROOT, blob)
+        if data is None:
+            self.fail(f"pinned blob {blob} missing: run with full history (fetch-depth 0)")
+        self.tmp = tempfile.TemporaryDirectory(prefix="cc-probe-")
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = pathlib.Path(self.tmp.name)
+        (self.dir / "base.yaml").write_bytes(data)
+        self.spec = yaml.safe_load(data)
+
+    def check(self):
+        revision = self.dir / "revision.yaml"
+        revision.write_text(yaml.safe_dump(self.spec, sort_keys=False), encoding="utf-8")
+        return pins.compare_file(real_oasdiff(), self.dir / "base.yaml", revision, None, "ERPNext-Connector")
+
+    def test_unchanged_is_ok(self):
+        self.assertEqual([f.status for f in self.check()], [OK])
+
+    def test_removing_payload_hash_fails(self):
+        item = self.spec["components"]["schemas"]["PostingWorkItem"]
+        del item["properties"]["payloadHash"]
+        item["required"].remove("payloadHash")
+        [f] = self.check()
+        self.assertEqual(f.status, FAIL)
+        self.assertIn("payloadHash", f.message)
 
 
 if __name__ == "__main__":

@@ -25,6 +25,9 @@ consumers:
     vendored: apps/pos/contracts/backend-core/openapi
   - name: Admin-Console
     pin: apps/admin-console/contracts/backend-core/PIN
+  # RT-704: every `contract:` under `connector:` below must also be pinned here.
+  - name: ERPNext-Connector
+    pin: integrations/erpnext-connector/contracts/backend-core/PIN
 
 # Connector read-models parsed with `ast` (never imported; they live in a Frappe app).
 # Each class with a `from_wire` or `to_wire` method must name a schema under
