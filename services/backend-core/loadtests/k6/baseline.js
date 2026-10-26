@@ -182,7 +182,7 @@ function updateMembershipFromContext() {
   return res;
 }
 
-export default function () {
+export default function baseline() {
   const tenantSlug = pickTenantForVu(__VU, SYNTHETIC_TENANTS);
   const tenantId = tenantIdFor(tenantSlug);
 

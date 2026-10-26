@@ -81,7 +81,7 @@ export function setup() {
   return { enabled: true };
 }
 
-export default function (data) {
+export default function erpnextReconciliation(data) {
   if (!data || !data.enabled) {
     return; // Prerequisite unmet — no synthetic load, no faked measurement.
   }

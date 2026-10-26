@@ -38,7 +38,7 @@ export const options = {
   thresholds: {},
 };
 
-export default function () {
+export default function smoke() {
   const tenantSlug = pickTenantForVu(__VU, SYNTHETIC_TENANTS);
 
   const signin = signIn(tenantSlug);
