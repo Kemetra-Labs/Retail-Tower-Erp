@@ -40,17 +40,8 @@ import {
 } from "../../_helpers/postgres-container";
 
 // ---------------------------------------------------------------------------
-// Domain aliases for the harness API (ids, keys and labels are not
-// interchangeable strings at the call sites)
+// Harness API types
 // ---------------------------------------------------------------------------
-/** A UUID: a user, admission, tenant, store, device or request id. */
-export type Uuid = string;
-/** A 4-hex-digit fixture suffix, e.g. "0001". */
-type FixtureSuffix = string;
-/** A rate-limiter key. */
-type RedisKey = string;
-/** The spec name a skip warning is reported under. */
-type SuiteLabel = string;
 /** Extra (or overriding) admission request body fields. */
 export type BodyFields = Record<string, unknown>;
 
@@ -69,14 +60,14 @@ const ROLE_A_MANAGER = "0c000000-0000-4000-8000-0000000a7002";
 const ROLE_B_STAFF = "0c000000-0000-4000-8000-0000000b7001";
 
 export interface FixtureUser {
-  readonly id: Uuid;
+  readonly id: string;
   readonly clerk: string | null;
   readonly name: string | null;
-  readonly membership: Uuid;
+  readonly membership: string;
 }
 
 interface UserSpec {
-  readonly suffix: FixtureSuffix;
+  readonly suffix: string;
   readonly clerk: string | null;
   readonly name: string | null;
 }
@@ -112,11 +103,11 @@ export const MUTABLE_SPECIFIC = user({ suffix: "0009", clerk: "user_rt113_mutabl
 export const CASHIER_B = user({ suffix: "000b", clerk: "user_rt113_cashier_b", name: "Tenant B Cashier" });
 
 export interface FixtureDevice {
-  readonly id: Uuid;
+  readonly id: string;
   readonly token: string;
 }
 
-function device(n: FixtureSuffix): FixtureDevice {
+function device(n: string): FixtureDevice {
   return { id: `0c000000-0000-4000-8000-0000000e${n}`, token: `rt113-device-token-${n}-aaaaaaaaaaaaaaaa` };
 }
 
@@ -131,7 +122,7 @@ export const DEV_B1 = device("000b");
 
 export const ADMIT = "/api/pos/v1/cashier-admissions";
 export const ROSTER = "/api/pos/v1/cashier-admissions/roster";
-export const endPath = (admissionId: Uuid): string =>
+export const endPath = (admissionId: string): string =>
   `/api/pos/v1/cashier-admissions/${admissionId}/end`;
 
 // ---------------------------------------------------------------------------
@@ -139,20 +130,20 @@ export const endPath = (admissionId: Uuid): string =>
 // ---------------------------------------------------------------------------
 export class MemoryRedis implements RedisLike {
   private readonly counts = new Map<string, number>();
-  async incrWindow(key: RedisKey): Promise<{ count: number; ttlMs: number }> {
+  async incrWindow(key: string): Promise<{ count: number; ttlMs: number }> {
     const next = (this.counts.get(key) ?? 0) + 1;
     this.counts.set(key, next);
     return { count: next, ttlMs: 60_000 };
   }
-  async pttl(key: RedisKey): Promise<number> {
+  async pttl(key: string): Promise<number> {
     return this.counts.has(key) ? 60_000 : -2;
   }
-  async decr(key: RedisKey): Promise<number> {
+  async decr(key: string): Promise<number> {
     const next = (this.counts.get(key) ?? 0) - 1;
     this.counts.set(key, next);
     return next;
   }
-  async del(key: RedisKey): Promise<number> {
+  async del(key: string): Promise<number> {
     return this.counts.delete(key) ? 1 : 0;
   }
   clear(): void {
@@ -184,7 +175,7 @@ export function skipped(): boolean {
   return true;
 }
 
-export async function startHarness(label: SuiteLabel): Promise<void> {
+export async function startHarness(label: string): Promise<void> {
   let env: PgTestEnv;
   try {
     env = await startPgEnv();
@@ -321,8 +312,8 @@ async function seed(admin: Pool): Promise<void> {
 
 interface MemberSeed {
   readonly user: FixtureUser;
-  readonly tenantId: Uuid;
-  readonly roleId: Uuid;
+  readonly tenantId: string;
+  readonly roleId: string;
   readonly access: "all" | "specific";
 }
 
@@ -346,11 +337,11 @@ export function newKey(): string {
   return `rt113-test:${randomUUID()}`;
 }
 
-export function online(userId: Uuid, extra: BodyFields = {}): BodyFields {
+export function online(userId: string, extra: BodyFields = {}): BodyFields {
   return { mode: "online", user_id: userId, idempotency_key: newKey(), ...extra };
 }
 
-export function reconcile(userId: Uuid, extra: BodyFields = {}): BodyFields {
+export function reconcile(userId: string, extra: BodyFields = {}): BodyFields {
   return {
     mode: "reconcile_offline",
     user_id: userId,
@@ -364,7 +355,7 @@ export function http(): ReturnType<typeof request> {
   return request(h().app.getHttpServer());
 }
 
-export function admitAs(d: FixtureDevice, body: BodyFields, requestId: Uuid = randomUUID()) {
+export function admitAs(d: FixtureDevice, body: BodyFields, requestId: string = randomUUID()) {
   return http()
     .post(ADMIT)
     .set("authorization", `Bearer ${d.token}`)
@@ -372,7 +363,7 @@ export function admitAs(d: FixtureDevice, body: BodyFields, requestId: Uuid = ra
     .send(body);
 }
 
-export function endAs(d: FixtureDevice, admissionId: Uuid, requestId: Uuid = randomUUID()) {
+export function endAs(d: FixtureDevice, admissionId: string, requestId: string = randomUUID()) {
   return http()
     .post(endPath(admissionId))
     .set("authorization", `Bearer ${d.token}`)
@@ -380,7 +371,7 @@ export function endAs(d: FixtureDevice, admissionId: Uuid, requestId: Uuid = ran
 }
 
 /** `end` with a JSON body (RT-219: the optional `admission_generation` echo). */
-export function endWith(d: FixtureDevice, admissionId: Uuid, body: unknown, requestId: Uuid = randomUUID()) {
+export function endWith(d: FixtureDevice, admissionId: string, body: unknown, requestId: string = randomUUID()) {
   return endAs(d, admissionId, requestId).send(body as object);
 }
 
@@ -405,7 +396,7 @@ export interface AdmissionProbe {
   end_reason: string | null;
 }
 
-export async function admissionsFor(userId: Uuid): Promise<AdmissionProbe[]> {
+export async function admissionsFor(userId: string): Promise<AdmissionProbe[]> {
   const r = await h().admin.query<AdmissionProbe>(
     `SELECT id, tenant_id, store_id, user_id, device_id, mode, offline_admitted_at,
             takeover_of, expires_at, ended_at, end_reason
@@ -415,7 +406,7 @@ export async function admissionsFor(userId: Uuid): Promise<AdmissionProbe[]> {
   return r.rows;
 }
 
-export async function liveFor(userId: Uuid): Promise<AdmissionProbe[]> {
+export async function liveFor(userId: string): Promise<AdmissionProbe[]> {
   return (await admissionsFor(userId)).filter((a) => a.ended_at === null);
 }
 
@@ -428,7 +419,7 @@ export interface AuditProbe {
   metadata: Record<string, unknown>;
 }
 
-export async function auditsFor(requestId: Uuid): Promise<AuditProbe[]> {
+export async function auditsFor(requestId: string): Promise<AuditProbe[]> {
   const r = await h().admin.query<AuditProbe>(
     `SELECT action, actor_user_id, tenant_id, store_id, target_id, metadata
        FROM audit_events WHERE request_id = $1 ORDER BY occurred_at, id`,

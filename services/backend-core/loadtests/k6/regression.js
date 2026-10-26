@@ -36,7 +36,6 @@ import { sleep } from "k6";
 import { signIn, refreshSession, signOut, SYNTHETIC_TENANTS } from "./lib/auth.js";
 import { establishContext, getActiveContext, pickTenantForVu, tenantIdFor } from "./lib/tenants.js";
 import http from "k6/http";
-import { check } from "k6";
 import { baseUrl, jsonHeaders, jsonPostHeaders, uuidv4 } from "./lib/util.js";
 
 // k6's filesystem reads via open() are scoped to script-init time; we use
@@ -47,19 +46,15 @@ const PRIOR_PATH = __ENV.PRIOR_BASELINE || "";
 
 const priorBaseline = new SharedArray("prior_baseline", function () {
   if (!PRIOR_PATH) return [];
-  try {
-    const txt = open(PRIOR_PATH);
-    return [JSON.parse(txt)];
-  } catch (e) {
-    // k6's `open()` errors at init if the file does not exist. We let it
-    // throw so the operator sees a clear init-time error rather than a
-    // silent skip — that's the documented "missing baseline" behaviour.
-    throw e;
-  }
+  // k6's `open()` errors at init if the file does not exist. We let it
+  // throw so the operator sees a clear init-time error rather than a
+  // silent skip — that's the documented "missing baseline" behaviour.
+  const txt = open(PRIOR_PATH);
+  return [JSON.parse(txt)];
 });
 
 const DURATION = __ENV.LOAD_DURATION || "10m";
-const VUS = parseInt(__ENV.LOAD_VUS || "20", 10);
+const VUS = Number.parseInt(__ENV.LOAD_VUS || "20", 10);
 const SKIP_ACCEPT = __ENV.LOAD_SKIP_ACCEPT !== "0";
 
 // Reuse the baseline workload exactly. Regression delta is computed in

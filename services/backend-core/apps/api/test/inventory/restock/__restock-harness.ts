@@ -52,7 +52,6 @@ import { seedInventoryFixture } from '../__support__/seed-inventory';
 import {
   seedSalesFixture,
   VOID_A_X,
-  REFUND_A_X,
 } from '../../catalog/sales/__support__/seed-sales';
 
 import { MembershipRepository } from '../../../src/context/membership.repository';
@@ -65,9 +64,11 @@ export {
   STORE_A_X,
   TENANT_A,
   VOID_A_X,
-  REFUND_A_X,
   type PgTestEnv,
 };
+export {
+  REFUND_A_X,
+} from '../../catalog/sales/__support__/seed-sales';
 
 class FakeRedis {
   private readonly store = new Map<string, { value: string; expiresAt: number }>();

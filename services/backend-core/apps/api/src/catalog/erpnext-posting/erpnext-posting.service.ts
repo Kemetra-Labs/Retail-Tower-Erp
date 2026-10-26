@@ -503,9 +503,8 @@ export class ErpnextPostingService {
       const stored = parseDocRef(row.document_ref);
       return (
         stored !== null &&
-        input.documentRef !== undefined &&
-        stored.doctype === input.documentRef.doctype &&
-        stored.name === input.documentRef.name
+        stored.doctype === input.documentRef?.doctype &&
+        stored.name === input.documentRef?.name
       );
     }
     return true; // permanently_rejected same-outcome re-ack — echo
@@ -718,8 +717,6 @@ function sameDocument(stored: string | null, incoming: AckDocumentRef | undefine
   const recorded = parseDocRef(stored);
   if (recorded === null) return true;
   return (
-    incoming !== undefined &&
-    recorded.doctype === incoming.doctype &&
-    recorded.name === incoming.name
+    recorded.doctype === incoming?.doctype && recorded.name === incoming?.name
   );
 }

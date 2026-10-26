@@ -49,9 +49,7 @@ import {
   PRODUCT_A_ACTIVE,
   STORE_A_X,
   STORE_A_Y,
-  STORE_B_X,
   TENANT_A,
-  TENANT_B,
 } from '../../catalog/__support__/isolation-harness';
 import { seedInventoryFixture } from '../__support__/seed-inventory';
 
@@ -64,11 +62,13 @@ export {
   PRODUCT_A_ACTIVE,
   STORE_A_X,
   STORE_A_Y,
-  STORE_B_X,
   TENANT_A,
-  TENANT_B,
   type PgTestEnv,
 };
+export {
+  STORE_B_X,
+  TENANT_B,
+} from '../../catalog/__support__/isolation-harness';
 
 export function idempKey(suffix: string): string {
   return (suffix + '0'.repeat(32)).slice(0, 32).replace(/[^a-z0-9]/g, '0');

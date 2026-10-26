@@ -38,7 +38,6 @@
  */
 import {
   ACTOR_A,
-  PRODUCT_A_ACTIVE,
   STORE_A_X,
   STORE_A_Y,
   TENANT_A,
