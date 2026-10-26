@@ -7,6 +7,7 @@ import { Icon } from '../../icons/Icon';
 import { PharmacyCross } from '../brand/PharmacyCross';
 import { isNavEntryCurrent, roleLabelAr, visibleNavEntries } from './nav-model';
 import { StatusIndicator } from './StatusIndicator';
+import { PrinterPanelHost } from '../printer/PrinterPanel';
 import { V5SignOut } from './V5SignOut';
 
 /**
@@ -36,6 +37,10 @@ const NAV_ICON = {
  *
  * RT-604 (VN-S6 S6-3): the footer holds the status indicator (connection,
  * sale sync, printer on failure) above the operator block.
+ *
+ * RT-886: the «الطابعة» panel opened from the footer printer row, the printer
+ * failure banner or the Sale prompt mounts here, once, for a signed-in operator
+ * (inside the frame's DialogHost).
  */
 export function V5Navigation(): JSX.Element {
   const session = useOperatorSessionStore((s) =>
@@ -80,6 +85,7 @@ export function V5Navigation(): JSX.Element {
           <V5SignOut />
         </div>
       )}
+      {session !== undefined && <PrinterPanelHost />}
     </nav>
   );
 }

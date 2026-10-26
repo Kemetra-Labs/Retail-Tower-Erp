@@ -160,6 +160,13 @@ export const AUDIT_ACTION_CATEGORIES = [
   // the closed marks and the print outcome only; never a token or receipt
   // content. Main-only. Open-set at the SQL layer (0004: no CHECK); no migration.
   'sale.history.reprinted',
+  // RT-886 (RT-839 S1) — the terminal's receipt printer choice, changed by any
+  // signed-in operator, and a test page sent to it. Local only. Payload: the
+  // printer source and queue name, and for a test page its outcome and closed
+  // failure code; never slip content. Main-only. Open-set at the SQL layer
+  // (0004: no CHECK); recorded in migration 0057's header.
+  'terminal.printer.selected',
+  'terminal.printer.test_printed',
 ] as const;
 export type ActionCategory = (typeof AUDIT_ACTION_CATEGORIES)[number];
 

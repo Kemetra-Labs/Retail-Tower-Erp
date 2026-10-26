@@ -38,6 +38,7 @@ import type {
 } from '../sales/repositories/print-events.repository.js';
 import type { SaleAuditEmitter } from '../sales/audit-emitter.js';
 import type { ReceiptPayload } from '../../shared/receipts/types.js';
+import type { PrinterSource } from '../../shared/printer/types.js';
 
 /**
  * Structural logger port — only the levels the dispatcher uses. Injected so
@@ -73,6 +74,15 @@ export interface PrintDispatcherDependencies {
   newPrintEventId(): string;
   /** Optional structural logger; defaults to a no-op. Never receives slip content. */
   logger?: PrintDispatchLogger;
+  /**
+   * RT-886 — which printer an OS print goes to: the operator's chosen queue or
+   * the Windows default. Snapshotted before the render and stamped only on a
+   * successful OS print's `sale.receipt.printed` as `printer_source`, so a lab
+   * audit shows which
+   * printer path a receipt took. Omitted, or a read that throws → the field is
+   * not written.
+   */
+  printerSource?: () => PrinterSource;
 }
 
 export interface PrintDispatcher {
@@ -161,6 +171,27 @@ export function createPrintDispatcher(deps: PrintDispatcherDependencies): PrintD
   }
 
   /**
+   * RT-886 — `printer_source`, snapshotted just BEFORE the render, when the
+   * transport reads the same choice, so a `printer.set` that lands while the
+   * print is in flight cannot relabel it. Guarded: a failing read never costs
+   * the print its `print_events` row or its success audit; the field is then
+   * OMITTED (it is optional on `sale.receipt.printed`), never guessed.
+   */
+  function readPrinterSource(sale_id: string): PrinterSource | undefined {
+    if (deps.printerSource === undefined) return undefined;
+    try {
+      return deps.printerSource();
+    } catch (err) {
+      logger.warn({
+        msg: 'receipt.printer_source_unavailable',
+        sale_id,
+        err_name: err instanceof Error ? err.name : typeof err,
+      });
+      return undefined;
+    }
+  }
+
+  /**
    * Shared attempt recorder for first-print and retry. Writes the print_events
    * row + emits the matching audit event; never logs/audits slip content
    * (T242). `successCategory` distinguishes the first-print
@@ -183,6 +214,9 @@ export function createPrintDispatcher(deps: PrintDispatcherDependencies): PrintD
       successAuditExtra?: Readonly<Record<string, unknown>>;
     },
   ): Promise<{ result: PrintAdapterResult; print_event_id: string; printed_at: string }> {
+    // RT-886: snapshot where the print goes before rendering (see readPrinterSource).
+    const printerSource =
+      opts.successCategory === 'sale.receipt.printed' ? readPrinterSource(ctx.sale_id) : undefined;
     const result = await pipeline.render(payload);
     const print_event_id = deps.newPrintEventId();
     const created_at = now();
@@ -214,6 +248,10 @@ export function createPrintDispatcher(deps: PrintDispatcherDependencies): PrintD
           sale_id: ctx.sale_id,
           print_event_id,
           render_path: result.render_path,
+          // RT-886: only the OS-print path goes through a Windows printer.
+          ...(printerSource !== undefined && result.render_path === 'os_print'
+            ? { printer_source: printerSource }
+            : {}),
           ...opts.successAuditExtra,
         },
       });
