@@ -610,6 +610,12 @@ These come from the constitution and are repeated here for quick agent reference
     holds the DSN and talks to Sentry; it refuses a DSN outside `*.ingest.de.sentry.io`
     (`src/main/observability/config.ts`). Renderer errors reach it over `app:report-error`.
 
+## Main-process wiring (RT-893)
+
+- No new wiring in `src/main/index.ts`; new areas go in `src/main/bootstrap/<area>.ts` exporting
+  `register<Area>(deps)`. The CI ratchet `scripts/check-index-size.mjs` fails if the file grows;
+  lower `scripts/index-size.baseline` in the same PR when it shrinks.
+
 ## Backend-Core HTTP clients (RT-880)
 
 - **Every new main-process Backend-Core client uses the shared transport**

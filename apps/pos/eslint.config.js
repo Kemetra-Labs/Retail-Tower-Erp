@@ -57,6 +57,12 @@ export default tsEslint.config(
       'react-hooks/exhaustive-deps': 'warn',
     },
   },
+  // RT-893: plain-Node CI scripts (scripts/*.mjs, e.g. check-index-size.mjs) are in no tsconfig
+  // project, so the project service cannot type them. Lint them with the non-type-aware rules.
+  {
+    files: ['scripts/*.mjs'],
+    ...tsEslint.configs.disableTypeChecked,
+  },
   // Deferred: add electron-security ESLint plugin rules once package name is confirmed
   // (e.g., eslint-plugin-electron or similar; verify on npm before installing)
 );
