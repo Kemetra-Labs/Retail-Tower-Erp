@@ -10,6 +10,7 @@ import type { ProductSnapshotDisplay } from '../../../shared/catalogue/product-s
 import {
   SALE_ADD_FAILED_MESSAGE,
   SALE_FROZEN_MESSAGE,
+  SALE_LINE_DISCOUNTED_MESSAGE,
   SCAN_AMBIGUOUS_MESSAGE,
   SCAN_CATALOGUE_UNAVAILABLE_MESSAGE,
   SCAN_SALE_COMPLETE_MESSAGE,
@@ -182,6 +183,45 @@ describe('useDirectSaleAdd', () => {
     expect(options.onLineAdded).not.toHaveBeenCalled();
     expect(options.notify).toHaveBeenCalledTimes(3);
     expect(options.notify).toHaveBeenLastCalledWith(SALE_ADD_FAILED_MESSAGE);
+  });
+
+  it('RT-855: a scan that would merge into a discounted line names why (OD-28-7)', async () => {
+    const add = vi.fn().mockResolvedValue({ kind: 'refused', reason: 'line_discounted' });
+    const bridge = { lines: { add } } as unknown as CartBridgeAPI;
+    const { result, options } = setup({ bridge });
+    await act(async () => {
+      await result.current.scan('111');
+    });
+    expect(options.onLineAdded).not.toHaveBeenCalled();
+    expect(options.notify).toHaveBeenCalledWith(SALE_LINE_DISCOUNTED_MESSAGE);
+  });
+
+  it('reads the cart bridge from the preload when none is injected, and fails closed without one', async () => {
+    const add = vi.fn().mockResolvedValue(okAdd('line-1', 'بنادول'));
+    const holder = window as unknown as { api?: unknown };
+    const options: DirectSaleAddOptions = {
+      ensureCart: vi.fn().mockResolvedValue('cart-1'),
+      lookupScan: vi.fn().mockResolvedValue({ kind: 'one', product: PANADOL }),
+      addBlock: () => null,
+      onLineAdded: vi.fn(),
+      notify: vi.fn(),
+    };
+    const { result } = renderHook(() => useDirectSaleAdd(options));
+    holder.api = { cart: { lines: { add } } };
+    try {
+      await act(async () => {
+        await result.current.scan('111');
+      });
+      expect(add).toHaveBeenCalledOnce();
+      expect(options.onLineAdded).toHaveBeenCalledOnce();
+      delete holder.api;
+      await act(async () => {
+        await result.current.scan('111').catch(() => undefined);
+      });
+      expect(options.onLineAdded).toHaveBeenCalledOnce();
+    } finally {
+      delete holder.api;
+    }
   });
 
   it('a lane job that throws does not block the next scan', async () => {

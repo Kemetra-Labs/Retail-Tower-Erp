@@ -2,7 +2,16 @@ import { useState, type JSX, type ReactNode } from 'react';
 import type { CartLineItem, DiscountPlaceholderSeed } from '../../sale/useSaleCartController';
 import { formatHumanCount } from '../../ui/format/human-format';
 import { Icon } from '../../icons/Icon';
-import { CartLineRow, NoteDialog, VoidControl, money } from './LiveCartParts';
+import {
+  CartLineRow,
+  NoteDialog,
+  VoidControl,
+  money,
+  type LineDiscountView,
+} from './LiveCartParts';
+import { cartDiscountTotals } from './discount/discount-math';
+import { DISCOUNT_COPY } from './discount/discount-copy';
+import { DiscountAmount } from './discount/DiscountParts';
 import { useRemovalFocus } from './useRemovalFocus';
 import type { LineFlags } from '../../stores/line-flags-store';
 import { moveRowFocus, useNewestRowInView } from './useCartRowFocus';
@@ -40,6 +49,43 @@ interface Props {
   onNewSale?: () => void;
   /** RT-445: «تعليق البيع», beside «إلغاء البيع» and apart from it (I-2). */
   parkControl?: ReactNode;
+  /** RT-855 (OD-1): the «خصم» control, in the cart header. */
+  discountControl?: ReactNode;
+  /** RT-855: the line «خصم» acts on (the last added, or the row that had focus). */
+  selectedLineId?: string | null;
+  onSelectLine?: (lineId: string) => void;
+  /** RT-855: a discount refusal shown beside the total (D1 SecondRefused, QtyRefused). */
+  discountNotice?: string | null;
+  /** RT-855: the frozen envelope's `discount_total_minor` (0 when it has none). */
+  frozenDiscountMinor?: number;
+  /** RT-855: the frozen envelope's amount due (`total_due_minor`); null when unreadable. */
+  frozenDueMinor?: number | null;
+}
+
+/**
+ * RT-855 — each line's discount as the cart shows it, and the cart totals.
+ * The totals of a cart with a discount this renderer cannot read are «—»
+ * (unknown), never the gross shown as the amount to pay.
+ */
+function discountViews(props: Readonly<Props>): {
+  byLine: ReadonlyMap<string, LineDiscountView>;
+  discountTotalMinor: number | null;
+  netMinor: number | null;
+} {
+  const totals = cartDiscountTotals(props.lines, props.discounts, props.subtotalMinor);
+  const byLine = new Map<string, LineDiscountView>();
+  for (const seed of props.discounts) {
+    const lineId = seed.lineId ?? null;
+    if (lineId === null || !totals.byLine.has(lineId)) continue;
+    byLine.set(lineId, {
+      placeholderId: seed.placeholderId,
+      token: seed.token ?? null,
+      reasonCode: seed.reasonCode ?? null,
+      approverName: seed.approverName ?? null,
+      amountMinor: totals.byLine.get(lineId) ?? null,
+    });
+  }
+  return { byLine, discountTotalMinor: totals.discountTotalMinor, netMinor: totals.netMinor };
 }
 
 /**
@@ -70,6 +116,7 @@ function CartRegion(props: Readonly<Props>): JSX.Element {
         <span className="v5-sale-count">
           {`الأصناف: ${formatHumanCount(props.lines.length)} · الوحدات: ${formatHumanCount(props.itemCount)}`}
         </span>
+        {props.discountControl}
       </div>
       {/* Focusable so a frozen cart, which has no line controls, still scrolls by keyboard; ↓ enters the rows. */}
       <div
@@ -95,20 +142,6 @@ function CartRegion(props: Readonly<Props>): JSX.Element {
             setNoteLineId(line.lineId);
           }}
         />
-        {props.discounts.map((discount) => (
-          <div key={discount.placeholderId} className="v5-live-discount">
-            <span>خصم قيد المعالجة</span>
-            <button
-              type="button"
-              className="v5-btn"
-              onClick={() => {
-                props.onRemoveDiscount(discount.placeholderId);
-              }}
-            >
-              إزالة الخصم
-            </button>
-          </div>
-        ))}
       </div>
       {editingLine !== null && (
         <NoteDialog
@@ -166,6 +199,7 @@ function CartLines(
   const flashing = useNewestRowInView(props.lastAddedLineId ?? null, props.lastAddNonce ?? 0);
   if (props.lines.length === 0)
     return <p className="v5-live-message">لا توجد أصناف في السلة بعد.</p>;
+  const { byLine } = discountViews(props);
   return (
     <ol className="v5-sale-cart-lines" aria-label="أصناف السلة">
       {props.lines.map((line, index) => (
@@ -176,6 +210,10 @@ function CartLines(
           index={index}
           lastAdded={line.lineId === props.lastAddedLineId}
           flashing={flashing && line.lineId === props.lastAddedLineId}
+          discount={byLine.get(line.lineId) ?? null}
+          selected={props.editable && line.lineId === props.selectedLineId}
+          onSelect={(selected) => props.onSelectLine?.(selected.lineId)}
+          onRemoveDiscount={props.onRemoveDiscount}
           editable={props.editable}
           onIncrement={props.onIncrement}
           onDecrement={props.onDecrement}
@@ -212,26 +250,64 @@ function CartStateLabel(props: Readonly<Props>): JSX.Element | null {
   );
 }
 
-function CartTotals(props: Readonly<Props>): JSX.Element {
-  const frozen = props.frozenSubtotalMinor !== null;
+interface ShownTotals {
+  readonly subtotal: string;
+  /** `'none'` when no line is discounted (the row is not drawn); null when unknown («—»). */
+  readonly discountMinor: number | null | 'none';
+  readonly net: string;
+}
+
+/**
+ * The totals as shown: the gross subtotal, «إجمالي الخصم» when a line is
+ * discounted (OD-3), and «الإجمالي الحالي» as the net. A frozen cart shows its
+ * envelope's own figures.
+ */
+function shownTotals(props: Readonly<Props>): ShownTotals {
+  if (props.frozenSubtotalMinor !== null) {
+    const discount = props.frozenDiscountMinor ?? 0;
+    const due =
+      props.frozenDueMinor === undefined ? props.frozenSubtotalMinor : props.frozenDueMinor;
+    return {
+      subtotal: money(props.frozenSubtotalMinor),
+      discountMinor: discount > 0 ? discount : 'none',
+      net: due === null ? '—' : money(due),
+    };
+  }
   // Before any line exists the total is a placeholder, never a fabricated 0.00.
-  const shown =
-    props.lines.length === 0 && !frozen
-      ? '—'
-      : money(props.frozenSubtotalMinor ?? props.subtotalMinor);
+  if (props.lines.length === 0) return { subtotal: '—', discountMinor: 'none', net: '—' };
+  const views = discountViews(props);
+  if (views.byLine.size === 0) {
+    const shown = money(props.subtotalMinor);
+    return { subtotal: shown, discountMinor: 'none', net: shown };
+  }
+  return {
+    subtotal: money(props.subtotalMinor),
+    discountMinor: views.discountTotalMinor,
+    net: views.netMinor === null ? '—' : money(views.netMinor),
+  };
+}
+
+function CartTotals(props: Readonly<Props>): JSX.Element {
+  const shown = shownTotals(props);
   return (
     <div className="v5-sale-totals" aria-label="ملخص المبالغ">
       <div className="v5-sale-total-row">
         <span>المجموع الفرعي</span>
-        <span dir="ltr">{shown}</span>
+        <span dir="ltr">{shown.subtotal}</span>
       </div>
+      {shown.discountMinor !== 'none' && (
+        <div className="v5-sale-total-row v5-sale-discount-total">
+          <span>{DISCOUNT_COPY.totalDiscount}</span>
+          <DiscountAmount minor={shown.discountMinor} />
+        </div>
+      )}
       <div className="v5-sale-total-row v5-sale-tax-row">
         <span>الضريبة</span>
         <span>قيد الإضافة · لا تُحسب هنا</span>
       </div>
       <div className="v5-sale-grand-total">
         <span>الإجمالي الحالي</span>
-        <strong dir="ltr">{shown}</strong>
+        <strong dir="ltr">{shown.net}</strong>
       </div>
     </div>
   );
@@ -243,6 +319,11 @@ function CartActions(props: Readonly<Props>): JSX.Element {
       {props.handoffError && (
         <p role="alert" className="v5-live-notice v5-live-notice--danger">
           {props.handoffError}
+        </p>
+      )}
+      {props.discountNotice != null && (
+        <p role="alert" className="v5-live-notice v5-live-notice--danger">
+          {props.discountNotice}
         </p>
       )}
       {props.voided === true && <output className="v5-live-notice">تم إلغاء البيع.</output>}
