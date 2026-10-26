@@ -2563,6 +2563,8 @@ singleInstanceReady
             branchId: pairingStatus.branch_id,
             resolveTerminalId: resolveSaleSyncTerminalId,
             pausedReason: () => saleSyncEngine.pausedReason(),
+            // RT-887: held discounted sales are neither "sending" nor ageing.
+            discountCaptureSupported: SALE_DISCOUNT_CAPTURE_SUPPORTED,
           }),
         );
 

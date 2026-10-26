@@ -49,9 +49,11 @@ function RowContent({ row }: Readonly<{ row: IndicatorRow }>): JSX.Element {
 
 /**
  * RT-604 (VN-S6 S6-3, doc 24 §4.2) — the nav footer's status indicator
- * (DESIGN.md §Navigation): connection, sale sync and printer, each a glyph
- * plus text. Fed by the `terminalStatus` push; the printer row reads the
- * existing `banner_state` feed and appears only while the last print failed.
+ * (DESIGN.md §Navigation): connection, sale sync, held discounted sales
+ * (RT-887, neutral) and printer, each a glyph plus text. Fed by the
+ * `terminalStatus` push; the printer row reads the existing `banner_state`
+ * feed and, with no operator signed in, appears only while the last print
+ * failed.
  *
  * RT-886 (RT-839 D4): for a signed-in operator (any role) the printer row is
  * always shown. It names the printer receipts go to and opens the «الطابعة»
@@ -89,6 +91,11 @@ export function StatusIndicator(): JSX.Element {
       {view.sync !== null && (
         <p className="v5-status__row" data-row="sync" data-tone={view.sync.tone}>
           <RowContent row={view.sync} />
+        </p>
+      )}
+      {view.held !== null && (
+        <p className="v5-status__row" data-row="held" data-tone={view.held.tone}>
+          <RowContent row={view.held} />
         </p>
       )}
       {sessionId !== undefined ? (

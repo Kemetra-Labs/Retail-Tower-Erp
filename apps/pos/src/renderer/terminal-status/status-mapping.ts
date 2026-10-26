@@ -12,6 +12,11 @@ import { STATUS_COPY } from './status-copy';
  * U1 (not paired / revoked) has no row here: the indicator lives only in the
  * v5 frame, which the router mounts only for a paired, signed-in terminal, and
  * the RT-215 recovery route replaces it on revocation.
+ *
+ * RT-887: `sync.held` (the discount-held subset of `pending`, RT-856) is never
+ * «sending» and never attention. Every sync rule below reads the non-held
+ * count, `pending − held`; main sends `oldestPendingAt` for the non-held sales
+ * already. The held count is its own neutral row. Absent or 0, nothing changes.
  */
 
 /** D-6-5 = b: a pending sale older than N = 24 h needs a human. */
@@ -36,6 +41,8 @@ export interface TerminalStatusView {
   readonly connection: IndicatorRow;
   /** Null when nothing is pending and nothing needs attention. */
   readonly sync: IndicatorRow | null;
+  /** RT-887: the neutral held-discount row; null when nothing is held. */
+  readonly held: IndicatorRow | null;
 }
 
 function textRow(tone: IndicatorTone, text: string): IndicatorRow {
@@ -52,10 +59,20 @@ export function rowText(row: IndicatorRow): string {
   return countedText(row);
 }
 
-/** When the oldest pending sale was queued (ms), or null with nothing pending. */
+/** RT-887: the held count, never more than `pending` (two reads in main). */
+function heldCount(snapshot: TerminalStatusSnapshot): number {
+  return Math.min(snapshot.sync.held ?? 0, snapshot.sync.pending);
+}
+
+/** RT-887: the pending sales that are not held — the only ones that send or age. */
+function sendablePending(snapshot: TerminalStatusSnapshot): number {
+  return snapshot.sync.pending - heldCount(snapshot);
+}
+
+/** When the oldest non-held pending sale was queued (ms), or null with none. */
 function oldestPendingMs(snapshot: TerminalStatusSnapshot): number | null {
-  const { pending, oldestPendingAt } = snapshot.sync;
-  if (pending === 0) return null;
+  const { oldestPendingAt } = snapshot.sync;
+  if (sendablePending(snapshot) === 0) return null;
   return oldestPendingAt === null ? null : Date.parse(oldestPendingAt);
 }
 
@@ -87,10 +104,17 @@ function connectionRow(snapshot: TerminalStatusSnapshot | null): IndicatorRow {
  */
 function syncRow(snapshot: TerminalStatusSnapshot, attention: boolean): IndicatorRow | null {
   if (attention) return textRow('danger', STATUS_COPY.syncAttention);
-  const { pending, paused } = snapshot.sync;
+  const pending = sendablePending(snapshot);
   if (pending === 0) return null;
-  const sending = snapshot.connection === 'online' && paused === null;
+  const sending = snapshot.connection === 'online' && snapshot.sync.paused === null;
   return countRow(sending ? STATUS_COPY.sending : STATUS_COPY.waiting, pending);
+}
+
+/** RT-887: held discounted sales, neutral — not an error and not «sending». */
+function heldRow(snapshot: TerminalStatusSnapshot): IndicatorRow | null {
+  const held = heldCount(snapshot);
+  if (held === 0) return null;
+  return { tone: 'neutral', ...countedParts(held, STATUS_COPY.heldDiscount) };
 }
 
 function ruleFor(snapshot: TerminalStatusSnapshot, attention: boolean): StatusRule {
@@ -98,7 +122,7 @@ function ruleFor(snapshot: TerminalStatusSnapshot, attention: boolean): StatusRu
   const { connection, sync } = snapshot;
   if (connection === 'offline' || connection === 'degraded') return 'U3';
   if (connection === 'checking') return 'U7';
-  if (sync.pending === 0) return 'U6';
+  if (sendablePending(snapshot) === 0) return 'U6';
   return sync.paused === null ? 'U4' : 'U5';
 }
 
@@ -107,12 +131,15 @@ export function mapTerminalStatus(
   snapshot: TerminalStatusSnapshot | null,
   nowMs: number,
 ): TerminalStatusView {
-  if (snapshot === null) return { rule: 'U7', connection: connectionRow(null), sync: null };
+  if (snapshot === null) {
+    return { rule: 'U7', connection: connectionRow(null), sync: null, held: null };
+  }
   const attention = needsAttention(snapshot, nowMs);
   return {
     rule: ruleFor(snapshot, attention),
     connection: connectionRow(snapshot),
     sync: syncRow(snapshot, attention),
+    held: heldRow(snapshot),
   };
 }
 
@@ -128,7 +155,7 @@ export interface StatusBanners {
  * RT-605 (VN-S6 S6-4) — which status banners show. Attention is the same U2
  * test the indicator uses. Its count is the dead letters, plus every pending
  * sale once the oldest has passed 24 h (they wait behind it). No snapshot
- * shows nothing, never a guess.
+ * shows nothing, never a guess. RT-887: held sales are never counted.
  */
 export function mapStatusBanners(
   snapshot: TerminalStatusSnapshot | null,
@@ -138,7 +165,7 @@ export function mapStatusBanners(
   const { connection, sync } = snapshot;
   const offline = connection === 'offline' || connection === 'degraded';
   if (!needsAttention(snapshot, nowMs)) return { attention: null, offline };
-  const waiting = isAged(snapshot, nowMs) ? sync.pending : 0;
+  const waiting = isAged(snapshot, nowMs) ? sendablePending(snapshot) : 0;
   return { attention: sync.deadLetter + waiting, offline };
 }
 
