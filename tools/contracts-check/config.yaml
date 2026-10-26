@@ -56,6 +56,9 @@ connector:
       _RFC3339_DATE_TIME_RE: format date-time
       # SaleTender.tenderRef is `format: uuid` (RT-359), likewise a format, not a pattern.
       _TENDER_REF_RE: format uuid
+      # SaleLine.trackingMode (RT-450) is `anyOf: [{enum: [none, batch, serial]}, null]`; the enum
+      # pointer cannot index an anyOf member, so it is listed here (RT-452).
+      TRACKING_MODES: SaleLine.trackingMode enum (none, batch, serial), inside anyOf
   - module: integrations/erpnext-connector/retail_tower_erpnext_connector/connector/bin_view/contracts.py
     contract: erpnext-connector/stock-view.yaml
     enums: {}
