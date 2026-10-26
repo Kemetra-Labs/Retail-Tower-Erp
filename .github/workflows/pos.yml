@@ -171,6 +171,12 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # RT-893: src/main/index.ts may not grow. Fails if its `wc -l` count exceeds
+      # scripts/index-size.baseline; plain Node, no dependencies. A PR that shrinks the file
+      # lowers the baseline in the same PR.
+      - name: index.ts line ratchet (RT-893)
+        run: node scripts/check-index-size.mjs
+
   # RT-588: the vitest suite is split across three runners (`vitest --shard=i/N`, a
   # deterministic partition by test file). Shards only COLLECT coverage into a blob report;
   # the thresholds are evaluated once, on the merged coverage, by `pos-test`.
