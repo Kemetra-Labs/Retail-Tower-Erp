@@ -84,6 +84,23 @@ export function CompletionPanel({
     focusedAtRef.current = Date.now();
   }, []);
 
+  // RT-847: a printer driver's window can take OS activation after this screen
+  // mounts; main gives it back when the print is over. On that re-activation,
+  // ask for the ring on «بيع جديد» again when focus is still there or fell to
+  // the page. Focus the cashier moved elsewhere stays where it is.
+  useEffect(() => {
+    const onWindowFocus = (): void => {
+      const active = document.activeElement;
+      if (active === null || active === document.body || active === newSaleRef.current) {
+        focusVisibly(newSaleRef.current);
+      }
+    };
+    window.addEventListener('focus', onWindowFocus);
+    return () => {
+      window.removeEventListener('focus', onWindowFocus);
+    };
+  }, []);
+
   /**
    * The Enter that confirmed the payment can repeat (key held) or be tapped
    * twice. Landing on «بيع جديد» it would clear the change before the cashier

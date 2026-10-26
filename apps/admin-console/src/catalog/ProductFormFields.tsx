@@ -32,11 +32,18 @@ const MARK_KEY: Record<"refused" | "retired", MessageKey> = {
 
 type Errors = Partial<Record<keyof typeof FIELD_IDS, MessageKey>>;
 
-function Field({
+/**
+ * One labelled field with its hint and inline error. Shared with the RT-769
+ * identifier drawer, which also passes `warning`: a non-blocking notice (never
+ * `aria-invalid`) in a polite status region (`<output>`) that is always rendered, so its
+ * appearance is announced; it describes the field only while it has text.
+ */
+export function Field({
   id,
   label,
   required = false,
   hint,
+  warning,
   error,
   children,
 }: Readonly<{
@@ -44,11 +51,16 @@ function Field({
   label: string;
   required?: boolean;
   hint?: string;
+  warning?: string | null;
   error?: MessageKey;
   children: (aria: React.AriaAttributes) => React.ReactNode;
 }>): React.JSX.Element {
   const t = useT();
-  const describedBy = [hint ? `${id}-hint` : null, error ? `${id}-error` : null]
+  const describedBy = [
+    hint ? `${id}-hint` : null,
+    warning ? `${id}-warning` : null,
+    error ? `${id}-error` : null,
+  ]
     .filter(Boolean)
     .join(" ");
   return (
@@ -72,6 +84,11 @@ function Field({
           {hint}
         </p>
       ) : null}
+      {warning === undefined ? null : (
+        <output id={`${id}-warning`} className="field__warning">
+          {warning}
+        </output>
+      )}
       {error ? (
         <span id={`${id}-error`} className="rtc-inline-error">
           {t(error)}
