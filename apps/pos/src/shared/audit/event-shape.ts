@@ -167,6 +167,13 @@ export const AUDIT_ACTION_CATEGORIES = [
   // (0004: no CHECK); recorded in migration 0057's header.
   'terminal.printer.selected',
   'terminal.printer.test_printed',
+  // RT-906 (RT-905 decision) — the approver role of a held discount line,
+  // resolved from the approver's PIN record and frozen before the sale's first
+  // capture (migration 0058). System-attributed (SYSTEM_DEVICE_ACTOR_ID), the
+  // approver in `approving_supervisor_id`. Local only (no Backend-Core
+  // catalogue). Payload: ids, the role, the source and the time; never a PIN
+  // or a users.id. Main-only. Open-set at the SQL layer (0004: no CHECK).
+  'sale.discount.approver_role_resolved',
 ] as const;
 export type ActionCategory = (typeof AUDIT_ACTION_CATEGORIES)[number];
 
@@ -181,7 +188,8 @@ export type ActionCategory = (typeof AUDIT_ACTION_CATEGORIES)[number];
  * (Clerk `user_<base62>`) or `users.id` UUIDs, neither of which can contain a
  * `:`. Used by the `pairing.device_revoked*` categories, and (RT-438) as the
  * fallback actor of a `manager_credential.*` event with no live session, and
- * (RT-551) by `sale.number_day_rule.switched`.
+ * (RT-551) by `sale.number_day_rule.switched`, and (RT-906) by
+ * `sale.discount.approver_role_resolved`.
  */
 export const SYSTEM_DEVICE_ACTOR_ID = 'system:device' as const;
 

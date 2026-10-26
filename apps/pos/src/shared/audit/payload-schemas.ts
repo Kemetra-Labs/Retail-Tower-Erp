@@ -773,6 +773,24 @@ export interface TerminalPrinterTestPrintedPayload {
   failure_reason: TestPrintFailure | null;
 }
 
+// ─── RT-906 — the resolved approver role of a held discount line ──────────
+
+/**
+ * `sale.discount.approver_role_resolved` — the row written to
+ * `sale_discount_role_resolutions` (migration 0058): the held sale, its line's
+ * discount placeholder, the consumed approval, the role read from the
+ * approver's PIN record, how and when. The approver's users.id is the
+ * envelope's `approving_supervisor_id`, never the payload.
+ */
+export interface SaleDiscountApproverRoleResolvedPayload {
+  sale_id: string;
+  placeholder_id: string;
+  approval_id: string;
+  approver_role: 'manager' | 'admin';
+  source: 'pin_record_refresh';
+  resolved_at: string;
+}
+
 // ─── Discriminated map (ActionCategory → payload type) ────────────────────
 
 /**
@@ -873,6 +891,8 @@ export type AuditPayloadMap = {
   // RT-886
   'terminal.printer.selected': TerminalPrinterSelectedPayload;
   'terminal.printer.test_printed': TerminalPrinterTestPrintedPayload;
+  // RT-906
+  'sale.discount.approver_role_resolved': SaleDiscountApproverRoleResolvedPayload;
 };
 
 // Compile-time assertions: AuditPayloadMap and ActionCategory are in sync.

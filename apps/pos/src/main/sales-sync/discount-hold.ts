@@ -17,8 +17,15 @@
  * role is never invented, and a dead letter is terminal, so such a sale stays
  * held under the same reason. The switch is a code constant, not an
  * environment variable, on purpose: ops cannot turn the capture rule off.
+ *
+ * RT-906 (RT-905 decision): such a sale is released once its approver's role
+ * is resolved from the PIN record into `sale_discount_role_resolutions`
+ * (migration 0058). The role a line carries is {@link captureRoleOf}: the
+ * frozen one first, the resolution only when none is frozen. The drain, the
+ * SQL twin and the payload builder all read it that way.
  */
 import type { SaleRow } from '../sales/repositories/sales.repository.js';
+import { NO_RESOLVED_ROLES, type ResolvedDiscountRoles } from './discount-role-resolutions.js';
 
 /** Whether the capture path can send a discounted sale. On since RT-858. */
 export const SALE_DISCOUNT_CAPTURE_SUPPORTED = true;
@@ -46,15 +53,26 @@ function hasDiscount(line: unknown): boolean {
   return discount !== undefined && discount !== null;
 }
 
-/** A discount the capture cannot send: no recorded approver role the contract accepts. */
-function hasUnsendableDiscount(line: unknown): boolean {
-  if (!hasDiscount(line)) return false;
-  const discount = discountOf(line);
-  const role =
-    typeof discount === 'object'
-      ? (discount as Record<string, unknown>)['approver_role']
-      : undefined;
-  return !CAPTURE_APPROVER_ROLES.has(role);
+/**
+ * RT-906: the role a frozen discount is captured with. The frozen
+ * `approver_role` when the discount has one (even one the contract refuses);
+ * only when it has none, the resolution of its string `placeholder_id`.
+ * Anything else is undefined: the line stays held, never guessed.
+ */
+export function captureRoleOf(discount: unknown, resolved: ResolvedDiscountRoles): unknown {
+  if (discount === null || typeof discount !== 'object') return undefined;
+  const { approver_role: frozen, placeholder_id: placeholder } = discount as Record<
+    string,
+    unknown
+  >;
+  if (frozen !== undefined) return frozen;
+  return typeof placeholder === 'string' ? resolved.get(placeholder) : undefined;
+}
+
+/** A discount the capture cannot send: no approver role the contract accepts (RT-906: frozen or resolved). */
+function unsendableDiscount(resolved: ResolvedDiscountRoles): (line: unknown) => boolean {
+  return (line) =>
+    hasDiscount(line) && !CAPTURE_APPROVER_ROLES.has(captureRoleOf(discountOf(line), resolved));
 }
 
 /** Whether any line matches; an unreadable snapshot or a non-list matches (held, never a guess). */
@@ -81,10 +99,15 @@ export function saleHasLineDiscount(sale: Pick<SaleRow, 'lines_json'>): boolean 
  * discounted sale is held; with it on, only a sale with a discount the capture
  * cannot send (no recorded approver role) or an unreadable snapshot. The SQL
  * twin is `discountHeldSaleSql` in the state repo; the two must agree.
+ *
+ * RT-906: `resolved` is the sale's rows of `sale_discount_role_resolutions`
+ * (`readResolvedRoles`); a line with no frozen role is sendable once its
+ * placeholder has one. Without them, only the frozen role counts.
  */
 export function isSaleHeldFromSync(
   sale: Pick<SaleRow, 'lines_json'>,
   discountCaptureSupported: boolean,
+  resolved: ResolvedDiscountRoles = NO_RESOLVED_ROLES,
 ): boolean {
-  return anyLine(sale, discountCaptureSupported ? hasUnsendableDiscount : hasDiscount);
+  return anyLine(sale, discountCaptureSupported ? unsendableDiscount(resolved) : hasDiscount);
 }

@@ -40,6 +40,10 @@
  *     `DiscountNotSendableError`. Every discounted sale was held until RT-858, so
  *     none was ever POSTed: an undiscounted line, and so an undiscounted body, is
  *     byte-identical to before.
+ *   • RT-906 (RT-905 decision): a line frozen with no `approverRole` takes the role
+ *     resolved for its placeholder (`resolvedRoles`, migration 0058), read the way
+ *     the drain's hold reads it (`captureRoleOf`). The row is written once before
+ *     the first POST and never edited, so every retry sends the same body.
  *   • RT-858 (doc 28 OZ-1 = Z-A): a discounted sale whose total is 0 sends one
  *     `cash` tender of 0, so Backend-Core records a zero-total sale, not a
  *     tender-unknown one. It applies where tenders are sent (the RT-79 cutoff).
@@ -53,7 +57,8 @@ import {
   type ManualDiscountReasonCode,
 } from '../../shared/cart/manual-discount.js';
 import type { SaleLineDiscountAuthoritySource } from '../../shared/sales/sale-line-discount.js';
-import { CAPTURE_APPROVER_ROLES, saleHasLineDiscount } from './discount-hold.js';
+import { CAPTURE_APPROVER_ROLES, captureRoleOf, saleHasLineDiscount } from './discount-hold.js';
+import { NO_RESOLVED_ROLES, type ResolvedDiscountRoles } from './discount-role-resolutions.js';
 
 /** A single line in the capture payload. Money is integer minor units. */
 export interface CaptureSaleLine {
@@ -134,6 +139,8 @@ export interface BuildCapturePayloadOptions {
   tendersSince?: string | null | undefined;
   /** RT-540: ISO instant; sales finalized at/after it carry `receipt`. null/undefined = off. */
   receiptSince?: string | null | undefined;
+  /** RT-906: the sale's resolved approver roles (`readResolvedRoles`); none by default. */
+  resolvedRoles?: ResolvedDiscountRoles | undefined;
 }
 
 /**
@@ -181,11 +188,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-/** The frozen discount's attribution, or null when a field is outside its closed set. */
+/**
+ * The frozen discount's attribution, or null when a field is outside its closed
+ * set. RT-906: the role is the frozen one, else the resolved one (`captureRoleOf`).
+ */
 function attributionOf(
   frozen: Record<string, unknown>,
+  resolved: ResolvedDiscountRoles,
 ): Pick<CaptureSaleLineDiscount, 'reasonCode' | 'authoritySource' | 'approverRole'> | null {
-  const { reason_code, authority_source, approver_role } = frozen;
+  const { reason_code, authority_source } = frozen;
+  const approver_role = captureRoleOf(frozen, resolved);
   if (!isManualDiscountReasonCode(reason_code)) return null;
   if (!AUTHORITY_SOURCES.has(authority_source) || !CAPTURE_APPROVER_ROLES.has(approver_role)) {
     return null;
@@ -204,14 +216,17 @@ function attributionOf(
  * gross) and must equal the frozen `amount_minor`, so POS and Backend-Core can
  * never disagree on the net. Throws `DiscountNotSendableError` otherwise.
  */
-function readCaptureDiscount(line: PersistedLineSnapshot): CaptureSaleLineDiscount | undefined {
+function readCaptureDiscount(
+  line: PersistedLineSnapshot,
+  resolved: ResolvedDiscountRoles,
+): CaptureSaleLineDiscount | undefined {
   const frozen = frozenDiscountOf(line);
   if (frozen === undefined) return undefined;
   const priced = pricedDiscount(line.line_subtotal_minor, frozen);
   if (priced === null || priced.amountMinor !== frozen['amount_minor']) {
     throw new DiscountNotSendableError(`line ${line.line_id} amount`);
   }
-  const attribution = attributionOf(frozen);
+  const attribution = attributionOf(frozen, resolved);
   if (attribution === null) throw new DiscountNotSendableError(`line ${line.line_id} attribution`);
   return { ...priced, ...attribution };
 }
@@ -239,8 +254,8 @@ function pricedDiscount(
   return result === null ? null : { kind, value, amountMinor: result.amount_minor };
 }
 
-function captureLine(s: PersistedLineSnapshot): CaptureSaleLine {
-  const discount = readCaptureDiscount(s);
+function captureLine(s: PersistedLineSnapshot, resolved: ResolvedDiscountRoles): CaptureSaleLine {
+  const discount = readCaptureDiscount(s, resolved);
   return {
     lineRef: s.line_id,
     productRef: s.item_ref,
@@ -517,7 +532,8 @@ export function buildCapturePayload(
   options: BuildCapturePayloadOptions = {},
 ): CaptureSalePayload {
   const snapshots = JSON.parse(sale.lines_json) as PersistedLineSnapshot[];
-  const lines: CaptureSaleLine[] = snapshots.map(captureLine);
+  const resolved = options.resolvedRoles ?? NO_RESOLVED_ROLES;
+  const lines: CaptureSaleLine[] = snapshots.map((s) => captureLine(s, resolved));
 
   const tenders = finalizedAtOrAfter(sale, options.tendersSince) ? tendersOf(sale) : [];
   const admissionCheckAt = deriveAdmissionCheckAt(sale);

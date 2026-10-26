@@ -53,6 +53,10 @@ describe('audit/event-shape (T007 — FR-025)', () => {
     expect(AUDIT_ACTION_CATEGORIES).toContain('terminal.printer.test_printed');
   });
 
+  it('RT-906: the catalogue carries the resolved discount approver role', () => {
+    expect(AUDIT_ACTION_CATEGORIES).toContain('sale.discount.approver_role_resolved');
+  });
+
   it('action-category catalogue includes the 004-owned categories', () => {
     expect(AUDIT_ACTION_CATEGORIES).toContain('shift.forced_close');
     expect(AUDIT_ACTION_CATEGORIES).toContain('operator.session.takeover');

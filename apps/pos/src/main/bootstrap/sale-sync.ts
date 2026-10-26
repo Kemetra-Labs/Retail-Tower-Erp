@@ -1,5 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import type { IpcMain } from 'electron';
 import type { Logger } from 'pino';
+import { AuditEmitter } from '../audit/audit-emitter.js';
+import { bindAuditEventsStoreDb } from '../audit/audit-events-store.js';
 import type { PairedTerminal } from '../app/paired-workers.js';
 import type { WorkerRegistry } from '../app/bootstrap-workers.js';
 import type { DatabaseHandle } from '../db/client.js';
@@ -23,6 +26,7 @@ import { composeSaleSyncDevicePath } from '../sales-sync/compose-device-path.js'
 import { createSaleSyncClient } from '../sales-sync/create-sale-sync-client.js';
 import { createCurrentTerminalResolver } from '../sales-sync/current-terminal.js';
 import { SALE_DISCOUNT_CAPTURE_SUPPORTED } from '../sales-sync/discount-hold.js';
+import { createDiscountRoleResolver } from '../sales-sync/discount-role-resolver.js';
 import { createSaleSyncStateRepo } from '../sales-sync/sale-sync-state-repo.js';
 import {
   createSaleSyncEngine,
@@ -179,6 +183,21 @@ export function startSaleSyncEngine(deps: SaleSyncDeps, pairingStatus: PairedTer
     now: new Date().toISOString(),
     logger: mainLogger,
   });
+  // RT-906 (RT-905 decision): a discount held for a missing approver role is
+  // released once its approver's PIN record has a role (written by
+  // `refreshRole` at that manager's online sign-in). Each drain tick freezes
+  // the role into `sale_discount_role_resolutions` before the first POST, with
+  // a local audit event on the same handle. Logs the opaque sale id only (P7).
+  const discountRoleAudit = new AuditEmitter(bindAuditEventsStoreDb(db));
+  const discountRoles = createDiscountRoleResolver({
+    db,
+    emit: (event) => {
+      discountRoleAudit.emit(event);
+      mainLogger.info({ sale_id: event.payload['sale_id'] }, 'sale_sync:discount_role_resolved');
+    },
+    now: () => new Date().toISOString(),
+    newEventId: randomUUID,
+  });
   // RT-198: the shutdown latch, read by the engine (`isStopped`) and set by the
   // worker stop below, synchronously, before the DB handle closes.
   let saleSyncStopped = false;
@@ -224,6 +243,7 @@ export function startSaleSyncEngine(deps: SaleSyncDeps, pairingStatus: PairedTer
     // RT-856 / RT-858: the capture sends the line discount, so discounted sales
     // drain; one with no recorded approver role stays held. Not an env var.
     discountCaptureSupported: SALE_DISCOUNT_CAPTURE_SUPPORTED,
+    discountRoles,
   });
 
   // Read-only status surface for the renderer (counts + last-success + the
