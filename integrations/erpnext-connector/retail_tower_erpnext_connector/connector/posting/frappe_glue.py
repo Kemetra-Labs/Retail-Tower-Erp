@@ -71,6 +71,7 @@ from .tender import (
     UnmappedTender,
     assert_settled,
     payments_total,
+    tender_refs_in_row_order,
 )
 from .transport import PostingFeedClient
 from .uom import (
@@ -385,8 +386,20 @@ def _ack_posted(
         OutcomeAckRequest.posted(document_ref, resolution_version=work_item.resolution_version),
         idempotency_key=_ack_key(work_item, "posted"),
     )
-    _log_signal(signal, work_item, correlation_id, document_ref=document_ref.name)
+    _log_signal(signal, work_item, correlation_id, document_ref=document_ref.name, **_tender_evidence(work_item))
     return "posted"
+
+
+def _tender_evidence(work_item: PostingWorkItem) -> dict:
+    """RT-361 / RT-264 D4: a sale's ``tenderRef`` per payment row, for the Connector's own log only.
+
+    ``tender_refs[i]`` is the tender behind payment row ``idx = i + 1`` (``None`` for a legacy tender).
+    Empty for a reversal or a sale without any ``tenderRef``: tenderRef is never written to ERPNext.
+    """
+    tenders = work_item.sale.tenders
+    if work_item.kind != "sale_post" or not any(t.tender_ref for t in tenders):
+        return {}
+    return {"tender_refs": tender_refs_in_row_order(tenders)}
 
 
 def _ack_verify_transient(
