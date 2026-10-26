@@ -83,6 +83,8 @@ describe("product Edit and Retire controls (RT-768, CAT-C2a)", () => {
     expect(start()).toBeDefined();
   });
 
+  // RT-770: store_manager may set a store's availability, so the page no longer says
+  // "Read-only"; the item itself stays read-only to it (no Edit, no Retire, no form).
   test("store_manager sees the item read-only: no Edit, no Retire, no form", async () => {
     activeContext.mockReturnValue(ctx("store_manager"));
     renderDetail();
@@ -91,7 +93,7 @@ describe("product Edit and Retire controls (RT-768, CAT-C2a)", () => {
     expect(screen.queryByRole("button", { name: /retire/i })).toBeNull();
     expect(screen.queryAllByRole("button")).toEqual([]);
     expect(document.querySelector("form, input, textarea, select")).toBeNull();
-    expect(screen.getByText(/Read-only/)).toBeDefined();
+    expect(screen.queryByText("Retire this item")).toBeNull();
   });
 
   test("a retired item is read-only for everyone, and says why", async () => {
