@@ -67,6 +67,12 @@ class LcovTests(Tree):
         out = os.path.join(self._tmp.name, "out.info")
         self.assertEqual(scp.prep_lcov(report, out, self.base)[1], ["/elsewhere/a.ts"])
 
+    def test_traversal_into_another_directory_is_unresolved(self):
+        self.touch("../other/src/c.ts")
+        report = self.write("in.info", LCOV.format(path="../other/src/c.ts"))
+        out = os.path.join(self._tmp.name, "out.info")
+        self.assertEqual(scp.prep_lcov(report, out, self.base)[:2], (0, ["../other/src/c.ts"]))
+
     def test_missing_file_fails_the_run(self):
         report = self.write("in.info", LCOV.format(path="src/gone.ts"))
         code, err = self.run_main("lcov", report, os.path.join(self._tmp.name, "o"), "--base", self.base,
@@ -100,6 +106,20 @@ class CoberturaTests(Tree):
             text = fh.read()
         self.assertIn('filename="pkg/mod/b.py"', text)
         self.assertNotIn("<sources>", text)
+
+    def test_absolute_filename_outside_base_is_unresolved(self):
+        outside = os.path.join(self._tmp.name, "other", "d.py")
+        os.makedirs(os.path.dirname(outside))
+        open(outside, "w").close()
+        report = self.write("in.xml", COBERTURA.format(path=outside))
+        out = os.path.join(self._tmp.name, "out.xml")
+        self.assertEqual(scp.prep_cobertura(report, out, self.base, "pkg")[:2], (0, [outside]))
+
+    def test_traversal_filename_is_unresolved(self):
+        self.touch("../other/e.py")
+        report = self.write("in.xml", COBERTURA.format(path="../other/e.py"))
+        out = os.path.join(self._tmp.name, "out.xml")
+        self.assertEqual(scp.prep_cobertura(report, out, self.base)[0], 0)
 
     def test_unresolved_filename_fails_the_run(self):
         report = self.write("in.xml", COBERTURA.format(path="mod/gone.py"))

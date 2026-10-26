@@ -28,7 +28,15 @@ import xml.etree.ElementTree as ET
 
 
 def _exists(base, rel):
-    return os.path.isfile(os.path.join(base, rel))
+    """True only for a regular file that stays inside --base once `..`, symlinks and absolute
+    paths are resolved, so a report cannot be satisfied by a file of another product."""
+    root = os.path.realpath(base)
+    path = os.path.realpath(os.path.join(root, rel))
+    try:
+        inside = os.path.commonpath([root, path]) == root
+    except ValueError:  # another drive on Windows
+        return False
+    return inside and os.path.isfile(path)
 
 
 def _lcov_rel(base, raw, prefix):

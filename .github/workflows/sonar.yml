@@ -174,6 +174,15 @@ jobs:
             "$BASE_DIR/.sonar-coverage/$REPORT" --base "$BASE_DIR" "${args[@]}" | tee "$RUNNER_TEMP/prep.txt"
           { echo "### $PRODUCT coverage import"; echo; echo "\`$(cat "$RUNNER_TEMP/prep.txt")\`"; } >> "$GITHUB_STEP_SUMMARY"
 
+      # The scanner reads sonar-project.properties from the project base directory. `project.settings`
+      # cannot be used instead: Sonar documents it as incompatible with sonar.projectBaseDir, which
+      # the scan action always sets. The copy exists only in this job's workspace, never in git.
+      - name: Place the product scanner settings in its base directory
+        env:
+          BASE_DIR: ${{ matrix.base_dir }}
+          PRODUCT: ${{ matrix.product }}
+        run: cp ".github/sonar/$PRODUCT.properties" "$BASE_DIR/sonar-project.properties"
+
       - name: SonarQube Cloud scan
         uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
         env:
@@ -181,7 +190,6 @@ jobs:
         with:
           projectBaseDir: ${{ matrix.base_dir }}
           args: >-
-            -Dproject.settings=${{ github.workspace }}/.github/sonar/${{ matrix.product }}.properties
             -Dsonar.host.url=https://sonarcloud.io
             -Dsonar.organization=kemetra-labs
             -Dsonar.projectKey=${{ matrix.project_key }}
