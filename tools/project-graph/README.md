@@ -6,6 +6,8 @@ The design comes from [RT-709 §A](https://rahmaqanater.atlassian.net/wiki/space
 
 **Status: operational, observe-only, not independently verified.** The plan jobs use the evaluator to select which jobs run (RT-867), and `.github/workflows/gate.yml` posts the `required` check with its own `GITHUB_TOKEN` (`checks: write`) from the `ci-gate` environment (RT-721 S3; no `kemetra-ci-gate` App since the owner decision of 2026-10-25). Making `required` a required check on `main` (S6 no-bypass ruleset) is RT-866, still open. Independent verification is RT-711.
 
+**Policy approval mode.** `graph.yaml` `policy_approval` is `required` (the default when the key is absent, and the meaning of any value other than exactly `observe`) or `observe`. Under `observe` the approval is still evaluated and printed in the gate summary and in the result's `approval` block (`mode`, `valid`, `problems`), but a missing approval no longer fails `required`: every selected job, the graph validation and the plan are judged as before, and a policy change still selects all jobs. The aggregator reads the mode from the **trusted base graph**, so a PR cannot relax its own approval, and changing it is itself a policy change. It is `observe` since the owner decision of 2026-10-27 (the owner is the only maintainer, the same reasoning as advisory CODEOWNERS). Revert by setting `policy_approval: required` when a second maintainer joins, or **before RT-866 makes `required` an enforced check on `main`**. While observing, nothing requires a human attestation on `.github/**` or `tools/project-graph/**`.
+
 ## Layout
 
 | Path | What |

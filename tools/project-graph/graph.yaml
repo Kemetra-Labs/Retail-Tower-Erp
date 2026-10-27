@@ -252,3 +252,17 @@ allowed_symlinks: []
 policy_approvers:
   - { id: 206601658, type: User, login: Kemetra }
   - { id: 348508063, type: Bot, login: "kemetra-reviewer[bot]" }
+
+# Whether a missing policy approval fails `required` (RT-721 S3, RT-866).
+#   required  (the default when this key is absent, and the meaning of anything but exactly
+#             `observe`): a policy change keeps `required` red until a listed approver attests.
+#   observe   the approval is still evaluated and printed in the gate summary, but its absence does
+#             not fail `required`. Every selected job must still pass; a policy change still selects
+#             all jobs, and `policy_approvers` and the fingerprint are unchanged.
+# The aggregator reads this from the TRUSTED (base) graph, so a PR cannot relax its own approval, and
+# changing it is itself a policy change.
+# Owner decision 2026-10-27: `observe` while the owner is the only maintainer (same reasoning as
+# advisory CODEOWNERS). Revert by changing this value back to `required` (or deleting the key) when a
+# second maintainer joins, or BEFORE RT-866 makes `required` an enforced check on `main`.
+# Residual while observing: nothing requires a human attestation on .github/** or tools/project-graph/**.
+policy_approval: observe

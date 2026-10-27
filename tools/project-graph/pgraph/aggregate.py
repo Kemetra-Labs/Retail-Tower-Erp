@@ -8,7 +8,13 @@ stale, duplicated, foreign, forged) can never turn `required` green.
 Policy approval is valid only as a SHA-bound review by an approver listed in the
 TRUSTED graph, matching the plan's head, base and policy fingerprint. An approver is
 either a plain login string (legacy; a `User` only) or an `{id, type}` entry that
-matches the actor's immutable numeric id and its type (`User` or `Bot`, RT-870)."""
+matches the actor's immutable numeric id and its type (`User` or `Bot`, RT-870).
+
+Whether a missing approval fails `required` is the TRUSTED graph's `policy_approval`: `required`
+(the default, and the meaning of any value other than exactly `observe`) fails it with
+POLICY_APPROVAL_REQUIRED; `observe` still evaluates the approval and reports it in the result's
+`approval` block, but its absence never fails or delays `required`. Every needed job, the graph
+validation and the plan are judged the same in both modes."""
 
 from . import PLAN_SCHEMA
 
@@ -116,6 +122,12 @@ def check_approval(plan, approvals, approvers):
     return False, sorted(set(problems))
 
 
+def policy_approval_mode(graph):
+    """`observe` only when the trusted graph says exactly `observe`; anything else is `required`
+    (fail closed: a typo, a wrong type or a missing key can never relax the gate)."""
+    return "observe" if graph.get("policy_approval") == "observe" else "required"
+
+
 def aggregate(plan, check_runs, approvals, graph, deadline_passed=False):
     """Decide the `required` conclusion: success, failure or pending."""
     if not plan_ok(plan):
@@ -124,10 +136,11 @@ def aggregate(plan, check_runs, approvals, graph, deadline_passed=False):
     reasons = set()
     if plan["graph_validation"].get("status") == "fail":
         reasons.add("GRAPH_VALIDATION_FAILED")
-    approval = {"required": bool(plan["approval_required"]), "valid": False, "problems": []}
+    mode = policy_approval_mode(graph)
+    approval = {"required": bool(plan["approval_required"]), "valid": False, "problems": [], "mode": mode}
     if approval["required"]:
         approval["valid"], approval["problems"] = check_approval(plan, approvals, graph["policy_approvers"])
-        if not approval["valid"]:
+        if not approval["valid"] and mode == "required":
             reasons.add("POLICY_APPROVAL_REQUIRED")
 
     ignored = [r for r in check_runs if r.get("name") == GATE_CONTEXT]
