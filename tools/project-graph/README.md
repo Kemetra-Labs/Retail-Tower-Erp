@@ -81,7 +81,7 @@ The fingerprint covers the base SHA, both graph hashes and every changed path/mo
 | `.github/workflows/gate.yml` | `pull_request_target`, `workflow_run` | `contents/pull-requests/checks/actions: read` | `ci-gate` (main-only) | none; `post` alone holds `checks: write` on its `GITHUB_TOKEN` |
 | Product CI (`pos`, `admin-console`, `backend-core`, `erpnext-connector`, `e2e`, `project-graph`) | `pull_request`, `push` main | `contents: read` | none | none |
 | Per-product releases (RT-717) | protected `main` / tags only | product-specific identity | per-product environment | never reachable from PR code |
-| `.github/workflows/mirror-erpnext-connector.yml` (RT-712) | `push` main (Connector paths), `workflow_dispatch` | `contents: read`; the `connector-mirror-publisher` App token is `contents: write` on `Kemetra-Labs/ERPNext-Connector` only | `connector-mirror` (main-only), plus the `MIRROR_PUBLISH_ENABLED` arming variable | `MIRROR_APP_PRIVATE_KEY`, used by `publish` only |
+| `.github/workflows/mirror-erpnext-connector.yml` (RT-712) | `push` main (Connector paths), `workflow_dispatch` | `contents: read`; the `connector-mirror-publisher` App token is `contents: write` on `Kemetra-Labs/ERPNext-Connector` only | `connector-mirror` (main-only, required reviewer), plus the `MIRROR_PUBLISH_ENABLED` arming variable | `MIRROR_APP_PRIVATE_KEY`, used by `publish` only |
 
 `python -m pgraph privileges` enforces these rules for every workflow reachable from a PR:
 - No `write` scope, and permissions must be declared. The one exception is `checks: write` alone, in a `ci-gate` job (the gate's `post`).
