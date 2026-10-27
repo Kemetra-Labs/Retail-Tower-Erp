@@ -1,9 +1,10 @@
 /**
- * RT-722 — the OIDC claims helper (deploy/lab/oidc-claims-check.cjs), now used
- * by the live job in deploy-lab.yml. The print-only workflow that first proved
- * the claims was removed at gate G5 (RT-532 c13609 / c13626). The checks run the
- * real comparison logic against synthetic tokens, so no GitHub token, AWS call or
- * network is involved.
+ * RT-722 — the OIDC claims helper (deploy/lab/oidc-claims-check.cjs), used by
+ * the live job in the root .github/workflows/deploy-lab.yml. The print-only
+ * workflow that first proved the claims was removed at gate G5 (RT-532 c13609 /
+ * c13626). RT-908 moved the expected repository to the monorepo,
+ * Kemetra-Labs/Retail-Tower-Erp. The checks run the real comparison logic
+ * against synthetic tokens, so no GitHub token, AWS call or network is involved.
  */
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -32,14 +33,14 @@ const WORKFLOW_FILE = "oidc-claims-check.yml";
 const GOOD: Record<string, unknown> = {
   iss: "https://token.actions.githubusercontent.com",
   aud: "sts.amazonaws.com",
-  sub: "repo:Kemetra@206601658/Backend-Core@1226735953:environment:aws-lab",
-  repository_owner_id: "206601658",
-  repository_id: "1226735953",
+  sub: "repo:Kemetra-Labs@340160100/Retail-Tower-Erp@1430288487:environment:aws-lab",
+  repository_owner_id: "340160100",
+  repository_id: "1430288487",
   environment: "aws-lab",
   ref: "refs/heads/main",
   actor_id: "206601658",
-  job_workflow_ref: `Kemetra/Backend-Core/.github/workflows/${WORKFLOW_FILE}@refs/heads/main`,
-  repository: "Kemetra/Backend-Core",
+  job_workflow_ref: `Kemetra-Labs/Retail-Tower-Erp/.github/workflows/${WORKFLOW_FILE}@refs/heads/main`,
+  repository: "Kemetra-Labs/Retail-Tower-Erp",
   actor: "Kemetra",
   workflow: "OIDC claims check",
   event_name: "workflow_dispatch",
@@ -68,18 +69,39 @@ function run(token: string, args: string[] = ["--jira-key", "RT-722"]): { code: 
 const rowFor = (out: string, claim: string): string => out.split("\n").find((l) => l.startsWith(`| \`${claim}\``)) ?? "";
 
 describe("oidc-claims-check helper", () => {
-  it("expects exactly the S2a v2 trust-policy values", () => {
+  it("expects exactly the monorepo trust-policy values (RT-908)", () => {
     expect(Object.fromEntries(helper.expectedClaims(WORKFLOW_FILE))).toEqual({
       iss: "https://token.actions.githubusercontent.com",
       aud: "sts.amazonaws.com",
-      sub: "repo:Kemetra@206601658/Backend-Core@1226735953:environment:aws-lab",
-      repository_owner_id: "206601658",
-      repository_id: "1226735953",
+      sub: "repo:Kemetra-Labs@340160100/Retail-Tower-Erp@1430288487:environment:aws-lab",
+      repository_owner_id: "340160100",
+      repository_id: "1430288487",
       environment: "aws-lab",
       ref: "refs/heads/main",
       actor_id: "206601658",
-      job_workflow_ref: "Kemetra/Backend-Core/.github/workflows/oidc-claims-check.yml@refs/heads/main",
+      job_workflow_ref: "Kemetra-Labs/Retail-Tower-Erp/.github/workflows/oidc-claims-check.yml@refs/heads/main",
     });
+  });
+
+  it("expects the dispatching user as actor_id, not the repository owner", () => {
+    const { code, out } = run(jwt({ ...GOOD, actor_id: "340160100" }));
+    expect(code).toBe(1);
+    expect(rowFor(out, "actor_id")).toMatch(/\| MISMATCH \|$/);
+    expect(rowFor(out, "repository_owner_id")).toMatch(/\| MATCH \|$/);
+  });
+
+  it("refuses the frozen Kemetra/Backend-Core identity", () => {
+    const frozen = {
+      ...GOOD,
+      sub: "repo:Kemetra@206601658/Backend-Core@1226735953:environment:aws-lab",
+      repository_owner_id: "206601658",
+      repository_id: "1226735953",
+      job_workflow_ref: `Kemetra/Backend-Core/.github/workflows/${WORKFLOW_FILE}@refs/heads/main`,
+    };
+    const { code, out } = run(jwt(frozen));
+    expect(code).toBe(1);
+    for (const claim of ["sub", "repository_owner_id", "repository_id", "job_workflow_ref"]) expect(rowFor(out, claim)).toMatch(/\| MISMATCH \|$/);
+    expect(out).toContain("do not pin it until it is understood");
   });
 
   it("exits 0 when every expected claim matches, and prints the deploy-lab value to pin", () => {
@@ -87,7 +109,7 @@ describe("oidc-claims-check helper", () => {
     expect(code).toBe(0);
     for (const [claim] of helper.expectedClaims(WORKFLOW_FILE)) expect(rowFor(out, claim)).toMatch(/\| MATCH \|$/);
     expect(out).not.toMatch(/MISMATCH|MISSING/);
-    expect(out).toContain("`Kemetra/Backend-Core/.github/workflows/deploy-lab.yml@refs/heads/main`");
+    expect(out).toContain("`Kemetra-Labs/Retail-Tower-Erp/.github/workflows/deploy-lab.yml@refs/heads/main`");
     expect(out).toContain("Result: all 9 expected claims match.");
   });
 
@@ -122,7 +144,7 @@ describe("oidc-claims-check helper", () => {
   });
 
   it("compares job_workflow_ref with the workflow file it is told, and still derives the deploy-lab value", () => {
-    const other = { ...GOOD, job_workflow_ref: "Kemetra/Backend-Core/.github/workflows/other.yml@refs/heads/main" };
+    const other = { ...GOOD, job_workflow_ref: "Kemetra-Labs/Retail-Tower-Erp/.github/workflows/other.yml@refs/heads/main" };
     const asDefault = run(jwt(other));
     expect(asDefault.code).toBe(1);
     expect(rowFor(asDefault.out, "job_workflow_ref")).toMatch(/\| MISMATCH \|$/);

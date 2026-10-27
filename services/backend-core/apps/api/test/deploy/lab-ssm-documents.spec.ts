@@ -1,7 +1,7 @@
 /**
  * RT-842 (RT-532 S4) — the two SSM Command documents the live lab deploy runs:
- * RT-BackendLabBackup on lab-02 and RT-BackendLabDeploy on lab-01 (the product
- * workflow that ran them, deploy-lab.yml, was retired in RT-878). The
+ * RT-BackendLabBackup on lab-02 and RT-BackendLabDeploy on lab-01, run by the
+ * root .github/workflows/deploy-lab.yml (restored in RT-908). The
  * owner creates them in AWS from these files, and the SSM agent runs them as
  * root, so the files are the security boundary. The checks are static (no AWS,
  * no host): strict parameters that never reach shell text, the RT-532 gate

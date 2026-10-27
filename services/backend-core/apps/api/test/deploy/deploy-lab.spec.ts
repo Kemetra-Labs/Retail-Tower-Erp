@@ -2,9 +2,9 @@
  * RT-703 + RT-842 — the offline release verifier of the lab deploy
  * (deploy/lab/verify-release.cjs). The checks run the real refusal logic
  * against generated evidence, so every refusal path is exercised without cloud
- * credentials or host access. The product workflow that ran it (deploy-lab.yml)
- * and its checks were retired in RT-878: GitHub never ran it from a nested
- * .github/, and the lab deploy is to be rebuilt on the monorepo release.
+ * credentials or host access. The nested product workflow that ran it was
+ * retired in RT-878; RT-908 restored it at the monorepo root
+ * (.github/workflows/deploy-lab.yml), covered by deploy-lab-workflow.spec.ts.
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
