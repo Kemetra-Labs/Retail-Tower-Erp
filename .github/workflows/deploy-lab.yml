@@ -164,10 +164,14 @@ jobs:
 
           gh release view "$BACKEND_RELEASE" --repo "$REPO" \
             --json tagName,targetCommitish,isDraft,isPrerelease,isImmutable,assets > "$EVIDENCE/release.json"
-          SHA="$(jq -r .targetCommitish "$EVIDENCE/release.json")"
-          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || fail "release target is not a 40-hex commit SHA"
-          # The git tag itself must point at that commit; the verifier compares them.
+          # A backend-core/vX.Y.Z release is created on its existing tag, so GitHub may record
+          # the default branch as its target: the release commit is the git tag's, and the
+          # target must be that commit or main (the verifier checks the same).
           git -C "$SRC" rev-parse --verify --quiet "refs/tags/$BACKEND_RELEASE^{commit}" > "$EVIDENCE/tag-commit.txt" || true
+          SHA="$(tr -d '[:space:]' < "$EVIDENCE/tag-commit.txt")"
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || fail "release tag does not resolve to a commit"
+          TARGET="$(jq -r .targetCommitish "$EVIDENCE/release.json")"
+          [ "$TARGET" = "$SHA" ] || [ "$TARGET" = main ] || fail "release target is neither the tag commit nor main"
 
           # Verify the asset checksums before unpacking anything. SHA256SUMS must
           # cover both assets, and the tarball may hold only regular files and
@@ -259,9 +263,13 @@ jobs:
             esac
             if gh release view "$CURRENT_RELEASE" --repo "$CUR_REPO" \
               --json tagName,targetCommitish,isDraft,isPrerelease,isImmutable > "$EVIDENCE/current-release.json"; then
-              CURRENT_SHA="$(jq -r .targetCommitish "$EVIDENCE/current-release.json")"
+              git -C "$CUR_SRC" rev-parse --verify --quiet "refs/tags/$CURRENT_RELEASE^{commit}" > "$EVIDENCE/current-tag-commit.txt" || true
+              # Legacy releases name their commit as target; a monorepo release's is its tag's.
+              case "$CURRENT_RELEASE" in
+                backend-core-*) CURRENT_SHA="$(jq -r .targetCommitish "$EVIDENCE/current-release.json")" ;;
+                *) CURRENT_SHA="$(tr -d '[:space:]' < "$EVIDENCE/current-tag-commit.txt")" ;;
+              esac
               if [[ "$CURRENT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-                git -C "$CUR_SRC" rev-parse --verify --quiet "refs/tags/$CURRENT_RELEASE^{commit}" > "$EVIDENCE/current-tag-commit.txt" || true
                 gh api "repos/$CUR_REPO/compare/$CURRENT_SHA...main" \
                   --jq '{status, ahead_by, behind_by, merge_base: .merge_base_commit.sha}' > "$EVIDENCE/compare-current.json" \
                   || rm -f "$EVIDENCE/compare-current.json"
@@ -553,7 +561,7 @@ jobs:
           # Each poll window is its document's timeoutSeconds (900 / 1800) plus a minute; both fit the 3600 s
           # role session. The host auto-revert covers a run this job stops waiting for.
           run_document deploy "$LAB01" RT-BackendLabDeploy "$LIVE/deploy-params.json" 1860
-          grep -qx "RT_DONE release=$BACKEND_RELEASE" "$LIVE/deploy.lines" || fail "deploy: the document did not report completion"
+          grep -qxF "RT_DONE release=$BACKEND_RELEASE" "$LIVE/deploy.lines" || fail "deploy: the document did not report completion"
 
       # The live ledger: prior/target digests, backup reference, gate results and
       # the failure boundary, built only from the strict RT_* lines. No secrets.

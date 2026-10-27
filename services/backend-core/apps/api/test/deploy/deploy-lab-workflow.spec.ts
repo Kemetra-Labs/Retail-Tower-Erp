@@ -549,7 +549,7 @@ describe("deploy-lab workflow: live job (RT-842)", () => {
     expect(liveScripts).toContain("--document-version '$DEFAULT'");
     // the deploy waits for a single, well-formed backup reference first
     expect(liveScripts.indexOf("backup: no single backup reference reported")).toBeLessThan(liveScripts.indexOf("run_document deploy"));
-    expect(liveScripts).toContain('grep -qx "RT_DONE release=$BACKEND_RELEASE"');
+    expect(liveScripts).toContain('grep -qxF "RT_DONE release=$BACKEND_RELEASE"');
   });
 
   it("never prints raw document output: only strict RT_* lines reach the log and the ledger", () => {

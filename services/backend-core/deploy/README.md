@@ -263,8 +263,26 @@ op run --env-file=deploy/prod.env -- \
 > **Retired workflow (RT-878).** GitHub runs only root workflows since the monorepo
 > cutover (RT-715), so `release-images.yml` below never ran here and was deleted. The
 > monorepo's image release is the root `.github/workflows/release-backend-core.yml`
-> (RT-871, dry-run until RT-717). This section describes the releases already published
-> from `Kemetra/Backend-Core`, which the commands below still verify.
+> (RT-871; publishing enabled by RT-717 B1). This section describes the **legacy**
+> releases already published from `Kemetra/Backend-Core`, which the commands below still
+> verify; the lab deploy only accepts one as the current (rollback) release.
+>
+> **Monorepo releases (RT-908 B2).** A `backend-core/vX.Y.Z` tag on `main` publishes
+> `ghcr.io/kemetra-labs/backend-core-<target>:sha-<40-hex sha>` (public), build-provenance
+> attestations signed by `release-backend-core.yml` at `refs/tags/backend-core/vX.Y.Z`, and
+> an **immutable** GitHub release `backend-core/vX.Y.Z` in `Kemetra-Labs/Retail-Tower-Erp`
+> with the same three assets (the bundle is still named `backend-core-release-<sha12>`). The
+> release is created on its existing tag, so its commit is the tag's. Repository release
+> immutability must stay enabled: `verify-release.cjs` refuses any release that is not.
+>
+> ```bash
+> TAG=backend-core/v0.1.0
+> gh release download "$TAG" --repo Kemetra-Labs/Retail-Tower-Erp --dir release
+> (cd release && sha256sum -c SHA256SUMS)
+> gh attestation verify "oci://ghcr.io/kemetra-labs/backend-core-api@sha256:<digest>" \
+>   --repo Kemetra-Labs/Retail-Tower-Erp --source-ref "refs/tags/$TAG" \
+>   --signer-workflow Kemetra-Labs/Retail-Tower-Erp/.github/workflows/release-backend-core.yml
+> ```
 
 The manual `Release images` workflow (`.github/workflows/release-images.yml`)
 builds the `api`, `worker` and `migrate` images from one exact tip-of-`main`

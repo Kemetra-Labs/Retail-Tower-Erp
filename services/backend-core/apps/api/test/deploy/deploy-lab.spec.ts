@@ -315,12 +315,22 @@ describe("verify-release: refusals", () => {
   it.each([
     [{ isImmutable: false }, /not an immutable release/],
     [{ isDraft: true }, /draft or prerelease/],
-    // a backend-core/vX.Y.Z tag does not name its commit: the git tag binds it
-    [{ targetCommitish: OLD_SHA }, /release git tag does not point at ff9e68331415/],
-    [{ targetCommitish: "main" }, /not a 40-hex commit SHA/],
+    // a backend-core/vX.Y.Z release's commit is its git tag's: the target must be that commit or main
+    [{ targetCommitish: OLD_SHA }, /release target is neither the tag commit nor main/],
+    [{ targetCommitish: "develop" }, /release target is neither the tag commit nor main/],
   ])("refuses release metadata %o", (over, pattern) => {
     putJson("release.json", { tagName: TAG, targetCommitish: SHA, isDraft: false, isPrerelease: false, isImmutable: true, ...over });
     expectRefused(pattern);
+  });
+
+  it("takes the commit of a release created on its existing tag (target recorded as main) from the git tag", () => {
+    putJson("release.json", { tagName: TAG, targetCommitish: "main", isDraft: false, isPrerelease: false, isImmutable: true });
+    const { refusals, ledger } = helper.evaluate(dir, ctx());
+    expect(refusals.filter((r) => /target|git tag/.test(r))).toEqual([]);
+    expect(ledger.release.sha).toBe(SHA);
+    // the same release whose git tag moved is refused
+    put("tag-commit.txt", `${OLD_SHA}\n`);
+    expectRefused(/release git tag does not point at|ancestry|attestation|manifest/);
   });
 
   it.each([
@@ -785,10 +795,11 @@ describe("verify-release: live mode and deployment identity", () => {
 
 describe("verify-release: review hardening", () => {
   it("refuses a git tag that does not point at the release commit, or a missing tag", () => {
+    // the release names SHA, its git tag another commit or none: no release commit at all
     put("tag-commit.txt", `${OLD_SHA}\n`);
-    expectRefused(/release git tag does not point at/);
+    expectRefused(/release target is neither the tag commit nor main/);
     rmSync(join(dir, "tag-commit.txt"));
-    expectRefused(/release git tag does not point at .*resolves to 'nothing'/);
+    expectRefused(/release target is neither the tag commit nor main/);
   });
 
   it("refuses release metadata for another tag, or no release metadata at all", () => {

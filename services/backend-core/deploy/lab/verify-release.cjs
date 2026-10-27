@@ -59,6 +59,7 @@ const IMAGE_PREFIX = "ghcr.io/kemetra-labs/backend-core-";
 const SLSA_PROVENANCE = "https://slsa.dev/provenance/v1";
 const ENV_VARS = { api: "DP2_API_IMAGE", worker: "DP2_WORKER_IMAGE", migrate: "DP2_MIGRATE_IMAGE" };
 const SHA_RE = /^[0-9a-f]{40}$/;
+const DEFAULT_BRANCH = "main";
 const TAG_RE = /^backend-core\/v[0-9]+\.[0-9]+\.[0-9]+$/;
 // Only ever a current (rollback) release: published by the frozen Kemetra/Backend-Core.
 const LEGACY_TAG_RE = /^backend-core-[0-9a-f]{12}$/;
@@ -152,18 +153,35 @@ function checkInputs(ctx) {
 }
 
 /**
+ * The release commit. A legacy backend-core-<sha12> release names it as its target. A
+ * backend-core/vX.Y.Z release is created on its existing tag (release-backend-core.yml), so
+ * GitHub may record the default branch as its target: its commit is the git tag's, and the
+ * target must be that commit or main. Null when it cannot be determined.
+ */
+function releaseSha(meta, tag, tagCommitText) {
+  const target = meta?.targetCommitish ?? "";
+  if (LEGACY_TAG_RE.test(tag)) return SHA_RE.test(target) ? target : null;
+  const commit = (tagCommitText ?? "").trim();
+  return SHA_RE.test(commit) && (target === commit || target === DEFAULT_BRANCH) ? commit : null;
+}
+
+/**
  * Release metadata: immutable, final, of a full commit SHA. A legacy backend-core-<sha12> tag
  * also names its commit; a backend-core/vX.Y.Z tag is bound to it by the git tag check.
  */
-function checkReleaseMeta(meta, tag, label) {
+function checkReleaseMeta(meta, tag, label, tagCommitText) {
   if (!meta || typeof meta !== "object") return [`${label} metadata missing or not JSON`];
   const problems = [];
   if (meta.tagName !== tag) problems.push(`${label} tag is '${meta.tagName}', expected '${tag}'`);
   if (meta.isImmutable !== true) problems.push(`${label} ${tag} is not an immutable release`);
   if (meta.isDraft !== false || meta.isPrerelease !== false) problems.push(`${label} ${tag} is a draft or prerelease`);
   const sha = meta.targetCommitish ?? "";
-  if (!SHA_RE.test(sha)) problems.push(`${label} target is not a 40-hex commit SHA`);
-  else if (LEGACY_TAG_RE.test(tag) && tag !== `backend-core-${sha.slice(0, 12)}`) problems.push(`${label} tag does not match its commit ${sha}`);
+  if (LEGACY_TAG_RE.test(tag)) {
+    if (!SHA_RE.test(sha)) problems.push(`${label} target is not a 40-hex commit SHA`);
+    else if (tag !== `backend-core-${sha.slice(0, 12)}`) problems.push(`${label} tag does not match its commit ${sha}`);
+  } else if (!releaseSha(meta, tag, tagCommitText)) {
+    problems.push(`${label} target is neither the tag commit nor ${DEFAULT_BRANCH}`);
+  }
   return problems;
 }
 
@@ -552,11 +570,12 @@ function verifyRelease(dir, ctx, sha) {
 function readCurrent(dir, ctx) {
   if (!ctx.currentRelease) return { problems: [], current: null, lines: null };
   const meta = readJson(path.join(dir, "current-release.json"));
-  const problems = checkReleaseMeta(meta, ctx.currentRelease, "current release");
-  const sha = SHA_RE.test(meta?.targetCommitish ?? "") ? meta.targetCommitish : null;
+  const tagCommit = readText(path.join(dir, "current-tag-commit.txt"));
+  const problems = checkReleaseMeta(meta, ctx.currentRelease, "current release", tagCommit);
+  const sha = meta ? releaseSha(meta, ctx.currentRelease, tagCommit) : null;
   if (sha) {
     problems.push(
-      ...checkTagCommit(readText(path.join(dir, "current-tag-commit.txt")), sha, "current release"),
+      ...checkTagCommit(tagCommit, sha, "current release"),
       ...checkCompare(readJson(path.join(dir, "compare-current.json")), sha, "current release"),
     );
   }
@@ -623,8 +642,9 @@ function evaluate(dir, ctx) {
   const collectErrors = readLines(path.join(dir, "collect-error.txt")) ?? [];
   const refusals = [...collectErrors.map((e) => `evidence collection refused: ${e}`), ...checkInputs(ctx)];
   const meta = readJson(path.join(dir, "release.json"));
-  refusals.push(...checkReleaseMeta(meta, ctx.release, "release"));
-  const sha = SHA_RE.test(meta?.targetCommitish ?? "") ? meta.targetCommitish : null;
+  const tagCommit = readText(path.join(dir, "tag-commit.txt"));
+  refusals.push(...checkReleaseMeta(meta, ctx.release, "release", tagCommit));
+  const sha = meta ? releaseSha(meta, ctx.release, tagCommit) : null;
   const verified = sha ? verifyRelease(dir, ctx, sha) : { problems: [], images: {}, files: [], compat: null };
   refusals.push(...verified.problems);
   const cur = readCurrent(dir, ctx);

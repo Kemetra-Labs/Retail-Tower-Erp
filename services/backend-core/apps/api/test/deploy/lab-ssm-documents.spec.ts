@@ -255,11 +255,18 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
     // the raw tags appear only where they are validated, logged, put in the download URL, or reported
     const raw = b.split("\n").filter((l) => /\$\{?(RELEASE_TAG|CURRENT_RELEASE)\b/.test(l) && !/^\s*#/.test(l));
     for (const line of raw) {
-      expect({ line, ok: /=~|^\s*(TGT|CUR)_SLUG=|^\s*(RELEASE_TAG|CURRENT_RELEASE)="\$\{SSM_|^\s*echo "deploy for|BASE="https:\/\/github\.com\/\$REPO\/releases\/download\/\$RELEASE_TAG"|say "RT_DONE release=\$RELEASE_TAG"/.test(line) }).toEqual({ line, ok: true });
+      expect({ line, ok: /=~|^\s*(TGT|CUR)_SLUG=|^\s*(RELEASE_TAG|CURRENT_RELEASE)="\$\{SSM_|^\s*echo "deploy for|BASE="https:\/\/github\.com\/\$REPO\/releases\/download\/\$RELEASE_TAG"|say "RT_DONE release=\$RELEASE_TAG"|^\s*"\$TGT_DIR\/release-manifest\.json" "\$RELEASE_SHA" "\$RELEASE_TAG" <\/dev\/null \|\| stop "manifest-is-not-ReleaseSha-ReleaseTag"$/.test(line) }).toEqual({ line, ok: true });
     }
     expect(b).toContain('CUR_DIR="$BACKEND_DIR/release-$CUR_SLUG"');
     expect(b).toContain('TGT_DIR="$BACKEND_DIR/release-$TGT_SLUG"');
     expect(b).toContain('BUNDLE="backend-core-release-${RELEASE_SHA:0:12}"');
+    // the fetched bundle must be the one the workflow verified, whether downloaded now or already present
+    const sums = b.indexOf('sha256sum --check --strict --quiet SHA256SUMS) || stop "bundle-files-do-not-match-their-SHA256SUMS"');
+    const named = b.indexOf('stop "manifest-is-not-ReleaseSha-ReleaseTag"');
+    expect(sums).toBeGreaterThan(b.indexOf("fi", b.indexOf('mv "$WORK/extract" "$TGT_DIR"')));
+    expect(named).toBeGreaterThan(sums);
+    expect(named).toBeLessThan(b.indexOf("release-env-api-is-not-ApiDigest"));
+    expect(b).toMatch(/m\.get\("sha"\) == sys\.argv\[2\] and m\.get\("releaseTag"\) == sys\.argv\[3\]/);
     expect(b).toContain('grep -qE "$CUR_DIR_RE" "$DC" || stop "wrapper-does-not-use-the-current-release"');
     expect(b).toContain('sed -E "s#$CUR_DIR_RE#release-$TGT_SLUG\\1#g" "$DC" > "$RUN_DIR/dc.next"');
     expect(b).toContain('! grep -qE "$CUR_DIR_RE" "$RUN_DIR/dc.next" || stop "next-wrapper-still-uses-the-current-release"');

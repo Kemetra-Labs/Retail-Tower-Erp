@@ -308,6 +308,9 @@ mainSteps:
             mv "$WORK/extract" "$TGT_DIR"
           fi
           (cd "$TGT_DIR" && sha256sum --check --strict --quiet SHA256SUMS) || stop "bundle-files-do-not-match-their-SHA256SUMS"
+          # The bundle is the one the workflow verified: its manifest names ReleaseSha and ReleaseTag.
+          python3 -c 'import json, sys; m = json.load(open(sys.argv[1])); sys.exit(0 if m.get("sha") == sys.argv[2] and m.get("releaseTag") == sys.argv[3] else 1)' \
+            "$TGT_DIR/release-manifest.json" "$RELEASE_SHA" "$RELEASE_TAG" </dev/null || stop "manifest-is-not-ReleaseSha-ReleaseTag"
           [ "$(env_value "$TGT_DIR/release.env" DP2_API_IMAGE)" = "$API_REF" ] || stop "release-env-api-is-not-ApiDigest"
           [ "$(env_value "$TGT_DIR/release.env" DP2_WORKER_IMAGE)" = "$WORKER_REF" ] || stop "release-env-worker-is-not-WorkerDigest"
           [ "$(env_value "$TGT_DIR/release.env" DP2_MIGRATE_IMAGE)" = "$MIGRATE_REF" ] || stop "release-env-migrate-is-not-MigrateDigest"
