@@ -95,12 +95,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: connector-mirror
-    # One publisher at a time, queued not cancelled. Only publish-capable runs enter this group; if a newer
-    # run replaces an older pending one, nothing is lost: the publisher walks main's first-parent line from
-    # its own SHA, so the newest run appends everything the older one would have.
+    # One publisher at a time, queued not cancelled. Only publish-capable runs enter this group. `queue: max`
+    # keeps every pending publish (default: one, the newest wins): a re-run of an OLD run counts as the newest
+    # queued job and would otherwise replace a pending job for a newer main commit. Run in order, an older SHA
+    # after a newer one is a no-op, because the publisher walks main's first-parent line from its own SHA.
     concurrency:
       group: mirror-erpnext-connector-publish
       cancel-in-progress: false
+      queue: max
     permissions:
       contents: read
     steps:
