@@ -196,6 +196,7 @@ class GateSummaryWordingTests(unittest.TestCase):
         text = GATE.read_text(encoding="utf-8")
         self.assertIn('.approval.mode // "required"', text)       # a missing result stays strict
         self.assertIn("OBSERVE-ONLY", text)
+        self.assertIn("approval status: valid=", text)             # observe still tells valid from missing/invalid
         self.assertIn("Policy change: approval must be an APPROVED review on this head commit", text)
 
     def test_the_aggregate_step_reads_the_graph_from_the_base_sha(self):

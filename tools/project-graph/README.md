@@ -60,7 +60,7 @@ Only the canonical guard shape is accepted (see `guard_keys`), so `always() || .
 
 ## Approval protocol (R1)
 
-A policy change passes only with an **APPROVED** pull request review on the exact head commit. GitHub does not let a PR's author approve their own PR, so self-approval is impossible. COMMENTED reviews never count. The review is valid only if it meets all of these:
+In `required` mode (see "Policy approval mode" above; under `observe` the approval is only reported), a policy change passes only with an **APPROVED** pull request review on the exact head commit. GitHub does not let a PR's author approve their own PR, so self-approval is impossible. COMMENTED reviews never count. The review is valid only if it meets all of these:
 
 - It comes from an approver listed in the **trusted** (base) `policy_approvers`. An entry is either a plain login string (legacy; the actor must be a `User`) or `{id, type, login?}` (RT-870). An `{id, type}` entry matches the review author's immutable numeric account id **and** its type, `User` or `Bot`; `login` is only a label, so a renamed or recycled login never matches. A review with no numeric id never matches an `{id, type}` entry. Any other entry shape is a `SCHEMA` error.
 - Its body contains this line exactly:
