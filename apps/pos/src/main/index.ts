@@ -1969,3 +1969,4 @@ app.on('window-all-closed', () => {
 app.on('quit', () => {
   closeDbHandle();
 });
+// RT-894 probe: one extra line to prove the index.ts ratchet fails. Do not merge.
