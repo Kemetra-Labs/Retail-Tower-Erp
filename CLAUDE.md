@@ -20,7 +20,9 @@ A change to any of these paths is a policy change (`graph.yaml` `shared_classes.
 
 `.github/**`, `apps/*/.github/**`, `services/*/.github/**`, `integrations/*/.github/**`, `tools/project-graph/**`, `tools/ci-gate/**`, `tools/agent-broker/**`, `CODEOWNERS`.
 
-It selects every job, and `required` stays at `POLICY_APPROVAL_REQUIRED` until a login in `policy_approvers` submits an APPROVED review on the exact head commit whose body contains the `policy-change-approved: base=<sha> fingerprint=<fp>` line printed in the `required` summary. Any new commit or base move invalidates it. An agent never approves its own PR and never edits `policy_approvers` without owner authorization.
+It selects every job. In `required` mode (the default; see the `policy_approval` paragraph below), `required` stays at `POLICY_APPROVAL_REQUIRED` until a login in `policy_approvers` submits an APPROVED review on the exact head commit whose body contains the `policy-change-approved: base=<sha> fingerprint=<fp>` line printed in the `required` summary. Any new commit or base move invalidates it. An agent never approves its own PR and never edits `policy_approvers` without owner authorization.
+
+While `tools/project-graph/graph.yaml` has `policy_approval: observe` (owner decision 2026-10-27: the owner is the only maintainer), that approval is still evaluated and printed but a missing one does not fail `required`; `required` is red only for a real problem (a failed job, an invalid graph or plan). The aggregator reads the mode from the trusted base graph, so a PR cannot relax its own approval. Revert by setting `policy_approval: required`, when a second maintainer joins or before RT-866 makes `required` an enforced check on `main`. An agent never changes this mode without owner authorization.
 
 ### `pgraph` commands
 

@@ -107,6 +107,10 @@ def _is_str_list(value):
 
 
 APPROVER_TYPES = ("User", "Bot")
+# Policy approval enforcement. `required` (also the meaning of an absent key) fails `required` until a
+# listed approver attests; `observe` evaluates and reports the approval but never fails `required` for
+# its absence. Read from the TRUSTED graph only, so a PR cannot relax its own approval.
+POLICY_APPROVAL_MODES = ("required", "observe")
 
 
 def _approver_valid(entry):
@@ -144,6 +148,9 @@ def _schema_errors(data):
     if not all(_approver_valid(e) for e in data["policy_approvers"]):
         errs.append("SCHEMA: policy_approvers entries must be a login string or {id: int > 0, "
                     "type: User|Bot, login?: str}")
+    mode = data.get("policy_approval", "required")
+    if type(mode) is not str or mode not in POLICY_APPROVAL_MODES:
+        errs.append(f"SCHEMA: policy_approval must be one of {', '.join(POLICY_APPROVAL_MODES)}")
     if not _is_str_list(data["allowed_symlinks"]):
         errs.append("SCHEMA: allowed_symlinks must be a string list")
     if not all(isinstance(k, str) and isinstance(v, str) for k, v in data["jobs"].items()):

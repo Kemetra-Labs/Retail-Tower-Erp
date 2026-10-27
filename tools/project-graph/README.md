@@ -6,6 +6,8 @@ The design comes from [RT-709 §A](https://rahmaqanater.atlassian.net/wiki/space
 
 **Status: operational, observe-only, not independently verified.** The plan jobs use the evaluator to select which jobs run (RT-867), and `.github/workflows/gate.yml` posts the `required` check with its own `GITHUB_TOKEN` (`checks: write`) from the `ci-gate` environment (RT-721 S3; no `kemetra-ci-gate` App since the owner decision of 2026-10-25). Making `required` a required check on `main` (S6 no-bypass ruleset) is RT-866, still open. Independent verification is RT-711.
 
+**Policy approval mode.** `graph.yaml` `policy_approval` is `required` (the default when the key is absent, and the meaning of any value other than exactly `observe`) or `observe`. Under `observe` the approval is still evaluated and printed in the gate summary and in the result's `approval` block (`mode`, `valid`, `problems`), but a missing approval no longer fails `required`: every selected job, the graph validation and the plan are judged as before, and a policy change still selects all jobs. The aggregator reads the mode from the **trusted base graph**, so a PR cannot relax its own approval, and changing it is itself a policy change. It is `observe` since the owner decision of 2026-10-27 (the owner is the only maintainer, the same reasoning as advisory CODEOWNERS). Revert by setting `policy_approval: required` when a second maintainer joins, or **before RT-866 makes `required` an enforced check on `main`**. While observing, nothing requires a human attestation on `.github/**` or `tools/project-graph/**`. `observe` also relaxes the attestation the evaluator asks for when a path is unknown to the trusted graph but classified by the proposed one (`UNKNOWN_IN_TRUSTED_ONLY`); that case already needs a graph change, which is itself a policy change.
+
 ## Layout
 
 | Path | What |
@@ -58,7 +60,7 @@ Only the canonical guard shape is accepted (see `guard_keys`), so `always() || .
 
 ## Approval protocol (R1)
 
-A policy change passes only with an **APPROVED** pull request review on the exact head commit. GitHub does not let a PR's author approve their own PR, so self-approval is impossible. COMMENTED reviews never count. The review is valid only if it meets all of these:
+In `required` mode (see "Policy approval mode" above; under `observe` the approval is only reported), a policy change passes only with an **APPROVED** pull request review on the exact head commit. GitHub does not let a PR's author approve their own PR, so self-approval is impossible. COMMENTED reviews never count. The review is valid only if it meets all of these:
 
 - It comes from an approver listed in the **trusted** (base) `policy_approvers`. An entry is either a plain login string (legacy; the actor must be a `User`) or `{id, type, login?}` (RT-870). An `{id, type}` entry matches the review author's immutable numeric account id **and** its type, `User` or `Bot`; `login` is only a label, so a renamed or recycled login never matches. A review with no numeric id never matches an `{id, type}` entry. Any other entry shape is a `SCHEMA` error.
 - Its body contains this line exactly:

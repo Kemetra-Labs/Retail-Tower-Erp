@@ -244,7 +244,15 @@ jobs:
           # APPROVED review on this head commit. Harmless: only a trusted login counts.
           if [ "$(jq -r '.approval_required // false' "$t/plan.json" 2>/dev/null)" = "true" ]; then
             line="$(jq -r '"policy-change-approved: base=" + .base_sha + " fingerprint=" + .policy_fingerprint' "$t/plan.json")"
-            summary="$summary"$'\n\n'"Policy change: approval must be an APPROVED review on this head commit containing exactly:"$'\n'"$line"
+            # The mode comes from the TRUSTED graph via the aggregator; a missing or unreadable result is `required`.
+            mode="$(jq -r '.approval.mode // "required"' "$t/result.json" 2>/dev/null || echo required)"
+            if [ "$mode" = "observe" ]; then
+              # Print what the aggregator evaluated, so a valid, a missing and an invalid approval are distinguishable.
+              astatus="$(jq -r '.approval | "approval status: valid=\(.valid), problems=" + ((.problems // []) | join(","))' "$t/result.json" 2>/dev/null || echo "approval status: unknown")"
+              summary="$summary"$'\n\n'"Policy change: approval is OBSERVE-ONLY (policy_approval: observe in the trusted graph.yaml): its absence does not fail this check."$'\n'"$astatus"$'\n'"To attest anyway, an APPROVED review on this head commit containing exactly:"$'\n'"$line"
+            else
+              summary="$summary"$'\n\n'"Policy change: approval must be an APPROVED review on this head commit containing exactly:"$'\n'"$line"
+            fi
           fi
           { echo "conclusion=$conclusion"; echo "summary_b64=$(printf '%s' "$summary" | base64 -w0)"; } >> "$GITHUB_OUTPUT"
 

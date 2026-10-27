@@ -57,7 +57,11 @@ def _with_overrides(text, overrides):
 
 
 def graph_texts(case):
-    trusted = _with_overrides(trusted_text(), case.get("trusted_overrides"))
+    # The fixtures describe the gate's mechanism, which is the strict one. The committed graph.yaml may
+    # run in `observe` (a deployment choice, RT-721/RT-866), so a case evaluates under `required` unless
+    # it says otherwise in `trusted_overrides`.
+    overrides = {"policy_approval": "required", **(case.get("trusted_overrides") or {})}
+    trusted = _with_overrides(trusted_text(), overrides)
     proposed_spec = case.get("proposed")
     if proposed_spec is None:
         return trusted, None
