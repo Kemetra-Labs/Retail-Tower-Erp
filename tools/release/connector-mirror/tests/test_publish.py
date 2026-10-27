@@ -194,6 +194,24 @@ def test_tags_map_and_are_immutable(world):
     assert g(mirror, "rev-parse", "v1.0.0") == plan.commits[0][1]
 
 
+def test_no_tags_publishes_commits_only_and_a_later_run_still_maps_the_tag(world):
+    src, mirror, base, _ = world
+    c1 = commit(src, {f"{SUB}/pyproject.toml": "v1"}, "one")
+    g(src, "tag", f"{publish.TAG_PREFIX}v1.0.0", c1)
+    plan = run(src, mirror, base, tags=False)  # the main-branch sync: a release tag must not ride along
+    assert [s for s, _ in plan.commits] == [c1] and not plan.tags
+    assert g(mirror, "tag", "-l") == ""
+    plan = run(src, mirror, base)  # the gated release path publishes it
+    assert not plan.commits and [t for t, _ in plan.tags] == ["v1.0.0"]
+    assert g(mirror, "rev-parse", "v1.0.0") == g(mirror, "rev-parse", "main")
+    # the CLI flag reaches publish(): a newer commit is mirrored, its newer tag is not
+    c2 = commit(src, {f"{SUB}/pyproject.toml": "v2"}, "two")
+    g(src, "tag", f"{publish.TAG_PREFIX}v2.0.0", c2)
+    assert publish.main(["--mirror", str(mirror), "--source-repo", REPO, "--source-dir", str(src), "--no-tags"]) == 0
+    assert g(mirror, "tag", "-l") == "v1.0.0"
+    assert g(mirror, "log", "-1", "--format=%s", "main") == "two"
+
+
 def test_verify_detects_tampered_tree(world):
     src, mirror, base, _ = world
     commit(src, {f"{SUB}/pyproject.toml": "v1"}, "one")

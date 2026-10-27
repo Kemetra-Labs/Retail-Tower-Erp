@@ -1,0 +1,164 @@
+# RT-712 (CI wiring) / RT-717 (first publication): keep the ERPNext-Connector distribution mirror
+# up to date. Every `main` commit that changes integrations/erpnext-connector/ becomes ONE appended
+# commit on Kemetra-Labs/ERPNext-Connector (tools/release/connector-mirror/publish.py): tree equal to
+# the subtree at that SHA, `Monorepo-Commit` trailer, never a force-push. `bench update` is a git pull
+# on that repo, so it fast-forwards to each published commit.
+#
+# Triggers: push to main touching the connector, or a manual dispatch (dry-run by default). No
+# pull_request trigger: PR code can never reach the publisher credentials.
+#
+#   verify   anonymous, secret-free. The mirror is public, so `--verify` (every published commit: valid
+#            source SHA, tree == subtree, monotonic order) and `--dry-run` (what would be appended) run
+#            without credentials on every connector push, armed or not.
+#   publish  behind the `connector-mirror` environment, and FAIL-CLOSED: nothing is pushed unless the
+#            owner has set the environment variable MIRROR_PUBLISH_ENABLED=true (GitHub auto-creates a
+#            referenced environment with no protection rules, so the environment alone is not a gate).
+#            The App token is minted for ONE repository (Kemetra-Labs/ERPNext-Connector, contents:write)
+#            and handed to git through an extraheader, never embedded in a URL or printed.
+#
+# Release tags are NOT mirrored here (`--no-tags`): erpnext-connector/vX.Y.Z stays with the gated
+# release-erpnext-connector workflow, so a plain main push can never become a release channel.
+#
+# Owner setup before the first armed run (none of it is done by this file):
+#   - kemetra-mirror-publisher (App ID 5373207, owner-attested, RT-712 c12868) installed on
+#     Kemetra-Labs/ERPNext-Connector ONLY, Contents read/write + Metadata read, after a read-only check
+#     of its owner/slug/installations. An App owned by a user account may not be installable on an org:
+#     it can need a transfer or re-registration.
+#   - environment `connector-mirror`: deployment branch `main` only, a reviewer, no admin bypass;
+#     variables MIRROR_APP_ID and MIRROR_PUBLISH_ENABLED=true; secret MIRROR_APP_PRIVATE_KEY.
+#   - the App must be able to push to the mirror's main: any cutover freeze ruleset (rt-715-cutover-freeze-*)
+#     must list it as the only bypass actor, or the push is rejected (exit 4, no force).
+name: mirror-erpnext-connector
+
+"on":
+  push:
+    branches: [main]
+    paths: ["integrations/erpnext-connector/**"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Dry-run only (verify + plan, publish nothing). false publishes, and only from main.
+        type: boolean
+        default: true
+
+permissions: {}
+
+# One publisher at a time, queued not cancelled: the publisher walks main's first-parent line, so the
+# newest run catches up everything older runs would have appended.
+concurrency:
+  group: mirror-erpnext-connector
+  cancel-in-progress: false
+
+env:
+  MIRROR_URL: https://github.com/Kemetra-Labs/ERPNext-Connector.git
+  # Source commit whose subtree equals the frozen mirror main (c4038ef, 2026-10-27). Read only until the
+  # mirror holds its first Monorepo-Commit trailer; refused if it does not match the mirror head's tree.
+  MIRROR_BASELINE: 2d78ca87160930a2d4f4f38d18b70697a5aabb6c
+
+jobs:
+  verify:
+    name: "mirror/verify (anonymous, --verify and --dry-run)"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout with full history
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Verify the published history, then plan
+        env:
+          SHA: ${{ github.sha }}
+          SOURCE_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          pub=tools/release/connector-mirror/publish.py
+          git merge-base --is-ancestor "$SHA" refs/remotes/origin/main || { echo "::error::$SHA is not on main"; exit 1; }
+          python3 "$pub" --mirror "$MIRROR_URL" --source-repo "$SOURCE_REPO" --source-ref "$SHA" --verify
+          {
+            echo '### mirror-erpnext-connector: plan (no credentials, nothing pushed)'
+            echo '```'
+            python3 "$pub" --mirror "$MIRROR_URL" --source-repo "$SOURCE_REPO" --source-ref "$SHA" \
+              --base "$MIRROR_BASELINE" --no-tags --dry-run
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: mirror/publish (armed by MIRROR_PUBLISH_ENABLED)
+    needs: verify
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.dry_run == false)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: connector-mirror
+    permissions:
+      contents: read
+    steps:
+      - name: Arming check (fail closed)
+        id: arm
+        env:
+          ARMED: ${{ vars.MIRROR_PUBLISH_ENABLED }}
+        run: |
+          if [ "$ARMED" = "true" ]; then
+            echo "armed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "armed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::MIRROR_PUBLISH_ENABLED is not 'true' in the connector-mirror environment: nothing was published."
+            echo "### mirror-erpnext-connector: NOT armed, nothing published" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Checkout with full history
+        if: steps.arm.outputs.armed == 'true'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: steps.arm.outputs.armed == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Mint a one-repository publisher token
+        if: steps.arm.outputs.armed == 'true'
+        id: token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
+        with:
+          app-id: ${{ vars.MIRROR_APP_ID }}
+          private-key: ${{ secrets.MIRROR_APP_PRIVATE_KEY }}
+          owner: Kemetra-Labs
+          repositories: ERPNext-Connector
+          permission-contents: write
+
+      - name: Publish (append-only, no tags), then --verify
+        if: steps.arm.outputs.armed == 'true'
+        env:
+          SHA: ${{ github.sha }}
+          SOURCE_REPO: ${{ github.repository }}
+          TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          set -euo pipefail
+          pub=tools/release/connector-mirror/publish.py
+          git merge-base --is-ancestor "$SHA" refs/remotes/origin/main || { echo "::error::$SHA is not on main"; exit 1; }
+          # The credential travels as an http extraheader (env, scoped to github.com), not inside MIRROR_URL,
+          # so a git error message that echoes the URL cannot carry it.
+          basic="$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          echo "::add-mask::$basic"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $basic"
+          run_publish() {
+            python3 "$pub" --mirror "$MIRROR_URL" --source-repo "$SOURCE_REPO" --source-ref "$SHA" \
+              --base "$MIRROR_BASELINE" --no-tags
+          }
+          # Exit 4 = the mirror moved after our fetch (plain refspecs, never forced). One retry reconciles.
+          rc=0; run_publish || rc=$?
+          if [ "$rc" -eq 4 ]; then echo "::warning::mirror moved between fetch and push; reconciling once"; rc=0; run_publish || rc=$?; fi
+          [ "$rc" -eq 0 ] || { echo "::error::publisher exited $rc"; exit "$rc"; }
+          python3 "$pub" --mirror "$MIRROR_URL" --source-repo "$SOURCE_REPO" --source-ref "$SHA" --verify
+          echo "### mirror-erpnext-connector: published (append-only, tree == subtree, verified)" >> "$GITHUB_STEP_SUMMARY"

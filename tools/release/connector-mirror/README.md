@@ -1,8 +1,11 @@
 # connector-mirror (RT-712, decision D3)
 
 `bench get-app` has no subdirectory option: the repo root must be the Frappe app. So the Connector is distributed
-from an **append-only mirror** (the existing `Kemetra/ERPNext-Connector`, never archived) whose root is
-`integrations/erpnext-connector/` of the monorepo.
+from an **append-only mirror** (the existing `ERPNext-Connector` repository, never archived; now
+`Kemetra-Labs/ERPNext-Connector`) whose root is `integrations/erpnext-connector/` of the monorepo.
+
+It runs from `.github/workflows/mirror-erpnext-connector.yml` on every `main` push that touches the Connector
+(see [CI wiring](#ci-wiring)).
 
 `publish.py` (stdlib Python, git >= 2.40) appends, for each first-parent source commit that changes the subtree,
 **one** mirror commit:
@@ -11,17 +14,19 @@ from an **append-only mirror** (the existing `Kemetra/ERPNext-Connector`, never 
 - parent = current mirror head; author and message from the source commit, committer is a pinned publisher
   identity with the source commit date, so re-publishing a SHA gives an identical commit;
 - bare `#N` references are qualified as `<source-repo>#N` (they would otherwise link to the mirror's own issues);
-- trailer `Monorepo-Commit: <source-repo>@<source-sha>` (`--source-repo Kemetra/Retail-Tower` at cutover).
+- trailer `Monorepo-Commit: <source-repo>@<source-sha>` (`--source-repo Kemetra-Labs/Retail-Tower-Erp`; the slug
+  is permanent, a later run with another slug is refused).
 
-Source tags `erpnext-connector/vX.Y.Z` become lightweight mirror tags `vX.Y.Z` on the matching mirror commit.
+Source tags `erpnext-connector/vX.Y.Z` become lightweight mirror tags `vX.Y.Z` on the matching mirror commit,
+unless `--no-tags` is given (the main-branch sync passes it: tags belong to the gated release workflow).
 
 Why not `git subtree split` or filter-repo: a regenerated split does not descend from the live repo's history, so
 existing benches (`bench update` = `git pull`) would break (blueprint §2.6). Computing one `commit-tree` per
 source commit is the smallest thing that keeps the mirror's history continuous.
 
 ```bash
-python tools/release/connector-mirror/publish.py --mirror <url-or-path> --source-repo Kemetra/Retail-Tower \
-    [--source-ref main] [--base <sha>] [--dry-run | --verify]
+python tools/release/connector-mirror/publish.py --mirror <url-or-path> --source-repo Kemetra-Labs/Retail-Tower-Erp \
+    [--source-ref main] [--base <sha>] [--no-tags] [--dry-run | --verify]
 ```
 
 - `--mirror` and `--source-repo` have no default. The mirror must already hold the frozen live `main`.
@@ -38,8 +43,25 @@ python tools/release/connector-mirror/publish.py --mirror <url-or-path> --source
   an existing mirror tag would move, or any published tree differs from its source subtree.
 - Out-of-order or stale triggers: the source ref is walked in ancestry order, so an older head is a no-op.
 - Concurrent publishers produce identical commits (deterministic), so they converge on one linear history.
-- The mirror's URL, credentials and the publisher GitHub App are out of scope here: this tool takes a URL and
-  uses whatever git credentials the caller provides. It is not wired into CI.
+- The mirror's URL, credentials and the publisher GitHub App are out of scope for the tool: it takes a URL and
+  uses whatever git credentials the caller provides. The workflow supplies them (next section).
+
+## CI wiring
+
+`.github/workflows/mirror-erpnext-connector.yml` (RT-712 wiring, RT-717 first publication):
+
+- **`verify`** runs on every Connector push to `main`, anonymously (the mirror is public): `--verify`, then a
+  `--no-tags --dry-run` plan in the job summary. No secrets, so it also shows what an armed run would append.
+- **`publish`** runs behind the `connector-mirror` environment and is **fail-closed**: it pushes only when the
+  environment variable `MIRROR_PUBLISH_ENABLED` is `true`. It mints a token for `Kemetra-Labs/ERPNext-Connector`
+  only (`contents: write`) from the `kemetra-mirror-publisher` App and gives git an `http.extraheader` instead of a
+  token in the URL. Runs are serialized (one publisher at a time); an exit-4 push rejection is retried once.
+- The baseline `--base 2d78ca87…` is the monorepo commit whose Connector subtree equals the frozen mirror head
+  `c4038ef`. It is read only until the mirror holds its first `Monorepo-Commit` trailer.
+- Not done by the workflow (owner steps): install the App on the mirror only (an App owned by a user account may
+  need a transfer or re-registration for the org), create the environment (branch `main` only, reviewer, no admin
+  bypass), set `MIRROR_APP_ID`, `MIRROR_PUBLISH_ENABLED` and the `MIRROR_APP_PRIVATE_KEY` secret, and make the App the
+  only bypass actor of any cutover freeze ruleset on the mirror.
 
 ## Tests
 
