@@ -63,7 +63,7 @@ Five rules, enforced in CI. The long form is [ARCHITECTURE.md](ARCHITECTURE.md).
 | Rule | What it means here |
 | --- | --- |
 | One path | POS and Admin-Console reach ERPNext only through Backend-Core and the Connector. |
-| One contract | `services/backend-core/packages/contracts/openapi` is the contract source. A break of any consumer fails in the pull request that introduces it. |
+| One contract | `services/backend-core/packages/contracts/openapi` is the contract source. A break [`contracts/check`](tools/contracts-check/README.md) can see fails in the pull request that introduces it. Named gaps, including Connector field types and inline literals, are listed there. |
 | Declared edges | Cross-product references are limited to the `edges` list in [`tools/project-graph/graph.yaml`](tools/project-graph/graph.yaml). Anything else fails `boundary-check`. |
 | Own releases | Tags are `pos/vX.Y.Z`, `admin-console/vX.Y.Z`, `backend-core/vX.Y.Z`, and `erpnext-connector/vX.Y.Z`. |
 | One landing place | Since RT-715, all code lands in this repository by pull request to `main`. |
@@ -93,12 +93,12 @@ POS sells the resolved Backend-Core store catalog. Admin-Console operates on the
 
 1. **Classify.** Every changed path is a shared class (`policy`, `tooling`, `e2e`, `docs`, `root`) or a product risk tier (`contracts`, `money`, `sales`, and the rest). Each class or tier names the jobs it needs. A path a product does not classify counts as `high` and selects that product's full suite.
 2. **Plan.** The root workflows `pos`, `admin-console`, `backend-core`, `erpnext-connector`, `contracts`, and `e2e` each start with a `plan` job. It takes `tools/project-graph` from the trusted commit (the pull request base) with `git archive`, runs `python -m pgraph evaluate` on the base and head SHAs, and publishes the selected job keys. The planner reads pull request code as git data and does not run it.
-3. **Run the selection.** Every graph job needs `plan` and runs only when its key is in the plan. `boundary-check` and `dependency-review` (in `project-graph.yml`) always run. A push to `main` selects everything.
+3. **Run the selection.** Every graph job outside `always_jobs` needs `plan` and runs only when its key is in the plan. `boundary-check` and `dependency-review` are `always_jobs`: they stay unguarded and always run. A push to `main` selects everything.
 4. **`required`.** [`.github/workflows/gate.yml`](.github/workflows/gate.yml) re-evaluates the pull request from the base branch, reads the selected job results, and posts one check run named `required`. A selected job that fails, is cancelled, or is skipped fails that check (`JOB_FAILED`, `JOB_CANCELLED`, `UNEXPECTED_SKIP`).
 
 A change under a policy path also asks for an APPROVED review on the exact head commit, from a login in `policy_approvers`, whose body contains the `policy-change-approved:` line the gate prints. Until that review exists, `required` reports `POLICY_APPROVAL_REQUIRED`.
 
-Policy paths are `.github/**`, `apps/*/.github/**`, `services/*/.github/**`, `integrations/*/.github/**`, `tools/project-graph/**`, `tools/ci-gate/**`, `tools/agent-broker/**`, and `CODEOWNERS`.
+Policy paths are `.github/**`, `apps/*/.github/**`, `services/*/.github/**`, `integrations/*/.github/**`, `tools/project-graph/**`, `tools/ci-gate/**`, `tools/agent-broker/**`, `CODEOWNERS`, `.gitleaks.toml`, and `.gitleaksignore`. The source of truth is the `policy` class in [`tools/project-graph/graph.yaml`](tools/project-graph/graph.yaml).
 
 **Current gate mode.** `policy_approval` is `observe` (owner decision 2026-10-27, while the owner is the only maintainer). The approval is still evaluated and printed. A missing approval does not fail `required`. `required` is red for a real problem: a failed job, or an invalid graph or plan. The aggregator reads the mode from the trusted base graph, so a pull request cannot relax its own approval. Making `required` a required status check on `main` is RT-866 and is still open. Detail: [tools/project-graph/README.md](tools/project-graph/README.md).
 
@@ -106,7 +106,7 @@ Workflows outside the graph: `project-graph-selftest.yml` (on every pull request
 
 ## Run a product
 
-These are the commands the root workflows run, in bash. Run each block from the directory named in its heading. On PowerShell, use Git Bash, or translate `export` in the end-to-end block. First-time setup for a product is in that product's README.
+Validation commands in each block match the root workflows. The `dev` lines are local only. Run each block from the directory named in its heading, in bash. On PowerShell, use Git Bash, or translate `export` in the end-to-end block. First-time setup for a product is in that product's README.
 
 ```bash
 git clone https://github.com/Kemetra-Labs/Retail-Tower-Erp.git
