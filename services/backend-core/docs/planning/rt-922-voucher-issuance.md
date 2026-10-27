@@ -144,7 +144,10 @@ each transition is one conditional write inside its transaction, never a read-th
   is redeemed, `voucher_not_found` if absent.
 - Redeem (RT-810 slice 4 must follow the same rule): the balance decrement and the `redeemed` transition are
   conditioned on `status = 'active'` under the same row lock (`SELECT ... FOR UPDATE`), so a voucher cancelled
-  first fails redeem with `voucher_cancelled`.
+  first fails redeem with `voucher_cancelled`. Under that lock redeem also re-checks
+  `expires_at IS NULL OR expires_at > now()` and fails with `voucher_expired` otherwise: a redemption-intent
+  token issued by validate just before expiry must not redeem after it. Check order: cancelled first
+  (`voucher_cancelled`), then expired (`voucher_expired`).
 - Both start from `active`: whichever transaction commits its conditional write first wins; the other sees
   zero rows (or blocks on the row lock, then sees the new status) and gets the refusal above. No voucher ever
   ends both cancelled and redeemed.
@@ -179,6 +182,8 @@ tender integration, POS enablement) follow and stay owned by RT-810's plan.
 - Cancel twice: second call `already_cancelled: true`; cancel after redeem refused.
 - Expired but stored `active`: detail and list show effective status `expired`; `status=active` excludes
   it and `status=expired` includes it; cancel follows the §8 item 5 decision.
+- Validate succeeds before `expires_at`, redeem is called after it: redeem fails with `voucher_expired` and
+  the balance is unchanged (RT-810 slice 4).
 - Concurrent cancel and redeem started from one `active` voucher: exactly one succeeds, the other gets the
   documented refusal, and the final status is either `cancelled` or `redeemed`, never both (I-3 for cancel,
   RT-810 slice 4 for redeem).
