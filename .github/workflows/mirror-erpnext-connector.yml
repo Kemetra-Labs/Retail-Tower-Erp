@@ -19,15 +19,16 @@
 # Release tags are NOT mirrored here (`--no-tags`): erpnext-connector/vX.Y.Z stays with the gated
 # release-erpnext-connector workflow, so a plain main push can never become a release channel.
 #
-# Owner setup before the first armed run (none of it is done by this file):
-#   - kemetra-mirror-publisher (App ID 5373207, owner-attested, RT-712 c12868) installed on
-#     Kemetra-Labs/ERPNext-Connector ONLY, Contents read/write + Metadata read, after a read-only check
-#     of its owner/slug/installations. An App owned by a user account may not be installable on an org:
-#     it can need a transfer or re-registration.
-#   - environment `connector-mirror`: deployment branch `main` only, a reviewer, no admin bypass;
-#     variables MIRROR_APP_ID and MIRROR_PUBLISH_ENABLED=true; secret MIRROR_APP_PRIVATE_KEY.
-#   - the App must be able to push to the mirror's main: any cutover freeze ruleset (rt-715-cutover-freeze-*)
-#     must list it as the only bypass actor, or the push is rejected (exit 4, no force).
+# Owner setup (done by the owner on 2026-10-27 and read back, RT-712 c14147; none of it is done by this file):
+#   - GitHub App `connector-mirror-publisher` (App ID 5494090), Contents read/write + Metadata read, installed
+#     on Kemetra-Labs/ERPNext-Connector (selected repositories; that it is the ONLY one is an owner check,
+#     RT-717 R5). It replaces the `kemetra-mirror-publisher` / 5373207 App named in RT-712 c12868, which was
+#     never installed.
+#   - environment `connector-mirror`: deployment branch `main` only; variables MIRROR_APP_ID and
+#     MIRROR_PUBLISH_ENABLED=true; secret MIRROR_APP_PRIVATE_KEY. No required reviewer and admin bypass is
+#     on: tighten both when a second maintainer joins.
+#   - the App is the only bypass actor of the mirror's `protect-main` and `rt-715-cutover-freeze-main`
+#     rulesets, or the push is rejected (exit 4, no force). It is not on the tag freeze: tags are not mirrored.
 name: mirror-erpnext-connector
 
 "on":
