@@ -144,12 +144,15 @@ each transition is one conditional write inside its transaction, never a read-th
   is redeemed, `voucher_not_found` if absent.
 - Redeem (RT-810 slice 4 must follow the same rule): the balance decrement and the `redeemed` transition are
   conditioned on `status = 'active'` under the same row lock (`SELECT ... FOR UPDATE`), so a voucher cancelled
-  first fails redeem with `voucher_cancelled`. After the lock is acquired, redeem also re-checks
-  `expires_at IS NULL OR expires_at > clock_timestamp()` and fails with `voucher_expired` otherwise: a
-  redemption-intent token issued by validate just before expiry must not redeem after it. Use
-  `clock_timestamp()` (wall clock at the check), not `now()`: `now()` is fixed at transaction start, so a
-  redeem that waited on the row lock past `expires_at` would still pass. Check order: cancelled first
-  (`voucher_cancelled`), then expired (`voucher_expired`).
+  first fails redeem with `voucher_cancelled`. The expiry predicate
+  `expires_at IS NULL OR expires_at > clock_timestamp()` sits in the WHERE clause of that same final
+  conditional write (the `UPDATE` that decrements the balance and sets `redeemed`), so it is evaluated at the
+  write itself, not only by an earlier check: a redemption-intent token issued by validate just before expiry
+  must not redeem after it, and no gap between a check and the write can let an expired voucher through. An
+  application-side pre-check may stay as a fast path but is never the guard. Use `clock_timestamp()` (wall
+  clock at evaluation), not `now()`: `now()` is fixed at transaction start, so a redeem that waited on the
+  row lock past `expires_at` would still pass. Zero rows updated: re-read and answer `voucher_cancelled` if
+  cancelled, else `voucher_expired` if expired (cancelled first, then expired).
 - Both start from `active`: whichever transaction commits its conditional write first wins; the other sees
   zero rows (or blocks on the row lock, then sees the new status) and gets the refusal above. No voucher ever
   ends both cancelled and redeemed.
