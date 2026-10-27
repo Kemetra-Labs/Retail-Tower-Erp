@@ -73,14 +73,17 @@ defines the smallest issuance surface. It is slice 1 of the RT-810 plan and bloc
 ### 5.2 Operations (new console contract, `[GATED]` OpenAPI)
 
 Proposed file `packages/contracts/openapi/vouchers-admin.openapi.yaml`, `x-runtime-status: contract-only`
-until the runtime lands. Cookie auth, tenant from `request.context`.
+until the runtime lands. Every route uses the human cookie stack of the payer precedent: `DashboardAuthGuard`
+(which carries the RT-430 Origin check on cookie-authenticated POSTs, the CSRF defence for
+`consoleIssueVouchers` and `consoleCancelVoucher`), then `TenantContextGuard`, then `RolesGuard`. No bearer
+or alternative guard. Tenant from `request.context`.
 
 | Operation | Method and path | Roles | Notes |
 |---|---|---|---|
 | `consoleIssueVouchers` | `POST /api/v1/vouchers` | `owner`, `tenant_admin` | Creates 1..N vouchers with the same value, expiry and eligibility. `@Idempotent("required", { replay: "forbid", replayMarkerFields: ["batch_id"] })`: the codes are returned **once**; a same-key retry is `409 idempotency_key_conflict` and never re-issues or re-shows codes. |
 | `consoleListVouchers` | `GET /api/v1/vouchers` | `owner`, `tenant_admin` (and `store_manager`, see §4 item 3) | Cursor pagination; filter by status, batch, eligible store, expiry window. Never returns a code. |
 | `consoleGetVoucher` | `GET /api/v1/vouchers/{voucher_id}` | same as list | Value, status, eligibility, redemption summary. Never returns a code. |
-| `consoleCancelVoucher` | `POST /api/v1/vouchers/{voucher_id}/cancel` | `owner`, `tenant_admin` | `@Idempotent("required")`. Cancelling a cancelled voucher returns 200 `already_cancelled: true`. A redeemed voucher cannot be cancelled (`voucher_already_redeemed`). |
+| `consoleCancelVoucher` | `POST /api/v1/vouchers/{voucher_id}/cancel` | `owner`, `tenant_admin` | `@Idempotent("required")`. Cancelling a cancelled voucher returns 200 `already_cancelled: true`. A redeemed voucher cannot be cancelled (`voucher_already_redeemed`). Cancel races with redeem are settled as in §5.4 "Status transitions". |
 
 Issue request (sketch): `count` (1..500), `amount_minor` (> 0), `expires_at` (optional, future),
 `applies_to_all_stores` (bool), `eligible_store_ids` (required and non-empty when not all stores),
@@ -109,7 +112,11 @@ non-disclosing), `store_inactive`, `voucher_not_found`, `voucher_already_redeeme
   (`active | redeemed | cancelled`), `expires_at` (expiry is derived at read time, not a stored status),
   `applies_to_all_stores`, `issued_by_user_id`, `cancelled_by_user_id`, `cancelled_at`, timestamps,
   `note`.
-- `voucher_eligible_stores`: `(tenant_id, voucher_id, store_id)`, composite FK to `stores (tenant_id, id)`.
+- `voucher_eligible_stores`: `(tenant_id, voucher_id, store_id)`, primary key over all three, with two
+  composite FKs so neither side can cross tenants: `(tenant_id, store_id) REFERENCES stores (tenant_id, id)`
+  and `(tenant_id, voucher_id) REFERENCES vouchers (tenant_id, id)`. `vouchers` therefore carries
+  `UNIQUE (tenant_id, id)` as the FK target (the `stores_tenant_id_uk` pattern). RLS alone does not stop a
+  row pointing at another tenant's voucher; these FKs do.
   Rows exist only when `applies_to_all_stores = false`.
 - Eligibility rule (D3, D4): `applies_to_all_stores = true` accepts any active store of the tenant, including
   stores created later; otherwise only listed stores. A listed store that is later deactivated simply cannot
@@ -118,6 +125,20 @@ non-disclosing), `store_inactive`, `voucher_not_found`, `voucher_already_redeeme
   UPDATE policy on `vouchers`. Down migration included.
 - The RT-810 redeem tables (`voucher_redemption_intents`, `voucher_redemptions`) are **not** part of this
   migration; they stay in RT-810 slice 3.
+
+**Status transitions.** Cancel (this plan) and redeem (RT-810) are separate write paths on the same row, so
+each transition is one conditional write inside its transaction, never a read-then-write:
+
+- Cancel: `UPDATE vouchers SET status = 'cancelled', cancelled_at = now(), ... WHERE tenant_id = $1 AND
+  id = $2 AND status = 'active'`. One row updated means this request won. Zero rows means the voucher was not
+  active: re-read it and answer `already_cancelled: true` if it is cancelled, `voucher_already_redeemed` if it
+  is redeemed, `voucher_not_found` if absent.
+- Redeem (RT-810 slice 4 must follow the same rule): the balance decrement and the `redeemed` transition are
+  conditioned on `status = 'active'` under the same row lock (`SELECT ... FOR UPDATE`), so a voucher cancelled
+  first fails redeem with `voucher_cancelled`.
+- Both start from `active`: whichever transaction commits its conditional write first wins; the other sees
+  zero rows (or blocks on the row lock, then sees the new status) and gets the refusal above. No voucher ever
+  ends both cancelled and redeemed.
 
 ### 5.5 Audit and rate limiting
 
@@ -132,7 +153,7 @@ non-disclosing), `store_inactive`, `voucher_not_found`, `voucher_already_redeeme
 |---|---|---|---|
 | I-1 | Issuance OpenAPI contract `vouchers-admin.openapi.yaml` (contract-only) plus contract spec. | Implementation | `[GATED]` OpenAPI |
 | I-2 | Migration: `vouchers`, `voucher_eligible_stores`, RLS, down migration. | Implementation | `[GATED]` migration |
-| I-3 | Backend-Core runtime for the four operations, audit, rate-limit class. | Implementation | after I-1, I-2 |
+| I-3 | Backend-Core runtime for the four operations on the `DashboardAuthGuard` + `TenantContextGuard` + `RolesGuard` stack (RT-430 Origin check on both POSTs), conditional status transitions (§5.4), audit, rate-limit class. | Implementation | after I-1, I-2 |
 | I-4 | Admin-Console vouchers page (issue, show once, CSV, list, detail, cancel), following `src/payers/`. | Implementation | after I-3 |
 
 Order: I-1, then I-2, then I-3, then I-4. RT-810 slices 2-6 (auth alignment, redeem tables, redeem runtime,
@@ -147,6 +168,12 @@ tender integration, POS enablement) follow and stay owned by RT-810's plan.
 - Codes are unique per tenant across a 500-voucher batch; hashes collide with no existing code.
 - Same Idempotency-Key retry of issue: 409, and no second batch is created.
 - Cancel twice: second call `already_cancelled: true`; cancel after redeem refused.
+- Concurrent cancel and redeem started from one `active` voucher: exactly one succeeds, the other gets the
+  documented refusal, and the final status is either `cancelled` or `redeemed`, never both (I-3 for cancel,
+  RT-810 slice 4 for redeem).
+- Migration: an eligible-store row whose `voucher_id` belongs to another tenant, or does not exist, is
+  rejected by the composite FK; the same for `store_id`.
+- A cross-site POST (wrong or missing `Origin`) to issue or cancel is refused by the RT-430 check.
 - A cancelled voucher fails V-A validate (`voucher_cancelled`); an expired one fails (`voucher_expired`).
 - D4: an "all stores" voucher validates in a store created after issuance; a subset voucher does not.
 - No code appears in logs, audit rows, list or detail responses, or idempotency storage.
