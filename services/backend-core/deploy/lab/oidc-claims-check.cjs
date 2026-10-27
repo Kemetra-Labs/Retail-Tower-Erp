@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 // RT-722: print-only check of the GitHub Actions OIDC token claims for the
-// aws-lab environment (.github/workflows/oidc-claims-check.yml). It reads one
-// token from stdin, decodes its payload, prints an allowlist of non-secret
-// claims and compares them with the values the AWS trust policy for
-// rt-gha-aws-lab-deploy will depend on (RT-532, S2a v2). It makes no network
-// call, reads no secret, calls no AWS API and writes only to stdout and,
-// with --summary, appends to that one file.
+// aws-lab environment. It reads one token from stdin, decodes its payload,
+// prints an allowlist of non-secret claims and compares them with the values
+// the AWS trust policy for rt-gha-aws-lab-deploy depends on (RT-532). It makes
+// no network call, reads no secret, calls no AWS API and writes only to stdout
+// and, with --summary, appends to that one file.
+//
+// RT-908: the deploy job runs from the canonical monorepo, so the expected
+// repository and owner are Kemetra-Labs/Retail-Tower-Erp (immutable subject
+// form repo:OWNER@OWNER-ID/REPO@REPO-ID). The dispatching actor is still the
+// Kemetra user, so actor_id differs from repository_owner_id.
 //
 // The signature is NOT verified: this is a diagnostic on a token the workflow
 // fetched straight from GitHub. AWS verifies the signature when a role is
@@ -22,10 +26,12 @@
 
 const fs = require("node:fs");
 
-const OWNER = "Kemetra";
-const REPO_NAME = "Backend-Core";
-const OWNER_ID = "206601658";
-const REPO_ID = "1226735953";
+const OWNER = "Kemetra-Labs";
+const REPO_NAME = "Retail-Tower-Erp";
+const OWNER_ID = "340160100";
+const REPO_ID = "1430288487";
+// The user who dispatches and approves the deploy (Kemetra), not the repository owner.
+const ACTOR_ID = "206601658";
 const ENVIRONMENT = "aws-lab";
 const AUDIENCE = "sts.amazonaws.com";
 const ISSUER = "https://token.actions.githubusercontent.com";
@@ -34,7 +40,7 @@ const TRUSTED_WORKFLOW_FILE = "deploy-lab.yml";
 const DEFAULT_WORKFLOW_FILE = "oidc-claims-check.yml";
 const JIRA_RE = /^RT-[1-9]\d*$/;
 const WORKFLOW_FILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml$/;
-const WORKFLOW_REF_RE = /^Kemetra\/Backend-Core\/\.github\/workflows\/([A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml)@refs\/heads\/main$/;
+const WORKFLOW_REF_RE = /^Kemetra-Labs\/Retail-Tower-Erp\/\.github\/workflows\/([A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml)@refs\/heads\/main$/;
 const JWT_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*$/;
 const MAX_TOKEN_CHARS = 16 * 1024;
 const MAX_VALUE_CHARS = 200;
@@ -55,7 +61,7 @@ function expectedClaims(workflowFile) {
     ["repository_id", REPO_ID],
     ["environment", ENVIRONMENT],
     ["ref", "refs/heads/main"],
-    ["actor_id", OWNER_ID],
+    ["actor_id", ACTOR_ID],
     ["job_workflow_ref", workflowRef(workflowFile)],
   ];
 }
@@ -119,7 +125,7 @@ function render(result, jiraKey, workflowFile) {
   const lines = [
     `### OIDC claims check for ${jiraKey} (workflow file ${workflowFile})`,
     "",
-    "| Claim | Expected (S2a v2) | Observed | Status |",
+    "| Claim | Expected (trust policy) | Observed | Status |",
     "| --- | --- | --- | --- |",
     ...result.rows.map((r) => `| \`${r.claim}\` | \`${clean(r.expected)}\` | ${r.observed === null ? "-" : `\`${clean(r.observed)}\``} | ${r.status} |`),
     "",
@@ -130,7 +136,7 @@ function render(result, jiraKey, workflowFile) {
   lines.push(
     result.derived
       ? `job_workflow_ref has the expected form. The value the trust policy pins for the deploy job is \`${result.derived}\`.`
-      : "job_workflow_ref is missing or not in the form Kemetra/Backend-Core/.github/workflows/<file>@refs/heads/main: do not pin it until it is understood.",
+      : `job_workflow_ref is missing or not in the form ${OWNER}/${REPO_NAME}/.github/workflows/<file>@refs/heads/main: do not pin it until it is understood.`,
     result.ok
       ? `Result: all ${result.rows.length} expected claims match.`
       : `Result: ${result.rows.filter((r) => r.status !== "MATCH").length} of ${result.rows.length} expected claims are missing or differ. Correct the policy to the printed value, never to a wildcard.`,
