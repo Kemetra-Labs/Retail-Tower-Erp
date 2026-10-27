@@ -59,7 +59,7 @@ python tools/release/connector-mirror/publish.py --mirror <url-or-path> --source
   rejection is retried once.
 - The baseline `--base 2d78ca87…` is the monorepo commit whose Connector subtree equals the frozen mirror head
   `c4038ef`. It is read only until the mirror holds its first `Monorepo-Commit` trailer.
-- Owner setup (done 2026-10-27, not done by the workflow): the App is installed on the mirror (selected repositories);
+- Owner setup (done 2026-10-27, owner-attested and read back in RT-712 c14147; not done by the workflow): the App is installed on the mirror (selected repositories);
   the environment `connector-mirror` exists (branch `main` only, no required reviewer, admin bypass on) with
   `MIRROR_APP_ID`, `MIRROR_PUBLISH_ENABLED=true` and the `MIRROR_APP_PRIVATE_KEY` secret; the App is the only bypass
   actor of the mirror's `protect-main` and `rt-715-cutover-freeze-main` rulesets (not of the tag freeze).

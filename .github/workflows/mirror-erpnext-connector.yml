@@ -22,7 +22,7 @@
 # Owner setup (done by the owner on 2026-10-27 and read back, RT-712 c14147; none of it is done by this file):
 #   - GitHub App `connector-mirror-publisher` (App ID 5494090), Contents read/write + Metadata read, installed
 #     on Kemetra-Labs/ERPNext-Connector (selected repositories; that it is the ONLY one is an owner check,
-#     RT-717 R5). It replaces the `kemetra-mirror-publisher` / 5373207 App named in RT-712 c12868, which was
+#     the "installed on the mirror only" rule of RT-717 R5, the release-authority hardening). It replaces the `kemetra-mirror-publisher` / 5373207 App named in RT-712 c12868, which was
 #     never installed.
 #   - environment `connector-mirror`: deployment branch `main` only; variables MIRROR_APP_ID and
 #     MIRROR_PUBLISH_ENABLED=true; secret MIRROR_APP_PRIVATE_KEY. No required reviewer and admin bypass is
