@@ -22,7 +22,9 @@ TAG_PREFIX = "erpnext-connector/"
 TRAILER = "Monorepo-Commit"
 PUBLISHER = ("Kemetra mirror publisher", "mirror-publisher@kemetra.invalid")
 SEMVER_TAG = re.compile(r"^v\d+\.\d+\.\d+$")
-TRAILER_VALUE = re.compile(r"^(?P<repo>[\w.-]+/[\w.-]+)@(?P<sha>[0-9a-f]{40})$")
+# Provenance is read from the raw message, never via git's trailer parser: `git interpret-trailers` (the write
+# side) puts the trailer above a bare `---` line, where `%(trailers)` no longer sees it.
+PROVENANCE_LINE = re.compile(rf"^{TRAILER}: (?P<repo>[\w.-]+/[\w.-]+)@(?P<sha>[0-9a-f]{{40}})[ \t]*\r?$", re.MULTILINE)
 BARE_REF = re.compile(r"(?<![\w/&#])#(\d+)\b")
 
 
@@ -59,31 +61,41 @@ def subtree(repo, sha, subdir):
     return out.stdout.strip()
 
 
+def provenance_in(message):
+    """(slug, source_sha) from the LAST `Monorepo-Commit: <slug>@<sha>` line of a raw commit message, or None."""
+    found = None
+    for m in PROVENANCE_LINE.finditer(message):
+        found = (m["repo"], m["sha"])
+    return found
+
+
+def commit_messages(repo, ref, *extra):
+    """[(commit sha, raw message)] newest first, for commits having a line that starts with the trailer key."""
+    out = git("log", "--format=%x1e%H%x1f%B", "--grep", f"^{TRAILER}:", "--extended-regexp", *extra, ref, git_dir=repo)
+    return [tuple(rec.split("\x1f", 1)) for rec in out.split("\x1e") if rec.strip()]
+
+
 def last_provenance(repo, ref, repo_slug):
-    """(slug, source_sha) from the newest Monorepo-Commit trailer reachable from ref, or None."""
-    log = git("log", "-1", f"--format=%(trailers:key={TRAILER},valueonly,unfold)", ref, "--grep", f"^{TRAILER}:",
-              "--extended-regexp", git_dir=repo)
-    lines = [ln for ln in log.splitlines() if ln.strip()]
-    if not lines:
+    """Source sha from the newest Monorepo-Commit line reachable from ref, or None."""
+    recs = commit_messages(repo, ref, "-1")
+    if not recs:
         return None
-    m = TRAILER_VALUE.match(lines[-1].strip())
-    if not m:
-        raise Refusal(f"mirror head has a malformed {TRAILER} trailer: {lines[-1]!r}")
-    if m["repo"] != repo_slug:
-        raise Refusal(f"mirror was published from {m['repo']}, not {repo_slug}")
-    return m["sha"]
+    found = provenance_in(recs[0][1])
+    if not found:
+        raise Refusal(f"mirror head has a malformed {TRAILER} trailer in {recs[0][0][:12]}")
+    if found[0] != repo_slug:
+        raise Refusal(f"mirror was published from {found[0]}, not {repo_slug}")
+    return found[1]
+
+
+def published(repo, ref):
+    """mirror sha -> (slug, source sha) for every commit on the mirror carrying a valid provenance line."""
+    return {sha: found for sha, msg in commit_messages(repo, ref) if (found := provenance_in(msg))}
 
 
 def mirror_map(repo, ref):
     """source sha -> mirror sha for every published commit already on the mirror."""
-    out = git("log", f"--format=%x1e%H%x1f%(trailers:key={TRAILER},valueonly,unfold)", ref, git_dir=repo)
-    pairs = {}
-    for rec in filter(None, out.split("\x1e")):
-        mirror_sha, _, val = rec.partition("\x1f")
-        m = TRAILER_VALUE.match(val.strip())
-        if m:
-            pairs[m["sha"]] = mirror_sha.strip()
-    return pairs
+    return {found[1]: sha for sha, found in published(repo, ref).items()}
 
 
 def qualified_message(src, sha, repo_slug):
@@ -169,21 +181,20 @@ def plan_tags(work, src, head, sha_map, subdir, tag_prefix, mirror_tags):
 
 def verify_mirror(work, src, mirror_head, repo_slug, subdir):
     """Every published commit: valid source SHA, tree == subtree at that SHA, source order monotonic."""
-    pairs = mirror_map(work, mirror_head)
+    pairs = published(work, mirror_head)
     previous = None
     for sha in git("rev-list", "--reverse", "--first-parent", mirror_head, git_dir=work).split():
-        out = git("log", "-1", f"--format=%(trailers:key={TRAILER},valueonly,unfold)", sha, git_dir=work)
-        m = TRAILER_VALUE.match(out.strip())
-        if not m:
+        if sha not in pairs:
             continue  # pre-cutover history
-        if m["repo"] != repo_slug or git("cat-file", "-t", m["sha"], git_dir=src, check=False).returncode != 0:
-            raise Refusal(f"{sha[:12]}: provenance {out.strip()!r} not resolvable in {repo_slug}")
-        if git("rev-parse", f"{sha}^{{tree}}", git_dir=work) != subtree(src, m["sha"], subdir):
-            raise Refusal(f"{sha[:12]}: tree != subtree at {m['sha'][:12]}")
-        if previous and not is_ancestor(src, previous, m["sha"], first_parent=False):
+        slug, source_sha = pairs[sha]
+        if slug != repo_slug or git("cat-file", "-t", source_sha, git_dir=src, check=False).returncode != 0:
+            raise Refusal(f"{sha[:12]}: provenance {slug}@{source_sha} not resolvable in {repo_slug}")
+        if git("rev-parse", f"{sha}^{{tree}}", git_dir=work) != subtree(src, source_sha, subdir):
+            raise Refusal(f"{sha[:12]}: tree != subtree at {source_sha[:12]}")
+        if previous and not is_ancestor(src, previous, source_sha, first_parent=False):
             raise Refusal(f"{sha[:12]}: source order is not monotonic")
-        previous = m["sha"]
-    return len(pairs)
+        previous = source_sha
+    return len({found[1] for found in pairs.values()})
 
 
 def publish(mirror, repo_slug, source_dir=".", source_ref="HEAD", base=None, branch="main", subdir=SUBDIR,

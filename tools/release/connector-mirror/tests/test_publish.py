@@ -239,3 +239,65 @@ def test_tag_added_after_commit_is_published_on_a_later_noop_run(world):
     g(src, "tag", "-f", f"{publish.TAG_PREFIX}v1.0.0", c2)  # a moved source tag is still caught on a no-op run
     with pytest.raises(publish.Refusal, match="immutable"):
         run(src, mirror, base)
+
+
+SHA_A, SHA_B = "a" * 40, "b" * 40
+
+
+def test_provenance_in_reads_the_raw_message_not_git_trailer_parsing():
+    line = f"Monorepo-Commit: {REPO}@{SHA_A}"
+    assert publish.provenance_in(f"feat: x\n\n{line}\n") == (REPO, SHA_A)
+    # the shape git's trailer parser loses: the trailer sits above a bare `---` line
+    assert publish.provenance_in(f"feat: x\n\nbody\n\n{line}\n---\nmore\n") == (REPO, SHA_A)
+    assert publish.provenance_in(f"feat: x\r\n\r\n{line}\r\n") == (REPO, SHA_A)  # CR-tolerant
+    assert publish.provenance_in(f"feat: x\n\nMonorepo-Commit: {REPO}@{SHA_B}\n\nbody\n{line}  \n") == (REPO, SHA_A)
+    twice = f"feat: x\n\nMonorepo-Commit: {REPO}@{SHA_A}\n\nMonorepo-Commit: {REPO}@{SHA_B}\n"
+    assert publish.provenance_in(twice) == (REPO, SHA_B)  # last match wins
+    for bad in (f"see {line} inline", f"Monorepo-Commit: {REPO}@{SHA_A[:39]}", f"Monorepo-Commit: {REPO}@{'A' * 40}",
+                f"Monorepo-Commit: nodash@{SHA_A}", f" {line}", "feat: x\n"):
+        assert publish.provenance_in(bad) is None
+
+
+def test_separator_line_message_does_not_stall_the_next_run(world):
+    src, mirror, base, _ = world
+    c1 = commit(src, {f"{SUB}/pyproject.toml": "v1"}, "feat: one\n\nbody\n---\nmore text")
+    first = run(src, mirror, base)
+    # write side is unchanged: interpret-trailers puts the trailer ABOVE a bare `---` line...
+    assert g(mirror, "log", "-1", "--format=%B", first.tip).splitlines() == [
+        "feat: one", "", "body", "", f"Monorepo-Commit: {REPO}@{c1}", "---", "more text"]
+    # ...where git's own trailer parser no longer sees it
+    assert g(mirror, "log", "-1", "--format=%(trailers:key=Monorepo-Commit)", first.tip) == ""
+    c2 = commit(src, {f"{SUB}/pyproject.toml": "v2"}, "feat: two")
+    plan = run(src, mirror)  # no --base: provenance must come from the mirror itself
+    assert [s for s, _ in plan.commits] == [c2]
+    assert g(mirror, "rev-parse", "main") == plan.tip and not run(src, mirror).commits
+
+
+def test_mirror_map_and_verify_see_a_separator_line_commit(world, capsys):
+    src, mirror, base, _ = world
+    c1 = commit(src, {f"{SUB}/pyproject.toml": "v1"}, "feat: one\n\nbody\n---\nmore text")
+    tip = run(src, mirror, base).tip
+    assert publish.mirror_map(str(mirror), "main") == {c1: tip}
+    cli = ["--mirror", str(mirror), "--source-repo", REPO, "--source-dir", str(src), "--verify"]
+    capsys.readouterr()
+    assert publish.main(cli) == 0
+    assert "1 published commit(s) verified" in capsys.readouterr().out
+    msg = g(mirror, "log", "-1", "--format=%B", tip)  # a forged tree under the same message must not slip past --verify
+    empty = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+    forged = subprocess.run(["git", "commit-tree", empty, "-p", g(mirror, "rev-parse", "main~1"), "-F", "-"], cwd=mirror,
+                            env=ENV, input=msg, capture_output=True, text=True, check=True).stdout.strip()
+    g(mirror, "update-ref", "refs/heads/main", forged)
+    assert publish.main(cli) == 2
+
+
+def test_message_without_a_separator_line_is_unchanged(world):
+    src, mirror, base, _ = world
+    c1 = commit(src, {f"{SUB}/pyproject.toml": "v1"}, "feat: one (#7)\n\nbody\n\nCo-Authored-By: A <a@example.invalid>")
+    c2 = commit(src, {f"{SUB}/pyproject.toml": "v2"}, "feat: two\n\n---------\n\nsquash separator is not a patch separator")
+    plan = run(src, mirror, base)
+    (_, m1), (_, m2) = plan.commits
+    assert g(mirror, "log", "-1", "--format=%B", m1) == (
+        f"feat: one ({REPO}#7)\n\nbody\n\nCo-Authored-By: A <a@example.invalid>\nMonorepo-Commit: {REPO}@{c1}")
+    assert g(mirror, "log", "-1", "--format=%B", m2).splitlines()[-1] == f"Monorepo-Commit: {REPO}@{c2}"
+    assert g(mirror, "log", "-1", "--format=%(trailers:key=Monorepo-Commit,valueonly)", m2) == f"{REPO}@{c2}"
+    assert not run(src, mirror).commits  # and the next run still anchors on the mirror alone
