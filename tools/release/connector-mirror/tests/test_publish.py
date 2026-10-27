@@ -339,3 +339,22 @@ def test_text_after_a_scissors_line_cannot_override_the_real_trailer(world):
     g(src, "update-ref", "refs/heads/main", c1)
     tip = run(src, mirror, base).tip
     assert publish.published(str(mirror), "main") == {tip: (REPO, c1)}
+
+
+def raw(cwd, *args):
+    return subprocess.run(["git", *args], cwd=cwd, env=ENV, capture_output=True, check=True).stdout
+
+
+def test_git_helper_sends_stdin_without_newline_translation():
+    # Text-mode stdin turns "\n" into "\r\n" on Windows. That changes every commit message and so every mirror SHA
+    # (CI runs on Linux), so the same text must hash to the same blob on every host.
+    assert publish.git("hash-object", "--stdin", stdin="a\n") == "78981922613b2afb6025042ff6bd878ac1994e85"
+
+
+def test_published_commit_message_has_no_carriage_returns(world):
+    src, mirror, base, _ = world
+    commit(src, {f"{SUB}/pyproject.toml": "v1"}, "feat: one (#7)")
+    plan = run(src, mirror, base)
+    obj = raw(mirror, "cat-file", "commit", plan.tip)
+    assert b"\r" not in obj
+    assert obj.endswith(f"Monorepo-Commit: {REPO}@{plan.commits[0][0]}\n".encode())
