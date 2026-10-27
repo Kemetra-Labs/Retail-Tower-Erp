@@ -63,7 +63,7 @@ Five rules, enforced in CI. The long form is [ARCHITECTURE.md](ARCHITECTURE.md).
 | Rule | What it means here |
 | --- | --- |
 | One path | POS and Admin-Console reach ERPNext only through Backend-Core and the Connector. |
-| One contract | `services/backend-core/packages/contracts/openapi` is the contract source. A break [`contracts/check`](tools/contracts-check/README.md) can see fails in the pull request that introduces it. Named gaps, including Connector field types and inline literals, are listed there. |
+| One contract | `services/backend-core/packages/contracts/openapi` is the contract source. A breaking change that [`contracts/check`](tools/contracts-check/README.md) can detect fails in the pull request that introduces it. Named gaps, including Connector field types and inline literals, are listed there. |
 | Declared edges | Cross-product references are limited to the `edges` list in [`tools/project-graph/graph.yaml`](tools/project-graph/graph.yaml). Anything else fails `boundary-check`. |
 | Own releases | Tags are `pos/vX.Y.Z`, `admin-console/vX.Y.Z`, `backend-core/vX.Y.Z`, and `erpnext-connector/vX.Y.Z`. |
 | One landing place | Since RT-715, all code lands in this repository by pull request to `main`. |
