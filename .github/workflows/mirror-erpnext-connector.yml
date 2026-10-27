@@ -43,11 +43,9 @@ name: mirror-erpnext-connector
 
 permissions: {}
 
-# One publisher at a time, queued not cancelled: the publisher walks main's first-parent line, so the
-# newest run catches up everything older runs would have appended.
-concurrency:
-  group: mirror-erpnext-connector
-  cancel-in-progress: false
+# Serialization is scoped to the `publish` job below, not the workflow: GitHub keeps one pending run per
+# concurrency group, so a workflow-level group would let a dry-run dispatch (which never publishes) replace
+# a queued main push.
 
 env:
   MIRROR_URL: https://github.com/Kemetra-Labs/ERPNext-Connector.git
@@ -97,6 +95,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: connector-mirror
+    # One publisher at a time, queued not cancelled. Only publish-capable runs enter this group; if a newer
+    # run replaces an older pending one, nothing is lost: the publisher walks main's first-parent line from
+    # its own SHA, so the newest run appends everything the older one would have.
+    concurrency:
+      group: mirror-erpnext-connector-publish
+      cancel-in-progress: false
     permissions:
       contents: read
     steps:
