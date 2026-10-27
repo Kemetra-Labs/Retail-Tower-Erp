@@ -119,7 +119,7 @@ non-disclosing), `store_inactive`, `voucher_not_found`, `voucher_already_redeeme
   `status=expired` selects them. V-A validate already refuses them with `voucher_expired`.
 - **Cancelling an expired voucher** (owner decision, §8 item 5). Recommendation: allowed, so an admin can
   close out an expired voucher cleanly; the conditional cancel below stays `WHERE status = 'active'` and does
-  not check expiry. If the owner says no, cancel adds `AND (expires_at IS NULL OR expires_at > now())` and a
+  not check expiry. If the owner says no, cancel adds `AND (expires_at IS NULL OR expires_at > clock_timestamp())` and a
   zero-row result on an expired voucher returns `voucher_expired`.
 - `voucher_eligible_stores`: `(tenant_id, voucher_id, store_id)`, primary key over all three, with two
   composite FKs so neither side can cross tenants: `(tenant_id, store_id) REFERENCES stores (tenant_id, id)`
@@ -144,9 +144,11 @@ each transition is one conditional write inside its transaction, never a read-th
   is redeemed, `voucher_not_found` if absent.
 - Redeem (RT-810 slice 4 must follow the same rule): the balance decrement and the `redeemed` transition are
   conditioned on `status = 'active'` under the same row lock (`SELECT ... FOR UPDATE`), so a voucher cancelled
-  first fails redeem with `voucher_cancelled`. Under that lock redeem also re-checks
-  `expires_at IS NULL OR expires_at > now()` and fails with `voucher_expired` otherwise: a redemption-intent
-  token issued by validate just before expiry must not redeem after it. Check order: cancelled first
+  first fails redeem with `voucher_cancelled`. After the lock is acquired, redeem also re-checks
+  `expires_at IS NULL OR expires_at > clock_timestamp()` and fails with `voucher_expired` otherwise: a
+  redemption-intent token issued by validate just before expiry must not redeem after it. Use
+  `clock_timestamp()` (wall clock at the check), not `now()`: `now()` is fixed at transaction start, so a
+  redeem that waited on the row lock past `expires_at` would still pass. Check order: cancelled first
   (`voucher_cancelled`), then expired (`voucher_expired`).
 - Both start from `active`: whichever transaction commits its conditional write first wins; the other sees
   zero rows (or blocks on the row lock, then sees the new status) and gets the refusal above. No voucher ever
@@ -184,6 +186,8 @@ tender integration, POS enablement) follow and stay owned by RT-810's plan.
   it and `status=expired` includes it; cancel follows the §8 item 5 decision.
 - Validate succeeds before `expires_at`, redeem is called after it: redeem fails with `voucher_expired` and
   the balance is unchanged (RT-810 slice 4).
+- Redeem starts before `expires_at` but waits on the voucher row lock (held by another transaction) until
+  after it: once the lock is granted, redeem fails with `voucher_expired` (RT-810 slice 4).
 - Concurrent cancel and redeem started from one `active` voucher: exactly one succeeds, the other gets the
   documented refusal, and the final status is either `cancelled` or `redeemed`, never both (I-3 for cancel,
   RT-810 slice 4 for redeem).
