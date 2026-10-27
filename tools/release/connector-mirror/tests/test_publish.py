@@ -358,3 +358,22 @@ def test_published_commit_message_has_no_carriage_returns(world):
     obj = raw(mirror, "cat-file", "commit", plan.tip)
     assert b"\r" not in obj
     assert obj.endswith(f"Monorepo-Commit: {REPO}@{plan.commits[0][0]}\n".encode())
+
+
+def test_non_utf8_byte_in_a_mirror_message_does_not_abort_the_provenance_read(world, capsys):
+    src, mirror, base, _ = world
+    c1 = commit(src, {f"{SUB}/pyproject.toml": "v1"}, "feat: one")
+    tip = run(src, mirror, base).tip
+    msg = f"s\n\nMonorepo-Commit: {REPO}@{c1}\n".encode() + b"caf\xe9 (latin-1)\n"
+    # commit-tree would re-encode the message to UTF-8, so write the raw commit object
+    who = b"Dev <dev@example.invalid> 1767225600 +0000"
+    raw_commit = (f"tree {g(mirror, 'rev-parse', 'main^{tree}')}\nparent {tip}\n".encode()
+                  + b"author " + who + b"\ncommitter " + who + b"\n\n" + msg)
+    head = subprocess.run(["git", "hash-object", "-t", "commit", "-w", "--stdin", "--literally"], cwd=mirror, env=ENV,
+                          input=raw_commit, capture_output=True, check=True).stdout.decode().strip()
+    g(mirror, "update-ref", "refs/heads/main", head)
+    assert publish.last_provenance(str(mirror), "main", REPO) == c1
+    assert publish.published(str(mirror), "main")[head] == (REPO, c1)
+    capsys.readouterr()
+    cli = ["--mirror", str(mirror), "--source-repo", REPO, "--source-dir", str(src), "--verify"]
+    assert publish.main(cli) == 0

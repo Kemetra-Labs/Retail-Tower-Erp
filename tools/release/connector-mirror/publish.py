@@ -42,7 +42,7 @@ class Plan:
     tip: str
 
 
-def git(*args, git_dir=None, cwd=None, env=None, stdin=None, check=True):
+def git(*args, git_dir=None, cwd=None, env=None, stdin=None, check=True, stdout_errors="strict"):
     cmd = ["git"] + (["--git-dir", git_dir] if git_dir else []) + list(args)
     # stdin goes in as bytes: text-mode stdin turns "\n" into "\r\n" on Windows, which changes every commit message
     # and so every mirror SHA. Output is decoded by hand with the same universal-newline rule text mode applies, so
@@ -50,7 +50,7 @@ def git(*args, git_dir=None, cwd=None, env=None, stdin=None, check=True):
     # bytes there are replaced instead of hiding the real Refusal behind a UnicodeDecodeError.
     proc = subprocess.run(cmd, cwd=cwd, env={**os.environ, **(env or {})},
                           input=None if stdin is None else stdin.encode("utf-8"), capture_output=True)
-    proc.stdout = proc.stdout.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    proc.stdout = proc.stdout.decode("utf-8", errors=stdout_errors).replace("\r\n", "\n").replace("\r", "\n")
     proc.stderr = proc.stderr.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
     if check and proc.returncode != 0:
         raise Refusal(f"git {' '.join(args[:3])} failed: {proc.stderr.strip()}")
@@ -86,7 +86,9 @@ def provenance_in(message):
 def commit_messages(repo, ref, *extra):
     """[(commit sha, raw message)] newest first, for commits having a line that starts with the trailer key."""
     # NUL separates records: git cannot store it in a message, so message text can never forge a record boundary
-    out = git("log", "--format=%x00%H%x1f%B", "--grep", f"^{TRAILER}:", "--extended-regexp", *extra, ref, git_dir=repo)
+    # surrogateescape: a stray non-UTF-8 byte elsewhere in a message must not abort the provenance read
+    out = git("log", "--format=%x00%H%x1f%B", "--grep", f"^{TRAILER}:", "--extended-regexp", *extra, ref, git_dir=repo,
+              stdout_errors="surrogateescape")
     return [(sha, msg) for sha, _, msg in (rec.partition("\x1f") for rec in out.split("\0") if rec.strip())]
 
 
