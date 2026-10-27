@@ -23,13 +23,15 @@
 #             mode it refuses unless the guard passed.
 #   publish   RT-717 B1. Release mode only (a backend-core/vX.Y.Z tag) with a PASS guard verdict,
 #             behind the `release-backend-core` environment (owner reviewer, tag-only deployment
-#             policy). Pushes the three OCI layouts the build job produced, unchanged (skopeo
-#             --preserve-digests, no rebuild), to ghcr.io/kemetra-labs/backend-core-* as
-#             :sha-<SHA>; verifies registry digests and labels; attests build provenance;
-#             assembles the deploy bundle (services/backend-core/deploy/release-bundle.sh);
-#             re-runs the compat guard; creates the GitHub release backend-core/vX.Y.Z with
-#             exactly the three assets deploy-lab.yml consumes. Never overwrites an image tag or
-#             a release, and never deploys.
+#             policy; publish refuses unless the environment is protected that way). Re-runs
+#             the compat guard, then pushes the three OCI layouts the build job produced,
+#             unchanged (skopeo --preserve-digests, no rebuild), to
+#             ghcr.io/kemetra-labs/backend-core-* as :sha-<SHA> (a re-run of failed jobs skips a
+#             tag already holding this run's digest); verifies registry digests and labels;
+#             attests build provenance; assembles the deploy bundle
+#             (services/backend-core/deploy/release-bundle.sh); creates the GitHub release
+#             backend-core/vX.Y.Z with exactly the three assets deploy-lab.yml consumes. Never
+#             overwrites an image tag or a release, and never deploys.
 #   env-probe manual negative probe (input probe_environment): asks for the environment from the
 #             dispatched ref; from anything but a backend-core/v* tag it must never start.
 #
@@ -255,7 +257,8 @@ jobs:
           name: backend-core-images-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
           path: ${{ runner.temp }}/images/
           if-no-files-found: error
-          retention-days: 3
+          # a release run may wait for approval or need a re-run of failed jobs
+          retention-days: ${{ needs.resolve.outputs.mode == 'release' && 14 || 3 }}
 
   # Runs whatever the guard decided, so a refused dry-run still records its verdict.
   manifest:
@@ -319,6 +322,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: release-backend-core
+    # One publish at a time for the product: two tags on one commit share the sha-<SHA> image tags.
+    concurrency:
+      group: release-backend-core-publish
+      cancel-in-progress: false
     permissions:
       contents: write # the GitHub release
       packages: write # GHCR push and attestation push
@@ -329,8 +336,9 @@ jobs:
       SHA: ${{ needs.resolve.outputs.sha }}
       TAG: ${{ needs.resolve.outputs.tag }}
       REGISTRY: ghcr.io/kemetra-labs
-      GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
+    # GH_TOKEN is set per step, only where gh needs it: release-bundle.sh and the compat gate
+    # run without it.
     steps:
       # No `ref:`: checkout uses github.sha, the tagged commit resolve proved is on main.
       # release-bundle.sh re-checks HEAD against the SHA.
@@ -338,6 +346,24 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
+
+      # A job that names a missing environment creates it unprotected. Refuse unless the
+      # environment has a required reviewer and admits only backend-core/v* tags.
+      - name: Refuse unless the release environment is protected
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          ENV_JSON="$(gh api "repos/$REPO/environments/release-backend-core")" || fail "cannot read the release-backend-core environment"
+          jq -e '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length > 0' <<<"$ENV_JSON" >/dev/null \
+            || fail "release-backend-core has no required reviewer"
+          jq -e '.deployment_branch_policy.custom_branch_policies == true' <<<"$ENV_JSON" >/dev/null \
+            || fail "release-backend-core has no custom deployment policy"
+          POLICIES="$(gh api "repos/$REPO/environments/release-backend-core/deployment-branch-policies" \
+            --jq '[.branch_policies[] | {name, type}]')" || fail "cannot read the deployment policies"
+          [ "$(jq -c . <<<"$POLICIES")" = '[{"name":"backend-core/v*","type":"tag"}]' ] \
+            || fail "release-backend-core must admit exactly the tag pattern backend-core/v* (got $POLICIES)"
 
       - name: Check the release inputs
         env:
@@ -352,6 +378,26 @@ jobs:
           for d in "$API" "$WORKER" "$MIGRATE"; do
             [[ "$d" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "bad build digest '$d'"
           done
+          grep -q -- '--release-tag)' services/backend-core/deploy/release-bundle.sh \
+            || fail "release-bundle.sh in $SHA has no --release-tag (RT-908 B2 must be on main first)"
+
+      - name: Setup Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      # Environment approval can wait: the fleet freshness the guard judged is judged again
+      # before anything irreversible.
+      - name: Re-check the compat guard before publishing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUIRED_CHECKS: '["bc/fast","bc/db-integration","bc/db-package","bc/contracts-compat"]'
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
+            --jq '.check_runs[] | {name, conclusion, slug: .app.slug, started_at}' | jq -s . > "$RUNNER_TEMP/check-runs.json"
+          env -u GH_TOKEN node .github/release/compat-gate.cjs --checks "$RUNNER_TEMP/check-runs.json" --required "$REQUIRED_CHECKS" \
+            --source services/backend-core --lib services/backend-core/contracts-compat/lib
 
       - name: Download the images
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -367,29 +413,50 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Refuse if the image tags or the release already exist
+      # A re-run of failed jobs keeps this run's build digests: an image tag that already holds
+      # exactly that digest is this run's own earlier push and is skipped, any other digest is
+      # refused. An existing release (published or draft) is always refused.
+      - name: Refuse to overwrite an image tag or a release
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          API: ${{ needs.build.outputs.api }}
+          WORKER: ${{ needs.build.outputs.worker }}
+          MIGRATE: ${{ needs.build.outputs.migrate }}
         run: |
           set -euo pipefail
+          declare -A DIGESTS=([api]="$API" [worker]="$WORKER" [migrate]="$MIGRATE")
+          push=()
           for TARGET in api worker migrate; do
             IMAGE="$REGISTRY/backend-core-$TARGET:sha-$SHA"
             if OUT="$(docker buildx imagetools inspect "$IMAGE" 2>&1)"; then
-              echo "::error::image $IMAGE already exists; refusing to overwrite"; exit 1
+              HAVE="sha256:$(skopeo inspect --raw "docker://$IMAGE" | sha256sum | cut -d' ' -f1)"
+              [ "$HAVE" = "${DIGESTS[$TARGET]}" ] \
+                || { echo "::error::image $IMAGE already exists with $HAVE, not this build's ${DIGESTS[$TARGET]}; refusing to overwrite"; exit 1; }
+              echo "$TARGET already pushed by this run's build ($HAVE); skipping the push"
+              continue
             fi
-            grep -Eqi "manifest unknown|not found|name unknown" <<<"$OUT" \
+            grep -Eqi "not found|manifest unknown|name unknown" <<<"$OUT" \
               || { echo "::error::could not determine whether $IMAGE exists: $OUT"; exit 1; }
+            push+=("$TARGET")
           done
-          if OUT="$(gh release view "$TAG" --repo "$REPO" 2>&1)"; then
-            echo "::error::release $TAG already exists; refusing to overwrite"; exit 1
+          if OUT="$(gh release view "$TAG" --repo "$REPO" --json isDraft --jq .isDraft 2>&1)"; then
+            echo "::error::release $TAG already exists (draft: $OUT); refusing to overwrite. A draft left by a failed run must be deleted by the owner first."
+            exit 1
           fi
           grep -qi "release not found" <<<"$OUT" \
             || { echo "::error::could not determine whether release $TAG exists: $OUT"; exit 1; }
+          echo "push=${push[*]}" >> "$GITHUB_OUTPUT"
 
       # The exact layouts the build job produced and the manifest job recorded are what is
       # published: no rebuild. --preserve-digests makes skopeo fail rather than re-encode.
       - name: Push the images by digest (no rebuild)
+        env:
+          PUSH: ${{ steps.existing.outputs.push }}
         run: |
           set -euo pipefail
-          for TARGET in api worker migrate; do
+          for TARGET in $PUSH; do
+            case "$TARGET" in api|worker|migrate) ;; *) echo "::error::unexpected target '$TARGET'"; exit 1 ;; esac
             skopeo copy --preserve-digests --retry-times 3 \
               "oci-archive:$RUNNER_TEMP/images/backend-core-$TARGET.oci.tar" \
               "docker://$REGISTRY/backend-core-$TARGET:sha-$SHA"
@@ -449,34 +516,21 @@ jobs:
             --api-digest "$API" --worker-digest "$WORKER" --migrate-digest "$MIGRATE" \
             --out "$RUNNER_TEMP/release-out"
 
-      - name: Setup Node 22
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 22
-
-      # Pushing and attesting take time: the fleet freshness the guard judged is judged again
-      # right before the release that deploy-lab.yml consumes is created.
-      - name: Re-check the compat guard before the release
-        env:
-          REQUIRED_CHECKS: '["bc/fast","bc/db-integration","bc/db-package","bc/contracts-compat"]'
-        run: |
-          set -euo pipefail
-          gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
-            --jq '.check_runs[] | {name, conclusion, slug: .app.slug, started_at}' | jq -s . > "$RUNNER_TEMP/check-runs.json"
-          node .github/release/compat-gate.cjs --checks "$RUNNER_TEMP/check-runs.json" --required "$REQUIRED_CHECKS" \
-            --source services/backend-core --lib services/backend-core/contracts-compat/lib
-
       - name: Create the GitHub release (never overwrites)
         env:
+          GH_TOKEN: ${{ github.token }}
           COMPAT_EVIDENCE: ${{ needs.guard.outputs.evidence }}
         run: |
           set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
           OUT_DIR="$RUNNER_TEMP/release-out"
           BUNDLE="backend-core-release-${SHA:0:12}.tar.gz"
           [ "$(ls "$OUT_DIR" | sort | paste -sd ' ' -)" = "$(printf '%s\n' "$BUNDLE" SHA256SUMS release-manifest.json | sort | paste -sd ' ' -)" ] \
-            || { echo "::error::release-bundle.sh output is not exactly $BUNDLE, release-manifest.json and SHA256SUMS"; exit 1; }
-          [ "$(jq -r .releaseTag "$OUT_DIR/release-manifest.json")" = "$TAG" ] \
-            || { echo "::error::manifest releaseTag is not $TAG"; exit 1; }
+            || fail "release-bundle.sh output is not exactly $BUNDLE, release-manifest.json and SHA256SUMS"
+          [ "$(jq -r .releaseTag "$OUT_DIR/release-manifest.json")" = "$TAG" ] || fail "manifest releaseTag is not $TAG"
+          # --verify-tag only proves the tag exists: it must still point at the SHA this run built.
+          TAG_SHA="$(gh api "repos/$REPO/commits/refs/tags/$TAG" --jq .sha)" || fail "cannot resolve tag $TAG"
+          [ "$TAG_SHA" = "$SHA" ] || fail "tag $TAG now points at $TAG_SHA, not $SHA"
           gh release create "$TAG" \
             --repo "$REPO" \
             --verify-tag \
