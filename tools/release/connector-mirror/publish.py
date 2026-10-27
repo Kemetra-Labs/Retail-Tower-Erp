@@ -120,11 +120,12 @@ def resolve_anchor(work, src, head, mirror_head, repo_slug, base, subdir):
     return git("rev-parse", "--verify", f"{base}^{{commit}}", git_dir=src)
 
 
-def plan_publish(work, src, head, mirror_head, anchor, repo_slug, subdir, tag_prefix, mirror_tags):
+def plan_publish(work, src, head, mirror_head, anchor, repo_slug, subdir, tag_prefix, mirror_tags, tags=True):
     sha_map = {**mirror_map(work, mirror_head), anchor: mirror_head}
+    tag_plan = (lambda: plan_tags(work, src, head, sha_map, subdir, tag_prefix, mirror_tags)) if tags else (lambda: ())
     if anchor == head or is_ancestor(src, head, anchor):
         # source is at or behind the mirror: no commits, but a tag added since still has to be mirrored
-        return Plan((), plan_tags(work, src, head, sha_map, subdir, tag_prefix, mirror_tags), mirror_head)
+        return Plan((), tag_plan(), mirror_head)
     if not is_ancestor(src, anchor, head, first_parent=True):
         raise Refusal(f"mirror provenance {anchor[:12]} is not on the first-parent history of the source head")
     prev_tree, tip, made = subtree(work, anchor, subdir), mirror_head, []
@@ -140,7 +141,7 @@ def plan_publish(work, src, head, mirror_head, anchor, repo_slug, subdir, tag_pr
         prev_tree = tree
     if tip != mirror_head and not is_ancestor(work, mirror_head, tip):
         raise Refusal("mirror head is not an ancestor of the result")
-    return Plan(tuple(made), plan_tags(work, src, head, sha_map, subdir, tag_prefix, mirror_tags), tip)
+    return Plan(tuple(made), tag_plan(), tip)
 
 
 def plan_tags(work, src, head, sha_map, subdir, tag_prefix, mirror_tags):
@@ -186,7 +187,7 @@ def verify_mirror(work, src, mirror_head, repo_slug, subdir):
 
 
 def publish(mirror, repo_slug, source_dir=".", source_ref="HEAD", base=None, branch="main", subdir=SUBDIR,
-            tag_prefix=TAG_PREFIX, dry_run=False, verify_only=False, before_push=None):
+            tag_prefix=TAG_PREFIX, dry_run=False, verify_only=False, before_push=None, tags=True):
     src_top = git("rev-parse", "--show-toplevel", cwd=source_dir)
     src = git("rev-parse", "--absolute-git-dir", cwd=src_top)
     head = git("rev-parse", "--verify", f"{source_ref}^{{commit}}", git_dir=src)
@@ -213,7 +214,7 @@ def publish(mirror, repo_slug, source_dir=".", source_ref="HEAD", base=None, bra
         if verify_only:
             return Plan((), (), mirror_head)
         anchor = resolve_anchor(work, src, head, mirror_head, repo_slug, base, subdir)
-        plan = plan_publish(work, src, head, mirror_head, anchor, repo_slug, subdir, tag_prefix, mirror_tags)
+        plan = plan_publish(work, src, head, mirror_head, anchor, repo_slug, subdir, tag_prefix, mirror_tags, tags)
         for s, m in plan.commits:
             print(f"publish {s[:12]} -> {m[:12]}")
         for t, m in plan.tags:
@@ -243,17 +244,21 @@ class PushRejected(Exception):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--mirror", required=True, help="mirror URL or path (no default: never guess a destination)")
-    p.add_argument("--source-repo", required=True, help="OWNER/REPO named in the trailer, e.g. Kemetra/Retail-Tower")
+    p.add_argument("--source-repo", required=True,
+                   help="OWNER/REPO named in the trailer, e.g. Kemetra-Labs/Retail-Tower-Erp (permanent: a later run "
+                        "with another slug is refused)")
     p.add_argument("--source-dir", default=".")
     p.add_argument("--source-ref", default="HEAD")
     p.add_argument("--base", help="source sha whose subtree is the frozen mirror main (first run only)")
     p.add_argument("--branch", default="main")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--verify", action="store_true", help="only check tree equality of the mirror's published commits")
+    p.add_argument("--no-tags", action="store_true",
+                   help="publish commits only; erpnext-connector/v* tags are left to the gated release workflow")
     a = p.parse_args(argv)
     try:
         publish(a.mirror, a.source_repo, a.source_dir, a.source_ref, a.base, a.branch,
-                dry_run=a.dry_run, verify_only=a.verify)
+                dry_run=a.dry_run, verify_only=a.verify, tags=not a.no_tags)
     except Refusal as err:
         print(f"REFUSED: {err}", file=sys.stderr)
         return 2
