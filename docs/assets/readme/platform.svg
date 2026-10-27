@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 512" width="1200" height="512" role="img" aria-labelledby="title desc">
+  <title id="title">Retail Tower integration path</title>
+  <desc id="desc">POS and Admin-Console call Backend-Core through OpenAPI. Backend-Core sends the posting feed to the ERPNext-Connector, the only adapter that reaches ERPNext.</desc>
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0 H0 V40" fill="none" stroke="#C8A24A" stroke-opacity="0.07" stroke-width="1"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="512" rx="18" fill="#0B0F18"/>
+  <rect width="1200" height="512" rx="18" fill="url(#grid)"/>
+  <circle cx="580" cy="244" r="200" fill="#C8A24A" opacity="0.05"/>
+  <rect x="0.5" y="0.5" width="1199" height="511" rx="18" fill="none" stroke="#C8A24A" stroke-opacity="0.28"/>
+
+  <text x="32" y="42" fill="#C8A24A" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="700" letter-spacing="3.2">INTEGRATION PATH</text>
+  <text x="1168" y="42" text-anchor="end" fill="#8E8878" font-family="Segoe UI, system-ui, sans-serif" font-size="13">One core. Every branch.</text>
+
+  <!-- POS -->
+  <rect x="32" y="64" width="248" height="148" rx="12" fill="#121826" stroke="#C8A24A" stroke-opacity="0.45"/>
+  <text x="52" y="96" fill="#C8A24A" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="700" letter-spacing="1.8">EDGE</text>
+  <text x="52" y="124" fill="#F4F0E6" font-family="Segoe UI, system-ui, sans-serif" font-size="22" font-weight="700">POS</text>
+  <text x="52" y="148" fill="#C9C3B2" font-family="Segoe UI, system-ui, sans-serif" font-size="13">Windows cashier terminal</text>
+  <text x="52" y="174" fill="#22D6F6" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12">apps/pos</text>
+  <text x="52" y="196" fill="#8E8878" font-family="Segoe UI, system-ui, sans-serif" font-size="12">Electron · npm · Node 24</text>
+
+  <!-- Admin-Console -->
+  <rect x="32" y="276" width="248" height="148" rx="12" fill="#121826" stroke="#C8A24A" stroke-opacity="0.45"/>
+  <text x="52" y="308" fill="#C8A24A" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="700" letter-spacing="1.8">EDGE</text>
+  <text x="52" y="336" fill="#F4F0E6" font-family="Segoe UI, system-ui, sans-serif" font-size="22" font-weight="700">Admin-Console</text>
+  <text x="52" y="360" fill="#C9C3B2" font-family="Segoe UI, system-ui, sans-serif" font-size="13">Operator web UI</text>
+  <text x="52" y="386" fill="#22D6F6" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12">apps/admin-console</text>
+  <text x="52" y="408" fill="#8E8878" font-family="Segoe UI, system-ui, sans-serif" font-size="12">Vite · pnpm · Node 22</text>
+
+  <!-- Spine into Backend-Core -->
+  <path d="M280 138 H355 V350 H280" fill="none" stroke="#C8A24A" stroke-width="1.5"/>
+  <path d="M355 244 H418" fill="none" stroke="#C8A24A" stroke-width="1.5"/>
+  <path d="M418 239 L428 244 L418 249" fill="#C8A24A"/>
+  <text x="386" y="230" text-anchor="middle" fill="#C8A24A" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="600">OpenAPI</text>
+
+  <!-- Backend-Core -->
+  <rect x="430" y="124" width="300" height="240" rx="14" fill="#121826" stroke="#C8A24A" stroke-width="1.75"/>
+  <text x="454" y="160" fill="#C8A24A" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="700" letter-spacing="1.8">BOUNDARY</text>
+  <text x="454" y="196" fill="#F4F0E6" font-family="Segoe UI, system-ui, sans-serif" font-size="26" font-weight="700">Backend-Core</text>
+  <text x="454" y="224" fill="#C9C3B2" font-family="Segoe UI, system-ui, sans-serif" font-size="14">Contract, API, workers, database</text>
+  <text x="454" y="254" fill="#22D6F6" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12">services/backend-core</text>
+  <circle cx="460" cy="286" r="2.5" fill="#C8A24A"/>
+  <text x="472" y="290" fill="#E6E0D2" font-family="Segoe UI, system-ui, sans-serif" font-size="13">OpenAPI is the contract source</text>
+  <circle cx="460" cy="310" r="2.5" fill="#C8A24A"/>
+  <text x="472" y="314" fill="#E6E0D2" font-family="Segoe UI, system-ui, sans-serif" font-size="13">Tenant and store scope</text>
+  <circle cx="460" cy="334" r="2.5" fill="#C8A24A"/>
+  <text x="472" y="338" fill="#E6E0D2" font-family="Segoe UI, system-ui, sans-serif" font-size="13">Outbox, workers, audit</text>
+
+  <!-- Feed into the Connector -->
+  <path d="M730 200 H820 V138 H888" fill="none" stroke="#C8A24A" stroke-width="1.5"/>
+  <path d="M888 133 L898 138 L888 143" fill="#C8A24A"/>
+  <text x="774" y="178" text-anchor="middle" fill="#C8A24A" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="600">posting feed</text>
+
+  <!-- Connector -->
+  <rect x="900" y="64" width="268" height="148" rx="12" fill="#121826" stroke="#C8A24A" stroke-opacity="0.45"/>
+  <text x="920" y="96" fill="#C8A24A" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="700" letter-spacing="1.8">ADAPTER</text>
+  <text x="920" y="124" fill="#F4F0E6" font-family="Segoe UI, system-ui, sans-serif" font-size="20" font-weight="700">ERPNext-Connector</text>
+  <text x="920" y="148" fill="#C9C3B2" font-family="Segoe UI, system-ui, sans-serif" font-size="13">The only Frappe adapter</text>
+  <text x="920" y="174" fill="#22D6F6" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11">integrations/erpnext-connector</text>
+  <text x="920" y="196" fill="#8E8878" font-family="Segoe UI, system-ui, sans-serif" font-size="12">Python · uv · Frappe v16</text>
+
+  <!-- Down to ERPNext -->
+  <path d="M1034 216 V264" fill="none" stroke="#C8A24A" stroke-width="1.5"/>
+  <text x="1048" y="246" fill="#C8A24A" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="600">documents</text>
+  <path d="M1029 264 L1034 274 L1039 264" fill="#C8A24A"/>
+
+  <!-- ERPNext, outside the repository -->
+  <rect x="900" y="276" width="268" height="148" rx="12" fill="none" stroke="#8E8878" stroke-dasharray="5 4"/>
+  <text x="920" y="308" fill="#8E8878" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="700" letter-spacing="1.8">OUTSIDE THIS REPO</text>
+  <text x="920" y="340" fill="#F4F0E6" font-family="Segoe UI, system-ui, sans-serif" font-size="22" font-weight="700">ERPNext</text>
+  <text x="920" y="366" fill="#C9C3B2" font-family="Segoe UI, system-ui, sans-serif" font-size="13">Accounting and inventory</text>
+  <text x="920" y="392" fill="#8E8878" font-family="Segoe UI, system-ui, sans-serif" font-size="13">documents on Frappe v16</text>
+
+  <line x1="32" y1="452" x2="1168" y2="452" stroke="#C8A24A" stroke-opacity="0.35"/>
+  <text x="600" y="484" text-anchor="middle" fill="#C9C3B2" font-family="Segoe UI, system-ui, sans-serif" font-size="13">One repository · one contract source · one CI · a version and a release tag per product</text>
+</svg>
