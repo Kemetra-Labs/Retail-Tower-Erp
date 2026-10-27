@@ -239,3 +239,22 @@ def test_tag_added_after_commit_is_published_on_a_later_noop_run(world):
     g(src, "tag", "-f", f"{publish.TAG_PREFIX}v1.0.0", c2)  # a moved source tag is still caught on a no-op run
     with pytest.raises(publish.Refusal, match="immutable"):
         run(src, mirror, base)
+
+
+def raw(cwd, *args):
+    return subprocess.run(["git", *args], cwd=cwd, env=ENV, capture_output=True, check=True).stdout
+
+
+def test_git_helper_sends_stdin_without_newline_translation():
+    # Text-mode stdin turns "\n" into "\r\n" on Windows. That changes every commit message and so every mirror SHA
+    # (CI runs on Linux), so the same text must hash to the same blob on every host.
+    assert publish.git("hash-object", "--stdin", stdin="a\n") == "78981922613b2afb6025042ff6bd878ac1994e85"
+
+
+def test_published_commit_message_has_no_carriage_returns(world):
+    src, mirror, base, _ = world
+    commit(src, {f"{SUB}/pyproject.toml": "v1"}, "feat: one (#7)")
+    plan = run(src, mirror, base)
+    obj = raw(mirror, "cat-file", "commit", plan.tip)
+    assert b"\r" not in obj
+    assert obj.endswith(f"Monorepo-Commit: {REPO}@{plan.commits[0][0]}\n".encode())

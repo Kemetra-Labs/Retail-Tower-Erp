@@ -39,8 +39,14 @@ class Plan:
 
 def git(*args, git_dir=None, cwd=None, env=None, stdin=None, check=True):
     cmd = ["git"] + (["--git-dir", git_dir] if git_dir else []) + list(args)
-    proc = subprocess.run(cmd, cwd=cwd, env={**os.environ, **(env or {})}, input=stdin,
-                          capture_output=True, text=True, encoding="utf-8")
+    # stdin goes in as bytes: text-mode stdin turns "\n" into "\r\n" on Windows, which changes every commit message
+    # and so every mirror SHA. Output is decoded by hand with the same universal-newline rule text mode applies, so
+    # every host reads git's output exactly as the Linux CI does. stderr only feeds error messages, so undecodable
+    # bytes there are replaced instead of hiding the real Refusal behind a UnicodeDecodeError.
+    proc = subprocess.run(cmd, cwd=cwd, env={**os.environ, **(env or {})},
+                          input=None if stdin is None else stdin.encode("utf-8"), capture_output=True)
+    proc.stdout = proc.stdout.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    proc.stderr = proc.stderr.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
     if check and proc.returncode != 0:
         raise Refusal(f"git {' '.join(args[:3])} failed: {proc.stderr.strip()}")
     return proc.stdout.strip() if check else proc
