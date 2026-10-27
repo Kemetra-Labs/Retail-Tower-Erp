@@ -24,9 +24,10 @@
 #     on Kemetra-Labs/ERPNext-Connector (selected repositories; that it is the ONLY one is an owner check,
 #     the "installed on the mirror only" rule of RT-717 R5, the release-authority hardening). It replaces the `kemetra-mirror-publisher` / 5373207 App named in RT-712 c12868, which was
 #     never installed.
-#   - environment `connector-mirror`: deployment branch `main` only; variables MIRROR_APP_ID and
-#     MIRROR_PUBLISH_ENABLED=true; secret MIRROR_APP_PRIVATE_KEY. No required reviewer and admin bypass is
-#     on: tighten both when a second maintainer joins.
+#   - environment `connector-mirror`: deployment branch `main` only; required reviewer `Kemetra` (self-review
+#     allowed, so every publish waits for the owner's approval); variables MIRROR_APP_ID and
+#     MIRROR_PUBLISH_ENABLED=true; secret MIRROR_APP_PRIVATE_KEY. Admin bypass stays on by owner decision
+#     (2026-10-27): turn it off when a second maintainer joins.
 #   - the App is the only bypass actor of the mirror's `protect-main` and `rt-715-cutover-freeze-main`
 #     rulesets, or the push is rejected (exit 4, no force). It is not on the tag freeze: tags are not mirrored.
 name: mirror-erpnext-connector

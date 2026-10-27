@@ -55,12 +55,13 @@ python tools/release/connector-mirror/publish.py --mirror <url-or-path> --source
 - **`publish`** runs behind the `connector-mirror` environment and is **fail-closed**: it pushes only when the
   environment variable `MIRROR_PUBLISH_ENABLED` is `true`. It mints a token for `Kemetra-Labs/ERPNext-Connector`
   only (`contents: write`) from the `connector-mirror-publisher` App (ID `5494090`) and gives git an
-  `http.extraheader` instead of a token in the URL. Runs are serialized (one publisher at a time); an exit-4 push
-  rejection is retried once.
+  `http.extraheader` instead of a token in the URL. The environment's required reviewer must approve each run
+  before it starts. Runs are serialized (one publisher at a time); an exit-4 push rejection is retried once.
 - The baseline `--base 2d78ca87…` is the monorepo commit whose Connector subtree equals the frozen mirror head
   `c4038ef`. It is read only until the mirror holds its first `Monorepo-Commit` trailer.
 - Owner setup (done 2026-10-27, owner-attested and read back in RT-712 c14147; not done by the workflow): the App is installed on the mirror (selected repositories);
-  the environment `connector-mirror` exists (branch `main` only, no required reviewer, admin bypass on) with
+  the environment `connector-mirror` exists (branch `main` only, required reviewer `Kemetra` with self-review
+  allowed, admin bypass on by owner decision until a second maintainer joins) with
   `MIRROR_APP_ID`, `MIRROR_PUBLISH_ENABLED=true` and the `MIRROR_APP_PRIVATE_KEY` secret; the App is the only bypass
   actor of the mirror's `protect-main` and `rt-715-cutover-freeze-main` rulesets (not of the tag freeze).
 - First publication: 2026-10-27, 11 commits appended (mirror head `c4038ef` to `8e2663e`), published from CI only.
