@@ -100,7 +100,10 @@ jobs:
         run: |
           src="$RUNNER_TEMP/app-src/$APP"
           mkdir -p "$src"
-          git archive HEAD:integrations/erpnext-connector | tar -x -C "$src"
+          # RT-877: this job's default working directory is integrations/erpnext-connector, and
+          # `git archive` run from a subdirectory limits the archive to that path inside the tree,
+          # which is empty here. Run it from the workspace root.
+          git -C "$GITHUB_WORKSPACE" archive HEAD:integrations/erpnext-connector | tar -x -C "$src"
           git -C "$src" init -q -b main
           git -C "$src" add -A
           git -C "$src" -c user.name=ci -c user.email=ci@invalid commit -q -m "connector at $GITHUB_SHA"
