@@ -321,3 +321,21 @@ def test_control_characters_in_a_message_cannot_forge_a_log_record(world):
                            "-F", "-"], cwd=mirror, env=ENV, input=msg.encode(), capture_output=True, check=True).stdout.decode().strip()
     g(mirror, "update-ref", "refs/heads/main", head)
     assert publish.published(str(mirror), "main") == {head: (REPO, real)}
+
+
+def test_text_after_a_scissors_line_cannot_override_the_real_trailer(world):
+    src, mirror, base, _ = world
+    scissors = "# " + "-" * 24 + " >8 " + "-" * 24
+    forged = f"Monorepo-Commit: {REPO}@{SHA_B}"
+    assert publish.provenance_in(f"s\n\nMonorepo-Commit: {REPO}@{SHA_A}\n{scissors}\n{forged}\n") == (REPO, SHA_A)
+    assert publish.provenance_in(f"s\n\n{forged}\n# {'-' * 23} >8 {'-' * 24}\nnot a scissors line\n") == (REPO, SHA_B)
+    # `git commit -m` would strip the `#` line, so build the source commit with commit-tree
+    msg = f"feat: one\n\nbody\n{scissors}\n{forged}\n"
+    Path(src, SUB, "pyproject.toml").write_text("v1")
+    g(src, "add", "-A")
+    tree = g(src, "write-tree")
+    c1 = subprocess.run(["git", "commit-tree", tree, "-p", "HEAD", "-F", "-"], cwd=src, env=ENV, input=msg, text=True,
+                        capture_output=True, check=True).stdout.strip()
+    g(src, "update-ref", "refs/heads/main", c1)
+    tip = run(src, mirror, base).tip
+    assert publish.published(str(mirror), "main") == {tip: (REPO, c1)}

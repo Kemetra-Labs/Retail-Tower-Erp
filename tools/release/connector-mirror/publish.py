@@ -24,8 +24,9 @@ PUBLISHER = ("Kemetra mirror publisher", "mirror-publisher@kemetra.invalid")
 SEMVER_TAG = re.compile(r"^v\d+\.\d+\.\d+$")
 # Provenance is read from the raw message, never via git's trailer parser: `git interpret-trailers` (the write
 # side) puts the trailer above a bare `---` line, where `%(trailers)` no longer sees it.
-# git's patch-start rule (`---` then whitespace or EOL): interpret-trailers inserts the trailer above the FIRST such line
-PATCH_START = re.compile(r"^---(?:[ \t\r]|$)", re.MULTILINE)
+# Where git's message ends for interpret-trailers: the first patch-start line (`---` then whitespace or EOL) or scissors
+# line (`# ` + 24 dashes + ` >8 ` + 24 dashes). The trailer is inserted above whichever comes first.
+PATCH_START = re.compile(r"^(?:---(?:[ \t\r]|$)|# -{24} >8 -{24}\r?$)", re.MULTILINE)
 PROVENANCE_LINE = re.compile(rf"^{TRAILER}: (?P<repo>[\w.-]+/[\w.-]+)@(?P<sha>[0-9a-f]{{40}})[ \t]*\r?$", re.MULTILINE)
 BARE_REF = re.compile(r"(?<![\w/&#])#(\d+)\b")
 
@@ -66,7 +67,7 @@ def subtree(repo, sha, subdir):
 def provenance_in(message):
     """(slug, source_sha) from the LAST `Monorepo-Commit: <slug>@<sha>` line of a raw commit message, or None.
 
-    Text after a patch-start line is ignored: the publisher's own trailer is always above it, so a look-alike line
+    Text after a patch-start or scissors line is ignored: the publisher's own trailer is always above it, so a look-alike line
     in the source message's tail cannot override the real one.
     """
     cut = PATCH_START.search(message)
