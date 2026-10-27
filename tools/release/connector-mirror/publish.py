@@ -24,6 +24,8 @@ PUBLISHER = ("Kemetra mirror publisher", "mirror-publisher@kemetra.invalid")
 SEMVER_TAG = re.compile(r"^v\d+\.\d+\.\d+$")
 # Provenance is read from the raw message, never via git's trailer parser: `git interpret-trailers` (the write
 # side) puts the trailer above a bare `---` line, where `%(trailers)` no longer sees it.
+# git's patch-start rule (`---` then whitespace or EOL): interpret-trailers inserts the trailer above the FIRST such line
+PATCH_START = re.compile(r"^---(?:[ \t\r]|$)", re.MULTILINE)
 PROVENANCE_LINE = re.compile(rf"^{TRAILER}: (?P<repo>[\w.-]+/[\w.-]+)@(?P<sha>[0-9a-f]{{40}})[ \t]*\r?$", re.MULTILINE)
 BARE_REF = re.compile(r"(?<![\w/&#])#(\d+)\b")
 
@@ -62,17 +64,23 @@ def subtree(repo, sha, subdir):
 
 
 def provenance_in(message):
-    """(slug, source_sha) from the LAST `Monorepo-Commit: <slug>@<sha>` line of a raw commit message, or None."""
+    """(slug, source_sha) from the LAST `Monorepo-Commit: <slug>@<sha>` line of a raw commit message, or None.
+
+    Text after a patch-start line is ignored: the publisher's own trailer is always above it, so a look-alike line
+    in the source message's tail cannot override the real one.
+    """
+    cut = PATCH_START.search(message)
     found = None
-    for m in PROVENANCE_LINE.finditer(message):
+    for m in PROVENANCE_LINE.finditer(message[:cut.start()] if cut else message):
         found = (m["repo"], m["sha"])
     return found
 
 
 def commit_messages(repo, ref, *extra):
     """[(commit sha, raw message)] newest first, for commits having a line that starts with the trailer key."""
-    out = git("log", "--format=%x1e%H%x1f%B", "--grep", f"^{TRAILER}:", "--extended-regexp", *extra, ref, git_dir=repo)
-    return [tuple(rec.split("\x1f", 1)) for rec in out.split("\x1e") if rec.strip()]
+    # NUL separates records: git cannot store it in a message, so message text can never forge a record boundary
+    out = git("log", "--format=%x00%H%x1f%B", "--grep", f"^{TRAILER}:", "--extended-regexp", *extra, ref, git_dir=repo)
+    return [(sha, msg) for sha, _, msg in (rec.partition("\x1f") for rec in out.split("\0") if rec.strip())]
 
 
 def last_provenance(repo, ref, repo_slug):
@@ -82,7 +90,8 @@ def last_provenance(repo, ref, repo_slug):
         return None
     found = provenance_in(recs[0][1])
     if not found:
-        raise Refusal(f"mirror head has a malformed {TRAILER} trailer in {recs[0][0][:12]}")
+        lines = [ln for ln in recs[0][1].splitlines() if ln.startswith(f"{TRAILER}:")]
+        raise Refusal(f"mirror head {recs[0][0][:12]} has a malformed {TRAILER} trailer: {lines[-1]!r}")
     if found[0] != repo_slug:
         raise Refusal(f"mirror was published from {found[0]}, not {repo_slug}")
     return found[1]

@@ -301,3 +301,23 @@ def test_message_without_a_separator_line_is_unchanged(world):
     assert g(mirror, "log", "-1", "--format=%B", m2).splitlines()[-1] == f"Monorepo-Commit: {REPO}@{c2}"
     assert g(mirror, "log", "-1", "--format=%(trailers:key=Monorepo-Commit,valueonly)", m2) == f"{REPO}@{c2}"
     assert not run(src, mirror).commits  # and the next run still anchors on the mirror alone
+
+
+def test_text_after_a_separator_line_cannot_override_the_real_trailer(world):
+    src, mirror, base, _ = world
+    forged = f"Monorepo-Commit: {REPO}@{SHA_B}"
+    assert publish.provenance_in(f"s\n\nMonorepo-Commit: {REPO}@{SHA_A}\n---\n{forged}\n") == (REPO, SHA_A)
+    assert publish.provenance_in(f"s\n\n{forged}\n---------\nsquash text is not a separator\n") == (REPO, SHA_B)
+    c1 = commit(src, {f"{SUB}/pyproject.toml": "v1"}, f"feat: one\n\nbody\n---\n{forged}")
+    tip = run(src, mirror, base).tip
+    assert publish.published(str(mirror), "main") == {tip: (REPO, c1)}
+
+
+def test_control_characters_in_a_message_cannot_forge_a_log_record(world):
+    _, mirror, _, _ = world
+    real, fake = "e" * 40, "d" * 40
+    msg = f"s\n\nMonorepo-Commit: {REPO}@{real}\n\x1e{'f' * 40}\x1fMonorepo-Commit: {REPO}@{fake}\n\x1e stray\n"
+    head = subprocess.run(["git", "commit-tree", "4b825dc642cb6eb9a060e54bf8d69288fbee4904", "-p", g(mirror, "rev-parse", "main"),
+                           "-F", "-"], cwd=mirror, env=ENV, input=msg.encode(), capture_output=True, check=True).stdout.decode().strip()
+    g(mirror, "update-ref", "refs/heads/main", head)
+    assert publish.published(str(mirror), "main") == {head: (REPO, real)}
