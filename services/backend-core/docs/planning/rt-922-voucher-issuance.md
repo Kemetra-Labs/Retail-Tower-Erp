@@ -112,6 +112,15 @@ non-disclosing), `store_inactive`, `voucher_not_found`, `voucher_already_redeeme
   (`active | redeemed | cancelled`), `expires_at` (expiry is derived at read time, not a stored status),
   `applies_to_all_stores`, `issued_by_user_id`, `cancelled_by_user_id`, `cancelled_at`, timestamps,
   `note`.
+- **Expiry on the read side.** Expiry is never written back, so a voucher can be stored `active` with
+  `expires_at` in the past. Every read derives one effective status: `expired` when the stored status is
+  `active` and `expires_at <= now()`, otherwise the stored status. List and detail return that effective
+  status plus `expires_at`. The list filter uses the same rule: `status=active` excludes expired vouchers,
+  `status=expired` selects them. V-A validate already refuses them with `voucher_expired`.
+- **Cancelling an expired voucher** (owner decision, §8 item 5). Recommendation: allowed, so an admin can
+  close out an expired voucher cleanly; the conditional cancel below stays `WHERE status = 'active'` and does
+  not check expiry. If the owner says no, cancel adds `AND (expires_at IS NULL OR expires_at > now())` and a
+  zero-row result on an expired voucher returns `voucher_expired`.
 - `voucher_eligible_stores`: `(tenant_id, voucher_id, store_id)`, primary key over all three, with two
   composite FKs so neither side can cross tenants: `(tenant_id, store_id) REFERENCES stores (tenant_id, id)`
   and `(tenant_id, voucher_id) REFERENCES vouchers (tenant_id, id)`. `vouchers` therefore carries
@@ -168,6 +177,8 @@ tender integration, POS enablement) follow and stay owned by RT-810's plan.
 - Codes are unique per tenant across a 500-voucher batch; hashes collide with no existing code.
 - Same Idempotency-Key retry of issue: 409, and no second batch is created.
 - Cancel twice: second call `already_cancelled: true`; cancel after redeem refused.
+- Expired but stored `active`: detail and list show effective status `expired`; `status=active` excludes
+  it and `status=expired` includes it; cancel follows the §8 item 5 decision.
 - Concurrent cancel and redeem started from one `active` voucher: exactly one succeeds, the other gets the
   documented refusal, and the final status is either `cancelled` or `redeemed`, never both (I-3 for cancel,
   RT-810 slice 4 for redeem).
@@ -184,7 +195,9 @@ tender integration, POS enablement) follow and stay owned by RT-810's plan.
 2. Whether `store_manager` may read vouchers for their stores (§4 item 3).
 3. Batch size limit: 500 proposed.
 4. Accounting representation in ERPNext, for the Connector / Fiscal owner (§4 item 4).
+5. Whether an expired voucher can be cancelled: allowed (recommended) or refused with `voucher_expired`
+   (§5.4).
 
 ## 9. One next safe action
 
-Owner answers §8 items 1-3, then authorizes I-1 (the contract-only OpenAPI PR).
+Owner answers §8 items 1-3 and 5, then authorizes I-1 (the contract-only OpenAPI PR).
