@@ -153,6 +153,11 @@ each transition is one conditional write inside its transaction, never a read-th
   clock at evaluation), not `now()`: `now()` is fixed at transaction start, so a redeem that waited on the
   row lock past `expires_at` would still pass. Zero rows updated: re-read and answer `voucher_cancelled` if
   cancelled, else `voucher_expired` if expired (cancelled first, then expired).
+  **Contract gap:** today's closed `posRedeemVoucher` error set in V-A (`vouchers.yaml`) has neither
+  `voucher_cancelled` nor `voucher_expired` (they exist only on `posValidateVoucher`), so the redeem runtime
+  cannot return them as V-A stands. Adding both to the redeem error set is a `[GATED]` OpenAPI change, with
+  the POS client regenerated and its refusal mapping and tests updated. It belongs to RT-810 slice 4 (or its
+  contract step) and must land before that runtime ships; this plan does not edit `vouchers.yaml`.
 - Both start from `active`: whichever transaction commits its conditional write first wins; the other sees
   zero rows (or blocks on the row lock, then sees the new status) and gets the refusal above. No voucher ever
   ends both cancelled and redeemed.
@@ -174,7 +179,9 @@ each transition is one conditional write inside its transaction, never a read-th
 | I-4 | Admin-Console vouchers page (issue, show once, CSV, list, detail, cancel), following `src/payers/`. | Implementation | after I-3 |
 
 Order: I-1, then I-2, then I-3, then I-4. RT-810 slices 2-6 (auth alignment, redeem tables, redeem runtime,
-tender integration, POS enablement) follow and stay owned by RT-810's plan.
+tender integration, POS enablement) follow and stay owned by RT-810's plan. RT-810 slice 4 additionally
+carries the `[GATED]` V-A amendment above (`voucher_cancelled` and `voucher_expired` on `posRedeemVoucher`,
+POS client regenerated).
 
 ## 7. Test cases the implementation issues must carry
 
