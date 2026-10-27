@@ -5,6 +5,8 @@
  * credentials or host access. The nested product workflow that ran it was
  * retired in RT-878; RT-908 restored it at the monorepo root
  * (.github/workflows/deploy-lab.yml), covered by deploy-lab-workflow.spec.ts.
+ * RT-908 Phase B: the target is a backend-core/vX.Y.Z monorepo release; the
+ * current release may still be a legacy backend-core-<sha12> one.
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -49,8 +51,10 @@ type Ledger = {
   refusals: string[];
 };
 type Helper = {
+  IMAGE_PREFIX: string;
   REQUIRED_CHECKS: string[];
   SIGNER_WORKFLOW: string;
+  signerUri: (tag: string) => string;
   evaluate: (dir: string, ctx: Ctx) => { refusals: string[]; ledger: Ledger };
   assessRollback: (added: string[], removed: string[]) => { allowed: boolean; reason: string };
   checkTransport: (identity: Ctx["transport"]) => string[];
@@ -67,15 +71,17 @@ const nodeFs = require("node:fs") as typeof import("node:fs");
 
 const SHA = "1711813df1f36d7ed60db1096f9a23c2be1e81c3";
 const OLD_SHA = "ff9e68331415c29aa21ba3ece6af3e2f62b22646";
-const TAG = `backend-core-${SHA.slice(0, 12)}`;
+const TAG = "backend-core/v0.1.0";
+// lab-01 runs a legacy release of the frozen Kemetra/Backend-Core before the first monorepo one.
 const OLD_TAG = `backend-core-${OLD_SHA.slice(0, 12)}`;
+const OLD_MONOREPO_TAG = "backend-core/v0.0.9";
 const BUNDLE = `backend-core-release-${SHA.slice(0, 12)}`;
 const DIGESTS: Record<string, string> = {
   api: `sha256:${"a".repeat(64)}`,
   worker: `sha256:${"b".repeat(64)}`,
   migrate: `sha256:${"c".repeat(64)}`,
 };
-const ref = (target: string): string => `ghcr.io/kemetra/backend-core-${target}@${DIGESTS[target] ?? ""}`;
+const ref = (target: string): string => `ghcr.io/kemetra-labs/backend-core-${target}@${DIGESTS[target] ?? ""}`;
 const hash = (text: string | Buffer): string => createHash("sha256").update(text).digest("hex");
 const ctx = (over: Partial<Ctx> = {}): Ctx => ({ release: TAG, jiraKey: "RT-703", target: "lab-01", mode: "dry-run", ...over });
 
@@ -119,8 +125,8 @@ function attestation(target: string, over: Record<string, string> = {}): unknown
         signature: {
           certificate: {
             sourceRepositoryDigest: SHA,
-            sourceRepositoryRef: "refs/heads/main",
-            buildSignerURI: helper.SIGNER_WORKFLOW,
+            sourceRepositoryRef: `refs/tags/${TAG}`,
+            buildSignerURI: helper.signerUri(TAG),
             ...over,
           },
         },
@@ -139,10 +145,10 @@ function bundleFiles(): Record<string, string> {
 }
 
 function manifest(files: Record<string, string>): Record<string, unknown> {
-  const image = (t: string) => ({ repository: `ghcr.io/kemetra/backend-core-${t}`, tag: `sha-${SHA}`, digest: DIGESTS[t], ref: ref(t) });
+  const image = (t: string) => ({ repository: `ghcr.io/kemetra-labs/backend-core-${t}`, tag: `sha-${SHA}`, digest: DIGESTS[t], ref: ref(t) });
   return {
     schemaVersion: 1,
-    repository: "Kemetra/Backend-Core",
+    repository: "Kemetra-Labs/Retail-Tower-Erp",
     sha: SHA,
     releaseTag: TAG,
     published: true,
@@ -224,8 +230,8 @@ function writeCompatSource(): void {
   writeFixture(BUILD_A, "contract-derived");
 }
 
-function writeCurrent(migrations: string[], blobs: Record<string, string> = {}): void {
-  putJson("current-release.json", { tagName: OLD_TAG, targetCommitish: OLD_SHA, isDraft: false, isPrerelease: false, isImmutable: true });
+function writeCurrent(migrations: string[], blobs: Record<string, string> = {}, tag = OLD_TAG): void {
+  putJson("current-release.json", { tagName: tag, targetCommitish: OLD_SHA, isDraft: false, isPrerelease: false, isImmutable: true });
   put("current-tag-commit.txt", `${OLD_SHA}\n`);
   putJson("compare-current.json", { status: "ahead", ahead_by: 9, behind_by: 0, merge_base: OLD_SHA });
   put("migrations-current.txt", lsTree(migrations, blobs));
@@ -296,16 +302,21 @@ describe("verify-release: a good release", () => {
 describe("verify-release: refusals", () => {
   it.each([
     [{ release: "backend-core-latest" }, /backend_release must be/],
+    // RT-908 Phase B: a legacy backend-core-<sha12> release is never a target, only a current release.
+    [{ release: OLD_TAG }, /backend_release must be backend-core\/vX\.Y\.Z/],
+    [{ release: "backend-core/v1.2" }, /backend_release must be/],
     [{ jiraKey: "703" }, /jira_key must be/],
     [{ target: "lab-02" }, /target must be one of/],
     [{ currentRelease: "main" }, /current_release must be/],
+    [{ currentRelease: "backend-core/v1.2.3/x" }, /current_release must be/],
     [{ mode: "apply" }, /mode must be/],
   ])("refuses bad input %o", (over, pattern) => expectRefused(pattern, ctx(over as Partial<Ctx>)));
 
   it.each([
     [{ isImmutable: false }, /not an immutable release/],
     [{ isDraft: true }, /draft or prerelease/],
-    [{ targetCommitish: OLD_SHA }, /tag does not match its commit/],
+    // a backend-core/vX.Y.Z tag does not name its commit: the git tag binds it
+    [{ targetCommitish: OLD_SHA }, /release git tag does not point at ff9e68331415/],
     [{ targetCommitish: "main" }, /not a 40-hex commit SHA/],
   ])("refuses release metadata %o", (over, pattern) => {
     putJson("release.json", { tagName: TAG, targetCommitish: SHA, isDraft: false, isPrerelease: false, isImmutable: true, ...over });
@@ -328,6 +339,12 @@ describe("verify-release: refusals", () => {
     expectRefused(/CI check-run evidence missing/);
   });
 
+  it("requires exactly the backend-core.yml root checks the release guard requires (RT-908)", () => {
+    expect(helper.REQUIRED_CHECKS).toEqual(["bc/fast", "bc/db-integration", "bc/db-package", "bc/contracts-compat"]);
+    const guard = readFileSync(resolve(repoRoot, "..", "..", ".github/workflows/release-backend-core.yml"), "utf8");
+    expect(guard).toContain(`REQUIRED_CHECKS: '${JSON.stringify(helper.REQUIRED_CHECKS)}'`);
+  });
+
   it("refuses a missing or failed required check, judging only the latest github-actions run", () => {
     const [fast, db] = helper.REQUIRED_CHECKS;
     putJson("check-runs.json", [
@@ -336,80 +353,19 @@ describe("verify-release: refusals", () => {
       { name: db, conclusion: "success", slug: "some-other-app", started_at: "2026-10-18T10:00:00Z" },
     ]);
     expect(refusalsOf()).toContain(`required check '${fast ?? ""}' is 'failure' on the release SHA`);
-    expectRefused(/db-integration .* is 'missing'/);
+    expectRefused(/'bc\/db-integration' is 'missing'/);
     // RT-816: the packages/db + worker DB suites are their own required check.
-    expectRefused(/db-package .* is 'missing'/);
+    expectRefused(/'bc\/db-package' is 'missing'/);
   });
 
-  // RT-816: db-package exists only from the commit that split it out of
-  // db-integration. Before that, db-integration itself ran the packages/db and
-  // worker DB suites, so a release is judged by its own ci.yml (equal strength).
-  describe("db-package follows the release commit's own ci.yml", () => {
-    const [fast, db, dbPackage, compat] = helper.REQUIRED_CHECKS;
-    const green = (names: (string | undefined)[]): unknown[] =>
-      names.map((name) => ({ name, conclusion: "success", slug: "github-actions", started_at: "2026-10-18T10:00:00Z" }));
-    const SPLIT_CI = "jobs:\n  db-integration:\n    name: x\n  db-package:\n    name: y\n";
-    const PRE_SPLIT_CI = "# db-package is not a job here\njobs:\n  db-integration:\n    name: x\n";
-
-    it("requires db-package when the release's ci.yml defines the job", () => {
-      put("source/.github/workflows/ci.yml", SPLIT_CI);
-      putJson("check-runs.json", green([fast, db, compat]));
-      expectRefused(/db-package .* is 'missing'/);
-    });
-
-    it("requires db-package from a CRLF copy of a post-split ci.yml", () => {
-      put("source/.github/workflows/ci.yml", SPLIT_CI.replace(/\n/g, "\r\n"));
-      putJson("check-runs.json", green([fast, db, compat]));
-      expectRefused(/db-package .* is 'missing'/);
-    });
-
-    it.each([
-      ["a trailing comment", "jobs:\n  db-package: # RT-816\n    name: y\n"],
-      ["a quoted key", 'jobs:\n  "db-package":\n    name: y\n'],
-      ["an anchor", "jobs:\n  db-package: &dbp\n    name: y\n"],
-      ["4-space indentation", "jobs:\n    db-package:\n        name: y\n"],
-    ])("requires db-package when the job key carries %s", (_label, ciYml) => {
-      put("source/.github/workflows/ci.yml", ciYml);
-      putJson("check-runs.json", green([fast, db, compat]));
-      expectRefused(/db-package .* is 'missing'/);
-    });
-
-    it("requires db-package whenever the SHA has a db-package run, whatever ci.yml says", () => {
-      put("source/.github/workflows/ci.yml", PRE_SPLIT_CI);
-      putJson("check-runs.json", [
-        ...(green([fast, db, compat]) as object[]),
-        { name: dbPackage, conclusion: "failure", slug: "github-actions", started_at: "2026-10-18T10:00:00Z" },
-      ]);
-      expectRefused(/db-package .* is 'failure'/);
-    });
-
-    it("fails closed when .github in the release source is not a real directory", () => {
-      rmSync(join(dir, "source/.github"), { recursive: true, force: true });
-      put("decoy/workflows/ci.yml", PRE_SPLIT_CI);
-      symlinkSync(join(dir, "decoy"), join(dir, "source/.github"));
-      putJson("check-runs.json", green([fast, db, compat]));
-      expectRefused(/db-package .* is 'missing'/);
-    });
-
-    it("does not require db-package for a release whose ci.yml predates it", () => {
-      put("source/.github/workflows/ci.yml", PRE_SPLIT_CI);
-      putJson("check-runs.json", green([fast, db, compat]));
-      expect(refusalsOf()).toEqual([]);
-    });
-
-    it("still requires db-integration for a pre-split release", () => {
-      put("source/.github/workflows/ci.yml", PRE_SPLIT_CI);
-      putJson("check-runs.json", green([fast, compat]));
-      expectRefused(/db-integration .* is 'missing'/);
-    });
-
-    it("fails closed: an unreadable ci.yml requires all three checks", () => {
-      rmSync(join(dir, "source/.github"), { recursive: true, force: true });
-      putJson("check-runs.json", green([fast, db, compat]));
-      expectRefused(/db-package .* is 'missing'/);
-      putJson("check-runs.json", green([fast, db, dbPackage, compat]));
-      expect(refusalsOf()).toEqual([]);
-    });
+  it("refuses the frozen repository's check names: a monorepo release runs the bc/* jobs", () => {
+    putJson(
+      "check-runs.json",
+      ["fast (build + Docker-free tests)", "db-integration (Testcontainers + RLS + migrations)", "db-package (packages/db migrations + worker DB suites)", "contracts-compat (POS supported snapshots)"].map(
+        (name) => ({ name, conclusion: "success", slug: "github-actions", started_at: "2026-10-18T10:00:00Z" }),
+      ),
+    );
+    for (const name of helper.REQUIRED_CHECKS) expect(refusalsOf()).toContain(`required check '${name}' is 'missing' on the release SHA`);
   });
 
   it("refuses a missing, tampered or padded release SHA256SUMS", () => {
@@ -494,12 +450,33 @@ describe("verify-release: refusals", () => {
   it.each([
     ["no verified attestation", null, /no verified attestation for the worker image/],
     ["another source commit", { sourceRepositoryDigest: OLD_SHA }, /worker attestation does not bind/],
-    ["another ref", { sourceRepositoryRef: "refs/heads/feature" }, /worker attestation does not bind/],
-    ["another signer workflow", { buildSignerURI: "https://github.com/Kemetra/Backend-Core/.github/workflows/other.yml@refs/heads/main" }, /worker attestation does not bind/],
+    ["a branch ref", { sourceRepositoryRef: "refs/heads/main" }, /worker attestation does not bind .* from refs\/tags\/backend-core\/v0\.1\.0/],
+    ["another release tag", { sourceRepositoryRef: "refs/tags/backend-core/v0.0.9", buildSignerURI: helper.signerUri("backend-core/v0.0.9") }, /worker attestation does not bind/],
+    ["the signer at another ref", { buildSignerURI: helper.signerUri("backend-core/v0.0.9") }, /worker attestation does not bind/],
+    ["another signer workflow", { buildSignerURI: `https://github.com/Kemetra-Labs/Retail-Tower-Erp/.github/workflows/other.yml@refs/tags/${TAG}` }, /worker attestation does not bind/],
+    ["the frozen repository's release-images.yml", { buildSignerURI: "https://github.com/Kemetra/Backend-Core/.github/workflows/release-images.yml@refs/heads/main" }, /worker attestation does not bind/],
   ])("refuses the worker image with %s", (_label, over, pattern) => {
     if (over === null) rmSync(join(dir, "attest-worker.json"));
     else putJson("attest-worker.json", attestation("worker", over));
     expectRefused(pattern);
+  });
+
+  it("signs with release-backend-core.yml at the release tag ref (RT-908)", () => {
+    expect(helper.signerUri(TAG)).toBe(
+      "https://github.com/Kemetra-Labs/Retail-Tower-Erp/.github/workflows/release-backend-core.yml@refs/tags/backend-core/v0.1.0",
+    );
+  });
+
+  it("refuses images of the frozen repository's registry namespace (RT-908)", () => {
+    expect(helper.IMAGE_PREFIX).toBe("ghcr.io/kemetra-labs/backend-core-");
+    const files = bundleFiles();
+    const m = manifest(files);
+    const images = m.images as Record<string, Record<string, unknown>>;
+    const legacy = `ghcr.io/kemetra/backend-core-api@${DIGESTS.api ?? ""}`;
+    writeRelease(files, { ...m, images: { ...images, api: { ...images.api, repository: "ghcr.io/kemetra/backend-core-api", ref: legacy } } });
+    expectRefused(/manifest api image is missing or not a digest ref/);
+    writeRelease({ ...files, "release.env": (files["release.env"] ?? "").replace(ref("api"), legacy) });
+    expectRefused(/release.env line \d+ is not a plain KEY=<digest ref> assignment/);
   });
 
   it("refuses an attestation for another image digest", () => {
@@ -525,7 +502,7 @@ describe("verify-release: POS compat gate (RT-863)", () => {
   };
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const gate = require(resolve(repoRoot, "deploy/release-compat-gate.cjs")) as Gate;
-  const COMPAT = "contracts-compat (POS supported snapshots)";
+  const COMPAT = "bc/contracts-compat";
   const runs = (compat: Record<string, unknown> | null): unknown[] => [
     ...helper.REQUIRED_CHECKS.filter((n) => n !== COMPAT).map((name) => ({ name, conclusion: "success", slug: "github-actions", started_at: "2026-10-18T10:00:00Z" })),
     ...(compat ? [{ name: COMPAT, slug: "github-actions", started_at: "2026-10-18T10:00:00Z", ...compat }] : []),
@@ -534,29 +511,28 @@ describe("verify-release: POS compat gate (RT-863)", () => {
   it("is a required check of both release gates, with no pre-split exemption", () => {
     expect(gate.COMPAT_CHECK).toBe(COMPAT);
     expect(helper.REQUIRED_CHECKS).toContain(COMPAT);
-    put("source/.github/workflows/ci.yml", "jobs:\n  db-integration:\n    name: x\n");
     putJson("check-runs.json", runs(null));
-    expectRefused(/required check 'contracts-compat \(POS supported snapshots\)' is 'missing' on the release SHA/);
+    expectRefused(/required check 'bc\/contracts-compat' is 'missing' on the release SHA/);
   });
 
   it("refuses a release SHA without a compat run", () => {
     putJson("check-runs.json", runs(null));
-    expectRefused(/required check 'contracts-compat \(POS supported snapshots\)' is 'missing'/);
+    expectRefused(/required check 'bc\/contracts-compat' is 'missing'/);
   });
 
   it.each(["failure", "cancelled", "skipped", "timed_out", "neutral"])("refuses a compat run that is '%s'", (conclusion) => {
     putJson("check-runs.json", runs({ conclusion }));
-    expectRefused(new RegExp(`required check 'contracts-compat \\(POS supported snapshots\\)' is '${conclusion}'`));
+    expectRefused(new RegExp(`required check 'bc/contracts-compat' is '${conclusion}'`));
   });
 
   it("refuses a compat run from another app, and judges only the latest github-actions run", () => {
     putJson("check-runs.json", runs({ conclusion: "success", slug: "some-bot" }));
-    expectRefused(/contracts-compat .* is 'missing'/);
+    expectRefused(/'bc\/contracts-compat' is 'missing'/);
     putJson("check-runs.json", [
       ...(runs({ conclusion: "success", started_at: "2026-10-18T09:00:00Z" }) as object[]),
       { name: COMPAT, conclusion: "failure", slug: "github-actions", started_at: "2026-10-18T11:00:00Z" },
     ]);
-    expectRefused(/contracts-compat .* is 'failure'/);
+    expectRefused(/'bc\/contracts-compat' is 'failure'/);
   });
 
   it("does not block on release-mode replay NOT_PROVEN, and records it in the ledger and summary (option b)", () => {
@@ -602,7 +578,7 @@ describe("verify-release: POS compat gate (RT-863)", () => {
     expect(ledger.compat.notes.join("\n")).not.toMatch(/NOT_PROVEN/);
     // release mode still needs the green compat run and a fresh fleet
     putJson("check-runs.json", runs({ conclusion: "failure" }));
-    expectRefused(/contracts-compat .* is 'failure'/);
+    expectRefused(/'bc\/contracts-compat' is 'failure'/);
     putJson("check-runs.json", runs({ conclusion: "success" }));
     writeMatrix({ capturedAt: daysAgo(10) });
     expectRefused(/FAIL_STALE_FLEET/);
@@ -748,6 +724,20 @@ describe("verify-release: current release, schema and rollback", () => {
   it("refuses deploying a release that lacks a migration the host already has", () => {
     writeCurrent([...MIGRATIONS, "packages/db/drizzle/0003_newer.sql"]);
     expectRefused(/schema downgrade is never automatic/, ctx({ currentRelease: OLD_TAG }));
+  });
+
+  it("plans against a current release that is itself a monorepo release", () => {
+    writeCurrent(UP.slice(0, 1), {}, OLD_MONOREPO_TAG);
+    const { refusals, ledger } = helper.evaluate(dir, ctx({ currentRelease: OLD_MONOREPO_TAG }));
+    expect(refusals).toEqual([]);
+    expect(ledger.plan.migrations).toMatchObject({ added: ["0002_sales.sql"], rollback: { allowed: false } });
+  });
+
+  it("accepts a legacy current release only when its tag names its own commit", () => {
+    writeCurrent(MIGRATIONS);
+    expect(refusalsOf(ctx({ currentRelease: OLD_TAG }))).toEqual([]);
+    putJson("current-release.json", { tagName: OLD_TAG, targetCommitish: SHA, isDraft: false, isPrerelease: false, isImmutable: true });
+    expectRefused(/current release tag does not match its commit/, ctx({ currentRelease: OLD_TAG }));
   });
 
   it("refuses a current release that is not an immutable release with its evidence", () => {

@@ -18,6 +18,10 @@
 # shell text; each value is also re-validated before use. An older agent sets
 # no SSM_* variable, and the script stops.
 #
+# RT-908 (Phase B): the target is a backend-core/vX.Y.Z monorepo release; the
+# current one may still be a legacy backend-core-<sha12>. The backup name uses
+# their ids (v1.2.3 or <sha12>), never a tag with `/`.
+#
 # Output contract: stdout carries only fixed `RT_*` lines that the workflow
 # parses with strict patterns (the Actions log of this public repo is
 # public). Everything else goes to a root-only log under /var/log/rt-deploy.
@@ -26,13 +30,13 @@ description: "RT lab-02: pg_dump -Fc of the lab database with checksum and resto
 parameters:
   ReleaseTag:
     type: String
-    description: "Target Backend-Core release, backend-core-<sha12>."
-    allowedPattern: "^backend-core-[0-9a-f]{12}$"
+    description: "Target Backend-Core release of the monorepo, backend-core/vX.Y.Z."
+    allowedPattern: "^backend-core/v[0-9]+\\.[0-9]+\\.[0-9]+$"
     interpolationType: ENV_VAR
   CurrentRelease:
     type: String
-    description: "Release lab-01 runs now, backend-core-<sha12>."
-    allowedPattern: "^backend-core-[0-9a-f]{12}$"
+    description: "Release lab-01 runs now, backend-core/vX.Y.Z or a legacy backend-core-<sha12>."
+    allowedPattern: "^(backend-core/v[0-9]+\\.[0-9]+\\.[0-9]+|backend-core-[0-9a-f]{12})$"
     interpolationType: ENV_VAR
   JiraKey:
     type: String
@@ -76,8 +80,8 @@ mainSteps:
           RELEASE_TAG="${SSM_ReleaseTag:-}"
           CURRENT_RELEASE="${SSM_CurrentRelease:-}"
           JIRA_KEY="${SSM_JiraKey:-}"
-          [[ "$RELEASE_TAG" =~ ^backend-core-[0-9a-f]{12}$ ]] || stop "ReleaseTag-missing-or-invalid"
-          [[ "$CURRENT_RELEASE" =~ ^backend-core-[0-9a-f]{12}$ ]] || stop "CurrentRelease-missing-or-invalid"
+          [[ "$RELEASE_TAG" =~ ^backend-core/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || stop "ReleaseTag-missing-or-invalid"
+          [[ "$CURRENT_RELEASE" =~ ^(backend-core/v[0-9]+\.[0-9]+\.[0-9]+|backend-core-[0-9a-f]{12})$ ]] || stop "CurrentRelease-missing-or-invalid"
           [[ "$JIRA_KEY" =~ ^RT-[1-9][0-9]{0,5}$ ]] || stop "JiraKey-missing-or-invalid"
           echo "backup for $JIRA_KEY: $CURRENT_RELEASE -> $RELEASE_TAG"
 
@@ -96,7 +100,8 @@ mainSteps:
 
           GATE=dump
           STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-          NAME="rtlab-${CURRENT_RELEASE#backend-core-}-to-${RELEASE_TAG#backend-core-}-$STAMP.dump"
+          # Ids, never the raw tag: backend-core/v1.2.3 -> v1.2.3, legacy backend-core-<sha12> -> <sha12>.
+          NAME="rtlab-${CURRENT_RELEASE#backend-core[-/]}-to-${RELEASE_TAG#backend-core/}-$STAMP.dump"
           DUMP="$BACKUP_DIR/$NAME"
           PART="$DUMP.partial"
           # The postgres user writes into a root-owned 0700 directory through stdout, never a path it owns.

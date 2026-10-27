@@ -3,7 +3,7 @@
 // in RT-878; the monorepo's .github/release/compat-gate.cjs is its root port) and lab deploy (deploy/lab/verify-release.cjs). Owner decision MR-3 (RT-863 comment 13811),
 // option (b) with automatic tightening:
 //
-//   - The release SHA's own `contracts-compat (POS supported snapshots)` check run (ci.yml,
+//   - The release SHA's own `bc/contracts-compat` check run (the root backend-core.yml, RT-908;
 //     `check.mjs --mode pr`) must be green. The callers require it with their other checks.
 //   - The fleet baseline in the release commit's pos-supported.yaml must be fresh NOW, at
 //     release or deploy time (FAIL_STALE_FLEET is only a warning in PR mode).
@@ -31,7 +31,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
-const COMPAT_CHECK = "contracts-compat (POS supported snapshots)";
+const COMPAT_CHECK = "bc/contracts-compat";
 // contracts-compat/lib/evaluate.mjs keeps this private; the deploy-lab spec checks it stays equal.
 // FRESHNESS_DAYS (owner decision O-3) is read from evaluate.mjs itself.
 const MAX_CLOCK_SKEW_DAYS = 1 / 24;

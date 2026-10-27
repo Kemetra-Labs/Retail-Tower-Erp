@@ -3,7 +3,7 @@
  * image release. Static checks only (no bash, no Docker): they keep the safety
  * properties of the release path from drifting. The product workflow
  * (release-images.yml) and its checks were retired in RT-878; the monorepo's
- * image release is the root release-backend-core.yml (RT-871).
+ * image release is the root release-backend-core.yml (RT-871, RT-717).
  */
 import { readFileSync } from "node:fs";
 import { posix, resolve } from "node:path";
@@ -141,8 +141,20 @@ describe("release bundle", () => {
 
   it("validates digest refs and the SHA, and fails on any error", () => {
     expect(script).toContain("set -euo pipefail");
-    expect(script).toContain("^ghcr\\.io/kemetra/backend-core-(api|worker|migrate)@sha256:[0-9a-f]{64}$");
+    expect(script).toContain("^ghcr\\.io/kemetra-labs/backend-core-(api|worker|migrate)@sha256:[0-9a-f]{64}$");
     expect(script).toContain("^[0-9a-f]{40}$");
     expect(script).not.toMatch(/latest/i);
+  });
+
+  // RT-908 Phase B: the contract deploy-lab.yml and verify-release.cjs consume.
+  it("names the monorepo release: a required backend-core/vX.Y.Z tag, its repository and registry namespace", () => {
+    expect(script).toContain('    --release-tag) RELEASE_TAG="$2" ;;');
+    expect(script).toContain('[[ "$RELEASE_TAG" =~ ^backend-core/v[0-9]+\\.[0-9]+\\.[0-9]+$ ]] || fail');
+    // the tag is an input, never derived from the SHA; the bundle name still is
+    expect(script).not.toMatch(/^RELEASE_TAG=/m);
+    expect(script).toContain('NAME="backend-core-release-$SHA12"');
+    expect(script).toContain('repository: "Kemetra-Labs/Retail-Tower-Erp",');
+    expect(script).toContain('{repository: ("ghcr.io/kemetra-labs/backend-core-" + $t)');
+    expect(script).not.toMatch(/ghcr\.io\/kemetra\/|Kemetra\/Backend-Core/);
   });
 });

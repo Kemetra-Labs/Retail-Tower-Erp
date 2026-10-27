@@ -321,12 +321,14 @@ from those commands, since the images are pulled, not built.
 
 ## Lab deploy workflow (RT-703 preflight, RT-842 live job)
 
-> **Retired workflow (RT-878).** `deploy-lab.yml` never ran from the monorepo's nested
-> `.github/` and was deleted. Its trust chain (signer workflow, required check names,
-> GitHub OIDC subject) names `Kemetra/Backend-Core`, so the lab deploy is to be rebuilt
-> on the monorepo release. The verifier (`deploy/lab/verify-release.cjs`), the SSM
-> documents and their tests stay; this section describes how the retired workflow
-> used them.
+> **Monorepo workflow (RT-908).** The nested product `deploy-lab.yml` was retired in
+> RT-878. Phase A restored it at the monorepo root (`.github/workflows/deploy-lab.yml`,
+> OIDC subject of `Kemetra-Labs/Retail-Tower-Erp`). Phase B re-points it to the
+> releases the monorepo publishes (`release-backend-core.yml`, RT-717): tag
+> `backend-core/vX.Y.Z`, images in `ghcr.io/kemetra-labs`, required checks `bc/fast`,
+> `bc/db-integration`, `bc/db-package` and `bc/contracts-compat`. Only the release
+> lab-01 runs now may still be a legacy `backend-core-<sha12>` release of the frozen
+> `Kemetra/Backend-Core`; its metadata and migrations are read from there.
 
 The manual `Deploy lab` workflow (`.github/workflows/deploy-lab.yml`) checks
 that a published release is safe to deploy to the AWS lab, and writes a planned
@@ -337,11 +339,12 @@ nothing**: it has no AWS, SSH or SSM step and uses only the read-only
 
 Run it from `main` with:
 
-- `backend_release`: a release tag `backend-core-<sha12>`. Any release
+- `backend_release`: a monorepo release tag `backend-core/vX.Y.Z`. Any release
   reachable from `main` is accepted, not only the tip.
 - `jira_key`: the issue that authorizes the run.
 - `target`: `lab-01`.
-- `current_release`: the release the host is believed to run. It is optional
+- `current_release`: the release the host is believed to run, `backend-core/vX.Y.Z`
+  or a legacy `backend-core-<sha12>`. It is optional
   for a dry run, where it is operator-asserted, not host-verified. It is used
   for the schema and rollback plan. A live run requires it, and lab-01 must
   prove it (G-Host).
@@ -353,10 +356,9 @@ fails, if any of these checks fails:
 - its commit is reachable from `main` (`compare` status `ahead` or `identical`);
 - the tarball holds only regular files and directories under one top-level
   directory, with nothing unlisted (checked before and after unpacking);
-- the latest `fast`, `db-integration` and `db-package` runs on that commit succeeded
-  (`db-package` only when that commit's own `ci.yml` defines it: before RT-816,
-  `db-integration` ran those suites; an unreadable `ci.yml` requires all three);
-- the latest `contracts-compat (POS supported snapshots)` run on that commit
+- the latest `bc/fast`, `bc/db-integration` and `bc/db-package` runs on that commit
+  succeeded;
+- the latest `bc/contracts-compat` run on that commit
   succeeded, with no pre-RT-713 exemption, and the commit's fleet baseline is
   fresh now (RT-863, `deploy/release-compat-gate.cjs`, see the image release
   section). Release-mode replay `NOT_PROVEN` is recorded in the ledger
@@ -368,8 +370,8 @@ fails, if any of these checks fails:
   generated `release.env` is byte-for-byte the file at the release commit;
 - the manifest is published and has registry digests for that commit;
 - `release.env` matches the manifest;
-- each of the three images has an attestation from `release-images.yml` on
-  `main` for that commit.
+- each of the three images has an attestation from `release-backend-core.yml`,
+  built from the release tag (`refs/tags/backend-core/vX.Y.Z`) at that commit.
 
 The ledger is uploaded as the `deploy-lab-ledger-<run id>` artifact and shown in
 the run summary. That includes a run where evidence collection stopped early,
@@ -470,9 +472,11 @@ runs any of it, and none of it is done by merging this workflow:
    and stop on a mismatch):
    - lab-01:
      - the `/opt/rt-lab/backend/dc` compose wrapper names the release directory
-       `release-<current_release>`;
+       `release-<slug>` of `current_release` (`backend-core/v1.2.3` ->
+       `release-backend-core-v1.2.3`; a legacy `backend-core-<sha12>` is its own slug);
      - that directory holds the release's `release.env`;
-     - `backend.env` has one `SENTRY_RELEASE=<sha12>` line;
+     - `backend.env` has one `SENTRY_RELEASE=<id>` line (`v1.2.3`, or `<sha12>` for a
+       legacy release);
      - `/root/rt-lab-secrets/grants.env` holds the migration-owner `PG*`
        variables, `PGSSLMODE=require` and `DOMAIN_DB_ROLE`;
      - `docker`, `python3`, `curl` and `systemd-run` are installed;
