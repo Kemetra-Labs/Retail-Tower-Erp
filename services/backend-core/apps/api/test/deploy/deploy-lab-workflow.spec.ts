@@ -5,10 +5,10 @@
  * the guard, variable and plan checks, which run the real step scripts with
  * bash. The offline release verifier it calls is covered by deploy-lab.spec.ts.
  *
- * RT-908 (roadmap v3, Phase A): the releases are still published by the frozen
- * Kemetra/Backend-Core, so every piece of release evidence, including the git
- * objects of the release commit, is read from that repository, never from this
- * monorepo's rewritten history. The aws-lab environment is this repository's.
+ * RT-908 (roadmap v3, Phase B): the target is a backend-core/vX.Y.Z release this
+ * repository publishes (release-backend-core.yml, RT-717), so its evidence and the
+ * git objects of its commit are this repository's. Only a legacy current release
+ * (backend-core-<sha12>) is read from the frozen Kemetra/Backend-Core.
  */
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -40,7 +40,9 @@ type Workflow = {
   jobs: Record<string, Job>;
 };
 
-const RELEASE_REPO = "Kemetra/Backend-Core";
+const LEGACY_REPO = "Kemetra/Backend-Core";
+const TAG = "backend-core/v0.1.0";
+const LEGACY_TAG = "backend-core-046b7f7cff53";
 const workflowText = readRoot(".github/workflows/deploy-lab.yml");
 const workflow = yaml.load(workflowText) as Workflow;
 const jobs = Object.entries(workflow.jobs);
@@ -126,7 +128,8 @@ describe("deploy-lab workflow", () => {
       expect(guard?.env?.RUN_REF).toBe("${{ github.ref }}");
       const run = guard?.run ?? "";
       expect(run).toContain('[ "$RUN_REF" = "refs/heads/main" ] || fail "must be dispatched from refs/heads/main"');
-      expect(run).toContain("^backend-core-[0-9a-f]{12}$");
+      expect(run).toContain('[[ "$BACKEND_RELEASE" =~ ^backend-core/v[0-9]+\\.[0-9]+\\.[0-9]+$ ]] || fail');
+      expect(run).toContain("^(backend-core/v[0-9]+\\.[0-9]+\\.[0-9]+|backend-core-[0-9a-f]{12})$");
       expect(run).toContain('[ "$TARGET" = "lab-01" ]');
     }
     expect(live.steps[0]?.run).toContain('[ "$DRY_RUN" = "false" ] || fail');
@@ -142,36 +145,51 @@ describe("deploy-lab workflow", () => {
     }
   });
 
-  it("checks out only this repository (the tooling) and, read-only, the release source in Kemetra/Backend-Core", () => {
+  it("checks out this repository with full history, and the frozen repository only for a legacy current release", () => {
     for (const [, job] of jobs) {
-      const checkouts = job.steps.filter((s) => s.uses?.startsWith("actions/checkout@"));
-      expect(checkouts.map((s) => s.name)).toEqual(["Checkout main", "Checkout the release source (Kemetra/Backend-Core, read-only)"]);
-      const [tooling, source] = checkouts;
-      expect(tooling?.with).not.toHaveProperty("repository");
-      expect(tooling?.with).not.toHaveProperty("path");
-      expect(source?.with).toMatchObject({ repository: RELEASE_REPO, path: "release-source", "persist-credentials": false, "fetch-depth": 0 });
+      const tooling = job.steps.find((s) => s.name === "Checkout main");
+      expect(tooling?.with).toEqual({ "persist-credentials": false, "fetch-depth": 0 });
     }
-    expect(stepNamed("Checkout the release source")).toMatchObject({ id: "release_source" });
-    expect(stepIndex("Checkout main")).toBeLessThan(stepIndex("Checkout the release source"));
-    expect(stepIndex("Checkout the release source")).toBeLessThan(stepIndex("Collect release evidence"));
+    // the live job reads only this repository
+    expect(live.steps.filter((s) => s.uses?.startsWith("actions/checkout@")).map((s) => s.name)).toEqual(["Checkout main"]);
+    const checkouts = preflightSteps.filter((s) => s.uses?.startsWith("actions/checkout@"));
+    expect(checkouts.map((s) => s.name)).toEqual(["Checkout main", "Checkout the legacy current release source (Kemetra/Backend-Core, read-only)"]);
+    expect(checkouts[1]).toMatchObject({
+      id: "legacy_source",
+      if: "${{ startsWith(inputs.current_release, 'backend-core-') }}",
+      with: { repository: LEGACY_REPO, path: "legacy-source", "persist-credentials": false, "fetch-depth": 0 },
+    });
+    expect(stepIndex("Checkout the legacy current release source")).toBeLessThan(stepIndex("Collect release evidence"));
   });
 
-  it("reads release evidence from Kemetra/Backend-Core and the aws-lab environment from this repository", () => {
+  it("reads the target release and the aws-lab environment from this repository", () => {
     const collect = stepNamed("Collect release evidence");
-    expect(collect.env?.REPO).toBe(RELEASE_REPO);
-    expect(collect.env?.ENV_REPO).toBe("${{ github.repository }}");
-    expect(collect.env?.SRC).toBe("${{ github.workspace }}/release-source");
+    expect(collect.env?.REPO).toBe("${{ github.repository }}");
+    expect(collect.env?.SRC).toBe("${{ github.workspace }}");
+    expect(collect.env?.PRODUCT).toBe("services/backend-core");
+    expect(collect.env?.LEGACY_REPO).toBe(LEGACY_REPO);
+    expect(collect.env?.LEGACY_SRC).toBe("${{ github.workspace }}/legacy-source");
     const run = String(collect.run);
     expect(run).toContain('gh release view "$BACKEND_RELEASE" --repo "$REPO"');
+    expect(run).toContain('gh release download "$BACKEND_RELEASE" --repo "$REPO"');
     expect(run).toContain('gh api "repos/$REPO/compare/$SHA...main"');
     expect(run).toContain('gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100"');
-    expect(run).toContain('gh api "repos/$ENV_REPO/environments/aws-lab"');
-    expect(run).not.toContain("repos/$REPO/environments");
-    // `github.repository` (the monorepo) never stands in for the release repository
-    expect(workflowText).not.toMatch(/^\s+REPO: \$\{\{ github\.repository \}\}/m);
+    expect(run).toContain('gh api "repos/$REPO/environments/aws-lab"');
+    // the frozen repository is never asked about the target release
+    expect(run).not.toMatch(/\$BACKEND_RELEASE"? --repo "\$LEGACY_REPO"|repos\/\$LEGACY_REPO/);
   });
 
-  it("runs every git command against a checkout of the release source, never the monorepo's rewritten history", () => {
+  it("reads a current release from the repository that published it: legacy tags from the frozen one", () => {
+    const run = String(stepNamed("Collect release evidence").run);
+    expect(run).toContain('backend-core-*) CUR_REPO="$LEGACY_REPO" CUR_SRC="$LEGACY_SRC" CUR_DRIZZLE=packages/db/drizzle/ ;;');
+    expect(run).toContain('*) CUR_REPO="$REPO" CUR_SRC="$SRC" CUR_DRIZZLE="$PRODUCT/packages/db/drizzle/" ;;');
+    expect(run).toContain('gh release view "$CURRENT_RELEASE" --repo "$CUR_REPO"');
+    expect(run).toContain('git -C "$CUR_SRC" rev-parse --verify --quiet "refs/tags/$CURRENT_RELEASE^{commit}"');
+    expect(run).toContain('gh api "repos/$CUR_REPO/compare/$CURRENT_SHA...main"');
+    expect(run).toContain('git -C "$CUR_SRC" ls-tree "$CURRENT_SHA" "$CUR_DRIZZLE" > "$EVIDENCE/migrations-current.txt"');
+  });
+
+  it("runs every git command against an explicit checkout", () => {
     const code = `${scripts}\n${liveScripts}`
       .split("\n")
       .filter((line) => !line.trimStart().startsWith("#"))
@@ -180,9 +198,10 @@ describe("deploy-lab workflow", () => {
     expect(gitCalls.length).toBeGreaterThan(0);
     for (const arg of gitCalls) expect(arg).toBe("-C");
     expect(scripts).toContain('git -C "$SRC" rev-parse --verify --quiet "refs/tags/$BACKEND_RELEASE^{commit}"');
-    expect(liveScripts).toContain('git -C "$RELEASE_REPO_DIR" -c core.autocrlf=false archive --format=tar "$RELEASE_SHA" contracts-compat');
-    // the imported monorepo tags (backend-core/backend-core-<sha12>) point at rewritten commits
-    expect(workflowText).not.toContain("refs/tags/backend-core/");
+    expect(liveScripts).toContain('git -C "$GITHUB_WORKSPACE" -c core.autocrlf=false archive --format=tar "$RELEASE_SHA:$PRODUCT" contracts-compat');
+    // the monorepo's imported tags (backend-core/backend-core-<sha12>) point at rewritten commits:
+    // they never match a target (backend-core/vX.Y.Z), and a legacy current tag is read from the frozen repository
+    expect(workflowText).not.toContain("refs/tags/backend-core/backend-core-");
   });
 
   it("calls the deploy tooling at its monorepo path", () => {
@@ -214,14 +233,16 @@ describe("deploy-lab workflow", () => {
     expect(workflowText).not.toMatch(/latest/i);
   });
 
-  it("verifies the checksums before unpacking, and every image attestation against main and the release SHA", () => {
+  it("verifies the checksums before unpacking, and every image attestation against the release tag and SHA", () => {
     expect(scripts.indexOf("sha256sum --check --strict SHA256SUMS")).toBeGreaterThan(-1);
     expect(scripts.indexOf("sha256sum --check --strict SHA256SUMS")).toBeLessThan(scripts.indexOf("tar -xzf"));
     expect(scripts).toContain("for TARGET in api worker migrate; do");
-    expect(scripts).toContain('--signer-workflow "$REPO/.github/workflows/release-images.yml"');
+    expect(scripts).toContain('gh attestation verify "oci://ghcr.io/kemetra-labs/backend-core-$TARGET@$DIGEST"');
+    expect(scripts).toContain('--signer-workflow "$REPO/.github/workflows/release-backend-core.yml"');
     expect(scripts).toContain('--source-digest "$SHA"');
-    expect(scripts).toContain("--source-ref refs/heads/main");
+    expect(scripts).toContain('--source-ref "refs/tags/$BACKEND_RELEASE"');
     expect(scripts).toContain("compare/$SHA...main");
+    expect(workflowText).not.toMatch(/ghcr\.io\/kemetra\/|release-images\.yml|refs\/heads\/main"? \\$/m);
   });
 
   it("decides in the verifier, in dry-run mode, and always publishes the ledger", () => {
@@ -231,10 +252,11 @@ describe("deploy-lab workflow", () => {
     for (const upload of allSteps.filter((s) => s.uses?.startsWith("actions/upload-artifact@"))) expect(upload.if).toBe("always()");
   });
 
-  it("runs every shell step with set -euo pipefail, paginates check runs and fetches the release source's full history", () => {
+  it("runs every shell step with set -euo pipefail, paginates check runs and fetches full history", () => {
     for (const step of allSteps) if (step.run !== undefined) expect(step.run.trimStart()).toMatch(/^set -euo pipefail\n/);
     expect(scripts).toContain("gh api --paginate");
-    expect(stepNamed("Checkout the release source").with?.["fetch-depth"]).toBe(0);
+    expect(stepNamed("Checkout main").with?.["fetch-depth"]).toBe(0);
+    expect(stepNamed("Checkout the legacy current release source").with?.["fetch-depth"]).toBe(0);
   });
 
   it("only unpacks a tarball covered by SHA256SUMS that holds plain files under one directory", () => {
@@ -272,9 +294,9 @@ describe("deploy-lab workflow", () => {
     expect(collect).toContain('echo "$*" >> "$EVIDENCE/collect-error.txt"; exit 1; }');
     expect(collect).toMatch(/trap '.*collect-error\.txt"' ERR/);
     expect(collect).toContain('|| fail "release assets do not match SHA256SUMS"');
-    // RT-908: a failed release-source checkout stops the verifier, as the full-history checkout did before.
+    // RT-908: a failed legacy-source checkout stops the verifier; skipped (no legacy current release) does not.
     expect(stepNamed("Verify evidence").if).toBe(
-      "${{ !cancelled() && steps.guard.outcome == 'success' && steps.checkout.outcome == 'success' && steps.release_source.outcome == 'success' && steps.logout.outcome == 'success' }}",
+      "${{ !cancelled() && steps.guard.outcome == 'success' && steps.checkout.outcome == 'success' && (steps.legacy_source.outcome == 'success' || steps.legacy_source.outcome == 'skipped') && steps.logout.outcome == 'success' }}",
     );
     expect(stepNamed("Guard")).toMatchObject({ id: "guard" });
     expect(stepNamed("Checkout main")).toMatchObject({ id: "checkout" });
@@ -282,8 +304,8 @@ describe("deploy-lab workflow", () => {
 
   it("records migration blob IDs, not only names, for the target and current releases", () => {
     const collect = String(stepNamed("Collect release evidence").run);
-    expect(collect).toContain('git -C "$SRC" ls-tree "$SHA" packages/db/drizzle/ > "$EVIDENCE/migrations-target.txt"');
-    expect(collect).toContain('git -C "$SRC" ls-tree "$CURRENT_SHA" packages/db/drizzle/ > "$EVIDENCE/migrations-current.txt"');
+    expect(collect).toContain('git -C "$SRC" ls-tree "$SHA" "$PRODUCT/packages/db/drizzle/" > "$EVIDENCE/migrations-target.txt"');
+    expect(collect).toContain('git -C "$CUR_SRC" ls-tree "$CURRENT_SHA" "$CUR_DRIZZLE" > "$EVIDENCE/migrations-current.txt"');
     expect(collect).not.toContain("ls-tree --name-only");
   });
 
@@ -298,7 +320,7 @@ describe("deploy-lab workflow", () => {
 
   it("records the release commit's tree so bundled files can be bound to it", () => {
     expect(String(stepNamed("Collect release evidence").run)).toContain(
-      'git -C "$SRC" -c core.autocrlf=false archive --format=tar "$SHA" | tar -x -C "$EVIDENCE/source"',
+      'git -C "$SRC" -c core.autocrlf=false archive --format=tar "$SHA:$PRODUCT" | tar -x -C "$EVIDENCE/source"',
     );
   });
 });
@@ -307,7 +329,7 @@ describe("deploy-lab workflow: preflight guard (RT-842)", () => {
   const guard = (): Step => stepNamed("Guard");
   const env = (over: Record<string, string> = {}): Record<string, string> => ({
     RUN_REF: "refs/heads/main",
-    BACKEND_RELEASE: "backend-core-1711813df1f3",
+    BACKEND_RELEASE: TAG,
     JIRA_KEY: "RT-842",
     TARGET: "lab-01",
     CURRENT_RELEASE: "",
@@ -317,22 +339,27 @@ describe("deploy-lab workflow: preflight guard (RT-842)", () => {
 
   itBash("passes a dry run with or without current_release", () => {
     expect(runStep(guard(), env()).status).toBe(0);
-    expect(runStep(guard(), env({ CURRENT_RELEASE: "backend-core-046b7f7cff53" })).status).toBe(0);
+    expect(runStep(guard(), env({ CURRENT_RELEASE: LEGACY_TAG })).status).toBe(0);
+    expect(runStep(guard(), env({ CURRENT_RELEASE: "backend-core/v0.0.9" })).status).toBe(0);
   });
 
   itBash("lets a live run through only with current_release (G-Prov)", () => {
     const missing = runStep(guard(), env({ DRY_RUN: "false" }));
     expect(missing.status).not.toBe(0);
     expect(missing.output).toContain("a live run (dry_run=false) needs current_release");
-    expect(runStep(guard(), env({ DRY_RUN: "false", CURRENT_RELEASE: "backend-core-046b7f7cff53" })).status).toBe(0);
+    expect(runStep(guard(), env({ DRY_RUN: "false", CURRENT_RELEASE: LEGACY_TAG })).status).toBe(0);
   });
 
   itBash.each([
     [{ RUN_REF: "refs/heads/feature" }, /must be dispatched from refs\/heads\/main/],
     [{ DRY_RUN: "maybe" }, /dry_run must be true or false/],
     [{ BACKEND_RELEASE: "backend-core-latest" }, /backend_release must be/],
-    // a monorepo-style tag is Phase B; this workflow accepts only backend-core-<sha12>
-    [{ BACKEND_RELEASE: "backend-core/v1.2.3" }, /backend_release must be/],
+    // RT-908 Phase B: a legacy release is never a target, only a current release
+    [{ BACKEND_RELEASE: LEGACY_TAG }, /backend_release must be backend-core\/vX\.Y\.Z/],
+    [{ BACKEND_RELEASE: "backend-core/v1.2" }, /backend_release must be/],
+    [{ BACKEND_RELEASE: "backend-core/v1.2.3; id" }, /backend_release must be/],
+    [{ CURRENT_RELEASE: "backend-core/v1.2.3/../x" }, /current_release must be/],
+    [{ CURRENT_RELEASE: "backend-core-1711813df1f" }, /current_release must be/],
   ])("refuses %o", (over, pattern) => {
     const r = runStep(guard(), env(over));
     expect(r.status).not.toBe(0);
@@ -413,8 +440,8 @@ describe("deploy-lab workflow: live job (RT-842)", () => {
   const guardEnv = (over: Record<string, string> = {}): Record<string, string> => ({
     RUN_REF: "refs/heads/main",
     DRY_RUN: "false",
-    BACKEND_RELEASE: "backend-core-1711813df1f3",
-    CURRENT_RELEASE: "backend-core-046b7f7cff53",
+    BACKEND_RELEASE: TAG,
+    CURRENT_RELEASE: LEGACY_TAG,
     JIRA_KEY: "RT-842",
     TARGET: "lab-01",
     RELEASE_SHA: SHA,
@@ -431,7 +458,6 @@ describe("deploy-lab workflow: live job (RT-842)", () => {
       "Guard",
       "Check the deploy variables",
       "Checkout main",
-      "Checkout the release source",
       "Re-check the POS compat gate",
       "Print the OIDC claims",
       "Assume the deploy role",
@@ -446,11 +472,11 @@ describe("deploy-lab workflow: live job (RT-842)", () => {
   it("re-runs the POS compat gate on the release commit after approval, before any credential", () => {
     const recheck = stepNamed("Re-check the POS compat gate", live.steps);
     expect(recheck.env?.RELEASE_SHA).toBe("${{ needs.preflight.outputs.release_sha }}");
-    expect(recheck.env?.RELEASE_REPO_DIR).toBe("${{ github.workspace }}/release-source");
+    expect(recheck.env?.PRODUCT).toBe("services/backend-core");
     expect(recheck.run).toContain("set -euo pipefail");
-    expect(recheck.run).toContain('archive --format=tar "$RELEASE_SHA" contracts-compat');
+    expect(recheck.run).toContain('archive --format=tar "$RELEASE_SHA:$PRODUCT" contracts-compat');
     expect(recheck.run).toContain('node services/backend-core/deploy/release-compat-gate.cjs --source "$SRC"');
-    expect(stepNamed("Checkout the release source", live.steps).with?.["fetch-depth"]).toBe(0);
+    expect(stepNamed("Checkout main", live.steps).with?.["fetch-depth"]).toBe(0);
     expect(order("Re-check the POS compat gate")).toBeLessThan(order("Assume the deploy role"));
     expect(order("Re-check the POS compat gate")).toBeLessThan(order("Run the SSM gates"));
   });
@@ -486,7 +512,9 @@ describe("deploy-lab workflow: live job (RT-842)", () => {
     ["a non-main ref", { RUN_REF: "refs/heads/feature" }, /must be dispatched from refs\/heads\/main/],
     ["a dry run", { DRY_RUN: "true" }, /runs only when dry_run=false/],
     ["no current release", { CURRENT_RELEASE: "" }, /needs current_release/],
-    ["a plan for another commit", { RELEASE_SHA: "ff9e68331415c29aa21ba3ece6af3e2f62b22646" }, /does not name the release commit/],
+    ["a plan without the release commit", { RELEASE_SHA: "" }, /does not name the release commit/],
+    ["a legacy target release", { BACKEND_RELEASE: LEGACY_TAG }, /backend_release must be backend-core\/vX\.Y\.Z/],
+    ["a malformed current release", { CURRENT_RELEASE: "backend-core/v1" }, /needs current_release/],
     ["a plan without digests", { WORKER_DIGEST: "" }, /lacks a registry digest/],
     ["a plan without the rollback rule", { ROLLBACK_ALLOWED: "" }, /lacks the rollback rule/],
     ["an unverified aws-lab reviewer gate", { ENVIRONMENT_GATE: "unverified" }, /did not read back aws-lab with a required reviewer/],
@@ -496,8 +524,9 @@ describe("deploy-lab workflow: live job (RT-842)", () => {
     expect(r.output).toMatch(pattern);
   });
 
-  itBash("the live guard passes a verified live plan", () => {
+  itBash("the live guard passes a verified live plan, over a legacy or a monorepo current release", () => {
     expect(runStep(liveGuard(), guardEnv()).status).toBe(0);
+    expect(runStep(liveGuard(), guardEnv({ CURRENT_RELEASE: "backend-core/v0.0.9" })).status).toBe(0);
   });
 
   it("prints only allowlisted OIDC claims, masking the token, and never gates on them", () => {
@@ -520,7 +549,7 @@ describe("deploy-lab workflow: live job (RT-842)", () => {
     expect(liveScripts).toContain("--document-version '$DEFAULT'");
     // the deploy waits for a single, well-formed backup reference first
     expect(liveScripts.indexOf("backup: no single backup reference reported")).toBeLessThan(liveScripts.indexOf("run_document deploy"));
-    expect(liveScripts).toContain('grep -qx "RT_DONE release=$BACKEND_RELEASE"');
+    expect(liveScripts).toContain('grep -qxF "RT_DONE release=$BACKEND_RELEASE"');
   });
 
   it("never prints raw document output: only strict RT_* lines reach the log and the ledger", () => {
@@ -548,7 +577,12 @@ describe("deploy-lab workflow: live job (RT-842)", () => {
     expect(workflowText).not.toMatch(/inputs\.\w*backup|BACKUP_NAME: \$\{\{|BACKUP_SHA256: \$\{\{/i);
     const ssm = String(stepNamed("Run the SSM gates", live.steps).run);
     expect(ssm.indexOf('run_document backup "$LAB02"')).toBeLessThan(ssm.indexOf('BACKUP_LINE="$(grep -E'));
-    expect(ssm).toContain("^RT_BACKUP name=rtlab-[0-9a-f]{12}-to-[0-9a-f]{12}-[0-9]{8}T[0-9]{6}Z\\.dump sha256=[0-9a-f]{64}$");
+    expect(ssm).toContain(
+      "^RT_BACKUP name=rtlab-([0-9a-f]{12}|v[0-9]+\\.[0-9]+\\.[0-9]+)-to-v[0-9]+\\.[0-9]+\\.[0-9]+-[0-9]{8}T[0-9]{6}Z\\.dump sha256=[0-9a-f]{64}$",
+    );
+    // the same backup names the deploy document's BackupName parameter accepts
+    const deployDoc = yaml.load(read("deploy/lab/ssm/RT-BackendLabDeploy.yaml")) as { parameters: Record<string, { allowedPattern?: string }> };
+    expect(ssm).toContain(`name=${(deployDoc.parameters.BackupName?.allowedPattern ?? "").slice(1, -1)} sha256=`);
   });
 
   it("passes the documents exactly their parameters", () => {
@@ -562,6 +596,9 @@ describe("deploy-lab workflow: live job (RT-842)", () => {
       Object.keys((yaml.load(read(`deploy/lab/ssm/${file}`)) as { parameters: Record<string, unknown> }).parameters).sort();
     expect(keys("backup")).toEqual(docParams("RT-BackendLabBackup.yaml"));
     expect(keys("deploy")).toEqual(docParams("RT-BackendLabDeploy.yaml"));
+    // ReleaseSha names the bundle on the host; it comes from the verified plan, never an input
+    expect(ssm).toContain("ReleaseSha: [$s]");
+    expect(stepNamed("Run the SSM gates", live.steps).env?.RELEASE_SHA).toBe("${{ needs.preflight.outputs.release_sha }}");
   });
 
   it("always writes and uploads a live ledger with digests, backup, gates and the failure boundary", () => {

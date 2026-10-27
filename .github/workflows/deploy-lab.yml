@@ -1,7 +1,7 @@
 # RT-703 + RT-842: manual, approval-gated AWS lab deploy for Backend-Core.
 #
 # preflight (every run): verifies an already published, immutable Backend-Core
-# release (see release-images.yml) and writes a planned deployment ledger as a
+# release (see release-backend-core.yml) and writes a planned deployment ledger as a
 # workflow artifact. It deploys nothing: no AWS, no SSH, no SSM, no host
 # access, no secrets beyond the read-only GITHUB_TOKEN, no environment.
 #
@@ -13,15 +13,16 @@
 # AWS-RunShellScript, no StartSession, no SSH. It fails closed while the
 # environment variables AWS_ROLE_ARN / AWS_REGION are unset.
 #
-# RT-908 (roadmap v3, Phase A): ported from the frozen Kemetra/Backend-Core
-# (blob f909f2c1) to the canonical monorepo. Releases are still the
-# backend-core-<sha12> releases published by Kemetra/Backend-Core, so all
-# release evidence (release assets, ancestry, check runs, attestations, and the
-# git objects of the release commit) is read from that public repository,
-# checked out read-only into release-source/. The monorepo's own history was
-# rewritten by the import, so its imported tags never stand in for a release.
-# The deploy tooling and the aws-lab environment are this repository's.
-# Monorepo-built releases are Phase B and are not accepted here.
+# RT-908 (roadmap v3): Phase A ported this workflow from the frozen
+# Kemetra/Backend-Core (blob f909f2c1). Phase B re-points it to the releases this
+# repository publishes (release-backend-core.yml, RT-717): the target is always a
+# backend-core/vX.Y.Z release of this repository, images in ghcr.io/kemetra-labs,
+# built and attested from that tag; its source is services/backend-core/ at the
+# release commit. Only the release lab-01 runs now (current_release) may still
+# be a legacy backend-core-<sha12> release of the frozen, public
+# Kemetra/Backend-Core: its metadata, ancestry and migration list are read from
+# there (checked out read-only into legacy-source/), so the first monorepo
+# release can be planned against it and rolled back to it.
 #
 # Fails closed: any guard or evidence that cannot be evaluated is a refusal.
 name: Deploy lab
@@ -30,7 +31,7 @@ name: Deploy lab
   workflow_dispatch:
     inputs:
       backend_release:
-        description: Published release tag backend-core-<sha12> (any release reachable from main)
+        description: Published release tag backend-core/vX.Y.Z of this repository (any release reachable from main)
         required: true
         type: string
       jira_key:
@@ -45,7 +46,7 @@ name: Deploy lab
           - lab-01
         default: lab-01
       current_release:
-        description: Release tag the host runs (required for a live run, where lab-01 must prove it; else operator-asserted)
+        description: Release tag the host runs, backend-core/vX.Y.Z or a legacy backend-core-<sha12> (required for a live run, where lab-01 must prove it; else operator-asserted)
         required: false
         type: string
         default: ""
@@ -97,11 +98,12 @@ jobs:
           fail() { echo "::error::$*"; exit 1; }
 
           [ "$RUN_REF" = "refs/heads/main" ] || fail "must be dispatched from refs/heads/main"
-          [[ "$BACKEND_RELEASE" =~ ^backend-core-[0-9a-f]{12}$ ]] || fail "backend_release must be backend-core-<12 hex>"
+          [[ "$BACKEND_RELEASE" =~ ^backend-core/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "backend_release must be backend-core/vX.Y.Z"
           [[ "$JIRA_KEY" =~ ^RT-[1-9][0-9]*$ ]] || fail "jira_key must be RT-<number>"
           [ "$TARGET" = "lab-01" ] || fail "target must be lab-01"
           if [ -n "$CURRENT_RELEASE" ]; then
-            [[ "$CURRENT_RELEASE" =~ ^backend-core-[0-9a-f]{12}$ ]] || fail "current_release must be empty or backend-core-<12 hex>"
+            [[ "$CURRENT_RELEASE" =~ ^(backend-core/v[0-9]+\.[0-9]+\.[0-9]+|backend-core-[0-9a-f]{12})$ ]] \
+              || fail "current_release must be empty, backend-core/vX.Y.Z or a legacy backend-core-<12 hex>"
           fi
           case "$DRY_RUN" in true | false) ;; *) fail "dry_run must be true or false" ;; esac
           # G-Prov: a live run plans the schema and rollback against the release lab-01 must prove it runs.
@@ -110,23 +112,24 @@ jobs:
           fi
 
       # No `ref:` on purpose: the verifier runs from the dispatched main commit,
-      # never from the release under test.
+      # never from the release under test. Full history and tags, so `git ls-tree`,
+      # `git archive` and `git rev-parse` can read any release reachable from main.
       - name: Checkout main
         id: checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
+          fetch-depth: 0
 
-      # RT-908: the release commit lives in the frozen, public Kemetra/Backend-Core.
-      # Full history and tags of its main so `git ls-tree`, `git archive` and
-      # `git rev-parse` can read any release reachable from that main. Read-only:
-      # no ref, no credentials kept.
-      - name: Checkout the release source (Kemetra/Backend-Core, read-only)
-        id: release_source
+      # Only for a legacy current release (backend-core-<sha12>): its commit lives in
+      # the frozen, public Kemetra/Backend-Core. Read-only: no ref, no credentials kept.
+      - name: Checkout the legacy current release source (Kemetra/Backend-Core, read-only)
+        id: legacy_source
+        if: ${{ startsWith(inputs.current_release, 'backend-core-') }}
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: Kemetra/Backend-Core
-          path: release-source
+          path: legacy-source
           persist-credentials: false
           fetch-depth: 0
 
@@ -140,11 +143,14 @@ jobs:
       - name: Collect release evidence (read-only GitHub API)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # RT-908: the repository that published the release, not this one.
-          REPO: Kemetra/Backend-Core
-          # The aws-lab environment is this repository's.
-          ENV_REPO: ${{ github.repository }}
-          SRC: ${{ github.workspace }}/release-source
+          # RT-908: this repository publishes the release and owns the aws-lab environment.
+          REPO: ${{ github.repository }}
+          SRC: ${{ github.workspace }}
+          # The product tree at the release commit.
+          PRODUCT: services/backend-core
+          # Only a legacy current release is read from here.
+          LEGACY_REPO: Kemetra/Backend-Core
+          LEGACY_SRC: ${{ github.workspace }}/legacy-source
           BACKEND_RELEASE: ${{ inputs.backend_release }}
           CURRENT_RELEASE: ${{ inputs.current_release }}
         run: |
@@ -158,10 +164,14 @@ jobs:
 
           gh release view "$BACKEND_RELEASE" --repo "$REPO" \
             --json tagName,targetCommitish,isDraft,isPrerelease,isImmutable,assets > "$EVIDENCE/release.json"
-          SHA="$(jq -r .targetCommitish "$EVIDENCE/release.json")"
-          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || fail "release target is not a 40-hex commit SHA"
-          # The git tag itself must point at that commit; the verifier compares them.
+          # A backend-core/vX.Y.Z release is created on its existing tag, so GitHub may record
+          # the default branch as its target: the release commit is the git tag's, and the
+          # target must be that commit or main (the verifier checks the same).
           git -C "$SRC" rev-parse --verify --quiet "refs/tags/$BACKEND_RELEASE^{commit}" > "$EVIDENCE/tag-commit.txt" || true
+          SHA="$(tr -d '[:space:]' < "$EVIDENCE/tag-commit.txt")"
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || fail "release tag does not resolve to a commit"
+          TARGET="$(jq -r .targetCommitish "$EVIDENCE/release.json")"
+          [ "$TARGET" = "$SHA" ] || [ "$TARGET" = main ] || fail "release target is neither the tag commit nor main"
 
           # Verify the asset checksums before unpacking anything. SHA256SUMS must
           # cover both assets, and the tarball may hold only regular files and
@@ -218,41 +228,53 @@ jobs:
             --jq '.check_runs[] | {name, conclusion, slug: .app.slug, started_at}' | jq -s . > "$EVIDENCE/check-runs.json"
 
           if git -C "$SRC" cat-file -e "$SHA^{commit}" 2>/dev/null; then
-            git -C "$SRC" ls-tree "$SHA" packages/db/drizzle/ > "$EVIDENCE/migrations-target.txt"
+            git -C "$SRC" ls-tree "$SHA" "$PRODUCT/packages/db/drizzle/" > "$EVIDENCE/migrations-target.txt"
             # Bundled files must be byte-for-byte the files at the release commit,
-            # not just self-consistent. The archive is the publishing repository's
-            # own git objects, never release content; line endings are never converted.
+            # not just self-consistent. The archive is the product tree from this
+            # repository's own git objects, never release content; line endings are
+            # never converted. Its paths are relative to the product, like the bundle's.
             mkdir -p "$EVIDENCE/source"
-            git -C "$SRC" -c core.autocrlf=false archive --format=tar "$SHA" | tar -x -C "$EVIDENCE/source"
+            git -C "$SRC" -c core.autocrlf=false archive --format=tar "$SHA:$PRODUCT" | tar -x -C "$EVIDENCE/source"
           fi
 
           # A failed verification leaves no file; the verifier refuses on a missing attestation.
+          # release-backend-core.yml builds and attests on the tag push: the source ref is the tag.
           for TARGET in api worker migrate; do
             DIGEST="$(jq -r --arg t "$TARGET" '.images[$t].digest // ""' "$EVIDENCE/release/release-manifest.json")"
             [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::warning::no valid $TARGET digest in the manifest"; continue; }
-            if ! gh attestation verify "oci://ghcr.io/kemetra/backend-core-$TARGET@$DIGEST" \
+            if ! gh attestation verify "oci://ghcr.io/kemetra-labs/backend-core-$TARGET@$DIGEST" \
               --repo "$REPO" \
-              --signer-workflow "$REPO/.github/workflows/release-images.yml" \
+              --signer-workflow "$REPO/.github/workflows/release-backend-core.yml" \
               --source-digest "$SHA" \
-              --source-ref refs/heads/main \
+              --source-ref "refs/tags/$BACKEND_RELEASE" \
               --format json > "$EVIDENCE/attest-$TARGET.json"; then
               rm -f "$EVIDENCE/attest-$TARGET.json"
               echo "::warning::attestation verification failed for $TARGET"
             fi
           done
 
-          # The operator-asserted current release gets the same tag and ancestry evidence.
+          # The operator-asserted current release gets the same tag and ancestry evidence,
+          # from the repository that published it: a legacy backend-core-<sha12> release
+          # from the frozen Kemetra/Backend-Core (its migrations at the repository root).
           if [ -n "$CURRENT_RELEASE" ]; then
-            if gh release view "$CURRENT_RELEASE" --repo "$REPO" \
+            case "$CURRENT_RELEASE" in
+              backend-core-*) CUR_REPO="$LEGACY_REPO" CUR_SRC="$LEGACY_SRC" CUR_DRIZZLE=packages/db/drizzle/ ;;
+              *) CUR_REPO="$REPO" CUR_SRC="$SRC" CUR_DRIZZLE="$PRODUCT/packages/db/drizzle/" ;;
+            esac
+            if gh release view "$CURRENT_RELEASE" --repo "$CUR_REPO" \
               --json tagName,targetCommitish,isDraft,isPrerelease,isImmutable > "$EVIDENCE/current-release.json"; then
-              CURRENT_SHA="$(jq -r .targetCommitish "$EVIDENCE/current-release.json")"
+              git -C "$CUR_SRC" rev-parse --verify --quiet "refs/tags/$CURRENT_RELEASE^{commit}" > "$EVIDENCE/current-tag-commit.txt" || true
+              # Legacy releases name their commit as target; a monorepo release's is its tag's.
+              case "$CURRENT_RELEASE" in
+                backend-core-*) CURRENT_SHA="$(jq -r .targetCommitish "$EVIDENCE/current-release.json")" ;;
+                *) CURRENT_SHA="$(tr -d '[:space:]' < "$EVIDENCE/current-tag-commit.txt")" ;;
+              esac
               if [[ "$CURRENT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-                git -C "$SRC" rev-parse --verify --quiet "refs/tags/$CURRENT_RELEASE^{commit}" > "$EVIDENCE/current-tag-commit.txt" || true
-                gh api "repos/$REPO/compare/$CURRENT_SHA...main" \
+                gh api "repos/$CUR_REPO/compare/$CURRENT_SHA...main" \
                   --jq '{status, ahead_by, behind_by, merge_base: .merge_base_commit.sha}' > "$EVIDENCE/compare-current.json" \
                   || rm -f "$EVIDENCE/compare-current.json"
-                if git -C "$SRC" cat-file -e "$CURRENT_SHA^{commit}" 2>/dev/null; then
-                  git -C "$SRC" ls-tree "$CURRENT_SHA" packages/db/drizzle/ > "$EVIDENCE/migrations-current.txt"
+                if git -C "$CUR_SRC" cat-file -e "$CURRENT_SHA^{commit}" 2>/dev/null; then
+                  git -C "$CUR_SRC" ls-tree "$CURRENT_SHA" "$CUR_DRIZZLE" > "$EVIDENCE/migrations-current.txt"
                 fi
               fi
             else
@@ -262,7 +284,7 @@ jobs:
 
           # Report the approval gate; never create it. The token may not be allowed
           # to see environments, so a 404 is "not-visible", not proof it is missing.
-          if OUT="$(gh api "repos/$ENV_REPO/environments/aws-lab" 2>&1)"; then
+          if OUT="$(gh api "repos/$REPO/environments/aws-lab" 2>&1)"; then
             jq '{status: "present", reviewers: ([.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length)}' \
               <<<"$OUT" > "$EVIDENCE/environment.json"
           elif grep -q "Not Found" <<<"$OUT"; then
@@ -284,7 +306,7 @@ jobs:
       # up in the ledger; never after a failed guard, checkout or logout.
       - name: Verify evidence and write the planned ledger (no deploy)
         id: verify
-        if: ${{ !cancelled() && steps.guard.outcome == 'success' && steps.checkout.outcome == 'success' && steps.release_source.outcome == 'success' && steps.logout.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.guard.outcome == 'success' && steps.checkout.outcome == 'success' && (steps.legacy_source.outcome == 'success' || steps.legacy_source.outcome == 'skipped') && steps.logout.outcome == 'success' }}
         env:
           BACKEND_RELEASE: ${{ inputs.backend_release }}
           JIRA_KEY: ${{ inputs.jira_key }}
@@ -382,12 +404,13 @@ jobs:
           [ "$RUN_REF" = "refs/heads/main" ] || fail "must be dispatched from refs/heads/main"
           [ "$DRY_RUN" = "false" ] || fail "the live job runs only when dry_run=false"
           [ "$ENVIRONMENT_GATE" = "reviewed" ] || fail "preflight did not read back aws-lab with a required reviewer"
-          [[ "$BACKEND_RELEASE" =~ ^backend-core-[0-9a-f]{12}$ ]] || fail "backend_release must be backend-core-<12 hex>"
-          [[ "$CURRENT_RELEASE" =~ ^backend-core-[0-9a-f]{12}$ ]] || fail "a live run needs current_release backend-core-<12 hex>"
+          [[ "$BACKEND_RELEASE" =~ ^backend-core/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "backend_release must be backend-core/vX.Y.Z"
+          [[ "$CURRENT_RELEASE" =~ ^(backend-core/v[0-9]+\.[0-9]+\.[0-9]+|backend-core-[0-9a-f]{12})$ ]] \
+            || fail "a live run needs current_release backend-core/vX.Y.Z or a legacy backend-core-<12 hex>"
           [[ "$JIRA_KEY" =~ ^RT-[1-9][0-9]{0,5}$ ]] || fail "jira_key must be RT-<number>"
           [ "$TARGET" = "lab-01" ] || fail "target must be lab-01"
-          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] && [ "${RELEASE_SHA:0:12}" = "${BACKEND_RELEASE#backend-core-}" ] \
-            || fail "preflight plan does not name the release commit"
+          # The preflight bound the release tag to this commit (git tag, release metadata, attestations).
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "preflight plan does not name the release commit"
           for DIGEST in "$API_DIGEST" "$WORKER_DIGEST" "$MIGRATE_DIGEST"; do
             [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "preflight plan lacks a registry digest"
           done
@@ -410,18 +433,10 @@ jobs:
           [[ "$AWS_REGION" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]$ ]] || fail "AWS_REGION must be a region name such as us-east-1"
 
       # No `ref:` on purpose: the claim printer runs from the dispatched main commit.
+      # Full history, so the compat re-check can read the release commit (an ancestor of main).
       - name: Checkout main
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          persist-credentials: false
-
-      # RT-908: the compat re-check reads the release commit, which lives in the
-      # frozen, public Kemetra/Backend-Core (an ancestor of its main).
-      - name: Checkout the release source (Kemetra/Backend-Core, read-only)
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          repository: Kemetra/Backend-Core
-          path: release-source
           persist-credentials: false
           fetch-depth: 0
 
@@ -431,13 +446,13 @@ jobs:
       - name: Re-check the POS compat gate after approval
         env:
           RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
-          RELEASE_REPO_DIR: ${{ github.workspace }}/release-source
+          PRODUCT: services/backend-core
         run: |
           set -euo pipefail
           [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::preflight plan does not name the release commit"; exit 1; }
           SRC="$RUNNER_TEMP/release-source"
           mkdir -p "$SRC"
-          git -C "$RELEASE_REPO_DIR" -c core.autocrlf=false archive --format=tar "$RELEASE_SHA" contracts-compat | tar -x -C "$SRC"
+          git -C "$GITHUB_WORKSPACE" -c core.autocrlf=false archive --format=tar "$RELEASE_SHA:$PRODUCT" contracts-compat | tar -x -C "$SRC"
           node services/backend-core/deploy/release-compat-gate.cjs --source "$SRC"
 
       # RT-532 c12879: print the non-secret trust-policy claims before the first
@@ -477,6 +492,7 @@ jobs:
           BACKEND_RELEASE: ${{ inputs.backend_release }}
           CURRENT_RELEASE: ${{ inputs.current_release }}
           JIRA_KEY: ${{ inputs.jira_key }}
+          RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
           API_DIGEST: ${{ needs.preflight.outputs.api_digest }}
           WORKER_DIGEST: ${{ needs.preflight.outputs.worker_digest }}
           MIGRATE_DIGEST: ${{ needs.preflight.outputs.migrate_digest }}
@@ -531,20 +547,21 @@ jobs:
             '{ReleaseTag: [$t], CurrentRelease: [$c], JiraKey: [$j]}' > "$LIVE/backup-params.json"
           run_document backup "$LAB02" RT-BackendLabBackup "$LIVE/backup-params.json" 960
 
-          BACKUP_LINE="$(grep -E '^RT_BACKUP name=rtlab-[0-9a-f]{12}-to-[0-9a-f]{12}-[0-9]{8}T[0-9]{6}Z\.dump sha256=[0-9a-f]{64}$' "$LIVE/backup.lines" || true)"
+          # rtlab-<current id>-to-<target id>-<UTC stamp>.dump; an id is a legacy <sha12> or vX.Y.Z (no `/`).
+          BACKUP_LINE="$(grep -E '^RT_BACKUP name=rtlab-([0-9a-f]{12}|v[0-9]+\.[0-9]+\.[0-9]+)-to-v[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}T[0-9]{6}Z\.dump sha256=[0-9a-f]{64}$' "$LIVE/backup.lines" || true)"
           [ "$(grep -c . <<<"$BACKUP_LINE" || true)" = 1 ] || fail "backup: no single backup reference reported"
           BACKUP_NAME="$(sed -E 's/^RT_BACKUP name=([^ ]+) sha256=.*$/\1/' <<<"$BACKUP_LINE")"
           BACKUP_SHA256="$(sed -E 's/^.* sha256=([0-9a-f]{64})$/\1/' <<<"$BACKUP_LINE")"
 
-          jq -n --arg t "$BACKEND_RELEASE" --arg c "$CURRENT_RELEASE" --arg j "$JIRA_KEY" \
+          jq -n --arg t "$BACKEND_RELEASE" --arg s "$RELEASE_SHA" --arg c "$CURRENT_RELEASE" --arg j "$JIRA_KEY" \
             --arg a "$API_DIGEST" --arg w "$WORKER_DIGEST" --arg m "$MIGRATE_DIGEST" \
             --arg bn "$BACKUP_NAME" --arg bs "$BACKUP_SHA256" --arg r "$ROLLBACK_ALLOWED" \
-            '{ReleaseTag: [$t], CurrentRelease: [$c], JiraKey: [$j], ApiDigest: [$a], WorkerDigest: [$w],
+            '{ReleaseTag: [$t], ReleaseSha: [$s], CurrentRelease: [$c], JiraKey: [$j], ApiDigest: [$a], WorkerDigest: [$w],
               MigrateDigest: [$m], BackupName: [$bn], BackupSha256: [$bs], RollbackAllowed: [$r]}' > "$LIVE/deploy-params.json"
           # Each poll window is its document's timeoutSeconds (900 / 1800) plus a minute; both fit the 3600 s
           # role session. The host auto-revert covers a run this job stops waiting for.
           run_document deploy "$LAB01" RT-BackendLabDeploy "$LIVE/deploy-params.json" 1860
-          grep -qx "RT_DONE release=$BACKEND_RELEASE" "$LIVE/deploy.lines" || fail "deploy: the document did not report completion"
+          grep -qxF "RT_DONE release=$BACKEND_RELEASE" "$LIVE/deploy.lines" || fail "deploy: the document did not report completion"
 
       # The live ledger: prior/target digests, backup reference, gate results and
       # the failure boundary, built only from the strict RT_* lines. No secrets.

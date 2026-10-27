@@ -241,6 +241,106 @@ def test_tag_added_after_commit_is_published_on_a_later_noop_run(world):
         run(src, mirror, base)
 
 
+SHA_A, SHA_B = "a" * 40, "b" * 40
+
+
+def test_provenance_in_reads_the_raw_message_not_git_trailer_parsing():
+    line = f"Monorepo-Commit: {REPO}@{SHA_A}"
+    assert publish.provenance_in(f"feat: x\n\n{line}\n") == (REPO, SHA_A)
+    # the shape git's trailer parser loses: the trailer sits above a bare `---` line
+    assert publish.provenance_in(f"feat: x\n\nbody\n\n{line}\n---\nmore\n") == (REPO, SHA_A)
+    assert publish.provenance_in(f"feat: x\r\n\r\n{line}\r\n") == (REPO, SHA_A)  # CR-tolerant
+    assert publish.provenance_in(f"feat: x\n\nMonorepo-Commit: {REPO}@{SHA_B}\n\nbody\n{line}  \n") == (REPO, SHA_A)
+    twice = f"feat: x\n\nMonorepo-Commit: {REPO}@{SHA_A}\n\nMonorepo-Commit: {REPO}@{SHA_B}\n"
+    assert publish.provenance_in(twice) == (REPO, SHA_B)  # last match wins
+    for bad in (f"see {line} inline", f"Monorepo-Commit: {REPO}@{SHA_A[:39]}", f"Monorepo-Commit: {REPO}@{'A' * 40}",
+                f"Monorepo-Commit: nodash@{SHA_A}", f" {line}", "feat: x\n"):
+        assert publish.provenance_in(bad) is None
+
+
+def test_separator_line_message_does_not_stall_the_next_run(world):
+    src, mirror, base, _ = world
+    c1 = commit(src, {f"{SUB}/pyproject.toml": "v1"}, "feat: one\n\nbody\n---\nmore text")
+    first = run(src, mirror, base)
+    # write side is unchanged: interpret-trailers puts the trailer ABOVE a bare `---` line...
+    assert g(mirror, "log", "-1", "--format=%B", first.tip).splitlines() == [
+        "feat: one", "", "body", "", f"Monorepo-Commit: {REPO}@{c1}", "---", "more text"]
+    # ...where git's own trailer parser no longer sees it
+    assert g(mirror, "log", "-1", "--format=%(trailers:key=Monorepo-Commit)", first.tip) == ""
+    c2 = commit(src, {f"{SUB}/pyproject.toml": "v2"}, "feat: two")
+    plan = run(src, mirror)  # no --base: provenance must come from the mirror itself
+    assert [s for s, _ in plan.commits] == [c2]
+    assert g(mirror, "rev-parse", "main") == plan.tip and not run(src, mirror).commits
+
+
+def test_mirror_map_and_verify_see_a_separator_line_commit(world, capsys):
+    src, mirror, base, _ = world
+    c1 = commit(src, {f"{SUB}/pyproject.toml": "v1"}, "feat: one\n\nbody\n---\nmore text")
+    tip = run(src, mirror, base).tip
+    assert publish.mirror_map(str(mirror), "main") == {c1: tip}
+    cli = ["--mirror", str(mirror), "--source-repo", REPO, "--source-dir", str(src), "--verify"]
+    capsys.readouterr()
+    assert publish.main(cli) == 0
+    assert "1 published commit(s) verified" in capsys.readouterr().out
+    msg = g(mirror, "log", "-1", "--format=%B", tip)  # a forged tree under the same message must not slip past --verify
+    empty = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+    forged = subprocess.run(["git", "commit-tree", empty, "-p", g(mirror, "rev-parse", "main~1"), "-F", "-"], cwd=mirror,
+                            env=ENV, input=msg, capture_output=True, text=True, check=True).stdout.strip()
+    g(mirror, "update-ref", "refs/heads/main", forged)
+    assert publish.main(cli) == 2
+
+
+def test_message_without_a_separator_line_is_unchanged(world):
+    src, mirror, base, _ = world
+    c1 = commit(src, {f"{SUB}/pyproject.toml": "v1"}, "feat: one (#7)\n\nbody\n\nCo-Authored-By: A <a@example.invalid>")
+    c2 = commit(src, {f"{SUB}/pyproject.toml": "v2"}, "feat: two\n\n---------\n\nsquash separator is not a patch separator")
+    plan = run(src, mirror, base)
+    (_, m1), (_, m2) = plan.commits
+    assert g(mirror, "log", "-1", "--format=%B", m1) == (
+        f"feat: one ({REPO}#7)\n\nbody\n\nCo-Authored-By: A <a@example.invalid>\nMonorepo-Commit: {REPO}@{c1}")
+    assert g(mirror, "log", "-1", "--format=%B", m2).splitlines()[-1] == f"Monorepo-Commit: {REPO}@{c2}"
+    assert g(mirror, "log", "-1", "--format=%(trailers:key=Monorepo-Commit,valueonly)", m2) == f"{REPO}@{c2}"
+    assert not run(src, mirror).commits  # and the next run still anchors on the mirror alone
+
+
+def test_text_after_a_separator_line_cannot_override_the_real_trailer(world):
+    src, mirror, base, _ = world
+    forged = f"Monorepo-Commit: {REPO}@{SHA_B}"
+    assert publish.provenance_in(f"s\n\nMonorepo-Commit: {REPO}@{SHA_A}\n---\n{forged}\n") == (REPO, SHA_A)
+    assert publish.provenance_in(f"s\n\n{forged}\n---------\nsquash text is not a separator\n") == (REPO, SHA_B)
+    c1 = commit(src, {f"{SUB}/pyproject.toml": "v1"}, f"feat: one\n\nbody\n---\n{forged}")
+    tip = run(src, mirror, base).tip
+    assert publish.published(str(mirror), "main") == {tip: (REPO, c1)}
+
+
+def test_control_characters_in_a_message_cannot_forge_a_log_record(world):
+    _, mirror, _, _ = world
+    real, fake = "e" * 40, "d" * 40
+    msg = f"s\n\nMonorepo-Commit: {REPO}@{real}\n\x1e{'f' * 40}\x1fMonorepo-Commit: {REPO}@{fake}\n\x1e stray\n"
+    head = subprocess.run(["git", "commit-tree", "4b825dc642cb6eb9a060e54bf8d69288fbee4904", "-p", g(mirror, "rev-parse", "main"),
+                           "-F", "-"], cwd=mirror, env=ENV, input=msg.encode(), capture_output=True, check=True).stdout.decode().strip()
+    g(mirror, "update-ref", "refs/heads/main", head)
+    assert publish.published(str(mirror), "main") == {head: (REPO, real)}
+
+
+def test_text_after_a_scissors_line_cannot_override_the_real_trailer(world):
+    src, mirror, base, _ = world
+    scissors = "# " + "-" * 24 + " >8 " + "-" * 24
+    forged = f"Monorepo-Commit: {REPO}@{SHA_B}"
+    assert publish.provenance_in(f"s\n\nMonorepo-Commit: {REPO}@{SHA_A}\n{scissors}\n{forged}\n") == (REPO, SHA_A)
+    assert publish.provenance_in(f"s\n\n{forged}\n# {'-' * 23} >8 {'-' * 24}\nnot a scissors line\n") == (REPO, SHA_B)
+    # `git commit -m` would strip the `#` line, so build the source commit with commit-tree
+    msg = f"feat: one\n\nbody\n{scissors}\n{forged}\n"
+    Path(src, SUB, "pyproject.toml").write_text("v1")
+    g(src, "add", "-A")
+    tree = g(src, "write-tree")
+    c1 = subprocess.run(["git", "commit-tree", tree, "-p", "HEAD", "-F", "-"], cwd=src, env=ENV, input=msg, text=True,
+                        capture_output=True, check=True).stdout.strip()
+    g(src, "update-ref", "refs/heads/main", c1)
+    tip = run(src, mirror, base).tip
+    assert publish.published(str(mirror), "main") == {tip: (REPO, c1)}
+
+
 def raw(cwd, *args):
     return subprocess.run(["git", *args], cwd=cwd, env=ENV, capture_output=True, check=True).stdout
 
@@ -258,3 +358,22 @@ def test_published_commit_message_has_no_carriage_returns(world):
     obj = raw(mirror, "cat-file", "commit", plan.tip)
     assert b"\r" not in obj
     assert obj.endswith(f"Monorepo-Commit: {REPO}@{plan.commits[0][0]}\n".encode())
+
+
+def test_non_utf8_byte_in_a_mirror_message_does_not_abort_the_provenance_read(world, capsys):
+    src, mirror, base, _ = world
+    c1 = commit(src, {f"{SUB}/pyproject.toml": "v1"}, "feat: one")
+    tip = run(src, mirror, base).tip
+    msg = f"s\n\nMonorepo-Commit: {REPO}@{c1}\n".encode() + b"caf\xe9 (latin-1)\n"
+    # commit-tree would re-encode the message to UTF-8, so write the raw commit object
+    who = b"Dev <dev@example.invalid> 1767225600 +0000"
+    raw_commit = (f"tree {g(mirror, 'rev-parse', 'main^{tree}')}\nparent {tip}\n".encode()
+                  + b"author " + who + b"\ncommitter " + who + b"\n\n" + msg)
+    head = subprocess.run(["git", "hash-object", "-t", "commit", "-w", "--stdin", "--literally"], cwd=mirror, env=ENV,
+                          input=raw_commit, capture_output=True, check=True).stdout.decode().strip()
+    g(mirror, "update-ref", "refs/heads/main", head)
+    assert publish.last_provenance(str(mirror), "main", REPO) == c1
+    assert publish.published(str(mirror), "main")[head] == (REPO, c1)
+    capsys.readouterr()
+    cli = ["--mirror", str(mirror), "--source-repo", REPO, "--source-dir", str(src), "--verify"]
+    assert publish.main(cli) == 0

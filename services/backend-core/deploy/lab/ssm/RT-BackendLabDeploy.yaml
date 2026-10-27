@@ -43,13 +43,26 @@
 # Host contract (Needs verification on lab-01 before the first live run, see
 # deploy/README.md): the release directories, compose wrapper, env files and
 # origin hostname below. Every one is checked first; a mismatch stops the run.
+#
+# RT-908 (Phase B): the target is a backend-core/vX.Y.Z release of the monorepo
+# Kemetra-Labs/Retail-Tower-Erp (images in ghcr.io/kemetra-labs). The current
+# release may still be a legacy backend-core-<sha12> one. A tag with `/` is never
+# used as a file name or in a pattern: the release directory is its slug
+# (backend-core/v1.2.3 -> release-backend-core-v1.2.3; a legacy tag is its own
+# slug), and the release id (v1.2.3 or the legacy <sha12>) names the backup and
+# SENTRY_RELEASE.
 schemaVersion: "2.2"
 description: "RT lab-01: deploy one pinned Backend-Core release by digest with host, backup, migrate and readiness gates and a 15-minute auto-revert (RT-842)."
 parameters:
   ReleaseTag:
     type: String
-    description: "Target Backend-Core release, backend-core-<sha12>."
-    allowedPattern: "^backend-core-[0-9a-f]{12}$"
+    description: "Target Backend-Core release of the monorepo, backend-core/vX.Y.Z."
+    allowedPattern: "^backend-core/v[0-9]+\\.[0-9]+\\.[0-9]+$"
+    interpolationType: ENV_VAR
+  ReleaseSha:
+    type: String
+    description: "Commit of the target release (names its bundle), 40 hex."
+    allowedPattern: "^[0-9a-f]{40}$"
     interpolationType: ENV_VAR
   ApiDigest:
     type: String
@@ -68,8 +81,8 @@ parameters:
     interpolationType: ENV_VAR
   CurrentRelease:
     type: String
-    description: "Release lab-01 must be running now, backend-core-<sha12> (G-Host)."
-    allowedPattern: "^backend-core-[0-9a-f]{12}$"
+    description: "Release lab-01 must be running now, backend-core/vX.Y.Z or a legacy backend-core-<sha12> (G-Host)."
+    allowedPattern: "^(backend-core/v[0-9]+\\.[0-9]+\\.[0-9]+|backend-core-[0-9a-f]{12})$"
     interpolationType: ENV_VAR
   JiraKey:
     type: String
@@ -79,7 +92,7 @@ parameters:
   BackupName:
     type: String
     description: "Backup the lab-02 document reported for this run (G-Backup)."
-    allowedPattern: "^rtlab-[0-9a-f]{12}-to-[0-9a-f]{12}-[0-9]{8}T[0-9]{6}Z\\.dump$"
+    allowedPattern: "^rtlab-([0-9a-f]{12}|v[0-9]+\\.[0-9]+\\.[0-9]+)-to-v[0-9]+\\.[0-9]+\\.[0-9]+-[0-9]{8}T[0-9]{6}Z\\.dump$"
     interpolationType: ENV_VAR
   BackupSha256:
     type: String
@@ -121,7 +134,8 @@ mainSteps:
           STATE_ROOT=/var/lib/rt-deploy
           LOG_DIR=/var/log/rt-deploy
           ORIGIN_HOST=lab.kemetralabs.com
-          REPO=Kemetra/Backend-Core
+          REPO=Kemetra-Labs/Retail-Tower-Erp
+          IMAGE_PREFIX=ghcr.io/kemetra-labs/backend-core-
           # psql client for grants and catch-up (lab-01 has no psql); bash is needed by apply-domain-grants.sh.
           PSQL_IMAGE=postgres:16-bookworm@sha256:d81f7b51697014367236d07ec58b54153fc28f828b72bf247fe5c7487520bcb0
           REVERT_AFTER=15min
@@ -149,6 +163,7 @@ mainSteps:
           stop() { echo "stopped at gate $GATE: $*"; say "RT_FAIL gate=$GATE reason=$*"; exit 1; }
 
           RELEASE_TAG="${SSM_ReleaseTag:-}"
+          RELEASE_SHA="${SSM_ReleaseSha:-}"
           API_DIGEST="${SSM_ApiDigest:-}"
           WORKER_DIGEST="${SSM_WorkerDigest:-}"
           MIGRATE_DIGEST="${SSM_MigrateDigest:-}"
@@ -157,23 +172,33 @@ mainSteps:
           BACKUP_NAME="${SSM_BackupName:-}"
           BACKUP_SHA256="${SSM_BackupSha256:-}"
           ROLLBACK_ALLOWED="${SSM_RollbackAllowed:-}"
-          TAG_RE='^backend-core-[0-9a-f]{12}$'
+          TAG_RE='^backend-core/v[0-9]+\.[0-9]+\.[0-9]+$'
+          CURRENT_RE='^(backend-core/v[0-9]+\.[0-9]+\.[0-9]+|backend-core-[0-9a-f]{12})$'
           DIGEST_RE='^sha256:[0-9a-f]{64}$'
           [[ "$RELEASE_TAG" =~ $TAG_RE ]] || stop "ReleaseTag-missing-or-invalid"
-          [[ "$CURRENT_RELEASE" =~ $TAG_RE ]] || stop "CurrentRelease-missing-or-invalid"
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || stop "ReleaseSha-missing-or-invalid"
+          [[ "$CURRENT_RELEASE" =~ $CURRENT_RE ]] || stop "CurrentRelease-missing-or-invalid"
           [[ "$API_DIGEST" =~ $DIGEST_RE ]] || stop "ApiDigest-missing-or-invalid"
           [[ "$WORKER_DIGEST" =~ $DIGEST_RE ]] || stop "WorkerDigest-missing-or-invalid"
           [[ "$MIGRATE_DIGEST" =~ $DIGEST_RE ]] || stop "MigrateDigest-missing-or-invalid"
           [[ "$JIRA_KEY" =~ ^RT-[1-9][0-9]{0,5}$ ]] || stop "JiraKey-missing-or-invalid"
-          [[ "$BACKUP_NAME" =~ ^rtlab-([0-9a-f]{12})-to-([0-9a-f]{12})-([0-9]{8})T([0-9]{6})Z\.dump$ ]] || stop "BackupName-missing-or-invalid"
+          [[ "$BACKUP_NAME" =~ ^rtlab-([0-9a-f]{12}|v[0-9]+\.[0-9]+\.[0-9]+)-to-(v[0-9]+\.[0-9]+\.[0-9]+)-([0-9]{8})T([0-9]{6})Z\.dump$ ]] || stop "BackupName-missing-or-invalid"
           BK_CUR="${BASH_REMATCH[1]}" BK_TGT="${BASH_REMATCH[2]}" BK_DAY="${BASH_REMATCH[3]}" BK_TIME="${BASH_REMATCH[4]}"
           [[ "$BACKUP_SHA256" =~ ^[0-9a-f]{64}$ ]] || stop "BackupSha256-missing-or-invalid"
           [[ "$ROLLBACK_ALLOWED" =~ ^(true|false)$ ]] || stop "RollbackAllowed-missing-or-invalid"
-          TGT12="${RELEASE_TAG#backend-core-}"
-          CUR12="${CURRENT_RELEASE#backend-core-}"
-          API_REF="ghcr.io/kemetra/backend-core-api@$API_DIGEST"
-          WORKER_REF="ghcr.io/kemetra/backend-core-worker@$WORKER_DIGEST"
-          MIGRATE_REF="ghcr.io/kemetra/backend-core-migrate@$MIGRATE_DIGEST"
+          # Slugs (file names) and ids, never the raw tag: backend-core/v1.2.3 -> backend-core-v1.2.3 -> v1.2.3;
+          # a legacy backend-core-<sha12> is its own slug, id <sha12>.
+          TGT_SLUG="${RELEASE_TAG/\//-}"
+          CUR_SLUG="${CURRENT_RELEASE/\//-}"
+          TGT_ID="${TGT_SLUG#backend-core-}"
+          CUR_ID="${CUR_SLUG#backend-core-}"
+          # Release-directory matchers (ERE): each dot a literal [.], and the slug must end there,
+          # so release-backend-core-v1.2.1 never matches inside release-backend-core-v1.2.10.
+          CUR_DIR_RE="release-${CUR_SLUG//./[.]}([^0-9A-Za-z.]|\$)"
+          TGT_DIR_RE="release-${TGT_SLUG//./[.]}([^0-9A-Za-z.]|\$)"
+          API_REF="${IMAGE_PREFIX}api@$API_DIGEST"
+          WORKER_REF="${IMAGE_PREFIX}worker@$WORKER_DIGEST"
+          MIGRATE_REF="${IMAGE_PREFIX}migrate@$MIGRATE_DIGEST"
           echo "deploy for $JIRA_KEY: $CURRENT_RELEASE -> $RELEASE_TAG (rollback allowed: $ROLLBACK_ALLOWED)"
 
           GATE=lock
@@ -222,16 +247,16 @@ mainSteps:
           GATE=G-Host
           [ -x "$DC" ] && [ -f "$BACKEND_ENV" ] && [ -f "$GRANTS_ENV" ] || stop "host-contract-files-missing"
           command -v docker >/dev/null && command -v python3 >/dev/null && command -v systemd-run >/dev/null && command -v curl >/dev/null || stop "host-contract-tools-missing"
-          CUR_DIR="$BACKEND_DIR/release-$CURRENT_RELEASE"
+          CUR_DIR="$BACKEND_DIR/release-$CUR_SLUG"
           [ -f "$CUR_DIR/release.env" ] || stop "current-release-directory-missing"
           # Each run arms its own revert unit and the lock covers only this process: an earlier run's
           # armed (or fired, elapsed) revert would undo this one. The owner reviews and stops it first.
           ARMED="$(systemctl list-units --all --plain --no-legend --state=active,activating,reloading \
             'rt-deploy-revert-*' </dev/null)" || stop "revert-unit-query-failed"
           [ -z "$ARMED" ] || stop "an-earlier-auto-revert-is-armed-or-elapsed"
-          grep -qF "release-$CURRENT_RELEASE" "$DC" || stop "wrapper-does-not-use-the-current-release"
+          grep -qE "$CUR_DIR_RE" "$DC" || stop "wrapper-does-not-use-the-current-release"
           SENTRY="$(env_value "$BACKEND_ENV" SENTRY_RELEASE)" || stop "SENTRY_RELEASE-missing-or-duplicated"
-          [ "$SENTRY" = "$CUR12" ] || stop "SENTRY_RELEASE-is-not-the-current-release"
+          [ "$SENTRY" = "$CUR_ID" ] || stop "SENTRY_RELEASE-is-not-the-current-release"
           PRIOR_API="$(env_value "$CUR_DIR/release.env" DP2_API_IMAGE)" || stop "current-release-env-unreadable"
           PRIOR_WORKER="$(env_value "$CUR_DIR/release.env" DP2_WORKER_IMAGE)" || stop "current-release-env-unreadable"
           PRIOR_MIGRATE="$(env_value "$CUR_DIR/release.env" DP2_MIGRATE_IMAGE)" || stop "current-release-env-unreadable"
@@ -250,7 +275,7 @@ mainSteps:
 
           # ---------------------------------------------------------------- G-Backup
           GATE=G-Backup
-          [ "$BK_CUR" = "$CUR12" ] && [ "$BK_TGT" = "$TGT12" ] || stop "backup-is-for-another-release-pair"
+          [ "$BK_CUR" = "$CUR_ID" ] && [ "$BK_TGT" = "$TGT_ID" ] || stop "backup-is-for-another-release-pair"
           BK_EPOCH="$(date -u -d "${BK_DAY:0:4}-${BK_DAY:4:2}-${BK_DAY:6:2}T${BK_TIME:0:2}:${BK_TIME:2:2}:${BK_TIME:4:2}Z" +%s)" || stop "backup-timestamp-unreadable"
           AGE=$(( $(date -u +%s) - BK_EPOCH ))
           [ "$AGE" -ge 0 ] && [ "$AGE" -le "$BACKUP_MAX_AGE_SECONDS" ] || stop "backup-is-not-from-this-run"
@@ -259,9 +284,10 @@ mainSteps:
 
           # ---------------------------------------------------------------- fetch
           GATE=fetch
-          BUNDLE="backend-core-release-$TGT12"
-          TGT_DIR="$BACKEND_DIR/release-$RELEASE_TAG"
+          BUNDLE="backend-core-release-${RELEASE_SHA:0:12}"
+          TGT_DIR="$BACKEND_DIR/release-$TGT_SLUG"
           if [ ! -d "$TGT_DIR" ]; then
+            # GitHub serves a tag with `/` at this literal path (its own browser_download_url form).
             BASE="https://github.com/$REPO/releases/download/$RELEASE_TAG"
             for ASSET in "$BUNDLE.tar.gz" release-manifest.json SHA256SUMS; do
               curl -fsSL --proto '=https' --tlsv1.2 --max-time 120 --max-filesize "$MAX_ASSET_BYTES" \
@@ -282,6 +308,9 @@ mainSteps:
             mv "$WORK/extract" "$TGT_DIR"
           fi
           (cd "$TGT_DIR" && sha256sum --check --strict --quiet SHA256SUMS) || stop "bundle-files-do-not-match-their-SHA256SUMS"
+          # The bundle is the one the workflow verified: its manifest names ReleaseSha and ReleaseTag.
+          python3 -c 'import json, sys; m = json.load(open(sys.argv[1])); sys.exit(0 if m.get("sha") == sys.argv[2] and m.get("releaseTag") == sys.argv[3] else 1)' \
+            "$TGT_DIR/release-manifest.json" "$RELEASE_SHA" "$RELEASE_TAG" </dev/null || stop "manifest-is-not-ReleaseSha-ReleaseTag"
           [ "$(env_value "$TGT_DIR/release.env" DP2_API_IMAGE)" = "$API_REF" ] || stop "release-env-api-is-not-ApiDigest"
           [ "$(env_value "$TGT_DIR/release.env" DP2_WORKER_IMAGE)" = "$WORKER_REF" ] || stop "release-env-worker-is-not-WorkerDigest"
           [ "$(env_value "$TGT_DIR/release.env" DP2_MIGRATE_IMAGE)" = "$MIGRATE_REF" ] || stop "release-env-migrate-is-not-MigrateDigest"
@@ -297,14 +326,15 @@ mainSteps:
           GATE=backup-config
           cp -p "$BACKEND_ENV" "$RUN_DIR/backend.env"
           cp -p "$DC" "$RUN_DIR/dc"
-          cp -p "$BACKEND_ENV" "$BACKEND_ENV.bak-pre-$TGT12-$RUN_ID"
-          cp -p "$DC" "$DC.bak-pre-$TGT12-$RUN_ID"
+          cp -p "$BACKEND_ENV" "$BACKEND_ENV.bak-pre-$TGT_ID-$RUN_ID"
+          cp -p "$DC" "$DC.bak-pre-$TGT_ID-$RUN_ID"
           cmp -s "$BACKEND_ENV" "$RUN_DIR/backend.env" && cmp -s "$DC" "$RUN_DIR/dc" || stop "config-backup-does-not-verify"
           # The next wrapper and env differ only in the release directory, SENTRY_RELEASE and any image keys.
-          sed "s|release-$CURRENT_RELEASE|release-$RELEASE_TAG|g" "$DC" > "$RUN_DIR/dc.next"
-          grep -qF "release-$RELEASE_TAG" "$RUN_DIR/dc.next" || stop "next-wrapper-not-built"
+          sed -E "s#$CUR_DIR_RE#release-$TGT_SLUG\1#g" "$DC" > "$RUN_DIR/dc.next"
+          grep -qE "$TGT_DIR_RE" "$RUN_DIR/dc.next" || stop "next-wrapper-not-built"
+          ! grep -qE "$CUR_DIR_RE" "$RUN_DIR/dc.next" || stop "next-wrapper-still-uses-the-current-release"
           cp -p "$BACKEND_ENV" "$RUN_DIR/backend.env.next"
-          sed -i "s|^SENTRY_RELEASE=.*|SENTRY_RELEASE=$TGT12|" "$RUN_DIR/backend.env.next"
+          sed -i "s|^SENTRY_RELEASE=.*|SENTRY_RELEASE=$TGT_ID|" "$RUN_DIR/backend.env.next"
           for PAIR in "DP2_API_IMAGE=$API_REF" "DP2_WORKER_IMAGE=$WORKER_REF" "DP2_MIGRATE_IMAGE=$MIGRATE_REF"; do
             KEY="${PAIR%%=*}"
             case "$(grep -c "^$KEY=" "$RUN_DIR/backend.env.next" || true)" in
