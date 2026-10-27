@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 // RT-703: verify a published Backend-Core release for the manual lab deploy
-// (the product's deploy-lab.yml, retired in RT-878 until the lab deploy is rebuilt on
-// the monorepo release) and write a planned-deployment
-// ledger. Slice 1 is a dry run: this script only reads evidence files the
+// (the root .github/workflows/deploy-lab.yml) and write a planned-deployment
+// ledger. RT-908 (Phase B): the target is a monorepo release, tag
+// backend-core/vX.Y.Z of Kemetra-Labs/Retail-Tower-Erp (release-backend-core.yml,
+// RT-717), images in ghcr.io/kemetra-labs. The current release may still be a
+// legacy backend-core-<sha12> release of the frozen Kemetra/Backend-Core: the
+// workflow reads its metadata and migrations from there. Slice 1 is a dry run: this script only reads evidence files the
 // workflow collected from the GitHub API. It makes no network calls, reads no
 // secrets, changes nothing anywhere and writes only under --out.
 //
@@ -14,16 +17,16 @@
 //   compare.json            {status, ahead_by, behind_by, merge_base} for <sha>...main
 //   check-runs.json         [{name, conclusion, slug, started_at}] on <sha>
 //   attest-<target>.json    gh attestation verify --format json output (absent = not verified)
-//   migrations-target.txt   git ls-tree <sha> packages/db/drizzle/ (blob IDs catch in-place edits)
-//   source/                 git archive <sha>: every bundled file must be byte-for-byte the file there;
-//                           its contracts-compat/ also feeds the POS compat gate (RT-863)
+//   migrations-target.txt   git ls-tree <sha> services/backend-core/packages/db/drizzle/ (blob IDs catch in-place edits)
+//   source/                 git archive <sha>:services/backend-core: every bundled file must be byte-for-byte
+//                           the file there; its contracts-compat/ also feeds the POS compat gate (RT-863)
 //   environment.json        {status: present|not-visible|unknown, reviewers}
 //   collect-error.txt       only when collection stopped early: why (each line a refusal)
 //   current-release.json, current-tag-commit.txt, compare-current.json,
 //   migrations-current.txt  only with --current-release
 //
 // Usage:
-//   node deploy/lab/verify-release.cjs --evidence DIR --out DIR --release backend-core-<sha12>
+//   node deploy/lab/verify-release.cjs --evidence DIR --out DIR --release backend-core/vX.Y.Z
 //     --jira-key RT-<n> --target lab-01 --mode dry-run [--current-release TAG]
 //     [--actor NAME] [--run-url URL]
 //
@@ -38,37 +41,28 @@ const path = require("node:path");
 
 const { COMPAT_CHECK, evaluateCompat } = require("../release-compat-gate.cjs");
 
-const REPO = "Kemetra/Backend-Core";
+const REPO = "Kemetra-Labs/Retail-Tower-Erp";
 const TARGETS = ["api", "worker", "migrate"];
 const LAB_TARGETS = ["lab-01"];
-// The ci.yml jobs that run on a push to main; the same list release-images.yml requires.
-const DB_PACKAGE_CHECK = "db-package (packages/db migrations + worker DB suites)";
-const REQUIRED_CHECKS = [
-  "fast (build + Docker-free tests)",
-  "db-integration (Testcontainers + RLS + migrations)",
-  DB_PACKAGE_CHECK,
-  COMPAT_CHECK,
-];
-// RT-863: the POS compat check has no pre-split exemption. A release commit without a green
-// compat run (older than RT-713 included) is refused: an unproven release must not reach the
-// lab, where the installed offline terminal talks to it.
-const PRE_SPLIT_CHECKS = REQUIRED_CHECKS.filter((name) => name !== DB_PACKAGE_CHECK);
-// RT-816 split the packages/db + worker DB suites out of db-integration into a
-// db-package job. A release whose own ci.yml has no such job ran them inside
-// db-integration, so its two checks prove the same thing (equal strength).
-// Deliberately loose (any indent, quoted key, trailing comment or anchor, CRLF):
-// reading a post-split ci.yml as pre-split would drop a required check, while a
-// stray match only requires one more.
-const DB_PACKAGE_JOB_RE = /^[ \t]+["']?db-package["']?[ \t]*:/m;
-const RELEASE_CI_YML = path.join(".github", "workflows", "ci.yml");
+// The backend-core.yml root jobs that run on every push to main: the same list
+// release-backend-core.yml's compat guard requires. RT-863: the POS compat check has no
+// exemption; an unproven release must not reach the lab, where the installed offline
+// terminal talks to it.
+const REQUIRED_CHECKS = ["bc/fast", "bc/db-integration", "bc/db-package", COMPAT_CHECK];
 const REQUIRED_FILES = ["docker-compose.release.yml", "release.env"];
 // No evidence file is ever read past this size (the workflow caps the bundle the same way).
 const MAX_FILE_BYTES = 16 * 1024 * 1024;
-const SIGNER_WORKFLOW = `https://github.com/${REPO}/.github/workflows/release-images.yml@refs/heads/main`;
+// release-backend-core.yml publishes on the tag push, so the certificate names the tag ref.
+const SIGNER_WORKFLOW = `https://github.com/${REPO}/.github/workflows/release-backend-core.yml`;
+const signerUri = (tag) => `${SIGNER_WORKFLOW}@refs/tags/${tag}`;
+const IMAGE_PREFIX = "ghcr.io/kemetra-labs/backend-core-";
 const SLSA_PROVENANCE = "https://slsa.dev/provenance/v1";
 const ENV_VARS = { api: "DP2_API_IMAGE", worker: "DP2_WORKER_IMAGE", migrate: "DP2_MIGRATE_IMAGE" };
 const SHA_RE = /^[0-9a-f]{40}$/;
-const TAG_RE = /^backend-core-[0-9a-f]{12}$/;
+const DEFAULT_BRANCH = "main";
+const TAG_RE = /^backend-core\/v[0-9]+\.[0-9]+\.[0-9]+$/;
+// Only ever a current (rollback) release: published by the frozen Kemetra/Backend-Core.
+const LEGACY_TAG_RE = /^backend-core-[0-9a-f]{12}$/;
 const JIRA_RE = /^RT-[1-9]\d*$/;
 const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
 const SUMS_LINE_RE = /^([0-9a-f]{64}) [ *](\S+)$/;
@@ -79,7 +73,7 @@ const ALLOWLIST_RE = /^ALLOWLIST=\(\r?\n([\s\S]*?)^\)/m;
 const ROUTINE_GRANTS_SELECTOR = "bash deploy/apply-domain-grants.sh --list";
 const ROUTINE_GRANT_MARKER = "-- deploy: every-release";
 // One plain assignment of a digest ref to an upper-case key: nothing a shell could expand or run.
-const ENV_LINE_RE = /^([A-Z][A-Z0-9_]{0,63})=(ghcr\.io\/kemetra\/backend-core-(?:api|worker|migrate)@sha256:[0-9a-f]{64})$/;
+const ENV_LINE_RE = /^([A-Z][A-Z0-9_]{0,63})=(ghcr\.io\/kemetra-labs\/backend-core-(?:api|worker|migrate)@sha256:[0-9a-f]{64})$/;
 const ROLE_ARN_RE = /^arn:aws:iam::\d{12}:role\/[\w+=,.@/-]+$/;
 const SSM_NODE_RE = /^mi-[0-9a-f]{17}$/;
 
@@ -94,7 +88,7 @@ const LIVE_STEPS = [
   "Record this ledger on the Jira issue",
 ];
 
-const imageRef = (target, digest) => `ghcr.io/kemetra/backend-core-${target}@${digest}`;
+const imageRef = (target, digest) => `${IMAGE_PREFIX}${target}@${digest}`;
 const bundleName = (sha) => `backend-core-release-${sha.slice(0, 12)}`;
 const isSafeRelative = (p) => !path.isAbsolute(p) && !p.startsWith("/") && !p.split(/[\\/]/).includes("..");
 // Deterministic order for file and migration names (explicit, not the default coercing sort).
@@ -148,26 +142,46 @@ function sha256File(file) {
 
 function checkInputs(ctx) {
   const problems = [];
-  if (!TAG_RE.test(ctx.release ?? "")) problems.push("backend_release must be backend-core-<12 hex>");
+  if (!TAG_RE.test(ctx.release ?? "")) problems.push("backend_release must be backend-core/vX.Y.Z");
   if (!JIRA_RE.test(ctx.jiraKey ?? "")) problems.push("jira_key must be RT-<number>");
   if (!LAB_TARGETS.includes(ctx.target)) problems.push(`target must be one of: ${LAB_TARGETS.join(", ")}`);
-  if (ctx.currentRelease && !TAG_RE.test(ctx.currentRelease)) {
-    problems.push("current_release must be empty or backend-core-<12 hex>");
+  if (ctx.currentRelease && !TAG_RE.test(ctx.currentRelease) && !LEGACY_TAG_RE.test(ctx.currentRelease)) {
+    problems.push("current_release must be empty, backend-core/vX.Y.Z or a legacy backend-core-<12 hex>");
   }
   if (!["dry-run", "live"].includes(ctx.mode)) problems.push("mode must be dry-run or live");
   return problems;
 }
 
-/** Release metadata: immutable, final, tagged backend-core-<sha12> of a full commit SHA. */
-function checkReleaseMeta(meta, tag, label) {
+/**
+ * The release commit. A legacy backend-core-<sha12> release names it as its target. A
+ * backend-core/vX.Y.Z release is created on its existing tag (release-backend-core.yml), so
+ * GitHub may record the default branch as its target: its commit is the git tag's, and the
+ * target must be that commit or main. Null when it cannot be determined.
+ */
+function releaseSha(meta, tag, tagCommitText) {
+  const target = meta?.targetCommitish ?? "";
+  if (LEGACY_TAG_RE.test(tag)) return SHA_RE.test(target) ? target : null;
+  const commit = (tagCommitText ?? "").trim();
+  return SHA_RE.test(commit) && (target === commit || target === DEFAULT_BRANCH) ? commit : null;
+}
+
+/**
+ * Release metadata: immutable, final, of a full commit SHA. A legacy backend-core-<sha12> tag
+ * also names its commit; a backend-core/vX.Y.Z tag is bound to it by the git tag check.
+ */
+function checkReleaseMeta(meta, tag, label, tagCommitText) {
   if (!meta || typeof meta !== "object") return [`${label} metadata missing or not JSON`];
   const problems = [];
   if (meta.tagName !== tag) problems.push(`${label} tag is '${meta.tagName}', expected '${tag}'`);
   if (meta.isImmutable !== true) problems.push(`${label} ${tag} is not an immutable release`);
   if (meta.isDraft !== false || meta.isPrerelease !== false) problems.push(`${label} ${tag} is a draft or prerelease`);
   const sha = meta.targetCommitish ?? "";
-  if (!SHA_RE.test(sha)) problems.push(`${label} target is not a 40-hex commit SHA`);
-  else if (tag !== `backend-core-${sha.slice(0, 12)}`) problems.push(`${label} tag does not match its commit ${sha}`);
+  if (LEGACY_TAG_RE.test(tag)) {
+    if (!SHA_RE.test(sha)) problems.push(`${label} target is not a 40-hex commit SHA`);
+    else if (tag !== `backend-core-${sha.slice(0, 12)}`) problems.push(`${label} tag does not match its commit ${sha}`);
+  } else if (!releaseSha(meta, tag, tagCommitText)) {
+    problems.push(`${label} target is neither the tag commit nor ${DEFAULT_BRANCH}`);
+  }
   return problems;
 }
 
@@ -189,30 +203,6 @@ function checkCompare(cmp, sha, label = "release") {
   return problems;
 }
 
-/**
- * The checks the release commit's own ci.yml (from `git archive <sha>`) runs.
- * Unreadable or missing evidence requires every check: never a pass.
- */
-function requiredChecksFor(sourceDir, runs) {
-  // Any db-package run on the SHA means the job existed there: always judged.
-  if (Array.isArray(runs) && runs.some((r) => r?.name === DB_PACKAGE_CHECK)) return REQUIRED_CHECKS;
-  // Each directory on the way must be real: a symlinked `.github` is not the release's own file.
-  for (const dir of [".github", path.join(".github", "workflows")]) {
-    if (!isRealDir(path.join(sourceDir, dir))) return REQUIRED_CHECKS;
-  }
-  const ci = readText(path.join(sourceDir, RELEASE_CI_YML));
-  if (ci === null) return REQUIRED_CHECKS;
-  return DB_PACKAGE_JOB_RE.test(ci) ? REQUIRED_CHECKS : PRE_SPLIT_CHECKS;
-}
-
-function isRealDir(dir) {
-  try {
-    return fs.lstatSync(dir).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
 /** The most recent github-actions run of each required check must be a success. */
 function checkCiRuns(runs, required = REQUIRED_CHECKS) {
   if (!Array.isArray(runs)) return ["CI check-run evidence missing or not a list"];
@@ -224,11 +214,6 @@ function checkCiRuns(runs, required = REQUIRED_CHECKS) {
     const result = latest?.conclusion ?? "missing";
     return result === "success" ? [] : [`required check '${name}' is '${result}' on the release SHA`];
   });
-}
-
-/** checkCiRuns with the checks the release commit itself ran (RT-816). */
-function checkReleaseCiRuns(runs, sourceDir) {
-  return checkCiRuns(runs, requiredChecksFor(sourceDir, runs));
 }
 
 function parseSums(text, label) {
@@ -290,7 +275,7 @@ function checkManifestImages(m, sha) {
     const digest = img?.digest ?? "";
     const ok =
       DIGEST_RE.test(digest) &&
-      img.repository === `ghcr.io/kemetra/backend-core-${target}` &&
+      img.repository === `${IMAGE_PREFIX}${target}` &&
       img.tag === `sha-${sha}` &&
       img.ref === imageRef(target, digest);
     if (ok) images[target] = { digest, ref: img.ref };
@@ -456,8 +441,11 @@ function checkSourceBinding(bundleDir, files, sourceDir) {
   return problems;
 }
 
-/** A verified SLSA attestation binds the image digest to the release commit, built on main by release-images.yml. */
-function checkAttestation(results, target, digest, sha) {
+/**
+ * A verified SLSA attestation binds the image digest to the release commit, built by
+ * release-backend-core.yml from the release tag (never from a branch or another tag).
+ */
+function checkAttestation(results, target, digest, sha, tag) {
   if (!Array.isArray(results) || results.length === 0) return [`no verified attestation for the ${target} image`];
   const hex = digest.slice("sha256:".length);
   const ok = results.some((r) => {
@@ -468,11 +456,11 @@ function checkAttestation(results, target, digest, sha) {
       Array.isArray(statement.subject) &&
       statement.subject.some((s) => s?.digest?.sha256 === hex) &&
       cert?.sourceRepositoryDigest === sha &&
-      cert?.sourceRepositoryRef === "refs/heads/main" &&
-      cert?.buildSignerURI === SIGNER_WORKFLOW
+      cert?.sourceRepositoryRef === `refs/tags/${tag}` &&
+      cert?.buildSignerURI === signerUri(tag)
     );
   });
-  return ok ? [] : [`${target} attestation does not bind ${digest} to ${sha} built by release-images.yml on main`];
+  return ok ? [] : [`${target} attestation does not bind ${digest} to ${sha} built by release-backend-core.yml from refs/tags/${tag}`];
 }
 
 /**
@@ -550,7 +538,7 @@ function verifyRelease(dir, ctx, sha) {
   const problems = [
     ...checkTagCommit(readText(path.join(dir, "tag-commit.txt")), sha, "release"),
     ...checkCompare(readJson(path.join(dir, "compare.json")), sha),
-    ...checkReleaseCiRuns(readJson(path.join(dir, "check-runs.json")), path.join(dir, "source")),
+    ...checkCiRuns(readJson(path.join(dir, "check-runs.json"))),
   ];
   // RT-863: fresh fleet now, and release-mode semantics once every snapshot has a recorded fixture.
   const compat = evaluateCompat(path.join(dir, "source"), ctx.now ? new Date(ctx.now) : new Date());
@@ -570,20 +558,24 @@ function verifyRelease(dir, ctx, sha) {
     );
   }
   for (const [target, image] of Object.entries(checked.images)) {
-    problems.push(...checkAttestation(readJson(path.join(dir, `attest-${target}.json`)), target, image.digest, sha));
+    problems.push(...checkAttestation(readJson(path.join(dir, `attest-${target}.json`)), target, image.digest, sha, ctx.release));
   }
   return { problems, images: checked.images, files: Object.keys(manifest?.files ?? {}), compat: { mode: compat.mode, notes: compat.notes } };
 }
 
-/** The operator-asserted current release must itself be an immutable release reachable from main. */
+/**
+ * The operator-asserted current release must itself be an immutable release reachable from
+ * the main of the repository that published it (a legacy one: the frozen Kemetra/Backend-Core).
+ */
 function readCurrent(dir, ctx) {
   if (!ctx.currentRelease) return { problems: [], current: null, lines: null };
   const meta = readJson(path.join(dir, "current-release.json"));
-  const problems = checkReleaseMeta(meta, ctx.currentRelease, "current release");
-  const sha = SHA_RE.test(meta?.targetCommitish ?? "") ? meta.targetCommitish : null;
+  const tagCommit = readText(path.join(dir, "current-tag-commit.txt"));
+  const problems = checkReleaseMeta(meta, ctx.currentRelease, "current release", tagCommit);
+  const sha = meta ? releaseSha(meta, ctx.currentRelease, tagCommit) : null;
   if (sha) {
     problems.push(
-      ...checkTagCommit(readText(path.join(dir, "current-tag-commit.txt")), sha, "current release"),
+      ...checkTagCommit(tagCommit, sha, "current release"),
       ...checkCompare(readJson(path.join(dir, "compare-current.json")), sha, "current release"),
     );
   }
@@ -650,8 +642,9 @@ function evaluate(dir, ctx) {
   const collectErrors = readLines(path.join(dir, "collect-error.txt")) ?? [];
   const refusals = [...collectErrors.map((e) => `evidence collection refused: ${e}`), ...checkInputs(ctx)];
   const meta = readJson(path.join(dir, "release.json"));
-  refusals.push(...checkReleaseMeta(meta, ctx.release, "release"));
-  const sha = SHA_RE.test(meta?.targetCommitish ?? "") ? meta.targetCommitish : null;
+  const tagCommit = readText(path.join(dir, "tag-commit.txt"));
+  refusals.push(...checkReleaseMeta(meta, ctx.release, "release", tagCommit));
+  const sha = meta ? releaseSha(meta, ctx.release, tagCommit) : null;
   const verified = sha ? verifyRelease(dir, ctx, sha) : { problems: [], images: {}, files: [], compat: null };
   refusals.push(...verified.problems);
   const cur = readCurrent(dir, ctx);
@@ -748,8 +741,10 @@ function main(argv) {
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
 
 module.exports = {
+  IMAGE_PREFIX,
   REQUIRED_CHECKS,
   SIGNER_WORKFLOW,
+  signerUri,
   assessRollback,
   checkAttestation,
   checkCiRuns,

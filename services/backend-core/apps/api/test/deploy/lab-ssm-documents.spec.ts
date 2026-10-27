@@ -5,7 +5,9 @@
  * owner creates them in AWS from these files, and the SSM agent runs them as
  * root, so the files are the security boundary. The checks are static (no AWS,
  * no host): strict parameters that never reach shell text, the RT-532 gate
- * order, no secrets or raw output on stdout, and valid bash.
+ * order, no secrets or raw output on stdout, and valid bash. RT-908 Phase B: the
+ * target is a backend-core/vX.Y.Z monorepo release; the current one may still be
+ * a legacy backend-core-<sha12>.
  */
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -51,7 +53,7 @@ function expectInOrder(body: string, needles: string[]): void {
 
 describe.each([
   ["RT-BackendLabBackup", backup, ["ReleaseTag", "CurrentRelease", "JiraKey"]],
-  ["RT-BackendLabDeploy", deploy, ["ReleaseTag", "ApiDigest", "WorkerDigest", "MigrateDigest", "CurrentRelease", "JiraKey", "BackupName", "BackupSha256", "RollbackAllowed"]],
+  ["RT-BackendLabDeploy", deploy, ["ReleaseTag", "ReleaseSha", "ApiDigest", "WorkerDigest", "MigrateDigest", "CurrentRelease", "JiraKey", "BackupName", "BackupSha256", "RollbackAllowed"]],
 ])("%s document", (_name, d, params) => {
   it("is a schema 2.2 Command document with one Linux shell step", () => {
     expect(d.doc.schemaVersion).toBe("2.2");
@@ -132,13 +134,26 @@ describe("RT-BackendLabBackup (lab-02, D-1a)", () => {
   it("prints only the backup name and checksum as its result", () => {
     expect(b).toContain('say "RT_BACKUP name=$NAME sha256=$SUM"');
     expect(b.indexOf('say "RT_BACKUP')).toBeGreaterThan(b.indexOf('say "RT_GATE backup-restore-rehearsal pass'));
-    expect(b).toMatch(/NAME="rtlab-\$\{CURRENT_RELEASE#backend-core-\}-to-\$\{RELEASE_TAG#backend-core-\}-\$STAMP\.dump"/);
+    // ids, never the raw tag: no `/` reaches the file name
+    expect(b).toContain('NAME="rtlab-${CURRENT_RELEASE#backend-core[-/]}-to-${RELEASE_TAG#backend-core/}-$STAMP.dump"');
   });
 
   it("names backups in the form the deploy document's BackupName parameter accepts", () => {
     const pattern = new RegExp(deploy.doc.parameters.BackupName?.allowedPattern ?? "^$");
-    expect(pattern.test("rtlab-046b7f7cff53-to-1711813df1f3-20261023T120000Z.dump")).toBe(true);
-    expect(pattern.test("rtlab-046b7f7cff53-to-1711813df1f3-20261023T120000Z.dump; id")).toBe(false);
+    expect(pattern.test("rtlab-046b7f7cff53-to-v0.1.0-20261023T120000Z.dump")).toBe(true);
+    expect(pattern.test("rtlab-v0.1.0-to-v0.2.0-20261023T120000Z.dump")).toBe(true);
+    expect(pattern.test("rtlab-046b7f7cff53-to-v0.1.0-20261023T120000Z.dump; id")).toBe(false);
+    // a legacy release is never a target
+    expect(pattern.test("rtlab-046b7f7cff53-to-1711813df1f3-20261023T120000Z.dump")).toBe(false);
+    expect(pattern.test("rtlab-backend-core/v0.1.0-to-v0.2.0-20261023T120000Z.dump")).toBe(false);
+  });
+
+  itBash("derives exactly those names from both tag forms", () => {
+    const name = /\n(NAME="rtlab-[^\n]+)\n/.exec(b)?.[1] ?? "";
+    const run = (current: string, target: string): string =>
+      spawnSync("bash", ["-c", `CURRENT_RELEASE='${current}' RELEASE_TAG='${target}' STAMP=20261023T120000Z; ${name}; printf %s "$NAME"`], { encoding: "utf8" }).stdout;
+    expect(run("backend-core-046b7f7cff53", "backend-core/v0.1.0")).toBe("rtlab-046b7f7cff53-to-v0.1.0-20261023T120000Z.dump");
+    expect(run("backend-core/v0.1.0", "backend-core/v0.1.10")).toBe("rtlab-v0.1.0-to-v0.1.10-20261023T120000Z.dump");
   });
 });
 
@@ -171,7 +186,7 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
 
   it("G-Host: changes nothing unless the running images and SENTRY_RELEASE are the CurrentRelease's", () => {
     const host = b.slice(b.indexOf("GATE=G-Host"), b.indexOf("pass G-Host"));
-    expect(host).toContain('[ "$SENTRY" = "$CUR12" ] || stop');
+    expect(host).toContain('[ "$SENTRY" = "$CUR_ID" ] || stop');
     expect(host).toContain('running_matches api "$PRIOR_API" || stop');
     expect(host).toContain('running_matches worker "$PRIOR_WORKER" || stop');
     expect(host).not.toMatch(/\bcp\b|\bmv\b|sed -i|docker (run|pull)|"\$DC" (run|up)/);
@@ -184,12 +199,14 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
 
   it("refuses an empty or malformed backup reference (narrow anchored name, 64-hex checksum)", () => {
     expect(deploy.doc.parameters.BackupSha256?.allowedPattern).toBe("^[0-9a-f]{64}$");
-    expect(deploy.doc.parameters.BackupName?.allowedPattern).toBe("^rtlab-[0-9a-f]{12}-to-[0-9a-f]{12}-[0-9]{8}T[0-9]{6}Z\\.dump$");
+    expect(deploy.doc.parameters.BackupName?.allowedPattern).toBe(
+      "^rtlab-([0-9a-f]{12}|v[0-9]+\\.[0-9]+\\.[0-9]+)-to-v[0-9]+\\.[0-9]+\\.[0-9]+-[0-9]{8}T[0-9]{6}Z\\.dump$",
+    );
     expect(deploy.doc.parameters.RollbackAllowed?.allowedValues).toEqual(["true", "false"]);
     // re-checked in bash: an empty value fails the same anchored match
     expect(b).toContain('BACKUP_NAME="${SSM_BackupName:-}"');
     expect(b).toContain('[[ "$BACKUP_SHA256" =~ ^[0-9a-f]{64}$ ]] || stop "BackupSha256-missing-or-invalid"');
-    expect(b).toMatch(/\[\[ "\$BACKUP_NAME" =~ \^rtlab-\(\[0-9a-f\]\{12\}\)-to-\(\[0-9a-f\]\{12\}\)-/);
+    expect(b).toContain('[[ "$BACKUP_NAME" =~ ^rtlab-([0-9a-f]{12}|v[0-9]+\\.[0-9]+\\.[0-9]+)-to-(v[0-9]+\\.[0-9]+\\.[0-9]+)-([0-9]{8})T([0-9]{6})Z\\.dump$ ]]');
   });
 
   it("G-Host: the readiness probe must already pass on the current release, and a redirect names the contract", () => {
@@ -210,8 +227,65 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
 
   it("G-Backup: accepts only a fresh backup of this release pair", () => {
     const gate = b.slice(b.indexOf("GATE=G-Backup"), b.indexOf("pass G-Backup"));
-    expect(gate).toContain('[ "$BK_CUR" = "$CUR12" ] && [ "$BK_TGT" = "$TGT12" ] || stop');
+    expect(gate).toContain('[ "$BK_CUR" = "$CUR_ID" ] && [ "$BK_TGT" = "$TGT_ID" ] || stop');
     expect(gate).toContain('[ "$AGE" -le "$BACKUP_MAX_AGE_SECONDS" ] || stop');
+  });
+
+  // RT-908 Phase B: monorepo releases, a legacy current release, and no raw `/` tag in a path or pattern.
+  it("targets only a monorepo release; the current release may still be a legacy one", () => {
+    const tag = new RegExp(deploy.doc.parameters.ReleaseTag?.allowedPattern ?? "^$");
+    const current = new RegExp(deploy.doc.parameters.CurrentRelease?.allowedPattern ?? "^$");
+    expect(tag.test("backend-core/v0.1.0")).toBe(true);
+    expect(tag.test("backend-core-046b7f7cff53")).toBe(false);
+    expect(tag.test("backend-core/v0.1.0/../x")).toBe(false);
+    expect(current.test("backend-core-046b7f7cff53")).toBe(true);
+    expect(current.test("backend-core/v0.1.0")).toBe(true);
+    expect(current.test("backend-core/v0.1")).toBe(false);
+    expect(deploy.doc.parameters.ReleaseSha?.allowedPattern).toBe("^[0-9a-f]{40}$");
+    for (const d of [backup, deploy]) {
+      expect(d.doc.parameters.ReleaseTag?.allowedPattern).toBe(deploy.doc.parameters.ReleaseTag?.allowedPattern);
+      expect(d.doc.parameters.CurrentRelease?.allowedPattern).toBe(deploy.doc.parameters.CurrentRelease?.allowedPattern);
+    }
+    expect(b).toContain("REPO=Kemetra-Labs/Retail-Tower-Erp\n");
+    expect(b).toContain("IMAGE_PREFIX=ghcr.io/kemetra-labs/backend-core-\n");
+    expect(deploy.text).not.toMatch(/ghcr\.io\/kemetra\/|Kemetra\/Backend-Core/);
+  });
+
+  it("never uses a raw release tag as a file name or in a pattern: slugs, ids and an anchored directory matcher", () => {
+    // the raw tags appear only where they are validated, logged, put in the download URL, or reported
+    const raw = b.split("\n").filter((l) => /\$\{?(RELEASE_TAG|CURRENT_RELEASE)\b/.test(l) && !/^\s*#/.test(l));
+    for (const line of raw) {
+      expect({ line, ok: /=~|^\s*(TGT|CUR)_SLUG=|^\s*(RELEASE_TAG|CURRENT_RELEASE)="\$\{SSM_|^\s*echo "deploy for|BASE="https:\/\/github\.com\/\$REPO\/releases\/download\/\$RELEASE_TAG"|say "RT_DONE release=\$RELEASE_TAG"|^\s*"\$TGT_DIR\/release-manifest\.json" "\$RELEASE_SHA" "\$RELEASE_TAG" <\/dev\/null \|\| stop "manifest-is-not-ReleaseSha-ReleaseTag"$/.test(line) }).toEqual({ line, ok: true });
+    }
+    expect(b).toContain('CUR_DIR="$BACKEND_DIR/release-$CUR_SLUG"');
+    expect(b).toContain('TGT_DIR="$BACKEND_DIR/release-$TGT_SLUG"');
+    expect(b).toContain('BUNDLE="backend-core-release-${RELEASE_SHA:0:12}"');
+    // the fetched bundle must be the one the workflow verified, whether downloaded now or already present
+    const sums = b.indexOf('sha256sum --check --strict --quiet SHA256SUMS) || stop "bundle-files-do-not-match-their-SHA256SUMS"');
+    const named = b.indexOf('stop "manifest-is-not-ReleaseSha-ReleaseTag"');
+    expect(sums).toBeGreaterThan(b.indexOf("fi", b.indexOf('mv "$WORK/extract" "$TGT_DIR"')));
+    expect(named).toBeGreaterThan(sums);
+    expect(named).toBeLessThan(b.indexOf("release-env-api-is-not-ApiDigest"));
+    expect(b).toMatch(/m\.get\("sha"\) == sys\.argv\[2\] and m\.get\("releaseTag"\) == sys\.argv\[3\]/);
+    expect(b).toContain('grep -qE "$CUR_DIR_RE" "$DC" || stop "wrapper-does-not-use-the-current-release"');
+    expect(b).toContain('sed -E "s#$CUR_DIR_RE#release-$TGT_SLUG\\1#g" "$DC" > "$RUN_DIR/dc.next"');
+    expect(b).toContain('! grep -qE "$CUR_DIR_RE" "$RUN_DIR/dc.next" || stop "next-wrapper-still-uses-the-current-release"');
+    expect(b).toContain('sed -i "s|^SENTRY_RELEASE=.*|SENTRY_RELEASE=$TGT_ID|" "$RUN_DIR/backend.env.next"');
+  });
+
+  itBash("rewrites only the current release directory in the wrapper, for both tag forms", () => {
+    const start = b.indexOf('TGT_SLUG="');
+    const defs = b.slice(start, b.indexOf("API_REF=", start));
+    const script = (current: string, target: string, wrapper: string): string =>
+      `CURRENT_RELEASE='${current}' RELEASE_TAG='${target}'\n${defs}\nprintf '%s' '${wrapper}' | sed -E "s#$CUR_DIR_RE#release-$TGT_SLUG\\1#g"; printf '|%s|%s' "$TGT_ID" "$CUR_ID"`;
+    const run = (current: string, target: string, wrapper: string): string => spawnSync("bash", ["-c", script(current, target, wrapper)], { encoding: "utf8" }).stdout;
+    expect(run("backend-core-046b7f7cff53", "backend-core/v0.1.0", "--env-file /opt/rt-lab/backend/release-backend-core-046b7f7cff53/release.env")).toBe(
+      "--env-file /opt/rt-lab/backend/release-backend-core-v0.1.0/release.env|v0.1.0|046b7f7cff53",
+    );
+    // v0.1.1 is a prefix of v0.1.10, and `.` is not a wildcard
+    expect(run("backend-core/v0.1.1", "backend-core/v0.2.0", "a release-backend-core-v0.1.10/x b release-backend-core-v0x1x1/y c release-backend-core-v0.1.1")).toBe(
+      "a release-backend-core-v0.1.10/x b release-backend-core-v0x1x1/y c release-backend-core-v0.2.0|v0.2.0|v0.1.1",
+    );
   });
 
   it("fetches the bundle over https only, checks SHA256SUMS before unpacking, and binds release.env to the digests", () => {

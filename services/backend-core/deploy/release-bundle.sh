@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # RT-533: assemble the Backend-Core release bundle + digest manifest.
+# RT-908 (Phase B): the monorepo publishes the release (release-backend-core.yml,
+# RT-717): tag backend-core/vX.Y.Z of Kemetra-Labs/Retail-Tower-Erp, images in
+# ghcr.io/kemetra-labs. The bundle name stays backend-core-release-<sha12>.
 #
 # Run from a checkout of the exact release SHA. Makes no network calls and
 # touches nothing outside --out. The bundle is an ALLOWLIST: only the files
@@ -36,12 +39,13 @@ ALLOWLIST=(
 
 fail() { echo "release-bundle: $*" >&2; exit 1; }
 
-SHA="" PUBLISHED="" DIGEST_KIND="" OUT=""
+SHA="" RELEASE_TAG="" PUBLISHED="" DIGEST_KIND="" OUT=""
 API_DIGEST="" WORKER_DIGEST="" MIGRATE_DIGEST=""
 while [ $# -gt 0 ]; do
   [ $# -ge 2 ] || fail "missing value for $1"
   case "$1" in
     --sha) SHA="$2" ;;
+    --release-tag) RELEASE_TAG="$2" ;;
     --published) PUBLISHED="$2" ;;
     --digest-kind) DIGEST_KIND="$2" ;;
     --out) OUT="$2" ;;
@@ -54,6 +58,7 @@ while [ $# -gt 0 ]; do
 done
 
 [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || fail "--sha must be 40 lowercase hex characters"
+[[ "$RELEASE_TAG" =~ ^backend-core/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "--release-tag must be backend-core/vX.Y.Z"
 case "$PUBLISHED" in true|false) ;; *) fail "--published must be true or false" ;; esac
 case "$DIGEST_KIND" in
   registry-manifest-digest|local-image-id) ;;
@@ -80,9 +85,9 @@ ALLOWLIST+=("${ROUTINE_GRANT_FILES[@]}")
 HEAD_SHA="$(git rev-parse HEAD)"
 [ "$HEAD_SHA" = "$SHA" ] || fail "checkout HEAD ($HEAD_SHA) does not match --sha"
 
-IMAGE_RE='^ghcr\.io/kemetra/backend-core-(api|worker|migrate)@sha256:[0-9a-f]{64}$'
+IMAGE_RE='^ghcr\.io/kemetra-labs/backend-core-(api|worker|migrate)@sha256:[0-9a-f]{64}$'
 ref_for() { # target digest -> validated ref
-  local ref="ghcr.io/kemetra/backend-core-$1@$2"
+  local ref="ghcr.io/kemetra-labs/backend-core-$1@$2"
   [[ "$ref" =~ $IMAGE_RE ]] || fail "image ref for $1 is not a valid digest ref (got digest '$2')"
   [ "${BASH_REMATCH[1]}" = "$1" ] || fail "image ref target mismatch for $1"
   printf '%s' "$ref"
@@ -97,7 +102,6 @@ done
 
 SHA12="${SHA:0:12}"
 NAME="backend-core-release-$SHA12"
-RELEASE_TAG="backend-core-$SHA12"
 IMAGE_TAG="sha-$SHA"
 SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$SHA")"
 CREATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -134,10 +138,10 @@ jq -n \
   --argjson published "$PUBLISHED" --argjson files "$FILES_JSON" \
   --arg api "$API_DIGEST" --arg worker "$WORKER_DIGEST" --arg migrate "$MIGRATE_DIGEST" \
   --arg aref "$API_REF" --arg wref "$WORKER_REF" --arg mref "$MIGRATE_REF" '
-  def img($t; $d; $r): {repository: ("ghcr.io/kemetra/backend-core-" + $t), tag: $itag, digest: $d, ref: $r};
+  def img($t; $d; $r): {repository: ("ghcr.io/kemetra-labs/backend-core-" + $t), tag: $itag, digest: $d, ref: $r};
   {
     schemaVersion: 1,
-    repository: "Kemetra/Backend-Core",
+    repository: "Kemetra-Labs/Retail-Tower-Erp",
     sha: $sha,
     releaseTag: $tag,
     published: $published,
