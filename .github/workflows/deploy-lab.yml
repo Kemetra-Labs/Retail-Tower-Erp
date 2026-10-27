@@ -284,7 +284,7 @@ jobs:
       # up in the ledger; never after a failed guard, checkout or logout.
       - name: Verify evidence and write the planned ledger (no deploy)
         id: verify
-        if: ${{ !cancelled() && steps.guard.outcome == 'success' && steps.checkout.outcome == 'success' && steps.logout.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.guard.outcome == 'success' && steps.checkout.outcome == 'success' && steps.release_source.outcome == 'success' && steps.logout.outcome == 'success' }}
         env:
           BACKEND_RELEASE: ${{ inputs.backend_release }}
           JIRA_KEY: ${{ inputs.jira_key }}

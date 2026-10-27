@@ -176,7 +176,7 @@ describe("deploy-lab workflow", () => {
       .split("\n")
       .filter((line) => !line.trimStart().startsWith("#"))
       .join("\n");
-    const gitCalls = [...code.matchAll(/(^|[\s(|;])git\s+(\S+)/gm)].map((m) => m[2]);
+    const gitCalls = [...code.matchAll(/(^|[\s(|;&`])git\s+(\S+)/gm)].map((m) => m[2]);
     expect(gitCalls.length).toBeGreaterThan(0);
     for (const arg of gitCalls) expect(arg).toBe("-C");
     expect(scripts).toContain('git -C "$SRC" rev-parse --verify --quiet "refs/tags/$BACKEND_RELEASE^{commit}"');
@@ -272,8 +272,9 @@ describe("deploy-lab workflow", () => {
     expect(collect).toContain('echo "$*" >> "$EVIDENCE/collect-error.txt"; exit 1; }');
     expect(collect).toMatch(/trap '.*collect-error\.txt"' ERR/);
     expect(collect).toContain('|| fail "release assets do not match SHA256SUMS"');
+    // RT-908: a failed release-source checkout stops the verifier, as the full-history checkout did before.
     expect(stepNamed("Verify evidence").if).toBe(
-      "${{ !cancelled() && steps.guard.outcome == 'success' && steps.checkout.outcome == 'success' && steps.logout.outcome == 'success' }}",
+      "${{ !cancelled() && steps.guard.outcome == 'success' && steps.checkout.outcome == 'success' && steps.release_source.outcome == 'success' && steps.logout.outcome == 'success' }}",
     );
     expect(stepNamed("Guard")).toMatchObject({ id: "guard" });
     expect(stepNamed("Checkout main")).toMatchObject({ id: "checkout" });
