@@ -264,5 +264,6 @@ policy_approvers:
 # Owner decision 2026-10-27: `observe` while the owner is the only maintainer (same reasoning as
 # advisory CODEOWNERS). Revert by changing this value back to `required` (or deleting the key) when a
 # second maintainer joins, or BEFORE RT-866 makes `required` an enforced check on `main`.
-# Residual while observing: nothing requires a human attestation on .github/** or tools/project-graph/**.
+# Residual while observing: nothing requires a human attestation on .github/** or tools/project-graph/**,
+# nor for a path the trusted graph does not know but the proposed one classifies (UNKNOWN_IN_TRUSTED_ONLY).
 policy_approval: observe

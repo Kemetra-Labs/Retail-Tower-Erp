@@ -247,7 +247,7 @@ jobs:
             # The mode comes from the TRUSTED graph via the aggregator; a missing or unreadable result is `required`.
             mode="$(jq -r '.approval.mode // "required"' "$t/result.json" 2>/dev/null || echo required)"
             if [ "$mode" = "observe" ]; then
-              summary="$summary"$'\n\n'"Policy change: approval is OBSERVE-ONLY (policy_approval: observe in the trusted graph.yaml) and does not affect this check. To attest anyway, an APPROVED review on this head commit containing exactly:"$'\n'"$line"
+              summary="$summary"$'\n\n'"Policy change: approval is OBSERVE-ONLY (policy_approval: observe in the trusted graph.yaml): its absence does not fail this check. To attest anyway, an APPROVED review on this head commit containing exactly:"$'\n'"$line"
             else
               summary="$summary"$'\n\n'"Policy change: approval must be an APPROVED review on this head commit containing exactly:"$'\n'"$line"
             fi

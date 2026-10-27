@@ -6,7 +6,14 @@ delays `required` for its absence. The mode is read from the TRUSTED graph only.
 else: a failed or pending job, an invalid graph and a missing plan are judged exactly as before."""
 
 import copy
+import json
+import pathlib
+import subprocess
+import sys
+import tempfile
 import unittest
+
+import yaml
 
 from pgraph import aggregate as ag
 from pgraph import evaluate as ev
@@ -131,13 +138,71 @@ class PolicyApprovalSchemaTests(unittest.TestCase):
         self.assertEqual(self._schema_errors(), [])
 
 
+GATE = support.PG_ROOT.parents[1] / ".github" / "workflows" / "gate.yml"
+GRAPH_REPO_PATH = "tools/project-graph/graph.yaml"
+
+
+def _git(repo, *args):
+    return subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t.invalid",
+                           "-c", "commit.gpgsign=false", *args], check=True, capture_output=True, text=True).stdout.strip()
+
+
+class TrustBoundaryCliTests(unittest.TestCase):
+    """The mode is read from `--base`, not from the PR head. Runs the real `pgraph aggregate` command
+    against a temp git repo whose base graph says `required` and whose head graph says `observe`."""
+
+    def _commit_graph(self, repo, mode, message):
+        graph = load_graph(support.trusted_text())
+        graph["policy_approval"] = mode
+        path = pathlib.Path(repo, GRAPH_REPO_PATH)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(yaml.safe_dump(graph, sort_keys=False), encoding="utf-8")
+        _git(repo, "add", "--", GRAPH_REPO_PATH)
+        _git(repo, "commit", "-q", "-m", message)
+        return _git(repo, "rev-parse", "HEAD")
+
+    def _aggregate(self, tmp, plan, repo, base):
+        pathlib.Path(tmp, "plan.json").write_text(json.dumps(plan), encoding="utf-8")
+        pathlib.Path(tmp, "checks.json").write_text("[]", encoding="utf-8")
+        pathlib.Path(tmp, "approvals.json").write_text("[]", encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, "-m", "pgraph", "aggregate", "--plan", str(pathlib.Path(tmp, "plan.json")),
+             "--checks", str(pathlib.Path(tmp, "checks.json")), "--approvals", str(pathlib.Path(tmp, "approvals.json")),
+             "--repo", repo, "--base", base], cwd=support.PG_ROOT, capture_output=True, text=True)
+        return json.loads(proc.stdout)
+
+    def test_aggregate_takes_the_mode_from_the_base_graph_not_the_head(self):
+        case = {"trusted_overrides": {"policy_approval": "required"}, "changes": POLICY_CHANGE}
+        plan = ev.evaluate(support.eval_input(case))
+        self.assertTrue(plan["approval_required"])
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = str(pathlib.Path(tmp, "repo"))
+            pathlib.Path(repo).mkdir()
+            _git(repo, "init", "-q")
+            base = self._commit_graph(repo, "required", "base: strict")
+            head = self._commit_graph(repo, "observe", "head: a PR that relaxes its own approval")
+            from_base = self._aggregate(tmp, plan, repo, base)
+            from_head = self._aggregate(tmp, plan, repo, head)
+        self.assertEqual(from_base["approval"]["mode"], "required")
+        self.assertIn("POLICY_APPROVAL_REQUIRED", from_base["reasons"])
+        # Only a graph the trusted base already contains (a merged change) can relax the gate.
+        self.assertEqual(from_head["approval"]["mode"], "observe")
+        self.assertNotIn("POLICY_APPROVAL_REQUIRED", from_head["reasons"])
+
+
 class GateSummaryWordingTests(unittest.TestCase):
 
     def test_the_gate_summary_branches_on_the_trusted_mode_and_keeps_the_strict_wording(self):
-        text = (support.PG_ROOT.parents[1] / ".github" / "workflows" / "gate.yml").read_text(encoding="utf-8")
+        text = GATE.read_text(encoding="utf-8")
         self.assertIn('.approval.mode // "required"', text)       # a missing result stays strict
         self.assertIn("OBSERVE-ONLY", text)
         self.assertIn("Policy change: approval must be an APPROVED review on this head commit", text)
+
+    def test_the_aggregate_step_reads_the_graph_from_the_base_sha(self):
+        text = GATE.read_text(encoding="utf-8")
+        start = text.index("python -m pgraph aggregate")
+        command = text[start:text.index("|| true", start)]
+        self.assertIn('--base "$BASE_SHA"', command)
 
 
 if __name__ == "__main__":

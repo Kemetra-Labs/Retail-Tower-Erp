@@ -132,7 +132,8 @@ def aggregate(plan, check_runs, approvals, graph, deadline_passed=False):
     """Decide the `required` conclusion: success, failure or pending."""
     if not plan_ok(plan):
         return {"conclusion": "failure", "reasons": ["NO_PLAN"], "jobs": {},
-                "rejected": [], "ignored": [], "approval": {"required": None, "valid": False, "problems": []}}
+                "rejected": [], "ignored": [],
+                "approval": {"required": None, "valid": False, "problems": [], "mode": "required"}}
     reasons = set()
     if plan["graph_validation"].get("status") == "fail":
         reasons.add("GRAPH_VALIDATION_FAILED")
