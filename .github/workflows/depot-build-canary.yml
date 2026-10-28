@@ -1,0 +1,364 @@
+# RT-917: Depot Container Builds canary (design: RT-917 comment 14314, owner option B).
+#
+# Measures Depot against GitHub Buildx on the per-PR Docker workload: the `api` and `migrate`
+# targets of services/backend-core/Dockerfile, which every bc/schemathesis shard builds in
+# tools/schemathesis/stack-up.sh. Both builders build the same SHA in sibling jobs; `compare`
+# prints the two evidence files side by side. Planned runs, each labelled by `run_label`:
+# cold (Depot with no-cache, like the control), warm (same SHA again), next-sha (the next main
+# SHA). About 12 Depot build minutes in all, inside the 100-minute Container Builds cap (RT-917
+# comment 14315).
+#
+#   depot    depot/build-push-action on the Retail-Tower-Erp Container Builds project, OIDC
+#            only (no Depot token stored anywhere). Depot keeps its own layer cache, which is
+#            what the warm runs measure; buildx-fallback is off so a Depot failure is a failure,
+#            never a silent GitHub build.
+#   control  docker/build-push-action with the release-backend-core.yml pins, no cache.
+#   compare  durations, labels, architecture and digests of both. Digests are expected to
+#            differ (no SOURCE_DATE_EPOCH, different BuildKit); the difference is reported,
+#            never failed on.
+#
+# Isolation: workflow_dispatch only, and every job requires refs/heads/main, so only main code
+# ever holds the OIDC token (the Depot trust relationship may not be restrictable by ref).
+# No secrets, no environment, no registry push: images exist only as OCI archives on the runner
+# and are loaded into the local Docker daemon for the smoke test. It is not a graph job (no
+# graph.yaml key, not in gate.yml) and never feeds `required`. Rollback: delete this file.
+#
+# Owner setup before the first dispatch: repository variable DEPOT_PROJECT_ID = the project ID
+# of the Depot Container Builds project Retail-Tower-Erp. The depot job refuses when it is empty.
+name: depot-build-canary
+
+"on":
+  workflow_dispatch:
+    inputs:
+      run_label:
+        description: Which planned run this is
+        type: choice
+        options: [cold, warm, next-sha]
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: depot-build-canary
+  cancel-in-progress: false
+
+jobs:
+  depot:
+    name: depot-canary/depot (api, migrate)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # Depot OIDC token exchange; no stored Depot token
+    env:
+      BUILDER: depot
+      RUN_LABEL: ${{ inputs.run_label }}
+    steps:
+      - name: Refuse without a Depot project ID
+        env:
+          DEPOT_PROJECT_ID: ${{ vars.DEPOT_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          [ -n "$DEPOT_PROJECT_ID" ] || { echo "::error::repository variable DEPOT_PROJECT_ID is empty: set it to the project ID of the Depot Container Builds project Retail-Tower-Erp"; exit 1; }
+          [[ "$DEPOT_PROJECT_ID" =~ ^[A-Za-z0-9]+$ ]] || { echo "::error::DEPOT_PROJECT_ID '$DEPOT_PROJECT_ID' is not an alphanumeric project ID"; exit 1; }
+
+      - name: Checkout the main SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Set up the Depot CLI
+        uses: depot/setup-action@91bc8495a33ebfc504ffc89e5674379ccf23c29c # v1.7.2
+        with:
+          version: 2.103.4
+
+      - name: Start the api clock
+        run: |
+          echo "OUT=$RUNNER_TEMP/canary" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/canary"
+          echo "T0=$(date +%s%N)" >> "$GITHUB_ENV"
+
+      - name: Build api (Depot, OCI archive, no push)
+        id: api
+        uses: depot/build-push-action@98e78adca7817480b8185f474a400b451d74e287 # v1.18.0
+        with:
+          project: ${{ vars.DEPOT_PROJECT_ID }}
+          context: services/backend-core
+          target: api
+          push: false
+          save: false
+          buildx-fallback: false
+          # cold: the same no-cache build as the control (re-runnable); the cache is still
+          # written, so warm and next-sha measure Depot's layer cache.
+          no-cache: ${{ inputs.run_label == 'cold' }}
+          platforms: linux/amd64
+          provenance: false
+          sbom: false
+          outputs: type=oci,dest=${{ runner.temp }}/canary/api.oci.tar
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Stop the api clock, start the migrate clock
+        run: |
+          now=$(date +%s%N)
+          echo "API_NS=$((now - T0))" >> "$GITHUB_ENV"
+          echo "T0=$(date +%s%N)" >> "$GITHUB_ENV"
+
+      - name: Build migrate (Depot, OCI archive, no push)
+        id: migrate
+        uses: depot/build-push-action@98e78adca7817480b8185f474a400b451d74e287 # v1.18.0
+        with:
+          project: ${{ vars.DEPOT_PROJECT_ID }}
+          context: services/backend-core
+          target: migrate
+          push: false
+          save: false
+          buildx-fallback: false
+          # cold: the same no-cache build as the control (re-runnable); the cache is still
+          # written, so warm and next-sha measure Depot's layer cache.
+          no-cache: ${{ inputs.run_label == 'cold' }}
+          platforms: linux/amd64
+          provenance: false
+          sbom: false
+          outputs: type=oci,dest=${{ runner.temp }}/canary/migrate.oci.tar
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Stop the migrate clock
+        run: echo "MIGRATE_NS=$(( $(date +%s%N) - T0 ))" >> "$GITHUB_ENV"
+
+      # Same step in both jobs. Reads each OCI archive (manifest digest, architecture, labels),
+      # loads it into the local daemon and smoke-tests it without a database: the node runtime
+      # starts and the entry file exists and parses.
+      - name: Inspect, smoke-test and record evidence
+        env:
+          SHA: ${{ github.sha }}
+          API_ACTION_DIGEST: ${{ steps.api.outputs.digest }}
+          MIGRATE_ACTION_DIGEST: ${{ steps.migrate.outputs.digest }}
+          DEPOT_API_BUILD: ${{ steps.api.outputs.build-id }}
+          DEPOT_MIGRATE_BUILD: ${{ steps.migrate.outputs.build-id }}
+        run: |
+          set -euo pipefail
+          declare -A ENTRY=([api]=dist/main.js [migrate]=dist/cli/migrate.js)
+          declare -A NS=([api]="$API_NS" [migrate]="$MIGRATE_NS")
+          declare -A ACTION_DIGEST=([api]="$API_ACTION_DIGEST" [migrate]="$MIGRATE_ACTION_DIGEST")
+          declare -A BUILD_ID=([api]="$DEPOT_API_BUILD" [migrate]="$DEPOT_MIGRATE_BUILD")
+          targets='{}'
+          for T in api migrate; do
+            TAR="$OUT/$T.oci.tar"
+            DIGEST="$(tar -xOf "$TAR" index.json | jq -r '.manifests[0].digest')"
+            [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::$T: bad manifest digest '$DIGEST' in $TAR"; exit 1; }
+            CONFIG="$(skopeo inspect --config "oci-archive:$TAR")"
+            IMG="canary-$BUILDER/$T:local"
+            skopeo copy --quiet "oci-archive:$TAR" "docker-daemon:$IMG"
+            NODE="$(docker run --rm --network none --entrypoint node "$IMG" --version)"
+            docker run --rm --network none --entrypoint node "$IMG" --check "${ENTRY[$T]}" \
+              || { echo "::error::$T: ${ENTRY[$T]} is missing or does not parse"; exit 1; }
+            targets="$(jq -c --arg t "$T" --arg digest "$DIGEST" --arg action_digest "${ACTION_DIGEST[$T]}" \
+              --arg build_id "${BUILD_ID[$T]}" --argjson ns "${NS[$T]}" --arg node "$NODE" \
+              --arg entry "${ENTRY[$T]}" --argjson bytes "$(stat -c %s "$TAR")" --argjson config "$CONFIG" \
+              '.[$t] = {seconds: (($ns / 1e7 | round) / 100), digest: $digest, action_digest: $action_digest,
+                        build_id: $build_id, os: $config.os, architecture: $config.architecture,
+                        labels: ($config.config.Labels // {}), oci_tar_bytes: $bytes,
+                        smoke: {node: $node, entry: $entry, check: "pass"}}' <<<"$targets")"
+          done
+          jq -n --arg builder "$BUILDER" --arg run_label "$RUN_LABEL" --arg sha "$SHA" \
+            --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" \
+            --argjson targets "$targets" \
+            '{builder: $builder, run_label: $run_label, sha: $sha, run: $run, targets: $targets}' > "$OUT/evidence-$BUILDER.json"
+          jq -r '.targets | to_entries[] | "\(.key) \(.value.digest)"' "$OUT/evidence-$BUILDER.json" > "$OUT/digests-$BUILDER.txt"
+          {
+            echo "### $BUILDER build ($RUN_LABEL) at \`$SHA\`"
+            echo
+            echo "| target | seconds | architecture | manifest digest | smoke |"
+            echo "|---|---|---|---|---|"
+            jq -r '.targets | to_entries[] | "| \(.key) | \(.value.seconds) | \(.value.os)/\(.value.architecture) | `\(.value.digest)` | \(.value.smoke.node), \(.value.smoke.entry) parses |"' "$OUT/evidence-$BUILDER.json"
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$OUT/evidence-$BUILDER.json"
+
+      - name: Upload the evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: depot-canary-evidence-depot-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/canary/evidence-depot.json
+            ${{ runner.temp }}/canary/digests-depot.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  control:
+    name: depot-canary/control (GitHub Buildx, api, migrate)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      BUILDER: github
+      RUN_LABEL: ${{ inputs.run_label }}
+    steps:
+      - name: Checkout the main SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: Start the api clock
+        run: |
+          echo "OUT=$RUNNER_TEMP/canary" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/canary"
+          echo "T0=$(date +%s%N)" >> "$GITHUB_ENV"
+
+      - name: Build api (Buildx, OCI archive, no push, no cache)
+        id: api
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: services/backend-core
+          target: api
+          push: false
+          no-cache: true
+          platforms: linux/amd64
+          provenance: false
+          sbom: false
+          outputs: type=oci,dest=${{ runner.temp }}/canary/api.oci.tar
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Stop the api clock, start the migrate clock
+        run: |
+          now=$(date +%s%N)
+          echo "API_NS=$((now - T0))" >> "$GITHUB_ENV"
+          echo "T0=$(date +%s%N)" >> "$GITHUB_ENV"
+
+      - name: Build migrate (Buildx, OCI archive, no push, no cache)
+        id: migrate
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: services/backend-core
+          target: migrate
+          push: false
+          no-cache: true
+          platforms: linux/amd64
+          provenance: false
+          sbom: false
+          outputs: type=oci,dest=${{ runner.temp }}/canary/migrate.oci.tar
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Stop the migrate clock
+        run: echo "MIGRATE_NS=$(( $(date +%s%N) - T0 ))" >> "$GITHUB_ENV"
+
+      # Same step as in the depot job (build_id is empty here).
+      - name: Inspect, smoke-test and record evidence
+        env:
+          SHA: ${{ github.sha }}
+          API_ACTION_DIGEST: ${{ steps.api.outputs.digest }}
+          MIGRATE_ACTION_DIGEST: ${{ steps.migrate.outputs.digest }}
+          DEPOT_API_BUILD: ""
+          DEPOT_MIGRATE_BUILD: ""
+        run: |
+          set -euo pipefail
+          declare -A ENTRY=([api]=dist/main.js [migrate]=dist/cli/migrate.js)
+          declare -A NS=([api]="$API_NS" [migrate]="$MIGRATE_NS")
+          declare -A ACTION_DIGEST=([api]="$API_ACTION_DIGEST" [migrate]="$MIGRATE_ACTION_DIGEST")
+          declare -A BUILD_ID=([api]="$DEPOT_API_BUILD" [migrate]="$DEPOT_MIGRATE_BUILD")
+          targets='{}'
+          for T in api migrate; do
+            TAR="$OUT/$T.oci.tar"
+            DIGEST="$(tar -xOf "$TAR" index.json | jq -r '.manifests[0].digest')"
+            [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::$T: bad manifest digest '$DIGEST' in $TAR"; exit 1; }
+            CONFIG="$(skopeo inspect --config "oci-archive:$TAR")"
+            IMG="canary-$BUILDER/$T:local"
+            skopeo copy --quiet "oci-archive:$TAR" "docker-daemon:$IMG"
+            NODE="$(docker run --rm --network none --entrypoint node "$IMG" --version)"
+            docker run --rm --network none --entrypoint node "$IMG" --check "${ENTRY[$T]}" \
+              || { echo "::error::$T: ${ENTRY[$T]} is missing or does not parse"; exit 1; }
+            targets="$(jq -c --arg t "$T" --arg digest "$DIGEST" --arg action_digest "${ACTION_DIGEST[$T]}" \
+              --arg build_id "${BUILD_ID[$T]}" --argjson ns "${NS[$T]}" --arg node "$NODE" \
+              --arg entry "${ENTRY[$T]}" --argjson bytes "$(stat -c %s "$TAR")" --argjson config "$CONFIG" \
+              '.[$t] = {seconds: (($ns / 1e7 | round) / 100), digest: $digest, action_digest: $action_digest,
+                        build_id: $build_id, os: $config.os, architecture: $config.architecture,
+                        labels: ($config.config.Labels // {}), oci_tar_bytes: $bytes,
+                        smoke: {node: $node, entry: $entry, check: "pass"}}' <<<"$targets")"
+          done
+          jq -n --arg builder "$BUILDER" --arg run_label "$RUN_LABEL" --arg sha "$SHA" \
+            --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" \
+            --argjson targets "$targets" \
+            '{builder: $builder, run_label: $run_label, sha: $sha, run: $run, targets: $targets}' > "$OUT/evidence-$BUILDER.json"
+          jq -r '.targets | to_entries[] | "\(.key) \(.value.digest)"' "$OUT/evidence-$BUILDER.json" > "$OUT/digests-$BUILDER.txt"
+          {
+            echo "### $BUILDER build ($RUN_LABEL) at \`$SHA\`"
+            echo
+            echo "| target | seconds | architecture | manifest digest | smoke |"
+            echo "|---|---|---|---|---|"
+            jq -r '.targets | to_entries[] | "| \(.key) | \(.value.seconds) | \(.value.os)/\(.value.architecture) | `\(.value.digest)` | \(.value.smoke.node), \(.value.smoke.entry) parses |"' "$OUT/evidence-$BUILDER.json"
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$OUT/evidence-$BUILDER.json"
+
+      - name: Upload the evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: depot-canary-evidence-github-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/canary/evidence-github.json
+            ${{ runner.temp }}/canary/digests-github.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  compare:
+    name: depot-canary/compare
+    needs: [depot, control]
+    # Runs when either builder failed too, so a failed Depot run still shows the control.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {} # same-run artifacts use the runtime token
+    steps:
+      - name: Download both evidence files
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: depot-canary-evidence-*-${{ github.run_id }}
+          path: ${{ runner.temp }}/evidence
+          merge-multiple: true
+
+      - name: Compare
+        env:
+          RUN_LABEL: ${{ inputs.run_label }}
+          DEPOT_RESULT: ${{ needs.depot.result }}
+          CONTROL_RESULT: ${{ needs.control.result }}
+        run: |
+          set -euo pipefail
+          D="$RUNNER_TEMP/evidence/evidence-depot.json"
+          G="$RUNNER_TEMP/evidence/evidence-github.json"
+          {
+            echo "### Depot canary comparison ($RUN_LABEL) at \`$GITHUB_SHA\`"
+            echo
+            echo "- depot job: $DEPOT_RESULT; control job: $CONTROL_RESULT"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ ! -f "$D" ] || [ ! -f "$G" ]; then
+            echo "- evidence missing: depot $([ -f "$D" ] && echo present || echo missing), github $([ -f "$G" ] && echo present || echo missing); no comparison" >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::evidence missing (depot: $DEPOT_RESULT, control: $CONTROL_RESULT)"
+            exit 0
+          fi
+          {
+            echo
+            echo "| target | depot s | github s | depot arch | github arch | depot digest | github digest | digests | labels |"
+            echo "|---|---|---|---|---|---|---|---|---|"
+            jq -rn --slurpfile d "$D" --slurpfile g "$G" '
+              ($d[0].targets) as $dt | ($g[0].targets) as $gt |
+              ($dt | keys[]) as $t |
+              "| \($t) | \($dt[$t].seconds) | \($gt[$t].seconds // "-") | \($dt[$t].os)/\($dt[$t].architecture) | \($gt[$t].os)/\($gt[$t].architecture) | `\($dt[$t].digest)` | `\($gt[$t].digest)` | \(if $dt[$t].digest == $gt[$t].digest then "equal" else "differ (expected)" end) | \(if $dt[$t].labels == $gt[$t].labels then "equal" else "differ" end) |"'
+            echo
+            echo "Digests are not expected to match across builders (no SOURCE_DATE_EPOCH, different BuildKit)."
+            echo "Comparable: cold vs github (both no-cache). warm and next-sha show Depot with its layer cache; the github column is always cold. Queue time is in the run's job timings."
+            echo "Depot build minutes and credits are read from the Depot UI for build IDs:"
+            jq -r '.targets | to_entries[] | "- \(.key): \(.value.build_id)"' "$D"
+          } >> "$GITHUB_STEP_SUMMARY"
+          jq -s . "$D" "$G"
