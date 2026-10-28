@@ -103,6 +103,10 @@ jobs:
             timeout 300 circleci testsuite doctor "backend api jest" > /tmp/tia/doctor.log 2>&1 || rc=$?
             cat /tmp/tia/doctor.log
             echo "doctor exit code: $rc"
+            # doctor runs a sample of specs through the suite's `run` command, which writes the
+            # same Jest JSON and JUnit paths as the full run; drop them so a full run that dies
+            # early can never be reported with the sample's results.
+            rm -rf /tmp/api-jest.json /tmp/test-reports
             rc=0
             timeout 300 circleci testsuite list-tests "backend api jest" > /tmp/tia/selected.txt 2> /tmp/tia/list-tests.log || rc=$?
             echo "$rc" > /tmp/tia/list-tests.rc
