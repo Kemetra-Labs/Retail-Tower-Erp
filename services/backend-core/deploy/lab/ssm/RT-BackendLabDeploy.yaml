@@ -256,7 +256,10 @@ mainSteps:
             'rt-deploy-revert-*' </dev/null)" || stop "revert-unit-query-failed"
           [ -z "$ARMED" ] || stop "an-earlier-auto-revert-is-armed-or-elapsed"
           grep -qE "$CUR_DIR_RE" "$DC" || stop "wrapper-does-not-use-the-current-release"
-          grep -qF -- "$BACKEND_ENV" "$DC" || stop "wrapper-does-not-use-BACKEND_ENV"
+          # BACKEND_ENV must be the wrapper's --env-file argument (= or space, optionally quoted),
+          # not merely a string somewhere in it.
+          ENV_FILE_RE="--env-file(=|[[:space:]]+)[\"']?${BACKEND_ENV//./[.]}[\"']?([[:space:]]|\$)"
+          grep -qE -- "$ENV_FILE_RE" "$DC" || stop "wrapper-does-not-use-BACKEND_ENV"
           SENTRY="$(env_value "$BACKEND_ENV" SENTRY_RELEASE)" || stop "SENTRY_RELEASE-missing-or-duplicated"
           [ "$SENTRY" = "$CUR_ID" ] || stop "SENTRY_RELEASE-is-not-the-current-release"
           PRIOR_API="$(env_value "$CUR_DIR/release.env" DP2_API_IMAGE)" || stop "current-release-env-unreadable"
