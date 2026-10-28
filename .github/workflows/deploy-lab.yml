@@ -508,9 +508,11 @@ jobs:
           # One Online managed node per lab host, found by its owner-set tags.
           node_for() {
             local ids
+            # DescribeInstanceInformation refuses a tag filter mixed with any other filter key,
+            # so the Online check is a client-side query, not a PingStatus filter.
             ids="$(aws ssm describe-instance-information \
-              --filters "Key=tag:Environment,Values=lab" "Key=tag:Host,Values=$1" "Key=PingStatus,Values=Online" \
-              --query 'InstanceInformationList[].InstanceId' --output text)" || return 1
+              --filters "Key=tag:Environment,Values=lab" "Key=tag:Host,Values=$1" \
+              --query "InstanceInformationList[?PingStatus=='Online'].InstanceId" --output text)" || return 1
             [[ "$ids" =~ ^mi-[0-9a-f]{17}$ ]] || return 1
             printf '%s' "$ids"
           }
