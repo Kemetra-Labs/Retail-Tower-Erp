@@ -1,6 +1,7 @@
 // Renovate for the monorepo (RT-924). npm only: the Node version (.nvmrc), the Dockerfile base
 // image, GitHub Actions and the Python lock are pinned by hand on purpose (RT-923 guard,
-// SHA-pinned actions, hash-locked pylock.toml), so no other manager is enabled. The npm manager
+// SHA-pinned actions, hash-locked pylock.toml), so no other manager is enabled (custom.regex reads
+// only shared-deps.yaml and the admin/e2e Playwright image, RT-817). The npm manager
 // also reads `engines` and `packageManager`; those are switched off below for the same reason.
 //
 // Goal: one version per shared library in every product. A package family is one PR that bumps
@@ -30,6 +31,19 @@
       // at the start of a line, and let a trailing `# comment` stay outside the match.
       matchStrings: ["(?:^|\\n)[ \\t]+\"?(?<depName>[@a-z0-9][^\":\\s]*)\"?:[ \\t]+(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
       datasourceTemplate: "npm",
+    },
+    {
+      // RT-817: admin/e2e runs in the Playwright image, whose tag must equal the lockfile's
+      // @playwright/test version (the job checks it). This is the only container image Renovate
+      // reads; the github-actions manager stays off, so action SHAs are still pinned by hand. The
+      // `test` group below puts it in the same PR as @playwright/test. The image tag can appear
+      // after the npm release; until it does, that PR fails the version check on purpose.
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/admin-console\\.yml$/"],
+      matchStrings: ["image:[ \\t]+mcr\\.microsoft\\.com/playwright:(?<currentValue>v\\d+\\.\\d+\\.\\d+-noble)@(?<currentDigest>sha256:[a-f0-9]{64})"],
+      depNameTemplate: "mcr.microsoft.com/playwright",
+      datasourceTemplate: "docker",
+      versioningTemplate: "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-noble$",
     },
   ],
   dependencyDashboard: true,
@@ -80,8 +94,8 @@
       prPriority: 5,
     },
     {
-      description: "test: vitest and its coverage package must share a version",
-      matchPackageNames: ["vitest", "@vitest/**", "@playwright/test", "@testing-library/**", "jsdom"],
+      description: "test: vitest and its coverage package must share a version; the Playwright image follows @playwright/test (RT-817)",
+      matchPackageNames: ["vitest", "@vitest/**", "@playwright/test", "mcr.microsoft.com/playwright", "@testing-library/**", "jsdom"],
       groupName: "test",
       separateMajorMinor: false,
       prPriority: 5,
