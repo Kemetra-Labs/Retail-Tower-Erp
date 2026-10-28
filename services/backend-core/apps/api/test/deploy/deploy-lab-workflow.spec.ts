@@ -552,6 +552,16 @@ describe("deploy-lab workflow: live job (RT-842)", () => {
     expect(liveScripts).toContain('grep -qxF "RT_DONE release=$BACKEND_RELEASE"');
   });
 
+  it("finds the lab nodes with tag filters only: AWS refuses a tag filter mixed with another key", () => {
+    const ssm = String(stepNamed("Run the SSM gates", live.steps).run);
+    const lookup = ssm.slice(ssm.indexOf("node_for() {"), ssm.indexOf("run_document() {"));
+    const keys = [...lookup.matchAll(/"Key=([^,]+),Values=/g)].map((m) => m[1]);
+    expect(keys).toEqual(["tag:Environment", "tag:Host"]);
+    expect(lookup).not.toMatch(/PingStatus,Values|--instance-information-filter-list/);
+    expect(lookup).toContain(`--query "InstanceInformationList[?PingStatus=='Online'].InstanceId"`);
+    expect(lookup).toContain('[[ "$ids" =~ ^mi-[0-9a-f]{17}$ ]] || return 1');
+  });
+
   it("never prints raw document output: only strict RT_* lines reach the log and the ledger", () => {
     const ssm = String(stepNamed("Run the SSM gates", live.steps).run);
     expect(ssm).toContain("RESULT_RE='^RT_(GATE|FAIL|PRIOR|TARGET|BACKUP|REVERT|DONE)( [A-Za-z0-9=:._/-]+)*$'");
