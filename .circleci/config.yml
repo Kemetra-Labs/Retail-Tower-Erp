@@ -30,13 +30,13 @@ jobs:
               echo "Could not fetch origin/main; running the suite."
               exit 0
             fi
+            # Pushes to main always run: a GitHub App project has no pipeline.git.base_revision,
+            # and the tip commit alone would miss earlier commits of a multi-commit push.
             if [ "${CIRCLE_BRANCH:-}" = "main" ]; then
-              # The push's previous tip covers every commit in the push; fall back to the parent.
-              base="<< pipeline.git.base_revision >>"
-              git cat-file -e "${base}^{commit}" 2>/dev/null || base="HEAD^1"
-            else
-              base="$(git merge-base origin/main HEAD)" || { echo "No merge-base; running the suite."; exit 0; }
+              echo "Push to main; running the suite."
+              exit 0
             fi
+            base="$(git merge-base origin/main HEAD)" || { echo "No merge-base; running the suite."; exit 0; }
             # No pipe into grep: under pipefail a SIGPIPE on a large diff would read as "no change".
             # --quiet exits 1 when the paths changed, 0 when not; anything else runs the suite.
             rc=0
