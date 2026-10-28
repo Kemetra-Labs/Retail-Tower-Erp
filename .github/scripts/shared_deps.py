@@ -103,6 +103,8 @@ def declarations(repo, files):
             pkg = json.loads(read(path))
         except json.JSONDecodeError as exc:
             raise InputError(f"{name}: {exc}") from exc
+        if not isinstance(pkg, dict):
+            raise InputError(f"{name}: the top level must be an object")
         for section in SECTIONS:
             deps = pkg.get(section) or {}
             if not isinstance(deps, dict):

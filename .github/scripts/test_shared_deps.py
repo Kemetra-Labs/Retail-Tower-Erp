@@ -202,6 +202,13 @@ class SharedDepsTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("`dependencies` must be an object", out)
 
+    def test_package_json_that_is_not_an_object_exits_2(self):
+        for body in ("null", "[]", '"react"', "1"):
+            self.write("apps/web/package.json", body)
+            code, out = self.run_main()
+            self.assertEqual(code, 2, body)
+            self.assertIn("the top level must be an object", out)
+
     def test_findings_go_to_the_job_summary(self):
         self.package("apps/web/package.json", dependencies={"react": "^18.3.1"}, devDependencies={"vite": "8.3.4"})
         summary = os.path.join(self.repo, "summary.md")
