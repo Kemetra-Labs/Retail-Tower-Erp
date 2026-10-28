@@ -106,6 +106,16 @@ class ToolchainVersionsTests(unittest.TestCase):
         self.write(".github/workflows/x.yml", "steps:\n  - with: { node-version-file: .nvmrc }\n")
         self.assertEqual(self.problems(), [])
 
+    def test_a_whole_value_is_the_path(self):
+        self.write(".github/workflows/x.yml", "steps:\n  - with:\n      node-version-file: .nvmrc,\n")
+        self.assert_one("a", ".nvmrc, does not exist")
+
+    def test_unparseable_workflow_exits_2(self):
+        self.write(".github/workflows/x.yml", "steps: [\n")
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(tv.main(["check", "--repo", self.repo]), 2)
+        self.assertIn("unreadable input", out.getvalue())
+
     def test_b_registry_prefix_and_missing_tag(self):
         self.write("svc/Dockerfile", "FROM docker.io/library/node:22-slim AS base\n")
         self.assert_one("b", "node:22-slim")

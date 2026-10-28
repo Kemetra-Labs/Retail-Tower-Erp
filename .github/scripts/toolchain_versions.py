@@ -16,7 +16,8 @@ The repo-root `.nvmrc` is the Node major. Every rule below compares against it o
   (d) every pyproject.toml with a `.python-version` beside it has `requires-python = ">=X.Y"`
       where X.Y is that file's version
 
-Stdlib only; every unclear case is a violation.
+Stdlib plus PyYAML (hash-pinned in tools/project-graph/requirements.txt, which boundary-check
+installs first); workflows are parsed, not pattern-matched. Every unclear case is a violation.
 """
 import argparse
 import json
@@ -25,15 +26,15 @@ import re
 import sys
 import tomllib
 
+import yaml
+
 # Node major bundled by each Electron major (releases.electronjs.org `node` field). Add a row when
 # POS moves to a new Electron major; the guard fails until it is there.
 ELECTRON_NODE_MAJOR = {44: 24}
 
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "out", ".pnpm-store"}
-# Block (`node-version: 22`), flow (`with: { node-version: 22 }`) and quoted-key spellings;
-# `node-version-file:` does not match.
-INLINE_RE = re.compile(r"(?<![\w-])['\"]?(node|python)-version['\"]?\s*:")
-FILE_REF_RE = re.compile(r"(?<![\w-])['\"]?(?:node|python)-version-file['\"]?\s*:\s*['\"]?([^'\"\s#,}]+)")
+INLINE_KEYS = {"node-version", "python-version"}
+FILE_KEYS = {"node-version-file", "python-version-file"}
 # `node`, `node:24-slim`, `docker.io/library/node:24@sha256:...`; group 1 is the tag (None if absent).
 NODE_IMAGE = r"(?:[\w.:-]+/)*node(?::([^\s@'\"]+))?(?=[\s@'\"]|$)"
 FROM_NODE_RE = re.compile(r"^\s*FROM\s+(?:--platform=\S+\s+)?" + NODE_IMAGE, re.MULTILINE | re.IGNORECASE)
@@ -78,19 +79,36 @@ def leading_major(spec):
     return int(match.group(1)) if match else None
 
 
+def mappings(node):
+    if isinstance(node, dict):
+        yield node
+        for value in node.values():
+            yield from mappings(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from mappings(value)
+
+
 def check_workflows(repo, files):
     problems = []
     for path in files:
-        parts = rel(repo, path).split("/")
+        name = rel(repo, path)
+        parts = name.split("/")
         if ".github" not in parts or "workflows" not in parts or not path.endswith((".yml", ".yaml")):
             continue
-        text = read(path)
-        for match in INLINE_RE.finditer(text):
-            line = text.count("\n", 0, match.start()) + 1
-            problems.append(f"(a) {rel(repo, path)}:{line}: inline {match.group(1)}-version; use {match.group(1)}-version-file")
-        for match in FILE_REF_RE.finditer(text):
-            if not os.path.isfile(os.path.join(repo, match.group(1))):
-                problems.append(f"(a) {rel(repo, path)}: version file {match.group(1)} does not exist")
+        try:
+            data = yaml.safe_load(read(path))
+        except yaml.YAMLError as exc:
+            raise InputError(f"{name}: {exc}") from exc
+        # Every spelling (block, flow, quoted key) parses to the same mapping key.
+        for mapping in mappings(data):
+            for key, value in mapping.items():
+                if key in INLINE_KEYS:
+                    problems.append(f"(a) {name}: inline {key}: {value!r}; use {key}-file")
+                elif key in FILE_KEYS:
+                    target = value if isinstance(value, str) and value else None
+                    if target is None or not os.path.isfile(os.path.join(repo, target)):
+                        problems.append(f"(a) {name}: version file {value} does not exist")
     return problems
 
 
@@ -99,9 +117,9 @@ def image_source(repo, path):
     if name.startswith("Dockerfile"):
         return FROM_NODE_RE, "FROM"
     parts = rel(repo, path).split("/")
-    yaml = name.endswith((".yml", ".yaml"))
-    compose = yaml and name.startswith(("docker-compose", "compose"))
-    workflow = yaml and ".github" in parts and "workflows" in parts
+    is_yaml = name.endswith((".yml", ".yaml"))
+    compose = is_yaml and name.startswith(("docker-compose", "compose"))
+    workflow = is_yaml and ".github" in parts and "workflows" in parts
     return (IMAGE_NODE_RE, "image:") if compose or workflow else (None, None)
 
 
