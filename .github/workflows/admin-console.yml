@@ -261,6 +261,12 @@ jobs:
     container:
       image: mcr.microsoft.com/playwright:v1.60.0-noble@sha256:9bd26ad900bb5e0f4dee75839e957a89ae89c2b7ab1e76050e559790e946b948
       options: --ipc=host
+    # In a container job a `run:` step without `shell:` uses `sh -e`, not bash as on the host
+    # runner, so the job sets bash (and keeps the workflow's run directory) for every step.
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/admin-console
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
