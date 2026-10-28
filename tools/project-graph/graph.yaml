@@ -204,8 +204,13 @@ products:
       observability:
         globs: [retail_tower_erpnext_connector/connector/observability/**, retail_tower_erpnext_connector/connector/request_id.py]
         jobs: [connector/unit-tests-and-lint]
+      # RT-923: .python-version picks the Python of the lint/unit job AND the bench lane, and bench
+      # installs the app through pip, which enforces pyproject's requires-python, so both run bench.
+      runtime:
+        globs: [.python-version, pyproject.toml]
+        jobs: [connector/unit-tests-and-lint, connector/bench, dependency-review]
       dependency:
-        globs: [pyproject.toml, pylock.toml]
+        globs: [pylock.toml]
         jobs: [connector/unit-tests-and-lint, dependency-review]
       tooling:
         globs: [codecov.yml, .sonarcloud.properties, .coderabbit.yaml]
