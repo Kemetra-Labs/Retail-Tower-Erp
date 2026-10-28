@@ -204,8 +204,13 @@ products:
       observability:
         globs: [retail_tower_erpnext_connector/connector/observability/**, retail_tower_erpnext_connector/connector/request_id.py]
         jobs: [connector/unit-tests-and-lint]
+      # RT-923: .python-version picks the Python of the lint/unit job AND the bench lane, and bench
+      # installs the app through pip, which enforces pyproject's requires-python, so both run bench.
+      runtime:
+        globs: [.python-version, pyproject.toml]
+        jobs: [connector/unit-tests-and-lint, connector/bench, dependency-review]
       dependency:
-        globs: [pyproject.toml, pylock.toml]
+        globs: [pylock.toml]
         jobs: [connector/unit-tests-and-lint, dependency-review]
       tooling:
         globs: [codecov.yml, .sonarcloud.properties, .coderabbit.yaml]
@@ -219,7 +224,8 @@ shared_classes:   # precedence: lower wins; two matches at the SAME precedence =
   # A policy class outranks product ownership (RT-867): each product's own .github/** holds scripts
   # that root CI jobs execute (e.g. admin-console report-flaky-e2e.mjs), so they need approval.
   # .gitleaks.toml and .gitleaksignore (RT-876) decide what the root secret scan ignores, so widening them is a policy change too.
-  policy:  { precedence: 1, globs: [.github/**, tools/project-graph/**, tools/ci-gate/**, tools/agent-broker/**, CODEOWNERS, .gitleaks.toml, .gitleaksignore, "apps/*/.github/**", "services/*/.github/**", "integrations/*/.github/**"], selects: all, policy_change: true }
+  # The root .python-version (RT-923) picks the interpreter the gate and every plan job run the trusted evaluator on.
+  policy:  { precedence: 1, globs: [.github/**, tools/project-graph/**, tools/ci-gate/**, tools/agent-broker/**, CODEOWNERS, .gitleaks.toml, .gitleaksignore, .python-version, "apps/*/.github/**", "services/*/.github/**", "integrations/*/.github/**"], selects: all, policy_change: true }
   tooling: { precedence: 2, globs: [tools/**], selects: all }
   e2e:     { precedence: 3, globs: [tests/e2e/**], selects: [e2e] }
   docs:    { precedence: 3, globs: [docs/**], selects: [] }

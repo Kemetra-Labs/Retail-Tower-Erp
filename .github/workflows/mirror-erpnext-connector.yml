@@ -72,7 +72,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
 
       - name: Verify the published history, then plan
         env:
@@ -132,7 +132,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         if: steps.arm.outputs.armed == 'true'
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
 
       - name: Mint a one-repository publisher token
         if: steps.arm.outputs.armed == 'true'
