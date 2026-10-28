@@ -29,7 +29,8 @@
 #    Dropping the upload here does not resolve RT-748 NV-9 (Codecov reporting), which stays
 #    open.
 #  - run directory: `defaults.run.working-directory` does not apply to `uses:` steps, so the
-#    pnpm package.json and the pnpm cache path carry the apps/admin-console/ prefix explicitly. `hashFiles` resolves from the workspace root.
+#    pnpm package.json and the pnpm cache path carry the apps/admin-console/ prefix
+#    explicitly. `hashFiles` resolves from the workspace root.
 #
 # Hardening, not parity: actions are pinned to SHAs (the product used floating @v4 for
 # checkout, setup-node and cache), checkout does not persist credentials, and pull_request
@@ -268,8 +269,8 @@ jobs:
 
       # RT-817: the image carries the browsers for one Playwright version. If the lockfile moves
       # without the image (or the reverse), fail here with the fix instead of later with
-      # "Executable doesn't exist". playwright-core is not checked: other packages (axe) may pull
-      # a newer one, but only playwright/@playwright/test launch the browsers.
+      # "Executable doesn't exist". Only @playwright/test is read: it is the runner that launches
+      # the browsers, and other packages may resolve their own playwright/playwright-core (axe).
       - name: Check the Playwright image matches the lockfile
         working-directory: .
         run: |
@@ -282,9 +283,9 @@ jobs:
             exit 1
           fi
           image_version=$(sed -E 's/^[^:]+:v([0-9.]+)-noble@.*$/\1/' <<< "${images[0]}")
-          mapfile -t locked < <(grep -oE "^  '?(@playwright/test|playwright)@[0-9]+\.[0-9]+\.[0-9]+'?:" "$lock" | sed -E "s/^.*@([0-9.]+)'?:$/\1/" | sort -u)
+          mapfile -t locked < <(grep -oE "^  '@playwright/test@[0-9]+\.[0-9]+\.[0-9]+':" "$lock" | sed -E "s/^.*@([0-9.]+)':$/\1/" | sort -u)
           if [ "${#locked[@]}" -ne 1 ] || [ "${locked[0]}" != "$image_version" ]; then
-            echo "::error title=Playwright version mismatch::$lock resolves playwright/@playwright/test to '${locked[*]:-none}' but $wf runs the image for $image_version. Pin the container image to mcr.microsoft.com/playwright:v<lockfile version>-noble@sha256:<digest> (or bump the lockfile) so both match."
+            echo "::error title=Playwright version mismatch::$lock resolves @playwright/test to '${locked[*]:-none}' but $wf runs the image for $image_version. Pin the container image to mcr.microsoft.com/playwright:v<lockfile version>-noble@sha256:<digest> (or bump the lockfile) so both match."
             exit 1
           fi
           echo "Playwright $image_version: lockfile and container image agree (${images[0]})"
