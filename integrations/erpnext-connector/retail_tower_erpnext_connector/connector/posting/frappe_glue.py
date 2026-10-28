@@ -27,7 +27,7 @@ idempotency-store DocType is the deferred [GATED] T020). It RECEIVES an
 from __future__ import annotations
 
 import dataclasses
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 
 import frappe
 

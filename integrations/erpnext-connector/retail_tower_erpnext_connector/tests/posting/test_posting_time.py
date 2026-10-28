@@ -12,7 +12,7 @@ unless ``set_posting_time=1``, so ``businessDate`` was silently discarded. The r
     that is later (ERPNext rejects a return EARLIER than its original; equal is allowed).
 """
 
-from datetime import UTC, datetime, time, timedelta, timezone
+from datetime import UTC, datetime, time, timedelta
 
 import pytest
 

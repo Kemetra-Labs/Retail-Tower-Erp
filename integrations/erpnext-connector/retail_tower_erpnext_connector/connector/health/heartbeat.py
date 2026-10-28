@@ -24,7 +24,7 @@ use, or a fake in unit tests). Pure Python, NO frappe.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from typing import Protocol
 
 # spec-003 substrate: the request_id correlation travels on every call (RT-39).
