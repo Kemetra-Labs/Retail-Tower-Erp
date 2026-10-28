@@ -92,6 +92,34 @@ class ToolchainVersionsTests(unittest.TestCase):
         self.write("svc/Dockerfile.dev", "FROM node:lts-slim\n")
         self.assert_one("b", "node:lts-slim")
 
+    def test_a_flow_mapping_and_quoted_key(self):
+        self.write(".github/workflows/x.yml", "steps:\n  - with: { node-version: 22 }\n")
+        self.assert_one("a", "inline node-version")
+        self.write(".github/workflows/x.yml", 'steps:\n  - with:\n      "python-version": "3.12"\n')
+        self.assert_one("a", "inline python-version")
+
+    def test_b_registry_prefix_and_missing_tag(self):
+        self.write("svc/Dockerfile", "FROM docker.io/library/node:22-slim AS base\n")
+        self.assert_one("b", "node:22-slim")
+        self.write("svc/Dockerfile", "FROM node AS base\n")
+        self.assert_one("b", "node (no tag)")
+
+    def test_b_workflow_and_compose_images(self):
+        self.write(".github/workflows/svc.yml",
+                   "jobs:\n  t:\n    container:\n      image: node:22-bookworm\n"
+                   "    services:\n      r:\n        image: redis:7-alpine\n")
+        self.assert_one("b", "image: node:22-bookworm")
+        self.write(".github/workflows/svc.yml", "jobs: {}\n")
+        self.write("svc/docker-compose.dev.yml",
+                   "services:\n  app:\n    image: 'node:24-slim@sha256:abc'\n  db:\n    image: postgres:16\n")
+        self.assertEqual(self.problems(), [])
+        self.write("svc/docker-compose.dev.yml", "services:\n  app:\n    image: node:20\n")
+        self.assert_one("b", "image: node:20")
+
+    def test_b_other_images_are_ignored(self):
+        self.write("svc/Dockerfile", "FROM node:24-slim AS base\nFROM nodered/node-red:3 AS x\nFROM nginx:1\n")
+        self.assertEqual(self.problems(), [])
+
     def test_c_engines_lower_bound(self):
         self.package("svc/package.json", engines=">=22", types="24.19.2")
         self.assert_one("c", "engines.node '>=22'")

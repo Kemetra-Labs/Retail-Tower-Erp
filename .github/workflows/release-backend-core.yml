@@ -129,7 +129,7 @@ jobs:
             .github/release
             services/backend-core/contracts-compat
 
-      - name: Setup Node 22
+      - name: Setup Node (.nvmrc)
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
@@ -381,7 +381,7 @@ jobs:
           grep -q -- '--release-tag)' services/backend-core/deploy/release-bundle.sh \
             || fail "release-bundle.sh in $SHA has no --release-tag (RT-908 B2 must be on main first)"
 
-      - name: Setup Node 22
+      - name: Setup Node (.nvmrc)
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc

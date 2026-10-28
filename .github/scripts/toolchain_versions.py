@@ -8,7 +8,8 @@ The repo-root `.nvmrc` is the Node major. Every rule below compares against it o
 
   (a) no workflow sets `node-version:` or `python-version:` inline; every `node-version-file:` /
       `python-version-file:` names a file that exists
-  (b) every Dockerfile `FROM node:<tag>` has the `.nvmrc` major
+  (b) every Dockerfile `FROM [registry/]node[:tag]`, and every workflow or docker-compose
+      `image: [registry/]node[:tag]`, has the `.nvmrc` major (no tag is a violation)
   (c) every package.json `engines.node` lower bound and `@types/node` major is the `.nvmrc` major;
       a package that depends on `electron` is checked against the Node major Electron bundles
       (ELECTRON_NODE_MAJOR), and an Electron major missing from that table is a violation
@@ -29,9 +30,14 @@ import tomllib
 ELECTRON_NODE_MAJOR = {44: 24}
 
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "out", ".pnpm-store"}
-INLINE_RE = re.compile(r"^\s*-?\s*(node|python)-version:\s", re.MULTILINE)
+# Block (`node-version: 22`), flow (`with: { node-version: 22 }`) and quoted-key spellings;
+# `node-version-file:` does not match.
+INLINE_RE = re.compile(r"(?<![\w-])['\"]?(node|python)-version['\"]?\s*:")
 FILE_REF_RE = re.compile(r"^\s*-?\s*(?:node|python)-version-file:\s*['\"]?([^'\"\s#]+)", re.MULTILINE)
-FROM_NODE_RE = re.compile(r"^\s*FROM\s+(?:--platform=\S+\s+)?node:(\S+)", re.MULTILINE | re.IGNORECASE)
+# `node`, `node:24-slim`, `docker.io/library/node:24@sha256:...`; group 1 is the tag (None if absent).
+NODE_IMAGE = r"(?:[\w.:-]+/)*node(?::([^\s@'\"]+))?(?=[\s@'\"]|$)"
+FROM_NODE_RE = re.compile(r"^\s*FROM\s+(?:--platform=\S+\s+)?" + NODE_IMAGE, re.MULTILINE | re.IGNORECASE)
+IMAGE_NODE_RE = re.compile(r"^\s*-?\s*image:\s*['\"]?" + NODE_IMAGE, re.MULTILINE)
 LEADING_MAJOR_RE = re.compile(r"^\s*[v^~>=<\s]*(\d+)")
 REQUIRES_RE = re.compile(r"^\s*>=\s*(\d+)\.(\d+)(?:\.\d+)?\s*(?:,|$)")
 
@@ -88,15 +94,28 @@ def check_workflows(repo, files):
     return problems
 
 
-def check_dockerfiles(repo, files, major):
+def image_source(repo, path):
+    name = os.path.basename(path)
+    if name.startswith("Dockerfile"):
+        return FROM_NODE_RE, "FROM"
+    parts = rel(repo, path).split("/")
+    yaml = name.endswith((".yml", ".yaml"))
+    compose = yaml and name.startswith(("docker-compose", "compose"))
+    workflow = yaml and ".github" in parts and "workflows" in parts
+    return (IMAGE_NODE_RE, "image:") if compose or workflow else (None, None)
+
+
+def check_images(repo, files, major):
     problems = []
     for path in files:
-        if not os.path.basename(path).startswith("Dockerfile"):
+        pattern, label = image_source(repo, path)
+        if pattern is None:
             continue
-        for match in FROM_NODE_RE.finditer(read(path)):
-            found = leading_major(match.group(1))
-            if found != major:
-                problems.append(f"(b) {rel(repo, path)}: FROM node:{match.group(1)} is not Node {major} (.nvmrc)")
+        for match in pattern.finditer(read(path)):
+            tag = match.group(1)
+            if tag is None or leading_major(tag) != major:
+                shown = f"node:{tag}" if tag else "node (no tag)"
+                problems.append(f"(b) {rel(repo, path)}: {label} {shown} is not Node {major} (.nvmrc)")
     return problems
 
 
@@ -164,7 +183,7 @@ def check_python_projects(repo, files):
 def check(repo):
     major = node_major(repo)
     files = list(walk(repo))
-    return (check_workflows(repo, files) + check_dockerfiles(repo, files, major)
+    return (check_workflows(repo, files) + check_images(repo, files, major)
             + check_packages(repo, files, major) + check_python_projects(repo, files))
 
 
