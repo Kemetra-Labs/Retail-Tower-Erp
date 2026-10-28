@@ -23,8 +23,14 @@
 # and are loaded into the local Docker daemon for the smoke test. It is not a graph job (no
 # graph.yaml key, not in gate.yml) and never feeds `required`. Rollback: delete this file.
 #
-# Owner setup before the first dispatch: repository variable DEPOT_PROJECT_ID = the project ID
-# of the Depot Container Builds project Retail-Tower-Erp. The depot job refuses when it is empty.
+# Owner setup before the first dispatch:
+#   - repository variable DEPOT_PROJECT_ID = the project ID of the Depot Container Builds project
+#     Retail-Tower-Erp. The depot job refuses when it is empty.
+#   - that project's GitHub OIDC trust relationship for Kemetra-Labs/Retail-Tower-Erp (owner-
+#     confirmed, RT-917 comment 14311). Depot's GitHub trust takes only owner and repository, no
+#     ref or workflow (depot.dev/docs/cli/authentication), hence the main guard on every job.
+# Dispatch the three runs one at a time: a third dispatch while one runs and one is queued
+# cancels the queued one.
 name: depot-build-canary
 
 "on":
