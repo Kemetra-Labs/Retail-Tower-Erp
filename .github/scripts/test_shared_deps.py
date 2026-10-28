@@ -153,6 +153,61 @@ class SharedDepsTests(unittest.TestCase):
         self.write("tools/versions/shared-deps.yaml", "version: 1\nlibraries:\n  react: 19.2\n")
         self.assertEqual(self.run_main()[0], 2)
 
+    def test_duplicate_policy_key_exits_2(self):
+        self.write("tools/versions/shared-deps.yaml", "version: 1\nlibraries:\n  react: 19.2.5\n  react: 19.0.0\n")
+        code, out = self.run_main()
+        self.assertEqual(code, 2)
+        self.assertIn("duplicate key 'react'", out)
+
+    def test_pre_release_policy_version_is_rejected(self):
+        self.write("tools/versions/shared-deps.yaml", "version: 1\nlibraries:\n  react: 19.2.5-rc.1\n")
+        self.assertEqual(self.run_main()[0], 2)
+
+    def test_pre_release_declaration_is_drift_against_a_release(self):
+        self.package("apps/web/package.json", dependencies={"react": "^19.2.5-rc.1"}, devDependencies={"vite": "8.3.4"})
+        self.assertEqual(self.findings(), ["(drift) apps/web/package.json: react is 19.2.5-rc.1, policy 19.2.5"])
+
+    def test_exception_path_needs_a_directory_or_file_anchor(self):
+        self.write("tools/versions/shared-deps.yaml", POLICY.replace("exceptions: []", """exceptions:
+  - library: react
+    path: apps/web
+    reason: x
+    ticket: RT-1
+"""))
+        self.assertEqual(self.run_main()[0], 2)
+
+    def test_exception_does_not_cover_a_sibling_with_the_same_prefix(self):
+        self.write("tools/versions/shared-deps.yaml", POLICY.replace("exceptions: []", """exceptions:
+  - library: react
+    path: apps/web/
+    reason: x
+    ticket: RT-1
+"""))
+        self.package("apps/web/package.json", dependencies={"react": "18.3.1"}, devDependencies={"vite": "8.3.4"})
+        self.package("apps/web-admin/package.json", dependencies={"react": "18.3.1"})
+        findings = self.findings()
+        self.assertEqual(len(findings), 1)
+        self.assertIn("apps/web-admin/package.json", findings[0])
+
+    def test_dependencies_that_are_not_an_object_exit_2(self):
+        self.write("apps/web/package.json", json.dumps({"dependencies": ["react"]}))
+        code, out = self.run_main()
+        self.assertEqual(code, 2)
+        self.assertIn("`dependencies` must be an object", out)
+
+    def test_findings_go_to_the_job_summary(self):
+        self.package("apps/web/package.json", dependencies={"react": "^18.3.1"}, devDependencies={"vite": "8.3.4"})
+        summary = os.path.join(self.repo, "summary.md")
+        os.environ["GITHUB_STEP_SUMMARY"] = summary
+        try:
+            self.run_main()
+        finally:
+            del os.environ["GITHUB_STEP_SUMMARY"]
+        with open(summary, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("report mode): 1 finding(s)", text)
+        self.assertIn("react is 18.3.1, policy 19.2.5", text)
+
     def test_malformed_package_json_exits_2(self):
         self.write("apps/web/package.json", "{")
         self.assertEqual(self.run_main()[0], 2)

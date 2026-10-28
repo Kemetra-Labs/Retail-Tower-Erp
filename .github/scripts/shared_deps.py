@@ -37,9 +37,23 @@ SECTIONS = ("dependencies", "devDependencies", "optionalDependencies")
 LOCAL_PREFIXES = ("workspace:", "file:", "link:", "portal:")
 PRODUCT_ROOTS = {"apps", "services", "integrations"}
 PLAIN_VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?")
+# A policy version is x.y.z only: renovate.json5's regex manager reads exactly that, and would
+# rewrite a pre-release suffix wrongly.
+POLICY_VERSION_RE = re.compile(r"\d+\.\d+\.\d+")
 SPEC_RE = re.compile(r"^[\^~=v\s]*(" + PLAIN_VERSION_RE.pattern + r")\s*$")
 DEFAULT_POLICY = "tools/versions/shared-deps.yaml"
 EXCEPTION_KEYS = ("library", "path", "reason", "ticket")
+
+
+class UniqueKeyLoader(yaml.SafeLoader):
+    """safe_load that refuses a duplicate key instead of silently keeping the last one."""
+
+    def construct_mapping(self, node, deep=False):
+        keys = [self.construct_object(key, deep=deep) for key, _ in node.value]
+        for key in keys:
+            if keys.count(key) > 1:
+                raise yaml.YAMLError(f"duplicate key {key!r}")
+        return super().construct_mapping(node, deep=deep)
 
 
 def product_of(path):
@@ -55,7 +69,7 @@ def plain_version(spec):
 def load_policy(repo, policy_path):
     full = os.path.join(repo, policy_path)
     try:
-        data = yaml.safe_load(read(full))
+        data = yaml.load(read(full), Loader=UniqueKeyLoader)  # noqa: S506 (SafeLoader subclass)
     except yaml.YAMLError as exc:
         raise InputError(f"{policy_path}: {exc}") from exc
     if not isinstance(data, dict) or data.get("version") != 1:
@@ -64,8 +78,8 @@ def load_policy(repo, policy_path):
     if not isinstance(libraries, dict) or not libraries:
         raise InputError(f"{policy_path}: `libraries` must be a non-empty mapping")
     for name, version in libraries.items():
-        if not isinstance(version, str) or not PLAIN_VERSION_RE.fullmatch(version):
-            raise InputError(f"{policy_path}: {name}: {version!r} is not a plain version such as 1.2.3 (quote it)")
+        if not isinstance(version, str) or not POLICY_VERSION_RE.fullmatch(version):
+            raise InputError(f"{policy_path}: {name}: {version!r} is not a version such as 1.2.3 (no range, no pre-release)")
     exceptions = data.get("exceptions") or []
     if not isinstance(exceptions, list):
         raise InputError(f"{policy_path}: `exceptions` must be a list")
@@ -74,6 +88,8 @@ def load_policy(repo, policy_path):
             raise InputError(f"{policy_path}: every exception needs non-empty {', '.join(EXCEPTION_KEYS)}")
         if entry["library"] not in libraries:
             raise InputError(f"{policy_path}: exception for {entry['library']} which is not a listed library")
+        if not entry["path"].endswith(("/", "package.json")):
+            raise InputError(f"{policy_path}: exception path {entry['path']!r} must end with / or package.json")
     return libraries, exceptions
 
 
@@ -88,7 +104,10 @@ def declarations(repo, files):
         except json.JSONDecodeError as exc:
             raise InputError(f"{name}: {exc}") from exc
         for section in SECTIONS:
-            for lib, spec in (pkg.get(section) or {}).items():
+            deps = pkg.get(section) or {}
+            if not isinstance(deps, dict):
+                raise InputError(f"{name}: `{section}` must be an object")
+            for lib, spec in deps.items():
                 if isinstance(spec, str) and not spec.startswith(LOCAL_PREFIXES):
                     found.append({"path": name, "product": product_of(name), "lib": lib, "spec": spec,
                                   "version": plain_version(spec)})
@@ -128,6 +147,17 @@ def check(repo, policy_path=DEFAULT_POLICY):
     return sorted(findings)
 
 
+def write_summary(findings, mode):
+    """GitHub shows at most 10 annotations per step, so the full list also goes to the job summary."""
+    target = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not target:
+        return
+    lines = [f"### shared dependency guard ({mode} mode): {len(findings)} finding(s)", ""]
+    lines += [f"- {finding}" for finding in findings] or ["Every shared library is on its policy version."]
+    with open(target, "a", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -144,6 +174,7 @@ def main(argv=None):
     level = "error" if args.mode == "enforce" else "warning"
     for finding in findings:
         print(f"::{level}::shared deps {finding}")
+    write_summary(findings, args.mode)
     if not findings:
         print("shared deps: OK (every shared library is on its policy version)")
         return 0

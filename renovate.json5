@@ -1,12 +1,14 @@
 // Renovate for the monorepo (RT-924). npm only: the Node version (.nvmrc), the Dockerfile base
 // image, GitHub Actions and the Python lock are pinned by hand on purpose (RT-923 guard,
-// SHA-pinned actions, hash-locked pylock.toml), so no other manager is enabled.
+// SHA-pinned actions, hash-locked pylock.toml), so no other manager is enabled. The npm manager
+// also reads `engines` and `packageManager`; those are switched off below for the same reason.
 //
 // Goal: one version per shared library in every product. A package family is one PR that bumps
 // every package.json and lockfile that uses it (tools/versions/shared-deps.yaml is the target the
-// guard .github/scripts/shared_deps.py checks). Majors wait for a tick on the Dependency Dashboard
-// issue, so nothing large opens by itself. This file is policy-class (graph.yaml): it decides
-// what a bot may change in the repo.
+// guard .github/scripts/shared_deps.py checks). Everything else that is not a major update goes
+// into one weekly PR. A major update waits for a tick on the Dependency Dashboard issue, so
+// nothing large opens by itself. This file is policy-class (graph.yaml): it decides what a bot
+// may change in the repo.
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   extends: ["config:recommended"],
@@ -36,7 +38,21 @@
   labels: ["dependencies"],
   // The lockfiles are written by pnpm 9.15.0 (packageManager) and npm 11 (Node 24).
   constraints: { npm: "11" },
+  // Later rules win. The family rules below set `separateMajorMinor: false`, so a family is one
+  // branch that moves every package to its newest version; if any package in it has a major
+  // update, the whole branch waits for the dashboard tick, which keeps a family atomic while a
+  // product still lags. `prPriority` puts the families ahead of the weekly catch-all PR.
   packageRules: [
+    {
+      description: "Node and pnpm are pinned by hand (.nvmrc, packageManager, CI corepack, RT-923 guard)",
+      matchDepTypes: ["engines", "packageManager"],
+      enabled: false,
+    },
+    {
+      description: "Every other non-major update in one weekly PR",
+      matchUpdateTypes: ["minor", "patch", "pin", "digest"],
+      groupName: "weekly non-major",
+    },
     {
       description: "Majors open only after a tick on the Dependency Dashboard",
       matchUpdateTypes: ["major"],
@@ -45,27 +61,37 @@
     {
       description: "build: vite 8 needs @vitejs/plugin-react 6, so they move together",
       matchPackageNames: ["vite", "@vitejs/plugin-react"],
-      groupName: "build (vite)",
+      groupName: "build",
+      separateMajorMinor: false,
+      prPriority: 5,
     },
     {
-      description: "lint",
+      description: "lint (backend-core is still on legacy eslintrc: eslint 9 there is a migration)",
       matchPackageNames: ["eslint", "@eslint/**", "eslint-*", "@typescript-eslint/**", "typescript-eslint", "prettier", "@biomejs/biome"],
       groupName: "lint",
+      separateMajorMinor: false,
+      prPriority: 5,
     },
     {
       description: "runtime and UI",
       matchPackageNames: ["react", "react-dom", "@types/react", "@types/react-dom", "@tanstack/react-query", "pino", "pino-*"],
       groupName: "runtime",
+      separateMajorMinor: false,
+      prPriority: 5,
     },
     {
       description: "test: vitest and its coverage package must share a version",
       matchPackageNames: ["vitest", "@vitest/**", "@playwright/test", "@testing-library/**", "jsdom"],
       groupName: "test",
+      separateMajorMinor: false,
+      prPriority: 5,
     },
     {
       description: "API types and the typescript compiler",
       matchPackageNames: ["typescript", "openapi-typescript"],
-      groupName: "typescript and api types",
+      groupName: "typescript-and-api-types",
+      separateMajorMinor: false,
+      prPriority: 5,
     },
     {
       description: "@types/node follows the Node major in .nvmrc (Node 24); the RT-923 guard checks it",

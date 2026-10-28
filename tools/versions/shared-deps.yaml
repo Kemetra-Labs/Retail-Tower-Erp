@@ -23,7 +23,7 @@ libraries:
   vite: 8.3.4                  # vite 8 needs @vitejs/plugin-react 6: bump the two together
   "@vitejs/plugin-react": 6.0.1
   # lint
-  eslint: 9.39.4
+  eslint: 9.39.4               # backend-core is on legacy .eslintrc.cjs + `--ext`: 8 -> 9 there is a flat-config migration, and it blocks --mode enforce
   # runtime
   react: 19.2.5
   react-dom: 19.2.5
