@@ -1,0 +1,20 @@
+# RT-920: CircleCI Smarter Testing suite for the Backend-Core API Jest tests (advisory lane;
+# see config.yml). `circleci testsuite run "backend api jest"` runs from
+# services/backend-core/apps/api, so every command below runs there and each test atom is a
+# spec path relative to apps/api.
+---
+name: backend api jest
+# Paths only: jest --listTests prints absolute paths, so drop the cwd prefix and sort.
+discover: node_modules/.bin/jest --listTests | sed "s#^$PWD/##" | sort
+# bc/db-integration's flags minus --coverage (GitHub enforces the coverage floors).
+# --runTestsByPath takes exact paths, never a regex. The converter writes JUnit with a `file`
+# attribute per spec for timing-based splitting. Jest's own exit code is kept, and a failed
+# conversion also fails the run, so a broken suite can never report green. Both statuses are
+# captured with `|| rc=`, so the JUnit report is still written when the shell runs with -e.
+run: >-
+  rc=0;
+  node_modules/.bin/jest --runTestsByPath << test.atoms >> --forceExit --json --outputFile=/tmp/api-jest.json || rc=$?;
+  node "$(git rev-parse --show-toplevel)/.circleci/scripts/jest-json-to-junit.cjs" /tmp/api-jest.json "<< outputs.junit >>" "$PWD" || rc=1;
+  exit $rc
+outputs:
+  junit: /tmp/test-reports/backend-api-jest.xml

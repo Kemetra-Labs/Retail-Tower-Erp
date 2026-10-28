@@ -18,7 +18,7 @@ This repository holds all four products (layout: [README.md](README.md)). The ru
 
 A change to any of these paths is a policy change (`graph.yaml` `shared_classes.policy`):
 
-`.github/**`, `apps/*/.github/**`, `services/*/.github/**`, `integrations/*/.github/**`, `tools/project-graph/**`, `tools/ci-gate/**`, `tools/agent-broker/**`, `CODEOWNERS`.
+`.github/**`, `.circleci/**`, `apps/*/.github/**`, `services/*/.github/**`, `integrations/*/.github/**`, `tools/project-graph/**`, `tools/ci-gate/**`, `tools/agent-broker/**`, `CODEOWNERS`.
 
 It selects every job. In `required` mode (the default; see the `policy_approval` paragraph below), `required` stays at `POLICY_APPROVAL_REQUIRED` until a login in `policy_approvers` submits an APPROVED review on the exact head commit whose body contains the `policy-change-approved: base=<sha> fingerprint=<fp>` line printed in the `required` summary. Any new commit or base move invalidates it. An agent never approves its own PR and never edits `policy_approvers` without owner authorization.
 

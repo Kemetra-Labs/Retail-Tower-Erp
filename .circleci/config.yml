@@ -1,0 +1,93 @@
+# RT-920 (CI Modernization Execution Plan v2, Phase 3): advisory CircleCI lane.
+#
+# NOT a gate. GitHub Actions and gate.yml stay the only CI of record: the gate trusts only
+# the GitHub Actions app (graph.yaml trusted_check_producer), so nothing here can make
+# `required` green or red. This lane runs the Backend-Core API Jest suite through CircleCI
+# Smarter Testing (`circleci testsuite`, suite in .circleci/test-suites.yml) to collect test
+# timings and Test Insights. Test impact analysis stays OFF until the owner confirms the
+# CircleCI plan and credits; turning it on is a separate, reviewed change.
+#
+# No secrets, no contexts, no orbs. Machine executor: the api suite starts one
+# postgres:16-alpine through Testcontainers, which needs a local Docker daemon
+# (setup_remote_docker breaks getMappedPort(); RT-594).
+
+version: 2.1
+
+jobs:
+  backend-api-jest:
+    machine:
+      image: ubuntu-2404:2026.05.1
+    # large = 4 vCPU, the size of GitHub's public-repo runner, so timings compare like for like.
+    resource_class: large
+    steps:
+      - checkout
+      # Credit guard: most PRs do not touch Backend-Core. Fails open (runs the suite) when the
+      # base cannot be resolved, so a git problem never hides the lane.
+      - run:
+          name: Stop unless Backend-Core or .circleci changed
+          command: |
+            if ! git fetch --quiet origin main; then
+              echo "Could not fetch origin/main; running the suite."
+              exit 0
+            fi
+            # Pushes to main always run: a GitHub App project has no pipeline.git.base_revision,
+            # and the tip commit alone would miss earlier commits of a multi-commit push.
+            if [ "${CIRCLE_BRANCH:-}" = "main" ]; then
+              echo "Push to main; running the suite."
+              exit 0
+            fi
+            base="$(git merge-base origin/main HEAD)" || { echo "No merge-base; running the suite."; exit 0; }
+            # No pipe into grep: under pipefail a SIGPIPE on a large diff would read as "no change".
+            # --quiet exits 1 when the paths changed, 0 when not; anything else runs the suite.
+            rc=0
+            git diff --quiet "$base" HEAD -- services/backend-core/ .circleci/ || rc=$?
+            if [ "$rc" -eq 0 ]; then
+              echo "No Backend-Core or .circleci change since $base; nothing to run."
+              circleci-agent step halt
+            else
+              echo "Backend-Core or .circleci changed since $base (git diff rc=$rc); running the suite."
+            fi
+      # Same toolchain source as the repo: Node from .nvmrc, pnpm from packageManager.
+      - run:
+          name: Node from .nvmrc, pnpm from packageManager
+          working_directory: ~/project/services/backend-core
+          command: |
+            nvm install "$(cat .nvmrc)"
+            nvm alias default "$(cat .nvmrc)"
+            # Every `run` step is a fresh shell: put Node's bin dir (with the corepack shims) on PATH.
+            node_bin="$(dirname "$(nvm which default)")"
+            echo "export PATH=\"$node_bin:\$PATH\"" >> "$BASH_ENV"
+            export PATH="$node_bin:$PATH"
+            corepack enable
+            corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
+            echo "nproc=$(nproc)"
+            node --version
+            pnpm --version
+      - run:
+          name: Install dependencies
+          working_directory: ~/project/services/backend-core
+          command: pnpm install --frozen-lockfile --ignore-scripts
+      - run:
+          name: Build the workspaces the api tests import (as bc/db-integration)
+          working_directory: ~/project/services/backend-core
+          command: >-
+            pnpm --filter @data-pulse-2/shared --filter @data-pulse-2/auth
+            --filter @data-pulse-2/db --filter @data-pulse-2/worker run build
+      - run:
+          name: Pre-pull postgres:16-alpine
+          command: docker pull postgres:16-alpine
+      - run:
+          name: API Jest through circleci testsuite
+          working_directory: ~/project/services/backend-core/apps/api
+          no_output_timeout: 40m
+          environment:
+            # As bc/db-integration: the full api suite needs more than V8's default heap.
+            NODE_OPTIONS: --max-old-space-size=4096
+          command: circleci testsuite run "backend api jest"
+      - store_test_results:
+          path: /tmp/test-reports
+
+workflows:
+  advisory:
+    jobs:
+      - backend-api-jest
