@@ -1,0 +1,47 @@
+# One version per shared library across the products (RT-924).
+#
+# `libraries` lists every npm library that two or more products declare, with the single
+# version every package.json in the repo must declare. Compared as the plain version, ignoring the
+# range operator each product uses (`^1.2.3`, `~1.2.3` and `1.2.3` all mean 1.2.3), so backend-core's
+# exact pins and the caret ranges elsewhere stay valid. The guard is
+# .github/scripts/shared_deps.py (runs in boundary-check); Renovate (renovate.json5) opens one PR
+# per library family that bumps every product together.
+#
+# Changing a version here means changing every package.json (and its lockfile) in the same PR.
+# Renovate does that for you: renovate.json5 reads the `library: x.y.z` lines below with a regex
+# manager, so keep one such line per library (an inline `# comment` after it is fine).
+# Add a library here as soon as a second product starts using it: the guard warns about unlisted
+# libraries that already differ.
+#
+# `exceptions` is for a product that must differ for a reason that will not go away. Each entry
+# names the library, the path prefix it covers, the reason and the ticket. A temporary delay is not
+# an exception: leave the drift visible in the guard report until its alignment PR lands.
+version: 1
+
+libraries:
+  # build
+  vite: 8.3.4                  # vite 8 needs @vitejs/plugin-react 6: bump the two together
+  "@vitejs/plugin-react": 6.0.1
+  # lint
+  eslint: 9.39.4               # backend-core is on legacy .eslintrc.cjs + `--ext`: 8 -> 9 there is a flat-config migration, and it blocks --mode enforce
+  # runtime
+  react: 19.2.5
+  react-dom: 19.2.5
+  "@types/react": 19.2.14
+  "@types/react-dom": 19.2.3
+  pino: 10.3.1
+  "@tanstack/react-query": 5.101.0
+  argon2: 0.44.0
+  js-yaml: 4.3.2
+  "@types/js-yaml": 4.0.9
+  openapi-typescript: 7.13.0
+  # test
+  vitest: 4.1.11
+  "@vitest/coverage-v8": 4.1.11  # must equal vitest
+  "@playwright/test": 1.64.1
+  "@testing-library/react": 16.3.2
+  # language and platform
+  typescript: 5.9.3
+  "@types/node": 24.19.2         # the Node major is .nvmrc (guard: toolchain_versions.py)
+
+exceptions: []
