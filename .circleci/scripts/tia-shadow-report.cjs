@@ -81,6 +81,15 @@ function buildReport([selectedPath, junitPath, outDir, apiRoot]) {
   report.totalSpecs = specs.size;
   report.failingSpecs = [...failing].sort();
 
+  // A failed-only rerun reports a subset of the suite: not a full-suite measurement.
+  const countText = readIfExists(outDir && path.join(outDir, "discovered.count"));
+  report.discoveredSpecs = countText === null ? null : Number(countText.trim()) || null;
+  if (report.discoveredSpecs !== null && specs.size < report.discoveredSpecs) {
+    report.status = "partial-run";
+    report.note = `JUnit covers ${specs.size} of ${report.discoveredSpecs} specs (a failed-only rerun or an early stop); selection ratio and misses not computed.`;
+    return report;
+  }
+
   const selectionText = readIfExists(selectedPath);
   // No selection data is not the same as "selected nothing": a failed list-tests means misses
   // are not computable, never "all failures".
