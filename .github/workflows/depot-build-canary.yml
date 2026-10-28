@@ -23,12 +23,11 @@
 # and are loaded into the local Docker daemon for the smoke test. It is not a graph job (no
 # graph.yaml key, not in gate.yml) and never feeds `required`. Rollback: delete this file.
 #
-# Owner setup before the first dispatch:
-#   - repository variable DEPOT_PROJECT_ID = the project ID of the Depot Container Builds project
-#     Retail-Tower-Erp. The depot job refuses when it is empty.
-#   - that project's GitHub OIDC trust relationship for Kemetra-Labs/Retail-Tower-Erp (owner-
-#     confirmed, RT-917 comment 14311). Depot's GitHub trust takes only owner and repository, no
-#     ref or workflow (depot.dev/docs/cli/authentication), hence the main guard on every job.
+# Depot project: z1dg4vdhrd = Container Builds project Retail-Tower-Erp, org Kemetra (owner read
+# it with `depot projects list`). An identifier, not a secret: the build authenticates through
+# that project's GitHub OIDC trust relationship for Kemetra-Labs/Retail-Tower-Erp (owner-
+# confirmed, RT-917 comment 14311). Depot's GitHub trust takes only owner and repository, no ref
+# or workflow (depot.dev/docs/cli/authentication), hence the main guard on every job.
 # Dispatch the three runs one at a time: a third dispatch while one runs and one is queued
 # cancels the queued one.
 name: depot-build-canary
@@ -61,14 +60,6 @@ jobs:
       BUILDER: depot
       RUN_LABEL: ${{ inputs.run_label }}
     steps:
-      - name: Refuse without a Depot project ID
-        env:
-          DEPOT_PROJECT_ID: ${{ vars.DEPOT_PROJECT_ID }}
-        run: |
-          set -euo pipefail
-          [ -n "$DEPOT_PROJECT_ID" ] || { echo "::error::repository variable DEPOT_PROJECT_ID is empty: set it to the project ID of the Depot Container Builds project Retail-Tower-Erp"; exit 1; }
-          [[ "$DEPOT_PROJECT_ID" =~ ^[A-Za-z0-9]+$ ]] || { echo "::error::DEPOT_PROJECT_ID '$DEPOT_PROJECT_ID' is not an alphanumeric project ID"; exit 1; }
-
       - name: Checkout the main SHA
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -89,7 +80,7 @@ jobs:
         id: api
         uses: depot/build-push-action@98e78adca7817480b8185f474a400b451d74e287 # v1.18.0
         with:
-          project: ${{ vars.DEPOT_PROJECT_ID }}
+          project: z1dg4vdhrd # Retail-Tower-Erp Container Builds project
           context: services/backend-core
           target: api
           push: false
@@ -116,7 +107,7 @@ jobs:
         id: migrate
         uses: depot/build-push-action@98e78adca7817480b8185f474a400b451d74e287 # v1.18.0
         with:
-          project: ${{ vars.DEPOT_PROJECT_ID }}
+          project: z1dg4vdhrd # Retail-Tower-Erp Container Builds project
           context: services/backend-core
           target: migrate
           push: false
