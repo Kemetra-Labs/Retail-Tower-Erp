@@ -51,8 +51,9 @@ function suiteXml(suite) {
     }
     return testcase(file, t.fullName, secs, t.status === "passed" ? "" : "<skipped/>");
   });
-  // A suite that failed to load has no assertions; never drop it silently.
-  if (suite.status === "failed" && cases.length === 0) {
+  // A file Jest marks failed must show a failure even when no test in it failed: it failed to
+  // load (no assertions) or a hook such as afterAll threw. Never report it green.
+  if (suite.status === "failed" && !cases.some((c) => c.includes("<failure"))) {
     cases.push(testcase(file, "suite failed to run", wallSecs, `<failure message="suite failed to run">${esc(suite.message || "")}</failure>`));
   }
 

@@ -31,15 +31,21 @@ jobs:
               exit 0
             fi
             if [ "${CIRCLE_BRANCH:-}" = "main" ]; then
-              base="HEAD^1"
+              # The push's previous tip covers every commit in the push; fall back to the parent.
+              base="<< pipeline.git.base_revision >>"
+              git cat-file -e "${base}^{commit}" 2>/dev/null || base="HEAD^1"
             else
               base="$(git merge-base origin/main HEAD)" || { echo "No merge-base; running the suite."; exit 0; }
             fi
-            if git diff --name-only "$base" HEAD | grep -qE '^(services/backend-core/|\.circleci/)'; then
-              echo "Backend-Core or .circleci changed since $base; running the suite."
-            else
+            # No pipe into grep: under pipefail a SIGPIPE on a large diff would read as "no change".
+            # --quiet exits 1 when the paths changed, 0 when not; anything else runs the suite.
+            rc=0
+            git diff --quiet "$base" HEAD -- services/backend-core/ .circleci/ || rc=$?
+            if [ "$rc" -eq 0 ]; then
               echo "No Backend-Core or .circleci change since $base; nothing to run."
               circleci-agent step halt
+            else
+              echo "Backend-Core or .circleci changed since $base (git diff rc=$rc); running the suite."
             fi
       # Same toolchain source as the repo: Node from .nvmrc, pnpm from packageManager.
       - run:
