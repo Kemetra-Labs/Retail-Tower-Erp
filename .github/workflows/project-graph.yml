@@ -60,6 +60,15 @@ jobs:
       - name: Toolchain version guard
         run: python .github/scripts/toolchain_versions.py check --repo "$GITHUB_WORKSPACE"
 
+      # RT-924: one version per shared npm library (tools/versions/shared-deps.yaml). Report mode
+      # while the products are being aligned: findings are warnings and do not fail the job. The
+      # last alignment PR changes `--mode report` to `--mode enforce`.
+      - name: Shared dependency guard logic tests
+        run: python -m unittest discover -s .github/scripts -p 'test_shared_deps.py' -v
+
+      - name: Shared dependency guard (report mode)
+        run: python .github/scripts/shared_deps.py check --repo "$GITHUB_WORKSPACE" --mode report
+
   # The job `name:` is the graph key (static rule 5): a literal, no expression, no `if:`, no
   # `paths:` filter. A selected job that is skipped fails the gate, so this always runs.
   dependency-review:

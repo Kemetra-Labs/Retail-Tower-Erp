@@ -225,8 +225,9 @@ shared_classes:   # precedence: lower wins; two matches at the SAME precedence =
   # that root CI jobs execute (e.g. admin-console report-flaky-e2e.mjs), so they need approval.
   # .gitleaks.toml and .gitleaksignore (RT-876) decide what the root secret scan ignores, so widening them is a policy change too.
   # The root .python-version (RT-923) picks the interpreter the gate and every plan job run the trusted evaluator on.
+  # renovate.json5 (RT-924) decides what the Renovate bot may change in the repo, so editing it is a policy change.
   # .circleci/** (RT-920) is CI configuration that runs repository code on CircleCI; it never feeds `required`.
-  policy:  { precedence: 1, globs: [.github/**, .circleci/**, tools/project-graph/**, tools/ci-gate/**, tools/agent-broker/**, CODEOWNERS, .gitleaks.toml, .gitleaksignore, .python-version, "apps/*/.github/**", "services/*/.github/**", "integrations/*/.github/**"], selects: all, policy_change: true }
+  policy:  { precedence: 1, globs: [.github/**, .circleci/**, tools/project-graph/**, tools/ci-gate/**, tools/agent-broker/**, CODEOWNERS, .gitleaks.toml, .gitleaksignore, .python-version, renovate.json5, "apps/*/.github/**", "services/*/.github/**", "integrations/*/.github/**"], selects: all, policy_change: true }
   tooling: { precedence: 2, globs: [tools/**], selects: all }
   e2e:     { precedence: 3, globs: [tests/e2e/**], selects: [e2e] }
   docs:    { precedence: 3, globs: [docs/**], selects: [] }
