@@ -98,6 +98,14 @@ class ToolchainVersionsTests(unittest.TestCase):
         self.write(".github/workflows/x.yml", 'steps:\n  - with:\n      "python-version": "3.12"\n')
         self.assert_one("a", "inline python-version")
 
+    def test_a_missing_version_file_in_flow_mapping_and_quoted_key(self):
+        self.write(".github/workflows/x.yml", "steps:\n  - with: { node-version-file: nope/.nvmrc, cache: npm }\n")
+        self.assert_one("a", "nope/.nvmrc does not exist")
+        self.write(".github/workflows/x.yml", 'steps:\n  - with:\n      "python-version-file": "nope/.python-version"\n')
+        self.assert_one("a", "nope/.python-version does not exist")
+        self.write(".github/workflows/x.yml", "steps:\n  - with: { node-version-file: .nvmrc }\n")
+        self.assertEqual(self.problems(), [])
+
     def test_b_registry_prefix_and_missing_tag(self):
         self.write("svc/Dockerfile", "FROM docker.io/library/node:22-slim AS base\n")
         self.assert_one("b", "node:22-slim")

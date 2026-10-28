@@ -33,7 +33,7 @@ SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "out", ".
 # Block (`node-version: 22`), flow (`with: { node-version: 22 }`) and quoted-key spellings;
 # `node-version-file:` does not match.
 INLINE_RE = re.compile(r"(?<![\w-])['\"]?(node|python)-version['\"]?\s*:")
-FILE_REF_RE = re.compile(r"^\s*-?\s*(?:node|python)-version-file:\s*['\"]?([^'\"\s#]+)", re.MULTILINE)
+FILE_REF_RE = re.compile(r"(?<![\w-])['\"]?(?:node|python)-version-file['\"]?\s*:\s*['\"]?([^'\"\s#,}]+)")
 # `node`, `node:24-slim`, `docker.io/library/node:24@sha256:...`; group 1 is the tag (None if absent).
 NODE_IMAGE = r"(?:[\w.:-]+/)*node(?::([^\s@'\"]+))?(?=[\s@'\"]|$)"
 FROM_NODE_RE = re.compile(r"^\s*FROM\s+(?:--platform=\S+\s+)?" + NODE_IMAGE, re.MULTILINE | re.IGNORECASE)
