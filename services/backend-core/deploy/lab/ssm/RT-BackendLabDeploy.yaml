@@ -257,9 +257,13 @@ mainSteps:
           [ -z "$ARMED" ] || stop "an-earlier-auto-revert-is-armed-or-elapsed"
           grep -qE "$CUR_DIR_RE" "$DC" || stop "wrapper-does-not-use-the-current-release"
           # BACKEND_ENV must be the wrapper's --env-file argument (= or space, optionally quoted),
-          # not merely a string somewhere in it.
+          # not merely a string somewhere in it: comment lines are ignored, and every --env-file
+          # on an active line must name BACKEND_ENV.
           ENV_FILE_RE="--env-file(=|[[:space:]]+)[\"']?${BACKEND_ENV//./[.]}[\"']?([[:space:]]|\$)"
-          grep -qE -- "$ENV_FILE_RE" "$DC" || stop "wrapper-does-not-use-BACKEND_ENV"
+          DC_ACTIVE="$(grep -vE '^[[:space:]]*#' "$DC" || true)"
+          ENV_FILES="$({ grep -oE -- "--env-file" <<<"$DC_ACTIVE" || true; } | wc -l)"
+          ENV_FILES_OK="$({ grep -oE -- "$ENV_FILE_RE" <<<"$DC_ACTIVE" || true; } | wc -l)"
+          [ "$ENV_FILES_OK" -ge 1 ] && [ "$ENV_FILES_OK" = "$ENV_FILES" ] || stop "wrapper-does-not-use-BACKEND_ENV"
           SENTRY="$(env_value "$BACKEND_ENV" SENTRY_RELEASE)" || stop "SENTRY_RELEASE-missing-or-duplicated"
           [ "$SENTRY" = "$CUR_ID" ] || stop "SENTRY_RELEASE-is-not-the-current-release"
           PRIOR_API="$(env_value "$CUR_DIR/release.env" DP2_API_IMAGE)" || stop "current-release-env-unreadable"
