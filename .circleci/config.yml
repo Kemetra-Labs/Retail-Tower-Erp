@@ -183,8 +183,9 @@ jobs:
   # stays 30 (test-suites.yml is shared with the job above) and the links run one after
   # another: two analysis runs that overlap pick the same atoms (runs e1ad1bed and 9aa8bf5a
   # both analyzed the first ~88), and the docs do not say analysis splits across parallel
-  # nodes. `timeout` only ends a hung link; the CLI itself stops after the current spec once
-  # 30 minutes have passed.
+  # nodes. `timeout` only ends a hung link (SIGKILL 2 min after SIGTERM, in case Jest children
+  # hold the step open); the CLI itself stops after the current spec once 30 minutes have
+  # passed. A killed link saves nothing; the next link repeats its specs.
   backend-api-jest-full-analysis:
     machine:
       image: ubuntu-2404:2026.05.1
@@ -198,7 +199,7 @@ jobs:
           no_output_timeout: 20m
           environment:
             NODE_OPTIONS: --max-old-space-size=4096
-          command: timeout 50m circleci testsuite run "backend api jest" --run-tests=none
+          command: timeout -k 2m 50m circleci testsuite run "backend api jest" --run-tests=none
 
 workflows:
   advisory:
@@ -211,9 +212,9 @@ workflows:
             branches:
               only: main
 
-  # Manual, main only: up to 8 links x 30 min = about 700 specs, enough for the 589 not yet
-  # analyzed (677 in all) with margin. A link that finds nothing left to analyze ends in about
-  # a minute. A failed link (a hung or failing spec) does not stop the chain; cancelling the
+  # Manual, main only: up to 10 links x 30 min = about 880 specs, enough for the 589 not yet
+  # analyzed (677 in all, about 88 per link) with room for a lost link or two. A link that finds
+  # nothing left to analyze ends in about a minute. A failed link (a hung or failing spec) does not stop the chain; cancelling the
   # workflow stops it. Do not run two at once: overlapping analysis repeats the same specs.
   tia-full-analysis:
     when:
@@ -251,3 +252,11 @@ workflows:
           name: full-analysis-8
           requires:
             - full-analysis-7: [success, failed]
+      - backend-api-jest-full-analysis:
+          name: full-analysis-9
+          requires:
+            - full-analysis-8: [success, failed]
+      - backend-api-jest-full-analysis:
+          name: full-analysis-10
+          requires:
+            - full-analysis-9: [success, failed]
