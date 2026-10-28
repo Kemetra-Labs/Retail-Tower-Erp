@@ -18,3 +18,36 @@ run: >-
   exit $rc
 outputs:
   junit: /tmp/test-reports/backend-api-jest.xml
+# RT-920 PR-4b: test impact analysis in SHADOW mode. The job always runs the full suite
+# (--run-tests=all) and only records what impact analysis would have selected (list-tests);
+# nothing is skipped. Impact data is built by the separate main-only analysis job in config.yml.
+# One spec at a time with LCOV: Jest's lcovonly reporter writes lcov.info into the fresh
+# directory the CLI makes for each atom. --coverageThreshold='{}' drops the global floors in
+# jest.config.cjs, which a single spec file could never meet.
+analysis: >-
+  node_modules/.bin/jest --runTestsByPath << test.atoms >> --coverage --coverageReporters=lcovonly
+  --coverageDirectory="<< outputs.lcov-directory >>" --coverageThreshold='{}' --forceExit
+options:
+  test-impact-analysis: true
+  # Target minutes per analysis run on main; a full first analysis is spread across merges.
+  test-analysis-duration: 30
+  # Changes here select every spec. Coverage only sees apps/api/src/**: the shared, auth, db
+  # and worker packages are imported as built dist/, and many specs read deploy/*.sh,
+  # docs/operations/sql and the OpenAPI YAML directly. Repo-root relative; the doctor step in
+  # the PR job records whether the CLI agrees. Known gap, left for the measurement to show:
+  # specs also read other files (Caddyfile, docker-compose*.yml, CHANGELOG.md, changelog.d/,
+  # tools/, contracts-compat/, two root workflows) and scan src/ as text; a change there that
+  # breaks such a spec shows up as a miss in the shadow report.
+  full-test-run-paths:
+    - .nvmrc
+    - .circleci/**
+    - services/backend-core/package.json
+    - services/backend-core/pnpm-lock.yaml
+    - services/backend-core/pnpm-workspace.yaml
+    - services/backend-core/tsconfig*.json
+    - services/backend-core/apps/api/jest.config.cjs
+    - services/backend-core/apps/api/tsconfig*.json
+    - services/backend-core/apps/api/test/_helpers/**
+    - services/backend-core/packages/**
+    - services/backend-core/deploy/**
+    - services/backend-core/docs/**

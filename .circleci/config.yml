@@ -4,14 +4,55 @@
 # the GitHub Actions app (graph.yaml trusted_check_producer), so nothing here can make
 # `required` green or red. This lane runs the Backend-Core API Jest suite through CircleCI
 # Smarter Testing (`circleci testsuite`, suite in .circleci/test-suites.yml) to collect test
-# timings and Test Insights. Test impact analysis stays OFF until the owner confirms the
-# CircleCI plan and credits; turning it on is a separate, reviewed change.
+# timings and Test Insights.
+#
+# Test impact analysis runs in SHADOW mode (PR-4b, RT-920 comment 14285): the test job always
+# runs the full suite and only records which specs impact analysis would have selected, then
+# reports the selection ratio and any failing spec it would have skipped (a miss). Impact data
+# is built by the separate analysis job on main. Nothing is ever skipped.
 #
 # No secrets, no contexts, no orbs. Machine executor: the api suite starts one
 # postgres:16-alpine through Testcontainers, which needs a local Docker daemon
 # (setup_remote_docker breaks getMappedPort(); RT-594).
 
 version: 2.1
+
+commands:
+  backend-setup:
+    description: Node, pnpm, dependencies, the workspaces the api tests import, and Postgres.
+    steps:
+      # Same toolchain source as the repo: Node from the root .nvmrc (RT-923: one .nvmrc for
+      # every product), pnpm from Backend-Core's packageManager.
+      - run:
+          name: Node from the root .nvmrc, pnpm from packageManager
+          working_directory: ~/project/services/backend-core
+          command: |
+            node_version="$(tr -d '[:space:]' < ~/project/.nvmrc)"
+            [ -n "$node_version" ] || { echo "The root .nvmrc is empty."; exit 1; }
+            nvm install "$node_version"
+            # Every `run` step is a fresh shell: put Node's bin dir (with the corepack shims) on PATH.
+            node_bin="$(dirname "$(nvm which "$node_version")")"
+            [ -x "$node_bin/node" ] || { echo "nvm gave no node binary for $node_version ($node_bin)."; exit 1; }
+            echo "export PATH=\"$node_bin:\$PATH\"" >> "$BASH_ENV"
+            export PATH="$node_bin:$PATH"
+            corepack enable
+            corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
+            echo "nproc=$(nproc)"
+            node --version
+            pnpm --version
+      - run:
+          name: Install dependencies
+          working_directory: ~/project/services/backend-core
+          command: pnpm install --frozen-lockfile --ignore-scripts
+      - run:
+          name: Build the workspaces the api tests import (as bc/db-integration)
+          working_directory: ~/project/services/backend-core
+          command: >-
+            pnpm --filter @data-pulse-2/shared --filter @data-pulse-2/auth
+            --filter @data-pulse-2/db --filter @data-pulse-2/worker run build
+      - run:
+          name: Pre-pull postgres:16-alpine
+          command: docker pull postgres:16-alpine
 
 jobs:
   backend-api-jest:
@@ -47,50 +88,89 @@ jobs:
             else
               echo "Backend-Core, .circleci or .nvmrc changed since $base (git diff rc=$rc); running the suite."
             fi
-      # Same toolchain source as the repo: Node from the root .nvmrc (RT-923: one .nvmrc for
-      # every product), pnpm from Backend-Core's packageManager.
+      - backend-setup
+      # Shadow mode, step 1: record the checks and the selection without letting either fail
+      # the job. With no impact data yet, list-tests may fail, select nothing or fall back to
+      # every spec; the report labels a failure, an empty selection and an all-spec selection
+      # separately, and list-tests.log says which case it was. `timeout` keeps a hung call
+      # (all output goes to files) from hitting no_output_timeout and failing the job.
       - run:
-          name: Node from the root .nvmrc, pnpm from packageManager
-          working_directory: ~/project/services/backend-core
+          name: "Impact analysis (shadow): doctor and the specs it would select"
+          working_directory: ~/project/services/backend-core/apps/api
           command: |
-            node_version="$(tr -d '[:space:]' < ~/project/.nvmrc)"
-            [ -n "$node_version" ] || { echo "The root .nvmrc is empty."; exit 1; }
-            nvm install "$node_version"
-            # Every `run` step is a fresh shell: put Node's bin dir (with the corepack shims) on PATH.
-            node_bin="$(dirname "$(nvm which "$node_version")")"
-            [ -x "$node_bin/node" ] || { echo "nvm gave no node binary for $node_version ($node_bin)."; exit 1; }
-            echo "export PATH=\"$node_bin:\$PATH\"" >> "$BASH_ENV"
-            export PATH="$node_bin:$PATH"
-            corepack enable
-            corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
-            echo "nproc=$(nproc)"
-            node --version
-            pnpm --version
+            mkdir -p /tmp/tia
+            rc=0
+            timeout 300 circleci testsuite doctor "backend api jest" > /tmp/tia/doctor.log 2>&1 || rc=$?
+            cat /tmp/tia/doctor.log
+            echo "doctor exit code: $rc"
+            # doctor runs a sample of specs through the suite's `run` command, which writes the
+            # same Jest JSON and JUnit paths as the full run; drop them so a full run that dies
+            # early can never be reported with the sample's results.
+            rm -rf /tmp/api-jest.json /tmp/test-reports
+            rc=0
+            timeout 300 circleci testsuite list-tests "backend api jest" > /tmp/tia/selected.txt 2> /tmp/tia/list-tests.log || rc=$?
+            echo "$rc" > /tmp/tia/list-tests.rc
+            cat /tmp/tia/list-tests.log
+            echo "list-tests exit code: $rc; $(wc -l < /tmp/tia/selected.txt) lines in selected.txt"
+            # doctor writes .circleci/impact-doctor-<suite>.json into the checkout; specs that fence
+            # `git status --porcelain` (030 T11) would fail on it. Keep it as evidence, outside git.
+            find ~/project/.circleci -maxdepth 1 -name 'impact-doctor-*.json' -exec mv -t /tmp/tia {} + \
+              || echo "could not move the doctor's impact file out of the checkout"
+            echo "changes left in the checkout (git status --porcelain, as the 030 T11 fence):"
+            git -C ~/project status --porcelain
+            # The suite size, so the report can tell a full run from a failed-only rerun
+            # ("Rerun workflow from failed" reruns only the failed specs).
+            node_modules/.bin/jest --listTests | wc -l > /tmp/tia/discovered.count \
+              || echo "could not count the suite's specs"
+      # Shadow mode, step 2: the FULL suite, every branch. --analyze-tests=none because the
+      # default branch would otherwise also run LCOV analysis here; that is the analysis job's.
       - run:
-          name: Install dependencies
-          working_directory: ~/project/services/backend-core
-          command: pnpm install --frozen-lockfile --ignore-scripts
-      - run:
-          name: Build the workspaces the api tests import (as bc/db-integration)
-          working_directory: ~/project/services/backend-core
-          command: >-
-            pnpm --filter @data-pulse-2/shared --filter @data-pulse-2/auth
-            --filter @data-pulse-2/db --filter @data-pulse-2/worker run build
-      - run:
-          name: Pre-pull postgres:16-alpine
-          command: docker pull postgres:16-alpine
-      - run:
-          name: API Jest through circleci testsuite
+          name: API Jest through circleci testsuite (full suite)
           working_directory: ~/project/services/backend-core/apps/api
           no_output_timeout: 40m
           environment:
             # As bc/db-integration: the full api suite needs more than V8's default heap.
             NODE_OPTIONS: --max-old-space-size=4096
-          command: circleci testsuite run "backend api jest"
+          command: circleci testsuite run "backend api jest" --run-tests=all --analyze-tests=none
+      # Always, so a red run (where a miss can happen) is still measured. Never fails the job.
+      # Reads every report in /tmp/test-reports: the CLI numbers outputs.junit per run
+      # (backend-api-jest-1.xml), and the doctor step clears doctor's reports from there.
+      - run:
+          name: "Impact analysis (shadow): selection ratio and misses"
+          when: always
+          command: >-
+            node .circleci/scripts/tia-shadow-report.cjs /tmp/tia/selected.txt
+            /tmp/test-reports /tmp/tia
+            ~/project/services/backend-core/apps/api
       - store_test_results:
           path: /tmp/test-reports
+      - store_artifacts:
+          path: /tmp/tia
+          destination: tia
+
+  # Builds impact data on main only: LCOV analysis of the specs whose data is stale, capped by
+  # test-analysis-duration (30 min) per run, so the first full analysis spreads over merges.
+  # Runs no tests for the record (--run-tests=none) and nothing waits on it.
+  backend-api-jest-analysis:
+    machine:
+      image: ubuntu-2404:2026.05.1
+    resource_class: large
+    steps:
+      - checkout
+      - backend-setup
+      - run:
+          name: Impact analysis of the API Jest suite (LCOV, one spec at a time)
+          working_directory: ~/project/services/backend-core/apps/api
+          no_output_timeout: 60m
+          environment:
+            NODE_OPTIONS: --max-old-space-size=4096
+          command: circleci testsuite run "backend api jest" --run-tests=none
 
 workflows:
   advisory:
     jobs:
       - backend-api-jest
+      - backend-api-jest-analysis:
+          filters:
+            branches:
+              only: main
