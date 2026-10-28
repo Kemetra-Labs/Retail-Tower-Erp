@@ -179,7 +179,7 @@ jobs:
         if: ${{ steps.pr.outputs.resolution == 'pr' }}
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
 
       - name: Install pinned dependencies (from BASE)
         if: ${{ steps.pr.outputs.resolution == 'pr' }}
