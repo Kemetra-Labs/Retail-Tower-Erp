@@ -6,7 +6,7 @@
   "type": "module",
   "main": "dist/main/index.js",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "dev:vite": "vite --port 5173 --strictPort",
@@ -54,7 +54,7 @@
     "@testing-library/user-event": "^14.6.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^20.19.39",
+    "@types/node": "^24.19.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/sql.js": "^1.4.11",

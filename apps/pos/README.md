@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <a href=".nvmrc"><img alt="Node.js 20+" src="https://img.shields.io/badge/node-%E2%89%A520-339933?logo=nodedotjs&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
+  <a href="../../.nvmrc"><img alt="Node.js 24" src="https://img.shields.io/badge/node-24-339933?logo=nodedotjs&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
   <a href="tsconfig.json"><img alt="TypeScript strict" src="https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
   <a href="package.json"><img alt="Electron 44" src="https://img.shields.io/badge/Electron-44-47848f?logo=electron&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
   <a href="src/renderer"><img alt="React 19" src="https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=61dafb&labelColor=0a0f24&style=flat-square"></a>
@@ -266,7 +266,7 @@ Backend-Core (APIs, database, workers, and the OpenAPI source of truth: [`Kemetr
 
 ## Getting started
 
-**Prerequisites.** Node.js 20+ (`.nvmrc` pins 20; CI runs Node 24) · npm with the committed `package-lock.json` · Windows 10/11 x64 for the target runtime and the package dry-run.
+**Prerequisites.** Node.js 24 (the repo-root `.nvmrc`; Electron 44 also bundles Node 24) · npm with the committed `package-lock.json` · Windows 10/11 x64 for the target runtime and the package dry-run.
 
 ```bash
 npm install            # install dependencies (postinstall rebuilds better-sqlite3 for Electron)

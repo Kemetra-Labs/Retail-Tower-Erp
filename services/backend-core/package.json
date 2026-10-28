@@ -5,7 +5,7 @@
   "description": "Backend-Core — Retail Tower OS multi-tenant backend and workers monorepo.",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=22",
+    "node": ">=24",
     "pnpm": ">=9.0.0"
   },
   "packageManager": "pnpm@9.15.0",

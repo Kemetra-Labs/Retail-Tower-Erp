@@ -70,10 +70,16 @@ jobs:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
-      - name: Setup Node 24
+      # RT-923: refs older than the repo-root .nvmrc only carry apps/pos/.nvmrc; use it there.
+      - name: Node version file for older refs
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: '[ -f .nvmrc ] || cp apps/pos/.nvmrc .nvmrc'
+
+      - name: Setup Node (.nvmrc)
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: apps/pos/package-lock.json
 
@@ -113,10 +119,16 @@ jobs:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
-      - name: Setup Node 24
+      # RT-923: refs older than the repo-root .nvmrc only carry apps/pos/.nvmrc; use it there.
+      - name: Node version file for older refs
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: '[ -f .nvmrc ] || cp apps/pos/.nvmrc .nvmrc'
+
+      - name: Setup Node (.nvmrc)
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: apps/pos/package-lock.json
 

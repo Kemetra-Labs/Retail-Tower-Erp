@@ -174,10 +174,10 @@ jobs:
           corepack enable
           corepack prepare pnpm@9.15.0 --activate
 
-      - name: Setup Node.js 22
+      - name: Setup Node (.nvmrc)
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "22"
+          node-version-file: .nvmrc
           cache: pnpm
           cache-dependency-path: services/backend-core/pnpm-lock.yaml
 
@@ -236,10 +236,10 @@ jobs:
           corepack enable
           corepack prepare pnpm@9.15.0 --activate
 
-      - name: Setup Node.js 22
+      - name: Setup Node (.nvmrc)
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "22"
+          node-version-file: .nvmrc
           cache: pnpm
           cache-dependency-path: services/backend-core/pnpm-lock.yaml
 
@@ -311,10 +311,10 @@ jobs:
           corepack enable
           corepack prepare pnpm@9.15.0 --activate
 
-      - name: Setup Node.js 22
+      - name: Setup Node (.nvmrc)
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "22"
+          node-version-file: .nvmrc
           cache: pnpm
           cache-dependency-path: services/backend-core/pnpm-lock.yaml
 
@@ -440,10 +440,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Setup Node.js 22
+      - name: Setup Node (.nvmrc)
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "22"
+          node-version-file: .nvmrc
 
       - name: Install oasdiff (pinned, checksum-verified)
         run: |

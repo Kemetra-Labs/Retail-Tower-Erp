@@ -86,7 +86,7 @@ products:
         globs: [electron-builder.yml, "vite.config*.ts", "tsconfig*.json", scripts/dev-electron.cjs, LICENSE, NOTICE]
         jobs: [pos/package-windows, pos/e2e-electron]
       dependency:
-        globs: [package.json, package-lock.json, .nvmrc]
+        globs: [package.json, package-lock.json]
         jobs: ["@pos-full", pos/package-windows, dependency-review]
       tooling:
         globs: [scripts/**, eslint.config.js, ".prettier*", "vitest*.ts", codecov.yml, .sonarcloud.properties, .coderabbit.yaml, .editorconfig, .gitattributes, .gitignore, postcss.config.cjs, tailwind.config.ts, .env.example]
@@ -164,7 +164,7 @@ products:
         globs: ["Dockerfile*", .dockerignore, Caddyfile, "docker-compose.*.yml", deploy/**]
         jobs: ["@bc-full"]
       dependency:
-        globs: [pnpm-lock.yaml, pnpm-workspace.yaml, package.json, "*/*/package.json", "tsconfig*.json", .nvmrc]
+        globs: [pnpm-lock.yaml, pnpm-workspace.yaml, package.json, "*/*/package.json", "tsconfig*.json"]
         jobs: ["@bc-full", dependency-review]
       tooling:
         globs: [scripts/**, loadtests/**, .eslintrc.cjs, .prettierrc, codecov.yml, .sonarcloud.properties, .coderabbit.yaml]
