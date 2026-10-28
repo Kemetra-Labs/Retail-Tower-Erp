@@ -160,6 +160,18 @@ describe("RT-BackendLabBackup (lab-02, D-1a)", () => {
 describe("RT-BackendLabDeploy (lab-01)", () => {
   const b = deploy.body;
 
+  it("reads and rewrites the env file the lab-01 dc wrapper passes as --env-file", () => {
+    expect(b).toContain("BACKEND_ENV=/root/rt-lab-secrets/backend.env");
+    expect(b).not.toContain('BACKEND_ENV="$BACKEND_DIR/backend.env"');
+    expectInOrder(b, [
+      "GATE=G-Host",
+      `DC_ACTIVE="$(grep -vE '^[[:space:]]*#' "$DC" || true)"`,
+      '[ "$ENV_FILES_OK" -ge 1 ] && [ "$ENV_FILES_OK" = "$ENV_FILES" ] || stop "wrapper-does-not-use-BACKEND_ENV"',
+      "pass G-Host",
+    ]);
+    expect(b).not.toContain('grep -qF -- "$BACKEND_ENV" "$DC"');
+  });
+
   it("follows the RT-532 order: host, backup, fetch, config backup, auto-revert, migrate, grants, catch-up, start, ready, cancel", () => {
     expectInOrder(b, [
       "GATE=G-Host",
