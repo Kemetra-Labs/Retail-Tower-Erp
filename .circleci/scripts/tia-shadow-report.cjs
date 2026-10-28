@@ -8,7 +8,9 @@
 //
 // usage: tia-shadow-report.cjs <selected.txt> <junit.xml> <outDir> <apiRootDir>
 //   selected.txt   list-tests stdout; <outDir>/list-tests.rc holds its exit code
-//   junit.xml      the converter's report; spec paths in `file` are relative to apiRootDir
+//   junit.xml      the converter's report, or a directory whose *.xml reports are all read
+//                  (the CLI numbers outputs.junit, e.g. backend-api-jest-1.xml); spec paths
+//                  in `file` are relative to apiRootDir
 //   outDir         where report.json and report.txt are written (the stored artifact)
 "use strict";
 const fs = require("node:fs");
@@ -27,6 +29,14 @@ function normalize(p, apiRoot) {
 }
 
 const readIfExists = (p) => (p && fs.existsSync(p) ? fs.readFileSync(p, "utf8") : null);
+
+// A file, or every *.xml in a directory joined; null when there is no report at all.
+function readJunit(p) {
+  if (!p || !fs.existsSync(p)) return null;
+  if (!fs.statSync(p).isDirectory()) return fs.readFileSync(p, "utf8");
+  const files = fs.readdirSync(p).filter((f) => f.endsWith(".xml")).sort();
+  return files.length ? files.map((f) => fs.readFileSync(path.join(p, f), "utf8")).join("\n") : null;
+}
 
 // Spec files in the full run and the ones with at least one failure (including the converter's
 // "suite failed to run" case, which also counts in the suite's failures attribute).
@@ -61,7 +71,7 @@ function buildReport([selectedPath, junitPath, outDir, apiRoot]) {
   const rcText = readIfExists(outDir && path.join(outDir, "list-tests.rc"));
   report.listTestsExitCode = rcText === null ? null : Number(rcText.trim());
 
-  const xml = readIfExists(junitPath);
+  const xml = readJunit(junitPath);
   if (xml === null) {
     report.status = "no-junit";
     report.note = `No JUnit report at ${junitPath}: the suite did not run (guard halt or earlier failure).`;

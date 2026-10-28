@@ -112,6 +112,12 @@ jobs:
             echo "$rc" > /tmp/tia/list-tests.rc
             cat /tmp/tia/list-tests.log
             echo "list-tests exit code: $rc; $(wc -l < /tmp/tia/selected.txt) lines in selected.txt"
+            # doctor writes .circleci/impact-doctor-<suite>.json into the checkout; specs that fence
+            # `git status --porcelain` (030 T11) would fail on it. Keep it as evidence, outside git.
+            find ~/project/.circleci -maxdepth 1 -name 'impact-*.json' -exec mv -t /tmp/tia {} + \
+              || echo "could not move the doctor's impact file out of the checkout"
+            echo "untracked files left in the checkout:"
+            git -C ~/project ls-files --others --exclude-standard
       # Shadow mode, step 2: the FULL suite, every branch. --analyze-tests=none because the
       # default branch would otherwise also run LCOV analysis here; that is the analysis job's.
       - run:
@@ -123,12 +129,14 @@ jobs:
             NODE_OPTIONS: --max-old-space-size=4096
           command: circleci testsuite run "backend api jest" --run-tests=all --analyze-tests=none
       # Always, so a red run (where a miss can happen) is still measured. Never fails the job.
+      # Reads every report in /tmp/test-reports: the CLI numbers outputs.junit per run
+      # (backend-api-jest-1.xml), and the step above leaves only this run's reports there.
       - run:
           name: "Impact analysis (shadow): selection ratio and misses"
           when: always
           command: >-
             node .circleci/scripts/tia-shadow-report.cjs /tmp/tia/selected.txt
-            /tmp/test-reports/backend-api-jest.xml /tmp/tia
+            /tmp/test-reports /tmp/tia
             ~/project/services/backend-core/apps/api
       - store_test_results:
           path: /tmp/test-reports
