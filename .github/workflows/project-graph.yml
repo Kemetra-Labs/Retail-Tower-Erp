@@ -52,6 +52,14 @@ jobs:
         working-directory: tools/project-graph
         run: python -m pgraph boundary --repo "$GITHUB_WORKSPACE" --rev HEAD
 
+      # RT-923: one Node (.nvmrc) and per-project Python (.python-version) across workflows,
+      # Dockerfiles, package.json and pyproject.toml. Stdlib only.
+      - name: Toolchain version guard logic tests
+        run: python -m unittest discover -s .github/scripts -p 'test_toolchain_versions.py' -v
+
+      - name: Toolchain version guard
+        run: python .github/scripts/toolchain_versions.py check --repo "$GITHUB_WORKSPACE"
+
   # The job `name:` is the graph key (static rule 5): a literal, no expression, no `if:`, no
   # `paths:` filter. A selected job that is skipped fails the gate, so this always runs.
   dependency-review:

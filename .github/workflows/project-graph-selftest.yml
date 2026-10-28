@@ -59,7 +59,7 @@ jobs:
           python-version-file: .python-version
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 22
+          node-version-file: .nvmrc
       - name: Compat guard spec (MR-3, red or missing compat refuses)
         run: node --test .github/release/compat-gate.test.cjs
       - name: Release manifest spec
