@@ -493,8 +493,9 @@ runs any of it, and none of it is done by merging this workflow:
        `release-<slug>` of `current_release` (`backend-core/v1.2.3` ->
        `release-backend-core-v1.2.3`; a legacy `backend-core-<sha12>` is its own slug);
      - that directory holds the release's `release.env`;
-     - `backend.env` has one `SENTRY_RELEASE=<id>` line (`v1.2.3`, or `<sha12>` for a
-       legacy release);
+     - `/root/rt-lab-secrets/backend.env`, the file the wrapper passes as
+       `--env-file`, has one `SENTRY_RELEASE=<id>` line (`v1.2.3`, or `<sha12>`
+       for a legacy release);
      - `/root/rt-lab-secrets/grants.env` holds the migration-owner `PG*`
        variables, `PGSSLMODE=require` and `DOMAIN_DB_ROLE`;
      - `docker`, `python3`, `curl` and `systemd-run` are installed;
