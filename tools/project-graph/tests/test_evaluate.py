@@ -48,5 +48,39 @@ class EvaluateDefenceInDepthTests(unittest.TestCase):
         self.assertTrue(plan["select_all"])
 
 
+class RootDocsSelectionTests(unittest.TestCase):
+    """RT-578 PR-1: the root README.md and ARCHITECTURE.md select no product job."""
+
+    def _plan(self, *paths):
+        data = load_graph(support.trusted_text())
+        inp = ev.EvalInput(
+            event="pull_request", base_sha=support.BASE, head_sha=support.HEAD,
+            changes=support.changes([{"status": "M", "path": p} for p in paths]),
+            trusted_text=support.trusted_text(),
+            workflow_jobs=dict(data["jobs"]),
+        )
+        return ev.evaluate(inp)
+
+    def test_root_docs_select_nothing(self):
+        for paths in (("README.md",), ("ARCHITECTURE.md",), ("README.md", "ARCHITECTURE.md", "docs/a.md")):
+            with self.subTest(paths=paths):
+                plan = self._plan(*paths)
+                self.assertFalse(plan["select_all"], plan["graph_validation"])
+                self.assertEqual(plan["graph_validation"]["status"], "pass")
+                self.assertFalse(plan["policy_change"])
+                self.assertEqual([p for p, v in plan["products"].items() if v["run"]], [])
+                self.assertFalse(plan["e2e"]["run"])
+                self.assertEqual(set(plan["needed_jobs"]) - set(load_graph(support.trusted_text())["always_jobs"]), set())
+
+    def test_other_root_files_still_select_everything(self):
+        for path in ("LICENSE", "NEWS.md", "SECURITY.md"):
+            with self.subTest(path=path):
+                self.assertTrue(self._plan(path)["select_all"])
+
+    def test_root_docs_with_code_still_select_the_code_product(self):
+        plan = self._plan("README.md", "apps/pos/src/main/payments/a.ts")
+        self.assertTrue(plan["products"]["pos"]["run"])
+
+
 if __name__ == "__main__":
     unittest.main()

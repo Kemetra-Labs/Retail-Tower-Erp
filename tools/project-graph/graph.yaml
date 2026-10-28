@@ -230,6 +230,10 @@ shared_classes:   # precedence: lower wins; two matches at the SAME precedence =
   tooling: { precedence: 2, globs: [tools/**], selects: all }
   e2e:     { precedence: 3, globs: [tests/e2e/**], selects: [e2e] }
   docs:    { precedence: 3, globs: [docs/**], selects: [] }
+  # RT-578 (CI Modernization PR-1): the two root prose files select no job. Precedence 3 beats
+  # root's 4, so they never fall through to the "*" catch-all below. No code, workflow or build
+  # reads them (RT-578 PR evidence); a new root file still hits `root` and selects everything.
+  rootdocs: { precedence: 3, globs: [README.md, ARCHITECTURE.md], selects: [] }
   root:    { precedence: 4, globs: ["*"], selects: all }
 
 edges:   # allowed cross-product references; anything else is a boundary violation
@@ -269,8 +273,9 @@ policy_approvers:
 # The aggregator reads this from the TRUSTED (base) graph, so a PR cannot relax its own approval, and
 # changing it is itself a policy change.
 # Owner decision 2026-10-27: `observe` while the owner is the only maintainer (same reasoning as
-# advisory CODEOWNERS). Revert by changing this value back to `required` (or deleting the key) when a
-# second maintainer joins, or BEFORE RT-866 makes `required` an enforced check on `main`.
+# advisory CODEOWNERS). Owner decision 2026-10-28 (CI Modernization v2, RT-578): keep `observe` and keep
+# the admin bypass (solo developer); this replaces the earlier "revert to `required` before RT-866" note.
+# Revisit only when a second maintainer joins (change this value back to `required`, or delete the key).
 # Residual while observing: nothing requires a human attestation on .github/** or tools/project-graph/**,
 # nor for a path the trusted graph does not know but the proposed one classifies (UNKNOWN_IN_TRUSTED_ONLY).
 policy_approval: observe

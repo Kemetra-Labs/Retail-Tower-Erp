@@ -190,6 +190,13 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.g.classify("LICENSE").owner, "root")
         self.assertEqual(self.g.classify("docs/a.md").owner, "docs")
 
+    def test_root_prose_files_are_rootdocs_not_root(self):
+        # RT-578: precedence 3 (rootdocs) beats 4 (root "*"); only the two named files, anchored at the root.
+        self.assertEqual(self.g.classify("README.md").owner, "rootdocs")
+        self.assertEqual(self.g.classify("ARCHITECTURE.md").owner, "rootdocs")
+        self.assertEqual(self.g.classify("NEWS.md").owner, "root")
+        self.assertEqual(self.g.classify("apps/pos/README.md").kind, "product")
+
     def test_product_github_dirs_are_policy(self):
         g = self.g
         for path in ("apps/pos/.github/workflows/ci.yml", "apps/admin-console/.github/scripts/fetch-pinned-contracts.sh",
