@@ -9,13 +9,24 @@
 # Test impact analysis runs in SHADOW mode (PR-4b, RT-920 comment 14285): the test job always
 # runs the full suite and only records which specs impact analysis would have selected, then
 # reports the selection ratio and any failing spec it would have skipped (a miss). Impact data
-# is built by the separate analysis job on main. Nothing is ever skipped.
+# is built by the separate analysis job on main. Nothing is ever skipped. A manual pipeline on
+# main with full_tia_analysis=true runs only the tia-full-analysis workflow, which finishes
+# that analysis in one go (RT-920 comment 14318 option 1).
 #
 # No secrets, no contexts, no orbs. Machine executor: the api suite starts one
 # postgres:16-alpine through Testcontainers, which needs a local Docker daemon
 # (setup_remote_docker breaks getMappedPort(); RT-594).
 
 version: 2.1
+
+parameters:
+  # RT-920 comment 14318 option 1: set true only on a manual pipeline on main (web app,
+  # Trigger Pipeline, Add parameter) to finish the first impact analysis in one go. It runs
+  # the tia-full-analysis workflow INSTEAD of advisory. false (every push and PR) leaves the
+  # lane exactly as it was.
+  full_tia_analysis:
+    type: boolean
+    default: false
 
 commands:
   backend-setup:
@@ -166,11 +177,86 @@ jobs:
             NODE_OPTIONS: --max-old-space-size=4096
           command: circleci testsuite run "backend api jest" --run-tests=none
 
+  # One link of the manual full-analysis chain: the analysis job above with a hard stop.
+  # Analysis saves impact data at the end of each run and the next run continues from it
+  # (run 3f86178c: "589 new test atoms"), so 30-minute links add up. test-analysis-duration
+  # stays 30 (test-suites.yml is shared with the job above) and the links run one after
+  # another: two analysis runs that overlap pick the same atoms (runs e1ad1bed and 9aa8bf5a
+  # both analyzed the first ~88), and the docs do not say analysis splits across parallel
+  # nodes. `timeout` only ends a hung link (SIGKILL 2 min after SIGTERM, in case Jest children
+  # hold the step open); the CLI itself stops after the current spec once 30 minutes have
+  # passed. A killed link saves nothing; the next link repeats its specs.
+  backend-api-jest-full-analysis:
+    machine:
+      image: ubuntu-2404:2026.05.1
+    resource_class: large
+    steps:
+      - checkout
+      - backend-setup
+      - run:
+          name: Impact analysis of the API Jest suite, one 30-minute link (hard stop 50 min)
+          working_directory: ~/project/services/backend-core/apps/api
+          no_output_timeout: 20m
+          environment:
+            NODE_OPTIONS: --max-old-space-size=4096
+          command: timeout -k 2m 50m circleci testsuite run "backend api jest" --run-tests=none
+
 workflows:
   advisory:
+    when:
+      not: << pipeline.parameters.full_tia_analysis >>
     jobs:
       - backend-api-jest
       - backend-api-jest-analysis:
           filters:
             branches:
               only: main
+
+  # Manual, main only: up to 10 links x 30 min = about 880 specs, enough for the 589 not yet
+  # analyzed (677 in all, about 88 per link) with room for a lost link or two. A link that finds
+  # nothing left to analyze ends in about a minute. A failed link (a hung or failing spec) does not stop the chain; cancelling the
+  # workflow stops it. Do not run two at once: overlapping analysis repeats the same specs.
+  tia-full-analysis:
+    when:
+      and:
+        - << pipeline.parameters.full_tia_analysis >>
+        - equal: [main, << pipeline.git.branch >>]
+    jobs:
+      - backend-api-jest-full-analysis:
+          name: full-analysis-1
+      - backend-api-jest-full-analysis:
+          name: full-analysis-2
+          requires:
+            - full-analysis-1: [success, failed]
+      - backend-api-jest-full-analysis:
+          name: full-analysis-3
+          requires:
+            - full-analysis-2: [success, failed]
+      - backend-api-jest-full-analysis:
+          name: full-analysis-4
+          requires:
+            - full-analysis-3: [success, failed]
+      - backend-api-jest-full-analysis:
+          name: full-analysis-5
+          requires:
+            - full-analysis-4: [success, failed]
+      - backend-api-jest-full-analysis:
+          name: full-analysis-6
+          requires:
+            - full-analysis-5: [success, failed]
+      - backend-api-jest-full-analysis:
+          name: full-analysis-7
+          requires:
+            - full-analysis-6: [success, failed]
+      - backend-api-jest-full-analysis:
+          name: full-analysis-8
+          requires:
+            - full-analysis-7: [success, failed]
+      - backend-api-jest-full-analysis:
+          name: full-analysis-9
+          requires:
+            - full-analysis-8: [success, failed]
+      - backend-api-jest-full-analysis:
+          name: full-analysis-10
+          requires:
+            - full-analysis-9: [success, failed]
