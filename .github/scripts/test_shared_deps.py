@@ -9,6 +9,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_deps as sd  # noqa: E402
@@ -24,6 +25,12 @@ exceptions: []
 
 class SharedDepsTests(unittest.TestCase):
     def setUp(self):
+        # The tests run inside boundary-check, where GITHUB_STEP_SUMMARY is the real job summary:
+        # keep fixture findings out of it, and restore the environment afterwards.
+        env = mock.patch.dict(os.environ)
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop("GITHUB_STEP_SUMMARY", None)
         self._tmp = tempfile.TemporaryDirectory()
         self.repo = self._tmp.name
         self.write("tools/versions/shared-deps.yaml", POLICY)
@@ -199,10 +206,7 @@ class SharedDepsTests(unittest.TestCase):
         self.package("apps/web/package.json", dependencies={"react": "^18.3.1"}, devDependencies={"vite": "8.3.4"})
         summary = os.path.join(self.repo, "summary.md")
         os.environ["GITHUB_STEP_SUMMARY"] = summary
-        try:
-            self.run_main()
-        finally:
-            del os.environ["GITHUB_STEP_SUMMARY"]
+        self.run_main()
         with open(summary, encoding="utf-8") as fh:
             text = fh.read()
         self.assertIn("report mode): 1 finding(s)", text)
