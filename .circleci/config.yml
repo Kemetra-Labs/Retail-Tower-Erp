@@ -47,15 +47,18 @@ jobs:
             else
               echo "Backend-Core or .circleci changed since $base (git diff rc=$rc); running the suite."
             fi
-      # Same toolchain source as the repo: Node from .nvmrc, pnpm from packageManager.
+      # Same toolchain source as the repo: Node from the root .nvmrc (RT-923: one .nvmrc for
+      # every product), pnpm from Backend-Core's packageManager.
       - run:
-          name: Node from .nvmrc, pnpm from packageManager
+          name: Node from the root .nvmrc, pnpm from packageManager
           working_directory: ~/project/services/backend-core
           command: |
-            nvm install "$(cat .nvmrc)"
-            nvm alias default "$(cat .nvmrc)"
+            node_version="$(tr -d '[:space:]' < ~/project/.nvmrc)"
+            [ -n "$node_version" ] || { echo "The root .nvmrc is empty or missing."; exit 1; }
+            nvm install "$node_version"
             # Every `run` step is a fresh shell: put Node's bin dir (with the corepack shims) on PATH.
-            node_bin="$(dirname "$(nvm which default)")"
+            node_bin="$(dirname "$(nvm which "$node_version")")"
+            [ -x "$node_bin/node" ] || { echo "nvm gave no node binary for $node_version ($node_bin)."; exit 1; }
             echo "export PATH=\"$node_bin:\$PATH\"" >> "$BASH_ENV"
             export PATH="$node_bin:$PATH"
             corepack enable
