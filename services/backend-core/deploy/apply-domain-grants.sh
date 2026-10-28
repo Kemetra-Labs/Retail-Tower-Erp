@@ -30,7 +30,9 @@ routine_scripts() {
   local f
   for f in docs/operations/sql/*-domain-grants.sql; do
     [ -f "$f" ] || continue
-    if tr -d '\r' < "$f" | grep -qxF -- "$MARKER"; then printf '%s\n' "$f"; fi
+    # Not `grep -q`: it exits on the first match, tr then dies of SIGPIPE and
+    # pipefail would read the marked script as unmarked. grep reads to EOF.
+    if tr -d '\r' < "$f" | grep -xF -- "$MARKER" > /dev/null; then printf '%s\n' "$f"; fi
   done
 }
 

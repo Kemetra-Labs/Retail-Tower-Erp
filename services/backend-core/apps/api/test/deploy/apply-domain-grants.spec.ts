@@ -11,7 +11,7 @@
  * bash exists locally; CI (Linux) always runs it.
  */
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { routineGrantScripts } from "../_helpers/domain-grant-scripts";
@@ -47,6 +47,36 @@ describe("deploy/apply-domain-grants.sh", () => {
     const r = run(["--list"]);
     expect(r.status).toBe(0);
     expect(r.stdout.trim().split("\n")).toEqual(expected());
+  });
+
+  describe("selector on a temp tree", () => {
+    // `tr | grep -q` under pipefail once dropped a marked script: grep exits on
+    // the match, tr dies of SIGPIPE writing the rest, and the pipeline fails.
+    // Flaky on ~5 KB scripts, near-certain on a large one, so run it repeatedly.
+    let root: string;
+    beforeEach(() => {
+      root = mkdtempSync(join(tmpdir(), "rt812-select-"));
+      const sql = join(root, "docs", "operations", "sql");
+      mkdirSync(sql, { recursive: true });
+      mkdirSync(join(root, "deploy"));
+      copyFileSync(resolve(repoRoot, SCRIPT), join(root, SCRIPT));
+      const filler = "-- filler that keeps tr writing after grep has matched\n".repeat(5000); // ~280 KB
+      writeFileSync(join(sql, "a-large-domain-grants.sql"), `-- deploy: every-release\r\n${filler}`);
+      writeFileSync(join(sql, "b-gated-domain-grants.sql"), filler);
+      writeFileSync(join(sql, "c-small-domain-grants.sql"), "SELECT 1;\n-- deploy: every-release\n");
+    });
+    afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+    itBash("lists a large marked script on every run", () => {
+      for (let i = 0; i < 20; i++) {
+        const r = spawnSync("bash", [SCRIPT, "--list"], { cwd: root, encoding: "utf8" });
+        expect(r.status).toBe(0);
+        expect(r.stdout.trim().split("\n")).toEqual([
+          "docs/operations/sql/a-large-domain-grants.sql",
+          "docs/operations/sql/c-small-domain-grants.sql",
+        ]);
+      }
+    });
   });
 
   itBash("refuses an unknown argument", () => {
