@@ -34,7 +34,10 @@ options:
   # Changes here select every spec. Coverage only sees apps/api/src/**: the shared, auth, db
   # and worker packages are imported as built dist/, and many specs read deploy/*.sh,
   # docs/operations/sql and the OpenAPI YAML directly. Repo-root relative; the doctor step in
-  # the PR job records whether the CLI agrees.
+  # the PR job records whether the CLI agrees. Known gap, left for the measurement to show:
+  # specs also read other files (Caddyfile, docker-compose*.yml, CHANGELOG.md, changelog.d/,
+  # tools/, contracts-compat/, two root workflows) and scan src/ as text; a change there that
+  # breaks such a spec shows up as a miss in the shadow report.
   full-test-run-paths:
     - .nvmrc
     - .circleci/**

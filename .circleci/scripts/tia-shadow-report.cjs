@@ -72,19 +72,30 @@ function buildReport([selectedPath, junitPath, outDir, apiRoot]) {
   report.failingSpecs = [...failing].sort();
 
   const selectionText = readIfExists(selectedPath);
-  // No selection data is not the same as "selected nothing": until main has impact data,
-  // list-tests can fail or print nothing. Misses are then not computable, never "all failures".
-  if (selectionText === null || report.listTestsExitCode !== 0 || selectionText.trim() === "") {
+  // No selection data is not the same as "selected nothing": a failed list-tests means misses
+  // are not computable, never "all failures".
+  if (selectionText === null || report.listTestsExitCode !== 0) {
     report.status = "no-selection-data";
-    report.note = "list-tests gave no usable selection; selection ratio and misses not computable.";
+    report.note = "list-tests failed or wrote nothing; selection ratio and misses not computable.";
     return report;
   }
   const { selected, unknown } = parseSelection(selectionText, specs, apiRoot || "");
-  report.status = "measured";
   report.selectedSpecs = selected.size;
   report.selectionRatio = specs.size ? selected.size / specs.size : null;
   report.unknownSelected = unknown.sort();
   report.misses = report.failingSpecs.filter((s) => !selected.has(s));
+  // A successful but empty selection is a real result ("no spec impacted"), and the one where
+  // a miss would skip the whole suite, so its misses count. Every spec selected is either a
+  // full-test-run path or the no-impact-data fallback: not evidence of good selection.
+  if (selected.size === 0) {
+    report.status = "empty-selection";
+    report.note = "list-tests selected no spec: either no spec is impacted or main has no impact data yet (see list-tests.log).";
+  } else if (selected.size === specs.size) {
+    report.status = "all-selected";
+    report.note = "every spec selected: a full-test-run path changed or there is no impact data yet (see list-tests.log).";
+  } else {
+    report.status = "measured";
+  }
   return report;
 }
 
@@ -94,7 +105,7 @@ function render(r) {
   lines.push(`status: ${r.status}`);
   if (r.note) lines.push(r.note);
   if (r.totalSpecs !== undefined) lines.push(`spec files in the full run: ${r.totalSpecs}; failing: ${r.failingSpecs.length}`);
-  if (r.status === "measured") {
+  if (r.misses) {
     const pct = r.selectionRatio === null ? "n/a" : `${(r.selectionRatio * 100).toFixed(1)}%`;
     lines.push(`selected: ${r.selectedSpecs}/${r.totalSpecs} (${pct})`);
     if (r.unknownSelected.length) lines.push(`selected but not in the run: ${r.unknownSelected.join(", ")}`);

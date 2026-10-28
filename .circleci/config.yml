@@ -90,19 +90,21 @@ jobs:
             fi
       - backend-setup
       # Shadow mode, step 1: record the checks and the selection without letting either fail
-      # the job. With no impact data yet, list-tests may fail or fall back to every spec; the
-      # report tells those apart from a real selection.
+      # the job. With no impact data yet, list-tests may fail, select nothing or fall back to
+      # every spec; the report labels a failure, an empty selection and an all-spec selection
+      # separately, and list-tests.log says which case it was. `timeout` keeps a hung call
+      # (all output goes to files) from hitting no_output_timeout and failing the job.
       - run:
           name: "Impact analysis (shadow): doctor and the specs it would select"
           working_directory: ~/project/services/backend-core/apps/api
           command: |
             mkdir -p /tmp/tia
             rc=0
-            circleci testsuite doctor "backend api jest" > /tmp/tia/doctor.log 2>&1 || rc=$?
+            timeout 300 circleci testsuite doctor "backend api jest" > /tmp/tia/doctor.log 2>&1 || rc=$?
             cat /tmp/tia/doctor.log
             echo "doctor exit code: $rc"
             rc=0
-            circleci testsuite list-tests "backend api jest" > /tmp/tia/selected.txt 2> /tmp/tia/list-tests.log || rc=$?
+            timeout 300 circleci testsuite list-tests "backend api jest" > /tmp/tia/selected.txt 2> /tmp/tia/list-tests.log || rc=$?
             echo "$rc" > /tmp/tia/list-tests.rc
             cat /tmp/tia/list-tests.log
             echo "list-tests exit code: $rc; $(wc -l < /tmp/tia/selected.txt) lines in selected.txt"
