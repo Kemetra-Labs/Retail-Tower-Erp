@@ -148,13 +148,17 @@ jobs:
         run: uv pip install --require-hashes --no-build -r pylock.toml
 
       - name: Lint
-        run: python -m ruff check retail_tower_erpnext_connector
+        run: python -m ruff check retail_tower_erpnext_connector deploy
 
       - name: Unit tests (frappe-free)
         run: >-
           python -m pytest -q retail_tower_erpnext_connector/tests
           --ignore=retail_tower_erpnext_connector/tests/test_foundation.py
           --cov=retail_tower_erpnext_connector --cov-report=xml:coverage.xml
+
+      # RT-927: the ERP lab deploy path's own tests (stdlib only; they read repository files).
+      - name: Deploy-path tests
+        run: python -m pytest -q deploy/tests
 
       # RT-901: hand coverage.xml to sonar.yml, which scans each push to main. A push-only,
       # credential-free upload that cannot change this job's result; PR runs upload nothing.
