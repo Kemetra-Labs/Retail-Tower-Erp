@@ -57,8 +57,9 @@ function assertProjectId(projectId: string): string {
 
 /**
  * The CANONICAL issuer: what Descope stamps on session JWTs for a project. It
- * is also the issuer recorded on `descope` identity links (the adapter and the
- * cutover CLI — packages/db/src/cli/descope-cutover.ts — keep this in lockstep).
+ * is also the issuer recorded on `descope` identity links by the adapter; pass
+ * the same value as `--issuer` to the identity-link cutover CLI
+ * (packages/db/src/cli/identity-link-cutover.ts).
  */
 export function descopeIssuer(projectId: string): string {
   return `${DESCOPE_API_BASE}/v1/apps/${assertProjectId(projectId)}`;

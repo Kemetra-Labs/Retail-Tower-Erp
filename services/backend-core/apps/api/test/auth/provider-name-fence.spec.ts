@@ -12,7 +12,7 @@
  * to an exact cap. Each leftover names the ticket that removes it, so the
  * later phases shrink this list instead of growing it:
  *
- *   RT-797 — cutover CLI flips identity links only (retire clerk_user_id write)
+ *   RT-797 — done: the cutover CLI flips identity links only, under a neutral name
  *   RT-798 — provider-neutral OpenAPI wording (published schema names)
  *   RT-799 — drop users.clerk_user_id (schema and seed)
  *
@@ -55,10 +55,8 @@ const ADAPTER_FILES: readonly AllowEntry[] = [
 const LEFTOVERS: readonly AllowEntry[] = [
   // The package barrel re-exports the Clerk adapter primitive.
   { path: "packages/auth/src/index.ts", owner: "adapter", max: 1 },
-  // The provider-migration CLI is provider-specific until it flips links only.
-  { path: "packages/db/src/cli/descope-cutover.ts", owner: "RT-797", max: 190 },
-  // Pilot seed writes the bridge column (and doc-comments it).
-  { path: "packages/db/src/cli/bootstrap-pilot.ts", owner: "RT-799", max: 28 },
+  // Pilot seed writes the bridge column and falls back to it to find a pre-RT-797 operator.
+  { path: "packages/db/src/cli/bootstrap-pilot.ts", owner: "RT-799", max: 2 },
   // The bridge column itself.
   { path: "packages/db/src/schema/users.ts", owner: "RT-799", max: 3 },
   { path: "packages/db/src/schema/devices.ts", owner: "RT-799", max: 1 },

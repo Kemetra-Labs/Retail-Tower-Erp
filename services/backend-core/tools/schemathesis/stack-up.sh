@@ -77,7 +77,8 @@ SQL
 
 echo "Seeding tenant, roles and store"
 tenant=$(docker run --rm --network "$net" -e NODE_ENV=production -e DATABASE_URL="$owner_url" \
-  -e CLERK_OPERATOR_SUBJECT=user_fuzz_dummy_subject -e PILOT_TENANT_SLUG=fuzz \
+  -e OPERATOR_PROVIDER_KEY=clerk -e OPERATOR_PROVIDER_ISSUER=https://clerk.dp2.local \
+  -e OPERATOR_PROVIDER_SUBJECT=user_fuzz_dummy_subject -e PILOT_TENANT_SLUG=fuzz \
   "$MIGRATE_IMAGE" node dist/cli/bootstrap-pilot.js | sed -n 's/.*"tenant_id": "\([^"]*\)".*/\1/p')
 [[ -n "$tenant" ]] || { echo "bootstrap-pilot did not return a tenant id" >&2; exit 1; }
 
