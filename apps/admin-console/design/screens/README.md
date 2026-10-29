@@ -84,7 +84,7 @@ Every RT-474 file above also exists at 1280 wide with `-1280` before `.png` (for
 | `73-platform-session-renewed.png` | Right after a successful renew | `renewSupportSession` 200 |
 | `74-platform-session-renew-gone.png` | Renew answered that the session is already gone | `renewSupportSession` 409 `support_session_absent` |
 | `75-platform-session-renew-origin.png` | Renew refused: origin rejected | `renewSupportSession` 403 `origin_rejected` |
-| `76-platform-no-access.png` | `/platform` for a user who is not a platform admin | `PlatformNotAvailable` |
+| `76-platform-no-access.png` | `/platform` for a user who is not a platform admin. Re-captured on `main@39e0dbfb` after the RT-929 layout fix; the broken "before" is at `24fe2552` | `PlatformNotAvailable` |
 
 Every file in this table also exists at 1280 wide with `-1280` before `.png`.
 

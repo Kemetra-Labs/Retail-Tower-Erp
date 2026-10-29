@@ -61,7 +61,7 @@ console, which is its quietest band.
 
 | Id | Severity | Frame | Issue | Cause (verified) | Fix |
 |---|---|---|---|---|---|
-| P1-1 | P1, layout bug | 76 | The no-access page is broken: the top bar renders at the bottom-left and the card sits off-centre | `.platform-standalone` (`platform.css`) has `grid-template-rows` but no areas; `.topbar` (`app-shell.css:32`) sets `grid-area: topbar`, an unknown name, so the grid adds implicit tracks | Add `grid-template-areas: "topbar" "stage"` and `grid-area: stage`, or `.platform-standalone .topbar { grid-area: auto; }` |
+| P1-1 | P1, layout bug, fixed in RT-929 (#100) | 76 | The no-access page is broken: the top bar renders at the bottom-left and the card sits off-centre | `.platform-standalone` (`platform.css`) has `grid-template-rows` but no areas; `.topbar` (`app-shell.css:32`) sets `grid-area: topbar`, an unknown name, so the grid adds implicit tracks | Add `grid-template-areas: "topbar" "stage"` and `grid-area: stage`, or `.platform-standalone .topbar { grid-area: auto; }` |
 | P1-2 | P1, flow | 74 | Renew answered "session already gone": the operator is sent to the directory with no message, and the live region unmounts with the bar | `gone: "leave"` in `useSessionActions.ts` | A one-shot notice on the directory saying the session ended or was replaced, that nothing changed, and how to continue. Same for End `gone`. Needs new copy |
 | P2-1 | P2, duplicate state | 62, 68 | Rate limit shown twice, with two retry controls in different states | The shell's `RateLimitBanner` (`PlatformShell.tsx:110`) plus the directory's and drawer's own banners | One message and one countdown per failure: suppress the shell banner when the surface owns the 429 |
 | P2-2 | P2, layout bug | 57, 58 | The slug floats about 450px from the tenant name and reads as a third, headerless column | `.platform-directory__slug { display: block }` on an LTR `bdi` aligns to the left of the RTL cell | Align it to the cell's start (`text-align: right` under RTL, or an inline isolate); constrain the table width |
@@ -101,7 +101,7 @@ console, which is its quietest band.
 
 | Slice | Covers | Kind | Jira |
 |---|---|---|---|
-| F1 | P1-1 no-access layout | CSS fix, one file | RT-929 |
+| F1 | P1-1 no-access layout | CSS fix, one file. Merged in #100; frame 76 re-captured | RT-929 |
 | F2 | P1-2 "session gone" notice, and End `gone` | Flow and copy (copy needs owner approval) | RT-930 |
 | F3 | Withdrawn: the «المالك» role was a fixture artifact (§0). The «لوحة التحكم» label is a minor observation (§3) | None | None |
 | F4 | P2-1 single rate-limit surface | Shell and platform | Not opened |
