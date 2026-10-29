@@ -4,8 +4,9 @@ Work item: Jira **RT-827** (Admin-Console, Implementation). This file is the **d
 comes before it: the screens the create flow needs, every state, and the copy for each. Nothing here
 changes `src/`, a contract or a pin.
 
-- **Status: draft for owner review, 2026-10-29.** Brief, frames and copy are proposals. Nothing here
-  is owner-approved yet. The canvas is «RT-827 Product Create»
+- **Status: owner decisions recorded, 2026-10-29** (RT-827 comment 14416; §9). D9, OD-2, OD-3 and
+  OD-4 are decided. The frames still show OD-2's checkbox before that decision (§9). The canvas is
+  «RT-827 Product Create»
   (<https://claude.ai/artifact/TifcPJh6V6PjqciYHwufoU>, private to the owner); the frames are
   `78-…` to `88-…` in [`design/screens/`](../../../design/screens/README.md).
 - **Implementation is still blocked.** Owner decision D9 (RT-768 comment 13487, 2026-10-22) chose
@@ -65,16 +66,17 @@ twice.
   - the server's own refusal of a wrong role is the non-disclosing 404.
 - **Wording.** The task asked for «إضافة منتج». The shipped catalog follows the UX-12 glossary
   (Retail Item → «الصنف»): the nav entry is «الأصناف», the edit button «تعديل الصنف». The frames use
-  «إضافة صنف» to match; open decision OD-3 (§9).
+  «إضافة صنف» to match; the owner chose «إضافة صنف» (OD-3, §9).
 
 ## 3. Page structure
 
 One column, RTL, the same frame as the edit route: back link «العودة إلى الأصناف», title, subtitle,
 then the form. Sections are headings with spacing, not cards (DESIGN.md §5).
 
-1. **Not-sellable notice (proposal, OD-2).** A warning notice (icon and text) between the header and
+1. **Not-sellable notice (OD-2, decided).** A warning notice (icon and text) between the header and
    the form, so it is read before any typing: the item will have no price, and the POS will not sell
-   it until a price is set. Drawn on every form frame and labelled «مقترح» in the frames.
+   it until a price is set. Drawn on every form frame and labelled «مقترح» in the frames; the label
+   must not ship. Needed only if create ships before a price write (D9, §9).
 2. **Banner slot.** Context errors (400, 409, 425, 500, network, 403, 404, 429) are one `Banner`
    above the form, never entries in the summary (RT-768 rule).
 3. **Error summary.** `FormErrorSummary` at the top of the form, on any blocked submit (D7).
@@ -244,14 +246,26 @@ active identifier, so it stays true on a later visit.
   countdown changes text only, once a second, and is announced politely at its start and at zero,
   not every second.
 
-## 9. Open decisions (owner)
+## 9. Owner decisions
+
+Decided by the owner on 2026-10-29 and recorded in RT-827 comment 14416. The options table below is
+kept as the record of what was weighed.
+
+| # | Decision |
+|---|---|
+| D9 | **Keep holding create** until a price write exists: option (b) stands and RT-827 stays blocked. |
+| OD-2 | **Warning notice above the form**, as drawn. Also replace the «متاح للبيع افتراضيًا» checkbox with a read-only line, so the form never calls an item that cannot be sold "available". Applies only if create ships before a price write. Frames 80 to 82 still show the checkbox; redraw them before that build. |
+| OD-3 | **«إضافة صنف»** (UX-12 glossary), as drawn. |
+| OD-4 | **Manual retry after the countdown**, as drawn (`unknownItemIdempotency.ts`). |
+
+Options as presented:
 
 | # | Decision | Options | State |
 |---|---|---|---|
-| D9 | Revisit D9: ship create before a price write exists? | (a) ship create with the not-sellable notice; (b) keep holding create until a price write ships (current decision, RT-768 13487, reaffirmed in RT-827 14055) | **Owner.** These frames do not assume either: they are the reference for whenever create ships. |
-| OD-2 | The not-sellable notice | Wording; placement (drawn: a warning notice above the form; or only the price row; or a confirm step on submit); tone (warning drawn; or information); whether «متاح للبيع افتراضيًا» stays checked by default on an item that cannot be sold yet (drawn: the shipped label and contract default, unchanged). The same tension shows on the shipped detail page (frame 88): «التوفر على مستوى المؤسسة: متاح للبيع» sits two rows above «بلا سعر» | **Owner.** Drawn as a proposal and labelled «مقترح» in the frames. |
-| OD-3 | CTA wording | «إضافة صنف» (drawn; UX-12 glossary, matches «الأصناف» and «تعديل الصنف») or «إضافة منتج» (as the task text) | Owner, minor |
-| OD-4 | 425 retry | Manual retry after the countdown (drawn; matches `unknownItemIdempotency.ts`) or one automatic retry with the same key | Recommendation: manual. Owner may overrule. |
+| D9 | Revisit D9: ship create before a price write exists? | (a) ship create with the not-sellable notice; (b) keep holding create until a price write ships (current decision, RT-768 13487, reaffirmed in RT-827 14055) | Decided: (b). |
+| OD-2 | The not-sellable notice | Wording; placement (drawn: a warning notice above the form; or only the price row; or a confirm step on submit); tone (warning drawn; or information); whether «متاح للبيع افتراضيًا» stays checked by default on an item that cannot be sold yet (drawn: the shipped label and contract default, unchanged). The same tension shows on the shipped detail page (frame 88): «التوفر على مستوى المؤسسة: متاح للبيع» sits two rows above «بلا سعر» | Decided: as drawn, plus a read-only line instead of the checkbox. |
+| OD-3 | CTA wording | «إضافة صنف» (drawn; UX-12 glossary, matches «الأصناف» and «تعديل الصنف») or «إضافة منتج» (as the task text) | Decided: «إضافة صنف». |
+| OD-4 | 425 retry | Manual retry after the countdown (drawn; matches `unknownItemIdempotency.ts`) or one automatic retry with the same key | Decided: manual. |
 
 ## 10. Export
 
@@ -304,10 +318,10 @@ Fixed in the frames:
 
 Not changed, and why:
 
-- **P0, gated on OD-2:** the form lets an operator create an item that cannot be sold, and
-  «متاح للبيع افتراضيًا» stays checked next to a notice that says so. Changing the default, or
-  replacing the checkbox with a read-only line, is the owner's decision (OD-2), so the frames keep
-  the shipped label and the contract default.
+- **P0, decided in OD-2:** the form lets an operator create an item that cannot be sold, and
+  «متاح للبيع افتراضيًا» stays checked next to a notice that says so. The owner chose a read-only line
+  instead of the checkbox (§9). The frames still show the checkbox; redraw 80 to 82 before a build
+  that ships create ahead of a price write.
 - **P1, part of OD-2:** the notice is the loudest element on an empty form, and its «مقترح» label
   sits inside the product UI. The label marks a proposal in the design record and must not ship.
   Tone and placement are OD-2.
