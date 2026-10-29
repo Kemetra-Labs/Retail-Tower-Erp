@@ -461,7 +461,7 @@ test("the CLI resolves the real consumers with the default I/O", () => {
   const untagged = run(PAIR_LINE);
   assert.equal(untagged.status, 1);
   assert.match(untagged.stdout, /affects POS: no consumer: tag/);
-  assert.match(untagged.stdout, /1 violation(s), 0 consumer error(s)/);
+  assert.match(untagged.stdout, /1 violation\(s\), 0 consumer error\(s\)/);
   const tagged = run(withTag("consumer:POS"));
   assert.equal(tagged.status, 0, tagged.stdout);
   assert.match(tagged.stdout, /0 violation\(s\), 0 consumer error\(s\)/);
