@@ -13,7 +13,6 @@
  */
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import type { MessageKey } from "@/i18n";
-import { getRateLimitState } from "@/lib/rate-limit";
 import { openSupportSession } from "@/lib/support-session-queries";
 import { useRef, useState } from "react";
 import { clearSessionGone } from "../session/sessionGone";
@@ -34,7 +33,7 @@ export interface StartNotice {
   variant: "danger" | "warning";
   messageKey: MessageKey;
   requestId?: string;
-  /** A 429's count on the shared clock, so the shell can skip that one (RT-931). */
+  /** This 429's own count on the shared clock, so the shell can skip that one (RT-931, RT-940). */
   rateLimitSeq?: number;
 }
 
@@ -48,7 +47,7 @@ export function useStartSession(tenantId: string, onOpened: () => void) {
   const [errors, setErrors] = useState<StartDraftErrors>({});
   const [notice, setNotice] = useState<StartNotice | null>(null);
 
-  const settle = async (outcome: OpenOutcome) => {
+  const settle = async (outcome: OpenOutcome, rateLimitSeq?: number) => {
     switch (outcome.kind) {
       case "opened":
         // RT-930: a new session makes any "your session was gone" notice stale.
@@ -66,7 +65,7 @@ export function useStartSession(tenantId: string, onOpened: () => void) {
         setNotice({
           variant: "warning",
           messageKey: "platform.start.error.rateLimited",
-          rateLimitSeq: getRateLimitState().seq,
+          rateLimitSeq,
         });
         return;
       case "unauthenticated":
@@ -90,7 +89,8 @@ export function useStartSession(tenantId: string, onOpened: () => void) {
     inFlight.current = true;
     setPending(true);
     try {
-      await settle(classifyOpen(await openSupportSession(built.body)));
+      const result = await openSupportSession(built.body);
+      await settle(classifyOpen(result), result.rateLimitSeq);
     } catch {
       // The request never got an answer: no session is assumed.
       setNotice(NO_ANSWER);

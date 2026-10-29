@@ -18,6 +18,7 @@
 import { apiClient } from "@/generated/client";
 import type { components } from "@/generated/schema";
 import type { MessageKey } from "@/i18n";
+import { rateLimitSeqOf } from "./rate-limit";
 
 // --- Typed operation wrappers -------------------------------------------------
 // Each returns `{ status, data?, error? }` so callers branch on `status`
@@ -40,7 +41,8 @@ export type StoreTimezoneChangePreview = components["schemas"]["StoreTimezoneCha
 /** GET /api/v1/tenants */
 export async function listTenants() {
   const { data, error, response } = await apiClient.GET("/api/v1/tenants", {});
-  return { status: response.status, data, error };
+  // RT-940: a 429's own `seq`, for the directory to claim (not the clock's newest).
+  return { status: response.status, data, error, rateLimitSeq: rateLimitSeqOf(response) };
 }
 
 /** GET /api/v1/tenants/{tenant_id} */

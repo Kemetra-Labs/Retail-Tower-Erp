@@ -6,16 +6,15 @@
  * once (RT-931: it claims that 429, so the shell's shared banner skips it) and
  * offers one manual retry, gated by the shared countdown.
  */
-import { getRateLimitState } from "@/lib/rate-limit";
 import { listTenants } from "@/lib/rf2-queries";
 import { useQuery } from "@tanstack/react-query";
 import type { TenantSummary } from "./directoryLogic";
 
 export const tenantDirectoryKey = ["platform", "tenants"] as const;
 
-/** `seq`: the shared clock's count at the 429, so the shell can skip that one (RT-931). */
+/** `seq`: this 429's count on the shared clock, so the shell can skip that one (RT-931, RT-940). */
 export type DirectoryError =
-  | { kind: "rate-limited"; seq: number }
+  | { kind: "rate-limited"; seq: number | undefined }
   | { kind: "failed"; requestId?: string };
 
 class DirectoryReadError extends Error {
@@ -30,9 +29,10 @@ function requestIdOf(error: unknown): string | undefined {
 
 async function readDirectory(): Promise<TenantSummary[]> {
   const res = await listTenants();
-  // The middleware has recorded this 429 before the wrapper returns.
   if (res.status === 429) {
-    throw new DirectoryReadError({ kind: "rate-limited", seq: getRateLimitState().seq });
+    // This response's own 429 (RT-940), not the clock's newest: a session-bar 429
+    // can land in between. Without one (no middleware) there is nothing to claim.
+    throw new DirectoryReadError({ kind: "rate-limited", seq: res.rateLimitSeq });
   }
   if (res.status >= 400) {
     throw new DirectoryReadError({ kind: "failed", requestId: requestIdOf(res.error) });
