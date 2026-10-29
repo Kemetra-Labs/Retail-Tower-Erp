@@ -30,12 +30,16 @@
 -- UUID, because the tenants policy casts it without the empty-GUC guard (see
 -- the DO block).
 --
--- Lock impact: SHARE on erpnext_warehouse_map for the whole transaction, so no
--- mapping can be written between the preflight and the index build. Reads
--- (posting freeze, reconciliation, the admin list) continue; a mapping set or
--- retire waits. The table holds about one row per store, so the build is
--- immediate. Not CONCURRENTLY, on purpose: the preflight and the build must be
--- one transaction, and a table this small gains nothing from it.
+-- Lock impact: ACCESS EXCLUSIVE on erpnext_warehouse_map for the whole
+-- transaction, taken up front. The plain DROP INDEX needs it anyway; taking it
+-- first means no mapping can be written between the preflight and the build,
+-- and the lock never escalates mid-transaction. Every read and write of the
+-- table (posting precondition and freeze, posting feed, reconciliation, the
+-- admin list and set/retire) waits until COMMIT. The table holds about one
+-- row per store, so that is milliseconds. Not CONCURRENTLY, on purpose: the
+-- preflight and the build must be one transaction, and a table this small
+-- gains nothing from it. As with any migration, check pg_stat_activity for
+-- long-open transactions first: the lock waits behind them.
 --
 -- If the preflight fails: nothing changed. Retire all but one active mapping
 -- per reported Warehouse (POST .../erpnext-warehouse-mappings/{id}/retire),
@@ -45,7 +49,7 @@
 
 BEGIN;
 
-LOCK TABLE erpnext_warehouse_map IN SHARE MODE;
+LOCK TABLE erpnext_warehouse_map IN ACCESS EXCLUSIVE MODE;
 
 DO $$
 DECLARE
