@@ -90,6 +90,7 @@ Every RT-474 file above also exists at 1280 wide with `-1280` before `.png` (for
 | `74-platform-session-renew-gone.png` | Renew answered that the session is already gone | `renewSupportSession` 409 `support_session_absent` |
 | `75-platform-session-renew-origin.png` | Renew refused: origin rejected | `renewSupportSession` 403 `origin_rejected` |
 | `76-platform-no-access.png` | `/platform` for a user who is not a platform admin. Re-captured on `main@39e0dbfb` after the RT-929 layout fix; the broken "before" is at `24fe2552` | `PlatformNotAvailable` |
+| `77-platform-session-gone-notice.png` | Directory after a renew answered that the session is already gone: the notice names the tenant (RT-930, fixes 74). Captured from the RT-930 branch build | `renewSupportSession` 409 `support_session_absent`, `SessionGoneNotice` |
 
 Every file in this table also exists at 1280 wide with `-1280` before `.png`.
 
@@ -113,4 +114,4 @@ Proposals for owner review (brief: [`docs/design/rt827-product-create/README.md`
 
 Every file in this table also exists at 1280 wide with `-1280` before `.png`.
 
-162 files, 11.3 MB in total; the largest is under 180 KB.
+164 files, 11.4 MB in total; the largest is under 180 KB.

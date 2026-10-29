@@ -356,12 +356,18 @@ export async function stopHarness(): Promise<void> {
  * are removed (except a force-closed one, which its append-only RT-742 fact
  * pins; it is no longer open, so it never counts), envelopes are revoked,
  * revoked memberships are restored, the manager's role and store access are
- * restored (RT-742 demotes and removes them), the limiter allows and
- * forgets, and the audit spy and the log capture are emptied.
+ * restored (RT-742 demotes and removes them), the admissions an RT-811 test
+ * seeded are deleted (a live one would make every later drawer look live),
+ * the limiter allows and forgets, and the audit spy and the log capture are
+ * emptied.
  */
 export async function resetState(): Promise<void> {
   if (!harness) return;
   await closeOpenShifts();
+  if (seededAdmissions.length > 0) {
+    await admin().query(`DELETE FROM cashier_admissions WHERE id = ANY($1::uuid[])`, [seededAdmissions]);
+    seededAdmissions.length = 0;
+  }
   await admin().query(`DELETE FROM shifts s WHERE s.source = 'legacy'
        AND NOT EXISTS (SELECT 1 FROM shift_forced_closes f WHERE f.shift_id = s.shift_id)`);
   await admin().query(`DELETE FROM auth_tokens WHERE scope = 'pos_operator'`);
@@ -417,6 +423,14 @@ export interface ShiftCall {
 }
 
 export const newKey = (): string => randomUUID().replaceAll("-", "");
+
+/** RT-811: `GET /shifts/stuck` for `branchId` as the manager (the `operator-identity` JWT). */
+export function getStuck(branchId: string): request.Test {
+  return http()
+    .get("/api/pos/v1/shifts/stuck")
+    .query({ branch_id: branchId })
+    .set("Authorization", `Bearer ${MANAGER_JWT}`);
+}
 
 export function post(call: ShiftCall): request.Test {
   const req = http().post(call.path);
@@ -543,6 +557,41 @@ export async function seedOperatorSession(user: FixtureUser, d: FixtureDevice): 
   );
 }
 
+/** RT-811: the admissions seeded by `seedAdmission`, deleted by `resetState`. */
+const seededAdmissions: string[] = [];
+
+/**
+ * RT-811: the state of a seeded cashier admission. `live` is not ended and
+ * not expired; `expired` is past its `expires_at` but never ended;
+ * `device_end` and `takeover` ended within their window (a revoked one).
+ */
+export type AdmissionState = "live" | "expired" | "device_end" | "takeover";
+
+/**
+ * RT-811: a cashier admission of `user` on `d` (created 2 h ago) in `state`.
+ * At most one not-ended admission per tenant, store and user may exist
+ * (`uq_cashier_admissions_live`), and the seeded CASHIER rows are all ended,
+ * so one `live` or `expired` row per user and store per test is safe.
+ */
+export async function seedAdmission(user: FixtureUser, d: FixtureDevice, state: AdmissionState): Promise<void> {
+  const id = randomUUID();
+  const expiresAt = state === "expired" ? "now() - interval '1 minute'" : "now() + interval '1 hour'";
+  const ended = state === "live" || state === "expired" ? "NULL, NULL" : `now() - interval '1 minute', '${state}'`;
+  await admin().query(
+    `INSERT INTO cashier_admissions
+       (id, tenant_id, store_id, user_id, device_id, mode, created_at, renewed_at, expires_at, ended_at, end_reason)
+     VALUES ($1, $2, $3, $4, $5, 'online', now() - interval '2 hours', now() - interval '2 hours',
+             ${expiresAt}, ${ended})`,
+    [id, d.tenant, d.store, user.id, d.id],
+  );
+  seededAdmissions.push(id);
+}
+
+/** RT-811: a live cashier admission of `user` on `d` (a cashier still selling there). */
+export async function seedLiveAdmission(user: FixtureUser, d: FixtureDevice): Promise<void> {
+  await seedAdmission(user, d, "live");
+}
+
 /**
  * Holds the shift's row lock on an admin connection (another transaction in
  * flight), so the next close of that shift waits. `release` rolls back.
@@ -588,7 +637,13 @@ function contractAjv(): Ajv {
   return ajv;
 }
 
-export type ContractSchema = "Shift" | "CashMovement" | "ApiError" | "IdempotencyInProgressBody" | "ForceClosedShift";
+export type ContractSchema =
+  | "Shift"
+  | "CashMovement"
+  | "ApiError"
+  | "IdempotencyInProgressBody"
+  | "ForceClosedShift"
+  | "StuckShiftsResponse";
 
 /** The body satisfies the named contract schema. */
 export function expectSchema(schema: ContractSchema, body: unknown): void {

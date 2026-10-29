@@ -75,7 +75,8 @@ export function useSupportSession(): SupportSessionController | null {
 
   const refusedExpired = useRefusedExpired(session);
   const now = useNow(session !== null);
-  const actions = useSessionActions(session);
+  const tenantName = session ? tenantNameOf(context, session) : undefined;
+  const actions = useSessionActions(session, tenantName);
   const view = describeSession({ session, now, refusedExpired, capStamp: actions.capStamp });
   useReReadAtZero(session, view.state, refusedExpired);
   useTenantDataDrop(session, view.state);
@@ -85,7 +86,7 @@ export function useSupportSession(): SupportSessionController | null {
     session,
     state: view.state,
     remainingMs: view.remainingMs,
-    tenantName: tenantNameOf(context, session),
+    tenantName,
     refusedExpired,
     renewedTo: actions.renewedStamp === session.expires_at ? actions.renewedStamp : null,
     pending: actions.pending,

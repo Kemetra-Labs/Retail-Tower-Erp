@@ -72,6 +72,10 @@ export const platform: MessagesOf<typeof ar> = {
   "platform.tenants.error.rateLimited":
     "Couldn't load the organizations because of too many requests. Try again when the countdown ends.",
   "platform.tenants.retry": "Try again",
+  "platform.tenants.sessionGone.renew":
+    "The support session for {tenant} ended before it could be renewed: it was ended or replaced elsewhere. Nothing changed in the organization. Open a new session to continue.",
+  "platform.tenants.sessionGone.end":
+    "The support session for {tenant} had already ended before you could end it: it was ended or replaced elsewhere. Nothing changed in the organization. Open a new session to continue.",
   "platform.tenants.error.switch":
     "Couldn't open the organization because the request didn't get through. Try again.",
   "platform.tenants.error.switchRefused":

@@ -15,12 +15,19 @@
  * another terminal's close 404, a new movement 409 `shift_closed`, an earlier
  * movement's replay 200, a new open 201); a close racing the force close; the
  * audit evidence; and that no log line or audit row carries the reason.
+ *
+ * RT-811 (1.5.0-draft; owner decision RT-811 comment 14372): a live cashier
+ * admission on the opening terminal (any user, not ended, not expired) keeps
+ * the drawer live, so the force close is 409 `shift_not_stuck` with nothing
+ * written; an expired admission, one ended by the device or by a takeover,
+ * and one on another terminal do not; a recorded force close still replays.
  */
 import { randomUUID } from "node:crypto";
 
 import {
   CASHIER,
   CASHIER_B,
+  CASHIER_UNADMITTED,
   DEV_A1,
   DEV_A1_SECOND,
   DEV_A2,
@@ -48,6 +55,8 @@ import {
   post,
   resetState,
   seedLegacyShift,
+  seedAdmission,
+  seedLiveAdmission,
   seedOperatorSession,
   skipped,
   startHarness,
@@ -232,6 +241,90 @@ describe("forceCloseShift — the stuck rule (409 shift_not_stuck)", () => {
     const shiftId = await seedLegacyShift(DEV_A1, { user: MANAGER.id });
     await seedOperatorSession(MANAGER, DEV_A2);
     expect((await forceClose({ bearer: await managerEnvelope(DEV_A1_SECOND), shiftId })).status).toBe(201);
+  });
+});
+
+describe("forceCloseShift — RT-811 a live cashier admission on the opening terminal (409 shift_not_stuck)", () => {
+  /** Nothing was written for `shiftId`: still open, no force close row, no audit event. */
+  async function expectNothingWritten(shiftId: string): Promise<void> {
+    expect(await stateOf(shiftId)).toEqual(STILL_OPEN);
+    expect(auditsOf("shift.force_closed")).toEqual([]);
+  }
+
+  it("a manager on another terminal is refused while the cashier's admission is live, and nothing is written", async () => {
+    if (skipped()) return;
+    const shiftId = await openOn(DEV_A1);
+    await seedLiveAdmission(CASHIER, DEV_A1);
+    const res = await forceClose({ bearer: await managerEnvelope(DEV_A1_SECOND), shiftId });
+    expectError(res, { status: 409, code: "shift_not_stuck" });
+    expectSchema("ApiError", res.body);
+    await expectNothingWritten(shiftId);
+  });
+
+  it("the shift is eligible again once the admission has ended", async () => {
+    if (skipped()) return;
+    const shiftId = await openOn(DEV_A1);
+    await seedLiveAdmission(CASHIER, DEV_A1);
+    const bearer = await managerEnvelope(DEV_A1_SECOND);
+    expectError(await forceClose({ bearer, shiftId }), { status: 409, code: "shift_not_stuck" });
+    await admin().query(
+      `UPDATE cashier_admissions SET ended_at = now(), end_reason = 'device_end'
+        WHERE device_id = $1 AND ended_at IS NULL`,
+      [DEV_A1.id],
+    );
+    expect((await forceClose({ bearer, shiftId })).status).toBe(201);
+    expect(await stateOf(shiftId)).toEqual(FORCE_CLOSED);
+  });
+
+  it("any user's live admission on the opening terminal counts, not only the opening cashier's", async () => {
+    if (skipped()) return;
+    const shiftId = await openOn(DEV_A1);
+    await seedLiveAdmission(CASHIER_UNADMITTED, DEV_A1);
+    expectError(await forceClose({ bearer: await managerEnvelope(DEV_A1_SECOND), shiftId }), {
+      status: 409,
+      code: "shift_not_stuck",
+    });
+    await expectNothingWritten(shiftId);
+  });
+
+  it("a live admission on the opening terminal of a stuck legacy shift counts too", async () => {
+    if (skipped()) return;
+    const shiftId = await seedLegacyShift(DEV_A1);
+    await seedLiveAdmission(CASHIER, DEV_A1);
+    expectError(await forceClose({ bearer: await managerEnvelope(DEV_A1_SECOND), shiftId }), {
+      status: 409,
+      code: "shift_not_stuck",
+    });
+    await expectNothingWritten(shiftId);
+  });
+
+  it.each(["expired", "device_end", "takeover"] as const)(
+    "an admission that is %s does not count: 201",
+    async (state) => {
+      if (skipped()) return;
+      const shiftId = await openOn(DEV_A1);
+      await seedAdmission(CASHIER, DEV_A1, state);
+      expect((await forceClose({ bearer: await managerEnvelope(DEV_A1_SECOND), shiftId })).status).toBe(201);
+      expect(await stateOf(shiftId)).toEqual(FORCE_CLOSED);
+    },
+  );
+
+  it("a live admission on another terminal of the store does not count, even the opening cashier's: 201", async () => {
+    if (skipped()) return;
+    const shiftId = await openOn(DEV_A1);
+    await seedLiveAdmission(CASHIER, DEV_A1_SECOND);
+    expect((await forceClose({ bearer: await managerEnvelope(DEV_A1_SECOND), shiftId })).status).toBe(201);
+  });
+
+  it("a recorded force close still replays 200 while an admission is live on the opening terminal", async () => {
+    if (skipped()) return;
+    const shiftId = await openOn(DEV_A1);
+    const first = await forceClose({ bearer: await managerEnvelope(DEV_A1_SECOND), shiftId });
+    expect(first.status).toBe(201);
+    await seedLiveAdmission(CASHIER, DEV_A1);
+    const again = await forceClose({ bearer: await managerEnvelope(DEV_A1), shiftId });
+    expectReplay(again);
+    expect(again.body).toEqual(first.body);
   });
 });
 

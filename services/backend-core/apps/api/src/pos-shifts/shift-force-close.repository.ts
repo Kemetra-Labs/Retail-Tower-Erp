@@ -1,11 +1,11 @@
 /**
  * ShiftForceCloseRepository — persistence for RT-742 `forceCloseShift`
- * (`pos-shifts.openapi.yaml` 1.4.0-draft).
+ * (`pos-shifts.openapi.yaml` 1.4.0-draft; RT-811 stuck rule, 1.5.0-draft).
  *
  * Every method takes the caller's tenant-scoped client (`runWithTenantContext`
  * on the NOBYPASSRLS domain pool), so every statement also runs under the
- * tenant policies of `shifts`, `devices`, `auth_tokens` and
- * `shift_forced_closes`. RLS isolates tenants only, so the STORE predicate is
+ * tenant policies of `shifts`, `devices`, `auth_tokens`, `cashier_admissions`
+ * and `shift_forced_closes`. RLS isolates tenants only, so the STORE predicate is
  * in every query (Constitution §II, §XII).
  *
  * Scope. Unlike the cash-up writes, the shift resolves on ANY device of the
@@ -114,10 +114,14 @@ const FIND_STORE_SHIFT_SQL = `
 
 /**
  * The `GET /shifts/stuck` predicate minus the caller's own session (contract,
- * Eligibility): opened longer ago than the threshold, and no active
+ * Eligibility): opened longer ago than the threshold, no active
  * `pos_operator` session of the opening cashier on the store other than the
- * caller's. $1 openedAt, $2 threshold minutes, $3 opening cashier, $4 store,
- * $5 the caller's token.
+ * caller's, and (RT-811) no live cashier admission of the tenant on the
+ * opening terminal: any user, not ended, not expired at the server clock. The
+ * caller's envelope makes no exception to the admission rule. A legacy shift
+ * with no opening terminal has no admission to find. $1 openedAt, $2
+ * threshold minutes, $3 opening cashier, $4 store, $5 the caller's token, $6
+ * tenant, $7 opening terminal.
  */
 const IS_STUCK_SQL = `
   SELECT ($1::timestamptz < now() - ($2::int * INTERVAL '1 minute'))
@@ -128,7 +132,13 @@ const IS_STUCK_SQL = `
               AND t.store_id = $4
               AND t.revoked_at IS NULL
               AND t.expires_at > now()
-              AND t.id <> $5::uuid) AS stuck`;
+              AND t.id <> $5::uuid)
+         AND NOT EXISTS (
+           SELECT 1 FROM cashier_admissions a
+            WHERE a.tenant_id = $6::uuid
+              AND a.device_id = $7::uuid
+              AND a.ended_at IS NULL
+              AND a.expires_at > now()) AS stuck`;
 
 /** $1 shift, $2 tenant, $3 store. Both terminals by their current label. */
 const FIND_FORCED_CLOSE_SQL = `
@@ -198,6 +208,8 @@ export class ShiftForceCloseRepository {
       shift.openingUserId,
       shift.storeId,
       rule.callerTokenId,
+      shift.tenantId,
+      shift.openingDeviceId,
     ]);
     return r.rows[0]?.stuck === true;
   }

@@ -1708,12 +1708,11 @@ describe("pos-shifts — RT-811 live cashier admission on the opening terminal (
     ]);
   });
 
-  it("marks the admission rule as pending its runtime in the info note and both operations", () => {
-    expectAll(flat(doc.info?.description), [
-      "**Runtime status:** the admission rule is pending the RT-811 runtime change; until it ships, the server applies only the `pos_operator` rule",
-    ]);
-    expectAll(flat(op(STUCK).description), ["Runtime status: pending the RT-811 runtime change (see the info note)"]);
-    expectAll(forceText(), ["(runtime status: pending the RT-811 runtime change, see the info note)"]);
+  it("records that the admission rule's runtime shipped, with no pending marker left", () => {
+    expectAll(flat(doc.info?.description), ["**Runtime status:** the admission rule shipped in the RT-811 runtime change"]);
+    for (const text of [flat(doc.info?.description), flat(op(STUCK).description), forceText()]) {
+      expect(text).not.toMatch(/pending the RT-811 runtime/i);
+    }
   });
 
   it("GET /shifts/stuck does not list a shift whose opening terminal holds a live cashier admission", () => {
