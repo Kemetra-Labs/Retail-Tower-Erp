@@ -1708,6 +1708,14 @@ describe("pos-shifts — RT-811 live cashier admission on the opening terminal (
     ]);
   });
 
+  it("marks the admission rule as pending its runtime in the info note and both operations", () => {
+    expectAll(flat(doc.info?.description), [
+      "**Runtime status:** the admission rule is pending the RT-811 runtime change; until it ships, the server applies only the `pos_operator` rule",
+    ]);
+    expectAll(flat(op(STUCK).description), ["Runtime status: pending the RT-811 runtime change (see the info note)"]);
+    expectAll(forceText(), ["(runtime status: pending the RT-811 runtime change, see the info note)"]);
+  });
+
   it("GET /shifts/stuck does not list a shift whose opening terminal holds a live cashier admission", () => {
     expectAll(flat(op(STUCK).description), [
       "whose opening cashier has no active `pos_operator` auth-token row on that branch, and whose opening terminal holds no live cashier admission",
@@ -1720,7 +1728,8 @@ describe("pos-shifts — RT-811 live cashier admission on the opening terminal (
     expectAll(forceText(), [
       "other than the caller's own envelope session. RT-811: and its opening terminal holds no live cashier admission",
       "the caller's envelope makes no exception to it",
-      "It is checked in the same transaction that records the close. Otherwise 409 `shift_not_stuck`",
+      "It is checked in the same transaction that records the close",
+      "Otherwise 409 `shift_not_stuck`: a manager cannot close a live drawer from another terminal",
     ]);
   });
 
