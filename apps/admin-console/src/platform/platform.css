@@ -29,11 +29,19 @@
   display: none;
 }
 
+/* RT-929: the shared `.topbar` places itself with `grid-area: topbar`, so this
+ * grid must name that area, or the bar falls into an implicit track. */
 .platform-standalone {
   min-height: 100dvh;
   display: grid;
   grid-template-rows: var(--shell-topbar-h) 1fr;
+  grid-template-areas:
+    "topbar"
+    "stage";
   background: var(--color-background);
+}
+.platform-standalone > .platform-stage {
+  grid-area: stage;
 }
 .platform-stage {
   min-height: 100%;
