@@ -312,7 +312,9 @@ _UNICODE_CLASS = re.compile(r"(?<!\\)(?:\\\\)*\\[wWsSbB]")
 
 
 def _canonical_end(pattern):
-    """A trailing unescaped `\\Z` (Python's exact end of string) is the contract's ECMA `$`."""
+    """A trailing unescaped `\\Z` (Python's exact end of string) is the contract's ECMA `$`.
+
+    Connector side only: in the contract (ECMA-262) `\\Z` is a literal "Z", not an anchor."""
     body = pattern[:-1]
     if pattern.endswith("Z") and (len(body) - len(body.rstrip("\\"))) % 2 == 1:
         return body[:-1] + "$"
@@ -410,7 +412,7 @@ def check_module(repo, entry, contracts_root):
             add(const, FAIL, f"{pattern!r}: \\w/\\s/\\b without re.ASCII also match non-ASCII, unlike {pointer}")
             continue
         have = _canonical_end(normalise_pattern(pattern, ascii_only))
-        if have != _canonical_end(normalise_pattern(want, True)):
+        if have != normalise_pattern(want, True):
             hint = " (\\d without re.ASCII also matches non-ASCII digits)" if "\\d" in have else ""
             add(const, FAIL, f"pattern mismatch with {pointer}: connector {pattern!r}, contract {want!r}{hint}")
         elif _ends_with_dollar(pattern):

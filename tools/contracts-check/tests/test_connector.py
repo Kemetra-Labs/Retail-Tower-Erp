@@ -113,10 +113,12 @@ class ConnectorCase(unittest.TestCase):
         self.assertEqual(self.by_subject(findings, "_AMOUNT_RE").status, DRIFT)
         self.assertIn("trailing newline", self.by_subject(findings, "_AMOUNT_RE").message)
 
-    def test_end_anchor_z_is_exact(self):
-        module = MODULE.replace('{1,6}$")', '{1,6}\\Z")')
+    def test_contract_z_is_a_literal_not_an_anchor(self):
+        # ECMA-262 `\Z` is a literal "Z": a contract ending in it equals neither the connector's `$` nor `\Z`.
         spec = SPEC.replace("'^[A-Z0-9]{1,6}$'", "'^[A-Z0-9]{1,6}\\Z'")
-        self.assertEqual(self.by_subject(self.check(module=module, spec=spec), "_REF_RE").status, OK)
+        for end in ('{1,6}$")', '{1,6}\\Z")'):
+            module = MODULE.replace('{1,6}$")', end)
+            self.assertEqual(self.by_subject(self.check(module=module, spec=spec), "_REF_RE").status, FAIL)
 
     def test_connector_z_matches_contract_dollar(self):
         # RT-915: the contract keeps ECMA `$`; the connector's `\Z` is the same exact end, not a mismatch.
@@ -127,6 +129,7 @@ class ConnectorCase(unittest.TestCase):
     def test_escaped_z_is_not_an_anchor(self):
         self.assertEqual(connector._canonical_end(r"^a\Z"), "^a$")
         self.assertEqual(connector._canonical_end(r"^a\\Z"), r"^a\\Z")
+        self.assertEqual(connector._canonical_end(r"^a\\\Z"), r"^a\\$")
         self.assertEqual(connector._canonical_end("^a$"), "^a$")
 
     def test_escaped_dollar_is_not_an_anchor(self):
