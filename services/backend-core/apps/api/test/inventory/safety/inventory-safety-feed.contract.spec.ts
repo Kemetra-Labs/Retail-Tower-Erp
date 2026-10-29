@@ -103,6 +103,13 @@ describe("inventory-safety-feed — document and operations", () => {
     }
   });
 
+  it("is served by the RT-449 PR 2 runtime: no contract-only marker", () => {
+    for (const path of PATHS) {
+      expect(op(path)["x-runtime-status"]).toBeUndefined();
+      expect(op(path)["x-runtime-note"]).toBeUndefined();
+    }
+  });
+
   it("collides with no operationId of any other contract", () => {
     for (const [, operationId] of OPERATIONS) {
       expect(otherOperationIds.has(operationId)).toBe(false);
@@ -156,7 +163,7 @@ describe("inventory-safety-feed — responses", () => {
   it("sends the device-token rotation hints on every 200", () => {
     for (const path of PATHS) {
       const ok = op(path).responses?.["200"];
-      expect(Object.keys(ok.headers ?? {})).toEqual(["X-Device-Token-Rotate-After", "X-Device-Token-Rotate-Stage"]);
+      expect(Object.keys(ok?.headers ?? {})).toEqual(["X-Device-Token-Rotate-After", "X-Device-Token-Rotate-Stage"]);
     }
   });
 });

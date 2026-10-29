@@ -687,10 +687,6 @@ paths:
       operationId: getSafetyTtlSetting
       tags: [inventory]
       summary: Read the tenant's Safety TTL.
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-449 PR 2 contract-first commit; the runtime commit of the same PR
-        serves it and removes this marker.
       description: >
         RT-449 (G7-7, RT-50 Q8, H8): the maximum age of a till's last
         successful sync from the POS inventory safety feed before its safety
@@ -714,10 +710,6 @@ paths:
       operationId: setSafetyTtlSetting
       tags: [inventory]
       summary: Set the tenant's Safety TTL.
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-449 PR 2 contract-first commit; the runtime commit of the same PR
-        serves it and removes this marker.
       description: >
         RT-449 (H8): set the Safety TTL to 60–900 seconds, or null to return
         to the default of 900. It is configurable downwards only: no value
@@ -751,10 +743,6 @@ paths:
       operationId: listInventorySafetyFindings
       tags: [inventory]
       summary: List the tenant's computed inventory safety findings.
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-449 PR 2 contract-first commit; the runtime commit of the same PR
-        serves it and removes this marker.
       description: >
         RT-449 (H6; decisions 953, 954): computed on read, never stored.
         `active_tracking_hold` (critical): one per active hold, with

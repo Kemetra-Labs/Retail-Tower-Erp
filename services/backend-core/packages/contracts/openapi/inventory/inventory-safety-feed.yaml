@@ -93,10 +93,6 @@ paths:
       summary: Get the tenant's active tracking holds at one safety revision.
       operationId: posGetInventorySafetySnapshot
       tags: [inventory-safety-feed]
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-449 PR 2 contract-first commit; the runtime commit of the same PR
-        serves it and removes this marker.
       security:
         - device: []
       description: >
@@ -137,10 +133,6 @@ paths:
       summary: Get the holds changed after a safety revision.
       operationId: posGetInventorySafetyDeltas
       tags: [inventory-safety-feed]
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-449 PR 2 contract-first commit; the runtime commit of the same PR
-        serves it and removes this marker.
       security:
         - device: []
       description: >
