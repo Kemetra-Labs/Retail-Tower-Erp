@@ -11,3 +11,5 @@
   by a takeover, and one on another terminal do not; a recorded force close
   still replays 200. No migration (index `idx_cashier_admissions_device_live`
   exists) and no POS change.
+  `pos-shifts.openapi.yaml` (description text only) replaces the RT-811
+  "pending runtime" markers with "shipped".
