@@ -443,7 +443,10 @@ def test_postresume_waits_for_the_posting_poll_to_run_after_the_resume(body):
     assert POLL_METHOD in body or "$CONNECTOR_APP.connector.posting.poller.run_posting_poll" in body
     # bounded by wall clock: 180 s from the start of the wait, read time included
     assert "POLL_DEADLINE=$((SECONDS + 180))" in post
-    assert '[ "$SECONDS" -ge "$POLL_DEADLINE" ]' in post and "sleep 15" in post
+    # the deadline is checked before every sleep, and no sleep crosses it
+    assert 'pause=$((POLL_DEADLINE - SECONDS))' in post and '[ "$pause" -le 0 ]' in post
+    assert '[ "$pause" -le 15 ] || pause=15' in post and 'sleep "$pause"' in post
+    assert "sleep 15" not in post
     assert "polled" not in post
     # each read is capped at 30 s and at the time left, so a hung docker exec cannot pass the deadline
     assert 'left=$((POLL_DEADLINE - SECONDS)); [ "$left" -le 30 ] || left=30' in post
