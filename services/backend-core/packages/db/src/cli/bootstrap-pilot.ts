@@ -176,8 +176,10 @@ async function setContext(
 
 /**
  * The operator's user id: the user linked to (provider, subject) under any
- * issuer or status, else the user whose bridge column holds the subject (a
- * pilot seeded before RT-797, which wrote no link). Null for a fresh database.
+ * issuer or status, else the user whose bridge column holds the subject AND who
+ * has no link row at all (a pilot seeded before RT-797, which wrote none).
+ * A user with links is never adopted through the bridge column: another
+ * provider's subject could equal its value. Null for a fresh database.
  */
 async function findOperatorUser(client: ClientBase, identity: OperatorIdentity): Promise<string | null> {
   const viaLink = await client.query<{ user_id: string }>(
@@ -188,9 +190,12 @@ async function findOperatorUser(client: ClientBase, identity: OperatorIdentity):
     [identity.providerKey, identity.subject],
   );
   if (viaLink.rows[0]) return viaLink.rows[0].user_id;
-  const viaBridge = await client.query<{ id: string }>('SELECT id FROM users WHERE clerk_user_id = $1', [
-    identity.subject,
-  ]);
+  const viaBridge = await client.query<{ id: string }>(
+    `SELECT u.id FROM users u
+      WHERE u.clerk_user_id = $1
+        AND NOT EXISTS (SELECT 1 FROM external_identity_links l WHERE l.user_id = u.id)`,
+    [identity.subject],
+  );
   return viaBridge.rows[0]?.id ?? null;
 }
 
@@ -201,7 +206,10 @@ async function findOperatorUser(client: ClientBase, identity: OperatorIdentity):
  * never flips links: that is the cutover's job.
  *
  * Returns whether the configured identity is the user's active link, so the
- * output never claims an identity the operator cannot sign in with.
+ * output never claims an identity the operator cannot sign in with. Matched on
+ * (provider, subject) without issuer, exactly as the sign-in resolver
+ * (`identity-link-lookup.ts`) matches: a link stored under another issuer form
+ * still signs the operator in.
  */
 async function ensureOperatorLink(
   client: ClientBase,
