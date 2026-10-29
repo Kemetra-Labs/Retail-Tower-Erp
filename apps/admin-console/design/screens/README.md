@@ -20,7 +20,7 @@ Static PNG exports of the screen designs made in the **Retail Tower Design Syste
 
 ## Known gaps
 
-- **Not shown:** mobile (390px) and laptop (1280px) frames, dark theme beyond the Stores family, and English beyond the Stores family. The templates support them.
+- **Not shown:** mobile (390px) frames; laptop (1280px) frames except for the RT-474 tenant logo family (`47-…` to `56-…`, which has `-1280` copies); dark theme beyond the Stores family; and English beyond the Stores family. The templates support them.
 - **Re-authentication method for break-glass** (FOLLOW-UPS #11) and `perm_owner_console` (#30) are still open; the screens say «لم تُحدَّد بعد» where they apply.
 
 ## Index
