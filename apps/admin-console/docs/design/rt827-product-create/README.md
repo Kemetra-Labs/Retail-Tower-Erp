@@ -90,8 +90,8 @@ created item leaves with `SAVED_NAVIGATION`.
 | Field (wire) | Input | Normalisation | Prevent (client) | Server → where it shows |
 |---|---|---|---|---|
 | الاسم `name` (required) | Text, `dir="auto"` | Trim the ends (D5) | Required, not whitespace-only, at most 500 characters | 400 `validation_error` → banner (no field pointer, G9) |
-| الوصف `description` | Textarea, `dir="auto"` | Empty or whitespace-only → not sent | At most 2000 characters | 400 → banner |
-| الفئة `categoryId` | `<select>`: «بدون فئة» plus `consoleListCatalogCategories` | «بدون فئة» → not sent | — | 422 `category_unavailable` → **field error** in the summary and inline; the categories are read again; the refused option stays selected and marked «(غير متاحة)» until another is chosen |
+| الوصف `description` | Textarea, `dir="auto"` | Empty or whitespace-only → `null` (`minLength: 1`) | At most 2000 characters | 400 → banner |
+| الفئة `categoryId` | `<select>`: «بدون فئة» plus `consoleListCatalogCategories` | «بدون فئة» → `null` | — | 422 `category_unavailable` → **field error** in the summary and inline; the categories are read again; the refused option stays selected and marked «(غير متاحة)» until another is chosen |
 | فئة الضريبة `taxCategory` (required) | Text, `dir="ltr"`, `spellcheck=false`, `autocomplete=off`, mono | Trim the ends (D5) | Required, at most 50 characters | Free text with no registry (G2); the hint explains the format |
 | متاح للبيع افتراضيًا `isActive` | Checkbox, **checked by default** (contract default `true`) | — | — | — |
 | السعر (display only) | Read-only text «بلا سعر», not a disabled input | — | — | No write exists (O-2, G1) |
@@ -113,7 +113,10 @@ each clears live as it is fixed.
 - **The fields are locked while an attempt is unsettled:** while submitting, while a 425 is
   counting down, and after a 500 or a lost response. Editing then would change the fingerprint and
   mint a new key, and the earlier attempt may already have created the item. The fieldset is shown
-  read-only and the summary is not shown.
+  read-only, the summary is not shown, and the reason for the lock is in the banner, next to what
+  the operator reads first.
+- **«إلغاء» stays available**, also while an attempt is unsettled: leaving mints no key. Leaving
+  then goes through the unsaved-work guard, which says the item may still be created (§7.3).
 - **Which outcomes keep the key** (`keepsKey`): 425, 500, and no response. Every other failure is
   final for its key; the next submit mints a new one.
 - **425 `idempotency_in_progress`:** the body carries `retryAfterSec` (integer, at least 1) and the
@@ -194,11 +197,12 @@ All field labels, hints and client errors are the shipped `catalog.form.*` keys:
 | `idempotency_key_required`, `idempotency_key_malformed` (400) | لم يقبل الخادم طلب الإنشاء لخلل في لوحة التحكم، فلم يُنشأ أي صنف. أعد المحاولة. إذا تكرر ذلك فأبلغ الدعم برقم الطلب. | The server refused the create because of a console fault, so no item was created. Try again. If it happens again, give support the request ID. | new `catalog.create.error.key` |
 | `validation_error` (400) | رفض الخادم هذه القيم، فلم يُنشأ أي صنف. راجع الاسم والوصف وفئة الضريبة ثم حاول مرة أخرى. | The server rejected these values, so no item was created. Check the name, description and tax category, then try again. | new `catalog.create.error.validation` |
 | `idempotency_key_conflict` (409) | تعارض هذا الطلب مع محاولة سابقة، فلم يُنشئ هذا الطلب أي صنف. ربما أنشأت المحاولة السابقة الصنف: ابحث عنه في قائمة الأصناف قبل أن تحاول مرة أخرى. ما كتبته محفوظ في النموذج. | This request clashed with an earlier attempt, so it created nothing. The earlier attempt may have created the item: look for it in the item list before you try again. What you typed is kept. | new `catalog.create.error.keyConflict`; action «عرض الأصناف» / "View items" |
-| `idempotency_in_progress` (425) | لا يزال طلب الإنشاء السابق قيد المعالجة، ولم يُنشأ صنف ثانٍ. يمكنك إعادة المحاولة بعد {seconds} بالقيم نفسها. | The earlier create is still being processed, and no second item was created. You can try again in {seconds} with the same values. | new `catalog.create.error.inProgress`; `{seconds}` plural («3 ثوانٍ», «ثانية واحدة») |
+| `idempotency_in_progress` (425) | لا يزال طلب الإنشاء السابق قيد المعالجة، ولم يُنشأ صنف ثانٍ. يمكنك إعادة المحاولة بعد {seconds} بالقيم نفسها. الحقول مقفلة حتى ذلك الحين، حتى لا يُرسل طلب جديد. | The earlier create is still being processed, and no second item was created. You can try again in {seconds} with the same values. The fields are locked until then, so that no new request is sent. | new `catalog.create.error.inProgress`; `{seconds}` plural («3 ثوانٍ», «ثانية واحدة») |
 | 425, button while counting | إعادة المحاولة بعد {seconds} | Try again in {seconds} | new `catalog.create.retryIn` |
 | 425, button at zero | إعادة المحاولة | Try again | `catalog.detail.retry` |
 | `category_unavailable` (422) | هذه الفئة لم تعد متاحة. اختر فئة أخرى أو اترك الصنف بدون فئة. | This category is no longer available. Choose another category, or no category. | `catalog.form.error.categoryUnavailable` |
 | 500, or no response | لم يصل ردّ مؤكَّد من الخادم، فقد يكون الصنف قد أُنشئ. أعد المحاولة بالقيم نفسها: إن كان قد أُنشئ فستنتقل إليه ولن يُنشأ مرة ثانية. | The outcome of the request is unknown, so the item may have been created. Try again with the same values: if it was created, you go to it and it is not created twice. | new `catalog.create.error.unknown`; actions «إعادة المحاولة», «تعديل القيم» / "Edit values" |
+| Leaving while an attempt is unsettled (unsaved-work guard) | قد يُنشأ الصنف حتى لو غادرت الآن. ابحث عنه لاحقًا في قائمة الأصناف قبل أن تضيفه مرة أخرى. | The item may still be created if you leave now. Look for it in the item list before you add it again. | new `catalog.create.leaveUnsettled` |
 | After «تعديل القيم» | ستُرسل القيم المعدّلة طلبًا جديدًا. تأكد أولًا من قائمة الأصناف أن الصنف لم يُنشأ. | Changed values are sent as a new request. Check the item list first that the item was not created. | new `catalog.create.editAfterUnknown` |
 | `origin_rejected` (403) | The shipped `catalog.write.error.origin` | | `catalog.write.error.origin` |
 | `not_found` (404) | ليست لديك صلاحية إضافة أصناف في هذه المؤسسة. | You cannot add items in this organization. | new `catalog.create.error.notFound` (the shipped key says "this item") |
@@ -240,7 +244,7 @@ active identifier, so it stays true on a later visit.
 | # | Decision | Options | State |
 |---|---|---|---|
 | D9 | Revisit D9: ship create before a price write exists? | (a) ship create with the not-sellable notice; (b) keep holding create until a price write ships (current decision, RT-768 13487, reaffirmed in RT-827 14055) | **Owner.** These frames do not assume either: they are the reference for whenever create ships. |
-| OD-2 | The not-sellable notice | Wording; placement (drawn: a warning notice above the form; or only the price row; or a confirm step on submit); tone (warning drawn; or information); whether «متاح للبيع افتراضيًا» stays checked by default on an item that cannot be sold yet (drawn: the shipped label and contract default, unchanged) | **Owner.** Drawn as a proposal and labelled «مقترح» in the frames. |
+| OD-2 | The not-sellable notice | Wording; placement (drawn: a warning notice above the form; or only the price row; or a confirm step on submit); tone (warning drawn; or information); whether «متاح للبيع افتراضيًا» stays checked by default on an item that cannot be sold yet (drawn: the shipped label and contract default, unchanged). The same tension shows on the shipped detail page (frame 88): «التوفر على مستوى المؤسسة: متاح للبيع» sits two rows above «بلا سعر» | **Owner.** Drawn as a proposal and labelled «مقترح» in the frames. |
 | OD-3 | CTA wording | «إضافة صنف» (drawn; UX-12 glossary, matches «الأصناف» and «تعديل الصنف») or «إضافة منتج» (as the task text) | Owner, minor |
 | OD-4 | 425 retry | Manual retry after the countdown (drawn; matches `unknownItemIdempotency.ts`) or one automatic retry with the same key | Recommendation: manual. Owner may overrule. |
 
@@ -262,10 +266,11 @@ was available for the discovery round, so it was answered from RT-827, RT-752 AC
 and the contract, and the assumptions are listed in §9. Visual direction was not explored: the page
 reuses the shipped edit form and list.
 
+Drawn as a proposal, not decided (OD-2): the not-sellable notice above the form, so it is read
+before typing.
+
 Decisions taken while shaping:
 
-- The not-sellable notice sits above the form, not only in the price row, so it is read before
-  typing.
 - The create reuses the edit form's fields, summary and banners. It differs only where the contract
   does.
 - The fields lock while an attempt is unsettled, so a retry can never mint a second key by accident.
@@ -277,28 +282,41 @@ The `critique` pass on the exported frames is recorded in §12.
 
 ## 12. Critique of the frames
 
-One `impeccable critique` pass on the exported 1440 and 1280 frames, 2026-10-29. Fixed before
-export:
+`impeccable critique`, 2026-10-29, on the 1440 frames. Method: the design review ran in an isolated
+subagent. The detector (`impeccable detect`) ran on `ProductCreatePage.dc.html` separately, and its
+output was not shared with the review. **Heuristic score: 25/40 (Acceptable).** The lowest scores
+were user control (2), error prevention (2), efficiency (2), minimalism (2) and help (2).
 
-- The detail header's «تعديل الصنف» sat at the far edge of a 1180px row, away from the 820px
-  content. The header now has the content's width.
-- The form header was wider than the form. It now matches the form's 720px measure.
-- Locked fields kept an active-looking checkbox. A locked checkbox is now muted like the locked
-  inputs; values stay full-contrast text.
-- Frames had empty space under the content. They now end at the content.
+Fixed in the frames:
 
-Kept, with the reason:
+| Finding | Severity | Change |
+|---|---|---|
+| 425: the reason for the locked fields was small grey text at the end of the action row, far from focus | P1 | The reason is now in the banner body (frame 86, §7.3) |
+| «إلغاء» was unavailable while sending and during the 425 wait, so the operator could not leave | P2 | «إلغاء» stays available; leaving goes through the unsaved-work guard with its own copy (§5, §7.3) |
+| One circle icon for danger, warning and info banners: the tone read by colour alone | Accessibility | One icon per tone (frames 84, 85, 86) |
+| Detector: the artboard's `a:hover` rule turned a link styled as the primary button dark-on-teal (2.1:1) | Contrast | The link rule now skips `.btn` (canvas only; static frames show no hover) |
+| Detail header button far from the 820px content; form header wider than the form; locked checkbox looked active; empty space under the content | Layout | Fixed before the first export |
 
-- On a failure the not-sellable notice and the failure banner stack above the form (frames 84 to
-  86). The notice keeps its place so the form never jumps. The failure banner, the newer event,
-  sits nearer the form.
-- In the 425 frame the countdown is on the form's own button, not a second retry button in the
-  banner, so there is one retry control.
-- The empty catalog still shows the filter bar, as the shipped list does.
+Not changed, and why:
 
-For the implementation, not the frames:
+- **P0, gated on OD-2:** the form lets an operator create an item that cannot be sold, and
+  «متاح للبيع افتراضيًا» stays checked next to a notice that says so. Changing the default, or
+  replacing the checkbox with a read-only line, is the owner's decision (OD-2), so the frames keep
+  the shipped label and the contract default.
+- **P1, part of OD-2:** the notice is the loudest element on an empty form, and its «مقترح» label
+  sits inside the product UI. The label marks a proposal in the design record and must not ship.
+  Tone and placement are OD-2.
+- **P2:** on a failure the notice and the failure banner stack above the form (frames 84 to 86).
+  The notice keeps its place so the form never jumps.
+- **P3:** the Arabic tax-category hint gives no example. The shipped English hint has one
+  ("for example standard"); the Arabic key `catalog.form.taxCategoryHint` does not. This is a
+  shipped copy gap, outside this brief.
+- **Efficiency:** there is no "create and add another" and no create-then-barcode in one step.
+  The contract keeps identifiers apart from the create (RT-752 AC 3); a faster loop would be a
+  separate request.
+- **Detector false positives:** five "cramped padding" hits on `.banner`, `.error-summary`,
+  `.shell__scope` and the focused title, and one "dark glow". They come from the unrendered source;
+  the rendered frames carry the design-system padding, and the page is light.
 
-- The frames use one circle-mark icon for danger, warning and info banners. The build uses the
-  semantic icon registry (`src/components/icons/registry.ts`), one icon per tone.
-- English, dark and forced-colours frames are not drawn. The RT-827 acceptance criteria require
-  Arabic and English, forced colours and axe in Playwright, so those come with the build.
+Not drawn: English, dark and forced-colours frames. The RT-827 acceptance criteria require Arabic
+and English, forced colours and axe in Playwright, so those come with the build.

@@ -23,7 +23,8 @@ Static PNG exports of the screen designs made in the **Retail Tower Design Syste
   - Not captured: a session expiring while a tenant screen is open (403 `support_session_expired`). Inside a session every tenant route shows the read-only notice and calls no tenant API, so that path cannot be reached in the current UI.
 - **RT-827 product create (29 October 2026):** `78-…` to `88-…` come from the Design canvas «RT-827 Product Create» in Claude. The brief is [`docs/design/rt827-product-create/README.md`](../../docs/design/rt827-product-create/README.md). They are **proposals for owner review**, not approved designs. RT-827 stays blocked until a price write exists (D9).
   - The canvas has one page component with a `state` property. Each state was rendered to static HTML from that component with the design-system CSS in [`../claude-design-system/`](../claude-design-system/) (the canvas carries a copy of the same two files), and captured with Chromium at 1440 and 1280 wide (the 1280 frames carry `-1280`).
-  - Each PNG passed the same checks as the others: PNG signature, closing `IEND`, and a full decode at its stated size. None needed splitting.
+  - The rendering used a small stand-in for the canvas runtime: it ran the component's `renderVals()` for each state and resolved its `sc-if` blocks and `{{…}}` holes. The artboards were not checked in the canvas itself.
+  - Each PNG passed the same checks as the others: PNG signature, closing `IEND`, and a full decode at its stated size (Chromium, with every chunk CRC checked). None needed splitting.
   - The font is Dubai, installed on the capture machine. Every item, price, barcode, request id and time is mock data.
 - **Status:** reviewed with the owner in Claude Design. These images are not an implementation sign-off: backend contracts that the screens depend on are listed in `FOLLOW-UPS.md`, and controls without a service are shown `aria-disabled` with a «تصميم فقط» reason.
 
