@@ -223,7 +223,8 @@ beforeAll(async () => {
   await seedUser({ id: U_ACME_ADMIN, email: "acme-admin@rt796.test", displayName: "Acme Admin", clerkUserId: null });
   await seedLink({ userId: U_ACME_ADMIN, providerKey: "acme", subject: SUB_ACME_ADMIN });
   await seedUser({ id: U_GHOST_ADMIN, email: "ghost-admin@rt796.test", displayName: "Ghost Admin", clerkUserId: SUB_GHOST_ADMIN });
-  await seedUser({ id: U_CUT_ADMIN, email: "cut-admin@rt796.test", displayName: "Cutover Admin", clerkUserId: SUB_CUT_ADMIN_NEW });
+  // RT-797: the cutover flips links only, so the bridge column keeps the OLD subject.
+  await seedUser({ id: U_CUT_ADMIN, email: "cut-admin@rt796.test", displayName: "Cutover Admin", clerkUserId: SUB_CUT_ADMIN_OLD });
   await seedLink({ userId: U_CUT_ADMIN, providerKey: "clerk", subject: SUB_CUT_ADMIN_OLD, status: "disabled" });
   await seedLink({ userId: U_CUT_ADMIN, providerKey: "descope", subject: SUB_CUT_ADMIN_NEW });
   for (const [n, user] of [U_ADMIN, U_CLERK_ADMIN, U_ACME_ADMIN, U_GHOST_ADMIN, U_CUT_ADMIN].entries()) {
@@ -235,8 +236,9 @@ beforeAll(async () => {
   await seedLink({ userId: U_LEGACY, providerKey: "clerk", subject: SUB_LEGACY });
   await seedUser({ id: U_DESCOPE, email: "descope@rt796.test", displayName: "Beta Descope", clerkUserId: null });
   await seedLink({ userId: U_DESCOPE, providerKey: "descope", subject: SUB_DESCOPE });
-  // After an RT-791 apply: the Clerk link is disabled, the Descope link is active.
-  await seedUser({ id: U_CUTOVER, email: "cutover@rt796.test", displayName: "Gamma Cutover", clerkUserId: SUB_CUTOVER_NEW });
+  // After an identity-link cutover apply (RT-797): the Clerk link is disabled, the
+  // Descope link is active, and the bridge column still holds the OLD subject.
+  await seedUser({ id: U_CUTOVER, email: "cutover@rt796.test", displayName: "Gamma Cutover", clerkUserId: SUB_CUTOVER_OLD });
   await seedLink({ userId: U_CUTOVER, providerKey: "clerk", subject: SUB_CUTOVER_OLD, status: "disabled" });
   await seedLink({ userId: U_CUTOVER, providerKey: "descope", subject: SUB_CUTOVER_NEW });
   // A bridge-column value with no link at all.

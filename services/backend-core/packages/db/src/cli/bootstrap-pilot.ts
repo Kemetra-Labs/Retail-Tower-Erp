@@ -13,10 +13,13 @@
  *                               (owner / tenant_admin / store_manager / store_staff),
  *                               byte-identical to `seedDefaultRoles`.
  *   3. stores                 — the pilot store (the binding `store_id`).
- *   4. users                  — the OPERATOR's local user, linked to its Clerk
- *                               subject via `clerk_user_id` (operator sign-in
- *                               step 2: "resolve the local user by
- *                               users.clerk_user_id = sub").
+ *   4. users                  — the OPERATOR's local user (the bridge column
+ *                               also carries the provider subject until RT-799
+ *                               drops it).
+ *   4b. external_identity_links — the operator's ACTIVE identity link
+ *                               (OPERATOR_PROVIDER_KEY, OPERATOR_PROVIDER_ISSUER,
+ *                               OPERATOR_PROVIDER_SUBJECT). Operator sign-in
+ *                               resolves the user through this row (RT-796).
  *   5. memberships            — the operator's membership in the pilot tenant,
  *                               role = `store_manager` (an ELIGIBLE internal role
  *                               that maps to POS role `manager`; `store_staff`
@@ -25,9 +28,10 @@
  *                               `store_access` row is required.
  *
  * WHAT THIS DOES **NOT** DO (intentionally — out of scope for a static seed):
- *   - Mint the Clerk identity. The operator's Clerk user must already exist in
- *     the preprod Clerk instance; its subject id is the one REQUIRED input here
- *     (CLERK_OPERATOR_SUBJECT). Owner/Clerk-dashboard work.
+ *   - Mint the provider identity. The operator's user must already exist at the
+ *     identity provider; its provider key, issuer and subject are the REQUIRED
+ *     inputs here (OPERATOR_PROVIDER_KEY / _ISSUER / _SUBJECT). Owner work in
+ *     the provider's dashboard.
  *   - Pair a terminal / create a `device` row. Pairing is the unauthenticated
  *     runtime bootstrap (POS-010 read-down's device token) — not a seed row.
  *   - Issue the `pos_operator` `auth_tokens` session token. That is the OUTPUT
@@ -51,20 +55,22 @@
  * guard" is NOT "bypasses RLS".
  *
  * Reads `DATABASE_URL` (same as migrate.ts). Idempotent: re-running is a no-op
- * once the rows exist (existence-guarded). Prints the minted IDs as JSON.
+ * once the rows exist (existence-guarded). The operator user is found through
+ * its link first, then through the bridge column (a pilot seeded before RT-797
+ * has no link row; the re-run adds it). Prints the minted IDs as JSON.
  *
  * Usage:
- *   CLERK_OPERATOR_SUBJECT=user_xxx \
+ *   OPERATOR_PROVIDER_KEY=<adapter provider key>  *   OPERATOR_PROVIDER_ISSUER=https://<the adapter's issuer>  *   OPERATOR_PROVIDER_SUBJECT=<provider user id> \
  *   PILOT_TENANT_SLUG=pilot PILOT_TENANT_NAME="Pilot Tenant" \
  *   PILOT_STORE_CODE=main PILOT_STORE_NAME="Main Store" \
  *   PILOT_OPERATOR_EMAIL=operator@pilot.test \
  *   node dist/cli/bootstrap-pilot.js
  *
  * Exit codes: 0 success · 1 SQL/runtime error · 2 DATABASE_URL missing ·
- *             4 CLERK_OPERATOR_SUBJECT missing.
+ *             4 OPERATOR_PROVIDER_* missing or malformed.
  */
 import { randomUUID } from 'node:crypto';
-import { Client } from 'pg';
+import { Client, type ClientBase } from 'pg';
 
 const NIL_TENANT_ID = '00000000-0000-0000-0000-000000000000';
 
@@ -84,8 +90,19 @@ const DEFAULT_TENANT_ROLES = [
  */
 const OPERATOR_ROLE_CODE = 'store_manager';
 
-interface PilotConfig {
-  clerkOperatorSubject: string;
+/** Same shapes the identity-link cutover CLI accepts. */
+const PROVIDER_KEY_RE = /^[a-z][a-z0-9_-]{0,31}$/;
+const ISSUER_URL_RE = /^https:\/\/\S{1,500}$/;
+
+/** The operator's identity at the provider: one `external_identity_links` row. */
+interface OperatorIdentity {
+  providerKey: string;
+  issuer: string;
+  subject: string;
+}
+
+export interface PilotConfig {
+  operatorIdentity: OperatorIdentity;
   tenantSlug: string;
   tenantName: string;
   storeCode: string;
@@ -93,37 +110,49 @@ interface PilotConfig {
   operatorEmail: string;
 }
 
-interface MintedIds {
+export interface MintedIds {
   tenant_id: string;
   store_id: string;
   operator_user_id: string;
   operator_membership_id: string;
   operator_role_id: string;
-  clerk_operator_subject: string;
+  operator_provider_key: string;
+  operator_provider_subject: string;
 }
 
-function readConfig(): PilotConfig {
-  const clerkOperatorSubject = process.env['CLERK_OPERATOR_SUBJECT'];
-  if (!clerkOperatorSubject || clerkOperatorSubject.trim() === '') {
-    console.error(
-      'CLERK_OPERATOR_SUBJECT is required — the preprod Clerk subject id of the ' +
-        'operator user (mint the Clerk identity first; this seed only links it).',
-    );
-    process.exit(4);
-  }
+/** A missing or malformed operator identity input (exit 4). */
+export class PilotConfigError extends Error {}
+
+function requireEnv(env: NodeJS.ProcessEnv, name: string, shape: RegExp, hint: string): string {
+  const value = (env[name] ?? '').trim();
+  // Never echo the value: it may be an id typed into the wrong variable.
+  if (!shape.test(value)) throw new PilotConfigError(`${name} is required — ${hint}`);
+  return value;
+}
+
+export function readConfig(env: NodeJS.ProcessEnv): PilotConfig {
   return {
-    clerkOperatorSubject: clerkOperatorSubject.trim(),
-    tenantSlug: process.env['PILOT_TENANT_SLUG'] ?? 'pilot',
-    tenantName: process.env['PILOT_TENANT_NAME'] ?? 'Pilot Tenant',
-    storeCode: process.env['PILOT_STORE_CODE'] ?? 'main',
-    storeName: process.env['PILOT_STORE_NAME'] ?? 'Main Store',
-    operatorEmail: process.env['PILOT_OPERATOR_EMAIL'] ?? 'operator@pilot.test',
+    operatorIdentity: {
+      providerKey: requireEnv(env, 'OPERATOR_PROVIDER_KEY', PROVIDER_KEY_RE, 'the adapter provider key'),
+      issuer: requireEnv(env, 'OPERATOR_PROVIDER_ISSUER', ISSUER_URL_RE, "the adapter's https issuer"),
+      subject: requireEnv(
+        env,
+        'OPERATOR_PROVIDER_SUBJECT',
+        /\S/,
+        'the provider user id of the operator (mint the identity first; this seed only links it)',
+      ),
+    },
+    tenantSlug: env['PILOT_TENANT_SLUG'] ?? 'pilot',
+    tenantName: env['PILOT_TENANT_NAME'] ?? 'Pilot Tenant',
+    storeCode: env['PILOT_STORE_CODE'] ?? 'main',
+    storeName: env['PILOT_STORE_NAME'] ?? 'Main Store',
+    operatorEmail: env['PILOT_OPERATOR_EMAIL'] ?? 'operator@pilot.test',
   };
 }
 
 /** Set the tenant-context GUCs for this transaction (mirrors runWithTenantContext). */
 async function setContext(
-  client: Client,
+  client: ClientBase,
   tenantId: string,
   isPlatformAdmin: boolean,
 ): Promise<void> {
@@ -135,7 +164,49 @@ async function setContext(
   ]);
 }
 
-async function seed(client: Client, cfg: PilotConfig): Promise<MintedIds> {
+/**
+ * The operator's user id: the user linked to (provider, subject) under any
+ * issuer or status, else the user whose bridge column holds the subject (a
+ * pilot seeded before RT-797, which wrote no link). Null for a fresh database.
+ */
+async function findOperatorUser(client: ClientBase, identity: OperatorIdentity): Promise<string | null> {
+  const viaLink = await client.query<{ user_id: string }>(
+    `SELECT user_id FROM external_identity_links
+      WHERE provider_key = $1 AND subject = $2
+      ORDER BY (status = 'active') DESC, id
+      LIMIT 1`,
+    [identity.providerKey, identity.subject],
+  );
+  if (viaLink.rows[0]) return viaLink.rows[0].user_id;
+  const viaBridge = await client.query<{ id: string }>('SELECT id FROM users WHERE clerk_user_id = $1', [
+    identity.subject,
+  ]);
+  return viaBridge.rows[0]?.id ?? null;
+}
+
+/**
+ * Give the operator its ACTIVE link, unless (provider, subject) is already
+ * linked or the user already has an active link (one per user; a user moved
+ * to another provider by the identity-link cutover keeps that link). A seed
+ * never flips links: that is the cutover's job.
+ */
+async function ensureOperatorLink(
+  client: ClientBase,
+  userId: string,
+  identity: OperatorIdentity,
+): Promise<void> {
+  await client.query(
+    `INSERT INTO external_identity_links (provider_key, issuer, subject, user_id, email, status)
+     SELECT $1, $2, $3, u.id, u.email, 'active' FROM users u
+      WHERE u.id = $4
+        AND NOT EXISTS (SELECT 1 FROM external_identity_links WHERE user_id = $4 AND status = 'active')
+        AND NOT EXISTS (SELECT 1 FROM external_identity_links WHERE provider_key = $1 AND subject = $3)
+     ON CONFLICT (provider_key, issuer, subject) DO NOTHING`,
+    [identity.providerKey, identity.issuer, identity.subject, userId],
+  );
+}
+
+export async function seed(client: ClientBase, cfg: PilotConfig): Promise<MintedIds> {
   // Resolve-or-create the tenant first (idempotent on slug).
   const existingTenant = await client.query<{ id: string }>(
     'SELECT id FROM tenants WHERE slug = $1 AND deleted_at IS NULL',
@@ -188,19 +259,19 @@ async function seed(client: Client, cfg: PilotConfig): Promise<MintedIds> {
     ]);
   }
 
-  // Operator user (idempotent on clerk_user_id partial-unique).
-  const existingUser = await client.query<{ id: string }>(
-    'SELECT id FROM users WHERE clerk_user_id = $1',
-    [cfg.clerkOperatorSubject],
-  );
-  const operatorUserId = existingUser.rows[0]?.id ?? randomUUID();
-  if (!existingUser.rows[0]) {
+  // Operator user, found through its link first, then the bridge column.
+  const operatorUserId =
+    (await findOperatorUser(client, cfg.operatorIdentity)) ?? randomUUID();
+  const existingUser = await client.query('SELECT 1 FROM users WHERE id = $1', [operatorUserId]);
+  if (existingUser.rows.length === 0) {
+    // The bridge column carries the subject until RT-799 drops it.
     await client.query(
       `INSERT INTO users (id, email, clerk_user_id, is_platform_admin)
        VALUES ($1, $2, $3, false)`,
-      [operatorUserId, cfg.operatorEmail, cfg.clerkOperatorSubject],
+      [operatorUserId, cfg.operatorEmail, cfg.operatorIdentity.subject],
     );
   }
+  await ensureOperatorLink(client, operatorUserId, cfg.operatorIdentity);
 
   // Membership in the pilot tenant (idempotent on the active-membership uidx).
   const existingMembership = await client.query<{ id: string }>(
@@ -222,7 +293,8 @@ async function seed(client: Client, cfg: PilotConfig): Promise<MintedIds> {
     operator_user_id: operatorUserId,
     operator_membership_id: membershipId,
     operator_role_id: operatorRoleId,
-    clerk_operator_subject: cfg.clerkOperatorSubject,
+    operator_provider_key: cfg.operatorIdentity.providerKey,
+    operator_provider_subject: cfg.operatorIdentity.subject,
   };
 }
 
@@ -232,7 +304,14 @@ async function main(): Promise<void> {
     console.error('DATABASE_URL is required');
     process.exit(2);
   }
-  const cfg = readConfig();
+  let cfg: PilotConfig;
+  try {
+    cfg = readConfig(process.env);
+  } catch (err) {
+    if (!(err instanceof PilotConfigError)) throw err;
+    console.error(err.message);
+    process.exit(4);
+  }
 
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
@@ -258,8 +337,10 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err: unknown) => {
-  const message = err instanceof Error ? err.message : String(err);
-  console.error(`bootstrap-pilot: ${message}`);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`bootstrap-pilot: ${message}`);
+    process.exit(1);
+  });
+}
