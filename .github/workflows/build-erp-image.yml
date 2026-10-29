@@ -1,0 +1,266 @@
+# RT-927 (design: RT-926 v2): build the ERP lab image (ERPNext base + Connector) and publish it
+# to GHCR, pinned by digest and attested. Manual dispatch only, from main only.
+#
+# Dispatch is the only trigger (no PR or push event): PR code can never start this workflow
+# with package-write or id-token. The Connector source is `source_sha`, a full commit SHA that is an ancestor of
+# the dispatched main commit; the recipe (integrations/erpnext-connector/deploy/erp.Dockerfile)
+# is the one on main. So an older, known-good Connector (deploy #0: a3b31ff7) is rebuilt with
+# today's reviewed recipe.
+#
+#   resolve  main-only guard; source_sha must be a full SHA on main; emits sha12, the Connector
+#            subtree hash and its version.
+#   build    git archive of the subtree into the build context, then an OCI layout, no cache,
+#            not pushed. The digest is the OCI manifest digest.
+#   publish  the only write job (packages, attestations, id-token). Refuses to move an existing
+#            tag to another digest. Pushes the same layout (skopeo --preserve-digests, no
+#            rebuild), verifies the registry digest and labels, attests build provenance, and
+#            prints `RT_IMAGE ghcr.io/kemetra-labs/rt-erpnext@sha256:...`.
+#
+# No deployment environment is used: GHCR is the only write and nothing is deployed. The deploy preflight
+# (deploy-erp-lab.yml) checks the attestation signer is this workflow on refs/heads/main.
+name: build-erp-image
+
+"on":
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full 40-hex commit SHA on main whose integrations/erpnext-connector tree goes into the image
+        type: string
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: build-erp-image
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/kemetra-labs/rt-erpnext
+  ERPNEXT_VERSION: "16.51.0"
+  # Must equal the FROM digest in integrations/erpnext-connector/deploy/erp.Dockerfile (a test checks it).
+  BASE_DIGEST: sha256:f2d409c58ed1b688b6f2914d4a7f8b2468ee60bd1a3f1bd82d6fe32071806cb1
+
+jobs:
+  resolve:
+    name: image/resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.r.outputs.sha }}
+      sha12: ${{ steps.r.outputs.sha12 }}
+      tree: ${{ steps.r.outputs.tree }}
+      version: ${{ steps.r.outputs.version }}
+    steps:
+      - name: Checkout (history only)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          sparse-checkout: integrations/erpnext-connector/deploy
+
+      - name: Resolve the source commit
+        id: r
+        env:
+          DISPATCH_REF: ${{ github.ref }}
+          HEAD_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+          [ "$DISPATCH_REF" = "refs/heads/main" ] || fail "dispatch from refs/heads/main only (got $DISPATCH_REF)"
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "source_sha must be a full 40-hex commit SHA"
+          git cat-file -e "$SOURCE_SHA^{commit}" || fail "source_sha is not a commit"
+          git merge-base --is-ancestor "$SOURCE_SHA" "$HEAD_SHA" || fail "source_sha is not an ancestor of main ($HEAD_SHA)"
+          tree="$(git rev-parse "$SOURCE_SHA:integrations/erpnext-connector")"
+          version="$(git show "$SOURCE_SHA:integrations/erpnext-connector/retail_tower_erpnext_connector/__init__.py" \
+            | sed -n 's/^__version__ = "\([0-9][0-9.]*\)"$/\1/p')"
+          [[ "$tree" =~ ^[0-9a-f]{40}$ ]] || fail "no Connector tree at $SOURCE_SHA"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "cannot read the Connector version at $SOURCE_SHA"
+          {
+            echo "sha=$SOURCE_SHA"
+            echo "sha12=${SOURCE_SHA:0:12}"
+            echo "tree=$tree"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+          echo "source $SOURCE_SHA, Connector tree $tree, version $version"
+
+  build:
+    name: image/build (OCI layout, not pushed)
+    needs: resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout (recipe from main, history for git archive)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          sparse-checkout: integrations/erpnext-connector/deploy
+
+      - name: Check the recipe base against BASE_DIGEST
+        run: |
+          set -euo pipefail
+          from="$(grep -m1 '^FROM ' integrations/erpnext-connector/deploy/erp.Dockerfile)"
+          [ "$from" = "FROM frappe/erpnext@$BASE_DIGEST" ] || { echo "::error::recipe base '$from' != $BASE_DIGEST"; exit 1; }
+
+      - name: Stage the build context (the Connector tree at the source commit)
+        env:
+          SOURCE_SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ctx/connector" "$RUNNER_TEMP/images"
+          git archive "$SOURCE_SHA:integrations/erpnext-connector" | tar -x -C "$RUNNER_TEMP/ctx/connector"
+          test -f "$RUNNER_TEMP/ctx/connector/retail_tower_erpnext_connector/__init__.py"
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: Build (OCI layout, no push)
+        id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: ${{ runner.temp }}/ctx
+          file: integrations/erpnext-connector/deploy/erp.Dockerfile
+          push: false
+          no-cache: true
+          provenance: false
+          sbom: false
+          outputs: type=oci,dest=${{ runner.temp }}/images/rt-erpnext.oci.tar
+          build-args: |
+            CONNECTOR_SRC=connector
+            CONNECTOR_SHA=${{ needs.resolve.outputs.sha }}
+            CONNECTOR_TREE=${{ needs.resolve.outputs.tree }}
+            CONNECTOR_VERSION=${{ needs.resolve.outputs.version }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Check the image digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::bad image digest '$DIGEST'"; exit 1; }
+          echo "image $DIGEST"
+          sha256sum "$RUNNER_TEMP"/images/*.oci.tar
+
+      - name: Upload the image
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rt-erpnext-image-${{ github.run_id }}
+          path: ${{ runner.temp }}/images/
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    name: image/publish (GHCR + attestation)
+    needs: [resolve, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write # GHCR push and attestation push
+      id-token: write # attestation signing (Sigstore)
+      attestations: write
+    outputs:
+      digest: ${{ steps.verify.outputs.digest }}
+      tag: ${{ steps.verify.outputs.tag }}
+    steps:
+      - name: Download the image
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: rt-erpnext-image-${{ github.run_id }}
+          path: ${{ runner.temp }}/images
+
+      # skopeo reads the same ~/.docker/config.json credentials.
+      - name: Log in to GHCR
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # The tag is `<ERPNext version>-<sha12>`. A re-run of failed jobs keeps this run's digest:
+      # a tag that already holds exactly that digest is this run's own earlier push and is
+      # skipped; a tag holding any other digest is refused, never moved.
+      - name: Refuse to overwrite an image tag
+        id: existing
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+          TAG: ${{ env.ERPNEXT_VERSION }}-${{ needs.resolve.outputs.sha12 }}
+        run: |
+          set -euo pipefail
+          if OUT="$(docker buildx imagetools inspect "$IMAGE:$TAG" 2>&1)"; then
+            HAVE="sha256:$(skopeo inspect --raw "docker://$IMAGE:$TAG" | sha256sum | cut -d' ' -f1)"
+            [ "$HAVE" = "$DIGEST" ] \
+              || { echo "::error::image $IMAGE:$TAG already exists with $HAVE, not this build's $DIGEST; refusing to overwrite"; exit 1; }
+            echo "$TAG already holds this run's digest ($HAVE); skipping the push"
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          else
+            grep -Eqi "not found|manifest unknown|name unknown" <<<"$OUT" \
+              || { echo "::error::could not determine whether $IMAGE:$TAG exists: $OUT"; exit 1; }
+            echo "push=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The exact layout the build job produced is what is published: no rebuild.
+      # --preserve-digests makes skopeo fail rather than re-encode.
+      - name: Push the image (no rebuild)
+        if: steps.existing.outputs.push == 'true'
+        env:
+          TAG: ${{ env.ERPNEXT_VERSION }}-${{ needs.resolve.outputs.sha12 }}
+        run: |
+          set -euo pipefail
+          skopeo copy --preserve-digests --retry-times 3 \
+            "oci-archive:$RUNNER_TEMP/images/rt-erpnext.oci.tar" "docker://$IMAGE:$TAG"
+
+      - name: Verify the registry digest and labels
+        id: verify
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+          TREE: ${{ needs.resolve.outputs.tree }}
+          TAG: ${{ env.ERPNEXT_VERSION }}-${{ needs.resolve.outputs.sha12 }}
+        run: |
+          set -euo pipefail
+          TAG_DIGEST="sha256:$(skopeo inspect --raw "docker://$IMAGE:$TAG" | sha256sum | cut -d' ' -f1)"
+          [ "$TAG_DIGEST" = "$DIGEST" ] || { echo "::error::tag digest $TAG_DIGEST != build digest $DIGEST"; exit 1; }
+          LABELS="$(skopeo inspect --config "docker://$IMAGE@$DIGEST" | jq -c '.config.Labels // {}')"
+          check() {
+            local got; got="$(jq -r --arg k "$1" '.[$k] // ""' <<<"$LABELS")"
+            [ "$got" = "$2" ] || { echo "::error::label $1 is '$got', expected '$2'"; exit 1; }
+          }
+          check org.opencontainers.image.revision "$SHA"
+          check rt.connector.tree "$TREE"
+          check rt.base.digest "$BASE_DIGEST"
+          check org.opencontainers.image.source "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          { echo "digest=$DIGEST"; echo "tag=$TAG"; } >> "$GITHUB_OUTPUT"
+          echo "RT_IMAGE ghcr.io/kemetra-labs/rt-erpnext@$DIGEST"
+          echo "OK $IMAGE:$TAG@$DIGEST"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ghcr.io/kemetra-labs/rt-erpnext
+          subject-digest: ${{ steps.verify.outputs.digest }}
+          push-to-registry: true
+
+      - name: Record the image in the run summary
+        env:
+          DIGEST: ${{ steps.verify.outputs.digest }}
+          TAG: ${{ steps.verify.outputs.tag }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          {
+            echo "### ERP lab image"
+            echo
+            echo "RT_IMAGE ghcr.io/kemetra-labs/rt-erpnext@$DIGEST"
+            echo
+            echo "- tag: \`$TAG\`"
+            echo "- Connector source commit: \`$SHA\`"
+            echo "- Deploy by digest only. The package must be public for the lab host to pull it (owner step)."
+          } >> "$GITHUB_STEP_SUMMARY"

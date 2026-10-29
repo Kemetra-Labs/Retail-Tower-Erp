@@ -215,6 +215,11 @@ products:
       tooling:
         globs: [codecov.yml, .sonarcloud.properties, .coderabbit.yaml]
         jobs: [connector/unit-tests-and-lint]
+      # RT-927: the ERP lab deploy path (image recipe, rollback rule, SSM document, restore script).
+      # Its stdlib-only tests run in the Connector unit job; nothing here is Frappe code.
+      deploy:
+        globs: [deploy/**]
+        jobs: [connector/unit-tests-and-lint]
       low:
         globs: [docs/**, specs/**, .specify/**, .claude/**, "*.md"]
         jobs: []

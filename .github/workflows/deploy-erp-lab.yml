@@ -1,0 +1,450 @@
+# RT-927 (design RT-926 v2, Confluence 60391425): manual, approval-gated deploy of the
+# ERPNext + Connector lab image to lab-03, modelled on deploy-lab.yml (the Backend-Core path).
+#
+# preflight (every run): GitHub only, no AWS. Verifies the target image (GHCR digest, build
+# provenance attested by build-erp-image.yml on refs/heads/main, labels naming a main commit whose
+# Connector tree it carries, the pinned ERPNext base), computes the rollback class between the
+# current and the target Connector trees (deploy/lab/rollback_class.py), reads back the aws-lab
+# environment, and uploads a planned ledger. It changes nothing.
+#
+# live (dry_run=false only): after the aws-lab reviewer approves, the job assumes the deploy role
+# through GitHub OIDC (no stored keys) and runs exactly one owner-created SSM document,
+# RT-ErpLabDeploy, on the single Online node tagged Environment=lab, Host=lab-03. The document is
+# the security boundary (integrations/erpnext-connector/deploy/lab/ssm/). Only strict RT_* lines
+# reach this public log and the ledger. It fails closed while AWS_ROLE_ARN / AWS_REGION are unset.
+#
+# Concurrency is shared with deploy-lab.yml: one lab deploy at a time across both paths.
+# The restore script (deploy/lab/restore.sh) is owner-run on the host; this workflow never restores.
+name: Deploy ERP lab
+
+"on":
+  workflow_dispatch:
+    inputs:
+      target_digest:
+        description: Digest of the target ghcr.io/kemetra-labs/rt-erpnext image (sha256:<64 hex>), from build-erp-image.yml
+        required: true
+        type: string
+      target_sha:
+        description: Full commit SHA on main the target image was built from (its revision label)
+        required: true
+        type: string
+      current_sha:
+        description: Full commit SHA on main whose Connector tree lab-03 runs now (deploy #0 - a3b31ff7, see the crosswalk)
+        required: true
+        type: string
+      current_images:
+        description: 'JSON object service -> image ref as lab-03 runs now, for backend frontend websocket scheduler queue-short queue-long'
+        required: true
+        type: string
+      jira_key:
+        description: Jira issue authorizing this run (RT-<number>)
+        required: true
+        type: string
+      hold:
+        description: Stop after the pre-resume checks with the workers down (the restore window)
+        required: true
+        type: boolean
+        default: false
+      save_current_image:
+        description: docker save the current images into the backup folder (deploy #0)
+        required: true
+        type: boolean
+        default: false
+      dry_run:
+        description: Preflight only (default). false runs the live deploy after preflight, with aws-lab approval
+        required: true
+        type: boolean
+        default: true
+
+permissions: {}
+
+concurrency:
+  group: deploy-aws-lab
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/kemetra-labs/rt-erpnext
+  # Must equal the FROM digest in integrations/erpnext-connector/deploy/erp.Dockerfile (a test checks it).
+  BASE_DIGEST: sha256:f2d409c58ed1b688b6f2914d4a7f8b2468ee60bd1a3f1bd82d6fe32071806cb1
+  MIN_FREE_GIB: "10"
+
+jobs:
+  preflight:
+    name: preflight (verify image, rollback class, planned ledger, no deploy)
+    # No job-level `if`: a dispatch from any other ref must FAIL in the first step, not skip green.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read # checkout of main with history (trees, ancestry)
+      packages: read # GHCR reads for labels and attestations
+      attestations: read # gh attestation verify
+      actions: read # read (never create) the aws-lab environment
+    outputs:
+      target_tree: ${{ steps.plan.outputs.target_tree }}
+      current_tree: ${{ steps.plan.outputs.current_tree }}
+      expected_version: ${{ steps.plan.outputs.expected_version }}
+      rollback_class: ${{ steps.plan.outputs.rollback_class }}
+      environment_gate: ${{ steps.plan.outputs.environment_gate }}
+    steps:
+      - name: Guard (main only, validated inputs)
+        env:
+          RUN_REF: ${{ github.ref }}
+          TARGET_DIGEST: ${{ inputs.target_digest }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+          CURRENT_SHA: ${{ inputs.current_sha }}
+          CURRENT_IMAGES: ${{ inputs.current_images }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          [ "$RUN_REF" = "refs/heads/main" ] || fail "must be dispatched from refs/heads/main"
+          [[ "$TARGET_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "target_digest must be sha256:<64 hex>"
+          [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "target_sha must be a full 40-hex commit SHA"
+          [[ "$CURRENT_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "current_sha must be a full 40-hex commit SHA"
+          [[ "$JIRA_KEY" =~ ^RT-[1-9][0-9]{0,5}$ ]] || fail "jira_key must be RT-<number>"
+          [ "${#CURRENT_IMAGES}" -le 2048 ] || fail "current_images is too long"
+          jq -e --arg services "backend frontend websocket scheduler queue-short queue-long" '
+            ($services | split(" ")) as $want
+            | type == "object" and (keys | sort) == ($want | sort)
+              and all(.[]; type == "string"
+                and test("^(rt-erpnext:16\\.51\\.0-[0-9a-f]{12}|ghcr\\.io/kemetra-labs/rt-erpnext@sha256:[0-9a-f]{64})$"))' \
+            <<<"$CURRENT_IMAGES" >/dev/null || fail "current_images must map exactly the six ERP services to known image refs"
+
+      # No `ref:`: the helpers run from the dispatched main commit. Full history for trees and ancestry.
+      - name: Checkout main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Both commits are on main
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
+          CURRENT_SHA: ${{ inputs.current_sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          for SHA in "$TARGET_SHA" "$CURRENT_SHA"; do
+            git cat-file -e "$SHA^{commit}" || { echo "::error::$SHA is not a commit here"; exit 1; }
+            git merge-base --is-ancestor "$SHA" "$HEAD_SHA" || { echo "::error::$SHA is not on main"; exit 1; }
+            git cat-file -e "$SHA:integrations/erpnext-connector" || { echo "::error::$SHA has no Connector"; exit 1; }
+          done
+
+      - name: Log in to GHCR (read)
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Verify the target image (attestation, labels, base)
+        id: image
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TARGET_DIGEST: ${{ inputs.target_digest }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          # Built and attested by build-erp-image.yml, dispatched from main, in this repository.
+          gh attestation verify "oci://ghcr.io/kemetra-labs/rt-erpnext@$TARGET_DIGEST" --repo "$REPO" \
+            --signer-workflow Kemetra-Labs/Retail-Tower-Erp/.github/workflows/build-erp-image.yml \
+            --source-ref refs/heads/main >/dev/null || fail "no valid build-erp-image.yml attestation from refs/heads/main for $TARGET_DIGEST"
+          LABELS="$(skopeo inspect --config "docker://$IMAGE@$TARGET_DIGEST" | jq -c '.config.Labels // {}')" \
+            || fail "cannot read the target image configuration"
+          label() { jq -r --arg k "$1" '.[$k] // ""' <<<"$LABELS"; }
+          TARGET_TREE="$(git rev-parse "$TARGET_SHA:integrations/erpnext-connector")"
+          [ "$(label org.opencontainers.image.revision)" = "$TARGET_SHA" ] || fail "the image revision label is not target_sha"
+          [ "$(label rt.connector.tree)" = "$TARGET_TREE" ] || fail "the image Connector tree is not the tree of target_sha on main"
+          [ "$(label rt.base.digest)" = "$BASE_DIGEST" ] || fail "the image base is not the pinned ERPNext base"
+          VERSION="$(label rt.connector.version)"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "the image has no Connector version label"
+          { echo "target_tree=$TARGET_TREE"; echo "version=$VERSION"; } >> "$GITHUB_OUTPUT"
+
+      - name: Rollback class (current -> target Connector trees)
+        id: klass
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
+          CURRENT_SHA: ${{ inputs.current_sha }}
+        run: |
+          set -euo pipefail
+          OUT="$(python3 integrations/erpnext-connector/deploy/lab/rollback_class.py --repo . \
+            --current "$CURRENT_SHA" --target "$TARGET_SHA")" || { echo "::error::rollback class could not be computed"; exit 1; }
+          printf '%s\n' "$OUT"
+          KLASS="$(sed -n 's/^RT_ROLLBACK_CLASS=\(image-only\|restore\)$/\1/p' <<<"$OUT")"
+          [ -n "$KLASS" ] || { echo "::error::no rollback class"; exit 1; }
+          echo "class=$KLASS" >> "$GITHUB_OUTPUT"
+          grep '^RT_ROLLBACK_REASON=' <<<"$OUT" | sed 's/^RT_ROLLBACK_REASON=//' > "$RUNNER_TEMP/rollback-reasons.txt"
+
+      # Report the approval gate; never create it. A 404 is "not visible", not proof it is missing.
+      - name: Read back the aws-lab environment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if OUT="$(gh api "repos/$REPO/environments/aws-lab" 2>&1)"; then
+            jq '{status: "present", reviewers: ([.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length)}' \
+              <<<"$OUT" > "$RUNNER_TEMP/environment.json"
+          elif grep -q "Not Found" <<<"$OUT"; then
+            echo '{"status":"not-visible","reviewers":0}' > "$RUNNER_TEMP/environment.json"
+          else
+            echo '{"status":"unknown","reviewers":0}' > "$RUNNER_TEMP/environment.json"
+          fi
+
+      - name: Write the planned ledger
+        id: plan
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          HOLD: ${{ inputs.hold }}
+          SAVE_CURRENT_IMAGE: ${{ inputs.save_current_image }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+          TARGET_DIGEST: ${{ inputs.target_digest }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+          CURRENT_SHA: ${{ inputs.current_sha }}
+          CURRENT_IMAGES: ${{ inputs.current_images }}
+          TARGET_TREE: ${{ steps.image.outputs.target_tree }}
+          VERSION: ${{ steps.image.outputs.version }}
+          KLASS: ${{ steps.klass.outputs.class }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          CURRENT_TREE="$(git rev-parse "$CURRENT_SHA:integrations/erpnext-connector")"
+          GATE="$(jq -r 'if .status == "present" and (.reviewers | type) == "number" and .reviewers >= 1 then "reviewed" else "unverified" end' \
+            "$RUNNER_TEMP/environment.json" 2>/dev/null || echo unverified)"
+          mkdir -p "$RUNNER_TEMP/plan"
+          jq -n --arg jira "$JIRA_KEY" --arg actor "$ACTOR" --arg run "$RUN_URL" --arg digest "$TARGET_DIGEST" \
+            --arg tsha "$TARGET_SHA" --arg ttree "$TARGET_TREE" --arg csha "$CURRENT_SHA" --arg ctree "$CURRENT_TREE" \
+            --argjson images "$CURRENT_IMAGES" --arg version "$VERSION" --arg klass "$KLASS" \
+            --rawfile reasons "$RUNNER_TEMP/rollback-reasons.txt" --arg gate "$GATE" \
+            --arg hold "$HOLD" --arg save "$SAVE_CURRENT_IMAGE" --arg dry "$DRY_RUN" '{
+              schemaVersion: 1, kind: "rt927-erp-lab-planned-ledger", mode: (if $dry == "true" then "dry-run" else "live" end),
+              jiraKey: $jira, actor: $actor, runUrl: $run, generatedAt: (now | todate),
+              target: {host: "lab-03", environment: "aws-lab", digest: $digest, sha: $tsha, tree: $ttree, version: $version},
+              current: {sha: $csha, tree: $ctree, images: $images, source: "operator-declared; lab-03 step 1 checks it"},
+              rollback: {class: $klass, reasons: ($reasons | split("\n") | map(select(length > 0)))},
+              hold: ($hold == "true"), saveCurrentImage: ($save == "true"), environmentGate: $gate
+            }' > "$RUNNER_TEMP/plan/planned-ledger.json"
+          {
+            echo "## ERP lab deploy plan ($([ "$DRY_RUN" = true ] && echo dry run || echo live))"
+            echo
+            echo "Target $IMAGE@$TARGET_DIGEST (Connector $VERSION, $TARGET_SHA) over $CURRENT_SHA on lab-03, $JIRA_KEY."
+            echo "Rollback class: **$KLASS**. Hold: $HOLD. Environment gate: $GATE."
+            echo
+            sed 's/^/- /' "$RUNNER_TEMP/rollback-reasons.txt"
+          } >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "target_tree=$TARGET_TREE"
+            echo "current_tree=$CURRENT_TREE"
+            echo "expected_version=$VERSION"
+            echo "rollback_class=$KLASS"
+            echo "environment_gate=$GATE"
+          } >> "$GITHUB_OUTPUT"
+          if [ "$DRY_RUN" = "false" ] && [ "$GATE" != "reviewed" ]; then
+            echo "::error::live run refused: the aws-lab environment was not read back with a required reviewer"
+            exit 1
+          fi
+
+      - name: Upload the planned ledger
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: deploy-erp-lab-plan-${{ github.run_id }}
+          path: ${{ runner.temp }}/plan/
+          if-no-files-found: warn
+          retention-days: 90
+
+  live:
+    name: live deploy (aws-lab, OIDC, SSM RT-ErpLabDeploy on lab-03)
+    needs: preflight
+    if: ${{ inputs.dry_run == false }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    environment: aws-lab
+    permissions:
+      contents: read # checkout of main for the claim printer
+      id-token: write # the OIDC token for the deploy role; nothing else is granted
+    steps:
+      - name: Guard (main only, live run, verified plan)
+        env:
+          RUN_REF: ${{ github.ref }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+          TARGET_DIGEST: ${{ inputs.target_digest }}
+          CURRENT_TREE: ${{ needs.preflight.outputs.current_tree }}
+          EXPECTED_VERSION: ${{ needs.preflight.outputs.expected_version }}
+          ROLLBACK_CLASS: ${{ needs.preflight.outputs.rollback_class }}
+          ENVIRONMENT_GATE: ${{ needs.preflight.outputs.environment_gate }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          [ "$RUN_REF" = "refs/heads/main" ] || fail "must be dispatched from refs/heads/main"
+          [ "$DRY_RUN" = "false" ] || fail "the live job runs only when dry_run=false"
+          [ "$ENVIRONMENT_GATE" = "reviewed" ] || fail "preflight did not read back aws-lab with a required reviewer"
+          [[ "$JIRA_KEY" =~ ^RT-[1-9][0-9]{0,5}$ ]] || fail "jira_key must be RT-<number>"
+          [[ "$TARGET_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "target_digest must be sha256:<64 hex>"
+          [[ "$CURRENT_TREE" =~ ^[0-9a-f]{40}$ ]] || fail "preflight plan lacks the current tree"
+          [[ "$EXPECTED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "preflight plan lacks the Connector version"
+          [[ "$ROLLBACK_CLASS" =~ ^(image-only|restore)$ ]] || fail "preflight plan lacks the rollback class"
+
+      # Fails closed until the owner sets both non-secret variables on aws-lab. Runs before any token is requested.
+      - name: Check the deploy variables (fail closed when unset)
+        env:
+          AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          [ -n "${AWS_ROLE_ARN:-}" ] || fail "AWS_ROLE_ARN is not set on the aws-lab environment: the live deploy stays off"
+          [ -n "${AWS_REGION:-}" ] || fail "AWS_REGION is not set on the aws-lab environment: the live deploy stays off"
+          [[ "$AWS_ROLE_ARN" =~ ^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,128}$ ]] \
+            || fail "AWS_ROLE_ARN must be an IAM role ARN (never root, a user or an access key)"
+          [[ "$AWS_REGION" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]$ ]] || fail "AWS_REGION must be a region name such as us-east-1"
+
+      - name: Checkout main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      # Non-secret trust-policy claims before the first assume, so a deny is diagnosed, not guessed.
+      - name: Print the OIDC claims (non-secret, informational)
+        env:
+          JIRA_KEY: ${{ inputs.jira_key }}
+        run: |
+          set -euo pipefail
+          [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ] \
+            || { echo "::error::no OIDC request variables: the job needs id-token: write"; exit 1; }
+          echo "::add-mask::$ACTIONS_ID_TOKEN_REQUEST_TOKEN"
+          RESPONSE="$(curl --silent --show-error --fail --max-time 20 \
+            --header "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com")" || { echo "::error::the OIDC token request failed"; exit 1; }
+          TOKEN="$(jq -er .value <<<"$RESPONSE" 2>/dev/null)" || { echo "::error::the OIDC response held no token"; exit 1; }
+          echo "::add-mask::$TOKEN"
+          printf '%s' "$TOKEN" | node services/backend-core/deploy/lab/oidc-claims-check.cjs \
+            --jira-key "$JIRA_KEY" --workflow-file deploy-erp-lab.yml --summary "$GITHUB_STEP_SUMMARY" \
+            || echo "::warning::a claim differs from the trust design; see the step summary (AWS STS still decides)"
+
+      - name: Assume the deploy role (GitHub OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: rt-deploy-erp-lab-${{ github.run_id }}
+          role-duration-seconds: 3600
+
+      - name: Run RT-ErpLabDeploy on lab-03
+        id: ssm
+        env:
+          JIRA_KEY: ${{ inputs.jira_key }}
+          TARGET_DIGEST: ${{ inputs.target_digest }}
+          CURRENT_IMAGES: ${{ inputs.current_images }}
+          HOLD: ${{ inputs.hold }}
+          SAVE_CURRENT_IMAGE: ${{ inputs.save_current_image }}
+          CURRENT_TREE: ${{ needs.preflight.outputs.current_tree }}
+          EXPECTED_VERSION: ${{ needs.preflight.outputs.expected_version }}
+          ROLLBACK_CLASS: ${{ needs.preflight.outputs.rollback_class }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          LIVE="$RUNNER_TEMP/live"
+          mkdir -p "$LIVE"
+          fail() { echo "::error::$*"; echo "$*" > "$LIVE/failure.txt"; exit 1; }
+          RESULT_RE='^RT_(GATE [a-z0-9_]+=(pass|workers-restarted|fail(:[A-Za-z0-9._-]+)?)|SITE=[A-Za-z0-9._-]+|BACKUP=/var/backups/rt-erp/[0-9]+ sha256=[0-9a-f]{64}|MIGRATE rc=[0-9]+ seconds=[0-9]+|DIGEST_AFTER=sha256:[0-9a-f]{64}|RESUMED_AT=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z|OUTCOME=(deployed|held|failed))$'
+
+          # One Online managed node, found by its owner-set tags (a tag filter cannot be mixed with PingStatus).
+          NODE="$(aws ssm describe-instance-information \
+            --filters "Key=tag:Environment,Values=lab" "Key=tag:Host,Values=lab-03" \
+            --query "InstanceInformationList[?PingStatus=='Online'].InstanceId" --output text)" || fail "describe-instance-information failed"
+          [[ "$NODE" =~ ^mi-[0-9a-f]{17}$ ]] || fail "no single Online SSM node tagged Environment=lab, Host=lab-03"
+
+          jq -n --arg d "$TARGET_DIGEST" --arg i "$CURRENT_IMAGES" --arg t "$CURRENT_TREE" --arg v "$EXPECTED_VERSION" \
+            --arg h "$HOLD" --arg r "$RUN_ID" --arg s "$SAVE_CURRENT_IMAGE" --arg m "$MIN_FREE_GIB" \
+            --arg j "$JIRA_KEY" --arg k "$ROLLBACK_CLASS" \
+            '{TargetDigest: [$d], CurrentImages: [$i], CurrentTree: [$t], ExpectedVersion: [$v], Hold: [$h], RunId: [$r],
+              SaveCurrentImage: [$s], MinFreeGiB: [$m], JiraKey: [$j], RollbackClass: [$k]}' > "$LIVE/params.json"
+
+          CMD="$(aws ssm send-command --instance-ids "$NODE" --document-name RT-ErpLabDeploy --document-version '$DEFAULT' \
+            --parameters "file://$LIVE/params.json" --timeout-seconds 600 --comment "deploy-erp-lab run $RUN_ID $JIRA_KEY" \
+            --query Command.CommandId --output text)" || fail "send-command was refused"
+          [[ "$CMD" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || fail "no command ID"
+          echo "command $CMD on $NODE"
+          # The document may run up to 3600 s; the role session is 3600 s, so polling stops with a margin.
+          # A run still in progress then is read on the host (its ledger) by the owner.
+          STATUS=Pending
+          DEADLINE=$(( $(date +%s) + 3300 ))
+          while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+            sleep 20
+            STATUS="$(aws ssm get-command-invocation --command-id "$CMD" --instance-id "$NODE" \
+              --query Status --output text 2>/dev/null || echo Pending)"
+            case "$STATUS" in Success | Failed | Cancelled | TimedOut | Undeliverable | Terminated) break ;; *) ;; esac
+          done
+          echo "$STATUS" > "$LIVE/status"
+          # The raw output never reaches the log: only strict RT_* lines are kept.
+          aws ssm get-command-invocation --command-id "$CMD" --instance-id "$NODE" \
+            --query StandardOutputContent --output text 2>/dev/null \
+            | grep -E "$RESULT_RE" > "$LIVE/deploy.lines" || true
+          cat "$LIVE/deploy.lines"
+          [ "$STATUS" = Success ] || fail "the document ended $STATUS"
+          if [ "$HOLD" = "true" ]; then WANT=held; else WANT=deployed; fi
+          grep -qxF "RT_OUTCOME=$WANT" "$LIVE/deploy.lines" || fail "the document did not report RT_OUTCOME=$WANT"
+
+      - name: Write the live ledger
+        if: always()
+        env:
+          JIRA_KEY: ${{ inputs.jira_key }}
+          TARGET_DIGEST: ${{ inputs.target_digest }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+          CURRENT_SHA: ${{ inputs.current_sha }}
+          HOLD: ${{ inputs.hold }}
+          ROLLBACK_CLASS: ${{ needs.preflight.outputs.rollback_class }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SSM_OUTCOME: ${{ steps.ssm.outcome }}
+        run: |
+          set -euo pipefail
+          LIVE="$RUNNER_TEMP/live"
+          OUT="$RUNNER_TEMP/live-ledger"
+          mkdir -p "$LIVE" "$OUT"
+          LINES="$(cat "$LIVE/deploy.lines" 2>/dev/null || true)"
+          FAILURE="$(cat "$LIVE/failure.txt" 2>/dev/null || true)"
+          if [ -z "$FAILURE" ] && [ "$SSM_OUTCOME" != success ]; then
+            FAILURE="live job stopped before or during the SSM run (outcome: ${SSM_OUTCOME:-not-run})"
+          fi
+          jq -n --arg jira "$JIRA_KEY" --arg actor "$ACTOR" --arg run "$RUN_URL" --arg digest "$TARGET_DIGEST" \
+            --arg tsha "$TARGET_SHA" --arg csha "$CURRENT_SHA" --arg hold "$HOLD" --arg klass "$ROLLBACK_CLASS" \
+            --arg failure "$FAILURE" --arg lines "$LINES" '
+            def value($all; $prefix): ([$all[] | select(startswith($prefix)) | ltrimstr($prefix)] | first);
+            ($lines | split("\n") | map(select(length > 0))) as $all
+            | {
+              schemaVersion: 1, kind: "rt927-erp-lab-live-ledger", mode: "live",
+              outcome: (if $failure == "" then (value($all; "RT_OUTCOME=") // "unknown") else "failed" end),
+              jiraKey: $jira, actor: $actor, runUrl: $run, generatedAt: (now | todate),
+              target: {host: "lab-03", environment: "aws-lab", digest: $digest, sha: $tsha},
+              current: {sha: $csha}, rollbackClass: $klass, hold: ($hold == "true"),
+              site: value($all; "RT_SITE="), backup: value($all; "RT_BACKUP="), migrate: value($all; "RT_MIGRATE "),
+              digestAfter: value($all; "RT_DIGEST_AFTER="), resumedAt: value($all; "RT_RESUMED_AT="),
+              gates: [$all[] | select(startswith("RT_GATE ")) | ltrimstr("RT_GATE ") | split("=") | {gate: .[0], result: .[1]}],
+              failureBoundary: (([$all[] | select(startswith("RT_GATE ") and (contains("=fail")))] | first)
+                // (if $failure == "" then null else $failure end))
+            }' > "$OUT/ledger.json"
+          {
+            echo "## ERP lab deploy live: $(jq -r '.outcome | ascii_upcase' "$OUT/ledger.json")"
+            echo
+            echo "$IMAGE@$TARGET_DIGEST ($TARGET_SHA) over $CURRENT_SHA on lab-03, $JIRA_KEY. Rollback class: $ROLLBACK_CLASS. Hold: $HOLD."
+            echo
+            echo '```'
+            printf '%s\n' "$LINES"
+            echo '```'
+            if [ -n "$FAILURE" ]; then echo; echo "Failure boundary: $FAILURE"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the live ledger
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: deploy-erp-lab-live-ledger-${{ github.run_id }}
+          path: ${{ runner.temp }}/live-ledger/
+          if-no-files-found: warn
+          retention-days: 90
