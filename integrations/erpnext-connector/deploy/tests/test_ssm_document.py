@@ -317,3 +317,14 @@ def test_err_trap_runs_only_in_the_main_shell(body):
     """With set -E the trap also fires inside $(...) subshells (review I3)."""
     trap_line = next(line for line in body.splitlines() if line.startswith("trap '") and "ERR" in line)
     assert '[ "$BASHPID" = "$$" ] || exit 1' in trap_line
+
+
+def test_workers_are_not_restarted_when_the_resume_cannot_be_recorded(body):
+    """A failed marker write must leave the workers down: posting may not resume unrecorded (PR #94 review)."""
+    func = body[_pos(body, "recover_workers() {"):_pos(body, "stop() {")]
+    assert "mark_resumed || true" not in func
+    assert func.index("if ! mark_resumed") < func.index("start $WORKERS")
+    assert "recover=fail:resume-not-recorded" in func
+    mark = body[_pos(body, "mark_resumed() {"):]
+    mark = mark[: mark.index("\n}\n")]
+    assert mark.count("|| return 1") >= 2, "every write in mark_resumed must fail the function"
