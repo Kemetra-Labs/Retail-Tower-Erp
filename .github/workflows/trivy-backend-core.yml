@@ -1,0 +1,211 @@
+# RT-102: report-only Trivy vulnerability scan of the Backend-Core production images (api,
+# worker, migrate), built from services/backend-core/Dockerfile and never pushed. Findings go to
+# the repo's code-scanning dashboard as SARIF, one category per image. They never fail the run;
+# a scan that cannot run (DB download, unreadable image) still does.
+#
+# Scope, from the RT-68 PoC: vulnerabilities only, HIGH/CRITICAL with a fix available, and the
+# npm CLI bundled in the node base image skipped (not shipped code). No secret scanning (that is
+# gitleaks, secrets.yml) and no misconfiguration scanning.
+#
+# Not PR-triggered: SARIF upload needs `security-events: write`, which `pgraph privileges`
+# forbids in any workflow a PR can reach (same as scorecard.yml). Not a graph.yaml job, so not
+# gate-required.
+#
+# Trivy runs from the official release tarball, checked against its pinned SHA-256 (the
+# oasdiff/gitleaks pattern), not aquasecurity/trivy-action or setup-trivy: both had their tags
+# hijacked in the March 2026 compromise (GHSA-69fq-xp46-6x23, affected binary v0.69.4 only).
+# v0.76.1 is an immutable GitHub release; its tarball was checked at pin time with
+# `gh attestation verify --repo aquasecurity/trivy --signer-workflow
+# aquasecurity/trivy/.github/workflows/reusable-release.yaml --source-ref refs/tags/v0.76.1`
+# (SLSA provenance v1, source commit e713f67f) and against trivy_0.76.1_checksums.txt. It is
+# also past GHSA-mcj4-mphf-j9ff (<0.71.1, path traversal via a crafted vulnerability DB), which
+# the advisory's older "known-safe" v0.69.2/v0.69.3 are not. To bump: repeat both checks for
+# the new tarball and update the two env values together.
+name: Trivy image scan (Backend-Core)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/backend-core/**"
+      - ".github/workflows/trivy-backend-core.yml"
+  # Weekly, off-peak: new CVEs against unchanged images.
+  schedule:
+    - cron: "17 3 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trivy-backend-core-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PINNED_TRIVY_VERSION: "0.76.1"
+  # sha256 of trivy_${PINNED_TRIVY_VERSION}_Linux-64bit.tar.gz from the release checksums.txt
+  PINNED_TRIVY_SHA256: "c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0"
+
+jobs:
+  scan:
+    name: trivy/backend-core images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      # Upload SARIF to the code-scanning dashboard.
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: Prepare the output directories
+        run: mkdir -p "$RUNNER_TEMP/images" "$RUNNER_TEMP/sarif"
+
+      # Same actions and targets as release-backend-core.yml's build job, without its
+      # `no-cache`: the three targets share the build stage, which the builder reuses. Docker
+      # archives, not OCI layout tarballs: `trivy image --input` reads a docker-archive tar or an
+      # OCI layout directory, not an OCI tarball.
+      - name: Build api (docker archive, no push)
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: services/backend-core
+          target: api
+          push: false
+          provenance: false
+          sbom: false
+          outputs: type=docker,dest=${{ runner.temp }}/images/api.tar
+
+      - name: Build worker (docker archive, no push)
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: services/backend-core
+          target: worker
+          push: false
+          provenance: false
+          sbom: false
+          outputs: type=docker,dest=${{ runner.temp }}/images/worker.tar
+
+      - name: Build migrate (docker archive, no push)
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: services/backend-core
+          target: migrate
+          push: false
+          provenance: false
+          sbom: false
+          outputs: type=docker,dest=${{ runner.temp }}/images/migrate.tar
+
+      - name: Install Trivy (pinned, checksum-verified)
+        run: |
+          set -euo pipefail
+          archive="trivy_${PINNED_TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl -fsSL --proto '=https' --tlsv1.2 -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/aquasecurity/trivy/releases/download/v${PINNED_TRIVY_VERSION}/$archive"
+          echo "${PINNED_TRIVY_SHA256}  $RUNNER_TEMP/$archive" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/trivy"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/trivy" trivy
+          "$RUNNER_TEMP/trivy/trivy" --version
+
+      # One DB per UTC day; a miss restores the newest older DB, which Trivy then refreshes.
+      - name: Date key for the vulnerability DB cache
+        id: day
+        run: echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the vulnerability DB
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/trivy-cache/db
+          key: trivy-db-${{ steps.day.outputs.date }}
+          restore-keys: trivy-db-
+
+      # Report-only: --exit-code 0 covers findings. A scan error does not stop the other images
+      # but fails the step after the loop, so it never reads as a clean report.
+      - name: Scan the images
+        run: |
+          set -uo pipefail
+          {
+            echo "### Trivy ${PINNED_TRIVY_VERSION}: Backend-Core images (HIGH/CRITICAL, fixable)"
+            echo
+            echo "| image | findings | seconds |"
+            echo "| --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          failed=""
+          for image in api worker migrate; do
+            start=$(date +%s)
+            if "$RUNNER_TEMP/trivy/trivy" image \
+              --input "$RUNNER_TEMP/images/$image.tar" \
+              --cache-dir "$RUNNER_TEMP/trivy-cache" \
+              --scanners vuln \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --skip-dirs /usr/local/lib/node_modules/npm \
+              --format sarif \
+              --output "$RUNNER_TEMP/sarif/$image.sarif" \
+              --exit-code 0; then
+              findings=$(jq '[.runs[].results[]] | length' "$RUNNER_TEMP/sarif/$image.sarif") || findings="unreadable SARIF"
+            else
+              findings="scan error"
+            fi
+            [[ "$findings" =~ ^[0-9]+$ ]] || failed="$failed $image"
+            echo "| $image | $findings | $(( $(date +%s) - start )) |" >> "$GITHUB_STEP_SUMMARY"
+          done
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "DB cache: $(du -sh "$RUNNER_TEMP/trivy-cache/db" 2>/dev/null | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$failed" ]; then
+            echo "::error::Trivy scan failed for:$failed"
+            exit 1
+          fi
+
+      # One category per image, so each keeps its own alert set. always() + continue-on-error: one
+      # failed scan or upload must not skip the other uploads; the last step then fails the job.
+      - name: Upload api SARIF
+        id: upload-api
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: ${{ runner.temp }}/sarif/api.sarif
+          category: trivy-backend-core-api
+
+      - name: Upload worker SARIF
+        id: upload-worker
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: ${{ runner.temp }}/sarif/worker.sarif
+          category: trivy-backend-core-worker
+
+      - name: Upload migrate SARIF
+        id: upload-migrate
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: ${{ runner.temp }}/sarif/migrate.sarif
+          category: trivy-backend-core-migrate
+
+      # continue-on-error leaves each upload's conclusion green; its outcome still records a
+      # failure. An image without published alerts is an incomplete report, so fail the job.
+      - name: Check the SARIF uploads
+        if: always()
+        env:
+          API: ${{ steps.upload-api.outcome }}
+          WORKER: ${{ steps.upload-worker.outcome }}
+          MIGRATE: ${{ steps.upload-migrate.outcome }}
+        run: |
+          set -euo pipefail
+          failed=""
+          [ "$API" = success ] || failed="$failed api($API)"
+          [ "$WORKER" = success ] || failed="$failed worker($WORKER)"
+          [ "$MIGRATE" = success ] || failed="$failed migrate($MIGRATE)"
+          if [ -n "$failed" ]; then
+            echo "::error::SARIF upload did not succeed for:$failed"
+            exit 1
+          fi
