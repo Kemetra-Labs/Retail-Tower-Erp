@@ -6,12 +6,14 @@
  *  - 201              → re-read the context (the bar appears), then `onOpened`
  *  - 404              → the single non-disclosing «not available» view
  *  - 409 already_member → the member view, which offers the normal switch
- *  - 429              → an in-drawer notice; the gate's countdown is on the button
+ *  - 429              → an in-drawer notice (it claims that 429, so the shell's
+ *                       shared banner skips it); the gate's countdown is on the button
  *  - 401              → re-read the context, which decides (refresh, then sign-in)
  *  - anything else, or no answer → an inline error naming the real cause
  */
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import type { MessageKey } from "@/i18n";
+import { getRateLimitState } from "@/lib/rate-limit";
 import { openSupportSession } from "@/lib/support-session-queries";
 import { useRef, useState } from "react";
 import { clearSessionGone } from "../session/sessionGone";
@@ -32,6 +34,8 @@ export interface StartNotice {
   variant: "danger" | "warning";
   messageKey: MessageKey;
   requestId?: string;
+  /** A 429's count on the shared clock, so the shell can skip that one (RT-931). */
+  rateLimitSeq?: number;
 }
 
 const NO_ANSWER: StartNotice = { variant: "danger", messageKey: "platform.start.error.failed" };
@@ -59,7 +63,11 @@ export function useStartSession(tenantId: string, onOpened: () => void) {
         setView({ kind: "member" });
         return;
       case "rate-limited":
-        setNotice({ variant: "warning", messageKey: "platform.start.error.rateLimited" });
+        setNotice({
+          variant: "warning",
+          messageKey: "platform.start.error.rateLimited",
+          rateLimitSeq: getRateLimitState().seq,
+        });
         return;
       case "unauthenticated":
         await refresh();

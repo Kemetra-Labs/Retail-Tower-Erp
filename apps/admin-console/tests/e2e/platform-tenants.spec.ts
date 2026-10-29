@@ -367,11 +367,42 @@ test("429 with Retry-After: the drawer names the cause, gates the button, and ne
   await submit.click();
   await expect(drawer.getByText(t("platform.start.error.rateLimited"))).toBeVisible();
   await expect(drawer.locator(".btn-primary")).toBeDisabled();
-  // The existing shared RateLimitBanner carries the 429 for the page behind the drawer.
+  // RT-931: one message per failure. The drawer says it; the shell's shared banner
+  // does not say it again, and the submit is the one gated control.
+  await expect(page.locator(".rate-limit-banner .rtc-alert")).toHaveCount(0);
+  await expect(page.getByText(t("rateLimit.title"), { exact: true })).toHaveCount(0);
+  await expect(drawer.getByRole("button", { name: t("common.tryAgain") })).toHaveCount(0);
+  await expectNoAxeViolations(page, "start drawer 429");
   await drawer.getByRole("button", { name: t("common.cancel") }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.locator(".rate-limit-banner").getByText(t("rateLimit.title"))).toBeVisible();
+  // Closing the drawer does not turn the same failure into a second message.
+  await expect(page.locator(".rate-limit-banner .rtc-alert")).toHaveCount(0);
   expect(server.opens).toHaveLength(1);
+});
+
+test("429 on the directory load: one message, one retry control disabled by the countdown; axe (RT-931)", async ({
+  page,
+  t,
+}) => {
+  await mock(page, noSession());
+  let reads = 0;
+  await page.route("**/api/v1/tenants", (r) => {
+    reads += 1;
+    return r.fulfill(json(429, refusal("rate_limited"), { "Retry-After": "30" }));
+  });
+  await page.goto("/platform/tenants");
+  await expect(page.getByText(t("platform.tenants.error.rateLimited"))).toBeVisible();
+  // One message: the shell's shared banner stays out of the way of the directory's own.
+  await expect(page.locator(".rate-limit-banner .rtc-alert")).toHaveCount(0);
+  await expect(page.getByText(t("rateLimit.title"), { exact: true })).toHaveCount(0);
+  // At most one retry control, and it waits for the Retry-After countdown.
+  const alert = page.locator("main .rtc-alert");
+  await expect(alert).toHaveCount(1);
+  const retry = alert.getByRole("button");
+  await expect(retry).toHaveCount(1);
+  await expect(retry).toBeDisabled();
+  await expectNoAxeViolations(page, "directory 429");
+  expect(reads).toBe(1);
 });
 
 test("forced colors: axe on the directory and the drawer (light, emulated before load)", async ({

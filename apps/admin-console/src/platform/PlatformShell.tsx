@@ -14,6 +14,7 @@ import { LocaleSwitch } from "@/i18n/LocaleSwitch";
 import { ShellMenuButton, ShellMenuDrawer, useShellMenu, useShellMenuId } from "@/shell/ShellMenu";
 import { ThemeToggle } from "@/theme/ThemeToggle";
 import { NavLink } from "react-router";
+import { RateLimitClaimProvider, useRateLimitClaims } from "./rateLimitOwner";
 import { SupportSessionBarSlot, SupportSessionBoundary } from "./session/SupportSessionBoundary";
 import { useSupportSession } from "./session/useSupportSession";
 import "@/shell/app-shell.css";
@@ -50,6 +51,7 @@ export function PlatformShell({
   const t = useT();
   const { context } = useActiveContextValue();
   const supportSession = useSupportSession();
+  const { claimedThroughSeq, claim } = useRateLimitClaims();
   const user = context?.user;
   const menu = useShellMenu();
   const menuId = useShellMenuId();
@@ -107,8 +109,11 @@ export function PlatformShell({
       />
 
       <main className="content">
-        <RateLimitBanner />
-        <SupportSessionBoundary controller={supportSession}>{children}</SupportSessionBoundary>
+        {/* RT-931: a surface that shows its own 429 claims it; the shared banner skips that one. */}
+        <RateLimitBanner hiddenThroughSeq={claimedThroughSeq} />
+        <RateLimitClaimProvider value={claim}>
+          <SupportSessionBoundary controller={supportSession}>{children}</SupportSessionBoundary>
+        </RateLimitClaimProvider>
       </main>
     </div>
   );
