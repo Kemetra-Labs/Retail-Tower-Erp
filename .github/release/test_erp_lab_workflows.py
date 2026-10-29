@@ -6,6 +6,7 @@ in project-graph-selftest (`python -m unittest discover -s .github/release`). Th
 deploy-path tests stay in integrations/erpnext-connector/deploy/tests.
 """
 
+import json
 import re
 import unittest
 from pathlib import Path
@@ -25,6 +26,13 @@ def job(text: str, name: str) -> str:
     if not match:
         raise AssertionError(f"job {name} missing")
     return match.group(1)
+
+
+def current_images_limit() -> int:
+    """The CurrentImages cap the SSM document enforces: its pattern's repeat bound plus the two braces."""
+    document = json.loads(read(CONNECTOR_DEPLOY / "lab" / "ssm" / "RT-ErpLabDeploy.json"))
+    pattern = document["parameters"]["CurrentImages"]["allowedPattern"]
+    return int(re.search(r",(\d+)\}", pattern).group(1)) + 2
 
 
 def triggers(text: str) -> list[str]:
@@ -143,8 +151,8 @@ class DeployErpLab(PinnedActions, unittest.TestCase):
     def test_current_images_map_is_validated(self):
         pre = job(self.text, "preflight")
         self.assertIn("backend frontend websocket scheduler queue-short queue-long", pre)
-        # The SSM parameter pattern caps the map at 1002 characters (RE2 refuses a repeat above 1000).
-        self.assertIn('[ "${#CURRENT_IMAGES}" -le 1002 ]', pre)
+        # The same cap as the SSM parameter pattern (RE2 refuses a repeat above 1000).
+        self.assertIn(f'[ "${{#CURRENT_IMAGES}}" -le {current_images_limit()} ]', pre)
 
     def test_environment_gate_is_read_back_before_live(self):
         pre = job(self.text, "preflight")
