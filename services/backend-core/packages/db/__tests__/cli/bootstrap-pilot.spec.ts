@@ -164,6 +164,33 @@ describe("bootstrap-pilot seed", () => {
     expect(await operatorState(subject, cfg.operatorEmail)).toEqual(before);
   });
 
+  it("never adopts a LINKED user through the bridge column: another provider's equal subject fails closed", async () => {
+    if (skip()) return;
+    const cfg = config();
+    const { subject } = cfg.operatorIdentity;
+    // An existing user of another provider whose bridge column happens to hold
+    // the configured subject.
+    const a = pg().admin;
+    const other = "0a000000-0000-7000-8000-79700000b1d9";
+    await a.query("INSERT INTO users (id, email, clerk_user_id) VALUES ($1, $2, $3)", [
+      other,
+      "other-provider@rt797.example",
+      subject,
+    ]);
+    await a.query(
+      `INSERT INTO external_identity_links (provider_key, issuer, subject, user_id, status)
+       VALUES ('legacy', 'https://legacy.rt797.example', $1, $2, 'active')`,
+      [subject, other],
+    );
+    await expect(runSeed(cfg)).rejects.toThrow();
+    const memberships = await a.query("SELECT 1 FROM memberships WHERE user_id = $1", [other]);
+    expect(memberships.rows).toHaveLength(0);
+    const acme = await a.query("SELECT 1 FROM external_identity_links WHERE provider_key = 'acme' AND subject = $1", [
+      subject,
+    ]);
+    expect(acme.rows).toHaveLength(0);
+  });
+
   it("never re-activates a disabled configured link, even when it is the user's only link", async () => {
     if (skip()) return;
     const cfg = config();
