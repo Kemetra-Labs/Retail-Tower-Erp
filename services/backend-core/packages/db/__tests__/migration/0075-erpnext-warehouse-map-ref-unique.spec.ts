@@ -54,10 +54,16 @@ interface RunResult {
   readonly message: string | null;
 }
 
-/** Run a migration file on one connection (optionally `SET ROLE`); never leaves a transaction open. */
+/**
+ * Run a migration file on one connection (optionally `SET ROLE`); never leaves
+ * a transaction open. The session's app.current_tenant is '' first: the state
+ * an earlier migration that set it transaction-locally leaves behind in the
+ * same `migrate up` run (the tenants policy's bare ::uuid cast throws on it).
+ */
 async function runFile(path: string, role: string | null = null): Promise<RunResult> {
   const client = await pg().admin.connect();
   try {
+    await client.query(`SELECT set_config('app.current_tenant', '', false)`);
     if (role !== null) await client.query(`SET ROLE ${role}`);
     await client.query(readFileSync(path, "utf8"));
     return { code: null, message: null };
@@ -67,6 +73,7 @@ async function runFile(path: string, role: string | null = null): Promise<RunRes
   } finally {
     await client.query("ROLLBACK").catch(() => undefined);
     await client.query("RESET ROLE").catch(() => undefined);
+    await client.query("RESET app.current_tenant").catch(() => undefined);
     client.release();
   }
 }

@@ -26,7 +26,9 @@
 -- loops over tenants (read under app.is_platform_admin, which
 -- tenants_tenant_isolation honours) and sets app.current_tenant per tenant, as
 -- 0038 does. The explicit tenant predicate keeps the result identical when the
--- migration runs as a superuser.
+-- migration runs as a superuser. app.current_tenant is first set to the nil
+-- UUID, because the tenants policy casts it without the empty-GUC guard (see
+-- the DO block).
 --
 -- Lock impact: SHARE on erpnext_warehouse_map for the whole transaction, so no
 -- mapping can be written between the preflight and the index build. Reads
@@ -53,6 +55,12 @@ DECLARE
 BEGIN
   -- Transaction-local (is_local = true): both settings end at COMMIT.
   PERFORM set_config('app.is_platform_admin', 'true', true);
+  -- tenants_tenant_isolation (0000) casts app.current_tenant with a bare
+  -- ::uuid. Once an earlier transaction in this session set it locally (an
+  -- earlier migration in the same `migrate up`), it reads '' and the cast
+  -- throws 22P02. The nil UUID matches no tenant; the platform-admin branch
+  -- admits every tenant.
+  PERFORM set_config('app.current_tenant', '00000000-0000-0000-0000-000000000000', true);
   FOR t IN SELECT id FROM tenants ORDER BY id LOOP
     PERFORM set_config('app.current_tenant', t::text, true);
     FOR offender IN
