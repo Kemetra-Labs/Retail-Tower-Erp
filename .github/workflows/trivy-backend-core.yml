@@ -68,8 +68,10 @@ jobs:
         run: mkdir -p "$RUNNER_TEMP/images" "$RUNNER_TEMP/sarif"
 
       # Same actions and targets as release-backend-core.yml's build job, without its
-      # `no-cache`: the three targets share the build stage, which the builder reuses.
-      - name: Build api (OCI layout, no push)
+      # `no-cache`: the three targets share the build stage, which the builder reuses. Docker
+      # archives, not OCI layout tarballs: `trivy image --input` reads a docker-archive tar or an
+      # OCI layout directory, not an OCI tarball.
+      - name: Build api (docker archive, no push)
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: services/backend-core
@@ -77,9 +79,9 @@ jobs:
           push: false
           provenance: false
           sbom: false
-          outputs: type=oci,dest=${{ runner.temp }}/images/api.oci.tar
+          outputs: type=docker,dest=${{ runner.temp }}/images/api.tar
 
-      - name: Build worker (OCI layout, no push)
+      - name: Build worker (docker archive, no push)
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: services/backend-core
@@ -87,9 +89,9 @@ jobs:
           push: false
           provenance: false
           sbom: false
-          outputs: type=oci,dest=${{ runner.temp }}/images/worker.oci.tar
+          outputs: type=docker,dest=${{ runner.temp }}/images/worker.tar
 
-      - name: Build migrate (OCI layout, no push)
+      - name: Build migrate (docker archive, no push)
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: services/backend-core
@@ -97,7 +99,7 @@ jobs:
           push: false
           provenance: false
           sbom: false
-          outputs: type=oci,dest=${{ runner.temp }}/images/migrate.oci.tar
+          outputs: type=docker,dest=${{ runner.temp }}/images/migrate.tar
 
       - name: Install Trivy (pinned, checksum-verified)
         run: |
@@ -135,7 +137,7 @@ jobs:
           for image in api worker migrate; do
             start=$(date +%s)
             "$RUNNER_TEMP/trivy/trivy" image \
-              --input "$RUNNER_TEMP/images/$image.oci.tar" \
+              --input "$RUNNER_TEMP/images/$image.tar" \
               --cache-dir "$RUNNER_TEMP/trivy-cache" \
               --scanners vuln \
               --severity HIGH,CRITICAL \
