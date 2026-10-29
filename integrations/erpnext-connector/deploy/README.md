@@ -84,13 +84,23 @@ What it does:
 1. Stops the project.
 2. Starts MariaDB on a **new** volume (`rt-erp_mariadb-restore-<run-id>`) through an override file. The old volume is never touched.
 3. Copies the backup's `encryption_key` into the site config.
-4. Runs `bench --force restore` with the public and private files.
+4. Runs `bench --force restore` with the public and private files, then sets the scheduler as the backup had it and checks `bench scheduler status`.
 5. Puts back the compose file saved before the swap, which holds the previous image, with its MariaDB mount moved to the new volume (declared `external: true`). Then starts all services from `compose.yml` alone, with no override.
 6. Waits for ping 200.
 
 Its host assumptions are listed in its header. The restore rehearsal is what confirms them. No manual step follows a restore: `compose.yml` already mounts the new volume. As a safety net, step 1 of `RT-ErpLabDeploy` stops with `mariadb-volume-differs-from-compose` when the running MariaDB volume is not the one `compose.yml` resolves to.
 
 **After this change merges** (RT-927 restore safety), the document in AWS must get a new version from main (owner step 5: `update-document`, then set the default version). Until then, lab-03 runs the old document without the volume check.
+
+### The site scheduler after a restore
+
+A forced restore into a new volume leaves `System Settings.enable_scheduler` at 0, whatever the backup had: Frappe reads the old value from the database it is replacing, and the new volume has none. On lab-03 (2026-10-29) the workers then ran, every gate passed, and no connector job ran for hours. So:
+
+- `restore.sh` reads `enable_scheduler` from the run's database dump before it changes anything. A dump without one value of 0 or 1 exits 4. At the end of step 4 it runs `bench enable-scheduler` when the backup had 1, then checks `bench scheduler status`; a status that differs from the backup exits 5 before step 5, so nothing starts and the resume marker is not written.
+- Step 1 of `RT-ErpLabDeploy` stops with `scheduler-disabled` (or `scheduler-status-unreadable`) before anything is stopped. Enable the scheduler (`bench --site <site> enable-scheduler`), then rerun the deploy.
+- The post-resume checks wait up to 180 s for `Scheduled Job Type.last_execution` of `run_posting_poll` to be later than `RT_RESUMED_AT`, comparing in the site time zone, else `posting-poll-did-not-run`. Like every post-resume check this is monitoring, never a rollback: the fix is forward.
+
+**After this change merges** (RT-927 scheduler gates), the document in AWS must get a new version from main (owner step 5: `update-document`, then set the default version). Until then, lab-03 runs the old document without the scheduler gates.
 
 ## Changing the embedded helpers
 
