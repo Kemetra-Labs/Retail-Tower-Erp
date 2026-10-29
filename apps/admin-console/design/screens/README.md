@@ -16,11 +16,16 @@ Static PNG exports of the screen designs made in the **Retail Tower Design Syste
   - The canvas has one page component with a `state` property. Each state was rendered to static HTML from that component, with the synced design-system CSS in [`../claude-design-system/`](../claude-design-system/), and captured with Chromium at 1440 and 1280 wide (the 1280 frames carry `-1280`). Each PNG passed the same checks as the others: PNG signature, closing `IEND`, and a full decode at its stated size. None needed splitting.
   - The font is Dubai, installed on the capture machine. The sample logo «النخبة» is mock data.
   - The receipt preview uses 203 dpi, which matches the BIXOLON SRP-B300 driver reading recorded on RT-473 (comment 14342). OD-8 still waits for a printed self-test.
+- **`/platform` as built (29 October 2026):** `57-…` to `76-…` are not designs. They are captures of the shipped Platform Console screens (RT-780, RT-781, RT-782), taken from the built SPA (`pnpm build`, then `pnpm preview`) with a mocked Backend-Core in the shapes the e2e specs use.
+  - Arabic, light theme, at 1440 and 1280 wide (the 1280 frames carry `-1280`). Every name, ID and time is mock data.
+  - Each PNG passed the same checks as the others: PNG signature, closing `IEND`, and a full decode at its stated size. None needed splitting.
+  - They record what ships, for review against RT-777. The review findings are in [`docs/design/rt777-platform-console/as-built-review.md`](../../docs/design/rt777-platform-console/as-built-review.md).
+  - Not captured: a session expiring while a tenant screen is open (403 `support_session_expired`). Inside a session every tenant route shows the read-only notice and calls no tenant API, so that path cannot be reached in the current UI.
 - **Status:** reviewed with the owner in Claude Design. These images are not an implementation sign-off: backend contracts that the screens depend on are listed in `FOLLOW-UPS.md`, and controls without a service are shown `aria-disabled` with a «تصميم فقط» reason.
 
 ## Known gaps
 
-- **Not shown:** mobile (390px) frames; laptop (1280px) frames except for the RT-474 tenant logo family (`47-…` to `56-…`, which has `-1280` copies); dark theme beyond the Stores family; and English beyond the Stores family. The templates support them.
+- **Not shown:** mobile (390px) frames; laptop (1280px) frames except for the RT-474 tenant logo family (`47-…` to `56-…`) and the `/platform` as-built captures (`57-…` to `76-…`), which have `-1280` copies; dark theme beyond the Stores family; and English beyond the Stores family. The templates support them.
 - **Re-authentication method for break-glass** (FOLLOW-UPS #11) and `perm_owner_console` (#30) are still open; the screens say «لم تُحدَّد بعد» where they apply.
 
 ## Index
@@ -56,4 +61,31 @@ Static PNG exports of the screen designs made in the **Retail Tower Design Syste
 
 Every RT-474 file above also exists at 1280 wide with `-1280` before `.png` (for example `47-logo-empty-1280.png`).
 
-100 files, 8.5 MB in total; the largest is under 180 KB.
+### `/platform` as built (captures, not designs)
+
+| Files | Screen and state | Source |
+|---|---|---|
+| `57-platform-directory.png` | Tenant directory | `/platform/tenants`, no session |
+| `58-platform-directory-member.png` | Directory, the operator is a member of one tenant («فتح المؤسسة») | same |
+| `59-platform-directory-no-match.png` | Directory search, no match | same |
+| `60-platform-directory-empty.png` | Directory, no tenants | same |
+| `61-platform-directory-error.png` | Directory load failed, retry | `listTenants` 500 |
+| `62-platform-directory-rate-limited.png` | Directory rate limited | `listTenants` 429 |
+| `63-platform-start-drawer.png` | Start drawer | `StartSessionDrawer` |
+| `64-platform-start-invalid.png` | Start drawer, validation errors | same |
+| `65-platform-start-replaces.png` | Start drawer while another session is open | same, with a session |
+| `66-platform-start-not-found.png` | Start refused: tenant not available | `openSupportSession` 404 |
+| `67-platform-start-member.png` | Start refused: already a member | `openSupportSession` 409 `already_member` |
+| `68-platform-start-rate-limited.png` | Start rate limited | `openSupportSession` 429 |
+| `69-platform-session-active.png` | Session active | `SupportSessionBar` |
+| `70-platform-session-expiring.png` | Session expiring (under 5 minutes) | same |
+| `71-platform-session-cap.png` | Session at the 8-hour renewal cap | same |
+| `72-platform-session-expired.png` | Session expired | same |
+| `73-platform-session-renewed.png` | Right after a successful renew | `renewSupportSession` 200 |
+| `74-platform-session-renew-gone.png` | Renew answered that the session is already gone | `renewSupportSession` 409 `support_session_absent` |
+| `75-platform-session-renew-origin.png` | Renew refused: origin rejected | `renewSupportSession` 403 `origin_rejected` |
+| `76-platform-no-access.png` | `/platform` for a user who is not a platform admin | `PlatformNotAvailable` |
+
+Every file in this table also exists at 1280 wide with `-1280` before `.png`.
+
+140 files, 10.1 MB in total; the largest is under 180 KB.
