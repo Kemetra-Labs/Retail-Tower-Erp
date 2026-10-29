@@ -6,7 +6,8 @@
  *  - 201              → re-read the context (the bar appears), then `onOpened`
  *  - 404              → the single non-disclosing «not available» view
  *  - 409 already_member → the member view, which offers the normal switch
- *  - 429              → an in-drawer notice; the gate's countdown is on the button
+ *  - 429              → an in-drawer notice (it claims that 429, so the shell's
+ *                       shared banner skips it); the gate's countdown is on the button
  *  - 401              → re-read the context, which decides (refresh, then sign-in)
  *  - anything else, or no answer → an inline error naming the real cause
  */
@@ -32,6 +33,8 @@ export interface StartNotice {
   variant: "danger" | "warning";
   messageKey: MessageKey;
   requestId?: string;
+  /** This 429's own count on the shared clock, so the shell can skip that one (RT-931, RT-940). */
+  rateLimitSeq?: number;
 }
 
 const NO_ANSWER: StartNotice = { variant: "danger", messageKey: "platform.start.error.failed" };
@@ -44,7 +47,7 @@ export function useStartSession(tenantId: string, onOpened: () => void) {
   const [errors, setErrors] = useState<StartDraftErrors>({});
   const [notice, setNotice] = useState<StartNotice | null>(null);
 
-  const settle = async (outcome: OpenOutcome) => {
+  const settle = async (outcome: OpenOutcome, rateLimitSeq?: number) => {
     switch (outcome.kind) {
       case "opened":
         // RT-930: a new session makes any "your session was gone" notice stale.
@@ -59,7 +62,11 @@ export function useStartSession(tenantId: string, onOpened: () => void) {
         setView({ kind: "member" });
         return;
       case "rate-limited":
-        setNotice({ variant: "warning", messageKey: "platform.start.error.rateLimited" });
+        setNotice({
+          variant: "warning",
+          messageKey: "platform.start.error.rateLimited",
+          rateLimitSeq,
+        });
         return;
       case "unauthenticated":
         await refresh();
@@ -82,7 +89,8 @@ export function useStartSession(tenantId: string, onOpened: () => void) {
     inFlight.current = true;
     setPending(true);
     try {
-      await settle(classifyOpen(await openSupportSession(built.body)));
+      const result = await openSupportSession(built.body);
+      await settle(classifyOpen(result), result.rateLimitSeq);
     } catch {
       // The request never got an answer: no session is assumed.
       setNotice(NO_ANSWER);

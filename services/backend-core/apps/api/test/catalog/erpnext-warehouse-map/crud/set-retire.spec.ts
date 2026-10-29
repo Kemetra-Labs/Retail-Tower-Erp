@@ -18,6 +18,8 @@
  *      400 validation_error (strict DTO, §XII).
  *   §3 idempotency / 1:1 — a 2nd active set for the same store_id → 409 conflict
  *      (OQ-2 1:1 active partial-unique on (tenant, store, 'stock')).
+ *   §3b RT-433 — a Warehouse already mapped by another active store → 409
+ *      conflict; retired rows and other tenants do not count.
  *   §4 unknown / cross-tenant store → non-disclosing 404.
  *   §5 retire happy path — sets retired_at + version++.
  *   §6 retire with stale version → 409 conflict (§III optimistic concurrency).
@@ -297,6 +299,63 @@ describe("014-CRUD §3 — 1:1 (OQ-2)", () => {
       .send({ store_id: STORE_A_UNMAPPED, erpnext_warehouse_ref: "ERP-2" });
     expect(second.status).toBe(409);
     expect(second.body.error.code).toBe("conflict");
+    expect(second.body.error.message).toMatch(/already exists for this store/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §3b — RT-433: one store per ERPNext Warehouse (migration 0075)
+// ---------------------------------------------------------------------------
+
+describe("RT-433 §3b — one store per ERPNext Warehouse", () => {
+  const WAREHOUSE_CONFLICT = /already mapped by an active mapping/;
+
+  async function activeRowsFor(storeId: string): Promise<number> {
+    const r = await env!.admin.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM erpnext_warehouse_map
+        WHERE store_id = $1 AND retired_at IS NULL`,
+      [storeId],
+    );
+    return Number(r.rows[0]?.n ?? "0");
+  }
+
+  it("a 2nd store setting a Warehouse another store maps → 409 conflict, nothing inserted", async () => {
+    if (maybeSkip()) return;
+    const res = await http()
+      .post(BASE_URL)
+      .send({ store_id: STORE_A_UNMAPPED, erpnext_warehouse_ref: "ERP-WH-A-001" });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("conflict");
+    expect(res.body.error.message).toMatch(WAREHOUSE_CONFLICT);
+    expect(await activeRowsFor(STORE_A_UNMAPPED)).toBe(0);
+  });
+
+  it("after the holding store retires it, another store can map the Warehouse", async () => {
+    if (maybeSkip()) return;
+    const retired = await http().post(retireUrl(MAP_A_STOCK)).send({ version: 1 });
+    expect(retired.status).toBe(200);
+    const res = await http()
+      .post(BASE_URL)
+      .send({ store_id: STORE_A_UNMAPPED, erpnext_warehouse_ref: "ERP-WH-A-001" });
+    expect(res.status).toBe(201);
+  });
+
+  it("a retired mapping's Warehouse does not count", async () => {
+    if (maybeSkip()) return;
+    // ERP-WH-A-OLD is held only by the RETIRED fixture row on STORE_A_Y.
+    const res = await http()
+      .post(BASE_URL)
+      .send({ store_id: STORE_A_UNMAPPED, erpnext_warehouse_ref: "ERP-WH-A-OLD" });
+    expect(res.status).toBe(201);
+  });
+
+  it("the same Warehouse ref in another tenant does not count", async () => {
+    if (maybeSkip()) return;
+    // ERP-WH-B-001 is tenant B's active mapping.
+    const res = await http()
+      .post(BASE_URL)
+      .send({ store_id: STORE_A_UNMAPPED, erpnext_warehouse_ref: "ERP-WH-B-001" });
+    expect(res.status).toBe(201);
   });
 });
 

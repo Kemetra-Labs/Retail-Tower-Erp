@@ -19,6 +19,7 @@ import { GatedButton } from "@/components/GatedButton";
 import { InlineError } from "@/components/InlineError";
 import { type MessageKey, useT } from "@/i18n";
 import { textField } from "@/lib/form-field";
+import { useClaimRateLimit } from "../rateLimitOwner";
 import { SUPPORT_PURPOSES } from "./startSessionLogic";
 import { type StartView, useStartSession } from "./useStartSession";
 import "@/shell/surface.css";
@@ -238,6 +239,8 @@ export function StartSessionDrawer(props: Readonly<StartSessionDrawerProps>): Re
   const t = useT();
   const { tenant, onClose } = props;
   const start = useStartSession(tenant.id, onClose);
+  // RT-931: a 429 is said in the drawer, once; the shell's shared banner skips it.
+  useClaimRateLimit(start.notice?.rateLimitSeq);
 
   return (
     <Drawer

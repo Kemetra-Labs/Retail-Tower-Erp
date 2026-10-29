@@ -78,6 +78,10 @@ const OPERATION_IDS = [
   "createInventoryRecall",
   "getInventoryRecall",
   "correctTrackingIdentityExpiry",
+  // RT-449 PR 2: the Safety TTL setting and the computed safety findings.
+  "getSafetyTtlSetting",
+  "setSafetyTtlSetting",
+  "listInventorySafetyFindings",
 ] as const;
 
 // Operator-surface ops use cookieAuth; the backfill is platform/admin.
@@ -99,6 +103,9 @@ const OPERATOR_OPERATION_IDS = [
   "createInventoryRecall",
   "getInventoryRecall",
   "correctTrackingIdentityExpiry",
+  "getSafetyTtlSetting",
+  "setSafetyTtlSetting",
+  "listInventorySafetyFindings",
 ];
 const ADMIN_OPERATION_IDS = ["backfillSaleLinkedMovements"];
 
@@ -116,8 +123,9 @@ const WRITE_OPERATION_IDS = [
 ];
 // releaseTrackingHold is naturally idempotent (a released hold is final; a
 // second release writes nothing), so it carries no Idempotency-Key.
-// setReturnLandingPolicy is a PUT of the whole value: repeating it is
-// naturally idempotent, so it carries no Idempotency-Key (and is in neither list).
+// setReturnLandingPolicy and setSafetyTtlSetting are PUTs of the whole value:
+// repeating one is naturally idempotent, so it carries no Idempotency-Key (and
+// is in neither list).
 const READ_OPERATION_IDS = [
   "getOnHand",
   "listStockMovements",
@@ -127,6 +135,8 @@ const READ_OPERATION_IDS = [
   "getTrackingHold",
   "getInventoryRecall",
   "releaseTrackingHold",
+  "getSafetyTtlSetting",
+  "listInventorySafetyFindings",
 ];
 
 const MOVEMENTS_PATH = "/api/inventory/v1/stores/{storeId}/movements";
@@ -145,6 +155,8 @@ const HOLD_RELEASE_PATH = "/api/inventory/v1/tracking-holds/{holdId}/release";
 const RECALLS_PATH = "/api/inventory/v1/recalls";
 const RECALL_PATH = "/api/inventory/v1/recalls/{recallId}";
 const EXPIRY_CORRECTIONS_PATH = "/api/inventory/v1/tracking-identities/{identityId}/expiry-corrections";
+const SAFETY_TTL_PATH = "/api/inventory/v1/settings/safety-ttl";
+const SAFETY_FINDINGS_PATH = "/api/inventory/v1/safety/findings";
 
 // Field-name substrings forbidden anywhere in the contract (§XIV — no PII /
 // money / payment / tender on the inventory ledger in v1).
@@ -317,7 +329,7 @@ describe("inventory/inventory.yaml — loadability", () => {
 // 2. Operations present, uniquely named, correctly secured
 // ===========================================================================
 describe("inventory/inventory.yaml — operations", () => {
-  it("declares exactly the six 009 operationIds, RT-432's listStockLocations, RT-448's listTrackingIdentities, RT-435's four and RT-449's six", () => {
+  it("declares exactly the six 009 operationIds, RT-432's listStockLocations, RT-448's listTrackingIdentities, RT-435's four and RT-449's nine", () => {
     const ids = inventoryOperations()
       .map((o) => o.op.operationId)
       .filter((id): id is string => typeof id === "string")
@@ -365,6 +377,9 @@ describe("inventory/inventory.yaml — operations", () => {
     [RECALLS_PATH, "post", "createInventoryRecall"],
     [RECALL_PATH, "get", "getInventoryRecall"],
     [EXPIRY_CORRECTIONS_PATH, "post", "correctTrackingIdentityExpiry"],
+    [SAFETY_TTL_PATH, "get", "getSafetyTtlSetting"],
+    [SAFETY_TTL_PATH, "put", "setSafetyTtlSetting"],
+    [SAFETY_FINDINGS_PATH, "get", "listInventorySafetyFindings"],
   ])("RT-449: maps %s %s to %s", (path, method, operationId) => {
     expect(inventoryDoc.paths?.[path]?.[method]?.operationId).toBe(operationId);
   });
@@ -479,6 +494,7 @@ describe("inventory/inventory.yaml — projections + envelope", () => {
       "CreateStatusMoveCommand",
       "CreateRelocationCommand",
       "SetReturnLandingPolicyCommand",
+      "SetSafetyTtlSettingCommand",
       "PlaceQualityHoldCommand",
       "ReleaseTrackingHoldCommand",
       "CreateInventoryRecallCommand",
@@ -797,5 +813,69 @@ describe("inventory/inventory.yaml — RT-449 holds, recall and safety revision"
     for (const id of ["placeQualityHold", "createInventoryRecall", "correctTrackingIdentityExpiry"]) {
       expect(findOp(id)?.responses?.["409"]).toEqual({ $ref: "#/components/responses/SafetyConflict" });
     }
+  });
+});
+
+// ===========================================================================
+// RT-449 PR 2 — the Safety TTL setting and the computed safety findings
+// ===========================================================================
+describe("inventory/inventory.yaml — RT-449 PR 2 Safety TTL and findings", () => {
+  type Prop = { type?: unknown; enum?: unknown[]; const?: unknown; minimum?: number; maximum?: number; $ref?: string };
+  type Schema = {
+    properties?: Record<string, Prop>;
+    required?: string[];
+    additionalProperties?: unknown;
+    oneOf?: Array<{ $ref?: string }>;
+    discriminator?: { propertyName?: string; mapping?: Record<string, string> };
+  };
+  const schema = (name: string): Schema => (inventoryDoc.components?.schemas?.[name] ?? {}) as Schema;
+  const FINDINGS = ["ActiveTrackingHoldFinding", "ExpiredLotSellableFinding", "ExpiringLotFinding"];
+
+  it("is the 1.8.0 draft", () => {
+    expect(inventoryDoc.info?.version).toBe("1.8.0-draft");
+  });
+
+  it("bounds the Safety TTL to 60-900 seconds, null meaning the default (H8)", () => {
+    const cmd = schema("SetSafetyTtlSettingCommand").properties?.["safetyTtlSeconds"];
+    expect(cmd).toMatchObject({ type: ["integer", "null"], minimum: 60, maximum: 900 });
+    const setting = schema("SafetyTtlSetting");
+    expect(setting.additionalProperties).toBe(false);
+    expect(setting.required).toEqual(["safetyTtlSeconds", "effectiveSafetyTtlSeconds", "updatedAt"]);
+    expect(setting.properties?.["effectiveSafetyTtlSeconds"]).toMatchObject({ type: "integer", minimum: 60, maximum: 900 });
+  });
+
+  it("answers a PUT of the Safety TTL with 400 on a refused value", () => {
+    expect(findOp("setSafetyTtlSetting")?.responses?.["400"]).toEqual({
+      $ref: "#/components/responses/ValidationFailure",
+    });
+  });
+
+  it("lists findings as a closed, discriminated union of three strict kinds", () => {
+    const finding = schema("InventorySafetyFinding");
+    expect(finding.oneOf?.map((o) => o.$ref)).toEqual(FINDINGS.map((n) => `#/components/schemas/${n}`));
+    expect(finding.discriminator?.propertyName).toBe("kind");
+    expect(Object.keys(finding.discriminator?.mapping ?? {})).toEqual([
+      "active_tracking_hold",
+      "expired_lot_sellable",
+      "expiring_lot",
+    ]);
+    for (const name of FINDINGS) {
+      expect(schema(name).additionalProperties).toBe(false);
+      expect(schema(name).required).toEqual(expect.arrayContaining(["kind", "severity", "trackingIdentityId"]));
+    }
+  });
+
+  it("rates an active hold and an expired sellable lot critical, a reserved expiring lot a warning", () => {
+    expect(schema("ActiveTrackingHoldFinding").properties?.["severity"]?.const).toBe("critical");
+    expect(schema("ExpiredLotSellableFinding").properties?.["severity"]?.const).toBe("critical");
+    expect(schema("ExpiringLotFinding").properties?.["severity"]?.const).toBe("warning");
+    expect(schema("ActiveTrackingHoldFinding").properties?.["holdKind"]?.enum).toEqual([...TRACKING_HOLD_KINDS]);
+  });
+
+  it("documents that expiring_lot is never emitted until RT-50 B1", () => {
+    expect(findOp("listInventorySafetyFindings")).toBeDefined();
+    const op = inventoryDoc.paths?.[SAFETY_FINDINGS_PATH]?.["get"] as { description?: string } | undefined;
+    expect(op?.description).toMatch(/never emitted in 1\.8\.0/);
+    expect(op?.description).toMatch(/RT-50 B1/);
   });
 });

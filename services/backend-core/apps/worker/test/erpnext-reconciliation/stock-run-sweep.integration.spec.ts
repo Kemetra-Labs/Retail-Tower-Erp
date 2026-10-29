@@ -465,7 +465,7 @@ describe("RT-179 eligibility is atomic with run creation", () => {
     );
     await env.admin.query(
       `INSERT INTO erpnext_warehouse_map (tenant_id, store_id, purpose, erpnext_warehouse_ref, set_by)
-       VALUES ($1, $2, 'stock', 'WH-D1', $5), ($3, $4, 'stock', 'WH-AR', $5)`,
+       VALUES ($1, $2, 'stock', 'WH-D1', $5), ($3, $4, 'stock', 'WH-ARACE', $5)`,
       [TENANT_D, D_MAPPED, TENANT_A, A_RACE, ACTOR],
     );
   });

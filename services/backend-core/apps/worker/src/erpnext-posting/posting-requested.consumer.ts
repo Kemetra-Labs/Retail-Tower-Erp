@@ -487,11 +487,13 @@ export class PostingRequestedConsumer
     | { status: "pending" }
     | { status: "permanently_rejected"; rejectionCategory: RejectionCategory }
   > {
-    // (a) store → an active warehouse mapping (rider R5: never guess).
+    // (a) store → an active `stock` warehouse mapping (rider R5: never guess).
+    // RT-433: the same purpose the freeze joins, so a store with only a
+    // `returns` map is rejected here rather than failing to freeze.
     const wh = await client.query<{ count: string }>(
       `SELECT count(*)::text AS count
          FROM erpnext_warehouse_map
-        WHERE store_id = $1 AND retired_at IS NULL`,
+        WHERE store_id = $1 AND purpose = 'stock' AND retired_at IS NULL`,
       [input.storeId],
     );
     if (Number(wh.rows[0]?.count ?? "0") === 0) {

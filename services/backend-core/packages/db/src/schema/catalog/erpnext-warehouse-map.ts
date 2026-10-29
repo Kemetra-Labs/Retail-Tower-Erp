@@ -42,7 +42,6 @@
 import { sql } from "drizzle-orm";
 import {
   check,
-  index,
   integer,
   pgTable,
   text,
@@ -94,8 +93,10 @@ export const erpnextWarehouseMap = pgTable(
     uniqueIndex("UQ_idx_erpnext_warehouse_map_active")
       .on(t.tenantId, t.storeId, t.purpose)
       .where(sql`${t.retiredAt} IS NULL`),
-    // Reverse lookup — which store(s) point at an ERPNext Warehouse (reconciliation/audit).
-    index("idx_erpnext_warehouse_map_ref")
+    // RT-433 (RT-290 M-2/M-3, migration 0075): one store per ERPNext Warehouse —
+    // at most one ACTIVE mapping per (tenant, ref), whatever its purpose. Also
+    // the reverse lookup (which store points at a Warehouse).
+    uniqueIndex("UQ_idx_erpnext_warehouse_map_ref_active")
       .on(t.tenantId, t.erpnextWarehouseRef)
       .where(sql`${t.retiredAt} IS NULL`),
   ],

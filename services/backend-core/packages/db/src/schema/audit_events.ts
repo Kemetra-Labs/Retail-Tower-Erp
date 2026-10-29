@@ -8,40 +8,52 @@
  * RLS-enabled by `tenant_id`. Rows with `tenant_id IS NULL` are platform-
  * scoped and visible only to platform admins.
  */
-import { jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { index, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { stores } from "./stores";
 import { tenants } from "./tenants";
 import { users } from "./users";
 
-export const auditEvents = pgTable("audit_events", {
-  id: uuid("id").primaryKey(),
-  occurredAt: timestamp("occurred_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  actorUserId: uuid("actor_user_id").references(() => users.id, {
-    onDelete: "set null",
-  }),
-  actorLabel: text("actor_label"),
-  tenantId: uuid("tenant_id").references(() => tenants.id, {
-    onDelete: "restrict",
-  }),
-  storeId: uuid("store_id").references(() => stores.id, {
-    onDelete: "set null",
-  }),
-  action: text("action").notNull(),
-  targetType: text("target_type"),
-  targetId: uuid("target_id"),
-  metadata: jsonb("metadata").notNull().default({}),
-  requestId: uuid("request_id"),
-  /**
-   * T311 — lifecycle marker set by the retention sweep worker.
-   * NULL = row has not yet been evaluated by the sweep.
-   * Non-null = sweep marked this row as past the documented retention window
-   * (365 days from occurred_at). No audit fact columns are altered by the sweep.
-   * Only the retention worker path may set this column.
-   */
-  retentionMarkedAt: timestamp("retention_marked_at", { withTimezone: true }),
-});
+export const auditEvents = pgTable(
+  "audit_events",
+  {
+    id: uuid("id").primaryKey(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    actorUserId: uuid("actor_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    actorLabel: text("actor_label"),
+    tenantId: uuid("tenant_id").references(() => tenants.id, {
+      onDelete: "restrict",
+    }),
+    storeId: uuid("store_id").references(() => stores.id, {
+      onDelete: "set null",
+    }),
+    action: text("action").notNull(),
+    targetType: text("target_type"),
+    targetId: uuid("target_id"),
+    metadata: jsonb("metadata").notNull().default({}),
+    requestId: uuid("request_id"),
+    /**
+     * T311 — lifecycle marker set by the retention sweep worker.
+     * NULL = row has not yet been evaluated by the sweep.
+     * Non-null = sweep marked this row as past the documented retention window
+     * (365 days from occurred_at). No audit fact columns are altered by the sweep.
+     * Only the retention worker path may set this column.
+     */
+    retentionMarkedAt: timestamp("retention_marked_at", { withTimezone: true }),
+  },
+  (t) => [
+    // RT-808 (migration 0074, built CONCURRENTLY): the platform-scope audit
+    // read, `tenant_id IS NULL ORDER BY occurred_at DESC, id DESC`, in keyset
+    // order. The 0000/0004 indexes are declared in SQL only.
+    index("audit_events_platform_time_idx")
+      .on(t.occurredAt.desc(), t.id.desc())
+      .where(sql`${t.tenantId} IS NULL`),
+  ],
+);
 
 export type AuditEventRow = typeof auditEvents.$inferSelect;
 export type NewAuditEventRow = typeof auditEvents.$inferInsert;

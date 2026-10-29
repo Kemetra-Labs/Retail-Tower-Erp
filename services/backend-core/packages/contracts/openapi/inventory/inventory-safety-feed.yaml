@@ -1,0 +1,446 @@
+openapi: 3.1.0
+info:
+  title: Data-Pulse-2 Inventory — POS Inventory Safety Feed API
+  version: "1.0.0-draft"
+  description: >
+    RT-449 PR 2 (RT-50 Gate 7 F2, G7-6 / G7-7; owner approval and rulings
+    H1–H8 in RT-449 comment 13434). The READ-ONLY publication of a tenant's
+    active Tracking Holds to device-authenticated POS terminals, as a snapshot
+    plus a delta by Inventory Safety Revision. It is a separate feed from the
+    catalogue read-down (`catalog/read-down.yaml`) and has its own cursor: the
+    revision. GET only; no write surface.
+
+
+    Two operations, both POS-facing (`/api/pos/v1/inventory-safety/...`),
+    authenticated by the role-named `device` scheme (the terminal's pairing
+    token, as `catalog/read-down.yaml`). The device row supplies the
+    authoritative tenant and store; body or query scope is never trusted. A
+    supplied `branch_id` is checked against the device's store and a
+    mismatch is a non-disclosing 404.
+
+
+    CONTENT (H5). Identities and holds belong to the tenant, not to a store:
+    every store's feed carries ALL of the tenant's active holds. A hold row
+    names the hold, its kind (`quality_hold` or `recall_hold`), the tracking
+    identity (its kind, its code exactly as printed, its expiry date) and the
+    product as `product_id`, the same key as `SellableCatalogRow.product_id`
+    in the catalogue read-down. An active hold blocks selling the identity
+    (G7-6). There is no product-level sell hold here; that is Catalog (RT-281,
+    RT-50 B6).
+
+
+    INVENTORY SAFETY REVISION (G7-7). A per-tenant monotonic integer, stepped
+    exactly once in the same transaction as every hold or recall placement or
+    release, identity expiry correction and tracking-profile change. 0 means
+    the tenant has had no safety change yet. Every tracked-line validation
+    answers the current revision (`pos-sales/tracked-lines.yaml`); the till
+    compares it with the revision of its last sync from this feed.
+
+
+    SYNC. (1) Page through `posGetInventorySafetySnapshot` with
+    `next_page_token` until it is null; every page answers the same
+    `revision`. (2) Call `posGetInventorySafetyDeltas` with `since` = that
+    `revision`, and then with each answered `revision`, until `has_more` is
+    false. A snapshot REPLACES the till's hold set, never merges into it:
+    build a new set from the snapshot pages and the deltas that follow, keep
+    enforcing the old set meanwhile, and swap the new one in only when a
+    delta answers `has_more: false` (a hold released since the old set was
+    built would otherwise stay). A delta carries the CURRENT state of every hold touched by a change
+    after `since`: an active hold is an upsert (replace the row by
+    `hold_id`), a released hold is a removal. Applying a delta is
+    idempotent; removing a hold the till does not hold is a no-op; replaying
+    the same `since` is safe. A change that touches no hold (a tracking-profile
+    change) still advances `revision`. Holds placed or released while the
+    snapshot pages were read are converged by the first delta. `since` above
+    the tenant's current revision answers 409 `snapshot_required`: start
+    again at (1). The revision log is never pruned, so an old `since` is
+    always servable. LIMIT: a revision is a plain per-tenant counter. After a
+    database restore to an earlier revision, the numbers are issued again;
+    once new safety changes reach the till's `since`, the delta cannot tell
+    the new history from the one the till applied. A restore must therefore
+    be followed by a re-baseline of every till (start again at (1)); this
+    contract does not detect it.
+
+
+    SAFETY TTL (G7-7, RT-50 Q8, H8). Every response carries
+    `safety_ttl_seconds`: the maximum age of the till's last successful sync
+    from this feed. The tenant configures it in Inventory
+    (`setSafetyTtlSetting`, `inventory/inventory.yaml`): 60 to 900 seconds,
+    900 (15 minutes) when unset, never above 900. Beyond it the till treats
+    its safety data as stale: non-tracked sales continue with a "safety data
+    stale" banner and record the revision they ran under (Q8a); tracked lines
+    are already protected by the online Tracked Line Validation.
+
+
+    REACHABILITY. Holds exist only on tracking identities, and identities are
+    ERP-born only (G7-3): nothing creates one until the identity import
+    (RT-453, F6). Until then this feed answers an empty snapshot.
+
+
+    ROLLOUT. A till MUST pin this contract before it consumes the feed (POS
+    F7, `apps/pos/contracts/backend-core/PIN`). The responses are
+    `additionalProperties: false`.
+
+
+    Errors use the canonical envelope. The `error.code` set on this surface
+    is closed: `validation_error` (400), `unauthorized` (401, including the
+    message `store_context_required` for a device with no resolved store),
+    `not_found` (404), `snapshot_required` (409) and `internal_error` (500).
+
+servers:
+  - url: https://api.example.com
+
+tags:
+  - name: inventory-safety-feed
+    description: >
+      POS inventory safety feed: the tenant's active tracking holds as a
+      snapshot plus a delta by Inventory Safety Revision (RT-449).
+
+paths:
+  /api/pos/v1/inventory-safety/snapshot:
+    get:
+      summary: Get the tenant's active tracking holds at one safety revision.
+      operationId: posGetInventorySafetySnapshot
+      tags: [inventory-safety-feed]
+      security:
+        - device: []
+      description: >
+        Every active tracking hold of the device's tenant (H5), ordered by
+        `hold_id`, cursor-paginated via `next_page_token`. Every page answers
+        the `revision` read with the first page. Continue with
+        `posGetInventorySafetyDeltas` from that `revision`. Scope comes from
+        the device row only; a supplied `branch_id` that is not the device's
+        store is a non-disclosing 404, and so is a page token that is
+        malformed or was issued to another device scope.
+      parameters:
+        - $ref: "#/components/parameters/BranchId"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of active holds at a fixed safety revision.
+          headers:
+            X-Device-Token-Rotate-After:
+              $ref: "#/components/headers/DeviceTokenRotateAfter"
+            X-Device-Token-Rotate-Stage:
+              $ref: "#/components/headers/DeviceTokenRotateStage"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventorySafetySnapshotPage"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/pos/v1/inventory-safety/deltas:
+    get:
+      summary: Get the holds changed after a safety revision.
+      operationId: posGetInventorySafetyDeltas
+      tags: [inventory-safety-feed]
+      security:
+        - device: []
+      description: >
+        The current state of every hold touched by a revision step after
+        `since`, at most `limit` revision steps per call, in revision order. A
+        hold placement or release names its hold; a recall names every hold
+        it placed; an expiry correction names the active holds of the
+        corrected identity (with the new `expiry_date`); a tracking-profile
+        change names none. Each touched hold is answered once: as an upsert
+        while it is active, as a removal once released. `revision` is the
+        revision to send as the next `since`; on the last call
+        (`has_more: false`) it is the tenant's current revision. `since`
+        above the current revision is 409 `snapshot_required`.
+      parameters:
+        - $ref: "#/components/parameters/Since"
+        - $ref: "#/components/parameters/BranchId"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: The holds changed after `since`, with the advanced revision.
+          headers:
+            X-Device-Token-Rotate-After:
+              $ref: "#/components/headers/DeviceTokenRotateAfter"
+            X-Device-Token-Rotate-Stage:
+              $ref: "#/components/headers/DeviceTokenRotateStage"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventorySafetyDeltaPage"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/SnapshotRequired"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+components:
+  headers:
+    DeviceTokenRotateAfter:
+      description: >
+        RT-639. Present only when this device credential has 15 days or less
+        left: the ISO-8601 instant `expires_at - 15 days`. The terminal
+        rotates at or after it. Never carries token material. See
+        `pos-terminal-pairing.openapi.yaml`, "Credential rotation".
+      required: false
+      schema:
+        type: string
+        format: date-time
+    DeviceTokenRotateStage:
+      description: >
+        RT-639. Sent with `X-Device-Token-Rotate-After`: `notice` (15 days or
+        less left), `warning` (10 or less), `urgent` (3 or less, or already
+        past `expires_at`).
+      required: false
+      schema:
+        type: string
+        enum: [notice, warning, urgent]
+
+  securitySchemes:
+    # The role-named POS device-credential scheme of catalog/read-down.yaml:
+    # the terminal's pairing token, an opaque token (NOT a JWT), so no
+    # `bearerFormat`.
+    device:
+      type: http
+      scheme: bearer
+      description: >
+        Opaque, device-scoped bearer token. The POS terminal presents its
+        `devices` pairing token as `Authorization: Bearer <device_token>`; the
+        token is hashed and matched against an active (non-revoked) `devices`
+        row, which supplies the authoritative tenant and store. Fail-closed:
+        a missing, malformed, unknown or revoked token, or a non-device
+        credential, is a generic 401. An operator session does not
+        authenticate this surface.
+
+  parameters:
+    BranchId:
+      name: branch_id
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: >
+        The device's store (POS wire term for `store_id`). When supplied it
+        must equal the device's store; a mismatch is a non-disclosing 404.
+        Callers SHOULD send it to catch branch drift early.
+    PageToken:
+      name: page_token
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+      description: >
+        The previous snapshot page's `next_page_token`. Opaque: clients MUST
+        NOT decode or construct it. It is bound to the device's scope and to
+        the snapshot's revision; a malformed or foreign token is a
+        non-disclosing 404.
+    Since:
+      name: since
+      in: query
+      required: true
+      schema:
+        $ref: "#/components/schemas/FeedRevision"
+      description: >
+        The `revision` of the last snapshot or delta the till applied.
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+        default: 500
+      description: >
+        Snapshot: the maximum holds per page. Deltas: the maximum revision
+        steps per call (a recall step may name up to 100 holds).
+
+  schemas:
+    FeedRevision:
+      type: integer
+      format: int64
+      minimum: 0
+      description: >
+        The tenant's Inventory Safety Revision (G7-7). 0 until the tenant's
+        first safety change.
+    SafetyTtlSeconds:
+      type: integer
+      minimum: 60
+      maximum: 900
+      description: >
+        The tenant's effective Safety TTL in seconds (H8): the configured
+        value, or 900 when unset. The maximum age of the till's last
+        successful sync from this feed before its safety data is stale.
+    SafetyHold:
+      type: object
+      additionalProperties: false
+      required:
+        [hold_id, kind, tracking_identity_id, product_id, identity_kind, identity_code, expiry_date,
+         reason_code, recall_id, placed_at]
+      description: An active Tracking Hold. While it is listed, the identity is not sellable.
+      properties:
+        hold_id: { type: string, format: uuid }
+        kind:
+          type: string
+          enum: [quality_hold, recall_hold]
+        tracking_identity_id: { type: string, format: uuid }
+        product_id:
+          type: string
+          format: uuid
+          description: The held identity's product; the catalogue read-down's `product_id`.
+        identity_kind:
+          type: string
+          enum: [batch, serial]
+        identity_code:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: The lot or serial number exactly as printed; matched exactly, never fuzzily.
+        expiry_date:
+          type: [string, "null"]
+          format: date
+          description: The identity's current expiry date (sellable through it, inclusive; G7-5).
+        reason_code:
+          type: string
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          description: The hold's machine reason code.
+        recall_id:
+          type: [string, "null"]
+          format: uuid
+          description: The recall that placed a `recall_hold`; null for a `quality_hold`.
+        placed_at: { type: string, format: date-time }
+    SafetyHoldRemoval:
+      type: object
+      additionalProperties: false
+      required: [hold_id, tracking_identity_id]
+      description: A hold that is no longer active (released). Drop it by `hold_id`.
+      properties:
+        hold_id: { type: string, format: uuid }
+        tracking_identity_id: { type: string, format: uuid }
+    InventorySafetySnapshotPage:
+      type: object
+      additionalProperties: false
+      required: [revision, holds, next_page_token, safety_ttl_seconds, served_at]
+      properties:
+        revision:
+          $ref: "#/components/schemas/FeedRevision"
+        holds:
+          type: array
+          items:
+            $ref: "#/components/schemas/SafetyHold"
+        next_page_token:
+          type: [string, "null"]
+          description: The next page's token; null on the last page.
+        safety_ttl_seconds:
+          $ref: "#/components/schemas/SafetyTtlSeconds"
+        served_at:
+          type: string
+          format: date-time
+          description: The server time of this answer.
+    InventorySafetyDeltaPage:
+      type: object
+      additionalProperties: false
+      required: [from_revision, revision, upserts, removals, has_more, safety_ttl_seconds, served_at]
+      properties:
+        from_revision:
+          $ref: "#/components/schemas/FeedRevision"
+        revision:
+          $ref: "#/components/schemas/FeedRevision"
+        upserts:
+          type: array
+          items:
+            $ref: "#/components/schemas/SafetyHold"
+        removals:
+          type: array
+          items:
+            $ref: "#/components/schemas/SafetyHoldRemoval"
+        has_more:
+          type: boolean
+          description: True when more revision steps follow `revision`; call again with `since` = `revision`.
+        safety_ttl_seconds:
+          $ref: "#/components/schemas/SafetyTtlSeconds"
+        served_at:
+          type: string
+          format: date-time
+          description: The server time of this answer.
+    Error:
+      type: object
+      required: [error]
+      description: >
+        Canonical error envelope (`auth.openapi.yaml`). Out-of-scope refusals
+        are non-disclosing; they never name the cause. A 400 may carry
+        `details` (the failed query checks).
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: >
+                Closed set on this surface: validation_error | unauthorized |
+                not_found | snapshot_required | internal_error.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id.
+            details:
+              description: Validation detail of a 400 only.
+
+  responses:
+    ValidationFailure:
+      description: >
+        400 `validation_error`: a malformed `branch_id`, `since` or `limit`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: >
+        401 `unauthorized`. A missing, invalid or revoked device token, or a
+        non-device credential (non-disclosing). Also a device with no resolved
+        store (message `store_context_required`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: >
+        404 `not_found`: a `branch_id` that is not the device's store, or a
+        malformed or foreign `page_token`. Indistinguishable from an absent
+        scope (non-disclosing).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SnapshotRequired:
+      description: >
+        409 `snapshot_required`: `since` is above the tenant's current
+        revision (a till ahead of the server, for example after a database
+        restore before any new safety change). Re-baseline with
+        `posGetInventorySafetySnapshot`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SystemFailure:
+      description: >
+        500 `internal_error`: an unexpected server error. The cause is
+        recorded server-side under `request_id`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"

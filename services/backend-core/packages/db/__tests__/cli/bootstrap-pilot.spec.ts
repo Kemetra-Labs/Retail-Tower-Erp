@@ -223,6 +223,25 @@ describe("bootstrap-pilot seed", () => {
     expect(memberships.rows).toHaveLength(0);
   });
 
+  it("refuses disabled-only links owned by two users (no active link to decide)", async () => {
+    if (skip()) return;
+    const cfg = config();
+    const { subject } = cfg.operatorIdentity;
+    const a = pg().admin;
+    const holders = ["0a000000-0000-7000-8000-79700000d001", "0a000000-0000-7000-8000-79700000d002"];
+    for (const [i, user] of holders.entries()) {
+      await a.query("INSERT INTO users (id, email) VALUES ($1, $2)", [user, `disabled${i}-${subject}@rt797.example`]);
+      await a.query(
+        `INSERT INTO external_identity_links (provider_key, issuer, subject, user_id, status, disabled_at)
+         VALUES ('acme', $1, $2, $3, 'disabled', now())`,
+        [`https://issuer-${i}.rt797.example`, subject, user],
+      );
+    }
+    await expect(runSeed(cfg)).rejects.toThrow(/more than one user/);
+    const memberships = await a.query("SELECT 1 FROM memberships WHERE user_id = ANY($1::uuid[])", [holders]);
+    expect(memberships.rows).toHaveLength(0);
+  });
+
   it("never re-activates a disabled configured link, even when it is the user's only link", async () => {
     if (skip()) return;
     const cfg = config();

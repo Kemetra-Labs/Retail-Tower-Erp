@@ -196,7 +196,8 @@ async function lockOperatorIdentity(client: ClientBase, identity: OperatorIdenti
  *
  * More than one ACTIVE link for (provider, subject) (two users, two issuers)
  * is refused, as the sign-in resolver refuses it: the seed must not give pilot
- * membership to one of two users that neither can sign in as.
+ * membership to one of two users that neither can sign in as. With no active
+ * link, disabled links owned by more than one user are refused the same way.
  */
 async function findOperatorUser(client: ClientBase, identity: OperatorIdentity): Promise<string | null> {
   const active = await client.query<{ user_id: string }>(
@@ -209,14 +210,18 @@ async function findOperatorUser(client: ClientBase, identity: OperatorIdentity):
     throw new Error('the configured operator identity has more than one active link (ambiguous); fix the links first');
   }
   if (active.rows[0]) return active.rows[0].user_id;
-  const viaLink = await client.query<{ user_id: string }>(
-    `SELECT user_id FROM external_identity_links
+  // Disabled links only: they must all belong to one user, or there is no
+  // operator to pick (never an arbitrary one of several).
+  const owners = await client.query<{ user_id: string }>(
+    `SELECT DISTINCT user_id FROM external_identity_links
       WHERE provider_key = $1 AND subject = $2
-      ORDER BY id
-      LIMIT 1`,
+      LIMIT 2`,
     [identity.providerKey, identity.subject],
   );
-  if (viaLink.rows[0]) return viaLink.rows[0].user_id;
+  if (owners.rows.length > 1) {
+    throw new Error('the configured operator identity has disabled links owned by more than one user; fix the links first');
+  }
+  if (owners.rows[0]) return owners.rows[0].user_id;
   const viaBridge = await client.query<{ id: string }>(
     `SELECT u.id FROM users u
       WHERE u.clerk_user_id = $1

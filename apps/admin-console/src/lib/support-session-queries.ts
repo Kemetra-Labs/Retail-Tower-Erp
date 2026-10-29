@@ -8,13 +8,15 @@
  */
 import { apiClient } from "@/generated/client";
 import type { components } from "@/generated/schema";
+import { rateLimitSeqOf } from "./rate-limit";
 
 /** POST /api/v1/platform/support-sessions. The body is built by `buildOpenRequest` only. */
 export async function openSupportSession(body: components["schemas"]["OpenSupportSessionRequest"]) {
   const { data, error, response } = await apiClient.POST("/api/v1/platform/support-sessions", {
     body,
   });
-  return { status: response.status, data, error };
+  // RT-940: a 429's own `seq`, for the start drawer to claim (not the clock's newest).
+  return { status: response.status, data, error, rateLimitSeq: rateLimitSeqOf(response) };
 }
 
 /** POST /api/v1/platform/support-sessions/current/renew */

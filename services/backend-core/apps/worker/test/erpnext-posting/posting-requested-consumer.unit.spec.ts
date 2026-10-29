@@ -19,6 +19,7 @@ import type { OutboxEventEnvelope } from "@data-pulse-2/shared";
 
 import {
   PostingRequestedConsumer,
+  PostingResolutionNotFrozenError,
   ReversalAwaitingSalePostError,
   type PostingRequestedPayload,
 } from "../../src/erpnext-posting/posting-requested.consumer";
@@ -306,6 +307,82 @@ describe("PostingRequestedConsumer — RT-207 reversal dead-letter while awaitin
 
     expect(counter).not.toHaveBeenCalled();
     expect(error).not.toHaveBeenCalled();
+  });
+});
+
+// RT-433 (RT-290): the creation precondition requires an active `stock`
+// warehouse map, the same purpose the resolution freeze joins. The fake answers
+// the precondition count from its active map purposes, honouring a
+// `purpose = 'stock'` filter only when the SQL carries one.
+describe("PostingRequestedConsumer — RT-433 precondition requires a stock warehouse map", () => {
+  function mapsPool(
+    purposes: ReadonlyArray<"stock" | "returns">,
+    frozenLines: number,
+  ): { pool: Pool; log: Recorded[] } {
+    const log: Recorded[] = [];
+    const query = async (sql: string, params: unknown[] = []) => {
+      log.push({ sql, params });
+      if (/FROM erpnext_warehouse_map/.test(sql)) {
+        const counted = /purpose = 'stock'/.test(sql) ? purposes.filter((p) => p === "stock") : purposes;
+        return { rows: [{ count: String(counted.length) }], rowCount: 1 };
+      }
+      if (/INSERT INTO erpnext_posting_resolution/.test(sql)) return { rows: [], rowCount: frozenLines };
+      if (/FROM sale_lines/.test(sql)) return { rows: [{ count: "0" }], rowCount: 1 };
+      if (/INSERT INTO erpnext_posting_status/.test(sql)) return { rows: [{ id: "x" }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    };
+    const client = { query, release: () => undefined };
+    return { pool: { connect: async () => client } as unknown as Pool, log };
+  }
+
+  const verdictOf = (log: Recorded[]) => {
+    const [insert] = inserts(log);
+    return { status: insert?.params[6], category: insert?.params[7] };
+  };
+  const freezes = (log: Recorded[]) => log.filter((q) => /INSERT INTO erpnext_posting_resolution/.test(q.sql));
+
+  it("a store with only a `returns` map → permanently_rejected / unmapped_store, nothing frozen", async () => {
+    const { pool, log } = mapsPool(["returns"], 0);
+    const consumer = new PostingRequestedConsumer(pool, { warn: jest.fn(), error: jest.fn() });
+
+    await consumer.handle(salePostEvent());
+
+    expect(verdictOf(log)).toEqual({ status: "permanently_rejected", category: "unmapped_store" });
+    expect(freezes(log)).toHaveLength(0);
+    expect(log.map((q) => q.sql)).not.toContain("ROLLBACK");
+  });
+
+  it("the precondition query filters on purpose = 'stock' and the active row", async () => {
+    const { pool, log } = mapsPool(["returns"], 0);
+    const consumer = new PostingRequestedConsumer(pool, { warn: jest.fn(), error: jest.fn() });
+
+    await consumer.handle(salePostEvent());
+
+    const [precondition] = log.filter((q) => /FROM erpnext_warehouse_map/.test(q.sql));
+    expect(precondition?.sql).toMatch(/purpose = 'stock'/);
+    expect(precondition?.sql).toMatch(/retired_at IS NULL/);
+    expect(precondition?.params).toEqual([STORE]);
+  });
+
+  it("a store with a `stock` map → pending and its resolution is frozen", async () => {
+    const { pool, log } = mapsPool(["stock", "returns"], 1);
+    const consumer = new PostingRequestedConsumer(pool, { warn: jest.fn(), error: jest.fn() });
+
+    await consumer.handle(salePostEvent());
+
+    expect(verdictOf(log)).toEqual({ status: "pending", category: null });
+    expect(freezes(log)).toHaveLength(1);
+  });
+
+  // The RT-330 guard stays: if the stock map is retired between the
+  // precondition and the freeze (READ COMMITTED), nothing is frozen and the
+  // intent rolls back for redelivery.
+  it("precondition passes but nothing freezes → PostingResolutionNotFrozenError and ROLLBACK", async () => {
+    const { pool, log } = mapsPool(["stock"], 0);
+    const consumer = new PostingRequestedConsumer(pool, { warn: jest.fn(), error: jest.fn() });
+
+    await expect(consumer.handle(salePostEvent())).rejects.toBeInstanceOf(PostingResolutionNotFrozenError);
+    expect(log.map((q) => q.sql)).toContain("ROLLBACK");
   });
 });
 
