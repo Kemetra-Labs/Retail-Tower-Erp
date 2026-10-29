@@ -276,6 +276,33 @@ describe('snapshot', () => {
     expect(await currentRevision()).toBe(first.revision + 1);
   });
 
+  it('converges with the deltas when holds change while the pages are read', async () => {
+    if (skipped()) return;
+    // Page 1, then a release of a hold page 1 served and a new placement, then the rest.
+    const first = await feed.getSnapshot(TENANT_A, STORE_A_X, { limit: 2, pageToken: null });
+    const held = new Set(first.holds.map((h) => h.hold_id));
+    await release(first.holds[0]!.hold_id);
+    await placeHold(await newIdentity());
+    let token = first.next_page_token;
+    while (token !== null) {
+      const page = await feed.getSnapshot(TENANT_A, STORE_A_X, { limit: 2, pageToken: token });
+      expect(page.revision).toBe(first.revision);
+      page.holds.forEach((h) => held.add(h.hold_id));
+      token = page.next_page_token;
+    }
+    // The snapshot is not a point-in-time image; the deltas from its revision make it one.
+    let since = first.revision;
+    for (;;) {
+      const page = await delta(since, 1);
+      page.upserts.forEach((h) => held.add(h.hold_id));
+      page.removals.forEach((r) => held.delete(r.hold_id));
+      since = page.revision;
+      if (!page.has_more) break;
+    }
+    expect([...held].sort()).toEqual(await activeHoldIds());
+    expect(since).toBe(await currentRevision());
+  });
+
   it('refuses a page token of another store, another tenant, or garbage', async () => {
     if (skipped()) return;
     const first = await feed.getSnapshot(TENANT_A, STORE_A_X, { limit: 1, pageToken: null });
