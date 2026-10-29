@@ -51,13 +51,17 @@ twice.
   (RT-752 AC 4). While the catalog is empty the header button is not shown, so the page has one
   primary. The filtered-empty state does not carry it: it offers «مسح عوامل التصفية» as today.
 - **Who sees it:** `owner` and `tenant_admin` only, the API's write roles (`canWriteCatalog`). For
-  `store_manager` and `store_staff` neither button is rendered and the list keeps today's read-only
-  subtitle.
+  `store_manager` neither button is rendered and the list keeps today's read-only subtitle.
+  `store_staff` does not reach the list at all: the catalog reads are for `owner`, `tenant_admin`
+  and `store_manager`, so the catalog routes show their non-disclosing "not available" state
+  (`canReadCatalog`). `canWriteCatalog` only decides what is shown; the server authorizes.
 - **Route:** `/catalog/products/new`, title «إضافة صنف». «الأصناف» stays the selected nav entry.
   Opening the route directly:
   - without a tenant in scope: the scope prompt, as on the other catalog routes;
-  - as `store_manager` or `store_staff`: a read-only notice and a way back, no form (the
-    `CatalogProductEdit` pattern);
+  - as `store_manager`: a read-only notice and a way back, no form (the `CatalogProductEdit`
+    pattern);
+  - as `store_staff`, or any role the catalog refuses: the "not available" state
+    (`catalog.detail.unavailable`), as `CatalogProductEdit` does;
   - the server's own refusal of a wrong role is the non-disclosing 404.
 - **Wording.** The task asked for «إضافة منتج». The shipped catalog follows the UX-12 glossary
   (Retail Item → «الصنف»): the nav entry is «الأصناف», the edit button «تعديل الصنف». The frames use
@@ -118,7 +122,8 @@ each clears live as it is fixed.
 - **«إلغاء» stays available**, also while an attempt is unsettled: leaving mints no key. Leaving
   then goes through the unsaved-work guard, which says the item may still be created (§7.3).
 - **Which outcomes keep the key** (`keepsKey`): 425, 500, and no response. Every other failure is
-  final for its key; the next submit mints a new one.
+  final for its key; the next submit mints a new one. A 429 also holds the next submit until its
+  `Retry-After` wait ends (the shared `RateLimitBanner`, §7.3).
 - **425 `idempotency_in_progress`:** the body carries `retryAfterSec` (integer, at least 1) and the
   `Retry-After` header the same. The banner counts down; «إعادة المحاولة» is unavailable (recessed,
   `aria-disabled`) until zero, then sends the same key and body. **Nothing retries on its own**,
@@ -206,7 +211,7 @@ All field labels, hints and client errors are the shipped `catalog.form.*` keys:
 | After «تعديل القيم» | ستُرسل القيم المعدّلة طلبًا جديدًا. تأكد أولًا من قائمة الأصناف أن الصنف لم يُنشأ. | Changed values are sent as a new request. Check the item list first that the item was not created. | new `catalog.create.editAfterUnknown` |
 | `origin_rejected` (403) | The shipped `catalog.write.error.origin` | | `catalog.write.error.origin` |
 | `not_found` (404) | ليست لديك صلاحية إضافة أصناف في هذه المؤسسة. | You cannot add items in this organization. | new `catalog.create.error.notFound` (the shipped key says "this item") |
-| `rate_limited` (429) | The shipped text | | `catalog.write.error.rateLimited` |
+| `rate_limited` (429) | The shared `RateLimitBanner` (RT-621): its countdown from `Retry-After`, then «you can try again now». «إنشاء الصنف» stays unavailable until the wait ends; the fields stay editable. Nothing was written, so the next submit gets a new key | | `rateLimit.wait`, `rateLimit.ready` |
 | `unauthorized` (401) | The shipped text, then the sign-in redirect | | `catalog.write.error.session` |
 
 The shipped `catalog.write.error.server` («ولم يُحفظ شيء») is **not** reused for the create: after a
