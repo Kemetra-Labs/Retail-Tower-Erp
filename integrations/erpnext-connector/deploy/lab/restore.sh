@@ -85,17 +85,18 @@ if [ -n "$RESUMED_AT" ]; then
   die 3 "restore refused for run $RUN_ID: the scheduler resumed at $RESUMED_AT; forward-fix only (a restore would delete invoices Backend-Core will never re-offer)"
 fi
 # Any later resume on this host (another run, or a recovery that restarted the workers) also
-# closes this run's window: the deploy writes <backups-root>/last-resumed-at before workers run.
-MARKER="$BACKUPS_ROOT/last-resumed-at"
-if [ -f "$MARKER" ]; then
-  LAST_RESUME="$(tr -d '[:space:]' < "$MARKER")"
-  TS_RE='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
-  [[ "$LAST_RESUME" =~ $TS_RE ]] || die 3 "restore refused: $MARKER is unreadable; forward-fix only until the owner checks it"
-  [[ "$STARTED_AT" =~ $TS_RE ]] || die 3 "restore refused: run $RUN_ID has no start time to compare with the last resume ($LAST_RESUME); forward-fix only"
-  if [[ ! "$LAST_RESUME" < "$STARTED_AT" ]]; then
-    die 3 "restore refused for run $RUN_ID: posting resumed on this host at $LAST_RESUME, after the run started ($STARTED_AT); forward-fix only"
-  fi
-fi
+# closes this run's window: every resume writes the host-wide marker before the workers run. Its
+# path is fixed for the host, never under --backups-root (RT_RESUME_MARKER overrides it for tests).
+MARKER="${RT_RESUME_MARKER:-/var/backups/rt-erp/last-resumed-at}"
+check_host_marker() {
+  local last ts_re='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+  [ -f "$MARKER" ] || return 0
+  last="$(tr -d '[:space:]' < "$MARKER")"
+  [[ "$last" =~ $ts_re ]] || die 3 "restore refused: $MARKER is unreadable; forward-fix only until the owner checks it"
+  [[ "$STARTED_AT" =~ $ts_re ]] || die 3 "restore refused: run $RUN_ID has no start time to compare with the last resume ($last); forward-fix only"
+  [[ "$last" < "$STARTED_AT" ]] || die 3 "restore refused for run $RUN_ID: posting resumed on this host at $last, after the run started ($STARTED_AT); forward-fix only"
+}
+check_host_marker
 [[ "$SITE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die 2 "the ledger has no valid site name"
 [[ "$DIGEST_BEFORE" =~ $IMAGE_RE ]] || die 2 "the ledger digestBefore is not a known image reference"
 [ "${#FILES[@]}" = 4 ] || die 2 "the ledger must list exactly four backup files"
@@ -132,6 +133,8 @@ dcx() { "$DC" -f "$COMPOSE" -f "$OVERRIDE" "$@"; }
 # The same lock RT-ErpLabDeploy holds: never stop the stack under a deploy that swaps or migrates.
 exec 9>/run/rt-erp-deploy.lock
 flock -n 9 || die 5 "a deploy is running (/run/rt-erp-deploy.lock is held); wait for it to end"
+# A deploy may have resumed between the first check and the lock: check again under the lock.
+check_host_marker
 
 echo "STEP 1 stop"
 "$DC" stop || die 5 "could not stop the project"
@@ -184,8 +187,9 @@ echo "STEP 5 previous-image"
 cp "$RUN_DIR/compose.yml" "$COMPOSE"
 # The workers start with the services, so posting resumes on the restored database: record it
 # first (the deploy's rule), which also refuses any later restore of this or an earlier run.
-printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$BACKUPS_ROOT/last-resumed-at.tmp" \
-  && mv -f "$BACKUPS_ROOT/last-resumed-at.tmp" "$BACKUPS_ROOT/last-resumed-at" \
+mkdir -p "$(dirname "$MARKER")"
+printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$MARKER.tmp" \
+  && mv -f "$MARKER.tmp" "$MARKER" \
   || die 5 "could not record the resume marker"
 dcx up -d || die 5 "could not start the services on the previous image"
 

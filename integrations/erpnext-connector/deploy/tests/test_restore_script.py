@@ -60,7 +60,9 @@ def _make_run(root: Path, *, resumed: bool = False, key: bool = True, digest: st
 
 def _run(root: Path, *args: str, path_prefix: Path | None = None) -> subprocess.CompletedProcess:
     # The same bash the test process would find (on Windows a bare "bash" can be the WSL launcher).
-    env = {**os.environ, "RT_PYTHON": sys.executable.replace("\\", "/")}
+    env = {**os.environ, "RT_PYTHON": sys.executable.replace("\\", "/"),
+           # The host-wide marker; tests point it at their own tmp dir (never under --backups-root).
+           "RT_RESUME_MARKER": (root / "host" / "last-resumed-at").as_posix()}
     if path_prefix is not None:
         env["PATH"] = os.pathsep.join([str(path_prefix), env["PATH"]])
     return subprocess.run([BASH, SCRIPT.name, *args], cwd=LAB, capture_output=True, text=True, env=env, check=False)
@@ -188,7 +190,31 @@ def test_a_host_resume_with_no_run_start_time_refuses(tmp_path):
 
 
 def _marker(root: Path, when: str) -> None:
-    (root / "last-resumed-at").write_text(when + "\n", encoding="utf-8", newline="\n")
+    (root / "host").mkdir(exist_ok=True)
+    (root / "host" / "last-resumed-at").write_text(when + "\n", encoding="utf-8", newline="\n")
+
+
+def test_a_marker_under_backups_root_is_not_the_host_marker(tmp_path):
+    """The marker path is host-wide, independent of --backups-root (PR #94 review)."""
+    _make_run(tmp_path)
+    (tmp_path / "last-resumed-at").write_text("2026-10-29T09:30:00Z\n", encoding="utf-8", newline="\n")
+    assert _dry(tmp_path).returncode == 0
+    _marker(tmp_path, "2026-10-29T09:30:00Z")
+    assert _dry(tmp_path).returncode == 3
+
+
+def test_marker_is_read_and_written_at_one_host_path():
+    text = SCRIPT.read_text(encoding="utf-8").replace("\r\n", "\n")
+    assert 'MARKER="${RT_RESUME_MARKER:-/var/backups/rt-erp/last-resumed-at}"' in text
+    assert "$BACKUPS_ROOT/last-resumed-at" not in text
+
+
+def test_host_marker_is_checked_again_after_the_lock():
+    """A deploy may resume between the first check and the lock (PR #94 review)."""
+    text = SCRIPT.read_text(encoding="utf-8").replace("\r\n", "\n")
+    lock = text.index("flock -n 9")
+    assert "check_host_marker" in text[: text.index('echo "PLAN 1')]
+    assert text.index("check_host_marker", lock) < text.index('echo "STEP 1 stop"')
 
 
 def _script() -> str:
@@ -208,4 +234,4 @@ def test_records_the_resume_before_the_services_start_again():
     """STEP 5 starts the workers: the host marker must close every earlier restore window first."""
     text = _script()
     step5 = text[text.index('echo "STEP 5 previous-image"'):]
-    assert step5.index("last-resumed-at") < step5.index("dcx up -d")
+    assert step5.index('mv -f "$MARKER.tmp" "$MARKER"') < step5.index("dcx up -d")
