@@ -56,7 +56,14 @@
  * counted; `closeShift`, the stuck list and every existing schema are
  * unchanged, and the late close / open replay of the opening terminal get the
  * distinct 409 `shift_force_closed` (a late movement keeps `shift_closed`);
- * the last describe block.
+ * the RT-742 describe block.
+ *
+ * RT-811 (1.5.0-draft, `[GATED]`, owner decision RT-811 comment 14372):
+ * description text only. A live cashier admission on the shift's opening
+ * terminal makes the drawer live for both `GET /shifts/stuck` and the
+ * `forceCloseShift` Eligibility; the refusal reuses 409 `shift_not_stuck` in
+ * the same order, replay first. No operation, status, code or schema
+ * changes; the last describe block.
  */
 import "reflect-metadata";
 
@@ -399,9 +406,9 @@ const VALID_CLOSE = {
 // 1. Document, version, and the unchanged stuck-shift surface
 // ===========================================================================
 describe("pos-shifts — document and version", () => {
-  it("is an OpenAPI 3.1 document at version 1.4.0-draft (RT-742; RT-490 was 1.3.0-draft)", () => {
+  it("is an OpenAPI 3.1 document at version 1.5.0-draft (RT-811; RT-742 was 1.4.0-draft)", () => {
     expect(doc.openapi).toBe("3.1.0");
-    expect(doc.info?.version).toBe("1.4.0-draft");
+    expect(doc.info?.version).toBe("1.5.0-draft");
   });
 
   it("carries an RT-384 version note: additive, [GATED], AD-CASH-001", () => {
@@ -1515,7 +1522,7 @@ describe("pos-shifts — RT-742 manager forced close from any terminal (1.4.0-dr
     expectAll(forceText(), [
       "**Eligibility** (its own predicate, evaluated at the call). The shift is open, was opened longer ago than the staleness threshold, and its opening cashier has no active `pos_operator` session on the store other than the caller's own envelope session",
       "This is the `GET /shifts/stuck` predicate with ONE difference: that list counts every active session, the caller's included",
-      "That shift is eligible here but not listed: `GET /shifts/stuck` is unchanged and does not surface it, so the manager supplies its `shift_id`",
+      "That shift is eligible here but not listed: `GET /shifts/stuck` still counts the caller's session and does not surface it, so the manager supplies its `shift_id`",
       "Widening the list is a separate owner decision",
       "a manager cannot close a live drawer from another terminal",
     ]);
@@ -1675,5 +1682,70 @@ describe("pos-shifts — RT-742 manager forced close from any terminal (1.4.0-dr
       "One eligible shift this list does not show is the caller's own (see `forceCloseShift`, Eligibility)",
     ]);
     expect(flat(op(FORCE_CLOSE).description)).not.toContain("by the `GET /shifts/stuck` rule");
+  });
+});
+
+// ===========================================================================
+// RT-811 — a live cashier admission on the opening terminal keeps the drawer live (1.5.0-draft)
+// ===========================================================================
+describe("pos-shifts — RT-811 live cashier admission on the opening terminal (1.5.0-draft)", () => {
+  const flat = (text: string | undefined): string => (text ?? "").replace(/\s+/g, " ");
+  const expectAll = (text: string, parts: readonly string[]): void => {
+    expect(parts.filter((part) => !text.includes(part))).toEqual([]);
+  };
+  const forceText = (): string => flat(op(FORCE_CLOSE).description);
+
+  it("carries an RT-811 note: [GATED] owner decision, description text only, no POS change", () => {
+    expectAll(flat(doc.info?.description), [
+      "RT-811 (1.5.0-draft; [GATED] owner decision 2026-10-29, Jira RT-811 comment 14372; RT-742 follow-up): description text only",
+      "never holds a `pos_operator` session",
+      "A drawer is now also live while its opening terminal holds a live cashier admission",
+      "any admission of the shift's tenant on that terminal, for any user, that has not ended for any reason (such as an `end` or a takeover) and has not expired, judged by the server clock at the call",
+      "Both `GET /shifts/stuck` and the `forceCloseShift` Eligibility apply it",
+      "The refusal reuses 409 `shift_not_stuck` at the same place in the order, and a replay of a recorded force close is still answered first",
+      "No operation, status, `error.code`, parameter or schema changes; the POS needs no change",
+      "and whose opening terminal holds no live cashier admission (RT-811)",
+    ]);
+  });
+
+  it("marks the admission rule as pending its runtime in the info note and both operations", () => {
+    expectAll(flat(doc.info?.description), [
+      "**Runtime status:** the admission rule is pending the RT-811 runtime change; until it ships, the server applies only the `pos_operator` rule",
+    ]);
+    expectAll(flat(op(STUCK).description), ["Runtime status: pending the RT-811 runtime change (see the info note)"]);
+    expectAll(forceText(), ["(runtime status: pending the RT-811 runtime change, see the info note)"]);
+  });
+
+  it("GET /shifts/stuck does not list a shift whose opening terminal holds a live cashier admission", () => {
+    expectAll(flat(op(STUCK).description), [
+      "whose opening cashier has no active `pos_operator` auth-token row on that branch, and whose opening terminal holds no live cashier admission",
+      "RT-811: a live cashier admission is one of the shift's tenant on the shift's opening terminal, for any user, that has not ended for any reason (such as an `end` or a takeover) and has not expired at the server clock",
+      "An admission that ended or expired does not count",
+    ]);
+  });
+
+  it("forceCloseShift Eligibility refuses while the opening terminal holds a live cashier admission, with no caller exception", () => {
+    expectAll(forceText(), [
+      "other than the caller's own envelope session. RT-811: and its opening terminal holds no live cashier admission",
+      "the caller's envelope makes no exception to it",
+      "It is checked in the same transaction that records the close",
+      "Otherwise 409 `shift_not_stuck`: a manager cannot close a live drawer from another terminal",
+    ]);
+  });
+
+  it("the Order keeps replay first: the admission check is part of the stuck rule, last", () => {
+    expectAll(forceText(), [
+      "then the stuck rule (409 `shift_not_stuck`), which includes the RT-811 cashier admission check: a live admission on the opening terminal never outranks the replay, the scope 404 or `shift_closed`",
+      "A replay of a recorded force close is never answered `shift_not_stuck`",
+    ]);
+  });
+
+  it("reuses 409 shift_not_stuck: the 409 names the admission cause and no new code", () => {
+    const conflict = flat(doc.components?.responses?.["ForceCloseShiftConflict"]?.description);
+    expectAll(conflict, ["or its opening terminal holds a live cashier admission, RT-811"]);
+    const codes = [...conflict.matchAll(/`([a-z_]+)`/g)].map((m) => m[1] ?? "").filter((c) => c.includes("_"));
+    expect([...new Set(codes)].sort()).toEqual(
+      ["idempotency_key_conflict", "pos_operator", "shift_closed", "shift_force_closed", "shift_not_stuck"],
+    );
   });
 });
