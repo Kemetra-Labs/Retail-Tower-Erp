@@ -2,7 +2,7 @@
 //
 // Every NEW line in breaking-ignore.txt acknowledges a contract break. This
 // script ties each line to the consumers that pin the affected contract: it
-// reads each consumer's public PIN file (tools/oasdiff/consumers.txt), builds
+// reads each consumer's in-tree PIN file (tools/oasdiff/consumers.txt), builds
 // the consumer's API path set from the pinned files AT THE CONSUMER'S OWN PIN
 // COMMIT (what the consumer actually built against, so a path the PR removes
 // still counts), and requires each line to carry a `consumer:<NAME>` tag (or
@@ -23,14 +23,14 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(HERE, "..", "..");
+// tools/oasdiff -> backend-core -> services -> the monorepo (git) root.
+const GIT_ROOT = path.resolve(HERE, "..", "..", "..", "..");
 const DEFAULT_CONSUMERS_FILE = path.join(HERE, "consumers.txt");
 const STDIN_FD = 0;
 
-const CONTRACTS_REPO = "Kemetra/Backend-Core";
-const CONTRACTS_ROOT = "packages/contracts/openapi";
-const FETCH_ATTEMPTS = 3;
-const FETCH_TIMEOUT_MS = 15_000;
+// The monorepo since the RT-715 cutover; a consumer PIN must name exactly these.
+const CONTRACTS_REPO = "Kemetra-Labs/Retail-Tower-Erp";
+const CONTRACTS_ROOT = "services/backend-core/packages/contracts/openapi";
 const MODES = new Set(["report", "enforce"]);
 
 // ---- text helpers ----------------------------------------------------------
@@ -47,7 +47,7 @@ const contentLines = (text) => rawContentLines(text).map((line) => line.trim());
 const unique = (values) => [...new Set(values)];
 const messageOf = (error) => (error instanceof Error ? error.message : String(error));
 
-// ---- PIN (same grammar as Kemetra/POS scripts/contracts-pin.ts) --------------
+// ---- PIN (same grammar as apps/pos scripts/contracts-pin.ts) --------------
 
 const SHA1 = /^[0-9a-f]{40}$/;
 const PIN_LINE = /^([a-z]+):\s+(\S.*)$/;
@@ -122,15 +122,15 @@ export function parsePin(text) {
 
 // ---- consumers.txt ---------------------------------------------------------
 
-const CONSUMER_LINE = /^(\S+)\s+(https:\/\/\S+)$/;
+const CONSUMER_LINE = /^(\S+)\s+(\S+)$/;
 
 function parseConsumerLine(line) {
   const match = CONSUMER_LINE.exec(line);
   if (match === null) throw new Error(`consumers.txt: malformed line "${line}"`);
-  return { name: match[1], url: match[2] };
+  return { name: match[1], pin: match[2] };
 }
 
-/** `<NAME> <raw PIN URL>` per line; `#` comments and blank lines are skipped. */
+/** `<NAME> <PIN path from the repository root>` per line; `#` comments and blank lines are skipped. */
 export const parseConsumers = (text) => contentLines(text).map(parseConsumerLine);
 
 // ---- OpenAPI paths ---------------------------------------------------------
@@ -270,38 +270,24 @@ export function assessLine(ack, impactByConsumer, knownConsumers = [...impactByC
 
 // ---- I/O -------------------------------------------------------------------
 
-async function defaultFetchText(url) {
-  const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.text();
+// Both readers resolve from the git root, not from services/backend-core.
+async function defaultReadText(file) {
+  return readFileSync(path.join(GIT_ROOT, file), "utf8");
 }
 
 async function defaultGitShow(commit, file) {
   const { stdout } = await execFileAsync("git", ["show", `${commit}:${file}`], {
-    cwd: REPO_ROOT,
+    cwd: GIT_ROOT,
     maxBuffer: 64 * 1024 * 1024,
   });
   return stdout;
 }
 
-const sleep = (ms) => (ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : undefined);
-
-async function withRetries(attempts, delayMs, fn, attempt = 1) {
-  try {
-    return await fn();
-  } catch (error) {
-    if (attempt >= attempts) throw error;
-    await sleep(delayMs * attempt);
-    return withRetries(attempts, delayMs, fn, attempt + 1);
-  }
-}
-
 async function readPin(consumer, io) {
   try {
-    const text = await withRetries(FETCH_ATTEMPTS, io.retryDelayMs, () => io.fetchText(consumer.url));
-    return { pin: parsePin(text) };
+    return { pin: parsePin(await io.readText(consumer.pin)) };
   } catch (error) {
-    return { error: `consumer PIN unreadable: ${consumer.name} (${consumer.url}): ${messageOf(error)}` };
+    return { error: `consumer PIN unreadable: ${consumer.name} (${consumer.pin}): ${messageOf(error)}` };
   }
 }
 
@@ -311,7 +297,7 @@ const pinMismatch = (pin) =>
     : `PIN names ${pin.repo} ${pin.source}, expected ${CONTRACTS_REPO} ${CONTRACTS_ROOT}`;
 
 async function pathsOfPinnedFile(pin, file, io) {
-  const text = await io.gitShow(pin.commit, `${CONTRACTS_ROOT}/${file.path}`);
+  const text = await io.gitShow(pin.commit, `${pin.source}/${file.path}`);
   return collectPathsFromFile(file.path, text);
 }
 
@@ -377,9 +363,8 @@ function resolveMode(requested) {
 
 function buildIo(options) {
   return {
-    fetchText: options.fetchText ?? defaultFetchText,
+    readText: options.readText ?? defaultReadText,
     gitShow: options.gitShow ?? defaultGitShow,
-    retryDelayMs: options.retryDelayMs ?? 1000,
   };
 }
 

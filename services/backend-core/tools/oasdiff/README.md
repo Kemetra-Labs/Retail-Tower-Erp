@@ -15,7 +15,7 @@ The configuration comes from the RT-37 history backtest (Jira RT-37, RT-52).
 | `check.sh` | The gate. `bash tools/oasdiff/check.sh <base-ref>` |
 | `severity-levels.txt` | Overrides of oasdiff's default check levels |
 | `breaking-ignore.txt` | Acknowledged breaks, honoured only for the PR that adds them |
-| `consumers.txt` | Consumers that pin Backend-Core contracts: `<NAME> <raw PIN URL>` |
+| `consumers.txt` | Consumers that pin Backend-Core contracts: `<NAME> <PIN path from the repository root>` |
 | `consumer-impact.mjs` | Checks that each new acknowledgement names the consumers it affects (RT-674) |
 
 ## Why fail on WARN
@@ -57,7 +57,7 @@ text. Other findings in the same PR still fail.
 ### Consumer tag (RT-674)
 
 Every new line must say which consumers the break affects, with one or more
-`consumer:<NAME>` tags (`<NAME>` as in `consumers.txt`, currently `POS`) or
+`consumer:<NAME>` tags (`<NAME>` as in `consumers.txt`: `POS`, `admin`, `connector`) or
 `consumer:none`. Put the tags in the line's free-text **prefix, before** the
 `in API …` / `<METHOD> <path>` text, not after the trailing `[check-id].`:
 
@@ -65,16 +65,19 @@ Every new line must say which consumers the break affects, with one or more
 RT-367 consumer:POS C2 intentional (owner-approved; POS maps the code in RT-591): in API POST /api/pos/v1/terminals/pair added the new `REPLACEMENT_BLOCKED` enum value … [response-property-enum-value-added].
 ```
 
-`consumer-impact.mjs` reads each consumer's public PIN file and builds the
-consumer's set of API paths from the pinned files **at the consumer's own PIN
-commit** (what it built against, so a path the PR removes still counts). Then:
+`consumer-impact.mjs` reads each consumer's PIN file **in the checked-out tree**
+(`apps/pos`, `apps/admin-console`, `integrations/erpnext-connector`, each under
+`contracts/backend-core/PIN`, no network) and builds the consumer's set of API
+paths from the pinned files **at the consumer's own PIN commit**, read with
+`git show <commit>:<source>/<file>` from the repository root (what it built against, so a path the PR removes still counts). Then:
 
 - If a consumer pins the line's API path, the line must carry that consumer's tag
   and a Jira key (`RT-<n>`). `consumer:none` on such a path is a violation.
 - A tag must be a name from `consumers.txt` or `none`; a misspelled tag is a violation.
 - A line with no API path (a `components` finding) still needs a tag, but the tag
   is not verified ("impact not computable").
-- A consumer PIN that cannot be read (3 attempts) or resolved is reported, never
+- A PIN must name `repo: Kemetra-Labs/Retail-Tower-Erp` and `source: services/backend-core/packages/contracts/openapi`; any other repository is reported as unresolvable.
+- A consumer PIN that cannot be read or resolved (for example a commit missing from a shallow clone) is reported, never
   treated as "no consumers".
 
 `CONSUMER_IMPACT_MODE` selects the behaviour: `report` (the default) prints
