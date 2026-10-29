@@ -180,6 +180,25 @@ class DeployErpLab(PinnedActions, unittest.TestCase):
         self.assertIn("RESULT_RE='^RT_(", live)
         self.assertIn('grep -E "$RESULT_RE"', live)
 
+    def test_every_stop_reason_of_the_document_reaches_the_log(self):
+        """A gate failure the RESULT_RE filter drops would vanish from the Actions log (RT-927:
+        scheduler-disabled, posting-poll-did-not-run and the other reasons the document stops with)."""
+        match = re.search(r"^\s*RESULT_RE='([^']+)'$", job(self.text, "live"), re.M)
+        self.assertIsNotNone(match, "RESULT_RE must stay a single-quoted line in the live job")
+        result_re = re.compile(match.group(1))
+        document = json.loads(read(CONNECTOR_DEPLOY / "lab" / "ssm" / "RT-ErpLabDeploy.json"))
+        script = "\n".join(document["mainSteps"][0]["inputs"]["runCommand"])
+        gates = set(re.findall(r"^\s*GATE=([a-z0-9_]+)$", script, re.M))
+        reasons = set(re.findall(r'\bstop "([^"$]+)"', script))
+        for needed in ("check", "postresume"):
+            self.assertIn(needed, gates)
+        for needed in ("scheduler-disabled", "scheduler-status-unreadable", "posting-poll-did-not-run",
+                       "posting-poll-unreadable"):
+            self.assertIn(needed, reasons)
+        for gate in gates:
+            for reason in reasons:
+                self.assertRegex(f"RT_GATE {gate}=fail:{reason}", result_re)
+
     def test_fails_closed_without_the_deploy_variables(self):
         live = job(self.text, "live")
         self.assertIn("AWS_ROLE_ARN is not set", live)
