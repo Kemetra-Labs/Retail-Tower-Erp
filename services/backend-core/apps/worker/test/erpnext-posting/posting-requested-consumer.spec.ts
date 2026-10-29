@@ -31,7 +31,6 @@ import { servedAcrossConcurrentCommit } from "../../../../packages/db/__tests__/
 import {
   PostingRequestedConsumer,
   ReversalAwaitingSalePostError,
-  PostingResolutionNotFrozenError,
 } from "../../src/erpnext-posting/posting-requested.consumer";
 import type { OutboxEventEnvelope } from "@data-pulse-2/shared";
 
@@ -739,8 +738,14 @@ describe("PostingRequestedConsumer.handle — RT-330 frozen resolution at creati
   });
 });
 
-describe("PostingRequestedConsumer.handle — RT-330 a pending intent is never left unfrozen", () => {
-  it("eligible but nothing to freeze (no 'stock' warehouse) → throws and inserts nothing", async () => {
+// RT-433: before RT-433 a returns-only store passed the precondition (any
+// purpose) and then failed to freeze (PostingResolutionNotFrozenError, retried
+// forever). The precondition now requires a `stock` map, like the freeze, so
+// the intent is rejected at creation. The not-frozen guard itself is covered in
+// posting-requested-consumer.unit.spec.ts (a retire between precondition and
+// freeze).
+describe("PostingRequestedConsumer.handle — RT-433 a returns-only store is unmapped", () => {
+  it("only a 'returns' warehouse map → permanently_rejected unmapped_store, nothing frozen", async () => {
     if (skip) return;
     const e = guard();
     const storeId = "01900000-0000-7000-8000-0000000ac333";
@@ -757,15 +762,22 @@ describe("PostingRequestedConsumer.handle — RT-330 a pending intent is never l
     const saleId = "01900000-0000-7000-8000-00000050e005";
     await seedSale(e, { id: saleId, store: storeId, externalId: "rt330-5", tenantProductRef: TPRODUCT });
 
-    await expect(
-      new PostingRequestedConsumer(e.app).handle(
-        envelope(
-          { sale_id: saleId, store_id: storeId, kind: "sale_post", source_ref_id: saleId },
-          "01900000-0000-7000-8000-0000000ev0e5",
-        ),
+    await new PostingRequestedConsumer(e.app).handle(
+      envelope(
+        { sale_id: saleId, store_id: storeId, kind: "sale_post", source_ref_id: saleId },
+        "01900000-0000-7000-8000-0000000ev0e5",
       ),
-    ).rejects.toBeInstanceOf(PostingResolutionNotFrozenError);
-    expect(await postingRows(e, saleId)).toEqual([]);
+    );
+    const row = await statusRow(e, saleId);
+    expect(row.status).toBe("permanently_rejected");
+    expect(row.rejection_category).toBe("unmapped_store");
+    const frozen = await e.admin.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM erpnext_posting_resolution r
+         JOIN erpnext_posting_status s ON s.id = r.intent_id
+        WHERE s.sale_id = $1`,
+      [saleId],
+    );
+    expect(frozen.rows[0]?.n).toBe("0");
   });
 });
 

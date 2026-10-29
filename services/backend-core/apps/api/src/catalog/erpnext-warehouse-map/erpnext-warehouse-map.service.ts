@@ -20,6 +20,10 @@
  *   - OQ-2 forward-compat 1:1: a 2nd ACTIVE set for the same
  *     (tenant, store, 'stock') trips the `UQ_idx_erpnext_warehouse_map_active`
  *     partial-unique (23505) → conflict. v1 only ever writes `purpose='stock'`.
+ *   - RT-433 (RT-290 M-2/M-3): one store per ERPNext Warehouse. A set whose
+ *     ref is already held by an ACTIVE mapping in the tenant trips
+ *     `UQ_idx_erpnext_warehouse_map_ref_active` (migration 0075) →
+ *     warehouse_conflict. Retired rows never count (partial index).
  *   - §III optimistic concurrency: retire uses
  *     `... WHERE id = $1 AND version = $2 AND retired_at IS NULL`, incrementing
  *     version; a 0-row result (stale version, wrong-tenant RLS, or already
@@ -99,7 +103,8 @@ function toRow(r: DbRow): ErpnextWarehouseMapRow {
 export type SetResult =
   | { kind: "ok"; row: ErpnextWarehouseMapRow }
   | { kind: "not_found" }
-  | { kind: "conflict" };
+  | { kind: "conflict" }
+  | { kind: "warehouse_conflict" };
 
 export type RetireResult =
   | { kind: "ok"; row: ErpnextWarehouseMapRow }
@@ -113,6 +118,15 @@ function isPgCode(err: unknown, code: string): boolean {
     "code" in err &&
     (err as { code: unknown }).code === code
   );
+}
+
+/** RT-433: the unique active reverse index (one store per ERPNext Warehouse). */
+const WAREHOUSE_REF_ACTIVE_INDEX = "UQ_idx_erpnext_warehouse_map_ref_active";
+
+function violatedConstraint(err: unknown): unknown {
+  return typeof err === "object" && err !== null && "constraint" in err
+    ? (err as { constraint: unknown }).constraint
+    : undefined;
 }
 
 @Injectable()
@@ -129,7 +143,8 @@ export class ErpnextWarehouseMapService {
    * Set a MANUAL mapping (`purpose='stock'` in v1). Scope-checks the store
    * first (non-disclosing 404 if absent/cross-tenant). The 1:1 active
    * partial-unique (OQ-2, on (tenant, store, purpose)) surfaces a 2nd active
-   * set as conflict.
+   * set as conflict; a ref already held by an active mapping (RT-433) as
+   * warehouse_conflict.
    */
   set(input: {
     readonly tenantId: string;
@@ -177,9 +192,12 @@ export class ErpnextWarehouseMapService {
           );
           return { kind: "ok", row };
         } catch (err: unknown) {
-          // 23505 = active partial-unique (a 2nd active mapping for the store/purpose).
+          // 23505 = an active partial-unique: the Warehouse is already mapped
+          // (RT-433), or the store/purpose already has an active mapping.
           if (isPgCode(err, "23505")) {
-            return { kind: "conflict" };
+            return violatedConstraint(err) === WAREHOUSE_REF_ACTIVE_INDEX
+              ? { kind: "warehouse_conflict" }
+              : { kind: "conflict" };
           }
           // 23503 = FK violation: the store was deleted between the scope-check
           // SELECT and this INSERT (a narrow TOCTOU window under READ
