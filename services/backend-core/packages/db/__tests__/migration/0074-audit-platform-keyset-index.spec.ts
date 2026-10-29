@@ -15,8 +15,12 @@
  *     platform admin, and the pages returned are identical;
  *   - down drops only this index, keeps every audit row, and round-trips.
  *
- * The seeded volume here is small; the 400k-row EXPLAIN (ANALYZE, BUFFERS)
- * numbers are in the RT-808 PR. Fresh install through the real runner is
+ * `platformQuery` below is the idealised keyset form (tuple compare against
+ * constants), not byte-for-byte the repository SQL: the repository compares
+ * against a COALESCE anchor InitPlan, whose cursor plan is index-ordered only at
+ * larger table sizes. This spec proves the index serves the keyset order; the
+ * production query shape at 400k+ rows (EXPLAIN (ANALYZE, BUFFERS)) is proven
+ * in the RT-808 PR evidence. Fresh install through the real runner is
  * covered by the migrate CLI spec and the migration registry.
  */
 import { readdirSync, readFileSync } from "node:fs";

@@ -48,9 +48,9 @@
  * (a hand-built cursor) the boundary falls back to the millisecond value.
  * Audit rows are append-only and never deleted (0034; retention only marks
  * them, and this list does not filter on the mark). A redundant plain
- * `occurred_at < cursorTs + 1ms` bound keeps the
- * `(tenant_id, occurred_at DESC)` index range scan. The cursor wire format
- * is unchanged.
+ * `occurred_at < cursorTs + 1ms` bound keeps the index range scan (the
+ * `(tenant_id, occurred_at DESC)` index for a tenant, the RT-808 partial
+ * index for the platform scope). The cursor wire format is unchanged.
  *
  * Platform scope (RT-431)
  * -----------------------
@@ -225,7 +225,9 @@ export class DrizzleAuditRepository implements AuditRepository, PlatformAuditRep
         sql`(${auditEvents.occurredAt}, ${auditEvents.id}) < (COALESCE((${anchorTs}), ${cursorTs}::timestamptz), ${cursorId}::uuid)`,
         // Redundant upper bound (the anchor is < cursorTs + 1ms): a plain range
         // on the bare column that the planner turns into an Index Cond on
-        // (tenant_id, occurred_at DESC); the tuple compare against the
+        // (tenant_id, occurred_at DESC), or on the platform partial index
+        // (occurred_at DESC, id DESC) WHERE tenant_id IS NULL (RT-808); the
+        // tuple compare against the
         // InitPlan anchor alone is only a Filter.
         sql`${auditEvents.occurredAt} < ${cursorTs}::timestamptz + interval '1 millisecond'`,
       );

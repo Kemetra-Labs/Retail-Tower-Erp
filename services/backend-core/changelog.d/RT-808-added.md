@@ -6,7 +6,8 @@
   WHERE tenant_id IS NULL`, built `CONCURRENTLY` (one statement per file, as
   0064-0065), so `listPlatformAuditEvents` (RT-431) reads a page as the first
   index entries instead of sorting the whole tenant-less bucket. EXPLAIN
-  (ANALYZE, BUFFERS) on 400k tenant-less rows: first page 222 ms to 0.2 ms,
-  cursor page 394 ms to 0.3 ms, no Sort. No query or contract change; the
+  (ANALYZE, BUFFERS) on 400k tenant-less rows (scratch PG 18, RLS on, parallel
+  seq scan before; RT-431's PG 16 run measured 58 to 81 ms): first page 222 ms
+  to 0.2 ms, cursor page 394 ms to 0.3 ms, no Sort. No query or contract change; the
   tenant list keeps `audit_events_tenant_time_idx`. The down drops only the new
   index.
