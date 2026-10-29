@@ -441,10 +441,13 @@ def test_postresume_waits_for_the_posting_poll_to_run_after_the_resume(body):
     assert "$RESUMED_AT" in post
     assert "PY_POLL_RAN" in post
     assert POLL_METHOD in body or "$CONNECTOR_APP.connector.posting.poller.run_posting_poll" in body
-    # bounded: the wait gives up after 180 s, polling every 15 s
-    assert '[ "$polled" -ge 180 ]' in post and "sleep 15" in post
-    # each read is itself bounded, so a hung docker exec cannot stall the wait past the deadline
-    assert "timeout 30 docker exec" in post
+    # bounded by wall clock: 180 s from the start of the wait, read time included
+    assert "POLL_DEADLINE=$((SECONDS + 180))" in post
+    assert '[ "$SECONDS" -ge "$POLL_DEADLINE" ]' in post and "sleep 15" in post
+    assert "polled" not in post
+    # each read is capped at 30 s and at the time left, so a hung docker exec cannot pass the deadline
+    assert 'left=$((POLL_DEADLINE - SECONDS)); [ "$left" -le 30 ] || left=30' in post
+    assert 'timeout "$left" docker exec' in post
     # a helper that cannot read the job (import, connect, query) is not a scheduler that did not run
     assert post.index('stop "posting-poll-unreadable"') < post.index('stop "posting-poll-did-not-run"')
     assert _pos(body, "RT_GATE resume=pass") < _pos(body, 'stop "posting-poll-did-not-run"')
