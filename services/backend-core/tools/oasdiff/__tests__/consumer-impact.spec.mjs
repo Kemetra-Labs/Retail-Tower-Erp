@@ -447,3 +447,22 @@ test("the CLI reports a bad CONSUMER_IMPACT_MODE as an error annotation and exit
   assert.equal(run.status, 1);
   assert.match(run.stderr, /^::error::consumer-impact: unknown CONSUMER_IMPACT_MODE/);
 });
+
+// Default I/O (no readText/gitShow overrides): the real consumers.txt, the in-tree PINs and
+// `git show` at their pinned commits, run from outside the repository root.
+test("the CLI resolves the real consumers with the default I/O", () => {
+  const run = (line) =>
+    spawnSync(process.execPath, [CLI], {
+      input: `${line}\n`,
+      encoding: "utf8",
+      cwd: tmpdir(),
+      env: { ...process.env, CONSUMER_IMPACT_MODE: "enforce" },
+    });
+  const untagged = run(PAIR_LINE);
+  assert.equal(untagged.status, 1);
+  assert.match(untagged.stdout, /affects POS: no consumer: tag/);
+  assert.match(untagged.stdout, /1 violation(s), 0 consumer error(s)/);
+  const tagged = run(withTag("consumer:POS"));
+  assert.equal(tagged.status, 0, tagged.stdout);
+  assert.match(tagged.stdout, /0 violation\(s\), 0 consumer error\(s\)/);
+});
