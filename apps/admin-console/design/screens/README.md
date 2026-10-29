@@ -21,11 +21,15 @@ Static PNG exports of the screen designs made in the **Retail Tower Design Syste
   - Each PNG passed the same checks as the others: PNG signature, closing `IEND`, and a full decode at its stated size. None needed splitting.
   - They record what ships, for review against RT-777. The review findings are in [`docs/design/rt777-platform-console/as-built-review.md`](../../docs/design/rt777-platform-console/as-built-review.md).
   - Not captured: a session expiring while a tenant screen is open (403 `support_session_expired`). Inside a session every tenant route shows the read-only notice and calls no tenant API, so that path cannot be reached in the current UI.
+- **RT-827 product create (29 October 2026):** `78-…` to `88-…` come from the Design canvas «RT-827 Product Create» in Claude. The brief is [`docs/design/rt827-product-create/README.md`](../../docs/design/rt827-product-create/README.md). They are **proposals for owner review**, not approved designs. RT-827 stays blocked until a price write exists (D9).
+  - The canvas has one page component with a `state` property. Each state was rendered to static HTML from that component with the design-system CSS in [`../claude-design-system/`](../claude-design-system/) (the canvas carries a copy of the same two files), and captured with Chromium at 1440 and 1280 wide (the 1280 frames carry `-1280`).
+  - Each PNG passed the same checks as the others: PNG signature, closing `IEND`, and a full decode at its stated size. None needed splitting.
+  - The font is Dubai, installed on the capture machine. Every item, price, barcode, request id and time is mock data.
 - **Status:** reviewed with the owner in Claude Design. These images are not an implementation sign-off: backend contracts that the screens depend on are listed in `FOLLOW-UPS.md`, and controls without a service are shown `aria-disabled` with a «تصميم فقط» reason.
 
 ## Known gaps
 
-- **Not shown:** mobile (390px) frames; laptop (1280px) frames except for the RT-474 tenant logo family (`47-…` to `56-…`) and the `/platform` as-built captures (`57-…` to `76-…`), which have `-1280` copies; dark theme beyond the Stores family; and English beyond the Stores family. The templates support them.
+- **Not shown:** mobile (390px) frames; laptop (1280px) frames except for the RT-474 tenant logo family (`47-…` to `56-…`), the `/platform` as-built captures (`57-…` to `76-…`) and the RT-827 product create family (`78-…` to `88-…`), which have `-1280` copies; dark theme beyond the Stores family; and English beyond the Stores family. The templates support them.
 - **Re-authentication method for break-glass** (FOLLOW-UPS #11) and `perm_owner_console` (#30) are still open; the screens say «لم تُحدَّد بعد» where they apply.
 
 ## Index
@@ -88,4 +92,24 @@ Every RT-474 file above also exists at 1280 wide with `-1280` before `.png` (for
 
 Every file in this table also exists at 1280 wide with `-1280` before `.png`.
 
-140 files, 10.1 MB in total; the largest is under 180 KB.
+### Product create (RT-827)
+
+Proposals for owner review (brief: [`docs/design/rt827-product-create/README.md`](../../docs/design/rt827-product-create/README.md)). The not-sellable notice on the form frames is labelled «مقترح»: its wording and placement are open decision OD-2.
+
+| Files | Screen and state | Canvas component |
+|---|---|---|
+| `78-product-create-entry.png` | Catalog list, owner: «إضافة صنف» in the header | Canvas «RT-827 Product Create», `ProductCreatePage.dc.html` (`state=entry`) |
+| `79-product-create-entry-empty.png` | Catalog list with no items: the CTA in the empty state | same (`entryEmpty`) |
+| `80-product-create-empty.png` | Create form, nothing typed | same (`empty`) |
+| `81-product-create-filled.png` | Create form filled in | same (`filled`) |
+| `82-product-create-invalid.png` | Blocked submit: error summary and inline errors | same (`invalid`) |
+| `83-product-create-submitting.png` | Sending, fields locked | same (`submitting`) |
+| `84-product-create-key-rejected.png` | 400 `idempotency_key_required` / `idempotency_key_malformed` | same (`keyRejected`) |
+| `85-product-create-key-conflict.png` | 409 `idempotency_key_conflict` | same (`keyConflict`) |
+| `86-product-create-in-progress.png` | 425 `idempotency_in_progress`: `Retry-After` countdown, fields locked | same (`inProgress`) |
+| `87-product-create-category-unavailable.png` | 422 `category_unavailable` on the create | same (`categoryUnavailable`) |
+| `88-product-create-created.png` | Landed on the new item: success, «إضافة باركود أو SKU», no-price notice | same (`created`) |
+
+Every file in this table also exists at 1280 wide with `-1280` before `.png`.
+
+162 files, 11.3 MB in total; the largest is under 180 KB.
