@@ -454,16 +454,19 @@ test("the CLI reports a bad CONSUMER_IMPACT_MODE as an error annotation and exit
 const commitsReachable = () => {
   const root = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
   const pinDirs = ["apps/pos", "apps/admin-console", "integrations/erpnext-connector"];
-  // A missing or malformed PIN throws here and fails the test; only an absent commit skips it.
+  // A missing or malformed PIN throws here and fails the test; only a shallow clone lacking a commit skips it.
   const commits = pinDirs.map((dir) =>
     parsePin(readFileSync(path.join(root, dir, "contracts/backend-core/PIN"), "utf8")).commit,
   );
+  const shallow =
+    execFileSync("git", ["rev-parse", "--is-shallow-repository"], { cwd: root, encoding: "utf8" }).trim() === "true";
   return commits.every((commit) => {
     try {
       execFileSync("git", ["cat-file", "-e", `${commit}^{commit}`], { cwd: root, stdio: "ignore" });
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      if (shallow) return false; // history is missing, not wrong: skip
+      throw error; // a complete clone must hold every pinned commit
     }
   });
 };
