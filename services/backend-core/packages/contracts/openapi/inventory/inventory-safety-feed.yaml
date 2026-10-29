@@ -48,9 +48,14 @@ info:
     the same `since` is safe. A change that touches no hold (a tracking-profile
     change) still advances `revision`. Holds placed or released while the
     snapshot pages were read are converged by the first delta. `since` above
-    the tenant's current revision (for example after a database restore)
-    answers 409 `snapshot_required`: start again at (1). The revision log is
-    never pruned, so an old `since` is always servable.
+    the tenant's current revision answers 409 `snapshot_required`: start
+    again at (1). The revision log is never pruned, so an old `since` is
+    always servable. LIMIT: a revision is a plain per-tenant counter. After a
+    database restore to an earlier revision, the numbers are issued again;
+    once new safety changes reach the till's `since`, the delta cannot tell
+    the new history from the one the till applied. A restore must therefore
+    be followed by a re-baseline of every till (start again at (1)); this
+    contract does not detect it.
 
 
     SAFETY TTL (G7-7, RT-50 Q8, H8). Every response carries
@@ -420,7 +425,9 @@ components:
     SnapshotRequired:
       description: >
         409 `snapshot_required`: `since` is above the tenant's current
-        revision. Re-baseline with `posGetInventorySafetySnapshot`.
+        revision (a till ahead of the server, for example after a database
+        restore before any new safety change). Re-baseline with
+        `posGetInventorySafetySnapshot`.
       content:
         application/json:
           schema:
