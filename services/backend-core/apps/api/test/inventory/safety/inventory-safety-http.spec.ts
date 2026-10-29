@@ -13,6 +13,11 @@
  *     400; the commands require the Idempotency-Key header (the release is
  *     naturally idempotent and does not);
  *   - the server-resolved tenant, actor and key are what the services receive.
+ *
+ * RT-449 PR 2 (H6, H8): the Safety TTL is read by owner, tenant_admin and
+ * store_manager and set by owner and tenant_admin only, with a strict
+ * 60–900-or-null body; the findings read admits a store_manager and hands
+ * the service the resolved context (the service applies the store scope).
  */
 import 'reflect-metadata';
 
@@ -29,6 +34,8 @@ import type { ResolvedContext } from '../../../src/context/types';
 import { IdentityExpiryService } from '../../../src/inventory/safety/identity-expiry.service';
 import { InventoryRecallsService } from '../../../src/inventory/safety/inventory-recalls.service';
 import { InventorySafetyController } from '../../../src/inventory/safety/inventory-safety.controller';
+import { SafetyFindingsService } from '../../../src/inventory/safety/safety-findings.service';
+import { SafetyTtlService } from '../../../src/inventory/safety/safety-ttl.service';
 import { TrackingHoldsService } from '../../../src/inventory/safety/tracking-holds.service';
 
 const TENANT = '0a000000-0000-7000-8000-00000000ada1';
@@ -63,6 +70,15 @@ class FakeServices {
   }
   async correctExpiry(input: unknown) {
     return this.record('expiry', input);
+  }
+  async getSafetyTtl(tenantId: string) {
+    return this.record('getTtl', { tenantId });
+  }
+  async setSafetyTtl(input: unknown) {
+    return this.record('setTtl', input);
+  }
+  async listFindings(input: unknown) {
+    return this.record('findings', input);
   }
 }
 
@@ -109,6 +125,8 @@ beforeAll(async () => {
       { provide: TrackingHoldsService, useValue: fake },
       { provide: InventoryRecallsService, useValue: fake },
       { provide: IdentityExpiryService, useValue: fake },
+      { provide: SafetyTtlService, useValue: fake },
+      { provide: SafetyFindingsService, useValue: fake },
       { provide: MembershipRepository, useValue: memberships },
       RolesGuard,
     ],
@@ -279,6 +297,54 @@ describe('RT-449 strict requests', () => {
   it('rejects a non-uuid read id with 400', async () => {
     await request(app.getHttpServer()).get('/api/inventory/v1/tracking-holds/LOT-1').expect(400);
     await request(app.getHttpServer()).get('/api/inventory/v1/recalls/LOT-1').expect(400);
+    expect(fake.last).toBeNull();
+  });
+});
+
+describe('RT-449 PR 2 Safety TTL and findings (H6, H8)', () => {
+  const TTL = '/api/inventory/v1/settings/safety-ttl';
+  const FINDINGS = '/api/inventory/v1/safety/findings';
+  const put = (body: unknown) => request(app.getHttpServer()).put(TTL).send(body as object);
+
+  it.each(['owner', 'tenant_admin', 'store_manager'])('a %s reads the Safety TTL and the findings', async (role) => {
+    memberships.role = role;
+    await request(app.getHttpServer()).get(TTL).expect(200);
+    expect(fake.last).toEqual({ op: 'getTtl', input: { tenantId: TENANT } });
+    await request(app.getHttpServer()).get(FINDINGS).expect(200);
+    expect(fake.last).toEqual({
+      op: 'findings',
+      input: { tenantId: TENANT, context: expect.objectContaining({ tenantId: TENANT, userId: USER }) },
+    });
+  });
+
+  it.each(['owner', 'tenant_admin'])('a %s sets the Safety TTL with the server-resolved tenant and actor', async (role) => {
+    memberships.role = role;
+    await put({ safetyTtlSeconds: 300 }).expect(200);
+    expect(fake.last).toEqual({ op: 'setTtl', input: { tenantId: TENANT, userId: USER, safetyTtlSeconds: 300 } });
+    await put({ safetyTtlSeconds: null }).expect(200);
+    expect(fake.last).toEqual({ op: 'setTtl', input: { tenantId: TENANT, userId: USER, safetyTtlSeconds: null } });
+  });
+
+  it('a store_manager may not set the Safety TTL, and a store_staff reaches none of the three', async () => {
+    memberships.role = 'store_manager';
+    await put({ safetyTtlSeconds: 300 }).expect(403);
+    expect(fake.last).toBeNull();
+    memberships.role = 'store_staff';
+    await request(app.getHttpServer()).get(TTL).expect(403);
+    await request(app.getHttpServer()).get(FINDINGS).expect(403);
+    await put({ safetyTtlSeconds: 300 }).expect(403);
+    expect(fake.last).toBeNull();
+  });
+
+  it.each<[string, unknown]>([
+    ['above the 900 default (downwards only)', { safetyTtlSeconds: 901 }],
+    ['below 60', { safetyTtlSeconds: 59 }],
+    ['a fraction', { safetyTtlSeconds: 120.5 }],
+    ['a string', { safetyTtlSeconds: '300' }],
+    ['a missing value', {}],
+    ['an unknown key', { safetyTtlSeconds: 300, tenantId: TENANT }],
+  ])('refuses a Safety TTL %s with 400', async (_label, body) => {
+    await put(body).expect(400);
     expect(fake.last).toBeNull();
   });
 });

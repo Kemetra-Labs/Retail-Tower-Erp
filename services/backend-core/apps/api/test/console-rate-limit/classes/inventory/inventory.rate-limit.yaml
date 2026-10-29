@@ -10,7 +10,9 @@ createStockTransfer: write
 getInventoryRecall: cheapRead
 getOnHand: cheapRead
 getReturnLandingPolicy: cheapRead
+getSafetyTtlSetting: cheapRead
 getTrackingHold: cheapRead
+listInventorySafetyFindings: expensiveRead
 listStockLocations: cheapRead
 listStockMovements: expensiveRead
 listTrackingIdentities: cheapRead
@@ -18,3 +20,4 @@ placeQualityHold: write
 recordStockCount: write
 releaseTrackingHold: write
 setReturnLandingPolicy: write
+setSafetyTtlSetting: write
