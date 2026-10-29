@@ -24,7 +24,11 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const COMPAT = path.resolve(HERE, "..");
 const SEVERITY = path.resolve(COMPAT, "../tools/oasdiff/severity-levels.txt");
 const MATRIX_TEXT = readFileSync(path.join(COMPAT, "pos-supported.yaml"), "utf8");
-const NOW = new Date("2026-10-25T00:00:00Z"); // one day after the baseline capture
+// The clocks below are derived from the committed matrix, so refreshing fleet_baseline.captured_at
+// (O-3 asks for it every 7 days) does not turn these tests into "future capture" failures.
+const DAY_MS = 86_400_000;
+const CAPTURED_MS = Date.parse(parseYamlSubset(MATRIX_TEXT).fleet_baseline.captured_at);
+const NOW = new Date(CAPTURED_MS + DAY_MS); // one day after the baseline capture
 
 const oasdiffBin = process.env.OASDIFF ?? "oasdiff";
 const haveOasdiff = !spawnSync(oasdiffBin, ["--version"]).error;
@@ -141,7 +145,7 @@ test("bootstrap exception while something is installed: invalid", () => {
 });
 
 test("stale fleet baseline warns on a PR and fails in release mode", () => {
-  const late = new Date("2026-11-01T00:00:00Z"); // 7.6 days after capture
+  const late = new Date(CAPTURED_MS + 7.6 * DAY_MS); // 7.6 days after capture
   const pr = evaluate(fresh(), { now: late });
   assert.equal(pr.state, "READY");
   assert.match(pr.warnings[0], /FAIL_STALE_FLEET/);
@@ -170,13 +174,13 @@ test("a non-.yaml contract path is rejected: oasdiff would skip it silently", ()
 });
 
 test("a future fleet capture time is a problem, not a fresh baseline", () => {
-  const early = new Date("2026-10-23T00:00:00Z"); // a day before the capture
+  const early = new Date(CAPTURED_MS - DAY_MS); // a day before the capture
   for (const mode of ["pr", "release"]) {
     const r = evaluate(fresh(), { now: early, mode });
     assert.equal(r.state, "FAIL_MISSING_SNAPSHOT");
     assert.match(r.problems[0], /in the future/);
   }
-  const skew = new Date("2026-10-24T09:00:00Z"); // 12 minutes before: within allowed skew
+  const skew = new Date(CAPTURED_MS - 12 * 60_000); // 12 minutes before: within allowed skew
   assert.equal(evaluate(fresh(), { now: skew }).state, "READY");
 });
 
@@ -272,7 +276,8 @@ test("run(): a tampered blob, an unknown kind or an empty matrix fail the job", 
   assert.equal(run({ now: NOW, matrixText: tampered }).exit, 1);
   const unknown = MATRIX_TEXT.replace("  - kind: build\n    build_id", "  - kind: nightly\n    build_id");
   assert.equal(run({ now: NOW, matrixText: unknown }).exit, 1);
-  const empty = "schema: retail-tower/pos-compat@1\nfleet_baseline:\n  source: x\n  captured_at: 2026-10-24T00:00:00Z\n  evidence: x\n  installed: []\nsupported: []\n";
+  const capturedAt = new Date(CAPTURED_MS).toISOString().replace(".000Z", "Z");
+  const empty = `schema: retail-tower/pos-compat@1\nfleet_baseline:\n  source: x\n  captured_at: ${capturedAt}\n  evidence: x\n  installed: []\nsupported: []\n`;
   const r = run({ now: NOW, matrixText: empty });
   assert.equal(r.exit, 1);
   assert.match(r.lines.join("\n"), /FAIL_MISSING_SNAPSHOT/);
