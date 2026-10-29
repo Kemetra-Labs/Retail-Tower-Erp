@@ -141,7 +141,10 @@ class DeployErpLab(PinnedActions, unittest.TestCase):
         self.assertIn('"$BASE_DIGEST"', job(self.text, "preflight"))
 
     def test_current_images_map_is_validated(self):
-        self.assertIn("backend frontend websocket scheduler queue-short queue-long", job(self.text, "preflight"))
+        pre = job(self.text, "preflight")
+        self.assertIn("backend frontend websocket scheduler queue-short queue-long", pre)
+        # The SSM parameter pattern caps the map at 1002 characters (RE2 refuses a repeat above 1000).
+        self.assertIn('[ "${#CURRENT_IMAGES}" -le 1002 ]', pre)
 
     def test_environment_gate_is_read_back_before_live(self):
         pre = job(self.text, "preflight")
