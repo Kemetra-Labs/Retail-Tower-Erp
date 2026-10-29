@@ -60,7 +60,9 @@
  * has no link row; the re-run adds it). Prints the minted IDs as JSON.
  *
  * Usage:
- *   OPERATOR_PROVIDER_KEY=<adapter provider key>  *   OPERATOR_PROVIDER_ISSUER=https://<the adapter's issuer>  *   OPERATOR_PROVIDER_SUBJECT=<provider user id> \
+ *   OPERATOR_PROVIDER_KEY=<adapter provider key> \
+ *   OPERATOR_PROVIDER_ISSUER=https://<the adapter's issuer> \
+ *   OPERATOR_PROVIDER_SUBJECT=<provider user id> \
  *   PILOT_TENANT_SLUG=pilot PILOT_TENANT_NAME="Pilot Tenant" \
  *   PILOT_STORE_CODE=main PILOT_STORE_NAME="Main Store" \
  *   PILOT_OPERATOR_EMAIL=operator@pilot.test \
@@ -118,6 +120,11 @@ export interface MintedIds {
   operator_role_id: string;
   operator_provider_key: string;
   operator_provider_subject: string;
+  /**
+   * false: the operator already signs in through another identity (moved by
+   * the identity-link cutover); the configured one was not linked.
+   */
+  operator_link_active: boolean;
 }
 
 /** A missing or malformed operator identity input (exit 4). */
@@ -189,12 +196,21 @@ async function findOperatorUser(client: ClientBase, identity: OperatorIdentity):
  * linked or the user already has an active link (one per user; a user moved
  * to another provider by the identity-link cutover keeps that link). A seed
  * never flips links: that is the cutover's job.
+ *
+ * Returns whether the configured identity is the user's active link, so the
+ * output never claims an identity the operator cannot sign in with.
  */
 async function ensureOperatorLink(
   client: ClientBase,
   userId: string,
   identity: OperatorIdentity,
-): Promise<void> {
+): Promise<boolean> {
+  // Same per-(provider, subject) lock as the identity-link cutover CLI: the
+  // NOT EXISTS checks below cannot see another session's uncommitted claim.
+  await client.query("SELECT pg_advisory_xact_lock(hashtext('identity-link:' || $1 || ':' || $2))", [
+    identity.providerKey,
+    identity.subject,
+  ]);
   await client.query(
     `INSERT INTO external_identity_links (provider_key, issuer, subject, user_id, email, status)
      SELECT $1, $2, $3, u.id, u.email, 'active' FROM users u
@@ -204,6 +220,12 @@ async function ensureOperatorLink(
      ON CONFLICT (provider_key, issuer, subject) DO NOTHING`,
     [identity.providerKey, identity.issuer, identity.subject, userId],
   );
+  const active = await client.query(
+    `SELECT 1 FROM external_identity_links
+      WHERE user_id = $1 AND status = 'active' AND provider_key = $2 AND subject = $3`,
+    [userId, identity.providerKey, identity.subject],
+  );
+  return active.rows.length === 1;
 }
 
 export async function seed(client: ClientBase, cfg: PilotConfig): Promise<MintedIds> {
@@ -271,7 +293,7 @@ export async function seed(client: ClientBase, cfg: PilotConfig): Promise<Minted
       [operatorUserId, cfg.operatorEmail, cfg.operatorIdentity.subject],
     );
   }
-  await ensureOperatorLink(client, operatorUserId, cfg.operatorIdentity);
+  const operatorLinkActive = await ensureOperatorLink(client, operatorUserId, cfg.operatorIdentity);
 
   // Membership in the pilot tenant (idempotent on the active-membership uidx).
   const existingMembership = await client.query<{ id: string }>(
@@ -295,6 +317,7 @@ export async function seed(client: ClientBase, cfg: PilotConfig): Promise<Minted
     operator_role_id: operatorRoleId,
     operator_provider_key: cfg.operatorIdentity.providerKey,
     operator_provider_subject: cfg.operatorIdentity.subject,
+    operator_link_active: operatorLinkActive,
   };
 }
 
@@ -322,6 +345,12 @@ async function main(): Promise<void> {
       await client.query('COMMIT');
       console.log('bootstrap-pilot: seeded (idempotent). Minted/confirmed IDs:');
       console.log(JSON.stringify(ids, null, 2));
+      if (!ids.operator_link_active) {
+        console.error(
+          'bootstrap-pilot: WARNING — the operator already signs in through another ' +
+            'identity link; the configured OPERATOR_PROVIDER_* identity was not linked.',
+        );
+      }
       console.log(
         '\nNEXT (runtime / separate): (1) pair a terminal to this tenant/store ' +
           '(device token); (2) operator signs in via the POS app to obtain the ' +

@@ -2,11 +2,13 @@
  * RT-797 — the pilot bootstrap seed writes the operator's identity link.
  *
  * Real Postgres (full schema, Testcontainers); the first seed runs as the
- * non-superuser app role so RLS applies (re-runs: see `runSeed`). Proves: a fresh seed writes the user (bridge column
- * kept until RT-799) AND its active `external_identity_links` row; a re-run is
- * a no-op; a pilot seeded before RT-797 (bridge column, no link) gains the link
- * without a second user; a user moved to another provider by the cutover keeps
- * its active link; the inputs are provider-neutral and validated.
+ * non-superuser app role so RLS applies (re-runs: see `runSeed`). Proves: a
+ * fresh seed writes the user (bridge column kept until RT-799) AND its active
+ * `external_identity_links` row; a re-run is a no-op; a pilot seeded before
+ * RT-797 (bridge column, no link) gains the link without a second user; a user
+ * moved to another provider by the cutover keeps its active link, and the
+ * output says the configured identity is not the active one; the inputs are
+ * provider-neutral and validated.
  */
 import { Client } from "pg";
 
@@ -111,7 +113,11 @@ describe("bootstrap-pilot seed", () => {
     const cfg = config();
     const { subject } = cfg.operatorIdentity;
     const ids = await runSeed(cfg, "app");
-    expect(ids).toMatchObject({ operator_provider_key: "acme", operator_provider_subject: subject });
+    expect(ids).toMatchObject({
+      operator_provider_key: "acme",
+      operator_provider_subject: subject,
+      operator_link_active: true,
+    });
     const seeded = await operatorState(subject, cfg.operatorEmail);
     expect(seeded).toEqual({
       users: [{ id: ids.operator_user_id, clerk_user_id: subject }],
@@ -134,13 +140,13 @@ describe("bootstrap-pilot seed", () => {
     });
   });
 
-  it("finds a user cut over to another provider through its (disabled) link and leaves its links alone", async () => {
+  it("finds a user cut over to another provider through its (disabled) link, leaves its links alone and says so", async () => {
     if (skip()) return;
     const cfg = config();
     const { subject } = cfg.operatorIdentity;
     const ids = await runSeed(cfg);
-    // The identity-link cutover moved this user to another provider; the
-    // bridge column still holds the old subject, but the lookup goes by link.
+    // The identity-link cutover moved this user to another provider. The bridge
+    // column is cleared so only the (disabled) link can find the user.
     const a = pg().admin;
     await a.query("UPDATE users SET clerk_user_id = NULL WHERE id = $1", [ids.operator_user_id]);
     await a.query("UPDATE external_identity_links SET status = 'disabled', disabled_at = now() WHERE user_id = $1", [
@@ -152,7 +158,9 @@ describe("bootstrap-pilot seed", () => {
       [`${subject}-other`, ids.operator_user_id],
     );
     const before = await operatorState(subject, cfg.operatorEmail);
-    await expect(runSeed(cfg)).resolves.toEqual(ids);
+    // Same user, no new link, and the output does not claim the configured
+    // identity is the one the operator signs in with.
+    await expect(runSeed(cfg)).resolves.toEqual({ ...ids, operator_link_active: false });
     expect(await operatorState(subject, cfg.operatorEmail)).toEqual(before);
   });
 });

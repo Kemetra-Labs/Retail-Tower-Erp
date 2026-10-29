@@ -255,8 +255,18 @@ function activeLink(state: UserState): LinkRow | null {
 /**
  * The resolver joins on (provider_key, subject) WITHOUT issuer, so a subject
  * linked to another user under ANY issuer would make sign-in ambiguous.
+ *
+ * The FOR UPDATE lock covers only this user's rows, so two sessions claiming
+ * the same (provider, subject) for different users (under different issuers,
+ * which the unique key allows) would both pass a plain check. A transaction
+ * advisory lock on the pair serializes them; the pilot bootstrap takes the same
+ * lock. Taken before the check, so the check's snapshot sees the other commit.
  */
 async function assertSubjectUnlinked(client: ClientBase, claim: SubjectClaim, refusal: string): Promise<void> {
+  await client.query("SELECT pg_advisory_xact_lock(hashtext('identity-link:' || $1 || ':' || $2))", [
+    claim.provider,
+    claim.subject,
+  ]);
   const r = await client.query(
     `SELECT 1 FROM external_identity_links
       WHERE provider_key = $1 AND subject = $2 AND user_id <> $3`,

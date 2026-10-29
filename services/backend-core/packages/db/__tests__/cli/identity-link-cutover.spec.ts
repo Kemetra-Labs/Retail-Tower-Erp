@@ -423,6 +423,28 @@ describe("identity-link-cutover refusals (nothing written)", () => {
   });
 });
 
+describe("identity-link-cutover concurrent claims", () => {
+  it("two users claiming the same target subject under different issuers: exactly one wins", async () => {
+    if (skip()) return;
+    const [a, b] = [await seedUser(), await seedUser()];
+    const shared = `U2shared${a.userId.slice(-6)}`;
+    const results = await Promise.allSettled([
+      run({ ...apply(a), subject: shared, issuer: "https://issuer-one.example" } as IdentityLinkCutoverCommand),
+      run({ ...apply(b), subject: shared, issuer: "https://issuer-two.example" } as IdentityLinkCutoverCommand),
+    ]);
+    const won = results.filter((r) => r.status === "fulfilled");
+    const lost = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    expect(won).toHaveLength(1);
+    expect(lost).toHaveLength(1);
+    expect((lost[0]!.reason as CutoverRefusedError).code).toBe("target_subject_linked_to_other_user");
+    const holders = await pg().admin.query(
+      "SELECT DISTINCT user_id FROM external_identity_links WHERE provider_key = $1 AND subject = $2",
+      [NEW, shared],
+    );
+    expect(holders.rows).toHaveLength(1);
+  });
+});
+
 describe("identity-link-cutover rollback with older source history", () => {
   it("restores the source link apply disabled, not an older disabled one", async () => {
     if (skip()) return;
