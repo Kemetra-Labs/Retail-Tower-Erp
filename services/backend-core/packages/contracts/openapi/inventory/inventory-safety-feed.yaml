@@ -41,7 +41,11 @@ info:
     `next_page_token` until it is null; every page answers the same
     `revision`. (2) Call `posGetInventorySafetyDeltas` with `since` = that
     `revision`, and then with each answered `revision`, until `has_more` is
-    false. A delta carries the CURRENT state of every hold touched by a change
+    false. A snapshot REPLACES the till's hold set, never merges into it:
+    build a new set from the snapshot pages and the deltas that follow, keep
+    enforcing the old set meanwhile, and swap the new one in only when a
+    delta answers `has_more: false` (a hold released since the old set was
+    built would otherwise stay). A delta carries the CURRENT state of every hold touched by a change
     after `since`: an active hold is an upsert (replace the row by
     `hold_id`), a released hold is a removal. Applying a delta is
     idempotent; removing a hold the till does not hold is a no-op; replaying
