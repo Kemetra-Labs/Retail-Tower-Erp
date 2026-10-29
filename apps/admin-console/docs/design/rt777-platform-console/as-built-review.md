@@ -82,10 +82,11 @@ console, which is its quietest band.
   (enforced by the server, not only by the UI).
 - **59, 60:** the empty and no-match states are bare text. «المعروض: 0 من 3» is redundant under
   «لا توجد مؤسسة تطابق». A «مسح البحث» action would help.
-- **69–75:** inside a support session the top bar's identity label reads «لوحة التحكم», the tenant
-  Console label, while the operator acts as platform staff. Design-system rule 7 separates the two by
-  identity label; keeping «المنصة» would match. (The «المالك» role in these frames is a fixture
-  artifact, §0.)
+- **69–75:** inside a support session the top bar's identity label reads «لوحة التحكم», while the
+  operator acts as platform staff. The design system's tenant shell example uses «لوحة المؤسسة», so
+  the shipped label matches neither identity. Design-system rule 7 separates the platform and tenant
+  consoles by identity label; keeping «المنصة» in a session would match the platform side. (The
+  «المالك» role in these frames is a fixture artifact, §0.)
 - **69:** the session bar groups eight items in one flat row; the tenant name has no more weight than
   the purpose. The 4px info edge is the only privilege signal. The sidebar marks no current location.
 - **69–75:** the time shows the full date plus UTC for a 60-minute session («حتى 29 أكتوبر 2026، UTC
