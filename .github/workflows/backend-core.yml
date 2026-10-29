@@ -483,7 +483,8 @@ jobs:
   # shard 0 of a push to main writes the cache (cache-to); every other run only reads it, and
   # GitHub scopes the cache by ref, so a PR can read main's entries but never write them. No
   # token permission is added (pgraph privileges). A cache miss is a normal cold build, and a
-  # failed build fails the shard.
+  # failed build fails the shard; a failed or slow cache export (ignore-error, 5-minute timeout
+  # inside the 10-minute step) does not.
   bc-schemathesis-shard:
     name: schemathesis shard ${{ matrix.shard }}
     needs: plan
@@ -526,7 +527,7 @@ jobs:
           push: false
           provenance: false
           cache-from: type=gha,scope=bc-st-api
-          cache-to: ${{ github.event_name == 'push' && matrix.shard == 0 && 'type=gha,mode=max,scope=bc-st-api' || '' }}
+          cache-to: ${{ github.event_name == 'push' && matrix.shard == 0 && 'type=gha,mode=max,scope=bc-st-api,ignore-error=true,timeout=5m' || '' }}
 
       - name: Build migrate image (layer cache)
         timeout-minutes: 10
@@ -539,7 +540,7 @@ jobs:
           push: false
           provenance: false
           cache-from: type=gha,scope=bc-st-migrate
-          cache-to: ${{ github.event_name == 'push' && matrix.shard == 0 && 'type=gha,mode=max,scope=bc-st-migrate' || '' }}
+          cache-to: ${{ github.event_name == 'push' && matrix.shard == 0 && 'type=gha,mode=max,scope=bc-st-migrate,ignore-error=true,timeout=5m' || '' }}
 
       - name: Start ephemeral stack
         timeout-minutes: 10
