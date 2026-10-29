@@ -251,4 +251,5 @@ def test_waits_for_mariadb_to_be_healthy_before_the_restore():
     bench restore failed with 2002 (lab-03 rehearsal, run 40865158775)."""
     text = _script()
     step2 = text[text.index('echo "STEP 2 new-volume"'):text.index('echo "STEP 3 set-encryption-key"')]
-    assert re.search(r"dcx up -d --wait --wait-timeout \d+ --no-deps mariadb", step2)
+    # A bounded wait: compose treats --wait-timeout 0 as no timeout (PR #108 review).
+    assert "dcx up -d --wait --wait-timeout 180 --no-deps mariadb" in step2
