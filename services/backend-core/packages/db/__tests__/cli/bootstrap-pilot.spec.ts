@@ -163,6 +163,20 @@ describe("bootstrap-pilot seed", () => {
     await expect(runSeed(cfg)).resolves.toEqual({ ...ids, operator_link_active: false });
     expect(await operatorState(subject, cfg.operatorEmail)).toEqual(before);
   });
+
+  it("never re-activates a disabled configured link, even when it is the user's only link", async () => {
+    if (skip()) return;
+    const cfg = config();
+    const { subject } = cfg.operatorIdentity;
+    const ids = await runSeed(cfg);
+    await pg().admin.query(
+      "UPDATE external_identity_links SET status = 'disabled', disabled_at = now() WHERE user_id = $1",
+      [ids.operator_user_id],
+    );
+    const before = await operatorState(subject, cfg.operatorEmail);
+    await expect(runSeed(cfg)).resolves.toEqual({ ...ids, operator_link_active: false });
+    expect(await operatorState(subject, cfg.operatorEmail)).toEqual(before);
+  });
 });
 
 describe("bootstrap-pilot readConfig", () => {

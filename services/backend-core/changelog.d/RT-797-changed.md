@@ -19,5 +19,5 @@
   `OPERATOR_PROVIDER_ISSUER` and `OPERATOR_PROVIDER_SUBJECT` instead of
   `CLERK_OPERATOR_SUBJECT`, and seeds the operator's active identity link
   alongside the bridge column (kept until RT-799); its output reports
-  `operator_link_active: false` (and warns) when the operator already signs in
-  through another link, which the seed never flips.
+  `operator_link_active: false` (and warns) when the configured identity is not
+  the operator's active link; the seed never changes identity-link status.

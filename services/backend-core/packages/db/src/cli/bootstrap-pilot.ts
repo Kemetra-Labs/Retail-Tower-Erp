@@ -121,8 +121,9 @@ export interface MintedIds {
   operator_provider_key: string;
   operator_provider_subject: string;
   /**
-   * false: the operator already signs in through another identity (moved by
-   * the identity-link cutover); the configured one was not linked.
+   * false: the configured identity is not the operator's active link (another
+   * link is active, or the configured link exists but is disabled). The seed
+   * never changes identity-link status.
    */
   operator_link_active: boolean;
 }
@@ -347,8 +348,8 @@ async function main(): Promise<void> {
       console.log(JSON.stringify(ids, null, 2));
       if (!ids.operator_link_active) {
         console.error(
-          'bootstrap-pilot: WARNING — the operator already signs in through another ' +
-            'identity link; the configured OPERATOR_PROVIDER_* identity was not linked.',
+          'bootstrap-pilot: WARNING — the configured OPERATOR_PROVIDER_* identity link ' +
+            'is not active; bootstrap does not change identity-link status.',
         );
       }
       console.log(
