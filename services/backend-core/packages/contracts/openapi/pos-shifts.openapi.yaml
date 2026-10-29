@@ -202,9 +202,8 @@ info:
     `shift_not_stuck` at the same place in the order, and a replay of a
     recorded force close is still answered first. No operation, status,
     `error.code`, parameter or schema changes; the POS needs no change.
-    **Runtime status:** the admission rule is pending the RT-811 runtime
-    change; until it ships, the server applies only the `pos_operator`
-    rule.
+    **Runtime status:** the admission rule shipped in the RT-811 runtime
+    change.
 servers:
   - url: https://api.example.com
 tags:
@@ -229,8 +228,7 @@ paths:
         reason (such as an `end` or a takeover) and has not expired at the
         server clock. While one exists a cashier may still be selling on
         that drawer, so the shift is not listed. An admission that ended or
-        expired does not count. Runtime status: pending the RT-811 runtime
-        change (see the info note).
+        expired does not count.
 
 
         Only managers and admins may call this endpoint; store_staff
@@ -829,9 +827,7 @@ paths:
         tenant on that terminal, for any user, that has not ended for any
         reason (such as an `end` or a takeover) and has not expired at the
         server clock; the caller's envelope makes no exception to it). It is
-        checked in the same transaction that records the close (runtime
-        status: pending the RT-811 runtime change, see the info note).
-        Otherwise 409
+        checked in the same transaction that records the close. Otherwise 409
         `shift_not_stuck`: a manager cannot close a live drawer from another
         terminal. This is the `GET /shifts/stuck` predicate with ONE
         difference: that list counts every active session, the caller's

@@ -11,7 +11,9 @@
  * Stuck-shift predicate:
  *   lifecycle_state = 'open'
  *   AND opened_at < now() - stuckThresholdMinutes
- *   AND no active pos_operator auth_token for the opening cashier on that branch.
+ *   AND no active pos_operator auth_token for the opening cashier on that branch
+ *   AND (RT-811) no live cashier admission of the tenant on the opening
+ *       terminal: any user, ended_at IS NULL and expires_at > now().
  *
  * Membership and access checks use a transaction-local bootstrap RLS
  * context; the shifts query uses the resolved tenant context.
@@ -136,6 +138,12 @@ export class PosShiftsService {
               AND s.lifecycle_state = 'open'
               AND s.opened_at       < now() - ($3::int * INTERVAL '1 minute')
               AND t.id IS NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM cashier_admissions a
+                 WHERE a.tenant_id  = s.tenant_id
+                   AND a.device_id  = s.opening_device_id
+                   AND a.ended_at   IS NULL
+                   AND a.expires_at > now())
               AND u.display_name IS NOT NULL
             ORDER BY s.opened_at`,
           [membership.tenant_id, branchId, this.stuckThresholdMinutes],
