@@ -116,10 +116,12 @@ describe("warehouse-map schema shape — erpnext_warehouse_map", () => {
     expect(cols.get("retired_at")?.notNull).toBe(false);
   });
 
-  it("has the purpose-grain active-mapping unique + the reverse-lookup index", () => {
+  it("has the purpose-grain active-mapping unique + the unique reverse (one store per Warehouse) index", () => {
     const ix = indexNames(erpnextWarehouseMap);
     expect(ix).toContain("UQ_idx_erpnext_warehouse_map_active");
-    expect(ix).toContain("idx_erpnext_warehouse_map_ref");
+    // RT-433 (migration 0075) replaced the non-unique idx_erpnext_warehouse_map_ref.
+    expect(ix).toContain("UQ_idx_erpnext_warehouse_map_ref_active");
+    expect(ix).not.toContain("idx_erpnext_warehouse_map_ref");
   });
 
   it("stores NO Bin-quantity / valuation / cost / on-hand column (OQ-1, no read-down mirror)", () => {

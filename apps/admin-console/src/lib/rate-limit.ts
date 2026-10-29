@@ -81,7 +81,10 @@ export interface RateLimitState {
   until: number;
   /** Epoch ms of the first 429 of the current window (for the manual retry). */
   since: number;
-  /** Bumps on every 429, so a dismissed banner re-opens on the next one. */
+  /**
+   * Bumps on every 429, so a dismissed banner re-opens on the next one. Each 429
+   * response keeps the `seq` it was recorded as (`rateLimitSeqOf`).
+   */
   seq: number;
 }
 
@@ -99,12 +102,29 @@ export function subscribeRateLimit(listener: () => void): () => void {
   };
 }
 
-/** Record a 429. The window only ever extends; a shorter Retry-After never shortens it. */
-export function reportRateLimited(retryAfterSeconds: number, now: number = Date.now()): void {
+/**
+ * Record a 429 and return its `seq`. The window only ever extends; a shorter
+ * Retry-After never shortens it.
+ */
+export function reportRateLimited(retryAfterSeconds: number, now: number = Date.now()): number {
   const until = Math.max(state.until, now + retryAfterSeconds * 1000);
   const since = state.until > now ? state.since : now;
   state = { until, since, seq: state.seq + 1 };
   for (const listener of listeners) listener();
+  return state.seq;
+}
+
+/** The `seq` the middleware recorded for each 429 response, so a caller can find its own. */
+const seqByResponse = new WeakMap<Response, number>();
+
+/**
+ * RT-940: the `seq` of the 429 THIS response was recorded as, or undefined for any
+ * other response. `getRateLimitState().seq` is the newest 429 of any request; read
+ * after an await, it can already be an overlapping request's. A surface that claims
+ * its 429 (src/platform/rateLimitOwner.tsx) claims this one, never the newest.
+ */
+export function rateLimitSeqOf(response: Response): number | undefined {
+  return seqByResponse.get(response);
 }
 
 /** Milliseconds left in the current window, 0 when none is running. */
@@ -136,7 +156,7 @@ const rateLimitMiddleware: Middleware = {
       retryAfter: response.headers.get("retry-after"),
       code: response.status === RATE_LIMITED_STATUS ? await envelopeCode(response) : undefined,
     });
-    if (info) reportRateLimited(info.retryAfterSeconds);
+    if (info) seqByResponse.set(response, reportRateLimited(info.retryAfterSeconds));
     return response;
   },
 };

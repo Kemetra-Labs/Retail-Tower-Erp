@@ -52,6 +52,9 @@ const LIVE_READ_CODES = [
   "erpnext_sync_ops.posting_backlog.listed",
   "erpnext_sync_ops.reconciliation_runs.listed",
   "erpnext_sync_ops.summary.read",
+  // RT-449 PR 2: the POS inventory safety feed.
+  "inventory_safety.deltas.read",
+  "inventory_safety.snapshot.read",
   "pairing_codes.listed",
   // RT-548 / RT-689: the POS readSale.
   "pos_sales.detail_read",

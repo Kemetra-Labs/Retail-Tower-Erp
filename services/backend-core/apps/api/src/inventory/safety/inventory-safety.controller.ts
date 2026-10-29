@@ -10,6 +10,17 @@
  *   POST /api/inventory/v1/tracking-identities/{identityId}/expiry-corrections
  *                                                            → correctTrackingIdentityExpiry
  *
+ * RT-449 PR 2 (rulings H6, H8):
+ *
+ *   GET  /api/inventory/v1/settings/safety-ttl               → getSafetyTtlSetting
+ *   PUT  /api/inventory/v1/settings/safety-ttl               → setSafetyTtlSetting
+ *   GET  /api/inventory/v1/safety/findings                   → listInventorySafetyFindings
+ *
+ * The two reads also admit a store_manager: the Safety TTL is the tenant's
+ * (as the return landing policy), and the service filters the findings to the
+ * caller's store scope (H6). Setting the TTL is owner / tenant_admin; the
+ * service audits it.
+ *
  * Auth (H1, H2; decision 965): the cookieAuth operator surface. These are
  * TENANT-level operations — a hold reaches the identity at every location of
  * every store — so no store scope can admit a caller: `RolesGuard` admits
@@ -37,6 +48,7 @@ import {
   HttpStatus,
   Param,
   Post,
+  Put,
   Req,
   UnauthorizedException,
   UseGuards,
@@ -48,8 +60,9 @@ import { DashboardAuthGuard } from '../../auth/dashboard-auth.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { RolesGuard } from '../../auth/roles.guard';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
+import { ConsoleRateLimit } from '../../console-rate-limit/console-rate-limit.decorator';
 import { TenantContextGuard } from '../../context/tenant-context.guard';
-import type { TenantContextRequest } from '../../context/types';
+import type { ResolvedContext, TenantContextRequest } from '../../context/types';
 import { Idempotent } from '../../idempotency/idempotent.decorator';
 import { IdentityExpiryService, type ExpiryCorrectionResult } from './identity-expiry.service';
 import {
@@ -58,6 +71,13 @@ import {
   type InventoryRecallResult,
 } from './inventory-recalls.service';
 import type { TrackingHoldBody, TrackingHoldResult } from './safety.common';
+import { SafetyFindingsService, type InventorySafetyFindingList } from './safety-findings.service';
+import {
+  DEFAULT_SAFETY_TTL_SECONDS,
+  MIN_SAFETY_TTL_SECONDS,
+  SafetyTtlService,
+  type SafetyTtlSettingBody,
+} from './safety-ttl.service';
 import { TrackingHoldsService } from './tracking-holds.service';
 
 const UuidSchema = z.string().uuid();
@@ -103,6 +123,19 @@ const CorrectExpirySchema = z
   .strict();
 type CorrectExpiryDto = z.infer<typeof CorrectExpirySchema>;
 
+/** Contract `SetSafetyTtlSettingCommand` (H8: 60–900, or null for the default). */
+const SetSafetyTtlSchema = z
+  .object({
+    safetyTtlSeconds: z
+      .number()
+      .int()
+      .min(MIN_SAFETY_TTL_SECONDS)
+      .max(DEFAULT_SAFETY_TTL_SECONDS)
+      .nullable(),
+  })
+  .strict();
+type SetSafetyTtlDto = z.infer<typeof SetSafetyTtlSchema>;
+
 /** The resolved caller of a safety command. */
 interface SafetyActor {
   readonly tenantId: string;
@@ -116,6 +149,8 @@ export class InventorySafetyController {
     private readonly holds: TrackingHoldsService,
     private readonly recalls: InventoryRecallsService,
     private readonly expiry: IdentityExpiryService,
+    private readonly safetyTtl: SafetyTtlService,
+    private readonly findings: SafetyFindingsService,
   ) {}
 
   /** Place a quality hold on a tracking identity (G7-6). */
@@ -209,6 +244,40 @@ export class InventorySafetyController {
       expiryDate: body.expiryDate,
       reasonCode: body.reasonCode,
       note: body.note ?? null,
+    });
+  }
+
+  /** The tenant's Safety TTL of the POS inventory safety feed (H8). */
+  @Get('api/inventory/v1/settings/safety-ttl')
+  @Roles('owner', 'tenant_admin', 'store_manager', { denyAs: 403 })
+  async getSafetyTtlSetting(@Req() request: TenantContextRequest): Promise<SafetyTtlSettingBody> {
+    return await this.safetyTtl.getSafetyTtl(actor(request).tenantId);
+  }
+
+  /** Set the tenant's Safety TTL, downwards only (H8). */
+  @Put('api/inventory/v1/settings/safety-ttl')
+  @Roles('owner', 'tenant_admin', { denyAs: 403 })
+  async setSafetyTtlSetting(
+    @Req() request: TenantContextRequest,
+    @Body(new ZodValidationPipe(SetSafetyTtlSchema)) body: SetSafetyTtlDto,
+  ): Promise<SafetyTtlSettingBody> {
+    return await this.safetyTtl.setSafetyTtl({
+      ...actor(request),
+      safetyTtlSeconds: body.safetyTtlSeconds,
+    });
+  }
+
+  /** The tenant's computed safety findings in the caller's store scope (H6). */
+  @Get('api/inventory/v1/safety/findings')
+  @Roles('owner', 'tenant_admin', 'store_manager', { denyAs: 403 })
+  @ConsoleRateLimit('expensiveRead')
+  async listInventorySafetyFindings(
+    @Req() request: TenantContextRequest,
+  ): Promise<InventorySafetyFindingList> {
+    const { tenantId } = actor(request);
+    return await this.findings.listFindings({
+      tenantId,
+      context: request.context as ResolvedContext,
     });
   }
 }

@@ -18,6 +18,7 @@ import { ListState } from "@/components/ListState";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { type T, useT } from "@/i18n";
 import { useState } from "react";
+import { useClaimRateLimit } from "./rateLimitOwner";
 import { StartSessionDrawer, type StartTenant } from "./start/StartSessionDrawer";
 import { SessionGoneNotice } from "./tenants/SessionGoneNotice";
 import { type DirectoryRow, directoryRows, filterTenants } from "./tenants/directoryLogic";
@@ -128,6 +129,8 @@ function DirectoryBody({
   const t = useT();
   const { context } = useActiveContextValue();
   const { tenants, isLoading, error, refetch } = directory;
+  // RT-931: the 429 is said here, with its one gated retry; the shell banner skips it.
+  useClaimRateLimit(error?.kind === "rate-limited" ? error.seq : undefined);
 
   if (isLoading) return <ListState state="loading" label={t("platform.tenants.title")} />;
   if (error) {

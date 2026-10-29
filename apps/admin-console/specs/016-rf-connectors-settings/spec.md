@@ -3,20 +3,37 @@
 | Field | Value |
 | --- | --- |
 | Feature ID | 016 (folder name `016-rf-connectors-settings` kept for link stability) |
-| Status | **Proposed — decision recorded, not yet planned** (RT-557, Planning) |
+| Status | **Proposed — decision recorded, not yet planned** (RT-557, Planning). **Correction 2026-10-29 (RT-565 AC3):** the posting-freshness read now exists on Backend-Core `main`; see the status update under §0 and the §3 row "Last successful posting / sync". |
 | Decision | **BUILD, narrowed.** Build a tenant-scoped ERP connection & sync status surface. **Drop** the generic "settings" half. Do **not** merge into RT-391. |
 | Date | 2026-10-16 |
 | Owning repo | Kemetra/Admin-Console |
 | Jira | [RT-557](https://rahmaqanater.atlassian.net/browse/RT-557) (parent RT-5, W5 Console Operations) |
 | Supersedes | The 2026-06-13 vision stub (Data Pulse / file feeds / generic settings intent) |
 
-## 0. Baselines (verified 2026-10-16, read-only)
+## 0. Baselines (point-in-time 2026-10-16, read-only; not re-verified since)
+
+This table is a **historical baseline** from the RT-557 planning date. Only the posting-freshness
+statements were re-checked on 2026-10-29 (see the update below). Every other row and statement in
+this spec is still as of 2026-10-16.
 
 | Repo | `origin/main` | Notes |
 | --- | --- | --- |
-| Admin-Console | `d6e666d` | Console client pin `DATA_PULSE_2_PIN = 2b03ad2d` (`openapi-ts.config.ts`). |
+| Admin-Console | `d6e666d` | Console client pin `DATA_PULSE_2_PIN = 2b03ad2d` (`openapi-ts.config.ts`). **Superseded:** the current Admin-Console contract pin is `contracts/backend-core/PIN` (monorepo commit `73ee5636`, as of 2026-10-29), which includes `erpnext-sync-ops/console-sync-ops.yaml`. |
 | Backend-Core | `1d26d287` | The four contracts below are **byte-identical** at `2b03ad2d` and `1d26d287` (same git blob SHAs). |
 | ERPNext-Connector | `e217edd2` | All 57 non-test `.py` files and `hooks.py` `scheduler_events` searched: **no heartbeat sender**. Scheduled jobs are only the posting poller and the bin-view poller. |
+
+**Status update 2026-10-29 (RT-565 AC3, checked on `origin/main` `074252fe`).** Three separate facts:
+
+1. **Backend-Core route: on `main`.** `consoleGetSyncOpsSummary` returns `asOf` and
+   `postingFreshness` (contract `console-sync-ops.yaml` `1.2.0-draft`; decision record `57d794f2`
+   (#823), contract `0e7bd304` (#866), runtime and indexes 0057–0061 `eb9894ec` (#871)). The
+   Admin-Console pin includes the contract and the generated schema carries `postingFreshness`.
+2. **Admin UI: does not consume it yet.** No Admin-Console source outside the generated schema
+   reads `postingFreshness`, `lastPosted` or `oldestPendingAt`, and the sync summary strip does not
+   display them.
+3. **Live or lab evidence: none.** Migrations 0057–0061 have not been applied to any lab or
+   production database from this work, and no live posting freshness has been observed. Merged
+   code and CI are not deployment evidence.
 
 "Data Pulse" / "Data-Pulse-2" is the old name of Backend-Core. "File feeds" do not exist in the
 architecture. Both references from the stub are dropped.
@@ -88,7 +105,7 @@ contracts below. Refreshing those rows is RT-558's job (Docs), not this spec's.
 | Operator need | Served on BC `1d26d287`? | By | Gap |
 | --- | --- | --- | --- |
 | ERP connection status | **Yes (contract + runtime)** | C1 `tenantAdminListConnectorInstances`, C2 `listConnectorHealth` / `getConnectorHealth` | No Connector heartbeat sender, so every instance reads `never_seen`. The summary's `connector_health` domain is hard-coded `not_available`. |
-| Last successful posting / sync | **No** | Nearest proxies only: the C3 posting `DomainSummary` (dead-letter count; `detail` is fixed text such as "No posting dead-letters"), C2 `lastSeenAt` (connector liveness, not posting), C3 run `finishedAt` (stock reconciliation, not posting) | There is no "last successfully posted at" or "oldest pending posting age" read. Proposed as issue 6 (§9), stated as a need without field names. Until then the UI must not imply "posting is current". |
+| Last successful posting / sync | **Backend-Core route: yes, on `main` (RT-565).** **Admin UI: not consuming it yet.** **Live or lab evidence: none.** (At the 2026-10-16 baseline this row read "No".) | C3 `consoleGetSyncOpsSummary` returns `asOf` and `postingFreshness`: `lastPosted` (`state` ∈ `known`, `unknown`, `none`, with `at`), `pendingCount`, `oldestPendingAt`, `oldestPendingAgeSeconds`. Facts only, with no healthy/current verdict. Same owner/tenant_admin gate, store scope and RLS as the rest of C3. Historical nearest proxies, still not posting freshness: the C3 posting `DomainSummary` (dead-letter count; `detail` is fixed text such as "No posting dead-letters"), C2 `lastSeenAt` (connector liveness), C3 run `finishedAt` (stock reconciliation) | Gap: the Admin UI does not display the freshness fields yet, and migrations 0057–0061 have not been applied to any lab or production database, so no live freshness has been observed. Until the UI displays it, and until a live read is evidenced, the UI must not imply "posting is current". When displayed, it shows `asOf` and renders `unknown` and `none` as such, never as a healthy or current verdict. |
 | Posting failures needing attention | **Yes** | C3 `consoleListPostingBacklog` | `rejectionClass` only; reason text is RT-410. |
 | Reconciliation outcome | **Yes** | C3 `consoleListReconciliationRuns`, summary `reconciliation` domain | — |
 | Operator-owned connector configuration | **Yes** | C1 register / issue / rotate / revoke / disable | Browser exposure deferred pending a security review (OD-1, §8); for now this is a platform-team runbook step. |
@@ -100,13 +117,16 @@ contracts below. Refreshing those rows is RT-558's job (Docs), not this spec's.
 | --- | --- | --- | --- |
 | C1 | `connector/connector-admin.yaml` (spec 018) | **A:** `tenantAdminListConnectorInstances`. **B:** `tenantAdminRegisterConnectorInstance`, `tenantAdminIssueConnectorCredential`, `tenantAdminRotateConnectorCredential`, `tenantAdminRevokeConnectorCredential`, `tenantAdminDisableConnectorInstance` | No (not a composed source) |
 | C2 | `erpnext-connector/connector-health.yaml` (spec 020) | **A:** `listConnectorHealth`, `getConnectorHealth`. (`connectorReportHeartbeat` is machine-only and never called by the console.) | No |
-| C3 | `erpnext-sync-ops/console-sync-ops.yaml` (spec 025) | **A:** `consoleGetSyncOpsSummary`, `consoleListPostingBacklog`, `consoleListReconciliationRuns` | No |
+| C3 | `erpnext-sync-ops/console-sync-ops.yaml` (spec 025) | **A:** `consoleGetSyncOpsSummary`, `consoleListPostingBacklog`, `consoleListReconciliationRuns` | Baseline 2026-10-16: no. **2026-10-29: contract pinned and in the generated schema, including `postingFreshness`; the UI does not display `postingFreshness`.** |
 | C4 | `erpnext-reconciliation/reconciliation.yaml` (spec 017) | **C (gated):** `repairPosting`, `reResolvePosting` | Partly: the source is composed, but only the three RT-178 stock ops are wrapped |
 
+The "In console client today?" column for C1, C2 and C4 is as of 2026-10-16 and was not re-verified for RT-565.
+
 **Contract work for implementation (later, not this issue):** add C1–C3 as composed sources in
-`openapi-ts.config.ts` and regenerate. This is a **regeneration at the existing pin `2b03ad2d`**,
-because the files are byte-identical on Backend-Core `main` `1d26d287`. No re-pin is needed. This
-planning issue changes no config or generated file.
+`openapi-ts.config.ts` and regenerate. At the 2026-10-16 baseline this was a **regeneration at the
+then-current pin `2b03ad2d`**, because the files were byte-identical on Backend-Core `main`
+`1d26d287`. That pin is superseded: the current pin is `contracts/backend-core/PIN` (§0 update), and
+it already includes `console-sync-ops.yaml`. This planning issue changes no config or generated file.
 
 ### 3.1 Fields the UI may rely on (from the contracts, verbatim names)
 
@@ -211,7 +231,7 @@ never offered.
 
 | Dependency | Status | Blocks |
 | --- | --- | --- |
-| C1–C3 contracts and runtime on `main` | **Exist** (`1d26d287`) | Nothing; Phase A can start after client regeneration |
+| C1–C3 contracts and runtime on `main` | **Exist** (`1d26d287`). C3 gained `postingFreshness` on `main` via RT-565 (#866, #871); the Admin UI does not display it yet and there is no live evidence (§0 update) | Nothing; Phase A can start after client regeneration |
 | Connector heartbeat sender (ERPNext-Connector → `connectorReportHeartbeat`) | **Missing.** Already listed in **RT-391 Phase 2**, with no dedicated Jira issue found | Live liveness. Phase A still ships, with truthful "no signal" |
 | `consoleGetSyncOpsSummary` populating `connector_health` from the 020 read model (today hard-coded `not_available`, `erpnext-sync-ops.read-model.service.ts`) | **Gap.** No Jira issue found | Summary tile for connector health; Phase A renders it unavailable until then |
 | Posting rejection reason text in the backlog | **RT-410** (To Do, GATED migration) | Phase C; a better Phase A backlog (not blocking) |
@@ -248,7 +268,8 @@ never offered.
 ## 9. Proposed Jira issues (not created; the coordinator decides)
 
 1. **Admin-Console — 016 Phase A: ERP connection & sync status (read-only)** (Implementation).
-   Add C1–C3 as client sources at pin `2b03ad2d` and regenerate, then build §4 Phase A to §5 A-1…A-8.
+   Add C1–C3 as client sources at the then-current pin `2b03ad2d` (superseded; use the current pin,
+   §0 update) and regenerate, then build §4 Phase A to §5 A-1…A-8.
 2. **Backend-Core — populate `connector_health` in `consoleGetSyncOpsSummary` from the 020 read
    model** (Implementation, small, no contract change expected: the enum and `DomainSummary` shape
    already exist).
@@ -259,10 +280,12 @@ never offered.
    pending a security review** (OD-1). It is not planned until that review clears it against §5 B-1…B-4.
 5. *(Optional, later)* **Admin-Console — ERP item / warehouse mapping readiness**, if the owner
    wants mapping management in the console.
-6. **Backend-Core — posting freshness read for the console** (Planning, contract-first). The
-   operator needs to know when posting last succeeded, or how old the oldest pending posting is,
-   for the tenant or a store. Field names and semantics are Backend-Core's to define. Today only
-   the dead-letter count exists (§3).
+6. **Backend-Core — posting freshness read for the console** (RT-565). The operator needs to know
+   when posting last succeeded, or how old the oldest pending posting is, for the tenant or a
+   store. **Source-implemented on Backend-Core `main`** (decision #823, contract #866, runtime and
+   indexes #871; §3 row "Last successful posting / sync"). **Still open:** the Admin UI display
+   (not consuming it yet) and live or lab evidence (none; migrations 0057–0061 not applied to any
+   lab or production database).
 
 ## 10. Boundaries with sibling specs
 

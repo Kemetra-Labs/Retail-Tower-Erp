@@ -23,17 +23,26 @@
  */
 import { Module } from "@nestjs/common";
 
-import { AuthModule } from "../auth/auth.module";
+import type { Pool } from "pg";
+
+import { AuditModule } from "../audit/audit.module";
+import { AUTH_LOOKUP_POOL, AuthModule, PG_POOL } from "../auth/auth.module";
+import { PosDeviceAuthGuard } from "../auth/pos-device-auth.guard";
 import { RolesGuard } from "../auth/roles.guard";
 import { ContextModule } from "../context/context.module";
 import { IdempotencyModule } from "../idempotency/idempotency.module";
+import { DeviceRepository } from "../pos-operators/device.repository";
 import { InventoryController } from "./inventory.controller";
 import { InventoryService } from "./inventory.service";
 import { InventoryPositionEventsController } from "./position-events/position-events.controller";
 import { InventoryPositionEventsService } from "./position-events/position-events.service";
 import { IdentityExpiryService } from "./safety/identity-expiry.service";
 import { InventoryRecallsService } from "./safety/inventory-recalls.service";
+import { InventorySafetyFeedController } from "./safety/inventory-safety-feed.controller";
+import { InventorySafetyFeedService } from "./safety/inventory-safety-feed.service";
 import { InventorySafetyController } from "./safety/inventory-safety.controller";
+import { SafetyFindingsService } from "./safety/safety-findings.service";
+import { SafetyTtlService } from "./safety/safety-ttl.service";
 import { TrackingHoldsService } from "./safety/tracking-holds.service";
 import { TrackingIdentitiesController } from "./tracking-identities.controller";
 
@@ -55,16 +64,20 @@ import { TrackingIdentitiesController } from "./tracking-identities.controller";
   // that honors @Idempotent("required") on the createStockMovement POST route —
   // manual replay returns the same movement, a divergent body under the same
   // key 409s. Reuses the existing 001/005 primitive; no new machinery.
-  imports: [AuthModule, ContextModule, IdempotencyModule],
+  // AuditModule (RT-449 PR 2): the device feed's `@Auditable` read rows.
+  imports: [AuthModule, ContextModule, IdempotencyModule, AuditModule],
   // RT-435: status moves, relocations and the return landing policy
   // (RolesGuard; the service reads the caller's role for sensitive moves).
   // RT-449: tracking holds, recall and identity expiry correction
   // (tenant-level, RolesGuard; each command steps the Safety Revision).
+  // RT-449 PR 2: the Safety TTL and the safety findings (cookieAuth), and the
+  // POS inventory safety feed (device bearer, as the catalogue read-down).
   controllers: [
     InventoryController,
     TrackingIdentitiesController,
     InventoryPositionEventsController,
     InventorySafetyController,
+    InventorySafetyFeedController,
   ],
   providers: [
     InventoryService,
@@ -72,7 +85,20 @@ import { TrackingIdentitiesController } from "./tracking-identities.controller";
     TrackingHoldsService,
     InventoryRecallsService,
     IdentityExpiryService,
+    SafetyTtlService,
+    SafetyFindingsService,
+    InventorySafetyFeedService,
     RolesGuard,
+    // The feed's PosDeviceAuthGuard resolves (tenant, store) from the device
+    // row: the device on the pre-tenant lookup pool, its tenant's status on
+    // the domain pool (ReadDownModule's provider shape).
+    {
+      provide: DeviceRepository,
+      useFactory: (lookupPool: Pool, domainPool: Pool): DeviceRepository =>
+        new DeviceRepository(lookupPool, domainPool),
+      inject: [AUTH_LOOKUP_POOL, PG_POOL],
+    },
+    PosDeviceAuthGuard,
   ],
   exports: [InventoryService],
 })
