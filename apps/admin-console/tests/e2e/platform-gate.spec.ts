@@ -113,6 +113,35 @@ test("a non-admin gets the non-disclosing state, light and dark, axe clean", asy
   await expectNoAxeViolations(page, "platform not available dark");
 });
 
+// RT-929: the standalone page's grid had no `topbar` area, so the shared
+// `.topbar { grid-area: topbar }` landed in an implicit track at the bottom.
+for (const width of [1440, 1280, 390]) {
+  test(`a non-admin's no-access page keeps the top bar on top and the card centred at ${width}`, async ({
+    page,
+    t,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mockContext(page, 200, tenantContext(member));
+    await page.goto("/platform/tenants");
+    await expect(page.getByRole("heading", { name: t("platform.noAccess.title") })).toBeVisible();
+
+    const bar = await page.locator(".platform-standalone > .topbar").boundingBox();
+    expect(bar, "top bar box").not.toBeNull();
+    expect(bar?.y, "top bar starts at the top").toBe(0);
+    expect(bar?.width, "top bar spans the viewport").toBe(width);
+
+    const card = await page.locator(".platform-unavailable").boundingBox();
+    expect(card, "card box").not.toBeNull();
+    const cardCentre = (card?.x ?? 0) + (card?.width ?? 0) / 2;
+    expect(Math.abs(cardCentre - width / 2), "card centred horizontally").toBeLessThanOrEqual(2);
+    expect(card?.y ?? 0, "card sits below the top bar").toBeGreaterThan(bar?.height ?? 0);
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow, "no horizontal overflow").toBe(0);
+  });
+}
+
 test("a path that does not exist shows the same state as a non-admin", async ({ page, t }) => {
   await mockContext(page, 200, { user: admin, active_tenant: null, memberships: [] });
   await page.goto("/platform/nope");
