@@ -477,6 +477,13 @@ jobs:
   # The name is an expression, so it is not a graph job key and never equals bc/schemathesis.
   # Timeouts are the product's, not yet measured on this repo's 2-core runner (job 30 minutes;
   # steps 10, 20 and 15).
+  #
+  # Image layer cache (RT-578, RT-917 comment 14404): the api and migrate images are built here
+  # with Buildx and the GitHub Actions cache, then stack-up.sh runs with SKIP_BUILD=1. Only
+  # shard 0 of a push to main writes the cache (cache-to); every other run only reads it, and
+  # GitHub scopes the cache by ref, so a PR can read main's entries but never write them. No
+  # token permission is added (pgraph privileges). A cache miss is a normal cold build, and a
+  # failed build fails the shard.
   bc-schemathesis-shard:
     name: schemathesis shard ${{ matrix.shard }}
     needs: plan
@@ -503,8 +510,41 @@ jobs:
       - name: Plan this shard's contract files
         run: bash tools/schemathesis/shard.sh plan
 
+      # `uses:` steps ignore defaults.run.working-directory, hence the services/backend-core
+      # context. Same pins as release-backend-core.yml.
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: Build api image (layer cache)
+        timeout-minutes: 10
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: services/backend-core
+          target: api
+          tags: api-fuzz-api:local
+          load: true
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=bc-st-api
+          cache-to: ${{ github.event_name == 'push' && matrix.shard == 0 && 'type=gha,mode=max,scope=bc-st-api' || '' }}
+
+      - name: Build migrate image (layer cache)
+        timeout-minutes: 10
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: services/backend-core
+          target: migrate
+          tags: api-fuzz-migrate:local
+          load: true
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=bc-st-migrate
+          cache-to: ${{ github.event_name == 'push' && matrix.shard == 0 && 'type=gha,mode=max,scope=bc-st-migrate' || '' }}
+
       - name: Start ephemeral stack
         timeout-minutes: 10
+        env:
+          SKIP_BUILD: "1"
         run: bash tools/schemathesis/stack-up.sh
 
       - name: "Gate: no 5xx (not_a_server_error)"
