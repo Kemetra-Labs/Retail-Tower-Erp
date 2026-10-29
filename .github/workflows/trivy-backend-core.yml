@@ -124,19 +124,21 @@ jobs:
           key: trivy-db-${{ steps.day.outputs.date }}
           restore-keys: trivy-db-
 
-      # Report-only: --exit-code 0 covers findings; any scan error still fails the step.
+      # Report-only: --exit-code 0 covers findings. A scan error does not stop the other images
+      # but fails the step after the loop, so it never reads as a clean report.
       - name: Scan the images
         run: |
-          set -euo pipefail
+          set -uo pipefail
           {
             echo "### Trivy ${PINNED_TRIVY_VERSION}: Backend-Core images (HIGH/CRITICAL, fixable)"
             echo
             echo "| image | findings | seconds |"
             echo "| --- | --- | --- |"
           } >> "$GITHUB_STEP_SUMMARY"
+          failed=""
           for image in api worker migrate; do
             start=$(date +%s)
-            "$RUNNER_TEMP/trivy/trivy" image \
+            if "$RUNNER_TEMP/trivy/trivy" image \
               --input "$RUNNER_TEMP/images/$image.tar" \
               --cache-dir "$RUNNER_TEMP/trivy-cache" \
               --scanners vuln \
@@ -145,16 +147,25 @@ jobs:
               --skip-dirs /usr/local/lib/node_modules/npm \
               --format sarif \
               --output "$RUNNER_TEMP/sarif/$image.sarif" \
-              --exit-code 0
-            findings=$(jq '[.runs[].results[]] | length' "$RUNNER_TEMP/sarif/$image.sarif")
+              --exit-code 0; then
+              findings=$(jq '[.runs[].results[]] | length' "$RUNNER_TEMP/sarif/$image.sarif") || findings="unreadable SARIF"
+            else
+              findings="scan error"
+            fi
+            [[ "$findings" =~ ^[0-9]+$ ]] || failed="$failed $image"
             echo "| $image | $findings | $(( $(date +%s) - start )) |" >> "$GITHUB_STEP_SUMMARY"
           done
           echo >> "$GITHUB_STEP_SUMMARY"
-          echo "DB cache: $(du -sh "$RUNNER_TEMP/trivy-cache/db" | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+          echo "DB cache: $(du -sh "$RUNNER_TEMP/trivy-cache/db" 2>/dev/null | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$failed" ]; then
+            echo "::error::Trivy scan failed for:$failed"
+            exit 1
+          fi
 
-      # One category per image, so each keeps its own alert set. always(): a failed scan of one
-      # image must not hide the others; a missing SARIF fails only its own upload.
+      # One category per image, so each keeps its own alert set. always() + continue-on-error: one
+      # failed scan or upload must not skip the other uploads; the last step then fails the job.
       - name: Upload api SARIF
+        id: upload-api
         if: always()
         continue-on-error: true
         uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
@@ -163,6 +174,7 @@ jobs:
           category: trivy-backend-core-api
 
       - name: Upload worker SARIF
+        id: upload-worker
         if: always()
         continue-on-error: true
         uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
@@ -171,9 +183,29 @@ jobs:
           category: trivy-backend-core-worker
 
       - name: Upload migrate SARIF
+        id: upload-migrate
         if: always()
         continue-on-error: true
         uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           sarif_file: ${{ runner.temp }}/sarif/migrate.sarif
           category: trivy-backend-core-migrate
+
+      # continue-on-error leaves each upload's conclusion green; its outcome still records a
+      # failure. An image without published alerts is an incomplete report, so fail the job.
+      - name: Check the SARIF uploads
+        if: always()
+        env:
+          API: ${{ steps.upload-api.outcome }}
+          WORKER: ${{ steps.upload-worker.outcome }}
+          MIGRATE: ${{ steps.upload-migrate.outcome }}
+        run: |
+          set -euo pipefail
+          failed=""
+          [ "$API" = success ] || failed="$failed api($API)"
+          [ "$WORKER" = success ] || failed="$failed worker($WORKER)"
+          [ "$MIGRATE" = success ] || failed="$failed migrate($MIGRATE)"
+          if [ -n "$failed" ]; then
+            echo "::error::SARIF upload did not succeed for:$failed"
+            exit 1
+          fi
