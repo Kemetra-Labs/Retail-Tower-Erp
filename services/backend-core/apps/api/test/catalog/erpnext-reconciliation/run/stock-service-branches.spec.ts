@@ -90,6 +90,103 @@ describe("017-US3 service — triggerRun", () => {
   });
 });
 
+/** RT-189: a stored RT-175 report: 20 windows x 500 entries (~1.5 MB of jsonb). */
+const FULL_REPORT_RUN = "0a000000-0000-7000-8000-00000e0189a1";
+/** RT-189: a pre-RT-175 stored report (no complete / attemptRef / windows). */
+const OLD_REPORT_RUN = "0a000000-0000-7000-8000-00000e0189a2";
+
+describe("RT-189 service — getRun bounds summary.bin_view_report", () => {
+  beforeAll(async () => {
+    if (skip || !env) return;
+    const entry = (i: number): Record<string, unknown> => ({
+      erpnextItemRef: `ITEM-${String(i).padStart(6, "0")}-${"x".repeat(60)}`,
+      productRef: null,
+      quantity: "12.500",
+      stockUom: "Nos",
+    });
+    const windows = Array.from({ length: 20 }, (_, w) => ({
+      windowSeq: w,
+      entryCount: 500,
+      isFinal: w === 19,
+      recordedAt: "2026-10-29T10:00:01.000Z",
+    }));
+    const full = {
+      quantity_divergence: 4,
+      bin_view_report: {
+        requestRef: "req-189",
+        runRef: FULL_REPORT_RUN,
+        erpnextWarehouseRef: "WH-189",
+        attemptRef: "att-189",
+        readAt: "2026-10-29T10:00:00.000Z",
+        recordedAt: "2026-10-29T10:00:01.000Z",
+        complete: true,
+        windowsRecorded: 20,
+        acceptedEntryCount: 10_000,
+        windows,
+        entries: Array.from({ length: 10_000 }, (_, i) => entry(i)),
+        supersededAttemptRefs: [],
+      },
+    };
+    const old = {
+      bin_view_report: {
+        requestRef: "req-old",
+        runRef: OLD_REPORT_RUN,
+        erpnextWarehouseRef: "WH-old",
+        readAt: "2026-01-01T00:00:00.000Z",
+        recordedAt: "2026-01-01T00:00:01.000Z",
+        entries: [entry(1), entry(2), entry(3)],
+      },
+    };
+    for (const [id, summary] of [
+      [FULL_REPORT_RUN, full],
+      [OLD_REPORT_RUN, old],
+    ] as const) {
+      await env.admin.query(
+        `INSERT INTO erpnext_reconciliation_run
+           (id, tenant_id, store_id, kind, trigger, status, finished_at, actor_user_id, summary)
+         VALUES ($1, $2, $3, 'stock', 'on_demand', 'completed', now(), $4, $5::jsonb)
+         ON CONFLICT DO NOTHING`,
+        [id, TENANT_A, STORE_A_X, ACTOR_A, JSON.stringify(summary)],
+      );
+    }
+  }, 60_000);
+
+  it("a full 20 x 500 report reads as metadata only: < 10 KB, no entries, other keys kept", async () => {
+    if (skip) return;
+    const run = await svc().getRun({ tenantId: TENANT_A, context: sessionCtx(TENANT_A), runId: FULL_REPORT_RUN });
+    const json = JSON.stringify(run);
+    expect(json.length).toBeLessThan(10_240);
+    expect(json).not.toContain("entries");
+    expect(json).not.toContain("ITEM-");
+    expect(run.summary).toEqual({
+      quantity_divergence: 4,
+      bin_view_report: {
+        complete: true,
+        windowsRecorded: 20,
+        acceptedEntryCount: 10_000,
+        readAt: "2026-10-29T10:00:00.000Z",
+        recordedAt: "2026-10-29T10:00:01.000Z",
+        attemptRef: "att-189",
+      },
+    });
+  });
+
+  it("a pre-RT-175 report reads with the normalizeStored defaults", async () => {
+    if (skip) return;
+    const run = await svc().getRun({ tenantId: TENANT_A, context: sessionCtx(TENANT_A), runId: OLD_REPORT_RUN });
+    expect(run.summary).toEqual({
+      bin_view_report: {
+        complete: true,
+        windowsRecorded: 1,
+        acceptedEntryCount: 3,
+        readAt: "2026-01-01T00:00:00.000Z",
+        recordedAt: "2026-01-01T00:00:01.000Z",
+        attemptRef: null,
+      },
+    });
+  });
+});
+
 describe("017-US3 service — getRun / listResults", () => {
   it("getRun returns the seeded run", async () => {
     if (skip) return;

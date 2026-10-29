@@ -385,10 +385,16 @@ export class ErpnextSyncOpsReadModelService {
           status: string;
           started_at: string;
           finished_at: string | null;
-          summary: Record<string, number> | null;
+          summary: Record<string, unknown> | null;
         }>(
           `SELECT id, store_id, kind, trigger, status,
-                  started_at, finished_at, summary
+                  started_at, finished_at,
+                  -- RT-189: only the integer counts leave Postgres; the stored
+                  -- bin_view_report (up to ~1.5 MB) never rides the list.
+                  (SELECT jsonb_object_agg(s.key, s.value)
+                     FROM jsonb_each(CASE WHEN jsonb_typeof(summary) = 'object'
+                                          THEN summary ELSE '{}'::jsonb END) AS s
+                    WHERE jsonb_typeof(s.value) = 'number') AS summary
              FROM erpnext_reconciliation_run
             WHERE ($1::uuid IS NULL OR store_id = $1::uuid)
               AND ($2::timestamptz IS NULL
@@ -421,7 +427,7 @@ export class ErpnextSyncOpsReadModelService {
           status: r.status,
           startedAt: new Date(r.started_at).toISOString(),
           finishedAt: r.finished_at ? new Date(r.finished_at).toISOString() : null,
-          mismatchSummary: r.summary ?? null,
+          mismatchSummary: countsOnly(r.summary),
         }));
         const last = rows.rows[rows.rows.length - 1];
         // The cursor timestamp is `started_at` FLOORED to the millisecond (pg's
@@ -440,4 +446,19 @@ export class ErpnextSyncOpsReadModelService {
   private scopeOf(client: PoolClient, input: ScopedReadInput): Promise<StoreScope> {
     return callerStoreScope(client, this.memberships, input);
   }
+}
+
+/**
+ * RT-189: `mismatchSummary` is `additionalProperties: integer` (per-class
+ * counts). The run's `summary` jsonb also carries non-count evidence (the stored
+ * `bin_view_report`, `failure`), so keep only the integer-valued keys. The SQL
+ * already drops the non-numbers; this keeps non-integer numbers out too.
+ */
+function countsOnly(summary: Record<string, unknown> | null): Record<string, number> | null {
+  if (!summary) return null;
+  const counts: Record<string, number> = {};
+  for (const [key, value] of Object.entries(summary)) {
+    if (typeof value === "number" && Number.isInteger(value)) counts[key] = value;
+  }
+  return counts;
 }

@@ -300,3 +300,38 @@ describe("RT-180 §5 — run cursor timestamp must be a real instant", () => {
     },
   );
 });
+
+describe("RT-189 — mismatchSummary is integer counts only", () => {
+  const LEAKY_RUN = "0a000000-0000-7000-8000-00000e0189b1";
+
+  it("a run whose summary carries a stored bin_view_report lists only its integer counts", async () => {
+    if (skip()) return;
+    const summary = {
+      quantity_divergence: 3,
+      missing_in_erp: 1,
+      ratio: 0.5,
+      failure: { code: "x" },
+      bin_view_report: {
+        readAt: "2026-10-29T10:00:00.000Z",
+        recordedAt: "2026-10-29T10:00:01.000Z",
+        entries: Array.from({ length: 2000 }, (_, i) => ({ erpnextItemRef: `ITEM-${i}`, quantity: "1.000", stockUom: "Nos" })),
+      },
+    };
+    await env!.admin.query(
+      `INSERT INTO erpnext_reconciliation_run
+         (id, tenant_id, store_id, kind, trigger, status, finished_at, actor_user_id, summary)
+       VALUES ($1, $2, $3, 'stock', 'on_demand', 'completed', now(), $4, $5::jsonb)
+       ON CONFLICT DO NOTHING`,
+      [LEAKY_RUN, TENANT_A, RECONCILIATION_FIXTURE_IDS.storeAMapped, ACTOR_A, JSON.stringify(summary)],
+    );
+    const res = await http().get(BASE).expect(200);
+    const items = (res.body as { items: RunView[] }).items;
+    const row = items.find((i) => i.runId === LEAKY_RUN);
+    expect(row).toBeDefined();
+    expect(row!.mismatchSummary).toEqual({ quantity_divergence: 3, missing_in_erp: 1 });
+    for (const item of items) {
+      for (const v of Object.values(item.mismatchSummary ?? {})) expect(Number.isInteger(v)).toBe(true);
+    }
+    expect(JSON.stringify(res.body)).not.toContain("bin_view_report");
+  });
+});

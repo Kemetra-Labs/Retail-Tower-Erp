@@ -589,4 +589,15 @@ describe("reconciliation.yaml — RT-177 description-only edits (D3)", () => {
     expect(String(summary["description"])).not.toMatch(/counts only/i);
     expect(String(summary["description"])).toContain("bin_view_report");
   });
+
+  it("RT-189: the run summary states bin_view_report is metadata only, with its fields and no entries", () => {
+    const summary = looseSchema("ReconciliationRun").properties?.["summary"] ?? {};
+    const description = String(summary["description"]);
+    expect(description).toContain("METADATA ONLY");
+    for (const field of ["complete", "windowsRecorded", "acceptedEntryCount", "readAt", "recordedAt", "attemptRef"]) {
+      expect(description).toContain(field);
+    }
+    expect(description).toMatch(/entries are never returned/);
+    expect(doc.info?.version).toBe("1.5.0-draft");
+  });
 });

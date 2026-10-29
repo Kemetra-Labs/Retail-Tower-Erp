@@ -47,6 +47,7 @@ import {
   type PostingDeadletterRow,
 } from "./reconciliation-report.projection";
 import { callerStoreScope, inStoreScope, scopeStoreIds } from "../../context/operator-store-scope";
+import { binViewReportDefaults } from "../erpnext-bin-view/erpnext-bin-view.service";
 import { RECONCILIATION_REQUIRED_CATEGORY } from "../erpnext-posting/erpnext-posting.service";
 import {
   type AuditEventInput,
@@ -649,7 +650,7 @@ export class ErpnextReconciliationService {
    */
   private async readableRun(client: PoolClient, input: RunReadInput): Promise<RunDbRow> {
     const r = await client.query<RunDbRow>(
-      `SELECT ${RUN_COLS} FROM erpnext_reconciliation_run WHERE id = $1`,
+      `SELECT ${RUN_COLS_BOUNDED} FROM erpnext_reconciliation_run WHERE id = $1`,
       [input.runId],
     );
     const run = r.rows[0];
@@ -689,7 +690,30 @@ export class ErpnextReconciliationService {
 // US3 row → wire projection helpers
 // ---------------------------------------------------------------------------
 
-const RUN_COLS = STOCK_RECONCILIATION_RUN_COLUMNS;
+/**
+ * RT-189: the run columns for the run GET, with `summary.bin_view_report`
+ * reduced to its metadata in SQL, so the stored report (up to ~1.5 MB of
+ * entries) never leaves Postgres on a run read. The two array lengths ride
+ * along (`entryCount`, `windowCount`) for the pre-RT-175 defaults; the
+ * api projection (`boundedSummary`) drops them. `STOCK_RECONCILIATION_RUN_COLUMNS`
+ * itself stays whole: the worker readers need the `entries`.
+ */
+const RUN_COLS_BOUNDED = STOCK_RECONCILIATION_RUN_COLUMNS.replace(
+  /, summary$/,
+  `, CASE WHEN jsonb_typeof(summary->'bin_view_report') = 'object'
+        THEN (summary - 'bin_view_report') || jsonb_build_object('bin_view_report',
+          jsonb_build_object(
+            'complete', summary->'bin_view_report'->'complete',
+            'acceptedEntryCount', summary->'bin_view_report'->'acceptedEntryCount',
+            'readAt', summary->'bin_view_report'->'readAt',
+            'recordedAt', summary->'bin_view_report'->'recordedAt',
+            'attemptRef', summary->'bin_view_report'->'attemptRef',
+            'entryCount', CASE WHEN jsonb_typeof(summary->'bin_view_report'->'entries') = 'array'
+                               THEN jsonb_array_length(summary->'bin_view_report'->'entries') END,
+            'windowCount', CASE WHEN jsonb_typeof(summary->'bin_view_report'->'windows') = 'array'
+                                THEN jsonb_array_length(summary->'bin_view_report'->'windows') END))
+        ELSE summary END AS summary`,
+);
 
 type RunDbRow = StockReconciliationRunRow;
 
@@ -711,7 +735,53 @@ function toRunBody(r: RunDbRow): ReconciliationRunBody {
     status: r.status,
     startedAt: r.started_at.toISOString(),
     finishedAt: r.finished_at ? r.finished_at.toISOString() : null,
-    summary: r.summary,
+    summary: boundedSummary(r.summary),
+  };
+}
+
+/**
+ * RT-189: the run GET's `summary`. `bin_view_report` is reduced to its metadata
+ * (`complete`, `windowsRecorded`, `acceptedEntryCount`, `readAt`, `recordedAt`,
+ * `attemptRef`) and never carries `entries`; every other key (the class counts,
+ * `failure`) is kept. Accepts a full stored report (the run just created) or the
+ * SQL-projected one (`RUN_COLS_BOUNDED`, with `entryCount` / `windowCount`);
+ * pre-RT-175 reports get the defaults of `binViewReportDefaults`.
+ */
+export function boundedSummary(
+  summary: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  const report = summary?.["bin_view_report"];
+  if (!summary || report === null || typeof report !== "object" || Array.isArray(report)) {
+    return summary;
+  }
+  const r = report as Record<string, unknown>;
+  const len = (key: string, counted: string): number => {
+    const v = r[key];
+    if (Array.isArray(v)) return v.length;
+    const n = r[counted];
+    return typeof n === "number" ? n : 0;
+  };
+  const defaults = binViewReportDefaults(
+    {
+      ...(typeof r["complete"] === "boolean" ? { complete: r["complete"] } : {}),
+      ...(typeof r["acceptedEntryCount"] === "number"
+        ? { acceptedEntryCount: r["acceptedEntryCount"] }
+        : {}),
+      ...(typeof r["attemptRef"] === "string" ? { attemptRef: r["attemptRef"] } : {}),
+    },
+    len("entries", "entryCount"),
+    len("windows", "windowCount"),
+  );
+  return {
+    ...summary,
+    bin_view_report: {
+      complete: defaults.complete,
+      windowsRecorded: defaults.windowsRecorded,
+      acceptedEntryCount: defaults.acceptedEntryCount,
+      readAt: r["readAt"] ?? null,
+      recordedAt: r["recordedAt"] ?? null,
+      attemptRef: defaults.attemptRef,
+    },
   };
 }
 
