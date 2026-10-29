@@ -60,11 +60,12 @@ const context = {
 const ok = (data: unknown) => ({ status: 200, data, error: undefined });
 /** What the middleware plus the wrapper make of a 429: the clock moves, then the refusal returns. */
 const limited = async (retryAfterSeconds = 1) => {
-  reportRateLimited(retryAfterSeconds);
+  const rateLimitSeq = reportRateLimited(retryAfterSeconds);
   return {
     status: 429,
     data: undefined,
     error: { error: { code: "rate_limited", message: "x", request_id: "req-9" } },
+    rateLimitSeq,
   };
 };
 
@@ -178,6 +179,61 @@ describe("directory load 429", () => {
     act(() => reportRateLimited(30));
 
     expect(await screen.findByText("Too many requests")).toBeDefined();
+  });
+});
+
+/**
+ * RT-940: two 429s can land before the first one's wrapper returns (the session
+ * bar's renew or end while the drawer's submit or the directory read is
+ * answered). Each surface claims the 429 its own response carried, never the
+ * clock's newest count, so the overlapping one is still the shell banner's.
+ */
+describe("overlapping 429s", () => {
+  /** A 429 the surface owns, with a session-bar 429 landing before its wrapper returns. */
+  const limitedThenBarLimited = async () => {
+    const own = await limited(30);
+    reportRateLimited(30);
+    return own;
+  };
+
+  test("start drawer: the drawer's 429 stays the drawer's, the bar's overlapping 429 reaches the shell banner", async () => {
+    openSupportSession.mockImplementation(limitedThenBarLimited);
+    mount();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Start support session: Delta Markets" }),
+    );
+    const drawer = await screen.findByRole("dialog");
+    fireEvent.change(within(drawer).getByLabelText(/Purpose/), { target: { value: "incident" } });
+    fireEvent.click(submitButton(drawer));
+
+    // The drawer says its own 429 once, with the one gated control.
+    expect(await within(drawer).findByText(/Too many requests, and no session/)).toBeDefined();
+    expect(within(drawer).getAllByText(/Too many requests/)).toHaveLength(1);
+    expect(submitButton(drawer).textContent).toMatch(/Wait \d+s/);
+    expect(tryAgainButtons()).toHaveLength(0);
+
+    // The bar's 429 was not the drawer's to claim: the shell banner shows it, once.
+    const banner = await waitFor(() => {
+      const el = shellAlert();
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(within(banner).getByText("Too many requests")).toBeDefined();
+    expect(tryAgainButtons()).toHaveLength(1);
+  });
+
+  test("directory: the directory's 429 stays the directory's, the bar's overlapping 429 reaches the shell banner", async () => {
+    listTenants.mockImplementation(limitedThenBarLimited);
+    mount();
+    expect(await screen.findByText(/because of too many requests/)).toBeDefined();
+
+    const banner = await waitFor(() => {
+      const el = shellAlert();
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(within(banner).getByText("Too many requests")).toBeDefined();
+    expect(screen.getAllByText(/because of too many requests/)).toHaveLength(1);
   });
 });
 

@@ -9,6 +9,7 @@ import {
   queryRetry,
   queryRetryDelay,
   rateLimitRemainingMs,
+  rateLimitSeqOf,
   reportRateLimited,
   resetRateLimit,
   retryRateLimitedOnly,
@@ -142,6 +143,40 @@ describe("middleware", () => {
     // biome-ignore lint/suspicious/noExplicitAny: untyped test client, any path.
     await (client as any).GET("/api/v1/context/me");
     expect(getRateLimitState().seq).toBe(0);
+  });
+
+  describe("rateLimitSeqOf (RT-940)", () => {
+    const tooMany = () => new Response("{}", { status: 429, headers: { "retry-after": "5" } });
+
+    test("a 429 response carries the seq it was recorded as; any other response none", async () => {
+      const limited = clientReturning(tooMany);
+      // biome-ignore lint/suspicious/noExplicitAny: untyped test client, any path.
+      const first = await (limited as any).GET("/api/v1/sales");
+      expect(rateLimitSeqOf(first.response)).toBe(1);
+
+      const fine = clientReturning(() => new Response("{}", { status: 200 }));
+      // biome-ignore lint/suspicious/noExplicitAny: untyped test client, any path.
+      const ok = await (fine as any).GET("/api/v1/sales");
+      expect(rateLimitSeqOf(ok.response)).toBeUndefined();
+    });
+
+    test("an overlapping 429 landing before the caller reads its response leaves its seq alone", async () => {
+      const client = clientReturning(tooMany);
+      // biome-ignore lint/suspicious/noExplicitAny: untyped test client, any path.
+      const first = await (client as any).GET("/api/v1/sales");
+      // Another request (the session bar's) is answered 429 before the caller looks.
+      // biome-ignore lint/suspicious/noExplicitAny: untyped test client, any path.
+      const second = await (client as any).GET("/api/v1/context/me");
+
+      expect(getRateLimitState().seq).toBe(2);
+      expect(rateLimitSeqOf(first.response)).toBe(1);
+      expect(rateLimitSeqOf(second.response)).toBe(2);
+    });
+
+    test("reportRateLimited returns the seq it recorded", () => {
+      expect(reportRateLimited(5)).toBe(1);
+      expect(reportRateLimited(5)).toBe(2);
+    });
   });
 });
 
