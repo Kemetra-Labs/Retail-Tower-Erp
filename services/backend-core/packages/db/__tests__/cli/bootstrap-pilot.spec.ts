@@ -204,6 +204,25 @@ describe("bootstrap-pilot seed", () => {
     expect(acme.rows).toHaveLength(0);
   });
 
+  it("refuses an ambiguous identity (two users hold it active under two issuers), as sign-in does", async () => {
+    if (skip()) return;
+    const cfg = config();
+    const { subject } = cfg.operatorIdentity;
+    const a = pg().admin;
+    const holders = ["0a000000-0000-7000-8000-79700000a001", "0a000000-0000-7000-8000-79700000a002"];
+    for (const [i, user] of holders.entries()) {
+      await a.query("INSERT INTO users (id, email) VALUES ($1, $2)", [user, `ambiguous${i}-${subject}@rt797.example`]);
+      await a.query(
+        `INSERT INTO external_identity_links (provider_key, issuer, subject, user_id, status)
+         VALUES ('acme', $1, $2, $3, 'active')`,
+        [`https://issuer-${i}.rt797.example`, subject, user],
+      );
+    }
+    await expect(runSeed(cfg)).rejects.toThrow(/more than one active link/);
+    const memberships = await a.query("SELECT 1 FROM memberships WHERE user_id = ANY($1::uuid[])", [holders]);
+    expect(memberships.rows).toHaveLength(0);
+  });
+
   it("never re-activates a disabled configured link, even when it is the user's only link", async () => {
     if (skip()) return;
     const cfg = config();

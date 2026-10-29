@@ -175,17 +175,44 @@ async function setContext(
 }
 
 /**
+ * Serialize this seed with the identity-link cutover CLI on (provider, subject).
+ * Taken BEFORE the operator user is resolved: otherwise a cutover could claim
+ * the identity between the lookup and the link insert, and the pilot
+ * membership would land on a user that cannot sign in.
+ */
+async function lockOperatorIdentity(client: ClientBase, identity: OperatorIdentity): Promise<void> {
+  await client.query("SELECT pg_advisory_xact_lock(hashtext('identity-link:' || $1 || ':' || $2))", [
+    identity.providerKey,
+    identity.subject,
+  ]);
+}
+
+/**
  * The operator's user id: the user linked to (provider, subject) under any
  * issuer or status, else the user whose bridge column holds the subject AND who
  * has no link row at all (a pilot seeded before RT-797, which wrote none).
  * A user with links is never adopted through the bridge column: another
  * provider's subject could equal its value. Null for a fresh database.
+ *
+ * More than one ACTIVE link for (provider, subject) (two users, two issuers)
+ * is refused, as the sign-in resolver refuses it: the seed must not give pilot
+ * membership to one of two users that neither can sign in as.
  */
 async function findOperatorUser(client: ClientBase, identity: OperatorIdentity): Promise<string | null> {
+  const active = await client.query<{ user_id: string }>(
+    `SELECT user_id FROM external_identity_links
+      WHERE provider_key = $1 AND subject = $2 AND status = 'active'
+      LIMIT 2`,
+    [identity.providerKey, identity.subject],
+  );
+  if (active.rows.length > 1) {
+    throw new Error('the configured operator identity has more than one active link (ambiguous); fix the links first');
+  }
+  if (active.rows[0]) return active.rows[0].user_id;
   const viaLink = await client.query<{ user_id: string }>(
     `SELECT user_id FROM external_identity_links
       WHERE provider_key = $1 AND subject = $2
-      ORDER BY (status = 'active') DESC, id
+      ORDER BY id
       LIMIT 1`,
     [identity.providerKey, identity.subject],
   );
@@ -216,12 +243,8 @@ async function ensureOperatorLink(
   userId: string,
   identity: OperatorIdentity,
 ): Promise<boolean> {
-  // Same per-(provider, subject) lock as the identity-link cutover CLI: the
-  // NOT EXISTS checks below cannot see another session's uncommitted claim.
-  await client.query("SELECT pg_advisory_xact_lock(hashtext('identity-link:' || $1 || ':' || $2))", [
-    identity.providerKey,
-    identity.subject,
-  ]);
+  // The caller holds the identity lock (lockOperatorIdentity), so the NOT
+  // EXISTS checks below cannot race a concurrent cutover's claim.
   await client.query(
     `INSERT INTO external_identity_links (provider_key, issuer, subject, user_id, email, status)
      SELECT $1, $2, $3, u.id, u.email, 'active' FROM users u
@@ -298,6 +321,7 @@ export async function seed(client: ClientBase, cfg: PilotConfig): Promise<Minted
   }
 
   // Operator user, found through its link first, then the bridge column.
+  await lockOperatorIdentity(client, cfg.operatorIdentity);
   const operatorUserId =
     (await findOperatorUser(client, cfg.operatorIdentity)) ?? randomUUID();
   const existingUser = await client.query('SELECT 1 FROM users WHERE id = $1', [operatorUserId]);
