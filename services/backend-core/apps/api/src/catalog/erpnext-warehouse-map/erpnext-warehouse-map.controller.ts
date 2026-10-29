@@ -114,6 +114,14 @@ export class ErpnextWarehouseMapController {
           "An active mapping already exists for this store (1:1, OQ-2).",
       });
     }
+    if (result.kind === "warehouse_conflict") {
+      throw new ConflictException({
+        code: "conflict",
+        message:
+          "This ERPNext Warehouse is already mapped by an active mapping " +
+          "(one store per Warehouse, RT-290 M-3).",
+      });
+    }
     // Non-disclosing 404 — absent OR cross-tenant store (§II/§XII).
     throw new NotFoundException("Not Found");
   }
