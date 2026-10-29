@@ -25,7 +25,7 @@ vi.mock("@/lib/client", async (importOriginal) => {
   };
 });
 
-import { RateLimitBanner } from "@/components/RateLimitBanner";
+import { CLAIM_GRACE_MS, RateLimitBanner } from "@/components/RateLimitBanner";
 import { ActiveContextProvider } from "@/context/ActiveContextProvider";
 import { createQueryClient } from "@/lib/query";
 import { RateLimitError, reportRateLimited, resetRateLimit } from "@/lib/rate-limit";
@@ -178,7 +178,7 @@ describe("RateLimitBanner", () => {
 
   test("hiddenThroughSeq (RT-931) skips the 429s a surface owns, keeps its live region, and shows a later one", async () => {
     const Tree = withClient();
-    render(
+    const view = render(
       <Tree>
         <RateLimitBanner hiddenThroughSeq={1} />
       </Tree>,
@@ -194,9 +194,21 @@ describe("RateLimitBanner", () => {
     expect(await screen.findByText("Too many requests")).toBeDefined();
     expect(screen.getByRole("status").textContent).not.toBe("");
 
-    // A banner already showing follows the next 429 at once: it never blanks between them.
+    // A banner already showing never blanks while the next 429 waits for a claim, and
+    // says nothing about it: a 429 the surface then claims is never announced.
+    const spoken = screen.getByRole("status").textContent;
     act(() => reportRateLimited(30));
     expect(screen.getByText("Too many requests")).toBeDefined();
+    expect(screen.getByRole("status").textContent).toBe(spoken);
+    view.rerender(
+      <Tree>
+        <RateLimitBanner hiddenThroughSeq={3} />
+      </Tree>,
+    );
+    expect(screen.queryByText("Too many requests")).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe("");
+    await new Promise((r) => setTimeout(r, CLAIM_GRACE_MS + 100));
+    expect(screen.queryByText("Too many requests")).toBeNull();
   });
 
   test("the manual retry re-reads the failed queries once and closes the banner", async () => {

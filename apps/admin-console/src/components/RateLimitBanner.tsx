@@ -71,15 +71,17 @@ function useBannerState(dismissible: boolean, hiddenThroughSeq: number | undefin
   const qc = useContext(QueryClientContext);
   const { active, secondsLeft, seq, since } = useRateLimit();
   const [dismissedSeq, setDismissedSeq] = useState(0);
-  const settledSeq = useClaimGrace(seq, hiddenThroughSeq !== undefined);
-  // A banner already on screen follows the next 429 at once: the grace is for the
-  // first reveal only, so a showing banner never blanks (and drops focus) between 429s.
-  const wasShowing = useRef(false);
+  // The 429 the banner shows. When claims are on, a new one waits CLAIM_GRACE_MS and
+  // the banner keeps showing the one before it, so nothing is announced for a 429 a
+  // surface is about to claim, and a banner on screen never blanks between 429s.
+  const shownSeq = useClaimGrace(seq, hiddenThroughSeq !== undefined);
   // The seconds announced for this 429, fixed so the live region speaks once.
   const announced = useRef({ seq: 0, seconds: 0 });
-  if (announced.current.seq !== seq) announced.current = { seq, seconds: secondsLeft };
+  if (announced.current.seq !== shownSeq) {
+    announced.current = { seq: shownSeq, seconds: secondsLeft };
+  }
 
-  const dismiss = () => setDismissedSeq(seq);
+  const dismiss = () => setDismissedSeq(shownSeq);
   const retry = () => {
     dismiss();
     // Re-read what the 429 left behind: failed reads, and reads that returned
@@ -90,16 +92,8 @@ function useBannerState(dismissible: boolean, hiddenThroughSeq: number | undefin
     });
   };
 
-  const visible =
-    seq > (hiddenThroughSeq ?? 0) &&
-    (seq <= settledSeq || wasShowing.current) &&
-    (!dismissible || seq !== dismissedSeq);
-  useEffect(() => {
-    wasShowing.current = visible;
-  });
-
   return {
-    visible,
+    visible: shownSeq > (hiddenThroughSeq ?? 0) && (!dismissible || shownSeq !== dismissedSeq),
     active,
     secondsLeft,
     announcedSeconds: announced.current.seconds,
@@ -109,9 +103,9 @@ function useBannerState(dismissible: boolean, hiddenThroughSeq: number | undefin
 }
 
 /**
- * The highest `seq` the banner may show. A 429 already on the clock when the
- * banner mounts shows at once; a later one waits CLAIM_GRACE_MS when claims are
- * on. With claims off, every `seq` is settled the moment it arrives.
+ * The `seq` the banner shows. A 429 already on the clock when the banner mounts
+ * shows at once; a later one waits CLAIM_GRACE_MS when claims are on. With
+ * claims off, every `seq` is shown the moment it arrives.
  */
 function useClaimGrace(seq: number, claimsOn: boolean): number {
   const [settled, setSettled] = useState(seq);
@@ -120,7 +114,7 @@ function useClaimGrace(seq: number, claimsOn: boolean): number {
     const id = setTimeout(() => setSettled(seq), CLAIM_GRACE_MS);
     return () => clearTimeout(id);
   }, [claimsOn, seq, settled]);
-  return claimsOn ? settled : seq;
+  return claimsOn ? Math.min(settled, seq) : seq;
 }
 
 /** The visible part of the banner; the live region above carries the announcement. */
