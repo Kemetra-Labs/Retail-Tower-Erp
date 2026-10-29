@@ -102,7 +102,7 @@ jobs:
           [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "target_sha must be a full 40-hex commit SHA"
           [[ "$CURRENT_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "current_sha must be a full 40-hex commit SHA"
           [[ "$JIRA_KEY" =~ ^RT-[1-9][0-9]{0,5}$ ]] || fail "jira_key must be RT-<number>"
-          [ "${#CURRENT_IMAGES}" -le 2048 ] || fail "current_images is too long"
+          [ "${#CURRENT_IMAGES}" -le 1002 ] || fail "current_images is too long"
           jq -e --arg services "backend frontend websocket scheduler queue-short queue-long" '
             ($services | split(" ")) as $want
             | type == "object" and (keys | sort) == ($want | sort)
