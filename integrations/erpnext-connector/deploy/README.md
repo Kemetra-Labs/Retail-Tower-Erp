@@ -96,9 +96,14 @@ Its host assumptions are listed in its header. The restore rehearsal is what con
 
 A forced restore into a new volume leaves `System Settings.enable_scheduler` at 0, whatever the backup had: Frappe reads the old value from the database it is replacing, and the new volume has none. On lab-03 (2026-10-29) the workers then ran, every gate passed, and no connector job ran for hours. So:
 
-- `restore.sh` reads `enable_scheduler` from the run's database dump before it changes anything. A dump without one value of 0 or 1 exits 4. At the end of step 4 it runs `bench enable-scheduler` when the backup had 1, then checks `bench scheduler status`; a status that differs from the backup exits 5 before step 5, so nothing starts and the resume marker is not written.
-- Step 1 of `RT-ErpLabDeploy` stops with `scheduler-disabled` (or `scheduler-status-unreadable`) before anything is stopped. Enable the scheduler (`bench --site <site> enable-scheduler`), then rerun the deploy.
-- The post-resume checks wait up to 180 s for `Scheduled Job Type.last_execution` of `run_posting_poll` to be later than `RT_RESUMED_AT`, comparing in the site time zone, else `posting-poll-did-not-run`. Like every post-resume check this is monitoring, never a rollback: the fix is forward.
+- `restore.sh` reads `enable_scheduler` from the run's database dump before it changes anything. A dump without one value of 0 or 1 exits 4. At the end of step 4 it runs `bench enable-scheduler` when the backup had 1, then checks `bench scheduler status`; a status that differs from the backup exits 5 before step 5.
+  - At that exit the database **is** restored, and MariaDB and the backend run on the new volume through `restore-override.yml`. The workers are down, `compose.yml` is still the swapped file, and the resume marker is not written, so the restore window is still open.
+  - A rerun of `restore.sh` for the same run refuses, because the new volume exists.
+  - To finish by hand, first fix the scheduler (see the next item) until `scheduler status` matches the backup. Then do step 5 in its order: write the UTC time to `/var/backups/rt-erp/last-resumed-at` **before** anything starts, copy `<run-dir>/compose.restore.yml` to `/opt/rt-erp/compose.yml`, then `dc up -d`. Starting the workers without the marker would resume posting with the restore window still open.
+- Step 1 of `RT-ErpLabDeploy` stops with `scheduler-disabled` (or `scheduler-status-unreadable`) before anything is stopped. Enable the scheduler (`bench --site <site> enable-scheduler`), then rerun the deploy. If it still reports disabled, check the site config for `disable_scheduler`, `pause_scheduler` and `maintenance_mode`: `enable-scheduler` does not clear them.
+- The post-resume checks wait up to 180 s for `Scheduled Job Type.last_execution` of `run_posting_poll` to be later than `RT_RESUMED_AT`, else `posting-poll-did-not-run`. If the check itself cannot read the job (import, connection or query error), the reason is `posting-poll-unreadable` instead; the cause is in the host log.
+  - The comparison is done in the site time zone. In the hour repeated when daylight saving time ends, a run is read as the earlier pass, so the gate can only wait in vain, never pass early.
+  - Like every post-resume check this is monitoring, never a rollback: the fix is forward.
 
 **After this change merges** (RT-927 scheduler gates), the document in AWS must get a new version from main (owner step 5: `update-document`, then set the default version). Until then, lab-03 runs the old document without the scheduler gates.
 

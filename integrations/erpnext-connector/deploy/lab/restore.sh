@@ -308,7 +308,7 @@ fi
 SCHED_STATUS="$(docker exec "$BACKEND_CID" bench --site "$SITE" scheduler status)" || die 5 "bench scheduler status failed"
 SCHED_NOW="$(grep -oE 'Scheduler is (enabled|disabled)' <<<"$SCHED_STATUS" | sort -u)" || true
 [ "$SCHED_NOW" = "Scheduler is $SCHED_WANT" ] \
-  || die 5 "the site scheduler is not $SCHED_WANT after the restore (the backup had enable_scheduler=$SCHED_BACKUP); nothing was started and the resume marker was not written"
+  || die 5 "the site scheduler is not $SCHED_WANT after the restore (the backup had enable_scheduler=$SCHED_BACKUP). The database is restored and MariaDB and the backend run on $NEW_VOL through $OVERRIDE; the workers were not started, compose.yml was not replaced and the resume marker was not written (see the README before finishing by hand)"
 
 echo "STEP 5 previous-image"
 # The saved compose file with the mariadb mount moved to $NEW_VOL (folded and checked in STEP 0): from

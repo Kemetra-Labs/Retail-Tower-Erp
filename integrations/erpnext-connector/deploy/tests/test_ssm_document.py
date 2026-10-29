@@ -442,7 +442,9 @@ def test_postresume_waits_for_the_posting_poll_to_run_after_the_resume(body):
     assert "PY_POLL_RAN" in post
     assert POLL_METHOD in body or "$CONNECTOR_APP.connector.posting.poller.run_posting_poll" in body
     # bounded: the wait gives up after 180 s, polling every 15 s
-    assert re.search(r'-lt 180 \] \|\| stop "posting-poll-did-not-run"', post), post
+    assert '[ "$polled" -ge 180 ]' in post and "sleep 15" in post
+    # a helper that cannot read the job (import, connect, query) is not a scheduler that did not run
+    assert post.index('stop "posting-poll-unreadable"') < post.index('stop "posting-poll-did-not-run"')
     assert _pos(body, "RT_GATE resume=pass") < _pos(body, 'stop "posting-poll-did-not-run"')
 
 
@@ -459,11 +461,16 @@ def _poll_helper(body: str) -> str:
 
 
 FAKE_FRAPPE = '''import os
+from datetime import datetime
 class _DB:
     def get_value(self, doctype, filters, field):
         assert doctype == "Scheduled Job Type" and field == "last_execution", (doctype, field)
         assert filters == {"method": os.environ["EXPECT_METHOD"]}, filters
-        return os.environ.get("FAKE_LAST") or None
+        if os.environ.get("FAKE_RAISE"):
+            raise RuntimeError("no database")
+        value = os.environ.get("FAKE_LAST") or None
+        # Frappe returns a datetime for a Datetime field
+        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f") if value else None
 db = _DB()
 def init(site, sites_path):
     assert site == "lab.localhost" and sites_path == "."
@@ -475,19 +482,22 @@ def destroy():
 
 FAKE_FRAPPE_UTILS = '''from datetime import datetime
 def get_datetime(value):
+    if isinstance(value, datetime):
+        return value
     return datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f")
 def get_system_timezone():
     return "Africa/Cairo"
 '''
 
 
-def _poll(body: str, tmp_path: Path, last: str | None, resumed: str) -> subprocess.CompletedProcess:
+def _poll(body: str, tmp_path: Path, last: str | None, resumed: str,
+          fail: bool = False) -> subprocess.CompletedProcess:
     pkg = tmp_path / "fake" / "frappe"
     (pkg / "utils").mkdir(parents=True, exist_ok=True)
     (pkg / "__init__.py").write_text(FAKE_FRAPPE, encoding="utf-8")
     (pkg / "utils" / "__init__.py").write_text(FAKE_FRAPPE_UTILS, encoding="utf-8")
     env = {**__import__("os").environ, "PYTHONPATH": str(tmp_path / "fake"), "FAKE_LAST": last or "",
-           "EXPECT_METHOD": POLL_METHOD}
+           "EXPECT_METHOD": POLL_METHOD, "FAKE_RAISE": "1" if fail else ""}
     return subprocess.run([sys.executable, "-c", _poll_helper(body), "lab.localhost", resumed, POLL_METHOD],
                           capture_output=True, text=True, env=env, check=False)
 
@@ -517,9 +527,31 @@ def test_poll_helper_compares_the_site_local_last_execution_with_the_utc_resume(
     assert proc.stdout.strip().splitlines()[-1] == ("posting-poll=ran" if ran else "posting-poll=waiting")
 
 
+@pytest.mark.skipif(not _cairo_available(), reason="no Africa/Cairo in the tz database")
+def test_poll_helper_reports_an_error_instead_of_waiting_when_it_cannot_read(body, tmp_path):
+    proc = _poll(body, tmp_path, "2026-07-15 13:00:30.000000", "2026-07-15T10:00:00Z", fail=True)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip().splitlines()[-1] == "posting-poll=error"
+
+
+@pytest.mark.skipif(not _cairo_available(), reason="no Africa/Cairo in the tz database")
+def test_poll_helper_fails_closed_in_the_repeated_hour_when_dst_ends(body, tmp_path):
+    """Egypt falls back at 24:00 on 2026-10-29: 23:00-23:59 local happens twice. A run at 21:30Z (the
+    second 23:30) is read as the first one (20:30Z, fold=0): the gate may wait in vain, never pass early."""
+    proc = _poll(body, tmp_path, "2026-10-29 23:30:00.000000", "2026-10-29T21:10:00Z")
+    assert proc.stdout.strip().splitlines()[-1] == "posting-poll=waiting"
+    early = _poll(body, tmp_path, "2026-10-29 23:05:00.000000", "2026-10-29T20:10:00Z")
+    assert early.stdout.strip().splitlines()[-1] == "posting-poll=waiting"
+
+
+WORKFLOW = Path(__file__).resolve().parents[4] / ".github" / "workflows" / "deploy-erp-lab.yml"
+
+
 def test_new_stop_reasons_fit_the_workflow_result_pattern(body):
-    gate_re = re.compile(r"^RT_GATE [a-z0-9_]+=fail:[A-Za-z0-9._-]+$")
+    match = re.search(r"^\s*RESULT_RE='([^']+)'$", WORKFLOW.read_text(encoding="utf-8"), re.M)
+    assert match, "RESULT_RE must stay a single-quoted line in deploy-erp-lab.yml"
+    result_re = re.compile(match.group(1))
     for gate, reason in (("check", "scheduler-disabled"), ("check", "scheduler-status-unreadable"),
-                         ("postresume", "posting-poll-did-not-run")):
+                         ("postresume", "posting-poll-did-not-run"), ("postresume", "posting-poll-unreadable")):
         assert f'stop "{reason}"' in body
-        assert gate_re.match(f"RT_GATE {gate}=fail:{reason}")
+        assert result_re.match(f"RT_GATE {gate}=fail:{reason}"), reason
