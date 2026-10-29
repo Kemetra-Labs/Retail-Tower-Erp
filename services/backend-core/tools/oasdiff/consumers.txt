@@ -1,5 +1,7 @@
-# Consumers that pin Backend-Core contracts (RT-674). One per line:
-#   <NAME> <raw PIN URL>
+# Consumers that pin Backend-Core contracts (RT-674, RT-680). One per line:
+#   <NAME> <PIN path from the repository root>
 # <NAME> is the value acknowledged breaks use in `consumer:<NAME>` tags
-# (see tools/oasdiff/README.md). The admin consumer is added in RT-680.
-POS https://raw.githubusercontent.com/Kemetra/POS/main/contracts/backend-core/PIN
+# (see tools/oasdiff/README.md). The PIN is read in-tree, so it is the PIN of the change under review.
+POS apps/pos/contracts/backend-core/PIN
+admin apps/admin-console/contracts/backend-core/PIN
+connector integrations/erpnext-connector/contracts/backend-core/PIN
