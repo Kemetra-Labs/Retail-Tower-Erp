@@ -19,6 +19,7 @@ import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { type T, useT } from "@/i18n";
 import { useState } from "react";
 import { StartSessionDrawer, type StartTenant } from "./start/StartSessionDrawer";
+import { SessionGoneNotice } from "./tenants/SessionGoneNotice";
 import { type DirectoryRow, directoryRows, filterTenants } from "./tenants/directoryLogic";
 import { type DirectoryError, useTenantDirectory } from "./tenants/useTenantDirectory";
 import { useTenantSwitch } from "./tenants/useTenantSwitch";
@@ -190,6 +191,7 @@ export function PlatformTenants(): React.JSX.Element {
         {t("platform.tenants.title")}
       </h1>
       <p className="content__sub">{t("platform.tenants.sub")}</p>
+      <SessionGoneNotice tenants={directory.tenants ?? []} />
       <p className="platform-directory__note">{t("platform.tenants.suspendedNote")}</p>
 
       <div className="field platform-directory__search">

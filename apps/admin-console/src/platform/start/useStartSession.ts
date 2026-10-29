@@ -14,6 +14,7 @@ import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import type { MessageKey } from "@/i18n";
 import { openSupportSession } from "@/lib/support-session-queries";
 import { useRef, useState } from "react";
+import { clearSessionGone } from "../session/sessionGone";
 import {
   type OpenOutcome,
   type StartDraft,
@@ -46,6 +47,8 @@ export function useStartSession(tenantId: string, onOpened: () => void) {
   const settle = async (outcome: OpenOutcome) => {
     switch (outcome.kind) {
       case "opened":
+        // RT-930: a new session makes any "your session was gone" notice stale.
+        clearSessionGone();
         await refresh();
         onOpened();
         return;

@@ -77,6 +77,11 @@ export const platform = {
   "platform.tenants.error.rateLimited":
     "تعذّر تحميل المؤسسات لأن الطلبات كثيرة جدًا. أعد المحاولة بعد انتهاء العدّ.",
   "platform.tenants.retry": "إعادة المحاولة",
+  // RT-930: renew or end answered 409 support_session_absent (owner-approved copy).
+  "platform.tenants.sessionGone.renew":
+    "انتهت جلسة الدعم لـ{tenant} قبل التجديد: أُنهيت أو استُبدلت من مكان آخر. لم يتغير شيء في المؤسسة. افتح جلسة جديدة للمتابعة.",
+  "platform.tenants.sessionGone.end":
+    "انتهت جلسة الدعم لـ{tenant} قبل الإنهاء: أُنهيت أو استُبدلت من مكان آخر. لم يتغير شيء في المؤسسة. افتح جلسة جديدة للمتابعة.",
   "platform.tenants.error.switch": "تعذّر فتح المؤسسة لأن الطلب لم يصل. حاول مرة أخرى.",
   "platform.tenants.error.switchRefused":
     "لم تُفتح المؤسسة: رفض الخادم التبديل إليها، ولم يتغير شيء.",

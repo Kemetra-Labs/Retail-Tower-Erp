@@ -217,6 +217,52 @@ test("renew 409 support_session_renewal_cap_reached switches an active bar to th
   await expect(region).toHaveAttribute("data-state", "cap_reached");
 });
 
+test("renew 409 support_session_absent: the directory says the session is gone, focused and polite; dismiss and reload clear it; axe light and dark", async ({
+  page,
+  t,
+}) => {
+  // RT-930: the session was ended or replaced elsewhere before the renew landed.
+  const server = await mock(page, sessionContext(summary()));
+  await page.route("**/api/v1/platform/support-sessions/current/renew", (r) => {
+    server.renewCalls += 1;
+    server.context = noSession;
+    return r.fulfill(json(409, { error: { code: "support_session_absent", message: "gone" } }));
+  });
+  const copy = t("platform.tenants.sessionGone.renew", { tenant: "Delta Markets" });
+  const notice = page.getByRole("status").filter({ hasText: copy });
+  const renewGone = async () => {
+    server.context = sessionContext(summary());
+    await page.goto("/platform/tenants");
+    await page
+      .getByRole("region", { name: t("platform.session.region") })
+      .getByRole("button", { name: t("platform.session.renew") })
+      .click();
+    await expect(page.getByRole("region", { name: t("platform.session.region") })).toHaveCount(0);
+    await expect(notice).toBeVisible();
+  };
+
+  await renewGone();
+  await expect(page).toHaveURL(/\/platform\/tenants$/);
+  await expect(notice).toBeFocused();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expectNoAxeViolations(page, "session gone notice");
+
+  await notice.getByRole("button", { name: t("common.close") }).click();
+  await expect(notice).toHaveCount(0);
+
+  await renewGone();
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { level: 1, name: t("platform.tenants.title") }),
+  ).toBeVisible();
+  await expect(notice).toHaveCount(0);
+
+  await darkTheme(page);
+  await renewGone();
+  await expectNoAxeViolations(page, "session gone notice dark");
+  expect(server.renewCalls).toBe(3);
+});
+
 test("renew 403 origin_rejected is an inline error, not the expired state", async ({ page, t }) => {
   const server = await mock(page, sessionContext(summary()));
   await renewReplies(page, server, 403, { error: { code: "origin_rejected", message: "no" } });
@@ -380,4 +426,10 @@ test("end 409 support_session_absent counts as already ended", async ({ page, t 
     .click();
   await expect(page.getByRole("region", { name: t("platform.session.region") })).toHaveCount(0);
   await expect(page.getByRole("alert")).toHaveCount(0);
+  // RT-930: the directory says why, in the End wording.
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: t("platform.tenants.sessionGone.end", { tenant: "Delta Markets" }) }),
+  ).toBeVisible();
 });
