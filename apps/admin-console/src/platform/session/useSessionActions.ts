@@ -55,7 +55,7 @@ const END_EFFECT: Record<Settled, Effect> = {
 export function useSessionActions(session: SupportSessionSummary | null, tenantName?: string) {
   const qc = useContext(QueryClientContext);
   const navigate = useNavigate();
-  const { refresh } = useActiveContextValue();
+  const { context, refresh } = useActiveContextValue();
   const [pending, setPending] = useState<Action | null>(null);
   const [error, setError] = useState<SupportSessionError | null>(null);
   const [capStamp, setCapStamp] = useState<string | null>(null);
@@ -81,8 +81,15 @@ export function useSessionActions(session: SupportSessionSummary | null, tenantN
   // RT-930: the session was already gone; tell the directory why the operator lands there.
   // Set before leaving, while this session (and its tenant's name) is still known.
   const markGone = (action: Action) => {
-    if (!session) return;
-    setSessionGone({ action, sessionId: session.id, tenantId: session.tenant_id, tenantName });
+    const userId = context?.user?.id;
+    if (!session || !userId) return;
+    setSessionGone({
+      action,
+      userId,
+      sessionId: session.id,
+      tenantId: session.tenant_id,
+      tenantName,
+    });
   };
 
   const settleRenew = async (outcome: ActionOutcome, expiresAt: string | undefined) => {

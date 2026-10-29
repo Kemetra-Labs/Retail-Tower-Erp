@@ -19,7 +19,7 @@ vi.mock("@/lib/client", async (importOriginal) => {
     ...actual,
     getActiveContext: (...a: unknown[]) => getActiveContext(...a),
     refreshSession: vi.fn(),
-    signOut: vi.fn(),
+    signOut: async () => ({ status: 204 }),
   };
 });
 vi.mock("@/lib/support-session-queries", () => ({
@@ -36,7 +36,7 @@ import { ActiveContextProvider } from "@/context/ActiveContextProvider";
 import { createQueryClient } from "@/lib/query";
 import { resetRateLimit } from "@/lib/rate-limit";
 import { resetSupportSessionExpiry } from "@/lib/support-session-expiry";
-import { getSessionGone, resetSessionGone } from "@/platform/session/sessionGone";
+import { getSessionGone, resetSessionGone, setSessionGone } from "@/platform/session/sessionGone";
 import { ProtectedArea } from "@/shell/ProtectedArea";
 import { platformRoutes } from "@/shell/platformRoutes";
 
@@ -118,7 +118,7 @@ const bar = () => screen.findByRole("region", { name: "Support session" });
 /** The notice: the polite status region holding the explanation. */
 async function notice(): Promise<HTMLElement> {
   const text = await screen.findByText(/^The support session for /);
-  const region = text.closest<HTMLElement>('[role="status"]');
+  const region = screen.getAllByRole("status").find((el) => el.contains(text));
   if (!region) throw new Error("the explanation is not inside a status region");
   return region;
 }
@@ -153,6 +153,7 @@ describe("the reason hand-off", () => {
     await goneBy("Renew session");
     expect(getSessionGone()).toEqual({
       action: "renew",
+      userId: "u1",
       sessionId: "s1",
       tenantId: "t1",
       tenantName: "Delta Markets",
@@ -165,6 +166,7 @@ describe("the reason hand-off", () => {
     await goneBy("End session", "/");
     expect(getSessionGone()).toEqual({
       action: "end",
+      userId: "u1",
       sessionId: "s1",
       tenantId: "t1",
       tenantName: "Delta Markets",
@@ -199,7 +201,6 @@ describe("the directory notice", () => {
     await goneBy("Renew session");
     const shown = await notice();
     expect(shown.textContent).toContain(RENEW_COPY);
-    expect(shown.getAttribute("role")).toBe("status");
     await waitFor(() => expect(document.activeElement).toBe(shown));
     // Polite, never an alert.
     expect(screen.queryByRole("alert")).toBeNull();
@@ -247,6 +248,30 @@ describe("the directory notice", () => {
     serve(context(sessionSummary()));
     endSupportSession.mockResolvedValue(res(200, undefined, { status: "ended" }));
     await goneBy("End session");
+    await screen.findByRole("heading", { level: 1, name: "Organizations" });
+    noNotice();
+  });
+
+  test("sign-out forgets it, so the next sign-in in this tab starts without it", async () => {
+    serve(context(sessionSummary()));
+    renewSupportSession.mockResolvedValue(res(409, "support_session_absent"));
+    await goneBy("Renew session");
+    await notice();
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    await waitFor(() => expect(screen.getByTestId("where").textContent).toBe("/signin"));
+    expect(getSessionGone()).toBeNull();
+  });
+
+  test("a reason recorded for another user never shows", async () => {
+    setSessionGone({
+      action: "renew",
+      userId: "u0",
+      sessionId: "s1",
+      tenantId: "t1",
+      tenantName: "Delta Markets",
+    });
+    serve(noSession);
+    mount("/platform/tenants");
     await screen.findByRole("heading", { level: 1, name: "Organizations" });
     noNotice();
   });

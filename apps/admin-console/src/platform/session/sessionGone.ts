@@ -5,11 +5,14 @@
  * on the way out, so the reason is handed to the directory here.
  *
  * Kept in memory on purpose: it outlives the navigation and the context
- * re-read, and nothing else. A reload, a sign-in or a normal visit starts with
- * no reason. The directory clears it on dismiss and when another session starts.
+ * re-read, and nothing else. A reload or a normal visit starts with no reason,
+ * and sign-out clears it (useSignOut). The directory clears it on dismiss and
+ * when another session starts, and never shows it to another user.
  */
 export interface SessionGone {
   action: "renew" | "end";
+  /** The operator who lost the session. */
+  userId: string;
   /** The lost session; a different session in the context means the operator moved on. */
   sessionId: string;
   tenantId: string;

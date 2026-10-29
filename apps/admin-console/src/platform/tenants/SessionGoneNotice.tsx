@@ -4,6 +4,7 @@
  * inline notice, never a toast (DESIGN.md rule 4): it stays until dismissed or
  * until another session starts.
  *
+ * Warning, not info: info means pending (DESIGN.md §3), and this is final.
  * Polite, not an alert: nothing in the organization changed. Focus moves to it
  * when it appears, because the bar that held the pressed button is gone and a
  * live region inserted with its text already in it is often not read out.
@@ -35,7 +36,11 @@ function Notice({
   }, []);
   // <output> is the native polite status region (role="status").
   return (
-    <output ref={ref} tabIndex={-1} className="rtc-alert rtc-alert--info platform-directory__gone">
+    <output
+      ref={ref}
+      tabIndex={-1}
+      className="rtc-alert rtc-alert--warning platform-directory__gone"
+    >
       <span className="rtc-alert__msg">
         {t.rich(`platform.tenants.sessionGone.${gone.action}`, {
           tenant: <bdi>{tenantNameOf(gone, tenants)}</bdi>,
@@ -63,6 +68,7 @@ export function SessionGoneNotice({
     if (movedOn) clearSessionGone();
   }, [movedOn]);
 
-  if (!gone || movedOn) return null;
+  // Never someone else's: a reason left in this tab by another operator stays hidden.
+  if (!gone || movedOn || gone.userId !== context?.user?.id) return null;
   return <Notice key={gone.sessionId} gone={gone} tenants={tenants} />;
 }
