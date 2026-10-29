@@ -60,9 +60,12 @@
  * and the explicit `tenant_id IS NULL` predicate, which replaces the tenant
  * predicate on both the list and the cursor anchor (`scopePredicate`). The
  * `(tenant_id, occurred_at DESC)` btree serves the `tenant_id IS NULL`
- * predicate, not the `(occurred_at, id)` keyset order: each page top-N
- * sorts the whole null-tenant bucket, as the tenant list does per tenant
- * (RT-431 EXPLAIN evidence). An ordered index is separate migration work.
+ * predicate, not the `(occurred_at, id)` keyset order: before RT-808 each
+ * page top-N sorted the whole null-tenant bucket (RT-431 EXPLAIN evidence).
+ * Migration 0074 (RT-808) adds the partial index
+ * `audit_events_platform_time_idx (occurred_at DESC, id DESC) WHERE
+ * tenant_id IS NULL`, so a page, first or cursor, is read in keyset order
+ * and stops at the limit. The tenant list keeps the tenant index.
  */
 import { Inject, Injectable, Optional } from "@nestjs/common";
 import type { Pool, PoolClient } from "pg";

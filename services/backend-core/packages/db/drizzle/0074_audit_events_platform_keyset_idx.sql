@@ -1,0 +1,64 @@
+-- 0074_audit_events_platform_keyset_idx.sql
+--
+-- Platform-scope audit read keyset index (Jira RT-808; reader: RT-431,
+-- listPlatformAuditEvents, PR #896). [GATED] migration, owner-authorized on
+-- RT-808 (comment 13356, 2026-10-22: authoring in a PR with CI only; sequencing
+-- hold of comment 13387 cleared once 0070 and 0071 merged). Applying it to the
+-- lab, a live database or any deploy is NOT authorized by those comments.
+--
+-- Serves listPlatformAuditEvents: WHERE tenant_id IS NULL [AND keyset] ORDER BY
+-- occurred_at DESC, id DESC LIMIT n, under the platform-admin context with no
+-- tenant. audit_events_tenant_time_idx (tenant_id, occurred_at DESC) matches the
+-- IS NULL predicate but not the (occurred_at, id) order, so before this index
+-- every page read the whole tenant-less bucket (Parallel Seq Scan, top-N Sort).
+-- That bucket grows with every platform sign-in. This partial index holds only
+-- those rows, already in keyset order: a page is the first LIMIT index entries.
+-- EXPLAIN (ANALYZE, BUFFERS) on 400k tenant-less rows plus 150k tenant rows
+-- (PG 18, RLS on): first page 222 -> 0.2 ms, cursor page 394 -> 0.3 ms, no Sort.
+-- The wider (tenant_id, occurred_at DESC, id DESC) was measured and rejected:
+-- with IS NULL the planner still chose Parallel Seq Scan + Sort, and the index
+-- is nearly twice the size (27 MB against 15 MB). The evidence is in the PR.
+-- Additive only: audit_events_tenant_time_idx stays for the tenant list.
+--
+-- ---------------------------------------------------------------------------
+-- WHY THIS FILE IS ONE STATEMENT - DO NOT ADD ANYTHING TO IT
+-- ---------------------------------------------------------------------------
+-- The runner (src/cli/migrate.ts) sends each file as ONE simple-protocol query.
+-- PostgreSQL runs a multi-statement query as one implicit transaction block,
+-- and CREATE INDEX CONCURRENTLY refuses to run inside a transaction block. A
+-- file holding exactly one statement is not wrapped, so the build runs
+-- concurrently with no runner change (the deploy step needs nothing new). Adding
+-- any other statement here (BEGIN, SET, COMMENT ON, a second index) makes this
+-- migration fail. The migration spec checks this. Same rule and recovery as
+-- 0048 (RT-538), 0057-0061 (RT-565) and 0064-0065 (RT-735).
+--
+-- Lock impact: SHARE UPDATE EXCLUSIVE on audit_events for the build. Audit
+-- inserts and every read continue throughout; only other DDL on the table and
+-- VACUUM wait. The build makes two passes over the table. No lock_timeout is
+-- needed and none can be set without a second statement.
+--
+-- No timeout. The build waits for every transaction older than it, in any
+-- table of the database, so one session left idle in transaction holds it (and
+-- the deploy's migrate step) indefinitely. Before deploying, check
+-- pg_stat_activity for long-open transactions. Run ONE `migrate up` at a time
+-- while this migration is pending (see 0048 for the deadlock this avoids).
+--
+-- No IF NOT EXISTS, on purpose: a failed build leaves an INVALID index with
+-- this name and the runner records nothing; a re-run must fail loudly rather
+-- than skip it. An invalid leftover is not used by queries but still costs
+-- every audit insert until it is dropped. To recover:
+--   1. SELECT indisvalid FROM pg_index
+--        WHERE indexrelid = 'audit_events_platform_time_idx'::regclass;
+--   2. false (an invalid leftover): DROP INDEX CONCURRENTLY IF EXISTS
+--      audit_events_platform_time_idx; then re-run `migrate up`.
+--   3. true (the build finished but the runner died before recording it):
+--      either drop it as in step 2 and re-run, or record it by hand:
+--        INSERT INTO _drizzle_migrations (id) VALUES ('0074_audit_events_platform_keyset_idx');
+-- While 0074 is unrecorded, `migrate down` rolls back the migration before it,
+-- not 0074: drop a leftover index by hand first, as above.
+--
+-- No data changes. Reversible via 0074_audit_events_platform_keyset_idx.down.sql.
+
+CREATE INDEX CONCURRENTLY audit_events_platform_time_idx
+  ON audit_events (occurred_at DESC, id DESC)
+  WHERE tenant_id IS NULL;
