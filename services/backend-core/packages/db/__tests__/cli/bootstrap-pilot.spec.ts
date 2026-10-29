@@ -1,10 +1,11 @@
 /**
  * RT-797 — the pilot bootstrap seed writes the operator's identity link.
  *
- * Real Postgres (full schema, Testcontainers); the first seed runs as the
- * non-superuser app role so RLS applies (re-runs: see `runSeed`). Proves: a
+ * Real Postgres (full schema, Testcontainers); every seed run, re-runs
+ * included, uses the non-superuser app role so RLS applies. Proves: a
  * fresh seed writes the user (bridge column kept until RT-799) AND its active
- * `external_identity_links` row; a re-run is a no-op; a pilot seeded before
+ * `external_identity_links` row; a re-run is a no-op (RT-939: it finds the
+ * pilot tenant under FORCE RLS instead of inserting a second); a pilot seeded before
  * RT-797 (bridge column, no link) gains the link without a second user; a user
  * moved to another provider by the cutover keeps its active link, and the
  * output says the configured identity is not the active one; the inputs are
@@ -46,18 +47,13 @@ function config(subject?: string): PilotConfig {
 }
 
 /**
- * One run of the seed as the CLI does it: a FRESH session, one transaction.
- *
- * Re-runs use the superuser. The seed's existing-tenant lookup runs before it
- * sets the tenant GUC, and `tenants` has FORCE ROW LEVEL SECURITY, so a
- * non-superuser re-run cannot see the pilot tenant (a pre-existing gap, not
- * RT-797's). The first run is also proven under RLS as the app role.
+ * One run of the seed as the CLI does it: a FRESH session, one transaction, as
+ * the non-superuser app role (FORCE ROW LEVEL SECURITY applies to it).
  */
-async function runSeed(cfg: PilotConfig, role: "app" | "superuser" = "superuser"): Promise<MintedIds> {
-  const { host, port, adminUri } = pg();
+async function runSeed(cfg: PilotConfig): Promise<MintedIds> {
+  const { host, port } = pg();
   const client = new Client({
-    connectionString:
-      role === "app" ? `postgres://${APP_ROLE_NAME}:${APP_ROLE_PASSWORD}@${host}:${port}/test` : adminUri,
+    connectionString: `postgres://${APP_ROLE_NAME}:${APP_ROLE_PASSWORD}@${host}:${port}/test`,
   });
   await client.connect();
   try {
@@ -89,6 +85,19 @@ async function operatorState(subject: string, email: string): Promise<OperatorSt
   return { users: users.rows, links: links.rows };
 }
 
+/** Row counts the seed writes for one pilot slug, read as the superuser. */
+async function pilotRowCounts(slug: string): Promise<Record<string, number>> {
+  const { rows } = await pg().admin.query(
+    `SELECT
+       (SELECT count(*) FROM tenants WHERE slug = $1)::int AS tenants,
+       (SELECT count(*) FROM stores s JOIN tenants t ON t.id = s.tenant_id WHERE t.slug = $1)::int AS stores,
+       (SELECT count(*) FROM roles r JOIN tenants t ON t.id = r.tenant_id WHERE t.slug = $1)::int AS roles,
+       (SELECT count(*) FROM memberships m JOIN tenants t ON t.id = m.tenant_id WHERE t.slug = $1)::int AS memberships`,
+    [slug],
+  );
+  return rows[0];
+}
+
 beforeAll(async () => {
   try {
     env = await startPgEnv();
@@ -112,7 +121,7 @@ describe("bootstrap-pilot seed", () => {
     if (skip()) return;
     const cfg = config();
     const { subject } = cfg.operatorIdentity;
-    const ids = await runSeed(cfg, "app");
+    const ids = await runSeed(cfg);
     expect(ids).toMatchObject({
       operator_provider_key: "acme",
       operator_provider_subject: subject,
@@ -123,8 +132,12 @@ describe("bootstrap-pilot seed", () => {
       users: [{ id: ids.operator_user_id, clerk_user_id: subject }],
       links: [{ provider_key: "acme", issuer: ISSUER, subject, user_id: ids.operator_user_id, status: "active" }],
     });
+    const counts = await pilotRowCounts(cfg.tenantSlug);
+    expect(counts).toEqual({ tenants: 1, stores: 1, roles: 4, memberships: 1 });
+    // RT-939: the re-run, also as the app role, finds the tenant under RLS.
     await expect(runSeed(cfg)).resolves.toEqual(ids);
     expect(await operatorState(subject, cfg.operatorEmail)).toEqual(seeded);
+    expect(await pilotRowCounts(cfg.tenantSlug)).toEqual(counts);
   });
 
   it("a pilot seeded before RT-797 (bridge column, no link) gains the link and no second user", async () => {

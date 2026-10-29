@@ -52,7 +52,9 @@
  * RLS: inserts run inside ONE transaction with the tenant-context GUCs set
  * (`app.current_tenant` = pilot tenant, `app.is_platform_admin` = 'true' for the
  * tenant row itself), mirroring `runWithTenantContext` — "bypasses the HTTP
- * guard" is NOT "bypasses RLS".
+ * guard" is NOT "bypasses RLS". The existing-tenant slug lookup runs first,
+ * under the same elevation with the nil tenant, so a re-run as a non-superuser
+ * role finds the pilot tenant.
  *
  * Reads `DATABASE_URL` (same as migrate.ts). Idempotent: re-running is a no-op
  * once the rows exist (existence-guarded). The operator user is found through
@@ -230,7 +232,12 @@ async function ensureOperatorLink(
 }
 
 export async function seed(client: ClientBase, cfg: PilotConfig): Promise<MintedIds> {
-  // Resolve-or-create the tenant first (idempotent on slug).
+  // Resolve-or-create the tenant first (idempotent on slug). `tenants` has
+  // FORCE RLS, so the lookup runs under the same platform-admin elevation as
+  // the tenant INSERT below; with no GUC a non-superuser re-run sees no tenant
+  // and inserts a duplicate (RT-939). The nil tenant keeps the policy's uuid
+  // cast well-formed.
+  await setContext(client, NIL_TENANT_ID, true);
   const existingTenant = await client.query<{ id: string }>(
     'SELECT id FROM tenants WHERE slug = $1 AND deleted_at IS NULL',
     [cfg.tenantSlug],
