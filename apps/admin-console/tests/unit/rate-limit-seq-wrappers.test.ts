@@ -10,7 +10,6 @@ const net = vi.hoisted(() => {
 });
 
 import { apiClient } from "@/generated/client";
-import { listTenants } from "@/lib/rf2-queries";
 import {
   getRateLimitState,
   installRateLimitTracking,
@@ -18,6 +17,7 @@ import {
   reportRateLimited,
   resetRateLimit,
 } from "@/lib/rate-limit";
+import { listTenants } from "@/lib/rf2-queries";
 import { openSupportSession } from "@/lib/support-session-queries";
 
 /**
