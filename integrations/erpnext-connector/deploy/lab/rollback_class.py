@@ -70,7 +70,9 @@ def _check_commit(repo: str, sha: str, subtree: str) -> None:
 
 
 def _changes(repo: str, current: str, target: str, subtree: str) -> list[tuple[str, str]]:
-    raw = _git(repo, "diff", "--name-status", "--no-renames", "-z", current, target, "--", subtree)
+    # :(top) anchors the pathspec at the repository root: a bare one is read relative to the cwd, and
+    # `--repo <subdirectory>` would then match nothing and wrongly answer image-only.
+    raw = _git(repo, "diff", "--name-status", "--no-renames", "-z", current, target, "--", f":(top){subtree}")
     parts = raw.decode("utf-8").split("\0")
     out = []
     for status, path in zip(parts[0::2], parts[1::2], strict=False):

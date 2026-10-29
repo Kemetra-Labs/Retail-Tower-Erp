@@ -11,7 +11,8 @@ SUBTREE = "integrations/erpnext-connector"
 PKG = "retail_tower_erpnext_connector"
 DOCTYPE = f"{PKG}/connector/doctype/connector_settings/connector_settings.json"
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
+# The Connector root: git finds the monorepo from here, and `<sha>:<path>` is root-relative anyway.
+CONNECTOR_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -220,6 +221,13 @@ def test_unknown_sha_and_missing_subtree_raise(tmp_path):
         rc.classify(str(repo.path), cur, empty)
 
 
+def test_repo_argument_may_be_a_subdirectory(tmp_path):
+    """git resolves a bare pathspec against the cwd; a subdirectory --repo must not hide the diff."""
+    repo, cur = _base(tmp_path)
+    tgt = repo.commit(**{f"{PKG}__connector__schema.py": "X = 2\n"})
+    assert rc.classify(str(tmp_path / SUBTREE), cur, tgt).klass == "restore"
+
+
 def test_cli_prints_rt_lines(tmp_path, capsys):
     repo, cur = _base(tmp_path)
     tgt = repo.commit(**{f"{PKG}__connector__schema.py": "X = 2\n"})
@@ -238,11 +246,11 @@ def test_cli_exit_2_on_unknown_sha(tmp_path, capsys):
 def test_real_first_move():
     """a3b31ff7 (what lab-03 runs) -> this commit: connector_settings.py changed, so restore."""
     try:
-        current = _git(REPO_ROOT, "rev-parse", "--verify", "a3b31ff7^{commit}")
-        target = _git(REPO_ROOT, "rev-parse", "--verify", "HEAD")
-        _git(REPO_ROOT, "cat-file", "-e", f"{current}:{SUBTREE}")
+        current = _git(CONNECTOR_ROOT, "rev-parse", "--verify", "a3b31ff7^{commit}")
+        target = _git(CONNECTOR_ROOT, "rev-parse", "--verify", "HEAD")
+        _git(CONNECTOR_ROOT, "cat-file", "-e", f"{current}:{SUBTREE}")
     except subprocess.CalledProcessError:
         pytest.skip("a3b31ff7 is not in this checkout (shallow clone)")
-    result = rc.classify(str(REPO_ROOT), current, target)
+    result = rc.classify(str(CONNECTOR_ROOT), current, target)
     assert result.klass == "restore"
     assert any("connector_settings.py" in r for r in result.reasons)
