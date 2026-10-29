@@ -542,7 +542,10 @@ def test_leaves_the_scheduler_disabled_when_the_backup_had_it_disabled(tmp_path)
     gzip.compress(b"INSERT INTO `tabSingles` VALUES ('System Settings','enable_scheduler','0'),"
                   b"('System Settings','enable_scheduler','1');\n", mtime=0),
     b"not a gzip file",
-], ids=["missing", "not-0-or-1", "two-values", "not-gzip"])
+    # a partial or malformed row is not the complete tabSingles row and must not count
+    gzip.compress(b"INSERT INTO `tabSingles` VALUES ('System Settings','enable_scheduler','1'garbage);\n", mtime=0),
+    gzip.compress(b"-- 'System Settings','enable_scheduler','1'\n", mtime=0),
+], ids=["missing", "not-0-or-1", "two-values", "not-gzip", "malformed-row", "comment-not-row"])
 def test_a_dump_without_one_clear_scheduler_value_exits_4_before_anything_stops(tmp_path, dump):
     _make_run(tmp_path, dump=dump)
     dry = _dry(tmp_path)

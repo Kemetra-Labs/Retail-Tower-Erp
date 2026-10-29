@@ -131,7 +131,7 @@ grep -q '"encryption_key"' "$RUN_DIR/$CFG_FILE" || die 4 "the backup config has 
 # the backup had (Frappe reads it from the old database, which is not there), so STEP 4 sets it back:
 # on lab-03 (2026-10-29) the workers ran on a disabled scheduler and no connector job ran for hours.
 SCHED_BACKUP="$("$PYTHON" -c 'import gzip, re, sys
-row = re.compile(rb"\x27System Settings\x27,\x27enable_scheduler\x27,\x27([^\x27]*)\x27")
+row = re.compile(rb"\(\s*\x27System Settings\x27\s*,\s*\x27enable_scheduler\x27\s*,\s*\x27([^\x27]*)\x27\s*\)\s*[,;]")
 found = set()
 with gzip.open(sys.argv[1], "rb") as handle:
     for line in handle:
