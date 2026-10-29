@@ -351,9 +351,22 @@ def _stub_run(root: Path, *, present: tuple[str, ...] = (DIGEST_BEFORE, "mariadb
     return proc, stack, calls
 
 
+# Written out by hand, not derived with the script's own insert logic (pr-review finding 3).
+FOLDED_TAIL = f"""      - {NEW_VOL}:/var/lib/mysql
+  redis-cache:
+    image: redis:6.2-alpine
+
+volumes:
+  {NEW_VOL}:
+    external: true
+{{extra_vols}}  erp_db:
+  sites:
+"""
+
+
 def _folded(digest: str = DIGEST_BEFORE, extra_vols: str = "") -> str:
-    text = _compose(digest, db_vol=NEW_VOL, extra_vols=extra_vols)
-    return text.replace("\nvolumes:\n", f"\nvolumes:\n  {NEW_VOL}:\n    external: true\n", 1)
+    head = _compose(digest).split("      - erp_db:/var/lib/mysql\n")[0]
+    return head + FOLDED_TAIL.format(extra_vols=extra_vols)
 
 
 def test_restore_end_to_end_against_stubs(tmp_path):
@@ -435,3 +448,45 @@ def test_restore_no_longer_needs_an_override_after_step_5():
     assert "dcx" not in step5
     assert "NOTE" not in step5
     assert "point compose.yml at $NEW_VOL" in text
+
+
+def test_step5_keeps_the_indent_of_a_compose_whose_volumes_use_four_spaces(tmp_path):
+    """A fixed two-space insert would nest erp_db and sites under the new volume (pr-review finding 1)."""
+    compose = """services:
+    backend:
+        image: rt-erpnext:16.51.0-274589a3dd54
+    mariadb:
+        image: mariadb:11.8
+        volumes:
+            - erp_db:/var/lib/mysql
+
+volumes:
+    erp_db:
+    sites:
+"""
+    _make_run(tmp_path, compose=compose)
+    proc, stack, _ = _stub_run(tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert (stack / "compose.yml").read_text(encoding="utf-8") == f"""services:
+    backend:
+        image: rt-erpnext:16.51.0-274589a3dd54
+    mariadb:
+        image: mariadb:11.8
+        volumes:
+            - {NEW_VOL}:/var/lib/mysql
+
+volumes:
+    {NEW_VOL}:
+        external: true
+    erp_db:
+    sites:
+"""
+
+
+def test_an_image_line_with_a_trailing_comment_is_still_checked(tmp_path):
+    """`image: x  # pin` must not slip past the presence check (pr-review finding 4)."""
+    _make_run(tmp_path, compose=_compose().replace("image: redis:6.2-alpine", "image: redis:6.2-alpine  # pinned"))
+    proc, _, calls = _stub_run(tmp_path, present=(DIGEST_BEFORE, "mariadb:11.8"))
+    assert proc.returncode == 4, proc.stderr
+    assert "previous image redis:6.2-alpine" in proc.stderr
+    assert "dc stop" not in calls

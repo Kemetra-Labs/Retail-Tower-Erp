@@ -77,7 +77,7 @@ What the script checks before it changes anything:
 - it refuses after resume (exit 3);
 - it refuses a backup whose `SHA256SUMS` or `encryption_key` is missing (exit 4);
 - it refuses a saved compose file that does not have exactly one `<volume>:/var/lib/mysql` mount and one top-level `volumes:` key (exit 5);
-- step 0: every image of the saved compose file must be on the host. A missing one is loaded from the run's `current-image-*.tar` (`save_current_image=true`); if there is no tar, or it is still missing, the script exits 4 before anything stops.
+- step 0: every image of the saved compose file must be on the host. A missing one is loaded from the run's `current-image-*.tar` (`save_current_image=true`); if there is no tar, or it is still missing, the script exits 4 before anything stops. The tars hold only the ERP images: a missing mariadb or redis image always exits 4. Whether `docker load` of an image saved by `ghcr.io/…@sha256:` digest makes that digest inspectable again depends on the host's image store; confirm it at the next restore rehearsal.
 
 What it does:
 

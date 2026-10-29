@@ -140,7 +140,7 @@ with open(src, encoding="utf-8", newline="") as handle:
     lines = handle.read().splitlines(keepends=True)
 if mode == "images":
     for line in lines:
-        found = re.match(r"\s*image:\s*(\S+)\s*$", line)
+        found = re.match(r"\s*image:\s*(\S+)\s*(#.*)?$", line)
         if found:
             print(found.group(1).strip(chr(34) + chr(39)))
     sys.exit(0)
@@ -155,7 +155,14 @@ if len(tops) != 1:
 found = mount.match(lines[mounts[0]])
 lines[mounts[0]] = found.group(1) + new_vol + found.group(2)
 nl = "\r\n" if lines[tops[0]].endswith("\r\n") else "\n"
-lines.insert(tops[0] + 1, "  " + new_vol + ":" + nl + "    external: true" + nl)
+# The new key takes the indent of the existing entries, or a nested one would swallow them.
+indent = "  "
+for line in lines[tops[0] + 1:]:
+    if line.strip() and not line.lstrip().startswith("#"):
+        if line[0] in " \t":
+            indent = line[:len(line) - len(line.lstrip())]
+        break
+lines.insert(tops[0] + 1, indent + new_vol + ":" + nl + indent * 2 + "external: true" + nl)
 if len(sys.argv) > 4:
     with open(sys.argv[4], "w", encoding="utf-8", newline="") as handle:
         handle.write("".join(lines))'
