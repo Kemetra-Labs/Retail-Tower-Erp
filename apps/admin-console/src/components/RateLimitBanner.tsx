@@ -12,7 +12,7 @@
 import { useT } from "@/i18n";
 import { useRateLimit } from "@/lib/useRateLimit";
 import { QueryClientContext } from "@tanstack/react-query";
-import { useContext, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import "./banner.css";
 
 export interface RateLimitBannerProps {
@@ -21,13 +21,30 @@ export interface RateLimitBannerProps {
    * context yet): dismissing it there would leave a blank page with no retry.
    */
   dismissible?: boolean;
+  /**
+   * RT-931: stay hidden for any 429 up to this sequence number, because a surface
+   * already says it (and carries its own retry). A later 429 shows the banner
+   * again, after a short grace (CLAIM_GRACE_MS) that lets a surface claim it
+   * first, so a claimed 429 is never on screen or in the live region, not even
+   * for one frame. The live region stays mounted. Unset: every 429 shows at once.
+   */
+  hiddenThroughSeq?: number;
 }
+
+/**
+ * How long a 429 waits before the banner shows it, when the host can claim 429s
+ * (`hiddenThroughSeq` set). The banner hears a 429 synchronously from the shared
+ * clock; the surface that owns it learns of its failure a few ticks later (the
+ * query cache's notify timer, or the drawer's async continuation).
+ */
+export const CLAIM_GRACE_MS = 100;
 
 export function RateLimitBanner({
   dismissible = true,
+  hiddenThroughSeq,
 }: Readonly<RateLimitBannerProps>): React.JSX.Element {
   const t = useT();
-  const banner = useBannerState(dismissible);
+  const banner = useBannerState(dismissible, hiddenThroughSeq);
   const message = (count: number) =>
     banner.active ? t("rateLimit.wait", { count }) : t("rateLimit.ready");
 
@@ -49,11 +66,15 @@ export function RateLimitBanner({
 }
 
 /** The banner's state: visibility per 429, the once-only announcement, retry and dismiss. */
-function useBannerState(dismissible: boolean) {
+function useBannerState(dismissible: boolean, hiddenThroughSeq: number | undefined) {
   // Optional: a shell rendered without a query client (tests) still shows the banner.
   const qc = useContext(QueryClientContext);
   const { active, secondsLeft, seq, since } = useRateLimit();
   const [dismissedSeq, setDismissedSeq] = useState(0);
+  const settledSeq = useClaimGrace(seq, hiddenThroughSeq !== undefined);
+  // A banner already on screen follows the next 429 at once: the grace is for the
+  // first reveal only, so a showing banner never blanks (and drops focus) between 429s.
+  const wasShowing = useRef(false);
   // The seconds announced for this 429, fixed so the live region speaks once.
   const announced = useRef({ seq: 0, seconds: 0 });
   if (announced.current.seq !== seq) announced.current = { seq, seconds: secondsLeft };
@@ -69,14 +90,37 @@ function useBannerState(dismissible: boolean) {
     });
   };
 
+  const visible =
+    seq > (hiddenThroughSeq ?? 0) &&
+    (seq <= settledSeq || wasShowing.current) &&
+    (!dismissible || seq !== dismissedSeq);
+  useEffect(() => {
+    wasShowing.current = visible;
+  });
+
   return {
-    visible: seq > 0 && (!dismissible || seq !== dismissedSeq),
+    visible,
     active,
     secondsLeft,
     announcedSeconds: announced.current.seconds,
     dismiss,
     retry,
   };
+}
+
+/**
+ * The highest `seq` the banner may show. A 429 already on the clock when the
+ * banner mounts shows at once; a later one waits CLAIM_GRACE_MS when claims are
+ * on. With claims off, every `seq` is settled the moment it arrives.
+ */
+function useClaimGrace(seq: number, claimsOn: boolean): number {
+  const [settled, setSettled] = useState(seq);
+  useEffect(() => {
+    if (!claimsOn || seq <= settled) return undefined;
+    const id = setTimeout(() => setSettled(seq), CLAIM_GRACE_MS);
+    return () => clearTimeout(id);
+  }, [claimsOn, seq, settled]);
+  return claimsOn ? settled : seq;
 }
 
 /** The visible part of the banner; the live region above carries the announcement. */
