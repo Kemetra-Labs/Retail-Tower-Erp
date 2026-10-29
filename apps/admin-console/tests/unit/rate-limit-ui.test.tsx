@@ -106,12 +106,17 @@ describe("mutation on 429", () => {
  */
 describe("read on 429", () => {
   beforeEach(() => vi.useFakeTimers());
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
 
   /** Advance the fake clock and let the query's promises and notifications settle. */
   const elapse = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
 
   test("is retried exactly once, after Retry-After, never after the 1 s default", async () => {
+    // The largest jitter (999 ms), so the latest possible retry is the one checked.
+    vi.spyOn(Math, "random").mockReturnValue(0.9999);
     const calls: number[] = [];
     const queryFn = vi.fn(async () => {
       calls.push(Date.now());
@@ -130,8 +135,9 @@ describe("read on 429", () => {
     expect(queryFn).toHaveBeenCalledTimes(1);
     expect(result.current.isError).toBe(false);
 
-    // Retry-After plus the largest jitter (under 1 s): the one retry has run and failed.
-    await elapse(1000);
+    // Retry-After plus that jitter is 2999 ms; one more ms lets the retry's own
+    // zero-delay notification run too. The one retry has run and failed.
+    await elapse(1001);
     expect(result.current.isError).toBe(true);
     expect(queryFn).toHaveBeenCalledTimes(2);
     expect(calls[1] - calls[0]).toBeGreaterThanOrEqual(1900);

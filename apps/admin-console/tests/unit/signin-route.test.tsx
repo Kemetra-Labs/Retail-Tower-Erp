@@ -77,9 +77,10 @@ function submitCredentials(): void {
 // notification runs. In jsdom, React's post-navigation render and that timer
 // race: under load the render can go first, ProtectedArea reads the stale
 // signed-out entry and redirects back to /signin, where nothing sends the user
-// on (RT-944: the CI flake). A real browser does not (Playwright:
-// tests/e2e/signin-return.spec.ts S1-S3). Notify synchronously here so the
-// order is fixed, then restore the default.
+// on (RT-944: the CI flake). Playwright passes these journeys in a real browser
+// (tests/e2e/signin-return.spec.ts S1-S3), but nothing in the app guarantees
+// that order either; these tests check the refresh, not the ordering. Notify
+// synchronously here so the order is fixed, then restore the default.
 beforeAll(() => notifyManager.setScheduler((cb) => cb()));
 afterAll(() => notifyManager.setScheduler((cb) => setTimeout(cb, 0)));
 
