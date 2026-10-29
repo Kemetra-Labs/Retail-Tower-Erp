@@ -254,3 +254,25 @@ def test_real_first_move():
     result = rc.classify(str(CONNECTOR_ROOT), current, target)
     assert result.klass == "restore"
     assert any("connector_settings.py" in r for r in result.reasons)
+    # The real DocType JSON parses at both commits: a parse failure here would be the tool, not the change.
+    assert not any("could not be parsed" in r for r in result.reasons), result.reasons
+
+
+def test_hooks_change_outside_the_scheduler_is_restore(tmp_path):
+    """fixtures / after_migrate in hooks.py change the database at migrate (review I2)."""
+    repo, cur = _base(tmp_path)
+    tgt = repo.commit(**{f"{PKG}__hooks.py": "scheduler_events = {}\nfixtures = ['Custom Field']\n"})
+    result = _klass(repo, cur, tgt)
+    assert result.klass == "restore" and any("hooks.py" in r for r in result.reasons)
+
+
+def test_hooks_that_cannot_be_parsed_are_restore(tmp_path):
+    repo, cur = _base(tmp_path)
+    tgt = repo.commit(**{f"{PKG}__hooks.py": "scheduler_events = {\n"})
+    assert _klass(repo, cur, tgt).klass == "restore"
+
+
+def test_module_custom_json_is_restore(tmp_path):
+    repo, cur = _base(tmp_path)
+    tgt = repo.commit(**{f"{PKG}__connector__custom__sales_invoice.json": "{}"})
+    assert _klass(repo, cur, tgt).klass == "restore"
