@@ -11,6 +11,7 @@ import { endSupportSession, renewSupportSession } from "@/lib/support-session-qu
 import { QueryClientContext } from "@tanstack/react-query";
 import { useContext, useState } from "react";
 import { useNavigate } from "react-router";
+import { setSessionGone } from "./sessionGone";
 import {
   type ActionOutcome,
   type SupportSessionSummary,
@@ -51,10 +52,10 @@ const END_EFFECT: Record<Settled, Effect> = {
   "rate-limited": "none",
 };
 
-export function useSessionActions(session: SupportSessionSummary | null) {
+export function useSessionActions(session: SupportSessionSummary | null, tenantName?: string) {
   const qc = useContext(QueryClientContext);
   const navigate = useNavigate();
-  const { refresh } = useActiveContextValue();
+  const { context, refresh } = useActiveContextValue();
   const [pending, setPending] = useState<Action | null>(null);
   const [error, setError] = useState<SupportSessionError | null>(null);
   const [capStamp, setCapStamp] = useState<string | null>(null);
@@ -77,8 +78,23 @@ export function useSessionActions(session: SupportSessionSummary | null) {
 
   const stampOfSession = session ? sessionStamp(session) : null;
 
+  // RT-930: the session was already gone; tell the directory why the operator lands there.
+  // Set before leaving, while this session (and its tenant's name) is still known.
+  const markGone = (action: Action) => {
+    const userId = context?.user?.id;
+    if (!session || !userId) return;
+    setSessionGone({
+      action,
+      userId,
+      sessionId: session.id,
+      tenantId: session.tenant_id,
+      tenantName,
+    });
+  };
+
   const settleRenew = async (outcome: ActionOutcome, expiresAt: string | undefined) => {
     if (outcome.kind === "failed") return showFailure(outcome);
+    if (outcome.kind === "gone") markGone("renew");
     if (outcome.kind === "done") setRenewedStamp(expiresAt ?? null);
     if (outcome.kind === "cap") setCapStamp(stampOfSession);
     return apply(RENEW_EFFECT[outcome.kind]);
@@ -86,6 +102,7 @@ export function useSessionActions(session: SupportSessionSummary | null) {
 
   const settleEnd = async (outcome: ActionOutcome) => {
     if (outcome.kind === "failed") return showFailure(outcome);
+    if (outcome.kind === "gone") markGone("end");
     return apply(END_EFFECT[outcome.kind]);
   };
 
