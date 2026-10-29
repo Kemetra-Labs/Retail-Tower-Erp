@@ -118,6 +118,17 @@ class ConnectorCase(unittest.TestCase):
         spec = SPEC.replace("'^[A-Z0-9]{1,6}$'", "'^[A-Z0-9]{1,6}\\Z'")
         self.assertEqual(self.by_subject(self.check(module=module, spec=spec), "_REF_RE").status, OK)
 
+    def test_connector_z_matches_contract_dollar(self):
+        # RT-915: the contract keeps ECMA `$`; the connector's `\Z` is the same exact end, not a mismatch.
+        module = MODULE.replace('{1,6}$")', '{1,6}\\Z")')
+        f = self.by_subject(self.check(module=module), "_REF_RE")
+        self.assertEqual(f.status, OK)
+
+    def test_escaped_z_is_not_an_anchor(self):
+        self.assertEqual(connector._canonical_end(r"^a\Z"), "^a$")
+        self.assertEqual(connector._canonical_end(r"^a\\Z"), r"^a\\Z")
+        self.assertEqual(connector._canonical_end("^a$"), "^a$")
+
     def test_escaped_dollar_is_not_an_anchor(self):
         self.assertFalse(connector._ends_with_dollar(r"^a\$"))
         self.assertTrue(connector._ends_with_dollar(r"^a\\$"))
