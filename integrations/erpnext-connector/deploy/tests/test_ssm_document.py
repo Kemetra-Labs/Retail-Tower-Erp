@@ -544,14 +544,10 @@ def test_poll_helper_fails_closed_in_the_repeated_hour_when_dst_ends(body, tmp_p
     assert early.stdout.strip().splitlines()[-1] == "posting-poll=waiting"
 
 
-WORKFLOW = Path(__file__).resolve().parents[4] / ".github" / "workflows" / "deploy-erp-lab.yml"
-
-
-def test_new_stop_reasons_fit_the_workflow_result_pattern(body):
-    match = re.search(r"^\s*RESULT_RE='([^']+)'$", WORKFLOW.read_text(encoding="utf-8"), re.M)
-    assert match, "RESULT_RE must stay a single-quoted line in deploy-erp-lab.yml"
-    result_re = re.compile(match.group(1))
-    for gate, reason in (("check", "scheduler-disabled"), ("check", "scheduler-status-unreadable"),
-                         ("postresume", "posting-poll-did-not-run"), ("postresume", "posting-poll-unreadable")):
+def test_scheduler_stop_reasons_are_in_the_script(body):
+    """That every stop reason fits the workflow's RESULT_RE is checked from the root, in
+    .github/release/test_erp_lab_workflows.py: a product test may not read the root .github/."""
+    for reason in ("scheduler-disabled", "scheduler-status-unreadable", "posting-poll-did-not-run",
+                   "posting-poll-unreadable"):
         assert f'stop "{reason}"' in body
-        assert result_re.match(f"RT_GATE {gate}=fail:{reason}"), reason
+        assert re.fullmatch(r"[a-z0-9-]+", reason)
