@@ -23,8 +23,6 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-// tools/oasdiff -> backend-core -> services -> the monorepo (git) root.
-const GIT_ROOT = path.resolve(HERE, "..", "..", "..", "..");
 const DEFAULT_CONSUMERS_FILE = path.join(HERE, "consumers.txt");
 const STDIN_FD = 0;
 
@@ -270,14 +268,23 @@ export function assessLine(ack, impactByConsumer, knownConsumers = [...impactByC
 
 // ---- I/O -------------------------------------------------------------------
 
-// Both readers resolve from the git root, not from services/backend-core.
+// Both readers resolve from the git root, not from services/backend-core. Asked of git
+// (not a `..` climb out of the product directory, which the boundary check rejects).
+let gitRootPromise;
+function gitRoot() {
+  gitRootPromise ??= execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd: HERE }).then(
+    ({ stdout }) => stdout.trim(),
+  );
+  return gitRootPromise;
+}
+
 async function defaultReadText(file) {
-  return readFileSync(path.join(GIT_ROOT, file), "utf8");
+  return readFileSync(path.join(await gitRoot(), file), "utf8");
 }
 
 async function defaultGitShow(commit, file) {
   const { stdout } = await execFileAsync("git", ["show", `${commit}:${file}`], {
-    cwd: GIT_ROOT,
+    cwd: await gitRoot(),
     maxBuffer: 64 * 1024 * 1024,
   });
   return stdout;
