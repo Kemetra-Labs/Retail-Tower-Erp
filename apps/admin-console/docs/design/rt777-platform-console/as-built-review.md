@@ -18,9 +18,14 @@ and reviewed them. Docs only: nothing in `src/` changes here.
   - The findings below are where the two passes agree, plus the points each pass added once verified.
 - **Not run:** the skill's deterministic detector. It is not installed locally, and `npx impeccable`
   would download a package; that was not done without approval.
-- **Mock-dependent:** finding P1-3 rests on `active_role_code` being returned during a support session,
-  as in the e2e fixture (`tests/e2e/support-session.spec.ts:45`). The live server's answer was not
-  checked.
+- **Mock artifact, withdrawn (corrected 29 October 2026):** the first version listed a P1-3 («المالك»
+  shown inside a support session). It came from the e2e fixture, which sets `active_role_code: "owner"`
+  with a support session (`tests/e2e/support-session.spec.ts:45`). Backend-Core sets
+  `active_role_code` from the user's own membership of the active tenant
+  (`services/backend-core/apps/api/src/context/context.service.ts`, `activeMembership?.roleCode ?? null`),
+  and a support session opens only for a tenant the user is not a member of (409 `already_member`
+  otherwise). The real value in a session is `null`, and `AppShell` then shows no role. Frames 69–75
+  still show «المالك» because they use that fixture; read them with this in mind.
 - **Unreachable:** a session expiring while a tenant screen is open (403 `support_session_expired`).
   Inside a session every tenant route shows the read-only notice and calls no tenant API, so
   `SupportSessionBoundary`'s 403 path cannot be reached until tenant views exist inside a session
@@ -33,7 +38,7 @@ and reviewed them. Docs only: nothing in `src/` changes here.
 | 1 | Visibility of system status | 2 | A renew shows no visible confirmation (73); "session gone" shows nothing (74) |
 | 2 | Match with the real world | 3 | Full date plus UTC for a 60-minute window |
 | 3 | User control and freedom | 3 | Nothing traps the user |
-| 4 | Consistency and standards | 2 | «المالك» and «لوحة التحكم» inside a support session; one action, two names (58, 67); refusals use `info` |
+| 4 | Consistency and standards | 2 | «لوحة التحكم» instead of the platform label inside a support session; one action, two names (58, 67); refusals use `info` |
 | 5 | Error prevention | 3 | The replace warning does not name the session it ends (65) |
 | 6 | Recognition over recall | 3 | 65 relies on memory |
 | 7 | Flexibility and efficiency | 1 | No fast path from search to a session |
@@ -58,7 +63,6 @@ console, which is its quietest band.
 |---|---|---|---|---|---|
 | P1-1 | P1, layout bug | 76 | The no-access page is broken: the top bar renders at the bottom-left and the card sits off-centre | `.platform-standalone` (`platform.css`) has `grid-template-rows` but no areas; `.topbar` (`app-shell.css:32`) sets `grid-area: topbar`, an unknown name, so the grid adds implicit tracks | Add `grid-template-areas: "topbar" "stage"` and `grid-area: stage`, or `.platform-standalone .topbar { grid-area: auto; }` |
 | P1-2 | P1, flow | 74 | Renew answered "session already gone": the operator is sent to the directory with no message, and the live region unmounts with the bar | `gone: "leave"` in `useSessionActions.ts` | A one-shot notice on the directory saying the session ended or was replaced, that nothing changed, and how to continue. Same for End `gone`. Needs new copy |
-| P1-3 | P1, scope | 69–75 | Inside a support session the top bar shows role «المالك» and the tenant label «لوحة التحكم», while the bar says «وصول دعم · للقراءة فقط» | `AppShell.tsx:272` renders the role whenever `active_role_code` is set (mock-dependent, §0) | In a session, show «وصول دعم» instead of the role, and keep the platform identity label |
 | P2-1 | P2, duplicate state | 62, 68 | Rate limit shown twice, with two retry controls in different states | The shell's `RateLimitBanner` (`PlatformShell.tsx:110`) plus the directory's and drawer's own banners | One message and one countdown per failure: suppress the shell banner when the surface owns the 429 |
 | P2-2 | P2, layout bug | 57, 58 | The slug floats about 450px from the tenant name and reads as a third, headerless column | `.platform-directory__slug { display: block }` on an LTR `bdi` aligns to the left of the RTL cell | Align it to the cell's start (`text-align: right` under RTL, or an inline isolate); constrain the table width |
 | P2-3 | P2, copy | 65 | «لديك جلسة دعم حالية…» does not name the session it ends; it sits low in the drawer | `platform.start.replaces` | Name the tenant, purpose and ticket of the current session, and place the warning above the submit button. New copy |
@@ -78,6 +82,10 @@ console, which is its quietest band.
   (enforced by the server, not only by the UI).
 - **59, 60:** the empty and no-match states are bare text. «المعروض: 0 من 3» is redundant under
   «لا توجد مؤسسة تطابق». A «مسح البحث» action would help.
+- **69–75:** inside a support session the top bar's identity label reads «لوحة التحكم», the tenant
+  Console label, while the operator acts as platform staff. Design-system rule 7 separates the two by
+  identity label; keeping «المنصة» would match. (The «المالك» role in these frames is a fixture
+  artifact, §0.)
 - **69:** the session bar groups eight items in one flat row; the tenant name has no more weight than
   the purpose. The 4px info edge is the only privilege signal. The sidebar marks no current location.
 - **69–75:** the time shows the full date plus UTC for a 60-minute session («حتى 29 أكتوبر 2026، UTC
@@ -88,13 +96,13 @@ console, which is its quietest band.
   but the Admin Console pin does not have it yet (`src/generated/schema.d.ts`). A repin, then a status
   badge, would replace the static suspended-tenant note.
 
-## 4. Proposed follow-ups (not opened)
+## 4. Follow-ups
 
-| Slice | Covers | Kind |
-|---|---|---|
-| F1 | P1-1 no-access layout | CSS fix, one file |
-| F2 | P1-2 "session gone" notice, and End `gone` | Flow and copy (copy needs owner approval) |
-| F3 | P1-3 identity inside a session | Shell change; first confirm what the server returns during a session |
-| F4 | P2-1 single rate-limit surface | Shell and platform |
-| F5 | P2-2, P2-3 and the minor copy items | Directory and drawer polish (copy needs owner approval) |
-| F6 | Tenant status in the directory | Repin to Backend-Core with RT-843, then UI |
+| Slice | Covers | Kind | Jira |
+|---|---|---|---|
+| F1 | P1-1 no-access layout | CSS fix, one file | RT-929 |
+| F2 | P1-2 "session gone" notice, and End `gone` | Flow and copy (copy needs owner approval) | RT-930 |
+| F3 | Withdrawn: the «المالك» role was a fixture artifact (§0). The «لوحة التحكم» label is a minor observation (§3) | None | None |
+| F4 | P2-1 single rate-limit surface | Shell and platform | Not opened |
+| F5 | P2-2, P2-3 and the minor copy items | Directory and drawer polish (copy needs owner approval) | Not opened |
+| F6 | Tenant status in the directory | Repin to Backend-Core with RT-843, then UI | Not opened |
