@@ -451,18 +451,22 @@ test("the CLI reports a bad CONSUMER_IMPACT_MODE as an error annotation and exit
 // Default I/O (no readText/gitShow overrides): the real consumers.txt, the in-tree PINs and
 // `git show` at their pinned commits, run from outside the repository root.
 // A shallow checkout (bc/fast clones at depth 1) does not hold the pinned commits; skip there.
-const commitsReachable = () =>
-  ["apps/pos", "apps/admin-console", "integrations/erpnext-connector"].every((dir) => {
+const commitsReachable = () => {
+  const root = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+  const pinDirs = ["apps/pos", "apps/admin-console", "integrations/erpnext-connector"];
+  // A missing or malformed PIN throws here and fails the test; only an absent commit skips it.
+  const commits = pinDirs.map((dir) =>
+    parsePin(readFileSync(path.join(root, dir, "contracts/backend-core/PIN"), "utf8")).commit,
+  );
+  return commits.every((commit) => {
     try {
-      const root = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
-      const pin = readFileSync(path.join(root, dir, "contracts/backend-core/PIN"), "utf8");
-      const commit = /^commit: ([0-9a-f]{40})$/m.exec(pin)?.[1];
       execFileSync("git", ["cat-file", "-e", `${commit}^{commit}`], { cwd: root, stdio: "ignore" });
       return true;
     } catch {
       return false;
     }
   });
+};
 
 test("the CLI resolves the real consumers with the default I/O", { skip: !commitsReachable() && "pinned commits not in this clone (shallow checkout)" }, () => {
   const run = (line) =>
