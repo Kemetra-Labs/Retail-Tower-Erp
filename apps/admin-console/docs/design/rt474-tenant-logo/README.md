@@ -211,7 +211,7 @@ tenant, English and dark frames (later pass), and any `/platform` access.
 
 | # | Item | Owner |
 |---|---|---|
-| 1 | Draw the frames in §4 in Claude Design and export them (§7) | Design |
+| 1 | ~~Draw the frames in §4 and export them (§7)~~ Exported 2026-10-29: `47-…` to `56-…` in `design/screens/`, from the owner-approved canvas. Owner review of the exported PNGs is item 3. | Design |
 | 2 | OD-8: bench dpi and printable width (RT-110); replace the assumed 203 dpi in the frames | Owner (bench) |
 | 3 | Owner review of the exported frames before RT-474 implementation starts | Owner |
 

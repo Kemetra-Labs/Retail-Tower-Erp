@@ -12,11 +12,15 @@ Static PNG exports of the screen designs made in the **Retail Tower Design Syste
   - The project's `export/screens/` still held the old versions, so these three were rendered locally from the corrected templates listed in the index (default view, light, Arabic) at 1440×900. They used the synced design-system CSS, the Claude Design runtime (`support.js`) and Chromium.
   - The fonts were a local Dubai copy, not the project's uploaded files.
   - The change log is `templates/design-audit/rt-400/RT-400.md` in the project. The owner has not yet approved these three for RT-400.
+- **RT-474 tenant logo (29 October 2026):** `47-…` to `56-…` come from the owner-approved Design canvas «RT-474 Tenant Logo» in Claude, not from the Claude Design project above. The brief is [`docs/design/rt474-tenant-logo/README.md`](../../docs/design/rt474-tenant-logo/README.md).
+  - The canvas has one page component with a `state` property. Each state was rendered to static HTML from that component, with the synced design-system CSS in [`../claude-design-system/`](../claude-design-system/), and captured with Chromium at 1440 and 1280 wide (the 1280 frames carry `-1280`). Each PNG passed the same checks as the others: PNG signature, closing `IEND`, and a full decode at its stated size. None needed splitting.
+  - The font is Dubai, installed on the capture machine. The sample logo «النخبة» is mock data.
+  - The receipt preview uses 203 dpi, which matches the BIXOLON SRP-B300 driver reading recorded on RT-473 (comment 14342). OD-8 still waits for a printed self-test.
 - **Status:** reviewed with the owner in Claude Design. These images are not an implementation sign-off: backend contracts that the screens depend on are listed in `FOLLOW-UPS.md`, and controls without a service are shown `aria-disabled` with a «تصميم فقط» reason.
 
 ## Known gaps
 
-- **Not shown:** mobile (390px) and laptop (1280px) frames, dark theme beyond the Stores family, and English beyond the Stores family. The templates support them.
+- **Not shown:** mobile (390px) frames; laptop (1280px) frames except for the RT-474 tenant logo family (`47-…` to `56-…`, which has `-1280` copies); dark theme beyond the Stores family; and English beyond the Stores family. The templates support them.
 - **Re-authentication method for break-glass** (FOLLOW-UPS #11) and `perm_owner_console` (#30) are still open; the screens say «لم تُحدَّد بعد» where they apply.
 
 ## Index
@@ -39,5 +43,17 @@ Static PNG exports of the screen designs made in the **Retail Tower Design Syste
 | `44-tenant-dashboard-default-a.png`<br>`44-tenant-dashboard-default-b.png` | Tenant dashboard, default | `templates/tenant-dashboard/TenantDashboard.dc.html` |
 | `45-app-shell-owner.png` | App shell, owner role | `templates/app-shell/AppShell.dc.html` |
 | `46-support-session-cap-reached-a.png`<br>`46-support-session-cap-reached-b.png` | Support session at the 8-hour renewal cap (RT-414 decision 2) | `templates/platform-dashboard/PlatformDashboard.dc.html` |
+| `47-logo-empty.png` | Tenant logo (RT-474): no logo stored | Canvas «RT-474 Tenant Logo», `LogoPage.dc.html` (`state=empty`) |
+| `48-logo-current.png` | Tenant logo: current logo, replace and remove | same (`current`) |
+| `49-logo-preview-loading.png` | Tenant logo: preview being generated | same (`loading`) |
+| `50-logo-preview-ok.png` | Tenant logo: screen and receipt preview, no warnings | same (`ok`) |
+| `51-logo-preview-low-contrast.png` | Tenant logo: `low_contrast`, every slot on the white card | same (`lowContrast`) |
+| `52-logo-preview-receipt-warnings.png` | Tenant logo: both receipt warnings | same (`receiptWarn`) |
+| `53-logo-refused-too-small.png`<br>`53-logo-refused-aspect.png`<br>`53-logo-refused-type.png`<br>`53-logo-refused-svg-unsafe.png`<br>`53-logo-refused-too-large.png` | Tenant logo: refusals (`image_too_small`, `aspect_ratio_out_of_range`, `file_type_not_allowed`, `svg_unsafe_content`, `file_too_large`) | same (`refusedSmall`, `refusedAspect`, `refusedType`, `refusedSvg`, `refusedLarge`) |
+| `54-logo-remove-confirm.png` | Tenant logo: inline remove confirm | same (`removeConfirm`) |
+| `55-logo-conflict.png` | Tenant logo: `409 logo_changed_concurrently` | same (`conflict`) |
+| `56-logo-saved.png` | Tenant logo: save succeeded | same (`saved`) |
 
-72 files, 7.5 MB in total; the largest is under 180 KB.
+Every RT-474 file above also exists at 1280 wide with `-1280` before `.png` (for example `47-logo-empty-1280.png`).
+
+100 files, 8.5 MB in total; the largest is under 180 KB.
