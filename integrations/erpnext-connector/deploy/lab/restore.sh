@@ -129,6 +129,10 @@ echo "PLAN 6 ping: wait for $SITE to answer /api/method/ping with 200"
 
 dcx() { "$DC" -f "$COMPOSE" -f "$OVERRIDE" "$@"; }
 
+# The same lock RT-ErpLabDeploy holds: never stop the stack under a deploy that swaps or migrates.
+exec 9>/run/rt-erp-deploy.lock
+flock -n 9 || die 5 "a deploy is running (/run/rt-erp-deploy.lock is held); wait for it to end"
+
 echo "STEP 1 stop"
 "$DC" stop || die 5 "could not stop the project"
 [ -z "$("$DC" ps -q)" ] || die 5 "services are still running"
@@ -178,6 +182,11 @@ unset RT_DB_ROOT_PW
 
 echo "STEP 5 previous-image"
 cp "$RUN_DIR/compose.yml" "$COMPOSE"
+# The workers start with the services, so posting resumes on the restored database: record it
+# first (the deploy's rule), which also refuses any later restore of this or an earlier run.
+printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$BACKUPS_ROOT/last-resumed-at.tmp" \
+  && mv -f "$BACKUPS_ROOT/last-resumed-at.tmp" "$BACKUPS_ROOT/last-resumed-at" \
+  || die 5 "could not record the resume marker"
 dcx up -d || die 5 "could not start the services on the previous image"
 
 echo "STEP 6 ping"

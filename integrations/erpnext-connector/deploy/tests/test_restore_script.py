@@ -189,3 +189,23 @@ def test_a_host_resume_with_no_run_start_time_refuses(tmp_path):
 
 def _marker(root: Path, when: str) -> None:
     (root / "last-resumed-at").write_text(when + "\n", encoding="utf-8", newline="\n")
+
+
+def _script() -> str:
+    return SCRIPT.read_text(encoding="utf-8").replace("\r\n", "\n")
+
+
+def test_takes_the_deploy_lock_before_stopping_anything():
+    """A restore must not stop the stack while RT-ErpLabDeploy swaps or migrates (PR #94 review)."""
+    text = _script()
+    lock = text.index("flock -n 9")
+    assert "/run/rt-erp-deploy.lock" in text[:lock]
+    assert lock < text.index('echo "STEP 1 stop"') or lock < text.index('"$DC" stop')
+    assert text.index("dry run: nothing was changed") < lock, "a dry run takes no lock"
+
+
+def test_records_the_resume_before_the_services_start_again():
+    """STEP 5 starts the workers: the host marker must close every earlier restore window first."""
+    text = _script()
+    step5 = text[text.index('echo "STEP 5 previous-image"'):]
+    assert step5.index("last-resumed-at") < step5.index("dcx up -d")
