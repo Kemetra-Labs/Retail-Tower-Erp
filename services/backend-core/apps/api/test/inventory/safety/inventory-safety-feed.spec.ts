@@ -278,6 +278,8 @@ describe('snapshot', () => {
 
   it('converges with the deltas when holds change while the pages are read', async () => {
     if (skipped()) return;
+    // Three holds of its own, so page 1 (limit 2) is followed by another page when run alone.
+    for (let i = 0; i < 3; i += 1) await placeHold(await newIdentity());
     // Page 1, then a release of a hold page 1 served and a new placement, then the rest.
     const first = await feed.getSnapshot(TENANT_A, STORE_A_X, { limit: 2, pageToken: null });
     const held = new Set(first.holds.map((h) => h.hold_id));
@@ -305,6 +307,8 @@ describe('snapshot', () => {
 
   it('refuses a page token of another store, another tenant, or garbage', async () => {
     if (skipped()) return;
+    // Two holds of its own, so page 1 (limit 1) carries a next page token when run alone.
+    for (let i = 0; i < 2; i += 1) await placeHold(await newIdentity());
     const first = await feed.getSnapshot(TENANT_A, STORE_A_X, { limit: 1, pageToken: null });
     const token = first.next_page_token as string;
     await expect(feed.getSnapshot(TENANT_A, STORE_A_Y, { limit: 1, pageToken: token })).rejects.toThrow('scope');
