@@ -63,16 +63,18 @@ LEDGER="$RUN_DIR/ledger.json"
 LEDGER_FIELDS="$("$PYTHON" -c 'import json, sys
 data = json.load(open(sys.argv[1]))
 print("resumedAt=" + str(data.get("resumedAt") or ""))
+print("startedAt=" + str(data.get("startedAt") or ""))
 print("site=" + str(data.get("site") or ""))
 print("digestBefore=" + str(data.get("digestBefore") or ""))
 for name in (data.get("backup") or {}).get("files") or []:
     print("file=" + str(name))' "$LEDGER")" || die 2 "the ledger is not valid JSON"
 
 LEDGER_FIELDS="${LEDGER_FIELDS//$'\r'/}"   # a Python on Windows ends lines with CR LF
-RESUMED_AT=""; SITE=""; DIGEST_BEFORE=""; FILES=()
+RESUMED_AT=""; STARTED_AT=""; SITE=""; DIGEST_BEFORE=""; FILES=()
 while IFS='=' read -r key value; do
   case "$key" in
     resumedAt) RESUMED_AT="$value" ;;
+    startedAt) STARTED_AT="$value" ;;
     site) SITE="$value" ;;
     digestBefore) DIGEST_BEFORE="$value" ;;
     file) FILES+=("$value") ;;
@@ -81,6 +83,18 @@ done <<<"$LEDGER_FIELDS"
 
 if [ -n "$RESUMED_AT" ]; then
   die 3 "restore refused for run $RUN_ID: the scheduler resumed at $RESUMED_AT; forward-fix only (a restore would delete invoices Backend-Core will never re-offer)"
+fi
+# Any later resume on this host (another run, or a recovery that restarted the workers) also
+# closes this run's window: the deploy writes <backups-root>/last-resumed-at before workers run.
+MARKER="$BACKUPS_ROOT/last-resumed-at"
+if [ -f "$MARKER" ]; then
+  LAST_RESUME="$(tr -d '[:space:]' < "$MARKER")"
+  TS_RE='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+  [[ "$LAST_RESUME" =~ $TS_RE ]] || die 3 "restore refused: $MARKER is unreadable; forward-fix only until the owner checks it"
+  [[ "$STARTED_AT" =~ $TS_RE ]] || die 3 "restore refused: run $RUN_ID has no start time to compare with the last resume ($LAST_RESUME); forward-fix only"
+  if [[ ! "$LAST_RESUME" < "$STARTED_AT" ]]; then
+    die 3 "restore refused for run $RUN_ID: posting resumed on this host at $LAST_RESUME, after the run started ($STARTED_AT); forward-fix only"
+  fi
 fi
 [[ "$SITE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die 2 "the ledger has no valid site name"
 [[ "$DIGEST_BEFORE" =~ $IMAGE_RE ]] || die 2 "the ledger digestBefore is not a known image reference"

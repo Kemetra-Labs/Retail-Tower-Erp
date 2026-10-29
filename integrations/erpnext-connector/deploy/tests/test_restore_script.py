@@ -30,7 +30,7 @@ pytestmark = pytest.mark.skipif(BASH is None, reason="bash is not installed")
 
 
 def _make_run(root: Path, *, resumed: bool = False, key: bool = True, digest: str = DIGEST_BEFORE,
-              corrupt: bool = False) -> Path:
+              corrupt: bool = False, started: str | None = "2026-10-29T09:00:00Z") -> Path:
     run_dir = root / RUN
     run_dir.mkdir(parents=True)
     contents = {
@@ -50,6 +50,8 @@ def _make_run(root: Path, *, resumed: bool = False, key: bool = True, digest: st
         "runId": RUN, "site": SITE, "digestBefore": digest, "outcome": "migrated",
         "backup": {"dir": str(run_dir), "sha256": "0" * 64, "files": list(FILES.values())},
     }
+    if started is not None:
+        ledger["startedAt"] = started
     if resumed:
         ledger["resumedAt"] = "2026-10-29T10:00:00Z"
     (run_dir / "ledger.json").write_text(json.dumps(ledger), encoding="utf-8", newline="\n")
@@ -162,3 +164,28 @@ def test_encryption_key_is_copied_before_the_force_restore():
     text = SCRIPT.read_text(encoding="utf-8").replace("\r\n", "\n")
     assert text.index("set-encryption-key") < text.index("force-restore")
     assert "--force restore" in text
+
+
+def test_refuses_when_any_later_run_resumed_the_workers(tmp_path):
+    """Deploy #0 flow: run A held, run B resumed. Restoring A would lose what B posted."""
+    _make_run(tmp_path)
+    _marker(tmp_path, "2026-10-29T09:30:00Z")
+    proc = _dry(tmp_path)
+    assert proc.returncode == 3
+    assert "forward-fix only" in proc.stderr
+
+
+def test_an_older_host_resume_does_not_block_this_run(tmp_path):
+    _make_run(tmp_path)
+    _marker(tmp_path, "2026-10-28T08:00:00Z")
+    assert _dry(tmp_path).returncode == 0
+
+
+def test_a_host_resume_with_no_run_start_time_refuses(tmp_path):
+    _make_run(tmp_path, started=None)
+    _marker(tmp_path, "2026-10-28T08:00:00Z")
+    assert _dry(tmp_path).returncode == 3
+
+
+def _marker(root: Path, when: str) -> None:
+    (root / "last-resumed-at").write_text(when + "\n", encoding="utf-8", newline="\n")

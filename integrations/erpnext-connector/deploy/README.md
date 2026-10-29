@@ -16,7 +16,14 @@ RT-927 implements the RT-926 design ([Confluence 60391425](https://rahmaqanater.
 
 ## The one rule
 
-A database restore is allowed **only before the scheduler resumes**. The ledger records `resumedAt` before the workers start. After that point, posted sales are marked posted in Backend-Core and are never offered again, so a restore would delete invoices from ERPNext with no way back. From that point the only way out is **forward-fix**: deploy a corrected image. `restore.sh` refuses any run whose ledger has `resumedAt`.
+A database restore is allowed **only before the scheduler resumes**. The ledger records `resumedAt` before the workers start. After that point, posted sales are marked posted in Backend-Core and are never offered again, so a restore would delete invoices from ERPNext with no way back. From that point the only way out is **forward-fix**: deploy a corrected image.
+
+`restore.sh` refuses in either of these cases:
+
+- the run's ledger has `resumedAt`;
+- the host-wide marker `/var/backups/rt-erp/last-resumed-at` is not older than the run's `startedAt`.
+
+Every resume writes that marker before the workers start, including a recovery that restarts them after an early failure. So a later run that resumed, such as the `hold=false` redeploy after deploy #0, closes the restore window of every earlier run.
 
 | When it fails | What to do |
 | --- | --- |

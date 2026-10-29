@@ -160,14 +160,18 @@ def test_single_site_required(body):
 
 def test_hold_mode_writes_no_resume(body):
     held = _pos(body, "RT_OUTCOME=held")
-    assert held < _pos(body, "resumedAt")
+    main_flow = body[_pos(body, "# ---- step 1: check ----"):]
+    # Before the hold exit, the main flow never records a resume (recover_workers runs only on a failure).
+    assert "mark_resumed" not in main_flow[: main_flow.index("RT_OUTCOME=held")]
+    assert "resumedAt" not in main_flow[: main_flow.index("RT_OUTCOME=held")]
     window = body[held - 300: held + 200]
     assert 'HOLD" = "true"' in body[_pos(body, "RT_GATE verify"):held]
     assert "exit 0" in window
 
 
 def test_resumed_at_is_written_before_workers_start_and_before_post_resume_checks(body):
-    written = _pos(body, "resumedAt")
+    resume = _pos(body, "GATE=resume")
+    written = body.index("mark_resumed", resume)
     started = _pos(body, "start scheduler queue-short queue-long")
     post = _pos(body, "RT_GATE postresume")
     assert written < started < post
@@ -292,3 +296,24 @@ def test_helpers_are_embedded_and_equal_the_repo_files(body):
         assert embedded == _lf((LAB / repo_file).read_text(encoding="utf-8")), (
             f"{const} is stale: refresh it from deploy/lab/{repo_file}"
         )
+
+
+def test_recovering_the_workers_is_recorded_as_a_resume(body):
+    """Workers restarted after a failure post again: the restore window must close (review C1)."""
+    func = body[_pos(body, "recover_workers() {"):_pos(body, "stop() {")]
+    assert func.index("mark_resumed") < func.index('start $WORKERS')
+
+
+def test_every_resume_writes_the_host_wide_marker_before_the_workers_run(body):
+    mark = body[_pos(body, "mark_resumed() {"):]
+    mark = mark[: mark.index("\n}\n")]
+    assert "RESUME_MARKER" in mark and "ledger resumedAt=" in mark
+    assert 'RESUME_MARKER="$BACKUP_ROOT/last-resumed-at"' in body
+    resume = body[_pos(body, "GATE=resume"):]
+    assert resume.index("mark_resumed") < resume.index("start scheduler queue-short queue-long")
+
+
+def test_err_trap_runs_only_in_the_main_shell(body):
+    """With set -E the trap also fires inside $(...) subshells (review I3)."""
+    trap_line = next(line for line in body.splitlines() if line.startswith("trap '") and "ERR" in line)
+    assert '[ "$BASHPID" = "$$" ] || exit 1' in trap_line
