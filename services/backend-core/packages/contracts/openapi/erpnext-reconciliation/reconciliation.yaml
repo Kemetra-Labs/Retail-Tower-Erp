@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — ERPNext Reconciliation & Repair API
-  version: "1.4.0-draft"
+  version: "1.5.0-draft"
   description: >
     Spec 017 (erpnext-reconciliation-and-repair) — the ERPNext arc's OPERATIONAL
     reconciliation surface (011→017): run → report → repair. The human
@@ -103,6 +103,10 @@ info:
     (Reconciliation 926–930), produced only for a tenant with activated
     sale effects. Every other tenant's results are unchanged. No new
     operation, no new field.
+
+    **1.5.0-draft (RT-189, description only).** `ReconciliationRun.summary`
+    states that `getReconciliationRun` returns `bin_view_report` as metadata
+    only. No schema change.
 
 servers:
   - url: https://api.example.com
@@ -999,14 +1003,17 @@ components:
         summary:
           type: [object, "null"]
           description: >
-            Run-scoped evidence, not only counts. When the Connector has reported
-            a Bin snapshot for the run, `summary.bin_view_report` carries it: the
-            warehouse ref, `readAt` (Connector clock), `recordedAt` (Backend-Core
-            clock) and every reported entry with its ERPNext item ref, resolved
-            tenant product ref (or null), exact-decimal `quantity` string (which
-            may be negative) and stock UOM. No PII and no money/valuation values.
-            For a store-level view of negative ERPNext quantities use
-            `listErpnextNegativeOnHand`.
+            The run's per-class counts and, once the Connector has reported a Bin
+            snapshot, `summary.bin_view_report`, which this response carries as
+            METADATA ONLY (RT-189): `complete`, `windowsRecorded`,
+            `acceptedEntryCount`, `readAt` (Connector clock), `recordedAt`
+            (Backend-Core clock) and `attemptRef` (null for a historical report).
+            The reported entries are never returned here, so the body stays small
+            (under 10 KB) however large the stored snapshot is; a report stored
+            before RT-175 reads as complete, one window, `acceptedEntryCount`
+            equal to its entry count and a null `attemptRef`. A `failure` key is
+            kept. No PII and no money/valuation values. For a store-level view of
+            negative ERPNext quantities use `listErpnextNegativeOnHand`.
     ReconciliationResult:
       type: object
       additionalProperties: false

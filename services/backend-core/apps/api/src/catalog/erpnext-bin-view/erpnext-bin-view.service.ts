@@ -258,6 +258,36 @@ type RawStoredBinViewReport = Partial<StoredBinViewReport> & {
 };
 
 /**
+ * The defaulted scalar fields of a stored report: what a historical (pre-RT-175)
+ * report without `complete` / `acceptedEntryCount` / `attemptRef` / `windows`
+ * reads as (v1 compatibility (iv)) — complete, one window, the entry count as
+ * the accepted count, a null attempt. The single source of those defaults, shared
+ * by `normalizeStored` and the run GET's metadata projection (RT-189), which has
+ * only the two array lengths (never the arrays).
+ */
+export function binViewReportDefaults(
+  raw: {
+    readonly complete?: boolean;
+    readonly acceptedEntryCount?: number;
+    readonly attemptRef?: string | null;
+  },
+  entryCount: number,
+  windowCount: number,
+): {
+  readonly attemptRef: string | null;
+  readonly complete: boolean;
+  readonly windowsRecorded: number;
+  readonly acceptedEntryCount: number;
+} {
+  return {
+    attemptRef: raw.attemptRef ?? null,
+    complete: raw.complete !== false,
+    windowsRecorded: windowCount > 0 ? windowCount : 1,
+    acceptedEntryCount: raw.acceptedEntryCount ?? entryCount,
+  };
+}
+
+/**
  * Normalize a stored report: a historical report without `complete` is read as
  * complete (v1 compatibility (iv)) — one final window 0 of a null attempt.
  */
@@ -278,12 +308,9 @@ function normalizeStored(raw: RawStoredBinViewReport): StoredBinViewReport {
     requestRef: raw.requestRef,
     runRef: raw.runRef,
     erpnextWarehouseRef: raw.erpnextWarehouseRef,
-    attemptRef: raw.attemptRef ?? null,
     readAt: raw.readAt,
     recordedAt: raw.recordedAt,
-    complete: raw.complete !== false,
-    windowsRecorded: windows.length,
-    acceptedEntryCount: raw.acceptedEntryCount ?? entries.length,
+    ...binViewReportDefaults(raw, entries.length, windows.length),
     windows,
     entries,
     supersededAttemptRefs: raw.supersededAttemptRefs ?? [],
