@@ -18,7 +18,7 @@ this spec is still as of 2026-10-16.
 
 | Repo | `origin/main` | Notes |
 | --- | --- | --- |
-| Admin-Console | `d6e666d` | Console client pin `DATA_PULSE_2_PIN = 2b03ad2d` (`openapi-ts.config.ts`). **Superseded:** the current Admin-Console contract pin is `contracts/backend-core/PIN` (monorepo commit `73ee5636` on 2026-10-29), which includes `erpnext-sync-ops/console-sync-ops.yaml`. |
+| Admin-Console | `d6e666d` | Console client pin `DATA_PULSE_2_PIN = 2b03ad2d` (`openapi-ts.config.ts`). **Superseded:** the current Admin-Console contract pin is `contracts/backend-core/PIN` (monorepo commit `73ee5636`, as of 2026-10-29), which includes `erpnext-sync-ops/console-sync-ops.yaml`. |
 | Backend-Core | `1d26d287` | The four contracts below are **byte-identical** at `2b03ad2d` and `1d26d287` (same git blob SHAs). |
 | ERPNext-Connector | `e217edd2` | All 57 non-test `.py` files and `hooks.py` `scheduler_events` searched: **no heartbeat sender**. Scheduled jobs are only the posting poller and the bin-view poller. |
 
@@ -118,9 +118,9 @@ contracts below. Refreshing those rows is RT-558's job (Docs), not this spec's.
 | C1 | `connector/connector-admin.yaml` (spec 018) | **A:** `tenantAdminListConnectorInstances`. **B:** `tenantAdminRegisterConnectorInstance`, `tenantAdminIssueConnectorCredential`, `tenantAdminRotateConnectorCredential`, `tenantAdminRevokeConnectorCredential`, `tenantAdminDisableConnectorInstance` | No (not a composed source) |
 | C2 | `erpnext-connector/connector-health.yaml` (spec 020) | **A:** `listConnectorHealth`, `getConnectorHealth`. (`connectorReportHeartbeat` is machine-only and never called by the console.) | No |
 | C3 | `erpnext-sync-ops/console-sync-ops.yaml` (spec 025) | **A:** `consoleGetSyncOpsSummary`, `consoleListPostingBacklog`, `consoleListReconciliationRuns` | Baseline 2026-10-16: no. **2026-10-29: contract pinned and in the generated schema, including `postingFreshness`; the UI does not display `postingFreshness`.** |
+| C4 | `erpnext-reconciliation/reconciliation.yaml` (spec 017) | **C (gated):** `repairPosting`, `reResolvePosting` | Partly: the source is composed, but only the three RT-178 stock ops are wrapped |
 
 The "In console client today?" column for C1, C2 and C4 is as of 2026-10-16 and was not re-verified for RT-565.
-| C4 | `erpnext-reconciliation/reconciliation.yaml` (spec 017) | **C (gated):** `repairPosting`, `reResolvePosting` | Partly: the source is composed, but only the three RT-178 stock ops are wrapped |
 
 **Contract work for implementation (later, not this issue):** add C1–C3 as composed sources in
 `openapi-ts.config.ts` and regenerate. At the 2026-10-16 baseline this was a **regeneration at the
