@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Inventory — Stock Movement Ledger API
-  version: "1.7.0-draft"
+  version: "1.8.0-draft"
   description: >
     Spec 009 Inventory & Stock Movement Ledger contract surface. Defines the
     Inventory source-of-truth domain the SaaS owns: an append-only
@@ -71,6 +71,10 @@ info:
          listed identities of one product (RT-449).
      18. `correctTrackingIdentityExpiry` — the governed expiry correction of
          an identity, with history (RT-449).
+     19. `getSafetyTtlSetting` / 20. `setSafetyTtlSetting` — the tenant's
+         Safety TTL of the POS inventory safety feed (RT-449).
+     21. `listInventorySafetyFindings` — the computed inventory safety
+         findings (RT-449).
 
     Quantity: every quantity is an exact-decimal STRING (`numeric(p,s)` at
     rest); no float appears on the wire. There is NO money / tender / payment
@@ -186,6 +190,24 @@ info:
     command return the recorded result and write nothing. No identity exists
     until the ERP-born identity import (RT-451 / F6), so these operations have
     nothing to act on before then.
+
+
+    **1.8.0-draft (RT-449 PR 2, additive; owner-approved RT-50 G7-5 / G7-7
+    and RT-449 rulings H6 / H8, comment 13434).** `getSafetyTtlSetting` /
+    `setSafetyTtlSetting` read and set the tenant's Safety TTL: the maximum
+    age of a till's last successful sync from the POS inventory safety feed
+    (`inventory/inventory-safety-feed.yaml`), 60 to 900 seconds, 900 (15
+    minutes) when unset; it is configurable downwards only, never above the
+    default. Every feed answer carries the effective value, so a change
+    reaches the tills at their next sync and does not step the Safety
+    Revision. `listInventorySafetyFindings` computes the tenant's inventory
+    safety findings on read: every active tracking hold (critical, 954) and
+    every expired lot still in `sellable` (critical, 953: the expiry date is
+    before the store's local business date; a lot is sellable through its
+    expiry date, G7-5). `expiring_lot` is reserved: the near-expiry window
+    is a policy value that stays off until RT-50 B1, so it is never emitted
+    in 1.8.0. A store_manager sees only its own stores' findings. The
+    identity import that gives these reads anything to find is RT-453 (F6).
 
 servers:
   - url: https://api.datapulse.example
@@ -655,6 +677,109 @@ paths:
               schema:
                 $ref: "#/components/schemas/ReturnLandingPolicy"
         "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/settings/safety-ttl:
+    get:
+      operationId: getSafetyTtlSetting
+      tags: [inventory]
+      summary: Read the tenant's Safety TTL.
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-449 PR 2 contract-first commit; the runtime commit of the same PR
+        serves it and removes this marker.
+      description: >
+        RT-449 (G7-7, RT-50 Q8, H8): the maximum age of a till's last
+        successful sync from the POS inventory safety feed before its safety
+        data is stale. `safetyTtlSeconds` is the configured value (null while
+        unset); `effectiveSafetyTtlSeconds` is what the feed answers (900 when
+        unset). Owner, tenant_admin or store_manager.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: The tenant's Safety TTL.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SafetyTtlSetting"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+    put:
+      operationId: setSafetyTtlSetting
+      tags: [inventory]
+      summary: Set the tenant's Safety TTL.
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-449 PR 2 contract-first commit; the runtime commit of the same PR
+        serves it and removes this marker.
+      description: >
+        RT-449 (H8): set the Safety TTL to 60–900 seconds, or null to return
+        to the default of 900. It is configurable downwards only: no value
+        above the 15-minute default is accepted (400). Owner or tenant_admin.
+        Setting the current value again writes nothing and answers the same
+        body; a change is audited. A change does not step the Inventory
+        Safety Revision: every feed answer carries the effective value.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetSafetyTtlSettingCommand"
+      responses:
+        "200":
+          description: The updated Safety TTL.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SafetyTtlSetting"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/safety/findings:
+    get:
+      operationId: listInventorySafetyFindings
+      tags: [inventory]
+      summary: List the tenant's computed inventory safety findings.
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-449 PR 2 contract-first commit; the runtime commit of the same PR
+        serves it and removes this marker.
+      description: >
+        RT-449 (H6; decisions 953, 954): computed on read, never stored.
+        `active_tracking_hold` (critical): one per active hold, with
+        `storeIds` = the stores where the held identity has a non-zero
+        position. `expired_lot_sellable` (critical): one per identity, store
+        and stocking unit whose `sellable` position is positive while the
+        identity's expiry date is before the store's local business date (a
+        lot is sellable through its expiry date, G7-5); the prompt for the
+        governed `sellable → expired` status move. `expiring_lot` (warning)
+        is reserved and never emitted in 1.8.0: the near-expiry window is a
+        policy value that stays off until RT-50 B1. Order: severity, then
+        kind, then ids. Owner and tenant_admin see the tenant (their
+        membership's stores); a store_manager sees only findings in its
+        store scope: a hold appears when the held identity has stock in one
+        of its stores, with `storeIds` narrowed to them. The list is not
+        paginated.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: The tenant's current inventory safety findings in the caller's scope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventorySafetyFindingList"
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
@@ -1349,6 +1474,146 @@ components:
       properties:
         returnLandingStatus:
           $ref: "#/components/schemas/ReturnLandingStatus"
+    SafetyTtlSetting:
+      type: object
+      additionalProperties: false
+      required: [safetyTtlSeconds, effectiveSafetyTtlSeconds, updatedAt]
+      description: RT-449 (H8) — the tenant's Safety TTL of the POS inventory safety feed.
+      properties:
+        safetyTtlSeconds:
+          type: [integer, "null"]
+          minimum: 60
+          maximum: 900
+          description: The configured value; null while the tenant runs on the default.
+        effectiveSafetyTtlSeconds:
+          type: integer
+          minimum: 60
+          maximum: 900
+          description: The value the feed answers (`safetyTtlSeconds`, or 900 when it is null).
+        updatedAt:
+          type: [string, "null"]
+          format: date-time
+          description: When the tenant's inventory settings last changed; null while none are stored.
+    SetSafetyTtlSettingCommand:
+      type: object
+      additionalProperties: false
+      required: [safetyTtlSeconds]
+      properties:
+        safetyTtlSeconds:
+          type: [integer, "null"]
+          minimum: 60
+          maximum: 900
+          description: 60–900 seconds, or null for the default of 900.
+    InventorySafetyFindingList:
+      type: object
+      additionalProperties: false
+      required: [findings, generatedAt]
+      properties:
+        findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/InventorySafetyFinding"
+        generatedAt:
+          type: string
+          format: date-time
+          description: When the findings were computed.
+    InventorySafetyFinding:
+      description: >
+        RT-449 (H6): one computed inventory safety finding, discriminated by
+        `kind`.
+      oneOf:
+        - $ref: "#/components/schemas/ActiveTrackingHoldFinding"
+        - $ref: "#/components/schemas/ExpiredLotSellableFinding"
+        - $ref: "#/components/schemas/ExpiringLotFinding"
+      discriminator:
+        propertyName: kind
+        mapping:
+          active_tracking_hold: "#/components/schemas/ActiveTrackingHoldFinding"
+          expired_lot_sellable: "#/components/schemas/ExpiredLotSellableFinding"
+          expiring_lot: "#/components/schemas/ExpiringLotFinding"
+    ActiveTrackingHoldFinding:
+      type: object
+      additionalProperties: false
+      required:
+        [kind, severity, holdId, holdKind, recallId, trackingIdentityId, tenantProductRef, identityKind,
+         identityCode, expiryDate, placedAt, storeIds]
+      description: An active quality or recall hold (954). The identity is not sellable.
+      properties:
+        kind: { type: string, const: active_tracking_hold }
+        severity: { type: string, const: critical }
+        holdId: { type: string, format: uuid }
+        holdKind:
+          type: string
+          enum: [quality_hold, recall_hold]
+        recallId: { type: [string, "null"], format: uuid }
+        trackingIdentityId: { type: string, format: uuid }
+        tenantProductRef: { type: string, format: uuid }
+        identityKind:
+          type: string
+          enum: [batch, serial]
+        identityCode: { type: string, minLength: 1, maxLength: 128 }
+        expiryDate: { type: [string, "null"], format: date }
+        placedAt: { type: string, format: date-time }
+        storeIds:
+          type: array
+          items: { type: string, format: uuid }
+          description: >
+            The stores (in the caller's scope) where the held identity has a
+            non-zero position; empty when it has none.
+    ExpiredLotSellableFinding:
+      type: object
+      additionalProperties: false
+      required:
+        [kind, severity, trackingIdentityId, tenantProductRef, identityKind, identityCode, expiryDate,
+         storeId, storeBusinessDate, sellableQuantity, stockingUnit]
+      description: >
+        An expired lot still in `sellable` at one store (953): its expiry date
+        is before the store's local business date.
+      properties:
+        kind: { type: string, const: expired_lot_sellable }
+        severity: { type: string, const: critical }
+        trackingIdentityId: { type: string, format: uuid }
+        tenantProductRef: { type: string, format: uuid }
+        identityKind:
+          type: string
+          enum: [batch, serial]
+        identityCode: { type: string, minLength: 1, maxLength: 128 }
+        expiryDate: { type: string, format: date }
+        storeId: { type: string, format: uuid }
+        storeBusinessDate:
+          type: string
+          format: date
+          description: The store's local business date the expiry was judged against.
+        sellableQuantity:
+          $ref: "#/components/schemas/PositiveDecimalQuantity"
+        stockingUnit:
+          $ref: "#/components/schemas/StockingUnit"
+    ExpiringLotFinding:
+      type: object
+      additionalProperties: false
+      required:
+        [kind, severity, trackingIdentityId, tenantProductRef, identityKind, identityCode, expiryDate,
+         storeId, storeBusinessDate, sellableQuantity, stockingUnit]
+      description: >
+        Reserved (953): a lot expiring within the near-expiry window. Never
+        emitted in 1.8.0: the window is a policy value that stays off until
+        RT-50 B1.
+      properties:
+        kind: { type: string, const: expiring_lot }
+        severity: { type: string, const: warning }
+        trackingIdentityId: { type: string, format: uuid }
+        tenantProductRef: { type: string, format: uuid }
+        identityKind:
+          type: string
+          enum: [batch, serial]
+        identityCode: { type: string, minLength: 1, maxLength: 128 }
+        expiryDate: { type: string, format: date }
+        storeId: { type: string, format: uuid }
+        storeBusinessDate: { type: string, format: date }
+        sellableQuantity:
+          $ref: "#/components/schemas/PositiveDecimalQuantity"
+        stockingUnit:
+          $ref: "#/components/schemas/StockingUnit"
     SafetyReasonCode:
       type: string
       pattern: "^[a-z][a-z0-9_]{0,63}$"
