@@ -61,14 +61,15 @@ export function AuditFilters({
     from: t("audit.filters.from"),
     to: t("audit.filters.to"),
   };
-  // The fields are uncontrolled: a removed chip clears its input, then applies the form.
+  // A removed chip changes only its own filter: the next filters come from what is
+  // applied, never from other fields' unapplied text. Its (uncontrolled) input clears.
   const chips: FilterChip[] = CHIP_FIELDS.filter((key) => applied[key]).map((key) => ({
     key,
     label: `${labels[key]}: ${ltr(String(applied[key]))}`,
     onRemove: () => {
       const input = formRef.current?.elements.namedItem(key);
       if (input instanceof HTMLInputElement) input.value = "";
-      onApply(read());
+      onApply({ ...applied, [key]: undefined });
     },
   }));
 

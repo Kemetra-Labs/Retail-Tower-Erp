@@ -202,7 +202,11 @@ test("audit: an applied filter is a chip; removing it clears the field and appli
   await page.getByRole("button", { name: t("filter.apply"), exact: true }).click();
   const chips = page.getByRole("list", { name: t("filter.applied") });
   await expect(chips).toContainText("auth.");
+  // An edit not yet applied stays a draft: removing a chip never applies it.
+  const actor = page.getByLabel(t("audit.field.actor"), { exact: true });
+  await actor.fill("u-draft");
   await chips.getByRole("button").first().click();
   await expect(chips).toHaveCount(0);
   await expect(page.getByLabel(t("audit.field.action"), { exact: true })).toHaveValue("");
+  await expect(actor).toHaveValue("u-draft");
 });
