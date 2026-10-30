@@ -154,4 +154,10 @@ export const common = {
   "role.manager": "المدير",
   "role.cashier": "الكاشير",
   "role.unknown": "دور غير معروف",
+
+  // RT-992: the pipeline rail (POS → server → ERPNext), DESIGN.md §12.2.
+  "pipelineRail.label": "مسار البيع",
+  "pipelineRail.node.pos": "نقاط البيع",
+  "pipelineRail.node.server": "الخادم",
+  "pipelineRail.node.erp": "ERPNext",
 } satisfies Messages;

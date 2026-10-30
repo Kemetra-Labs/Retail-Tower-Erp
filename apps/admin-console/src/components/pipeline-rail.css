@@ -1,0 +1,131 @@
+/* RT-992 pipeline rail (DESIGN.md §12.2). Three nodes, a dotted connector, and
+ * a pulse that travels along each connector. The pulse is declared only inside
+ * prefers-reduced-motion: no-preference, so reduced motion never runs it and
+ * there is nothing to cancel. Logical properties only (RTL-first). Role tokens
+ * only. State is the node's fact text; the dot's colour is a second cue. */
+
+.pipeline-rail {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-field-lg);
+}
+
+.pipeline-rail__nodes {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pipeline-rail__node {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-inline-size: 0;
+  color: var(--color-text);
+  font-size: var(--text-meta);
+  white-space: nowrap;
+}
+
+.pipeline-rail__node:not(:last-child) {
+  flex: 1 1 auto;
+}
+
+.pipeline-rail__name {
+  font-weight: var(--weight-strong);
+}
+
+.pipeline-rail__dot {
+  flex: none;
+  inline-size: 10px;
+  block-size: 10px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-text-muted) 18%, transparent);
+}
+
+.pipeline-rail__dot[data-status="ok"] {
+  background: var(--color-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 18%, transparent);
+}
+
+.pipeline-rail__dot[data-status="attention"] {
+  background: var(--color-warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-warning) 18%, transparent);
+}
+
+.pipeline-rail__dot[data-status="failed"] {
+  background: var(--color-danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 18%, transparent);
+}
+
+.pipeline-rail__link {
+  position: relative;
+  flex: 1 1 24px;
+  min-inline-size: 18px;
+  border-block-start: 2px dotted
+    color-mix(in srgb, var(--color-text-muted) 45%, var(--color-surface));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .pipeline-rail__link::after {
+    content: "";
+    position: absolute;
+    inset-block-start: -4px;
+    inset-inline-start: 0;
+    inline-size: 6px;
+    block-size: 6px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    animation: pipeline-rail-pulse 2.4s ease-in-out infinite;
+  }
+
+  @keyframes pipeline-rail-pulse {
+    0% {
+      inset-inline-start: 0;
+      opacity: 0;
+    }
+    15%,
+    85% {
+      opacity: 1;
+    }
+    100% {
+      inset-inline-start: calc(100% - 6px);
+      opacity: 0;
+    }
+  }
+}
+
+@media (max-width: 640px) {
+  .pipeline-rail__nodes {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .pipeline-rail__link {
+    display: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .pipeline-rail {
+    border-color: CanvasText;
+  }
+
+  .pipeline-rail__dot {
+    background: CanvasText;
+    box-shadow: none;
+  }
+
+  .pipeline-rail__dot[data-status] {
+    background: CanvasText;
+    box-shadow: none;
+  }
+
+  .pipeline-rail__link {
+    border-block-start-color: CanvasText;
+  }
+}
