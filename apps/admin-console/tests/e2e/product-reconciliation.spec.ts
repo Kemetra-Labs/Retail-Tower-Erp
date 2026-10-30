@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { type Page, expect, test } from "./fixtures";
 
 /**
@@ -155,6 +156,12 @@ test("S1: owner maps an unmapped product, starts a run and opens its results", a
   // Repair: type → review → confirm. Nothing is sent before the confirm.
   await unmapped.getByRole("button", { name: t("productRecon.repair.open") }).click();
   const repair = page.getByRole("region", { name: t("productRecon.repair.label") });
+  // RT-963 AC 6: the open repair panel keeps the heading order (h1 › h2 › h3).
+  await expect(repair).toBeVisible();
+  const headings = await new AxeBuilder({ page: page as never })
+    .withRules(["heading-order"])
+    .analyze();
+  expect(headings.violations).toEqual([]);
   await repair.getByLabel(t("productRecon.repair.ref")).fill("ITEM-WATER-1L");
   await repair.getByRole("button", { name: t("productRecon.repair.review") }).click();
   expect(calls.filter((c) => c.method === "POST")).toEqual([]);

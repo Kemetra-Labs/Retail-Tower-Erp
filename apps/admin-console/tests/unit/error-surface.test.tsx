@@ -1,6 +1,6 @@
 import { Banner } from "@/components/Banner";
 import { InlineError } from "@/components/InlineError";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -16,23 +16,30 @@ describe("Banner", () => {
     expect(alert.textContent).toContain("9f3c1a7e-4b22");
   });
 
-  test("omits the request_id line when none is given", () => {
+  test("omits the request_id line when none is given", async () => {
     render(<Banner variant="info" message="Heads up." />);
     const status = screen.getByRole("status");
-    expect(status.textContent).toContain("Heads up.");
+    await waitFor(() => expect(status.textContent).toContain("Heads up."));
     expect(status.textContent).not.toMatch(/request_id/i);
   });
 
-  // RT-963 (WCAG 4.1.3): danger and warning interrupt; success and info are polite.
-  test.each([
-    ["danger", "alert"],
-    ["warning", "alert"],
-    ["success", "status"],
-    ["info", "status"],
-  ] as const)("a %s banner is announced as %s", (variant, role) => {
+  // RT-963 (WCAG 4.1.3): danger and warning interrupt, inserted populated.
+  test.each(["danger", "warning"] as const)("a %s banner is an alert at once", (variant) => {
     render(<Banner variant={variant} message="Notice." />);
-    expect(screen.getByRole(role).textContent).toContain("Notice.");
+    expect(screen.getByRole("alert").textContent).toContain("Notice.");
   });
+
+  // Success and info are polite: the status region mounts empty and the text
+  // lands in it afterwards, so a screen reader that tracks it announces it.
+  test.each(["success", "info"] as const)(
+    "a %s banner is a status region that fills after mount",
+    async (variant) => {
+      render(<Banner variant={variant} message="Notice." />);
+      const status = screen.getByRole("status");
+      expect(status.textContent).toBe("");
+      await waitFor(() => expect(status.textContent).toContain("Notice."));
+    },
+  );
 });
 
 describe("InlineError", () => {

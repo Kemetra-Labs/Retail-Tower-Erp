@@ -6,8 +6,12 @@
  *
  * RT-963 (WCAG 4.1.3): the live-region role follows the severity. Danger and
  * warning interrupt (`alert`); success and info wait their turn (`status`).
+ * A `status` region inserted already populated is often not announced, so it
+ * mounts empty and its content lands on the next task, inside a region the
+ * screen reader already tracks.
  */
 import { useT } from "@/i18n";
+import { useEffect, useState } from "react";
 import "./banner.css";
 
 export type BannerVariant = "danger" | "warning" | "success" | "info";
@@ -42,16 +46,37 @@ export function Banner({
   action,
 }: Readonly<BannerProps>): React.JSX.Element {
   const t = useT();
+  const role = ROLE[variant];
+  const filled = useFilledAfterMount(role === "alert");
   return (
-    <div className={`rtc-alert rtc-alert--${variant}`} role={ROLE[variant]}>
-      {title ? <strong className="rtc-alert__title">{title}</strong> : null}
-      <span className={title ? "rtc-alert__body" : "rtc-alert__msg"}>{message}</span>
-      {requestId ? (
-        <span className="rtc-alert__req">
-          {t.rich("components.banner.requestRef", { id: <bdi dir="ltr">{requestId}</bdi> })}
-        </span>
+    <div className={`rtc-alert rtc-alert--${variant}`} role={role}>
+      {filled ? (
+        <>
+          {title ? <strong className="rtc-alert__title">{title}</strong> : null}
+          <span className={title ? "rtc-alert__body" : "rtc-alert__msg"}>{message}</span>
+          {requestId ? (
+            <span className="rtc-alert__req">
+              {t.rich("components.banner.requestRef", { id: <bdi dir="ltr">{requestId}</bdi> })}
+            </span>
+          ) : null}
+          {action ? <span className="rtc-alert__action">{action}</span> : null}
+        </>
       ) : null}
-      {action ? <span className="rtc-alert__action">{action}</span> : null}
     </div>
   );
+}
+
+/**
+ * False on the first commit, then true on the next task. A timer, not a bare
+ * effect: React flushes effects of a click-driven render before paint, which
+ * would insert the region populated after all.
+ */
+function useFilledAfterMount(immediately: boolean): boolean {
+  const [filled, setFilled] = useState(immediately);
+  useEffect(() => {
+    if (filled) return;
+    const id = window.setTimeout(() => setFilled(true), 0);
+    return () => window.clearTimeout(id);
+  }, [filled]);
+  return filled;
 }

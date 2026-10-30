@@ -179,7 +179,7 @@ describe("StockDiscrepancyStore (RT-178)", () => {
     expect(
       await screen.findByText("No ERPNext snapshot", { selector: ".snapshot-panel__asof" }),
     ).toBeDefined();
-    expect(screen.getByText(/no erpnext snapshot has been recorded/i)).toBeDefined();
+    expect(await screen.findByText(/no erpnext snapshot has been recorded/i)).toBeDefined();
     const text = document.body.textContent ?? "";
     expect(text).not.toMatch(/no items below zero/i);
     expect(text).not.toMatch(/as of/i);
@@ -205,7 +205,7 @@ describe("StockDiscrepancyStore (RT-178)", () => {
     expect(
       await screen.findByText("No ERPNext snapshot", { selector: ".snapshot-panel__asof" }),
     ).toBeDefined();
-    expect(screen.getByText(/no erpnext stock warehouse mapping/i)).toBeDefined();
+    expect(await screen.findByText(/no erpnext stock warehouse mapping/i)).toBeDefined();
     expect(document.body.textContent ?? "").not.toMatch(/no items below zero/i);
     // Refresh cannot produce a snapshot without a mapping: disabled, with the reason.
     const button = screen.getByRole("button", { name: /request fresh snapshot/i });

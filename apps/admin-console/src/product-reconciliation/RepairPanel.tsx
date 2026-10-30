@@ -226,13 +226,13 @@ function MappingRepair({ scope, target, onClose }: Readonly<RepairPanelProps>): 
           : "productRecon.repair.mapping.confirmLabel",
       )}
     >
-      <h2 className="recon-repair__title">
+      <h3 className="recon-repair__title">
         {t(
           repoint
             ? "productRecon.repair.mapping.repointLabel"
             : "productRecon.repair.mapping.confirmLabel",
         )}
-      </h2>
+      </h3>
       <Outcome outcome={outcome} staleVersion={version} />
       {done || !request ? (
         <CloseButton onClose={onClose} />
@@ -304,7 +304,7 @@ function SuggestConfirmRepair({
 
   return (
     <section className="recon-repair" aria-label={t("productRecon.repair.label")}>
-      <h2 className="recon-repair__title">{t("productRecon.repair.title")}</h2>
+      <h3 className="recon-repair__title">{t("productRecon.repair.title")}</h3>
       <p className="content__sub">
         {t.rich("productRecon.repair.product", { product: <Raw value={target.tenantProductId} /> })}
       </p>
