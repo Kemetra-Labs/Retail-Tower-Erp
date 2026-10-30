@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
  *
  * Asserts that `src/main/index.ts` imports and calls
  * `registerOperatorHandlers`, constructs the production
- * `ClerkExchanger` and `BackendClient`, and starts the
+ * `OperatorExchanger` and `BackendClient`, and starts the
  * `InactivityMonitor`. A pure static check: importing `src/main/
  * index.ts` for runtime testing requires the Electron `app` /
  * `BrowserWindow` globals (the file invokes `app.whenReady()` at
@@ -35,15 +35,15 @@ describe('main/index.ts wires the operator namespace (004 S1)', () => {
     );
   });
 
-  it('builds the production ClerkExchanger through the RT-792 provider resolver', () => {
-    // RT-893: `resolveClerkExchanger` moved to `bootstrap/env.ts`; index.ts imports and calls it.
+  it('builds the production OperatorExchanger through the RT-792 provider resolver', () => {
+    // RT-893: `resolveAuthExchanger` lives in `bootstrap/env.ts`; index.ts imports and calls it.
     const envSource = readFileSync(resolve(__dirname, '../bootstrap/env.ts'), 'utf-8');
-    expect(source).toContain('resolveClerkExchanger(mainLogger)');
+    expect(source).toContain('resolveAuthExchanger(mainLogger)');
     expect(source).toContain("from './bootstrap/env.js'");
     expect(envSource).toContain('resolveOperatorExchanger({');
     expect(envSource).toContain("from '../operator/resolve-exchanger.js'");
-    expect(resolverSource).toContain('createClerkExchanger');
-    expect(resolverSource).toContain("from './clerk-client.js'");
+    expect(resolverSource).toContain('createDescopeExchanger');
+    expect(resolverSource).toContain("from './descope-client.js'");
   });
 
   it('imports the production BackendClient factory', () => {
@@ -79,13 +79,15 @@ describe('main/index.ts wires the operator namespace (004 S1)', () => {
     expect(source).toMatch(/operatorInactivityMonitor\.start\(\)/);
   });
 
-  it('reads CLERK_PUBLISHABLE_KEY from process.env (publishable, not secret)', () => {
-    expect(source).toContain('env: process.env,');
-    expect(resolverSource).toContain("env['CLERK_PUBLISHABLE_KEY']");
+  it('reads DESCOPE_PROJECT_ID from process.env (public project id, not secret)', () => {
+    const envSource = readFileSync(resolve(__dirname, '../bootstrap/env.ts'), 'utf-8');
+    expect(envSource).toContain('env: process.env,');
+    expect(resolverSource).toContain("env['DESCOPE_PROJECT_ID']");
   });
 
-  it('does NOT import @clerk/clerk-js (browser-only SDK; main uses Frontend API REST)', () => {
-    expect(source).not.toMatch(/from\s+['"]@clerk\/clerk-js['"]/);
+  it('has no Clerk exchanger left (RT-945: Descope is the only provider)', () => {
+    expect(resolverSource).not.toMatch(/clerk/i);
+    expect(source).not.toMatch(/from\s+['"]@clerk\//);
   });
 });
 

@@ -42,19 +42,14 @@ interface SourceFile {
 
 /** Adapters (and the factory switch) name their provider by design. */
 const ADAPTER_FILES: readonly AllowEntry[] = [
-  "apps/api/src/auth/clerk-identity-provider.adapter.ts",
   "apps/api/src/auth/descope-identity-provider.adapter.ts",
   "apps/api/src/auth/identity-provider-kind.ts",
   "apps/api/src/auth/identity-provider.factory.ts",
-  "apps/api/src/pos-operators/clerk-verifier.ts",
   "apps/api/src/pos-operators/descope-verifier.ts",
-  "packages/auth/src/clerk-jwt.ts",
 ].map((path) => ({ path, owner: "adapter" as const }));
 
 /** Known leftovers, each owned by a later phase of the programme. */
 const LEFTOVERS: readonly AllowEntry[] = [
-  // The package barrel re-exports the Clerk adapter primitive.
-  { path: "packages/auth/src/index.ts", owner: "adapter", max: 1 },
   // Pilot seed writes the bridge column and falls back to it to find a pre-RT-797 operator.
   { path: "packages/db/src/cli/bootstrap-pilot.ts", owner: "RT-799", max: 2 },
   // The bridge column itself.

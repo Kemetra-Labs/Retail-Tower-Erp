@@ -7,14 +7,12 @@
  * adapter file, one entry in `identity-provider-kind.ts` and one case here;
  * nothing else in the codebase names a provider.
  *
- *   - unset / empty → the unchanged default adapter;
+ *   - unset / empty → the default adapter (Descope, the only provider since RT-800);
  *   - an unknown value throws at boot (`identityProviderKind`, fail closed).
  */
 import type { Pool } from "pg";
 
-import { clerkVerifierFactory } from "../pos-operators/clerk-verifier";
 import { descopeVerifierFactory } from "../pos-operators/descope-verifier";
-import { clerkIdentityProviderFactory } from "./clerk-identity-provider.adapter";
 import { descopeIdentityProviderFactory } from "./descope-identity-provider.adapter";
 import { identityProviderKind } from "./identity-provider-kind";
 import type { IdentityProviderPort } from "./identity-provider.port";
@@ -24,8 +22,6 @@ import type { OperatorTokenVerifier } from "./operator-token-verifier";
 export function operatorTokenVerifierFactory(): OperatorTokenVerifier {
   const kind = identityProviderKind();
   switch (kind) {
-    case "clerk":
-      return clerkVerifierFactory();
     case "descope":
       return descopeVerifierFactory();
     default:
@@ -37,8 +33,6 @@ export function operatorTokenVerifierFactory(): OperatorTokenVerifier {
 export function identityProviderFactory(pool: Pool): IdentityProviderPort {
   const kind = identityProviderKind();
   switch (kind) {
-    case "clerk":
-      return clerkIdentityProviderFactory(pool);
     case "descope":
       return descopeIdentityProviderFactory(pool);
     default:

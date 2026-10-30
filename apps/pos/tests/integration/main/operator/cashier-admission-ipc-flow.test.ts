@@ -24,7 +24,7 @@ import {
 } from '../../../../src/main/operator/takeover-handler.js';
 import { hashPin } from '../../../../src/main/operator/pin-credential.js';
 import { sealPinMaterial } from '../../../../src/main/operator/pin-seal.js';
-import type { ClerkExchanger } from '../../../../src/main/operator/clerk-client.js';
+import type { OperatorExchanger } from '../../../../src/main/operator/operator-exchanger.js';
 import type { InactivityMonitor } from '../../../../src/main/operator/inactivity-monitor.js';
 import type { PinManagementHandler } from '../../../../src/main/operator/pin-management.js';
 import type { ForcedCloseHandler } from '../../../../src/main/operator/forced-close-handler.js';
@@ -250,7 +250,7 @@ function wire(opts: { deviceToken?: string } = {}): {
   } as unknown as IpcMain;
   registerOperatorHandlers(ipcMain, {
     signInHandler: new SignInHandler({
-      clerk: {} as ClerkExchanger,
+      clerk: {} as OperatorExchanger,
       backend,
       sessionManager: sessions,
       deviceTokenAttestation: () => DEVICE_TOKEN,

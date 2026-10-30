@@ -37,7 +37,7 @@ import { Pool } from "pg";
 
 import { DeviceRepository } from "../../../../src/pos-operators/device.repository";
 import { PgOperatorContextResolver } from "../../../../src/auth/operator-context-resolver";
-import { ClerkIdentityProviderAdapter } from "../../../../src/auth/clerk-identity-provider.adapter";
+import { DescopeIdentityProviderAdapter } from "../../../../src/auth/descope-identity-provider.adapter";
 import type { OperatorTokenVerifier } from "../../../../src/auth/operator-token-verifier";
 import { hashToken, generateRawToken } from "@data-pulse-2/auth";
 import {
@@ -184,7 +184,7 @@ beforeAll(async () => {
     // invoked — reverify/recoverDeviceId are ID-keyed, not token-verifying.)
     resolver = new PgOperatorContextResolver(
       pool,
-      new ClerkIdentityProviderAdapter(NOOP_VERIFIER, pool, "https://clerk.dp2.local"),
+      new DescopeIdentityProviderAdapter(NOOP_VERIFIER, pool, "https://api.descope.com/v1/apps/P2saleAuthTest01"),
       new DeviceRepository(pool, env.app),
     );
   } catch (err: unknown) {

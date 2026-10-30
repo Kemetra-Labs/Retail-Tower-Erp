@@ -9,7 +9,7 @@ const { getAppPath, resolveOperatorExchanger } = vi.hoisted(() => ({
 vi.mock('electron', () => ({ app: { getAppPath } }));
 vi.mock('../../operator/resolve-exchanger.js', () => ({ resolveOperatorExchanger }));
 
-import { resolveApiBaseUrl, resolveClerkExchanger, resolveMigrationsDir } from '../env.js';
+import { resolveApiBaseUrl, resolveAuthExchanger, resolveMigrationsDir } from '../env.js';
 
 /**
  * RT-893 extraction 1 — the env helpers moved verbatim out of `main/index.ts`.
@@ -37,7 +37,7 @@ describe('resolveApiBaseUrl', () => {
   });
 });
 
-describe('resolveClerkExchanger', () => {
+describe('resolveAuthExchanger', () => {
   it('hands process.env, the raw global fetch and the logger to the provider resolver', async () => {
     const exchanger = { exchange: vi.fn() };
     resolveOperatorExchanger.mockReturnValue(exchanger);
@@ -45,7 +45,7 @@ describe('resolveClerkExchanger', () => {
     // Stubbed BEFORE the call: the resolver binds the global at call time.
     const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok'));
 
-    expect(resolveClerkExchanger(logger)).toBe(exchanger);
+    expect(resolveAuthExchanger(logger)).toBe(exchanger);
 
     expect(resolveOperatorExchanger).toHaveBeenCalledTimes(1);
     const args = resolveOperatorExchanger.mock.calls[0]?.[0] as {

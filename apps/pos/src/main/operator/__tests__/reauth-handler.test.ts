@@ -5,7 +5,7 @@ import { OnlineCredentialVerifier } from '../online-credential-verifier.js';
 import { SessionManager } from '../session-manager.js';
 import { SessionUnlockHandler } from '../session-unlock-handler.js';
 import { createJwtHolder, type JwtHolder } from '../jwt-holder.js';
-import type { ClerkExchanger, ClerkExchangeResult } from '../clerk-client.js';
+import type { OperatorExchanger, OperatorExchangeResult } from '../operator-exchanger.js';
 import type { Role } from '../../../shared/operator/role.js';
 
 /**
@@ -26,7 +26,7 @@ import type { Role } from '../../../shared/operator/role.js';
 const MONO = 4_000_000;
 const REQ = { identifier: 'mgr@example.test', password: 'pw' } as const;
 
-function okClerk(operator_id: string, jwt = 'jwt-fresh'): ClerkExchangeResult {
+function okClerk(operator_id: string, jwt = 'jwt-fresh'): OperatorExchangeResult {
   return { kind: 'ok', jwt, operator_id, display_name: 'Manager', role: 'manager' };
 }
 
@@ -56,7 +56,7 @@ function session(role: Role = 'manager', operator_id = 'mgr-1'): SessionManager 
 
 function setup(opts: {
   sm?: SessionManager;
-  exchange?: ClerkExchanger['exchange'];
+  exchange?: OperatorExchanger['exchange'];
   revoked?: () => boolean;
   holder?: JwtHolder;
 }) {
@@ -286,7 +286,7 @@ describe('RT-358 shared online gate and lockout (re-auth + manager online unlock
   });
 
   it('the lockout is shared: 5 failed re-auths lock out the online unlock too', async () => {
-    const exchange = vi.fn(() => Promise.resolve<ClerkExchangeResult>({ kind: 'refused' }));
+    const exchange = vi.fn(() => Promise.resolve<OperatorExchangeResult>({ kind: 'refused' }));
     const verifier = new OnlineCredentialVerifier({ clerk: { exchange } });
     const sm = session();
     const reauth = new ReauthHandler({
@@ -331,7 +331,7 @@ describe('RT-358 Q2 — the manager online unlock stores its fresh JWT', () => {
   function unlockWith(opts: {
     sm: SessionManager;
     holder: JwtHolder;
-    exchange: ClerkExchanger['exchange'];
+    exchange: OperatorExchanger['exchange'];
     revoked?: () => boolean;
   }): SessionUnlockHandler {
     return new SessionUnlockHandler({

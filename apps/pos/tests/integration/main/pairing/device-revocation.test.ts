@@ -43,7 +43,7 @@ import { createJwtHolder } from '../../../../src/main/operator/jwt-holder.js';
 import { SignInHandler } from '../../../../src/main/operator/sign-in-handler.js';
 import { ProtoSessionStore } from '../../../../src/main/operator/takeover-handler.js';
 import type { BackendClient } from '../../../../src/main/operator/backend-client.js';
-import type { ClerkExchanger } from '../../../../src/main/operator/clerk-client.js';
+import type { OperatorExchanger } from '../../../../src/main/operator/operator-exchanger.js';
 import { purgeOtherTerminalPinRecords } from '../../../../src/main/operator/pin-records-purge.js';
 import { AuditEmitter } from '../../../../src/main/audit/audit-emitter.js';
 import { bindAuditEventsStoreDb } from '../../../../src/main/audit/audit-events-store.js';
@@ -719,7 +719,7 @@ describe('RT-215 device revocation — end to end', () => {
             display_name: 'Sara',
             role: 'manager',
           }),
-      } as unknown as ClerkExchanger,
+      } as unknown as OperatorExchanger,
       backend,
       sessionManager: w.sessions,
       jwtHolder: w.jwt,

@@ -39,8 +39,9 @@ services:
       # RT-152: required by the production boot guard; the fuzz stack is throwaway dev.
       DEPLOYMENT_ENVIRONMENT: dev
       DB_MIGRATIONS_DIR: /packages/db/drizzle
-      # No real Clerk: the cookie-auth surface never calls it.
-      CLERK_SECRET_KEY: sk_test_fuzz_dummy_not_a_real_key
+      # No real Descope: the cookie-auth surface never calls it, and the JWKS is
+      # fetched lazily, so a well-formed dummy project id satisfies the production boot.
+      DESCOPE_PROJECT_ID: P2fuzzDummyNotARealProject
       OTEL_SDK_DISABLED: "true"
     ports:
       - "127.0.0.1:${API_PORT:-23000}:3000"

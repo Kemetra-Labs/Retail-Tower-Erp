@@ -3,7 +3,7 @@ import type { Logger } from 'pino';
 import type { UnlockSessionRequest, UnlockSessionResponse } from '../../shared/bridge-api.js';
 import type { OperatorRefusal, RefusalCategory } from '../../shared/audit/event-shape.js';
 
-import type { ClerkExchanger } from './clerk-client.js';
+import type { OperatorExchanger } from './operator-exchanger.js';
 import {
   credentialSnapshotOf,
   freshCredentialBlocker,
@@ -50,7 +50,7 @@ export interface SessionUnlockHandlerDeps {
   sessionManager: SessionManager;
   /** 004 local PIN check for this terminal's cashier; null on a match. */
   verifyCashierPin: (operator_id: string, pin: string) => Promise<OperatorRefusal | null>;
-  clerk: ClerkExchanger;
+  clerk: OperatorExchanger;
   /** RT-358 — the online check shared with re-auth. Built from `clerk` when omitted. */
   onlineVerifier?: OnlineCredentialVerifier;
   /** RT-358 Q2 — where the unlock's fresh JWT is stored. Omitted → not stored. */

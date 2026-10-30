@@ -12,7 +12,7 @@ import {
   ManagerPinRefusedError,
   MANAGER_ENROL_STEP_UP_MS,
 } from '../manager-pin-enrollment.js';
-import type { ClerkExchangeResult } from '../clerk-client.js';
+import type { OperatorExchangeResult } from '../operator-exchanger.js';
 
 /**
  * RT-358 (RT-247 plan §2.3, §4):
@@ -41,7 +41,7 @@ function managerSession(): SessionManager {
   return sm;
 }
 
-function ok(operator_id = 'mgr-1'): ClerkExchangeResult {
+function ok(operator_id = 'mgr-1'): OperatorExchangeResult {
   return { kind: 'ok', jwt: FRESH_JWT, operator_id, display_name: 'M', role: 'manager' };
 }
 

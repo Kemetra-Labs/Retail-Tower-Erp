@@ -11,7 +11,7 @@ import type {
 import { makeSecretKey, type SecretStore } from '../../shared/secret-store.js';
 import type { OperatorRefusal } from '../../shared/audit/event-shape.js';
 
-import type { ClerkExchanger } from './clerk-client.js';
+import type { OperatorExchanger } from './operator-exchanger.js';
 import type { BackendClient } from './backend-client.js';
 import type { OperatorSessionRecord, SessionManager } from './session-manager.js';
 import type { JwtHolder } from './jwt-holder.js';
@@ -76,7 +76,7 @@ import {
  */
 
 export interface SignInHandlerDeps {
-  clerk: ClerkExchanger;
+  clerk: OperatorExchanger;
   backend: BackendClient;
   sessionManager: SessionManager;
   /** Terminal-side proof of device-token possession (per 002). */

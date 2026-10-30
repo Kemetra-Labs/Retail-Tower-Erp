@@ -20,7 +20,7 @@ import {
   type SessionAdmission,
 } from '../../../../src/main/operator/session-admission.js';
 import type { BackendClient } from '../../../../src/main/operator/backend-client.js';
-import type { ClerkExchanger } from '../../../../src/main/operator/clerk-client.js';
+import type { OperatorExchanger } from '../../../../src/main/operator/operator-exchanger.js';
 import type { AuditEmitter } from '../../../../src/main/audit/audit-emitter.js';
 import type { DatabaseHandle } from '../../../../src/main/db/client.js';
 import type { PairingStore } from '../../../../src/main/pairing/store.js';
@@ -124,7 +124,7 @@ function fakeBackend(): BackendClient {
   };
 }
 
-const clerk: ClerkExchanger = {
+const clerk: OperatorExchanger = {
   exchange: vi.fn(() =>
     Promise.resolve({
       kind: 'ok' as const,
