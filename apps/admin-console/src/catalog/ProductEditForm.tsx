@@ -262,8 +262,12 @@ export function ProductEditForm({
           />
         </fieldset>
         <div className="surface__actions surface__actions--divided">
-          <GatedButton type="submit" className="btn-primary" disabled={update.isPending || locked}>
-            {update.isPending ? <span className="spinner" aria-hidden="true" /> : null}
+          <GatedButton
+            type="submit"
+            className="btn-primary"
+            busy={update.isPending}
+            disabled={locked}
+          >
             {t("catalog.edit.save")}
           </GatedButton>
           <button

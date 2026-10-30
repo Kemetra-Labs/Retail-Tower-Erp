@@ -127,8 +127,7 @@ export function TenantForm({
         </div>
 
         <div className="surface__actions">
-          <GatedButton type="submit" className="btn-primary" disabled={pending}>
-            {pending ? <span className="spinner" aria-hidden="true" /> : null}
+          <GatedButton type="submit" className="btn-primary" busy={pending}>
             {submitLabel}
           </GatedButton>
           <button

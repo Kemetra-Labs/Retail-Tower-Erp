@@ -1,4 +1,5 @@
 import { Banner } from "@/components/Banner";
+import { BusyButton } from "@/components/BusyButton";
 import { TowerMark } from "@/components/TowerMark";
 import { type MessageKey, useT } from "@/i18n";
 import { signIn } from "@/lib/client";
@@ -34,13 +35,7 @@ type Phase =
 /** The submit button's label for the current phase. */
 function SubmitLabel({ phase }: Readonly<{ phase: Phase }>): React.JSX.Element {
   const t = useT();
-  if (phase.status === "submitting") {
-    return (
-      <>
-        <span className="spinner" aria-hidden="true" /> {t("auth.signIn.submitting")}
-      </>
-    );
-  }
+  if (phase.status === "submitting") return <>{t("auth.signIn.submitting")}</>;
   if (phase.status === "rate-limited") {
     return <>{t("auth.signIn.retryIn", { count: phase.retryAfterSeconds })}</>;
   }
@@ -153,9 +148,14 @@ export function SignIn({ onResolved }: Readonly<SignInProps>): React.JSX.Element
                 required
               />
             </div>
-            <button className="btn-primary signin-submit" type="submit" disabled={disabled}>
+            <BusyButton
+              className="btn-primary signin-submit"
+              type="submit"
+              busy={submitting}
+              disabled={rateLimited}
+            >
               <SubmitLabel phase={phase} />
-            </button>
+            </BusyButton>
           </form>
         </div>
 

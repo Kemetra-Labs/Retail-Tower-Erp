@@ -205,7 +205,11 @@ export function UnknownItemList(): React.JSX.Element {
         </legend>
         <label className="unknown-item-controls__field">
           <span>{t("unknownItems.filters.status")}</span>
-          <select value={status} onChange={(e) => setStatus(e.target.value as Status)}>
+          <select
+            className="input"
+            value={status}
+            onChange={(e) => setStatus(e.target.value as Status)}
+          >
             <option value="pending">{t("unknownItems.status.pending")}</option>
             <option value="dismissed">{t("unknownItems.status.dismissed")}</option>
             <option value="resolved">{t("unknownItems.status.resolved")}</option>
@@ -214,6 +218,7 @@ export function UnknownItemList(): React.JSX.Element {
         <label className="unknown-item-controls__field">
           <span>{t("unknownItems.filters.source")}</span>
           <input
+            className="input"
             type="text"
             value={sourceSystem}
             onChange={(e) => setSourceSystem(e.target.value)}
@@ -223,6 +228,7 @@ export function UnknownItemList(): React.JSX.Element {
         <label className="unknown-item-controls__field">
           <span>{t("unknownItems.filters.sort")}</span>
           <select
+            className="input"
             value={sort}
             onChange={(e) => setSort(e.target.value as NonNullable<ListUnknownItemsParams["sort"]>)}
           >
@@ -234,6 +240,7 @@ export function UnknownItemList(): React.JSX.Element {
         <label className="unknown-item-controls__field">
           <span>{t("unknownItems.filters.groupBy")}</span>
           <select
+            className="input"
             value={groupBy}
             onChange={(e) =>
               setGroupBy(e.target.value as NonNullable<ListUnknownItemsParams["group_by"]> | "")

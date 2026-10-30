@@ -150,9 +150,8 @@ function Review({
           <GatedButton
             type="submit"
             className={isIssueAction(action) ? "btn-primary" : "btn-destructive"}
-            disabled={pending}
+            busy={pending}
           >
-            {pending ? <span className="spinner" aria-hidden="true" /> : null}
             {t(CONFIRM[action])}
           </GatedButton>
         ) : null}

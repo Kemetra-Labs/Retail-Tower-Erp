@@ -198,7 +198,7 @@ describe("product Edit and Retire controls (RT-768, CAT-C2a)", () => {
     expect(start()).toBeDefined();
   });
 
-  test("the confirm button is disabled in flight: one request only", async () => {
+  test("the confirm button is busy in flight: one request only", async () => {
     let finish: (v: unknown) => void = () => undefined;
     consoleRetireCatalogProduct.mockReturnValue(
       new Promise((r) => {
@@ -209,7 +209,9 @@ describe("product Edit and Retire controls (RT-768, CAT-C2a)", () => {
     await loaded();
     fireEvent.click(start());
     fireEvent.click(confirmButton());
-    await waitFor(() => expect((confirmButton() as HTMLButtonElement).disabled).toBe(true));
+    // RT-959: busy, not disabled: it keeps focus and ignores repeat presses.
+    await waitFor(() => expect(confirmButton().getAttribute("aria-busy")).toBe("true"));
+    expect(confirmButton().hasAttribute("disabled")).toBe(false);
     fireEvent.click(confirmButton());
     expect(consoleRetireCatalogProduct).toHaveBeenCalledTimes(1);
     finish(one(RETIRED));

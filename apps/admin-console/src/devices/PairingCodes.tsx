@@ -1,5 +1,6 @@
 import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
+import { BusyButton } from "@/components/BusyButton";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
@@ -88,15 +89,14 @@ function Pager({ list }: Readonly<{ list: PairingCodeListState }>): React.JSX.El
       <div className="device-pager">
         <span>{t("devices.codes.loaded", { count: list.rows.length })}</span>
         {list.hasMore ? (
-          <button
+          <BusyButton
             type="button"
             className="btn-secondary"
             onClick={list.loadMore}
-            disabled={list.isFetchingNextPage}
+            busy={list.isFetchingNextPage}
           >
-            {list.isFetchingNextPage ? <span className="spinner" aria-hidden="true" /> : null}
             {t("devices.codes.loadMore")}
-          </button>
+          </BusyButton>
         ) : null}
       </div>
     </>

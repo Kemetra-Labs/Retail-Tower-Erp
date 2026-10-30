@@ -1,3 +1,4 @@
+import { Banner } from "@/components/Banner";
 /**
  * RT-727 shared pieces for the product-master reconciliation screens: the
  * read-error banner (every contract status mapped, request id shown), the
@@ -5,7 +6,7 @@
  * and the cursor-paged table. The pill, panel frame and as-of line are the
  * RT-560 ERP-status ones, so the integration area reads as one family.
  */
-import { Banner } from "@/components/Banner";
+import { BusyButton } from "@/components/BusyButton";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
 import { ListState as ListStateView } from "@/components/ListState";
 import { StatusPill } from "@/erp-status/parts";
@@ -315,15 +316,14 @@ export function ReconTable<R>({
       )}
       {list.hasMore ? (
         <div>
-          <button
+          <BusyButton
             type="button"
             className="btn-secondary"
             onClick={list.loadMore}
-            disabled={list.isFetchingNextPage}
+            busy={list.isFetchingNextPage}
           >
-            {list.isFetchingNextPage ? <span className="spinner" aria-hidden="true" /> : null}
             {t("productRecon.loadMore")}
-          </button>
+          </BusyButton>
         </div>
       ) : null}
     </>

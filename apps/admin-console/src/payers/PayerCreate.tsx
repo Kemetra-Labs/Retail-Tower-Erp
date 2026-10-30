@@ -250,8 +250,7 @@ export function PayerCreate({
         </div>
 
         <div className="surface__actions">
-          <GatedButton type="submit" className="btn-primary" disabled={pending}>
-            {pending ? <span className="spinner" aria-hidden="true" /> : null}
+          <GatedButton type="submit" className="btn-primary" busy={pending}>
             {t("payers.create.submit")}
           </GatedButton>
           <button type="button" className="btn-ghost" onClick={onClose} disabled={pending}>

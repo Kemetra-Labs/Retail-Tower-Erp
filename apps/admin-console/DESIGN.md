@@ -409,6 +409,15 @@ These classes exist on `main` and new work reuses them until a migration slice r
   per context. Hover is
   neutral, never the selection wash. Unavailable is recessed, not faded. Press is Contact
   (80ms).
+  - **Height** (RT-959): every desktop button, input and select is `--control-h` (36px); the
+    compact shell's touch target is `--target-touch` (44px). No stylesheet spells either
+    number (`tests/unit/control-height-tokens.test.ts`).
+  - **Busy** (RT-959): a pending action is a `BusyButton` (`GatedButton` is one) with
+    `busy`. It is `aria-busy` + `aria-disabled`, never native `disabled`, so focus stays on
+    it. It ignores repeat clicks and Enter, keeps its variant colours (not recessed, not
+    GrayText in forced colours) and shows the shared spinner before its label. The label
+    still says what is happening ("Saving…"). Native `disabled` is only for an unavailable
+    action, such as a running Retry-After.
 - **Motion:** route changes stay instant (UX-06). The drawer has an enter and an exit. New
   banners, inline confirms and inline errors settle in on Signal (150ms); new table rows fade
   in. All of it is zero under reduced motion.
@@ -430,7 +439,10 @@ These classes exist on `main` and new work reuses them until a migration slice r
   never color alone, and forced colors keep the text and a `CanvasText` border.
 - **Banner** `.rtc-alert--{danger,warning,success,info}`: persistent operational state, not a
   toast.
-- **Inputs** `.input` and `.field`. Errors use `aria-invalid` plus inline text.
+- **Inputs** `.input` and `.field`. Errors use `aria-invalid` plus inline text. A single-line
+  input or select is exactly `--control-h`; a textarea grows. Disabled is recessed (sunken
+  fill, quiet edge, muted text; GrayText in forced colours), never `opacity`. One checkbox
+  size, 18px.
 - **DataTable** (`src/components/DataTable.tsx`; usage rules in the notes below), **Drawer** (focus-trapped dialog), and
   **ListState** (loading / empty).
 - **Shell v3** (`src/shell/`, RT-969; `ShellFrame.tsx` is shared by `AppShell` and

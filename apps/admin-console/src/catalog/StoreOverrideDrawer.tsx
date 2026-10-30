@@ -260,9 +260,8 @@ function RetireOverride({
               type="button"
               className="btn-destructive"
               onClick={onConfirm}
-              disabled={pending}
+              busy={pending}
             >
-              {pending ? <span className="spinner" aria-hidden="true" /> : null}
               {t("catalog.override.retire.confirm")}
             </GatedButton>
             <button
@@ -466,8 +465,12 @@ export function StoreOverrideDrawer({
           ) : null}
         </fieldset>
         <div className="surface__actions">
-          <GatedButton type="submit" className="btn-primary" disabled={pending || locked}>
-            {upsert.isPending ? <span className="spinner" aria-hidden="true" /> : null}
+          <GatedButton
+            type="submit"
+            className="btn-primary"
+            busy={upsert.isPending}
+            disabled={retire.isPending || locked}
+          >
             {t("catalog.override.save")}
           </GatedButton>
           <button type="button" className="btn-ghost" onClick={onClose} disabled={pending}>

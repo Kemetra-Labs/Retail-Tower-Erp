@@ -1,5 +1,6 @@
 import { NoAccess } from "@/auth/NoAccess";
 import { Banner } from "@/components/Banner";
+import { BusyButton } from "@/components/BusyButton";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
@@ -138,16 +139,14 @@ function PayerListBody({
 
       {settled && hasMore ? (
         <div className="surface__actions">
-          <button
+          <BusyButton
             type="button"
             className="btn-secondary"
             onClick={loadMore}
-            disabled={isFetchingNextPage}
-            aria-busy={isFetchingNextPage || undefined}
+            busy={isFetchingNextPage}
           >
-            {isFetchingNextPage ? <span className="spinner" aria-hidden="true" /> : null}
             {t("payers.list.loadMore")}
-          </button>
+          </BusyButton>
         </div>
       ) : null}
     </>

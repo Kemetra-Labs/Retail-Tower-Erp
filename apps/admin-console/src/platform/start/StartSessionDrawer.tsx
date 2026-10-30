@@ -199,13 +199,7 @@ function StartForm({
       <TicketField error={errors.ticketRef} />
       <ScopeFacts replacesSession={replacesSession} />
       <div className="surface__actions">
-        <GatedButton
-          type="submit"
-          className="btn-primary"
-          disabled={pending}
-          aria-busy={pending || undefined}
-        >
-          {pending ? <span className="spinner" aria-hidden="true" /> : null}
+        <GatedButton type="submit" className="btn-primary" busy={pending}>
           {t("platform.start.submit")}
         </GatedButton>
         <button type="button" className="btn-ghost" onClick={onCancel} disabled={pending}>

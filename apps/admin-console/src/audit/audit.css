@@ -17,7 +17,7 @@
 .audit-filters__lead {
   display: inline-flex;
   align-items: center;
-  height: 36px;
+  height: var(--control-h);
   color: var(--color-text-muted);
 }
 .audit-filters__field {
@@ -91,6 +91,7 @@
   color: var(--color-text-muted);
 }
 .audit-table__action {
+  position: relative;
   font-family: var(--font-mono);
   font-size: var(--text-machine);
   color: var(--color-primary-emphasis);
@@ -99,6 +100,18 @@
   padding: 0;
   cursor: pointer;
   text-align: start;
+}
+/* RT-959: a 36px hit area without a taller row (the RT-757 pattern). The text
+ * keeps its size; an invisible ::after widens only the target, centred with
+ * physical left/top + translate so it is symmetric in RTL as well. */
+.audit-table__action::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  inline-size: max(100%, var(--control-h));
+  block-size: max(100%, var(--control-h));
+  transform: translate(-50%, -50%);
 }
 /* RT-784: a recognisable label above a platform row's action code. Sans at
  * body size, so it reads as words; the code keeps the mono machine face. */
@@ -111,8 +124,15 @@
   display: block;
   font: var(--weight-strong) var(--text-body) / var(--leading-tight) var(--font-sans);
 }
-.audit-table__action:hover {
+.audit-table__action:hover:not(:disabled) {
   text-decoration: underline;
+}
+.audit-table__action:active:not(:disabled) {
+  color: var(--color-text);
+}
+.audit-table__action:disabled {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
 }
 .audit-table__action:focus-visible {
   border-radius: var(--radius-sm);
