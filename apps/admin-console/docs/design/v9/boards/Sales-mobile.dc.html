@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>المبيعات على الهاتف — Retail Tower Console</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#0f766e}a:hover{color:#0b5b55}
+:focus-visible{outline:2px solid #14a394;outline-offset:2px}
+.disp{font-family:'Readex Pro',Dubai,'Segoe UI',sans-serif}
+.tb{width:44px;height:44px;border-radius:12px;border:0;background:transparent;color:#ffffff;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 16px;border-radius:12px;font:inherit;font-size:14px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap;box-sizing:border-box}
+.ink{color:#ffffff;background:#0a2125;border:1px solid #0a2125}
+.ink:hover{color:#ffffff}
+.ghost{color:#0a2125;border:1px solid #d6dfe3;background:#ffffff}
+.ghost:hover{color:#0a2125}
+.quiet{color:#33454f;border:1px solid transparent;background:transparent}
+.tabs{display:flex;gap:6px;overflow-x:auto;padding:2px 16px 4px;scrollbar-width:none}
+.tabs button{flex:none;min-height:40px;padding:0 14px;border:1px solid #dfe6ea;border-radius:12px;background:#ffffff;font:inherit;font-size:13px;color:#33454f;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+.tabs .on{background:#0a2125;border-color:#0a2125;color:#ffffff;font-weight:700}
+.tc{font-family:'Readex Pro',sans-serif;font-size:11px;font-weight:600;min-width:20px;height:20px;padding:0 6px;box-sizing:border-box;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;background:rgba(10,33,37,.08)}
+.tabs .on .tc{background:rgba(95,224,207,.2);color:#5fe0cf}
+.chip{flex:none;display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 4px;padding-inline-start:12px;border-radius:9999px;background:#e7f6f3;color:#0b5b55;font-size:12px;font-weight:700}
+.chip button{width:24px;height:24px;border-radius:50%;border:0;background:rgba(11,91,85,.12);color:#0b5b55;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.card{background:#ffffff;border:1px solid #e3e9ec;border-radius:18px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 10px 24px -20px rgba(10,33,37,.3);overflow:hidden;position:relative}
+.flag{border-color:#f5d3cf}
+.flag::before{content:"";position:absolute;inset-block:0;inset-inline-start:0;width:4px;background:#e5484d}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:9px;font-size:12px;font-weight:700;white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:2px;background:currentColor;transform:rotate(45deg)}
+.ok{background:#e4f5ec;color:#15774d}
+.pend{background:#e3eefa;color:#1b5fa8}
+.bad{background:#fde7e5;color:#b3261e}
+.fld{display:flex;flex-direction:column;gap:6px}
+.fld label{font-size:13px;font-weight:700;color:#33454f}
+.ctl{min-height:44px;box-sizing:border-box;border:1px solid #cfd9de;border-radius:12px;background:#ffffff;padding:0 12px;font:inherit;font-size:14px;color:#0a2125;width:100%}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1500px; background: #f2f5f6; color: #0a2125; font-family: Dubai, 'Segoe UI', Tahoma, system-ui, sans-serif; font-size: 14px; line-height: 1.6; display: flex; flex-direction: column">
+
+  <!-- Compact top bar -->
+  <header style="display: flex; align-items: center; gap: 4px; padding: 6px 8px; background: #0a2125; color: #ffffff">
+    <button type="button" class="tb" aria-label="القائمة"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <div aria-hidden="true" style="width: 32px; height: 32px; border-radius: 10px; background: linear-gradient(160deg, #5fe0cf, #0f766e 70%); display: flex; align-items: flex-end; justify-content: center; gap: 2px; padding-bottom: 7px; box-sizing: border-box">
+      <span style="width: 4px; height: 8px; border-radius: 2px; background: rgba(255,255,255,.7)"></span><span style="width: 4px; height: 15px; border-radius: 2px; background: #ffffff"></span><span style="width: 4px; height: 11px; border-radius: 2px; background: rgba(255,255,255,.85)"></span>
+    </div>
+    <span class="disp" style="font-weight: 600; font-size: 16px; margin-inline-start: 6px">Retail Tower</span>
+    <span style="flex: 1"></span>
+    <button type="button" class="tb" aria-label="بحث وتنقّل"><svg aria-hidden="true" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></button>
+    <button type="button" class="tb" aria-label="قائمة المستخدم: أحمد شعبان"><span aria-hidden="true" class="disp" style="width: 32px; height: 32px; border-radius: 10px; background: rgba(95,224,207,.16); color: #5fe0cf; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 12px">أش</span></button>
+  </header>
+
+  <!-- Scope row (48px, never behind a menu) -->
+  <button type="button" aria-label="تغيير النطاق: كل المتاجر، مؤسسة النيل للتجزئة" style="display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 16px; border: 0; border-bottom: 1px solid rgba(95,224,207,.14); background: #12333a; color: #ffffff; font: inherit; text-align: start; cursor: pointer">
+    <span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 2px; transform: rotate(45deg); background: #5fe0cf"></span>
+    <span style="flex: 1; font-size: 13px"><strong>كل المتاجر · 4</strong> <span style="color: #a9c2c5">· مؤسسة النيل للتجزئة</span></span>
+    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a9c2c5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+  </button>
+
+  <main style="display: flex; flex-direction: column; gap: 14px; padding: 18px 0 28px">
+    <div style="display: flex; align-items: flex-end; gap: 10px; padding: 0 16px">
+      <div style="flex: 1; display: flex; flex-direction: column">
+        <h1 class="disp" style="margin: 0; font-size: 22px; font-weight: 600; line-height: 1.35">المبيعات</h1>
+        <span style="font-size: 12px; color: #5b6d7c">اليوم · <bdi dir="ltr">1,284</bdi> فاتورة · <bdi dir="ltr">184,320.50 EGP</bdi></span>
+      </div>
+      <button type="button" class="btn ghost" aria-label="تصدير CSV" style="width: 44px; padding: 0"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12M6 10l6 6 6-6M4 20h16"/></svg></button>
+    </div>
+
+    <!-- Filters -->
+    <div style="display: flex; flex-direction: column; gap: 10px; padding: 0 16px">
+      <div style="display: flex; gap: 8px">
+        <button type="button" class="btn ghost" style="flex: 1" aria-expanded="{{ fAttr }}" onClick="{{ toggleF }}"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16l-6 8v6l-4-2v-4z"/></svg>الفلاتر · 2</button>
+        <div class="ctl" style="flex: 1.3; display: flex; align-items: center; gap: 8px"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5b6d7c" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><input type="search" aria-label="رقم الفاتورة" placeholder="رقم الفاتورة" style="border: 0; outline: 0; font: inherit; font-size: 14px; flex: 1; min-width: 0; background: transparent"></div>
+      </div>
+      <sc-if value="{{ fOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="background: #ffffff; border: 1px solid #e3e9ec; border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 12px">
+          <div class="fld"><label for="m-d">الفترة</label><select id="m-d" class="ctl"><option>اليوم</option><option>أمس</option><option>آخر 7 أيام</option></select></div>
+          <div class="fld"><label for="m-s">المتجر</label><select id="m-s" class="ctl"><option>كل المتاجر</option><option>فرع المعادي</option><option>فرع الدقي</option></select></div>
+          <div class="fld"><label for="m-c">الكاشير</label><select id="m-c" class="ctl"><option>الكل</option><option>منى عادل</option></select></div>
+          <div style="display: flex; gap: 8px"><button type="button" class="btn quiet" style="flex: 1">مسح</button><button type="button" class="btn ink" style="flex: 2" onClick="{{ toggleF }}">تطبيق</button></div>
+        </div>
+      </sc-if>
+      <div style="display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none">
+        <span class="chip">الفترة: اليوم<button type="button" aria-label="إزالة فلتر الفترة"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></span>
+        <span class="chip">الدفع: بطاقة أو مختلط<button type="button" aria-label="إزالة فلتر طريقة الدفع"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></span>
+      </div>
+    </div>
+
+    <div class="tabs" role="group" aria-label="حالة الترحيل إلى ERPNext">
+      <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="4">
+        <sc-if value="{{ t.on }}" hint-placeholder-val="{{ false }}"><button type="button" class="on" aria-pressed="true" onClick="{{ t.pick }}">{{ t.label }}<span class="tc">{{ t.count }}</span></button></sc-if>
+        <sc-if value="{{ t.off }}" hint-placeholder-val="{{ true }}"><button type="button" aria-pressed="false" onClick="{{ t.pick }}">{{ t.label }}<span class="tc">{{ t.count }}</span></button></sc-if>
+      </sc-for>
+    </div>
+
+    <!-- Cards -->
+    <ul aria-label="المبيعات" style="list-style: none; margin: 0; padding: 0 16px; display: flex; flex-direction: column; gap: 10px">
+      <sc-for list="{{ rows }}" as="r" hint-placeholder-count="6">
+        <li class="{{ r.cls }}">
+          <div style="padding: 14px 16px 12px; display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; align-items: center; gap: 8px">
+              <strong dir="ltr" class="disp" style="font-weight: 600; flex: 1; text-align: end">{{ r.ref }}</strong>
+              <sc-if value="{{ r.ok }}" hint-placeholder-val="{{ true }}"><span class="pill ok">مُرحَّلة</span></sc-if>
+              <sc-if value="{{ r.pending }}" hint-placeholder-val="{{ false }}"><span class="pill pend">قيد الترحيل</span></sc-if>
+              <sc-if value="{{ r.bad }}" hint-placeholder-val="{{ false }}"><span class="pill bad">متوقفة</span></sc-if>
+            </div>
+            <span style="font-size: 13px; color: #33454f">{{ r.store }} · {{ r.cashier }} · {{ r.pay }}</span>
+            <div style="display: flex; align-items: baseline; gap: 8px; padding-top: 8px; border-top: 1px dashed #e1e8eb">
+              <span style="font-size: 12px; color: #5b6d7c; flex: 1"><bdi dir="ltr">{{ r.time }}</bdi> · {{ r.items }} أصناف</span>
+              <bdi dir="ltr" class="disp" style="font-size: 18px; font-weight: 600">{{ r.total }}</bdi>
+            </div>
+          </div>
+          <a href="Sale-detail.dc.html" class="btn" style="width: 100%; border-radius: 0; border-top: 1px solid #eef2f4; color: #0a2125; justify-content: space-between; padding: 0 16px">عرض الفاتورة<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></a>
+        </li>
+      </sc-for>
+    </ul>
+
+    <div style="display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 4px 16px 0">
+      <span style="font-size: 12px; color: #5b6d7c; text-align: center">عُرضت <bdi dir="ltr">{{ shown }}</bdi> من <bdi dir="ltr">{{ total }}</bdi></span>
+      <button type="button" class="btn ghost">عرض 25 أخرى</button>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1500}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { tab: 'all', f: false }; }
+  renderVals() {
+    const mk = (ref, time, store, cashier, pay, items, total, k) => ({ ref: ref, time: time, store: store, cashier: cashier, pay: pay, items: items, total: total, k: k, ok: k === 'ok', pending: k === 'pending', bad: k === 'bad', cls: k === 'bad' ? 'card flag' : 'card' });
+    const all = [
+      mk('MAA-1-000431', '14:31', 'فرع المعادي', 'منى عادل', 'بطاقة', '5', '318.50 EGP', 'pending'),
+      mk('NSR-2-000352', '14:29', 'فرع مدينة نصر', 'كريم سامي', 'مختلط', '3', '96.00 EGP', 'ok'),
+      mk('DOK-1-000157', '14:20', 'فرع الدقي', 'هالة فؤاد', 'بطاقة', '8', '1,240.75 EGP', 'bad'),
+      mk('SZD-1-000268', '14:18', 'فرع الشيخ زايد', 'عمر نبيل', 'بطاقة', '2', '57.25 EGP', 'ok'),
+      mk('MAA-2-000430', '14:15', 'فرع المعادي', 'ياسر حمدي', 'مختلط', '6', '402.00 EGP', 'ok'),
+      mk('DOK-1-000156', '14:11', 'فرع الدقي', 'هالة فؤاد', 'بطاقة', '4', '212.40 EGP', 'bad')
+    ];
+    const defs = [['all', 'الكل', '1,284'], ['ok', 'مُرحَّلة', '1,276'], ['pending', 'قيد الترحيل', '5'], ['bad', 'متوقفة', '3']];
+    const tab = this.state.tab;
+    const rows = tab === 'all' ? all : all.filter((r) => r.k === tab);
+    const totals = { all: '1,284', ok: '1,276', pending: '5', bad: '3' };
+    return {
+      tabs: defs.map(([k, l, c]) => ({ label: l, count: c, on: tab === k, off: tab !== k, pick: () => this.setState({ tab: k }) })),
+      rows: rows,
+      shown: String(rows.length),
+      total: totals[tab],
+      fOpen: this.state.f,
+      fAttr: this.state.f ? 'true' : 'false',
+      toggleF: () => this.setState({ f: !this.state.f })
+    };
+  }
+}
+</script>
+</body>
+</html>

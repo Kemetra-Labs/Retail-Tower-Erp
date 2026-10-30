@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>مخزون المتجر — Retail Tower Console</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f2f5f6}
+a{color:#0f766e}a:hover{color:#0b5b55}
+:focus-visible{outline:2px solid #14a394;outline-offset:2px}
+.disp{font-family:'Readex Pro',Dubai,'Segoe UI',sans-serif}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.nv{display:flex;align-items:center;gap:14px;min-height:46px;padding:0 14px;border-radius:12px;color:#a9c2c5;text-decoration:none;font-size:14px;position:relative}
+.nv:hover{background:rgba(255,255,255,.05);color:#ffffff}
+.nv svg{flex:none}
+.nv-on{color:#ffffff;font-weight:700;background:linear-gradient(90deg,rgba(43,196,179,.22),rgba(43,196,179,.04));box-shadow:inset 0 0 0 1px rgba(95,224,207,.22)}
+.nv-on::before{content:"";position:absolute;inset-inline-start:-16px;top:10px;bottom:10px;width:4px;border-radius:0 4px 4px 0;background:#5fe0cf;box-shadow:0 0 14px 2px rgba(95,224,207,.7)}
+.nv-on svg{color:#5fe0cf}
+.grp{font-size:11px;color:#5f8186;padding:0 14px 4px;font-weight:700}
+.hs{font-size:12px;color:#5b6d7c}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 16px;border-radius:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap;border:1px solid transparent}
+.ink{color:#ffffff;background:#0a2125;border-color:#0a2125;box-shadow:0 8px 18px -10px rgba(10,33,37,.8)}
+.ink:hover{color:#ffffff;background:#12333a}
+.ghost{color:#0a2125;background:#ffffff;border-color:#d6dfe3}
+.ghost:hover{border-color:#9fdcd2}
+.quiet{color:#33454f;background:transparent}
+.quiet:hover{background:#eef2f4}
+.dq{color:#b3261e;background:#ffffff;border-color:#f2d6d3}
+.dq:hover{background:#fdf3f2}
+.dd{color:#ffffff;background:#b3261e;border-color:#b3261e}
+.dd:hover{background:#9a1f19}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:9px;font-size:12px;font-weight:700;white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:2px;background:currentColor;transform:rotate(45deg)}
+.ok{background:#e4f5ec;color:#15774d}
+.warn{background:#fdf0dc;color:#8a4b00}
+.role{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px 0 12px;border-radius:9px;font-size:12px;font-weight:700;background:#eef2f4;color:#33454f;white-space:nowrap}
+.role svg{color:#0f766e}
+.role-unk{background:#ffffff;border:1px dashed #b7c5ca;color:#5b6d7c}
+.sec{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:24px;padding:0 6px;border-radius:8px;background:#0a2125;color:#5fe0cf;font-family:'Readex Pro',sans-serif;font-size:11px;font-weight:600}
+.box{background:#ffffff;border:1px solid #e3e9ec;border-radius:20px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25)}
+.sum{display:flex;flex-wrap:wrap;gap:10px}
+.sum span{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:12px;background:#ffffff;border:1px solid #e3e9ec;font-size:13px;color:#33454f}
+.sum b{font-family:'Readex Pro',sans-serif;font-weight:600;color:#0a2125}
+.tbl{width:100%;border-collapse:separate;border-spacing:0 8px;font-size:13px}
+.tbl th{font-size:12px;color:#5b6d7c;font-weight:700;text-align:start;padding:0 16px 2px}
+.tbl td{padding:12px 16px;background:#f8fafb;border-block:1px solid #eef2f4;white-space:nowrap}
+.tbl td:first-child{border-inline-start:1px solid #eef2f4;border-start-start-radius:14px;border-end-start-radius:14px}
+.tbl td:last-child{border-inline-end:1px solid #eef2f4;border-start-end-radius:14px;border-end-end-radius:14px}
+.tbl tr:hover td{background:#f2f8f7}
+.rv td{background:#fffaf2;border-color:#f3e3c6;color:#5b6d7c}
+.rv td:first-child{box-shadow:inset -3px 0 0 #f0a03c;border-color:#f3e3c6}
+.av{width:38px;height:38px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;flex:none;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:15px;background:linear-gradient(160deg,#e7f6f3,#cfeee8);color:#0f766e;box-shadow:inset 0 0 0 1px #bfe5dd}
+.av-off{background:#eef2f4;color:#5b6d7c;box-shadow:inset 0 0 0 1px #dde5e8}
+.av-mail{background:#ffffff;color:#0f766e;box-shadow:inset 0 0 0 1px #bfe5dd}
+.who{display:flex;align-items:center;gap:12px;min-width:0}
+.who span{display:flex;flex-direction:column;line-height:1.35;min-width:0}
+.who b{font-size:14px;font-weight:700;color:#0a2125}
+.acc{display:inline-flex;align-items:center;gap:8px}
+.bars{display:inline-flex;align-items:flex-end;gap:2px;height:16px}
+.bars i{display:block;width:4px;border-radius:2px;background:#0f8f80}
+.scrim{position:absolute;inset:0;background:rgba(10,33,37,.42);z-index:20}
+.drawer{position:absolute;inset-block:0;inset-inline-end:0;width:500px;max-width:100%;background:#ffffff;z-index:21;box-shadow:0 0 0 1px #e3e9ec,-24px 0 48px -20px rgba(10,33,37,.5);display:flex;flex-direction:column}
+.ib{width:36px;height:36px;border-radius:10px;border:0;background:transparent;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.ib:hover{background:rgba(255,255,255,.08)}
+.fl{display:flex;flex-direction:column;gap:6px}
+.fl>label,.fl>.lb{font-size:13px;font-weight:700;color:#0a2125}
+.req{color:#b3261e;margin-inline-start:2px}
+.in{height:42px;border:1px solid #c6d3d8;border-radius:11px;padding:0 12px;font:inherit;font-size:14px;color:#0a2125;background:#ffffff;box-sizing:border-box;width:100%}
+.in:focus{border-color:#0f766e;outline:2px solid #14a394;outline-offset:1px}
+.opts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.opt{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 12px;border:1px solid #d6dfe3;border-radius:12px;cursor:pointer;font:inherit;font-size:13px;font-weight:600;background:#ffffff;text-align:start;width:100%;color:#0a2125}
+.opt:hover{border-color:#9fdcd2}
+.opt-on{border-color:#0a2125;box-shadow:inset 0 0 0 1px #0a2125;background:#f6faf9}
+.radio{width:18px;height:18px;border-radius:50%;border:2px solid #53647a;box-sizing:border-box;display:flex;align-items:center;justify-content:center;flex:none}
+.opt-on .radio{border-color:#0a2125}
+.opt-on .radio::after{content:"";width:8px;height:8px;border-radius:50%;background:#0a2125}
+.chip{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 10px;border-radius:10px;border:1px solid #d6dfe3;background:#ffffff;font:inherit;font-size:12px;font-weight:600;color:#33454f;cursor:pointer}
+.chip-on{border-color:#0f766e;background:#e7f6f3;color:#0b5b55}
+.chk{width:14px;height:14px;border-radius:4px;border:2px solid #53647a;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center}
+.chip-on .chk{border-color:#0f766e;background:#0f766e}
+.chip-on .chk::after{content:"";width:6px;height:3px;border-inline-start:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) translate(1px,-1px)}
+.ft{border-top:1px solid #eef2f4;padding:14px 22px;display:flex;gap:8px;background:#fbfcfc}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#0f766e}
+.eyebrow i{width:18px;height:2px;border-radius:2px;background:#0f766e;display:block}
+.ledger{display:flex;flex-wrap:wrap;align-items:stretch;background:#ffffff;border:1px solid #e3e9ec;border-radius:18px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25);overflow:hidden}
+.ledger>div{display:flex;align-items:center;gap:12px;padding:14px 20px;min-width:0}
+.ledger>div+div{border-inline-start:1px solid #eef2f4}
+.ledger .lv{font-family:'Readex Pro',sans-serif;font-weight:600;font-size:22px;line-height:1;color:#0a2125;font-variant-numeric:tabular-nums}
+.ledger .ll{font-size:12px;color:#5b6d7c}
+.pile{display:flex;align-items:center}
+.pile span{width:34px;height:34px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:13px;background:#0a2125;color:#5fe0cf;box-shadow:0 0 0 3px #ffffff;margin-inline-start:-8px}
+.pile span:first-child{margin-inline-start:0}
+.pile .more{background:#e7f6f3;color:#0f766e}
+.grp-row td{background:transparent !important;border:0 !important;box-shadow:none !important;padding:10px 6px 0 !important}
+.grp-row span{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:700;color:#5b6d7c}
+.grp-row span::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,#e3e9ec,transparent)}
+.grp-row b{font-family:'Readex Pro',sans-serif;font-weight:600;color:#0a2125;background:#eef2f4;border-radius:6px;padding:0 7px}
+.mrow td{transition:background .14s,box-shadow .14s}
+.mrow:hover td{background:#ffffff;box-shadow:0 10px 22px -18px rgba(10,33,37,.45)}
+.mrow:hover td:first-child{box-shadow:inset -3px 0 0 #0f766e,0 10px 22px -18px rgba(10,33,37,.45)}
+.av{position:relative;background:#0a2125 !important;color:#5fe0cf !important;box-shadow:none !important}
+.av-off{background:#eef2f4 !important;color:#7a8b96 !important;box-shadow:inset 0 0 0 1px #dde5e8 !important}
+.av-mail{background:#ffffff !important;color:#0f766e !important;box-shadow:inset 0 0 0 1px #bfe5dd !important}
+.badge-r{position:absolute;bottom:-4px;inset-inline-end:-4px;width:18px;height:18px;border-radius:7px;background:#ffffff;box-shadow:0 0 0 1px #dfe7ea;display:flex !important;align-items:center;justify-content:center;color:#0f766e}
+.openb svg{transition:transform .14s}
+.mrow:hover .openb{border-color:#0a2125}
+.mrow:hover .openb svg{transform:translateX(-3px)}
+@media (prefers-reduced-motion: reduce){.mrow td,.openb svg{transition:none}}
+.band{position:relative;overflow:hidden;box-sizing:border-box;max-height:132px;min-height:112px;display:flex;flex-wrap:wrap;align-items:center;gap:14px 28px;padding:20px 26px;border-radius:22px;border:1px solid #0a2125;color:#ffffff;background-color:#0a2125;background-image:linear-gradient(rgba(95,224,207,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(95,224,207,.06) 1px,transparent 1px),radial-gradient(420px 200px at 0% 0%,rgba(95,224,207,.26),transparent 70%);background-size:24px 24px,24px 24px,100% 100%;box-shadow:0 18px 40px -28px rgba(10,33,37,.7)}
+.band>*:not(.band-orn){position:relative;z-index:1}
+.band-orn{position:absolute;inset-inline-end:0;bottom:0;width:360px;height:132px;opacity:.5;pointer-events:none}
+.band-id{flex:1 1 260px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.band-eye{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#5fe0cf}
+.band-eye i{width:18px;height:2px;border-radius:2px;background:#5fe0cf;display:block}
+.band-facts{display:flex;align-items:center;margin:0;padding:6px 4px;border-radius:16px;background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px rgba(95,224,207,.14)}
+.band-facts>div{display:flex;align-items:center;gap:10px;padding:4px 16px}
+.band-facts>div+div{border-inline-start:1px solid rgba(255,255,255,.1)}
+.band-facts>div>span:last-child{display:flex;flex-direction:column;gap:3px}
+.band-facts dd{margin:0;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:20px;line-height:1;font-variant-numeric:tabular-nums}
+.band-facts dt{font-size:12px;color:#a9c2c5;line-height:1.2}
+.band-facts .dot{width:9px;height:9px;border-radius:3px;transform:rotate(45deg);flex:none}
+.band .pile span{box-shadow:0 0 0 2px #0a2125;background:#163a40;color:#5fe0cf}
+.band .pile .more{background:#5fe0cf;color:#0a2125}
+.mint{color:#0a2125;background:#5fe0cf;border:1px solid #5fe0cf;box-shadow:0 10px 22px -12px rgba(95,224,207,.8)}
+.mint:hover{background:#86ebdd;color:#0a2125}
+@media (max-width: 640px){.band{max-height:none;background:#ffffff;color:#0a2125;border-color:#e3e9ec;box-shadow:none}.band-orn{display:none}.band-facts{display:none}.band-eye{color:#0f766e}.band-eye i{background:#0f766e}}
+@media (forced-colors: active){.band{background:Canvas;color:CanvasText;border:1px solid CanvasText}.band-orn{display:none}}
+.num{font-family:'Readex Pro',sans-serif;font-variant-numeric:tabular-nums;font-weight:600}
+.strip{display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;padding:12px 18px;border-radius:16px;background:#ffffff;border:1px solid #e3e9ec;font-size:13px;color:#33454f}
+.strip span{display:inline-flex;align-items:center;gap:8px}
+.locs{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;padding:4px 20px 20px}
+.loc{position:relative;display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:16px;background:#f8fafb;border:1px solid #eef2f4}
+.loc-p{background:#ffffff;border-color:#bfe5dd;box-shadow:inset 0 3px 0 #0f766e}
+.loc-off{opacity:.72}
+.shelf{display:flex;flex-direction:column;gap:3px}
+.shelf i{display:block;height:4px;border-radius:2px;background:#cfe0e3}
+.loc-p .shelf i{background:#9fdcd2}
+.mt{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px 0 6px;border-radius:9px;background:#eef2f4;color:#33454f;font-size:12px;font-weight:700}
+.mt b{width:18px;height:18px;border-radius:6px;background:#0a2125;color:#5fe0cf;display:inline-flex;align-items:center;justify-content:center}
+.st{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#33454f}
+.st::before{content:"";width:7px;height:7px;border-radius:2px;transform:rotate(45deg);background:currentColor;opacity:.8}
+.erp{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:8px;font-size:12px;font-weight:700;white-space:nowrap}
+.e-ok{background:#e4f5ec;color:#15774d}
+.e-pend{background:#e3eefa;color:#1b5fa8}
+.e-bad{background:#fde7e5;color:#b3261e}
+.e-rec{background:#fdf0dc;color:#8a4b00}
+.e-neu{background:#eef2f4;color:#33454f}
+.prod{display:inline-flex;align-items:center;gap:8px;text-decoration:none;color:#0f766e;font-weight:700}
+.prod:hover .mono{text-decoration:underline}
+.adhoc{display:inline-flex;align-items:center;gap:6px;color:#5b6d7c;font-size:12px;font-weight:700;padding:0 8px;height:24px;border-radius:8px;border:1px dashed #c6d3d8}
+.irow td{transition:background .14s,box-shadow .14s}
+.irow:hover td{background:#ffffff;box-shadow:0 10px 22px -18px rgba(10,33,37,.45)}
+.irow:hover td:first-child{box-shadow:inset -3px 0 0 #0f766e,0 10px 22px -18px rgba(10,33,37,.45)}
+.day td{background:transparent !important;border:0 !important;box-shadow:none !important;padding:12px 6px 0 !important}
+.day span{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:700;color:#5b6d7c}
+.day span::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,#e3e9ec,transparent)}
+.day b{font-family:'Readex Pro',sans-serif;font-weight:600;color:#0a2125}
+.more{flex:1;height:44px;border:1.5px dashed #c6d3d8;border-radius:14px;background:#fbfcfc;font:inherit;font-size:13px;font-weight:700;color:#0a2125;display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer}
+.more:hover{border-color:#0f766e;background:#f2f8f7}
+@media (prefers-reduced-motion: reduce){.irow td{transition:none}}
+</style>
+</helmet>
+
+<div style="position: relative; min-height: 100vh; display: flex; flex-wrap: wrap; align-items: stretch; background: #f2f5f6; color: #0a2125; font-family: Dubai, 'Segoe UI', Tahoma, system-ui, sans-serif; font-size: 14px; line-height: 1.6">
+  <aside aria-label="التنقل الرئيسي" style="flex: 1 1 240px; max-width: 100%; box-sizing: border-box; padding: 22px 16px; display: flex; flex-direction: column; gap: 22px; color: #ffffff; background-color: #0a2125; background-image: linear-gradient(rgba(95,224,207,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(95,224,207,.05) 1px, transparent 1px), radial-gradient(420px 260px at 100% 0%, rgba(43,196,179,.22), transparent 70%); background-size: 28px 28px, 28px 28px, 100% 100%">
+    <div style="display: flex; align-items: center; gap: 12px; padding: 0 4px">
+      <div aria-hidden="true" style="width: 44px; height: 44px; border-radius: 13px; background: linear-gradient(160deg, #5fe0cf, #0f766e 70%); display: flex; align-items: flex-end; justify-content: center; gap: 3px; padding-bottom: 10px; box-sizing: border-box">
+        <span style="width: 5px; height: 12px; border-radius: 2px; background: rgba(255,255,255,.7)"></span><span style="width: 5px; height: 22px; border-radius: 2px; background: #ffffff"></span><span style="width: 5px; height: 16px; border-radius: 2px; background: rgba(255,255,255,.85)"></span>
+      </div>
+      <div style="display: flex; flex-direction: column; line-height: 1.25"><span class="disp" style="font-weight: 600; font-size: 18px">Retail Tower</span><span style="font-size: 12px; color: #7fa3a8">منصة إدارة التجزئة</span></div>
+    </div>
+    <nav style="display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">العمليات</span>
+        <a class="nv" href="Overview-v9.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10l8-6 8 6v10H4z"/><path d="M10 20v-6h4v6"/></svg>الرئيسية</a>
+        <a class="nv" href="Sales.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>المبيعات</a>
+        <a class="nv" href="Catalog.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>الأصناف</a>
+        <a class="nv" href="Shifts.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M3 11h18M7 15h3M8 7V4h8v3"/></svg>الورديات</a>
+        <a class="nv nv-on" href="#" aria-current="page"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg>المخزون</a>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">الإدارة</span>
+        <a class="nv" href="Stores.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v10h16V10M3 10l2-6h14l2 6zM9 20v-6h6v6"/></svg>المتاجر</a>
+        <a class="nv" href="Devices.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>الأجهزة</a>
+        <a class="nv" href="Users.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M3 20a6 6 0 0112 0M16 4.5a3.5 3.5 0 010 7M18 20a6 6 0 00-3-5.2"/></svg>المستخدمون</a>
+      </div>
+    </nav>
+  </aside>
+  <div style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column">
+    <main style="width: 100%; max-width: 1360px; box-sizing: border-box; padding: 22px 26px 40px; display: flex; flex-direction: column; gap: 18px">
+      <a href="#" style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; text-decoration: none; width: fit-content"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>كل المتاجر</a>
+
+      <header class="band" aria-labelledby="pg-h">
+        <svg class="band-orn" aria-hidden="true" viewBox="0 0 360 132" fill="none" stroke="#5fe0cf" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"><path d="M20 132V78h46v54M66 132V50h38v82M104 132V26l20-14 20 14v106M144 132V64h52v68M196 132V40h34v92M230 132V72h46v60M276 132V46h38v86M314 132V84h36v48" stroke-opacity=".55"/><path d="M30 92h6M46 92h6M30 106h6M46 106h6M76 62h5M90 62h5M76 76h5M90 76h5M76 90h5M90 90h5M114 40h4M128 40h4M114 54h4M128 54h4M114 68h4M128 68h4M114 82h4M128 82h4M156 78h7M176 78h7M156 92h7M176 92h7M206 54h5M218 54h5M206 68h5M218 68h5M206 82h5M218 82h5M242 86h6M260 86h6M286 60h5M300 60h5M286 74h5M300 74h5" stroke-opacity=".85"/><path d="M124 12V2"/></svg>
+        <div class="band-id">
+          <span class="band-eye"><i aria-hidden="true"></i>المخزون</span>
+          <h1 id="pg-h" class="disp" style="margin: 0; font-size: 26px; font-weight: 600; line-height: 1.3">مخزون المتجر · فرع المعادي</h1>
+          <span style="font-size: 13px; color: #a9c2c5">مواقع التخزين وكل حركات المخزون في هذا المتجر، الأحدث أولًا.</span>
+        </div>
+        <dl class="band-facts" aria-label="ملخص المتجر">
+          <div><span class="dot" aria-hidden="true" style="background: #5fe0cf"></span><span><dd>3</dd><dt>مواقع تخزين</dt></span></div>
+          <div><span class="dot" aria-hidden="true" style="background: #5fd39a"></span><span><dd>2</dd><dt>نشطة</dt></span></div>
+        </dl>
+        <div class="band-act"><span style="display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border-radius: 10px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.16); font-size: 12px; font-weight: 700; color: #e6f0f1"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5fe0cf" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>للقراءة فقط</span></div>
+      </header>
+
+      <div class="strip">
+        <span><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0f766e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v5h1"/></svg>عرض للقراءة فقط. لا تُسجَّل هنا أي حركة أو تحويل أو جرد.</span>
+        <span><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0f766e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h10M4 17h7"/></svg>الأرصدة هنا محسوبة من حركات Retail Tower. رصيد ERPNext الدفتري يظهر في <a href="#">فروقات المخزون</a>.</span>
+      </div>
+
+      <section class="box" aria-labelledby="loc-h">
+        <div style="display: flex; align-items: center; gap: 10px; padding: 18px 20px 12px"><span class="sec" aria-hidden="true">01</span><h2 id="loc-h" class="disp" style="margin: 0; font-size: 16px; font-weight: 600">مواقع التخزين</h2><span class="hs" style="margin-inline-start: auto">الموقع الرئيسي أولًا</span></div>
+        <ul class="locs" aria-label="مواقع التخزين في المتجر، الموقع الرئيسي أولًا" style="list-style: none; margin: 0">
+          <sc-for list="{{ locations }}" as="l" hint-placeholder-count="3">
+            <li class="{{ l.cls }}">
+              <div style="display: flex; align-items: flex-start; gap: 12px">
+                <span class="shelf" aria-hidden="true" style="width: 34px; padding-top: 4px"><i></i><i></i><i></i></span>
+                <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.35">
+                  <b style="font-size: 15px">{{ l.name }}</b>
+                  <bdi dir="ltr" class="mono" style="color: #5b6d7c; text-align: end">{{ l.code }}</bdi>
+                </div>
+              </div>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap">
+                <span class="erp e-neu">{{ l.kind }}</span>
+                <sc-if value="{{ l.active }}" hint-placeholder-val="{{ true }}"><span class="erp e-ok">نشط</span></sc-if>
+                <sc-if value="{{ l.inactive }}" hint-placeholder-val="{{ false }}"><span class="erp e-neu" style="border: 1px dashed #b7c5ca; background: #ffffff">غير نشط</span></sc-if>
+              </div>
+            </li>
+          </sc-for>
+        </ul>
+      </section>
+
+      <section class="box" aria-labelledby="mv-h">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 18px 20px 0"><span class="sec" aria-hidden="true">02</span><h2 id="mv-h" class="disp" style="margin: 0; font-size: 16px; font-weight: 600">سجل حركات المخزون</h2><span class="hs" style="flex-basis: 100%; padding-inline-start: 40px">كل حركة في المتجر، لكل المنتجات والحركات بلا منتج. افتح منتجًا لرؤية رصيده.</span></div>
+        <div style="padding: 0 14px">
+          <table class="tbl">
+            <caption style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">حركات المخزون، الأحدث أولًا</caption>
+            <thead><tr><th scope="col">وقت الحركة</th><th scope="col">النوع</th><th scope="col">المنتج</th><th scope="col" style="text-align: end">الكمية</th><th scope="col">الموقع والحالة</th><th scope="col">السبب</th><th scope="col">حالة ERPNext</th></tr></thead>
+            <tbody>
+              <sc-for list="{{ moves }}" as="m" hint-placeholder-count="8">
+                <sc-if value="{{ m.dayStart }}" hint-placeholder-val="{{ false }}"><tr class="day"><td colspan="7"><span><b>{{ m.weekday }}</b> {{ m.day }}</span></td></tr></sc-if>
+                <tr class="irow">
+                  <td><bdi dir="ltr">{{ m.time }}</bdi></td>
+                  <td><span class="mt"><b aria-hidden="true"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="{{ m.glyph }}"/></svg></b>{{ m.type }}</span></td>
+                  <td>
+                    <sc-if value="{{ m.hasProduct }}" hint-placeholder-val="{{ true }}"><a class="prod" href="Inventory-product.dc.html" aria-label="افتح رصيد المنتج {{ m.pid }}"><bdi dir="ltr" class="mono">{{ m.pshort }}</bdi><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></a></sc-if>
+                    <sc-if value="{{ m.adhoc }}" hint-placeholder-val="{{ false }}"><span class="adhoc">حركة بلا منتج</span></sc-if>
+                  </td>
+                  <td style="text-align: end"><bdi dir="ltr" class="num">{{ m.qty }}</bdi></td>
+                  <td><span style="display: flex; flex-direction: column; line-height: 1.35"><span>{{ m.loc }}</span><span class="st" style="color: {{ m.stColor }}">{{ m.status }}</span></span></td>
+                  <td style="white-space: normal; max-width: 200px; color: #33454f"><bdi dir="auto">{{ m.reason }}</bdi></td>
+                  <td><span class="{{ m.erpCls }}">{{ m.erp }}</span></td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+        <div style="display: flex; padding: 6px 18px 18px"><button type="button" class="more"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>تحميل حركات أقدم</button></div>
+      </section>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1680,"height":1400}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const L = (name, code, primary, active) => ({ name: name, code: code, kind: primary ? 'رئيسي' : 'تخزين', active: active, inactive: !active, cls: 'loc' + (primary ? ' loc-p' : '') + (active ? '' : ' loc-off') });
+    const G = {
+      'وارد': 'M12 19V5M6 11l6-6 6 6', 'صادر': 'M12 5v14M6 13l6 6 6-6', 'تسوية': 'M4 8h10M18 8h2M4 16h4M12 16h8M14 5v6M8 13v6',
+      'تحويل صادر': 'M4 12h14M13 6l6 6-6 6', 'تحويل وارد': 'M20 12H6M11 6l-6 6 6 6', 'تصحيح جرد': 'M5 12l4 4 10-10'
+    };
+    const SC = { 'قابل للبيع': '#15774d', 'فحص مرتجع': '#1b5fa8', 'تالف': '#b3261e', 'منتهي الصلاحية': '#8a4b00' };
+    const E = { 'أكّده ERPNext': 'erp e-ok', 'قيد الترحيل': 'erp e-pend', 'رفضه ERPNext': 'erp e-bad', 'تحتاج إلى مطابقة': 'erp e-rec', 'لا ترحيل مطلوب': 'erp e-neu', 'مصدره ERPNext': 'erp e-neu' };
+    const M = (day, weekday, time, type, pid, qty, loc, status, reason, erp) => ({ day: day, weekday: weekday, time: time, type: type, glyph: G[type], pid: pid, pshort: pid ? pid.slice(0, 8) + '…' : '', hasProduct: !!pid, adhoc: !pid, qty: qty, loc: loc, status: status, stColor: SC[status] || '#33454f', reason: reason || '—', erp: erp, erpCls: E[erp] });
+    const list = [
+      M('30 أكتوبر', 'الجمعة', '13:42', 'صادر', '7c2e91d4-5b0a-4f3e-9a61-0d8b2c4f7e15', '2', 'المخزن الرئيسي', 'قابل للبيع', 'بيع', 'قيد الترحيل'),
+      M('30 أكتوبر', 'الجمعة', '11:05', 'تسوية', 'a1f04c63-2e7b-4d19-8c5a-6b3e0f9d2a71', '3', 'المخزن الرئيسي', 'تالف', 'تلف: عبوات مكسورة أثناء التفريغ', 'أكّده ERPNext'),
+      M('30 أكتوبر', 'الجمعة', '09:30', 'وارد', '7c2e91d4-5b0a-4f3e-9a61-0d8b2c4f7e15', '48', 'المخزن الرئيسي', 'قابل للبيع', 'استلام توريد', 'مصدره ERPNext'),
+      M('29 أكتوبر', 'الخميس', '19:12', 'تحويل صادر', '3e8d5a20-9c41-4b7f-b2e6-1a0c7d93f548', '12', 'رف العرض', 'قابل للبيع', 'إلى فرع الدقي', 'تحتاج إلى مطابقة'),
+      M('29 أكتوبر', 'الخميس', '16:48', 'صادر', null, '1.5', 'المخزن الرئيسي', 'قابل للبيع', 'عيّنة تذوّق', 'لا ترحيل مطلوب'),
+      M('29 أكتوبر', 'الخميس', '12:20', 'تصحيح جرد', 'a1f04c63-2e7b-4d19-8c5a-6b3e0f9d2a71', '4', 'رف العرض', 'قابل للبيع', 'جرد دوري', 'رفضه ERPNext'),
+      M('29 أكتوبر', 'الخميس', '10:02', 'تحويل وارد', '9b6f2e18-7d3c-4a05-8e92-c41f5a0b6d37', '20', 'المخزن الرئيسي', 'فحص مرتجع', 'من فرع مدينة نصر', 'أكّده ERPNext')
+    ];
+    return {
+      locations: [L('المخزن الرئيسي', 'MAA-MAIN', true, true), L('رف العرض', 'MAA-SHELF', false, true), L('مخزن السطح القديم', 'MAA-ROOF', false, false)],
+      moves: list.map((x, i) => Object.assign({}, x, { dayStart: i === 0 || list[i - 1].day !== x.day }))
+    };
+  }
+}
+</script>
+</body>
+</html>

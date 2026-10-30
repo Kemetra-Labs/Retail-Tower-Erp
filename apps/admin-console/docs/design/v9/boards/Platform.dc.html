@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>المنصة · المؤسسات — Retail Tower Console</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f2f5f6}
+a{color:#0f766e}a:hover{color:#0b5b55}
+:focus-visible{outline:2px solid #14a394;outline-offset:2px}
+.disp{font-family:'Readex Pro',Dubai,'Segoe UI',sans-serif}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.nv{display:flex;align-items:center;gap:14px;min-height:46px;padding:0 14px;border-radius:12px;color:#a9c2c5;text-decoration:none;font-size:14px;position:relative}
+.nv:hover{background:rgba(255,255,255,.05);color:#ffffff}
+.nv svg{flex:none}
+.nv-on{color:#ffffff;font-weight:700;background:linear-gradient(90deg,rgba(43,196,179,.22),rgba(43,196,179,.04));box-shadow:inset 0 0 0 1px rgba(95,224,207,.22)}
+.nv-on::before{content:"";position:absolute;inset-inline-start:-16px;top:10px;bottom:10px;width:4px;border-radius:0 4px 4px 0;background:#5fe0cf;box-shadow:0 0 14px 2px rgba(95,224,207,.7)}
+.nv-on svg{color:#5fe0cf}
+.grp{font-size:11px;color:#5f8186;padding:0 14px 4px;font-weight:700}
+.hs{font-size:12px;color:#5b6d7c}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 16px;border-radius:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap;border:1px solid transparent}
+.ink{color:#ffffff;background:#0a2125;border-color:#0a2125;box-shadow:0 8px 18px -10px rgba(10,33,37,.8)}
+.ink:hover{color:#ffffff;background:#12333a}
+.ghost{color:#0a2125;background:#ffffff;border-color:#d6dfe3}
+.ghost:hover{border-color:#9fdcd2}
+.quiet{color:#33454f;background:transparent}
+.quiet:hover{background:#eef2f4}
+.dq{color:#b3261e;background:#ffffff;border-color:#f2d6d3}
+.dq:hover{background:#fdf3f2}
+.dd{color:#ffffff;background:#b3261e;border-color:#b3261e}
+.dd:hover{background:#9a1f19}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:9px;font-size:12px;font-weight:700;white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:2px;background:currentColor;transform:rotate(45deg)}
+.ok{background:#e4f5ec;color:#15774d}
+.warn{background:#fdf0dc;color:#8a4b00}
+.role{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px 0 12px;border-radius:9px;font-size:12px;font-weight:700;background:#eef2f4;color:#33454f;white-space:nowrap}
+.role svg{color:#0f766e}
+.role-unk{background:#ffffff;border:1px dashed #b7c5ca;color:#5b6d7c}
+.sec{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:24px;padding:0 6px;border-radius:8px;background:#0a2125;color:#5fe0cf;font-family:'Readex Pro',sans-serif;font-size:11px;font-weight:600}
+.box{background:#ffffff;border:1px solid #e3e9ec;border-radius:20px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25)}
+.sum{display:flex;flex-wrap:wrap;gap:10px}
+.sum span{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:12px;background:#ffffff;border:1px solid #e3e9ec;font-size:13px;color:#33454f}
+.sum b{font-family:'Readex Pro',sans-serif;font-weight:600;color:#0a2125}
+.tbl{width:100%;border-collapse:separate;border-spacing:0 8px;font-size:13px}
+.tbl th{font-size:12px;color:#5b6d7c;font-weight:700;text-align:start;padding:0 16px 2px}
+.tbl td{padding:12px 16px;background:#f8fafb;border-block:1px solid #eef2f4;white-space:nowrap}
+.tbl td:first-child{border-inline-start:1px solid #eef2f4;border-start-start-radius:14px;border-end-start-radius:14px}
+.tbl td:last-child{border-inline-end:1px solid #eef2f4;border-start-end-radius:14px;border-end-end-radius:14px}
+.tbl tr:hover td{background:#f2f8f7}
+.rv td{background:#fffaf2;border-color:#f3e3c6;color:#5b6d7c}
+.rv td:first-child{box-shadow:inset -3px 0 0 #f0a03c;border-color:#f3e3c6}
+.av{width:38px;height:38px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;flex:none;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:15px;background:linear-gradient(160deg,#e7f6f3,#cfeee8);color:#0f766e;box-shadow:inset 0 0 0 1px #bfe5dd}
+.av-off{background:#eef2f4;color:#5b6d7c;box-shadow:inset 0 0 0 1px #dde5e8}
+.av-mail{background:#ffffff;color:#0f766e;box-shadow:inset 0 0 0 1px #bfe5dd}
+.who{display:flex;align-items:center;gap:12px;min-width:0}
+.who span{display:flex;flex-direction:column;line-height:1.35;min-width:0}
+.who b{font-size:14px;font-weight:700;color:#0a2125}
+.acc{display:inline-flex;align-items:center;gap:8px}
+.bars{display:inline-flex;align-items:flex-end;gap:2px;height:16px}
+.bars i{display:block;width:4px;border-radius:2px;background:#0f8f80}
+.scrim{position:absolute;inset:0;background:rgba(10,33,37,.42);z-index:20}
+.drawer{position:absolute;inset-block:0;inset-inline-end:0;width:500px;max-width:100%;background:#ffffff;z-index:21;box-shadow:0 0 0 1px #e3e9ec,-24px 0 48px -20px rgba(10,33,37,.5);display:flex;flex-direction:column}
+.ib{width:36px;height:36px;border-radius:10px;border:0;background:transparent;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.ib:hover{background:rgba(255,255,255,.08)}
+.fl{display:flex;flex-direction:column;gap:6px}
+.fl>label,.fl>.lb{font-size:13px;font-weight:700;color:#0a2125}
+.req{color:#b3261e;margin-inline-start:2px}
+.in{height:42px;border:1px solid #c6d3d8;border-radius:11px;padding:0 12px;font:inherit;font-size:14px;color:#0a2125;background:#ffffff;box-sizing:border-box;width:100%}
+.in:focus{border-color:#0f766e;outline:2px solid #14a394;outline-offset:1px}
+.opts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.opt{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 12px;border:1px solid #d6dfe3;border-radius:12px;cursor:pointer;font:inherit;font-size:13px;font-weight:600;background:#ffffff;text-align:start;width:100%;color:#0a2125}
+.opt:hover{border-color:#9fdcd2}
+.opt-on{border-color:#0a2125;box-shadow:inset 0 0 0 1px #0a2125;background:#f6faf9}
+.radio{width:18px;height:18px;border-radius:50%;border:2px solid #53647a;box-sizing:border-box;display:flex;align-items:center;justify-content:center;flex:none}
+.opt-on .radio{border-color:#0a2125}
+.opt-on .radio::after{content:"";width:8px;height:8px;border-radius:50%;background:#0a2125}
+.chip{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 10px;border-radius:10px;border:1px solid #d6dfe3;background:#ffffff;font:inherit;font-size:12px;font-weight:600;color:#33454f;cursor:pointer}
+.chip-on{border-color:#0f766e;background:#e7f6f3;color:#0b5b55}
+.chk{width:14px;height:14px;border-radius:4px;border:2px solid #53647a;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center}
+.chip-on .chk{border-color:#0f766e;background:#0f766e}
+.chip-on .chk::after{content:"";width:6px;height:3px;border-inline-start:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) translate(1px,-1px)}
+.ft{border-top:1px solid #eef2f4;padding:14px 22px;display:flex;gap:8px;background:#fbfcfc}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#0f766e}
+.eyebrow i{width:18px;height:2px;border-radius:2px;background:#0f766e;display:block}
+.ledger{display:flex;flex-wrap:wrap;align-items:stretch;background:#ffffff;border:1px solid #e3e9ec;border-radius:18px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25);overflow:hidden}
+.ledger>div{display:flex;align-items:center;gap:12px;padding:14px 20px;min-width:0}
+.ledger>div+div{border-inline-start:1px solid #eef2f4}
+.ledger .lv{font-family:'Readex Pro',sans-serif;font-weight:600;font-size:22px;line-height:1;color:#0a2125;font-variant-numeric:tabular-nums}
+.ledger .ll{font-size:12px;color:#5b6d7c}
+.pile{display:flex;align-items:center}
+.pile span{width:34px;height:34px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:13px;background:#0a2125;color:#5fe0cf;box-shadow:0 0 0 3px #ffffff;margin-inline-start:-8px}
+.pile span:first-child{margin-inline-start:0}
+.pile .more{background:#e7f6f3;color:#0f766e}
+.grp-row td{background:transparent !important;border:0 !important;box-shadow:none !important;padding:10px 6px 0 !important}
+.grp-row span{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:700;color:#5b6d7c}
+.grp-row span::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,#e3e9ec,transparent)}
+.grp-row b{font-family:'Readex Pro',sans-serif;font-weight:600;color:#0a2125;background:#eef2f4;border-radius:6px;padding:0 7px}
+.mrow td{transition:background .14s,box-shadow .14s}
+.mrow:hover td{background:#ffffff;box-shadow:0 10px 22px -18px rgba(10,33,37,.45)}
+.mrow:hover td:first-child{box-shadow:inset -3px 0 0 #0f766e,0 10px 22px -18px rgba(10,33,37,.45)}
+.av{position:relative;background:#0a2125 !important;color:#5fe0cf !important;box-shadow:none !important}
+.av-off{background:#eef2f4 !important;color:#7a8b96 !important;box-shadow:inset 0 0 0 1px #dde5e8 !important}
+.av-mail{background:#ffffff !important;color:#0f766e !important;box-shadow:inset 0 0 0 1px #bfe5dd !important}
+.badge-r{position:absolute;bottom:-4px;inset-inline-end:-4px;width:18px;height:18px;border-radius:7px;background:#ffffff;box-shadow:0 0 0 1px #dfe7ea;display:flex !important;align-items:center;justify-content:center;color:#0f766e}
+.openb svg{transition:transform .14s}
+.mrow:hover .openb{border-color:#0a2125}
+.mrow:hover .openb svg{transform:translateX(-3px)}
+@media (prefers-reduced-motion: reduce){.mrow td,.openb svg{transition:none}}
+.band{position:relative;overflow:hidden;box-sizing:border-box;max-height:132px;min-height:112px;display:flex;flex-wrap:wrap;align-items:center;gap:14px 28px;padding:20px 26px;border-radius:22px;border:1px solid #0a2125;color:#ffffff;background-color:#0a2125;background-image:linear-gradient(rgba(95,224,207,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(95,224,207,.06) 1px,transparent 1px),radial-gradient(420px 200px at 0% 0%,rgba(95,224,207,.26),transparent 70%);background-size:24px 24px,24px 24px,100% 100%;box-shadow:0 18px 40px -28px rgba(10,33,37,.7)}
+.band>*:not(.band-orn){position:relative;z-index:1}
+.band-orn{position:absolute;inset-inline-end:0;bottom:0;width:360px;height:132px;opacity:.5;pointer-events:none}
+.band-id{flex:1 1 260px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.band-eye{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#5fe0cf}
+.band-eye i{width:18px;height:2px;border-radius:2px;background:#5fe0cf;display:block}
+.band-facts{display:flex;align-items:center;margin:0;padding:6px 4px;border-radius:16px;background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px rgba(95,224,207,.14)}
+.band-facts>div{display:flex;align-items:center;gap:10px;padding:4px 16px}
+.band-facts>div+div{border-inline-start:1px solid rgba(255,255,255,.1)}
+.band-facts>div>span:last-child{display:flex;flex-direction:column;gap:3px}
+.band-facts dd{margin:0;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:20px;line-height:1;font-variant-numeric:tabular-nums}
+.band-facts dt{font-size:12px;color:#a9c2c5;line-height:1.2}
+.band-facts .dot{width:9px;height:9px;border-radius:3px;transform:rotate(45deg);flex:none}
+.band .pile span{box-shadow:0 0 0 2px #0a2125;background:#163a40;color:#5fe0cf}
+.band .pile .more{background:#5fe0cf;color:#0a2125}
+.mint{color:#0a2125;background:#5fe0cf;border:1px solid #5fe0cf;box-shadow:0 10px 22px -12px rgba(95,224,207,.8)}
+.mint:hover{background:#86ebdd;color:#0a2125}
+@media (max-width: 640px){.band{max-height:none;background:#ffffff;color:#0a2125;border-color:#e3e9ec;box-shadow:none}.band-orn{display:none}.band-facts{display:none}.band-eye{color:#0f766e}.band-eye i{background:#0f766e}}
+@media (forced-colors: active){.band{background:Canvas;color:CanvasText;border:1px solid CanvasText}.band-orn{display:none}}
+.gl{color:#e6f0f1 !important;background:rgba(255,255,255,.06) !important;border:1px solid rgba(255,255,255,.18) !important}
+.gl:hover{background:rgba(255,255,255,.12) !important;color:#ffffff !important}
+.pchip{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:6px;background:#5fe0cf;color:#0a2125;font-family:'Readex Pro',sans-serif;font-size:10px;font-weight:700;letter-spacing:.06em}
+.ssb{position:relative;overflow:hidden;display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px;padding:12px 18px 12px 16px;border-radius:18px;color:#ffffff;background:#0a2125;box-shadow:0 14px 30px -22px rgba(10,33,37,.9)}
+.ssb::before{content:"";position:absolute;inset-block:0;inset-inline-start:0;width:10px;background:repeating-linear-gradient(135deg,#5fe0cf 0 6px,#0a2125 6px 12px);opacity:.8}
+.ssb>*{position:relative}
+.ssb .bdg{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:9px;background:#5fe0cf;color:#0a2125;font-size:12px;font-weight:700;margin-inline-start:6px}
+.ssb .who{display:flex;flex-direction:column;line-height:1.35}
+.ssb .who b{font-size:14px}
+.ssb .who span{font-size:12px;color:#a9c2c5}
+.chipd{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);font-size:12px;color:#e6f0f1}
+.clock{display:flex;align-items:center;gap:10px;margin-inline-start:auto}
+.clock svg{flex:none}
+.clock .t{display:flex;flex-direction:column;line-height:1.3}
+.clock .t b{font-family:'Readex Pro',sans-serif;font-weight:600;font-size:14px}
+.clock .t span{font-size:11px;color:#a9c2c5}
+.cap{display:flex;flex-direction:column;gap:4px;min-width:150px}
+.cap .trk{height:6px;border-radius:3px;background:rgba(255,255,255,.1);overflow:hidden}
+.cap .trk i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#2bc4b3,#5fe0cf)}
+.cap span{font-size:11px;color:#a9c2c5}
+.mint{color:#0a2125 !important;background:#5fe0cf !important;border:1px solid #5fe0cf !important}
+.srch{display:flex;align-items:center;gap:10px;height:44px;padding:0 14px;border:1px solid #c6d3d8;border-radius:13px;background:#ffffff;font-size:14px;color:#0a2125;flex:1 1 320px}
+.drow td{transition:background .14s}
+.drow:hover td{background:#ffffff}
+.tn{display:flex;align-items:center;gap:12px}
+.tn .ti{width:38px;height:38px;border-radius:12px;background:#0a2125;color:#5fe0cf;display:inline-flex;align-items:center;justify-content:center;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:15px;flex:none}
+.tn .tm .ti{background:#e7f6f3;color:#0f766e}
+.mem{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:7px;background:#e7f6f3;color:#0b5b55;font-size:11px;font-weight:700}
+.opt{display:flex;align-items:center;gap:12px;width:100%;min-height:52px;padding:8px 12px;border:1px solid #d6dfe3;border-radius:13px;cursor:pointer;font:inherit;font-size:14px;font-weight:700;background:#ffffff;text-align:start;color:#0a2125}
+.opt:hover{border-color:#9fdcd2}
+.opt i{width:32px;height:32px;border-radius:10px;background:#eef2f4;color:#33454f;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.opt-on{border-color:#0a2125;box-shadow:inset 0 0 0 1px #0a2125;background:#f6faf9}
+.opt-on i{background:#0a2125;color:#5fe0cf}
+.radio{width:18px;height:18px;border-radius:50%;border:2px solid #53647a;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:none;margin-inline-start:auto}
+.opt-on .radio{border-color:#0a2125}
+.opt-on .radio::after{content:"";width:8px;height:8px;border-radius:50%;background:#0a2125}
+.fl{display:flex;flex-direction:column;gap:6px}
+.fl>label,.fl>.lb{font-size:13px;font-weight:700}
+.in{height:42px;border:1px solid #c6d3d8;border-radius:11px;padding:0 12px;font:inherit;font-size:14px;color:#0a2125;background:#ffffff;box-sizing:border-box;width:100%}
+.info{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:14px;background:#f6f9fa;border:1px solid #e3e9ec;font-size:13px}
+.info i{width:30px;height:30px;border-radius:10px;background:#0a2125;color:#5fe0cf;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.tl{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:4px;margin-top:8px}
+.tl span{height:12px;border-radius:4px;border:1px dashed #9fb4ba}
+.tl span.f{background:#0f766e;border-color:#0f766e}
+.tlx{display:flex;justify-content:space-between;font-size:10px;color:#5b6d7c;font-family:'Readex Pro',sans-serif;margin-top:3px}
+</style>
+</helmet>
+
+<div style="position: relative; min-height: 100vh; display: flex; flex-wrap: wrap; align-items: stretch; background: #f2f5f6; color: #0a2125; font-family: Dubai, 'Segoe UI', Tahoma, system-ui, sans-serif; font-size: 14px; line-height: 1.6">
+  <aside aria-label="تنقل المنصة" style="flex: 1 1 240px; max-width: 100%; box-sizing: border-box; padding: 22px 16px; display: flex; flex-direction: column; gap: 22px; color: #ffffff; background-color: #0a2125; background-image: linear-gradient(rgba(95,224,207,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(95,224,207,.05) 1px, transparent 1px), radial-gradient(420px 260px at 100% 0%, rgba(43,196,179,.22), transparent 70%); background-size: 28px 28px, 28px 28px, 100% 100%; position: relative; overflow: hidden">
+    <div style="display: flex; align-items: center; gap: 12px; padding: 0 4px">
+      <div aria-hidden="true" style="width: 44px; height: 44px; border-radius: 13px; background: linear-gradient(160deg, #5fe0cf, #0f766e 70%); display: flex; align-items: flex-end; justify-content: center; gap: 3px; padding-bottom: 10px; box-sizing: border-box">
+        <span style="width: 5px; height: 12px; border-radius: 2px; background: rgba(255,255,255,.7)"></span><span style="width: 5px; height: 22px; border-radius: 2px; background: #ffffff"></span><span style="width: 5px; height: 16px; border-radius: 2px; background: rgba(255,255,255,.85)"></span>
+      </div>
+      <div style="display: flex; flex-direction: column; line-height: 1.25; gap: 3px"><span class="disp" style="font-weight: 600; font-size: 18px">Retail Tower</span><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #7fa3a8"><span class="pchip">PLATFORM</span>المنصة</span></div>
+    </div>
+    <nav aria-label="المنصة" style="display: flex; flex-direction: column; gap: 3px">
+      <span class="grp">المنصة</span>
+      <a class="nv nv-on" href="#" aria-current="page"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-5h6v5M9 11h.01M15 11h.01"/></svg>المؤسسات</a>
+    </nav>
+    <svg aria-hidden="true" viewBox="0 0 220 160" style="margin-top: auto; width: 100%; height: 150px; opacity: .45" fill="none" stroke="#5fe0cf" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round">
+      <circle cx="110" cy="96" r="58" stroke-opacity=".35"/><circle cx="110" cy="96" r="38" stroke-opacity=".25" stroke-dasharray="3 5"/>
+      <path d="M96 154V70l14-10 14 10v84" stroke-opacity=".9"/><path d="M103 82h3M114 82h3M103 94h3M114 94h3M103 106h3M114 106h3M103 118h3M114 118h3" stroke-opacity=".8"/>
+      <path d="M44 154V112h20v42M156 154V102h22v52M66 154V126h16v28M134 154V122h18v32" stroke-opacity=".6"/>
+      <circle cx="52" cy="60" r="3" fill="#5fe0cf"/><circle cx="170" cy="48" r="3" fill="#5fe0cf"/><circle cx="184" cy="92" r="3" fill="#5fe0cf"/><circle cx="34" cy="104" r="3" fill="#5fe0cf"/>
+      <path d="M52 60L96 80M170 48L124 74M184 92L124 96M34 104L96 104" stroke-opacity=".35" stroke-dasharray="2 4"/>
+      <path d="M10 154h200" stroke-opacity=".6"/>
+    </svg>
+  </aside>
+
+  <div style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column">
+    <main style="width: 100%; max-width: 1360px; box-sizing: border-box; padding: 20px 26px 40px; display: flex; flex-direction: column; gap: 18px">
+      <section class="ssb" role="region" aria-label="جلسة الدعم">
+        <span class="bdg"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14v-2a8 8 0 0116 0v2M4 14h3v5H4zM17 14h3v5h-3z"/></svg>وصول دعم</span>
+        <span class="who"><b>تعمل الآن داخل: <bdi>مؤسسة النيل للتجزئة</bdi></b><span>الغرض: دعم العملاء</span></span>
+        <span class="chipd">التذكرة <bdi dir="ltr" class="mono">SUP-2210</bdi></span>
+        <span class="chipd"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#5fe0cf" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>للقراءة فقط</span>
+        <span class="clock">
+          <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="16" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="4"/><circle cx="20" cy="20" r="16" fill="none" stroke="#5fe0cf" stroke-width="4" stroke-linecap="round" stroke-dasharray="63.8 100.5" transform="rotate(-90 20 20)"/></svg>
+          <span class="t"><b>متبقٍّ: 38 دقيقة · حتى <bdi dir="ltr">14:10</bdi></b><span>لا تُمدَّد تلقائيًا</span></span>
+        </span>
+        <span class="cap" aria-hidden="true"><span class="trk"><i style="width: 5%"></i></span><span>حد التجديد <bdi dir="ltr">21:10</bdi> · 8 ساعات من البدء</span></span>
+        <span style="display: flex; gap: 8px"><button type="button" class="btn mint" style="height: 34px">تجديد الجلسة</button><button type="button" class="btn gl" style="height: 34px">إنهاء الجلسة</button></span>
+      </section>
+
+      <header class="band" aria-labelledby="pg-h">
+        <svg class="band-orn" aria-hidden="true" viewBox="0 0 360 132" fill="none" stroke="#5fe0cf" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"><path d="M20 132V78h46v54M66 132V50h38v82M104 132V26l20-14 20 14v106M144 132V64h52v68M196 132V40h34v92M230 132V72h46v60M276 132V46h38v86M314 132V84h36v48" stroke-opacity=".55"/><path d="M30 92h6M46 92h6M30 106h6M46 106h6M76 62h5M90 62h5M76 76h5M90 76h5M76 90h5M90 90h5M114 40h4M128 40h4M114 54h4M128 54h4M114 68h4M128 68h4M114 82h4M128 82h4M156 78h7M176 78h7M156 92h7M176 92h7M206 54h5M218 54h5M206 68h5M218 68h5M206 82h5M218 82h5M242 86h6M260 86h6M286 60h5M300 60h5M286 74h5M300 74h5" stroke-opacity=".85"/><path d="M124 12V2"/></svg>
+        <div class="band-id">
+          <span class="band-eye"><i aria-hidden="true"></i>المنصة</span>
+          <h1 id="pg-h" class="disp" style="margin: 0; font-size: 26px; font-weight: 600; line-height: 1.3">المؤسسات</h1>
+          <span style="font-size: 13px; color: #a9c2c5">كل المؤسسات على المنصة. افتح جلسة دعم لمؤسسة واحدة لتطّلع عليها للقراءة فقط.</span>
+        </div>
+        <dl class="band-facts" aria-label="ملخص المؤسسات">
+          <div><span class="dot" aria-hidden="true" style="background: #5fe0cf"></span><span><dd>{{ total }}</dd><dt>مؤسسات</dt></span></div>
+          <div><span class="dot" aria-hidden="true" style="background: #5fd39a"></span><span><dd>{{ members }}</dd><dt>أنت عضو فيها</dt></span></div>
+        </dl>
+      </header>
+
+      <section class="box" aria-labelledby="dir-h">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 18px 18px 6px">
+          <label class="srch"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5b6d7c" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">ابحث باسم المؤسسة أو معرّفها</span><span class="hs" style="font-size: 14px">ابحث باسم المؤسسة أو معرّفها</span></label>
+          <span class="hs">المعروض: <b class="num" style="color: #0a2125; font-family: 'Readex Pro', sans-serif">{{ total }}</b> من <b class="num" style="color: #0a2125; font-family: 'Readex Pro', sans-serif">{{ total }}</b></span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 20px 0"><span class="sec" aria-hidden="true">01</span><h2 id="dir-h" class="disp" style="margin: 0; font-size: 16px; font-weight: 600">قائمة المؤسسات</h2><span class="hs" style="margin-inline-start: auto; display: inline-flex; align-items: center; gap: 6px"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0f766e" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v5h1"/></svg>المؤسسة الموقوفة تُفتح جلستها للقراءة فقط.</span></div>
+        <div style="padding: 0 14px 14px">
+          <table class="tbl">
+            <caption style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">قائمة المؤسسات</caption>
+            <thead><tr><th scope="col">المؤسسة</th><th scope="col">المعرّف</th><th scope="col" style="text-align: end">الإجراء</th></tr></thead>
+            <tbody>
+              <sc-for list="{{ tenants }}" as="t" hint-placeholder-count="6">
+                <tr class="drow">
+                  <td><span class="{{ t.tnCls }}"><span class="ti" aria-hidden="true">{{ t.ini }}</span><span style="display: flex; flex-direction: column; line-height: 1.35"><b style="font-size: 14px"><bdi>{{ t.name }}</bdi></b><bdi dir="ltr" class="mono" style="color: #5b6d7c; text-align: end">{{ t.slug }}</bdi></span><sc-if value="{{ t.member }}" hint-placeholder-val="{{ false }}"><span class="mem">أنت عضو فيها</span></sc-if></span></td>
+                  <td><bdi dir="ltr" class="mono" style="color: #33454f">{{ t.idS }}</bdi></td>
+                  <td style="text-align: end">
+                    <sc-if value="{{ t.member }}" hint-placeholder-val="{{ false }}"><button type="button" class="btn ghost" style="height: 34px; font-size: 12px" aria-label="فتح المؤسسة: {{ t.name }}">فتح المؤسسة</button></sc-if>
+                    <sc-if value="{{ t.notMember }}" hint-placeholder-val="{{ true }}"><button type="button" class="btn ink" style="height: 34px; font-size: 12px" onClick="{{ t.start }}" aria-label="بدء جلسة دعم: {{ t.name }}"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14v-2a8 8 0 0116 0v2M4 14h3v5H4zM17 14h3v5h-3z"/></svg>بدء جلسة دعم</button></sc-if>
+                  </td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <sc-if value="{{ drawer }}" hint-placeholder-val="{{ true }}">
+    <div class="scrim" aria-hidden="true" onClick="{{ close }}"></div>
+    <div class="drawer" role="dialog" aria-modal="true" aria-labelledby="st-h" style="width: 520px">
+      <div style="position: relative; overflow: hidden; padding: 20px 22px 18px; display: flex; align-items: flex-start; gap: 12px; color: #ffffff; background-color: #0a2125; background-image: linear-gradient(rgba(95,224,207,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(95,224,207,.07) 1px, transparent 1px), radial-gradient(260px 140px at 0% 0%, rgba(95,224,207,.3), transparent 70%); background-size: 22px 22px, 22px 22px, 100% 100%">
+        <span aria-hidden="true" class="disp" style="width: 48px; height: 48px; border-radius: 15px; background: rgba(95,224,207,.16); color: #5fe0cf; display: inline-flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 600; flex: none">{{ cur.ini }}</span>
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 3px">
+          <span style="font-size: 12px; color: #a9c2c5">وصول دعم للقراءة فقط</span>
+          <h2 id="st-h" class="disp" style="margin: 0; font-size: 19px; font-weight: 600">جلسة دعم: <bdi>{{ cur.name }}</bdi></h2>
+        </div>
+        <button type="button" class="ib" aria-label="إغلاق" onClick="{{ close }}" style="color: #c3d6d8"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div style="flex: 1; overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 16px">
+        <div role="status" style="display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 14px; background: #fffaf2; border: 1px solid #f3dfbd; font-size: 13px; color: #5a3300"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a35a00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none"><path d="M17 3l4 4-4 4M21 7H8M7 21l-4-4 4-4M3 17h13"/></svg>لديك جلسة دعم حالية. بدء هذه الجلسة يُنهي الجلسة الحالية.</div>
+        <div class="fl" role="radiogroup" aria-labelledby="pp-l"><span id="pp-l" class="lb">الغرض <span style="font-weight: 400; color: #5b6d7c">(إلزامي)</span></span>
+          <sc-for list="{{ purposes }}" as="p" hint-placeholder-count="3"><button type="button" role="radio" aria-checked="{{ p.aria }}" class="{{ p.cls }}" onClick="{{ p.pick }}"><i aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="{{ p.icon }}"/></svg></i>{{ p.label }}<span class="radio" aria-hidden="true"></span></button></sc-for>
+        </div>
+        <div class="fl"><label for="tk">مرجع التذكرة <span style="font-weight: 400; color: #5b6d7c">(اختياري)</span></label><input id="tk" class="in mono" dir="ltr" value="SUP-2231" aria-describedby="tk-h"><span id="tk-h" class="hs">حتى 64 حرفًا: حروف إنجليزية وأرقام و . _ : # / - فقط، بدون مسافات. يظهر لمالك المؤسسة في سجل التدقيق، فلا تضع فيه بيانات العملاء.</span></div>
+        <div class="info"><i aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></i><span><b style="display: block">النطاق</b>للقراءة فقط: لا يُعدَّل شيء في المؤسسة من جلسة الدعم.</span></div>
+        <div class="info" style="flex-direction: column; gap: 6px">
+          <span style="display: flex; gap: 12px; align-items: flex-start"><i aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></i><span><b style="display: block">المدة</b>60 دقيقة، ولا تُمدَّد تلقائيًا. كل تجديد يمدّها حتى 60 دقيقة، دون تجاوز 8 ساعات من بدء الجلسة.</span></span>
+          <span aria-hidden="true" style="padding-inline-start: 42px"><span class="tl"><span class="f"></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span><span class="tlx"><span>البدء</span><span>4 س</span><span>حد التجديد · 8 س</span></span></span>
+        </div>
+        <div class="info"><i aria-hidden="true" style="background: #eef2f4; color: #33454f"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg></i><span><b style="display: block">مؤسسة موقوفة</b>إن كانت المؤسسة موقوفة فالجلسة للقراءة فقط.</span></div>
+      </div>
+      <div class="ft"><button type="button" class="btn ink" style="flex: 1">بدء جلسة الدعم</button><button type="button" class="btn quiet" onClick="{{ close }}">إلغاء</button></div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1680,"height":1000}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { open: 't2', purpose: 'incident' }; }
+  renderVals() {
+    const s = this.state;
+    const set = (o) => this.setState(o);
+    const T = (id, name, slug, uuid, member) => ({ id: id, name: name, slug: slug, ini: name.charAt(0), idS: uuid.slice(0, 8) + '…', member: member, notMember: !member, tnCls: 'tn' + (member ? ' tm' : ''), start: () => set({ open: id }) });
+    const list = [
+      T('t1', 'مؤسسة النيل للتجزئة', 'nile-retail', '5d0f6e13-8a29-4c7b-b1e4-93a20c7f6d51', false),
+      T('t2', 'مخابز الدلتا', 'delta-bakeries', '9a4c2e71-3b08-4f5d-a6e9-0c1d7b52f384', false),
+      T('t3', 'صيدليات الشفاء', 'shifa-pharmacies', '2e7b90d4-6c15-4a83-9f20-b5d3e8a1c467', false),
+      T('t4', 'متاجر رحمة', 'rahma-stores', 'c3f81a26-9d47-4b0e-8a15-7e6d2f904b3c', true),
+      T('t5', 'سوبرماركت الأمل', 'amal-market', '7b2d5e98-1f63-4c0a-b8d7-4a9e3c1f6250', false),
+      T('t6', 'كافيهات المرسى', 'marsa-cafes', 'e05c3b17-48a2-4d9f-96b1-d82a7f4e0c93', false)
+    ];
+    const P = [
+      ['customer_support', 'دعم العملاء', 'M4 14v-2a8 8 0 0116 0v2M4 14h3v5H4zM17 14h3v5h-3z'],
+      ['incident', 'حادث', 'M12 3l10 18H2zM12 10v5M12 18h.01'],
+      ['onboarding', 'التهيئة', 'M5 19c1-4 4-7 9-9l3-5 2 2-5 3c-2 5-5 8-9 9zM9 15l-3 3']
+    ];
+    return {
+      tenants: list, total: list.length, members: list.filter((t) => t.member).length,
+      drawer: !!s.open, cur: list.find((t) => t.id === s.open) || list[1], close: () => set({ open: null }),
+      purposes: P.map((p) => ({ label: p[1], icon: p[2], aria: s.purpose === p[0] ? 'true' : 'false', cls: 'opt' + (s.purpose === p[0] ? ' opt-on' : ''), pick: () => set({ purpose: p[0] }) }))
+    };
+  }
+}
+</script>
+</body>
+</html>

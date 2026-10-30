@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>الأجهزة — Retail Tower Console</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f2f5f6}
+a{color:#0f766e}a:hover{color:#0b5b55}
+:focus-visible{outline:2px solid #14a394;outline-offset:2px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.disp{font-family:'Readex Pro',Dubai,'Segoe UI',sans-serif}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.nv{display:flex;align-items:center;gap:14px;min-height:46px;padding:0 14px;border-radius:12px;color:#a9c2c5;text-decoration:none;font-size:14px;position:relative}
+.nv:hover{background:rgba(255,255,255,.05);color:#ffffff}
+.nv svg{flex:none}
+.nv-on{color:#ffffff;font-weight:700;background:linear-gradient(90deg,rgba(43,196,179,.22),rgba(43,196,179,.04));box-shadow:inset 0 0 0 1px rgba(95,224,207,.22)}
+.nv-on::before{content:"";position:absolute;inset-inline-start:-16px;top:10px;bottom:10px;width:4px;border-radius:0 4px 4px 0;background:#5fe0cf;box-shadow:0 0 14px 2px rgba(95,224,207,.7)}
+.nv-on svg{color:#5fe0cf}
+.grp{font-size:11px;color:#5f8186;padding:0 14px 4px;font-weight:700}
+.box{background:#ffffff;border:1px solid #e3e9ec;border-radius:20px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25)}
+.hs{font-size:12px;color:#5b6d7c}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 16px;border-radius:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap}
+.ink{color:#ffffff;background:#0a2125;border:1px solid #0a2125}
+.ink:hover{color:#ffffff;background:#12333a}
+.ghost{color:#0a2125;border:1px solid #d6dfe3;background:#ffffff}
+.ghost:hover{color:#0a2125;border-color:#9fb4ba}
+.quiet{color:#33454f;border:1px solid transparent;background:transparent}
+.quiet:hover{background:#e9eff1}
+.dq{color:#b3261e;border:1px solid #f0bdb8;background:#ffffff}
+.dq:hover{background:#fdeceb;color:#b3261e}
+.dd{color:#ffffff;border:1px solid #8f1d17;background:#b3261e}
+.ib{width:40px;height:40px;border-radius:12px;border:0;background:transparent;color:#5b6d7c;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.ib:hover{background:#e9eff1;color:#0a2125}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:9px;font-size:12px;font-weight:700;white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:2px;background:currentColor;transform:rotate(45deg)}
+.neu{background:#e9eff1;color:#33454f}
+.warn{background:#fdf0dc;color:#8a4b00}
+.bad{background:#fde7e5;color:#b3261e}
+.tbl{width:100%;border-collapse:separate;border-spacing:0 6px;font-size:13px}
+.tbl th{color:#5b6d7c;font-weight:500;font-size:12px;text-align:start;padding:4px 16px;white-space:nowrap}
+.tbl td{padding:11px 16px;background:#f8fafb;color:#0a2125;white-space:nowrap;border-block:1px solid #eef2f4}
+.tbl td:first-child{border-start-start-radius:12px;border-end-start-radius:12px;border-inline-start:1px solid #eef2f4}
+.tbl td:last-child{border-start-end-radius:12px;border-end-end-radius:12px;border-inline-end:1px solid #eef2f4}
+.attn td{background:#fffaf2;border-color:#f3e3c6}
+.attn td:first-child{box-shadow:inset -3px 0 0 #f0a03c;border-color:#f3e3c6}
+.di{width:36px;height:36px;border-radius:11px;background:#0a2125;color:#5fe0cf;display:inline-flex;align-items:center;justify-content:center;flex:none;position:relative}
+.di .st{position:absolute;top:-3px;inset-inline-end:-3px;width:11px;height:11px;border-radius:50%;border:2px solid #ffffff}
+.fleet{display:flex;flex-wrap:wrap;gap:12px}
+.fs{flex:1 1 230px;min-width:0;display:flex;flex-direction:column;gap:10px;padding:14px 16px;border-radius:16px;background:#ffffff;border:1px solid #e3e9ec}
+.term{width:30px;height:36px;border-radius:7px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding-top:5px;box-sizing:border-box;gap:3px}
+.term i{display:block;width:20px;height:13px;border-radius:3px}
+.term b{display:block;width:12px;height:3px;border-radius:2px}
+.scrim{position:absolute;inset:0;background:rgba(10,33,37,.42);z-index:20}
+.drawer{position:absolute;inset-block:0;inset-inline-end:0;width:500px;max-width:100%;background:#ffffff;z-index:21;box-shadow:0 0 0 1px #e3e9ec,-24px 0 48px -20px rgba(10,33,37,.5);display:flex;flex-direction:column}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #eef2f4;font-size:13px}
+.kv span:first-child{color:#5b6d7c}
+.opt{display:flex;align-items:center;gap:12px;min-height:44px;padding:0 14px;border:1px solid #d6dfe3;border-radius:12px;cursor:pointer;font:inherit;font-size:14px;background:#ffffff;text-align:start;width:100%}
+.opt-on{border-color:#0a2125;box-shadow:inset 0 0 0 1px #0a2125;background:#f6faf9}
+.radio{width:18px;height:18px;border-radius:50%;border:2px solid #53647a;box-sizing:border-box;display:flex;align-items:center;justify-content:center;flex:none}
+.opt-on .radio{border-color:#0a2125}
+.opt-on .radio::after{content:"";width:8px;height:8px;border-radius:50%;background:#0a2125}
+.steps{display:flex;gap:6px;align-items:center;font-size:12px;color:#5b6d7c}
+.steps b{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:7px;background:#e9eff1;color:#33454f;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:11px}
+.steps .cur b{background:#0a2125;color:#5fe0cf}
+.steps .cur{color:#0a2125;font-weight:700}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.band{position:relative;overflow:hidden;box-sizing:border-box;max-height:132px;min-height:112px;display:flex;flex-wrap:wrap;align-items:center;gap:14px 24px;padding:20px 26px;border-radius:22px;border:1px solid #0a2125;color:#ffffff;background-color:#0a2125;background-image:linear-gradient(rgba(95,224,207,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(95,224,207,.06) 1px,transparent 1px),radial-gradient(420px 200px at 0% 0%,rgba(95,224,207,.26),transparent 70%);background-size:24px 24px,24px 24px,100% 100%;box-shadow:0 18px 40px -28px rgba(10,33,37,.7)}
+.band>*:not(.band-orn){position:relative;z-index:1}
+.band-orn{position:absolute;inset-inline-end:0;bottom:0;width:360px;height:132px;opacity:.5;pointer-events:none}
+.band-id{flex:1 1 260px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.band-eye{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#5fe0cf}
+.band-eye i{width:18px;height:2px;border-radius:2px;background:#5fe0cf;display:block}
+.band-act{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.band-facts{display:flex;align-items:center;margin:0;padding:6px 4px;border-radius:16px;background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px rgba(95,224,207,.14)}
+.band-facts>div{display:flex;align-items:center;gap:10px;padding:4px 16px}
+.band-facts>div+div{border-inline-start:1px solid rgba(255,255,255,.1)}
+.band-facts>div>span:last-child{display:flex;flex-direction:column;gap:3px}
+.band-facts dd{margin:0;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:20px;line-height:1;font-variant-numeric:tabular-nums}
+.band-facts dt{font-size:12px;color:#a9c2c5;line-height:1.2}
+.band-facts .dot{width:9px;height:9px;border-radius:3px;transform:rotate(45deg);flex:none}
+.mint{color:#0a2125 !important;background:#5fe0cf !important;border:1px solid #5fe0cf !important;box-shadow:0 10px 22px -12px rgba(95,224,207,.8) !important}
+.mint:hover{background:#86ebdd !important}
+.gl{color:#e6f0f1 !important;background:rgba(255,255,255,.06) !important;border:1px solid rgba(255,255,255,.18) !important}
+.gl:hover{background:rgba(255,255,255,.12) !important;color:#ffffff !important}
+.band .seg{background:rgba(255,255,255,.08) !important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+.band .seg button{color:#c3d6d8 !important}
+.band .seg .on{background:#5fe0cf !important;color:#0a2125 !important}
+.band label{color:#e6f0f1}
+@media (max-width: 640px){.band{max-height:none;background:#ffffff;color:#0a2125;border-color:#e3e9ec;box-shadow:none}.band-orn,.band-facts{display:none}.band-eye{color:#0f766e}.band-eye i{background:#0f766e}}
+@media (forced-colors: active){.band{background:Canvas;color:CanvasText;border:1px solid CanvasText}.band-orn{display:none}}
+</style>
+</helmet>
+
+<div style="position: relative; min-height: 100vh; display: flex; flex-wrap: wrap; align-items: stretch; background: #f2f5f6; color: #0a2125; font-family: Dubai, 'Segoe UI', Tahoma, system-ui, sans-serif; font-size: 14px; line-height: 1.6">
+
+  <aside aria-label="التنقل الرئيسي" style="flex: 1 1 240px; max-width: 100%; box-sizing: border-box; padding: 22px 16px; display: flex; flex-direction: column; gap: 22px; color: #ffffff; background-color: #0a2125; background-image: linear-gradient(rgba(95,224,207,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(95,224,207,.05) 1px, transparent 1px), radial-gradient(420px 260px at 100% 0%, rgba(43,196,179,.22), transparent 70%); background-size: 28px 28px, 28px 28px, 100% 100%">
+    <div style="display: flex; align-items: center; gap: 12px; padding: 0 4px">
+      <div aria-hidden="true" style="width: 44px; height: 44px; border-radius: 13px; background: linear-gradient(160deg, #5fe0cf, #0f766e 70%); display: flex; align-items: flex-end; justify-content: center; gap: 3px; padding-bottom: 10px; box-sizing: border-box">
+        <span style="width: 5px; height: 12px; border-radius: 2px; background: rgba(255,255,255,.7)"></span><span style="width: 5px; height: 22px; border-radius: 2px; background: #ffffff"></span><span style="width: 5px; height: 16px; border-radius: 2px; background: rgba(255,255,255,.85)"></span>
+      </div>
+      <div style="display: flex; flex-direction: column; line-height: 1.25"><span class="disp" style="font-weight: 600; font-size: 18px">Retail Tower</span><span style="font-size: 12px; color: #7fa3a8">منصة إدارة التجزئة</span></div>
+    </div>
+    <nav style="display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">العمليات</span>
+        <a class="nv" href="Overview-v9.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10l8-6 8 6v10H4z"/><path d="M10 20v-6h4v6"/></svg>الرئيسية</a>
+        <a class="nv" href="Sales.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>المبيعات</a>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">الإدارة</span>
+        <a class="nv" href="Stores.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v10h16V10M3 10l2-6h14l2 6zM9 20v-6h6v6"/></svg>المتاجر</a>
+        <a class="nv nv-on" href="#" aria-current="page"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>الأجهزة</a>
+        <a class="nv" href="#"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M3 20a6 6 0 0112 0M16 4.5a3.5 3.5 0 010 7M18 20a6 6 0 00-3-5.2"/></svg>المستخدمون</a>
+      </div>
+    </nav>
+  </aside>
+
+  <div style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column">
+    <main style="width: 100%; max-width: 1360px; box-sizing: border-box; padding: 28px 26px 40px; display: flex; flex-direction: column; gap: 18px">
+      <header class="band" aria-labelledby="pg-h">
+        <svg class="band-orn" aria-hidden="true" viewBox="0 0 360 132" fill="none" stroke="#5fe0cf" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"><path d="M20 132V78h46v54M66 132V50h38v82M104 132V26l20-14 20 14v106M144 132V64h52v68M196 132V40h34v92M230 132V72h46v60M276 132V46h38v86M314 132V84h36v48" stroke-opacity=".55"/><path d="M30 92h6M46 92h6M30 106h6M46 106h6M76 62h5M90 62h5M76 76h5M90 76h5M76 90h5M90 90h5M114 40h4M128 40h4M114 54h4M128 54h4M114 68h4M128 68h4M114 82h4M128 82h4M156 78h7M176 78h7M156 92h7M176 92h7M206 54h5M218 54h5M206 68h5M218 68h5M206 82h5M218 82h5M242 86h6M260 86h6M286 60h5M300 60h5M286 74h5M300 74h5" stroke-opacity=".85"/><path d="M124 12V2"/></svg>
+        <div class="band-id">
+          <span class="band-eye"><i aria-hidden="true"></i>الإدارة</span>
+          <h1 id="pg-h" class="disp" style="margin: 0; font-size: 26px; font-weight: 600; line-height: 1.3">الأجهزة</h1>
+          <span style="font-size: 13px; color: #a9c2c5">أجهزة نقاط البيع المربوطة في مؤسسة النيل للتجزئة · الاستثناءات أولًا</span>
+        </div>
+        <div class="band-act">
+          <a href="#" class="btn gl">رموز الربط<span class="disp" style="min-width: 20px; height: 20px; border-radius: 7px; background: #e9eff1; font-size: 11px; display: inline-flex; align-items: center; justify-content: center">1</span></a>
+        <a href="#" class="btn mint"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>إصدار رمز ربط</a>
+        </div>
+      </header>
+
+      <section aria-labelledby="f-h" style="border-radius: 22px; padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 14px; background-color: #0a2125; background-image: linear-gradient(rgba(95,224,207,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(95,224,207,.05) 1px, transparent 1px), radial-gradient(500px 200px at 0% 0%, rgba(95,224,207,.22), transparent 70%); background-size: 24px 24px, 24px 24px, 100% 100%">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px; color: #ffffff">
+          <h2 id="f-h" class="disp" style="margin: 0; font-size: 16px; font-weight: 600">خريطة الأجهزة</h2>
+          <span style="font-size: 12px; color: #a9c2c5">كل مربع جهاز، مجمّعة حسب المتجر</span>
+          <span style="margin-inline-start: auto; display: flex; gap: 14px; font-size: 12px; color: #c3d6d8">
+            <span style="display: inline-flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 3px; background: #5fe0cf"></span>فعّال</span>
+            <span style="display: inline-flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 3px; background: #f5b759"></span>يحتاج انتباهًا</span>
+            <span style="display: inline-flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 3px; background: #ff8f8a"></span>موقوف الصلاحية</span>
+          </span>
+        </div>
+        <ul class="fleet" style="list-style: none; margin: 0; padding: 0">
+          <sc-for list="{{ fleet }}" as="g" hint-placeholder-count="3">
+            <li class="fs" style="background: rgba(255,255,255,.05); border-color: rgba(95,224,207,.14); color: #ffffff">
+              <span style="display: flex; align-items: baseline; gap: 8px"><strong style="font-size: 13px; flex: 1">{{ g.store }}</strong><span style="font-size: 12px; color: #a9c2c5">{{ g.summary }}</span></span>
+              <span style="display: flex; gap: 8px; flex-wrap: wrap" role="list" aria-label="أجهزة {{ g.store }}">
+                <sc-for list="{{ g.items }}" as="t" hint-placeholder-count="2">
+                  <span role="listitem" class="term" title="{{ t.label }} · {{ t.state }}" aria-label="{{ t.label }}: {{ t.state }}" style="background: {{ t.bg }}"><i style="background: {{ t.fg }}"></i><b style="background: {{ t.fg }}"></b></span>
+                </sc-for>
+              </span>
+            </li>
+          </sc-for>
+        </ul>
+      </section>
+
+      <section class="box" aria-labelledby="l-h" style="overflow: hidden">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px 20px 6px">
+          <h2 id="l-h" class="disp" style="margin: 0; font-size: 16px; font-weight: 600">أجهزة نقاط البيع</h2>
+          <span class="hs">المحمّل: 6</span>
+          <label style="margin-inline-start: auto; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700">المتجر<select style="height: 36px; border: 1px solid #cfd9de; border-radius: 10px; background: #ffffff; padding: 0 12px; font: inherit; font-size: 13px"><option>كل المتاجر</option><option>فرع المعادي</option></select></label>
+        </div>
+        <div style="overflow-x: auto; padding: 0 16px 14px">
+          <table class="tbl">
+            <caption class="sr">أجهزة نقاط البيع، الاستثناءات أولًا</caption>
+            <thead><tr><th scope="col">الجهاز</th><th scope="col">المتجر</th><th scope="col">حالة الصلاحية</th><th scope="col">يحتاج انتباهًا</th><th scope="col">انتهاء الاعتماد</th><th scope="col">آخر نشاط</th><th scope="col"><span class="sr">إدارة</span></th></tr></thead>
+            <tbody>
+              <sc-for list="{{ devices }}" as="d" hint-placeholder-count="6">
+                <tr class="{{ d.cls }}">
+                  <td><span style="display: flex; align-items: center; gap: 12px"><span class="di" aria-hidden="true" style="{{ d.iconStyle }}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span class="st" style="background: {{ d.dot }}"></span></span><span style="display: flex; flex-direction: column; line-height: 1.35"><strong>{{ d.label }}</strong><bdi dir="ltr" class="mono" style="color: #5b6d7c">{{ d.id }}</bdi></span></span></td>
+                  <td>{{ d.store }}</td>
+                  <td>
+                    <sc-if value="{{ d.isActive }}" hint-placeholder-val="{{ true }}"><span class="pill neu">فعّال</span></sc-if>
+                    <sc-if value="{{ d.isRevoked }}" hint-placeholder-val="{{ false }}"><span class="pill bad">موقوف الصلاحية</span></sc-if>
+                  </td>
+                  <td>
+                    <sc-if value="{{ d.hasAtt }}" hint-placeholder-val="{{ false }}"><span class="pill warn">{{ d.att }}</span></sc-if>
+                    <sc-if value="{{ d.noAtt }}" hint-placeholder-val="{{ true }}"><span class="hs">لا يوجد استثناء مسجّل</span></sc-if>
+                  </td>
+                  <td><span style="display: inline-flex; align-items: center; gap: 10px; color: #33454f"><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" style="transform: rotate(-90deg)"><circle cx="12" cy="12" r="9" fill="none" stroke="#e3e9ec" stroke-width="3"/><circle cx="12" cy="12" r="9" fill="none" stroke="{{ d.ring }}" stroke-width="3" stroke-linecap="round" stroke-dasharray="{{ d.dash }}"/></svg>{{ d.expires }}</span></td>
+                  <td style="color: #33454f">{{ d.seen }}</td>
+                  <td style="text-align: end"><button type="button" class="btn ghost" style="height: 32px; font-size: 12px" onClick="{{ d.open }}" aria-label="إدارة {{ d.label }}، {{ d.store }}">إدارة</button></td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <sc-if value="{{ drawer }}" hint-placeholder-val="{{ false }}">
+    <div class="scrim" aria-hidden="true" onClick="{{ close }}"></div>
+    <div class="drawer" role="dialog" aria-modal="true" aria-labelledby="dw-h">
+      <div style="padding: 20px 22px 14px; border-bottom: 1px solid #eef2f4; display: flex; align-items: flex-start; gap: 12px; background-color: #0a2125; color: #ffffff; background-image: radial-gradient(260px 140px at 0% 0%, rgba(95,224,207,.25), transparent 70%)">
+        <span class="di" aria-hidden="true" style="width: 46px; height: 46px; border-radius: 14px; background: rgba(95,224,207,.16)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span>
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 2px">
+          <h2 id="dw-h" class="disp" style="margin: 0; font-size: 19px; font-weight: 600">{{ cur.label }} · {{ cur.store }}</h2>
+          <bdi dir="ltr" class="mono" style="color: #a9c2c5; text-align: end">{{ cur.id }}</bdi>
+        </div>
+        <button type="button" class="ib" aria-label="إغلاق" onClick="{{ close }}" style="color: #c3d6d8"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+
+      <div style="flex: 1; overflow-y: auto; padding: 16px 22px 20px; display: flex; flex-direction: column; gap: 16px">
+
+        <!-- Overview -->
+        <sc-if value="{{ stepOverview }}" hint-placeholder-val="{{ true }}">
+          <div>
+            <div class="kv"><span>حالة الصلاحية</span><span class="pill neu" style="height: 24px">فعّال</span></div>
+            <div class="kv"><span>يحتاج انتباهًا</span><span>{{ cur.attText }}</span></div>
+            <div class="kv"><span>وقت الربط</span><span>12 سبتمبر 2026 · <bdi dir="ltr">10:04</bdi></span></div>
+            <div class="kv"><span>انتهاء الاعتماد</span><span>{{ cur.expires }}</span></div>
+            <div class="kv"><span>آخر نشاط</span><span>{{ cur.seen }}</span></div>
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap">
+            <button type="button" class="btn ghost">استبدال هذا الجهاز</button>
+            <button type="button" class="btn ghost">نقل إلى متجر آخر</button>
+          </div>
+          <div style="margin-top: 6px; padding: 16px; border-radius: 14px; border: 1px solid #f2d6d3; display: flex; flex-direction: column; gap: 10px">
+            <strong style="font-size: 14px">إجراءات لا تُعكس بسهولة</strong>
+            <span class="hs" style="font-size: 13px">يسأل كل إجراء الخادم أولًا عمّا سيحدث، ثم يعرض الأثر قبل التأكيد.</span>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap"><button type="button" class="btn dq" onClick="{{ startRevoke }}">إيقاف صلاحية الجهاز</button><button type="button" class="btn dq">إخراج الجهاز من الخدمة</button></div>
+          </div>
+        </sc-if>
+
+        <!-- Revoke flow -->
+        <sc-if value="{{ inFlow }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <strong class="disp" style="font-size: 17px; font-weight: 600">إيقاف صلاحية الجهاز</strong>
+            <div class="steps" aria-label="الخطوات"><span class="{{ s1 }}"><b>1</b> السبب</span><span aria-hidden="true">—</span><span class="{{ s2 }}"><b>2</b> مراجعة الأثر</span><span aria-hidden="true">—</span><span class="{{ s3 }}"><b>3</b> تم</span></div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ stepReason }}" hint-placeholder-val="{{ false }}">
+          <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px" role="radiogroup">
+            <legend style="font-size: 14px; font-weight: 700; margin-bottom: 4px">لماذا تُوقف صلاحيته؟</legend>
+            <span class="hs" style="font-weight: 700">أحداث أمنية</span>
+            <sc-for list="{{ secReasons }}" as="o" hint-placeholder-count="3">
+              <sc-if value="{{ o.on }}" hint-placeholder-val="{{ false }}"><button type="button" role="radio" aria-checked="true" class="opt opt-on" onClick="{{ o.pick }}"><span class="radio" aria-hidden="true"></span>{{ o.label }}</button></sc-if>
+              <sc-if value="{{ o.off }}" hint-placeholder-val="{{ true }}"><button type="button" role="radio" aria-checked="false" class="opt" onClick="{{ o.pick }}"><span class="radio" aria-hidden="true"></span>{{ o.label }}</button></sc-if>
+            </sc-for>
+            <span class="hs" style="font-weight: 700; margin-top: 6px">أسباب أخرى</span>
+            <sc-for list="{{ otherReasons }}" as="o" hint-placeholder-count="4">
+              <sc-if value="{{ o.on }}" hint-placeholder-val="{{ false }}"><button type="button" role="radio" aria-checked="true" class="opt opt-on" onClick="{{ o.pick }}"><span class="radio" aria-hidden="true"></span>{{ o.label }}</button></sc-if>
+              <sc-if value="{{ o.off }}" hint-placeholder-val="{{ true }}"><button type="button" role="radio" aria-checked="false" class="opt" onClick="{{ o.pick }}"><span class="radio" aria-hidden="true"></span>{{ o.label }}</button></sc-if>
+            </sc-for>
+          </fieldset>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <label for="rv-n" style="font-size: 14px; font-weight: 700">الملاحظة</label>
+            <textarea id="rv-n" rows="3" placeholder="ماذا حدث، وأين نقد الدرج؟" style="box-sizing: border-box; border: 1px solid #9fb0bc; border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 14px; resize: vertical"></textarea>
+            <span class="hs">{{ noteHelp }}</span>
+          </div>
+          <sc-if value="{{ reasonErr }}" hint-placeholder-val="{{ false }}"><span role="alert" style="font-size: 13px; color: #b3261e; font-weight: 700">اختر سببًا.</span></sc-if>
+        </sc-if>
+
+        <sc-if value="{{ stepChecking }}" hint-placeholder-val="{{ false }}">
+          <div role="status" style="display: flex; align-items: center; gap: 10px; padding: 18px; border-radius: 14px; background: #f6faf9; border: 1px solid #e1ece9; font-size: 14px"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0f766e" stroke-width="2.4" stroke-linecap="round" style="animation: spin .8s linear infinite"><path d="M12 3a9 9 0 109 9"/></svg>جارٍ سؤال الخادم عمّا سيحدث…</div>
+        </sc-if>
+
+        <sc-if value="{{ stepReview }}" hint-placeholder-val="{{ false }}">
+          <section aria-labelledby="im-h" style="border-radius: 16px; overflow: hidden; border: 1px solid #e3e9ec">
+            <div style="padding: 14px 16px; background: #0a2125; color: #e6f0f1; display: flex; align-items: center; gap: 10px">
+              <h3 id="im-h" class="disp" style="margin: 0; font-size: 14px; font-weight: 600; flex: 1">ما يقوله الخادم عمّا سيحدث</h3>
+              <span style="font-size: 12px; color: #5fe0cf; font-weight: 700">مسموح به من الخادم.</span>
+            </div>
+            <div style="padding: 4px 16px 8px">
+              <div class="kv"><span>حالة الصلاحية الآن</span><span>فعّال</span></div>
+              <div class="kv"><span>الوردية المفتوحة</span><span>فُتحت <bdi dir="ltr">08:02</bdi> (تقفيل النقد)</span></div>
+              <div class="kv" style="background: #fffaf2; margin: 0 -16px; padding: 10px 16px"><span>استثناء العهدة الآن</span><strong style="color: #8a4b00">الوردية S-1182 مفتوحة على هذا الجهاز</strong></div>
+              <div class="kv"><span>جلسات المشغّلين التي ستنتهي</span><span class="disp" style="font-weight: 600">1</span></div>
+              <div class="kv" style="border-bottom: 0"><span>رموز الربط المعلّقة التي ستُلغى</span><span class="disp" style="font-weight: 600">0</span></div>
+            </div>
+          </section>
+          <label style="display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: 12px; border: 1px solid {{ ackBorder }}; background: #ffffff; cursor: pointer">
+            <input type="checkbox" onChange="{{ toggleAck }}" aria-invalid="{{ ackInvalid }}" aria-describedby="ack-e" style="width: 18px; height: 18px; margin: 3px 0 0; accent-color: #b3261e">
+            <span style="font-size: 14px; line-height: 1.6">أفهم ما سيحدث كما وصفه الخادم أعلاه، بما فيه الوردية المفتوحة على هذا الجهاز.</span>
+          </label>
+          <sc-if value="{{ ackErr }}" hint-placeholder-val="{{ false }}"><span id="ack-e" role="alert" style="font-size: 13px; color: #b3261e; font-weight: 700">أكّد أنك تفهم ذلك قبل إيقاف الصلاحية.</span></sc-if>
+        </sc-if>
+
+        <sc-if value="{{ stepDone }}" hint-placeholder-val="{{ false }}">
+          <div role="status" style="display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 24px 16px; border-radius: 16px; background: #f6faf9; border: 1px solid #e1ece9">
+            <span aria-hidden="true" style="width: 56px; height: 56px; border-radius: 16px; background: #0a2125; color: #5fe0cf; display: flex; align-items: center; justify-content: center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg></span>
+            <strong style="font-size: 16px">أُوقفت صلاحية الجهاز.</strong>
+            <span class="hs" style="font-size: 13px">الخطوة التالية: ربط جهاز بديل.</span>
+          </div>
+        </sc-if>
+      </div>
+
+      <div style="display: flex; gap: 8px; padding: 14px 22px; border-top: 1px solid #eef2f4">
+        <sc-if value="{{ stepOverview }}" hint-placeholder-val="{{ true }}"><button type="button" class="btn quiet" onClick="{{ close }}">إغلاق</button></sc-if>
+        <sc-if value="{{ stepReason }}" hint-placeholder-val="{{ false }}"><button type="button" class="btn ink" style="flex: 1" onClick="{{ toReview }}">مراجعة الأثر</button><button type="button" class="btn quiet" onClick="{{ back }}">رجوع</button></sc-if>
+        <sc-if value="{{ stepReview }}" hint-placeholder-val="{{ false }}"><button type="button" class="btn dd" style="flex: 1" onClick="{{ confirm }}">إيقاف صلاحية الجهاز</button><button type="button" class="btn quiet" onClick="{{ toReason }}">رجوع</button></sc-if>
+        <sc-if value="{{ stepDone }}" hint-placeholder-val="{{ false }}"><button type="button" class="btn ink" style="flex: 1">استبدال هذا الجهاز</button><button type="button" class="btn quiet" onClick="{{ close }}">تم</button></sc-if>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1680,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { open: null, step: 'overview', reason: null, reasonErr: false, ack: false, ackErr: false }; }
+  componentWillUnmount() { clearTimeout(this.t); }
+  renderVals() {
+    const s = this.state;
+    const d = (label, id, store, active, att, expires, seen, life) => ({ label: label, id: id, store: store, isActive: active, isRevoked: !active, att: att, hasAtt: !!att, noAtt: !att, attText: att || 'لا يوجد استثناء مسجّل', expires: expires, seen: seen, cls: att ? 'attn' : '', iconStyle: active ? '' : 'background: #e9eff1; color: #5b6d7c', dot: !active ? '#e5484d' : (att ? '#f0a03c' : '#2fb36d'), dash: (life * 56.5).toFixed(1) + ' 56.5', ring: life < 0.05 ? '#e5484d' : (life < 0.25 ? '#f0a03c' : '#0f8f80'), life: life });
+    const list = [
+      d('كاشير 1', 'trm_MAA01', 'فرع المعادي', true, 'استثناء عهدة: وردية مفتوحة', '12 مارس 2027', 'منذ دقيقة', 0.62),
+      d('كاشير 2', 'trm_NSR02', 'فرع مدينة نصر', true, 'انتهى الاعتماد (لا يُطبَّق بعد)', 'انتهى 28 أكتوبر', 'منذ 3 دقائق', 0),
+      d('كاشير 3', 'trm_MAA03', 'فرع المعادي', false, '', '—', 'منذ 47 دقيقة', 0),
+      d('كاشير 2', 'trm_MAA02', 'فرع المعادي', true, '', '12 مارس 2027', 'منذ 3 دقائق', 0.62),
+      d('كاشير 1', 'trm_NSR01', 'فرع مدينة نصر', true, '', '2 أبريل 2027', 'منذ دقيقتين', 0.71),
+      d('كاشير 1', 'trm_DOK01', 'فرع الدقي', true, '', '20 مايو 2027', 'منذ دقيقة', 0.85)
+    ];
+    const stores = [];
+    list.forEach((x) => { if (stores.indexOf(x.store) < 0) stores.push(x.store); });
+    const fleet = stores.map((st) => {
+      const items = list.filter((x) => x.store === st).map((x) => {
+        const k = !x.isActive ? 'r' : (x.att ? 'w' : 'a');
+        const pal = { a: ['rgba(95,224,207,.16)', '#5fe0cf', 'فعّال'], w: ['rgba(245,183,89,.18)', '#f5b759', x.att], r: ['rgba(255,143,138,.16)', '#ff8f8a', 'موقوف الصلاحية'] }[k];
+        return { label: x.label, bg: pal[0], fg: pal[1], state: pal[2] };
+      });
+      const act = list.filter((x) => x.store === st && x.isActive).length;
+      return { store: st, items: items, summary: act + ' / ' + items.length + ' فعّال' };
+    });
+    const set = (o) => this.setState(o);
+    const R = (k, l) => ({ label: l, on: s.reason === k, off: s.reason !== k, pick: () => set({ reason: k, reasonErr: false }) });
+    const security = ['lost', 'stolen', 'suspected_compromise'];
+    const cur = list.find((x) => x.id === s.open) || list[0];
+    const step = s.step;
+    const cls = (n) => ({ reason: 1, checking: 2, review: 2, done: 3 }[step] === n ? 'cur' : '');
+    return {
+      fleet: fleet,
+      devices: list.map((x) => Object.assign({}, x, { open: () => set({ open: x.id, step: 'overview', reason: null, ack: false, ackErr: false, reasonErr: false }) })),
+      drawer: !!s.open,
+      cur: cur,
+      close: () => { clearTimeout(this.t); set({ open: null, step: 'overview' }); },
+      stepOverview: step === 'overview', stepReason: step === 'reason', stepChecking: step === 'checking', stepReview: step === 'review', stepDone: step === 'done',
+      inFlow: step !== 'overview',
+      s1: cls(1), s2: cls(2), s3: cls(3),
+      startRevoke: () => set({ step: 'reason' }),
+      back: () => set({ step: 'overview' }),
+      toReason: () => set({ step: 'reason', ack: false, ackErr: false }),
+      secReasons: [R('lost', 'مفقود'), R('stolen', 'مسروق'), R('suspected_compromise', 'اشتباه في اختراق')],
+      otherReasons: [R('hardware_failure', 'عطل في الجهاز'), R('replaced', 'استُبدل بجهاز آخر'), R('admin_error', 'خطأ إداري'), R('other', 'سبب آخر')],
+      noteHelp: security.indexOf(s.reason) >= 0 ? 'مطلوبة. بلا بيانات شخصية أو رقم سري.' : 'اختيارية. بلا بيانات شخصية أو رقم سري.',
+      reasonErr: s.reasonErr,
+      toReview: () => { if (!s.reason) { set({ reasonErr: true }); return; } set({ step: 'checking' }); clearTimeout(this.t); this.t = setTimeout(() => set({ step: 'review' }), 1100); },
+      toggleAck: () => set({ ack: !s.ack, ackErr: false }),
+      ackErr: s.ackErr, ackInvalid: s.ackErr ? 'true' : 'false', ackBorder: s.ackErr ? '#b3261e' : '#d6dfe3',
+      confirm: () => { if (!s.ack) { set({ ackErr: true }); return; } set({ step: 'done' }); }
+    };
+  }
+}
+</script>
+</body>
+</html>
