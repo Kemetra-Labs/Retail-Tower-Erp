@@ -4,7 +4,7 @@
  * flag on, the terminal's open shift (tenant, branch and terminal, never the
  * operator). With the flag off no shift can exist, so nothing is required.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { bindCashShiftGate } from '../../../../src/main/payments/cash-shift-gate.js';
 import {
@@ -83,5 +83,20 @@ describe('bindCashShiftGate', () => {
     expect(gate(attemptScope())).toBe('shift_required');
     openShift(core, SCOPE);
     expect(gate(attemptScope())).toBe('ok');
+  });
+});
+
+describe('bindCashShiftGate — the default flag reader', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('reads POS_PULSE_FEATURE_SHIFT_CASHUP from the environment on every call', () => {
+    const core = bindRealPaymentsCore(currentDb());
+    const gate = bindCashShiftGate(core.handle);
+    vi.stubEnv('POS_PULSE_FEATURE_SHIFT_CASHUP', '');
+    expect(gate(attemptScope())).toBe('ok');
+    vi.stubEnv('POS_PULSE_FEATURE_SHIFT_CASHUP', 'true');
+    expect(gate(attemptScope())).toBe('shift_required');
   });
 });
