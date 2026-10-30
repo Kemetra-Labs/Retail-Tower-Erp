@@ -24,20 +24,34 @@ The build refuses to release when:
   replace the same-origin API default;
 - `dist/` lacks `index.html` or `assets/`, or contains source maps or `.env*` files.
 
-Publication (GitHub release assets) is not enabled yet: real releases are RT-717. Until then
-the tarball and its release manifest are workflow artifacts, named
-`admin-console-dist-<sha12>.tar.gz`. The tag and asset names in the contract below are the
-retired workflow's; RT-717 decides the published names. The archive content (`dist/` with
-`version.json`) and the serving rules are unchanged.
+An `admin-console/vX.Y.Z` tag publishes (RT-717 C1). The publish job runs behind the
+`release-admin-console` environment (owner reviewer, tag-only policy) and refuses to run
+if that environment is not set up that way. It checks that the archive is the one the
+manifest recorded, attests its build provenance and creates the GitHub release. The workflow
+itself only refuses to overwrite an existing release. The release is immutable after creation
+because release immutability is enabled on the repository, a repository setting the workflow
+does not manage.
+
+Owner setup before the first release (RT-717 plan C2): create the `release-admin-console`
+environment (required reviewer, deployment policy limited to `admin-console/v*` tags), and a
+tag ruleset for `admin-console/v*` that blocks updates and deletion and limits creation to
+release owners. The publish job re-checks that the tag still points at the built commit just
+before creating the release, but that check and the release creation are not atomic; the
+ruleset closes that window. The publish job does not check that the ruleset exists.
+A dry-run publishes nothing: its tarball and manifest stay workflow artifacts, named
+`admin-console-dist-<sha12>.tar.gz`. The archive content (`dist/` with `version.json`)
+and the serving rules are unchanged.
 
 ## Artifact contract (consumed by RT-336)
 
-Release tag `admin-console-<first 12 chars of the commit SHA>` holds two assets:
+Release tag `admin-console/vX.Y.Z` (the former `admin-console-<sha12>` tags belong to the
+frozen `Kemetra/Admin-Console` repository) holds three assets:
 
 | Asset | Content |
 | --- | --- |
-| `admin-console-<sha12>.tar.gz` | Archive root = the built `dist/`: `index.html`, `assets/`, `version.json` |
-| `admin-console-<sha12>.tar.gz.sha256` | `sha256sum` line for the archive |
+| `admin-console-vX.Y.Z.tar.gz` | Archive root = the built `dist/`: `index.html`, `assets/`, `version.json` |
+| `admin-console-vX.Y.Z.tar.gz.sha256` | `sha256sum` line for the archive |
+| `release-manifest.json` | Source SHA, `apps/admin-console` tree hash, archive digest, Backend-Core contract snapshot and CI URL |
 
 Serving rules for the host:
 
@@ -79,9 +93,12 @@ telemetry.
 ## Verifying before deployment
 
 ```bash
-gh release download admin-console-<sha12> --repo Kemetra/Admin-Console
-sha256sum -c admin-console-<sha12>.tar.gz.sha256
-tar -xzf admin-console-<sha12>.tar.gz -C <pinned-console-dir>
+TAG=admin-console/vX.Y.Z
+gh release download "$TAG" --repo Kemetra-Labs/Retail-Tower-Erp
+sha256sum -c admin-console-vX.Y.Z.tar.gz.sha256
+gh attestation verify admin-console-vX.Y.Z.tar.gz --repo Kemetra-Labs/Retail-Tower-Erp \
+  --signer-workflow Kemetra-Labs/Retail-Tower-Erp/.github/workflows/release-admin-console.yml
+tar -xzf admin-console-vX.Y.Z.tar.gz -C <pinned-console-dir>
 ```
 
 Record the deployed pair for every deployment: Admin Console `sha` and
