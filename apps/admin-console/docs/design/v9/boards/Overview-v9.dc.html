@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>نظرة عامة v9 — Retail Tower Console</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f2f5f6}
+a{color:#0f766e}a:hover{color:#0b5b55}
+:focus-visible{outline:2px solid #14a394;outline-offset:2px}
+.disp{font-family:'Readex Pro',Dubai,'Segoe UI',sans-serif}
+.nv{display:flex;align-items:center;gap:14px;min-height:46px;padding:0 14px;border-radius:12px;color:#a9c2c5;text-decoration:none;font-size:14px;position:relative;transition:background .15s,color .15s}
+.nv:hover{background:rgba(255,255,255,.05);color:#ffffff}
+.nv svg{flex:none}
+.nv-on{color:#ffffff;font-weight:700;background:linear-gradient(90deg,rgba(43,196,179,.22),rgba(43,196,179,.04));box-shadow:inset 0 0 0 1px rgba(95,224,207,.22)}
+.nv-on::before{content:"";position:absolute;inset-inline-start:-16px;top:10px;bottom:10px;width:4px;border-radius:0 4px 4px 0;background:#5fe0cf;box-shadow:0 0 14px 2px rgba(95,224,207,.7)}
+.nv-on svg{color:#5fe0cf}
+.grp{font-size:11px;color:#5f8186;padding:0 14px 4px;font-weight:700;letter-spacing:0}
+.nb{margin-inline-start:auto;min-width:20px;height:20px;padding:0 6px;box-sizing:border-box;border-radius:10px;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
+.box{background:#ffffff;border:1px solid #e3e9ec;border-radius:20px;box-shadow:0 1px 0 rgba(255,255,255,.8) inset,0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25)}
+.hd{display:flex;align-items:center;gap:12px;padding:18px 22px 10px;flex-wrap:wrap}
+.idx{font-family:'Readex Pro',sans-serif;font-size:11px;font-weight:600;color:#0f8f80;background:#e7f6f3;border-radius:6px;padding:2px 7px;font-variant-numeric:tabular-nums}
+.ht{margin:0;font-family:'Readex Pro',Dubai,sans-serif;font-size:16px;font-weight:600;color:#0a2125}
+.hs{font-size:12px;color:#5b6d7c}
+.more{margin-inline-start:auto;font-size:12px;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:4px}
+.sel{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 12px;border:1px solid #dfe6ea;border-radius:10px;background:#ffffff;font:inherit;font-size:12px;color:#0a2125;cursor:pointer}
+.seg{display:inline-flex;padding:3px;background:#e9eff1;border-radius:12px;gap:2px}
+.seg button{height:30px;padding:0 12px;border:0;border-radius:9px;background:transparent;font:inherit;font-size:12px;color:#5b6d7c;cursor:pointer}
+.seg .on{background:#0a2125;color:#ffffff;font-weight:700;box-shadow:0 4px 10px -4px rgba(10,33,37,.5)}
+/* receipt cards */
+.rc{flex:1 1 190px;min-width:0;position:relative;background:#ffffff;border:1px solid #e3e9ec;border-radius:20px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25);display:flex;flex-direction:column}
+.rc-top{padding:18px 20px 14px;display:flex;gap:12px;align-items:flex-start}
+.rc-perf{position:relative;height:0;border-top:2px dashed #e1e8eb;margin:0 18px}
+.rc-perf::before,.rc-perf::after{content:"";position:absolute;top:-10px;width:18px;height:18px;border-radius:50%;background:#f2f5f6;border:1px solid #e3e9ec}
+.rc-perf::before{inset-inline-start:-29px;clip-path:inset(0 0 0 50%)}
+.rc-perf::after{inset-inline-end:-29px;clip-path:inset(0 50% 0 0)}
+.rc-bot{padding:10px 20px 14px;display:flex;align-items:center;gap:8px;font-size:12px;color:#5b6d7c}
+.kl{font-size:13px;color:#5b6d7c;font-weight:500}
+.kv{font-family:'Readex Pro',sans-serif;font-size:30px;font-weight:600;color:#0a2125;font-variant-numeric:tabular-nums;line-height:1.1;letter-spacing:0}
+.cur{display:inline-block;font-family:'Readex Pro',sans-serif;font-size:11px;font-weight:600;color:#0f766e;background:#e7f6f3;border-radius:6px;padding:2px 6px;vertical-align:super;margin-inline-start:4px}
+.ki{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex:none;margin-inline-start:auto}
+.dl{display:inline-flex;align-items:center;gap:3px;height:22px;padding:0 8px;border-radius:7px;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;background:#e4f5ec;color:#15774d}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:9px;font-size:12px;font-weight:700;white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:2px;background:currentColor;transform:rotate(45deg)}
+.ok{background:#e4f5ec;color:#15774d}
+.pend{background:#e3eefa;color:#1b5fa8}
+.bad{background:#fde7e5;color:#b3261e}
+.tbl{width:100%;border-collapse:separate;border-spacing:0 6px;font-size:13px}
+.tbl th{color:#5b6d7c;font-weight:500;font-size:12px;text-align:start;padding:6px 16px;white-space:nowrap}
+.tbl td{padding:12px 16px;background:#f8fafb;color:#0a2125;white-space:nowrap;border-block:1px solid #eef2f4}
+.tbl td:first-child{border-start-start-radius:12px;border-end-start-radius:12px;border-inline-start:1px solid #eef2f4}
+.tbl td:last-child{border-start-end-radius:12px;border-end-end-radius:12px;border-inline-end:1px solid #eef2f4}
+.tbl tbody tr:hover td{background:#f0f8f6;border-color:#d4ece7}
+.flag td:first-child{box-shadow:inset -3px 0 0 #e5484d}
+.num{text-align:end !important;font-variant-numeric:tabular-nums}
+.ib{width:40px;height:40px;border-radius:12px;border:0;background:transparent;color:#5b6d7c;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;position:relative}
+.ib:hover{background:#e9eff1;color:#0a2125}
+.btn{display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 16px;border-radius:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap;transition:transform .12s,box-shadow .12s,background .12s}
+.ink{color:#ffffff;background:#0a2125;border:1px solid #0a2125;box-shadow:0 8px 18px -10px rgba(10,33,37,.8)}
+.ink:hover{color:#ffffff;transform:translateY(-1px);background:#12333a}
+.ghost{color:#0a2125;border:1px solid #d6dfe3;background:#ffffff}
+.ghost:hover{color:#0a2125;border-color:#9fb4ba}
+.qa{display:flex;align-items:center;gap:12px;padding:12px;border-radius:14px;text-decoration:none;color:#0a2125;font-size:13px;font-weight:700;background:#ffffff;border:1px solid #e3e9ec;transition:transform .14s,box-shadow .14s,border-color .14s}
+.qa:hover{color:#0a2125;border-color:#9fdcd2;transform:translateY(-2px);box-shadow:0 14px 24px -16px rgba(15,118,110,.6)}
+.qa .qi{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;flex:none;background:#0a2125;color:#5fe0cf}
+.qa .go{margin-inline-start:auto;color:#9fb4ba}
+.bar{height:6px;border-radius:3px;background:#edf2f4;overflow:hidden}
+.bar i{display:block;height:100%;border-radius:3px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.node{display:flex;align-items:center;gap:8px;font-size:12px;color:#33454f;white-space:nowrap}
+.node b{font-weight:700;color:#0a2125}
+.nd{width:10px;height:10px;border-radius:50%;flex:none}
+.link{flex:1 1 24px;min-width:18px;height:2px;background:repeating-linear-gradient(90deg,#b9cbd0 0 5px,transparent 5px 9px)}
+</style>
+</helmet>
+
+<div style="min-height: 100vh; display: flex; flex-wrap: wrap; align-items: stretch; background: radial-gradient(900px 380px at 30% -140px, rgba(43,196,179,.16), rgba(43,196,179,0) 70%), #f2f5f6; color: #0a2125; font-family: Dubai, 'Segoe UI', Tahoma, system-ui, sans-serif; font-size: 14px; line-height: 1.6">
+
+  <!-- Sidebar with tower-grid texture -->
+  <aside aria-label="التنقل الرئيسي" style="flex: 1 1 240px; max-width: 100%; box-sizing: border-box; padding: 22px 16px; display: flex; flex-direction: column; gap: 22px; color: #ffffff; background-color: #0a2125; background-image: linear-gradient(rgba(95,224,207,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(95,224,207,.05) 1px, transparent 1px), radial-gradient(420px 260px at 100% 0%, rgba(43,196,179,.22), transparent 70%); background-size: 28px 28px, 28px 28px, 100% 100%">
+    <div style="display: flex; align-items: center; gap: 12px; padding: 0 4px">
+      <div aria-hidden="true" style="width: 44px; height: 44px; border-radius: 13px; background: linear-gradient(160deg, #5fe0cf, #0f766e 70%); display: flex; align-items: flex-end; justify-content: center; gap: 3px; padding-bottom: 10px; box-sizing: border-box; box-shadow: 0 10px 24px -10px rgba(95,224,207,.9), inset 0 1px 0 rgba(255,255,255,.4)">
+        <span style="width: 5px; height: 12px; border-radius: 2px; background: rgba(255,255,255,.7)"></span>
+        <span style="width: 5px; height: 22px; border-radius: 2px; background: #ffffff"></span>
+        <span style="width: 5px; height: 16px; border-radius: 2px; background: rgba(255,255,255,.85)"></span>
+      </div>
+      <div style="display: flex; flex-direction: column; line-height: 1.25">
+        <span class="disp" style="font-weight: 600; font-size: 18px">Retail Tower</span>
+        <span style="font-size: 12px; color: #7fa3a8">منصة إدارة التجزئة</span>
+      </div>
+    </div>
+
+    <button type="button" aria-label="تغيير النطاق: كل المتاجر، مؤسسة النيل للتجزئة" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px; border: 1px solid rgba(95,224,207,.16); border-radius: 14px; background: rgba(255,255,255,.04); font: inherit; cursor: pointer; text-align: start; color: #ffffff">
+      <span aria-hidden="true" class="disp" style="width: 32px; height: 32px; border-radius: 9px; background: rgba(95,224,207,.16); color: #5fe0cf; display: flex; align-items: center; justify-content: center; font-weight: 600">ن</span>
+      <span style="display: flex; flex-direction: column; line-height: 1.3; min-width: 0; flex: 1">
+        <span style="font-weight: 700; font-size: 13px">كل المتاجر · 4</span>
+        <span style="font-size: 12px; color: #7fa3a8">مؤسسة النيل للتجزئة</span>
+      </span>
+      <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7fa3a8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 9l5-5 5 5M7 15l5 5 5-5"/></svg>
+    </button>
+
+    <nav style="display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">العمليات</span>
+        <a class="nv nv-on" href="#" aria-current="page"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10l8-6 8 6v10H4z"/><path d="M10 20v-6h4v6"/></svg>الرئيسية</a>
+        <a class="nv" href="#"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>المبيعات</a>
+        <a class="nv" href="#"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>الورديات</a>
+        <a class="nv" href="#"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>التقارير</a>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">الكتالوج والمخزون</span>
+        <a class="nv" href="#"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>الكتالوج</a>
+        <a class="nv" href="#"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg>المخزون<span class="nb" style="background: rgba(240,160,60,.18); color: #f5b759">24</span></a>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">ERPNext</span>
+        <a class="nv" href="#"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 0114-5.3L20 9M20 4v5h-5"/><path d="M20 12a8 8 0 01-14 5.3L4 15M4 20v-5h5"/></svg>المزامنة<span class="nb" style="background: #e5484d; color: #ffffff">3</span></a>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">الإدارة</span>
+        <a class="nv" href="#"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v10h16V10M3 10l2-6h14l2 6zM9 20v-6h6v6"/></svg>المتاجر</a>
+        <a class="nv" href="#"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>الأجهزة</a>
+        <a class="nv" href="#"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M3 20a6 6 0 0112 0M16 4.5a3.5 3.5 0 010 7M18 20a6 6 0 00-3-5.2"/></svg>المستخدمون</a>
+        <a class="nv" href="#"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>الإعدادات</a>
+      </div>
+    </nav>
+
+    <div style="margin-top: auto; padding: 16px; border-radius: 16px; background: linear-gradient(160deg, rgba(95,224,207,.14), rgba(95,224,207,.03)); border: 1px solid rgba(95,224,207,.2); display: flex; flex-direction: column; gap: 10px">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <span aria-hidden="true" style="width: 36px; height: 36px; border-radius: 10px; background: rgba(95,224,207,.18); color: #5fe0cf; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14v-2a8 8 0 0116 0v2"/><rect x="3" y="14" width="4" height="6" rx="1.5"/><rect x="17" y="14" width="4" height="6" rx="1.5"/></svg></span>
+        <span style="display: flex; flex-direction: column; line-height: 1.35"><strong style="font-size: 13px">تحتاج إلى مساعدة؟</strong><span style="font-size: 12px; color: #7fa3a8">فريق الدعم متاح دائمًا</span></span>
+      </div>
+      <a href="#" class="btn" style="justify-content: center; height: 36px; background: #5fe0cf; color: #0a2125; border: 0">تواصل مع الدعم</a>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column">
+    <header style="min-height: 68px; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 26px; background: rgba(255,255,255,.72); backdrop-filter: blur(14px); border-bottom: 1px solid #e3e9ec">
+      <button type="button" style="flex: 0 1 500px; min-width: 220px; display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 8px; padding-inline-start: 16px; border: 1px solid #dfe6ea; border-radius: 14px; background: #ffffff; box-shadow: 0 1px 2px rgba(10,33,37,.04); font: inherit; font-size: 13px; color: #5b6d7c; cursor: pointer; text-align: start">
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+        <span style="flex: 1">ابحث أو اكتب أمرًا… صنف، فاتورة، متجر</span>
+        <kbd dir="ltr" class="disp" style="font-size: 11px; padding: 3px 9px; border-radius: 8px; background: #0a2125; color: #5fe0cf">Ctrl K</kbd>
+      </button>
+      <div style="flex: 1"></div>
+      <button type="button" class="btn ghost" style="height: 40px; font-weight: 500"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></svg>English</button>
+      <button type="button" class="ib" aria-label="الوضع الداكن" aria-pressed="false"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 019.5 4 8 8 0 1020 14.5z"/></svg></button>
+      <button type="button" class="ib" aria-label="التنبيهات: 3 جديدة"><svg aria-hidden="true" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0112 0v5l2 2H4z"/><path d="M10 21h4"/></svg><span aria-hidden="true" style="position: absolute; top: 3px; inset-inline-end: 3px; min-width: 18px; height: 18px; border-radius: 9px; background: #e5484d; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; border: 2px solid #ffffff">3</span></button>
+      <div aria-hidden="true" style="width: 1px; height: 30px; background: #e3e9ec; margin: 0 6px"></div>
+      <button type="button" aria-label="قائمة المستخدم: أحمد شعبان" style="display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 6px; border: 0; border-radius: 12px; background: transparent; font: inherit; cursor: pointer; color: #0a2125">
+        <span style="display: flex; flex-direction: column; line-height: 1.3; text-align: start">
+          <span style="font-size: 14px; font-weight: 700">أحمد شعبان</span>
+          <span style="font-size: 12px; color: #5b6d7c">مدير المؤسسة</span>
+        </span>
+        <span aria-hidden="true" class="disp" style="width: 42px; height: 42px; border-radius: 14px; background: #0a2125; color: #5fe0cf; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; box-shadow: 0 0 0 3px #ffffff, 0 0 0 4px #cdeee8">أش</span>
+      </button>
+    </header>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 22px; padding: 24px 26px 32px; align-items: flex-start">
+
+      <main style="flex: 999 1 660px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+
+        <!-- Greeting + sync rail -->
+        <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px">
+          <div style="flex: 1 1 300px; display: flex; flex-direction: column; gap: 4px">
+            <span class="hs">الخميس 30 أكتوبر 2026 · آخر تحديث <bdi dir="ltr">14:32</bdi></span>
+            <h1 class="disp" style="margin: 0; font-size: 32px; line-height: 1.25; font-weight: 600">صباح الخير، <span style="color: #0f8f80">أحمد</span></h1>
+          </div>
+          <div role="group" aria-label="مسار البيع" style="flex: 0 1 460px; display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 14px; background: #ffffff; border: 1px solid #e3e9ec; box-shadow: 0 1px 2px rgba(10,33,37,.04)">
+            <span class="node"><span class="nd" aria-hidden="true" style="background: #f0a03c; box-shadow: 0 0 0 3px #fdf0dc"></span><b>نقاط البيع</b> 6/7</span>
+            <span class="link" aria-hidden="true"></span>
+            <span class="node"><span class="nd" aria-hidden="true" style="background: #2fb36d; box-shadow: 0 0 0 3px #def3e6"></span><b>الخادم</b> محدّث</span>
+            <span class="link" aria-hidden="true"></span>
+            <span class="node"><span class="nd" aria-hidden="true" style="background: #e5484d; box-shadow: 0 0 0 3px #fbe1df"></span><b>ERPNext</b> 3 متوقفة</span>
+          </div>
+        </div>
+
+        <!-- Alert -->
+        <div role="status" style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 12px 14px; padding-inline-start: 18px; border-radius: 16px; background: linear-gradient(90deg, #fff4f3, #ffffff 70%); border: 1px solid #f5d3cf; position: relative; overflow: hidden">
+          <span aria-hidden="true" style="position: absolute; inset-block: 0; inset-inline-start: 0; width: 4px; background: #e5484d"></span>
+          <span aria-hidden="true" style="width: 38px; height: 38px; border-radius: 11px; background: #fde4e2; color: #c42b26; display: flex; align-items: center; justify-content: center; flex: none"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg></span>
+          <div style="flex: 1 1 320px; display: flex; flex-direction: column; line-height: 1.45">
+            <strong style="font-size: 14px">3 أصناف في فرع المعادي قاربت على النفاد</strong>
+            <span style="font-size: 12px; color: #5b6d7c">راجع المخزون وأعد الطلب قبل نفاد الأصناف.</span>
+          </div>
+          <a href="#" class="btn ink">مراجعة المخزون</a>
+        </div>
+
+        <!-- Receipt KPIs -->
+        <div style="display: flex; flex-wrap: wrap; gap: 16px">
+          <div class="rc" style="flex: 1.25 1 250px; border: 0; color: #ffffff; overflow: hidden; background-color: #0a2125; background-image: radial-gradient(360px 200px at 0% 0%, rgba(95,224,207,.38), transparent 70%), linear-gradient(rgba(95,224,207,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(95,224,207,.06) 1px, transparent 1px); background-size: 100% 100%, 22px 22px, 22px 22px; box-shadow: 0 22px 40px -22px rgba(10,33,37,.9)">
+            <div class="rc-top">
+              <div style="display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0">
+                <span class="kl" style="color: #a9c9cc">صافي المبيعات · أكتوبر</span>
+                <span class="kv" style="color: #ffffff; font-size: 34px"><bdi dir="ltr">4,862,310</bdi><span class="cur" style="background: rgba(95,224,207,.18); color: #5fe0cf">EGP</span></span>
+              </div>
+              <span class="ki" aria-hidden="true" style="background: rgba(95,224,207,.16); color: #5fe0cf"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="12" width="3.5" height="8" rx="1"/><rect x="10.25" y="8" width="3.5" height="12" rx="1"/><rect x="16.5" y="4" width="3.5" height="16" rx="1"/></svg></span>
+            </div>
+            <svg aria-hidden="true" viewBox="0 0 160 40" preserveAspectRatio="none" style="width: 100%; height: 42px; display: block; transform: scaleX(-1)"><defs><linearGradient id="sg9" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5fe0cf" stop-opacity=".35"/><stop offset="1" stop-color="#5fe0cf" stop-opacity="0"/></linearGradient></defs><path d="{{ sparkArea }}" fill="url(#sg9)"/><path d="{{ spark }}" fill="none" stroke="#5fe0cf" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg>
+            <div class="rc-perf" style="border-top-color: rgba(255,255,255,.14)"></div>
+            <div class="rc-bot" style="color: #a9c9cc"><span class="dl" style="background: rgba(95,224,207,.18); color: #5fe0cf"><bdi dir="ltr">↑ 18.3%</bdi></span>عن سبتمبر · أفضل شهر هذا العام</div>
+          </div>
+          <div class="rc">
+            <div class="rc-top">
+              <div style="display: flex; flex-direction: column; gap: 8px; min-width: 0"><span class="kl">الفواتير</span><span class="kv"><bdi dir="ltr">33,918</bdi></span></div>
+              <span class="ki" aria-hidden="true" style="background: #e7f6f3; color: #0f766e"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg></span>
+            </div>
+            <div class="rc-perf"></div>
+            <div class="rc-bot"><span class="dl"><bdi dir="ltr">↑ 12%</bdi></span>عن سبتمبر</div>
+          </div>
+          <div class="rc">
+            <div class="rc-top">
+              <div style="display: flex; flex-direction: column; gap: 8px; min-width: 0"><span class="kl">متوسط الفاتورة</span><span class="kv"><bdi dir="ltr">143.35</bdi><span class="cur">EGP</span></span></div>
+              <span class="ki" aria-hidden="true" style="background: #e7f6f3; color: #0f766e"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M3 4h2l2.5 12h11L21 8H6.5"/></svg></span>
+            </div>
+            <div class="rc-perf"></div>
+            <div class="rc-bot"><span class="dl"><bdi dir="ltr">↑ 5.4%</bdi></span>عن سبتمبر</div>
+          </div>
+          <div class="rc">
+            <div class="rc-top">
+              <div style="display: flex; flex-direction: column; gap: 8px; min-width: 0"><span class="kl">الأصناف النشطة</span><span class="kv"><bdi dir="ltr">38,140</bdi></span></div>
+              <span class="ki" aria-hidden="true" style="background: #e7f6f3; color: #0f766e"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg></span>
+            </div>
+            <div class="rc-perf"></div>
+            <div class="rc-bot"><span class="dl"><bdi dir="ltr">↑ 2.1%</bdi></span>24 تحت حد الطلب</div>
+          </div>
+        </div>
+
+        <!-- Chart + donut -->
+        <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: stretch">
+          <section class="box" aria-labelledby="c-h" style="flex: 1.4 1 460px; min-width: 0; display: flex; flex-direction: column">
+            <div class="hd">
+              <span class="idx">01</span>
+              <div style="display: flex; flex-direction: column"><h2 id="c-h" class="ht">المبيعات اليومية</h2><span class="hs">أكتوبر مقابل سبتمبر · مرّر على المنحنى</span></div>
+              <div class="seg" role="group" aria-label="مدى الرسم" style="margin-inline-start: auto">
+                <sc-for list="{{ ranges }}" as="p" hint-placeholder-count="3">
+                  <sc-if value="{{ p.on }}" hint-placeholder-val="{{ false }}"><button type="button" class="on" aria-pressed="true" onClick="{{ p.pick }}">{{ p.label }}</button></sc-if>
+                  <sc-if value="{{ p.off }}" hint-placeholder-val="{{ true }}"><button type="button" aria-pressed="false" onClick="{{ p.pick }}">{{ p.label }}</button></sc-if>
+                </sc-for>
+              </div>
+            </div>
+            <div style="display: flex; gap: 10px; padding: 8px 22px 16px; flex: 1">
+              <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+                <div role="img" aria-label="مبيعات أكتوبر اليومية ارتفعت من 62 ألف جنيه إلى 168 ألف جنيه، فوق سبتمبر طوال الشهر" style="position: relative; height: 210px">
+                  <svg viewBox="0 0 640 200" preserveAspectRatio="none" style="position: absolute; inset: 0; width: 100%; height: 100%" aria-hidden="true">
+                    <defs>
+                      <linearGradient id="a9" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#14a394" stop-opacity=".28"/><stop offset="1" stop-color="#14a394" stop-opacity="0"/></linearGradient>
+                      <linearGradient id="l9" x1="1" y1="0" x2="0" y2="0"><stop offset="0" stop-color="#0f766e"/><stop offset="1" stop-color="#2bc4b3"/></linearGradient>
+                    </defs>
+                    <path d="M0 10H640M0 55H640M0 100H640M0 145H640" stroke="#edf2f4" vector-effect="non-scaling-stroke" fill="none"/>
+                    <path d="{{ areaPath }}" fill="url(#a9)"/>
+                    <path d="{{ lastPath }}" fill="none" stroke="#9aa6e8" stroke-width="1.8" stroke-dasharray="5 4" vector-effect="non-scaling-stroke"/>
+                    <path d="{{ linePath }}" fill="none" stroke="url(#l9)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+                  </svg>
+                  <span aria-hidden="true" style="position: absolute; top: 0; bottom: 0; width: 3.2%; transform: translateX(-50%); background: linear-gradient(180deg, rgba(20,163,148,0), rgba(20,163,148,.10)); border-radius: 8px; left: {{ tipX }}"></span>
+                  <span aria-hidden="true" style="position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: #0a2125; border: 3px solid #5fe0cf; box-shadow: 0 0 0 6px rgba(43,196,179,.18), 0 6px 14px rgba(10,33,37,.35); left: {{ tipX }}; top: {{ tipY }}"></span>
+                  <div aria-hidden="true" style="position: absolute; inset: 0; display: flex; flex-direction: row">
+                    <sc-for list="{{ days }}" as="d" hint-placeholder-count="31"><div style="flex: 1; height: 100%" onMouseEnter="{{ d.hover }}"></div></sc-for>
+                  </div>
+                  <div style="position: absolute; top: -8px; transform: translateX(-50%); left: {{ tipBox }}; pointer-events: none; background: #0a2125; color: #ffffff; border-radius: 12px; padding: 9px 13px; box-shadow: 0 14px 28px -12px rgba(10,33,37,.7); font-size: 12px; display: flex; flex-direction: column; gap: 3px; white-space: nowrap">
+                    <span style="color: #7fa3a8">{{ tipDay }} أكتوبر</span>
+                    <bdi dir="ltr" class="disp" style="font-size: 16px; font-weight: 600; color: #5fe0cf">{{ tipCur }} EGP</bdi>
+                    <span style="color: #a9c9cc">سبتمبر <bdi dir="ltr">{{ tipLast }}</bdi> · <bdi dir="ltr" style="color: #ffffff; font-weight: 700">{{ tipDelta }}</bdi></span>
+                  </div>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 11px; color: #7a8a96"><span>1 أكتوبر</span><span>8</span><span>15</span><span>22</span><span>31</span></div>
+              </div>
+              <div class="disp" style="display: flex; flex-direction: column; justify-content: space-between; height: 210px; font-size: 11px; color: #7a8a96; font-variant-numeric: tabular-nums; margin-top: -7px">
+                <span>200K</span><span>150K</span><span>100K</span><span>50K</span><span>0</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="box" aria-labelledby="d-h" style="flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column">
+            <div class="hd">
+              <span class="idx">02</span>
+              <div style="display: flex; flex-direction: column"><h2 id="d-h" class="ht">المبيعات حسب الفئة</h2><span class="hs">أكتوبر 2026</span></div>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 18px; padding: 6px 22px 18px; flex: 1">
+              <div style="position: relative; width: 180px; height: 180px; flex: none; margin-inline: auto">
+                <svg width="180" height="180" viewBox="0 0 160 160" aria-hidden="true" style="transform: rotate(-90deg)">
+                  <circle cx="80" cy="80" r="72" fill="none" stroke="#edf2f4" stroke-width="1" stroke-dasharray="2 4"/>
+                  <circle cx="80" cy="80" r="56" fill="none" stroke="#0f8f80" stroke-width="22" stroke-linecap="round" stroke-dasharray="104.6 351.9" stroke-dashoffset="-3"/>
+                  <circle cx="80" cy="80" r="56" fill="none" stroke="#3f63d6" stroke-width="22" stroke-linecap="round" stroke-dasharray="84.5 351.9" stroke-dashoffset="-117.6"/>
+                  <circle cx="80" cy="80" r="56" fill="none" stroke="#33a9e0" stroke-width="22" stroke-linecap="round" stroke-dasharray="56.3 351.9" stroke-dashoffset="-212.1"/>
+                  <circle cx="80" cy="80" r="56" fill="none" stroke="#a654d6" stroke-width="22" stroke-linecap="round" stroke-dasharray="39.3 351.9" stroke-dashoffset="-278.4"/>
+                  <circle cx="80" cy="80" r="56" fill="none" stroke="#f0b445" stroke-width="22" stroke-linecap="round" stroke-dasharray="25.2 351.9" stroke-dashoffset="-327.7"/>
+                </svg>
+                <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.2">
+                  <span style="font-size: 11px; color: #5b6d7c">الإجمالي</span>
+                  <strong class="disp" style="font-size: 24px; font-weight: 600"><bdi dir="ltr">4.86M</bdi></strong>
+                  <span class="cur" style="vertical-align: baseline; margin: 2px 0 0">EGP</span>
+                </div>
+              </div>
+              <table style="flex: 1 1 170px; border-collapse: collapse; font-size: 13px">
+                <caption class="sr">المبيعات حسب الفئة بالجنيه</caption>
+                <tbody>
+                  <sc-for list="{{ cats }}" as="c" hint-placeholder-count="5">
+                    <tr>
+                      <td style="padding: 6px 0"><span style="display: inline-flex; align-items: center; gap: 8px"><span aria-hidden="true" style="width: 4px; height: 16px; border-radius: 2px; background: {{ c.color }}"></span>{{ c.name }}</span></td>
+                      <td class="num" style="padding: 6px 0; color: #5b6d7c"><bdi dir="ltr">{{ c.amount }}</bdi></td>
+                      <td class="num disp" style="padding: 6px 0; padding-inline-start: 10px; font-weight: 600; width: 40px">{{ c.pct }}</td>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <!-- Table -->
+        <section class="box" aria-labelledby="t-h" style="overflow: hidden">
+          <div class="hd">
+            <span class="idx">03</span>
+            <div style="display: flex; flex-direction: column"><h2 id="t-h" class="ht">أحدث المبيعات</h2><span class="hs">آخر الفواتير من نقاط البيع · مباشر</span></div>
+            <div style="margin-inline-start: auto; display: flex; gap: 8px">
+              <button type="button" class="sel" style="height: 38px"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5b6d7c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16l-6 8v6l-4-2v-4z"/></svg>كل المتاجر</button>
+              <a href="#" class="btn ghost">عرض الكل<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></a>
+            </div>
+          </div>
+          <div style="overflow-x: auto; padding: 0 16px 12px">
+            <table class="tbl">
+              <thead><tr><th scope="col">الفاتورة</th><th scope="col">المتجر</th><th scope="col">الكاشير</th><th scope="col" class="num">الأصناف</th><th scope="col" class="num">الإجمالي</th><th scope="col">ERPNext</th><th scope="col">الوقت</th><th scope="col"><span class="sr">إجراءات</span></th></tr></thead>
+              <tbody>
+                <sc-for list="{{ sales }}" as="r" hint-placeholder-count="5">
+                  <tr class="{{ r.cls }}">
+                    <td><a href="#" dir="ltr" class="disp" style="text-decoration: none; font-weight: 600; color: #0a2125">#{{ r.ref }}</a></td>
+                    <td style="color: #33454f">{{ r.store }}</td>
+                    <td><span style="display: inline-flex; align-items: center; gap: 8px"><span aria-hidden="true" class="disp" style="width: 26px; height: 26px; border-radius: 8px; background: #0a2125; color: #5fe0cf; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600">{{ r.ini }}</span>{{ r.cashier }}</span></td>
+                    <td class="num">{{ r.items }}</td>
+                    <td class="num disp" style="font-weight: 600"><bdi dir="ltr">{{ r.total }}</bdi></td>
+                    <td>
+                      <sc-if value="{{ r.ok }}" hint-placeholder-val="{{ true }}"><span class="pill ok">مُرحَّلة</span></sc-if>
+                      <sc-if value="{{ r.pending }}" hint-placeholder-val="{{ false }}"><span class="pill pend">قيد الترحيل</span></sc-if>
+                      <sc-if value="{{ r.bad }}" hint-placeholder-val="{{ false }}"><span class="pill bad">متوقفة</span></sc-if>
+                    </td>
+                    <td style="color: #5b6d7c"><bdi dir="ltr">{{ r.time }}</bdi></td>
+                    <td style="text-align: end"><button type="button" class="ib" aria-label="خيارات الفاتورة" style="width: 30px; height: 30px; border-radius: 9px"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button></td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+
+      <!-- Side column -->
+      <aside aria-label="إجراءات وحالة المتاجر والمخزون" style="flex: 1 1 310px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+        <section class="box" aria-labelledby="qa-h">
+          <div class="hd"><h2 id="qa-h" class="ht">إجراءات سريعة</h2></div>
+          <div style="display: flex; flex-direction: column; gap: 8px; padding: 2px 16px 16px">
+            <a href="#" class="qa"><span class="qi" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span><span style="display: flex; flex-direction: column; line-height: 1.35">إضافة صنف<span style="font-size: 12px; font-weight: 400; color: #5b6d7c">إلى كتالوج المؤسسة</span></span><svg class="go" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></a>
+            <a href="#" class="qa"><span class="qi" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg></span><span style="display: flex; flex-direction: column; line-height: 1.35">استيراد أصناف<span style="font-size: 12px; font-weight: 400; color: #5b6d7c">من ملف Excel</span></span><svg class="go" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></a>
+            <a href="#" class="qa"><span class="qi" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M3 20a6 6 0 0112 0M19 8v6M16 11h6"/></svg></span><span style="display: flex; flex-direction: column; line-height: 1.35">دعوة مستخدم<span style="font-size: 12px; font-weight: 400; color: #5b6d7c">كاشير أو مدير متجر</span></span><svg class="go" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></a>
+          </div>
+        </section>
+
+        <section class="box" aria-labelledby="s-h">
+          <div class="hd"><div style="display: flex; flex-direction: column"><h2 id="s-h" class="ht">المتاجر اليوم</h2><span class="hs">الحصة من مبيعات اليوم</span></div><a href="#" class="more">الكل<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></a></div>
+          <div style="display: flex; flex-direction: column; gap: 16px; padding: 4px 20px 20px">
+            <sc-for list="{{ stores }}" as="s" hint-placeholder-count="4">
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <div style="display: flex; align-items: baseline; gap: 8px">
+                  <span class="disp" aria-hidden="true" style="font-size: 12px; font-weight: 600; color: #9fb4ba; width: 18px">{{ s.rank }}</span>
+                  <strong style="font-size: 13px; flex: 1">{{ s.name }}</strong>
+                  <bdi dir="ltr" class="disp" style="font-size: 13px; font-weight: 600">{{ s.net }}</bdi>
+                </div>
+                <div class="bar" style="margin-inline-start: 26px"><i style="width: {{ s.share }}; background: {{ s.color }}"></i></div>
+                <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5b6d7c; margin-inline-start: 26px"><span aria-hidden="true" style="width: 6px; height: 6px; border-radius: 2px; transform: rotate(45deg); background: {{ s.color }}"></span><span style="flex: 1">{{ s.status }}</span><span class="disp">{{ s.share }}</span></div>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+
+        <section class="box" aria-labelledby="a-h">
+          <div class="hd"><div style="display: flex; flex-direction: column"><h2 id="a-h" class="ht">مخزون منخفض</h2><span class="hs">مرتبة حسب الخطورة</span></div><a href="#" class="more">الكل<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></a></div>
+          <div style="display: flex; flex-direction: column; padding: 0 20px 14px">
+            <sc-for list="{{ low }}" as="p" hint-placeholder-count="5">
+              <div style="display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid #eef2f4">
+                <span aria-hidden="true" style="width: 36px; height: 36px; border-radius: 10px; background: {{ p.bg }}; color: {{ p.fg }}; display: flex; align-items: center; justify-content: center; flex: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg></span>
+                <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; line-height: 1.3">
+                  <span style="display: flex; gap: 8px; align-items: baseline"><strong style="font-size: 13px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ p.name }}</strong><span class="disp" style="font-size: 12px; font-weight: 600; color: {{ p.fg }}">{{ p.left }}</span></span>
+                  <span style="display: flex; align-items: center; gap: 8px"><span class="bar" aria-hidden="true" style="flex: 1; height: 4px"><i style="width: {{ p.level }}; background: {{ p.fg }}"></i></span><span style="font-size: 11px; color: #5b6d7c">{{ p.store }}</span></span>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1680,"height":1140}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { day: 17, range: 'شهر' }; }
+  renderVals() {
+    const st = (k) => ({ ok: k === 'ok', bad: k === 'bad', pending: k === 'pending', cls: k === 'bad' ? 'flag' : '' });
+    const cur = [62, 68, 64, 72, 70, 76, 74, 80, 78, 84, 82, 90, 95, 110, 118, 108, 115, 122, 128, 130, 126, 140, 150, 145, 142, 155, 160, 150, 158, 162, 168];
+    const last = cur.map((v, i) => Math.round(v * 0.82 + 6 * Math.sin(i / 2)));
+    const n = cur.length;
+    const xAt = (i) => 640 - (i + 0.5) * 640 / n;
+    const yAt = (v) => 190 - v * 0.9;
+    const path = (d) => 'M' + d.map((v, i) => xAt(i).toFixed(1) + ',' + yAt(v).toFixed(1)).join(' L');
+    const line = path(cur);
+    const i = this.state.day;
+    const leftPct = 100 - (i + 0.5) / n * 100;
+    const fmt = (k) => (k * 1000).toLocaleString('en-US');
+    const delta = ((cur[i] - last[i]) / last[i] * 100);
+    const sp = cur.slice(-16);
+    const sx = (j) => (j * 160 / 15).toFixed(1);
+    const sy = (v) => (36 - (v - 100) / 70 * 32).toFixed(1);
+    const spark = 'M' + sp.map((v, j) => sx(j) + ',' + sy(v)).join(' L');
+    const lowRow = (name, left, store, level, sev) => {
+      const t = { crit: ['#fde7e5', '#c42b26'], warn: ['#fdf0dc', '#a35a00'] }[sev];
+      return { name: name, left: left, store: store, level: level, bg: t[0], fg: t[1] };
+    };
+    return {
+      ranges: ['أسبوع', 'شهر', 'ربع'].map((l) => ({ label: l, on: this.state.range === l, off: this.state.range !== l, pick: () => this.setState({ range: l }) })),
+      spark: spark,
+      sparkArea: spark + ' L160,40 L0,40 Z',
+      linePath: line,
+      lastPath: path(last),
+      areaPath: line + ' L' + xAt(n - 1).toFixed(1) + ',200 L' + xAt(0).toFixed(1) + ',200 Z',
+      days: cur.map((v, j) => ({ hover: () => { if (this.state.day !== j) this.setState({ day: j }); } })),
+      tipX: leftPct.toFixed(2) + '%',
+      tipY: (yAt(cur[i]) / 200 * 100).toFixed(2) + '%',
+      tipBox: Math.min(86, Math.max(14, leftPct)).toFixed(2) + '%',
+      tipDay: String(i + 1),
+      tipCur: fmt(cur[i]),
+      tipLast: fmt(last[i]),
+      tipDelta: (delta >= 0 ? '+' : '') + delta.toFixed(1) + '%',
+      cats: [
+        { name: 'مواد غذائية', amount: '1,555,939', pct: '32%', color: '#0f8f80' },
+        { name: 'مشروبات', amount: '1,265,954', pct: '26%', color: '#3f63d6' },
+        { name: 'منظفات', amount: '875,216', pct: '18%', color: '#33a9e0' },
+        { name: 'عناية شخصية', amount: '680,723', pct: '14%', color: '#a654d6' },
+        { name: 'أخرى', amount: '484,478', pct: '10%', color: '#f0b445' }
+      ],
+      sales: [
+        Object.assign({ ref: '000431', store: 'فرع المعادي', cashier: 'منى عادل', ini: 'م', items: '5', total: '318.50 EGP', time: '14:31' }, st('pending')),
+        Object.assign({ ref: '000352', store: 'فرع مدينة نصر', cashier: 'كريم سامي', ini: 'ك', items: '3', total: '96.00 EGP', time: '14:29' }, st('ok')),
+        Object.assign({ ref: '000157', store: 'فرع الدقي', cashier: 'هالة فؤاد', ini: 'ه', items: '8', total: '1,240.75 EGP', time: '14:20' }, st('bad')),
+        Object.assign({ ref: '000268', store: 'فرع الشيخ زايد', cashier: 'عمر نبيل', ini: 'ع', items: '2', total: '57.25 EGP', time: '14:18' }, st('ok')),
+        Object.assign({ ref: '000430', store: 'فرع المعادي', cashier: 'ياسر حمدي', ini: 'ي', items: '6', total: '402.00 EGP', time: '14:15' }, st('ok'))
+      ],
+      stores: [
+        { rank: '01', name: 'فرع المعادي', net: '62,410 EGP', share: '88%', color: '#0f8f80', status: 'يعمل بشكل طبيعي' },
+        { rank: '02', name: 'فرع مدينة نصر', net: '48,905 EGP', share: '76%', color: '#0f8f80', status: 'يعمل بشكل طبيعي' },
+        { rank: '03', name: 'فرع الشيخ زايد', net: '39,120 EGP', share: '62%', color: '#f0a03c', status: 'جهاز غير متصل منذ 47 د' },
+        { rank: '04', name: 'فرع الدقي', net: '21,884 EGP', share: '34%', color: '#e5484d', status: '3 مبيعات متوقفة' }
+      ],
+      low: [
+        lowRow('حليب طويل الأجل 1 لتر', '3 متبقية', 'المعادي', '10%', 'crit'),
+        lowRow('زيت عباد الشمس 1.5 لتر', '5 متبقية', 'المعادي', '16%', 'crit'),
+        lowRow('أرز مصري 5 كجم', '8 متبقية', 'الدقي', '26%', 'warn'),
+        lowRow('مياه معدنية 330 مل', '12 متبقية', 'مدينة نصر', '34%', 'warn')
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

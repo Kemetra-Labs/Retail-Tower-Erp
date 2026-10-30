@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>المتاجر — Retail Tower Console</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f2f5f6}
+a{color:#0f766e}a:hover{color:#0b5b55}
+:focus-visible{outline:2px solid #14a394;outline-offset:2px}
+.disp{font-family:'Readex Pro',Dubai,'Segoe UI',sans-serif}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.nv{display:flex;align-items:center;gap:14px;min-height:46px;padding:0 14px;border-radius:12px;color:#a9c2c5;text-decoration:none;font-size:14px;position:relative}
+.nv:hover{background:rgba(255,255,255,.05);color:#ffffff}
+.nv svg{flex:none}
+.nv-on{color:#ffffff;font-weight:700;background:linear-gradient(90deg,rgba(43,196,179,.22),rgba(43,196,179,.04));box-shadow:inset 0 0 0 1px rgba(95,224,207,.22)}
+.nv-on::before{content:"";position:absolute;inset-inline-start:-16px;top:10px;bottom:10px;width:4px;border-radius:0 4px 4px 0;background:#5fe0cf;box-shadow:0 0 14px 2px rgba(95,224,207,.7)}
+.nv-on svg{color:#5fe0cf}
+.grp{font-size:11px;color:#5f8186;padding:0 14px 4px;font-weight:700}
+.hs{font-size:12px;color:#5b6d7c}
+.btn{display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 16px;border-radius:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap}
+.ink{color:#ffffff;background:#0a2125;border:1px solid #0a2125;box-shadow:0 8px 18px -10px rgba(10,33,37,.8)}
+.ink:hover{color:#ffffff;background:#12333a}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:9px;font-size:12px;font-weight:700;white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:2px;background:currentColor;transform:rotate(45deg)}
+.neu{background:#e9eff1;color:#33454f}
+.warn{background:#fdf0dc;color:#8a4b00}
+.sc{display:flex;flex-direction:column;background:#ffffff;border:1px solid #e3e9ec;border-radius:20px;overflow:hidden;text-decoration:none;color:#0a2125;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25);transition:transform .14s,box-shadow .14s,border-color .14s}
+.sc:hover{color:#0a2125;transform:translateY(-2px);border-color:#9fdcd2;box-shadow:0 18px 32px -20px rgba(15,118,110,.6)}
+.top{position:relative;height:92px;padding:18px 20px;box-sizing:border-box;display:flex;align-items:flex-start;gap:14px;background-color:#0a2125;background-image:linear-gradient(rgba(95,224,207,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(95,224,207,.07) 1px,transparent 1px),radial-gradient(220px 120px at 0% 0%,rgba(95,224,207,.28),transparent 70%);background-size:22px 22px,22px 22px,100% 100%;color:#ffffff}
+.off .top{background-color:#33454f;filter:saturate(.3)}
+.ti{width:46px;height:46px;border-radius:14px;background:rgba(95,224,207,.16);color:#5fe0cf;display:flex;align-items:center;justify-content:center;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:20px;flex:none}
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:#eef2f4}
+.facts div{background:#ffffff;padding:12px 16px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.facts span{font-size:12px;color:#5b6d7c}
+.facts b{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sky{position:absolute;inset-inline-end:0;bottom:0;width:190px;height:92px;pointer-events:none;opacity:.55}
+.top>*:not(.sky){position:relative;z-index:1}
+.dots{display:inline-flex;gap:4px;align-items:center;margin-inline-end:6px}
+.dots i{width:10px;height:14px;border-radius:3px;display:block}
+.sum{display:flex;flex-wrap:wrap;gap:10px}
+.sum span{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:12px;background:#ffffff;border:1px solid #e3e9ec;font-size:13px;color:#33454f}
+.sum b{font-family:'Readex Pro',sans-serif;font-weight:600;color:#0a2125}
+.sc:hover .top{background-image:linear-gradient(rgba(95,224,207,.1) 1px,transparent 1px),linear-gradient(90deg,rgba(95,224,207,.1) 1px,transparent 1px),radial-gradient(240px 140px at 0% 0%,rgba(95,224,207,.4),transparent 70%)}
+.band{position:relative;overflow:hidden;box-sizing:border-box;max-height:132px;min-height:112px;display:flex;flex-wrap:wrap;align-items:center;gap:14px 24px;padding:20px 26px;border-radius:22px;border:1px solid #0a2125;color:#ffffff;background-color:#0a2125;background-image:linear-gradient(rgba(95,224,207,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(95,224,207,.06) 1px,transparent 1px),radial-gradient(420px 200px at 0% 0%,rgba(95,224,207,.26),transparent 70%);background-size:24px 24px,24px 24px,100% 100%;box-shadow:0 18px 40px -28px rgba(10,33,37,.7)}
+.band>*:not(.band-orn){position:relative;z-index:1}
+.band-orn{position:absolute;inset-inline-end:0;bottom:0;width:360px;height:132px;opacity:.5;pointer-events:none}
+.band-id{flex:1 1 260px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.band-eye{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#5fe0cf}
+.band-eye i{width:18px;height:2px;border-radius:2px;background:#5fe0cf;display:block}
+.band-act{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.band-facts{display:flex;align-items:center;margin:0;padding:6px 4px;border-radius:16px;background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px rgba(95,224,207,.14)}
+.band-facts>div{display:flex;align-items:center;gap:10px;padding:4px 16px}
+.band-facts>div+div{border-inline-start:1px solid rgba(255,255,255,.1)}
+.band-facts>div>span:last-child{display:flex;flex-direction:column;gap:3px}
+.band-facts dd{margin:0;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:20px;line-height:1;font-variant-numeric:tabular-nums}
+.band-facts dt{font-size:12px;color:#a9c2c5;line-height:1.2}
+.band-facts .dot{width:9px;height:9px;border-radius:3px;transform:rotate(45deg);flex:none}
+.mint{color:#0a2125 !important;background:#5fe0cf !important;border:1px solid #5fe0cf !important;box-shadow:0 10px 22px -12px rgba(95,224,207,.8) !important}
+.mint:hover{background:#86ebdd !important}
+.gl{color:#e6f0f1 !important;background:rgba(255,255,255,.06) !important;border:1px solid rgba(255,255,255,.18) !important}
+.gl:hover{background:rgba(255,255,255,.12) !important;color:#ffffff !important}
+.band .seg{background:rgba(255,255,255,.08) !important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+.band .seg button{color:#c3d6d8 !important}
+.band .seg .on{background:#5fe0cf !important;color:#0a2125 !important}
+.band label{color:#e6f0f1}
+@media (max-width: 640px){.band{max-height:none;background:#ffffff;color:#0a2125;border-color:#e3e9ec;box-shadow:none}.band-orn,.band-facts{display:none}.band-eye{color:#0f766e}.band-eye i{background:#0f766e}}
+@media (forced-colors: active){.band{background:Canvas;color:CanvasText;border:1px solid CanvasText}.band-orn{display:none}}
+</style>
+</helmet>
+
+<div style="min-height: 100vh; display: flex; flex-wrap: wrap; align-items: stretch; background: #f2f5f6; color: #0a2125; font-family: Dubai, 'Segoe UI', Tahoma, system-ui, sans-serif; font-size: 14px; line-height: 1.6">
+
+  <aside aria-label="التنقل الرئيسي" style="flex: 1 1 240px; max-width: 100%; box-sizing: border-box; padding: 22px 16px; display: flex; flex-direction: column; gap: 22px; color: #ffffff; background-color: #0a2125; background-image: linear-gradient(rgba(95,224,207,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(95,224,207,.05) 1px, transparent 1px), radial-gradient(420px 260px at 100% 0%, rgba(43,196,179,.22), transparent 70%); background-size: 28px 28px, 28px 28px, 100% 100%">
+    <div style="display: flex; align-items: center; gap: 12px; padding: 0 4px">
+      <div aria-hidden="true" style="width: 44px; height: 44px; border-radius: 13px; background: linear-gradient(160deg, #5fe0cf, #0f766e 70%); display: flex; align-items: flex-end; justify-content: center; gap: 3px; padding-bottom: 10px; box-sizing: border-box">
+        <span style="width: 5px; height: 12px; border-radius: 2px; background: rgba(255,255,255,.7)"></span><span style="width: 5px; height: 22px; border-radius: 2px; background: #ffffff"></span><span style="width: 5px; height: 16px; border-radius: 2px; background: rgba(255,255,255,.85)"></span>
+      </div>
+      <div style="display: flex; flex-direction: column; line-height: 1.25"><span class="disp" style="font-weight: 600; font-size: 18px">Retail Tower</span><span style="font-size: 12px; color: #7fa3a8">منصة إدارة التجزئة</span></div>
+    </div>
+    <nav style="display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">العمليات</span>
+        <a class="nv" href="Overview-v9.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10l8-6 8 6v10H4z"/><path d="M10 20v-6h4v6"/></svg>الرئيسية</a>
+        <a class="nv" href="Sales.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>المبيعات</a>
+        <a class="nv" href="Catalog.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>الأصناف</a>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">الإدارة</span>
+        <a class="nv nv-on" href="#" aria-current="page"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v10h16V10M3 10l2-6h14l2 6zM9 20v-6h6v6"/></svg>المتاجر</a>
+        <a class="nv" href="Devices.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>الأجهزة</a>
+        <a class="nv" href="#"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M3 20a6 6 0 0112 0M16 4.5a3.5 3.5 0 010 7M18 20a6 6 0 00-3-5.2"/></svg>المستخدمون</a>
+      </div>
+    </nav>
+  </aside>
+
+  <div style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column">
+    <main style="width: 100%; max-width: 1360px; box-sizing: border-box; padding: 28px 26px 40px; display: flex; flex-direction: column; gap: 20px">
+      <header class="band" aria-labelledby="pg-h">
+        <svg class="band-orn" aria-hidden="true" viewBox="0 0 360 132" fill="none" stroke="#5fe0cf" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"><path d="M20 132V78h46v54M66 132V50h38v82M104 132V26l20-14 20 14v106M144 132V64h52v68M196 132V40h34v92M230 132V72h46v60M276 132V46h38v86M314 132V84h36v48" stroke-opacity=".55"/><path d="M30 92h6M46 92h6M30 106h6M46 106h6M76 62h5M90 62h5M76 76h5M90 76h5M76 90h5M90 90h5M114 40h4M128 40h4M114 54h4M128 54h4M114 68h4M128 68h4M114 82h4M128 82h4M156 78h7M176 78h7M156 92h7M176 92h7M206 54h5M218 54h5M206 68h5M218 68h5M206 82h5M218 82h5M242 86h6M260 86h6M286 60h5M300 60h5M286 74h5M300 74h5" stroke-opacity=".85"/><path d="M124 12V2"/></svg>
+        <div class="band-id">
+          <span class="band-eye"><i aria-hidden="true"></i>الإدارة</span>
+          <h1 id="pg-h" class="disp" style="margin: 0; font-size: 26px; font-weight: 600; line-height: 1.3">المتاجر</h1>
+          <span style="font-size: 13px; color: #a9c2c5">المتاجر في مؤسسة النيل للتجزئة</span>
+        </div>
+        <dl class="band-facts" aria-label="ملخص القائمة"><div><span class="dot" aria-hidden="true" style="background: #5fe0cf"></span><span><dd>5</dd><dt>متاجر</dt></span></div><div><span class="dot" aria-hidden="true" style="background: #5fd39a"></span><span><dd>4</dd><dt>نشطة</dt></span></div><div><span class="dot" aria-hidden="true" style="background: #f5b759"></span><span><dd>1</dd><dt>موقوفة</dt></span></div></dl>
+        <div class="band-act">
+          <a href="#" class="btn mint"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>إضافة متجر</a>
+        </div>
+      </header>
+
+      <ul aria-label="المتاجر" style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 18px">
+        <sc-for list="{{ stores }}" as="s" hint-placeholder-count="5">
+          <li style="display: flex">
+            <a class="{{ s.cls }}" href="Store-detail.dc.html" style="flex: 1" aria-label="{{ s.name }}، {{ s.stateText }}">
+              <div class="top">
+                <svg class="sky" aria-hidden="true" viewBox="0 0 190 92" fill="none" stroke="#5fe0cf" stroke-width="1.2" stroke-linejoin="round">
+                  <path d="M10 92V58h26v34M36 92V40h22v52M58 92V22l12-10 12 10v70M82 92V48h30v44M112 92V30h20v62M132 92V54h26v38M158 92V36h22v56" stroke-opacity=".6"/>
+                  <path d="M16 66h4M26 66h4M16 76h4M26 76h4M42 48h4M50 48h4M42 58h4M50 58h4M42 68h4M50 68h4M64 30h3M73 30h3M64 40h3M73 40h3M64 50h3M73 50h3M64 60h3M73 60h3M88 56h5M100 56h5M88 66h5M100 66h5M118 38h3M126 38h3M118 48h3M126 48h3M118 58h3M126 58h3M138 62h4M148 62h4M164 44h3M172 44h3M164 54h3M172 54h3" stroke-opacity=".9" stroke-linecap="round"/>
+                  <path d="M70 12V2" stroke-linecap="round"/>
+                </svg>
+                <span class="ti" aria-hidden="true">{{ s.ini }}</span>
+                <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.35">
+                  <strong class="disp" style="font-size: 17px; font-weight: 600">{{ s.name }}</strong>
+                  <span style="font-size: 12px; color: #a9c2c5"><bdi dir="ltr" class="mono" style="color: #a9c2c5">{{ s.code }}</bdi></span>
+                </div>
+                <sc-if value="{{ s.active }}" hint-placeholder-val="{{ true }}"><span class="pill" style="background: rgba(255,255,255,.12); color: #e6f0f1">نشط</span></sc-if>
+                <sc-if value="{{ s.inactive }}" hint-placeholder-val="{{ false }}"><span class="pill warn">موقوف</span></sc-if>
+              </div>
+              <div class="facts">
+                <div><span>المنطقة الزمنية</span><b><bdi dir="ltr">{{ s.tz }}</bdi></b></div>
+                <div><span>الأجهزة</span><b style="display: flex; align-items: center"><span class="dots" aria-hidden="true"><sc-for list="{{ s.dots }}" as="d" hint-placeholder-count="3"><i style="background: {{ d.c }}"></i></sc-for></span>{{ s.devices }}</b></div>
+                <div><span>يحتاج انتباهًا</span><b style="color: {{ s.attColor }}">{{ s.att }}</b></div>
+              </div>
+            </a>
+          </li>
+        </sc-for>
+        <li style="display: flex">
+          <a href="#" style="flex: 1; min-height: 170px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 2px dashed #c6d3d8; border-radius: 20px; color: #33454f; text-decoration: none; font-weight: 700">
+            <span aria-hidden="true" style="width: 46px; height: 46px; border-radius: 14px; background: #e9eff1; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
+            إضافة متجر
+            <span class="hs" style="font-weight: 400">ثم أنشئ رمز ربط لكل جهاز كاشير من «الأجهزة».</span>
+          </a>
+        </li>
+      </ul>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1680,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const C = { a: '#0f8f80', w: '#f0a03c', r: '#c6d3d8' };
+    const s = (name, code, tz, devices, att, attColor, active, dots) => ({ name: name, ini: name.replace('فرع ', '').charAt(0), code: code, tz: tz, devices: devices, att: att, attColor: attColor, active: active, inactive: !active, stateText: active ? 'نشط' : 'موقوف', cls: active ? 'sc' : 'sc off', dots: dots.split('').map((k) => ({ c: C[k] })) });
+    return {
+      stores: [
+        s('فرع المعادي', 'MAA', 'Africa/Cairo', '3 · 2 فعّال', 'وردية مفتوحة', '#8a4b00', true, 'war'),
+        s('فرع مدينة نصر', 'NSR', 'Africa/Cairo', '2 · 2 فعّال', 'لا شيء', '#0a2125', true, 'aa'),
+        s('فرع الشيخ زايد', 'SZD', 'Africa/Cairo', '1 · 1 فعّال', 'لا شيء', '#0a2125', true, 'a'),
+        s('فرع الدقي', 'DOK', 'Africa/Cairo', '1 · 1 فعّال', 'لا شيء', '#0a2125', true, 'a'),
+        s('فرع الزمالك', 'ZMK', 'Africa/Cairo', '0', 'لا أجهزة', '#5b6d7c', false, '')
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

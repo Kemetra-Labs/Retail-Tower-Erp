@@ -651,7 +651,9 @@ Each debt is tracked separately. Do not fold them into feature work.
 ## 12. v4.0 "Ink & Receipt" (owner decision 2026-10-30, approved, not shipped)
 
 The reference is board v9 «✓ المعتمد · نظرة عامة v9» on the canvas
-<https://claude.ai/artifact/7LkLBupz4nTpvB4P4k4NW4>. Where the canvas and this section differ,
+<https://claude.ai/artifact/7LkLBupz4nTpvB4P4k4NW4>. A versioned copy of the source of every current
+board, with an index mapping each board to its Jira slice, is in
+[`docs/design/v9/`](docs/design/v9/README.md). Where the canvas and this section differ,
 this section wins; where a rule here is silent, §1–§11 still apply. Values below are **target
 tokens**: a slice adds them to `src/styles/tokens.css` as roles, and components never spell the
 hex.

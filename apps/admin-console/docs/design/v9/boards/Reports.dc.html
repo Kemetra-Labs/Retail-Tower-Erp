@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>المبيعات المستلمة يوميًا — Retail Tower Console</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f2f5f6}
+a{color:#0f766e}a:hover{color:#0b5b55}
+:focus-visible{outline:2px solid #14a394;outline-offset:2px}
+.disp{font-family:'Readex Pro',Dubai,'Segoe UI',sans-serif}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.nv{display:flex;align-items:center;gap:14px;min-height:46px;padding:0 14px;border-radius:12px;color:#a9c2c5;text-decoration:none;font-size:14px;position:relative}
+.nv:hover{background:rgba(255,255,255,.05);color:#ffffff}
+.nv svg{flex:none}
+.nv-on{color:#ffffff;font-weight:700;background:linear-gradient(90deg,rgba(43,196,179,.22),rgba(43,196,179,.04));box-shadow:inset 0 0 0 1px rgba(95,224,207,.22)}
+.nv-on::before{content:"";position:absolute;inset-inline-start:-16px;top:10px;bottom:10px;width:4px;border-radius:0 4px 4px 0;background:#5fe0cf;box-shadow:0 0 14px 2px rgba(95,224,207,.7)}
+.nv-on svg{color:#5fe0cf}
+.grp{font-size:11px;color:#5f8186;padding:0 14px 4px;font-weight:700}
+.hs{font-size:12px;color:#5b6d7c}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 16px;border-radius:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap;border:1px solid transparent}
+.ink{color:#ffffff;background:#0a2125;border-color:#0a2125;box-shadow:0 8px 18px -10px rgba(10,33,37,.8)}
+.ink:hover{color:#ffffff;background:#12333a}
+.ghost{color:#0a2125;background:#ffffff;border-color:#d6dfe3}
+.ghost:hover{border-color:#9fdcd2}
+.quiet{color:#33454f;background:transparent}
+.quiet:hover{background:#eef2f4}
+.dq{color:#b3261e;background:#ffffff;border-color:#f2d6d3}
+.dq:hover{background:#fdf3f2}
+.dd{color:#ffffff;background:#b3261e;border-color:#b3261e}
+.dd:hover{background:#9a1f19}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:9px;font-size:12px;font-weight:700;white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:2px;background:currentColor;transform:rotate(45deg)}
+.ok{background:#e4f5ec;color:#15774d}
+.warn{background:#fdf0dc;color:#8a4b00}
+.role{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px 0 12px;border-radius:9px;font-size:12px;font-weight:700;background:#eef2f4;color:#33454f;white-space:nowrap}
+.role svg{color:#0f766e}
+.role-unk{background:#ffffff;border:1px dashed #b7c5ca;color:#5b6d7c}
+.sec{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:24px;padding:0 6px;border-radius:8px;background:#0a2125;color:#5fe0cf;font-family:'Readex Pro',sans-serif;font-size:11px;font-weight:600}
+.box{background:#ffffff;border:1px solid #e3e9ec;border-radius:20px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25)}
+.sum{display:flex;flex-wrap:wrap;gap:10px}
+.sum span{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:12px;background:#ffffff;border:1px solid #e3e9ec;font-size:13px;color:#33454f}
+.sum b{font-family:'Readex Pro',sans-serif;font-weight:600;color:#0a2125}
+.tbl{width:100%;border-collapse:separate;border-spacing:0 8px;font-size:13px}
+.tbl th{font-size:12px;color:#5b6d7c;font-weight:700;text-align:start;padding:0 16px 2px}
+.tbl td{padding:12px 16px;background:#f8fafb;border-block:1px solid #eef2f4;white-space:nowrap}
+.tbl td:first-child{border-inline-start:1px solid #eef2f4;border-start-start-radius:14px;border-end-start-radius:14px}
+.tbl td:last-child{border-inline-end:1px solid #eef2f4;border-start-end-radius:14px;border-end-end-radius:14px}
+.tbl tr:hover td{background:#f2f8f7}
+.rv td{background:#fffaf2;border-color:#f3e3c6;color:#5b6d7c}
+.rv td:first-child{box-shadow:inset -3px 0 0 #f0a03c;border-color:#f3e3c6}
+.av{width:38px;height:38px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;flex:none;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:15px;background:linear-gradient(160deg,#e7f6f3,#cfeee8);color:#0f766e;box-shadow:inset 0 0 0 1px #bfe5dd}
+.av-off{background:#eef2f4;color:#5b6d7c;box-shadow:inset 0 0 0 1px #dde5e8}
+.av-mail{background:#ffffff;color:#0f766e;box-shadow:inset 0 0 0 1px #bfe5dd}
+.who{display:flex;align-items:center;gap:12px;min-width:0}
+.who span{display:flex;flex-direction:column;line-height:1.35;min-width:0}
+.who b{font-size:14px;font-weight:700;color:#0a2125}
+.acc{display:inline-flex;align-items:center;gap:8px}
+.bars{display:inline-flex;align-items:flex-end;gap:2px;height:16px}
+.bars i{display:block;width:4px;border-radius:2px;background:#0f8f80}
+.scrim{position:absolute;inset:0;background:rgba(10,33,37,.42);z-index:20}
+.drawer{position:absolute;inset-block:0;inset-inline-end:0;width:500px;max-width:100%;background:#ffffff;z-index:21;box-shadow:0 0 0 1px #e3e9ec,-24px 0 48px -20px rgba(10,33,37,.5);display:flex;flex-direction:column}
+.ib{width:36px;height:36px;border-radius:10px;border:0;background:transparent;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.ib:hover{background:rgba(255,255,255,.08)}
+.fl{display:flex;flex-direction:column;gap:6px}
+.fl>label,.fl>.lb{font-size:13px;font-weight:700;color:#0a2125}
+.req{color:#b3261e;margin-inline-start:2px}
+.in{height:42px;border:1px solid #c6d3d8;border-radius:11px;padding:0 12px;font:inherit;font-size:14px;color:#0a2125;background:#ffffff;box-sizing:border-box;width:100%}
+.in:focus{border-color:#0f766e;outline:2px solid #14a394;outline-offset:1px}
+.opts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.opt{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 12px;border:1px solid #d6dfe3;border-radius:12px;cursor:pointer;font:inherit;font-size:13px;font-weight:600;background:#ffffff;text-align:start;width:100%;color:#0a2125}
+.opt:hover{border-color:#9fdcd2}
+.opt-on{border-color:#0a2125;box-shadow:inset 0 0 0 1px #0a2125;background:#f6faf9}
+.radio{width:18px;height:18px;border-radius:50%;border:2px solid #53647a;box-sizing:border-box;display:flex;align-items:center;justify-content:center;flex:none}
+.opt-on .radio{border-color:#0a2125}
+.opt-on .radio::after{content:"";width:8px;height:8px;border-radius:50%;background:#0a2125}
+.chip{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 10px;border-radius:10px;border:1px solid #d6dfe3;background:#ffffff;font:inherit;font-size:12px;font-weight:600;color:#33454f;cursor:pointer}
+.chip-on{border-color:#0f766e;background:#e7f6f3;color:#0b5b55}
+.chk{width:14px;height:14px;border-radius:4px;border:2px solid #53647a;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center}
+.chip-on .chk{border-color:#0f766e;background:#0f766e}
+.chip-on .chk::after{content:"";width:6px;height:3px;border-inline-start:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) translate(1px,-1px)}
+.ft{border-top:1px solid #eef2f4;padding:14px 22px;display:flex;gap:8px;background:#fbfcfc}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#0f766e}
+.eyebrow i{width:18px;height:2px;border-radius:2px;background:#0f766e;display:block}
+.ledger{display:flex;flex-wrap:wrap;align-items:stretch;background:#ffffff;border:1px solid #e3e9ec;border-radius:18px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25);overflow:hidden}
+.ledger>div{display:flex;align-items:center;gap:12px;padding:14px 20px;min-width:0}
+.ledger>div+div{border-inline-start:1px solid #eef2f4}
+.ledger .lv{font-family:'Readex Pro',sans-serif;font-weight:600;font-size:22px;line-height:1;color:#0a2125;font-variant-numeric:tabular-nums}
+.ledger .ll{font-size:12px;color:#5b6d7c}
+.pile{display:flex;align-items:center}
+.pile span{width:34px;height:34px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:13px;background:#0a2125;color:#5fe0cf;box-shadow:0 0 0 3px #ffffff;margin-inline-start:-8px}
+.pile span:first-child{margin-inline-start:0}
+.pile .more{background:#e7f6f3;color:#0f766e}
+.grp-row td{background:transparent !important;border:0 !important;box-shadow:none !important;padding:10px 6px 0 !important}
+.grp-row span{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:700;color:#5b6d7c}
+.grp-row span::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,#e3e9ec,transparent)}
+.grp-row b{font-family:'Readex Pro',sans-serif;font-weight:600;color:#0a2125;background:#eef2f4;border-radius:6px;padding:0 7px}
+.mrow td{transition:background .14s,box-shadow .14s}
+.mrow:hover td{background:#ffffff;box-shadow:0 10px 22px -18px rgba(10,33,37,.45)}
+.mrow:hover td:first-child{box-shadow:inset -3px 0 0 #0f766e,0 10px 22px -18px rgba(10,33,37,.45)}
+.av{position:relative;background:#0a2125 !important;color:#5fe0cf !important;box-shadow:none !important}
+.av-off{background:#eef2f4 !important;color:#7a8b96 !important;box-shadow:inset 0 0 0 1px #dde5e8 !important}
+.av-mail{background:#ffffff !important;color:#0f766e !important;box-shadow:inset 0 0 0 1px #bfe5dd !important}
+.badge-r{position:absolute;bottom:-4px;inset-inline-end:-4px;width:18px;height:18px;border-radius:7px;background:#ffffff;box-shadow:0 0 0 1px #dfe7ea;display:flex !important;align-items:center;justify-content:center;color:#0f766e}
+.openb svg{transition:transform .14s}
+.mrow:hover .openb{border-color:#0a2125}
+.mrow:hover .openb svg{transform:translateX(-3px)}
+@media (prefers-reduced-motion: reduce){.mrow td,.openb svg{transition:none}}
+.band{position:relative;overflow:hidden;box-sizing:border-box;max-height:132px;min-height:112px;display:flex;flex-wrap:wrap;align-items:center;gap:14px 28px;padding:20px 26px;border-radius:22px;border:1px solid #0a2125;color:#ffffff;background-color:#0a2125;background-image:linear-gradient(rgba(95,224,207,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(95,224,207,.06) 1px,transparent 1px),radial-gradient(420px 200px at 0% 0%,rgba(95,224,207,.26),transparent 70%);background-size:24px 24px,24px 24px,100% 100%;box-shadow:0 18px 40px -28px rgba(10,33,37,.7)}
+.band>*:not(.band-orn){position:relative;z-index:1}
+.band-orn{position:absolute;inset-inline-end:0;bottom:0;width:360px;height:132px;opacity:.5;pointer-events:none}
+.band-id{flex:1 1 260px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.band-eye{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#5fe0cf}
+.band-eye i{width:18px;height:2px;border-radius:2px;background:#5fe0cf;display:block}
+.band-facts{display:flex;align-items:center;margin:0;padding:6px 4px;border-radius:16px;background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px rgba(95,224,207,.14)}
+.band-facts>div{display:flex;align-items:center;gap:10px;padding:4px 16px}
+.band-facts>div+div{border-inline-start:1px solid rgba(255,255,255,.1)}
+.band-facts>div>span:last-child{display:flex;flex-direction:column;gap:3px}
+.band-facts dd{margin:0;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:20px;line-height:1;font-variant-numeric:tabular-nums}
+.band-facts dt{font-size:12px;color:#a9c2c5;line-height:1.2}
+.band-facts .dot{width:9px;height:9px;border-radius:3px;transform:rotate(45deg);flex:none}
+.band .pile span{box-shadow:0 0 0 2px #0a2125;background:#163a40;color:#5fe0cf}
+.band .pile .more{background:#5fe0cf;color:#0a2125}
+.mint{color:#0a2125;background:#5fe0cf;border:1px solid #5fe0cf;box-shadow:0 10px 22px -12px rgba(95,224,207,.8)}
+.mint:hover{background:#86ebdd;color:#0a2125}
+@media (max-width: 640px){.band{max-height:none;background:#ffffff;color:#0a2125;border-color:#e3e9ec;box-shadow:none}.band-orn{display:none}.band-facts{display:none}.band-eye{color:#0f766e}.band-eye i{background:#0f766e}}
+@media (forced-colors: active){.band{background:Canvas;color:CanvasText;border:1px solid CanvasText}.band-orn{display:none}}
+.gl{color:#e6f0f1 !important;background:rgba(255,255,255,.06) !important;border:1px solid rgba(255,255,255,.18) !important}
+.gl:hover{background:rgba(255,255,255,.12) !important;color:#ffffff !important}
+.band{max-height:none !important}
+.num{font-family:'Readex Pro',sans-serif;font-variant-numeric:tabular-nums;font-weight:600}
+.tot{display:flex;flex-direction:column;gap:3px;padding:6px 16px;min-width:0}
+.tot+.tot{border-inline-start:1px solid rgba(255,255,255,.1)}
+.tot dt{font-size:12px;color:#a9c2c5}
+.tot dd{margin:0;display:flex;flex-direction:column;gap:1px}
+.tot .big{font-family:'Readex Pro',sans-serif;font-weight:600;font-size:22px;line-height:1.1;font-variant-numeric:tabular-nums}
+.tot small{font-size:11px;color:#5fe0cf;font-weight:600}
+.presets{display:inline-flex;flex-wrap:wrap;gap:6px}
+.presets button{height:34px;padding:0 12px;border-radius:10px;border:1px solid #d6dfe3;background:#ffffff;font:inherit;font-size:12px;font-weight:700;color:#33454f;cursor:pointer}
+.presets .on{background:#0a2125;border-color:#0a2125;color:#ffffff}
+.sel{height:34px;border:1px solid #c6d3d8;border-radius:10px;padding:0 12px;font-size:13px;background:#ffffff;display:inline-flex;align-items:center;gap:8px;box-sizing:border-box}
+.ctx{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:#33454f}
+.ctx span{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:8px;background:#f6f9fa;border:1px solid #eef2f4}
+.ctx b{color:#0a2125}
+.notes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.note{display:flex;gap:12px;align-items:flex-start;padding:14px;border-radius:16px;background:#ffffff;border:1px solid #e3e9ec;text-decoration:none;color:#0a2125;font-size:13px;line-height:1.6}
+.note:hover{color:#0a2125;border-color:#9fdcd2}
+.note i{width:34px;height:34px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;flex:none;background:#0a2125;color:#5fe0cf}
+.note .k{display:block;font-size:12px;color:#5b6d7c;font-weight:700}
+.note .go{display:block;font-size:12px;font-weight:700;color:#0f766e;margin-top:4px}
+.note-w{border-color:#f3dfbd;background:#fffaf2}
+.note-w i{background:#fdf0dc;color:#a35a00}
+.note-b{border-color:#f2d6d3;background:#fffafa}
+.note-b i{background:#fde7e5;color:#b3261e}
+.wb{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:18px;align-items:start}
+.plot{position:relative;margin:0 20px;padding-top:30px}
+.yax{position:absolute;inset-inline-start:0;top:30px;height:220px;display:flex;flex-direction:column;justify-content:space-between;font-size:10px;color:#7a8b96;font-family:'Readex Pro',sans-serif;width:34px}
+.cols{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:8px;align-items:end;height:220px;margin-inline-start:40px;border-bottom:1px solid #c6d3d8;background-image:linear-gradient(#eef2f4 1px,transparent 1px);background-size:100% 55px}
+.bar{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;border:0;background:transparent;padding:0;cursor:pointer;font:inherit}
+.bar i{display:block;width:100%;max-width:44px;border-radius:9px 9px 3px 3px;background:linear-gradient(180deg,#14a394,#0f766e)}
+.bar:hover i{filter:brightness(1.1)}
+.bar.on i{background:linear-gradient(180deg,#123a40,#0a2125);box-shadow:0 0 0 3px #ffffff,0 0 0 5px #5fe0cf}
+.bar.so i{background:repeating-linear-gradient(135deg,#0f8f80 0 6px,#7fd3c8 6px 11px)}
+.bar.so.on i{background:repeating-linear-gradient(135deg,#0a2125 0 6px,#2d5a60 6px 11px)}
+.bar .val{font-family:'Readex Pro',sans-serif;font-size:10px;font-weight:600;color:#33454f;margin-bottom:4px;white-space:nowrap}
+.bar .unk{font-size:10px;font-weight:700;color:#5b6d7c;border:1px dashed #b7c5ca;border-radius:7px;padding:2px 5px;background:#ffffff;margin-bottom:4px;white-space:nowrap}
+.xax{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:8px;margin-inline-start:40px;padding-top:6px;text-align:center;font-size:11px;color:#5b6d7c}
+.xax b{display:block;font-family:'Readex Pro',sans-serif;font-weight:600;color:#0a2125;font-size:12px}
+.heat{margin:14px 20px 0;display:flex;flex-direction:column;gap:6px}
+.hr{display:grid;grid-template-columns:40px repeat(10,minmax(0,1fr));gap:8px;align-items:center}
+.hr>span:first-child{font-size:10px;color:#5b6d7c;font-weight:700;line-height:1.2}
+.hc{height:22px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;font-family:'Readex Pro',sans-serif;box-sizing:border-box}
+.h-ok{background:#d9f1e4;color:#15774d}
+.h-pend{background:#dde9f8;color:#1b5fa8}
+.h-warn{background:#fbe6c6;color:#8a4b00}
+.h-bad{background:#f9d4d0;color:#b3261e}
+.h-unk{background:#ffffff;border:1px dashed #b7c5ca;color:#5b6d7c}
+.h-on{box-shadow:0 0 0 2px #0a2125}
+.lg{display:flex;flex-wrap:wrap;gap:12px;margin:12px 20px 18px;font-size:11px;color:#5b6d7c}
+.lg span{display:inline-flex;align-items:center;gap:6px}
+.lg i{width:14px;height:10px;border-radius:3px;display:inline-block;box-sizing:border-box}
+.panel{position:sticky;top:12px;background:#ffffff;border:1px solid #e3e9ec;border-radius:20px;overflow:hidden;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25)}
+.ph{position:relative;padding:18px 20px;color:#ffffff;background-color:#0a2125;background-image:linear-gradient(rgba(95,224,207,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(95,224,207,.06) 1px,transparent 1px),radial-gradient(240px 120px at 0% 0%,rgba(95,224,207,.28),transparent 70%);background-size:20px 20px,20px 20px,100% 100%}
+.pr{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:9px 20px;border-bottom:1px solid #eef2f4;font-size:13px}
+.pr>span:first-child{color:#33454f}
+.pr b{font-family:'Readex Pro',sans-serif;font-weight:600;font-variant-numeric:tabular-nums}
+.pr small{font-size:11px;color:#5b6d7c;font-weight:600}
+.stk{display:flex;height:12px;border-radius:6px;overflow:hidden;background:#eef2f4;margin:6px 20px 4px}
+.stk i{display:block;height:100%}
+.sl{display:flex;flex-wrap:wrap;gap:4px 12px;padding:0 20px 10px;font-size:11px;color:#33454f}
+.sl span{display:inline-flex;align-items:center;gap:5px}
+.sl b{font-family:'Readex Pro',sans-serif;font-weight:600}
+.sl i{width:8px;height:8px;border-radius:2px;display:inline-block}
+.plink{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 20px;border-top:1px solid #eef2f4;text-decoration:none;font-size:13px;font-weight:700;color:#0f766e}
+.plink:hover{background:#f2f8f7}
+.rt{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
+.rt th{font-size:12px;color:#5b6d7c;font-weight:700;text-align:start;padding:10px 12px;border-bottom:1px solid #e3e9ec;white-space:nowrap}
+.rt td,.rt tbody th{padding:10px 12px;border-bottom:1px solid #eef2f4;vertical-align:top}
+.rt tbody th{text-align:start;font-weight:600;white-space:nowrap;color:#0a2125;font-size:13px}
+.rt tr.on td,.rt tr.on th{background:#f2f8f7}
+.rt tr.on th{box-shadow:inset -3px 0 0 #0f766e}
+.rt tfoot td{background:#0a2125;color:#ffffff;border:0;font-weight:700;padding:12px}
+.rt tfoot td:first-child{border-end-start-radius:12px}
+.rt tfoot td:last-child{border-end-end-radius:12px}
+.mc{display:flex;flex-direction:column;gap:2px;align-items:flex-end}
+.mc .c{font-size:11px;color:#5b6d7c}
+.mc .a{font-family:'Readex Pro',sans-serif;font-variant-numeric:tabular-nums;font-weight:600}
+.cur{font-size:11px;color:#5b6d7c;font-weight:600}
+.u{display:inline-flex;height:22px;align-items:center;padding:0 8px;border-radius:7px;border:1px dashed #b7c5ca;font-size:11px;font-weight:700;color:#5b6d7c}
+.sf{display:inline-flex;height:20px;align-items:center;padding:0 7px;border-radius:7px;font-size:11px;font-weight:700;color:#0b5b55;background:repeating-linear-gradient(135deg,#e7f6f3 0 5px,#d4efe9 5px 9px)}
+.sh{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;background:#e7f6f3;color:#0f766e}
+.bar .star{display:block;margin-bottom:2px;color:#f0b445;font-size:13px;line-height:1}
+.ph{overflow:hidden}
+.ph>*:not(.cal){position:relative}
+.cal{position:absolute;inset-inline-end:12px;top:12px;width:112px;height:112px;opacity:.5;pointer-events:none}
+.cal-n{position:absolute;inset-inline-end:14px;top:44px;width:108px;text-align:center;font-family:'Readex Pro',sans-serif;font-weight:700;font-size:46px;line-height:1;color:rgba(95,224,207,.28);pointer-events:none}
+.note .crn{color:#f0b445}
+.heat{position:relative}
+.heat::before{content:"";position:absolute;inset-inline-start:44px;inset-inline-end:0;top:-8px;height:1px;background:repeating-linear-gradient(90deg,#c6d3d8 0 4px,transparent 4px 8px)}
+</style>
+</helmet>
+
+<div style="position: relative; min-height: 100vh; display: flex; flex-wrap: wrap; align-items: stretch; background: #f2f5f6; color: #0a2125; font-family: Dubai, 'Segoe UI', Tahoma, system-ui, sans-serif; font-size: 14px; line-height: 1.6">
+  <aside aria-label="التنقل الرئيسي" style="flex: 1 1 240px; max-width: 100%; box-sizing: border-box; padding: 22px 16px; display: flex; flex-direction: column; gap: 22px; color: #ffffff; background-color: #0a2125; background-image: linear-gradient(rgba(95,224,207,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(95,224,207,.05) 1px, transparent 1px), radial-gradient(420px 260px at 100% 0%, rgba(43,196,179,.22), transparent 70%); background-size: 28px 28px, 28px 28px, 100% 100%">
+    <div style="display: flex; align-items: center; gap: 12px; padding: 0 4px">
+      <div aria-hidden="true" style="width: 44px; height: 44px; border-radius: 13px; background: linear-gradient(160deg, #5fe0cf, #0f766e 70%); display: flex; align-items: flex-end; justify-content: center; gap: 3px; padding-bottom: 10px; box-sizing: border-box">
+        <span style="width: 5px; height: 12px; border-radius: 2px; background: rgba(255,255,255,.7)"></span><span style="width: 5px; height: 22px; border-radius: 2px; background: #ffffff"></span><span style="width: 5px; height: 16px; border-radius: 2px; background: rgba(255,255,255,.85)"></span>
+      </div>
+      <div style="display: flex; flex-direction: column; line-height: 1.25"><span class="disp" style="font-weight: 600; font-size: 18px">Retail Tower</span><span style="font-size: 12px; color: #7fa3a8">منصة إدارة التجزئة</span></div>
+    </div>
+    <nav style="display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">العمليات</span>
+        <a class="nv" href="Overview-v9.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10l8-6 8 6v10H4z"/><path d="M10 20v-6h4v6"/></svg>الرئيسية</a>
+        <a class="nv" href="Sales.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>المبيعات</a>
+        <a class="nv" href="Catalog.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>الأصناف</a>
+        <a class="nv" href="Unknown-items.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6v12M8 6v12M12 6v8M16 6v12M20 6v5"/><circle cx="18" cy="17" r="3"/><path d="M18 16v1.5"/></svg>أصناف غير معروفة</a>
+        <a class="nv" href="Shifts.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M3 11h18M7 15h3M8 7V4h8v3"/></svg>الورديات</a>
+        <a class="nv" href="Inventory.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg>المخزون</a>
+        <a class="nv nv-on" href="Reports-hub.dc.html" aria-current="page"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>التقارير</a>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">الإدارة</span>
+        <a class="nv" href="Stores.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v10h16V10M3 10l2-6h14l2 6zM9 20v-6h6v6"/></svg>المتاجر</a>
+        <a class="nv" href="Devices.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>الأجهزة</a>
+        <a class="nv" href="Users.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M3 20a6 6 0 0112 0M16 4.5a3.5 3.5 0 010 7M18 20a6 6 0 00-3-5.2"/></svg>المستخدمون</a>
+        <a class="nv" href="Audit.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>سجل التدقيق</a>
+      </div>
+    </nav>
+  </aside>
+  <div style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column">
+    <main style="width: 100%; max-width: 1400px; box-sizing: border-box; padding: 22px 26px 40px; display: flex; flex-direction: column; gap: 18px">
+      <a href="Reports-hub.dc.html" style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; text-decoration: none; width: fit-content"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>التقارير</a>
+
+      <header class="band" aria-labelledby="pg-h">
+        <svg class="band-orn" aria-hidden="true" viewBox="0 0 360 132" fill="none" stroke="#5fe0cf" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" style="opacity: .55"><path d="M24 124V59l11 -6 11 6V124" stroke-opacity=".8"/><path d="M30 67h3M37 67h3" stroke-opacity=".7"/><path d="M30 78h3M37 78h3" stroke-opacity=".7"/><path d="M30 89h3M37 89h3" stroke-opacity=".7"/><path d="M30 100h3M37 100h3" stroke-opacity=".7"/><path d="M30 111h3M37 111h3" stroke-opacity=".7"/><path d="M56 124V52l11 -6 11 6V124" stroke-opacity=".8"/><path d="M62 60h3M69 60h3" stroke-opacity=".7"/><path d="M62 71h3M69 71h3" stroke-opacity=".7"/><path d="M62 82h3M69 82h3" stroke-opacity=".7"/><path d="M62 93h3M69 93h3" stroke-opacity=".7"/><path d="M62 104h3M69 104h3" stroke-opacity=".7"/><path d="M62 115h3M69 115h3" stroke-opacity=".7"/><path d="M88 124V34l11 -6 11 6V124" stroke-opacity=".8"/><path d="M94 42h3M101 42h3" stroke-opacity=".7"/><path d="M94 53h3M101 53h3" stroke-opacity=".7"/><path d="M94 64h3M101 64h3" stroke-opacity=".7"/><path d="M94 75h3M101 75h3" stroke-opacity=".7"/><path d="M94 86h3M101 86h3" stroke-opacity=".7"/><path d="M94 97h3M101 97h3" stroke-opacity=".7"/><path d="M94 108h3M101 108h3" stroke-opacity=".7"/><path d="M94 119h3M101 119h3" stroke-opacity=".7"/><path d="M120 124V40l11 -6 11 6V124" stroke-opacity=".8"/><path d="M126 48h3M133 48h3" stroke-opacity=".7"/><path d="M126 59h3M133 59h3" stroke-opacity=".7"/><path d="M126 70h3M133 70h3" stroke-opacity=".7"/><path d="M126 81h3M133 81h3" stroke-opacity=".7"/><path d="M126 92h3M133 92h3" stroke-opacity=".7"/><path d="M126 103h3M133 103h3" stroke-opacity=".7"/><path d="M126 114h3M133 114h3" stroke-opacity=".7"/><rect x="152" y="104" width="22" height="20" rx="4" stroke-dasharray="3 3" stroke-opacity=".7"/><path d="M184 124V57l11 -6 11 6V124" stroke-opacity=".8"/><path d="M190 65h3M197 65h3" stroke-opacity=".7"/><path d="M190 76h3M197 76h3" stroke-opacity=".7"/><path d="M190 87h3M197 87h3" stroke-opacity=".7"/><path d="M190 98h3M197 98h3" stroke-opacity=".7"/><path d="M190 109h3M197 109h3" stroke-opacity=".7"/><path d="M216 124V54l11 -6 11 6V124" stroke-opacity=".8"/><path d="M222 62h3M229 62h3" stroke-opacity=".7"/><path d="M222 73h3M229 73h3" stroke-opacity=".7"/><path d="M222 84h3M229 84h3" stroke-opacity=".7"/><path d="M222 95h3M229 95h3" stroke-opacity=".7"/><path d="M222 106h3M229 106h3" stroke-opacity=".7"/><path d="M222 117h3M229 117h3" stroke-opacity=".7"/><path d="M248 124V48l11 -6 11 6V124" stroke-opacity=".8"/><path d="M254 56h3M261 56h3" stroke-opacity=".7"/><path d="M254 67h3M261 67h3" stroke-opacity=".7"/><path d="M254 78h3M261 78h3" stroke-opacity=".7"/><path d="M254 89h3M261 89h3" stroke-opacity=".7"/><path d="M254 100h3M261 100h3" stroke-opacity=".7"/><path d="M254 111h3M261 111h3" stroke-opacity=".7"/><path d="M280 124V39l11 -6 11 6V124" stroke-opacity=".8"/><path d="M286 47h3M293 47h3" stroke-opacity=".7"/><path d="M286 58h3M293 58h3" stroke-opacity=".7"/><path d="M286 69h3M293 69h3" stroke-opacity=".7"/><path d="M286 80h3M293 80h3" stroke-opacity=".7"/><path d="M286 91h3M293 91h3" stroke-opacity=".7"/><path d="M286 102h3M293 102h3" stroke-opacity=".7"/><path d="M286 113h3M293 113h3" stroke-opacity=".7"/><path d="M312 124V80l11 -6 11 6V124" stroke-dasharray="4 3" stroke-opacity=".8"/><path d="M318 88h3M325 88h3" stroke-opacity=".7"/><path d="M318 99h3M325 99h3" stroke-opacity=".7"/><path d="M318 110h3M325 110h3" stroke-opacity=".7"/><path d="M89 4l5 5 5-7 5 7 5-5-2.5 11H91.5z" fill="#f0b445" fill-opacity=".9" stroke="none"/><path d="M10 124h340" stroke-opacity=".6"/><path d="M20 128h320" stroke-opacity=".25" stroke-dasharray="2 6"/></svg>
+        <div class="band-id" style="flex: 1 1 280px">
+          <span class="band-eye"><i aria-hidden="true"></i>التقارير · المبيعات</span>
+          <h1 id="pg-h" class="disp" style="margin: 0; font-size: 26px; font-weight: 600; line-height: 1.3">المبيعات المستلمة يوميًا</h1>
+          <span style="font-size: 13px; color: #a9c2c5">أيام العمل <bdi dir="ltr">21</bdi>–<bdi dir="ltr">30</bdi> أكتوبر · كل متاجر النطاق (5) · <bdi>مؤسسة النيل للتجزئة</bdi></span>
+        </div>
+        <dl class="band-facts" aria-label="إجمالي النطاق من الخادم" style="padding: 8px 4px">
+          <div class="tot"><dt>المبيعات المستلمة</dt><dd><span class="big"><bdi dir="ltr">{{ tot.amt }}</bdi></span><small>EGP · <bdi dir="ltr">{{ tot.usd }}</bdi> USD منفصلة</small></dd></div>
+          <div class="tot"><dt>عدد المبيعات</dt><dd><span class="big">{{ tot.cnt }}</span><small>يشمل «حتى الآن» · يوم غير معروف</small></dd></div>
+          <div class="tot"><dt>المرتجعات · الإلغاءات</dt><dd><span class="big">{{ tot.rc }} · {{ tot.vc }}</span><small>عدد</small></dd></div>
+        </dl>
+        <div class="band-act"><button type="button" class="btn gl"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>تصدير إلى ملف جداول</button></div>
+      </header>
+
+      <section class="box" aria-label="نطاق أيام العمل" style="padding: 14px 18px; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+          <div class="presets" role="group" aria-label="نطاقات جاهزة"><button type="button" aria-pressed="false">آخر 7 أيام عمل</button><button type="button" class="on" aria-pressed="true">آخر 10 أيام عمل</button><button type="button" aria-pressed="false">هذا الشهر حتى الآن</button><button type="button" aria-pressed="false">مخصص</button></div>
+          <span class="sel"><bdi dir="ltr">2026-10-21</bdi></span><span aria-hidden="true" style="color: #7a8b96">←</span><span class="sel"><bdi dir="ltr">2026-10-30</bdi></span>
+          <button type="button" class="btn ink" style="height: 34px">تطبيق</button>
+          <span class="hs" style="margin-inline-start: auto">31 يوم عمل على الأكثر، يشمل يومَي البداية والنهاية.</span>
+        </div>
+        <div class="ctx" aria-label="سياق الأرقام">
+          <span>المتجر: <b>كل متاجر النطاق (5)</b></span>
+          <span>حسب يوم العمل المحلي لكل متجر</span>
+          <span>المنطقة الزمنية: <bdi dir="ltr">Africa/Cairo</bdi></span>
+          <span>بتاريخ <bdi dir="ltr">14:32</bdi></span>
+          <span style="background: repeating-linear-gradient(135deg,#f6f9fa 0 5px,#eaf3f1 5px 9px)">الأيام الموسومة «حتى الآن» لم تنتهِ بعد في متجر واحد على الأقل، والإجمالي يشملها.</span>
+        </div>
+      </section>
+
+      <section aria-labelledby="nt-h" style="display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; align-items: center; gap: 10px"><span class="sec" aria-hidden="true">01</span><span class="sh" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4M12 3a6 6 0 00-3.5 10.9V16h7v-2.1A6 6 0 0012 3z"/></svg></span><h2 id="nt-h" class="disp" style="margin: 0; font-size: 16px; font-weight: 600">قراءة سريعة</h2><span class="hs">مأخوذة من صفوف الجدول نفسه، بلا حساب جديد.</span></div>
+        <div class="notes">
+          <a class="note" href="#day-23"><i aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7"/></svg></i><span><span class="k">أعلى يوم مستلم <span class="crn" aria-hidden="true">★</span></span>الجمعة 23 أكتوبر · <bdi dir="ltr" class="num">201,480.00</bdi> EGP<span class="go">انتقل إلى صفه</span></span></a>
+          <a class="note note-b" href="Sale-repair.dc.html"><i aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg></i><span><span class="k">مزامنة تحتاج إصلاحًا</span>مبيعتان في الخميس 29 أكتوبر<span class="go">مبيعات تحتاج إلى إصلاح</span></span></a>
+          <a class="note note-b" href="Sync.dc.html"><i aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16M14 6l6 6-6 6"/></svg></i><span><span class="k">فشل الترحيل إلى ERPNext</span>مبيعتان في الخميس 29 أكتوبر<span class="go">الترحيلات المرفوضة</span></span></a>
+          <a class="note note-w" href="#day-25"><i aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg></i><span><span class="k">يوم بلا أرقام</span>الأحد 25 أكتوبر غير معروف، وليس صفرًا<span class="go">انتقل إلى صفه</span></span></a>
+        </div>
+      </section>
+
+      <div class="wb">
+        <section class="box" aria-labelledby="ch-h" style="min-width: 0">
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 18px 20px 0">
+            <span class="sec" aria-hidden="true">02</span><span class="sh" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span><h2 id="ch-h" class="disp" style="margin: 0; font-size: 16px; font-weight: 600">كل يوم عمل: المبلغ وصحة المسار</h2>
+            <span style="margin-inline-start: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700">العملة<span class="sel" style="height: 30px"><bdi dir="ltr">EGP</bdi></span></span>
+          </div>
+          <p class="hs" style="margin: 4px 20px 0">ملخص للجدول أدناه: عمود لكل يوم عمل، بعملة EGP. اختر عمودًا لعرض يومه في اللوحة الجانبية. الأرقام الدقيقة في الجدول.</p>
+          <div class="plot">
+            <div class="yax" aria-hidden="true"><span>200k</span><span>150k</span><span>100k</span><span>50k</span><span>0</span></div>
+            <div class="cols" role="list" aria-label="المبيعات المستلمة لكل يوم عمل">
+              <sc-for list="{{ days }}" as="d" hint-placeholder-count="10">
+                <button type="button" role="listitem" class="{{ d.barCls }}" aria-label="{{ d.aria }}" aria-pressed="{{ d.pressed }}" onClick="{{ d.pick }}">
+                  <sc-if value="{{ d.best }}" hint-placeholder-val="{{ false }}"><span class="star" aria-hidden="true">★</span></sc-if><sc-if value="{{ d.known }}" hint-placeholder-val="{{ true }}"><span class="val">{{ d.k }}</span><i style="height: {{ d.h }}%"></i></sc-if>
+                  <sc-if value="{{ d.unknown }}" hint-placeholder-val="{{ false }}"><span class="unk">غير معروف</span></sc-if>
+                </button>
+              </sc-for>
+            </div>
+            <div class="xax" aria-hidden="true"><sc-for list="{{ days }}" as="d" hint-placeholder-count="10"><span><b>{{ d.dn }}</b>{{ d.wd }}</span></sc-for></div>
+          </div>
+          <div class="heat" aria-label="صحة المسار لكل يوم عمل؛ القيم نفسها في جدول الحالة">
+            <div class="hr"><span>المزامنة</span><sc-for list="{{ days }}" as="d" hint-placeholder-count="10"><span class="{{ d.hsCls }}" title="{{ d.hsT }}">{{ d.hsN }}</span></sc-for></div>
+            <div class="hr"><span>الترحيل</span><sc-for list="{{ days }}" as="d" hint-placeholder-count="10"><span class="{{ d.heCls }}" title="{{ d.heT }}">{{ d.heN }}</span></sc-for></div>
+            <div class="hr"><span>الورديات</span><sc-for list="{{ days }}" as="d" hint-placeholder-count="10"><span class="{{ d.hvCls }}" title="{{ d.hvT }}">{{ d.hvN }}</span></sc-for></div>
+          </div>
+          <div class="lg" aria-hidden="true">
+            <span><i style="background: repeating-linear-gradient(135deg,#0f8f80 0 4px,#7fd3c8 4px 7px)"></i>يوم لم ينتهِ بعد</span>
+            <span><i style="background: #d9f1e4"></i>✓ كل المبيعات وصلت</span>
+            <span><i style="background: #dde9f8"></i>رقم = قيد المزامنة أو الترحيل</span>
+            <span><i style="background: #fbe6c6"></i>رقم = إقفالات بها فرق</span>
+            <span><i style="background: #f9d4d0"></i>رقم = فشل</span>
+            <span><i style="border: 1px dashed #b7c5ca"></i>غير معروف</span>
+          </div>
+        </section>
+
+        <aside class="panel" aria-labelledby="pd-h" aria-live="polite">
+          <div class="ph">
+            <svg class="cal" aria-hidden="true" viewBox="0 0 112 112" fill="none" stroke="#5fe0cf" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"><rect x="8" y="18" width="96" height="86" rx="12" stroke-opacity=".7"/><path d="M8 40h96" stroke-opacity=".7"/><path d="M32 8v18M80 8v18" stroke-opacity=".9"/><path d="M20 30h4M30 30h4M78 30h4M88 30h4" stroke-opacity=".5"/></svg>
+            <span class="cal-n" aria-hidden="true">{{ cur.dn }}</span>
+            <span style="font-size: 12px; color: #a9c2c5">يوم العمل المختار</span>
+            <h2 id="pd-h" class="disp" style="margin: 2px 0 0; font-size: 20px; font-weight: 600">{{ cur.label }}</h2>
+            <sc-if value="{{ cur.soFar }}" hint-placeholder-val="{{ false }}"><span class="sf" style="margin-top: 6px">حتى الآن</span></sc-if>
+            <sc-if value="{{ cur.known }}" hint-placeholder-val="{{ true }}"><div style="margin-top: 10px; display: flex; align-items: baseline; gap: 8px"><bdi dir="ltr" class="disp" style="font-size: 26px; font-weight: 600">{{ cur.amt }}</bdi><span style="font-size: 12px; color: #5fe0cf; font-weight: 700">EGP</span></div><span style="font-size: 12px; color: #a9c2c5">{{ cur.cnt }} مستلمة</span></sc-if>
+            <sc-if value="{{ cur.unknown }}" hint-placeholder-val="{{ false }}"><div style="margin-top: 10px; font-size: 18px; font-weight: 700; color: #e6f0f1">غير معروف</div><span style="font-size: 12px; color: #a9c2c5">تعذّر تحديد هذا الرقم للفترة، وهو ليس صفرًا.</span></sc-if>
+          </div>
+          <sc-if value="{{ cur.known }}" hint-placeholder-val="{{ true }}">
+            <div class="pr"><span>الإلغاءات</span><span><b>{{ cur.vc }}</b> <small>· <bdi dir="ltr">{{ cur.va }}</bdi> EGP</small></span></div>
+            <div class="pr"><span>المرتجعات</span><span><b>{{ cur.rc }}</b> <small>· <bdi dir="ltr">{{ cur.ra }}</bdi> EGP</small></span></div>
+            <sc-if value="{{ cur.hasUsd }}" hint-placeholder-val="{{ false }}"><div class="pr"><span>بعملة أخرى</span><span><b><bdi dir="ltr">{{ cur.usd }}</bdi></b> <small>USD، لا تُجمع مع EGP</small></span></div></sc-if>
+            <div style="padding: 12px 0 0"><span style="padding: 0 20px; font-size: 12px; font-weight: 700">حالة مزامنة المبيعات</span>
+              <div class="stk" aria-hidden="true"><i style="width: {{ cur.sw1 }}%; background: #5fd39a"></i><i style="width: {{ cur.sw0 }}%; background: #7fb1e8"></i><i style="width: {{ cur.sw2 }}%; background: #f5b759"></i><i style="width: {{ cur.sw3 }}%; background: #e5484d"></i></div>
+              <div class="sl"><span><i style="background: #5fd39a"></i>تمت المزامنة <b>{{ cur.s2 }}</b></span><span><i style="background: #7fb1e8"></i>مسجَّلة <b>{{ cur.s1 }}</b></span><span><i style="background: #f5b759"></i>فشلت، تُعاد <b>{{ cur.s3 }}</b></span><span><i style="background: #e5484d"></i>فشلت، تحتاج إصلاحًا <b>{{ cur.s4 }}</b></span></div>
+            </div>
+            <div><span style="padding: 0 20px; font-size: 12px; font-weight: 700">حالة الترحيل إلى ERPNext</span>
+              <div class="stk" aria-hidden="true"><i style="width: {{ cur.ew1 }}%; background: #5fd39a"></i><i style="width: {{ cur.ew2 }}%; background: #7fb1e8"></i><i style="width: {{ cur.ew3 }}%; background: #e5484d"></i><i style="width: {{ cur.ew4 }}%; background: #c6d3d8"></i></div>
+              <div class="sl"><span><i style="background: #5fd39a"></i>مرحَّلة <b>{{ cur.e1 }}</b></span><span><i style="background: #7fb1e8"></i>قيد الترحيل <b>{{ cur.e2 }}</b></span><span><i style="background: #e5484d"></i>فشل الترحيل <b>{{ cur.e3 }}</b></span><span><i style="background: #c6d3d8"></i>غير معروف <b>{{ cur.e4 }}</b></span></div>
+            </div>
+            <div class="pr" style="border-top: 1px solid #eef2f4"><span>إقفالات الورديات</span><span><b>{{ cur.sc }}</b> <small>· بها فرق {{ cur.sv }} · قسرية {{ cur.sfc }}</small></span></div>
+          </sc-if>
+          <a class="plink" href="Sales.dc.html">مبيعات هذا اليوم<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></a>
+          <a class="plink" href="Shifts.dc.html">إقفالات ورديات هذا اليوم<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></a>
+          <a class="plink" href="#{{ cur.rid }}">صف هذا اليوم في الجدول<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></a>
+        </aside>
+      </div>
+
+      <section class="box" aria-labelledby="t1-h">
+        <div style="display: flex; align-items: center; gap: 10px; padding: 18px 20px 4px"><span class="sec" aria-hidden="true">03</span><span class="sh" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16M10 6v12"/></svg></span><h2 id="t1-h" class="disp" style="margin: 0; font-size: 16px; font-weight: 600">الأرقام الدقيقة</h2><span class="hs" style="margin-inline-start: auto">كل خانة: العدد، ثم الإجمالي بكل عملة في سطر مستقل. لا تُجمع العملات معًا أبدًا.</span></div>
+        <div style="padding: 0 14px 16px; overflow-x: auto">
+          <table class="rt">
+            <caption style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">المبيعات المستلمة والإلغاءات والمرتجعات والاستردادات القديمة لكل يوم عمل</caption>
+            <thead><tr><th scope="col">يوم العمل</th><th scope="col" style="text-align: end">المبيعات المستلمة</th><th scope="col" style="text-align: end">الإلغاءات</th><th scope="col" style="text-align: end">المرتجعات</th><th scope="col" style="text-align: end">الاستردادات القديمة</th></tr></thead>
+            <tbody>
+              <sc-for list="{{ days }}" as="d" hint-placeholder-count="10">
+                <tr class="{{ d.rowCls }}" id="{{ d.rid }}">
+                  <th scope="row"><bdi dir="ltr">{{ d.iso }}</bdi> <span class="hs">{{ d.wd }}</span> <sc-if value="{{ d.soFar }}" hint-placeholder-val="{{ false }}"><span class="sf">حتى الآن</span></sc-if></th>
+                  <sc-if value="{{ d.known }}" hint-placeholder-val="{{ true }}">
+                    <td><span class="mc"><span class="c">{{ d.cnt }}</span><span class="a"><bdi dir="ltr">{{ d.amt }} <span class="cur">EGP</span></bdi></span><sc-if value="{{ d.hasUsd }}" hint-placeholder-val="{{ false }}"><span class="a"><bdi dir="ltr">{{ d.usd }} <span class="cur">USD</span></bdi></span></sc-if></span></td>
+                    <td><span class="mc"><span class="c">{{ d.vc }}</span><span class="a"><bdi dir="ltr">{{ d.va }} <span class="cur">EGP</span></bdi></span></span></td>
+                    <td><span class="mc"><span class="c">{{ d.rc }}</span><span class="a"><bdi dir="ltr">{{ d.ra }} <span class="cur">EGP</span></bdi></span></span></td>
+                    <td><span class="mc"><span class="c">0</span><span class="hs">لا يوجد مبلغ في هذه الفترة</span></span></td>
+                  </sc-if>
+                  <sc-if value="{{ d.unknown }}" hint-placeholder-val="{{ false }}">
+                    <td style="text-align: end"><span class="u">غير معروف</span></td><td style="text-align: end"><span class="u">غير معروف</span></td><td style="text-align: end"><span class="u">غير معروف</span></td><td style="text-align: end"><span class="u">غير معروف</span></td>
+                  </sc-if>
+                </tr>
+              </sc-for>
+            </tbody>
+            <tfoot><tr>
+              <td>إجمالي النطاق (يشمل أيامًا حتى الآن)</td>
+              <td><span class="mc"><span class="c" style="color: #a9c2c5">{{ tot.cnt }} مبيعة</span><span class="a"><bdi dir="ltr">{{ tot.amt }} <span class="cur">EGP</span></bdi></span><span class="a"><bdi dir="ltr">{{ tot.usd }} <span class="cur">USD</span></bdi></span></span></td>
+              <td><span class="mc"><span class="c" style="color: #a9c2c5">{{ tot.vc }}</span><span class="a"><bdi dir="ltr">{{ tot.va }} <span class="cur">EGP</span></bdi></span></span></td>
+              <td><span class="mc"><span class="c" style="color: #a9c2c5">{{ tot.rc }}</span><span class="a"><bdi dir="ltr">{{ tot.ra }} <span class="cur">EGP</span></bdi></span></span></td>
+              <td><span class="mc"><span class="c" style="color: #a9c2c5">0</span><span style="font-size: 12px; color: #a9c2c5">لا يوجد مبلغ في هذه الفترة</span></span></td>
+            </tr></tfoot>
+          </table>
+          <p class="hs" style="margin: 10px 6px 0">جدول حالة المزامنة والترحيل وإقفالات الورديات لكل يوم يتبع هنا كما في الكود؛ شريط «صحة المسار» أعلاه ملخّصه المرئي.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1680,"height":2100}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { on: 29 }; }
+  renderVals() {
+    const set = (o) => this.setState(o);
+    const fmt = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const W = { 21: 'الأربعاء', 22: 'الخميس', 23: 'الجمعة', 24: 'السبت', 25: 'الأحد', 26: 'الاثنين', 27: 'الثلاثاء', 28: 'الأربعاء', 29: 'الخميس', 30: 'الجمعة' };
+    // [day, count, EGP, USD, sync[captured,synced,retry,repair], erp[posted,pending,failed,unknown], shifts[count,normal,forced,variance]]
+    const raw = [
+      [21, 412, 148320.5, 0, [0, 412, 0, 0], [412, 0, 0, 0], [9, 9, 0, 0]],
+      [22, 455, 163905.25, 0, [0, 455, 0, 0], [455, 0, 0, 0], [9, 9, 0, 1]],
+      [23, 520, 201480, 120, [0, 520, 0, 0], [520, 0, 0, 0], [10, 10, 0, 0]],
+      [24, 498, 188760.75, 0, [0, 498, 0, 0], [498, 0, 0, 0], [9, 9, 0, 0]],
+      [25, null],
+      [26, 431, 152210, 0, [0, 431, 0, 0], [431, 0, 0, 0], [9, 9, 0, 0]],
+      [27, 447, 160455.5, 0, [0, 447, 0, 0], [447, 0, 0, 0], [9, 9, 0, 0]],
+      [28, 469, 171230.25, 85, [0, 469, 0, 0], [469, 0, 0, 0], [9, 9, 0, 2]],
+      [29, 503, 189940, 0, [0, 501, 0, 2], [497, 0, 2, 4], [9, 8, 1, 3]],
+      [30, 286, 104115.75, 0, [6, 278, 2, 0], [241, 39, 0, 6], [2, 2, 0, 1]]
+    ];
+    const pct = (a, t) => (t ? Math.round(a / t * 1000) / 10 : 0);
+    const days = raw.map((r) => {
+      const d = r[0];
+      const known = r[1] !== null;
+      const on = this.state.on === d;
+      const o = on ? ' h-on' : '';
+      const base = { dn: d, wd: W[d], iso: '2026-10-' + d, rid: 'day-' + d, label: W[d] + ' ' + d + ' أكتوبر', known: known, unknown: !known, soFar: d === 30,
+        best: d === 23, barCls: 'bar' + (d === 30 ? ' so' : '') + (on ? ' on' : ''), rowCls: on ? 'on' : '', pressed: on ? 'true' : 'false', pick: () => set({ on: d }) };
+      if (!known) {
+        const u = 'hc h-unk' + o;
+        return Object.assign(base, { aria: d + ' أكتوبر: غير معروف', hsCls: u, heCls: u, hvCls: u, hsN: '؟', heN: '؟', hvN: '؟', hsT: 'غير معروف', heT: 'غير معروف', hvT: 'غير معروف' });
+      }
+      const s = r[4], e = r[5], sh = r[6];
+      const hs = s[3] ? ['h-bad', s[3]] : (s[2] || s[0] ? ['h-pend', s[0] + s[2]] : ['h-ok', '✓']);
+      const he = e[2] ? ['h-bad', e[2]] : (e[1] ? ['h-pend', e[1]] : (e[3] ? ['h-unk', e[3]] : ['h-ok', '✓']));
+      const hv = sh[3] ? ['h-warn', sh[3]] : ['h-ok', '✓'];
+      return Object.assign(base, {
+        aria: d + ' أكتوبر: ' + fmt(r[2]) + ' EGP' + (d === 30 ? '، حتى الآن' : ''),
+        h: Math.round(r[2] / 200000 * 100), k: Math.round(r[2] / 1000) + 'k', amt: fmt(r[2]), cnt: r[1] + ' مبيعة', hasUsd: r[3] > 0, usd: fmt(r[3]),
+        vc: Math.round(r[1] * 0.012), va: fmt(r[2] * 0.004), rc: Math.round(r[1] * 0.02), ra: fmt(r[2] * 0.011),
+        s1: s[0], s2: s[1], s3: s[2], s4: s[3], e1: e[0], e2: e[1], e3: e[2], e4: e[3], sc: sh[0], sfc: sh[2], sv: sh[3],
+        sw0: pct(s[0], r[1]), sw1: pct(s[1], r[1]), sw2: pct(s[2], r[1]), sw3: Math.max(pct(s[3], r[1]), s[3] ? 1.5 : 0),
+        ew1: pct(e[0], r[1]), ew2: pct(e[1], r[1]), ew3: Math.max(pct(e[2], r[1]), e[2] ? 1.5 : 0), ew4: Math.max(pct(e[3], r[1]), e[3] ? 1.5 : 0),
+        hsCls: 'hc ' + hs[0] + o, hsN: hs[1], hsT: 'المزامنة', heCls: 'hc ' + he[0] + o, heN: he[1], heT: 'الترحيل', hvCls: 'hc ' + hv[0] + o, hvN: hv[1], hvT: 'إقفالات بها فرق'
+      });
+    });
+    const known = raw.filter((r) => r[1] !== null);
+    const sum = (f) => known.reduce((a, r) => a + f(r), 0);
+    return {
+      days: days, cur: days.find((x) => x.dn === this.state.on),
+      tot: { cnt: sum((r) => r[1]).toLocaleString('en-US'), amt: fmt(sum((r) => r[2])), usd: fmt(sum((r) => r[3])), vc: sum((r) => Math.round(r[1] * 0.012)), va: fmt(sum((r) => r[2] * 0.004)), rc: sum((r) => Math.round(r[1] * 0.02)), ra: fmt(sum((r) => r[2] * 0.011)) }
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>إقفالات الورديات — Retail Tower Console</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f2f5f6}
+a{color:#0f766e}a:hover{color:#0b5b55}
+:focus-visible{outline:2px solid #14a394;outline-offset:2px}
+.disp{font-family:'Readex Pro',Dubai,'Segoe UI',sans-serif}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.nv{display:flex;align-items:center;gap:14px;min-height:46px;padding:0 14px;border-radius:12px;color:#a9c2c5;text-decoration:none;font-size:14px;position:relative}
+.nv:hover{background:rgba(255,255,255,.05);color:#ffffff}
+.nv svg{flex:none}
+.nv-on{color:#ffffff;font-weight:700;background:linear-gradient(90deg,rgba(43,196,179,.22),rgba(43,196,179,.04));box-shadow:inset 0 0 0 1px rgba(95,224,207,.22)}
+.nv-on::before{content:"";position:absolute;inset-inline-start:-16px;top:10px;bottom:10px;width:4px;border-radius:0 4px 4px 0;background:#5fe0cf;box-shadow:0 0 14px 2px rgba(95,224,207,.7)}
+.nv-on svg{color:#5fe0cf}
+.grp{font-size:11px;color:#5f8186;padding:0 14px 4px;font-weight:700}
+.hs{font-size:12px;color:#5b6d7c}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 16px;border-radius:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap;border:1px solid transparent}
+.ink{color:#ffffff;background:#0a2125;border-color:#0a2125;box-shadow:0 8px 18px -10px rgba(10,33,37,.8)}
+.ink:hover{color:#ffffff;background:#12333a}
+.ghost{color:#0a2125;background:#ffffff;border-color:#d6dfe3}
+.ghost:hover{border-color:#9fdcd2}
+.quiet{color:#33454f;background:transparent}
+.quiet:hover{background:#eef2f4}
+.dq{color:#b3261e;background:#ffffff;border-color:#f2d6d3}
+.dq:hover{background:#fdf3f2}
+.dd{color:#ffffff;background:#b3261e;border-color:#b3261e}
+.dd:hover{background:#9a1f19}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:9px;font-size:12px;font-weight:700;white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:2px;background:currentColor;transform:rotate(45deg)}
+.ok{background:#e4f5ec;color:#15774d}
+.warn{background:#fdf0dc;color:#8a4b00}
+.role{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px 0 12px;border-radius:9px;font-size:12px;font-weight:700;background:#eef2f4;color:#33454f;white-space:nowrap}
+.role svg{color:#0f766e}
+.role-unk{background:#ffffff;border:1px dashed #b7c5ca;color:#5b6d7c}
+.sec{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:24px;padding:0 6px;border-radius:8px;background:#0a2125;color:#5fe0cf;font-family:'Readex Pro',sans-serif;font-size:11px;font-weight:600}
+.box{background:#ffffff;border:1px solid #e3e9ec;border-radius:20px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25)}
+.sum{display:flex;flex-wrap:wrap;gap:10px}
+.sum span{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:12px;background:#ffffff;border:1px solid #e3e9ec;font-size:13px;color:#33454f}
+.sum b{font-family:'Readex Pro',sans-serif;font-weight:600;color:#0a2125}
+.tbl{width:100%;border-collapse:separate;border-spacing:0 8px;font-size:13px}
+.tbl th{font-size:12px;color:#5b6d7c;font-weight:700;text-align:start;padding:0 16px 2px}
+.tbl td{padding:12px 16px;background:#f8fafb;border-block:1px solid #eef2f4;white-space:nowrap}
+.tbl td:first-child{border-inline-start:1px solid #eef2f4;border-start-start-radius:14px;border-end-start-radius:14px}
+.tbl td:last-child{border-inline-end:1px solid #eef2f4;border-start-end-radius:14px;border-end-end-radius:14px}
+.tbl tr:hover td{background:#f2f8f7}
+.rv td{background:#fffaf2;border-color:#f3e3c6;color:#5b6d7c}
+.rv td:first-child{box-shadow:inset -3px 0 0 #f0a03c;border-color:#f3e3c6}
+.av{width:38px;height:38px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;flex:none;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:15px;background:linear-gradient(160deg,#e7f6f3,#cfeee8);color:#0f766e;box-shadow:inset 0 0 0 1px #bfe5dd}
+.av-off{background:#eef2f4;color:#5b6d7c;box-shadow:inset 0 0 0 1px #dde5e8}
+.av-mail{background:#ffffff;color:#0f766e;box-shadow:inset 0 0 0 1px #bfe5dd}
+.who{display:flex;align-items:center;gap:12px;min-width:0}
+.who span{display:flex;flex-direction:column;line-height:1.35;min-width:0}
+.who b{font-size:14px;font-weight:700;color:#0a2125}
+.acc{display:inline-flex;align-items:center;gap:8px}
+.bars{display:inline-flex;align-items:flex-end;gap:2px;height:16px}
+.bars i{display:block;width:4px;border-radius:2px;background:#0f8f80}
+.scrim{position:absolute;inset:0;background:rgba(10,33,37,.42);z-index:20}
+.drawer{position:absolute;inset-block:0;inset-inline-end:0;width:500px;max-width:100%;background:#ffffff;z-index:21;box-shadow:0 0 0 1px #e3e9ec,-24px 0 48px -20px rgba(10,33,37,.5);display:flex;flex-direction:column}
+.ib{width:36px;height:36px;border-radius:10px;border:0;background:transparent;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.ib:hover{background:rgba(255,255,255,.08)}
+.fl{display:flex;flex-direction:column;gap:6px}
+.fl>label,.fl>.lb{font-size:13px;font-weight:700;color:#0a2125}
+.req{color:#b3261e;margin-inline-start:2px}
+.in{height:42px;border:1px solid #c6d3d8;border-radius:11px;padding:0 12px;font:inherit;font-size:14px;color:#0a2125;background:#ffffff;box-sizing:border-box;width:100%}
+.in:focus{border-color:#0f766e;outline:2px solid #14a394;outline-offset:1px}
+.opts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.opt{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 12px;border:1px solid #d6dfe3;border-radius:12px;cursor:pointer;font:inherit;font-size:13px;font-weight:600;background:#ffffff;text-align:start;width:100%;color:#0a2125}
+.opt:hover{border-color:#9fdcd2}
+.opt-on{border-color:#0a2125;box-shadow:inset 0 0 0 1px #0a2125;background:#f6faf9}
+.radio{width:18px;height:18px;border-radius:50%;border:2px solid #53647a;box-sizing:border-box;display:flex;align-items:center;justify-content:center;flex:none}
+.opt-on .radio{border-color:#0a2125}
+.opt-on .radio::after{content:"";width:8px;height:8px;border-radius:50%;background:#0a2125}
+.chip{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 10px;border-radius:10px;border:1px solid #d6dfe3;background:#ffffff;font:inherit;font-size:12px;font-weight:600;color:#33454f;cursor:pointer}
+.chip-on{border-color:#0f766e;background:#e7f6f3;color:#0b5b55}
+.chk{width:14px;height:14px;border-radius:4px;border:2px solid #53647a;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center}
+.chip-on .chk{border-color:#0f766e;background:#0f766e}
+.chip-on .chk::after{content:"";width:6px;height:3px;border-inline-start:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) translate(1px,-1px)}
+.ft{border-top:1px solid #eef2f4;padding:14px 22px;display:flex;gap:8px;background:#fbfcfc}
+.attn td{background:#fffaf2;border-color:#f3e3c6}
+.attn td:first-child{box-shadow:inset -3px 0 0 #f0a03c;border-color:#f3e3c6}
+.fbar{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;padding:16px 18px;border-bottom:1px solid #eef2f4}
+.ff{display:flex;flex-direction:column;gap:5px;min-width:0}
+.ff span{font-size:12px;font-weight:700;color:#33454f}
+.sel{height:38px;border:1px solid #c6d3d8;border-radius:11px;padding:0 12px;font:inherit;font-size:13px;color:#0a2125;background:#ffffff;display:flex;align-items:center;gap:8px;box-sizing:border-box}
+.chips{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 18px 0}
+.fchip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 6px 0 10px;border-radius:9px;background:#e7f6f3;color:#0b5b55;font-size:12px;font-weight:700}
+.fchip button{width:20px;height:20px;border:0;border-radius:6px;background:transparent;color:#0b5b55;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.num{font-family:'Readex Pro',sans-serif;font-variant-numeric:tabular-nums;font-weight:500}
+.vr{display:flex;align-items:center;gap:10px;justify-content:flex-end}
+.vbar{position:relative;width:96px;height:14px;flex:none}
+.vbar::before{content:"";position:absolute;inset-block:0;inset-inline-start:50%;width:1px;background:#b7c5ca}
+.vbar i{position:absolute;top:3px;height:8px;border-radius:3px;background:#0f8f80}
+.vw{display:flex;flex-direction:column;align-items:flex-end;line-height:1.25}
+.vw small{font-size:11px;font-weight:700;color:#5b6d7c}
+.kind{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:9px;font-size:12px;font-weight:700;background:#eef2f4;color:#33454f}
+.kind-f{background:#ffffff;border:1px solid #f0c98a;color:#8a4b00}
+.appr{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#33454f}
+.appr-none{color:#5b6d7c;font-weight:500}
+.foot{display:flex;align-items:center;gap:12px;padding:6px 18px 16px}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#0f766e}
+.eyebrow i{width:18px;height:2px;border-radius:2px;background:#0f766e;display:block}
+.fx{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.tok{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-radius:11px;background:#f6f9fa;border:1px solid #e3e9ec;font-size:13px;font-weight:700;color:#0a2125}
+.tok-r{background:#0a2125;border-color:#0a2125;color:#ffffff}
+.tok-r em{font-style:normal;color:#5fe0cf}
+.op{font-family:'Readex Pro',sans-serif;font-size:18px;font-weight:500;color:#7a8b96;width:16px;text-align:center}
+.st{display:flex;align-items:center;gap:10px}
+.st i{width:30px;height:30px;border-radius:10px;background:#0a2125;color:#5fe0cf;display:inline-flex;align-items:center;justify-content:center;font-style:normal;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:13px;flex:none}
+.day td{background:transparent !important;border:0 !important;box-shadow:none !important;padding:12px 6px 0 !important}
+.day span{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:700;color:#5b6d7c}
+.day span::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,#e3e9ec,transparent)}
+.day b{font-family:'Readex Pro',sans-serif;font-weight:600;color:#0a2125}
+.srow td{transition:background .14s,box-shadow .14s}
+.srow:hover td{background:#ffffff;box-shadow:0 10px 22px -18px rgba(10,33,37,.45)}
+.srow:hover td:first-child{box-shadow:inset -3px 0 0 #0f766e,0 10px 22px -18px rgba(10,33,37,.45)}
+.attn.srow:hover td:first-child{box-shadow:inset -3px 0 0 #f0a03c,0 10px 22px -18px rgba(10,33,37,.45)}
+.openb svg{transition:transform .14s}
+.srow:hover .openb{border-color:#0a2125}
+.srow:hover .openb svg{transform:translateX(-3px)}
+.more{flex:1;height:44px;border:1.5px dashed #c6d3d8;border-radius:14px;background:#fbfcfc;font:inherit;font-size:13px;font-weight:700;color:#0a2125;display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer}
+.more:hover{border-color:#0f766e;background:#f2f8f7}
+@media (prefers-reduced-motion: reduce){.srow td,.openb svg{transition:none}}
+.band{position:relative;overflow:hidden;box-sizing:border-box;max-height:132px;min-height:112px;display:flex;flex-wrap:wrap;align-items:center;gap:14px 24px;padding:20px 26px;border-radius:22px;border:1px solid #0a2125;color:#ffffff;background-color:#0a2125;background-image:linear-gradient(rgba(95,224,207,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(95,224,207,.06) 1px,transparent 1px),radial-gradient(420px 200px at 0% 0%,rgba(95,224,207,.26),transparent 70%);background-size:24px 24px,24px 24px,100% 100%;box-shadow:0 18px 40px -28px rgba(10,33,37,.7)}
+.band>*:not(.band-orn){position:relative;z-index:1}
+.band-orn{position:absolute;inset-inline-end:0;bottom:0;width:360px;height:132px;opacity:.5;pointer-events:none}
+.band-id{flex:1 1 260px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.band-eye{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#5fe0cf}
+.band-eye i{width:18px;height:2px;border-radius:2px;background:#5fe0cf;display:block}
+.band-act{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.band-facts{display:flex;align-items:center;margin:0;padding:6px 4px;border-radius:16px;background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px rgba(95,224,207,.14)}
+.band-facts>div{display:flex;align-items:center;gap:10px;padding:4px 16px}
+.band-facts>div+div{border-inline-start:1px solid rgba(255,255,255,.1)}
+.band-facts>div>span:last-child{display:flex;flex-direction:column;gap:3px}
+.band-facts dd{margin:0;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:20px;line-height:1;font-variant-numeric:tabular-nums}
+.band-facts dt{font-size:12px;color:#a9c2c5;line-height:1.2}
+.band-facts .dot{width:9px;height:9px;border-radius:3px;transform:rotate(45deg);flex:none}
+.mint{color:#0a2125 !important;background:#5fe0cf !important;border:1px solid #5fe0cf !important;box-shadow:0 10px 22px -12px rgba(95,224,207,.8) !important}
+.mint:hover{background:#86ebdd !important}
+.gl{color:#e6f0f1 !important;background:rgba(255,255,255,.06) !important;border:1px solid rgba(255,255,255,.18) !important}
+.gl:hover{background:rgba(255,255,255,.12) !important;color:#ffffff !important}
+.band .seg{background:rgba(255,255,255,.08) !important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+.band .seg button{color:#c3d6d8 !important}
+.band .seg .on{background:#5fe0cf !important;color:#0a2125 !important}
+.band label{color:#e6f0f1}
+@media (max-width: 640px){.band{max-height:none;background:#ffffff;color:#0a2125;border-color:#e3e9ec;box-shadow:none}.band-orn,.band-facts{display:none}.band-eye{color:#0f766e}.band-eye i{background:#0f766e}}
+@media (forced-colors: active){.band{background:Canvas;color:CanvasText;border:1px solid CanvasText}.band-orn{display:none}}
+</style>
+</helmet>
+
+<div style="position: relative; min-height: 100vh; display: flex; flex-wrap: wrap; align-items: stretch; background: #f2f5f6; color: #0a2125; font-family: Dubai, 'Segoe UI', Tahoma, system-ui, sans-serif; font-size: 14px; line-height: 1.6">
+  <aside aria-label="التنقل الرئيسي" style="flex: 1 1 240px; max-width: 100%; box-sizing: border-box; padding: 22px 16px; display: flex; flex-direction: column; gap: 22px; color: #ffffff; background-color: #0a2125; background-image: linear-gradient(rgba(95,224,207,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(95,224,207,.05) 1px, transparent 1px), radial-gradient(420px 260px at 100% 0%, rgba(43,196,179,.22), transparent 70%); background-size: 28px 28px, 28px 28px, 100% 100%">
+    <div style="display: flex; align-items: center; gap: 12px; padding: 0 4px">
+      <div aria-hidden="true" style="width: 44px; height: 44px; border-radius: 13px; background: linear-gradient(160deg, #5fe0cf, #0f766e 70%); display: flex; align-items: flex-end; justify-content: center; gap: 3px; padding-bottom: 10px; box-sizing: border-box">
+        <span style="width: 5px; height: 12px; border-radius: 2px; background: rgba(255,255,255,.7)"></span><span style="width: 5px; height: 22px; border-radius: 2px; background: #ffffff"></span><span style="width: 5px; height: 16px; border-radius: 2px; background: rgba(255,255,255,.85)"></span>
+      </div>
+      <div style="display: flex; flex-direction: column; line-height: 1.25"><span class="disp" style="font-weight: 600; font-size: 18px">Retail Tower</span><span style="font-size: 12px; color: #7fa3a8">منصة إدارة التجزئة</span></div>
+    </div>
+    <nav style="display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">العمليات</span>
+        <a class="nv" href="Overview-v9.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10l8-6 8 6v10H4z"/><path d="M10 20v-6h4v6"/></svg>الرئيسية</a>
+        <a class="nv" href="Sales.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>المبيعات</a>
+        <a class="nv" href="Catalog.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>الأصناف</a>
+        <a class="nv nv-on" href="#" aria-current="page"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M3 11h18M7 15h3M8 7V4h8v3"/></svg>الورديات</a>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">الإدارة</span>
+        <a class="nv" href="Stores.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v10h16V10M3 10l2-6h14l2 6zM9 20v-6h6v6"/></svg>المتاجر</a>
+        <a class="nv" href="Devices.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>الأجهزة</a>
+        <a class="nv" href="Users.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M3 20a6 6 0 0112 0M16 4.5a3.5 3.5 0 010 7M18 20a6 6 0 00-3-5.2"/></svg>المستخدمون</a>
+      </div>
+    </nav>
+  </aside>
+  <div style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column">
+    <main style="width: 100%; max-width: 1360px; box-sizing: border-box; padding: 28px 26px 40px; display: flex; flex-direction: column; gap: 18px">
+      <header class="band" aria-labelledby="pg-h">
+        <svg class="band-orn" aria-hidden="true" viewBox="0 0 360 132" fill="none" stroke="#5fe0cf" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"><path d="M20 132V78h46v54M66 132V50h38v82M104 132V26l20-14 20 14v106M144 132V64h52v68M196 132V40h34v92M230 132V72h46v60M276 132V46h38v86M314 132V84h36v48" stroke-opacity=".55"/><path d="M30 92h6M46 92h6M30 106h6M46 106h6M76 62h5M90 62h5M76 76h5M90 76h5M76 90h5M90 90h5M114 40h4M128 40h4M114 54h4M128 54h4M114 68h4M128 68h4M114 82h4M128 82h4M156 78h7M176 78h7M156 92h7M176 92h7M206 54h5M218 54h5M206 68h5M218 68h5M206 82h5M218 82h5M242 86h6M260 86h6M286 60h5M300 60h5M286 74h5M300 74h5" stroke-opacity=".85"/><path d="M124 12V2"/></svg>
+        <div class="band-id">
+          <span class="band-eye"><i aria-hidden="true"></i>العمليات</span>
+          <h1 id="pg-h" class="disp" style="margin: 0; font-size: 26px; font-weight: 600; line-height: 1.3">إقفالات الورديات</h1>
+          <span style="font-size: 13px; color: #a9c2c5">الورديات المقفلة التي سُجّل فيها فرق نقدي في <bdi>مؤسسة النيل للتجزئة</bdi>.</span>
+        </div>
+      </header>
+
+      <div style="display: flex; gap: 14px; align-items: center; padding: 14px 18px; border-radius: 16px; background: #ffffff; border: 1px solid #e3e9ec">
+        <span aria-hidden="true" style="width: 40px; height: 40px; border-radius: 12px; background: #0a2125; color: #5fe0cf; display: inline-flex; align-items: center; justify-content: center; flex: none"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M3 11h18M7 15h3M8 7V4h8v3"/></svg></span>
+        <span style="display: flex; flex-direction: column; gap: 8px; min-width: 0">
+          <span style="font-size: 13px; color: #33454f">تُعرض هنا الإقفالات التي فيها فرق غير صفري فقط.</span>
+          <span class="fx" role="img" aria-label="الفرق = النقد المعدود − النقد المتوقع">
+            <span class="tok tok-r" aria-hidden="true">الفرق <em>≠ 0</em></span><span class="op" aria-hidden="true">=</span>
+            <span class="tok" aria-hidden="true">النقد المعدود</span><span class="op" aria-hidden="true">−</span>
+            <span class="tok" aria-hidden="true">النقد المتوقع</span>
+          </span>
+        </span>
+        <span aria-hidden="true" style="margin-inline-start: auto; display: inline-flex; align-items: center; gap: 14px; font-size: 12px; color: #5b6d7c; flex: none">
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span class="vbar" style="width: 44px"><i style="inset-inline-end: 50%; width: 16px"></i></span>عجز</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span class="vbar" style="width: 44px"><i style="inset-inline-start: 50%; width: 16px"></i></span>زيادة</span>
+        </span>
+      </div>
+
+      <section class="box" aria-labelledby="sl-h">
+        <form class="fbar" aria-label="تصفية الإقفالات" onsubmit="return false">
+          <div class="ff" style="flex: 1 1 170px"><span>المتجر</span><div class="sel">كل المتاجر<svg aria-hidden="true" style="margin-inline-start: auto" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5b6d7c" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+          <div class="ff" style="flex: 0 1 150px"><span>من تاريخ</span><div class="sel"><bdi dir="ltr">2026-10-23</bdi></div></div>
+          <div class="ff" style="flex: 0 1 150px"><span>إلى تاريخ</span><div class="sel"><bdi dir="ltr">2026-10-29</bdi></div></div>
+          <div class="ff" style="flex: 0 1 150px"><span>نوع الإقفال</span><div class="sel">كل الأنواع<svg aria-hidden="true" style="margin-inline-start: auto" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5b6d7c" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+          <div class="ff" style="flex: 0 1 140px"><span>أدنى فرق مطلق</span><div class="sel"><bdi dir="ltr">10.00</bdi></div></div>
+          <div class="ff" style="flex: 0 1 170px"><span>المعتمِد المسجَّل</span><div class="sel">الكل<svg aria-hidden="true" style="margin-inline-start: auto" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5b6d7c" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+          <button type="submit" class="btn ink">تطبيق</button>
+          <span class="hs" style="flex-basis: 100%">التواريخ بتوقيت <bdi dir="ltr">Africa/Cairo</bdi>.</span>
+        </form>
+        <div class="chips" aria-label="التصفية المطبقة">
+          <span class="fchip"><bdi dir="ltr">2026-10-23 → 2026-10-29</bdi><button type="button" aria-label="إزالة: التاريخ"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></span>
+          <span class="fchip">أدنى فرق مطلق <bdi dir="ltr">10.00</bdi><button type="button" aria-label="إزالة: أدنى فرق مطلق"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></span>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px; padding: 16px 18px 0">
+          <span class="sec" aria-hidden="true">01</span>
+          <h2 id="sl-h" class="disp" style="margin: 0; font-size: 16px; font-weight: 600">إقفالات بفرق نقدي</h2>
+        </div>
+        <div style="padding: 0 14px">
+          <table class="tbl">
+            <caption style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">إقفالات الورديات ذات الفرق النقدي</caption>
+            <thead><tr><th scope="col">المتجر</th><th scope="col">وقت الإقفال</th><th scope="col">نوع الإقفال</th><th scope="col" style="text-align: end">النقد المتوقع</th><th scope="col" style="text-align: end">النقد المعدود</th><th scope="col" style="text-align: end">الفرق</th><th scope="col">المعتمِد المسجَّل</th><th scope="col"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">إجراءات</span></th></tr></thead>
+            <tbody>
+              <sc-for list="{{ rows }}" as="r" hint-placeholder-count="6">
+                <sc-if value="{{ r.dayStart }}" hint-placeholder-val="{{ false }}"><tr class="day"><td colspan="8"><span><b>{{ r.weekday }}</b> {{ r.day }}</span></td></tr></sc-if>
+                <tr class="{{ r.cls }}">
+                  <td><span class="st"><i aria-hidden="true">{{ r.ini }}</i><b style="font-weight: 700">{{ r.store }}</b></span></td>
+                  <td>{{ r.day }} · <bdi dir="ltr">{{ r.time }}</bdi></td>
+                  <td>
+                    <sc-if value="{{ r.forced }}" hint-placeholder-val="{{ false }}"><span class="kind kind-f"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>إقفال إداري</span></sc-if>
+                    <sc-if value="{{ r.normal }}" hint-placeholder-val="{{ true }}"><span class="kind">عادي</span></sc-if>
+                  </td>
+                  <td style="text-align: end"><bdi dir="ltr" class="num">{{ r.expected }}</bdi></td>
+                  <td style="text-align: end"><bdi dir="ltr" class="num">{{ r.counted }}</bdi></td>
+                  <td>
+                    <span class="vr">
+                      <span class="vbar" aria-hidden="true"><i style="{{ r.bar }}"></i></span>
+                      <span class="vw"><bdi dir="ltr" class="num" style="font-weight: 600">{{ r.variance }} EGP</bdi><small>{{ r.dir }}</small></span>
+                    </span>
+                  </td>
+                  <td>
+                    <sc-if value="{{ r.approved }}" hint-placeholder-val="{{ true }}"><span class="appr"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0f766e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M5 21a7 7 0 0114 0"/></svg>مسجَّل</span></sc-if>
+                    <sc-if value="{{ r.notApproved }}" hint-placeholder-val="{{ false }}"><span class="appr appr-none">لا يوجد</span></sc-if>
+                  </td>
+                  <td style="text-align: end; width: 1%"><a class="btn ghost openb" style="height: 32px; font-size: 12px" href="Shift-detail.dc.html" aria-label="فتح إقفال {{ r.store }}، {{ r.day }}">فتح<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></a></td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+        <div class="foot" style="gap: 16px">
+          <span class="hs" style="flex: none">المحمّل: <b class="num" style="color: #0a2125">6</b></span>
+          <button type="button" class="more"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>تحميل المزيد</button>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1680,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const r = (store, day, time, forced, expected, counted, v, approved) => ({ store: store, day: day, time: time, forced: forced, normal: !forced, expected: expected, counted: counted, v: v, approved: approved, notApproved: !approved, cls: (forced ? 'attn ' : '') + 'srow', ini: store.replace('فرع ', '').charAt(0) });
+    const list = [
+      r('فرع المعادي', '29 أكتوبر', '22:14', false, '8,450.00', '8,300.00', -150, true),
+      r('فرع مدينة نصر', '29 أكتوبر', '21:58', false, '6,120.50', '6,140.50', 20, false),
+      r('فرع الدقي', '29 أكتوبر', '18:05', true, '3,980.00', '3,620.00', -360, false),
+      r('فرع الشيخ زايد', '28 أكتوبر', '22:31', false, '7,215.00', '7,200.00', -15, true),
+      r('فرع المعادي', '28 أكتوبر', '22:09', false, '9,004.25', '9,054.25', 50, true),
+      r('فرع مدينة نصر', '28 أكتوبر', '14:40', false, '5,500.00', '5,487.50', -12.5, false)
+    ];
+    const max = Math.max.apply(null, list.map((x) => Math.abs(x.v)));
+    return {
+      rows: list.map((x, i) => {
+        const w = Math.max(3, Math.round(Math.abs(x.v) / max * 46));
+        return Object.assign({}, x, {
+          variance: (x.v > 0 ? '+' : '−') + Math.abs(x.v).toFixed(2),
+          dir: x.v > 0 ? 'زيادة' : 'عجز',
+          dayStart: i === 0 || list[i - 1].day !== x.day,
+          weekday: { '29 أكتوبر': 'الخميس', '28 أكتوبر': 'الأربعاء' }[x.day],
+          bar: (x.v > 0 ? 'inset-inline-start: 50%' : 'inset-inline-end: 50%') + '; width: ' + w + 'px'
+        });
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

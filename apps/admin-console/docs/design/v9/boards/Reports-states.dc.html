@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>المبيعات المستلمة يوميًا — الحالات</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.disp{font-family:'Readex Pro',Dubai,'Segoe UI',sans-serif}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.cap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.cap b{font-family:'Readex Pro',sans-serif;font-size:11px;font-weight:600;color:#ffffff;background:#0a2125;border-radius:6px;padding:2px 8px}
+.cap span{font-size:15px;font-weight:700;color:#0a2125}
+.cap i{font-style:normal;font-size:12px;color:#5b6d7c}
+.box{background:#ffffff;border:1px solid #e3e9ec;border-radius:20px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25);overflow:hidden}
+.row{display:grid;grid-template-columns:1.4fr .8fr .8fr .6fr;gap:14px;align-items:center;margin:0 14px 6px;padding:12px 14px;border-radius:12px;background:#f8fafb;border:1px solid #eef2f4}
+.sk{height:10px;border-radius:5px;background:linear-gradient(90deg,#e9eff1,#f4f7f8,#e9eff1)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 16px;border-radius:11px;font:inherit;font-size:13px;font-weight:700;white-space:nowrap;border:1px solid transparent}
+.ink{color:#ffffff;background:#0a2125;border-color:#0a2125}
+.quiet{color:#33454f;background:transparent}
+.empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:34px 24px 30px}
+.eico{width:64px;height:64px;border-radius:18px;display:flex;align-items:center;justify-content:center;margin-bottom:4px}
+.ban{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:14px;font-size:13px}
+.ban svg{flex:none;margin-top:2px}
+.b-bad{background:#fdf3f2;border:1px solid #f2d6d3;color:#5c1410}
+.b-warn{background:#fffaf2;border:1px solid #f3dfbd;color:#5a3300}
+.fl{display:flex;flex-direction:column;gap:6px}
+.fl span{font-size:13px;font-weight:700}
+.in{height:42px;border:1px solid #c6d3d8;border-radius:11px;padding:0 12px;font:inherit;font-size:14px;background:#ffffff;box-sizing:border-box;width:100%;display:flex;align-items:center}
+.dw{display:flex;flex-direction:column;gap:14px;padding:18px 20px}
+.ft{border-top:1px solid #eef2f4;padding:12px 20px;display:flex;gap:8px;background:#fbfcfc}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.tag{font-size:11px;font-weight:700;color:#5b6d7c;background:#eef2f4;border-radius:6px;padding:2px 8px}
+.b-info{background:#f2f8fb;border:1px solid #cfe3ef;color:#123b52}
+.b-ok{background:#effaf3;border:1px solid #c8ead6;color:#0d4f33}
+</style>
+</helmet>
+<div style="width: 1440px; min-height: 1180px; box-sizing: border-box; padding: 40px; background: #f2f5f6; color: #0a2125; font-family: Dubai, 'Segoe UI', Tahoma, system-ui, sans-serif; font-size: 14px; line-height: 1.6; display: flex; flex-direction: column; gap: 28px">
+  <div style="display: flex; flex-direction: column; gap: 4px">
+    <h1 class="disp" style="margin: 0; font-size: 26px; font-weight: 600">المبيعات المستلمة يوميًا — الحالات</h1>
+    <p style="margin: 0; color: #5b6d7c">النصوص من رسائل الكود الحالية (salesDaily.* وmetrics.*). الإجمالي من الخادم لا من جمع الصفوف، ولا تُجمع العملات، و«غير معروف» ليس صفرًا، و«حتى الآن» مكتوبة ومخطّطة لا بلون وحده.</p>
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px"><div style="display: flex; flex-direction: column; gap: 10px"><div class="cap"><b>1</b><span>التحميل</span><i>لا أرقام ولا أعمدة قبل وصولها</i></div><section class="box" aria-busy="true" style="padding: 16px"><div style="display: flex; align-items: flex-end; gap: 8px; height: 110px"><span style="flex: 1; height: 40%; border-radius: 8px 8px 2px 2px; background: #e9eff1"></span><span style="flex: 1; height: 55%; border-radius: 8px 8px 2px 2px; background: #e9eff1"></span><span style="flex: 1; height: 70%; border-radius: 8px 8px 2px 2px; background: #e9eff1"></span><span style="flex: 1; height: 50%; border-radius: 8px 8px 2px 2px; background: #e9eff1"></span><span style="flex: 1; height: 62%; border-radius: 8px 8px 2px 2px; background: #e9eff1"></span><span style="flex: 1; height: 45%; border-radius: 8px 8px 2px 2px; background: #e9eff1"></span><span style="flex: 1; height: 80%; border-radius: 8px 8px 2px 2px; background: #e9eff1"></span><span style="flex: 1; height: 58%; border-radius: 8px 8px 2px 2px; background: #e9eff1"></span></div><div style="height: 10px"></div><div class="row" style="grid-template-columns: 1fr 1fr 1fr 1fr"><div class="sk" style="width: 60%"></div><div class="sk" style="width: 70%"></div><div class="sk" style="width: 50%"></div><div class="sk" style="width: 60%"></div></div><div class="row" style="grid-template-columns: 1fr 1fr 1fr 1fr"><div class="sk" style="width: 60%"></div><div class="sk" style="width: 70%"></div><div class="sk" style="width: 50%"></div><div class="sk" style="width: 60%"></div></div><p class="sr" role="status">جارٍ تحميل التقرير…</p></section></div><div style="display: flex; flex-direction: column; gap: 10px"><div class="cap"><b>2</b><span>فشل التحميل</span></div><div class="ban b-bad" role="alert"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b3261e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none"><path d="M12 3l10 18H2zM12 10v5M12 18h.01"/></svg><div style="display: flex; flex-direction: column; gap: 8px"><span>تعذّر تحميل التقرير.</span><span class="btn" style="height: 32px; width: fit-content; border-color: #f2d6d3; background: #ffffff; color: #8f1f1a">إعادة المحاولة</span></div></div></div><div style="display: flex; flex-direction: column; gap: 10px"><div class="cap"><b>3</b><span>طلبات كثيرة (429)</span><i>وقت الانتظار في الشريط أعلى الصفحة</i></div><div class="ban b-warn" role="alert"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a35a00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none"><path d="M12 3a9 9 0 100 18 9 9 0 000-18zM12 7v5l3 2"/></svg><div style="display: flex; flex-direction: column; gap: 8px"><span>طلبات كثيرة جدًا. أعد المحاولة عند انتهاء الانتظار.</span><span class="hs">يعرض الشريط أعلى الصفحة وقت الانتظار المتبقي.</span><button type="button" class="btn" disabled style="height: 32px; width: fit-content; opacity: .55; border-color: #e8cf9f; background: #ffffff">إعادة المحاولة</button></div></div></div><div style="display: flex; flex-direction: column; gap: 10px"><div class="cap"><b>4</b><span>رفض النطاق (400)</span></div><div class="ban b-bad" role="alert"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b3261e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none"><path d="M12 3l10 18H2zM12 10v5M12 18h.01"/></svg><div style="display: flex; flex-direction: column; gap: 8px"><span>رفض الخادم هذا النطاق. استخدم تواريخ صحيحة، 31 يوم عمل على الأكثر.</span></div></div></div><div style="display: flex; flex-direction: column; gap: 10px"><div class="cap"><b>5</b><span>لا مبيعات في النطاق</span><i>نجاح بأرقام صفرية، لا خطأ</i></div><section class="box empty"><div class="eico" aria-hidden="true" style="background: #e7f6f3; color: #0f766e"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></div><span style="color: #33454f; max-width: 340px">لم تُستلم أي مبيعات في هذا النطاق.</span></section></div><div style="display: flex; flex-direction: column; gap: 10px"><div class="cap"><b>6</b><span>لا أرقام من الخادم</span><i>غير معروف، وليس صفرًا</i></div><section class="box empty"><div class="eico" aria-hidden="true" style="background: #e9eff1; color: #33454f"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 100 18 9 9 0 000-18zM12 8v5M12 16h.01"/></svg></div><span style="color: #33454f; max-width: 340px">لم يُرجع الخادم أي أرقام لهذه الأيام.</span></section></div><div style="display: flex; flex-direction: column; gap: 10px"><div class="cap"><b>7</b><span>المناطق الزمنية جزئية</span><i>جزء من سطر السياق</i></div><div class="box" style="padding: 14px 16px; font-size: 12px; display: flex; flex-wrap: wrap; gap: 8px"><span style="padding: 4px 10px; border-radius: 9px; background: #fdf0dc; color: #8a4b00; font-weight: 700">مناطق أول 3 متاجر فقط؛ لم تُقرأ باقي المتاجر</span><span style="padding: 4px 10px; border-radius: 9px; background: #f6f9fa">حسب يوم العمل المحلي لكل متجر</span></div></div><div style="display: flex; flex-direction: column; gap: 10px"><div class="cap"><b>8</b><span>يوم لم يبدأ بعد</span><i>في الجدول والرسم</i></div><div class="box" style="padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; font-size: 13px"><span><bdi dir="ltr">2026-10-31</bdi> <span class="hs">(لم يبدأ بعد)</span></span><span style="font-size: 11px; font-weight: 700; color: #5b6d7c; border: 1px dashed #b7c5ca; border-radius: 8px; padding: 2px 6px">لم يبدأ</span></div></div><div style="display: flex; flex-direction: column; gap: 10px"><div class="cap"><b>9</b><span>رقم واحد غير معروف</span><i>داخل خانة</i></div><div class="box" style="padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; font-size: 13px"><span style="align-self: flex-end; display: inline-flex; height: 22px; align-items: center; padding: 0 8px; border-radius: 7px; border: 1px dashed #b7c5ca; font-size: 11px; font-weight: 700; color: #5b6d7c">غير معروف</span><span class="hs">تعذّر تحديد هذا الرقم للفترة، وهو ليس صفرًا.</span></div></div></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1180}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
