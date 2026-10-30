@@ -181,6 +181,10 @@ export const sales: MessagesOf<typeof ar> = {
   "sales.erp.reversalDocument": "ERPNext reversal document",
   "sales.erp.note":
     "An operational posting state as the server reports it. It is not a tax or fiscal statement.",
+  // RT-974: the state-only failure banner (the read carries no reason).
+  "sales.erpFailure.sale": "This sale was not posted to ERPNext.",
+  "sales.erpFailure.reversal": "The void reversal of this sale was not posted to ERPNext.",
+  "sales.erpFailure.evidence": "{field}: {state}",
 
   // --- Related -----------------------------------------------------------------
   "sales.related.shiftCloses": "Shift-close exceptions (non-zero variance) that day",

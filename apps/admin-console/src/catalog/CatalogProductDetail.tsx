@@ -18,7 +18,7 @@ import { Banner } from "@/components/Banner";
  * is one non-disclosing "not available" state. With a store in scope the page
  * links to that store's on-hand stock (RT-728); it shows no ERP data.
  */
-import { DetailGrid } from "@/components/DetailPanel";
+import { DetailGrid, HeaderStatus } from "@/components/DetailPanel";
 import { GatedButton } from "@/components/GatedButton";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
@@ -32,7 +32,7 @@ import { ProductIdentifiers } from "./ProductIdentifiers";
 import { ProductRetire } from "./ProductRetire";
 import { type OverrideOutcome, StoreOverrideDrawer } from "./StoreOverrideDrawer";
 import { inventoryPath, isProductId } from "./catalogDetailLogic";
-import { canReadCatalog } from "./catalogLogic";
+import { canReadCatalog, statusBadgeClass, statusKey } from "./catalogLogic";
 import { canWriteCatalog } from "./productFormLogic";
 import { canWriteOverrides } from "./storeOverrideLogic";
 import { type CatalogScope, useCatalogScope } from "./useCatalog";
@@ -180,7 +180,11 @@ function Loaded({
             </div>
           ) : null
         }
-      />
+      >
+        <HeaderStatus label={t("catalog.detail.field.status")}>
+          <span className={statusBadgeClass(summary.status)}>{t(statusKey(summary.status))}</span>
+        </HeaderStatus>
+      </PageHeader>
       {justRetired ? (
         <Banner variant="success" message={t("catalog.retire.done", { name: summary.name })} />
       ) : null}

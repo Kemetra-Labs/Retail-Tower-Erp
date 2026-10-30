@@ -8,7 +8,7 @@
 import { DetailGrid, DetailPanel, LedgerField, PanelBody } from "@/components/DetailPanel";
 import { DateTime, useT } from "@/i18n";
 import type { DeviceDetail } from "@/lib/device-queries";
-import { LastSeen, TrustBadge } from "./DeviceParts";
+import { LastSeen } from "./DeviceParts";
 import { isPastExpiry } from "./deviceLogic";
 import "../shell/surface.css";
 import "./devices.css";
@@ -58,9 +58,6 @@ export function DeviceOverview(props: Readonly<DeviceViewProps>): React.JSX.Elem
             </Field>
             <Field label={t("devices.field.store")}>
               {storeName ?? t("devices.list.unknownStore")}
-            </Field>
-            <Field label={t("devices.field.trust")}>
-              <TrustBadge trustState={device.trustState} />
             </Field>
             <Field label={t("devices.field.pairedAt")}>
               <DateTime value={device.createdAt} timeZone={timeZone} />

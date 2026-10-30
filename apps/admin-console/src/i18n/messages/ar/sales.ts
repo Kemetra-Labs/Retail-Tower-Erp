@@ -185,6 +185,10 @@ export const sales = {
   "sales.erp.reversal": "ترحيل عكس الإلغاء",
   "sales.erp.reversalDocument": "مستند العكس في ERPNext",
   "sales.erp.note": "حالة ترحيل تشغيلية كما يعرضها الخادم، وليست إقرارًا ضريبيًا.",
+  // RT-974: لافتة الفشل بالحالة فقط (القراءة لا تحمل سببًا).
+  "sales.erpFailure.sale": "لم تُرحَّل هذه العملية إلى ERPNext.",
+  "sales.erpFailure.reversal": "لم يُرحَّل عكس إلغاء هذه العملية إلى ERPNext.",
+  "sales.erpFailure.evidence": "{field}: {state}",
 
   // --- Related -----------------------------------------------------------------
   "sales.related.shiftCloses": "استثناءات إقفال الوردية (فرق غير صفري) في ذلك اليوم",

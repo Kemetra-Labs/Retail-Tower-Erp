@@ -1,7 +1,13 @@
 import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
 import { DataTableScroll, useCaptionId } from "@/components/DataTableScroll";
-import { DetailGrid, DetailPanel, LedgerField as Field, PanelBody } from "@/components/DetailPanel";
+import {
+  DetailGrid,
+  DetailPanel,
+  LedgerField as Field,
+  HeaderStatus,
+  PanelBody,
+} from "@/components/DetailPanel";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -104,9 +110,6 @@ function SummarySection({ detail, storeName, timeZone }: Readonly<LoadedProps>):
         <Field label={t("shift.field.store")}>{storeName ?? t("shift.list.unknownStore")}</Field>
         <Field label={t("shift.field.shiftId")} mono>
           <MachineId value={detail.shiftId} />
-        </Field>
-        <Field label={t("shift.field.kind")}>
-          <span className="badge">{t(closeKindKey(detail))}</span>
         </Field>
         {detail.forcedReason ? (
           <Field label={t("shift.field.forcedReason")}>
@@ -302,7 +305,11 @@ function Loaded({ detail, storeName, timeZone }: Readonly<LoadedProps>): React.J
         subtitle={t.rich("shift.detail.zoneNote", {
           zone: <bdi dir="ltr">{timeZone ?? "UTC"}</bdi>,
         })}
-      />
+      >
+        <HeaderStatus label={t("shift.field.kind")}>
+          <span className="badge">{t(closeKindKey(detail))}</span>
+        </HeaderStatus>
+      </PageHeader>
       <DetailGrid>
         <SummarySection detail={detail} storeName={storeName} timeZone={timeZone} />
         <CashSection detail={detail} />

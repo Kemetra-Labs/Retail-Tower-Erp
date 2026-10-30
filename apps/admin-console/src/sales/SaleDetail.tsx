@@ -23,8 +23,10 @@ import { useStoreOf } from "@/shift-closes/useShiftCloses";
  * RT-961: the v3 detail template. The back link, the page header with the
  * status chips, then the ledger panels two to a row (the sale beside its
  * payments), the lines and returns full width, and the remaining ledgers.
+ * RT-974: a failed ERPNext posting adds a state-only banner under the header.
  */
 import { Link, useLocation, useParams } from "react-router";
+import { ErpFailureBanner } from "./ErpFailureBanner";
 import {
   ErpSection,
   Field,
@@ -149,6 +151,7 @@ function RelatedSection({ detail }: Readonly<{ detail: Detail }>): React.JSX.Ele
 
 function Loaded({ detail }: Readonly<{ detail: Detail }>): React.JSX.Element {
   const t = useT();
+  const { role } = useSaleScope();
   const number = detail.summary.saleNumber;
   return (
     <div className="surface">
@@ -167,6 +170,7 @@ function Loaded({ detail }: Readonly<{ detail: Detail }>): React.JSX.Element {
           })}
         </p>
       </PageHeader>
+      <ErpFailureBanner detail={detail} role={role} />
       <DetailGrid>
         <SummarySection detail={detail} />
         <PaymentsSection detail={detail} />

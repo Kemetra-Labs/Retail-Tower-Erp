@@ -294,8 +294,9 @@ grids, hero metrics and decorative charts stay out, on the Overview and everywhe
   - **Drawer:** attached, with real elevation.
   - **Dialog:** the strongest elevation.
 - **Detail template (v3, RT-961)** (`src/components/DetailPanel.tsx`): the back link, the page
-  header (title, status chips, actions), then a failure banner where the data has one (What →
-  Safety → Action → Evidence, §8), then the data regions. Each region is a `DetailPanel`, a
+  header (title; the record's status as a `HeaderStatus` badge, named for assistive tech by its
+  field, never repeated as a ledger row; the record's actions), then a failure banner where the
+  data has one (What → Safety → Action → Evidence, §8), then the data regions. Each region is a `DetailPanel`, a
   section panel named by its `h2`. Ledger panels sit in a `DetailGrid`, two to a row once
   the content is wide enough (each at least 26rem) and stacked otherwise. A lone ledger keeps
   its half. A table sits straight under its panel header, full width, outside the grid. DOM

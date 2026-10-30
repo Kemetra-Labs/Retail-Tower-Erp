@@ -89,3 +89,20 @@ export function LedgerField({
     </div>
   );
 }
+
+/**
+ * RT-974: a status in the page header (`PageHeader` children): the badge, with
+ * its field named for assistive tech ("Trust state: Active"), since the header
+ * has no label column. The badge carries its own text; colour only reinforces.
+ */
+export function HeaderStatus({
+  label,
+  children,
+}: Readonly<{ label: string; children: React.ReactNode }>): React.JSX.Element {
+  return (
+    <p className="detail-status">
+      <span className="sr-only">{label}: </span>
+      {children}
+    </p>
+  );
+}
