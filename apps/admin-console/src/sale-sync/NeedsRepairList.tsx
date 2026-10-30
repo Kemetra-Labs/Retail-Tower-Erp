@@ -1,3 +1,7 @@
+import { NoAccess } from "@/auth/NoAccess";
+import { Banner } from "@/components/Banner";
+import { DataTableSkeleton } from "@/components/DataTableSkeleton";
+import { ListState } from "@/components/ListState";
 /**
  * RT-726 — Sales needing repair (`consoleListNeedsRepair`), for owner /
  * tenant_admin. The server's open NEEDS_REPAIR queue, newest first, keyset
@@ -10,10 +14,7 @@
  * in-scope stores and is a filter, not a scope change. An out-of-scope or
  * malformed store reads as not available (the API's non-disclosing 404).
  */
-import { NoAccess } from "@/auth/NoAccess";
-import { Banner } from "@/components/Banner";
-import { DataTableSkeleton } from "@/components/DataTableSkeleton";
-import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { DateTime, type T, useT } from "@/i18n";
 import type { NeedsRepairItem } from "@/lib/sale-sync-ops-queries";
@@ -212,22 +213,20 @@ function Content({ scope }: Readonly<{ scope: SaleScope }>): React.JSX.Element {
 
   return (
     <div className="surface">
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("saleSync.list.title")}</h1>
-          <p className="content__sub">
-            {t.rich("saleSync.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
-          </p>
-        </div>
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={list.refresh}
-          disabled={!validStore}
-        >
-          {t("saleSync.list.refresh")}
-        </button>
-      </header>
+      <PageHeader
+        title={t("saleSync.list.title")}
+        subtitle={t.rich("saleSync.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
+        actions={
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={list.refresh}
+            disabled={!validStore}
+          >
+            {t("saleSync.list.refresh")}
+          </button>
+        }
+      />
       <p className="sale-sync__note">{t("saleSync.list.note")}</p>
       <StoreFilter
         stores={stores}

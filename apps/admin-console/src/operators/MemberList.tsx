@@ -1,6 +1,7 @@
 import { Avatar } from "@/components/Avatar";
 import { Banner } from "@/components/Banner";
 import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { type T, roleKey, useT } from "@/i18n";
 import "@/components/avatar.css";
@@ -46,21 +47,19 @@ export function MemberList(): React.JSX.Element {
 
   return (
     <div className="surface">
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("operators.title")}</h1>
-          <p className="content__sub">
-            {t.rich("operators.list.subtitle", { tenant: <bdi>{activeTenant.name}</bdi> })}
-          </p>
-        </div>
-        {/* Single-primary (DESIGN.md 6): header invite shows only when there are
-            rows; the empty state carries its own invite primary. */}
-        {!isLoading && !notFound && rows.length > 0 ? (
-          <button type="button" className="btn-primary" onClick={() => setInviting(true)}>
-            {t("operators.list.invite")}
-          </button>
-        ) : null}
-      </header>
+      {/* Single-primary (DESIGN.md 6): header invite shows only when there are
+          rows; the empty state carries its own invite primary. */}
+      <PageHeader
+        title={t("operators.title")}
+        subtitle={t.rich("operators.list.subtitle", { tenant: <bdi>{activeTenant.name}</bdi> })}
+        actions={
+          !isLoading && !notFound && rows.length > 0 ? (
+            <button type="button" className="btn-primary" onClick={() => setInviting(true)}>
+              {t("operators.list.invite")}
+            </button>
+          ) : null
+        }
+      />
 
       {notFound ? (
         <Banner

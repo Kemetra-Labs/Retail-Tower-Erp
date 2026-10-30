@@ -10,8 +10,7 @@ import type { Messages } from "../types";
  */
 export const money = {
   // --- Payer accounts (017) --------------------------------------------------
-  // Navigation (RT-421: owner / tenant_admin only, its own section).
-  "payers.nav.section": "جهات الدفع",
+  // Navigation (RT-421: owner / tenant_admin only; under Management since RT-969).
   "payers.nav.label": "حسابات جهات الدفع",
   "payers.list.scopePrompt": "اختر مؤسسة لإدارة حسابات جهات الدفع التابعة لها.",
   "payers.list.title": "حسابات جهات الدفع",

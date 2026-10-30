@@ -120,7 +120,7 @@ test("S1: owner → fleet (server order) → filters → detail tabs → Back ke
   expect(queries[0].get("store_id")).toBeNull();
 
   // Filters are applied by the server, and live in the URL.
-  await page.getByLabel(t("devices.filter.store")).selectOption(DUBAI);
+  await page.getByLabel(t("devices.filter.store"), { exact: true }).selectOption(DUBAI);
   await page.getByLabel(t("devices.filter.trust")).selectOption("revoked");
   await page.getByRole("button", { name: t("devices.filter.apply") }).click();
   await expect(page).toHaveURL(new RegExp(`/devices\\?store=${DUBAI}&state=revoked$`));
@@ -154,7 +154,7 @@ test("S2: Store Detail deep-links to the registry filtered to that store", async
   await expect(page).toHaveURL(new RegExp(`/devices\\?store=${DUBAI}$`));
   await expect(page.getByRole("row").filter({ hasText: "Till 1" })).toBeVisible();
   expect(queries[0].get("store_id")).toBe(DUBAI);
-  await expect(page.getByLabel(t("devices.filter.store"))).toHaveValue(DUBAI);
+  await expect(page.getByLabel(t("devices.filter.store"), { exact: true })).toHaveValue(DUBAI);
 });
 
 test("S3: a deep link to a store outside the scope reads as unavailable, not empty", async ({
@@ -172,7 +172,9 @@ test("S3: a deep link to a store outside the scope reads as unavailable, not emp
   await expect(page.getByText(t("devices.list.storeUnavailable"))).toBeVisible();
   await expect(page.getByText(t("devices.list.empty"))).toHaveCount(0);
   expect(queries[0].get("store_id")).toBe(OTHER_STORE);
-  await expect(page.getByLabel(t("devices.filter.store"))).toHaveValue(OTHER_STORE);
+  await expect(page.getByLabel(t("devices.filter.store"), { exact: true })).toHaveValue(
+    OTHER_STORE,
+  );
 });
 
 test("S4: a refused role has no nav entry, and a direct URL reads as unavailable", async ({

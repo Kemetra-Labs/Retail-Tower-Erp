@@ -1,3 +1,6 @@
+import { BackArrow } from "@/components/BackArrow";
+import { Banner } from "@/components/Banner";
+import { GatedButton } from "@/components/GatedButton";
 /**
  * RT-821 (VIZ-3, RT-751 slice 4) «المبيعات المستلمة يوميًا»: the daily
  * received-sales report (R2, R3, R4) at `/sales-daily`, a Sales sibling
@@ -10,9 +13,7 @@
  * Sales screen and a back link here, not a new sidebar destination. Spec 015
  * (Reports) stays deferred until more than one report exists.
  */
-import { BackArrow } from "@/components/BackArrow";
-import { Banner } from "@/components/Banner";
-import { GatedButton } from "@/components/GatedButton";
+import { PageHeader } from "@/components/PageHeader";
 import { type MessageKey, useT } from "@/i18n";
 import type { SalesSummaryErrorRender } from "@/lib/sales-summary-queries";
 import { Notice, Unavailable } from "@/sales/SalePager";
@@ -144,14 +145,10 @@ function Shell({
       <Link to="/sales" className="surface__back">
         <BackArrow /> {t("salesDaily.back")}
       </Link>
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("salesDaily.title")}</h1>
-          <p className="content__sub">
-            {t.rich("salesDaily.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title={t("salesDaily.title")}
+        subtitle={t.rich("salesDaily.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
+      />
       {children}
     </div>
   );

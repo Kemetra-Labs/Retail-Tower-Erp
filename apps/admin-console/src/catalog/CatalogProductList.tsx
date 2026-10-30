@@ -8,6 +8,7 @@
  * non-disclosing not-available state and no form. Opening a row goes to the
  * product detail (CAT-C1b).
  */
+import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/i18n";
 import type { CatalogProduct } from "@/lib/catalog-queries";
 import { Fragment, useEffect } from "react";
@@ -71,19 +72,16 @@ function Shell({
   const t = useT();
   return (
     <div className="surface">
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("catalog.list.title")}</h1>
+      <PageHeader
+        title={t("catalog.list.title")}
+        subtitle={t.rich("catalog.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
+      >
+        {scope.activeStoreId ? (
           <p className="content__sub">
-            {t.rich("catalog.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
+            {t.rich("catalog.list.storeNote", { store: <bdi>{scope.activeStoreName}</bdi> })}
           </p>
-          {scope.activeStoreId ? (
-            <p className="content__sub">
-              {t.rich("catalog.list.storeNote", { store: <bdi>{scope.activeStoreName}</bdi> })}
-            </p>
-          ) : null}
-        </div>
-      </header>
+        ) : null}
+      </PageHeader>
       {children}
     </div>
   );

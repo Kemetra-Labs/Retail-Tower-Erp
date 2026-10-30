@@ -1,6 +1,7 @@
 import type { Locale } from "../../src/i18n/locale";
 import { translate } from "../../src/i18n/translate";
 import { type Page, expect, test } from "./fixtures";
+import { openUserMenu } from "./user-menu";
 
 /**
  * RT-399 — Arabic-first locale with English second, in both projects. The app
@@ -46,6 +47,7 @@ test("renders the project locale, whatever the browser's own language", async ({
   expect(await docLocale(page)).toEqual({ lang: TAG[appLocale], dir: DIR[appLocale] });
   expect(await page.title()).toBe(t("app.title"));
   // The switch offers the other language, named in that language.
+  await openUserMenu(page);
   const toggle = page.getByRole("button", {
     name: translate(other(appLocale), "locale.switch.action"),
   });
@@ -60,6 +62,7 @@ test("the switch flips the frame and the choice survives a reload, before the bu
   await mockApi(page);
   await page.goto("/");
   const next = other(appLocale);
+  await openUserMenu(page);
   await page.getByRole("button", { name: translate(next, "locale.switch.action") }).click();
 
   expect(await docLocale(page)).toEqual({ lang: TAG[next], dir: DIR[next] });
@@ -81,6 +84,7 @@ test("the switch flips the frame and the choice survives a reload, before the bu
 
   // And back again.
   await page.reload();
+  await openUserMenu(page);
   await page.getByRole("button", { name: translate(appLocale, "locale.switch.action") }).click();
   expect(await docLocale(page)).toEqual({ lang: TAG[appLocale], dir: DIR[appLocale] });
   await page.reload();

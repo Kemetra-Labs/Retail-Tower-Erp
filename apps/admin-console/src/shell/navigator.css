@@ -1,0 +1,212 @@
+/* RT-969: the Ctrl K navigator. The trigger reads as the top bar's search
+ * field (canvas: a recessed 38px field with a Ctrl K key cap); the palette is an
+ * independent overlay (16px radius, the overlay shadow). Tokens only. */
+.navigator-trigger {
+  flex: 0 1 460px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 38px;
+  padding: 0 var(--space-3);
+  border: 1px solid transparent; /* keeps a shape in forced colours */
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  font: var(--weight-regular) var(--text-body) / var(--leading-tight) var(--font-sans);
+  text-align: start;
+  cursor: pointer;
+}
+.navigator-trigger:hover {
+  color: var(--color-text);
+}
+.navigator-trigger__icon {
+  flex-shrink: 0;
+}
+.navigator-trigger__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.navigator-trigger__kbd,
+.navigator__kbd {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font: var(--weight-regular) var(--text-kbd) / var(--leading-tight) var(--font-mono);
+}
+
+.navigator-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12vh var(--space-4) var(--space-4);
+  background: var(--color-scrim);
+}
+.navigator {
+  position: static;
+  display: flex;
+  flex-direction: column;
+  width: min(640px, 100%);
+  max-height: min(560px, 76vh);
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-overlay);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-overlay);
+  overflow: hidden;
+  animation: rtc-settle var(--duration-2) var(--ease-out);
+}
+.navigator__field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+.navigator__search-icon {
+  flex-shrink: 0;
+}
+.navigator__input {
+  flex: 1;
+  min-width: 0;
+  height: 52px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: var(--weight-regular) var(--text-body) / var(--leading-tight) var(--font-sans);
+}
+/* The dialog's focus is the input itself; the field row shows it instead. */
+.navigator__input:focus-visible {
+  outline-offset: -2px;
+}
+.navigator__list {
+  overflow: auto;
+  padding: var(--space-2);
+}
+.navigator__list:empty {
+  display: none;
+}
+.navigator__options {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.navigator__options + .navigator__options {
+  margin-top: var(--space-2);
+}
+.navigator__group {
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  color: var(--color-text-muted);
+  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
+}
+.navigator__option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.navigator__icon {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+.navigator__label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.navigator__current {
+  flex-shrink: 0;
+  color: var(--color-primary-emphasis);
+}
+/* The active option: the selection wash and the Signal Line, as in the nav. */
+.navigator__option--active {
+  background: var(--color-primary-soft);
+  color: var(--color-primary-emphasis);
+}
+.navigator__option--active .navigator__icon {
+  color: var(--color-primary-emphasis);
+}
+.navigator__option--active::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  inset-inline-start: 0;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 20px;
+  border-start-end-radius: 2px;
+  border-end-end-radius: 2px;
+  background: var(--color-primary);
+}
+.navigator__note {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--text-control);
+}
+.navigator__note:empty {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .navigator {
+    animation: none;
+  }
+}
+/* Forced colours erase the wash: the active option keeps a system-coloured
+ * outline and its Signal Line. */
+@media (forced-colors: active) {
+  .navigator__option--active {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+  .navigator__option--active::before {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+}
+
+/* Compact shell (RT-825): the trigger is a 44px search button; its label stays
+ * the accessible name but is not drawn. */
+@media (max-width: 768px) {
+  .navigator-trigger {
+    flex: 0 0 auto;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+  .navigator-trigger__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .navigator-trigger__kbd {
+    display: none;
+  }
+  .navigator-scrim {
+    padding-top: var(--space-4);
+  }
+  .navigator__option {
+    min-height: 44px;
+  }
+}

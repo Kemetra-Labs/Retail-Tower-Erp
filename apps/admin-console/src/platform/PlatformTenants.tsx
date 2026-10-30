@@ -1,3 +1,7 @@
+import { Banner } from "@/components/Banner";
+import { DataTableScroll, useCaptionId } from "@/components/DataTableScroll";
+import { GatedButton } from "@/components/GatedButton";
+import { ListState } from "@/components/ListState";
 /**
  * `/platform/tenants`, the platform landing (RT-780, OQ-3) and the tenant
  * directory (RT-782, RT-777 S3, screen 30). One `listTenants` read, searched
@@ -11,10 +15,7 @@
  * the caller is a member of gets the normal tenant switch, any other a support
  * session (`openSupportSession` would refuse a member with 409 `already_member`).
  */
-import { Banner } from "@/components/Banner";
-import { DataTableScroll, useCaptionId } from "@/components/DataTableScroll";
-import { GatedButton } from "@/components/GatedButton";
-import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { type T, useT } from "@/i18n";
 import { useState } from "react";
@@ -190,10 +191,11 @@ export function PlatformTenants(): React.JSX.Element {
 
   return (
     <section aria-labelledby="platform-tenants-title" className="platform-directory">
-      <h1 id="platform-tenants-title" className="content__title">
-        {t("platform.tenants.title")}
-      </h1>
-      <p className="content__sub">{t("platform.tenants.sub")}</p>
+      <PageHeader
+        titleId="platform-tenants-title"
+        title={t("platform.tenants.title")}
+        subtitle={t("platform.tenants.sub")}
+      />
       <SessionGoneNotice tenants={directory.tenants ?? []} />
       <p className="platform-directory__note">{t("platform.tenants.suspendedNote")}</p>
 

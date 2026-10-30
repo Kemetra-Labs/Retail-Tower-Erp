@@ -3,8 +3,7 @@ import type { MessagesOf } from "../types";
 
 export const money: MessagesOf<typeof ar> = {
   // --- Payer accounts (017) --------------------------------------------------
-  // Navigation (RT-421: owner / tenant_admin only, its own section).
-  "payers.nav.section": "Payers",
+  // Navigation (RT-421: owner / tenant_admin only; under Management since RT-969).
   "payers.nav.label": "Payer accounts",
   "payers.list.scopePrompt": "Select a tenant to manage its payer accounts.",
   "payers.list.title": "Payer accounts",

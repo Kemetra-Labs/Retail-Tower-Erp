@@ -1,7 +1,9 @@
 import { type Page, expect, test } from "./fixtures";
+import { openUserMenu } from "./user-menu";
 
 /**
- * RT-398 — opt-in dark theme. The top-bar toggle switches <html data-theme>,
+ * RT-398 — opt-in dark theme. The top-bar toggle (in the user menu since
+ * RT-969) switches <html data-theme>,
  * the choice survives a reload, and the inline pre-paint script restores it
  * before the app bundle runs (no light flash). Forced colours keep the toggle's
  * state and focus visible. Mocked DP2 (C-5).
@@ -36,6 +38,7 @@ const bodyBackground = (page: Page) =>
 test("toggle on, reload: still dark, restored before the app bundle runs", async ({ page, t }) => {
   await mockApi(page);
   await page.goto("/");
+  await openUserMenu(page);
   const toggle = page.getByRole("button", { name: t("theme.darkMode") });
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
   expect(await theme(page)).toBe("");
@@ -55,6 +58,7 @@ test("toggle on, reload: still dark, restored before the app bundle runs", async
   // And with the app running again, the toggle reflects the stored choice.
   await page.unroute("**/assets/*.js");
   await page.reload();
+  await openUserMenu(page);
   await expect(page.getByRole("button", { name: t("theme.darkMode") })).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -75,6 +79,7 @@ test("toggle off returns to the light default and persists it across a reload", 
     localStorage.setItem("rt.theme.v1:last", "dark");
   });
   await page.reload();
+  await openUserMenu(page);
   const toggle = page.getByRole("button", { name: t("theme.darkMode") });
   await expect(toggle).toHaveAttribute("aria-pressed", "true");
   expect(await theme(page)).toBe("dark");
@@ -92,6 +97,7 @@ test("toggle off returns to the light default and persists it across a reload", 
   await page.unroute("**/assets/*.js");
 
   await page.reload();
+  await openUserMenu(page);
   await expect(page.getByRole("button", { name: t("theme.darkMode") })).toHaveAttribute(
     "aria-pressed",
     "false",
@@ -113,6 +119,7 @@ test.describe("forced-colors: active", () => {
       localStorage.setItem("rt.theme.v1:last", "dark");
     });
     await page.goto("/");
+    await openUserMenu(page);
     const toggle = page.getByRole("button", { name: t("theme.darkMode") });
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
     const edge = await toggle.evaluate((el) => getComputedStyle(el).borderTopWidth);

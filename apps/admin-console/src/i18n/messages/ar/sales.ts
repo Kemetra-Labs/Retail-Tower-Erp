@@ -11,7 +11,6 @@ import type { Messages } from "../types";
  */
 export const sales = {
   // --- Navigation ------------------------------------------------------------
-  "sales.nav.section": "المعاملات",
   "sales.nav.label": "المبيعات",
 
   // --- List ------------------------------------------------------------------

@@ -1,3 +1,4 @@
+import { BackArrow } from "@/components/BackArrow";
 /**
  * RT-727 one run's classified mismatch report
  * (`getProductReconciliationRunResults`), filterable by class (`?class=`),
@@ -11,7 +12,7 @@
  * out-of-scope run is the API's non-disclosing 404; a malformed run id is
  * never sent and reads the same.
  */
-import { BackArrow } from "@/components/BackArrow";
+import { PageHeader } from "@/components/PageHeader";
 import { AsOf, Panel, StatusPill } from "@/erp-status/parts";
 import { type T, useT } from "@/i18n";
 import type { MismatchClass } from "@/lib/product-reconciliation-queries";
@@ -139,9 +140,7 @@ function Content({ scope }: Readonly<{ scope: ReconScope }>): React.JSX.Element 
   return (
     <div className="surface erp-surface">
       <BackLink />
-      <header className="surface__head">
-        <h1 className="content__title">{t("productRecon.results.heading")}</h1>
-      </header>
+      <PageHeader title={t("productRecon.results.heading")} />
       {isRunId(runId) ? (
         <Results scope={scope} runId={runId} />
       ) : (

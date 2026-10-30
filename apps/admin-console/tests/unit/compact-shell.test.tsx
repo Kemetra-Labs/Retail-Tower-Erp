@@ -138,6 +138,8 @@ describe("compact shell drawer content", () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "Dark mode" }));
     });
     expect(document.documentElement.dataset.theme).toBe("dark");
+    // RT-969: the top-bar switch is in the user menu.
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(LONG_NAME) }));
     const pressed = screen
       .getAllByRole("button", { name: "Dark mode" })
       .map((b) => b.getAttribute("aria-pressed"));

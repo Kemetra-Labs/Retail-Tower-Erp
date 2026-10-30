@@ -5,6 +5,7 @@
  * precondition-401 surface. A scope precondition, never a sign-out — the
  * operator resolves it via the RF-1 scope bar above.
  */
+import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/i18n";
 import "../shell/surface.css";
 
@@ -12,11 +13,7 @@ export function OperatorScopePrompt(): React.JSX.Element {
   const t = useT();
   return (
     <div className="surface">
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("operators.title")}</h1>
-        </div>
-      </header>
+      <PageHeader title={t("operators.title")} />
       <p className="scope-prompt">{t("operators.scopePrompt.message")}</p>
     </div>
   );

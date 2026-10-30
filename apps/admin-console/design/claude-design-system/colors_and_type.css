@@ -84,7 +84,7 @@
    * #88); the page-title size and the size of English text in Dubai are still
    * open with the owner (#88). Floor: 12px. */
   --text-display: 1.875rem;      /* 30px — rare */
-  --text-screen-title: 1.25rem;  /* 20px */
+  --text-screen-title: 1.5rem;   /* 24px (Shell v3, RT-969) */
   --text-section-title: 1rem;    /* 16px */
   --text-body: 0.875rem;         /* 14px */
   --text-control: 0.8125rem;     /* 13px */

@@ -1,6 +1,7 @@
 import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
 import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
 import {
   DateTime,
   type MessageKey,
@@ -279,14 +280,12 @@ function Loaded({ detail, storeName, timeZone }: Readonly<LoadedProps>): React.J
   return (
     <div className="surface">
       <BackLink />
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("shift.detail.title")}</h1>
-          <p className="content__sub">
-            {t.rich("shift.detail.zoneNote", { zone: <bdi dir="ltr">{timeZone ?? "UTC"}</bdi> })}
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title={t("shift.detail.title")}
+        subtitle={t.rich("shift.detail.zoneNote", {
+          zone: <bdi dir="ltr">{timeZone ?? "UTC"}</bdi>,
+        })}
+      />
       <SummarySection detail={detail} storeName={storeName} timeZone={timeZone} />
       <CashSection detail={detail} />
       <ApprovalSection detail={detail} />

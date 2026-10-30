@@ -1,6 +1,7 @@
 import { Banner } from "@/components/Banner";
 import { GatedButton } from "@/components/GatedButton";
 import { InlineError } from "@/components/InlineError";
+import { PageHeader } from "@/components/PageHeader";
 import { type MessageKey, useT } from "@/i18n";
 import { textField } from "@/lib/form-field";
 import type { Rf2ErrorRender } from "@/lib/rf2-queries";
@@ -268,9 +269,7 @@ export function StoreForm({ mode, storeId, initial }: Readonly<StoreFormProps>):
 
   return (
     <div className="surface">
-      <header className="surface__head">
-        <h1 className="content__title">{title}</h1>
-      </header>
+      <PageHeader title={title} />
 
       {errors.banner ? <FormBanner render={errors.banner} mode={mode} /> : null}
 

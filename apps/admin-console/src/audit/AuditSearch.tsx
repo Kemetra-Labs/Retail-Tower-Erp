@@ -1,5 +1,6 @@
 import { Banner } from "@/components/Banner";
 import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { useT } from "@/i18n";
 /**
@@ -121,14 +122,10 @@ export function AuditSearch(): React.JSX.Element {
 
   return (
     <div className="surface">
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("audit.title")}</h1>
-          <p className="content__sub">
-            <ScopeLine tenant={activeTenant} store={activeStore} />
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title={t("audit.title")}
+        subtitle={<ScopeLine tenant={activeTenant} store={activeStore} />}
+      />
 
       {/* Keyed on scope so the uncontrolled inputs clear on a scope switch (S6). */}
       <AuditFilters

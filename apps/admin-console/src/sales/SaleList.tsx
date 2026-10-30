@@ -1,3 +1,4 @@
+import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/i18n";
 import type { SaleItem, SaleListQuery } from "@/lib/sale-queries";
 import { useStoreDirectory } from "@/shift-closes/useShiftCloses";
@@ -64,20 +65,18 @@ function Shell({
   const t = useT();
   return (
     <div className="surface">
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("sales.list.title")}</h1>
-          <p className="content__sub">
-            {t.rich("sales.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
-          </p>
-        </div>
-        {/* RT-821: the daily report is reached from here, not from the sidebar (UX-09). */}
-        <div className="surface__actions surface__actions--head">
-          <Link to="/sales-daily" className="btn-secondary">
-            {t("salesDaily.entry")}
-          </Link>
-        </div>
-      </header>
+      {/* RT-821: the daily report is reached from here, not from the sidebar (UX-09). */}
+      <PageHeader
+        title={t("sales.list.title")}
+        subtitle={t.rich("sales.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
+        actions={
+          <div className="surface__actions surface__actions--head">
+            <Link to="/sales-daily" className="btn-secondary">
+              {t("salesDaily.entry")}
+            </Link>
+          </div>
+        }
+      />
       {children}
     </div>
   );

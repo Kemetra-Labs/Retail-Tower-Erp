@@ -4,6 +4,7 @@ import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
 import { ConfirmDelete } from "@/components/ConfirmDelete";
 import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
 import { type MessageKey, useT } from "@/i18n";
 import { type Rf2ErrorRender, mapRf2Error } from "@/lib/rf2-queries";
 /**
@@ -95,9 +96,7 @@ export function TenantDetail(): React.JSX.Element {
       <Link to="/tenants" className="surface__back">
         <BackArrow /> {t("tenants.detail.back")}
       </Link>
-      <header className="surface__head">
-        <h1 className="content__title">{tenant.name}</h1>
-      </header>
+      <PageHeader title={tenant.name} />
 
       {deleteError?.kind === "banner" ? (
         <Banner
