@@ -117,7 +117,7 @@ const revokedDetail = detail({
 describe("Replace and Move (RT-372 part B)", () => {
   beforeEach(reset);
 
-  test("an active device offers Revoke, Replace, Move and Retire; a revoked one can still be replaced, moved or retired", async () => {
+  test("an active device offers Replace, Move, Revoke and Retire; a revoked one can still be replaced, moved or retired", async () => {
     renderDetail();
     await screen.findByRole("heading", { level: 1, name: "Till 1" });
     const bar = screen.getByRole("group", { name: "Device lifecycle actions" });
@@ -125,7 +125,7 @@ describe("Replace and Move (RT-372 part B)", () => {
       within(bar)
         .getAllByRole("button")
         .map((b) => b.textContent),
-    ).toEqual(["Revoke", "Replace", "Move to another store", "Retire"]);
+    ).toEqual(["Replace", "Move to another store", "Revoke", "Retire"]);
   });
 
   test("a revoked device with a custody exception is not offered Revoke", async () => {

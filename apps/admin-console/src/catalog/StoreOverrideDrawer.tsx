@@ -268,7 +268,7 @@ function RetireOverride({
             <button
               ref={cancelRef}
               type="button"
-              className="btn-secondary"
+              className="btn-ghost"
               onClick={onCancel}
               disabled={pending}
             >
@@ -470,7 +470,7 @@ export function StoreOverrideDrawer({
             {upsert.isPending ? <span className="spinner" aria-hidden="true" /> : null}
             {t("catalog.override.save")}
           </GatedButton>
-          <button type="button" className="btn-secondary" onClick={onClose} disabled={pending}>
+          <button type="button" className="btn-ghost" onClick={onClose} disabled={pending}>
             {t("common.cancel")}
           </button>
         </div>

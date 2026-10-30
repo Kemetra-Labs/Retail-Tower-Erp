@@ -169,7 +169,7 @@ export function UnknownItemCreateProduct({
             {create.isPending ? <span className="spinner" aria-hidden="true" /> : null}
             {t("unknownItems.create.submit")}
           </GatedButton>
-          <button type="button" className="btn-secondary" onClick={onCancel}>
+          <button type="button" className="btn-ghost" onClick={onCancel}>
             {t("common.cancel")}
           </button>
         </div>

@@ -56,7 +56,7 @@ function NotAvailable({
         message={t("platform.start.notFound.body")}
         requestId={view.requestId}
       />
-      <button type="button" className="btn-secondary" onClick={onBack}>
+      <button type="button" className="btn-ghost" onClick={onBack}>
         {t("platform.start.notFound.back")}
       </button>
     </div>
@@ -208,7 +208,7 @@ function StartForm({
           {pending ? <span className="spinner" aria-hidden="true" /> : null}
           {t("platform.start.submit")}
         </GatedButton>
-        <button type="button" className="btn-secondary" onClick={onCancel} disabled={pending}>
+        <button type="button" className="btn-ghost" onClick={onCancel} disabled={pending}>
           {t("common.cancel")}
         </button>
       </div>

@@ -192,7 +192,7 @@ function FormActions({
         {pending ? <span className="spinner" aria-hidden="true" /> : null}
         {t(isEdit ? "stores.form.saveChanges" : "stores.form.create")}
       </GatedButton>
-      <button type="button" className="btn-secondary" onClick={onCancel} disabled={pending}>
+      <button type="button" className="btn-ghost" onClick={onCancel} disabled={pending}>
         {t(isEdit ? "stores.form.cancelEdit" : "common.cancel")}
       </button>
     </div>

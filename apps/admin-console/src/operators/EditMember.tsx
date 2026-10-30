@@ -141,7 +141,7 @@ export function EditMember({
             {update.isPending ? <span className="spinner" aria-hidden="true" /> : null}
             {t("operators.edit.save")}
           </GatedButton>
-          <button type="button" className="btn-secondary" onClick={onClose} disabled={pending}>
+          <button type="button" className="btn-ghost" onClick={onClose} disabled={pending}>
             {t("common.cancel")}
           </button>
         </div>

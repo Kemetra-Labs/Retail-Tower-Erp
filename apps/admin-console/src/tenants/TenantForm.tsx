@@ -136,7 +136,7 @@ export function TenantForm({
           </GatedButton>
           <button
             type="button"
-            className="btn-secondary"
+            className="btn-ghost"
             onClick={() =>
               navigate(mode === "edit" && tenantId ? `/tenants/${tenantId}` : "/tenants")
             }

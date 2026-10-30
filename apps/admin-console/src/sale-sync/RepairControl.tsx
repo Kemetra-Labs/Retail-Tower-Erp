@@ -118,7 +118,7 @@ export function RepairControl({
             </GatedButton>
             <button
               type="button"
-              className="btn-secondary"
+              className="btn-ghost"
               disabled={repair.pending}
               onClick={() => setConfirming(false)}
             >

@@ -74,13 +74,7 @@ function CancelConfirm({
           {pending ? <span className="spinner" aria-hidden="true" /> : null}
           {t("devices.codes.cancel")}
         </GatedButton>
-        <button
-          type="button"
-          className="btn-secondary"
-          ref={keep}
-          onClick={onKeep}
-          disabled={pending}
-        >
+        <button type="button" className="btn-ghost" ref={keep} onClick={onKeep} disabled={pending}>
           {t("devices.codes.cancelKeep")}
         </button>
       </div>
@@ -118,7 +112,7 @@ function CodeRow({
       <td>
         <button
           type="button"
-          className="btn-secondary"
+          className="btn-danger-quiet"
           data-cancel-for={code.pairingCodeId}
           disabled={busy}
           onClick={() => onCancel(code)}

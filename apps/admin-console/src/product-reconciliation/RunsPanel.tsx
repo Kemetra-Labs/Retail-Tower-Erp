@@ -112,7 +112,7 @@ function TriggerRun({ scope }: Readonly<{ scope: ReconScope }>): React.JSX.Eleme
             </button>
             <button
               type="button"
-              className="btn-secondary"
+              className="btn-ghost"
               disabled={trigger.isPending}
               onClick={() => setConfirming(false)}
             >

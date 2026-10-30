@@ -187,7 +187,7 @@ export function ProductRetire({
             <button
               ref={cancelRef}
               type="button"
-              className="btn-secondary"
+              className="btn-ghost"
               onClick={cancel}
               disabled={retire.isPending}
             >

@@ -246,7 +246,7 @@ export function InviteMember({
               ? t("operators.invite.retrying", { count: tooEarly })
               : t("operators.invite.submit")}
           </GatedButton>
-          <button type="button" className="btn-secondary" onClick={onClose} disabled={pending}>
+          <button type="button" className="btn-ghost" onClick={onClose} disabled={pending}>
             {t("common.cancel")}
           </button>
         </div>
