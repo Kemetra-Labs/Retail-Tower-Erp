@@ -26,6 +26,7 @@
  * non-integer or out-of-range value falls back to the default.
  */
 import { HttpException, HttpStatus } from "@nestjs/common";
+import { createLogger, type Logger } from "@data-pulse-2/shared";
 import type { Response } from "express";
 
 import type { RateLimitBucket, RateLimitDecision, RateLimiter } from "./rate-limit";
@@ -130,6 +131,12 @@ export async function releaseWithin(
   }
 }
 
+let logger: Logger | null = null;
+function log(): Logger {
+  logger ??= createLogger({ service: "api.auth", level: process.env["LOG_LEVEL"] ?? "info" });
+  return logger;
+}
+
 /** RT-623: bounds of the `Retry-After` sent with a public-auth 429, in seconds. */
 const RETRY_AFTER_MIN_SECONDS = 1;
 const RETRY_AFTER_MAX_SECONDS = 3_600;
@@ -159,7 +166,12 @@ export async function enforcePublicLimit(
   let decision: RateLimitDecision;
   try {
     decision = await checkWithin(limiter, hit, timeoutMs);
-  } catch {
+  } catch (err) {
+    // The bucket name and the reason only: never the identifier (an IP address).
+    log().warn(
+      { bucket: hit.bucketName, reason: err instanceof PublicAuthLimiterUnavailable ? err.reason : "error" },
+      "public-auth rate limiter unavailable; failing closed (503)",
+    );
     res.setHeader("Retry-After", String(PUBLIC_AUTH_UNAVAILABLE_RETRY_AFTER_SECONDS));
     throw publicAuthUnavailable();
   }
