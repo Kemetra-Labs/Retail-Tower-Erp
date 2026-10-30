@@ -26,6 +26,10 @@ import { createQueryClient } from "@/lib/query";
 import { Overview } from "@/shell/Overview";
 import { ProtectedArea } from "@/shell/ProtectedArea";
 import { platformRoutes } from "@/shell/platformRoutes";
+import { loadPlatformPages } from "./platform-pages";
+
+// RT-944: load the lazily routed pages before any test waits for one.
+await loadPlatformPages();
 
 function Where(): React.JSX.Element {
   return <output data-testid="where">{useLocation().pathname}</output>;

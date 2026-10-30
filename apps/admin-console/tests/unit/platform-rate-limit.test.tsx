@@ -44,6 +44,10 @@ import { reportRateLimited, resetRateLimit } from "@/lib/rate-limit";
 import { resetSupportSessionExpiry } from "@/lib/support-session-expiry";
 import { ProtectedArea } from "@/shell/ProtectedArea";
 import { platformRoutes } from "@/shell/platformRoutes";
+import { loadPlatformPages } from "./platform-pages";
+
+// RT-944: load the lazily routed pages before any test waits for one.
+await loadPlatformPages();
 
 const admin = { id: "u1", email: "ops@kemetra.test", display_name: "Ops", is_platform_admin: true };
 const DELTA = "0190f000-0000-7000-8000-0000000000d1";

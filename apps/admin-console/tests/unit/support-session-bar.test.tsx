@@ -41,6 +41,10 @@ import {
 } from "@/lib/support-session-expiry";
 import { ProtectedArea } from "@/shell/ProtectedArea";
 import { platformRoutes } from "@/shell/platformRoutes";
+import { loadPlatformPages } from "./platform-pages";
+
+// RT-944: load the lazily routed pages before any test waits for one.
+await loadPlatformPages();
 
 const NOW = Date.parse("2026-10-22T10:00:00Z");
 const MIN = 60_000;
