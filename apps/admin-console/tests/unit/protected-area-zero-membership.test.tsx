@@ -27,6 +27,10 @@ import { ActiveContextProvider } from "@/context/ActiveContextProvider";
 import { createQueryClient } from "@/lib/query";
 import { ProtectedArea } from "@/shell/ProtectedArea";
 import { platformRoutes } from "@/shell/platformRoutes";
+import { loadPlatformPages } from "./platform-pages";
+
+// RT-944: load the lazily routed pages before any test waits for one.
+await loadPlatformPages();
 
 const admin = { id: "u1", email: "ops@kemetra.test", display_name: "Ops", is_platform_admin: true };
 const plain = { id: "u2", email: "amal@x.eg", display_name: "Amal", is_platform_admin: false };

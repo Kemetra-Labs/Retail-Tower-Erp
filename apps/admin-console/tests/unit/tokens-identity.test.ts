@@ -153,17 +153,18 @@ describe("RT-396 light-first tokens", () => {
 
   test("no retired value and no raw colour outside tokens.css remains in src/", () => {
     const tokensFile = join(root, "src", "styles", "tokens.css");
-    for (const file of cssFiles(join(root, "src"))) {
+    // RT-944: one assertion over every hit. An expect per file and value (about
+    // 9,600 as src/ grew) was two thirds of this test's time, and under
+    // full-suite load the test ran past its 5 s budget.
+    const files = cssFiles(join(root, "src"));
+    expect(files.length).toBeGreaterThan(0);
+    const hits: string[] = [];
+    for (const file of files) {
       const code = stripComments(readFileSync(file, "utf8"));
-      for (const value of RETIRED)
-        expect({ file, has: code.includes(value) }).toEqual({ file, has: false });
-      if (file !== tokensFile) {
-        expect({ file, raw: rawColour(file).test(code) }).toEqual({
-          file,
-          raw: false,
-        });
-      }
+      for (const value of RETIRED) if (code.includes(value)) hits.push(`${file}: ${value}`);
+      if (file !== tokensFile && rawColour(file).test(code)) hits.push(`${file}: raw colour`);
     }
+    expect(hits).toEqual([]);
   });
 });
 
