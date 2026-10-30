@@ -105,7 +105,7 @@ function MeterLine({ meter }: Readonly<{ meter: MeterModel }>): React.JSX.Elemen
 
 function StatusBadge({ status }: Readonly<{ status: FeatureStatus }>): React.JSX.Element {
   const t = useT();
-  const tone = status === "available" ? " badge--active" : "";
+  const tone = status === "available" ? " badge--success" : "";
   return <span className={`badge ai-plan__badge${tone}`}>{t(STATUS_KEY[status])}</span>;
 }
 
@@ -182,7 +182,7 @@ export function MinimalView({ model }: Readonly<{ model: MinimalPanelModel }>): 
         <li key={feature.featureId} className="ai-plan__feature">
           <div className="ai-plan__feature-head">
             <MachineId value={feature.featureId} />
-            <span className={`badge ai-plan__badge${feature.available ? " badge--active" : ""}`}>
+            <span className={`badge ai-plan__badge${feature.available ? " badge--success" : ""}`}>
               {t(feature.available ? "aiPlan.minimal.available" : "aiPlan.minimal.unavailable")}
             </span>
           </div>

@@ -33,10 +33,11 @@ vi.mock("@/context/ActiveContextProvider", () => ({
 import { createQueryClient } from "@/lib/query";
 import { reportRateLimited, resetRateLimit } from "@/lib/rate-limit";
 import { SaleSyncSections } from "@/sale-sync/SaleSyncSections";
+import { saleQueryKeys } from "@/sales/useSales";
 
-function renderSections(): void {
+function renderSections(client = createQueryClient()): void {
   render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={client}>
       <SaleSyncSections saleRef={SALE} timeZone="Africa/Cairo" />
     </QueryClientProvider>,
   );
@@ -288,6 +289,122 @@ describe("SaleSyncSections (RT-726)", () => {
     await waitFor(() =>
       expect(document.activeElement?.textContent).toContain("accepted the repair"),
     );
+  });
+
+  // RT-956: the sale detail's header chip reads the same `sync_status`. A repair
+  // writes the server's answer into the cached detail and never refetches it, so
+  // a failed detail read cannot unmount this section and drop a kept key.
+  const DETAIL_KEY = saleQueryKeys.detail({ tenantId: "t1", activeStoreId: null }, SALE);
+  const seededClient = () => {
+    const client = createQueryClient();
+    client.setQueryData(DETAIL_KEY, {
+      summary: { saleRef: SALE, syncStatus: "failed-needs-repair" },
+    });
+    return client;
+  };
+  const cachedSync = (client: ReturnType<typeof createQueryClient>) =>
+    client.getQueryData<{ summary: { syncStatus: string } }>(DETAIL_KEY)?.summary.syncStatus;
+  const detailInvalidations = (spy: { mock: { calls: unknown[][] } }) =>
+    spy.mock.calls.filter(([f]) =>
+      JSON.stringify((f as { queryKey?: unknown })?.queryKey ?? null).includes('"detail"'),
+    );
+
+  test("a confirmed repair updates the sale detail's chip to the server's status, with no refetch", async () => {
+    api.consoleRepairSaleSync.mockResolvedValue(
+      ok(syncStatus({ syncStatus: "failed-retryable", deadLetter: null })),
+    );
+    const client = seededClient();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    renderSections(client);
+    const confirm = await openConfirm();
+    fireEvent.click(within(confirm).getByRole("button", { name: "Confirm repair" }));
+    await within(statusRegion()).findByText(/The server accepted the repair/);
+    expect(cachedSync(client)).toBe("failed-retryable");
+    expect(detailInvalidations(invalidate)).toEqual([]);
+  });
+
+  test("the chip update reaches a detail opened by an uppercase route ref (the server answers lowercase)", async () => {
+    api.consoleRepairSaleSync.mockResolvedValue(
+      ok(syncStatus({ syncStatus: "failed-retryable", deadLetter: null })),
+    );
+    const routeKey = saleQueryKeys.detail(
+      { tenantId: "t1", activeStoreId: null },
+      SALE.toUpperCase(),
+    );
+    const client = createQueryClient();
+    client.setQueryData(routeKey, {
+      summary: { saleRef: SALE, syncStatus: "failed-needs-repair" },
+    });
+    renderSections(client);
+    const confirm = await openConfirm();
+    fireEvent.click(within(confirm).getByRole("button", { name: "Confirm repair" }));
+    await within(statusRegion()).findByText(/The server accepted the repair/);
+    expect(
+      client.getQueryData<{ summary: { syncStatus: string } }>(routeKey)?.summary.syncStatus,
+    ).toBe("failed-retryable");
+  });
+
+  async function confirmRepaired(client: ReturnType<typeof createQueryClient>): Promise<void> {
+    api.consoleRepairSaleSync.mockResolvedValue(
+      ok(syncStatus({ syncStatus: "failed-retryable", deadLetter: null })),
+    );
+    renderSections(client);
+    const confirm = await openConfirm();
+    fireEvent.click(within(confirm).getByRole("button", { name: "Confirm repair" }));
+    await within(statusRegion()).findByText(/The server accepted the repair/);
+  }
+
+  test("the chip write keeps the detail's own freshness time", async () => {
+    const client = createQueryClient();
+    client.setQueryData(
+      DETAIL_KEY,
+      { summary: { saleRef: SALE, syncStatus: "failed-needs-repair" } },
+      { updatedAt: 1_000 },
+    );
+    await confirmRepaired(client);
+    expect(cachedSync(client)).toBe("failed-retryable");
+    expect(client.getQueryState(DETAIL_KEY)?.dataUpdatedAt).toBe(1_000);
+  });
+
+  test("a failed detail read is never masked by the chip write", async () => {
+    const client = seededClient();
+    const error = new Error("session ended");
+    client.getQueryCache().find({ queryKey: DETAIL_KEY })?.setState({ status: "error", error });
+    await confirmRepaired(client);
+    expect(client.getQueryState(DETAIL_KEY)?.status).toBe("error");
+    expect(cachedSync(client)).toBe("failed-needs-repair");
+  });
+
+  test("a detail read in flight keeps its newer fields, and the repaired chip lands on top", async () => {
+    const client = seededClient();
+    let finish: (value: unknown) => void = () => {};
+    const inFlight = new Promise((resolve) => {
+      finish = resolve;
+    });
+    void client
+      .fetchQuery({ queryKey: DETAIL_KEY, queryFn: () => inFlight, staleTime: 0 })
+      .catch(() => undefined);
+    // The repair outcome never waits on the detail read.
+    await confirmRepaired(client);
+    await act(async () => {
+      finish({ summary: { saleRef: SALE, syncStatus: "failed-needs-repair", voided: true } });
+      await inFlight;
+    });
+    await waitFor(() => expect(cachedSync(client)).toBe("failed-retryable"));
+    const summary = client.getQueryData<{ summary: { voided?: boolean } }>(DETAIL_KEY)?.summary;
+    expect(summary?.voided).toBe(true);
+  });
+
+  test("an unconfirmed repair leaves the sale detail alone, so the kept key survives", async () => {
+    api.consoleRepairSaleSync.mockResolvedValue(failure(503));
+    const client = seededClient();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    renderSections(client);
+    const confirm = await openConfirm();
+    fireEvent.click(within(confirm).getByRole("button", { name: "Confirm repair" }));
+    await within(statusRegion()).findByText(/did not confirm the result and may have acted/);
+    expect(cachedSync(client)).toBe("failed-needs-repair");
+    expect(detailInvalidations(invalidate)).toEqual([]);
   });
 
   test("409 repair_conflict changes nothing, refreshes the status, and is not retried", async () => {

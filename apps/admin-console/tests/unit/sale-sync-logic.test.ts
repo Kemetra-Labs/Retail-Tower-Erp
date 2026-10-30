@@ -43,7 +43,7 @@ describe("sync status copy never speaks for ERPNext (RT-642)", () => {
   test("an unrecognised code is unknown, in the danger tone", () => {
     const view = syncStatusView("posted");
     expect(view.labelKey).toBe("saleSync.status.unknown");
-    expect(view.badge).toBe("badge--suspended");
+    expect(view.badge).toBe("badge--danger");
   });
 
   test("synced says it is not ERPNext posting, in both locales", () => {

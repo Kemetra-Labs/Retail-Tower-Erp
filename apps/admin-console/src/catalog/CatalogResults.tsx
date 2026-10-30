@@ -18,7 +18,7 @@ import { DataTableSkeleton } from "@/components/DataTableSkeleton";
 import { DateTime, Money, type T, useT } from "@/i18n";
 import type { CatalogProduct } from "@/lib/catalog-queries";
 import { Notice, Pager, StoreStale, Unavailable } from "./CatalogPager";
-import { availabilityKey, statusKey, trackingKey } from "./catalogLogic";
+import { availabilityKey, statusBadgeClass, statusKey, trackingKey } from "./catalogLogic";
 import type { CatalogError, CatalogListState } from "./useCatalog";
 
 /** A machine value (SKU, barcode, tax category): isolated LTR, "—" when absent. */
@@ -69,7 +69,7 @@ function catalogColumns(t: T, storeInScope: boolean): DataTableColumn<CatalogPro
     {
       key: "status",
       header: t("catalog.list.col.status"),
-      cell: (p) => <span className="badge">{t(statusKey(p.status))}</span>,
+      cell: (p) => <span className={statusBadgeClass(p.status)}>{t(statusKey(p.status))}</span>,
     },
     {
       key: "price",

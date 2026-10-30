@@ -376,8 +376,22 @@ These classes exist on `main` and new work reuses them until a migration slice r
 - **Motion:** route changes stay instant (UX-06). The drawer has an enter and an exit. New
   banners, inline confirms and inline errors settle in on Signal (150ms); new table rows fade
   in. All of it is zero under reduced motion.
-- **Badge** `.badge` (`--active` / `--suspended` / `--pending`). Status badges
-  always carry text, so status is never color alone.
+- **Badge** `.badge`. Each variant is a §3 color role, not a status name (RT-956):
+  - no modifier is neutral: a recorded state that claims nothing, such as "active" on a
+    store or a device. An enabled flag is not a proven outcome, so it is not green.
+    Known gap: "active" on tenants, operators and stock locations is still
+    `--success`. Align it in its own slice; do not copy it into new work.
+  - `--success` (green) marks a proven outcome only.
+  - `--warning` (amber) marks caution or a degraded state, such as suspended, revoked
+    membership, a sync failure or a voided sale.
+  - `--pending` (blue) marks information or work in progress.
+  - `--danger` (red) marks a consequence and **every UNKNOWN or unrecognized state**,
+    such as ERP posting `failed` or a code the Console does not know. Never amber or
+    neutral.
+
+  A value the server does not record yet is not UNKNOWN. It reads «غير مسجّل» / "Not
+  recorded" in quiet text, not in a badge. Status badges always carry text, so status is
+  never color alone, and forced colors keep the text and a `CanvasText` border.
 - **Banner** `.rtc-alert--{danger,warning,success,info}`: persistent operational state, not a
   toast.
 - **Inputs** `.input` and `.field`. Errors use `aria-invalid` plus inline text.

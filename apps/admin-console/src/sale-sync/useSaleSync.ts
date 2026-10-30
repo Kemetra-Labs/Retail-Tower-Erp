@@ -1,3 +1,4 @@
+import type { SaleDetail } from "@/lib/sale-queries";
 /**
  * RT-726 query hooks for the sale sync-ops surfaces: the sync status and the
  * audit timeline of one sale, the NEEDS_REPAIR queue, and the one guarded
@@ -19,8 +20,9 @@ import {
   consoleListNeedsRepair,
   consoleRepairSaleSync,
 } from "@/lib/sale-sync-ops-queries";
-import type { SaleScope } from "@/sales/useSales";
+import { type SaleScope, saleQueryKeys } from "@/sales/useSales";
 import {
+  type QueryClient,
   type UseQueryResult,
   useInfiniteQuery,
   useQuery,
@@ -216,6 +218,32 @@ export interface RepairState {
   reset: () => void;
 }
 
+/**
+ * The sale detail's header chip reads the same `sync_status`: after a confirmed
+ * repair, write the server's answer into it so the chip and this section agree
+ * (RT-956). Never a refetch: a failed detail read would unmount this hook and
+ * drop its key. A read in flight settles first (its newer fields are kept and
+ * the confirmed status lands on top), an errored read is left to show its
+ * error, and the detail keeps its own freshness time.
+ */
+async function writeDetailSync(
+  queryClient: QueryClient,
+  target: SaleTarget,
+  syncStatus: SaleDetail["summary"]["syncStatus"],
+): Promise<void> {
+  const queryKey = saleQueryKeys.detail(target.scope, target.saleRef);
+  const query = queryClient.getQueryCache().find<SaleDetail>({ queryKey, exact: true });
+  if (query?.state.fetchStatus === "fetching") await query.promise?.catch(() => undefined);
+  const state = queryClient.getQueryState<SaleDetail>(queryKey);
+  if (state?.status !== "success" || !state.data) return;
+  const { data } = state;
+  queryClient.setQueryData<SaleDetail>(
+    queryKey,
+    { ...data, summary: { ...data.summary, syncStatus } },
+    { updatedAt: state.dataUpdatedAt },
+  );
+}
+
 export function useRepairSale(target: SaleTarget): RepairState {
   const queryClient = useQueryClient();
   const key = useRef<string | undefined>(undefined);
@@ -240,6 +268,8 @@ export function useRepairSale(target: SaleTarget): RepairState {
     if (!keepsKey(next)) key.current = undefined;
     if (next.kind === "repaired") {
       queryClient.setQueryData(saleSyncQueryKeys.status(target), next.status);
+      // Not awaited: the outcome never waits on a detail read in flight.
+      void writeDetailSync(queryClient, target, next.status.syncStatus);
     } else {
       void queryClient.invalidateQueries({ queryKey: saleSyncQueryKeys.status(target) });
     }

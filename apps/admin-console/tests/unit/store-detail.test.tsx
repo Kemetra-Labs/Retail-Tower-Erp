@@ -58,7 +58,7 @@ describe("StoreDetail", () => {
     renderDetail();
     expect(await screen.findByRole("heading", { name: "Cairo Festival City" })).toBeDefined();
     expect(screen.getByText("CFC")).toBeDefined();
-    expect(screen.getByText("Active").className).toContain("badge--active");
+    expect(screen.getByText("Active").className).toBe("badge");
     expect(screen.getByRole("link", { name: "Edit store" }).getAttribute("href")).toBe(
       "/stores/s1/edit",
     );
@@ -145,7 +145,7 @@ describe("StoreDetail", () => {
     expect(await screen.findByRole("heading", { name: "Cairo Festival City" })).toBeDefined();
     expect(screen.getByText("الرمز")).toBeDefined();
     expect(screen.getByText("معرّف المتجر")).toBeDefined();
-    expect(screen.getByText("موقوف").className).toContain("badge--suspended");
+    expect(screen.getByText("موقوف").className).toContain("badge--warning");
     expect(screen.getByText("CFC")).toBeDefined();
     expect(screen.getByRole("link", { name: "تعديل المتجر" })).toBeDefined();
     expect(screen.queryByRole("button", { name: /حذف/ })).toBeNull();

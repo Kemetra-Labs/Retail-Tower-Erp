@@ -110,13 +110,13 @@ test("S1: owner → fleet (server order) → filters → detail tabs → Back ke
   await page.getByRole("link", { name: t("devices.nav.label") }).click();
   await expect(page.getByRole("heading", { name: t("devices.list.title") })).toBeVisible();
 
-  // The server's exception-first order, as received; Unknown is never "healthy".
+  // The server's exception-first order, as received; a missing last activity is "not recorded".
   const rows = page.getByRole("row").filter({ hasText: "Dubai Mall" });
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toContainText("Till 2");
   await expect(rows.nth(0)).toContainText(t("devices.attention.custody"));
   await expect(rows.nth(1)).toContainText("Till 1");
-  await expect(rows.nth(1).getByText(t("devices.lastSeen.unknown"))).toBeVisible();
+  await expect(rows.nth(1).getByText(t("devices.lastSeen.notRecorded"))).toBeVisible();
   expect(queries[0].get("store_id")).toBeNull();
 
   // Filters are applied by the server, and live in the URL.

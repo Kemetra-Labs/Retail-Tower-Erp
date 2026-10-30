@@ -211,7 +211,7 @@ describe("StoreForm edit", () => {
     updateStore.mockResolvedValue({ status: 200, data: { ...cfc, id: "s1", is_active: false } });
     renderForm({ mode: "edit", storeId: "s1", initial: cfc });
     expect(screen.getByRole("heading", { name: "Store status" })).toBeDefined();
-    expect(screen.getByText("Active").className).toContain("badge--active");
+    expect(screen.getByText("Active").className).toBe("badge");
     fireEvent.click(screen.getByRole("button", { name: "Suspend store" }));
     const confirm = screen.getByRole("region", { name: "Confirm: suspend store" });
     expect(confirm.textContent).toContain("Suspend Cairo Festival City?");
@@ -235,7 +235,7 @@ describe("StoreForm edit", () => {
   test("suspended store -> «Activate store» sends is_active=true", async () => {
     updateStore.mockResolvedValue({ status: 200, data: { id: "s1" } });
     renderForm({ mode: "edit", storeId: "s1", initial: { ...cfc, is_active: false } });
-    expect(screen.getByText("Suspended").className).toContain("badge--suspended");
+    expect(screen.getByText("Suspended").className).toContain("badge--warning");
     expect(screen.queryByRole("button", { name: "Suspend store" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Activate store" }));
     await waitFor(() => expect(updateStore).toHaveBeenCalledWith("s1", { is_active: true }));
@@ -335,7 +335,7 @@ describe("StoreFormRoute edit: the status toggle and the detail cache", () => {
     fireEvent.click(screen.getByRole("button", { name: "Activate store" }));
 
     expect(await screen.findByRole("button", { name: "Suspend store" })).toBeDefined();
-    expect(screen.getByText("Active").className).toContain("badge--active");
+    expect(screen.getByText("Active").className).toBe("badge");
     expect(readStore).toHaveBeenCalledTimes(1);
     expect((screen.getByLabelText(/store name/i) as HTMLInputElement).value).toBe("Unsaved name");
   });
@@ -430,7 +430,7 @@ describe("StoreForm Arabic", () => {
     expect(screen.getByText("للقراءة فقط. لا يمكن تغيير الرمز بعد إنشاء المتجر.")).toBeDefined();
     expect(screen.getByText("استخدمه عند التواصل مع الدعم.")).toBeDefined();
     expect(screen.getByRole("heading", { name: "حالة المتجر" })).toBeDefined();
-    expect(screen.getByText("نشط").className).toContain("badge--active");
+    expect(screen.getByText("نشط").className).toBe("badge");
     expect(screen.getByRole("button", { name: "إيقاف المتجر" })).toBeDefined();
     expect(screen.getByRole("button", { name: "حفظ المتجر" })).toBeDefined();
     expect(screen.getByRole("button", { name: "إلغاء التعديل" })).toBeDefined();

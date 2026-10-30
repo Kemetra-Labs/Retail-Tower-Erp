@@ -71,7 +71,7 @@ function LocationsTable({ items }: Readonly<{ items: StockLocation[] }>): React.
               </td>
               <td>{t(locationKindKey(loc.kind))}</td>
               <td>
-                <span className={loc.isActive ? "badge badge--active" : "badge badge--suspended"}>
+                <span className={loc.isActive ? "badge badge--success" : "badge badge--warning"}>
                   {t(loc.isActive ? "inventory.locations.active" : "inventory.locations.inactive")}
                 </span>
               </td>

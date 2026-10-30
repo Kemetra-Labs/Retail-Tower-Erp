@@ -18,7 +18,7 @@ import {
   storeDeviations,
   tenantAvailable,
 } from "./catalogDetailLogic";
-import { availabilityKey, statusKey, trackingKey } from "./catalogLogic";
+import { availabilityKey, statusBadgeClass, statusKey, trackingKey } from "./catalogLogic";
 import type { StoreLabel } from "./useCatalogProduct";
 
 /** A machine value (identifier, tax category, id): LTR-isolated, exactly as stored. */
@@ -75,7 +75,7 @@ export function TenantValues({
     <Section id="catalog-detail-tenant" title={t("catalog.detail.tenant.title")}>
       <dl className="surface__detail">
         <Row label={t("catalog.detail.field.status")}>
-          <span className="badge">{t(statusKey(summary.status))}</span>
+          <span className={statusBadgeClass(summary.status)}>{t(statusKey(summary.status))}</span>
         </Row>
         <Row label={t("catalog.detail.field.description")}>
           {product.description ? (

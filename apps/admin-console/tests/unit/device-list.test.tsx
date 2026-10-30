@@ -151,7 +151,7 @@ describe("DeviceList (RT-371)", () => {
     expect(rows).toHaveLength(3);
     // Custody exception first: revoked, flagged, in the danger tone.
     expect(within(rows[0]).getByText("Till 2")).toBeDefined();
-    expect(within(rows[0]).getByText("Revoked").className).toContain("device-trust--danger");
+    expect(within(rows[0]).getByText("Revoked").className).toContain("badge--danger");
     expect(within(rows[0]).getByText("Custody exception: open shift")).toBeDefined();
     // An active device past its (unenforced) expiry: flagged, still "Active", neutral.
     expect(within(rows[1]).getByText("Expiry passed (not enforced yet)")).toBeDefined();
@@ -163,7 +163,7 @@ describe("DeviceList (RT-371)", () => {
     expect(within(rows[2]).getByText("Retired")).toBeDefined();
   });
 
-  test("last seen: Unknown in the danger role when not recorded, never 'healthy'", async () => {
+  test("last seen: Not recorded (quiet) when absent; an unknown source stays danger; never 'healthy'", async () => {
     consoleListDevices.mockResolvedValue(
       page([
         summary(),
@@ -172,9 +172,9 @@ describe("DeviceList (RT-371)", () => {
     );
     renderList();
     const rows = bodyRows(await tableReady());
-    expect(within(rows[0]).getByText("Unknown").className).toContain("device-flag--danger");
-    // A source the console does not know keeps the time and says so.
-    expect(within(rows[1]).getByText("Unknown source")).toBeDefined();
+    expect(within(rows[0]).getByText("Not recorded").className).toBe("device-quiet");
+    // A source the console does not know keeps the time and says so, in the danger role.
+    expect(within(rows[1]).getByText("Unknown source").className).toContain("device-flag--danger");
     expect(screen.queryByText(/healthy/i)).toBeNull();
   });
 
