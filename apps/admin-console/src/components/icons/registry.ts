@@ -34,6 +34,9 @@ export const ICON_REGISTRY = {
   lock: { asset: "lock_closed", mirror: "never", regular: [24] },
   // RT-829: the compact shell's menu button. Three horizontal bars never mirror.
   menu: { asset: "navigation", mirror: "never", regular: [20] },
+  // RT-971: the show-password toggle (shown: conceal, hidden: reveal). An eye never mirrors.
+  reveal: { asset: "eye", mirror: "never", regular: [20] },
+  conceal: { asset: "eye_off", mirror: "never", regular: [20] },
   signOut: { asset: "sign_out", mirror: "mirror", regular: [20] },
   // Direction: back follows reading direction.
   back: { asset: "arrow_left", mirror: "mirror", regular: [16] },

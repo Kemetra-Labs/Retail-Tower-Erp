@@ -63,6 +63,9 @@ const ADDED_SINCE_IC3: readonly IconName[] = [
   "sortable",
   // RT-829: the compact shell's menu button (Jira name: menu).
   "menu",
+  // RT-971: the show-password toggle on sign-in and accept-invitation.
+  "reveal",
+  "conceal",
 ];
 
 function draw(props: { name: IconName; size?: "sm" | "md" | "lg" }): SVGSVGElement {

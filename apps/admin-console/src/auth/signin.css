@@ -1,70 +1,244 @@
-/* SF-1 sign-in — centered card on the light canvas (shape brief). */
+/* RT-971 public screens (canvas «تسجيل الدخول»): a form panel at the inline
+ * start and a brand panel at the inline end. No card, no shadow. Tokens only;
+ * logical properties (RTL by structure). */
+
+.auth-page {
+  min-height: 100dvh;
+  display: flex;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.auth-main {
+  flex: 1 1 32rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-6) var(--space-7);
+}
+.auth-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.auth-top > :last-child {
+  margin-inline-start: auto;
+}
+.auth-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.auth-lockup__tile {
+  display: grid;
+  place-items: center;
+  inline-size: var(--control-h);
+  block-size: var(--control-h);
+  border-radius: var(--radius-control);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+.auth-lockup__tile .tower-mark {
+  inline-size: var(--space-5);
+  block-size: var(--space-5);
+  color: currentColor;
+}
+
+.auth-center {
+  flex: 1;
+  display: grid;
+  place-items: center;
+}
+.auth-form {
+  inline-size: 100%;
+  max-inline-size: 24rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.auth-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.auth-head__title {
+  margin: 0;
+  font: var(--weight-strong) var(--text-screen-title) / var(--leading-title) var(--font-sans);
+}
+.auth-head__sub {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+.auth-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.auth-fields .field > label {
+  color: var(--color-text);
+}
+.auth-fields .field__hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+/* The one action of the screen: full width, the touch target height. */
+.auth-submit {
+  inline-size: 100%;
+  min-block-size: var(--target-touch);
+}
+.auth-note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.auth-foot {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+
+/* Password with its show toggle inside the field's end. */
+.password-input {
+  position: relative;
+  display: flex;
+}
+/* The input is LTR (machine input) while the toggle sits at the page's inline
+ * end, so the room for the toggle is reserved on the physical side it is on. */
+.password-input__control {
+  flex: 1;
+  min-width: 0;
+  padding-right: calc(var(--control-h) + var(--space-1));
+}
+[dir="rtl"] .password-input__control {
+  padding-right: var(--space-3);
+  padding-left: calc(var(--control-h) + var(--space-1));
+}
+.password-input__toggle {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  display: grid;
+  place-items: center;
+  inline-size: var(--control-h);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.password-input__toggle:hover {
+  color: var(--color-text);
+}
+.password-input__toggle[aria-pressed="true"] {
+  color: var(--color-primary-emphasis);
+}
+.password-input__toggle:disabled {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+/* The brand panel: decoration. Light: the deep teal with surface text; dark:
+ * the teal wash with the page text, so both hold contrast. */
+.auth-brand-panel {
+  --brand-bg: var(--color-primary-emphasis);
+  --brand-fg: var(--color-on-primary);
+  position: relative;
+  overflow: hidden;
+  flex: 1 1 32rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: var(--space-6);
+  padding: var(--space-7);
+  background: var(--brand-bg);
+  color: var(--brand-fg);
+}
+[data-theme="dark"] .auth-brand-panel {
+  --brand-bg: var(--color-primary-soft);
+  --brand-fg: var(--color-text);
+}
+.auth-brand-panel__mark {
+  position: absolute;
+  inset-block-start: calc(-1 * var(--space-8));
+  inset-inline-start: calc(-1 * var(--space-8));
+  inline-size: 36rem;
+  block-size: 36rem;
+  color: color-mix(in oklab, var(--brand-fg) 14%, var(--brand-bg));
+  stroke-width: 0.6;
+}
+.auth-brand-panel__flow,
+.auth-brand-panel__copy {
+  position: relative;
+  max-inline-size: 28rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.auth-brand-panel__flow {
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-object);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.auth-brand-panel__flow-title {
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.auth-brand-panel__flow-steps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--weight-strong);
+}
+.auth-brand-panel__step {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunken);
+}
+.auth-brand-panel__step--erp {
+  background: var(--color-primary-soft);
+  color: var(--color-primary-emphasis);
+}
+.auth-brand-panel__arrow {
+  display: inline-block;
+  color: var(--color-text-muted);
+}
+[dir="rtl"] .auth-brand-panel__arrow {
+  transform: scaleX(-1);
+}
+.auth-brand-panel__headline {
+  font: var(--weight-strong) var(--text-screen-title) / var(--leading-title) var(--font-sans);
+}
+.auth-brand-panel__body {
+  color: color-mix(in oklab, var(--brand-fg) 82%, var(--brand-bg));
+}
+
+@media (max-width: 900px) {
+  .auth-brand-panel {
+    display: none;
+  }
+}
+@media (max-width: 600px) {
+  .auth-main {
+    padding: var(--space-5) var(--space-4);
+  }
+}
+
+@media (forced-colors: active) {
+  .auth-lockup__tile {
+    border: 1px solid CanvasText;
+  }
+}
+
+/* The no-access terminal state (NoAccess) still centres on the canvas. */
 .signin-stage {
   min-height: 100dvh;
   display: grid;
   place-items: center;
   padding: var(--space-7) var(--space-5);
   background: var(--color-background);
-}
-
-.signin-shell {
-  width: 100%;
-  max-width: 384px;
-}
-
-/* Brand lockup sits above the card (Console v4.0): the teal mark anchors the
- * surface before the operator reads the form. Centered. */
-.signin-brand {
-  display: flex;
-  justify-content: center;
-  margin-bottom: var(--space-5);
-}
-.signin-brand .tower-mark {
-  color: var(--color-primary);
-}
-.signin-brand .tower-lockup__word {
-  font: var(--weight-strong) var(--text-screen-title) / var(--leading-tight) var(--font-sans);
-}
-
-.signin-card {
-  width: 100%;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-object);
-  box-shadow: var(--shadow-overlay);
-  padding: var(--space-6);
-}
-
-/* Card heading — left-aligned now that identity lives in the brand lockup above. */
-.signin-head {
-  margin-bottom: var(--space-5);
-}
-.signin-head__title {
-  margin: 0 0 var(--space-1);
-  font: var(--weight-strong) var(--text-screen-title) / var(--leading-title) var(--font-sans);
-}
-.signin-head__sub {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--text-body);
-}
-
-.signin-banner {
-  margin-bottom: var(--space-4);
-}
-
-.signin-form {
-  display: grid;
-  gap: var(--space-4);
-}
-.signin-submit {
-  width: 100%;
-  margin-top: var(--space-2);
-}
-
-.signin-foot {
-  margin: var(--space-5) 0 0;
-  text-align: center;
-  font-size: var(--text-meta);
-  color: var(--color-text-muted);
 }

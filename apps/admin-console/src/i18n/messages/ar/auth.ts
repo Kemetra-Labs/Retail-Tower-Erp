@@ -8,7 +8,7 @@ import type { Messages } from "../types";
  */
 export const auth = {
   "auth.signIn.title": "تسجيل الدخول",
-  "auth.signIn.subtitle": "دخول المستخدمين إلى لوحة التحكم.",
+  "auth.signIn.subtitle": "لوحة إدارة المتاجر والكتالوج والمبيعات.",
   "auth.signIn.email.label": "البريد الإلكتروني",
   "auth.signIn.password.label": "كلمة المرور",
   "auth.signIn.submit": "تسجيل الدخول",
@@ -34,12 +34,24 @@ export const auth = {
     other: "محاولات كثيرة جدًا. يمكنك المحاولة مرة أخرى بعد {count} ثانية.",
   },
   "auth.signIn.footer": "منصة محمية · يخضع كل نشاط للتدقيق",
+  "auth.signIn.invitesOnly": "تصل الدعوات بالبريد من مسؤول المؤسسة. لا يوجد تسجيل ذاتي.",
+
+  // RT-971: the shared parts of the public screens (canvas «تسجيل الدخول»).
+  "auth.password.show": "إظهار كلمة المرور",
+  "auth.brand.flowTitle": "من الكاشير إلى الدفاتر",
+  "auth.brand.flowPos": "نقاط البيع",
+  "auth.brand.flowServer": "الخادم",
+  "auth.brand.headline": "كل متاجرك في مكان واحد، بأرقام تثق فيها.",
+  "auth.brand.body":
+    "المبيعات والمخزون والأجهزة والترحيل المحاسبي، بنفس الحقيقة التي يراها الكاشير.",
 
   "auth.acceptInvitation.title": "قبول دعوتك",
   "auth.acceptInvitation.titleInvalid": "الدعوة",
+  "auth.acceptInvitation.subtitle":
+    "إن كنت جديدًا فاختر اسمًا معروضًا وكلمة مرور. إن كان لديك حساب فاترك الحقلين فارغين.",
   "auth.acceptInvitation.displayName.label": "الاسم المعروض",
   "auth.acceptInvitation.password.label": "كلمة المرور",
-  "auth.acceptInvitation.password.placeholder": "مطلوبة عند إنشاء حساب جديد",
+  "auth.acceptInvitation.password.hint": "مطلوبة عند إنشاء حساب جديد.",
   "auth.acceptInvitation.submit": "قبول الدعوة",
   "auth.acceptInvitation.submitting": "جارٍ قبول الدعوة",
   "auth.acceptInvitation.errors.invalidLink": "رابط الدعوة هذا غير صالح أو انتهت صلاحيته.",

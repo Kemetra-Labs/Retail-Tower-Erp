@@ -235,7 +235,6 @@ export const catalog = {
   "catalog.edit.reloaded": "تم تحميل أحدث نسخة. ما كتبته محفوظ في النموذج. راجعه ثم احفظ مرة أخرى.",
   "catalog.edit.reloadFailed": "تعذّرت إعادة تحميل هذا الصنف. ما كتبته محفوظ في النموذج.",
 
-  "catalog.form.required": "(إلزامي)",
   "catalog.form.name": "الاسم",
   "catalog.form.description": "الوصف",
   "catalog.form.category": "الفئة",
