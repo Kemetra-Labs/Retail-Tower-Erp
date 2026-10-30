@@ -129,6 +129,19 @@
  * (`shift-probe-tally.ts`) and shown in the status (`probeRefusals`); so is
  * every failed approver attempt (review round 1 P2-4, `approverFailure`).
  *
+ * RT-997 (migration 0059, [GATED]) — every count the till EVALUATED is a Count
+ * Attempt, an append-only local fact (`shift-count-attempts.ts`): the open
+ * shift was found and the cash-up computed. A close that goes through writes
+ * its ACCEPTED attempt with the close, in one transaction, and the close's
+ * link names it. A refusal after that point (`variance_approval_required`, a
+ * failed manager approval, `approval_stale`, a wire rejection) appends a
+ * REFUSED attempt, and a recount is another row. A count refused before it was
+ * evaluated (a scanned count over the cap, no open shift, drawer cash in
+ * flight, an unusable session) writes nothing. The forced close's manager
+ * count is an attempt by the manager. Nothing about an attempt reaches the
+ * renderer or the status: the count stays blind. `abandoned` is in the schema
+ * but nothing writes it here: the cashier's walk-away is a renderer event.
+ *
  * Refusals of the shift state (`ShiftCashupStateError`) and of a fact's values
  * (`ShiftFactInvalidError`, `ShiftCashupSourceError`) come through unchanged.
  * No audit event is written (part 1, decision 4). Errors name a closed reason,
@@ -154,13 +167,19 @@ import {
   type ShiftScope,
 } from './shift-cashup-repo.js';
 import type { ShiftCashupSources } from './shift-cashup-sources.js';
+import type { CountAttemptStamp } from './shift-count-attempts.js';
 import type { ShiftCashupStatus, ShiftCashupStatusReader } from './shift-cashup-status.js';
 import {
   createShiftProbeTally,
   type ShiftProbeKind,
   type ShiftProbeRefusals,
 } from './shift-probe-tally.js';
-import type { CashMovementKind, CashMovementReasonCode, ShiftCloseFact } from './shift-wire.js';
+import {
+  ShiftFactInvalidError,
+  type CashMovementKind,
+  type CashMovementReasonCode,
+  type ShiftCloseFact,
+} from './shift-wire.js';
 
 export type ShiftCashupRefusalReason =
   | 'feature_disabled'
@@ -335,7 +354,12 @@ export interface ShiftCashupServiceDeps {
   managerPins: Pick<ManagerPinStore, 'verify' | 'list'>;
   repo: Pick<
     ShiftCashupRepo,
-    'recordOpen' | 'recordMovement' | 'recordClose' | 'recordForcedClose' | 'findOpenShift'
+    | 'recordOpen'
+    | 'recordMovement'
+    | 'recordClose'
+    | 'recordRefusedCount'
+    | 'recordForcedClose'
+    | 'findOpenShift'
   >;
   sources: ShiftCashupSources;
   status: ShiftCashupStatusReader;
@@ -357,6 +381,15 @@ interface Probe {
   shiftId: string;
   kind: ShiftProbeKind;
   reason: ShiftCashupRefusalReason;
+}
+
+/** A count the till evaluated (RT-997): who counted what, for which open shift, when. */
+interface EvaluatedCount {
+  scope: ShiftScope;
+  shiftId: string;
+  actorUserId: string;
+  countedCashMinor: number;
+  attemptedAt: string;
 }
 
 interface Actor {
@@ -545,6 +578,27 @@ function requireNoParkedSales(input: { sources: ShiftCashupSources; scope: Shift
   if (parked > 0) throw new ShiftCashupRefusedError('parked_sales_present', parked);
 }
 
+/** The count the close's pre-check evaluated (RT-997), by `actorUserId`. */
+function evaluatedBy(input: {
+  plan: Pick<ClosePlan, 'open' | 'closedAt'>;
+  scope: ShiftScope;
+  actorUserId: string;
+  countedCashMinor: number;
+}): EvaluatedCount {
+  return {
+    scope: input.scope,
+    shiftId: input.plan.open.shiftId,
+    actorUserId: input.actorUserId,
+    countedCashMinor: input.countedCashMinor,
+    attemptedAt: input.plan.closedAt,
+  };
+}
+
+/** The accepted attempt a close is recorded with (RT-997). */
+function acceptedStamp(attemptId: string, count: EvaluatedCount): CountAttemptStamp {
+  return { attemptId, actorUserId: count.actorUserId, attemptedAt: count.attemptedAt };
+}
+
 function closeFactOf(parts: CloseParts): ShiftCloseFact {
   const { open, cashup } = parts;
   const varianceMinor = parts.countedCashMinor - cashup.expectedCashMinor;
@@ -690,6 +744,36 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
     return { open, closedAt, cashup, varianceMinor };
   }
 
+  /**
+   * RT-997: appends the refused Count Attempt of `count`. A shift that is no
+   * longer open (closed while a manager's PIN was being checked) has nothing to
+   * attach it to; any other failure is not hidden.
+   */
+  function recordRefusedCount(count: EvaluatedCount): void {
+    const { scope, ...attempt } = count;
+    try {
+      repo.recordRefusedCount({
+        scope,
+        attempt: { ...attempt, attemptId: deps.newId() },
+        now: count.attemptedAt,
+      });
+    } catch (error) {
+      if (!(error instanceof ShiftCashupStateError)) throw error;
+    }
+  }
+
+  /** Runs `run`; the till's refusal of an evaluated `count` is recorded, then rethrown (RT-997). */
+  function refusedCountRecorded<T>(count: EvaluatedCount, run: () => T): T {
+    try {
+      return run();
+    } catch (error) {
+      if (error instanceof ShiftCashupRefusedError || error instanceof ShiftFactInvalidError) {
+        recordRefusedCount(count);
+      }
+      throw error;
+    }
+  }
+
   /** Runs `run`; a refusal of `probe.reason` is tallied for its shift (slice 4 probe). */
   function tallied<T>(probe: Probe, run: () => T): T {
     try {
@@ -801,26 +885,34 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
           ? undefined
           : acceptApprover({ approver: input.approver, actor });
       const plan = planClose({ scope, countedCashMinor });
-      if (approver !== undefined) requireSameClose({ approver, plan, countedCashMinor });
       const { open, closedAt, cashup } = plan;
-      const probe = {
-        shiftId: open.shiftId,
-        kind: 'varianceClose',
-        reason: 'variance_approval_required',
-      } as const;
-      const fact = tallied(probe, () =>
-        closeFactOf({
-          open,
-          closedAt,
-          closingUserId: userId,
-          cashup,
-          countedCashMinor,
-          approverUserId: approver?.userId,
-          thresholdMinor: deps.varianceApprovalThresholdMinor,
-        }),
-      );
-      repo.recordClose({ scope, fact, now: closedAt });
-      return closedShiftOf(fact);
+      const count = evaluatedBy({ plan, scope, actorUserId: userId, countedCashMinor });
+      return refusedCountRecorded(count, () => {
+        if (approver !== undefined) requireSameClose({ approver, plan, countedCashMinor });
+        const probe = {
+          shiftId: open.shiftId,
+          kind: 'varianceClose',
+          reason: 'variance_approval_required',
+        } as const;
+        const fact = tallied(probe, () =>
+          closeFactOf({
+            open,
+            closedAt,
+            closingUserId: userId,
+            cashup,
+            countedCashMinor,
+            approverUserId: approver?.userId,
+            thresholdMinor: deps.varianceApprovalThresholdMinor,
+          }),
+        );
+        repo.recordClose({
+          scope,
+          fact,
+          now: closedAt,
+          countAttempt: acceptedStamp(deps.newId(), count),
+        });
+        return closedShiftOf(fact);
+      });
     },
 
     forceCloseShift(input) {
@@ -829,33 +921,40 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
       const scope = scopeOf(session);
       // First: a shift this terminal does not hold is not closable here, whatever the count.
       if (repo.findOpenShift(scope)?.shiftId !== input.shiftId.toLowerCase()) shiftNotOpen();
-      const { open, closedAt, cashup } = planClose({
+      const plan = planClose({ scope, countedCashMinor: input.countedCashMinor });
+      const { open, closedAt, cashup } = plan;
+      const count = evaluatedBy({
+        plan,
         scope,
+        actorUserId: input.managerUserId,
         countedCashMinor: input.countedCashMinor,
       });
-      // The configured variance policy applies as for any close: it is off by
-      // default, and a manager cannot approve their own close.
-      const fact = closeFactOf({
-        open,
-        closedAt,
-        closingUserId: input.managerUserId,
-        cashup,
-        countedCashMinor: input.countedCashMinor,
-        approverUserId: undefined,
-        thresholdMinor: deps.varianceApprovalThresholdMinor,
+      return refusedCountRecorded(count, () => {
+        // The configured variance policy applies as for any close: it is off by
+        // default, and a manager cannot approve their own close.
+        const fact = closeFactOf({
+          open,
+          closedAt,
+          closingUserId: input.managerUserId,
+          cashup,
+          countedCashMinor: input.countedCashMinor,
+          approverUserId: undefined,
+          thresholdMinor: deps.varianceApprovalThresholdMinor,
+        });
+        const closed: ForcedClosedShift = {
+          ...closedShiftOf(fact),
+          openingUserId: open.openingUserId,
+        };
+        repo.recordForcedClose({
+          scope,
+          fact,
+          forcedReason: input.forcedReason,
+          now: closedAt,
+          countAttempt: acceptedStamp(deps.newId(), count),
+          ...(input.onRecorded === undefined ? {} : { within: () => input.onRecorded?.(closed) }),
+        });
+        return closed;
       });
-      const closed: ForcedClosedShift = {
-        ...closedShiftOf(fact),
-        openingUserId: open.openingUserId,
-      };
-      repo.recordForcedClose({
-        scope,
-        fact,
-        forcedReason: input.forcedReason,
-        now: closedAt,
-        ...(input.onRecorded === undefined ? {} : { within: () => input.onRecorded?.(closed) }),
-      });
-      return closed;
     },
 
     async verifyApprover(input) {
@@ -883,6 +982,9 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
       const checked = approverIdOf({ verdict, closerUserId });
       if ('refusal' in checked) {
         tally.record({ shiftId: plan.open.shiftId, kind: 'approverFailure' });
+        recordRefusedCount(
+          evaluatedBy({ plan, scope, actorUserId: closerUserId, countedCashMinor }),
+        );
         refuse(checked.refusal);
       }
       const approver: VerifiedApprover = Object.freeze({
