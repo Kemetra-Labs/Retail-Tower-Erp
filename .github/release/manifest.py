@@ -184,7 +184,7 @@ def provenance(manifest):
         "predicateType": "https://slsa.dev/provenance/v1",
         "predicate": {
             "buildDefinition": {
-                "buildType": "https://github.com/Kemetra/Retail-Tower-Shadow/.github/workflows/release",
+                "buildType": f"https://github.com/{manifest['source']['repository']}/.github/workflows/release",
                 "externalParameters": {"product": manifest["product"], "mode": manifest["mode"], "tag": manifest["tag"]},
                 "resolvedDependencies": [{
                     "uri": f"git+https://github.com/{manifest['source']['repository']}",
