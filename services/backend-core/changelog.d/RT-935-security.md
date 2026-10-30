@@ -5,4 +5,5 @@
   `browserslist` 4.28.2 to 4.28.7, `@opentelemetry/propagator-jaeger` 2.7.1 to 2.9.0 and
   `@opentelemetry/exporter-prometheus` 0.216.0 to 0.217.0. The exact-pinned transitive ones
   (`multer`, `protobufjs` 8.x, `propagator-jaeger`, `browserslist`) use `pnpm.overrides`
-  in the root `package.json`; the Trivy scan stays report-only.
+  in the root `package.json`. The Trivy scan stays report-only for findings; a scan error
+  still fails its run.
