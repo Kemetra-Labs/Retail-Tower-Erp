@@ -10,7 +10,10 @@
  *
  * RT-961: each section is a section panel (DESIGN.md §5); the identifiers
  * table sits under its panel header, and the tenant price is end-aligned.
+ * Tables scroll in their own region (RT-826), so a narrow panel never clips
+ * a row action.
  */
+import { DataTableScroll, useCaptionId } from "@/components/DataTableScroll";
 import { DetailPanel, LedgerField, PanelBody } from "@/components/DetailPanel";
 import { DateTime, Money, type T, useT } from "@/i18n";
 import type { CatalogIdentifier, CatalogMoney, CatalogProductDetail } from "@/lib/catalog-queries";
@@ -161,30 +164,35 @@ export function Identifiers({
   rowAction?: (identifier: CatalogIdentifier) => React.ReactNode;
 }>): React.JSX.Element {
   const t = useT();
+  const captionId = useCaptionId();
   const empty = identifiers.length === 0;
   const table = empty ? null : (
-    <table className="data-table catalog-readonly">
-      <caption className="data-table__caption">{t("catalog.detail.identifiers.caption")}</caption>
-      <thead>
-        <tr>
-          <th scope="col">{t("catalog.detail.identifiers.col.type")}</th>
-          <th scope="col">{t("catalog.detail.identifiers.col.value")}</th>
-          <th scope="col">{t("catalog.detail.identifiers.col.scope")}</th>
-          <th scope="col">{t("catalog.detail.identifiers.col.source")}</th>
-          {rowAction ? <th scope="col">{t("catalog.identifier.col.actions")}</th> : null}
-        </tr>
-      </thead>
-      <tbody>
-        {identifiers.map((identifier) => (
-          <IdentifierRow
-            key={identifierKey(identifier)}
-            identifier={identifier}
-            storeLabel={storeLabel}
-            rowAction={rowAction}
-          />
-        ))}
-      </tbody>
-    </table>
+    <DataTableScroll captionId={captionId}>
+      <table className="data-table catalog-readonly">
+        <caption id={captionId} className="data-table__caption">
+          {t("catalog.detail.identifiers.caption")}
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">{t("catalog.detail.identifiers.col.type")}</th>
+            <th scope="col">{t("catalog.detail.identifiers.col.value")}</th>
+            <th scope="col">{t("catalog.detail.identifiers.col.scope")}</th>
+            <th scope="col">{t("catalog.detail.identifiers.col.source")}</th>
+            {rowAction ? <th scope="col">{t("catalog.identifier.col.actions")}</th> : null}
+          </tr>
+        </thead>
+        <tbody>
+          {identifiers.map((identifier) => (
+            <IdentifierRow
+              key={identifierKey(identifier)}
+              identifier={identifier}
+              storeLabel={storeLabel}
+              rowAction={rowAction}
+            />
+          ))}
+        </tbody>
+      </table>
+    </DataTableScroll>
   );
   return (
     <Section
@@ -250,6 +258,7 @@ function StoreOverride({
   actions?: React.ReactNode;
 }>): React.JSX.Element {
   const t = useT();
+  const captionId = useCaptionId();
   const name = (
     <h3 className="catalog-detail__store-name">
       <StoreName label={label} />
@@ -268,23 +277,25 @@ function StoreOverride({
       {deviations.length === 0 ? (
         <p className="catalog-detail__empty">{t("catalog.detail.overrides.noValues")}</p>
       ) : (
-        <table className="data-table catalog-readonly">
-          <caption className="data-table__caption">
-            {t("catalog.detail.overrides.caption", { store: label.name ?? label.id })}
-          </caption>
-          <thead>
-            <tr>
-              <th scope="col">{t("catalog.detail.overrides.col.setting")}</th>
-              <th scope="col">{t("catalog.detail.overrides.col.store")}</th>
-              <th scope="col">{t("catalog.detail.overrides.col.tenant")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {deviations.map((deviation) => (
-              <DeviationRow key={deviation.field} deviation={deviation} t={t} />
-            ))}
-          </tbody>
-        </table>
+        <DataTableScroll captionId={captionId}>
+          <table className="data-table catalog-readonly">
+            <caption id={captionId} className="data-table__caption">
+              {t("catalog.detail.overrides.caption", { store: label.name ?? label.id })}
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">{t("catalog.detail.overrides.col.setting")}</th>
+                <th scope="col">{t("catalog.detail.overrides.col.store")}</th>
+                <th scope="col">{t("catalog.detail.overrides.col.tenant")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {deviations.map((deviation) => (
+                <DeviationRow key={deviation.field} deviation={deviation} t={t} />
+              ))}
+            </tbody>
+          </table>
+        </DataTableScroll>
       )}
     </div>
   );

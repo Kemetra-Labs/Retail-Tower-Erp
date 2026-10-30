@@ -48,34 +48,35 @@
  * row when the content is wide enough and stack otherwise (a lone ledger keeps
  * its half); a full-width panel (a table) sits outside the grid. Inside a
  * panel a ledger takes the panel's width, its rows divided by hairlines and
- * its label column proportional (stacked on a phone, as below). */
+ * its label column proportional (stacked on a phone, as below). These rules
+ * are scoped to `.detail-panel`; other section panels keep RT-969's defaults. */
 .detail-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 26rem), 1fr));
   gap: var(--space-5);
   align-items: start;
 }
-.section-panel__head + .section-panel__body {
+.detail-panel > .section-panel__head + .section-panel__body {
   padding-block-start: 0;
 }
-.section-panel .surface__detail {
+.detail-panel .surface__detail {
   gap: 0;
   margin: 0;
 }
-.detail-grid .section-panel .surface__detail {
+.detail-grid .detail-panel .surface__detail {
   max-width: none;
 }
-.section-panel .field-row {
+.detail-panel .field-row {
   grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
   padding-block: var(--space-2);
 }
-.section-panel .field-row:last-child {
+.detail-panel .field-row:last-child {
   border-bottom: 0;
 }
-.section-panel .content__sub {
+.detail-panel .content__sub {
   margin: 0;
 }
-.section-panel__body > * + * {
+.detail-panel .section-panel__body > * + * {
   margin-block-start: var(--space-3);
 }
 
@@ -98,7 +99,7 @@
   :is(td, th) {
   border-bottom: 0;
 }
-.section-panel .data-table__row--static:hover {
+.detail-panel .data-table__row--static:hover {
   background-color: transparent;
 }
 /* The total a table arrives at, as served: under a strong rule, at the end of
@@ -160,7 +161,7 @@
   border-top: 2px solid var(--color-text);
   border-bottom: 0;
 }
-.section-panel .field-row--total {
+.detail-panel .field-row--total {
   padding-block-start: var(--space-3);
 }
 .field-row--total .field-row__label,
@@ -183,7 +184,7 @@
     flex-wrap: wrap;
   }
   .field-row,
-  .section-panel .field-row {
+  .detail-panel .field-row {
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-1);
   }

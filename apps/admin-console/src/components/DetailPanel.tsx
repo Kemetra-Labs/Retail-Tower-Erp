@@ -28,7 +28,9 @@ export function DetailPanel({
   className?: string;
   children: React.ReactNode;
 }>): React.JSX.Element {
-  const classes = className ? `section-panel ${className}` : "section-panel";
+  const classes = className
+    ? `section-panel detail-panel ${className}`
+    : "section-panel detail-panel";
   if (title === undefined) return <div className={classes}>{children}</div>;
   return (
     <section className={classes} aria-labelledby={id}>
