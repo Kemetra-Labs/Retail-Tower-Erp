@@ -13,6 +13,7 @@ import { Banner } from "@/components/Banner";
  * malformed store reads as not available (the API's non-disclosing 404).
  */
 import { BusyButton } from "@/components/BusyButton";
+import { TableScrollRegion } from "@/components/DataTableScroll";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
@@ -165,25 +166,29 @@ function Rows({
   }
   return (
     <>
-      <div className="table-scroll">
-        <table className="data-table">
-          <caption className="data-table__caption">{caption}</caption>
-          <thead>
-            <tr>
-              {columns.map((col) => (
-                <th key={col.key} scope="col">
-                  {col.header}
-                </th>
+      <TableScrollRegion>
+        {(captionId) => (
+          <table className="data-table">
+            <caption id={captionId} className="data-table__caption">
+              {caption}
+            </caption>
+            <thead>
+              <tr>
+                {columns.map((col) => (
+                  <th key={col.key} scope="col">
+                    {col.header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {list.rows.map((item) => (
+                <Row key={item.saleRef} item={item} storeName={nameOf(item.storeId)} />
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {list.rows.map((item) => (
-              <Row key={item.saleRef} item={item} storeName={nameOf(item.storeId)} />
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </tbody>
+          </table>
+        )}
+      </TableScrollRegion>
       {/* A failed continuation keeps the rows above and retries at the boundary. */}
       <StaleError error={list.inlineError} onRetry={list.retry} />
       {list.hasMore ? (

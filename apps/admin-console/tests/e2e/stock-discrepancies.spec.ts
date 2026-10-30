@@ -133,10 +133,14 @@ test("S1: tenant_admin → summary → store items verbatim → request fresh sn
   ).toBeVisible();
 
   await page.getByRole("link", { name: "Cairo Festival City" }).click();
+  // RT-963: the as-of sentence is a paragraph, not a heading.
   await expect(
-    page.getByRole("heading", {
-      name: t("stock.panel.asOf", { time: formatDateTime(READ_AT, { locale: appLocale }) }),
-    }),
+    page.getByText(
+      t("stock.panel.asOf", { time: formatDateTime(READ_AT, { locale: appLocale }) }),
+      {
+        exact: true,
+      },
+    ),
   ).toBeVisible();
   await expect(page.getByRole("cell", { name: "-3.000000" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "-1.500000" })).toBeVisible();

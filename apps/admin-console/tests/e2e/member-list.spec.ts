@@ -62,7 +62,8 @@ test("S1: member graph renders identity / role / store-access / state", async ({
 
   await page.goto("/operators");
   await expect(page.getByRole("heading", { name: t("operators.title") })).toBeVisible();
-  await expect(page.getByRole("cell", { name: /Amal Saleh/ })).toBeVisible();
+  // RT-963: the open cell's button names the member too; this is the identity cell.
+  await expect(page.getByRole("cell", { name: /Amal Saleh amal@/ })).toBeVisible();
   // Role codes render as role labels, never raw (RT-399). The active role also
   // appears in the topbar; scope to the role-column cell.
   await expect(page.getByRole("cell", { name: roleName("store_manager") })).toBeVisible();
@@ -131,9 +132,14 @@ test("T031 a11y: a member row is keyboard-focusable and Enter opens the edit dra
   );
 
   await page.goto("/operators");
+  // RT-963: rows hold data; the row's «Open» button is the one way in, by keyboard too.
   const row = page.getByRole("row").filter({ hasText: "Omar Khaled" });
-  await row.focus();
-  await expect(row).toBeFocused();
+  await expect(row).not.toHaveAttribute("tabindex", /.*/);
+  const open = row.getByRole("button", {
+    name: t("table.selection.openRow", { value: "Omar Khaled" }),
+  });
+  await open.focus();
+  await expect(open).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("dialog", { name: t("operators.edit.title") })).toBeVisible();
 });

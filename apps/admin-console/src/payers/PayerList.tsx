@@ -1,6 +1,7 @@
 import { NoAccess } from "@/auth/NoAccess";
 import { Banner } from "@/components/Banner";
 import { BusyButton } from "@/components/BusyButton";
+import { TableScrollRegion } from "@/components/DataTableScroll";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
@@ -118,23 +119,29 @@ function PayerListBody({
       ) : null}
 
       {settled && rows.length > 0 ? (
-        <table className="data-table">
-          <caption className="data-table__caption">{t("payers.list.caption")}</caption>
-          <thead>
-            <tr>
-              <th scope="col">{t("payers.list.col.payer")}</th>
-              <th scope="col">{t("payers.list.col.category")}</th>
-              <th scope="col">{t("payers.list.col.scope")}</th>
-              <th scope="col">{t("payers.list.col.erpCustomer")}</th>
-              <th scope="col">{t("payers.list.col.status")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <PayerRowView key={row.payerRef} row={row} stores={stores} />
-            ))}
-          </tbody>
-        </table>
+        <TableScrollRegion>
+          {(captionId) => (
+            <table className="data-table">
+              <caption id={captionId} className="data-table__caption">
+                {t("payers.list.caption")}
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">{t("payers.list.col.payer")}</th>
+                  <th scope="col">{t("payers.list.col.category")}</th>
+                  <th scope="col">{t("payers.list.col.scope")}</th>
+                  <th scope="col">{t("payers.list.col.erpCustomer")}</th>
+                  <th scope="col">{t("payers.list.col.status")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <PayerRowView key={row.payerRef} row={row} stores={stores} />
+                ))}
+              </tbody>
+            </table>
+          )}
+        </TableScrollRegion>
       ) : null}
 
       {settled && hasMore ? (

@@ -138,6 +138,22 @@ export function ShellTopBar({
   );
 }
 
+/** The page's own content, for the skip link (RT-963). */
+export const MAIN_ID = "main-content";
+
+/**
+ * RT-963 (WCAG 2.4.1): the first Tab stop of the shell, hidden until focused,
+ * jumps past the top bar and the sidebar to the page.
+ */
+export function SkipLink(): React.JSX.Element {
+  const t = useT();
+  return (
+    <a className="skip-link" href={`#${MAIN_ID}`}>
+      {t("shell.skipToContent")}
+    </a>
+  );
+}
+
 /** The content container: one measure, the page header first, then the page. */
 export function ShellContent({
   dirtyScope,
@@ -145,7 +161,13 @@ export function ShellContent({
 }: Readonly<{ dirtyScope?: boolean; children: React.ReactNode }>): React.JSX.Element {
   return (
     // data-dirty-scope: forms edited in here count as unsaved work (RT-268).
-    <main className="content" data-dirty-scope={dirtyScope ? "" : undefined}>
+    <main
+      id={MAIN_ID}
+      // The skip link's target: focusable by script and link, never a Tab stop.
+      tabIndex={-1}
+      className="content"
+      data-dirty-scope={dirtyScope ? "" : undefined}
+    >
       <div className="content__frame">{children}</div>
     </main>
   );

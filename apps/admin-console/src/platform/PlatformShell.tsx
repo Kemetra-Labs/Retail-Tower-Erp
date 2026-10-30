@@ -10,7 +10,7 @@ import { RateLimitBanner } from "@/components/RateLimitBanner";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { useT } from "@/i18n";
 import { useShellNavigator } from "@/shell/Navigator";
-import { NavEntries, ShellContent, ShellSidebar, ShellTopBar } from "@/shell/ShellFrame";
+import { NavEntries, ShellContent, ShellSidebar, ShellTopBar, SkipLink } from "@/shell/ShellFrame";
 import { ShellMenuDrawer, useShellMenu, useShellMenuId } from "@/shell/ShellMenu";
 import { PLATFORM_NAV } from "@/shell/nav-model";
 import { RateLimitClaimProvider, useRateLimitClaims } from "./rateLimitOwner";
@@ -38,6 +38,7 @@ export function PlatformShell({
 
   return (
     <div className="shell platform-shell">
+      <SkipLink />
       <ShellTopBar
         menu={menu}
         menuId={menuId}

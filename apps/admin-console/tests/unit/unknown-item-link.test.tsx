@@ -208,7 +208,8 @@ describe("linking", () => {
     renderList();
     const drawer = await reachConfirm();
     fireEvent.click(within(drawer).getByRole("button", { name: "Link the identifier" }));
-    const alert = await within(drawer).findByRole("alert");
+    // RT-963: the non-disclosing notice is an info banner, announced politely.
+    const alert = await within(drawer).findByRole("status");
     expect(alert.textContent).toMatch(/This item is not available/);
     expect(alert.textContent).not.toContain("backend english");
     expect(within(drawer).getByRole("button", { name: "Link the identifier" })).toBeDefined();

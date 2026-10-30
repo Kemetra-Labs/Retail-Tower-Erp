@@ -3,6 +3,9 @@
  * persistent banners, not toasts. Surfaces the backend `request_id` so an
  * operator can quote it to support (exact and LTR-isolated, RT-399). Never
  * auto-dismisses. `message` is already-translated copy.
+ *
+ * RT-963 (WCAG 4.1.3): the live-region role follows the severity. Danger and
+ * warning interrupt (`alert`); success and info wait their turn (`status`).
  */
 import { useT } from "@/i18n";
 import "./banner.css";
@@ -24,6 +27,13 @@ export interface BannerProps {
   action?: React.ReactNode;
 }
 
+const ROLE: Record<BannerVariant, "alert" | "status"> = {
+  danger: "alert",
+  warning: "alert",
+  success: "status",
+  info: "status",
+};
+
 export function Banner({
   variant,
   title,
@@ -33,7 +43,7 @@ export function Banner({
 }: Readonly<BannerProps>): React.JSX.Element {
   const t = useT();
   return (
-    <div className={`rtc-alert rtc-alert--${variant}`} role="alert">
+    <div className={`rtc-alert rtc-alert--${variant}`} role={ROLE[variant]}>
       {title ? <strong className="rtc-alert__title">{title}</strong> : null}
       <span className={title ? "rtc-alert__body" : "rtc-alert__msg"}>{message}</span>
       {requestId ? (

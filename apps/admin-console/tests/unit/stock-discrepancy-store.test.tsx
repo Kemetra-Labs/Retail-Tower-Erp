@@ -123,7 +123,7 @@ describe("StockDiscrepancyStore (RT-178)", () => {
     activeContext.mockReturnValue(ctx("tenant_admin"));
     listErpnextNegativeOnHand.mockResolvedValue(page(snapshot(), [item()]));
     renderStore();
-    const heading = await screen.findByRole("heading", { name: /erpnext snapshot as of/i });
+    const heading = await screen.findByText(/erpnext snapshot as of/i);
     // RT-399: an operational time, UTC-labelled until the Store zone exists (RT-401).
     expect(heading.textContent).toBe("ERPNext snapshot as of Oct 4, 2026, 07:58 UTC");
     expect(heading.textContent).toBe(`ERPNext snapshot as of ${formatDateTime(READ_AT)}`);
@@ -158,7 +158,7 @@ describe("StockDiscrepancyStore (RT-178)", () => {
     expect(screen.getByText("Stale snapshot")).toBeDefined();
     expect(screen.getByText("ITM-0001")).toBeDefined();
     expect(screen.getByText("ITM-0002")).toBeDefined();
-    expect(screen.getByRole("heading", { name: /erpnext snapshot as of/i })).toBeDefined();
+    expect(screen.getByText(/erpnext snapshot as of/i)).toBeDefined();
     expectNoLiveOrCurrent();
   });
 
@@ -176,7 +176,9 @@ describe("StockDiscrepancyStore (RT-178)", () => {
       ),
     );
     renderStore();
-    expect(await screen.findByRole("heading", { name: "No ERPNext snapshot" })).toBeDefined();
+    expect(
+      await screen.findByText("No ERPNext snapshot", { selector: ".snapshot-panel__asof" }),
+    ).toBeDefined();
     expect(screen.getByText(/no erpnext snapshot has been recorded/i)).toBeDefined();
     const text = document.body.textContent ?? "";
     expect(text).not.toMatch(/no items below zero/i);
@@ -200,7 +202,9 @@ describe("StockDiscrepancyStore (RT-178)", () => {
       ),
     );
     renderStore();
-    expect(await screen.findByRole("heading", { name: "No ERPNext snapshot" })).toBeDefined();
+    expect(
+      await screen.findByText("No ERPNext snapshot", { selector: ".snapshot-panel__asof" }),
+    ).toBeDefined();
     expect(screen.getByText(/no erpnext stock warehouse mapping/i)).toBeDefined();
     expect(document.body.textContent ?? "").not.toMatch(/no items below zero/i);
     // Refresh cannot produce a snapshot without a mapping: disabled, with the reason.
@@ -214,7 +218,7 @@ describe("StockDiscrepancyStore (RT-178)", () => {
     listErpnextNegativeOnHand.mockResolvedValue(page(snapshot(), []));
     renderStore();
     expect(await screen.findByText(/no items below zero in this erpnext snapshot/i)).toBeDefined();
-    expect(screen.getByRole("heading", { name: /erpnext snapshot as of/i })).toBeDefined();
+    expect(screen.getByText(/erpnext snapshot as of/i)).toBeDefined();
   });
 
   test("AC4: pendingRequest shows 'requested, awaiting Connector' (previous snapshot kept)", async () => {
@@ -415,7 +419,7 @@ describe("StockDiscrepancyStore (RT-178)", () => {
     expect(listErpnextNegativeOnHand).toHaveBeenLastCalledWith(STORE, { cursor: undefined });
     expect(screen.queryByText("ITM-0001")).toBeNull();
     expect(screen.queryByText("ITM-0009")).toBeNull();
-    const heading = screen.getByRole("heading", { name: /erpnext snapshot as of/i });
+    const heading = screen.getByText(/erpnext snapshot as of/i);
     expect(heading.textContent).toBe("ERPNext snapshot as of Oct 4, 2026, 09:30 UTC");
   });
 
@@ -523,7 +527,8 @@ describe("StockDiscrepancyStore (RT-178)", () => {
     expect(title.textContent).toBe("فروقات مخزون ERPNext");
     const button = screen.getByRole("button", { name: "طلب لقطة حديثة" });
     expect(button.textContent).not.toMatch(/request|snapshot/i);
-    const asOf = screen.getByRole("heading", { level: 2, name: /^لقطة ERPNext بتاريخ/ });
+    // RT-963: the as-of sentence is a paragraph, not a heading.
+    const asOf = screen.getByText(/^لقطة ERPNext بتاريخ/);
     expect(asOf.textContent).toBe(
       `لقطة ERPNext بتاريخ ${formatDateTime(READ_AT, { locale: "ar" })}`,
     );

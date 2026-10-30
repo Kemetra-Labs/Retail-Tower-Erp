@@ -7,6 +7,7 @@ import { Banner } from "@/components/Banner";
  * shared by the posting backlog and the run history.
  */
 import { BusyButton } from "@/components/BusyButton";
+import { TableScrollRegion } from "@/components/DataTableScroll";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
 import { ListState as ListStateView } from "@/components/ListState";
 import { DateTime, useT } from "@/i18n";
@@ -163,25 +164,29 @@ export function CursorTable<T>({
   if (list.rows.length === 0) return <ListStateView state="empty" emptyMessage={emptyMessage} />;
   return (
     <>
-      <div className="table-scroll">
-        <table className="data-table">
-          <caption className="data-table__caption">{caption}</caption>
-          <thead>
-            <tr>
-              {columns.map((col) => (
-                <th key={col.key} scope="col">
-                  {col.header}
-                </th>
+      <TableScrollRegion>
+        {(captionId) => (
+          <table className="data-table">
+            <caption id={captionId} className="data-table__caption">
+              {caption}
+            </caption>
+            <thead>
+              <tr>
+                {columns.map((col) => (
+                  <th key={col.key} scope="col">
+                    {col.header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {list.rows.map((row) => (
+                <Fragment key={rowKey(row)}>{renderRow(row)}</Fragment>
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {list.rows.map((row) => (
-              <Fragment key={rowKey(row)}>{renderRow(row)}</Fragment>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </tbody>
+          </table>
+        )}
+      </TableScrollRegion>
       <LoadMore list={list} />
     </>
   );

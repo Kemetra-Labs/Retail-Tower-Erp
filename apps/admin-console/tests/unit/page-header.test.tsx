@@ -18,7 +18,8 @@ describe("PageHeader", () => {
     render(<PageHeader title="Stores" subtitle="Stores in Northstar Retail" />);
     const h1 = screen.getByRole("heading", { level: 1, name: "Stores" });
     expect(h1.className).toContain("content__title");
-    expect(h1.hasAttribute("tabindex")).toBe(false);
+    // RT-963: a programmatic focus target after navigation, never a Tab stop.
+    expect(h1.getAttribute("tabindex")).toBe("-1");
     expect(screen.getByText("Stores in Northstar Retail").className).toContain("content__sub");
   });
 
@@ -58,6 +59,34 @@ describe("PageHeader", () => {
     render(<PageHeader title="Water 1.5L" titleRef={ref} titleId="item-title" />);
     expect(ref.current?.getAttribute("tabindex")).toBe("-1");
     expect(ref.current?.id).toBe("item-title");
+  });
+});
+
+describe("RT-963 page title and focus", () => {
+  test("names the document «<page> – <app>»", () => {
+    render(<PageHeader title="Stores" />);
+    expect(document.title).toBe("Stores – Retail Tower Console");
+  });
+
+  test("a navigation to another path moves focus to the new page's title", () => {
+    window.history.pushState({}, "", "/rt963-a");
+    const first = render(<PageHeader title="Stores" />);
+    first.unmount();
+    window.history.pushState({}, "", "/rt963-b");
+    render(<PageHeader title="Devices" />);
+    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1 }));
+  });
+
+  test("the same path remounted (a scope change) leaves focus where it is", () => {
+    window.history.pushState({}, "", "/rt963-c");
+    const first = render(<PageHeader title="Sales" />);
+    first.unmount();
+    const button = document.createElement("button");
+    document.body.append(button);
+    button.focus();
+    render(<PageHeader title="Sales" />);
+    expect(document.activeElement).toBe(button);
+    button.remove();
   });
 });
 

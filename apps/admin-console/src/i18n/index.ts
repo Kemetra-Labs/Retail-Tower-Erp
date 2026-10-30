@@ -28,6 +28,7 @@ export { roleKey, roleLabel } from "./roles";
 export {
   DateTime,
   DocumentLocale,
+  composeDocumentTitle,
   Money,
   type T,
   tFor,

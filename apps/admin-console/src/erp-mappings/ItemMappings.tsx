@@ -10,6 +10,7 @@
  * suggestion). There is no free-text product field. Product ids are shown as
  * received in the table: resolving a name for every row is out of scope.
  */
+import { TableScrollRegion } from "@/components/DataTableScroll";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
 import { ListState } from "@/components/ListState";
 import { StatusPill } from "@/erp-status/parts";
@@ -200,38 +201,42 @@ function ItemTable({
   }
   if (list.rows.length === 0) return <ListState state="empty" emptyMessage={t(emptyKey)} />;
   return (
-    <div className="table-scroll">
-      <table className="data-table">
-        <caption className="data-table__caption">{t("erp.map.items.title")}</caption>
-        <thead>
-          <tr>
-            {cols.map((col) => (
-              <th key={col.key} scope="col">
-                {col.header}
-              </th>
+    <TableScrollRegion>
+      {(captionId) => (
+        <table className="data-table">
+          <caption id={captionId} className="data-table__caption">
+            {t("erp.map.items.title")}
+          </caption>
+          <thead>
+            <tr>
+              {cols.map((col) => (
+                <th key={col.key} scope="col">
+                  {col.header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {list.rows.map((row) => (
+              <ItemRowGroup
+                key={row.id}
+                row={row}
+                tenantId={tenantId}
+                action={action?.row.id === row.id ? action : null}
+                colSpan={cols.length}
+                onAction={setAction}
+                onClose={() => setAction(null)}
+                onDone={(done) => {
+                  setAction(null);
+                  if (done.kind === "retire") onRetired(done.row);
+                  else onConfirmed();
+                }}
+              />
             ))}
-          </tr>
-        </thead>
-        <tbody>
-          {list.rows.map((row) => (
-            <ItemRowGroup
-              key={row.id}
-              row={row}
-              tenantId={tenantId}
-              action={action?.row.id === row.id ? action : null}
-              colSpan={cols.length}
-              onAction={setAction}
-              onClose={() => setAction(null)}
-              onDone={(done) => {
-                setAction(null);
-                if (done.kind === "retire") onRetired(done.row);
-                else onConfirmed();
-              }}
-            />
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </tbody>
+        </table>
+      )}
+    </TableScrollRegion>
   );
 }
 

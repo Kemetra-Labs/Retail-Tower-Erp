@@ -18,9 +18,20 @@ describe("Banner", () => {
 
   test("omits the request_id line when none is given", () => {
     render(<Banner variant="info" message="Heads up." />);
-    const alert = screen.getByRole("alert");
-    expect(alert.textContent).toContain("Heads up.");
-    expect(alert.textContent).not.toMatch(/request_id/i);
+    const status = screen.getByRole("status");
+    expect(status.textContent).toContain("Heads up.");
+    expect(status.textContent).not.toMatch(/request_id/i);
+  });
+
+  // RT-963 (WCAG 4.1.3): danger and warning interrupt; success and info are polite.
+  test.each([
+    ["danger", "alert"],
+    ["warning", "alert"],
+    ["success", "status"],
+    ["info", "status"],
+  ] as const)("a %s banner is announced as %s", (variant, role) => {
+    render(<Banner variant={variant} message="Notice." />);
+    expect(screen.getByRole(role).textContent).toContain("Notice.");
   });
 });
 

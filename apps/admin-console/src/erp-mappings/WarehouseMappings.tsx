@@ -7,6 +7,7 @@
  * Store names come from the caller's own store list; a mapping whose store is
  * not in it reads "unknown store" with its id, never a guessed name.
  */
+import { TableScrollRegion } from "@/components/DataTableScroll";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
 import { ListState } from "@/components/ListState";
 import { AsOf, Panel } from "@/erp-status/parts";
@@ -308,61 +309,65 @@ function WarehouseTable({
   if (list.rows.length === 0)
     return <ListState state="empty" emptyMessage={t("erp.map.wh.empty")} />;
   return (
-    <div className="table-scroll">
-      <table className="data-table">
-        <caption className="data-table__caption">{t("erp.map.wh.title")}</caption>
-        <thead>
-          <tr>
-            {cols.map((col) => (
-              <th key={col.key} scope="col">
-                {col.header}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {list.rows.map((row) => {
-            const purpose = purposeKey(row.purpose);
-            return (
-              <WarehouseRowGroup key={row.id} open={open === row.id} colSpan={cols.length}>
-                <tr className="erp-row">
-                  <td className="erp-row__name">
-                    <StoreName id={row.store_id} stores={stores} />
-                  </td>
-                  <td>{purpose ? t(purpose) : <Ref value={row.purpose} />}</td>
-                  <td>
-                    <Ref value={row.erpnext_warehouse_ref} />
-                  </td>
-                  <td>
-                    <DateTime value={row.set_at} />
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      disabled={open === row.id}
-                      onClick={() => setOpen(row.id)}
-                    >
-                      {t("erp.map.wh.retire.action")}
-                    </button>
-                  </td>
-                </tr>
-                <RetireStep
-                  tenantId={tenantId}
-                  row={row}
-                  stores={stores}
-                  onDone={() => {
-                    setOpen(null);
-                    onRetired();
-                  }}
-                  onCancel={() => setOpen(null)}
-                />
-              </WarehouseRowGroup>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <TableScrollRegion>
+      {(captionId) => (
+        <table className="data-table">
+          <caption id={captionId} className="data-table__caption">
+            {t("erp.map.wh.title")}
+          </caption>
+          <thead>
+            <tr>
+              {cols.map((col) => (
+                <th key={col.key} scope="col">
+                  {col.header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {list.rows.map((row) => {
+              const purpose = purposeKey(row.purpose);
+              return (
+                <WarehouseRowGroup key={row.id} open={open === row.id} colSpan={cols.length}>
+                  <tr className="erp-row">
+                    <td className="erp-row__name">
+                      <StoreName id={row.store_id} stores={stores} />
+                    </td>
+                    <td>{purpose ? t(purpose) : <Ref value={row.purpose} />}</td>
+                    <td>
+                      <Ref value={row.erpnext_warehouse_ref} />
+                    </td>
+                    <td>
+                      <DateTime value={row.set_at} />
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        disabled={open === row.id}
+                        onClick={() => setOpen(row.id)}
+                      >
+                        {t("erp.map.wh.retire.action")}
+                      </button>
+                    </td>
+                  </tr>
+                  <RetireStep
+                    tenantId={tenantId}
+                    row={row}
+                    stores={stores}
+                    onDone={() => {
+                      setOpen(null);
+                      onRetired();
+                    }}
+                    onCancel={() => setOpen(null)}
+                  />
+                </WarehouseRowGroup>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </TableScrollRegion>
   );
 }
 
