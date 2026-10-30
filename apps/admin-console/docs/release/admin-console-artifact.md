@@ -27,7 +27,17 @@ The build refuses to release when:
 An `admin-console/vX.Y.Z` tag publishes (RT-717 C1). The publish job runs behind the
 `release-admin-console` environment (owner reviewer, tag-only policy) and refuses to run
 if that environment is not set up that way. It checks that the archive is the one the
-manifest recorded, attests its build provenance and creates an immutable GitHub release.
+manifest recorded, attests its build provenance and creates the GitHub release. The workflow
+itself only refuses to overwrite an existing release. The release is immutable after creation
+because release immutability is enabled on the repository, a repository setting the workflow
+does not manage.
+
+Owner setup before the first release (RT-717 plan C2): create the `release-admin-console`
+environment (required reviewer, deployment policy limited to `admin-console/v*` tags), and a
+tag ruleset for `admin-console/v*` that blocks updates and deletion and limits creation to
+release owners. The publish job re-checks that the tag still points at the built commit just
+before creating the release, but that check and the release creation are not atomic; the
+ruleset closes that window. The publish job does not check that the ruleset exists.
 A dry-run publishes nothing: its tarball and manifest stay workflow artifacts, named
 `admin-console-dist-<sha12>.tar.gz`. The archive content (`dist/` with `version.json`)
 and the serving rules are unchanged.

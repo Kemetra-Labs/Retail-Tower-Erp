@@ -23,7 +23,8 @@
 #
 # Every job is environment-free and secret-free except publish and env-probe. The token is
 # read-only (workflow `permissions: {}`, contents: read per job). Only publish, admitted by the
-# environment, gets contents write, id-token write and attestations write: these scopes are
+# environment, gets contents write, id-token write and attestations write (plus actions read to
+# check the environment's protection): the write scopes are
 # repo-wide (a monorepo token is never confined to apps/admin-console); the boundary is the
 # tag-only environment and this job's steps.
 name: release-admin-console
@@ -229,6 +230,7 @@ jobs:
       contents: write # the GitHub release
       id-token: write # attestation signing (Sigstore)
       attestations: write
+      actions: read # the environment and deployment-policy reads in the first step
     env:
       SHA: ${{ needs.resolve.outputs.sha }}
       TAG: ${{ needs.resolve.outputs.tag }}
