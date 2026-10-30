@@ -115,7 +115,7 @@ test.describe("AC 5: list tables reflow at 390px", () => {
       await page.goto(path);
       // The audit view reads only once a search is applied.
       if (path === "/audit")
-        await page.getByRole("button", { name: t("audit.filters.apply"), exact: true }).click();
+        await page.getByRole("button", { name: t("filter.apply"), exact: true }).click();
       const region = page.locator(".data-table__scroll");
       await expect(region.locator("tbody tr").first()).toBeVisible();
 
