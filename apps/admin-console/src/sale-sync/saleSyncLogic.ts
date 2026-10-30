@@ -37,7 +37,7 @@ export interface SyncStatusView {
   /** The sentence under the status that says what it does and does not mean. */
   meaningKey: MessageKey;
   /** Badge modifier: the label always carries the meaning, the colour only reinforces it. */
-  badge: "" | "badge--pending" | "badge--suspended";
+  badge: "" | "badge--pending" | "badge--warning" | "badge--danger";
 }
 
 const SYNC_VIEWS: Record<string, SyncStatusView> = {
@@ -59,7 +59,7 @@ const SYNC_VIEWS: Record<string, SyncStatusView> = {
   "failed-needs-repair": {
     labelKey: "saleSync.status.failedNeedsRepair",
     meaningKey: "saleSync.meaning.failedNeedsRepair",
-    badge: "badge--suspended",
+    badge: "badge--warning",
   },
 };
 
@@ -67,7 +67,7 @@ const SYNC_VIEWS: Record<string, SyncStatusView> = {
 const UNKNOWN_SYNC: SyncStatusView = {
   labelKey: "saleSync.status.unknown",
   meaningKey: "saleSync.meaning.unknown",
-  badge: "badge--suspended",
+  badge: "badge--danger",
 };
 
 export function syncStatusView(code: string): SyncStatusView {

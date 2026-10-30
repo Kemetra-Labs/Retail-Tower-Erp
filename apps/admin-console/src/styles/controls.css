@@ -152,7 +152,10 @@
   box-shadow: inset 0 0 0 1px var(--color-primary);
 }
 
-/* Status pill (DESIGN.md .badge). Display-only; never a UI gate. */
+/* Status pill (DESIGN.md .badge). Display-only; never a UI gate. Variants are
+ * colour roles (DESIGN.md §3): success is a proven outcome, warning caution,
+ * pending information, danger a consequence or UNKNOWN. No modifier is neutral.
+ * The label always carries the status; the colour only reinforces it. */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -165,17 +168,21 @@
   font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
   white-space: nowrap;
 }
-.badge--active {
+.badge--success {
   border-color: var(--color-success);
   color: var(--color-success);
 }
-.badge--suspended {
+.badge--warning {
   border-color: var(--color-warning);
   color: var(--color-warning);
 }
 .badge--pending {
   border-color: var(--color-info);
   color: var(--color-info);
+}
+.badge--danger {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
 }
 
 .input {

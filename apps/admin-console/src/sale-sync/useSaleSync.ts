@@ -19,7 +19,7 @@ import {
   consoleListNeedsRepair,
   consoleRepairSaleSync,
 } from "@/lib/sale-sync-ops-queries";
-import type { SaleScope } from "@/sales/useSales";
+import { type SaleScope, saleQueryKeys } from "@/sales/useSales";
 import {
   type UseQueryResult,
   useInfiniteQuery,
@@ -246,6 +246,11 @@ export function useRepairSale(target: SaleTarget): RepairState {
     void queryClient.invalidateQueries({ queryKey: saleSyncQueryKeys.timeline(target) });
     void queryClient.invalidateQueries({
       queryKey: [...saleSyncQueryKeys.all(target.scope), "needs-repair"],
+    });
+    // The sale detail's header chip reads the same `sync_status` through its own
+    // query: refresh it too, so the chip and this section never disagree (RT-956).
+    void queryClient.invalidateQueries({
+      queryKey: saleQueryKeys.detail(target.scope, target.saleRef),
     });
     setOutcome(next);
     setPending(false);

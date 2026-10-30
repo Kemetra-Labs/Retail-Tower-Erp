@@ -34,9 +34,9 @@ import { createQueryClient } from "@/lib/query";
 import { reportRateLimited, resetRateLimit } from "@/lib/rate-limit";
 import { SaleSyncSections } from "@/sale-sync/SaleSyncSections";
 
-function renderSections(): void {
+function renderSections(client = createQueryClient()): void {
   render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={client}>
       <SaleSyncSections saleRef={SALE} timeZone="Africa/Cairo" />
     </QueryClientProvider>,
   );
@@ -288,6 +288,20 @@ describe("SaleSyncSections (RT-726)", () => {
     await waitFor(() =>
       expect(document.activeElement?.textContent).toContain("accepted the repair"),
     );
+  });
+
+  test("a repair also refreshes the sale detail, so its header chip agrees with this section (RT-956)", async () => {
+    api.consoleRepairSaleSync.mockResolvedValue(
+      ok(syncStatus({ syncStatus: "failed-retryable", deadLetter: null })),
+    );
+    const client = createQueryClient();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    renderSections(client);
+    const confirm = await openConfirm();
+    fireEvent.click(within(confirm).getByRole("button", { name: "Confirm repair" }));
+    await within(statusRegion()).findByText(/The server accepted the repair/);
+    const keys = invalidate.mock.calls.map(([filters]) => filters?.queryKey);
+    expect(keys).toContainEqual(expect.arrayContaining(["sales", "detail", SALE]));
   });
 
   test("409 repair_conflict changes nothing, refreshes the status, and is not retried", async () => {

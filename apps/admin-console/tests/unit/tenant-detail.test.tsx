@@ -113,7 +113,7 @@ describe("TenantDetail", () => {
     expect(screen.getByText("معرّف المؤسسة")).toBeDefined();
     // the status code drives the label; the badge keeps its CSS class
     const badge = screen.getByText("معلّقة");
-    expect(badge.className).toContain("badge--suspended");
+    expect(badge.className).toContain("badge--warning");
     expect(screen.queryByText("suspended")).toBeNull();
     expect(screen.getByRole("link", { name: "تعديل" })).toBeDefined();
     expect(screen.getByRole("button", { name: "حذف" })).toBeDefined();

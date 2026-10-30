@@ -78,7 +78,7 @@ export const devices: MessagesOf<typeof ar> = {
   "devices.reason.unknown": "Unknown reason",
 
   // --- Last seen ---------------------------------------------------------------
-  "devices.lastSeen.unknown": "Unknown",
+  "devices.lastSeen.notRecorded": "Not recorded",
   "devices.lastSeen.source.activity": "Last authenticated request from the device",
   "devices.lastSeen.source.unknown": "Unknown source",
   "devices.lastSeen.notHealth":

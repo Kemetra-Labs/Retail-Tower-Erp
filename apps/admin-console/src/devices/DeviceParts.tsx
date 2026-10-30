@@ -5,7 +5,7 @@
  * activity with its source, and unknown stays unknown (RT-287 D-Q6).
  */
 import { DateTime, useT } from "@/i18n";
-import { isPastExpiry, lastSeenView, trustStateView } from "./deviceLogic";
+import { isPastExpiry, lastSeenView, trustBadgeClass, trustStateView } from "./deviceLogic";
 import "./devices.css";
 
 /** A time is an LTR run inside either direction's sentence or row. */
@@ -42,12 +42,12 @@ export function DeviceName({
 
 export function TrustBadge({ trustState }: Readonly<{ trustState: string }>): React.JSX.Element {
   const t = useT();
-  const view = trustStateView({ trustState });
-  const tone = view.tone === "neutral" ? "" : ` device-trust--${view.tone}`;
-  return <span className={`badge${tone}`}>{t(view.key)}</span>;
+  return (
+    <span className={trustBadgeClass({ trustState })}>{t(trustStateView({ trustState }).key)}</span>
+  );
 }
 
-/** Last seen with its source label, or Unknown in the danger role. */
+/** Last seen with its source label, or a quiet "not recorded" (RT-956). */
 export function LastSeen({
   lastSeenAt,
   lastSeenSource,
@@ -61,8 +61,8 @@ export function LastSeen({
 }>): React.JSX.Element {
   const t = useT();
   const view = lastSeenView({ lastSeenAt, lastSeenSource });
-  if (view.kind === "unknown") {
-    return <span className="device-flag device-flag--danger">{t(view.key)}</span>;
+  if (view.kind === "notRecorded") {
+    return <span className="device-quiet">{t(view.key)}</span>;
   }
   return (
     <span className="device-name">

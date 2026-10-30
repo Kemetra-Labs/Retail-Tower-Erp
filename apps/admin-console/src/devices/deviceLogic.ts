@@ -78,6 +78,17 @@ export function trustStateView({ trustState }: { trustState: string }): {
     : { key: "devices.trust.unknown", tone: "danger" };
 }
 
+const TONE_CLASSES: Record<TrustTone, string> = {
+  neutral: "badge",
+  danger: "badge badge--danger",
+  muted: "badge device-trust--muted",
+};
+
+/** The trust badge's classes: danger is the shared `.badge--danger` role (RT-956). */
+export function trustBadgeClass({ trustState }: { trustState: string }): string {
+  return TONE_CLASSES[trustStateView({ trustState }).tone];
+}
+
 // --- Revoke reason -------------------------------------------------------------
 
 const REASON_KEYS: Record<RevokeReason, MessageKey> = {
@@ -107,12 +118,13 @@ const SOURCE_KEYS: Record<string, MessageKey> = {
 };
 
 export type LastSeenView =
-  | { kind: "unknown"; key: MessageKey }
+  | { kind: "notRecorded"; key: MessageKey }
   | { kind: "seen"; at: string; sourceKey: MessageKey; sourceKnown: boolean };
 
 /**
- * Last seen with its source. No value is Unknown (it is not recorded until
- * RT-370). A value whose source the console does not know (a later
+ * Last seen with its source. No value is "not recorded" (RT-956): the server
+ * does not record activity until RT-370, so it is a missing record, not an
+ * UNKNOWN state. A value whose source the console does not know (a later
  * `heartbeat`, or a missing source) keeps the time but labels the source as
  * unknown. Either way, this is never a health verdict.
  */
@@ -123,7 +135,7 @@ export function lastSeenView({
   lastSeenAt: string | null;
   lastSeenSource: string | null;
 }): LastSeenView {
-  if (lastSeenAt === null) return { kind: "unknown", key: "devices.lastSeen.unknown" };
+  if (lastSeenAt === null) return { kind: "notRecorded", key: "devices.lastSeen.notRecorded" };
   const known = lastSeenSource !== null && Object.hasOwn(SOURCE_KEYS, lastSeenSource);
   return {
     kind: "seen",

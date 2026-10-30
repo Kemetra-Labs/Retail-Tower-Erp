@@ -7,7 +7,14 @@
 import { useLocale, useT } from "@/i18n";
 import { intlTag } from "@/i18n/locale";
 import type { SaleItem } from "@/lib/sale-queries";
-import { erpStateKey, returnStateKey, syncStatusKey } from "./saleLogic";
+import {
+  erpChipClass,
+  erpStateKey,
+  returnChipClass,
+  returnStateKey,
+  syncChipClass,
+  syncStatusKey,
+} from "./saleLogic";
 
 /**
  * A business date: a calendar day fixed at capture in the store's zone. It is
@@ -63,38 +70,23 @@ export function SaleNumber({ value }: Readonly<{ value: string | null }>): React
   return <bdi dir="ltr">{value}</bdi>;
 }
 
-const WARNING_SYNC = new Set(["failed-retryable", "failed-needs-repair"]);
-
 /** Status chips: text carries the meaning; colour only reinforces it. */
 export function StatusChips({ sale }: Readonly<{ sale: SaleItem }>): React.JSX.Element {
   const t = useT();
   return (
     <span className="sale-chips">
-      <span className={WARNING_SYNC.has(sale.syncStatus) ? "badge badge--suspended" : "badge"}>
-        {t(syncStatusKey(sale))}
-      </span>
-      {sale.voided ? (
-        <span className="badge badge--suspended">{t("sales.chip.voided")}</span>
-      ) : null}
+      <span className={syncChipClass(sale)}>{t(syncStatusKey(sale))}</span>
+      {sale.voided ? <span className="badge badge--warning">{t("sales.chip.voided")}</span> : null}
       {sale.returnState === "none" ? null : (
-        <span className="badge">{t(returnStateKey(sale))}</span>
+        <span className={returnChipClass(sale)}>{t(returnStateKey(sale))}</span>
       )}
       <ErpChip state={sale.erpPostingState} />
     </span>
   );
 }
 
-const ERP_BADGES: Record<string, string> = {
-  posted: "badge",
-  pending: "badge badge--pending",
-  failed: "badge badge--suspended",
-};
-
 export function ErpChip({ state }: Readonly<{ state: string }>): React.JSX.Element {
   const t = useT();
-  return (
-    <span className={ERP_BADGES[state] ?? "badge"}>
-      {t(erpStateKey({ erpPostingState: state }))}
-    </span>
-  );
+  const sale = { erpPostingState: state };
+  return <span className={erpChipClass(sale)}>{t(erpStateKey(sale))}</span>;
 }
