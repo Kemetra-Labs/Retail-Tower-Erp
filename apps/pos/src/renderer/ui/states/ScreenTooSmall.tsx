@@ -18,6 +18,22 @@ function WidthHeading(): JSX.Element {
 /** M-F2 height variant (RT-312 D5), first sentence. */
 const HEIGHT_HEADING = 'ارتفاع الشاشة أقل من الحد المدعوم.';
 
+/** M-F2 `both` heading (owner-approved 2026-10-18, RT-313 comment 12651; RT-912). */
+const BOTH_HEADING = 'أبعاد الشاشة أقل من الحد المدعوم.';
+
+/**
+ * M-F2 `both` guidance (same approval): the real CSS-pixel floors, 1024 wide and
+ * 600 high. Used only when the viewport is under both floors.
+ */
+function BothGuidance(): JSX.Element {
+  return (
+    <>
+      يحتاج النظام عرضًا لا يقل عن <Ltr>1024</Ltr> وارتفاعًا لا يقل عن <Ltr>600</Ltr> بكسل. كبّر
+      النافذة أو اضبط مقياس عرض Windows.
+    </>
+  );
+}
+
 /** M-F2 (width) action. */
 const WIDTH_ACTION = 'كبّر النافذة أو استخدم شاشة أكبر.';
 
@@ -31,6 +47,16 @@ export function HeightAction(): JSX.Element {
       كبّر النافذة، أو اضبط مقياس العرض في Windows على <Ltr>100%</Ltr> أو <Ltr>125%</Ltr>.
     </>
   );
+}
+
+function headingFor(shortfall: ViewportShortfall): JSX.Element | string {
+  if (shortfall === 'both') return BOTH_HEADING;
+  return shortfall === 'height' ? HEIGHT_HEADING : <WidthHeading />;
+}
+
+function bodyFor(shortfall: ViewportShortfall): JSX.Element | string {
+  if (shortfall === 'both') return <BothGuidance />;
+  return shortfall === 'width' ? WIDTH_ACTION : <HeightAction />;
 }
 
 interface ScreenTooSmallProps {
@@ -48,10 +74,11 @@ interface ScreenTooSmallProps {
  * its own direction and language; the size is an isolated LTR run.
  *
  * RT-313 (RT-312 D5): three variants of M-F2. `width` is the copy above,
- * unchanged. `height` is the height message. `both` states the size in the
- * heading and gives the height action, which fixes both floors on a scaled
- * display. Focus goes to the heading on entry, and again when the variant
- * changes, so the new message is announced.
+ * unchanged. `height` is the height message. Focus goes to the heading on
+ * entry, and again when the variant changes, so the new message is announced.
+ *
+ * RT-912: `both` carries the owner-approved text (2026-10-18) that states both
+ * CSS-pixel floors, 1024 wide and 600 high. `width` and `height` are unchanged.
  */
 export function ScreenTooSmall({
   shortfall = 'width',
@@ -79,11 +106,9 @@ export function ScreenTooSmall({
           tabIndex={-1}
           ref={headingRef}
         >
-          {shortfall === 'height' ? HEIGHT_HEADING : <WidthHeading />}
+          {headingFor(shortfall)}
         </h1>
-        <p className="screen-too-small__body">
-          {shortfall === 'width' ? WIDTH_ACTION : <HeightAction />}
-        </p>
+        <p className="screen-too-small__body">{bodyFor(shortfall)}</p>
       </div>
     </main>
   );
