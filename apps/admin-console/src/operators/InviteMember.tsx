@@ -1,7 +1,8 @@
 import { Banner } from "@/components/Banner";
 import { Drawer } from "@/components/Drawer";
+import { FormField } from "@/components/FormField";
+import { FormPanel, FormSection } from "@/components/FormPage";
 import { GatedButton } from "@/components/GatedButton";
-import { InlineError } from "@/components/InlineError";
 import { type MessageKey, useT } from "@/i18n";
 import { type InvitationCreateBody, createInvitation, refreshSession } from "@/lib/client";
 import { textField } from "@/lib/form-field";
@@ -23,6 +24,7 @@ import { useSignOut } from "@/shell/useSignOut";
  *   - session-expiry-401 → sign out (handled by useInviteAuth)
  */
 import { useState } from "react";
+import { StoreAccessField } from "./StoreAccessField";
 import { classifyInviteOutcome, newIdempotencyKey } from "./inviteIdempotency";
 import { runInviteWithAuth } from "./useInviteAuth";
 
@@ -171,86 +173,71 @@ export function InviteMember({
         />
       ) : null}
 
-      <form className="surface__form" onSubmit={onSubmit} noValidate>
-        <p className="surface__scope-line">
-          {t.rich("operators.invite.scopeLine", {
+      <FormPanel
+        variant="plain"
+        onSubmit={onSubmit}
+        actions={
+          <>
+            <GatedButton
+              type="submit"
+              className="btn-primary"
+              busy={pending}
+              disabled={tooEarly !== null}
+            >
+              {tooEarly !== null
+                ? t("operators.invite.retrying", { count: tooEarly })
+                : t("operators.invite.submit")}
+            </GatedButton>
+            <button type="button" className="btn-ghost" onClick={onClose} disabled={pending}>
+              {t("common.cancel")}
+            </button>
+          </>
+        }
+      >
+        <FormSection
+          lead={t.rich("operators.invite.scopeLine", {
             tenant: (
               <strong>
                 <bdi>{activeTenant.name}</bdi>
               </strong>
             ),
           })}
-        </p>
-
-        <div className="field">
-          <label htmlFor="invite-email">{t("operators.form.email")}</label>
-          <input
+        >
+          <FormField
             id="invite-email"
-            name="email"
-            type="email"
-            className="input"
-            aria-invalid={emailError ? "true" : undefined}
-            aria-describedby={emailError ? "invite-email-error" : undefined}
-            autoComplete="off"
-          />
-          <span id="invite-email-error">
-            <InlineError message={emailError ? t(emailError) : undefined} />
-          </span>
-        </div>
-
-        <div className="field">
-          <label htmlFor="invite-role">{t("operators.form.role")}</label>
-          <input id="invite-role" name="role_code" className="input" autoComplete="off" />
-        </div>
-
-        <div className="field">
-          <span className="field-row__label">{t("operators.form.storeAccess")}</span>
-          <div className="drawer__radio-group">
-            <label className="drawer__radio">
-              <input
-                type="radio"
-                name="store_access"
-                checked={!specific}
-                onChange={() => setSpecific(false)}
-              />
-              {t("operators.storeAccess.all")}
-            </label>
-            <label className="drawer__radio">
-              <input
-                type="radio"
-                name="store_access"
-                checked={specific}
-                onChange={() => setSpecific(true)}
-              />
-              {t("operators.storeAccess.specific")}
-            </label>
-          </div>
-          {specific ? (
-            <input
-              name="store_ids"
-              className="input"
-              placeholder={t("operators.form.storeIdsPlaceholder")}
-              autoComplete="off"
-            />
-          ) : null}
-        </div>
-
-        <div className="surface__actions">
-          <GatedButton
-            type="submit"
-            className="btn-primary"
-            busy={pending}
-            disabled={tooEarly !== null}
+            label={t("operators.form.email")}
+            required
+            error={emailError ? t(emailError) : undefined}
+            announceError
           >
-            {tooEarly !== null
-              ? t("operators.invite.retrying", { count: tooEarly })
-              : t("operators.invite.submit")}
-          </GatedButton>
-          <button type="button" className="btn-ghost" onClick={onClose} disabled={pending}>
-            {t("common.cancel")}
-          </button>
-        </div>
-      </form>
+            {(aria) => (
+              <input
+                id="invite-email"
+                name="email"
+                type="email"
+                className="input"
+                dir="ltr"
+                autoComplete="off"
+                {...aria}
+              />
+            )}
+          </FormField>
+
+          <FormField id="invite-role" label={t("operators.form.role")} required>
+            {(aria) => (
+              <input
+                id="invite-role"
+                name="role_code"
+                className="input"
+                autoComplete="off"
+                {...aria}
+              />
+            )}
+          </FormField>
+
+          <StoreAccessField specific={specific} onSpecificChange={setSpecific} />
+        </FormSection>
+      </FormPanel>
     </Drawer>
   );
 }

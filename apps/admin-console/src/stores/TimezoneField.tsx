@@ -1,4 +1,4 @@
-import { InlineError } from "@/components/InlineError";
+import { FormField } from "@/components/FormField";
 import { type MessageKey, useLocale, useT } from "@/i18n";
 import { timezoneOptions, zoneLabel } from "@/lib/timezones";
 /**
@@ -29,7 +29,6 @@ export function TimezoneField({
   const t = useT();
   const locale = useLocale();
   const { common, other } = useMemo(() => timezoneOptions(current), [current]);
-  const describedBy = error ? "store-timezone-hint store-timezone-error" : "store-timezone-hint";
   const option = (zone: string) => (
     <option key={zone} value={zone}>
       {zoneLabel(zone, locale)}
@@ -37,37 +36,26 @@ export function TimezoneField({
   );
 
   return (
-    <div className="field">
-      <label htmlFor="store-timezone">
-        {t("stores.field.timezone")}
-        {required ? (
-          <>
-            {" "}
-            <span className="field__required" aria-hidden="true">
-              {t("stores.form.required")}
-            </span>
-          </>
-        ) : null}
-      </label>
-      <select
-        id="store-timezone"
-        name="timezone"
-        className="input"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        aria-required={required ? "true" : undefined}
-        aria-invalid={error ? "true" : undefined}
-        aria-describedby={describedBy}
-      >
-        <optgroup label={t("stores.form.timezoneGroupCommon")}>{common.map(option)}</optgroup>
-        <optgroup label={t("stores.form.timezoneGroupOther")}>{other.map(option)}</optgroup>
-      </select>
-      <p id="store-timezone-hint" className="field__hint">
-        {t(required ? "stores.form.timezoneHintCreate" : "stores.form.timezoneHintEdit")}
-      </p>
-      <span id="store-timezone-error">
-        <InlineError message={error ? t(error) : undefined} />
-      </span>
-    </div>
+    <FormField
+      id="store-timezone"
+      label={t("stores.field.timezone")}
+      required={required}
+      hint={t(required ? "stores.form.timezoneHintCreate" : "stores.form.timezoneHintEdit")}
+      error={error ? t(error) : undefined}
+    >
+      {(aria) => (
+        <select
+          id="store-timezone"
+          name="timezone"
+          className="input"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          {...aria}
+        >
+          <optgroup label={t("stores.form.timezoneGroupCommon")}>{common.map(option)}</optgroup>
+          <optgroup label={t("stores.form.timezoneGroupOther")}>{other.map(option)}</optgroup>
+        </select>
+      )}
+    </FormField>
   );
 }

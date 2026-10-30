@@ -37,7 +37,7 @@ async function mockSignIn(page: Page, memberships: (typeof t1)[]): Promise<void>
 
 async function signIn(page: Page, t: LocaleFixtures["t"]): Promise<void> {
   await page.getByLabel(t("auth.signIn.email.label")).fill("amal@northstar.eg");
-  await page.getByLabel(t("auth.signIn.password.label")).fill("password1");
+  await page.getByLabel(t("auth.signIn.password.label"), { exact: true }).fill("password1");
   await page.getByRole("button", { name: t("auth.signIn.submit") }).click();
 }
 

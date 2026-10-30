@@ -1,0 +1,199 @@
+/* RT-971 form-page template (canvas «نموذج», DESIGN.md §9). Tokens only;
+ * logical properties (RTL by structure). */
+
+/* The body: the form panel, then the aside beside it; the aside wraps under
+ * the panel when the row is too narrow for both. */
+.form-page__body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-5);
+}
+
+/* The form. A full page form is a single-column panel; a plain form (a drawer,
+ * or inside a section panel) has no surface of its own, since panels never nest. */
+.form-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.form-panel--panel {
+  flex: 1 1 32rem;
+  max-width: var(--form-panel-max);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-object);
+  /* clip, not hidden: hidden makes a scroll container and stops the sticky foot. */
+  overflow: clip;
+}
+
+.form-panel__summary {
+  padding: var(--space-5) var(--space-5) 0;
+}
+.form-panel--plain .form-panel__summary {
+  padding: 0 0 var(--space-4);
+}
+
+/* A section: a fieldset with its legend as the title. The legend floats so it
+ * lays out like any heading; the fields sit under it. */
+.form-section {
+  margin: 0;
+  min-inline-size: 0;
+  padding: var(--space-5);
+  border: 0;
+}
+.form-section + .form-section {
+  border-block-start: 1px solid var(--color-border);
+}
+.form-panel--plain .form-section {
+  padding: 0 0 var(--space-5);
+}
+.form-panel--plain .form-section + .form-section {
+  padding-block-start: var(--space-5);
+}
+.form-section__title {
+  float: inline-start;
+  inline-size: 100%;
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  color: var(--color-text);
+  font: var(--weight-strong) var(--text-section-title) / var(--leading-title) var(--font-sans);
+}
+.form-section__lead {
+  clear: both;
+  margin: 0 0 var(--space-4);
+  color: var(--color-text-muted);
+}
+.form-section__fields {
+  clear: both;
+  display: grid;
+  gap: var(--space-5) var(--space-4);
+  align-items: start;
+}
+.form-section__fields--2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.form-section__fields--2 > .field--wide {
+  grid-column: 1 / -1;
+}
+@media (max-width: 600px) {
+  .form-section__fields--2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* A field: label above, then the control, the hint and the error. In the
+ * template the label reads as a label, not as metadata. */
+.form-panel .field {
+  gap: var(--space-2);
+  align-content: start;
+}
+.form-panel .field > label,
+.form-panel .field__label {
+  color: var(--color-text);
+}
+/* The label of a group of controls (a radio group), styled as a field label. */
+.field__label {
+  font: var(--weight-strong) var(--text-control) / var(--leading-title) var(--font-sans);
+}
+.field__warning {
+  display: block;
+  margin: 0;
+  color: var(--color-warning);
+  font-size: var(--text-machine);
+  line-height: var(--leading-body);
+}
+/* The required mark: an asterisk after the label, with empty alt text so it is
+ * not read (the control is aria-required) and not part of the label's text. */
+.field--required > label::after {
+  content: "*" / "";
+  margin-inline-start: var(--space-1);
+  color: var(--color-danger);
+  font-weight: var(--weight-strong);
+}
+.form-panel .input--mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-machine);
+}
+.form-panel .input[readonly] {
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+}
+
+/* A note inside a section (the store's time zone impact review) is an inset,
+ * not a second bordered box inside the panel. */
+.form-section .surface__impact {
+  max-width: none;
+  margin-block-start: 0;
+  background: var(--color-surface-sunken);
+  border-color: transparent;
+}
+
+/* The action bar at the panel's foot: primary, then Cancel. On a page it
+ * sticks to the bottom of the viewport while the form is taller than it. */
+.form-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border-block-start: 1px solid var(--color-border);
+  background: var(--color-background);
+}
+.form-panel--panel .form-panel__actions {
+  position: sticky;
+  inset-block-end: 0;
+  margin-block-start: auto;
+}
+.form-panel--plain .form-panel__actions {
+  padding: var(--space-4) 0 0;
+  background: transparent;
+}
+
+/* The aside: what happens next. */
+.form-aside {
+  flex: 1 1 16rem;
+  max-width: var(--form-aside-max);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-object);
+  color: var(--color-text-muted);
+}
+.form-aside__title {
+  margin: 0;
+  color: var(--color-text);
+  font: var(--weight-strong) var(--text-body) / var(--leading-title) var(--font-sans);
+}
+.form-aside ol,
+.form-aside ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding-inline-start: var(--space-5);
+}
+.form-aside p {
+  margin: 0;
+  font-size: var(--text-meta);
+}
+
+@media (forced-colors: active) {
+  .form-panel--panel,
+  .form-aside {
+    border-color: CanvasText;
+  }
+  .field__warning {
+    display: block;
+    margin: 0;
+    color: var(--color-warning);
+    font-size: var(--text-machine);
+    line-height: var(--leading-body);
+  }
+  .field--required > label::after {
+    color: CanvasText;
+  }
+}

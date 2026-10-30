@@ -29,6 +29,8 @@ export const tenants = {
 
   "tenants.detail.loadingNoun": "المؤسسة",
   "tenants.detail.back": "العودة إلى المؤسسات",
+  "tenants.form.back": "العودة إلى المؤسسة",
+  "tenants.form.section": "بيانات المؤسسة",
   "tenants.detail.edit": "تعديل",
   // Also the ConfirmDelete action, so it reads as «حذف {name}؟ …» there.
   "tenants.detail.softDelete": "حذف",
@@ -75,13 +77,19 @@ export const tenants = {
   "stores.form.section": "بيانات المتجر",
   "stores.form.nameLabel": "اسم المتجر",
   "stores.form.codeLabel": "رمز المتجر",
-  "stores.form.required": "(إلزامي)",
   "stores.form.codeHintCreate": "لا يمكن تغيير الرمز بعد إنشاء المتجر.",
   "stores.form.codeHintEdit": "للقراءة فقط. لا يمكن تغيير الرمز بعد إنشاء المتجر.",
   "stores.form.idHint": "استخدمه عند التواصل مع الدعم.",
   "stores.form.create": "إنشاء المتجر",
   "stores.form.saveChanges": "حفظ المتجر",
   "stores.form.cancelEdit": "إلغاء التعديل",
+  "stores.form.back": "العودة إلى المتجر",
+  "stores.form.timingSection": "التوقيت",
+  // RT-971: «بعد الإنشاء» beside the create form. Guidance only; names the menu entries.
+  "stores.form.next.title": "بعد الإنشاء",
+  "stores.form.next.erp": "اربط مخزن المتجر في ERPNext من «الاتصال والمزامنة».",
+  "stores.form.next.devices": "أنشئ رمز ربط لكل جهاز كاشير من «الأجهزة».",
+  "stores.form.next.operators": "امنح المستخدمين الوصول إلى المتجر من «المستخدمون».",
   "stores.form.scopeLine": "سيُنشأ المتجر في {tenant}.",
   "stores.form.timezoneHintCreate":
     "تُعرض أوقات المتجر وتُحسب أيام العمل بهذه المنطقة. فرق التوقيت عن UTC يتبع قواعد المنطقة، ومنها التوقيت الصيفي.",
