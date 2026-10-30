@@ -100,7 +100,10 @@ test("RT-821: Sales links to the report; the default range is read once for the 
     .getByRole("main")
     .getByRole("link", { name: t("salesDaily.back") })
     .click();
-  await expect(page).toHaveURL(/\/sales$/);
+  // RT-960 (owner decision A): Sales then applies the active store and today.
+  await expect(page).toHaveURL(
+    new RegExp(`/sales\\?store=${CAIRO}&from=2026-10-23&to=2026-10-23$`),
+  );
 });
 
 test("RT-821: a whole scope with mixed zones names every zone and the calendar", async ({
@@ -145,7 +148,7 @@ test("RT-823: Tab goes Show → export → currency → chart region → each ba
   await mockSummary(page, STORE_READ);
   await page.goto("/sales-daily?from=2026-10-16&to=2026-10-23");
   await expect(page.getByRole("table").first()).toBeVisible();
-  await page.getByRole("button", { name: t("salesDaily.range.apply") }).focus();
+  await page.getByRole("button", { name: t("filter.apply"), exact: true }).focus();
   const stops: string[] = [];
   // Show, then the export button, the currency select, the chart region, 8 bars, 2 table regions, the definitions.
   for (let i = 0; i < 14; i++) {

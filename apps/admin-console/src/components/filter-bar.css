@@ -1,0 +1,146 @@
+/* RT-960 FilterBar (DESIGN.md §9): a section panel above a list. Existing tokens
+ * only; logical properties throughout, so RTL follows by structure. */
+
+.filter-bar__form {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+}
+
+/* One grid of equal tracks: a field in row 2 sits under the field in row 1. */
+.filter-bar__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 13rem), 1fr));
+  gap: var(--space-3);
+  align-items: end;
+}
+.filter-bar__field {
+  min-inline-size: 0;
+}
+
+/* Extra filters join the same tracks (subgrid), on their own row. */
+.filter-bar__extra {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  gap: var(--space-3);
+  align-items: end;
+}
+.filter-bar__extra[hidden] {
+  display: none;
+}
+
+/* Actions close the main row at the inline end: more filters, Clear, Apply. */
+.filter-bar__actions {
+  grid-column: -2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-2);
+}
+.filter-bar__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 20px;
+  block-size: 20px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font: var(--weight-strong) var(--text-meta) / 1 var(--font-sans);
+}
+
+.filter-bar__note {
+  display: grid;
+  gap: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-control);
+}
+.filter-bar__note-line {
+  margin: 0;
+}
+
+/* Applied filters and the result, under the fields. */
+.filter-bar__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  font-size: var(--text-control);
+}
+.filter-bar__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.filter-bar__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-block-size: 28px;
+  padding-inline: var(--space-3) var(--space-1);
+  border-radius: var(--radius-pill);
+  background: var(--color-primary-soft);
+  color: var(--color-primary-emphasis);
+}
+.filter-bar__chip:not(:has(button)) {
+  padding-inline-end: var(--space-3);
+}
+/* A 20px glyph with a 24px hit area (WCAG 2.2 target size). */
+.filter-bar__chip-remove {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 20px;
+  block-size: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.filter-bar__chip-remove::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  inline-size: 24px;
+  block-size: 24px;
+  transform: translate(-50%, -50%);
+}
+.filter-bar__chip-remove:hover {
+  background: color-mix(in oklab, var(--color-primary) 14%, transparent);
+}
+.filter-bar__result {
+  margin-inline-start: auto;
+  color: var(--color-text-muted);
+}
+
+/* Compact width: every field and the actions take the full width. */
+@media (max-width: 600px) {
+  .filter-bar__form {
+    padding: var(--space-4);
+  }
+  .filter-bar__actions {
+    grid-column: 1 / -1;
+    justify-content: stretch;
+  }
+  .filter-bar__actions > * {
+    flex: 1 1 auto;
+  }
+}
+
+@media (forced-colors: active) {
+  .filter-bar__count,
+  .filter-bar__chip {
+    border: 1px solid CanvasText;
+  }
+}

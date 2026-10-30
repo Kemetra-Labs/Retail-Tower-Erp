@@ -38,6 +38,21 @@ export const common = {
   "common.close": "إغلاق",
   "common.save": "حفظ",
   "common.tryAgain": "حاول مرة أخرى",
+
+  // RT-960 shared FilterBar: one apply verb on every list.
+  "filter.apply": "تطبيق",
+  "filter.clear": "مسح",
+  "filter.more": "فلاتر إضافية",
+  "filter.moreActive": {
+    zero: "فلاتر إضافية",
+    one: "فلاتر إضافية، فلتر واحد مفعّل",
+    two: "فلاتر إضافية، فلتران مفعّلان",
+    few: "فلاتر إضافية، {count} فلاتر مفعّلة",
+    many: "فلاتر إضافية، {count} فلترًا مفعّلًا",
+    other: "فلاتر إضافية، {count} فلتر مفعّل",
+  },
+  "filter.applied": "الفلاتر المطبّقة",
+  "filter.remove": "إزالة فلتر {label}",
   "common.loading": "جارٍ التحميل…",
 
   // Shared error copy. Status-family fallbacks until mappers key on error.code

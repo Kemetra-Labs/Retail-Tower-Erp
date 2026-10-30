@@ -1,0 +1,114 @@
+/**
+ * RT-960 (AC 1-3): every list filters through the one FilterBar. At 1440px each
+ * field starts on a grid track, so columns line up across rows; at 390px the
+ * fields stack full width with no sideways scroll. One apply verb, a ghost
+ * Clear. Both locales.
+ */
+import { CAIRO, storeSummary } from "../unit/sales-daily-fixtures";
+import { mockRealisticApi } from "./compact-shell-data";
+import { type Page, expect, test } from "./fixtures";
+
+const SCREENS = [
+  "/sales",
+  "/sales-daily",
+  "/sales-needing-repair",
+  "/devices",
+  "/catalog/products",
+  "/audit",
+  "/shift-closes",
+  "/unknown-items",
+  "/erp-connection",
+  "/product-reconciliation",
+];
+
+async function open(page: Page, route: string): Promise<void> {
+  await mockRealisticApi(page);
+  if (route === "/sales-daily") {
+    // The realistic mock has no daily summary: give the report one it can draw.
+    await page.clock.setFixedTime(new Date("2026-10-23T09:00:00Z"));
+    const summary = storeSummary({
+      ref: CAIRO,
+      timeZone: "Africa/Cairo",
+      currentBusinessDate: "2026-10-23",
+    });
+    await page.route("**/api/v1/sales-summary?**", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(summary) }),
+    );
+  }
+  await page.goto(route);
+  await expect(page.locator(".filter-bar").first()).toBeVisible();
+}
+
+/** Every field's inline-start edge, and the grid's track starts, in px. */
+function trackFit(page: Page) {
+  return page
+    .locator(".filter-bar__grid")
+    .first()
+    .evaluate((grid) => {
+      const rtl = getComputedStyle(grid).direction === "rtl";
+      const box = grid.getBoundingClientRect();
+      const tracks = getComputedStyle(grid).gridTemplateColumns.split(" ").map(Number.parseFloat);
+      const gap = Number.parseFloat(getComputedStyle(grid).columnGap) || 0;
+      const starts: number[] = [];
+      let at = 0;
+      for (const width of tracks) {
+        starts.push(at);
+        at += width + gap;
+      }
+      const fields = [...grid.querySelectorAll<HTMLElement>(".filter-bar__field")].filter(
+        (el) => el.offsetParent !== null,
+      );
+      const offsets = fields.map((el) => {
+        const r = el.getBoundingClientRect();
+        return Math.round(rtl ? box.right - r.right : r.left - box.left);
+      });
+      return { starts: starts.map(Math.round), offsets, count: fields.length };
+    });
+}
+
+for (const route of SCREENS) {
+  test(`${route}: fields sit on the grid tracks at 1440px`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page, route);
+    const { starts, offsets, count } = await trackFit(page);
+    expect(count).toBeGreaterThan(0);
+    for (const offset of offsets) {
+      expect(
+        starts.some((s) => Math.abs(s - offset) <= 1),
+        `offset ${offset} in ${starts}`,
+      ).toBe(true);
+    }
+  });
+
+  test(`${route}: one Apply, a ghost Clear`, async ({ page, t }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page, route);
+    const bar = page.locator(".filter-bar").first();
+    await expect(bar.getByRole("button", { name: t("filter.apply"), exact: true })).toHaveClass(
+      /btn-primary/,
+    );
+    await expect(bar.getByRole("button", { name: t("filter.clear"), exact: true })).toHaveClass(
+      /btn-ghost/,
+    );
+  });
+
+  test(`${route}: stacks full width with no sideways scroll at 390px`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open(page, route);
+    const fit = await page.evaluate(() => {
+      const grid = document.querySelector<HTMLElement>(".filter-bar__grid");
+      const width = grid?.getBoundingClientRect().width ?? 0;
+      const fields = [...(grid?.querySelectorAll<HTMLElement>(".filter-bar__field") ?? [])]
+        .filter((el) => el.offsetParent !== null)
+        .map((el) => Math.round(el.getBoundingClientRect().width));
+      return {
+        scroll: document.documentElement.scrollWidth,
+        viewport: window.innerWidth,
+        width: Math.round(width),
+        fields,
+      };
+    });
+    expect(fit.scroll).toBeLessThanOrEqual(fit.viewport);
+    for (const field of fit.fields) expect(field).toBe(fit.width);
+  });
+}

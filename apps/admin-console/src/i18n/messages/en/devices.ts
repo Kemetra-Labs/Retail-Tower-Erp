@@ -54,8 +54,6 @@ export const devices: MessagesOf<typeof ar> = {
   "devices.filter.unlistedStore": "A store not in your list",
   "devices.filter.trust": "Trust state",
   "devices.filter.trustAny": "Active and revoked (default)",
-  "devices.filter.apply": "Apply",
-  "devices.filter.clear": "Clear",
 
   // --- Trust state -------------------------------------------------------------
   "devices.trust.active": "Active",

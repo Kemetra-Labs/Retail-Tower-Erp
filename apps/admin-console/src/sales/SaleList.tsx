@@ -6,10 +6,13 @@ import { useStoreDirectory } from "@/shift-closes/useShiftCloses";
  * RT-587 — Sales search (spec 012 J1, read-only). One store's received sales
  * over an inclusive business-date range, newest first, keyset paged. Nothing
  * is read until a store and both dates are set (FR-004). Filters live in the
- * URL (FR-007). A role the API refuses (store_staff) gets the non-disclosing
+ * URL (FR-007). RT-960 (owner decision A): arriving with no filters applies the
+ * active store and today in its zone, once; Clear returns to that default. With
+ * no active store (tenant-wide scope) the prompt stays. A role the API refuses (store_staff) gets the non-disclosing
  * not-available state and no form (AC-5). The results and paging states are in
  * `SaleResults.tsx` and `SalePager.tsx`.
  */
+import { useEffect, useRef } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { SaleFilterBar } from "./SaleFilterBar";
 import { Unavailable } from "./SalePager";
@@ -18,9 +21,11 @@ import {
   type FilterErrors,
   type SaleFilters,
   buildListQuery,
+  emptyFilters,
   filtersFromSearch,
   filtersToSearch,
   isQueryReady,
+  todayIn,
   validateFilters,
 } from "./saleFilters";
 import { canReadSales } from "./saleLogic";
@@ -42,6 +47,36 @@ function listModel(search: URLSearchParams, permitted: boolean): ListModel {
   const valid = Object.keys(errors).length === 0;
   const ready = permitted && valid && isQueryReady(filters);
   return { filters, errors, valid, query: ready ? buildListQuery(filters) : null };
+}
+
+/** The active store and today in its zone, once the roster names it; else null. */
+function arrivalDefault(
+  activeStoreId: string | null,
+  stores: readonly { id: string; timezone?: string | null }[],
+): SaleFilters | null {
+  const store = activeStoreId ? stores.find((s) => s.id === activeStoreId) : undefined;
+  if (!store) return null;
+  const today = todayIn(store.timezone ?? "UTC");
+  return { ...emptyFilters(), storeId: store.id, fromDate: today, toDate: today };
+}
+
+/**
+ * Owner decision A (RT-960): with no filters in the URL, apply the default once,
+ * replacing the empty entry so Back does not return to it. A ref guards the
+ * write, so it cannot loop.
+ */
+function useArrivalDefault(
+  search: URLSearchParams,
+  setSearch: ReturnType<typeof useSearchParams>[1],
+  fallbackSearch: string,
+): void {
+  const applied = useRef(false);
+  const empty = search.toString() === "";
+  useEffect(() => {
+    if (applied.current || !empty || !fallbackSearch) return;
+    applied.current = true;
+    setSearch(new URLSearchParams(fallbackSearch), { replace: true });
+  }, [empty, fallbackSearch, setSearch]);
 }
 
 /** Below the form: the results of a ready query, or the prompt for a missing store or range. */
@@ -93,6 +128,8 @@ export function SaleList(): React.JSX.Element {
   const directory = useStoreDirectory(permitted ? scope.tenantId : null);
   const model = listModel(search, permitted);
   const list = useSaleList(scope, model.query);
+  const fallback = permitted ? arrivalDefault(scope.activeStoreId, directory.stores) : null;
+  useArrivalDefault(search, setSearch, fallback ? filtersToSearch(fallback).toString() : "");
 
   if (!scope.tenantId) {
     return (
@@ -116,7 +153,8 @@ export function SaleList(): React.JSX.Element {
         activeStoreId={scope.activeStoreId}
         initialErrors={model.errors}
         onApply={(next) => setSearch(filtersToSearch(next))}
-        onClear={() => setSearch(new URLSearchParams())}
+        // Clear returns to the arrival default (active store, today), or to nothing.
+        onClear={() => setSearch(fallback ? filtersToSearch(fallback) : new URLSearchParams())}
       />
       <ListBody
         model={model}
