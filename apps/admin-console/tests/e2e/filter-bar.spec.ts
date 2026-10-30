@@ -197,6 +197,15 @@ test("audit: an applied filter is a chip; removing it clears the field and appli
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await mockRealisticApi(page);
+  // The realistic mock answers a query-less URL with {}: give the audit search a
+  // real (empty) page, as the audit specs do, so an unfiltered search renders.
+  await page.route("**/api/v1/audit/events**", (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [], next_cursor: null }),
+    }),
+  );
   await page.goto("/audit");
   await page.getByLabel(t("audit.field.action"), { exact: true }).fill("auth.");
   await page.getByRole("button", { name: t("filter.apply"), exact: true }).click();
@@ -208,5 +217,9 @@ test("audit: an applied filter is a chip; removing it clears the field and appli
   await chips.getByRole("button").first().click();
   await expect(chips).toHaveCount(0);
   await expect(page.getByLabel(t("audit.field.action"), { exact: true })).toHaveValue("");
+  await expect(actor).toHaveValue("u-draft");
+  // The page stays up after the unfiltered search settles.
+  await page.waitForLoadState("networkidle");
+  await expect(page.getByText(t("audit.list.empty"))).toBeVisible();
   await expect(actor).toHaveValue("u-draft");
 });
