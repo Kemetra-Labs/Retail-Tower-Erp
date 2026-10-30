@@ -1,4 +1,6 @@
 import { apiClient } from "@/generated/client";
+import { loadCatalog } from "@/i18n/catalogs";
+import { type Locale, getLocale } from "@/i18n/locale";
 import { installRateLimitTracking } from "@/lib/rate-limit";
 import { installRequestIdHeader } from "@/lib/request-id";
 import { installSupportSessionExpiryTracking } from "@/lib/support-session-expiry";
@@ -23,13 +25,28 @@ installRateLimitTracking(apiClient);
 // RT-781: a tenant call refused with 403 support_session_expired flips the page to the expired state.
 installSupportSessionExpiryTracking(apiClient);
 
-createRoot(rootElement).render(
-  <StrictMode>
-    <AppErrorBoundary>
-      <App />
-    </AppErrorBoundary>
-  </StrictMode>,
-);
+function render(): void {
+  createRoot(rootElement as HTMLElement).render(
+    <StrictMode>
+      <AppErrorBoundary>
+        <App />
+      </AppErrorBoundary>
+    </StrictMode>,
+  );
+}
+
+// RT-962: the active locale's catalog (the one the RT-399 pre-paint script
+// chose) loads before the first render. The other one is fetched once the page
+// is idle, so a later language switch also works offline; a failure there is
+// retried on the switch itself.
+const painted: Locale = getLocale();
+loadCatalog(painted)
+  .catch(() => undefined)
+  .finally(() => {
+    render();
+    const other: Locale = painted === "ar" ? "en" : "ar";
+    setTimeout(() => void loadCatalog(other).catch(() => undefined), 2000);
+  });
 
 // RT-633/RT-673: after the first render, never blocking it. The config comes
 // from Backend-Core (204 or any failure keeps the Console inert);

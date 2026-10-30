@@ -65,7 +65,8 @@ test("the switch flips the frame and the choice survives a reload, before the bu
   await openUserMenu(page);
   await page.getByRole("button", { name: translate(next, "locale.switch.action") }).click();
 
-  expect(await docLocale(page)).toEqual({ lang: TAG[next], dir: DIR[next] });
+  // RT-962: the other catalog may still be on its way; the frame flips once it lands.
+  await expect.poll(() => docLocale(page)).toEqual({ lang: TAG[next], dir: DIR[next] });
   const nav = page.getByRole("navigation", { name: translate(next, "shell.nav.label") });
   await expect(nav.getByRole("link", { name: translate(next, "shell.nav.stores") })).toBeVisible();
   await expect(page.getByText(translate(next, "theme.darkMode"))).toBeVisible();
@@ -86,7 +87,7 @@ test("the switch flips the frame and the choice survives a reload, before the bu
   await page.reload();
   await openUserMenu(page);
   await page.getByRole("button", { name: translate(appLocale, "locale.switch.action") }).click();
-  expect(await docLocale(page)).toEqual({ lang: TAG[appLocale], dir: DIR[appLocale] });
+  await expect.poll(() => docLocale(page)).toEqual({ lang: TAG[appLocale], dir: DIR[appLocale] });
   await page.reload();
   expect(await docLocale(page)).toEqual({ lang: TAG[appLocale], dir: DIR[appLocale] });
 });

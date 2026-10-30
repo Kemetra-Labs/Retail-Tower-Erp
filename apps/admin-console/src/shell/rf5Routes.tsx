@@ -1,4 +1,3 @@
-import { MemberList } from "@/operators/MemberList";
 /**
  * RF-5 nested route registration (T015). Mounts inside the protected layout
  * route (`/` → ProtectedArea → AppShell → <Outlet/>), behind RF-1's context
@@ -7,6 +6,9 @@ import { MemberList } from "@/operators/MemberList";
  *
  * One reviewable seam per slice (sibling of rf2Routes).
  */
+import { lazyPage } from "@/shell/lazyPage";
 import { Route } from "react-router";
+
+const MemberList = lazyPage(() => import("@/operators/MemberList"), "MemberList");
 
 export const rf5Routes = <Route path="operators" element={<MemberList />} />;
