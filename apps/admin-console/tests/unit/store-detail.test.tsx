@@ -22,6 +22,7 @@ vi.mock("@/context/ActiveContextProvider", () => ({
 import { setLocale } from "@/i18n/locale";
 import { createQueryClient } from "@/lib/query";
 import { StoreDetail } from "@/stores/StoreDetail";
+import { expectBackLinkFirst } from "./detail-template-helpers";
 
 function renderDetail(): void {
   const qc = createQueryClient();
@@ -158,5 +159,18 @@ describe("StoreDetail", () => {
     renderDetail();
     expect(await screen.findByText("هذا العنصر غير متاح.")).toBeDefined();
     expect(screen.getByRole("link", { name: "العودة إلى المتاجر" })).toBeDefined();
+  });
+  test("RT-961: the v3 detail template: a back link, then the header, then the ledger in a panel", async () => {
+    readStore.mockResolvedValue({
+      status: 200,
+      data: { id: "s1", code: "CFC", name: "Cairo Festival City", is_active: true },
+    });
+    renderDetail();
+    await screen.findByRole("heading", { name: "Cairo Festival City" });
+    expect(screen.getByRole("link", { name: /Back to stores/ }).getAttribute("href")).toBe(
+      "/stores",
+    );
+    expectBackLinkFirst();
+    expect(screen.getByText("CFC").closest(".section-panel")).not.toBeNull();
   });
 });

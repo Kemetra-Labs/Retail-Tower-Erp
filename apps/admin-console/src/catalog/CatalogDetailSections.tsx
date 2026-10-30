@@ -7,7 +7,11 @@
  * (`white-space: pre-wrap`, so leading zeros and inner spaces survive). RT-770
  * lets the page put each store's write controls beside its name; the section
  * itself still edits nothing.
+ *
+ * RT-961: each section is a section panel (DESIGN.md §5); the identifiers
+ * table sits under its panel header, and the tenant price is end-aligned.
  */
+import { DetailPanel, LedgerField, PanelBody } from "@/components/DetailPanel";
 import { DateTime, Money, type T, useT } from "@/i18n";
 import type { CatalogIdentifier, CatalogMoney, CatalogProductDetail } from "@/lib/catalog-queries";
 import {
@@ -30,32 +34,27 @@ function Code({ value }: Readonly<{ value: string }>): React.JSX.Element {
   );
 }
 
+/** A section panel; `table` sits edge to edge under the panel's body. */
 function Section({
   id,
   title,
+  table,
   children,
-}: Readonly<{ id: string; title: string; children: React.ReactNode }>): React.JSX.Element {
+}: Readonly<{
+  id: string;
+  title: string;
+  table?: React.ReactNode;
+  children?: React.ReactNode;
+}>): React.JSX.Element {
   return (
-    <section className="catalog-detail__section" aria-labelledby={id}>
-      <h2 id={id} className="surface__section-title">
-        {title}
-      </h2>
-      {children}
-    </section>
+    <DetailPanel id={id} title={title}>
+      {children ? <PanelBody>{children}</PanelBody> : null}
+      {table}
+    </DetailPanel>
   );
 }
 
-function Row({
-  label,
-  children,
-}: Readonly<{ label: string; children: React.ReactNode }>): React.JSX.Element {
-  return (
-    <div className="field-row">
-      <dt className="field-row__label">{label}</dt>
-      <dd className="field-row__value">{children}</dd>
-    </div>
-  );
-}
+const Row = LedgerField;
 
 /** The tenant default price as read-only text; no price says the POS will not sell the item. */
 export function TenantPrice({
@@ -100,7 +99,7 @@ export function TenantValues({
           {t(availabilityKey(tenantAvailable(summary)))}
         </Row>
         <Row label={t("catalog.detail.field.tracking")}>{t(trackingKey(summary.trackingMode))}</Row>
-        <Row label={t("catalog.detail.field.price")}>
+        <Row label={t("catalog.detail.field.price")} money>
           <TenantPrice price={summary.defaultPrice} />
         </Row>
         <Row label={t("catalog.detail.field.updatedAt")}>
@@ -162,37 +161,45 @@ export function Identifiers({
   rowAction?: (identifier: CatalogIdentifier) => React.ReactNode;
 }>): React.JSX.Element {
   const t = useT();
+  const empty = identifiers.length === 0;
+  const table = empty ? null : (
+    <table className="data-table catalog-readonly">
+      <caption className="data-table__caption">{t("catalog.detail.identifiers.caption")}</caption>
+      <thead>
+        <tr>
+          <th scope="col">{t("catalog.detail.identifiers.col.type")}</th>
+          <th scope="col">{t("catalog.detail.identifiers.col.value")}</th>
+          <th scope="col">{t("catalog.detail.identifiers.col.scope")}</th>
+          <th scope="col">{t("catalog.detail.identifiers.col.source")}</th>
+          {rowAction ? <th scope="col">{t("catalog.identifier.col.actions")}</th> : null}
+        </tr>
+      </thead>
+      <tbody>
+        {identifiers.map((identifier) => (
+          <IdentifierRow
+            key={identifierKey(identifier)}
+            identifier={identifier}
+            storeLabel={storeLabel}
+            rowAction={rowAction}
+          />
+        ))}
+      </tbody>
+    </table>
+  );
   return (
-    <Section id="catalog-detail-identifiers" title={t("catalog.detail.identifiers.title")}>
-      {actions}
-      {identifiers.length === 0 ? (
-        <p className="catalog-detail__empty">{t("catalog.detail.identifiers.empty")}</p>
-      ) : (
-        <table className="data-table catalog-readonly">
-          <caption className="data-table__caption">
-            {t("catalog.detail.identifiers.caption")}
-          </caption>
-          <thead>
-            <tr>
-              <th scope="col">{t("catalog.detail.identifiers.col.type")}</th>
-              <th scope="col">{t("catalog.detail.identifiers.col.value")}</th>
-              <th scope="col">{t("catalog.detail.identifiers.col.scope")}</th>
-              <th scope="col">{t("catalog.detail.identifiers.col.source")}</th>
-              {rowAction ? <th scope="col">{t("catalog.identifier.col.actions")}</th> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {identifiers.map((identifier) => (
-              <IdentifierRow
-                key={identifierKey(identifier)}
-                identifier={identifier}
-                storeLabel={storeLabel}
-                rowAction={rowAction}
-              />
-            ))}
-          </tbody>
-        </table>
-      )}
+    <Section
+      id="catalog-detail-identifiers"
+      title={t("catalog.detail.identifiers.title")}
+      table={table}
+    >
+      {actions || empty ? (
+        <>
+          {actions}
+          {empty ? (
+            <p className="catalog-detail__empty">{t("catalog.detail.identifiers.empty")}</p>
+          ) : null}
+        </>
+      ) : null}
     </Section>
   );
 }

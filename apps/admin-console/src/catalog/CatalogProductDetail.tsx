@@ -1,7 +1,5 @@
 import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
-import { GatedButton } from "@/components/GatedButton";
-import { ListState } from "@/components/ListState";
 /**
  * RT-766 — Catalog product detail «الصنف» (CAT-C1b, RT-752 AC 2 and D3). A
  * full, deep-linkable page: the tenant's values first, then the item's
@@ -20,6 +18,9 @@ import { ListState } from "@/components/ListState";
  * is one non-disclosing "not available" state. With a store in scope the page
  * links to that store's on-hand stock (RT-728); it shows no ERP data.
  */
+import { DetailGrid } from "@/components/DetailPanel";
+import { GatedButton } from "@/components/GatedButton";
+import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/i18n";
 import type { CatalogProductDetail as ProductDetail } from "@/lib/catalog-queries";
@@ -186,7 +187,9 @@ function Loaded({
       {retired && !justRetired ? (
         <Banner variant="info" message={t("catalog.detail.retiredNotice")} />
       ) : null}
-      <TenantValues product={product} />
+      <DetailGrid>
+        <TenantValues product={product} />
+      </DetailGrid>
       <ProductIdentifiers
         product={product}
         writableTenantId={canWrite ? scope.tenantId : null}
