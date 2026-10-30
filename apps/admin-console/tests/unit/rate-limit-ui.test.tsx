@@ -206,11 +206,11 @@ describe("RateLimitBanner", () => {
     expect(screen.getByText("Too many requests")).toBeDefined();
   });
 
-  test("hiddenThroughSeq (RT-931) skips the 429s a surface owns, keeps its live region, and shows a later one", async () => {
+  test("claimedSeqs (RT-931) skips the 429s a surface owns, keeps its live region, and shows a later one", async () => {
     const Tree = withClient();
     const view = render(
       <Tree>
-        <RateLimitBanner hiddenThroughSeq={1} />
+        <RateLimitBanner claimedSeqs={new Set([1])} />
       </Tree>,
     );
     act(() => reportRateLimited(30));
@@ -230,15 +230,24 @@ describe("RateLimitBanner", () => {
     act(() => reportRateLimited(30));
     expect(screen.getByText("Too many requests")).toBeDefined();
     expect(screen.getByRole("status").textContent).toBe(spoken);
+    // RT-940: claiming 3 hides only 3; the unclaimed 2 keeps the banner, unannounced again.
     view.rerender(
       <Tree>
-        <RateLimitBanner hiddenThroughSeq={3} />
+        <RateLimitBanner claimedSeqs={new Set([1, 3])} />
+      </Tree>,
+    );
+    expect(screen.getByText("Too many requests")).toBeDefined();
+    await new Promise((r) => setTimeout(r, CLAIM_GRACE_MS + 100));
+    expect(screen.getByText("Too many requests")).toBeDefined();
+
+    // Once every 429 on the clock is claimed, the banner is gone and silent.
+    view.rerender(
+      <Tree>
+        <RateLimitBanner claimedSeqs={new Set([1, 2, 3])} />
       </Tree>,
     );
     expect(screen.queryByText("Too many requests")).toBeNull();
     expect(screen.getByRole("status").textContent).toBe("");
-    await new Promise((r) => setTimeout(r, CLAIM_GRACE_MS + 100));
-    expect(screen.queryByText("Too many requests")).toBeNull();
   });
 
   test("the manual retry re-reads the failed queries once and closes the banner", async () => {

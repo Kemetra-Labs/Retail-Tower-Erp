@@ -30,7 +30,7 @@ export function PlatformShell({
   const t = useT();
   const { context } = useActiveContextValue();
   const supportSession = useSupportSession();
-  const { claimedThroughSeq, claim } = useRateLimitClaims();
+  const { claimedSeqs, claim } = useRateLimitClaims();
   const user = context?.user;
   const menu = useShellMenu();
   const menuId = useShellMenuId();
@@ -69,7 +69,7 @@ export function PlatformShell({
 
       <ShellContent>
         {/* RT-931: a surface that shows its own 429 claims it; the shared banner skips that one. */}
-        <RateLimitBanner hiddenThroughSeq={claimedThroughSeq} />
+        <RateLimitBanner claimedSeqs={claimedSeqs} />
         <RateLimitClaimProvider value={claim}>
           <SupportSessionBoundary controller={supportSession}>{children}</SupportSessionBoundary>
         </RateLimitClaimProvider>

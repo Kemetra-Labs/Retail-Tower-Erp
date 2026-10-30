@@ -241,6 +241,52 @@ describe("overlapping 429s", () => {
     expect(within(banner).getByText("Too many requests")).toBeDefined();
     expect(screen.getAllByText(/because of too many requests/)).toHaveLength(1);
   });
+
+  /** Order B: the session bar's 429 is recorded first, then the surface's own, inside the claim grace. */
+  const barLimitedThenLimited = async () => {
+    reportRateLimited(30);
+    return limited(30);
+  };
+
+  test("start drawer, bar's 429 first: the drawer claims only its own, the bar's still reaches the shell banner", async () => {
+    openSupportSession.mockImplementation(barLimitedThenLimited);
+    mount();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Start support session: Delta Markets" }),
+    );
+    const drawer = await screen.findByRole("dialog");
+    fireEvent.change(within(drawer).getByLabelText(/Purpose/), { target: { value: "incident" } });
+    fireEvent.click(submitButton(drawer));
+
+    expect(await within(drawer).findByText(/Too many requests, and no session/)).toBeDefined();
+    expect(within(drawer).getAllByText(/Too many requests/)).toHaveLength(1);
+    expect(submitButton(drawer).textContent).toMatch(/Wait \d+s/);
+    expect(within(drawer).queryAllByRole("button", { name: /^Try again/ })).toHaveLength(0);
+
+    const banner = await waitFor(() => {
+      const el = shellAlert();
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(within(banner).getByText("Too many requests")).toBeDefined();
+    expect(document.querySelectorAll(".rate-limit-banner .rtc-alert")).toHaveLength(1);
+    expect(tryAgainButtons()).toHaveLength(1);
+  });
+
+  test("directory, bar's 429 first: the directory claims only its own, the bar's still reaches the shell banner", async () => {
+    listTenants.mockImplementation(barLimitedThenLimited);
+    mount();
+    expect(await screen.findByText(/because of too many requests/)).toBeDefined();
+
+    const banner = await waitFor(() => {
+      const el = shellAlert();
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(within(banner).getByText("Too many requests")).toBeDefined();
+    expect(document.querySelectorAll(".rate-limit-banner .rtc-alert")).toHaveLength(1);
+    expect(screen.getAllByText(/because of too many requests/)).toHaveLength(1);
+  });
 });
 
 describe("start drawer 429", () => {
