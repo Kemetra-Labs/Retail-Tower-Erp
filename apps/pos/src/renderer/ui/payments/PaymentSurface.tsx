@@ -122,6 +122,12 @@ export interface PaymentSurfaceProps {
    * `blocked` shows the reason. Survives remounts, unlike component state.
    */
   backToSaleEligibility?: BackToSaleEligibility;
+  /**
+   * RT-998 — a cashier's way to open the shift when main refused a cash tender
+   * with no open shift. The route owner navigates (this surface is
+   * Router-agnostic); without it the refusal shows with no way on.
+   */
+  onOpenShift?: () => void;
 }
 
 /** Shown when main refuses (or cannot be reached for) a Back. Generic, no reason. */
@@ -598,6 +604,7 @@ function PaymentSurfaceBody({
   onNewSale,
   onBackToSale,
   backToSaleEligibility = 'unknown',
+  onOpenShift,
 }: PaymentSurfaceProps = {}): JSX.Element | null {
   const sessionState = useOperatorSessionStore((s) => s.state);
   const envelope = usePaymentStore((s) => s.envelope);
@@ -1906,6 +1913,7 @@ function PaymentSurfaceBody({
                     onNothingOwed={() => {
                       void handleLineApplied();
                     }}
+                    onOpenShift={onOpenShift}
                   />
                 )}
                 {selectedTender === 'external_card_terminal' && cardTenderFlag && (

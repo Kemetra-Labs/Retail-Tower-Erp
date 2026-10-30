@@ -63,6 +63,7 @@ import {
   bindPaymentAttemptsRepository,
 } from './payments/repositories/payment-attempts.repository.js';
 import { bindCartPaymentEligibility } from './payments/cart-payment-eligibility.js';
+import { bindCashShiftGate } from './payments/cash-shift-gate.js';
 import { bindPaymentTenderLinesRepository } from './payments/repositories/payment-tender-lines.repository.js';
 import { bindPaymentActionOutboxRepository } from './payments/repositories/payment-action-outbox.repository.js';
 import { createPaymentAttemptFsm } from './payments/fsm/payment-attempt-fsm.js';
@@ -1499,14 +1500,14 @@ singleInstanceReady
       idempotency: paymentsIdempotency,
       auditEmitter: paymentAuditEmitter,
       clock: paymentsClock,
+      cashShiftGate: bindCashShiftGate(db), // RT-998: cash needs an open shift (apply + settle)
     };
 
     const paymentsStart = createPaymentsStartHandler({
       ...paymentsWriteDeps,
       paymentAttemptFsm,
       uuid: paymentsUuid,
-      // §A4: main decides whether the named cart may be paid (handed off, in
-      // scope, envelope matches, not already paid).
+      // §A4: main decides if the cart may be paid (handed off, in scope, matches, unpaid).
       checkCartForPayment: bindCartPaymentEligibility(db),
       // §A4: never discard another cart's attempt while it holds tender.
       attemptHasLiveTender: bindAttemptHasLiveTender(db),
@@ -1534,8 +1535,7 @@ singleInstanceReady
     });
     const paymentsSubscribe = createPaymentsSubscribeHandler(paymentsReadDeps);
     const paymentsRead = createPaymentsReadHandler(paymentsReadDeps);
-    // RT-700 (P-26-1) — card is refused in main while the flag is off; read
-    // per call, like `getAppConfig`, so main and the renderer see one value.
+    // RT-700 (P-26-1) — card refused in main while the flag is off; read per call.
     const isCardTenderEnabled = (): boolean => parseFeatureFlags(process.env).cardTender;
     const tenderApply = createTenderApplyHandler({
       ...paymentsWriteDeps,

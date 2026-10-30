@@ -40,6 +40,7 @@
 import type { Logger } from 'pino';
 
 import { tenderApplyActionPayload } from '../action-payload.js';
+import type { CashShiftGate } from '../cash-shift-gate.js';
 import { requireOperatorSession } from '../require-operator-session.js';
 import type { OperatorSessionForPayments } from '../require-operator-session.js';
 import type { TenderLineFsm } from '../fsm/tender-line-fsm.js';
@@ -78,6 +79,12 @@ export interface TenderApplyHandlerDeps {
    * a card tender is refused `card_tender_disabled` (fail-closed).
    */
   isCardTenderEnabled?: () => boolean;
+  /**
+   * RT-998 — a fresh cash apply needs an open shift on the attempt's terminal
+   * while the shift cash-up is on (`cash-shift-gate.ts`). Absent means no gate:
+   * production always wires it, and with the shift flag off it allows.
+   */
+  cashShiftGate?: CashShiftGate;
 }
 
 export type TenderApplyHandler = (req: TenderApplyRequest) => Promise<TenderApplyResponse>;
@@ -147,6 +154,7 @@ export function createTenderApplyHandler(deps: TenderApplyHandlerDeps): TenderAp
     clock,
     logger,
     isCardTenderEnabled = () => false,
+    cashShiftGate,
   } = deps;
 
   /**
@@ -262,6 +270,23 @@ export function createTenderApplyHandler(deps: TenderApplyHandlerDeps): TenderAp
     return { kind: 'refused', reason };
   }
 
+  /**
+   * RT-998 — refuse a cash tender with no open shift on the attempt's terminal;
+   * audited, nothing persisted (no line, no outbox row), so the same request
+   * applies once the shift is open.
+   */
+  function refuseCashWithoutShift(ctx: {
+    req: TenderApplyRequest;
+    attempt: AttemptRow;
+    session: OperatorSessionForPayments;
+    tender_line_id: string;
+    now: string;
+  }): TenderApplyResponse {
+    const reason = 'shift_not_open';
+    emitRefusedAudit(ctx, reason);
+    return { kind: 'refused', reason };
+  }
+
   return async function tenderApply(req): Promise<TenderApplyResponse> {
     const session = getCurrentSession();
     if (session === null) {
@@ -328,6 +353,12 @@ export function createTenderApplyHandler(deps: TenderApplyHandlerDeps): TenderAp
 
     if (req.tender_type === 'external_card_terminal' && !isCardTenderEnabled()) {
       return refuseDisabledCard({ req, attempt, session, tender_line_id, now });
+    }
+
+    // RT-998 — after the replay answer, so a same-key retry of a cash line that
+    // already applied still answers it; before the FSM, so nothing is written.
+    if (req.tender_type === 'cash' && cashShiftGate?.(attempt) === 'shift_required') {
+      return refuseCashWithoutShift({ req, attempt, session, tender_line_id, now });
     }
 
     // Wave 4 — voucher branch (T263). Slice 3 returned
