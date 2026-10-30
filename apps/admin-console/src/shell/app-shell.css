@@ -23,6 +23,29 @@
   display: none;
 }
 
+/* ---- Skip link (RT-963) ---------------------------------------------------- */
+/* Out of the grid (absolute) and off-screen until it has focus. */
+.skip-link {
+  position: absolute;
+  inset-inline-start: var(--space-4);
+  top: var(--space-2);
+  z-index: 60;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: var(--weight-strong);
+  box-shadow: var(--shadow-overlay);
+  transform: translateY(-200%);
+}
+.skip-link:focus {
+  transform: none;
+}
+/* The skip target takes focus without drawing a ring around the whole page. */
+.content:focus:not(:focus-visible) {
+  outline: none;
+}
+
 /* ---- Brand lockup -------------------------------------------------------- */
 /* Also the sign-in, invitation, scope-gate and standalone platform headers. */
 .tower-lockup {

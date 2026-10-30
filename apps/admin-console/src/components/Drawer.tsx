@@ -91,9 +91,16 @@ export function Drawer({
   useEffect(() => {
     // Move focus in on open; restore it to the trigger (the row/button that
     // opened the drawer) on close, so keyboard users keep their place.
+    // RT-963: unless focus already moved on while the drawer closed (a
+    // navigation focuses the new page's title): the next owner keeps it.
     const previouslyFocused = document.activeElement as HTMLElement | null;
-    panelRef.current?.focus();
-    return () => previouslyFocused?.focus?.();
+    const panel = panelRef.current;
+    panel?.focus();
+    return () => {
+      const active = document.activeElement;
+      const taken = active !== null && active !== document.body && !panel?.contains(active);
+      if (!taken) previouslyFocused?.focus?.();
+    };
   }, []);
 
   // A click on the scrim itself (not the panel) closes. Keyboard close is Escape

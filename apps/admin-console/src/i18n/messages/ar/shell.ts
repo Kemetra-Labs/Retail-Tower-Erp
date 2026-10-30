@@ -14,6 +14,7 @@ export const shell = {
   "shell.nav.stockDiscrepancies": "فروقات المخزون",
   "shell.nav.shiftCloses": "إقفالات الورديات",
   "shell.nav.unknownItems": "أصناف غير معروفة",
+  "shell.skipToContent": "تخطَّ إلى المحتوى",
   "shell.signOut": "تسجيل الخروج",
   // RT-825: the compact-shell menu button and the navigation drawer it opens.
   "shell.menu": "القائمة",

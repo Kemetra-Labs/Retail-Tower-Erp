@@ -1,5 +1,6 @@
 import { NoAccess } from "@/auth/NoAccess";
 import { Banner } from "@/components/Banner";
+import { TableScrollRegion } from "@/components/DataTableScroll";
 import { GatedButton } from "@/components/GatedButton";
 import { ListState } from "@/components/ListState";
 /**
@@ -67,27 +68,31 @@ function usePickerStores(scope: InventoryScope): PickerState {
 function StoresTable({ stores }: Readonly<{ stores: PickerStore[] }>): React.JSX.Element {
   const t = useT();
   return (
-    <div className="table-scroll">
-      <table className="data-table">
-        <caption className="data-table__caption">{t("inventory.stores.caption")}</caption>
-        <thead>
-          <tr>
-            <th scope="col">{t("inventory.stores.col.store")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {stores.map((store) => (
-            <tr key={store.id} className="data-table__row data-table__row--static">
-              <th scope="row">
-                <Link to={`/inventory/stores/${store.id}`}>
-                  {store.name ? <bdi dir="auto">{store.name}</bdi> : <Machine value={store.id} />}
-                </Link>
-              </th>
+    <TableScrollRegion>
+      {(captionId) => (
+        <table className="data-table">
+          <caption id={captionId} className="data-table__caption">
+            {t("inventory.stores.caption")}
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">{t("inventory.stores.col.store")}</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {stores.map((store) => (
+              <tr key={store.id} className="data-table__row data-table__row--static">
+                <th scope="row">
+                  <Link to={`/inventory/stores/${store.id}`}>
+                    {store.name ? <bdi dir="auto">{store.name}</bdi> : <Machine value={store.id} />}
+                  </Link>
+                </th>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </TableScrollRegion>
   );
 }
 

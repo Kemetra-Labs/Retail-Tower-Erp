@@ -45,7 +45,8 @@ test("renders the project locale, whatever the browser's own language", async ({
   await page.goto("/");
   await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
   expect(await docLocale(page)).toEqual({ lang: TAG[appLocale], dir: DIR[appLocale] });
-  expect(await page.title()).toBe(t("app.title"));
+  // RT-963: «<page> – <app>».
+  expect(await page.title()).toBe(`${t("shell.overview.title")} – ${t("app.title")}`);
   // The switch offers the other language, named in that language.
   await openUserMenu(page);
   const toggle = page.getByRole("button", {

@@ -17,7 +17,7 @@ import {
 import { useSupportSession } from "@/platform/session/useSupportSession";
 import { useShellNavigator } from "./Navigator";
 import { ScopeHeader } from "./ScopeHeader";
-import { NavEntries, ShellContent, ShellSidebar, ShellTopBar } from "./ShellFrame";
+import { NavEntries, ShellContent, ShellSidebar, ShellTopBar, SkipLink } from "./ShellFrame";
 import { ShellMenuDrawer, useShellMenu, useShellMenuId } from "./ShellMenu";
 import { tenantNav } from "./nav-model";
 
@@ -44,6 +44,7 @@ export function AppShell({ onSignOut, children }: Readonly<AppShellProps>): Reac
 
   return (
     <div className={inSession ? "shell shell--session" : "shell"}>
+      <SkipLink />
       <ShellTopBar
         menu={menu}
         menuId={menuId}

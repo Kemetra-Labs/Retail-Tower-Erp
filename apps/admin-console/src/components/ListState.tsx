@@ -38,12 +38,13 @@ export function ListState({
   }
   if (state === "loading") {
     return (
-      <div className="list-state list-state--loading" aria-busy="true">
+      // RT-963 (WCAG 4.1.3): the loading line is a polite status message (`output` is role=status).
+      <output className="list-state list-state--loading" aria-busy="true">
         <span className="spinner" aria-hidden="true" />
         <span>
           {t("components.list.loading", { label: label ?? t("components.list.loadingDefault") })}
         </span>
-      </div>
+      </output>
     );
   }
   // empty
