@@ -65,13 +65,7 @@ function CancelConfirm({
         })}
       </p>
       <div className="confirm-delete__actions">
-        <GatedButton
-          type="button"
-          className="btn-destructive"
-          onClick={onConfirm}
-          disabled={pending}
-        >
-          {pending ? <span className="spinner" aria-hidden="true" /> : null}
+        <GatedButton type="button" className="btn-destructive" onClick={onConfirm} busy={pending}>
           {t("devices.codes.cancel")}
         </GatedButton>
         <button type="button" className="btn-ghost" ref={keep} onClick={onKeep} disabled={pending}>

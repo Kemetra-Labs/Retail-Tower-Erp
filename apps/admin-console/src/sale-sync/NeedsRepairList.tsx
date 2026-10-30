@@ -1,3 +1,5 @@
+import { NoAccess } from "@/auth/NoAccess";
+import { Banner } from "@/components/Banner";
 /**
  * RT-726 — Sales needing repair (`consoleListNeedsRepair`), for owner /
  * tenant_admin. The server's open NEEDS_REPAIR queue, newest first, keyset
@@ -10,8 +12,7 @@
  * in-scope stores and is a filter, not a scope change. An out-of-scope or
  * malformed store reads as not available (the API's non-disclosing 404).
  */
-import { NoAccess } from "@/auth/NoAccess";
-import { Banner } from "@/components/Banner";
+import { BusyButton } from "@/components/BusyButton";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
 import { ListState } from "@/components/ListState";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
@@ -186,15 +187,14 @@ function Rows({
       <StaleError error={list.inlineError} onRetry={list.retry} />
       {list.hasMore ? (
         <div>
-          <button
+          <BusyButton
             type="button"
             className="btn-secondary"
             onClick={list.loadMore}
-            disabled={list.isFetchingNextPage}
+            busy={list.isFetchingNextPage}
           >
-            {list.isFetchingNextPage ? <span className="spinner" aria-hidden="true" /> : null}
             {t("saleSync.list.loadMore")}
-          </button>
+          </BusyButton>
         </div>
       ) : null}
     </>

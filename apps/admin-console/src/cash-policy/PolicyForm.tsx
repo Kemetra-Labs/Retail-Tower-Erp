@@ -213,8 +213,7 @@ export function PolicyForm({
       ) : null}
       <p className="field__hint">{t("cashPolicy.form.applyNowHint")}</p>
       <div className="surface__actions">
-        <GatedButton type="submit" className="btn-primary" disabled={pending}>
-          {pending ? <span className="spinner" aria-hidden="true" /> : null}
+        <GatedButton type="submit" className="btn-primary" busy={pending}>
           {t("cashPolicy.form.applyNow")}
         </GatedButton>
       </div>

@@ -171,7 +171,9 @@ describe("linking", () => {
     const drawer = await reachConfirm();
     const button = within(drawer).getByRole("button", { name: "Link the identifier" });
     fireEvent.click(button);
-    await waitFor(() => expect(button.hasAttribute("disabled")).toBe(true));
+    // RT-959: busy, not disabled: it keeps focus and ignores repeat presses.
+    await waitFor(() => expect(button.getAttribute("aria-busy")).toBe("true"));
+    expect(button.hasAttribute("disabled")).toBe(false);
     fireEvent.click(button);
     expect(linkUnknownItem).toHaveBeenCalledTimes(1);
   });

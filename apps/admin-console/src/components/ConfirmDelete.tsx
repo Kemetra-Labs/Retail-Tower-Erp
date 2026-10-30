@@ -43,13 +43,7 @@ export function ConfirmDelete({
         })}
       </p>
       <div className="confirm-delete__actions">
-        <GatedButton
-          type="button"
-          className="btn-destructive"
-          onClick={onConfirm}
-          disabled={pending}
-        >
-          {pending ? <span className="spinner" aria-hidden="true" /> : null}
+        <GatedButton type="button" className="btn-destructive" onClick={onConfirm} busy={pending}>
           {confirmLabel}
         </GatedButton>
         <button type="button" className="btn-ghost" onClick={onCancel} disabled={pending}>

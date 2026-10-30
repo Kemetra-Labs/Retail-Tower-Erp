@@ -21,7 +21,7 @@ function buttons(src: string): { cls: string; keys: string[] }[] {
   for (const m of src.matchAll(/className=(?:"(btn-[a-z-]+)"|\{[^}]*?"(btn-[a-z-]+)"[^}]*?\})/g)) {
     const from = m.index ?? 0;
     const rest = src.slice(from, from + 700);
-    const end = rest.search(/<\/(?:button|GatedButton|Link|a)>/);
+    const end = rest.search(/<\/(?:button|GatedButton|BusyButton|Link|a)>/);
     const body = end === -1 ? rest : rest.slice(0, end);
     out.push({
       cls: m[1] ?? m[2] ?? "",

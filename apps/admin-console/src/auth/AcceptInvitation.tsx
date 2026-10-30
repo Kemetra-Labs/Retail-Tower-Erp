@@ -115,15 +115,12 @@ export function AcceptInvitation(): React.JSX.Element {
               <GatedButton
                 className="btn-primary signin-submit"
                 type="submit"
-                disabled={accept.isPending}
+                busy={accept.isPending}
               >
-                {accept.isPending ? (
-                  <>
-                    <span className="spinner" aria-hidden="true" />{" "}
-                    {t("auth.acceptInvitation.submitting")}
-                  </>
-                ) : (
-                  t("auth.acceptInvitation.submit")
+                {t(
+                  accept.isPending
+                    ? "auth.acceptInvitation.submitting"
+                    : "auth.acceptInvitation.submit",
                 )}
               </GatedButton>
             </form>

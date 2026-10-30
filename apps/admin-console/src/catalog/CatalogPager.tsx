@@ -126,25 +126,14 @@ function useEndFocus(list: CatalogListState) {
   return { endRef, loadMore };
 }
 
-/**
- * aria-disabled, not disabled, while the next page loads: a disabled button
- * drops keyboard focus. `loadMore` ignores repeat presses.
- */
-const BUSY_PROPS = { "aria-disabled": true, "aria-busy": true } as const;
-
 function LoadMore({
   busy,
   onLoad,
 }: Readonly<{ busy: boolean; onLoad: () => void }>): React.JSX.Element {
   const t = useT();
   return (
-    <GatedButton
-      type="button"
-      className="btn-secondary"
-      onClick={onLoad}
-      {...(busy ? BUSY_PROPS : {})}
-    >
-      {busy ? <span className="spinner" aria-hidden="true" /> : null}
+    // Busy keeps focus (a disabled button would drop it); repeat presses are ignored.
+    <GatedButton busy={busy} type="button" className="btn-secondary" onClick={onLoad}>
       {t("catalog.list.loadMore")}
     </GatedButton>
   );

@@ -165,8 +165,7 @@ export function UnknownItemCreateProduct({
         />
 
         <div className="unknown-item-detail__actions">
-          <GatedButton type="submit" className="btn-primary">
-            {create.isPending ? <span className="spinner" aria-hidden="true" /> : null}
+          <GatedButton busy={create.isPending} type="submit" className="btn-primary">
             {t("unknownItems.create.submit")}
           </GatedButton>
           <button type="button" className="btn-ghost" onClick={onCancel}>

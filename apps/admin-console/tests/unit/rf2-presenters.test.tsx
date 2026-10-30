@@ -135,7 +135,7 @@ describe("ConfirmDelete", () => {
     expect(onCancel).toHaveBeenCalledOnce();
   });
 
-  test("disables the confirm button while the delete is in flight", () => {
+  test("marks the confirm button busy while the delete is in flight", () => {
     render(
       <ConfirmDelete
         resourceName="Helios Markets"
@@ -145,7 +145,10 @@ describe("ConfirmDelete", () => {
         onCancel={() => {}}
       />,
     );
-    expect(screen.getByRole("button", { name: "Soft-delete" }).hasAttribute("disabled")).toBe(true);
+    // RT-959: busy, not disabled: it keeps focus and ignores repeat presses.
+    const confirm = screen.getByRole("button", { name: "Soft-delete" });
+    expect(confirm.getAttribute("aria-busy")).toBe("true");
+    expect(confirm.hasAttribute("disabled")).toBe(false);
   });
 });
 
