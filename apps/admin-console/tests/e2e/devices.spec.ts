@@ -121,8 +121,8 @@ test("S1: owner → fleet (server order) → filters → detail tabs → Back ke
 
   // Filters are applied by the server, and live in the URL.
   await page.getByLabel(t("devices.filter.store"), { exact: true }).selectOption(DUBAI);
-  await page.getByLabel(t("devices.filter.trust")).selectOption("revoked");
-  await page.getByRole("button", { name: t("devices.filter.apply") }).click();
+  await page.getByLabel(t("devices.filter.trust"), { exact: true }).selectOption("revoked");
+  await page.getByRole("button", { name: t("filter.apply"), exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/devices\\?store=${DUBAI}&state=revoked$`));
   await expect.poll(() => queries.at(-1)?.get("trust_state")).toBe("revoked");
   expect(queries.at(-1)?.get("store_id")).toBe(DUBAI);
@@ -142,7 +142,7 @@ test("S1: owner → fleet (server order) → filters → detail tabs → Back ke
 
   await page.getByRole("link", { name: t("devices.detail.back") }).click();
   await expect(page).toHaveURL(new RegExp(`/devices\\?store=${DUBAI}&state=revoked$`));
-  await expect(page.getByLabel(t("devices.filter.trust"))).toHaveValue("revoked");
+  await expect(page.getByLabel(t("devices.filter.trust"), { exact: true })).toHaveValue("revoked");
 });
 
 test("S2: Store Detail deep-links to the registry filtered to that store", async ({ page, t }) => {

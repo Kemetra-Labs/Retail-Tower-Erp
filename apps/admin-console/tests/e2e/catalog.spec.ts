@@ -176,7 +176,7 @@ test("S2: search is verbatim, filters reach the URL and the request, Load more d
   await p.getByLabel(t("catalog.filter.q")).fill(" 0012 ");
   await p.getByLabel(t("catalog.filter.status")).selectOption("any");
   await p.getByLabel(t("catalog.filter.category")).selectOption(CATEGORY);
-  await p.getByRole("button", { name: t("catalog.filter.apply"), exact: true }).click();
+  await p.getByRole("button", { name: t("filter.apply"), exact: true }).click();
   await expect.poll(() => queries.length).toBe(2);
   expect(Object.fromEntries(queries[1])).toEqual({
     q: " 0012 ",

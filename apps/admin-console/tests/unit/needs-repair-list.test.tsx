@@ -121,6 +121,8 @@ describe("NeedsRepairList (RT-726)", () => {
     await screen.findByRole("link", { name: "Open sale POS-CAI-0042" });
     await waitFor(() => expect(screen.getByRole("option", { name: "Alexandria" })).toBeDefined());
     fireEvent.change(screen.getByLabelText("Store"), { target: { value: OTHER_STORE } });
+    // RT-960: the filter applies on Apply, not on change.
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     await waitFor(() =>
       expect(api.consoleListNeedsRepair).toHaveBeenLastCalledWith({ store_id: OTHER_STORE }),
     );

@@ -117,6 +117,8 @@ test("RT-771: changing the sort empties the selection", async ({ page, t }) => {
   await page.getByRole("checkbox", { name: t("table.selection.selectPage") }).check();
   await expect(page.getByRole("checkbox", { checked: true })).toHaveCount(VALUES.length + 1);
   await page.getByLabel(t("unknownItems.filters.sort")).selectOption("age_asc");
+  // RT-960: the queue filters apply on Apply, not on change.
+  await page.getByRole("button", { name: t("filter.apply"), exact: true }).click();
   await expect(page.getByRole("checkbox", { name: t("table.selection.selectPage") })).toBeVisible();
   await expect(page.getByRole("checkbox", { checked: true })).toHaveCount(0);
 });

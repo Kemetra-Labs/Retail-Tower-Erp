@@ -66,7 +66,7 @@ test("S1: scoped search + Apply renders audit rows", async ({ page, t }) => {
   await page.goto("/audit");
   // pre-query: prompt, no rows yet
   await expect(page.getByText(t("audit.prequery", { tenant: "Northstar Retail" }))).toBeVisible();
-  await page.getByRole("button", { name: t("audit.filters.apply"), exact: true }).click();
+  await page.getByRole("button", { name: t("filter.apply"), exact: true }).click();
   await expect(page.getByText("shift.forced_close")).toBeVisible();
   await expect(page.getByText("auth.signin")).toBeVisible();
   // RT-399: the time column names UTC and shows the exact evidence instant.
@@ -101,7 +101,7 @@ test("S2: a POS-originated event renders read-only (no write affordance)", async
   );
 
   await page.goto("/audit");
-  await page.getByRole("button", { name: t("audit.filters.apply"), exact: true }).click();
+  await page.getByRole("button", { name: t("filter.apply"), exact: true }).click();
   await expect(page.getByText("operator.session.takeover")).toBeVisible();
   // read-only: opening it offers no acknowledge/annotate/export buttons
   await page.getByText("operator.session.takeover").click();
@@ -126,7 +126,7 @@ test("S4: 403 → not-permitted banner with request_id", async ({ page, t }) => 
   );
 
   await page.goto("/audit");
-  await page.getByRole("button", { name: t("audit.filters.apply"), exact: true }).click();
+  await page.getByRole("button", { name: t("filter.apply"), exact: true }).click();
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(page.getByText(t("audit.errors.forbidden"))).toBeVisible();
   await expect(page.getByText(/req-403/)).toBeVisible();

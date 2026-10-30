@@ -55,7 +55,7 @@ async function mockContext(page: Page): Promise<() => number> {
 test("S3: row inspect opens read-only detail; no extra fetch; Esc closes", async ({ page, t }) => {
   const auditCalls = await mockContext(page);
   await page.goto("/audit");
-  await page.getByRole("button", { name: t("audit.filters.apply"), exact: true }).click();
+  await page.getByRole("button", { name: t("filter.apply"), exact: true }).click();
   await expect(page.getByText("shift.forced_close")).toBeVisible();
   const callsAfterSearch = auditCalls();
 

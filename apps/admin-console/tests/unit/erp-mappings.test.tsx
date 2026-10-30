@@ -222,10 +222,14 @@ describe("gate and reads", () => {
     await itemRowEl();
     expect(api.tenantAdminListErpnextItemMappings).toHaveBeenCalledWith("suggested");
     fireEvent.change(screen.getByLabelText("State"), { target: { value: "confirmed" } });
+    // RT-960: the filter applies on Apply, not on change.
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     await waitFor(() =>
       expect(api.tenantAdminListErpnextItemMappings).toHaveBeenLastCalledWith("confirmed"),
     );
     fireEvent.change(screen.getByLabelText("State"), { target: { value: "" } });
+    // RT-960: the filter applies on Apply, not on change.
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     await waitFor(() =>
       expect(api.tenantAdminListErpnextItemMappings).toHaveBeenLastCalledWith(undefined),
     );

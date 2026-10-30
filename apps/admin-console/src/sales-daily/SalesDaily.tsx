@@ -187,6 +187,7 @@ export function SalesDaily(): React.JSX.Element {
         zoneNote={<ZoneNote scope={scope} directory={directory} />}
         serverError={fieldErrorOf(daily.error)}
         onApply={(next) => setSearch(rangeToSearch(next))}
+        onClear={() => setSearch(new URLSearchParams())}
       />
       {range === null ? <Loading /> : <Body daily={daily} scope={scope} directory={directory} />}
     </Shell>

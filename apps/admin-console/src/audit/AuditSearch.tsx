@@ -131,6 +131,7 @@ export function AuditSearch(): React.JSX.Element {
       <AuditFilters
         key={`${activeTenantId}:${activeStoreId}`}
         storeInScope={Boolean(activeStore)}
+        applied={filters}
         onApply={onApply}
         onClear={onClear}
       />

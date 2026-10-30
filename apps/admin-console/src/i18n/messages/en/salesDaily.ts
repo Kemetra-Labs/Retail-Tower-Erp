@@ -12,7 +12,6 @@ export const salesDaily: MessagesOf<typeof ar> = {
 
   // --- Range form --------------------------------------------------------------
   "salesDaily.range.label": "Business-date range",
-  "salesDaily.range.apply": "Show",
   "salesDaily.range.note": "At most 31 business days, both ends included.",
   "salesDaily.range.rejected":
     "The server rejected this range. Use real dates, at most 31 business days.",

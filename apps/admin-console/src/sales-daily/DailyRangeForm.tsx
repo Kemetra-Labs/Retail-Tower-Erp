@@ -1,15 +1,14 @@
 /**
  * RT-821 (VIZ-3) the report's range: an inclusive business-date range of at
- * most 31 days. The contract's rule is checked here before anything is read,
- * and a server 400 still lands at the field (`serverError`). Nothing is read
- * until Show applies the draft to the URL.
+ * most 31 days, laid out by the shared FilterBar (RT-960). The contract's rule
+ * is checked here before anything is read, and a server 400 still lands at the
+ * field (`serverError`). Apply writes the draft to the URL; Clear returns to
+ * the default range.
  */
-import { GatedButton } from "@/components/GatedButton";
-import { InlineError } from "@/components/InlineError";
+import { FilterBar, FilterField } from "@/components/FilterBar";
 import { type MessageKey, useT } from "@/i18n";
 import { useState } from "react";
 import { type DailyRange, type RangeErrors, validateRange } from "./dailyLogic";
-import "../sales/sales.css";
 
 function DateField({
   id,
@@ -26,8 +25,7 @@ function DateField({
 }>): React.JSX.Element {
   const t = useT();
   return (
-    <div className="sale-filters__field">
-      <label htmlFor={id}>{label}</label>
+    <FilterField id={id} label={label} error={error ? t(error) : undefined}>
       <input
         id={id}
         type="date"
@@ -38,8 +36,7 @@ function DateField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />
-      <InlineError message={error ? t(error) : undefined} />
-    </div>
+    </FilterField>
   );
 }
 
@@ -48,6 +45,7 @@ export function DailyRangeForm({
   zoneNote,
   serverError,
   onApply,
+  onClear,
 }: Readonly<{
   /** The applied range (URL or default); null while the default waits for the store zone. */
   range: DailyRange | null;
@@ -55,6 +53,8 @@ export function DailyRangeForm({
   /** A 400 the server answered for the applied range, shown at the To field. */
   serverError?: MessageKey;
   onApply: (range: DailyRange) => void;
+  /** Back to the default range. */
+  onClear: () => void;
 }>): React.JSX.Element {
   const t = useT();
   const empty = { from: "", to: "" };
@@ -78,15 +78,21 @@ export function DailyRangeForm({
     if (Object.keys(found).length === 0) onApply(draft);
   }
 
-  const toError = errors.to ?? serverError;
+  function clear(): void {
+    setErrors({});
+    onClear();
+  }
+
   return (
-    <form
-      className="sale-filters"
-      aria-label={t("salesDaily.range.label")}
-      // A range is not unsaved work: no Stay / Discard prompt for it (RT-268).
-      data-dirty-guard="off"
+    <FilterBar
+      label={t("salesDaily.range.label")}
       onSubmit={submit}
-      noValidate
+      onClear={clear}
+      note={
+        <p id="sd-range-note" className="filter-bar__note-line">
+          {zoneNote}
+        </p>
+      }
     >
       <DateField
         id="sd-from"
@@ -99,17 +105,9 @@ export function DailyRangeForm({
         id="sd-to"
         label={t("sales.filter.to")}
         value={draft.to}
-        error={toError}
+        error={errors.to ?? serverError}
         onChange={(to) => setDraft((d) => ({ ...d, to }))}
       />
-      <p id="sd-range-note" className="sale-filters__zone">
-        {zoneNote}
-      </p>
-      <div className="sale-filters__actions">
-        <GatedButton type="submit" className="btn-primary">
-          {t("salesDaily.range.apply")}
-        </GatedButton>
-      </div>
-    </form>
+    </FilterBar>
   );
 }

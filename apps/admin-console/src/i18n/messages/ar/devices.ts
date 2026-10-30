@@ -59,8 +59,6 @@ export const devices = {
   "devices.filter.unlistedStore": "متجر غير موجود في قائمتك",
   "devices.filter.trust": "حالة الصلاحية",
   "devices.filter.trustAny": "فعّالة وموقوفة (الافتراضي)",
-  "devices.filter.apply": "تطبيق",
-  "devices.filter.clear": "مسح",
 
   // --- Trust state -------------------------------------------------------------
   "devices.trust.active": "فعّال",

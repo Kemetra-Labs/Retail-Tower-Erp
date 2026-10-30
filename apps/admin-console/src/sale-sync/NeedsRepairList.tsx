@@ -14,6 +14,7 @@ import { Banner } from "@/components/Banner";
  */
 import { BusyButton } from "@/components/BusyButton";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
+import { SelectFilterBar } from "@/components/FilterBar";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
@@ -46,35 +47,29 @@ function useFilterStores(tenantId: string | null): FilterStore[] {
   return scopeMenuStores(rows, membership, null).map((s) => ({ id: s.id, name: s.name }));
 }
 
+/** The queue's store filter, on the shared FilterBar (RT-960): Apply, Clear. */
 function StoreFilter({
   stores,
   value,
-  onChange,
+  onApply,
 }: Readonly<{
   stores: readonly FilterStore[];
   value: string;
-  onChange: (storeId: string) => void;
+  onApply: (storeId: string) => void;
 }>): React.JSX.Element {
   const t = useT();
   // A URL store the roster does not list stays selectable, so its 404 is visible.
   const listed = value && !stores.some((s) => s.id === value) ? [...stores, { id: value }] : stores;
   return (
-    <div className="sale-sync__filter">
-      <label htmlFor="needs-repair-store">{t("saleSync.filter.store")}</label>
-      <select
-        id="needs-repair-store"
-        className="input"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <option value="">{t("saleSync.filter.allStores")}</option>
-        {listed.map((store) => (
-          <option key={store.id} value={store.id}>
-            {store.name ?? store.id}
-          </option>
-        ))}
-      </select>
-    </div>
+    <SelectFilterBar
+      label={t("saleSync.filter.label")}
+      id="needs-repair-store"
+      fieldLabel={t("saleSync.filter.store")}
+      value={value}
+      allLabel={t("saleSync.filter.allStores")}
+      options={listed.map((store) => ({ value: store.id, label: store.name ?? store.id }))}
+      onApply={onApply}
+    />
   );
 }
 
@@ -231,7 +226,7 @@ function Content({ scope }: Readonly<{ scope: SaleScope }>): React.JSX.Element {
       <StoreFilter
         stores={stores}
         value={storeId}
-        onChange={(next) => setSearch(next ? new URLSearchParams({ store: next }) : {})}
+        onApply={(next) => setSearch(next ? new URLSearchParams({ store: next }) : {})}
       />
       {validStore ? (
         <Rows list={list} filtered={storeId !== ""} nameOf={nameOf} />

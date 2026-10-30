@@ -9,7 +9,6 @@ export const salesDaily = {
 
   // --- Range form --------------------------------------------------------------
   "salesDaily.range.label": "نطاق أيام العمل",
-  "salesDaily.range.apply": "اعرض",
   "salesDaily.range.note": "31 يوم عمل على الأكثر، يشمل يومَي البداية والنهاية.",
   "salesDaily.range.rejected": "رفض الخادم هذا النطاق. استخدم تواريخ صحيحة، 31 يوم عمل على الأكثر.",
 

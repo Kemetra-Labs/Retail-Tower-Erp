@@ -143,6 +143,7 @@ export const saleSync = {
   "saleSync.list.storeNotFound": "هذا المتجر غير متاح لك.",
   "saleSync.list.unknownStore": "متجر غير معروف",
   "saleSync.list.openSale": "فتح البيع {ref}",
+  "saleSync.filter.label": "تصفية المبيعات التي تحتاج إلى إصلاح",
   "saleSync.filter.store": "المتجر",
   "saleSync.filter.allStores": "كل المتاجر",
   "saleSync.col.externalId": "المرجع في المصدر",
