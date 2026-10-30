@@ -22,9 +22,12 @@
 # (trigger only-build-prs) runs anything. Advisory, never a gate. Only a manual pipeline that
 # sets remote_suite starts them, and the owner holds that trigger; webhooks set no parameters.
 # Each job runs the remote-guard command before any install: the expected SHA, a non-main
-# branch, and a .circleci/ identical to origin/main, so the compiled config is main's whichever
-# branch CircleCI read it from. This repo and its CircleCI builds are public: the jobs read no
-# secrets and store test results only, no artifacts.
+# branch, and a .circleci/ identical to origin/main. Trigger with ONE branch for config and
+# checkout (`circleci pipeline run -b <branch>`), never a split config/checkout API call: then
+# the compiled config is that commit's, so an equal .circleci/ makes it main's. The guard pins
+# only .circleci/; the branch's own code (.nvmrc, packageManager, lockfile, build scripts,
+# tests) still runs, which is the point, and the protection is that the jobs read no secrets.
+# This repo and its CircleCI builds are public: the jobs store test results only, no artifacts.
 
 version: 2.1
 
@@ -110,8 +113,9 @@ commands:
               exit 1
             fi
             head="$(git rev-parse HEAD)"
-            if [ "$head" != "$EXPECTED_SHA" ] || [ "$PIPELINE_REVISION" != "$EXPECTED_SHA" ]; then
-              echo "Checked out $head (pipeline revision '$PIPELINE_REVISION'), expected $EXPECTED_SHA; refusing to run."
+            if [ "$head" != "$EXPECTED_SHA" ] || [ "$PIPELINE_REVISION" != "$EXPECTED_SHA" ] \
+              || [ "${CIRCLE_SHA1:-}" != "$EXPECTED_SHA" ]; then
+              echo "Checked out $head (pipeline revision '$PIPELINE_REVISION', CIRCLE_SHA1 '${CIRCLE_SHA1:-}'), expected $EXPECTED_SHA; refusing to run."
               exit 1
             fi
             if [ -z "${CIRCLE_BRANCH:-}" ] || [ "$CIRCLE_BRANCH" = "main" ]; then
@@ -120,8 +124,9 @@ commands:
             fi
             git fetch --quiet origin +refs/heads/main:refs/remotes/origin/main \
               || { echo "Could not fetch origin/main; refusing to run."; exit 1; }
-            # Equal .circleci/ means the compiled config is main's, whichever branch CircleCI
-            # fetched it from. --quiet exits 1 on a difference; anything non-zero refuses.
+            # With config and checkout from the same branch (see the header), an equal .circleci/
+            # means the compiled config is main's. --quiet exits 1 on a difference; anything
+            # non-zero refuses.
             rc=0
             git diff --quiet refs/remotes/origin/main HEAD -- .circleci/ || rc=$?
             if [ "$rc" -ne 0 ]; then
@@ -341,14 +346,13 @@ jobs:
           name: db and worker Jest with Testcontainers (remote, advisory)
           working_directory: ~/project/services/backend-core
           no_output_timeout: 10m
-          environment:
-            WORKER_INCLUDE_DB_TESTS: "1"
           command: |
             mkdir -p /tmp/remote /tmp/test-reports
             rc=0
             for pkg in packages/db apps/worker; do
               name="$(basename "$pkg")"
-              ( cd "$pkg" && timeout -k 2m 20m node_modules/.bin/jest --json --outputFile="/tmp/remote/$name-jest.json" ) || rc=1
+              # Only apps/worker/jest.config.cjs reads WORKER_INCLUDE_DB_TESTS.
+              ( cd "$pkg" && WORKER_INCLUDE_DB_TESTS=1 timeout -k 2m 20m node_modules/.bin/jest --json --outputFile="/tmp/remote/$name-jest.json" ) || rc=1
               node ~/project/.circleci/scripts/jest-json-to-junit.cjs "/tmp/remote/$name-jest.json" "/tmp/test-reports/remote-$name-jest.xml" "$PWD/$pkg" || rc=1
             done
             exit $rc
