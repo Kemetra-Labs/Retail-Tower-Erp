@@ -35,6 +35,13 @@ async function open(page: Page, route: string): Promise<void> {
       r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(summary) }),
     );
   }
+  if (route === "/erp-connection" || route === "/product-reconciliation") {
+    // The realistic mock has no ERP or reconciliation data: their reads fail
+    // cleanly, the panels show their errors, and the filter still renders.
+    const failed = { status: 500, contentType: "application/json", body: "{}" };
+    await page.route("**/api/v1/connector/**", (r) => r.fulfill(failed));
+    await page.route("**/api/v1/catalog/erpnext-**", (r) => r.fulfill(failed));
+  }
   await page.goto(route);
   await expect(page.locator(".filter-bar").first()).toBeVisible();
 }
