@@ -375,21 +375,24 @@ describe("SaleSyncSections (RT-726)", () => {
     expect(cachedSync(client)).toBe("failed-needs-repair");
   });
 
-  test("an older detail read still in flight cannot overwrite the repaired chip", async () => {
+  test("a detail read in flight keeps its newer fields, and the repaired chip lands on top", async () => {
     const client = seededClient();
     let finish: (value: unknown) => void = () => {};
-    const older = new Promise((resolve) => {
+    const inFlight = new Promise((resolve) => {
       finish = resolve;
     });
     void client
-      .fetchQuery({ queryKey: DETAIL_KEY, queryFn: () => older, staleTime: 0 })
+      .fetchQuery({ queryKey: DETAIL_KEY, queryFn: () => inFlight, staleTime: 0 })
       .catch(() => undefined);
+    // The repair outcome never waits on the detail read.
     await confirmRepaired(client);
     await act(async () => {
-      finish({ summary: { saleRef: SALE, syncStatus: "failed-needs-repair" } });
-      await older;
+      finish({ summary: { saleRef: SALE, syncStatus: "failed-needs-repair", voided: true } });
+      await inFlight;
     });
-    expect(cachedSync(client)).toBe("failed-retryable");
+    await waitFor(() => expect(cachedSync(client)).toBe("failed-retryable"));
+    const summary = client.getQueryData<{ summary: { voided?: boolean } }>(DETAIL_KEY)?.summary;
+    expect(summary?.voided).toBe(true);
   });
 
   test("an unconfirmed repair leaves the sale detail alone, so the kept key survives", async () => {

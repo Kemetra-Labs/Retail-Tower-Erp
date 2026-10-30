@@ -222,8 +222,9 @@ export interface RepairState {
  * The sale detail's header chip reads the same `sync_status`: after a confirmed
  * repair, write the server's answer into it so the chip and this section agree
  * (RT-956). Never a refetch: a failed detail read would unmount this hook and
- * drop its key. An older read in flight is cancelled first, an errored read is
- * left to show its error, and the detail keeps its own freshness time.
+ * drop its key. A read in flight settles first (its newer fields are kept and
+ * the confirmed status lands on top), an errored read is left to show its
+ * error, and the detail keeps its own freshness time.
  */
 async function writeDetailSync(
   queryClient: QueryClient,
@@ -231,7 +232,8 @@ async function writeDetailSync(
   syncStatus: SaleDetail["summary"]["syncStatus"],
 ): Promise<void> {
   const queryKey = saleQueryKeys.detail(target.scope, target.saleRef);
-  await queryClient.cancelQueries({ queryKey, exact: true });
+  const query = queryClient.getQueryCache().find<SaleDetail>({ queryKey, exact: true });
+  if (query?.state.fetchStatus === "fetching") await query.promise?.catch(() => undefined);
   const state = queryClient.getQueryState<SaleDetail>(queryKey);
   if (state?.status !== "success" || !state.data) return;
   const { data } = state;
@@ -266,7 +268,8 @@ export function useRepairSale(target: SaleTarget): RepairState {
     if (!keepsKey(next)) key.current = undefined;
     if (next.kind === "repaired") {
       queryClient.setQueryData(saleSyncQueryKeys.status(target), next.status);
-      await writeDetailSync(queryClient, target, next.status.syncStatus);
+      // Not awaited: the outcome never waits on a detail read in flight.
+      void writeDetailSync(queryClient, target, next.status.syncStatus);
     } else {
       void queryClient.invalidateQueries({ queryKey: saleSyncQueryKeys.status(target) });
     }
