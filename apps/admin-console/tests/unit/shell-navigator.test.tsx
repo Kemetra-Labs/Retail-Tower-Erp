@@ -229,7 +229,10 @@ describe("what it offers", () => {
     renderShell();
     fireEvent.click(trigger());
     const retry = await screen.findByRole("button", { name: "Try again" });
-    expect(screen.getByText("Couldn't load stores.")).toBeDefined();
+    // Announced once, in the dialog's polite status region.
+    const status = within(dialog()).getByRole("status");
+    expect(status.textContent).toBe("Couldn't load stores.");
+    expect(screen.getAllByText("Couldn't load stores.")).toHaveLength(1);
     // Pages still work, and All stores stays a valid choice.
     expect(optionNames()).toContain("Overview");
     expect(optionNames()).toContain("All stores(current)");
@@ -244,6 +247,8 @@ describe("what it offers", () => {
     await screen.findByRole("option", { name: /New Cairo Mall/ });
     expect(listStores.mock.calls.length).toBeGreaterThan(calls);
     expect(screen.queryByText("Couldn't load stores.")).toBeNull();
+    // The retry went away with the failure; focus is back on the combobox.
+    expect(document.activeElement).toBe(combobox());
   });
 
   test("folds case, Arabic marks and letter variants", () => {

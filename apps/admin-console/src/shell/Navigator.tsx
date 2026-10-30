@@ -318,6 +318,11 @@ export function NavigatorDialog({
     ) : null;
 
   const listId = `${baseId}-list`;
+  let statusText = "";
+  if (stores.failed) statusText = t("shell.scope.loadFailed");
+  else if (shown.length === 0 && !stores.loading) {
+    statusText = t("shell.navigator.empty", { query: query.trim() });
+  }
   return (
     <div ref={scrimRef} className="navigator-scrim">
       <dialog open className="navigator" aria-modal="true" aria-label={t("shell.navigator.title")}>
@@ -360,14 +365,21 @@ export function NavigatorDialog({
           {renderGroup(`${baseId}-stores`, t("shell.navigator.stores"), shownStores)}
         </div>
         {stores.loading ? <p className="navigator__note">{t("shell.scope.loading")}</p> : null}
+        {/* Mounted from the start, so a failure or an empty result is announced. */}
+        <output className="navigator__note" aria-live="polite">
+          {statusText}
+        </output>
         {stores.failed ? (
-          <div className="navigator__note navigator__failed">
-            <span>{t("shell.scope.loadFailed")}</span>
+          <div className="navigator__retry">
             <button
               ref={retryRef}
               type="button"
               className="btn-ghost"
-              onClick={stores.retry}
+              onClick={() => {
+                // A successful retry removes this button: keep focus in the dialog.
+                inputRef.current?.focus();
+                stores.retry();
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Tab") {
                   e.preventDefault();
@@ -382,11 +394,6 @@ export function NavigatorDialog({
             </button>
           </div>
         ) : null}
-        <output className="navigator__note" aria-live="polite">
-          {shown.length === 0 && !stores.loading && !stores.failed
-            ? t("shell.navigator.empty", { query: query.trim() })
-            : ""}
-        </output>
       </dialog>
     </div>
   );

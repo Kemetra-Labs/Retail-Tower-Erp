@@ -163,13 +163,9 @@
 .navigator__note:empty {
   display: none;
 }
-/* A failed store list: what happened, then the retry (as in the scope menu). */
-.navigator__failed {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-3);
-  border-top: 1px solid var(--color-border);
+/* A failed store list: the retry under the announced note (as in the scope menu). */
+.navigator__retry {
+  padding: 0 var(--space-4) var(--space-3);
 }
 
 @media (prefers-reduced-motion: reduce) {
