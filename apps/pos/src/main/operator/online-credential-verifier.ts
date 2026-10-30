@@ -1,6 +1,6 @@
 import type { RefusalCategory } from '../../shared/audit/event-shape.js';
 
-import type { ClerkExchanger } from './clerk-client.js';
+import type { OperatorExchanger } from './operator-exchanger.js';
 
 /**
  * RT-117 + RT-358 — the manager/admin online credential check, shared by the
@@ -21,7 +21,7 @@ import type { ClerkExchanger } from './clerk-client.js';
  */
 
 export interface OnlineCredentialVerifierDeps {
-  clerk: ClerkExchanger;
+  clerk: OperatorExchanger;
   now?: () => Date;
 }
 

@@ -93,7 +93,7 @@ start the POS.
 | Variable | Pilot rule | Sensitivity |
 | :-- | :-- | :-- |
 | `VITE_API_BASE_URL` | **Required.** The pilot Backend-Core base URL. Unset falls back to the non-routable `https://example.invalid`, so pairing, read-down and sync fail closed. | Not a secret, but environment endpoints are **not** published in the repo, Jira or screenshots. |
-| `CLERK_PUBLISHABLE_KEY` | **Required** for manager/admin sign-in. Unset or malformed means sign-in refuses. | Not a secret (a publishable key). Still kept out of the repo. |
+| `DESCOPE_PROJECT_ID` | **Required** for manager/admin sign-in (Descope is the only identity provider, RT-945). Unset or malformed means sign-in refuses. Leave `OPERATOR_IDENTITY_PROVIDER` unset or `descope`; any other value refuses sign-in. | Not a secret (a public project id). Still kept out of the repo. |
 | `SENTRY_DSN` | Optional. Unset means crash reporting is inert. | Treat as sensitive: never printed, pasted or screenshotted. |
 | `POS_PULSE_FEATURE_SALE_VOID` | **Off (unset) until the Backend-Core void approval (RT-530, `sales.yaml` 1.8.0-draft, migration `0046_sale_void_approval`) is deployed.** Then `1` turns on «إلغاء بيع» (`/app/void`): a finalized sale is voided only the same business day, with another manager's RT-114 PIN (never the requester, never the sale's selling operator). The void is queued and sent under the requester's own operator envelope once the sale has synced and the requester is signed in online; Backend-Core may still refuse it, and a refusal stays visible until acknowledged. The terminal's clock and timezone must match the store's timezone (Backend-Core compares the sale's business day in the store timezone). | Not a secret. |
 | `POS_PULSE_FEATURE_SHIFT_CASHUP` | **Off (unset) on every pilot terminal until the owner accepts the RT-17 evidence.** Then `1` turns on the shift cash-up: open a shift with a float, record pay-ins and pay-outs, close with a blind count. It needs Backend-Core `481eb26` or later with migration `0036_shift_cash_up` and both domain-grant scripts applied first (the Backend-Core deploy runbook, `deploy/README.md`). See §7 for the rule when a terminal is revoked, re-paired or moved. | Not a secret. |
@@ -173,7 +173,7 @@ removes the reason for choosing it. The §6.1 check fails on such an account.
      'POS_PULSE_FEATURE_VOUCHER_TENDER'    = '0'
      'POS_PULSE_FEATURE_CARD_TENDER'       = '0'
      'VITE_API_BASE_URL'                   = '<pilot Backend-Core base URL>'
-     'CLERK_PUBLISHABLE_KEY'               = '<pilot Clerk publishable key>'
+     'DESCOPE_PROJECT_ID'                  = '<pilot Descope project id>'
      # Only on a terminal that self-updates (RT-322): the https update origin and the channel, lab | canary | stable.
      'ELECTRON_UPDATE_FEED_URL'            = '<update origin, https>'
      'POS_PULSE_UPDATE_CHANNEL'            = '<lab|canary|stable>'
@@ -243,7 +243,7 @@ $fin = On ([Environment]::GetEnvironmentVariable('POS_PULSE_FEATURE_SALE_FINALIZ
 Check (-not ($pay -and -not $fin)) 'D-1: PAYMENTS is not on while SALE_FINALIZATION is off'
 $userPos = @((Get-Item 'HKCU:\Environment').Property | Where-Object { $_ -like 'POS_PULSE_*' })
 Check ($userPos.Count -eq 0) "no POS_PULSE_* variable in User scope (found: $($userPos -join ', '))"
-foreach ($n in 'VITE_API_BASE_URL','CLERK_PUBLISHABLE_KEY') {
+foreach ($n in 'VITE_API_BASE_URL','DESCOPE_PROJECT_ID') {
   Check (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($n, 'Machine'))) "$n is set in Machine scope (value not shown)"
 }
 # RT-322 update origin and channel. Skip this block on a terminal that does not self-update

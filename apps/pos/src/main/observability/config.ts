@@ -5,7 +5,7 @@ import type { ObservabilityStamp } from './scrub.js';
  *
  * All three values are runtime environment variables of the launched exe, read
  * in MAIN only, on the same route as `VITE_API_BASE_URL` and
- * `CLERK_PUBLISHABLE_KEY` (the lab launcher feeds them through `op run` from
+ * `DESCOPE_PROJECT_ID` (the lab launcher feeds them through `op run` from
  * 1Password). Nothing is baked into the asar or inlined into the renderer
  * bundle, and the DSN never crosses the bridge.
  *

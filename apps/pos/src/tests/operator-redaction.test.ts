@@ -6,7 +6,10 @@ import pino from 'pino';
 import { SignInHandler } from '../main/operator/sign-in-handler.js';
 import { SignOutHandler } from '../main/operator/sign-out-handler.js';
 import { SessionManager } from '../main/operator/session-manager.js';
-import type { ClerkExchanger, ClerkExchangeResult } from '../main/operator/clerk-client.js';
+import type {
+  OperatorExchanger,
+  OperatorExchangeResult,
+} from '../main/operator/operator-exchanger.js';
 import type { BackendClient, BackendSignInResponse } from '../main/operator/backend-client.js';
 import { ProtoSessionStore } from '../main/operator/takeover-handler.js';
 
@@ -91,7 +94,7 @@ const SUCCESS_BACKEND: BackendSignInResponse = {
   operator_session: { id: 'be-1', issued_at: '2026-05-06T00:00:00.000Z' },
 };
 
-function fakeClerk(result: ClerkExchangeResult): ClerkExchanger {
+function fakeClerk(result: OperatorExchangeResult): OperatorExchanger {
   return { exchange: vi.fn(() => Promise.resolve(result)) };
 }
 
@@ -121,7 +124,7 @@ describe('T025 — operator sign-in cross-process redaction', () => {
 
   const scenarios: Array<{
     label: string;
-    clerk: () => ClerkExchanger;
+    clerk: () => OperatorExchanger;
     backend: () => BackendClient;
   }> = [
     {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ClerkExchanger } from '../clerk-client.js';
+import type { OperatorExchanger } from '../operator-exchanger.js';
 import { createDescopeExchanger } from '../descope-client.js';
 import { OnlineCredentialVerifier } from '../online-credential-verifier.js';
 
@@ -16,7 +16,7 @@ import { OnlineCredentialVerifier } from '../online-credential-verifier.js';
 const PROJECT_ID = 'P2abcdefghijklmnopqrstuvwxyz';
 const SESSION_JWT = 'eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJVMSJ9.c2Vzc2lvbg';
 
-function descopeReturning(userId: string): ClerkExchanger {
+function descopeReturning(userId: string): OperatorExchanger {
   const body = { sessionJwt: SESSION_JWT, refreshJwt: 'r', user: { userId, name: 'M' } };
   return createDescopeExchanger({
     projectId: PROJECT_ID,

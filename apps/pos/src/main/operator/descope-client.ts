@@ -1,15 +1,15 @@
 /**
- * RT-792 — Descope credential exchange (RT-790 approach A).
+ * RT-792 / RT-945 — Descope credential exchange, the only identity provider.
  *
- * The Descope counterpart of `clerk-client.ts`: the POS main process exchanges
+ * The POS main process exchanges
  * the manager/admin identifier + password against Descope's password sign-in
  * API for a session JWT, which Backend-Core then verifies (its
  * `IDENTITY_PROVIDER` verifier, RT-791). The password never reaches
  * Backend-Core and never leaves the main process except in this one request.
  *
- * It implements the existing `ClerkExchanger` protocol (name kept to avoid
- * churn) so the sign-in, takeover, re-auth and unlock paths are unchanged.
- * After the cutover Backend-Core returns the Descope userId as `operator.id`,
+ * It implements the provider-neutral `OperatorExchanger` protocol used by the
+ * sign-in, takeover, re-auth and unlock paths. After the cutover Backend-Core
+ * returns the Descope userId as `operator.id`,
  * so the online re-auth identity check keeps comparing like with like.
  *
  * One call: `POST {base}/v1/auth/password/signin` with
@@ -17,14 +17,18 @@
  * project id is a public client identifier, not a secret. The response's
  * `refreshJwt` is discarded: POS stores no refresh token (RT-358 re-auth).
  *
- * Same rules as the Clerk exchanger: non-2xx or a malformed body →
+ * Non-2xx or a malformed body →
  * `{ kind: 'refused' }` with no factor detail (PR-2); a transport failure or
  * timeout → `{ kind: 'no_connection' }`. The password is consumed by one
  * `JSON.stringify` of the request body that is sent and never logged, and no
  * returned value or propagated error carries it (PR-1).
  */
 
-import type { ClerkExchanger, ClerkExchangeRequest, ClerkExchangeResult } from './clerk-client.js';
+import type {
+  OperatorExchanger,
+  OperatorExchangeRequest,
+  OperatorExchangeResult,
+} from './operator-exchanger.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -63,12 +67,12 @@ export interface CreateDescopeExchangerDeps {
   timeoutMs?: number;
 }
 
-export function createDescopeExchanger(deps: CreateDescopeExchangerDeps): ClerkExchanger {
+export function createDescopeExchanger(deps: CreateDescopeExchangerDeps): OperatorExchanger {
   const { fetch: fetchImpl, projectId } = deps;
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   return {
-    async exchange(req: ClerkExchangeRequest): Promise<ClerkExchangeResult> {
+    async exchange(req: OperatorExchangeRequest): Promise<OperatorExchangeResult> {
       const signal = AbortSignal.timeout(timeoutMs);
       let res: Response;
       try {
@@ -119,7 +123,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 /** Map a parsed sign-in body; anything missing or malformed is a generic refusal. */
-function toExchangeResult(parsed: unknown): ClerkExchangeResult {
+function toExchangeResult(parsed: unknown): OperatorExchangeResult {
   const body: DescopeSignInResponse | null = asRecord(parsed);
   // An empty `sessionJwt` means the project hands tokens out in cookies only.
   const jwt = nonEmptyString(body?.sessionJwt);
@@ -131,8 +135,8 @@ function toExchangeResult(parsed: unknown): ClerkExchangeResult {
     jwt,
     operator_id: userId,
     display_name: displayName(user, userId),
-    // Same default as the Clerk exchanger, for the same takeover-safety reason
-    // (see `mapRole` in clerk-client.ts): Backend-Core is the role authority.
+    // Takeover-safe default (see `OperatorExchangeSuccess.role`): Backend-Core
+    // is the role authority.
     role: 'manager',
   };
 }

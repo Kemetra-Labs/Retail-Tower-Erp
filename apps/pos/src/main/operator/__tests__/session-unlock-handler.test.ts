@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { SessionManager } from '../session-manager.js';
 import { SessionUnlockHandler } from '../session-unlock-handler.js';
-import type { ClerkExchanger, ClerkExchangeResult } from '../clerk-client.js';
+import type { OperatorExchanger, OperatorExchangeResult } from '../operator-exchanger.js';
 import type { Role } from '../../../shared/operator/role.js';
 
 /**
@@ -33,11 +33,11 @@ function lockedSession(role: Role, operator_id = 'op-1'): SessionManager {
   return sm;
 }
 
-function clerkReturning(result: ClerkExchangeResult): ClerkExchanger {
+function clerkReturning(result: OperatorExchangeResult): OperatorExchanger {
   return { exchange: vi.fn(() => Promise.resolve(result)) };
 }
 
-const OK_CLERK = (operator_id: string): ClerkExchangeResult => ({
+const OK_CLERK = (operator_id: string): OperatorExchangeResult => ({
   kind: 'ok',
   jwt: 'jwt-fresh',
   operator_id,
@@ -52,7 +52,7 @@ function handler(
       operator_id: string,
       pin: string,
     ) => Promise<null | { kind: 'refused'; category: 'invalid_input' | 'rate_limited' }>;
-    clerk?: ClerkExchanger;
+    clerk?: OperatorExchanger;
   } = {},
 ): SessionUnlockHandler {
   return new SessionUnlockHandler({
@@ -274,10 +274,10 @@ describe('RT-117 SessionUnlockHandler — single-flight unlock (§A4 M1)', () =>
 
 describe('RT-117 SessionUnlockHandler — online-credential attempt limiter (§A4 M2)', () => {
   const REQ = { method: 'online_credential', identifier: 'm@x', password: 'pw' } as const;
-  const REFUSED: ClerkExchangeResult = { kind: 'refused' };
+  const REFUSED: OperatorExchangeResult = { kind: 'refused' };
 
   function managerHandler(
-    exchange: ClerkExchanger['exchange'],
+    exchange: OperatorExchanger['exchange'],
     clock: { now: Date },
     sm: SessionManager = lockedSession('manager', 'mgr-1'),
   ): SessionUnlockHandler {
@@ -289,7 +289,7 @@ describe('RT-117 SessionUnlockHandler — online-credential attempt limiter (§A
     });
   }
 
-  function sequence(results: ClerkExchangeResult[]): ClerkExchanger['exchange'] {
+  function sequence(results: OperatorExchangeResult[]): OperatorExchanger['exchange'] {
     return vi.fn(() => Promise.resolve(results.shift() ?? REFUSED));
   }
 
@@ -317,7 +317,7 @@ describe('RT-117 SessionUnlockHandler — online-credential attempt limiter (§A
   });
 
   it('does not count a network failure (an outage never locks the manager out)', async () => {
-    const offline: ClerkExchangeResult = { kind: 'no_connection' };
+    const offline: OperatorExchangeResult = { kind: 'no_connection' };
     const exchange = vi.fn(() => Promise.resolve(offline));
     const h = managerHandler(exchange, at('2026-10-01T10:12:00.000Z'));
 

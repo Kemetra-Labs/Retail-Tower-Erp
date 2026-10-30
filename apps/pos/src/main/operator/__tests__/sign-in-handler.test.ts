@@ -3,12 +3,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { SignInHandler } from '../sign-in-handler.js';
 import { SessionManager } from '../session-manager.js';
 import { createJwtHolder } from '../jwt-holder.js';
-import {
-  createClerkExchanger,
-  type ClerkExchanger,
-  type ClerkExchangeRequest,
-  type ClerkExchangeResult,
-} from '../clerk-client.js';
+import { createDescopeExchanger } from '../descope-client.js';
+import type {
+  OperatorExchanger,
+  OperatorExchangeRequest,
+  OperatorExchangeResult,
+} from '../operator-exchanger.js';
 import type { BackendClient, BackendSignInResponse } from '../backend-client.js';
 import { ProtoSessionStore } from '../takeover-handler.js';
 
@@ -32,7 +32,7 @@ import { ProtoSessionStore } from '../takeover-handler.js';
  *    contains the secret values).
  */
 
-function fakeClerk(result: ClerkExchangeResult, calls: unknown[] = []): ClerkExchanger {
+function fakeClerk(result: OperatorExchangeResult, calls: unknown[] = []): OperatorExchanger {
   return {
     exchange: vi.fn((req) => {
       calls.push(req);
@@ -81,7 +81,7 @@ const SUCCESS_BACKEND_RESPONSE: BackendSignInResponse = {
 };
 
 const HAPPY_JWT = 'eyJhbGciOiJSUzI1NiJ9.fake.jwt';
-const HAPPY_CLERK_RESULT: ClerkExchangeResult = {
+const HAPPY_CLERK_RESULT: OperatorExchangeResult = {
   kind: 'ok',
   jwt: HAPPY_JWT,
   operator_id: 'clerk-user-1',
@@ -421,7 +421,7 @@ describe('SignInHandler — manager/admin path', () => {
  * path before the Clerk exchange; the password is passed through byte-for-byte.
  */
 describe('SignInHandler — RT-42 identifier trimming', () => {
-  function handlerWith(clerk: ClerkExchanger): SignInHandler {
+  function handlerWith(clerk: OperatorExchanger): SignInHandler {
     return new SignInHandler({
       clerk,
       backend: fakeBackend(SUCCESS_BACKEND_RESPONSE),
@@ -436,7 +436,7 @@ describe('SignInHandler — RT-42 identifier trimming', () => {
     ['leading space', ' manager@pharmacy.test'],
     ['both sides, mixed whitespace', ' \t manager@pharmacy.test \n '],
   ])('sends the trimmed identifier to Clerk (%s) and signs in', async (_label, raw) => {
-    const calls: ClerkExchangeRequest[] = [];
+    const calls: OperatorExchangeRequest[] = [];
     const handler = handlerWith(fakeClerk(HAPPY_CLERK_RESULT, calls));
 
     const res = await handler.signIn({
@@ -451,7 +451,7 @@ describe('SignInHandler — RT-42 identifier trimming', () => {
   });
 
   it('never trims or transforms the password (surrounding spaces preserved)', async () => {
-    const calls: ClerkExchangeRequest[] = [];
+    const calls: OperatorExchangeRequest[] = [];
     const handler = handlerWith(fakeClerk(HAPPY_CLERK_RESULT, calls));
     const password = '  p@ss word\t ';
 
@@ -467,7 +467,7 @@ describe('SignInHandler — RT-42 identifier trimming', () => {
   });
 
   it('a whitespace-only password is passed through unchanged (not treated as empty)', async () => {
-    const calls: ClerkExchangeRequest[] = [];
+    const calls: OperatorExchangeRequest[] = [];
     const handler = handlerWith(fakeClerk(HAPPY_CLERK_RESULT, calls));
 
     await handler.signIn({ kind: 'manager_admin', identifier: 'm@x.test', password: '   ' });
@@ -477,7 +477,7 @@ describe('SignInHandler — RT-42 identifier trimming', () => {
   });
 
   it('a whitespace-only identifier is refused generically without calling Clerk', async () => {
-    const calls: ClerkExchangeRequest[] = [];
+    const calls: OperatorExchangeRequest[] = [];
     const handler = handlerWith(fakeClerk(HAPPY_CLERK_RESULT, calls));
 
     const res = await handler.signIn({
@@ -490,30 +490,30 @@ describe('SignInHandler — RT-42 identifier trimming', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('wire level: the real Clerk exchanger posts the trimmed identifier and the exact password', async () => {
+  it('wire level: the real Descope exchanger posts the trimmed identifier and the exact password', async () => {
     const bodies: string[] = [];
     const fetchImpl = (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       bodies.push(typeof init?.body === 'string' ? init.body : '');
-      // Refuse the attempt — only the outbound sign_ins body matters here.
-      return Promise.resolve(new Response('{}', { status: 422 }));
+      // Refuse the attempt — only the outbound sign-in body matters here.
+      return Promise.resolve(new Response('{}', { status: 401 }));
     };
-    const clerk = createClerkExchanger({
+    const exchanger = createDescopeExchanger({
       fetch: fetchImpl,
-      frontendApiBaseUrl: 'https://clerk.example.com',
+      projectId: 'P2abcdefghijklmnopqrstuvwxyz',
     });
     const password = ' secret with spaces ';
 
-    const res = await handlerWith(clerk).signIn({
+    const res = await handlerWith(exchanger).signIn({
       kind: 'manager_admin',
       identifier: '  manager@pharmacy.test ',
       password,
     });
 
-    // Clerk refusal disclosure is unchanged: still the single generic category.
+    // Provider refusal disclosure is unchanged: still the single generic category.
     expect(res).toEqual({ kind: 'refused', category: 'invalid_input' });
     expect(bodies).toHaveLength(1);
-    const form = new URLSearchParams(bodies[0]);
-    expect(form.get('identifier')).toBe('manager@pharmacy.test');
-    expect(form.get('password')).toBe(password);
+    const body = JSON.parse(bodies[0] ?? '{}') as { loginId?: string; password?: string };
+    expect(body.loginId).toBe('manager@pharmacy.test');
+    expect(body.password).toBe(password);
   });
 });

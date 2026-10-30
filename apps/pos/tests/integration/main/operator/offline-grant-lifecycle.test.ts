@@ -30,7 +30,7 @@ import {
   createOfflineGrantWiring,
   type OfflineGrantWiring,
 } from '../../../../src/main/operator/offline-grant-wiring.js';
-import type { ClerkExchanger } from '../../../../src/main/operator/clerk-client.js';
+import type { OperatorExchanger } from '../../../../src/main/operator/operator-exchanger.js';
 import type { InactivityMonitor } from '../../../../src/main/operator/inactivity-monitor.js';
 import type { PinManagementHandler } from '../../../../src/main/operator/pin-management.js';
 import type { ForcedCloseHandler } from '../../../../src/main/operator/forced-close-handler.js';
@@ -226,7 +226,7 @@ function wire(grantStore: OfflineGrantStore = store): Wired {
   } as unknown as IpcMain;
   registerOperatorHandlers(ipcMain, {
     signInHandler: new SignInHandler({
-      clerk: {} as ClerkExchanger,
+      clerk: {} as OperatorExchanger,
       backend,
       sessionManager: sessions,
       deviceTokenAttestation: () => DEVICE_TOKEN,
