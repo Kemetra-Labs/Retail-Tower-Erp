@@ -38,7 +38,7 @@
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
-  min-block-size: 36px;
+  min-block-size: var(--control-h);
   font-size: var(--text-control);
 }
 .cash-policy__radio input {

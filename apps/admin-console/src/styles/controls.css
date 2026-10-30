@@ -29,7 +29,7 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  min-height: 36px;
+  min-height: var(--control-h);
   padding: 0 var(--space-4);
   background-color: var(--btn-bg);
   border: 1px solid var(--btn-edge);
@@ -64,8 +64,8 @@
  * (and a drawer's main action) follows it; desktop density stays 36px. */
 @media (max-width: 768px) {
   .btn-primary {
-    min-width: 44px;
-    min-height: 44px;
+    min-width: var(--target-touch);
+    min-height: var(--target-touch);
   }
 }
 
@@ -114,20 +114,24 @@
   background-color: var(--btn-bg-press);
   transform: translateY(1px);
 }
-/* Unavailable reads as recessed, not faded: the label stays legible. */
+/* Unavailable reads as recessed, not faded: the label stays legible. A busy
+ * button is not unavailable: it keeps its variant colours (below). */
 :is(.btn-primary, .btn-secondary, .btn-ghost, .btn-danger-quiet, .btn-destructive):is(
     :disabled,
     [aria-disabled="true"]
-  ) {
+  ):not([aria-busy="true"]) {
   background-color: var(--color-surface-sunken);
   border-color: var(--color-border);
   color: var(--color-text-muted);
   cursor: not-allowed;
 }
-.btn-ghost:is(:disabled, [aria-disabled="true"]) {
+.btn-ghost:is(:disabled, [aria-disabled="true"]):not([aria-busy="true"]) {
   background-color: transparent;
   border-color: transparent;
 }
+/* Busy (RT-959, BusyButton): aria-busy + aria-disabled, never native disabled,
+ * so the button keeps focus. It keeps its colours, takes no hover or press
+ * (both rules skip aria-disabled), and shows the shared spinner. */
 :is(
     .btn-primary,
     .btn-secondary,
@@ -185,11 +189,14 @@
   color: var(--color-danger);
 }
 
+/* Single-line inputs and selects are exactly one control tall (RT-959): the box
+ * is fixed, so the generous Arabic leading never grows it and diacritics keep
+ * their room. A textarea grows with its rows. */
 .input {
   display: block;
   width: 100%;
-  min-height: 36px;
-  padding: var(--space-2) var(--space-3);
+  block-size: var(--control-h);
+  padding: 0 var(--space-3);
   background-color: var(--color-surface);
   border: 1px solid var(--color-control-border);
   border-radius: var(--radius-control);
@@ -209,8 +216,24 @@
   border-color: var(--color-danger);
   box-shadow: 0 0 0 1px var(--color-danger);
 }
-.input:disabled {
-  opacity: 0.55;
+textarea.input {
+  block-size: auto;
+  min-block-size: var(--control-h);
+  padding-block: var(--space-2);
+}
+/* Unavailable is recessed, not faded (as buttons): sunken fill, quiet edge,
+ * muted text that stays legible. */
+.input:is(:disabled, [aria-disabled="true"]) {
+  background-color: var(--color-surface-sunken);
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+/* One checkbox size everywhere (RT-959). */
+input[type="checkbox"] {
+  inline-size: 18px;
+  block-size: 18px;
 }
 
 .field {
