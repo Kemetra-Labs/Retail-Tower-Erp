@@ -10,6 +10,7 @@ Output is ASCII JSON so it is safe on any console encoding."""
 import argparse
 import json
 import pathlib
+import re
 import sys
 
 from . import aggregate as ag
@@ -125,6 +126,61 @@ def cmd_boundary(args):
     return 0 if result["ok"] else 1
 
 
+def _load_evidence_dir(path):
+    """`<dir>/candidates.json` ([{sha, event}], newest first) and, per candidate, `<dir>/<sha>/`
+    holding runs.json, checks.json and job-<run id>.json for every run. A missing or unreadable
+    file makes that candidate's evidence an error (the selector then answers full)."""
+    root = pathlib.Path(path)
+    candidates, evidence = [], {}
+    for c in _read_json(root / "candidates.json") or []:
+        sha = c.get("sha") if isinstance(c, dict) else None
+        if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+            continue
+        candidates.append((sha, c.get("event")))
+        d = root / sha
+        runs, checks = _read_json(d / "runs.json"), _read_json(d / "checks.json")
+        if not isinstance(runs, list) or not isinstance(checks, list):
+            evidence[sha] = {"error": "unreadable"}
+            continue
+        jobs = {}
+        for run in runs:
+            j = _read_json(d / f"job-{run.get('id')}.json")
+            if not isinstance(j, list):
+                break
+            jobs[run.get("id")] = j
+        else:
+            evidence[sha] = {"runs": runs, "jobs": jobs, "checks": checks}
+            continue
+        evidence[sha] = {"error": "jobs"}
+    return candidates, evidence
+
+
+def cmd_api_jest_select(args):
+    """RT-949 shadow selector. Never fails the caller: every problem becomes mode=full."""
+    from . import api_jest_select as sel
+    candidates, evidence = _load_evidence_dir(args.evidence_dir)
+    selection = sel.select_from_repo(args.repo, args.base, args.head, args.event, candidates,
+                                     evidence, args.repo_name)
+    pathlib.Path(args.out).write_text(json.dumps(selection.as_dict(), ensure_ascii=True), encoding="utf-8")
+    _emit(selection.as_dict())
+    return 0
+
+
+def cmd_api_jest_report(args):
+    """RT-949 shadow report: selection vs the full run's Jest JSON. Always exits 0."""
+    from . import api_jest_select as sel
+    selection = _read_json(args.selection) or {"mode": "full", "reason": "NO_SELECTION"}
+    selected_path = pathlib.Path(args.selected)
+    selected = [line.strip() for line in selected_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()] if selected_path.is_file() else []
+    try:
+        total = int(pathlib.Path(args.total).read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        total = None
+    _emit(sel.report(selection, selected, total, _read_json(args.results)))
+    return 0
+
+
 def cmd_privileges(args):
     from .privileges import scan_repo
     problems = scan_repo(args.repo)
@@ -167,6 +223,21 @@ def main(argv=None):
         c.add_argument("--rev", default="HEAD")
         c.add_argument("--graph", default=str(DEFAULT_GRAPH))
         c.set_defaults(func=func)
+
+    js = sub.add_parser("api-jest-select")
+    js.add_argument("--repo", default=".")
+    js.add_argument("--base", required=True, help="current PR base; its graph.yaml is used")
+    js.add_argument("--head", required=True)
+    js.add_argument("--event", required=True)
+    js.add_argument("--repo-name", required=True)
+    js.add_argument("--evidence-dir", required=True, help="candidates.json + one directory of REST dumps per candidate")
+    js.add_argument("--out", required=True)
+    js.set_defaults(func=cmd_api_jest_select)
+
+    jr = sub.add_parser("api-jest-report")
+    for opt in ("--selection", "--selected", "--total", "--results"):
+        jr.add_argument(opt, required=True)
+    jr.set_defaults(func=cmd_api_jest_report)
 
     pv = sub.add_parser("privileges")
     pv.add_argument("--repo", default=".")

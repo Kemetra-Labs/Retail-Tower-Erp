@@ -21,6 +21,7 @@ The design comes from [RT-709 §A](https://rahmaqanater.atlassian.net/wiki/space
 | `pgraph/boundary.py` | B.1 layer-1 cross-product reference check (dependency-free `scan`), hardened by RT-873 |
 | `pgraph/gitio.py` | Git plumbing adapter (`diff --raw -z`, `ls-tree`, `cat-file --batch`); no checkout |
 | `pgraph/privileges.py` | R5 / T-A static check of the root workflows (and any `tools/ci-gate/*.staged` file) (`python -m pgraph privileges`) |
+| `pgraph/api_jest_select.py` | RT-949 Backend-Core API Jest **shadow** selector and report (`api-jest-select`, `api-jest-report`); advisory only |
 | `boundary-todo.yaml` | Boundary ratchet (one entry, RT-715). Entries may only be removed; a stale entry fails `boundary` |
 | `fixtures/` | P01–P19 (RT-709 A.6) and X01–X08 (new, see below) with hand-written expectations |
 | `tests/` | unittest suite, including the fixture runner and a real-tree acceptance check |
@@ -57,6 +58,18 @@ Only the canonical guard shape is accepted (see `guard_keys`), so `always() || .
 **Policy paths inside products.** Policy classes are checked before product ownership, and only a `policy_change` class may reach into a product root (rule 2), so a product path matched by `policy` never becomes `AMBIGUOUS_PATH`. The boundary check still treats such paths as product code (`Graph.product_of`). `apps/*/.github/**`, `services/*/.github/**` and `integrations/*/.github/**` are `policy` (root jobs execute scripts from there, e.g. `fetch-pinned-contracts.sh`). They landed in a separate PR after the rule-2 relaxation, because the gate validates a proposed graph with the base validator.
 
 **Semantic edges.** Backend-Core `sales`, `money` and `posting-sync` also select `pos/static` and `pos/test`. Connector `posting-sync` also selects `bc/fast`.
+
+## API Jest impact selection, shadow only (RT-949 Phase 1)
+
+Design: RT-946 comment 14579; scope: RT-949 comment 14580. On every pull request `bc/db-integration` reports which API specs a fast mode **would** have run, then runs the whole suite with coverage exactly as before. Nothing is skipped, and the report cannot change the job, its coverage gate or `required` (every shadow step is `continue-on-error`).
+
+- **Fast class (graph data).** `graph.yaml` `products.backend-core.api_jest_fast` lists the globs a path must match, and the path must also be in no Backend-Core tier (untiered `high` only). Adding a tier shrinks the fast class without touching the selector. Validated by `graph.py` (`SCHEMA: ...api_jest_fast`, `TIER_GLOB_OUTSIDE_PRODUCT`).
+- **Anchor, never "the previous push".** The newest PR commit (up to 20) whose latest `bc/db-integration` is green under the gate's own rules (`aggregate._judge_job`: trusted producer, `backend-core.yml`, same event, latest attempt, no duplicate), or the merge-base on `main` (`push` run).
+- **Base side, conservative.** Base changes are read from `git merge-base(anchor, current base)` to the current base. The anchor's run merged with a `main` that already contained that commit, so this can only over-count. The Actions API's `pull_requests[].base.sha` is not used: it is empty once a PR closes, and nothing documents it as the base at trigger time. Cost, measured on PR #123's last push: the change since the anchor was one spec (fast-eligible), but `main` had moved under `apps/api/src/audit/` since the branch point, so the answer was `full`. Merging `main` into the branch moves the merge-base forward.
+- **`full` unless every check passes:** no fast class; no anchor, ambiguous checks or missing evidence; anchor or its base not an ancestor; a changed path that is deleted/renamed, a symlink/submodule, in any tier, outside the fast globs, or a shared class that selects all; a base move touching Backend-Core or a select-all class; no file left. Paths of other products and of no-job classes (`docs`) are ignored.
+- **Jest:** `jest --listTests --findRelatedTests <files>` with the selector's explicit list (not `--changedSince`, which diffs against the merge commit). The full run adds `--json --outputFile` only. The report counts `misses` = failing specs not selected, only in fast mode and only when the results file exists; `EMPTY_SELECTION` and `NO_RESULTS` are flagged, never reported as zero misses.
+- **Evidence:** step summary plus the `api-jest-shadow` artifact (30 days) feed RT-950. Accuracy counts only runs with at least one failing spec.
+- **Trust.** The job already runs PR code (the tests), so in Phase 1 the selector also runs from the checked-out tree, with a read-only token (`contents`, `actions`, `checks`). Phase 2 (owner-gated, needs RT-866) would run it in the plan job from the trusted base archive.
 
 ## Approval protocol (R1)
 

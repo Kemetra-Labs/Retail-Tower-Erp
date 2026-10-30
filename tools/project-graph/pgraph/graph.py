@@ -169,6 +169,12 @@ def _schema_errors(data):
             if tname == "high" or not isinstance(tier, dict) or not _is_str_list(tier.get("globs")) \
                     or not _is_str_list(tier.get("jobs")) or not _is_str_list(tier.get("exclude", [])):
                 errs.append(f"SCHEMA: tier {name}.{tname} is malformed")
+        # RT-949: the optional API Jest shadow selector's fast class (pgraph/api_jest_select.py).
+        fast = prod.get("api_jest_fast")
+        if fast is not None and (not isinstance(fast, dict) or not set(fast) <= {"globs", "exclude"}
+                                 or not _is_str_list(fast.get("globs")) or not fast["globs"]
+                                 or not _is_str_list(fast.get("exclude", []))):
+            errs.append(f"SCHEMA: {name}.api_jest_fast must be {{globs: [str, ...], exclude?: [str]}}")
     for name, cls in data["shared_classes"].items():
         if not isinstance(cls, dict) or not isinstance(cls.get("precedence"), int) \
                 or not _is_str_list(cls.get("globs")) \
@@ -241,8 +247,12 @@ def _check_shared(data, roots, errs):
 
 def _check_tiers(data, errs):
     for pname, prod in data["products"].items():
-        for tname, tier in prod["tiers"].items():
-            for g in tier["globs"] + tier.get("exclude", []):
+        named = [(tname, tier["globs"] + tier.get("exclude", [])) for tname, tier in prod["tiers"].items()]
+        if "api_jest_fast" in prod:
+            fast = prod["api_jest_fast"]
+            named.append(("api_jest_fast", fast["globs"] + fast.get("exclude", [])))
+        for tname, globs in named:
+            for g in globs:
                 if g.startswith("/") or ".." in g.split("/"):
                     errs.append(f"TIER_GLOB_OUTSIDE_PRODUCT: {pname}.{tname} {g}")
                     continue
