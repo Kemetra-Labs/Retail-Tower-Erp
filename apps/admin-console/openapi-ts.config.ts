@@ -238,6 +238,21 @@ export const PIN_FILE_PATH = "contracts/backend-core/PIN" as const;
  * earlier note that it was not composed). Composing it adds one PIN line and
  * one `ConsoleSalesSummarySchema` namespace; the other 26 sources are
  * byte-identical. The wrapper is `src/lib/sales-summary-queries.ts`.
+ *
+ * Re-pin to a release commit (RT-717 C3, 2026-10-31): bumped 73ee563 -> 6e41450,
+ * the commit of Backend-Core release `backend-core/v0.3.2` that the lab runs, so
+ * the Console's `version.json` contract pin names the deployed backend exactly.
+ * It is deliberately not `main`: RT-937 (#152, after v0.3.2) rewrites
+ * `acceptInvitation` and adds `changePassword` in `auth` and `memberships`, which
+ * v0.3.2 does not serve. Done with `pnpm generate:client --repin 6e41450...`. Of
+ * the 27 composed sources two changed, and no caller needed a code change:
+ *   - `erpnext-reconciliation/reconciliation.yaml` 1.5.0-draft (RT-189 #102):
+ *     description only; `getReconciliationRun` returns `bin_view_report` as
+ *     metadata. No schema change, and the console does not read the report.
+ *   - `inventory/inventory.yaml` 1.8.0-draft (RT-449 #123): additive. Adds
+ *     `getSafetyTtlSetting`, `setSafetyTtlSetting` and
+ *     `listInventorySafetyFindings` with their schemas. Nothing wraps them.
+ * The other 25 sources are byte-identical, `auth` and `memberships` included.
  */
 export const BACKEND_CORE_PIN: ContractsPin = parsePin(
   readFileSync(resolve(repoRoot, PIN_FILE_PATH), "utf8"),

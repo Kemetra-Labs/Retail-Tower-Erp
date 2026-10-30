@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 73ee5636f4a0f04d249c6990150518b4e39eee8b
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 6e41450553c87ac44884bb0c6d189fd54599020e
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -3826,7 +3826,7 @@ export namespace ErpnextReconciliationSchema {
                 startedAt: string;
                 /** Format: date-time */
                 finishedAt?: string | null;
-                /** @description Run-scoped evidence, not only counts. When the Connector has reported a Bin snapshot for the run, `summary.bin_view_report` carries it: the warehouse ref, `readAt` (Connector clock), `recordedAt` (Backend-Core clock) and every reported entry with its ERPNext item ref, resolved tenant product ref (or null), exact-decimal `quantity` string (which may be negative) and stock UOM. No PII and no money/valuation values. For a store-level view of negative ERPNext quantities use `listErpnextNegativeOnHand`. */
+                /** @description The run's per-class counts and, once the Connector has reported a Bin snapshot, `summary.bin_view_report`, which this response carries as METADATA ONLY (RT-189): `complete`, `windowsRecorded`, `acceptedEntryCount`, `readAt` (Connector clock), `recordedAt` (Backend-Core clock) and `attemptRef` (null for a historical report). The reported entries are never returned here, so the body stays small (under 10 KB) however large the stored snapshot is; a report stored before RT-175 reads as complete, one window, `acceptedEntryCount` equal to its entry count and a null `attemptRef`. A `failure` key is kept. No PII and no money/valuation values. For a store-level view of negative ERPNext quantities use `listErpnextNegativeOnHand`. */
                 summary?: Record<string, never> | null;
             };
             /** @description One classified mismatch result projection (§IV), in 014's vocabulary. `detail` carries operator-facing qty values (NEVER PII/money). */
@@ -10920,6 +10920,50 @@ export namespace InventorySchema {
             patch?: never;
             trace?: never;
         };
+        "/api/inventory/v1/settings/safety-ttl": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Read the tenant's Safety TTL.
+             * @description RT-449 (G7-7, RT-50 Q8, H8): the maximum age of a till's last successful sync from the POS inventory safety feed before its safety data is stale. `safetyTtlSeconds` is the configured value (null while unset); `effectiveSafetyTtlSeconds` is what the feed answers (900 when unset). Owner, tenant_admin or store_manager.
+             */
+            get: operations["getSafetyTtlSetting"];
+            /**
+             * Set the tenant's Safety TTL.
+             * @description RT-449 (H8): set the Safety TTL to 60–900 seconds, or null to return to the default of 900. It is configurable downwards only: no value above the 15-minute default is accepted (400). Owner or tenant_admin. Setting the current value again writes nothing and answers the same body; a change is audited. A change does not step the Inventory Safety Revision: every feed answer carries the effective value.
+             */
+            put: operations["setSafetyTtlSetting"];
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/safety/findings": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * List the tenant's computed inventory safety findings.
+             * @description RT-449 (H6; decisions 953, 954): computed on read, never stored. `active_tracking_hold` (critical): one per active hold, with `storeIds` = the stores where the held identity has a non-zero position. `expired_lot_sellable` (critical): one per identity, store and stocking unit whose `sellable` position is positive while the identity's expiry date is before the store's local business date (a lot is sellable through its expiry date, G7-5); the prompt for the governed `sellable → expired` status move. `expiring_lot` (warning) is reserved and never emitted in 1.8.0: the near-expiry window is a policy value that stays off until RT-50 B1. Order: severity, then kind, then ids. Owner and tenant_admin see the tenant (their membership's stores); a store_manager sees only findings in its store scope: a hold appears when the held identity has stock in one of its stores, with `storeIds` narrowed to them. The list is not paginated.
+             */
+            get: operations["listInventorySafetyFindings"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
         "/api/inventory/v1/tracking-holds": {
             parameters: {
                 query?: never;
@@ -11319,6 +11363,114 @@ export namespace InventorySchema {
             };
             SetReturnLandingPolicyCommand: {
                 returnLandingStatus: components["schemas"]["ReturnLandingStatus"];
+            };
+            /** @description RT-449 (H8) — the tenant's Safety TTL of the POS inventory safety feed. */
+            SafetyTtlSetting: {
+                /** @description The configured value; null while the tenant runs on the default. */
+                safetyTtlSeconds: number | null;
+                /** @description The value the feed answers (`safetyTtlSeconds`, or 900 when it is null). */
+                effectiveSafetyTtlSeconds: number;
+                /**
+                 * Format: date-time
+                 * @description When the tenant's inventory settings last changed; null while none are stored.
+                 */
+                updatedAt: string | null;
+            };
+            SetSafetyTtlSettingCommand: {
+                /** @description 60–900 seconds, or null for the default of 900. */
+                safetyTtlSeconds: number | null;
+            };
+            InventorySafetyFindingList: {
+                findings: components["schemas"]["InventorySafetyFinding"][];
+                /**
+                 * Format: date-time
+                 * @description When the findings were computed.
+                 */
+                generatedAt: string;
+            };
+            /** @description RT-449 (H6): one computed inventory safety finding, discriminated by `kind`. */
+            InventorySafetyFinding: components["schemas"]["ActiveTrackingHoldFinding"] | components["schemas"]["ExpiredLotSellableFinding"] | components["schemas"]["ExpiringLotFinding"];
+            /** @description An active quality or recall hold (954). The identity is not sellable. */
+            ActiveTrackingHoldFinding: {
+                /**
+                 * @description discriminator enum property added by openapi-typescript
+                 * @enum {string}
+                 */
+                kind: "active_tracking_hold";
+                /** @constant */
+                severity: "critical";
+                /** Format: uuid */
+                holdId: string;
+                /** @enum {string} */
+                holdKind: "quality_hold" | "recall_hold";
+                /** Format: uuid */
+                recallId: string | null;
+                /** Format: uuid */
+                trackingIdentityId: string;
+                /** Format: uuid */
+                tenantProductRef: string;
+                /** @enum {string} */
+                identityKind: "batch" | "serial";
+                identityCode: string;
+                /** Format: date */
+                expiryDate: string | null;
+                /** Format: date-time */
+                placedAt: string;
+                /** @description The stores (in the caller's scope) where the held identity has a non-zero position; empty when it has none. */
+                storeIds: string[];
+            };
+            /** @description An expired lot still in `sellable` at one store (953): its expiry date is before the store's local business date. */
+            ExpiredLotSellableFinding: {
+                /**
+                 * @description discriminator enum property added by openapi-typescript
+                 * @enum {string}
+                 */
+                kind: "expired_lot_sellable";
+                /** @constant */
+                severity: "critical";
+                /** Format: uuid */
+                trackingIdentityId: string;
+                /** Format: uuid */
+                tenantProductRef: string;
+                /** @enum {string} */
+                identityKind: "batch" | "serial";
+                identityCode: string;
+                /** Format: date */
+                expiryDate: string;
+                /** Format: uuid */
+                storeId: string;
+                /**
+                 * Format: date
+                 * @description The store's local business date the expiry was judged against.
+                 */
+                storeBusinessDate: string;
+                sellableQuantity: components["schemas"]["PositiveDecimalQuantity"];
+                stockingUnit: components["schemas"]["StockingUnit"];
+            };
+            /** @description Reserved (953): a lot expiring within the near-expiry window. Never emitted in 1.8.0: the window is a policy value that stays off until RT-50 B1. */
+            ExpiringLotFinding: {
+                /**
+                 * @description discriminator enum property added by openapi-typescript
+                 * @enum {string}
+                 */
+                kind: "expiring_lot";
+                /** @constant */
+                severity: "warning";
+                /** Format: uuid */
+                trackingIdentityId: string;
+                /** Format: uuid */
+                tenantProductRef: string;
+                /** @enum {string} */
+                identityKind: "batch" | "serial";
+                identityCode: string;
+                /** Format: date */
+                expiryDate: string;
+                /** Format: uuid */
+                storeId: string;
+                /** Format: date */
+                storeBusinessDate: string;
+                sellableQuantity: components["schemas"]["PositiveDecimalQuantity"];
+                stockingUnit: components["schemas"]["StockingUnit"];
             };
             /** @description RT-449: a machine reason code of a hold, recall or expiry correction, lower snake case (e.g. `supplier_notice`, `authority_notice`, `label_misprint`). */
             SafetyReasonCode: string;
@@ -12056,6 +12208,83 @@ export namespace InventorySchema {
                     };
                 };
                 400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        getSafetyTtlSetting: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The tenant's Safety TTL. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SafetyTtlSetting"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        setSafetyTtlSetting: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetSafetyTtlSettingCommand"];
+                };
+            };
+            responses: {
+                /** @description The updated Safety TTL. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SafetyTtlSetting"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        listInventorySafetyFindings: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The tenant's current inventory safety findings in the caller's scope. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["InventorySafetyFindingList"];
+                    };
+                };
                 401: components["responses"]["Unauthorized"];
                 403: components["responses"]["ForbiddenOrOriginRejected"];
                 429: components["responses"]["TooManyRequests"];
