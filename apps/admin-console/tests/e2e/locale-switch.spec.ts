@@ -92,6 +92,25 @@ test("the switch flips the frame and the choice survives a reload, before the bu
   expect(await docLocale(page)).toEqual({ lang: TAG[appLocale], dir: DIR[appLocale] });
 });
 
+test("RT-962: a catalog that can't be fetched shows a retry in the painted language, then the Console", async ({
+  page,
+  appLocale,
+  t,
+}) => {
+  await mockApi(page);
+  const catalog = /\/assets\/(ar|en)-[\w-]+\.js$/;
+  await page.route(catalog, (r) => r.abort());
+  await page.goto("/");
+  const retry = page.getByRole("button", {
+    name: appLocale === "ar" ? "إعادة المحاولة" : "Try again",
+  });
+  await expect(page.getByRole("alert")).toBeVisible();
+  expect(await docLocale(page)).toEqual({ lang: TAG[appLocale], dir: DIR[appLocale] });
+  await page.unroute(catalog);
+  await retry.click();
+  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+});
+
 test("logical CSS mirrors the layout: sidebar on the inline start", async ({ page, appLocale }) => {
   await mockApi(page);
   await page.goto("/");
