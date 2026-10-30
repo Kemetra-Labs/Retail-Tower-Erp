@@ -174,11 +174,34 @@
 /* The surface runs the full height of the page; its contents stay in view
  * while the page scrolls, and the navigation scrolls on its own, so the scope
  * menu is never clipped by it. */
+/* RT-991 (D-V1/D-V2, DESIGN.md §12.1-§12.2): the sidebar is Ink in both themes, the
+ * one sanctioned dark surface. The Tower grid (Mint at 5%, 28px) and a soft Mint
+ * glow are its only ornament, drawn as the surface's own background, so there is
+ * nothing for assistive technology to skip. Nothing is spelled in hex: Ink, Mint
+ * and the on-Ink roles come from tokens.css, the tints from color-mix. */
 .sidebar {
   grid-area: sidebar;
   z-index: 10;
-  background: var(--color-surface);
-  border-inline-end: 1px solid var(--color-border);
+  color: var(--color-on-ink);
+  background-color: var(--color-ink);
+  background-image: linear-gradient(
+      color-mix(in srgb, var(--color-mint) 5%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--color-mint) 5%, transparent) 1px,
+      transparent 1px
+    ),
+    radial-gradient(
+      420px 260px at 100% 0%,
+      color-mix(in srgb, var(--color-mint) 14%, transparent),
+      transparent 70%
+    );
+  background-size: 28px 28px, 28px 28px, 100% 100%;
+  /* The global focus ring is Tower Teal, 2.7:1 on Ink: Mint reads here. The
+   * scope menu and its popovers are light surfaces and reset it (scope-header.css). */
+  --color-focus-ring: var(--color-mint);
 }
 .sidebar__inner {
   position: sticky;
@@ -195,19 +218,38 @@
   gap: var(--space-3);
   padding: 0 var(--space-2);
 }
-.sidebar__mark {
+/* The brand mark (RT-991, DESIGN.md §12.2): three ascending bars on a
+ * Mint-to-teal tile, tower and chart at once. Decorative: the word beside it
+ * names the product, so the mark is aria-hidden. */
+.brand-mark {
   flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-control);
-  background: var(--color-primary);
+  box-sizing: border-box;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
+  padding-block-end: 10px;
+  border-radius: var(--radius-field-lg);
+  background: linear-gradient(160deg, var(--color-mint), var(--color-primary) 70%);
+  box-shadow: 0 10px 24px -10px color-mix(in srgb, var(--color-mint) 90%, transparent);
 }
-.sidebar__mark .tower-mark {
-  width: 20px;
-  height: 20px;
-  color: var(--color-on-primary);
+.brand-mark__bar {
+  width: 5px;
+  border-radius: 2px;
+  background: var(--color-on-ink);
+}
+.brand-mark__bar:nth-child(1) {
+  height: 12px;
+  background: color-mix(in srgb, var(--color-on-ink) 70%, transparent);
+}
+.brand-mark__bar:nth-child(2) {
+  height: 22px;
+}
+.brand-mark__bar:nth-child(3) {
+  height: 16px;
+  background: color-mix(in srgb, var(--color-on-ink) 85%, transparent);
 }
 .sidebar__brand-text {
   display: flex;
@@ -307,6 +349,52 @@
   color: var(--color-text-muted);
 }
 
+/* ---- Ink sidebar contents (RT-991) ------------------------------------------ */
+/* Scoped to .sidebar: the compact-shell drawer lists the same entries on a light
+ * surface and keeps the teal Signal Line above, because Mint is a highlight on
+ * Ink only (D-V2: 1.6:1 on white). Secondary text is ink-muted (8.9:1 on Ink). */
+.sidebar .tower-lockup__word {
+  color: var(--color-on-ink);
+}
+.sidebar .tower-lockup__tag,
+.sidebar .nav-section,
+.sidebar .nav-signout,
+.sidebar .nav-entry {
+  color: var(--color-ink-muted);
+}
+.sidebar .nav-entry {
+  border-radius: var(--radius-field-lg);
+}
+.sidebar .nav-entry__icon {
+  color: inherit;
+}
+.sidebar .nav-entry--link:hover,
+.sidebar .nav-signout:hover {
+  background: color-mix(in srgb, var(--color-on-ink) 6%, transparent);
+  color: var(--color-on-ink);
+}
+/* The active entry: white text, a faint Mint wash, a Mint icon, and the 4px Mint
+ * Signal Line with its soft glow at the inline start. aria-current="page" comes
+ * from NavLink. */
+.sidebar .nav-entry--active {
+  background: color-mix(in srgb, var(--color-mint) 12%, transparent);
+  color: var(--color-on-ink);
+}
+.sidebar .nav-entry--active .nav-entry__icon {
+  color: var(--color-mint);
+}
+.sidebar .nav-entry--active::before {
+  top: 10px;
+  bottom: 10px;
+  height: auto;
+  transform: none;
+  width: 4px;
+  border-start-end-radius: 4px;
+  border-end-end-radius: 4px;
+  background: var(--color-mint);
+  box-shadow: 0 0 14px 2px color-mix(in srgb, var(--color-mint) 70%, transparent);
+}
+
 /* ---- Content ------------------------------------------------------------ */
 .content {
   grid-area: content;
@@ -341,6 +429,23 @@
   .nav-entry--active::before {
     forced-color-adjust: none;
     background: Highlight;
+    box-shadow: none; /* the glow */
+  }
+  /* RT-991: the Ink surface maps to Canvas/CanvasText with a 1px edge; the Tower
+   * grid and the glow disappear, and the brand mark falls back to a bordered tile
+   * with CanvasText bars. */
+  .sidebar {
+    background-image: none;
+    border-inline-end: 1px solid CanvasText;
+  }
+  .brand-mark {
+    background: Canvas;
+    border: 1px solid CanvasText;
+    box-shadow: none;
+  }
+  /* As specific as the nth-child rules above, so all three bars draw. */
+  .brand-mark .brand-mark__bar {
+    background: CanvasText;
   }
 }
 
@@ -397,10 +502,12 @@
       "sidebar"
       "content";
   }
+  /* The scope row stays Ink (RT-991) but drops the Tower grid and glow: ornament
+   * is hidden on narrow screens (DESIGN.md §12.1). */
   .sidebar {
-    background: var(--color-surface-sunken);
+    background-image: none;
     border-inline-end: 0;
-    border-bottom: 1px solid var(--color-border);
+    border-bottom: 1px solid color-mix(in srgb, var(--color-mint) 14%, transparent);
   }
   .sidebar__inner {
     position: static;

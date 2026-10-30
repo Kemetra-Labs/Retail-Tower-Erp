@@ -18,6 +18,7 @@ import { TowerMark } from "@/components/TowerMark";
 import { Icon } from "@/components/icons/Icon";
 import { useT } from "@/i18n";
 import { NavLink } from "react-router";
+import { BrandMark } from "./BrandMark";
 import { type ShellNavigator, ShellNavigatorControl } from "./Navigator";
 import { type ShellMenu, ShellMenuButton } from "./ShellMenu";
 import { UserMenu, type UserMenuProps } from "./UserMenu";
@@ -83,9 +84,7 @@ export function ShellSidebar({
     <aside className="sidebar" aria-label={t("shell.sidebar.label")}>
       <div className="sidebar__inner">
         <span className="sidebar__brand">
-          <span className="sidebar__mark">
-            <TowerMark className="tower-mark" />
-          </span>
+          <BrandMark />
           <span className="sidebar__brand-text">
             <span className="tower-lockup__word">Retail Tower OS</span>
             <span className="tower-lockup__tag">{tag}</span>
