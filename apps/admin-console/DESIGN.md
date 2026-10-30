@@ -427,7 +427,7 @@ Each debt is tracked separately. Do not fold them into feature work.
 | Light-first token migration: Mineral Daylight neutrals + Tower Teal roles; retire Tower Gold, navy action and the dark default | UX-02, UX-04 (radius 8/12/16) | **RT-396** |
 | Opt-in dark theme: `[data-theme="dark"]` roles, top-bar switch, per-user persistence, no light flash | UX-02, UX-11 | **RT-398** |
 | Admin type migration Inter → Dubai (with Arabic line-height and the 12px floor) | UX-03 | **RT-397** |
-| Reconcile `PRODUCT.md` Principle 6 and the anti-reference note with light-first | UX-02 | **No ticket — owner to decide** (docs-only) |
+| Reconcile `PRODUCT.md` Principle 6 and the anti-reference note with light-first | UX-02 | **RT-966** (resolved) |
 
 ## 11. Do's and Don'ts
 
