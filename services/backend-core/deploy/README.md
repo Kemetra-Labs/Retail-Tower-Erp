@@ -70,6 +70,17 @@ compose stack. Redis is containerized by default.
    `current` symlink before the first `up`: run steps 1-3 of
    [Admin Console release](#admin-console-release) first, and its smoke test (step 4)
    after `up`.
+9. **Identity provider: Descope only (RT-800/RT-941, Clerk retired 2026-10-29).**
+   `deploy/prod.env` sets `DESCOPE_PROJECT_ID` (a public project id); compose
+   refuses to start without it. `IDENTITY_PROVIDER` is unset or `descope`; a
+   leftover `IDENTITY_PROVIDER=clerk` makes the API fail at boot (intended: no
+   silent fallback). Remove the `CLERK_*` values; they are ignored.
+   **Upgrading a deployment from before RT-800:** operators sign in only through
+   an ACTIVE `descope` identity link. Before (or together with) this release,
+   move each operator's link with the identity-link cutover CLI (RT-797), after
+   draining that operator's POS offline audit queue. Until then every operator
+   sign-in is refused (fail closed). Rolling back to an older image also needs
+   `DESCOPE_PROJECT_ID` set, because the compose file requires it.
 
 ## Deploy
 

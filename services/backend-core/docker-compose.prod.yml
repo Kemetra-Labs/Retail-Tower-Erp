@@ -96,10 +96,12 @@ services:
       TRUST_PROXY: "1"
       # Migration-status gauge reads the drizzle SQL dir (shipped into the image).
       DB_MIGRATIONS_DIR: /packages/db/drizzle
-      # Clerk POS-operator JWT verification — CLERK_SECRET_KEY is required in production.
-      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?CLERK_SECRET_KEY required (Clerk backend key)}
-      CLERK_AUTHORIZED_PARTIES: ${CLERK_AUTHORIZED_PARTIES:-}
-      CLERK_JWT_AUDIENCE: ${CLERK_JWT_AUDIENCE:-}
+      # POS-operator identity: Descope is the only provider (RT-800/RT-941). The
+      # project id is a public identifier, not a secret; it is required.
+      IDENTITY_PROVIDER: ${IDENTITY_PROVIDER:-descope}
+      DESCOPE_PROJECT_ID: ${DESCOPE_PROJECT_ID:?DESCOPE_PROJECT_ID required (Descope project id)}
+      DESCOPE_JWT_ISSUER: ${DESCOPE_JWT_ISSUER:-}
+      DESCOPE_JWT_AUDIENCE: ${DESCOPE_JWT_AUDIENCE:-}
       # Spec 037 observability. All default-inert: an empty SENTRY_DSN sends no
       # Sentry events; traces go to OTEL_EXPORTER_OTLP_ENDPOINT (the SDK default
       # until pointed at the datadog-agent profile, see deploy/README.md).
