@@ -151,6 +151,14 @@ describe("opening and closing", () => {
     expect(screen.queryByRole("dialog", { name: "Go to" })).toBeNull();
   });
 
+  test("a keydown without a key (browser autofill) neither throws nor opens it", () => {
+    renderShell();
+    const event = new KeyboardEvent("keydown", { bubbles: true, ctrlKey: true });
+    Object.defineProperty(event, "key", { value: undefined });
+    expect(() => document.dispatchEvent(event)).not.toThrow();
+    expect(screen.queryByRole("dialog", { name: "Go to" })).toBeNull();
+  });
+
   test("Tab stays on the combobox (the dialog's only stop)", () => {
     renderShell();
     fireEvent.click(trigger());
@@ -237,6 +245,19 @@ describe("keyboard and choice", () => {
     fireEvent.keyDown(combobox(), { key: "ArrowUp" });
     const options = screen.getAllByRole("option");
     expect(combobox().getAttribute("aria-activedescendant")).toBe(options.at(-1)?.id);
+  });
+
+  test("keys that confirm an IME composition do not move or choose", () => {
+    renderShell();
+    fireEvent.click(trigger());
+    type("stores");
+    const before = combobox().getAttribute("aria-activedescendant");
+    fireEvent.keyDown(combobox(), { key: "ArrowDown", isComposing: true });
+    fireEvent.keyDown(combobox(), { key: "Enter", keyCode: 229 });
+    fireEvent.keyDown(combobox(), { key: "Enter", isComposing: true });
+    expect(combobox().getAttribute("aria-activedescendant")).toBe(before);
+    expect(screen.getByTestId("where").textContent).toBe("/");
+    expect(dialog()).toBeDefined();
   });
 
   test("Enter on a page navigates there and closes", () => {

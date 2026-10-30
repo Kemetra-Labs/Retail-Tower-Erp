@@ -39,7 +39,8 @@ export function useShellNavigator(): ShellNavigator {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      const isK = e.code === "KeyK" || e.key.toLowerCase() === "k";
+      // A browser's autofill sends a keydown with no `key` at all.
+      const isK = e.code === "KeyK" || e.key?.toLowerCase() === "k";
       if (!isK || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
       e.preventDefault();
       // A dialog already open (a drawer, Stay / Discard, this one) keeps the keyboard.
@@ -217,6 +218,9 @@ export function NavigatorDialog({
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    // A key that confirms an IME composition belongs to the text, not the list
+    // (229 covers browsers that report isComposing false on that keydown).
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     const last = shown.length - 1;
     switch (e.key) {
       case "ArrowDown":
