@@ -14,6 +14,8 @@ interface Props {
 
 interface State {
   failed: boolean;
+  /** The Sentry event id, when an event was sent (RT-958). */
+  reference?: string;
 }
 
 export class AppErrorBoundary extends Component<Props, State> {
@@ -25,10 +27,14 @@ export class AppErrorBoundary extends Component<Props, State> {
 
   override componentDidCatch(error: unknown, _info: ErrorInfo): void {
     // The component stack is not sent: contract section 3.1 drops `contexts`.
-    reportError(error);
+    this.setState({ reference: reportError(error) });
   }
 
   override render(): ReactNode {
-    return this.state.failed ? <ErrorFallback /> : this.props.children;
+    return this.state.failed ? (
+      <ErrorFallback reference={this.state.reference} />
+    ) : (
+      this.props.children
+    );
   }
 }

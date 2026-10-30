@@ -11,8 +11,19 @@ export const common: MessagesOf<typeof ar> = {
   "theme.darkMode": "Dark mode",
 
   "app.crash.title": "Something went wrong",
-  "app.crash.body": "Reload the page to continue. If it happens again, contact support.",
+  "app.crash.what": "An unexpected error stopped the Console from displaying.",
+  "app.crash.safety":
+    "Showing this page does not change any data. If you had just saved something, check that it was saved before you enter it again.",
+  "app.crash.action": "Reload the page to continue. If it happens again, contact support.",
   "app.crash.reload": "Reload the page",
+  "app.crash.reference": "Error reference: {id}",
+
+  "app.routeError.title": "This page couldn't be displayed",
+  "app.routeError.what":
+    "An unexpected error stopped this page from displaying. The menu and the tenant and store bar still work.",
+  "app.routeError.action":
+    "Try again, or choose another page from the menu. If it happens again, contact support.",
+  "app.routeError.toOverview": "Go to Overview",
 
   "common.cancel": "Cancel",
   "common.close": "Close",
