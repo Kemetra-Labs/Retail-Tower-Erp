@@ -97,6 +97,7 @@ async function pilotRowCounts(slug: string): Promise<Record<string, number>> {
   );
   return rows[0];
 }
+
 beforeAll(async () => {
   try {
     env = await startPgEnv();
