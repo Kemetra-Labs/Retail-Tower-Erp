@@ -22,6 +22,7 @@ import {
 } from "@/lib/sale-sync-ops-queries";
 import { type SaleScope, saleQueryKeys } from "@/sales/useSales";
 import {
+  type QueryClient,
   type UseQueryResult,
   useInfiniteQuery,
   useQuery,
@@ -217,6 +218,30 @@ export interface RepairState {
   reset: () => void;
 }
 
+/**
+ * The sale detail's header chip reads the same `sync_status`: after a confirmed
+ * repair, write the server's answer into it so the chip and this section agree
+ * (RT-956). Never a refetch: a failed detail read would unmount this hook and
+ * drop its key. An older read in flight is cancelled first, an errored read is
+ * left to show its error, and the detail keeps its own freshness time.
+ */
+async function writeDetailSync(
+  queryClient: QueryClient,
+  target: SaleTarget,
+  syncStatus: SaleDetail["summary"]["syncStatus"],
+): Promise<void> {
+  const queryKey = saleQueryKeys.detail(target.scope, target.saleRef);
+  await queryClient.cancelQueries({ queryKey, exact: true });
+  const state = queryClient.getQueryState<SaleDetail>(queryKey);
+  if (state?.status !== "success" || !state.data) return;
+  const { data } = state;
+  queryClient.setQueryData<SaleDetail>(
+    queryKey,
+    { ...data, summary: { ...data.summary, syncStatus } },
+    { updatedAt: state.dataUpdatedAt },
+  );
+}
+
 export function useRepairSale(target: SaleTarget): RepairState {
   const queryClient = useQueryClient();
   const key = useRef<string | undefined>(undefined);
@@ -240,15 +265,8 @@ export function useRepairSale(target: SaleTarget): RepairState {
     }
     if (!keepsKey(next)) key.current = undefined;
     if (next.kind === "repaired") {
-      const synced = next.status.syncStatus;
       queryClient.setQueryData(saleSyncQueryKeys.status(target), next.status);
-      // The sale detail's header chip reads the same `sync_status`: write the
-      // server's answer into it so the chip and this section agree (RT-956). No
-      // refetch: a failed detail read would unmount this hook and drop its key.
-      queryClient.setQueryData<SaleDetail>(
-        saleQueryKeys.detail(target.scope, target.saleRef),
-        (old) => old && { ...old, summary: { ...old.summary, syncStatus: synced } },
-      );
+      await writeDetailSync(queryClient, target, next.status.syncStatus);
     } else {
       void queryClient.invalidateQueries({ queryKey: saleSyncQueryKeys.status(target) });
     }

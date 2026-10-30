@@ -344,6 +344,54 @@ describe("SaleSyncSections (RT-726)", () => {
     ).toBe("failed-retryable");
   });
 
+  async function confirmRepaired(client: ReturnType<typeof createQueryClient>): Promise<void> {
+    api.consoleRepairSaleSync.mockResolvedValue(
+      ok(syncStatus({ syncStatus: "failed-retryable", deadLetter: null })),
+    );
+    renderSections(client);
+    const confirm = await openConfirm();
+    fireEvent.click(within(confirm).getByRole("button", { name: "Confirm repair" }));
+    await within(statusRegion()).findByText(/The server accepted the repair/);
+  }
+
+  test("the chip write keeps the detail's own freshness time", async () => {
+    const client = createQueryClient();
+    client.setQueryData(
+      DETAIL_KEY,
+      { summary: { saleRef: SALE, syncStatus: "failed-needs-repair" } },
+      { updatedAt: 1_000 },
+    );
+    await confirmRepaired(client);
+    expect(cachedSync(client)).toBe("failed-retryable");
+    expect(client.getQueryState(DETAIL_KEY)?.dataUpdatedAt).toBe(1_000);
+  });
+
+  test("a failed detail read is never masked by the chip write", async () => {
+    const client = seededClient();
+    const error = new Error("session ended");
+    client.getQueryCache().find({ queryKey: DETAIL_KEY })?.setState({ status: "error", error });
+    await confirmRepaired(client);
+    expect(client.getQueryState(DETAIL_KEY)?.status).toBe("error");
+    expect(cachedSync(client)).toBe("failed-needs-repair");
+  });
+
+  test("an older detail read still in flight cannot overwrite the repaired chip", async () => {
+    const client = seededClient();
+    let finish: (value: unknown) => void = () => {};
+    const older = new Promise((resolve) => {
+      finish = resolve;
+    });
+    void client
+      .fetchQuery({ queryKey: DETAIL_KEY, queryFn: () => older, staleTime: 0 })
+      .catch(() => undefined);
+    await confirmRepaired(client);
+    await act(async () => {
+      finish({ summary: { saleRef: SALE, syncStatus: "failed-needs-repair" } });
+      await older;
+    });
+    expect(cachedSync(client)).toBe("failed-retryable");
+  });
+
   test("an unconfirmed repair leaves the sale detail alone, so the kept key survives", async () => {
     api.consoleRepairSaleSync.mockResolvedValue(failure(503));
     const client = seededClient();
