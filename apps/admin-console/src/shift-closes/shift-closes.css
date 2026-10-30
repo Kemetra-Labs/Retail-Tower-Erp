@@ -2,41 +2,6 @@
  * colour, font or dependency. Variance direction carries a text label and a
  * sign, never red/green (UX-13). Logical properties throughout (RTL by structure). */
 
-.shift-filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--space-3);
-  padding: var(--space-4);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-object);
-}
-.shift-filters__field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-.shift-filters__field label {
-  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
-  color: var(--color-text-muted);
-}
-.shift-filters__field .input {
-  inline-size: auto;
-  min-inline-size: 150px;
-}
-.shift-filters__zone {
-  flex-basis: 100%;
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--text-meta);
-}
-.shift-filters__actions {
-  display: flex;
-  gap: var(--space-2);
-  margin-inline-start: auto;
-}
-
 /* Signed variance with its text label beside it (colour is never the cue). */
 .shift-variance {
   display: inline-flex;

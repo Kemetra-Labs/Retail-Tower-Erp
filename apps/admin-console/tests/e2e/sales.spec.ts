@@ -15,11 +15,11 @@ const SALE = "0190f000-0000-7000-8000-0000000005b1";
 const LINE = "0190f000-0000-7000-8000-0000000005e1";
 const RANGE = `store=${CAIRO}&from=2026-10-01&to=2026-10-07`;
 
-function ctx(role: string) {
+function ctx(role: string, activeStore: { id: string; name: string } | null = null) {
   return {
     user: { id: "u1", email: "amal@northstar.eg", display_name: "Amal Saleh" },
     active_tenant: { id: "t1", name: "Northstar Retail" },
-    active_store: null,
+    active_store: activeStore,
     active_role_code: role,
     memberships: [{ tenant_id: "t1", tenant_name: "Northstar Retail", role_code: role }],
   };
@@ -119,9 +119,13 @@ function json(body: unknown, status = 200) {
 
 const NOT_FOUND = json({ error: { code: "not_found", message: "Not found" } }, 404);
 
-async function mockBase(page: Page, role: string): Promise<void> {
+async function mockBase(
+  page: Page,
+  role: string,
+  activeStore: { id: string; name: string } | null = null,
+): Promise<void> {
   await page.route("**/api/v1/**", (r) => r.fulfill(json({})));
-  await page.route("**/api/v1/context/me", (r) => r.fulfill(json(ctx(role))));
+  await page.route("**/api/v1/context/me", (r) => r.fulfill(json(ctx(role, activeStore))));
   await page.route("**/api/v1/stores", (r) => r.fulfill(json([store])));
   await page.route(`**/api/v1/stores/${CAIRO}`, (r) => r.fulfill(json(store)));
 }
@@ -158,8 +162,10 @@ test("S1: owner → search → detail → Back keeps the query; console routes o
   await p.getByLabel(t("sales.filter.store")).selectOption(CAIRO);
   await p.getByLabel(t("sales.filter.from")).fill("2026-10-01");
   await p.getByLabel(t("sales.filter.to")).fill("2026-10-07");
+  // RT-960: the status filters sit behind «فلاتر إضافية».
+  await p.getByRole("button", { name: t("filter.more"), exact: true }).click();
   await p.getByLabel(t("sales.filter.returns")).selectOption("partial");
-  await p.getByRole("button", { name: t("sales.filter.apply") }).click();
+  await p.getByRole("button", { name: t("filter.apply"), exact: true }).click();
   await expect(p).toHaveURL(new RegExp(`/sales\\?${RANGE}&returns=partial$`));
   await expect.poll(() => queries.length).toBe(1);
   expect(Object.fromEntries(queries[0])).toEqual({
@@ -193,6 +199,8 @@ test("S1: owner → search → detail → Back keeps the query; console routes o
   await p.getByRole("link", { name: t("sales.detail.back") }).click();
   await expect(p).toHaveURL(new RegExp(`/sales\\?${RANGE}&returns=partial$`));
   await expect(p.getByRole("heading", { level: 1, name: t("sales.list.title") })).toBeVisible();
+  // The returns filter is still applied: its chip shows, and behind «فلاتر إضافية» the field keeps it.
+  await p.getByRole("button", { name: t("filter.moreActive", { count: 1 }), exact: true }).click();
   await expect(p.getByRole("combobox", { name: t("sales.filter.returns") })).toHaveValue("partial");
 
   // AC-15: only Backend-Core console routes on the app's own origin; no POS
@@ -257,8 +265,65 @@ test("S4: a range over 31 business days is refused before any request", async ({
   await p.goto(`/sales?store=${CAIRO}&from=2026-10-01&to=2026-11-01`);
   await expect(p.getByText(t("sales.filter.spanTooWide"))).toBeVisible();
   await p.getByLabel(t("sales.filter.to")).fill("2026-10-31");
-  await p.getByRole("button", { name: t("sales.filter.apply") }).click();
+  await p.getByRole("button", { name: t("filter.apply"), exact: true }).click();
   await expect(p.getByRole("row").filter({ hasText: "R-0042" })).toBeVisible();
   expect(queries).toHaveLength(1);
   expect(queries[0].get("to")).toBe("2026-10-31");
+});
+
+/** Today in a zone, as the console proposes it (YYYY-MM-DD). */
+function todayIn(timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+// RT-960 (owner decision A): arriving with an active store applies it and today.
+test("S5: arrival applies the active store and today, once; Clear returns there", async ({
+  page: p,
+  t,
+}) => {
+  await mockBase(p, "owner", { id: CAIRO, name: "Cairo Festival" });
+  const queries = await mockList(p, [page([item()], null)]);
+  const today = todayIn("Africa/Cairo");
+  const expected = `store=${CAIRO}&from=${today}&to=${today}`;
+
+  await p.goto("/sales");
+  await expect(p).toHaveURL(new RegExp(`/sales\\?${expected}$`));
+  await expect(p.getByRole("row").filter({ hasText: "R-0042" })).toBeVisible();
+  await expect.poll(() => queries.length).toBe(1);
+  expect(Object.fromEntries(queries[0])).toEqual({
+    store_id: CAIRO,
+    from: today,
+    to: today,
+    page_size: "50",
+  });
+  // The default replaced the empty entry: no Back step lands on an empty /sales.
+  expect(await p.evaluate(() => history.length)).toBeLessThanOrEqual(2);
+
+  // A narrower filter, then Clear: back to the default, and nothing loops.
+  await p.getByRole("button", { name: t("filter.more"), exact: true }).click();
+  await p.getByLabel(t("sales.filter.returns")).selectOption("partial");
+  await p.getByRole("button", { name: t("filter.apply"), exact: true }).click();
+  await expect(p).toHaveURL(/returns=partial/);
+  await p.getByRole("button", { name: t("filter.clear"), exact: true }).click();
+  await expect(p).toHaveURL(new RegExp(`/sales\\?${expected}$`));
+  await p.waitForLoadState("networkidle");
+  expect(queries.length).toBeLessThanOrEqual(3);
+
+  // From a filtered list, the Sales nav link (same page, no remount) lands on the default too.
+  // «فلاتر إضافية» is still open from above: Clear keeps the disclosure as it was.
+  await expect(p.getByRole("button", { name: t("filter.more"), exact: true })).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  await p.getByLabel(t("sales.filter.returns")).selectOption("partial");
+  await p.getByRole("button", { name: t("filter.apply"), exact: true }).click();
+  await expect(p).toHaveURL(/returns=partial/);
+  await p.getByRole("link", { name: t("sales.nav.label"), exact: true }).click();
+  await expect(p).toHaveURL(new RegExp(`/sales\\?${expected}$`));
+  await expect(p.getByRole("row").filter({ hasText: "R-0042" })).toBeVisible();
 });

@@ -55,8 +55,6 @@ export const shift = {
   "shift.filter.approvalAny": "الكل",
   "shift.filter.approvalApproved": "مع معتمِد مسجَّل",
   "shift.filter.approvalNotApproved": "بلا معتمِد مسجَّل",
-  "shift.filter.apply": "تطبيق",
-  "shift.filter.clear": "مسح",
   "shift.filter.minVarianceInvalid": "أدخل مبلغًا صالحًا (مثال: 25.50).",
   "shift.filter.currencyInvalid": "أدخل رمز عملة من ثلاثة أحرف.",
   "shift.filter.dateInvalid": "أدخل تاريخًا صحيحًا بين 2000 و2100.",

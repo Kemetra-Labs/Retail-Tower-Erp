@@ -1,10 +1,11 @@
-import { GatedButton } from "@/components/GatedButton";
+import { FilterBar, type FilterChip, FilterField, isolate } from "@/components/FilterBar";
 import { useT } from "@/i18n";
 /**
  * RT-371 filter bar: store and trust state, the two filters the contract has.
- * One primary Apply, a quiet Clear. A store in the URL that the caller's roster
- * does not list (a hand-edited or stale link) stays selected and is named as
- * such; the server decides whether it is readable.
+ * Laid out by the shared FilterBar (RT-960): Apply, a ghost Clear, and a
+ * removable chip per applied filter. A store in the URL that the caller's
+ * roster does not list (a hand-edited or stale link) stays selected and is
+ * named as such; the server decides whether it is readable.
  */
 import type { TrustState } from "@/lib/device-queries";
 import type { StoreInfo } from "@/shift-closes/useShiftCloses";
@@ -28,6 +29,33 @@ const TRUST_OPTIONS: {
   { value: "retired", key: "devices.trust.retired" },
 ];
 
+function useChips(
+  applied: DeviceFilters,
+  stores: readonly StoreInfo[],
+  onApply: (filters: DeviceFilters) => void,
+): FilterChip[] {
+  const t = useT();
+  const chips: FilterChip[] = [];
+  if (applied.storeId) {
+    const name =
+      stores.find((s) => s.id === applied.storeId)?.name ?? t("devices.filter.unlistedStore");
+    chips.push({
+      key: "store",
+      label: `${t("devices.filter.store")}: ${isolate(name)}`,
+      onRemove: () => onApply({ ...applied, storeId: "" }),
+    });
+  }
+  const trust = TRUST_OPTIONS.find((o) => o.value === applied.trustState);
+  if (trust) {
+    chips.push({
+      key: "trust",
+      label: `${t("devices.filter.trust")}: ${isolate(t(trust.key))}`,
+      onRemove: () => onApply({ ...applied, trustState: "" }),
+    });
+  }
+  return chips;
+}
+
 export function DeviceFilterBar({
   applied,
   stores,
@@ -36,10 +64,11 @@ export function DeviceFilterBar({
 }: Readonly<DeviceFilterBarProps>): React.JSX.Element {
   const t = useT();
   const [draft, setDraft] = useState<DeviceFilters>(applied);
+  const chips = useChips(applied, stores, onApply);
 
   // The URL is the source of truth: when the applied filters change from outside
-  // (Back, a deep link) the draft follows. The form stays mounted, so keyboard
-  // focus survives an Apply.
+  // (Back, a deep link, a removed chip) the draft follows. The form stays mounted,
+  // so keyboard focus survives an Apply.
   const appliedKey = JSON.stringify(applied);
   const [syncedKey, setSyncedKey] = useState(appliedKey);
   if (syncedKey !== appliedKey) {
@@ -60,16 +89,8 @@ export function DeviceFilterBar({
   }
 
   return (
-    <form
-      className="device-filters"
-      aria-label={t("devices.filter.label")}
-      // Filters are not unsaved work: no Stay / Discard prompt for them (RT-268).
-      data-dirty-guard="off"
-      onSubmit={submit}
-      noValidate
-    >
-      <div className="device-filters__field">
-        <label htmlFor="df-store">{t("devices.filter.store")}</label>
+    <FilterBar label={t("devices.filter.label")} onSubmit={submit} onClear={clear} chips={chips}>
+      <FilterField id="df-store" label={t("devices.filter.store")}>
         <select
           id="df-store"
           className="input"
@@ -86,9 +107,8 @@ export function DeviceFilterBar({
             </option>
           ))}
         </select>
-      </div>
-      <div className="device-filters__field">
-        <label htmlFor="df-trust">{t("devices.filter.trust")}</label>
+      </FilterField>
+      <FilterField id="df-trust" label={t("devices.filter.trust")}>
         <select
           id="df-trust"
           className="input"
@@ -104,15 +124,7 @@ export function DeviceFilterBar({
             </option>
           ))}
         </select>
-      </div>
-      <div className="device-filters__actions">
-        <GatedButton type="submit" className="btn-primary">
-          {t("devices.filter.apply")}
-        </GatedButton>
-        <button type="button" className="btn-ghost" onClick={clear}>
-          {t("devices.filter.clear")}
-        </button>
-      </div>
-    </form>
+      </FilterField>
+    </FilterBar>
   );
 }

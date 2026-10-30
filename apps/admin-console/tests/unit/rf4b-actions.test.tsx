@@ -226,6 +226,8 @@ describe("reopen a dismissed item", () => {
     inspectUnknownItem.mockResolvedValue({ status: 200, data: DISMISSED });
     renderList();
     fireEvent.change(await screen.findByLabelText("Status"), { target: { value: "dismissed" } });
+    // RT-960: the queue filters apply on Apply, not on change.
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     await waitFor(() =>
       expect(listUnknownItems.mock.calls.at(-1)?.[0]).toMatchObject({ status: "dismissed" }),
     );
@@ -421,6 +423,8 @@ describe("bulk dismiss", () => {
     fireEvent.click(await screen.findByLabelText("Select all rows on this page"));
     expect(selectedCount()).toBe(2);
     fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    // RT-960: the queue filters apply on Apply, not on change.
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     await waitFor(() => expect(selectedCount()).toBe(0));
   });
 
@@ -429,8 +433,12 @@ describe("bulk dismiss", () => {
     renderList();
     fireEvent.click(await screen.findByLabelText("Select all rows on this page"));
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "dismissed" } });
+    // RT-960: the queue filters apply on Apply, not on change.
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     await waitFor(() => expect(screen.queryAllByRole("checkbox")).toHaveLength(0));
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "pending" } });
+    // RT-960: the queue filters apply on Apply, not on change.
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     await screen.findByLabelText("Select 5012345678900");
     expect(selectedCount()).toBe(0);
   });
@@ -472,6 +480,8 @@ describe("bulk dismiss", () => {
     fireEvent.click(screen.getByRole("button", { name: "Dismiss selected" }));
     expect(screen.getByRole("region", { name: "Confirm: Dismiss selected" })).toBeDefined();
     fireEvent.change(screen.getByLabelText("Sort"), { target: { value: "age_asc" } });
+    // RT-960: the queue filters apply on Apply, not on change.
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     // Closed by the scope change itself, before any re-selection could reset it.
     await waitFor(() =>
       expect(screen.queryByRole("region", { name: "Confirm: Dismiss selected" })).toBeNull(),
@@ -485,6 +495,8 @@ describe("bulk dismiss", () => {
     listUnknownItems.mockResolvedValue(page(DISMISSED));
     renderList();
     fireEvent.change(await screen.findByLabelText("Status"), { target: { value: "dismissed" } });
+    // RT-960: the queue filters apply on Apply, not on change.
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     await screen.findByText("6221234567890");
     expect(screen.queryByRole("button", { name: "Dismiss selected" })).toBeNull();
     expect(screen.queryByRole("checkbox")).toBeNull();

@@ -1,11 +1,18 @@
 import { type ClaimState, MetricClaims } from "@/components/MetricClaim";
 import { DocumentLocale } from "@/i18n";
+import { registerCatalog } from "@/i18n/catalogs";
+import { ar } from "@/i18n/messages/ar";
+import { en } from "@/i18n/messages/en";
 import { StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { KPIS, ZERO_KPIS as ZERO } from "../../unit/metric-claim-fixtures";
 import "@/styles/tokens.css";
 import "@/styles/controls.css";
 import "@/styles/a11y.css";
+
+// RT-962: the app loads catalogs on demand (main.tsx); a harness has both up front.
+registerCatalog("ar", ar);
+registerCatalog("en", en);
 
 /**
  * RT-819 e2e harness: the shared KPI claim in every state, mounted on its own

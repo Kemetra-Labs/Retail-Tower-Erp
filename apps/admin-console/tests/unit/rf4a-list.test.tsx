@@ -161,6 +161,8 @@ describe("UnknownItemList state matrix", () => {
     await screen.findByText("5012345678900");
     const calls = listUnknownItems.mock.calls.length;
     fireEvent.change(screen.getByLabelText(/sort/i), { target: { value: "age_asc" } });
+    // RT-960: the queue filters apply on Apply, not on change.
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     await waitFor(() => expect(listUnknownItems.mock.calls.length).toBeGreaterThan(calls));
     // the new call carries the changed sort param
     const last = listUnknownItems.mock.calls.at(-1)?.[0] as { sort?: string } | undefined;

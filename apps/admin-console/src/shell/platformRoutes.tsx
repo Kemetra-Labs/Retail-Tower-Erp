@@ -5,10 +5,15 @@
  * is the tenant directory; any other path gets the same non-disclosing state as
  * a non-admin.
  */
-import { PlatformArea } from "@/platform/PlatformArea";
-import { PlatformNotAvailable } from "@/platform/PlatformNotAvailable";
-import { PlatformTenants } from "@/platform/PlatformTenants";
+import { lazyPage } from "@/shell/lazyPage";
 import { Navigate, Route } from "react-router";
+
+const PlatformArea = lazyPage(() => import("@/platform/PlatformArea"), "PlatformArea");
+const PlatformNotAvailable = lazyPage(
+  () => import("@/platform/PlatformNotAvailable"),
+  "PlatformNotAvailable",
+);
+const PlatformTenants = lazyPage(() => import("@/platform/PlatformTenants"), "PlatformTenants");
 
 export const platformRoutes = (
   <Route path="/platform" element={<PlatformArea />}>

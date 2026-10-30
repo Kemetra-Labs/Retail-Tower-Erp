@@ -71,7 +71,7 @@ test("S6: switching scope re-queries and resets the surface to pre-query", async
   activeStore = { id: "s1", name: "Cairo Festival City" };
 
   await page.goto("/audit");
-  await page.getByRole("button", { name: t("audit.filters.apply"), exact: true }).click();
+  await page.getByRole("button", { name: t("filter.apply"), exact: true }).click();
   await expect(page.getByText("auth.signin")).toBeVisible();
   const callsAfterSearch = auditCalls();
   expect(callsAfterSearch).toBeGreaterThan(0);

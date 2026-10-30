@@ -1,6 +1,3 @@
-import { CatalogProductDetail } from "@/catalog/CatalogProductDetail";
-import { CatalogProductEdit } from "@/catalog/CatalogProductEdit";
-import { CatalogProductList } from "@/catalog/CatalogProductList";
 /**
  * RT-765 / RT-766 catalog route registration (CAT-C1a, CAT-C1b). Mounts inside
  * the protected layout (`/` → ProtectedArea → AppShell → <Outlet/>), behind
@@ -12,7 +9,21 @@ import { CatalogProductList } from "@/catalog/CatalogProductList";
  * (RT-484 / RT-485). «الأصناف» stays selected on every child route (NavLink prefix
  * match).
  */
+import { lazyPage } from "@/shell/lazyPage";
 import { Route } from "react-router";
+
+const CatalogProductDetail = lazyPage(
+  () => import("@/catalog/CatalogProductDetail"),
+  "CatalogProductDetail",
+);
+const CatalogProductEdit = lazyPage(
+  () => import("@/catalog/CatalogProductEdit"),
+  "CatalogProductEdit",
+);
+const CatalogProductList = lazyPage(
+  () => import("@/catalog/CatalogProductList"),
+  "CatalogProductList",
+);
 
 export const catalogRoutes = (
   <>

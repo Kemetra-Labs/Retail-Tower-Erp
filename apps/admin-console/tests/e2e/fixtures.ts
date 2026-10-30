@@ -1,7 +1,14 @@
 import { test as base } from "@playwright/test";
+import { registerCatalog } from "../../src/i18n/catalogs";
 import type { Locale } from "../../src/i18n/locale";
+import { ar } from "../../src/i18n/messages/ar";
+import { en } from "../../src/i18n/messages/en";
 import { roleKey } from "../../src/i18n/roles";
 import { type MessageKey, type Params, translate } from "../../src/i18n/translate";
+
+// RT-962: the app fetches catalogs on demand; the specs look up both locales.
+registerCatalog("ar", ar);
+registerCatalog("en", en);
 
 /**
  * RT-399: every journey runs in both locales. Each Playwright project sets

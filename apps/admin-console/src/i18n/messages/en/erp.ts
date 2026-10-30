@@ -21,6 +21,7 @@ export const erp: MessagesOf<typeof ar> = {
   "erp.error.notFound": "This store isn't available to you.",
 
   // --- Store filter ---------------------------------------------------------------
+  "erp.filter.label": "Filter connection and sync",
   "erp.filter.store": "Store",
   "erp.filter.allStores": "All stores",
   "erp.filter.note":
@@ -185,6 +186,7 @@ export const erp: MessagesOf<typeof ar> = {
   "erp.map.items.emptySuggested": "No suggestions waiting for review.",
   "erp.map.items.emptyConfirmed": "No confirmed item mappings.",
   "erp.map.items.filter": "State",
+  "erp.map.items.filter.label": "Filter item mappings",
   "erp.map.items.filter.all": "All active mappings",
   "erp.map.items.filter.suggested": "Waiting for review",
   "erp.map.items.filter.confirmed": "Confirmed",

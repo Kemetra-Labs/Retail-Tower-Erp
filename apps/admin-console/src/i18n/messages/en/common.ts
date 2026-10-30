@@ -29,6 +29,18 @@ export const common: MessagesOf<typeof ar> = {
   "common.close": "Close",
   "common.save": "Save",
   "common.tryAgain": "Try again",
+
+  // RT-960 shared FilterBar: one apply verb on every list.
+  "filter.apply": "Apply",
+  "filter.clear": "Clear",
+  "filter.more": "More filters",
+  "filter.moreActive": {
+    zero: "More filters",
+    one: "More filters, {count} active",
+    other: "More filters, {count} active",
+  },
+  "filter.applied": "Applied filters",
+  "filter.remove": "Remove filter {label}",
   "common.loading": "Loading…",
 
   "errors.forbidden": "You do not have permission to perform this action.",

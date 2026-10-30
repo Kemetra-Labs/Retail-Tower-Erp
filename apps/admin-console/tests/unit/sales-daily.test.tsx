@@ -287,19 +287,19 @@ describe("SalesDaily (RT-821, VIZ-3)", () => {
       fireEvent.change(screen.getByLabelText("From business date"), {
         target: { value: "2026-10-10" },
       });
-      fireEvent.click(screen.getByRole("button", { name: "Show" }));
+      fireEvent.click(screen.getByRole("button", { name: "Apply" }));
       expect(screen.getByTestId("location").textContent).toBe(
         "/sales-daily?from=2026-10-10&to=2026-10-31",
       );
     });
 
-    test("To before From is refused on Show, at the To field, with no read", async () => {
+    test("To before From is refused on Apply, at the To field, with no read", async () => {
       renderReport("/sales-daily?from=2026-10-01&to=2026-10-07");
       await moneyTable();
       fireEvent.change(screen.getByLabelText("From business date"), {
         target: { value: "2026-10-09" },
       });
-      fireEvent.click(screen.getByRole("button", { name: "Show" }));
+      fireEvent.click(screen.getByRole("button", { name: "Apply" }));
       expect(screen.getByLabelText("To business date").getAttribute("aria-invalid")).toBe("true");
       expect(consoleGetSalesSummary).toHaveBeenCalledTimes(1);
     });

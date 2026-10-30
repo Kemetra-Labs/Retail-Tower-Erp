@@ -30,6 +30,7 @@ export const productRecon: MessagesOf<typeof ar> = {
   "productRecon.error.rateLimited": "Too many requests.",
 
   // --- Class filter and classes ------------------------------------------------------------
+  "productRecon.filter.label": "Filter by class",
   "productRecon.filter.class": "Class",
   "productRecon.filter.all": "All classes",
   "productRecon.class.match": "Match",

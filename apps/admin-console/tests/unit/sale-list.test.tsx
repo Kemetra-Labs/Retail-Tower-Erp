@@ -107,7 +107,7 @@ describe("SaleList (RT-587, spec 012 J1)", () => {
     expect(within(picker).queryByText(/all stores/i)).toBeNull();
   });
 
-  test("choosing a store proposes today in that store's zone; Search applies it", async () => {
+  test("choosing a store proposes today in that store's zone; Apply applies it", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-07T23:30:00Z"));
     renderList();
@@ -122,7 +122,7 @@ describe("SaleList (RT-587, spec 012 J1)", () => {
       "2026-10-08",
     );
     expect(consoleListSales).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     await waitFor(() =>
       expect(location()).toBe(`/sales?store=${CAIRO_STORE}&from=2026-10-08&to=2026-10-08`),
     );
@@ -208,13 +208,13 @@ describe("SaleList (RT-587, spec 012 J1)", () => {
     fireEvent.change(screen.getByLabelText("To business date"), {
       target: { value: "2026-10-31" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     await waitFor(() => expect(consoleListSales).toHaveBeenCalledTimes(1));
   });
 
-  test("Search without a store or dates explains what is missing and reads nothing", async () => {
+  test("Apply without a store or dates explains what is missing and reads nothing", async () => {
     renderList();
-    fireEvent.click(await screen.findByRole("button", { name: "Search" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Apply" }));
     expect(await screen.findByText("Choose a store.")).toBeDefined();
     expect(screen.getByText("Enter both dates.")).toBeDefined();
     expect(consoleListSales).not.toHaveBeenCalled();
@@ -325,7 +325,7 @@ describe("SaleList (RT-587, spec 012 J1)", () => {
     expect(consoleListSales.mock.calls[1][0]).toMatchObject({ cursor: "c1" });
 
     fireEvent.change(screen.getByLabelText("Void"), { target: { value: "true" } });
-    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     expect(await screen.findByText("R-0099")).toBeDefined();
     expect(consoleListSales).toHaveBeenCalledTimes(3);
     expect(consoleListSales.mock.calls[2][0]).toMatchObject({ voided: true, cursor: undefined });

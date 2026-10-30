@@ -6,20 +6,20 @@
 import { DEVICE, STORE, mockRealisticApi } from "./compact-shell-data";
 import { expect, test } from "./fixtures";
 
+// RT-960: every list filters through the shared FilterBar; its grid holds the fields.
 const ROWS = [
-  { route: `/sales?store=${STORE}&from=2026-10-07&to=2026-10-07`, row: ".sale-filters" },
-  { route: "/devices", row: ".device-filters" },
-  { route: "/catalog/products", row: ".catalog-filters" },
-  { route: "/audit", row: ".audit-filters" },
-  // Its filters apply as they change: no button in the row.
-  { route: "/unknown-items", row: ".unknown-item-controls", noButton: true },
+  { route: `/sales?store=${STORE}&from=2026-10-07&to=2026-10-07`, row: ".filter-bar__grid" },
+  { route: "/devices", row: ".filter-bar__grid" },
+  { route: "/catalog/products", row: ".filter-bar__grid" },
+  { route: "/audit", row: ".filter-bar__grid" },
+  { route: "/unknown-items", row: ".filter-bar__grid" },
 ];
 
 const CONTROLS =
   'input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, button';
 
-for (const { route, row, noButton } of ROWS) {
-  test(`${row}: every filter control is 36px tall`, async ({ page }) => {
+for (const { route, row } of ROWS) {
+  test(`${route}: every filter control is 36px tall`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await mockRealisticApi(page);
     await page.goto(route);
@@ -28,7 +28,7 @@ for (const { route, row, noButton } of ROWS) {
     const controls = container.locator(CONTROLS);
     // An empty row would pass any height check: require fields and an action.
     await expect(container.locator("input, select").first()).toBeVisible();
-    if (!noButton) await expect(container.locator("button").first()).toBeVisible();
+    await expect(container.locator("button").first()).toBeVisible();
     const heights = await controls.evaluateAll((els) =>
       els
         .filter((el) => (el as HTMLElement).offsetParent !== null)
@@ -69,7 +69,7 @@ test("the audit row action has a 36px hit area without a taller row", async ({ p
     }),
   );
   await page.goto("/audit");
-  await page.getByRole("button", { name: t("audit.filters.apply"), exact: true }).click();
+  await page.getByRole("button", { name: t("filter.apply"), exact: true }).click();
   const action = page.locator(".audit-table__action").first();
   await expect(action).toBeVisible();
   // 16px above and below the centre still lands on the action, not the next row.

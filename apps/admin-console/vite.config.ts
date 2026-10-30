@@ -19,5 +19,22 @@ export default defineConfig({
     // Plain SPA build; target evergreen browsers (C-1).
     target: "es2022",
     outDir: "dist",
+    // RT-962: only JavaScript is split. The stylesheet stays one file loaded up
+    // front, as before: screens share utility classes defined in other screens'
+    // CSS (.table-scroll, .muted, .num), which a per-route split would drop.
+    cssCodeSplit: false,
+    rollupOptions: {
+      output: {
+        // RT-962: React and the router change only on a dependency bump, so they
+        // ship as one long-cached vendor chunk beside the entry (routes and the
+        // message catalogs are split by import() in src/).
+        manualChunks(id) {
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler|react-router)[\\/]/.test(id)) {
+            return "react-vendor";
+          }
+          return undefined;
+        },
+      },
+    },
   },
 });
