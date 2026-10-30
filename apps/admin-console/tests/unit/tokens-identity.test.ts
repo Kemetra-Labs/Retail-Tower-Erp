@@ -3,6 +3,9 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   CONTRAST_PAIRS,
+  V4_COLOUR_ROLES,
+  V4_FORBIDDEN_PAIRS,
+  V4_LIGHT_PAIRS,
   VIZ_CATEGORICAL,
   VIZ_DIVERGING,
   VIZ_SEQUENTIAL,
@@ -43,6 +46,7 @@ const shippedDark = block(shippedCss, DARK);
 const approvedDark = block(approvedCss, DARK);
 
 const shippedColours = Object.keys(shipped).filter((k) => k.startsWith("--color-"));
+const V4_ROLE_NAMES = V4_COLOUR_ROLES.map((r) => `--color-${r}`);
 const VIZ_ROLES = [...VIZ_CATEGORICAL, ...VIZ_SEQUENTIAL, ...VIZ_DIVERGING];
 
 /** A role's hex in a palette; an alias resolves within the same palette. */
@@ -111,7 +115,9 @@ function cssFiles(dir: string, acc: string[] = []): string[] {
 describe("RT-396 light-first tokens", () => {
   test("every shipped colour token equals its RT-392 approved light value", () => {
     expect(shippedColours.length).toBeGreaterThan(0);
-    for (const name of shippedColours) {
+    // The v4.0 roles (RT-989) come from DESIGN.md §12.1, not the RT-392 block;
+    // their values are pinned in the RT-989 tests below.
+    for (const name of shippedColours.filter((n) => !V4_ROLE_NAMES.includes(n))) {
       expect({ name, value: shipped[name] }).toEqual({ name, value: approved[name] });
     }
     expect(shipped["--shadow-overlay"]).toBe(approved["--shadow-overlay"]);
@@ -136,6 +142,7 @@ describe("RT-396 light-first tokens", () => {
       "control-border",
       "focus-ring",
       "scrim",
+      ...V4_COLOUR_ROLES,
       ...VIZ_ROLES,
     ];
     expect(shippedColours.sort()).toEqual(roles.map((r) => `--color-${r}`).sort());
@@ -163,6 +170,73 @@ describe("RT-396 light-first tokens", () => {
       const code = stripComments(readFileSync(file, "utf8"));
       for (const value of RETIRED) if (code.includes(value)) hits.push(`${file}: ${value}`);
       if (file !== tokensFile && rawColour(file).test(code)) hits.push(`${file}: raw colour`);
+    }
+    expect(hits).toEqual([]);
+  });
+});
+
+/**
+ * RT-989 v4.0 "Ink & Receipt" roles (DESIGN.md §12.1 and §12.5; Confluence 62816260
+ * D-V1..D-V3, D-V6). Light values only: the dark theme is RT-990. The roles are
+ * declared for later slices, so components must not spell their values.
+ */
+describe("RT-989 v4.0 light roles", () => {
+  const V4_HEX = ["#0a2125", "#5fe0cf", "#a9c2c5", "#f2f5f6"];
+
+  test("the colour roles have the §12.1 light values", () => {
+    expect(Object.fromEntries(V4_COLOUR_ROLES.map((r) => [r, resolve(r)]))).toEqual({
+      ink: "#0a2125",
+      mint: "#5fe0cf",
+      "ink-muted": "#a9c2c5",
+      canvas: "#f2f5f6",
+    });
+  });
+
+  test("the elevation role is one hairline plus a 32px, -24px spread shadow at 25% Ink", () => {
+    expect(shipped["--shadow-resting"]).toBe(
+      "0 1px 2px rgb(10 33 37 / 0.04), 0 12px 32px -24px rgb(10 33 37 / 0.25)",
+    );
+    // The shadow's rgb is --color-ink: 0a2125 = 10 33 37.
+    expect(resolve("ink")).toBe("#0a2125");
+  });
+
+  test("the radius roles are 20 (panels), 10-12 (controls) and 14 (search)", () => {
+    expect({
+      panel: shipped["--radius-panel"],
+      field: shipped["--radius-field"],
+      fieldLg: shipped["--radius-field-lg"],
+      search: shipped["--radius-search"],
+    }).toEqual({ panel: "20px", field: "10px", fieldLg: "12px", search: "14px" });
+  });
+
+  test("the v4.0 roles are light-only: the dark block does not redefine them yet", () => {
+    for (const role of V4_COLOUR_ROLES) expect(shippedDark).not.toHaveProperty(`--color-${role}`);
+    expect(shippedDark).not.toHaveProperty("--shadow-resting");
+  });
+
+  test.each(V4_LIGHT_PAIRS)("%s on %s passes (>= %s:1)", (fg, bg, min) => {
+    expect(ratio(fg, bg)).toBeGreaterThanOrEqual(min);
+  });
+
+  test.each(V4_FORBIDDEN_PAIRS)(
+    "%s on %s is a forbidden pair (stays under %s:1)",
+    (fg, bg, max) => {
+      expect(ratio(fg, bg)).toBeLessThan(max);
+    },
+  );
+
+  test("Mint on white is recorded at 1.6:1", () => {
+    expect(ratio("mint", "surface")).toBeCloseTo(1.6, 1);
+  });
+
+  test("no component file spells a v4.0 value: only tokens.css does", () => {
+    const tokensFile = join(root, "src", "styles", "tokens.css");
+    const hits: string[] = [];
+    for (const file of cssFiles(join(root, "src"))) {
+      if (file === tokensFile) continue;
+      const code = stripComments(readFileSync(file, "utf8")).toLowerCase();
+      for (const hex of V4_HEX) if (code.includes(hex)) hits.push(`${file}: ${hex}`);
+      if (/rgba?\(\s*10[ ,]+33[ ,]+37\b/.test(code)) hits.push(`${file}: rgb(10 33 37)`);
     }
     expect(hits).toEqual([]);
   });

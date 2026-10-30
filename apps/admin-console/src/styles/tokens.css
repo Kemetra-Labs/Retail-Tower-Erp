@@ -30,6 +30,16 @@
   --color-danger: #b3261e; /* danger / consequence / UNKNOWN */
   --color-info: #1b6ca8; /* information / pending */
 
+  /* v4.0 "Ink & Receipt" roles (RT-989; DESIGN.md §12.1; Confluence 62816260
+   * D-V1..D-V3). Light values only. Declared for the slices that follow: no
+   * component uses them yet, so no screen changes. The dark theme does not remap
+   * them until RT-990 decides their dark values. Mint is a highlight on Ink only:
+   * it is 1.6:1 on white, so never text or fill on a light surface. */
+  --color-ink: #0a2125; /* sidebar, hero receipt, primary fill and selected segment on light */
+  --color-mint: #5fe0cf; /* highlight on Ink only (D-V2) */
+  --color-ink-muted: #a9c2c5; /* secondary text on Ink */
+  --color-canvas: #f2f5f6; /* the v4.0 work-surface background */
+
   /* Data visualisation (RT-822, UX-13): a separate family that never reuses a
    * status or intent role. Every mark clears 3:1 on all three layers; the
    * receding ends (seq-1, each diverging arm's step 1) clear 2:1. Owner-ratified
@@ -65,6 +75,9 @@
   --color-focus-ring: var(--color-primary);
   --color-scrim: rgb(15 29 46 / 0.45); /* text at 45% */
   --shadow-overlay: 0 12px 32px rgb(15 29 46 / 0.16), 0 2px 6px rgb(15 29 46 / 0.08);
+  /* v4.0 resting elevation (RT-989, D-V6): a hairline plus a 32px, -24px spread
+   * shadow at 25% Ink (rgb of --color-ink). Panels and receipt cards only. */
+  --shadow-resting: 0 1px 2px rgb(10 33 37 / 0.04), 0 12px 32px -24px rgb(10 33 37 / 0.25);
 
   /* Type (UX-03, RT-397). Dubai is the one Arabic-first UI voice shared with POS.
    * No font files are served: Dubai renders where it is installed, otherwise the
@@ -98,6 +111,13 @@
   --radius-object: 12px; /* a genuine contained object or panel */
   --radius-overlay: 16px; /* an independent overlay: dialog */
   --radius-pill: 9999px; /* status, counts, tags only */
+  /* v4.0 roles (RT-989, D-V6): panels and cards 20px, controls 10-12px, the
+   * top-bar search 14px. They sit beside the roles above, which stay as they are
+   * until a slice moves a component to them. */
+  --radius-panel: 20px; /* section panels and receipt cards */
+  --radius-field: 10px; /* controls */
+  --radius-field-lg: 12px; /* larger controls and table-row strips */
+  --radius-search: 14px; /* the top-bar search */
 
   /* Control sizes (RT-959): one height for every desktop button, input and
    * select, and the touch target of the compact shell (RT-785 D3). */
