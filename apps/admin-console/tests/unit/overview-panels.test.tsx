@@ -325,7 +325,9 @@ describe("Overview panels (RT-559, spec 009)", () => {
     expect(
       await screen.findByText("No attention items are available to your role here."),
     ).toBeTruthy();
-    expect(screen.queryByRole("list")).toBeNull();
+    // RT-970: the pipeline strip is a list too; the attention panel has none.
+    const attention = screen.getByRole("region", { name: "Needs your attention" });
+    expect(within(attention).queryByRole("list")).toBeNull();
   });
 
   test("AC-7: an active store narrows every panel, for an owner too", async () => {

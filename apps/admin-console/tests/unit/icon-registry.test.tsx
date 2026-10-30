@@ -63,6 +63,9 @@ const ADDED_SINCE_IC3: readonly IconName[] = [
   "sortable",
   // RT-829: the compact shell's menu button (Jira name: menu).
   "menu",
+  // RT-970: the Overview's comparison with the previous business day.
+  "increase",
+  "decrease",
 ];
 
 function draw(props: { name: IconName; size?: "sm" | "md" | "lg" }): SVGSVGElement {
@@ -280,6 +283,8 @@ describe("one icon grammar in product code", () => {
       .filter(({ file }) => !file.endsWith("/src/components/TowerMark.tsx"))
       // RT-823: the daily-sales bar chart draws data marks, not icons.
       .filter(({ file }) => !file.endsWith("/src/sales-daily/DailyChart.tsx"))
+      // RT-970: the Overview's 14-day trend draws the same data marks.
+      .filter(({ file }) => !file.endsWith("/src/overview/TrendPanel.tsx"))
       .filter(({ file }) => !file.includes("/src/generated/"))
       .filter(({ src }) => /<svg\b/.test(src))
       .map(({ file }) => file);

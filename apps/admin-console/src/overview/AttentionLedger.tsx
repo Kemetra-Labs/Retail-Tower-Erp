@@ -6,6 +6,10 @@
  * Each row owns its loading / error / Unknown state (§6.4), and a refused panel
  * renders no row at all (§6.2). P-1 is one row per store, with the stock
  * screen's own snapshot words (Unknown stays Unknown, AC-4).
+ *
+ * RT-970: the canvas list in a section panel. Each row leads with a dot whose
+ * tone reinforces what the words already say (work waiting, failed, quiet);
+ * the text carries the meaning, never the dot alone.
  */
 import { DateTime, type MessageKey, useT } from "@/i18n";
 import type { StoreNegativeOnHandSummary } from "@/lib/stock-discrepancy-queries";
@@ -31,15 +35,30 @@ interface RowLink {
   text: string;
 }
 
+/** The dot's tone: work waiting, a failed read, or nothing to act on. */
+type RowTone = "attention" | "danger" | "quiet";
+
+function toneOf(state: PanelState<unknown>, hasWork: boolean): RowTone {
+  if (state.status === "error") return "danger";
+  return state.status === "ready" && hasWork ? "attention" : "quiet";
+}
+
 function LedgerRow({
   label,
   link,
+  tone,
   children,
-}: Readonly<{ label: string; link: RowLink; children: React.ReactNode }>): React.JSX.Element {
+}: Readonly<{
+  label: string;
+  link: RowLink;
+  tone: RowTone;
+  children: React.ReactNode;
+}>): React.JSX.Element {
   // Links repeat ("View store discrepancies" per store): the row label describes each one.
   const labelId = useId();
   return (
     <li className="ledger__row">
+      <span className={`ledger__dot ledger__dot--${tone}`} aria-hidden="true" />
       <span id={labelId} className="ledger__label">
         {label}
       </span>
@@ -69,6 +88,11 @@ function PendingValue({
   return (
     <span className="ledger__error" role="alert">
       {t("overview.row.failed")}
+      {state.requestId ? (
+        <span className="glance-error__ref">
+          {t.rich("components.banner.requestRef", { id: <bdi dir="ltr">{state.requestId}</bdi> })}
+        </span>
+      ) : null}
       <button type="button" className="btn-secondary ledger__retry" onClick={state.retry}>
         {t("overview.row.retry")}
       </button>
@@ -114,8 +138,9 @@ function CountRow({
   link: RowLink;
 }>): React.JSX.Element | null {
   if (state.status === "hidden") return null;
+  const hasWork = state.status === "ready" && "count" in state.data && state.data.count > 0;
   return (
-    <LedgerRow label={label} link={link}>
+    <LedgerRow label={label} link={link} tone={toneOf(state, hasWork)}>
       {state.status === "ready" ? (
         <CountValue count={state.data} noun={noun} />
       ) : (
@@ -159,7 +184,7 @@ function StockRows({
   if (state.status === "hidden") return null;
   if (state.status !== "ready") {
     return (
-      <LedgerRow label={t("overview.stock.labelAll")} link={all}>
+      <LedgerRow label={t("overview.stock.labelAll")} link={all} tone={toneOf(state, false)}>
         <PendingValue state={state} />
       </LedgerRow>
     );
@@ -167,7 +192,7 @@ function StockRows({
   const { stores, truncated } = state.data;
   if (stores.length === 0) {
     return (
-      <LedgerRow label={t("overview.stock.labelAll")} link={all}>
+      <LedgerRow label={t("overview.stock.labelAll")} link={all} tone="quiet">
         <span className="ledger__quiet">{t("overview.stock.none")}</span>
       </LedgerRow>
     );
@@ -179,12 +204,17 @@ function StockRows({
           key={row.storeId}
           label={t("overview.stock.label", { store: row.storeName })}
           link={{ to: `/stock-discrepancies/${row.storeId}`, text: t("overview.stock.open") }}
+          tone={
+            row.snapshot.status !== "fresh" || (row.negativeItemCount ?? 0) > 0
+              ? "attention"
+              : "quiet"
+          }
         >
           <StoreSnapshot row={row} />
         </LedgerRow>
       ))}
       {truncated ? (
-        <LedgerRow label={t("overview.stock.labelAll")} link={all}>
+        <LedgerRow label={t("overview.stock.labelAll")} link={all} tone="quiet">
           <span className="ledger__quiet">{t("overview.stock.more")}</span>
         </LedgerRow>
       ) : null}
@@ -203,12 +233,16 @@ export function AttentionLedger({
   const allHidden = [stock, shift.state, unknown].every((s) => s.status === "hidden");
 
   return (
-    <section className="overview__section" aria-labelledby="overview-attention">
-      <h2 id="overview-attention" className="overview__heading">
-        {t("overview.attention.title")}
-      </h2>
+    <section className="section-panel overview__attention" aria-labelledby="overview-attention">
+      <div className="section-panel__head">
+        <h2 id="overview-attention" className="section-panel__title">
+          {t("overview.attention.title")}
+        </h2>
+      </div>
       {allHidden ? (
-        <p className="ledger__quiet">{t("overview.attention.nothingForRole")}</p>
+        <p className="ledger__quiet section-panel__body">
+          {t("overview.attention.nothingForRole")}
+        </p>
       ) : (
         <ul className="ledger">
           <StockRows state={stock} />
