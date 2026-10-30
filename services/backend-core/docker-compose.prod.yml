@@ -107,6 +107,35 @@ services:
       # tender map is deployed, and SAME_METHOD only after RT-361.
       POS_SALE_TENDERS_ENABLED: ${POS_SALE_TENDERS_ENABLED:-false}
       POS_SALE_TENDERS_SAME_METHOD_ENABLED: ${POS_SALE_TENDERS_SAME_METHOD_ENABLED:-false}
+      # RT-984: every other setting the api reads, so backend.env can reach it.
+      # Off-by-default gates; see deploy/prod.env.example before turning one on.
+      # Deliberately unmapped (test/deploy/compose-api-env.spec.ts lists why):
+      # the CORS origin list (RT-336 same origin, CORS stays off) and
+      # ERPNEXT_FEED_RESPONSIBILITIES_ENABLED (until the RT-419 hold lift).
+      POS_RETURNS_ENABLED: ${POS_RETURNS_ENABLED:-false}
+      POS_REFUND_SETTLE_BEFORE_POST_ENABLED: ${POS_REFUND_SETTLE_BEFORE_POST_ENABLED:-false}
+      POS_LEGACY_REFUND_ENABLED: ${POS_LEGACY_REFUND_ENABLED:-false}
+      DEVICE_TOKEN_EXPIRY_ENFORCED: ${DEVICE_TOKEN_EXPIRY_ENFORCED:-false}
+      AI_GATEWAY_ENABLED: ${AI_GATEWAY_ENABLED:-false}
+      # Empty, never "false": unset means ON in production (RT-124).
+      OUTBOX_AUDIT_ENABLED: ${OUTBOX_AUDIT_ENABLED:-}
+      # Inert while TRUST_PROXY is fixed above; kept so the boot check can be armed.
+      TRUST_PROXY_REQUIRED: ${TRUST_PROXY_REQUIRED:-}
+      # Tuning settings. Empty = the code's default; an invalid value falls back
+      # to it too (AI_RESERVATION_TTL_SECONDS refuses boot instead).
+      AI_RESERVATION_TTL_SECONDS: ${AI_RESERVATION_TTL_SECONDS:-}
+      PUBLIC_AUTH_LIMITER_TIMEOUT_MS: ${PUBLIC_AUTH_LIMITER_TIMEOUT_MS:-}
+      CONSOLE_RATE_LIMIT_MODE: ${CONSOLE_RATE_LIMIT_MODE:-}
+      CONSOLE_RATE_LIMIT_TIMEOUT_MS: ${CONSOLE_RATE_LIMIT_TIMEOUT_MS:-}
+      PREAUTH_RATE_LIMIT_MODE: ${PREAUTH_RATE_LIMIT_MODE:-}
+      PREAUTH_RATE_LIMIT_LIMIT: ${PREAUTH_RATE_LIMIT_LIMIT:-}
+      PREAUTH_RATE_LIMIT_WINDOW_MS: ${PREAUTH_RATE_LIMIT_WINDOW_MS:-}
+      PREAUTH_RATE_LIMIT_TIMEOUT_MS: ${PREAUTH_RATE_LIMIT_TIMEOUT_MS:-}
+      CASHIER_ADMISSION_TTL_SECONDS: ${CASHIER_ADMISSION_TTL_SECONDS:-}
+      CASHIER_OFFLINE_GRACE_SECONDS: ${CASHIER_OFFLINE_GRACE_SECONDS:-}
+      CASHIER_TAKEOVER_RATE_LIMIT: ${CASHIER_TAKEOVER_RATE_LIMIT:-}
+      CASHIER_TAKEOVER_RATE_WINDOW_SECONDS: ${CASHIER_TAKEOVER_RATE_WINDOW_SECONDS:-}
+      CASHIER_TAKEOVER_LIMITER_TIMEOUT_MS: ${CASHIER_TAKEOVER_LIMITER_TIMEOUT_MS:-}
       # Spec 037 observability. All default-inert: an empty SENTRY_DSN sends no
       # Sentry events; traces go to OTEL_EXPORTER_OTLP_ENDPOINT (the SDK default
       # until pointed at the datadog-agent profile, see deploy/README.md).

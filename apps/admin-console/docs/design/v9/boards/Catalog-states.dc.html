@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>حالات قائمة الأصناف — Retail Tower Console</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#0f766e}a:hover{color:#0b5b55}
+.disp{font-family:'Readex Pro',Dubai,'Segoe UI',sans-serif}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.cap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.cap b{font-family:'Readex Pro',sans-serif;font-size:11px;font-weight:600;color:#ffffff;background:#0a2125;border-radius:6px;padding:2px 8px}
+.cap span{font-size:15px;font-weight:700;color:#0a2125}
+.cap code{font-family:ui-monospace,Consolas,monospace;font-size:11px;color:#5b6d7c;background:#e9eff1;border-radius:5px;padding:1px 6px}
+.box{background:#ffffff;border:1px solid #e3e9ec;border-radius:20px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25);overflow:hidden}
+.btn{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:10px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap}
+.ink{color:#ffffff;background:#0a2125;border:1px solid #0a2125}
+.ink:hover{color:#ffffff}
+.ghost{color:#0a2125;border:1px solid #d6dfe3;background:#ffffff}
+.ghost:hover{color:#0a2125}
+.empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:34px 24px 30px}
+.eico{width:64px;height:64px;border-radius:18px;display:flex;align-items:center;justify-content:center;margin-bottom:4px}
+.row{display:flex;align-items:center;gap:12px;margin:0 14px 6px;padding:10px 14px;border-radius:12px;background:#f8fafb;border:1px solid #eef2f4;font-size:13px}
+.tile{width:34px;height:34px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;color:#ffffff;font-family:'Readex Pro',sans-serif;font-weight:600;flex:none}
+</style>
+</helmet>
+<div style="width: 1440px; min-height: 1320px; box-sizing: border-box; padding: 40px; background: #f2f5f6; color: #0a2125; font-family: Dubai, 'Segoe UI', Tahoma, system-ui, sans-serif; font-size: 14px; line-height: 1.6; display: flex; flex-direction: column; gap: 24px">
+  <div style="display: flex; flex-direction: column; gap: 4px">
+    <h1 class="disp" style="margin: 0; font-size: 26px; font-weight: 600">قائمة الأصناف — الحالات</h1>
+    <p style="margin: 0; color: #5b6d7c">النصوص هنا هي نصوص الكتالوج الحالية في <span class="mono">src/i18n/messages/ar/catalog.ts</span>؛ التصميم يغيّر الشكل لا المعنى.</p>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px">
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="cap"><b>1</b><span>لا مؤسسة محددة</span><code>catalog.list.scopePrompt</code></div>
+      <section class="box"><div class="empty">
+        <div class="eico" aria-hidden="true" style="background: #0a2125; color: #5fe0cf"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v10h16V10M3 10l2-6h14l2 6zM9 20v-6h6v6"/></svg></div>
+        <strong style="font-size: 16px">اختر مؤسسة لعرض الأصناف.</strong>
+        <span style="color: #5b6d7c">الكتالوج يخص مؤسسة واحدة في كل مرة.</span>
+        <button type="button" class="btn ink" style="margin-top: 6px">اختيار المؤسسة</button>
+      </div></section>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="cap"><b>2</b><span>الكتالوج فارغ</span><code>catalog.list.empty</code></div>
+      <section class="box"><div class="empty">
+        <div class="eico" aria-hidden="true" style="background: #e7f6f3; color: #0f766e"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg></div>
+        <strong style="font-size: 16px">لا توجد أصناف نشطة بعد.</strong>
+        <span style="color: #5b6d7c; max-width: 420px">تظهر الأصناف هنا بعد استيرادها إلى كتالوج المؤسسة.</span>
+      </div></section>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="cap"><b>3</b><span>لا نتائج للفلاتر</span><code>catalog.list.emptyFiltered</code></div>
+      <section class="box"><div class="empty">
+        <div class="eico" aria-hidden="true" style="background: #e9eff1; color: #33454f"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4M8 11h6"/></svg></div>
+        <strong style="font-size: 16px">لا توجد أصناف تطابق بحث «جوافة»، الحالة: نشط.</strong>
+        <span style="color: #5b6d7c">غيّر عوامل التصفية أو امسحها.</span>
+        <button type="button" class="btn ink" style="margin-top: 6px">مسح عوامل التصفية</button>
+      </div></section>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="cap"><b>4</b><span>فشل التحميل</span><code>catalog.list.loadFailed</code></div>
+      <section class="box"><div class="empty">
+        <div class="eico" aria-hidden="true" style="background: #fde7e5; color: #c42b26"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg></div>
+        <strong style="font-size: 16px">تعذّر تحميل الأصناف.</strong>
+        <span class="mono" style="color: #5b6d7c"><bdi dir="ltr">req_5c09ab71</bdi></span>
+        <button type="button" class="btn ink" style="margin-top: 6px">إعادة المحاولة</button>
+      </div></section>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="cap"><b>5</b><span>المتجر لم يعد متاحًا</span><code>catalog.list.storeStale</code></div>
+      <section class="box">
+        <div role="alert" style="margin: 16px 14px 10px; padding: 12px 14px; border-radius: 12px; background: #fdf5e8; border: 1px solid #f3dfbd; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 13px">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a35a00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v10h16V10M3 10l2-6h14l2 6z"/></svg>
+          <span style="flex: 1 1 240px"><strong>المتجر المحدَّد لم يعد متاحًا.</strong> <span style="color: #5b6d7c">تُعرض الأصناف بقيم المؤسسة إلى أن تختار متجرًا.</span></span>
+          <button type="button" class="btn ghost" style="height: 32px">اختيار متجر</button>
+        </div>
+        <div class="row"><span class="tile" aria-hidden="true" style="background: #0f8f80">أ</span><strong style="flex: 1">أرز مصري 5 كجم</strong><bdi dir="ltr" class="disp" style="font-weight: 600">189.00 EGP</bdi></div>
+        <div class="row" style="margin-bottom: 16px"><span class="tile" aria-hidden="true" style="background: #3f63d6">ش</span><strong style="flex: 1">شاي أسود 100 فتلة</strong><bdi dir="ltr" class="disp" style="font-weight: 600">84.50 EGP</bdi></div>
+      </section>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="cap"><b>6</b><span>بلا صلاحية · انتهاء الجلسة · نهاية القائمة</span><code>unavailable · sessionExpired · ended</code></div>
+      <section class="box" style="display: flex; flex-direction: column">
+        <div class="empty" style="padding: 26px 24px 18px">
+          <div class="eico" aria-hidden="true" style="background: #e9eff1; color: #33454f; width: 54px; height: 54px"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg></div>
+          <strong style="font-size: 15px">هذه الأصناف غير متاحة لك.</strong>
+          <span style="color: #5b6d7c">اختر مؤسسة أو متجرًا آخر.</span>
+        </div>
+        <div style="margin: 0 14px; padding: 12px 14px; border-radius: 12px; background: #f4f7f8; display: flex; align-items: center; gap: 10px; font-size: 13px">
+          <span style="flex: 1"><strong>انتهت جلستك.</strong> سجّل الدخول مرة أخرى.</span>
+          <button type="button" class="btn ink" style="height: 32px">تسجيل الدخول</button>
+        </div>
+        <div style="margin: 14px 14px 18px; display: flex; align-items: center; gap: 10px; color: #5b6d7c; font-size: 12px">
+          <span aria-hidden="true" style="flex: 1; border-top: 2px dashed #e1e8eb"></span>
+          <span>انتهت قائمة الأصناف.</span>
+          <span aria-hidden="true" style="flex: 1; border-top: 2px dashed #e1e8eb"></span>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1320}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -47,7 +47,7 @@
   },
   "dependencies": {
     "@opentelemetry/api": "1.9.1",
-    "@opentelemetry/exporter-prometheus": "0.216.0",
+    "@opentelemetry/exporter-prometheus": "0.217.0",
     "@opentelemetry/exporter-trace-otlp-http": "0.216.0",
     "@opentelemetry/instrumentation-http": "0.216.0",
     "@opentelemetry/instrumentation-pg": "0.73.0",

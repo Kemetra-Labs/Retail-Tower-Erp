@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>فرع المعادي — Retail Tower Console</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f2f5f6}
+a{color:#0f766e}a:hover{color:#0b5b55}
+:focus-visible{outline:2px solid #14a394;outline-offset:2px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.disp{font-family:'Readex Pro',Dubai,'Segoe UI',sans-serif}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.nv{display:flex;align-items:center;gap:14px;min-height:46px;padding:0 14px;border-radius:12px;color:#a9c2c5;text-decoration:none;font-size:14px;position:relative}
+.nv:hover{background:rgba(255,255,255,.05);color:#ffffff}
+.nv svg{flex:none}
+.nv-on{color:#ffffff;font-weight:700;background:linear-gradient(90deg,rgba(43,196,179,.22),rgba(43,196,179,.04));box-shadow:inset 0 0 0 1px rgba(95,224,207,.22)}
+.nv-on::before{content:"";position:absolute;inset-inline-start:-16px;top:10px;bottom:10px;width:4px;border-radius:0 4px 4px 0;background:#5fe0cf;box-shadow:0 0 14px 2px rgba(95,224,207,.7)}
+.nv-on svg{color:#5fe0cf}
+.grp{font-size:11px;color:#5f8186;padding:0 14px 4px;font-weight:700}
+.box{background:#ffffff;border:1px solid #e3e9ec;border-radius:20px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25)}
+.hd{display:flex;align-items:center;gap:12px;padding:18px 22px 8px;flex-wrap:wrap}
+.idx{font-family:'Readex Pro',sans-serif;font-size:11px;font-weight:600;color:#0f8f80;background:#e7f6f3;border-radius:6px;padding:2px 7px}
+.ht{margin:0;font-family:'Readex Pro',Dubai,sans-serif;font-size:16px;font-weight:600;color:#0a2125}
+.hs{font-size:12px;color:#5b6d7c}
+.btn{display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 16px;border-radius:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap}
+.ink{color:#ffffff;background:#0a2125;border:1px solid #0a2125}
+.ink:hover{color:#ffffff;background:#12333a}
+.ghost{color:#0a2125;border:1px solid #d6dfe3;background:#ffffff}
+.ghost:hover{color:#0a2125;border-color:#9fb4ba}
+.quiet{color:#33454f;border:1px solid transparent;background:transparent}
+.quiet:hover{background:#e9eff1}
+.dq{color:#b3261e;border:1px solid #f0bdb8;background:#ffffff}
+.dq:hover{background:#fdeceb;color:#b3261e}
+.dd{color:#ffffff;border:1px solid #8f1d17;background:#b3261e}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:9px;font-size:12px;font-weight:700;white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:2px;background:currentColor;transform:rotate(45deg)}
+.neu{background:#e9eff1;color:#33454f}
+.warn{background:#fdf0dc;color:#8a4b00}
+.bad{background:#fde7e5;color:#b3261e}
+.ledger{width:100%;border-collapse:collapse;font-size:14px}
+.ledger th{text-align:start;font-weight:400;color:#5b6d7c;padding:11px 22px;border-bottom:1px solid #eef2f4;width:38%;font-size:13px;vertical-align:top}
+.ledger td{padding:11px 22px;border-bottom:1px solid #eef2f4;color:#0a2125}
+.ledger tr:last-child th,.ledger tr:last-child td{border-bottom:0}
+.dev{display:flex;align-items:center;gap:12px;padding:12px 22px;border-top:1px solid #eef2f4}
+.di{width:38px;height:38px;border-radius:11px;background:#0a2125;color:#5fe0cf;display:flex;align-items:center;justify-content:center;flex:none}
+.hero>*:not(.art){position:relative;z-index:1}
+.art{position:absolute;inset-inline-end:210px;bottom:0;width:300px;height:132px;pointer-events:none;opacity:.5}
+@media (max-width:900px){.art{display:none}}
+.ctl{height:40px;box-sizing:border-box;border:1px solid #9fb0bc;border-radius:10px;background:#ffffff;padding:0 12px;font:inherit;font-size:14px;color:#0a2125;width:100%}
+</style>
+</helmet>
+
+<div style="min-height: 100vh; display: flex; flex-wrap: wrap; align-items: stretch; background: #f2f5f6; color: #0a2125; font-family: Dubai, 'Segoe UI', Tahoma, system-ui, sans-serif; font-size: 14px; line-height: 1.6">
+
+  <aside aria-label="التنقل الرئيسي" style="flex: 1 1 240px; max-width: 100%; box-sizing: border-box; padding: 22px 16px; display: flex; flex-direction: column; gap: 22px; color: #ffffff; background-color: #0a2125; background-image: linear-gradient(rgba(95,224,207,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(95,224,207,.05) 1px, transparent 1px), radial-gradient(420px 260px at 100% 0%, rgba(43,196,179,.22), transparent 70%); background-size: 28px 28px, 28px 28px, 100% 100%">
+    <div style="display: flex; align-items: center; gap: 12px; padding: 0 4px">
+      <div aria-hidden="true" style="width: 44px; height: 44px; border-radius: 13px; background: linear-gradient(160deg, #5fe0cf, #0f766e 70%); display: flex; align-items: flex-end; justify-content: center; gap: 3px; padding-bottom: 10px; box-sizing: border-box">
+        <span style="width: 5px; height: 12px; border-radius: 2px; background: rgba(255,255,255,.7)"></span><span style="width: 5px; height: 22px; border-radius: 2px; background: #ffffff"></span><span style="width: 5px; height: 16px; border-radius: 2px; background: rgba(255,255,255,.85)"></span>
+      </div>
+      <div style="display: flex; flex-direction: column; line-height: 1.25"><span class="disp" style="font-weight: 600; font-size: 18px">Retail Tower</span><span style="font-size: 12px; color: #7fa3a8">منصة إدارة التجزئة</span></div>
+    </div>
+    <nav style="display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">العمليات</span>
+        <a class="nv" href="Overview-v9.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10l8-6 8 6v10H4z"/><path d="M10 20v-6h4v6"/></svg>الرئيسية</a>
+        <a class="nv" href="Sales.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>المبيعات</a>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">الإدارة</span>
+        <a class="nv nv-on" href="Stores.dc.html" aria-current="page"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v10h16V10M3 10l2-6h14l2 6zM9 20v-6h6v6"/></svg>المتاجر</a>
+        <a class="nv" href="Devices.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>الأجهزة</a>
+      </div>
+    </nav>
+  </aside>
+
+  <div style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column">
+    <main style="width: 100%; max-width: 1360px; box-sizing: border-box; padding: 24px 26px 40px; display: flex; flex-direction: column; gap: 18px">
+      <a href="Stores.dc.html" style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; text-decoration: none; width: fit-content"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>العودة إلى المتاجر</a>
+
+      <!-- Hero band -->
+      <section class="hero" aria-labelledby="h1" style="position: relative; overflow: hidden; border-radius: 22px; padding: 24px 26px; display: flex; flex-wrap: wrap; align-items: center; gap: 18px; color: #ffffff; background-color: #0a2125; background-image: linear-gradient(rgba(95,224,207,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(95,224,207,.06) 1px, transparent 1px), radial-gradient(420px 220px at 0% 0%, rgba(95,224,207,.30), transparent 70%); background-size: 24px 24px, 24px 24px, 100% 100%; box-shadow: 0 22px 40px -24px rgba(10,33,37,.9)">
+        <svg class="art" aria-hidden="true" viewBox="0 0 300 132" fill="none" stroke="#5fe0cf" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round">
+          <path d="M30 132V58h240v74" stroke-opacity=".7"/>
+          <path d="M22 58l14-24h228l14 24z" stroke-opacity=".9"/>
+          <path d="M22 58c0 8 10 8 10 0 0 8 10 8 10 0 0 8 10 8 10 0 0 8 10 8 10 0 0 8 10 8 10 0 0 8 10 8 10 0 0 8 10 8 10 0 0 8 10 8 10 0 0 8 10 8 10 0 0 8 10 8 10 0 0 8 10 8 10 0 0 8 10 8 10 0 0 8 10 8 10 0 0 8 10 8 10 0 0 8 10 8 10 0 0 8 10 8 10 0 0 8 10 8 10 0 0 8 10 8 10 0 0 8 10 8 10 0 0 8 10 8 10 0 0 8 10 8 10 0 0 8 10 8 10 0" stroke-opacity=".6"/>
+          <path d="M48 34l-6 24M76 34l-4 24M104 34l-2 24M132 34v24M160 34v24M188 34l2 24M216 34l4 24M244 34l6 24" stroke-opacity=".35"/>
+          <rect x="48" y="80" width="70" height="40" rx="3" stroke-opacity=".7"/><path d="M83 80v40M48 100h70" stroke-opacity=".35"/>
+          <rect x="182" y="80" width="70" height="40" rx="3" stroke-opacity=".7"/><path d="M217 80v40M182 100h70" stroke-opacity=".35"/>
+          <rect x="134" y="78" width="32" height="54" rx="3" stroke-opacity=".8"/><path d="M160 106h.01" stroke-width="3"/>
+          <rect x="112" y="16" width="76" height="14" rx="3" stroke-opacity=".8"/><path d="M124 23h52" stroke-opacity=".5"/>
+        </svg>
+        <span aria-hidden="true" class="disp" style="width: 64px; height: 64px; border-radius: 18px; background: rgba(95,224,207,.16); color: #5fe0cf; display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 600">م</span>
+        <div style="flex: 1 1 300px; display: flex; flex-direction: column; gap: 6px">
+          <h1 id="h1" class="disp" style="margin: 0; font-size: 26px; font-weight: 600; line-height: 1.3">فرع المعادي</h1>
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: #a9c2c5">
+            <sc-if value="{{ active }}" hint-placeholder-val="{{ true }}"><span class="pill" style="background: rgba(255,255,255,.12); color: #e6f0f1">نشط</span></sc-if>
+            <sc-if value="{{ inactive }}" hint-placeholder-val="{{ false }}"><span class="pill warn">موقوف</span></sc-if>
+            <bdi dir="ltr" class="mono" style="color: #a9c2c5">MAA</bdi> · <bdi dir="ltr">{{ tz }}</bdi> · مؤسسة النيل للتجزئة
+          </div>
+        </div>
+        <div style="display: flex; gap: 22px; align-items: center">
+          <div style="display: flex; flex-direction: column; line-height: 1.2"><span style="font-size: 12px; color: #a9c2c5">الأجهزة الفعّالة</span><span class="disp" style="font-size: 26px; font-weight: 600"><bdi dir="ltr">2 / 3</bdi></span></div>
+          <span aria-hidden="true" style="width: 1px; height: 40px; background: rgba(255,255,255,.14)"></span>
+          <div style="display: flex; flex-direction: column; line-height: 1.2"><span style="font-size: 12px; color: #a9c2c5">ورديات مفتوحة</span><span class="disp" style="font-size: 26px; font-weight: 600">1</span></div>
+        </div>
+        <a href="#" class="btn" style="background: #5fe0cf; color: #0a2125; border: 0"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>تعديل المتجر</a>
+      </section>
+
+      <div style="display: flex; flex-wrap: wrap; gap: 18px; align-items: stretch">
+        <section class="box" aria-labelledby="i-h" style="flex: 1 1 416px; min-width: 0; overflow: hidden">
+          <div class="hd"><span class="idx">01</span><h2 id="i-h" class="ht">بيانات المتجر</h2></div>
+          <table class="ledger"><tbody>
+            <tr><th scope="row">اسم المتجر</th><td>فرع المعادي</td></tr>
+            <tr><th scope="row">الرمز</th><td><bdi dir="ltr" class="mono" style="font-size: 13px">MAA</bdi> <span class="hs">· لا يتغيّر بعد الإنشاء</span></td></tr>
+            <tr><th scope="row">معرّف المتجر</th><td><span style="display: flex; flex-direction: column"><bdi dir="ltr" class="mono" style="font-size: 13px">str_01HZ6Q2M8K4T</bdi><span class="hs">استخدمه عند التواصل مع الدعم.</span></span></td></tr>
+            <tr><th scope="row">الحالة</th><td>{{ stateText }}</td></tr>
+          </tbody></table>
+        </section>
+
+        <section class="box" aria-labelledby="t-h" style="flex: 1 1 416px; min-width: 0">
+          <div class="hd"><span class="idx">02</span><h2 id="t-h" class="ht">التوقيت</h2><span class="hs">يحدّد تاريخ يوم العمل وأوقات الورديات</span></div>
+          <div style="padding: 4px 22px 22px; display: flex; flex-direction: column; gap: 14px">
+            <div style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 14px; background: #f6faf9; border: 1px solid #e1ece9">
+              <svg aria-hidden="true" width="52" height="52" viewBox="0 0 52 52" style="flex: none">
+                <circle cx="26" cy="26" r="24" fill="#0a2125"/>
+                <circle cx="26" cy="26" r="21" fill="none" stroke="rgba(95,224,207,.25)" stroke-width="1"/>
+                <g stroke="#5fe0cf" stroke-linecap="round"><path d="M26 6v3M26 43v3M6 26h3M43 26h3" stroke-width="2"/></g>
+                <path d="M26 26l9.7 -2.4" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round"/>
+                <path d="M26 26l-3.5 15.6" stroke="#5fe0cf" stroke-width="1.8" stroke-linecap="round"/>
+                <circle cx="26" cy="26" r="2.4" fill="#5fe0cf"/>
+              </svg>
+              <div style="flex: 1; display: flex; flex-direction: column; line-height: 1.4"><strong><bdi dir="ltr">{{ tz }}</bdi></strong><span class="hs">الوقت الآن في المتجر <bdi dir="ltr">14:32</bdi> · يوم العمل الخميس 30 أكتوبر</span></div>
+              <sc-if value="{{ notEditingTz }}" hint-placeholder-val="{{ true }}"><button type="button" class="btn ghost" style="height: 34px" onClick="{{ editTz }}">تغيير</button></sc-if>
+            </div>
+            <div role="img" aria-label="يوم العمل في المتجر: الوردية المفتوحة منذ 08:02 والوقت الآن 14:32" style="display: flex; flex-direction: column; gap: 6px">
+              <div dir="ltr" style="position: relative; height: 26px; border-radius: 8px; background: repeating-linear-gradient(90deg, #edf2f4 0 calc(25% - 1px), #dfe6ea calc(25% - 1px) 25%); overflow: hidden">
+                <span style="position: absolute; inset-block: 4px; left: 33.5%; width: 27%; border-radius: 6px; background: linear-gradient(90deg, rgba(15,143,128,.25), rgba(15,143,128,.55)); border: 1px solid rgba(15,143,128,.6)"></span>
+                <span style="position: absolute; top: -2px; bottom: -2px; left: 60.5%; width: 2px; background: #0a2125"></span>
+                <span style="position: absolute; top: 50%; left: 60.5%; width: 10px; height: 10px; margin: -5px 0 0 -4px; border-radius: 50%; background: #5fe0cf; border: 2px solid #0a2125"></span>
+              </div>
+              <div dir="ltr" style="display: flex; justify-content: space-between; font-size: 11px; color: #5b6d7c; font-variant-numeric: tabular-nums"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
+              <span class="hs" style="display: flex; gap: 14px; flex-wrap: wrap"><span style="display: inline-flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 14px; height: 8px; border-radius: 3px; background: rgba(15,143,128,.45)"></span>الوردية المفتوحة على كاشير 1</span><span style="display: inline-flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: #5fe0cf; border: 2px solid #0a2125"></span>الآن</span></span>
+            </div>
+            <sc-if value="{{ editingTz }}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; flex-direction: column; gap: 12px">
+                <div style="display: flex; flex-direction: column; gap: 6px">
+                  <label for="tz" style="font-size: 14px; font-weight: 700">المنطقة الزمنية الجديدة</label>
+                  <select id="tz" class="ctl" dir="ltr" onChange="{{ pickTz }}"><optgroup label="مناطق شائعة"><option value="">—</option><option value="Asia/Riyadh">Asia/Riyadh</option><option value="Asia/Dubai">Asia/Dubai</option></optgroup></select>
+                </div>
+                <sc-if value="{{ checking }}" hint-placeholder-val="{{ false }}"><span class="hs" role="status" style="display: inline-flex; align-items: center; gap: 8px"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="animation: spin .8s linear infinite"><path d="M12 3a9 9 0 109 9"/></svg>جارٍ فحص الأثر…</span></sc-if>
+                <sc-if value="{{ hasImpact }}" hint-placeholder-val="{{ false }}">
+                  <div role="status" style="padding: 14px 16px; border-radius: 14px; background: #0a2125; color: #e6f0f1; display: flex; flex-direction: column; gap: 8px; font-size: 13px; line-height: 1.6">
+                    <strong class="disp" style="font-size: 14px; font-weight: 600; color: #5fe0cf">أثر التغيير</strong>
+                    <span>التغيير من <bdi dir="ltr">Africa/Cairo</bdi> إلى <bdi dir="ltr">{{ newTz }}</bdi>.</span>
+                    <span>{{ dateLine }}</span>
+                    <span style="color: #f5b759">الوردية المفتوحة في «كاشير 1» تبقى مفتوحة بأوقاتها الأصلية.</span>
+                  </div>
+                  <div style="display: flex; gap: 8px"><button type="button" class="btn ink" onClick="{{ cancelTz }}">حفظ المنطقة الزمنية</button><button type="button" class="btn quiet" onClick="{{ cancelTz }}">إلغاء</button></div>
+                </sc-if>
+              </div>
+            </sc-if>
+          </div>
+        </section>
+      </div>
+
+      <section class="box" aria-labelledby="d-h" style="overflow: hidden">
+        <div class="hd"><span class="idx">03</span><h2 id="d-h" class="ht">أجهزة هذا المتجر</h2><a href="Devices.dc.html" style="margin-inline-start: auto; font-size: 13px; font-weight: 700; text-decoration: none">إدارة الأجهزة</a></div>
+        <div class="dev"><span class="di" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span><div style="flex: 1; display: flex; flex-direction: column; line-height: 1.4"><strong>كاشير 1</strong><span class="hs">آخر نشاط منذ دقيقة</span></div><span class="pill warn">استثناء عهدة: وردية مفتوحة</span><span class="pill neu">فعّال</span></div>
+        <div class="dev"><span class="di" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span><div style="flex: 1; display: flex; flex-direction: column; line-height: 1.4"><strong>كاشير 2</strong><span class="hs">آخر نشاط منذ 3 دقائق</span></div><span class="pill neu">فعّال</span></div>
+        <div class="dev" style="padding-bottom: 16px"><span class="di" aria-hidden="true" style="background: #e9eff1; color: #5b6d7c"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span><div style="flex: 1; display: flex; flex-direction: column; line-height: 1.4"><strong>كاشير 3</strong><span class="hs">آخر نشاط منذ 47 دقيقة</span></div><span class="pill bad">موقوف الصلاحية</span></div>
+      </section>
+
+      <section class="box" aria-labelledby="s-h" style="padding: 20px 22px; display: flex; flex-direction: column; gap: 10px; border-color: #f2d6d3">
+        <div style="display: flex; align-items: center; gap: 12px"><span class="idx" style="background: #fde7e5; color: #b3261e">04</span><h2 id="s-h" class="ht">حالة المتجر</h2></div>
+        <p style="margin: 0; font-size: 14px">الحالة الحالية: <strong>{{ stateText }}</strong></p>
+        <sc-if value="{{ showSuspend }}" hint-placeholder-val="{{ true }}">
+          <p style="margin: 0; font-size: 13px; color: #33454f">إيقاف المتجر يظهره «موقوفًا» في كل الشاشات. يمكنك تفعيله لاحقًا من هنا.</p>
+          <button type="button" class="btn dq" style="width: fit-content" onClick="{{ askSuspend }}">إيقاف المتجر</button>
+        </sc-if>
+        <sc-if value="{{ confirming }}" hint-placeholder-val="{{ false }}">
+          <div role="group" aria-label="تأكيد: إيقاف المتجر" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 14px; border-radius: 12px; background: #fff4f3; border: 1px solid #f5d3cf">
+            <span style="flex: 1 1 100%; font-size: 14px; font-weight: 700">إيقاف فرع المعادي؟ فيه وردية مفتوحة الآن على «كاشير 1».</span>
+            <button type="button" class="btn dd" onClick="{{ doSuspend }}">نعم، أوقف المتجر</button>
+            <button type="button" class="btn quiet" onClick="{{ cancelSuspend }}">إلغاء</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ inactive }}" hint-placeholder-val="{{ false }}">
+          <button type="button" class="btn ink" style="width: fit-content" onClick="{{ activate }}">تفعيل المتجر</button>
+        </sc-if>
+      </section>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1680,"height":1280}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { tzEdit: false, newTz: '', checking: false, active: true, confirm: false }; }
+  componentWillUnmount() { clearTimeout(this.t); }
+  renderVals() {
+    const s = this.state;
+    const dateLine = s.newTz === 'Asia/Riyadh' || s.newTz === 'Asia/Dubai' ? 'يبقى تاريخ يوم العمل اليوم الخميس 30 أكتوبر.' : '';
+    return {
+      tz: 'Africa/Cairo',
+      active: s.active, inactive: !s.active,
+      stateText: s.active ? 'نشط' : 'موقوف',
+      editingTz: s.tzEdit, notEditingTz: !s.tzEdit,
+      editTz: () => this.setState({ tzEdit: true }),
+      pickTz: (e) => { const v = e.target.value; this.setState({ newTz: v, checking: !!v }); clearTimeout(this.t); if (v) this.t = setTimeout(() => this.setState({ checking: false }), 900); },
+      checking: s.checking,
+      hasImpact: !!s.newTz && !s.checking,
+      newTz: s.newTz, dateLine: dateLine,
+      cancelTz: () => this.setState({ tzEdit: false, newTz: '', checking: false }),
+      showSuspend: s.active && !s.confirm,
+      confirming: s.confirm,
+      askSuspend: () => this.setState({ confirm: true }),
+      cancelSuspend: () => this.setState({ confirm: false }),
+      doSuspend: () => this.setState({ active: false, confirm: false }),
+      activate: () => this.setState({ active: true })
+    };
+  }
+}
+</script>
+</body>
+</html>
