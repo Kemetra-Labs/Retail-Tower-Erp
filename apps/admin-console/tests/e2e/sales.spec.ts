@@ -151,7 +151,7 @@ test("S1: owner → search → detail → Back keeps the query; console routes o
   const requested: URL[] = [];
   p.on("request", (r) => requested.push(new URL(r.url())));
   await p.getByRole("link", { name: t("sales.nav.label"), exact: true }).click();
-  await expect(p.getByRole("heading", { name: t("sales.list.title") })).toBeVisible();
+  await expect(p.getByRole("heading", { name: t("sales.list.title"), exact: true })).toBeVisible();
   await expect(p.getByText(t("sales.list.queryPrompt"))).toBeVisible();
   expect(queries).toHaveLength(0);
 

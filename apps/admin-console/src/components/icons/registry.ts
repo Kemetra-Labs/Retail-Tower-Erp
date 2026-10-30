@@ -41,6 +41,10 @@ export const ICON_REGISTRY = {
   // Direction: back follows reading direction.
   back: { asset: "arrow_left", mirror: "mirror", regular: [16] },
   disclosure: { asset: "chevron_down", mirror: "never", regular: [16] },
+  // RT-970: a figure higher or lower than the previous business day (POS doc 25
+  // §3 names `increase` / `decrease`). Vertical arrows, so they never mirror.
+  increase: { asset: "arrow_up", mirror: "never", regular: [16] },
+  decrease: { asset: "arrow_down", mirror: "never", regular: [16] },
   // RT-758: sort marks. Vertical arrows, so they never mirror in RTL.
   sortAscending: { asset: "arrow_sort_up", mirror: "never", regular: [16] },
   sortDescending: { asset: "arrow_sort_down", mirror: "never", regular: [16] },

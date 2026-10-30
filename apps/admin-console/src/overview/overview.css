@@ -1,72 +1,385 @@
-/* RT-559 Overview (spec 009 §7): sections with headings, not a card grid. The
- * attention items are one "Precision Ledger" (label, count or state, link),
- * then a plain link to the audit log (P-5 deferred). Role tokens only, logical
- * properties only (RTL-first), numbers tabular. No colour carries meaning
- * alone: states are words, badges reuse the stock screen's classes. */
+/* RT-970 Overview v2 (canvas «المختار · A + مسار C»; DESIGN.md §2 and §5 v3.0):
+ * section panels for the data regions; one KPI ledger strip and one pipeline
+ * strip, never a stat-card grid. Role tokens only, logical properties only
+ * (RTL-first), numbers tabular. No colour carries meaning alone: states are
+ * words, the dots and arrows only reinforce them. */
 
 .overview {
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
-  margin-block-start: var(--space-5);
+  gap: var(--space-5);
 }
 
-.overview__toolbar {
+/* The trend beside the attention list; they stack when there is no room. */
+.overview__row {
   display: flex;
-  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+.overview__row > .glance-trend {
+  flex: 2 1 520px;
+  min-width: 0;
+}
+.overview__row > .overview__attention {
+  flex: 1 1 320px;
+  min-width: 0;
 }
 
-.overview__section {
+.overview__related {
+  margin: 0;
+}
+
+/* Refresh in flight: still focusable (aria-disabled), the label says "Refreshing…". */
+.overview__refresh[aria-disabled="true"] {
+  cursor: progress;
+}
+
+/* ---- Shared panel states ---------------------------------------------------- */
+.glance-quiet {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+.glance-unavailable {
+  color: var(--color-text-muted);
+  font-weight: var(--weight-medium);
+}
+.glance-skeleton {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+}
+.glance-skeleton__bar {
+  display: block;
+  inline-size: 60%;
+  block-size: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+}
+.glance-skeleton__bar:nth-child(odd) {
+  inline-size: 40%;
+}
+.glance-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  color: var(--color-danger);
+}
+.glance-error__ref {
+  color: var(--color-text-muted);
+  font-size: var(--text-control);
+}
+.glance-head-link {
+  margin-inline-start: auto;
+}
+
+/* ---- KPI ledger strip --------------------------------------------------------- */
+.glance-kpis > .glance-quiet {
+  padding: var(--space-4) var(--space-5);
+}
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+}
+.kpi-strip__cell {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-5);
+  border-inline-start: 1px solid var(--color-border);
+}
+.kpi-strip__cell:first-child {
+  border-inline-start: 0;
+}
+.kpi-strip__label {
+  color: var(--color-text-muted);
+  font-size: var(--text-control);
+}
+.kpi-strip__money {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+}
+.kpi-strip__value {
+  color: var(--color-text);
+  font: var(--weight-strong) var(--text-money-total) / var(--leading-tight) var(--font-sans);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.kpi-strip__value--quiet {
+  margin: 0;
+  color: var(--color-text-muted);
+  font: var(--weight-regular) var(--text-body) / var(--leading-tight) var(--font-sans);
+}
+.kpi-strip__num {
+  font-variant-numeric: tabular-nums;
+}
+.kpi-strip__note {
+  margin: 0;
+  padding: var(--space-3) var(--space-5);
+  border-block-start: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.glance-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+/* A money figure never breaks between its amount and its currency. */
+.glance-delta bdi,
+.kpi-strip__money bdi {
+  white-space: nowrap;
+}
+.glance-delta__icon {
+  flex-shrink: 0;
+  color: var(--color-text);
 }
 
-.overview__heading {
+/* Four across, then two by two, then one: no divider at a row's start. */
+@media (max-width: 1100px) {
+  .kpi-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .kpi-strip__cell:nth-child(odd) {
+    border-inline-start: 0;
+  }
+  .kpi-strip__cell:nth-child(n + 3) {
+    border-block-start: 1px solid var(--color-border);
+  }
+}
+@media (max-width: 600px) {
+  .kpi-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .kpi-strip__cell {
+    border-inline-start: 0;
+    padding: var(--space-4);
+  }
+  .kpi-strip__cell + .kpi-strip__cell {
+    border-block-start: 1px solid var(--color-border);
+  }
+}
+
+/* ---- Pipeline strip ------------------------------------------------------------ */
+.pipeline {
+  display: flex;
+  flex-wrap: wrap;
   margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pipeline__step {
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-4) var(--space-5);
+  border-inline-start: 1px solid var(--color-border);
+}
+.pipeline__step:first-child {
+  border-inline-start: 0;
+}
+.pipeline__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-control);
+}
+.pipeline__index {
+  display: grid;
+  place-items: center;
+  inline-size: 22px;
+  block-size: 22px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  font: var(--weight-strong) var(--text-meta) / 1 var(--font-sans);
+}
+.pipeline__value {
   color: var(--color-text);
   font: var(--weight-strong) var(--text-section-title) / var(--leading-title) var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+.pipeline__value.glance-skeleton__bar {
+  block-size: 20px;
+}
+.pipeline__note {
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.pipeline__parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+.pipeline__part--info {
+  color: var(--color-info);
+  font-weight: var(--weight-strong);
+}
+.pipeline__part--danger {
+  color: var(--color-danger);
+  font-weight: var(--weight-strong);
+}
+.pipeline__link {
+  margin-block-start: auto;
+  padding-block-start: var(--space-1);
+}
+.pipeline__step > .glance-error {
+  padding: 0;
+}
+/* Stacked on a narrow screen: the steps are divided by rules across, not down. */
+@media (max-width: 768px) {
+  .pipeline__step {
+    flex-basis: 100%;
+    border-inline-start: 0;
+  }
+  .pipeline__step + .pipeline__step {
+    border-block-start: 1px solid var(--color-border);
+  }
 }
 
+/* ---- Trend panel ----------------------------------------------------------------- */
+.glance-trend__head {
+  justify-content: space-between;
+}
+.glance-trend__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+.glance-trend__currency {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-control);
+}
+
+/* A two-way view switch: one pressed segment on a recessed track. */
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  margin: 0;
+  padding: 3px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunken);
+}
+.segmented__btn {
+  min-block-size: 30px;
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: transparent;
+  color: var(--color-text-muted);
+  font: var(--weight-regular) var(--text-control) / var(--leading-tight) var(--font-sans);
+  cursor: pointer;
+}
+.segmented__btn[aria-pressed="true"] {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  color: var(--color-text);
+  font-weight: var(--weight-strong);
+}
+
+/* ---- Tables inside panels ----------------------------------------------------------- */
+.glance-table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-body);
+}
+.glance-table th,
+.glance-table td {
+  padding: var(--space-3);
+  text-align: start;
+  border-block-start: 1px solid var(--color-border);
+}
+.glance-table thead th {
+  background: var(--color-background);
+  color: var(--color-text-muted);
+  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
+  border-block-start: 0;
+}
+.glance-table tbody th {
+  font-weight: var(--weight-regular);
+}
+.glance-table__num {
+  font-variant-numeric: tabular-nums;
+}
+.glance-table--edge th:first-child,
+.glance-table--edge td:first-child {
+  padding-inline-start: var(--space-5);
+}
+.glance-table--edge th:last-child,
+.glance-table--edge td:last-child {
+  padding-inline-end: var(--space-5);
+}
+.glance-table td,
+.glance-table th {
+  white-space: nowrap;
+}
+.glance-table__ref {
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-machine);
+}
+
+/* ---- Attention list (the RT-559 ledger, re-skinned) ---------------------------------- */
 .ledger {
   margin: 0;
   padding: 0;
   list-style: none;
-  border-block-start: 1px solid var(--color-border);
 }
-
 .ledger__row {
   display: grid;
-  /* Fixed fractions so every row's columns line up (each row is its own grid). */
-  grid-template-columns: minmax(0, 5fr) minmax(0, 5fr) minmax(0, 3fr);
-  gap: var(--space-4);
+  grid-template-columns: auto minmax(0, 5fr) minmax(0, 4fr) auto;
+  gap: var(--space-3);
   align-items: baseline;
-  padding-block: var(--space-3);
-  border-block-end: 1px solid var(--color-border);
+  padding: var(--space-3) var(--space-5);
+  border-block-start: 1px solid var(--color-border);
 }
-
+.ledger__dot {
+  align-self: center;
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-border);
+}
+.ledger__dot--attention {
+  background: var(--color-warning);
+}
+.ledger__dot--danger {
+  background: var(--color-danger);
+}
 .ledger__label {
   color: var(--color-text);
-  font-weight: var(--weight-medium);
+  font-weight: var(--weight-strong);
 }
-
 .ledger__value {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--space-2);
 }
-
 .ledger__count {
   color: var(--color-text);
   font-variant-numeric: tabular-nums;
 }
-
 .ledger__quiet {
   margin: 0;
   color: var(--color-text-muted);
 }
-
 .ledger__meta {
   display: inline-flex;
   flex-wrap: wrap;
@@ -75,7 +388,6 @@
   color: var(--color-text-muted);
   font-size: var(--text-control);
 }
-
 .ledger__pending {
   display: inline-flex;
   align-items: center;
@@ -83,7 +395,6 @@
   margin: 0;
   color: var(--color-text-muted);
 }
-
 .ledger__error {
   display: inline-flex;
   flex-wrap: wrap;
@@ -92,77 +403,69 @@
   margin: 0;
   color: var(--color-danger);
 }
-
 .ledger__retry {
   color: var(--color-text);
 }
-
 .ledger__link {
   color: var(--color-primary-emphasis);
   font-size: var(--text-control);
+  font-weight: var(--weight-strong);
 }
-
 .ledger__row .ledger__link {
   justify-self: end;
   text-align: end;
 }
 
-.overview__related {
-  margin: 0;
+/* The ledger is narrow beside the chart: the value and link go under the label. */
+.overview__attention .ledger__row {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+.overview__attention .ledger__value {
+  grid-column: 2;
+  grid-row: 2;
+}
+.overview__attention .ledger__row .ledger__link {
+  grid-column: 3;
+  grid-row: 1;
 }
 
-@media (max-width: 720px) {
-  .ledger__row {
-    grid-template-columns: 1fr;
-    gap: var(--space-1);
+@media (max-width: 600px) {
+  .ledger__row,
+  .overview__attention .ledger__row {
+    grid-template-columns: auto minmax(0, 1fr);
+    padding-inline: var(--space-4);
   }
-  .ledger__row .ledger__link {
+  .ledger__value,
+  .ledger__row .ledger__link,
+  .overview__attention .ledger__value,
+  .overview__attention .ledger__row .ledger__link {
+    grid-column: 2;
+    grid-row: auto;
     justify-self: start;
   }
 }
 
 @media (forced-colors: active) {
-  .ledger,
-  .ledger__row {
+  .ledger__row,
+  .kpi-strip__cell,
+  .kpi-strip__note,
+  .pipeline__step,
+  .glance-table th,
+  .glance-table td {
     border-color: CanvasText;
   }
-  .ledger__error {
+  .ledger__error,
+  .glance-error {
     color: CanvasText;
   }
-}
-
-/* Refresh in flight: still focusable (aria-disabled), the label says "Refreshing…". */
-.overview__refresh[aria-disabled="true"] {
-  cursor: progress;
-}
-
-/* RT-820 P-6: one ledger-style row per store, each carrying its own MetricClaims. */
-.sales-today {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border-block-start: 1px solid var(--color-border);
-}
-
-.sales-today__row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding-block: var(--space-3);
-  border-block-end: 1px solid var(--color-border);
-}
-
-.sales-today__head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-4);
-}
-
-@media (forced-colors: active) {
-  .sales-today,
-  .sales-today__row {
-    border-color: CanvasText;
+  /* Fills are dropped: the dot keeps a shape, and the bars an outline. */
+  .ledger__dot,
+  .glance-skeleton__bar {
+    forced-color-adjust: none;
+    border: 1px solid CanvasText;
+    background: Canvas;
+  }
+  .segmented__btn[aria-pressed="true"] {
+    border-color: Highlight;
   }
 }
