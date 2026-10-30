@@ -275,8 +275,11 @@ foreach ($n in 'VITE_API_BASE_URL','DESCOPE_PROJECT_ID') {
   Check (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($n, 'Machine'))) "$n is set in Machine scope (value not shown)"
 }
 # RT-945: Descope is the only provider; any other effective value refuses manager/admin sign-in.
-$idp = [Environment]::GetEnvironmentVariable('OPERATOR_IDENTITY_PROVIDER', 'Process')
-Check ([string]::IsNullOrWhiteSpace($idp) -or $idp.Trim() -eq 'descope') "OPERATOR_IDENTITY_PROVIDER is unset or descope (found: $idp)"
+# Check each scope too: a User-scope value can hide a stale Machine-scope one that other cashiers inherit.
+foreach ($scope in 'Process','Machine','User') {
+  $idp = [Environment]::GetEnvironmentVariable('OPERATOR_IDENTITY_PROVIDER', $scope)
+  Check ([string]::IsNullOrWhiteSpace($idp) -or $idp.Trim() -eq 'descope') "OPERATOR_IDENTITY_PROVIDER ($scope) is unset or descope (found: $idp)"
+}
 # The same shape the POS accepts: P + 27 letters/digits, US region (a regional id, 32+ chars, is refused). Value not shown.
 $dpid = [Environment]::GetEnvironmentVariable('DESCOPE_PROJECT_ID', 'Process')
 Check ("$dpid".Trim() -cmatch '^P[A-Za-z0-9]{27,30}$') 'DESCOPE_PROJECT_ID is a well-formed US-region project id (value not shown)'
