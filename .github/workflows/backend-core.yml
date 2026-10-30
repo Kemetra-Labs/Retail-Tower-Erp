@@ -224,11 +224,20 @@ jobs:
     # 25 minutes (RT-845): api-only since the db + worker suites moved to bc/db-package. Measured
     # on this repo's 2-core runner on PR #14 (RT-841): setup about 1 minute + api 15.0 minutes.
     # The product keeps 40 until it has more measurements; this repo uses its own measurement.
-    timeout-minutes: 25
+    # RT-949: +5 minutes for the shadow steps (full history fetch, selector capped at 3 minutes,
+    # report), so the shadow can never push the unchanged API run past the job timeout.
+    timeout-minutes: 30
+    # RT-949: read-only scopes for the shadow selector's evidence (workflow runs, jobs, check-runs).
+    permissions:
+      contents: read
+      actions: read
+      checks: read
     steps:
+      # fetch-depth 0 (RT-949): the shadow selector diffs the PR's own commits and the base history.
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Enable corepack and pin pnpm
@@ -255,6 +264,67 @@ jobs:
           --filter @data-pulse-2/worker
           run build
 
+      # RT-949 Phase 1 (design RT-946 c14579): SHADOW ONLY. These steps report which API specs a
+      # fast mode would have run; they never change this job's result (continue-on-error), the
+      # full run below, its coverage gate or `required`. This job already runs PR code (the tests),
+      # so the selector runs from the checked-out tree here; Phase 2 would move it to the plan job's
+      # trusted base archive. Any error or doubt becomes mode=full in the report.
+      - name: Set up Python (shadow selector)
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Impact selection (shadow) - anchor, changed paths, related specs
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        timeout-minutes: 3
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/api-jest-shadow"
+          mkdir -p "$out"
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$PR_NUMBER" =~ ^[0-9]+$ ]]
+          python -m pip install --require-hashes --only-binary=:all: --no-deps -r tools/project-graph/requirements.txt
+          # Candidates, newest first: up to 10 PR commits, then the merge-base on main.
+          mb="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          { git rev-list --max-count=10 "$HEAD_SHA" "^$mb" | jq -R '{sha: ., event: "pull_request"}'
+            jq -n --arg s "$mb" '{sha: $s, event: "push"}'; } | jq -s '.' > "$out/candidates.json"
+          # REST dumps per candidate, as files (a failed call leaves a file missing => mode=full).
+          for sha in $(jq -r '.[].sha' "$out/candidates.json"); do
+            [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+            d="$out/$sha"
+            mkdir -p "$d"
+            gh api --paginate "repos/$REPO/actions/runs?head_sha=$sha&per_page=100" \
+              --jq '.workflow_runs[] | select(.path == ".github/workflows/backend-core.yml")' | jq -s '.' > "$d/runs.json" \
+              || { rm -f "$d/runs.json"; continue; }
+            gh api --paginate "repos/$REPO/commits/$sha/check-runs?check_name=bc/db-integration&per_page=100" \
+              --jq '.check_runs[]' | jq -s '.' > "$d/checks.json" || { rm -f "$d/checks.json"; continue; }
+            for id in $(jq -r '.[].id' "$d/runs.json"); do
+              [[ "$id" =~ ^[0-9]+$ ]]
+              gh api --paginate "repos/$REPO/actions/runs/$id/jobs?filter=all&per_page=100" \
+                --jq '.jobs[]' | jq -s '.' > "$d/job-$id.json" || { rm -f "$d/job-$id.json"; break; }
+            done
+          done
+          (cd tools/project-graph && python -m pgraph api-jest-select --repo "$GITHUB_WORKSPACE" \
+            --base "$BASE_SHA" --head "$HEAD_SHA" --event pull_request --repo-name "$REPO" \
+            --pr-number "$PR_NUMBER" --evidence-dir "$out" --out "$out/selection.json")
+          cd services/backend-core/apps/api
+          # A failed listing leaves total.txt absent, so the report shows "?" rather than 0.
+          if all="$(pnpm exec jest --listTests)"; then grep -c . <<<"$all" > "$out/total.txt" || true; fi
+          : > "$out/selected.txt"
+          if [ "$(jq -r .mode "$out/selection.json")" = fast ]; then
+            mapfile -t files < <(jq -r --arg w "$GITHUB_WORKSPACE" '.files[] | $w + "/" + .' "$out/selection.json")
+            pnpm exec jest --listTests --findRelatedTests "${files[@]}" > "$out/selected.txt"
+          fi
+
       - name: Pre-pull postgres:16-alpine
         run: docker pull postgres:16-alpine
 
@@ -274,10 +344,47 @@ jobs:
       # 39408180851). The product's public repo runs the same step on a larger hosted runner and
       # passed 14 of 14 recent runs. Raising V8's heap limit is an environmental deviation, not a
       # test change; that it matches the headroom of the public runner is reasoned, not proven.
+      # RT-949: --json --outputFile only writes the per-spec results for the shadow report below;
+      # the run, its coverage thresholds and its exit code are unchanged.
       - name: Test @data-pulse-2/api (RLS + audit + auth suites)
         env:
           NODE_OPTIONS: --max-old-space-size=4096
-        run: pnpm --filter @data-pulse-2/api test -- --coverage --forceExit
+        run: |
+          mkdir -p "$RUNNER_TEMP/api-jest-shadow"
+          pnpm --filter @data-pulse-2/api test -- --coverage --forceExit --json \
+            --outputFile="$RUNNER_TEMP/api-jest-shadow/results.json"
+
+      - name: Impact selection (shadow) - report selected vs failing specs
+        if: github.event_name == 'pull_request' && !cancelled()
+        continue-on-error: true
+        timeout-minutes: 2
+        working-directory: tools/project-graph
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/api-jest-shadow"
+          python -m pgraph api-jest-report --selection "$out/selection.json" --selected "$out/selected.txt" \
+            --total "$out/total.txt" --results "$out/results.json" > "$out/report.json"
+          cat "$out/report.json"
+          {
+            echo "### API Jest impact selection (shadow, RT-949): advisory, the full suite ran"
+            jq -r '"mode: `\(.mode)`, reason: `\(.reason)`, anchor: `\(.anchor // "none")`",
+                   "selected: \(.selected)/\(.total // "?"), failing in the full run: \(.failing // "?")",
+                   "misses (failing but not selected): \(if .misses == null then "n/a" else (.misses | length | tostring) end)\(if .flag then ", flag: `" + .flag + "`" else "" end)"' "$out/report.json"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the shadow selection (RT-950 evidence)
+        if: github.event_name == 'pull_request' && !cancelled()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: api-jest-shadow
+          path: |
+            ${{ runner.temp }}/api-jest-shadow/selection.json
+            ${{ runner.temp }}/api-jest-shadow/selected.txt
+            ${{ runner.temp }}/api-jest-shadow/total.txt
+            ${{ runner.temp }}/api-jest-shadow/report.json
+          if-no-files-found: warn
+          retention-days: 30
 
       # RT-901: hand the api lcov (Jest's default reporters include lcov) to sonar.yml, which scans
       # each push to main. A push-only, credential-free upload that cannot change this job's
