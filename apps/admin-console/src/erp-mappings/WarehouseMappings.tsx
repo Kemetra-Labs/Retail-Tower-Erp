@@ -8,6 +8,8 @@
  * not in it reads "unknown store" with its id, never a guessed name.
  */
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
+import { FormField } from "@/components/FormField";
+import { FormPanel, FormSection } from "@/components/FormPage";
 import { ListState } from "@/components/ListState";
 import { AsOf, Panel } from "@/erp-status/parts";
 import { DateTime, type T, useT } from "@/i18n";
@@ -67,16 +69,6 @@ interface SetDraft {
 
 const EMPTY_DRAFT: SetDraft = { storeId: "", ref: "" };
 
-/** A field's error line, tied to its control by id. */
-function FieldError({ id, message }: Readonly<{ id: string; message: string | null }>) {
-  if (message === null) return null;
-  return (
-    <p className="map-form__error" id={id}>
-      {message}
-    </p>
-  );
-}
-
 /** Store and reference, checked before the confirm: an empty or unoffered value is never sent. */
 function SetFields({
   available,
@@ -93,9 +85,9 @@ function SetFields({
   const [missing, setMissing] = useState({ store: false, ref: false });
   const storeInput = `${formId}-store`;
   const refInput = `${formId}-ref`;
-  const describedBy = (bad: boolean, id: string) => (bad ? `${id}-error` : undefined);
   return (
-    <form
+    <FormPanel
+      variant="plain"
       className="map-form"
       aria-label={t("erp.map.wh.set.label")}
       onSubmit={(e) => {
@@ -105,54 +97,58 @@ function SetFields({
         setMissing(next);
         if (!next.store && !next.ref) onReview({ storeId: draft.storeId, ref });
       }}
-    >
-      <div className="map-form__grid">
-        <div className="field">
-          <label htmlFor={storeInput}>{t("erp.map.wh.set.store")}</label>
-          <select
-            id={storeInput}
-            className="input"
-            value={draft.storeId}
-            aria-invalid={missing.store}
-            aria-describedby={describedBy(missing.store, storeInput)}
-            onChange={(e) => setDraft({ ...draft, storeId: e.target.value })}
-          >
-            <option value="">{t("erp.map.wh.set.pickStore")}</option>
-            {available.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name ?? s.id}
-              </option>
-            ))}
-          </select>
-          <FieldError
-            id={`${storeInput}-error`}
-            message={missing.store ? t("erp.map.form.storeRequired") : null}
-          />
-        </div>
-        <div className="field">
-          <label htmlFor={refInput}>{t("erp.map.wh.set.ref")}</label>
-          <input
-            id={refInput}
-            className="input input--mono"
-            dir="ltr"
-            autoComplete="off"
-            value={draft.ref}
-            aria-invalid={missing.ref}
-            aria-describedby={describedBy(missing.ref, refInput)}
-            onChange={(e) => setDraft({ ...draft, ref: e.target.value })}
-          />
-          <FieldError
-            id={`${refInput}-error`}
-            message={missing.ref ? t("erp.map.form.required") : null}
-          />
-        </div>
-      </div>
-      <div className="map-confirm__actions">
+      actions={
         <button type="submit" className="btn-primary">
           {t("erp.map.review")}
         </button>
-      </div>
-    </form>
+      }
+    >
+      <FormSection columns={2}>
+        <FormField
+          id={storeInput}
+          label={t("erp.map.wh.set.store")}
+          required
+          error={missing.store ? t("erp.map.form.storeRequired") : undefined}
+          announceError
+        >
+          {(aria) => (
+            <select
+              id={storeInput}
+              className="input"
+              value={draft.storeId}
+              onChange={(e) => setDraft({ ...draft, storeId: e.target.value })}
+              {...aria}
+            >
+              <option value="">{t("erp.map.wh.set.pickStore")}</option>
+              {available.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name ?? s.id}
+                </option>
+              ))}
+            </select>
+          )}
+        </FormField>
+        <FormField
+          id={refInput}
+          label={t("erp.map.wh.set.ref")}
+          required
+          error={missing.ref ? t("erp.map.form.required") : undefined}
+          announceError
+        >
+          {(aria) => (
+            <input
+              id={refInput}
+              className="input input--mono"
+              dir="ltr"
+              autoComplete="off"
+              value={draft.ref}
+              onChange={(e) => setDraft({ ...draft, ref: e.target.value })}
+              {...aria}
+            />
+          )}
+        </FormField>
+      </FormSection>
+    </FormPanel>
   );
 }
 

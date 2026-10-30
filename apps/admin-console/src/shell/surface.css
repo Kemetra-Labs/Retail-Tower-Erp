@@ -256,12 +256,6 @@
   margin-top: 0;
 }
 
-.surface__actions--divided {
-  margin-top: 0;
-  padding-top: var(--space-5);
-  border-top: 1px solid var(--color-border);
-}
-
 /* «حالة المتجر»: the V1 is_active control, set apart from the form. */
 .surface__status {
   display: grid;

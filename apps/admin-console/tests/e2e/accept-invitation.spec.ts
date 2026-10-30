@@ -47,7 +47,9 @@ test("S7: valid token → accept → session established → land in the shell",
   await page.goto("/accept-invitation?token=valid-token");
   await expect(page.getByRole("heading", { name: t("auth.acceptInvitation.title") })).toBeVisible();
   await page.getByLabel(t("auth.acceptInvitation.displayName.label")).fill("New User");
-  await page.getByLabel(t("auth.acceptInvitation.password.label")).fill("a-strong-password");
+  await page
+    .getByLabel(t("auth.acceptInvitation.password.label"), { exact: true })
+    .fill("a-strong-password");
   await page.getByRole("button", { name: t("auth.acceptInvitation.submit") }).click();
 
   // routed into the shell (Overview), context now resolves
@@ -67,7 +69,9 @@ test("S7: invalid/expired token → generic error, no navigation", async ({ page
   );
 
   await page.goto("/accept-invitation?token=bad");
-  await page.getByLabel(t("auth.acceptInvitation.password.label")).fill("whatever-it-is");
+  await page
+    .getByLabel(t("auth.acceptInvitation.password.label"), { exact: true })
+    .fill("whatever-it-is");
   await page.getByRole("button", { name: t("auth.acceptInvitation.submit") }).click();
 
   await expect(page.getByText(t("auth.acceptInvitation.errors.invalidLink"))).toBeVisible();

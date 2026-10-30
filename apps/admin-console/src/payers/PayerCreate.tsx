@@ -1,7 +1,8 @@
 import { Banner } from "@/components/Banner";
 import { Drawer } from "@/components/Drawer";
+import { FormField } from "@/components/FormField";
+import { FormPanel, FormSection } from "@/components/FormPage";
 import { GatedButton } from "@/components/GatedButton";
-import { InlineError } from "@/components/InlineError";
 import { type MessageKey, useT } from "@/i18n";
 import { type PayerAccountCreateBody, consoleCreatePayerAccount } from "@/lib/client";
 import { textField } from "@/lib/form-field";
@@ -180,84 +181,94 @@ export function PayerCreate({
         />
       ) : null}
 
-      <form className="surface__form" onSubmit={onSubmit} noValidate>
-        <p className="surface__scope-line">
-          {t.rich("payers.create.scopeLine", {
+      <FormPanel
+        variant="plain"
+        onSubmit={onSubmit}
+        actions={
+          <>
+            <GatedButton type="submit" className="btn-primary" busy={pending}>
+              {t("payers.create.submit")}
+            </GatedButton>
+            <button type="button" className="btn-ghost" onClick={onClose} disabled={pending}>
+              {t("common.cancel")}
+            </button>
+          </>
+        }
+      >
+        <FormSection
+          lead={t.rich("payers.create.scopeLine", {
             tenant: (
               <strong>
                 <bdi>{activeTenant.name}</bdi>
               </strong>
             ),
           })}
-        </p>
+        >
+          <FormField id="payer-category" label={t("payers.create.category")} required>
+            {(aria) => (
+              <select
+                id="payer-category"
+                name="category"
+                className="input"
+                defaultValue="credit_customer"
+                {...aria}
+              >
+                <option value="credit_customer">{t(payerCategoryKey("credit_customer"))}</option>
+                <option value="corporate">{t(payerCategoryKey("corporate"))}</option>
+                <option value="insurer">{t(payerCategoryKey("insurer"))}</option>
+              </select>
+            )}
+          </FormField>
 
-        <div className="field">
-          <label htmlFor="payer-category">{t("payers.create.category")}</label>
-          <select
-            id="payer-category"
-            name="category"
-            className="input"
-            defaultValue="credit_customer"
-          >
-            <option value="credit_customer">{t(payerCategoryKey("credit_customer"))}</option>
-            <option value="corporate">{t(payerCategoryKey("corporate"))}</option>
-            <option value="insurer">{t(payerCategoryKey("insurer"))}</option>
-          </select>
-        </div>
-
-        <div className="field">
-          <label htmlFor="payer-name">{t("payers.create.displayName")}</label>
-          <input
+          <FormField
             id="payer-name"
-            name="displayName"
-            className="input"
-            aria-invalid={nameError ? "true" : undefined}
-            aria-describedby={nameError ? "payer-name-error" : undefined}
-            autoComplete="off"
-          />
-          <span id="payer-name-error">
-            <InlineError
-              message={nameError ? t(nameError.messageKey, nameError.params) : undefined}
-            />
-          </span>
-        </div>
+            label={t("payers.create.displayName")}
+            required
+            error={nameError ? t(nameError.messageKey, nameError.params) : undefined}
+            announceError
+          >
+            {(aria) => (
+              <input
+                id="payer-name"
+                name="displayName"
+                className="input"
+                autoComplete="off"
+                {...aria}
+              />
+            )}
+          </FormField>
 
-        <div className="field">
-          <label htmlFor="payer-scope">{t("payers.create.scope")}</label>
-          <select id="payer-scope" name="storeId" className="input" defaultValue="">
-            <option value="">{t("payers.create.scopeTenant")}</option>
-            {stores.map((store) => (
-              <option key={store.id} value={store.id}>
-                {store.name ?? store.id}
-              </option>
-            ))}
-          </select>
-        </div>
+          <FormField id="payer-scope" label={t("payers.create.scope")}>
+            {(aria) => (
+              <select id="payer-scope" name="storeId" className="input" defaultValue="" {...aria}>
+                <option value="">{t("payers.create.scopeTenant")}</option>
+                {stores.map((store) => (
+                  <option key={store.id} value={store.id}>
+                    {store.name ?? store.id}
+                  </option>
+                ))}
+              </select>
+            )}
+          </FormField>
 
-        <div className="field">
-          <label htmlFor="payer-external-ref">{t("payers.create.externalRef")}</label>
-          <input
+          <FormField
             id="payer-external-ref"
-            name="externalRef"
-            className="input"
-            placeholder={t("payers.create.externalRefPlaceholder")}
-            aria-describedby="payer-external-ref-hint"
-            autoComplete="off"
-          />
-          <span id="payer-external-ref-hint" className="field__hint">
-            {t("payers.create.externalRefHint")}
-          </span>
-        </div>
-
-        <div className="surface__actions">
-          <GatedButton type="submit" className="btn-primary" busy={pending}>
-            {t("payers.create.submit")}
-          </GatedButton>
-          <button type="button" className="btn-ghost" onClick={onClose} disabled={pending}>
-            {t("common.cancel")}
-          </button>
-        </div>
-      </form>
+            label={t("payers.create.externalRef")}
+            hint={t("payers.create.externalRefHint")}
+          >
+            {(aria) => (
+              <input
+                id="payer-external-ref"
+                name="externalRef"
+                className="input"
+                placeholder={t("payers.create.externalRefPlaceholder")}
+                autoComplete="off"
+                {...aria}
+              />
+            )}
+          </FormField>
+        </FormSection>
+      </FormPanel>
     </Drawer>
   );
 }

@@ -35,6 +35,9 @@ import { createQueryClient } from "@/lib/query";
 import { StoreForm } from "@/stores/StoreForm";
 import { StoreFormRoute } from "@/stores/StoreFormRoute";
 
+/** RT-971: an error shows inline and in the summary; these match the inline one. */
+const INLINE = { selector: ".rtc-inline-error" };
+
 function renderForm(props: Parameters<typeof StoreForm>[0]): void {
   const qc = createQueryClient();
   function Tree({ children }: { children: ReactNode }) {
@@ -103,7 +106,7 @@ describe("StoreForm create: time zone", () => {
     const select = tzSelect();
     expect(select.value).toBe("Africa/Cairo");
     expect(select.getAttribute("aria-required")).toBe("true");
-    expect(screen.getByLabelText("Time zone (required)")).toBe(select);
+    expect(screen.getByLabelText("Time zone")).toBe(select);
     expect(select.selectedOptions[0]?.textContent).toBe("Cairo (Africa/Cairo)");
   });
 
@@ -134,7 +137,9 @@ describe("StoreForm create: time zone", () => {
     renderForm({ mode: "create" });
     chooseZone("");
     fireEvent.click(screen.getByRole("button", { name: /create store/i }));
-    expect(await screen.findByText("Choose a valid time zone from the list.")).toBeDefined();
+    expect(
+      await screen.findByText("Choose a valid time zone from the list.", INLINE),
+    ).toBeDefined();
     expect(tzSelect().getAttribute("aria-invalid")).toBe("true");
     expect(createStore).not.toHaveBeenCalled();
   });
@@ -146,7 +151,9 @@ describe("StoreForm create: time zone", () => {
     });
     renderForm({ mode: "create" });
     fireEvent.click(screen.getByRole("button", { name: /create store/i }));
-    expect(await screen.findByText("Choose a valid time zone from the list.")).toBeDefined();
+    expect(
+      await screen.findByText("Choose a valid time zone from the list.", INLINE),
+    ).toBeDefined();
     expect(tzSelect().getAttribute("aria-invalid")).toBe("true");
     expect(document.querySelector(".rtc-alert")).toBeNull();
     expect(navigate).not.toHaveBeenCalled();
@@ -159,7 +166,7 @@ describe("StoreForm create: time zone", () => {
     });
     renderForm({ mode: "create" });
     fireEvent.click(screen.getByRole("button", { name: /create store/i }));
-    expect(await screen.findByText(/store code is already in use/i)).toBeDefined();
+    expect(await screen.findByText(/store code is already in use/i, INLINE)).toBeDefined();
   });
 });
 
@@ -509,9 +516,9 @@ describe("StoreForm Arabic: time zone", () => {
   const arReview = () => screen.findByRole("checkbox", { name: /راجعتُ هذا الأثر/ });
   const arSave = () => screen.getByRole("button", { name: "حفظ المتجر" });
 
-  test("create: «المنطقة الزمنية (إلزامي)» with «القاهرة (Africa/Cairo)» preselected", () => {
+  test("create: «المنطقة الزمنية» with «القاهرة (Africa/Cairo)» preselected", () => {
     renderForm({ mode: "create" });
-    const select = screen.getByLabelText("المنطقة الزمنية (إلزامي)") as HTMLSelectElement;
+    const select = screen.getByLabelText("المنطقة الزمنية") as HTMLSelectElement;
     expect(select.value).toBe("Africa/Cairo");
     expect(select.selectedOptions[0]?.textContent).toBe("القاهرة (Africa/Cairo)");
   });
@@ -520,7 +527,7 @@ describe("StoreForm Arabic: time zone", () => {
     renderForm({ mode: "create" });
     chooseZone("");
     fireEvent.click(screen.getByRole("button", { name: "إنشاء المتجر" }));
-    expect(await screen.findByText("اختر منطقة زمنية صالحة من القائمة.")).toBeDefined();
+    expect(await screen.findByText("اختر منطقة زمنية صالحة من القائمة.", INLINE)).toBeDefined();
     expect(createStore).not.toHaveBeenCalled();
   });
 
