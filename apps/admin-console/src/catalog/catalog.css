@@ -247,13 +247,6 @@
 .catalog-identifiers__action {
   white-space: nowrap;
 }
-.field__warning {
-  display: block;
-  margin: 0;
-  color: var(--color-warning);
-  font-size: var(--text-machine);
-  line-height: var(--leading-body);
-}
 .catalog-identifier__value {
   unicode-bidi: isolate;
 }

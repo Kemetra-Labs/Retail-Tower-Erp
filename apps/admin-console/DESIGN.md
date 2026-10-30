@@ -511,6 +511,36 @@ These classes exist on `main` and new work reuses them until a migration slice r
     region be labelled by it. A back link sits above the header, not in it.
     `tests/unit/page-header.test.tsx` fails if a page inside the shell writes its own `<h1>`.
   - **Content container** and **section panel**: §5.
+- **Form template** (`src/components/FormPage.tsx`, `FormField.tsx`, RT-971, canvas «نموذج»):
+  every create/edit form uses these parts, so no form keeps its own layout classes
+  (`tests/unit/form-template.test.tsx`).
+  - `FormPage`: a back link above the `PageHeader`, the page's banners (`notices`), then the
+    body. The body holds the form panel and an optional `FormAside` beside it ("what happens
+    next"); the aside wraps under the panel when narrow. `after` holds page sections that are
+    not part of the form, such as the store status control.
+  - `FormPanel`: the `<form>` itself, so the unsaved-work guard still tracks it.
+    - `panel` (a full page): one column, at most `--form-panel-max` (720px), with a 1px edge,
+      the object radius and no shadow. `FormErrorSummary` sits at its top. The action bar at
+      its foot (primary, then Cancel as `.btn-ghost`) sticks to the viewport bottom while the
+      form is taller than the viewport.
+    - `plain` (a drawer, or a form inside a section panel): the same parts with no surface of
+      its own, since panels never nest. Drawer forms do not use the summary.
+  - `FormSection`: a `<fieldset>` whose `<legend>` is the section title, with one or two
+    columns. `disabled` locks every control in it.
+  - `FormField`: label above the control, then the hint and the inline error.
+    - The required mark is a danger-coloured `*` drawn by CSS with empty alt text, so it is
+      not part of the label's text or name; the control carries `aria-required`.
+    - The error is `aria-invalid` + `aria-describedby`. It is a live region only with
+      `announceError`, for a form with no summary.
+- **Public screens** (`src/auth/AuthLayout.tsx`, RT-971, canvas «تسجيل الدخول»): sign-in and
+  accept-invitation.
+  - A form panel at the inline start holds the brand lockup, the language switch
+    (`LocaleSwitch`, no user), the centred form and the audit note.
+  - A decorative brand panel at the inline end is `aria-hidden` and hidden below 900px. It is
+    deep teal in light and the teal wash in dark.
+  - No card and no shadow.
+  - Passwords use `PasswordInput`: no placeholder, and a «إظهار كلمة المرور» toggle
+    (`aria-pressed`, `aria-controls`) with the registry's `reveal` / `conceal` glyphs.
 
 **Notes on these components.**
 - **Focus:** every focus stop draws the global outline (`src/styles/a11y.css`, RT-267) in

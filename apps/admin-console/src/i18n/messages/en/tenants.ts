@@ -23,6 +23,8 @@ export const tenants: MessagesOf<typeof ar> = {
 
   "tenants.detail.loadingNoun": "tenant",
   "tenants.detail.back": "Back to tenants",
+  "tenants.form.back": "Back to the tenant",
+  "tenants.form.section": "Tenant details",
   "tenants.detail.edit": "Edit",
   "tenants.detail.softDelete": "Soft-delete",
 
@@ -64,13 +66,18 @@ export const tenants: MessagesOf<typeof ar> = {
   "stores.form.section": "Store details",
   "stores.form.nameLabel": "Store name",
   "stores.form.codeLabel": "Store code",
-  "stores.form.required": "(required)",
   "stores.form.codeHintCreate": "The code can't be changed after the store is created.",
   "stores.form.codeHintEdit": "Read-only. The code can't be changed after the store is created.",
   "stores.form.idHint": "Quote it when you contact support.",
   "stores.form.create": "Create store",
   "stores.form.saveChanges": "Save store",
   "stores.form.cancelEdit": "Cancel editing",
+  "stores.form.back": "Back to the store",
+  "stores.form.timingSection": "Timing",
+  "stores.form.next.title": "After you create it",
+  "stores.form.next.erp": "Map the store's ERPNext warehouse in Connection & sync.",
+  "stores.form.next.devices": "Create a pairing code for each cashier device in Devices.",
+  "stores.form.next.operators": "Give operators access to the store in Operators.",
   "stores.form.scopeLine": "The store will be created in {tenant}.",
   "stores.form.timezoneHintCreate":
     "Store times are shown, and business days counted, in this time zone. Its offset from UTC follows the zone's rules, including daylight saving.",

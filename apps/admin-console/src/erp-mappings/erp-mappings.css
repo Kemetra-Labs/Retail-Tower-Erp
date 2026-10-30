@@ -43,15 +43,12 @@
   gap: var(--space-2);
 }
 
-.map-form__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-  gap: var(--space-3);
+/* An inline panel form (RT-971 template, plain): the inset is its only surface. */
+.map-form .form-section {
+  padding: 0;
 }
-.map-form__error {
-  margin: 0;
-  color: var(--color-danger);
-  font-size: var(--text-meta);
+.map-form .form-panel__actions {
+  padding-block-start: var(--space-3);
 }
 
 /* The confirm row under a table row: no hover wash, so it does not read as a row. */

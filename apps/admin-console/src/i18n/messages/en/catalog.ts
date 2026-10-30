@@ -240,7 +240,6 @@ export const catalog: MessagesOf<typeof ar> = {
     "The latest version is loaded. What you typed is kept. Check it, then save again.",
   "catalog.edit.reloadFailed": "Could not reload this item. What you typed is kept.",
 
-  "catalog.form.required": "(required)",
   "catalog.form.name": "Name",
   "catalog.form.description": "Description",
   "catalog.form.category": "Category",

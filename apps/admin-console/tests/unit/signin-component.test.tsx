@@ -102,7 +102,7 @@ describe("auth surfaces in Arabic", () => {
     render(<SignIn onResolved={vi.fn()} />);
 
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("تسجيل الدخول");
-    expect(screen.getByText("دخول المستخدمين إلى لوحة التحكم.")).toBeDefined();
+    expect(screen.getByText("لوحة إدارة المتاجر والكتالوج والمبيعات.")).toBeDefined();
     expect(screen.getByLabelText("البريد الإلكتروني")).toBeDefined();
     expect(screen.getByLabelText("كلمة المرور")).toBeDefined();
     expect(screen.getByRole("button", { name: "تسجيل الدخول" })).toBeDefined();
@@ -196,7 +196,12 @@ describe("auth surfaces in Arabic", () => {
     expect(screen.getByRole("heading", { name: "قبول دعوتك" })).toBeDefined();
     expect(screen.getByLabelText("الاسم المعروض")).toBeDefined();
     const password = screen.getByLabelText("كلمة المرور");
-    expect(password.getAttribute("placeholder")).toBe("مطلوبة عند إنشاء حساب جديد");
+    // RT-971: the requirement is a hint the field is described by, not a placeholder.
+    expect(password.getAttribute("placeholder")).toBeNull();
+    expect(password.getAttribute("aria-describedby")).toBe("password-hint");
+    expect(document.getElementById("password-hint")?.textContent).toBe(
+      "مطلوبة عند إنشاء حساب جديد.",
+    );
     expect(screen.getByRole("button", { name: "قبول الدعوة" })).toBeDefined();
     expect(screen.getByText(/لديك صلاحية وصول بالفعل؟/)).toBeDefined();
     expect(screen.getByRole("link", { name: "تسجيل الدخول" }).getAttribute("href")).toBe("/signin");

@@ -1,14 +1,21 @@
 import { Banner } from "@/components/Banner";
+import {
+  FormErrorSummary,
+  type SummaryEntry,
+  useSummaryFocus,
+} from "@/components/FormErrorSummary";
+import { FormField } from "@/components/FormField";
+import { FormAside, FormPage, FormPanel, FormSection } from "@/components/FormPage";
 import { GatedButton } from "@/components/GatedButton";
-import { InlineError } from "@/components/InlineError";
-import { PageHeader } from "@/components/PageHeader";
-import { type MessageKey, useT } from "@/i18n";
+import { type MessageKey, type T, useT } from "@/i18n";
 import { textField } from "@/lib/form-field";
 import type { Rf2ErrorRender } from "@/lib/rf2-queries";
 import { DEFAULT_STORE_TIMEZONE, isIanaTimezone } from "@/lib/timezones";
 import { SAVED_NAVIGATION } from "@/shell/dirty-guard";
 /**
- * SF-S3 — Store create/edit form (T028; RT-400 screens 16 and 17). Scoped to
+ * SF-S3 — Store create/edit form (T028; RT-400 screens 16 and 17; RT-971 form
+ * template, canvas «نموذج»: «بيانات المتجر» and «التوقيت» sections, the error
+ * summary, and «بعد الإنشاء» beside the create form). Scoped to
  * the ACTIVE TENANT: the form has NO tenant picker — on create the active
  * tenant is shown as a read-only scope line (FR-004-005). Pre-gates on the
  * active tenant (OQ-4): no active tenant → scope prompt, the form is not
@@ -48,7 +55,6 @@ import {
 } from "./useStoreQueries";
 import { useStoreScope } from "./useStoreScope";
 import { useTimezoneChange } from "./useTimezoneChange";
-import "../shell/surface.css";
 
 export interface StoreFormProps {
   mode: "create" | "edit";
@@ -87,91 +93,70 @@ function FormBanner({
   return <Banner variant="danger" message={t(render.messageKey)} requestId={requestId} />;
 }
 
-/** Visual only: the input's `aria-required` already tells assistive tech. */
-function RequiredMark(): React.JSX.Element {
-  const t = useT();
-  return (
-    <span className="field__required" aria-hidden="true">
-      {t("stores.form.required")}
-    </span>
-  );
-}
-
-/** «بيانات المتجر»: name, code and time zone, plus the read-only store ID on edit. */
+/** «بيانات المتجر»: name and code, plus the read-only store ID on edit. */
 function StoreFields({
   isEdit,
   storeId,
   initial,
   codeError,
-  timezone,
 }: Readonly<{
   isEdit: boolean;
   storeId?: string;
   initial: StoreFormProps["initial"];
   codeError?: MessageKey;
-  timezone: React.ReactNode;
 }>): React.JSX.Element {
   const t = useT();
-  const codeDescribedBy = codeError ? "store-code-hint store-code-error" : "store-code-hint";
   return (
-    <div className="surface__form-grid">
-      <div className="field">
-        <label htmlFor="store-name">
-          {t("stores.form.nameLabel")} <RequiredMark />
-        </label>
-        <input
-          id="store-name"
-          name="name"
-          className="input"
-          defaultValue={initial?.name}
-          aria-required="true"
-          autoComplete="off"
-        />
-      </div>
-
-      <div className="field">
-        <label htmlFor="store-code">
-          {t("stores.form.codeLabel")} {isEdit ? null : <RequiredMark />}
-        </label>
-        <input
-          id="store-code"
-          name="code"
-          className="input input--mono"
-          dir="ltr"
-          defaultValue={initial?.code}
-          readOnly={isEdit}
-          aria-required={isEdit ? undefined : "true"}
-          aria-invalid={codeError ? "true" : undefined}
-          aria-describedby={codeDescribedBy}
-          autoComplete="off"
-        />
-        <p id="store-code-hint" className="field__hint">
-          {t(isEdit ? "stores.form.codeHintEdit" : "stores.form.codeHintCreate")}
-        </p>
-        <span id="store-code-error">
-          <InlineError message={codeError ? t(codeError) : undefined} />
-        </span>
-      </div>
-
-      {timezone}
-
-      {isEdit ? (
-        <div className="field">
-          <label htmlFor="store-id">{t("stores.field.id")}</label>
+    <FormSection title={t("stores.form.section")} columns={2}>
+      <FormField id="store-name" label={t("stores.form.nameLabel")} required>
+        {(aria) => (
           <input
-            id="store-id"
+            id="store-name"
+            name="name"
+            className="input"
+            defaultValue={initial?.name}
+            autoComplete="off"
+            {...aria}
+          />
+        )}
+      </FormField>
+
+      <FormField
+        id="store-code"
+        label={t("stores.form.codeLabel")}
+        required={!isEdit}
+        hint={t(isEdit ? "stores.form.codeHintEdit" : "stores.form.codeHintCreate")}
+        error={codeError ? t(codeError) : undefined}
+      >
+        {(aria) => (
+          <input
+            id="store-code"
+            name="code"
             className="input input--mono"
             dir="ltr"
-            defaultValue={storeId}
-            readOnly
-            aria-describedby="store-id-hint"
+            defaultValue={initial?.code}
+            readOnly={isEdit}
+            autoComplete="off"
+            {...aria}
           />
-          <p id="store-id-hint" className="field__hint">
-            {t("stores.form.idHint")}
-          </p>
-        </div>
+        )}
+      </FormField>
+
+      {isEdit ? (
+        <FormField id="store-id" label={t("stores.field.id")} hint={t("stores.form.idHint")}>
+          {(aria) => (
+            <input
+              id="store-id"
+              className="input input--mono"
+              dir="ltr"
+              defaultValue={storeId}
+              readOnly
+              {...aria}
+            />
+          )}
+        </FormField>
       ) : null}
-    </div>
+    </FormSection>
   );
 }
 
@@ -188,15 +173,41 @@ function FormActions({
 }>): React.JSX.Element {
   const t = useT();
   return (
-    <div className="surface__actions surface__actions--divided">
+    <>
       <GatedButton type="submit" className="btn-primary" busy={pending} disabled={submitDisabled}>
         {t(isEdit ? "stores.form.saveChanges" : "stores.form.create")}
       </GatedButton>
       <button type="button" className="btn-ghost" onClick={onCancel} disabled={pending}>
         {t(isEdit ? "stores.form.cancelEdit" : "common.cancel")}
       </button>
-    </div>
+    </>
   );
+}
+
+/** «بعد الإنشاء»: where the new store is set up next. Guidance only. */
+function NextSteps(): React.JSX.Element {
+  const t = useT();
+  return (
+    <FormAside title={t("stores.form.next.title")}>
+      <ol>
+        <li>{t("stores.form.next.erp")}</li>
+        <li>{t("stores.form.next.devices")}</li>
+        <li>{t("stores.form.next.operators")}</li>
+      </ol>
+    </FormAside>
+  );
+}
+
+/** The summary repeats the inline errors in field order: code, then time zone. */
+function summaryEntries(
+  t: T,
+  codeError: MessageKey | undefined,
+  timezoneError: MessageKey | undefined,
+): SummaryEntry[] {
+  const entries: SummaryEntry[] = [];
+  if (codeError) entries.push({ fieldId: "store-code", message: t(codeError) });
+  if (timezoneError) entries.push({ fieldId: "store-timezone", message: t(timezoneError) });
+  return entries;
 }
 
 export function StoreForm({ mode, storeId, initial }: Readonly<StoreFormProps>): React.JSX.Element {
@@ -216,6 +227,8 @@ export function StoreForm({ mode, storeId, initial }: Readonly<StoreFormProps>):
     timezone.resetReview();
     void refreshTimezone();
   });
+
+  const summary = useSummaryFocus();
 
   const pending = create.isPending || update.isPending;
   // The status toggle and the name save never run at the same time.
@@ -238,6 +251,9 @@ export function StoreForm({ mode, storeId, initial }: Readonly<StoreFormProps>):
     });
     if ("render" in outcome) {
       errors.show(outcome.render);
+      if (outcome.render.kind === "conflict" || outcome.render.kind === "field-error") {
+        summary.focusSummary();
+      }
       return undefined;
     }
     return outcome.to;
@@ -249,6 +265,7 @@ export function StoreForm({ mode, storeId, initial }: Readonly<StoreFormProps>):
     // Required in the UI: the select cannot be blank, but nothing unknown is ever sent.
     if (!isEdit && !isIanaTimezone(timezone.zone)) {
       errors.setTimezoneError("stores.errors.timezoneInvalid");
+      summary.focusSummary();
       return;
     }
     if (!timezone.canSave) return;
@@ -266,61 +283,70 @@ export function StoreForm({ mode, storeId, initial }: Readonly<StoreFormProps>):
     ? t.rich("stores.form.editTitle", { name: <bdi>{initial?.name}</bdi> })
     : t("stores.form.createTitle");
 
+  const detailPath = isEdit && storeId ? `/stores/${storeId}` : "/stores";
   return (
-    <div className="surface">
-      <PageHeader title={title} />
-
-      {errors.banner ? <FormBanner render={errors.banner} mode={mode} /> : null}
-
-      {/* Scope is fixed to the active tenant — shown, not selectable (FR-004-005). */}
-      {isEdit ? null : (
-        <p className="surface__scope-line">
-          {t.rich("stores.form.scopeLine", { tenant: <bdi>{activeTenantName}</bdi> })}
-        </p>
-      )}
-
-      <form className="surface__form" onSubmit={onSubmit} noValidate>
-        <h2 className="surface__section-title">{t("stores.form.section")}</h2>
-
+    <FormPage
+      back={{ to: detailPath, label: t(isEdit ? "stores.form.back" : "stores.detail.back") }}
+      title={title}
+      // Scope is fixed to the active tenant — shown, not selectable (FR-004-005).
+      subtitle={
+        isEdit
+          ? undefined
+          : t.rich("stores.form.scopeLine", { tenant: <bdi>{activeTenantName}</bdi> })
+      }
+      notices={errors.banner ? <FormBanner render={errors.banner} mode={mode} /> : null}
+      aside={isEdit ? null : <NextSteps />}
+      after={
+        isEdit && storeId ? (
+          <StoreStatusSection
+            storeId={storeId}
+            storeName={initial?.name}
+            isActive={initial?.is_active}
+            disabled={pending}
+            onStart={() => errors.setBanner(undefined)}
+            onError={errors.show}
+          />
+        ) : null
+      }
+    >
+      <FormPanel
+        onSubmit={onSubmit}
+        summary={
+          <FormErrorSummary
+            ref={summary.ref}
+            entries={summaryEntries(t, errors.codeError, errors.timezoneError)}
+          />
+        }
+        actions={
+          <FormActions
+            isEdit={isEdit}
+            pending={pending}
+            submitDisabled={statusPending || !timezone.canSave}
+            onCancel={() => navigate(detailPath)}
+          />
+        }
+      >
         <StoreFields
           isEdit={isEdit}
           storeId={storeId}
           initial={initial}
           codeError={errors.codeError}
-          timezone={
-            <TimezoneField
-              value={timezone.zone}
-              onChange={(zone) => {
-                errors.setTimezoneError(undefined);
-                timezone.select(zone);
-              }}
-              required={!isEdit}
-              current={initial?.timezone}
-              error={errors.timezoneError}
-            />
-          }
         />
 
-        <TimezoneImpact change={timezone} />
-
-        <FormActions
-          isEdit={isEdit}
-          pending={pending}
-          submitDisabled={statusPending || !timezone.canSave}
-          onCancel={() => navigate(isEdit && storeId ? `/stores/${storeId}` : "/stores")}
-        />
-      </form>
-
-      {isEdit && storeId ? (
-        <StoreStatusSection
-          storeId={storeId}
-          storeName={initial?.name}
-          isActive={initial?.is_active}
-          disabled={pending}
-          onStart={() => errors.setBanner(undefined)}
-          onError={errors.show}
-        />
-      ) : null}
-    </div>
+        <FormSection title={t("stores.form.timingSection")}>
+          <TimezoneField
+            value={timezone.zone}
+            onChange={(zone) => {
+              errors.setTimezoneError(undefined);
+              timezone.select(zone);
+            }}
+            required={!isEdit}
+            current={initial?.timezone}
+            error={errors.timezoneError}
+          />
+          <TimezoneImpact change={timezone} />
+        </FormSection>
+      </FormPanel>
+    </FormPage>
   );
 }
