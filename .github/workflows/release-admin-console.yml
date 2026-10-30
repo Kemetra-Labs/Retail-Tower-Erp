@@ -1,4 +1,4 @@
-# RT-871 (MR-1, MR-9): Admin-Console release, independent of the other products. Shadow: dry-run only.
+# RT-871 (MR-1, MR-9): Admin-Console release, independent of the other products. Publishes on an admin-console/vX.Y.Z tag (RT-717 C1); dry-run by default.
 #
 # Triggers: an `admin-console/vX.Y.Z` tag push, or a manual dispatch whose default is a
 # dry-run. No pull_request trigger: PR code can never start this workflow with the release
@@ -12,8 +12,12 @@
 #   manifest  release-manifest.json + unsigned provenance + SHA256SUMS (.github/release/manifest.py):
 #             source SHA, apps/admin-console tree hash, dist digest, Backend-Core contract tree
 #             and the Admin-Console contract PIN, CI URL. Every run, dry-run included.
-#   publish   release mode only, behind the `release-admin-console` environment. Publication is
-#             not enabled on Shadow (real releases are RT-717), so it refuses once admitted.
+#   publish   RT-717 C1. Release mode only (an admin-console/vX.Y.Z tag), behind the
+#             `release-admin-console` environment (owner reviewer, tag-only deployment policy;
+#             publish refuses unless the environment is protected that way). Checks that the
+#             package is the one the manifest recorded, attests its build provenance and creates
+#             the GitHub release admin-console/vX.Y.Z with the archive, its .sha256 and the manifest.
+#             No rebuild. Never overwrites a release, and never deploys.
 #   env-probe manual negative probe (input probe_environment): asks for the environment from the
 #             dispatched ref; from anything but an admin-console/v* tag it must never start.
 #
@@ -131,19 +135,26 @@ jobs:
       # RT-878: carried over from the retired product release-artifact.yml (RT-337). Checks the
       # dist/ layout and writes the public dist/version.json (sha, build time, Backend-Core contract
       # pin) that Backend-Core's Console hosting serves and checks (deploy/console-smoke.sh).
+      # RELEASE_TAG is empty in a dry-run. The archive name comes from artifactName() in
+      # release-artifact.ts (unit-tested): admin-console-vX.Y.Z.tar.gz for a release, the short SHA otherwise.
       - name: Write version.json
+        id: version
+        env:
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
         run: node --experimental-strip-types release-artifact.ts
 
       # Deterministic tarball: sorted names, fixed mtime and owner, gzip without a timestamp.
       - name: Package dist/
         env:
-          SHA: ${{ needs.resolve.outputs.sha }}
+          ARTIFACT: ${{ steps.version.outputs.artifact }}
         run: |
           set -euo pipefail
+          [[ "$ARTIFACT" =~ ^admin-console-(v[0-9]+\.[0-9]+\.[0-9]+|dist-[0-9a-f]{12})\.tar\.gz$ ]] \
+            || { echo "::error::unexpected archive name '$ARTIFACT'"; exit 1; }
           out="$RUNNER_TEMP/admin-release"
           mkdir -p "$out"
           tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner -C dist -cf - . \
-            | gzip -n -9 > "$out/admin-console-dist-${SHA:0:12}.tar.gz"
+            | gzip -n -9 > "$out/$ARTIFACT"
           sha256sum "$out"/*.tar.gz
 
       - name: Upload the build
@@ -201,18 +212,126 @@ jobs:
           retention-days: 90
 
   publish:
-    name: release/publish (disabled until RT-717)
-    needs: [resolve, manifest]
+    name: release/publish (attestation + GitHub release)
+    needs: [resolve, build, manifest]
     if: needs.resolve.outputs.mode == 'release'
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 15
     environment: release-admin-console
-    permissions: {}
+    # One publish at a time for the product.
+    concurrency:
+      group: release-admin-console-publish
+      cancel-in-progress: false
+    permissions:
+      contents: write # the GitHub release
+      id-token: write # attestation signing (Sigstore)
+      attestations: write
+    env:
+      SHA: ${{ needs.resolve.outputs.sha }}
+      TAG: ${{ needs.resolve.outputs.tag }}
+      REPO: ${{ github.repository }}
+    # No checkout: this job runs no repository code. GH_TOKEN is set per step, only where gh needs it.
     steps:
-      - name: Refuse publication (Shadow)
+      # A job that names a missing environment creates it unprotected. Refuse unless the
+      # environment has a required reviewer and admits only admin-console/v* tags.
+      - name: Refuse unless the release environment is protected
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "::error::publication is not enabled on Shadow (RT-871 builds and dry-runs the release path; real releases are RT-717). Nothing was published."
-          exit 1
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          ENV_JSON="$(gh api "repos/$REPO/environments/release-admin-console")" || fail "cannot read the release-admin-console environment"
+          jq -e '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length > 0' <<<"$ENV_JSON" >/dev/null \
+            || fail "release-admin-console has no required reviewer"
+          jq -e '.deployment_branch_policy.custom_branch_policies == true' <<<"$ENV_JSON" >/dev/null \
+            || fail "release-admin-console has no custom deployment policy"
+          POLICIES="$(gh api "repos/$REPO/environments/release-admin-console/deployment-branch-policies" \
+            --jq '[.branch_policies[] | {name, type}]')" || fail "cannot read the deployment policies"
+          [ "$(jq -c . <<<"$POLICIES")" = '[{"name":"admin-console/v*","type":"tag"}]' ] \
+            || fail "release-admin-console must admit exactly the tag pattern admin-console/v* (got $POLICIES)"
+
+      - name: Check the release inputs
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          [[ "$TAG" =~ ^admin-console/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "release tag '$TAG' is not admin-console/vX.Y.Z"
+          [ "$SHA" = "$GITHUB_SHA" ] || fail "resolved SHA $SHA != workflow SHA $GITHUB_SHA"
+
+      - name: Download the package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: admin-console-package-release-${{ github.run_id }}
+          path: ${{ runner.temp }}/pkg
+
+      - name: Download the release manifest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: admin-console-release-manifest-release-${{ github.run_id }}
+          path: ${{ runner.temp }}/manifest
+
+      # What is published must be exactly what the build produced and the manifest job recorded: no rebuild.
+      - name: Check the package against the manifest
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          shopt -s nullglob
+          ART="admin-console-${TAG#admin-console/}.tar.gz"
+          PKG="$RUNNER_TEMP/pkg"
+          MANIFEST="$RUNNER_TEMP/manifest/release-manifest.json"
+          [ "$(ls "$PKG")" = "$ART" ] || fail "the package must hold exactly $ART (got: $(ls "$PKG" | paste -sd ' ' -))"
+          GOT="sha256:$(sha256sum "$PKG/$ART" | cut -d' ' -f1)"
+          jq -e --arg tag "$TAG" --arg sha "$SHA" --arg file "$ART" --arg digest "$GOT" '
+              .product == "admin-console" and .mode == "release" and .tag == $tag and .source.sha == $sha
+              and ([.artifacts[] | select(.name == "admin-console-dist" and .file == $file and .digest == $digest)] | length == 1)
+            ' "$MANIFEST" >/dev/null \
+            || fail "the manifest does not match the package: expected tag $TAG, sha $SHA, file $ART, digest $GOT"
+          # The .sha256 asset keeps the shape the Console hosting steps check with `sha256sum -c`.
+          (cd "$PKG" && sha256sum "$ART" > "$ART.sha256")
+          cp "$MANIFEST" "$PKG/release-manifest.json"
+
+      # Re-run safe, never overwrites: a release that exists (even a draft) stops the job.
+      - name: Refuse if the release already exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if OUT="$(gh release view "$TAG" --repo "$REPO" --json isDraft --jq .isDraft 2>&1)"; then
+            echo "::error::release $TAG already exists (draft: $OUT); refusing to overwrite. A draft left by a failed run must be deleted by the owner first."
+            exit 1
+          fi
+          grep -qi "release not found" <<<"$OUT" \
+            || { echo "::error::could not determine whether release $TAG exists: $OUT"; exit 1; }
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: ${{ runner.temp }}/pkg/admin-console-*.tar.gz
+
+      - name: Create the GitHub release (never overwrites)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          ART="admin-console-${TAG#admin-console/}.tar.gz"
+          PKG="$RUNNER_TEMP/pkg"
+          [ "$(ls "$PKG" | sort | paste -sd ' ' -)" = "$(printf '%s\n' "$ART" "$ART.sha256" release-manifest.json | sort | paste -sd ' ' -)" ] \
+            || fail "the release assets are not exactly $ART, $ART.sha256 and release-manifest.json"
+          # --verify-tag only proves the tag exists: it must still point at the SHA this run built.
+          TAG_SHA="$(gh api "repos/$REPO/commits/refs/tags/$TAG" --jq .sha)" || fail "cannot resolve tag $TAG"
+          [ "$TAG_SHA" = "$SHA" ] || fail "tag $TAG now points at $TAG_SHA, not $SHA"
+          gh release create "$TAG" \
+            --repo "$REPO" \
+            --verify-tag \
+            --title "Admin Console $TAG" \
+            --notes "Static Admin Console bundle built from $SHA by $GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID. Verify with the .sha256 file and gh attestation verify before use; see apps/admin-console/docs/release/admin-console-artifact.md." \
+            "$PKG/$ART" "$PKG/$ART.sha256" "$PKG/release-manifest.json"
+          {
+            echo "### Published $TAG"
+            echo
+            echo "- release: $GITHUB_SERVER_URL/$REPO/releases/tag/$TAG"
+            echo "- archive: \`$ART\` ($(jq -r '.artifacts[0].digest' "$PKG/release-manifest.json"))"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   env-probe:
     name: release/env-probe (must not start outside a admin-console/v* tag)

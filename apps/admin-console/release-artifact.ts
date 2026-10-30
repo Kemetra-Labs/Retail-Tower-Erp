@@ -12,7 +12,7 @@ import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnv } from "vite";
 
-/** Short-SHA length used in artifact names and release tags. */
+/** Short-SHA length used in dry-run artifact names. */
 export const SHORT_SHA_LENGTH = 12;
 
 /** Shape of the publicly served `/version.json`. Never add secrets or hostnames. */
@@ -55,12 +55,22 @@ export function buildVersionInfo(input: {
   };
 }
 
-export function releaseTag(sha: string): string {
-  return `admin-console-${requireFullSha(sha).slice(0, SHORT_SHA_LENGTH)}`;
-}
+const RELEASE_TAG = /^admin-console\/v(\d+\.\d+\.\d+)$/;
 
-export function artifactName(sha: string): string {
-  return `${releaseTag(sha)}.tar.gz`;
+/**
+ * Archive name. A release archive is named after the `admin-console/vX.Y.Z` tag it is
+ * published under (RT-717); a dry-run has no tag and uses the short SHA.
+ */
+export function artifactName(input: { tag?: string; sha: string }): string {
+  const sha = requireFullSha(input.sha);
+  if (input.tag === undefined || input.tag === "") {
+    return `admin-console-dist-${sha.slice(0, SHORT_SHA_LENGTH)}.tar.gz`;
+  }
+  const match = RELEASE_TAG.exec(input.tag);
+  if (!match) {
+    throw new Error(`release tag must be admin-console/vX.Y.Z, got "${input.tag}"`);
+  }
+  return `admin-console-v${match[1]}.tar.gz`;
 }
 
 function isForbidden(file: string): boolean {
@@ -142,7 +152,7 @@ async function main(): Promise<void> {
   if (process.env.GITHUB_OUTPUT) {
     appendFileSync(
       process.env.GITHUB_OUTPUT,
-      `artifact=${artifactName(sha)}\ntag=${releaseTag(sha)}\n`,
+      `artifact=${artifactName({ tag: process.env.RELEASE_TAG, sha })}\n`,
       "utf8",
     );
   }

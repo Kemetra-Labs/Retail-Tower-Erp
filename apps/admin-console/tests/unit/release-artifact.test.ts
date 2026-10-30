@@ -11,7 +11,6 @@ import {
   buildVersionInfo,
   checkDistLayout,
   releaseBuildEnv,
-  releaseTag,
   sameOriginProblems,
 } from "../../release-artifact";
 
@@ -60,17 +59,39 @@ describe("buildVersionInfo", () => {
 });
 
 describe("artifact naming", () => {
-  it("uses a fixed-length short SHA for the archive name and release tag", () => {
+  it("names a release archive after the admin-console/vX.Y.Z tag it is published under (RT-717)", () => {
+    expect(artifactName({ tag: "admin-console/v0.1.0", sha: SHA })).toBe(
+      "admin-console-v0.1.0.tar.gz",
+    );
+    expect(artifactName({ tag: "admin-console/v12.3.45", sha: SHA })).toBe(
+      "admin-console-v12.3.45.tar.gz",
+    );
+  });
+
+  it("names a dry-run archive after the fixed-length short SHA, since a dry-run has no tag", () => {
     const short = SHA.slice(0, SHORT_SHA_LENGTH);
 
     expect(SHORT_SHA_LENGTH).toBe(12);
-    expect(artifactName(SHA)).toBe(`admin-console-${short}.tar.gz`);
-    expect(releaseTag(SHA)).toBe(`admin-console-${short}`);
+    expect(artifactName({ sha: SHA })).toBe(`admin-console-dist-${short}.tar.gz`);
+    expect(artifactName({ tag: "", sha: SHA })).toBe(`admin-console-dist-${short}.tar.gz`);
+  });
+
+  it("refuses a release tag that is not admin-console/vX.Y.Z, including the retired SHA form", () => {
+    for (const tag of [
+      "admin-console-fcef103e32f1",
+      "backend-core/v0.1.0",
+      "admin-console/v0.1",
+      "admin-console/v0.1.0-rc1",
+      "admin-console/0.1.0",
+      "refs/tags/admin-console/v0.1.0",
+    ]) {
+      expect(() => artifactName({ tag, sha: SHA })).toThrow(/admin-console\/vX\.Y\.Z/);
+    }
   });
 
   it("refuses to name an artifact for an invalid SHA", () => {
-    expect(() => artifactName("fcef103")).toThrow(/sha/i);
-    expect(() => releaseTag("fcef103")).toThrow(/sha/i);
+    expect(() => artifactName({ sha: "fcef103" })).toThrow(/sha/i);
+    expect(() => artifactName({ tag: "admin-console/v0.1.0", sha: "fcef103" })).toThrow(/sha/i);
   });
 });
 
