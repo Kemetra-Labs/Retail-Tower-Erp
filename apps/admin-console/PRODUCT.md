@@ -30,7 +30,7 @@ Voice: matter-of-fact. Labels are short, accurate, and unambiguous. No marketing
 
 ## Anti-references
 
-- **Bootstrap-era CRUD admin**: dark navbar, blue primary buttons, table-heavy layouts, 2015 Rails-app aesthetic. This is the primary anti-reference. Note the console ships a dark *default* deliberately (a command-desk surface with gold as the authority signal); the anti-reference is the *undisciplined* dark navbar, generic and theme-left-unchanged, which we out-execute rather than resemble.
+- **Bootstrap-era CRUD admin**: dark navbar, blue primary buttons, table-heavy layouts, 2015 Rails-app aesthetic. This is the primary anti-reference. The console is light-first (RT-396) with an opt-in dark theme (RT-398). The anti-reference is the *undisciplined* dark navbar, generic and theme-left-unchanged, which we out-execute rather than resemble.
 - **Bloated SaaS dashboard**: gradient hero metrics, identical stat-card grids, glassmorphism panels, generic purple/indigo palette, decorative animations.
 - No pattern should look like it came from a default component library with the theme left unchanged.
 
