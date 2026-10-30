@@ -427,7 +427,10 @@
  * Canvas, which would erase "you are here". Keep the marker as a system-colored
  * shape. */
 @media (forced-colors: active) {
-  .nav-entry--active::before {
+  /* The sidebar's own marker rule is more specific (RT-991), so it is named here
+   * too: otherwise it keeps its Mint fill and glow instead of Highlight. */
+  .nav-entry--active::before,
+  .sidebar .nav-entry--active::before {
     forced-color-adjust: none;
     background: Highlight;
     box-shadow: none; /* the glow */

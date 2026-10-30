@@ -127,8 +127,20 @@ describe("RT-991 Ink sidebar stylesheet", () => {
   test("forced colours: the grid and glow go, the edge and the marker stay", () => {
     const forced = shell.slice(shell.indexOf("@media (forced-colors: active)"));
     expect(forced).toMatch(/\.sidebar \{[^}]*background-image: none[^}]*CanvasText/s);
-    expect(forced).toMatch(/\.nav-entry--active::before \{[^}]*background: Highlight/s);
     expect(forced).toMatch(/\.brand-mark \{[^}]*background: Canvas[^}]*CanvasText/s);
+  });
+
+  test("forced colours: the sidebar's own marker rule, the more specific one, goes to Highlight", () => {
+    const forced = shell.slice(shell.indexOf("@media (forced-colors: active)"));
+    // The sidebar marker (.sidebar .nav-entry--active::before, 0,3,1) outranks the
+    // generic one (0,2,1), so the override must name it, or Mint and the glow stay.
+    expect(forced).toMatch(
+      /\.sidebar \.nav-entry--active::before \{[^}]*forced-color-adjust: none[^}]*background: Highlight[^}]*box-shadow: none/s,
+    );
+    // The same override covers the generic marker used by the light drawer.
+    expect(forced).toMatch(
+      /\.nav-entry--active::before,\s*\.sidebar \.nav-entry--active::before \{/,
+    );
   });
 
   test("compact width: the scope row stays Ink but the Tower grid is dropped", () => {
