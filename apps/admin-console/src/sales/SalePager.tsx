@@ -5,6 +5,7 @@
  * refused (400) continuation restarts the walk; any other failure retries it.
  */
 import { Banner } from "@/components/Banner";
+import { BusyButton } from "@/components/BusyButton";
 import { formatNumber, useLocale, useT } from "@/i18n";
 import { useEffect, useRef } from "react";
 import type { SaleError, SaleListState } from "./useSales";
@@ -86,20 +87,11 @@ function LoadMore({
   onLoad,
 }: Readonly<{ busy: boolean; onLoad: () => void }>): React.JSX.Element {
   const t = useT();
-  // aria-disabled, not disabled: a disabled button drops keyboard focus while
-  // the next page loads. loadMore ignores repeat presses.
-  const flag = busy ? true : undefined;
+  // Busy keeps focus (a disabled button would drop it); repeat presses are ignored.
   return (
-    <button
-      type="button"
-      className="btn-secondary"
-      onClick={onLoad}
-      aria-disabled={flag}
-      aria-busy={flag}
-    >
-      {busy ? <span className="spinner" aria-hidden="true" /> : null}
+    <BusyButton className="btn-secondary" busy={busy} onClick={onLoad}>
       {t("sales.list.loadMore")}
-    </button>
+    </BusyButton>
   );
 }
 

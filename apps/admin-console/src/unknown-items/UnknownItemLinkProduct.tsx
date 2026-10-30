@@ -66,14 +66,13 @@ function ConfirmLink({
         })}
       </p>
       <div className="unknown-item-detail__actions">
-        <GatedButton type="button" className="btn-primary" disabled={pending} onClick={onConfirm}>
-          {pending ? <span className="spinner" aria-hidden="true" /> : null}
+        <GatedButton type="button" className="btn-primary" busy={pending} onClick={onConfirm}>
           {t("unknownItems.link.confirm.action")}
         </GatedButton>
         <button type="button" className="btn-secondary" disabled={pending} onClick={onChange}>
           {t("unknownItems.link.change")}
         </button>
-        <button type="button" className="btn-secondary" disabled={pending} onClick={onCancel}>
+        <button type="button" className="btn-ghost" disabled={pending} onClick={onCancel}>
           {t("common.cancel")}
         </button>
       </div>
@@ -168,7 +167,7 @@ export function UnknownItemLinkProduct(
           <p className="field__hint">{t("unknownItems.link.lead")}</p>
           <ProductPicker tenantId={activeTenantId} onSelect={choose} selectedId={null} />
           <div className="unknown-item-detail__actions">
-            <button type="button" className="btn-secondary" onClick={onCancel}>
+            <button type="button" className="btn-ghost" onClick={onCancel}>
               {t("common.cancel")}
             </button>
           </div>

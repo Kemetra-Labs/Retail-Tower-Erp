@@ -3,40 +3,8 @@
  * decides. Unknown takes the danger role and is never softened to neutral
  * (DESIGN.md §3). Logical properties throughout (RTL by structure). */
 
-.device-filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--space-3);
-  padding: var(--space-4);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-object);
-}
-.device-filters__field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-.device-filters__field label {
-  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
-  color: var(--color-text-muted);
-}
-.device-filters__field .input {
-  inline-size: auto;
-  min-inline-size: 180px;
-}
-.device-filters__actions {
-  display: flex;
-  gap: var(--space-2);
-  margin-inline-start: auto;
-}
-
-/* Trust state: a bordered text pill. Active stays neutral (not proven healthy). */
-.device-trust--danger {
-  border-color: var(--color-danger);
-  color: var(--color-danger);
-}
+/* Trust state: a bordered text pill. Active stays neutral (not proven healthy);
+ * revoked and unknown take the shared `.badge--danger` role (controls.css). */
 .device-trust--muted {
   color: var(--color-text-muted);
 }
@@ -83,14 +51,31 @@
   border-block-end: 1px solid var(--color-border);
 }
 .device-tab {
-  min-block-size: 36px;
+  min-block-size: var(--control-h);
   padding-inline: var(--space-4);
   background: none;
   border: 0;
   border-block-end: 2px solid transparent;
+  border-start-start-radius: var(--radius-control);
+  border-start-end-radius: var(--radius-control);
   color: var(--color-text-muted);
   font: var(--weight-regular) var(--text-control) / var(--leading-tight) var(--font-sans);
   cursor: pointer;
+  transition: background-color var(--duration-2) var(--ease-out), color var(--duration-2)
+    var(--ease-out);
+}
+/* RT-959: the shared button states. Hover is neutral (never the teal selection
+ * wash), press one step deeper; focus is the global outline. */
+.device-tab:hover:not(:disabled, [aria-disabled="true"]) {
+  background-color: var(--color-surface-sunken);
+  color: var(--color-text);
+}
+.device-tab:active:not(:disabled, [aria-disabled="true"]) {
+  background-color: color-mix(in oklab, var(--color-surface-sunken), var(--color-text) 7%);
+}
+.device-tab:is(:disabled, [aria-disabled="true"]) {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
 }
 .device-tab[aria-selected="true"] {
   border-block-end-color: var(--color-primary);
@@ -101,12 +86,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-}
-
-.device-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
 }
 
 /* History: an ordered timeline of recorded events, oldest first. */
@@ -134,6 +113,9 @@
   .device-tab[aria-selected="true"] {
     border-block-end-color: Highlight;
   }
+  .device-tab:is(:disabled, [aria-disabled="true"]) {
+    color: GrayText;
+  }
 }
 
 /* RT-372 lifecycle: the action bar, the reason picker and the impact panel. Text
@@ -151,6 +133,10 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+}
+/* The first irreversible action starts a new group, away from replace and move. */
+.device-actions__bar > .btn-secondary + .device-actions__destructive {
+  margin-inline-start: var(--space-4);
 }
 
 .device-reasons {

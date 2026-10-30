@@ -31,6 +31,7 @@ export const erp = {
   "erp.error.notFound": "هذا المتجر غير متاح لك.",
 
   // --- Store filter ---------------------------------------------------------------
+  "erp.filter.label": "تصفية حالة الاتصال والمزامنة",
   "erp.filter.store": "المتجر",
   "erp.filter.allStores": "كل المتاجر",
   "erp.filter.note":
@@ -188,6 +189,7 @@ export const erp = {
   "erp.map.items.emptySuggested": "لا توجد اقتراحات بانتظار المراجعة.",
   "erp.map.items.emptyConfirmed": "لا يوجد ربط أصناف مؤكَّد.",
   "erp.map.items.filter": "الحالة",
+  "erp.map.items.filter.label": "تصفية ربط الأصناف",
   "erp.map.items.filter.all": "كل الربط النشط",
   "erp.map.items.filter.suggested": "بانتظار المراجعة",
   "erp.map.items.filter.confirmed": "مؤكَّد",

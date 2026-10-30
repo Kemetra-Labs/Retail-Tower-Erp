@@ -1,5 +1,12 @@
+import { registerCatalog } from "@/i18n/catalogs";
 import { __setFallbackLocaleForTests, setLocale } from "@/i18n/locale";
+import { ar } from "@/i18n/messages/ar";
+import { en } from "@/i18n/messages/en";
 import { beforeEach } from "vitest";
+
+// RT-962: the app fetches catalogs on demand; the suites have both up front.
+registerCatalog("ar", ar);
+registerCatalog("en", en);
 
 /**
  * RT-399: Arabic is the product default. The unit suites below were written

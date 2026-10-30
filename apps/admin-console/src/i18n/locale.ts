@@ -22,6 +22,8 @@
  * and the choice then holds for this page only.
  */
 
+import { hasCatalog, loadCatalog } from "./catalogs";
+
 export type Locale = "ar" | "en";
 
 /** UX-12: Arabic is the primary authored product language. */
@@ -113,6 +115,24 @@ export function setLocale(locale: Locale): void {
   for (const listener of listeners) listener();
 }
 
+/**
+ * RT-962: switch only once `locale`'s catalog is loaded; at once when it is.
+ * A failed fetch (offline) keeps the current locale and skips `then`.
+ */
+function switchWhenLoaded(locale: Locale, then?: () => void): void {
+  const apply = (): void => {
+    then?.();
+    setLocale(locale);
+  };
+  if (hasCatalog(locale)) {
+    apply();
+    return;
+  }
+  loadCatalog(locale).then(apply, () => {
+    // Not reachable right now: stay in the language already on screen.
+  });
+}
+
 // --- Per-user persistence --------------------------------------------------
 
 /**
@@ -136,13 +156,14 @@ export function lastLocale(): Locale {
 export function adoptUserLocale(userId: string): Locale {
   const mine = storedLocaleFor(userId);
   write(LOCALE_LAST_KEY, mine);
-  setLocale(mine);
+  switchWhenLoaded(mine);
   return mine;
 }
 
 /** Persist a user's choice, update the last-choice mirror, and switch to it. */
 export function saveLocale(userId: string | undefined, locale: Locale): void {
-  if (userId) write(localeUserKey(userId), locale);
-  write(LOCALE_LAST_KEY, locale);
-  setLocale(locale);
+  switchWhenLoaded(locale, () => {
+    if (userId) write(localeUserKey(userId), locale);
+    write(LOCALE_LAST_KEY, locale);
+  });
 }

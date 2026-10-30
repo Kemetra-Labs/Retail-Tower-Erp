@@ -13,7 +13,8 @@ import { AppShell } from "@/shell/AppShell";
 /**
  * RT-399 in the real shell: Arabic RTL by default, the top-bar switch flips the
  * whole frame to English LTR, the choice is remembered per user, and the role
- * shows as a label in one language, never as a raw code.
+ * shows as a label in one language, never as a raw code. RT-969: the switches
+ * sit in the top bar's user menu.
  */
 
 function renderShell(userId = "u1"): void {
@@ -37,6 +38,11 @@ function renderShell(userId = "u1"): void {
 }
 
 const html = () => document.documentElement;
+
+/** RT-969: the language and theme switches are in the user menu. */
+function openUserMenu(): void {
+  fireEvent.click(screen.getByRole("button", { name: /Amal Saleh/ }));
+}
 
 function navLabels(): string[] {
   return Array.from(document.querySelectorAll(".nav-entry__label")).map(
@@ -62,20 +68,22 @@ describe("shell locale", () => {
     expect(screen.getByRole("navigation", { name: "التنقل الرئيسي" })).toBeDefined();
     expect(navLabels()).toEqual([
       "نظرة عامة",
-      "المؤسسات",
+      "سجل التدقيق",
       "المتاجر",
       "المستخدمون",
-      "سجل التدقيق",
+      "المؤسسات",
       "تسجيل الخروج",
     ]);
     expect(screen.getByText("الكاشير")).toBeDefined(); // role label, not "cashier"
     expect(screen.queryByText("cashier")).toBeNull();
+    openUserMenu();
     expect(screen.getByRole("button", { name: "الوضع الداكن" })).toBeDefined();
     expect(screen.getByText("كل المتاجر")).toBeDefined();
   });
 
   test("the switch flips the frame to English LTR and remembers it for this user", () => {
     renderShell("u1");
+    openUserMenu();
     act(() => {
       fireEvent.click(screen.getByRole("button", { name: "Switch to English" }));
     });
@@ -83,10 +91,10 @@ describe("shell locale", () => {
     expect(html().dir).toBe("ltr");
     expect(navLabels()).toEqual([
       "Overview",
-      "Tenants",
+      "Audit",
       "Stores",
       "Operators",
-      "Audit",
+      "Tenants",
       "Sign out",
     ]);
     expect(screen.getByText("Cashier")).toBeDefined();
@@ -100,6 +108,7 @@ describe("shell locale", () => {
     const latinWord = /[A-Za-z]{2,}/;
     for (const label of navLabels()) expect(latinWord.test(label), label).toBe(false);
     // The only Latin text is the language switch itself (named in its own language).
+    openUserMenu();
     const switchButton = screen.getByRole("button", { name: "Switch to English" });
     expect(switchButton.getAttribute("lang")).toBe("en");
   });

@@ -7,6 +7,7 @@
  * as the server returned it. An unavailable or partial ERPNext view is a
  * reported condition of the run, not a failure (FR-007).
  */
+import { BusyButton } from "@/components/BusyButton";
 import { AsOf, Panel, StatusPill } from "@/erp-status/parts";
 import { DateTime, type T, useT } from "@/i18n";
 import type { ProductReconciliationRun } from "@/lib/product-reconciliation-queries";
@@ -101,18 +102,17 @@ function TriggerRun({ scope }: Readonly<{ scope: ReconScope }>): React.JSX.Eleme
         <section className="recon-confirm" aria-label={t("productRecon.trigger.confirmLabel")}>
           <p>{t("productRecon.trigger.confirmPrompt")}</p>
           <div className="recon-actions">
-            <button
+            <BusyButton
               type="button"
               className="btn-primary"
-              disabled={trigger.isPending}
+              busy={trigger.isPending}
               onClick={() => void confirm()}
             >
-              {trigger.isPending ? <span className="spinner" aria-hidden="true" /> : null}
               {t("productRecon.trigger.confirm")}
-            </button>
+            </BusyButton>
             <button
               type="button"
-              className="btn-secondary"
+              className="btn-ghost"
               disabled={trigger.isPending}
               onClick={() => setConfirming(false)}
             >

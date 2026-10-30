@@ -74,7 +74,7 @@
   --font-mono: ui-monospace, "Consolas", monospace;
 
   --text-display: 1.875rem; /* 30px, rare */
-  --text-screen-title: 1.25rem; /* 20px */
+  --text-screen-title: 1.5rem; /* 24px, the page title (Shell v3, RT-969) */
   --text-section-title: 1rem; /* 16px */
   --text-body: 0.875rem; /* 14px */
   --text-control: 0.8125rem; /* 13px */
@@ -99,6 +99,11 @@
   --radius-overlay: 16px; /* an independent overlay: dialog */
   --radius-pill: 9999px; /* status, counts, tags only */
 
+  /* Control sizes (RT-959): one height for every desktop button, input and
+   * select, and the touch target of the compact shell (RT-785 D3). */
+  --control-h: 36px;
+  --target-touch: 44px;
+
   /* Spacing — 4px base */
   --space-1: 4px;
   --space-2: 8px;
@@ -110,11 +115,17 @@
   --space-8: 64px;
   --space-9: 96px;
 
-  /* Shell dimensions — the SF-2 frame (Console v4.0 layout). The grid template
-   * is the sole consumer; named here so topbar/scope/sidebar agree on one value. */
-  --shell-topbar-h: 56px;
-  --shell-scope-h: 40px;
-  --shell-sidebar-w: 240px;
+  /* Shell dimensions — the Shell v3 frame (RT-969, owner-approved canvas
+   * 2026-10-30). Named here so the sidebar, top bar and content agree. */
+  --shell-topbar-h: 64px;
+  --shell-sidebar-w: 260px;
+  --shell-scope-h: 48px; /* the compact shell's scope row (RT-825: a 44px button) */
+  --shell-content-max: 1240px; /* the content container's measure */
+  --shell-content-pad-block: 28px; /* the content's top padding, between space-5 and -6 */
+
+  /* Form page (RT-971, canvas «نموذج»): the form panel's measure and its aside. */
+  --form-panel-max: 720px;
+  --form-aside-max: 360px;
 
   /* Motion */
   --duration-1: 80ms;

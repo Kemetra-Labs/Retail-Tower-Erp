@@ -104,7 +104,7 @@ function Details({
         <GatedButton type="submit" className="btn-primary">
           {t("devices.flow.review")}
         </GatedButton>
-        <button type="button" className="btn-secondary" onClick={onClose}>
+        <button type="button" className="btn-ghost" onClick={onClose}>
           {t("common.cancel")}
         </button>
       </div>
@@ -150,13 +150,12 @@ function Review({
           <GatedButton
             type="submit"
             className={isIssueAction(action) ? "btn-primary" : "btn-destructive"}
-            disabled={pending}
+            busy={pending}
           >
-            {pending ? <span className="spinner" aria-hidden="true" /> : null}
             {t(CONFIRM[action])}
           </GatedButton>
         ) : null}
-        <button type="button" className="btn-secondary" onClick={back} disabled={pending}>
+        <button type="button" className="btn-ghost" onClick={back} disabled={pending}>
           {t("devices.flow.back")}
         </button>
         <button type="button" className="btn-ghost" onClick={onClose} disabled={pending}>

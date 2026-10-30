@@ -6,6 +6,7 @@ description: >-
   one shared semantic color system with POS, Arabic-first (Dubai) type voice, RTL by structure.
   The token block below records the CURRENT SHIPPED tokens (src/styles/tokens.css). Since
   RT-396 and RT-397 the colours, radii and type ARE the approved light target (RT-392).
+  v3.0 (RT-969) adds the owner-approved Shell v3 "Daylight Commerce" frame.
 status: current-shipped-tokens
 # CURRENT SHIPPED TOKENS — a SUBSET of src/styles/tokens.css on main (colors, type, radius,
 # spacing); tokens.css is authoritative and also holds the scrim, overlay shadow, motion and
@@ -32,7 +33,7 @@ typography:
   fontFamily: "Dubai, Segoe UI, Tahoma, system-ui, sans-serif" # no font files served (RT-397)
   monoFamily: "ui-monospace, Consolas, monospace"
   display: "1.875rem" # rare
-  screen-title: "1.25rem"
+  screen-title: "1.5rem" # 24px, the page title (RT-969)
   section-title: "1rem"
   body: "0.875rem"
   control: "0.8125rem"
@@ -67,6 +68,16 @@ spacing:
 
 # Design System: Retail Tower Console
 
+> **Version 3.0 — Shell v3 "Daylight Commerce" (RT-969, 2026-10-30).** On 2026-10-30 the owner
+> rejected the v2 Console look as "primitive, not a control panel" and approved direction
+> **A + C pipeline strip** on the design canvas
+> <https://claude.ai/artifact/NvG61RAVXHdy2gjFgX3sZK> (artboards «المختار · A + مسار C — نظرة
+> عامة» and «المختار · المبيعات»): a Shopify/Stripe-like frame that keeps Tower Teal, Dubai and
+> Arabic-first RTL. v3.0 makes that canvas the documented authority for the shell: the sidebar
+> with the scope switcher in it, the 64px top bar with the Ctrl K navigator and the user menu,
+> the shared page header, the content container and section panels (§2, §5, §6, §9). Screens
+> adopt the canvas content per bounded slice (Overview v2, detail and form templates).
+>
 > **Version 2.0 — Constitution rebaseline (RT-265, 2026-10-10).** Supersedes v1.0 ("The Lit
 > Command Desk": dark default, navy action, Tower Gold authority, Inter). v1.0 is retired as
 > design intent and kept only in git history. Authority for future Admin UI is the
@@ -97,6 +108,7 @@ spacing:
 | Artifact | Status |
 | --- | --- |
 | `DESIGN.md` v1.0 (dark default, Tower Gold authority, navy action, Inter, English/LTR shell) | **Superseded** by this version. |
+| `DESIGN.md` v2.0 shell (56px top bar holding language and theme, a recessed scope bar under it, a 240px nav-only sidebar, 30px page titles) | **Superseded** by the v3.0 shell (RT-969). |
 | `PRODUCT.md` — Design Principle 6 ("dark by default … light alternate") and the dark-*default* note under Anti-references | **Superseded** by UX-02 light-first. The rest of PRODUCT.md (users, purpose, principles 1–5) stands. Reconciling PRODUCT.md is a separate docs change. |
 | `design_handoff_retail_tower_console/` — screens, charts, theme, KPI coloring, dual-axis patterns, route map, chart palette | **Reference/prototype only** (Final Audit; UX-13 prototype disposition). Nothing in it is production authority unless a Constitution-backed issue adopts it. |
 | `docs/design/_vision/`, `docs/design/rf1-auth-shell/`, `docs/design/rf6-audit-search/` mockups and their `tokens.css` | Historical slice references. They are not the target identity. |
@@ -112,6 +124,12 @@ hierarchy. It does not come from ornament, logos or a second accent color.
 Admin may use more **Responsive** motion than POS (UX-06). Expressive motion is rare and
 never on operational truth. `prefers-reduced-motion` collapses durations to instant, but
 focus, copy, status and border/icon feedback stay intact.
+
+**Status at a glance (v3.0, owner decision 2026-10-30).** The Overview may show status at a
+glance as **one KPI ledger strip** (a single section panel of label / value / delta cells,
+divided by rules, never one card per value) **plus one pipeline strip** (POS → server →
+ERPNext, each step with its count and its first problem). That is the only exception. Stat-card
+grids, hero metrics and decorative charts stay out, on the Overview and everywhere else.
 
 ## 3. Color (UX-02, UX-13)
 
@@ -207,6 +225,16 @@ focus, copy, status and border/icon feedback stay intact.
   `section-title`, `body`, `body-strong`, `control`, `meta`, `money-hero`, `money-total`,
   `numeric-row`, `machine`, `kbd`. Shipped as `--text-*` in `src/styles/tokens.css` (RT-397),
   equal to the approved values; `body-strong` and `money-hero` are not defined yet.
+- **Screen title: 24px** (`--text-screen-title`, 1.5rem, the approved canvas value since
+  RT-969). It is the page header's `<h1>` and nothing else at page level is that large.
+- **Precision Ledger (RT-961).** In a detail ledger (`.field-row`) the value is what the row is
+  for: body size, regular, text colour. The label is muted and never heavier than its value.
+  Machine values keep mono. Money sits at the inline end (right in LTR, left in RTL) in tabular
+  numerals, so decimals line up, in ledgers and in table columns (`data-table__cell--num`, header
+  included). The figures a ledger arrives at read stronger (`field-row--result`), and its total
+  is anchored under a 2px text-colour rule (`field-row--total`, `data-table__total`). A total is
+  shown only as served, never summed in the Console. A row header (`<th scope="row">`) keeps the
+  row divider.
 - **Readability floor: 12px.** No operator-readable text below 12px (declared CSS sizes are checked by
   `tests/unit/tokens-identity.test.ts`). Arabic body keeps generous line-height (1.7).
   Hierarchy comes from placement, spacing, weight and alignment before size.
@@ -246,15 +274,33 @@ focus, copy, status and border/icon feedback stay intact.
 - **Density:** Comfortable / Operational / Compact, chosen by context and not a user setting
   yet. Dense inside a region, breathing room between regions. Under pressure, compress space
   before meaning and reflow before shrinking.
-- **Data stretches; reading constrains.** Tables, grids and timelines take the available width.
-  Reading and form surfaces use a constrained measure (about 60–65ch).
-- **Tables are full-bleed work surfaces, never inside cards.** Surface grammar:
-  - **Work Surface:** flat, minimal radius, no shadow.
-  - **Section:** heading, spacing and an optional divider; not automatically a container.
-  - **Panel:** tone or divider is enough.
+- **Data stretches; reading constrains.** Tables, grids and timelines take the available width
+  of the content container. Reading and form surfaces use a constrained measure (about 60–65ch).
+- **Content container (v3.0):** the routed page renders in one container at the inline start,
+  `--shell-content-max` (1240px) wide at most, padded `--shell-content-pad-block` (28px) at the
+  top, `--space-6` (32px) at the sides and `--space-7` (48px) at the bottom; at ≤600px the sides
+  are `--space-4`. The page header comes first, then the regions.
+- **Data regions sit in section panels (v3.0).** Surface grammar:
+  - **Work Surface:** the canvas the content container sits on (`--color-background`).
+  - **Section panel** (`.section-panel`, `__head`, `__title`, `__body`): the surface of one data
+    region: `--color-surface`, a 1px `--color-border` edge, `--radius-object` (12px), no shadow.
+    A **table may live inside a section panel under its header**, edge to edge (no inner
+    padding, the header row tinted `--color-background`). A KPI ledger strip or a filter bar
+    is a section panel too.
+  - **Section:** heading, spacing and an optional divider inside a panel; not a container.
   - **Card:** only for a genuine independent, selectable or actionable object.
+  - **No nesting:** never a panel or card inside a section panel, and never a table inside a
+    card.
   - **Drawer:** attached, with real elevation.
   - **Dialog:** the strongest elevation.
+- **Detail template (v3, RT-961)** (`src/components/DetailPanel.tsx`): the back link, the page
+  header (title, status chips, actions), then a failure banner where the data has one (What →
+  Safety → Action → Evidence, §8), then the data regions. Each region is a `DetailPanel`, a
+  section panel named by its `h2`. Ledger panels sit in a `DetailGrid`, two to a row once
+  the content is wide enough (each at least 26rem) and stacked otherwise. A lone ledger keeps
+  its half. A table sits straight under its panel header, full width, outside the grid. DOM
+  order is reading order. It is used by sale, shift-close, device, catalog product and store
+  detail.
 - **Shape (target):** 8px controls, 12px genuine contained objects, 16px independent overlays.
   Round the object, not the page. Pills only for true status, counts or tags, never ordinary
   buttons. *Shipped as `--radius-control` / `--radius-object` / `--radius-overlay` (RT-396).*
@@ -283,6 +329,11 @@ focus, copy, status and border/icon feedback stay intact.
 - **Location ≠ Scope ≠ State.** Product location, Tenant/Store scope and workflow state are
   separate axes. The shell owns persistent identity, scope and primary navigation; the
   screen owns the task.
+- **Scope lives in the sidebar (v3.0).** The scope switcher sits under the brand at the top of
+  the sidebar: the store (or «كل المتاجر») over its tenant, with a decorative initial tile. At
+  ≤768px the sidebar's navigation moves to the menu drawer and the sidebar itself becomes the
+  48px scope row under the top bar, so scope is never behind a menu (PRODUCT.md principle 1).
+  The Ctrl K navigator also offers the stores in scope; both run the same guarded change.
 - **Scope change is a context transition, not a filter click.** It must never silently discard
   unsaved form work; the user gets an explicit save / discard / stay path. Deep links never
   silently mutate scope.
@@ -312,7 +363,8 @@ focus, copy, status and border/icon feedback stay intact.
   above the accessibility floor. The current controls use 36px.
   - **Compact shell (≤768px, RT-785 D3, RT-825):** the menu button, the navigation drawer's
     entries, its language, theme, sign-out and close controls, the scope button and the
-    scope-menu items, and the primary action of a Tier 1 page are at least 44×44px.
+    scope-menu items, the navigator button and its options, the user button, and the primary
+    action of a Tier 1 page are at least 44×44px.
   - Dense secondary controls keep the WCAG 2.2 AA floor of 24px: table sort headers (36px
     effective hit area), inline links inside table cells and badges.
   - Desktop density does not change.
@@ -366,21 +418,129 @@ These classes exist on `main` and new work reuses them until a migration slice r
 - **Buttons:** five variants: `.btn-primary` (Tower Teal fill), `.btn-secondary`,
   `.btn-ghost` (cancel, close, back), `.btn-danger-quiet` (red edge and text on surface) and
   `.btn-destructive` (red fill). `.btn-danger-quiet` starts a destructive action;
-  `.btn-destructive` appears only in its confirm step. One primary per context. Hover is
+  `.btn-destructive` appears only in its confirm step: a flow whose confirm is red opens with
+  `.btn-danger-quiet`, placed last and set apart from the non-destructive actions beside it
+  (device revoke and retire, store suspend). Cancel, close and back are always `.btn-ghost`,
+  never primary or secondary. `tests/unit/button-grammar.test.ts` enforces both. One primary
+  per context. Hover is
   neutral, never the selection wash. Unavailable is recessed, not faded. Press is Contact
   (80ms).
+  - **Height** (RT-959): every desktop button, input and select is `--control-h` (36px); the
+    compact shell's touch target is `--target-touch` (44px). No stylesheet spells either
+    number (`tests/unit/control-height-tokens.test.ts`).
+  - **Busy** (RT-959): a pending action is a `BusyButton` (`GatedButton` is one) with
+    `busy`. It is `aria-busy` + `aria-disabled`, never native `disabled`, so focus stays on
+    it. It ignores repeat clicks and Enter, keeps its variant colours (not recessed, not
+    GrayText in forced colours) and shows the shared spinner before its label. The label
+    still says what is happening ("Saving…"). Native `disabled` is only for an unavailable
+    action, such as a running Retry-After.
 - **Motion:** route changes stay instant (UX-06). The drawer has an enter and an exit. New
   banners, inline confirms and inline errors settle in on Signal (150ms); new table rows fade
   in. All of it is zero under reduced motion.
-- **Badge** `.badge` (`--active` / `--suspended` / `--pending`). Status badges
-  always carry text, so status is never color alone.
+- **Badge** `.badge`. Each variant is a §3 color role, not a status name (RT-956):
+  - no modifier is neutral: a recorded state that claims nothing, such as "active" on a
+    store or a device. An enabled flag is not a proven outcome, so it is not green.
+    Known gap: "active" on tenants, operators and stock locations is still
+    `--success`. Align it in its own slice; do not copy it into new work.
+  - `--success` (green) marks a proven outcome only.
+  - `--warning` (amber) marks caution or a degraded state, such as suspended, revoked
+    membership, a sync failure or a voided sale.
+  - `--pending` (blue) marks information or work in progress.
+  - `--danger` (red) marks a consequence and **every UNKNOWN or unrecognized state**,
+    such as ERP posting `failed` or a code the Console does not know. Never amber or
+    neutral.
+
+  A value the server does not record yet is not UNKNOWN. It reads «غير مسجّل» / "Not
+  recorded" in quiet text, not in a badge. Status badges always carry text, so status is
+  never color alone, and forced colors keep the text and a `CanvasText` border.
 - **Banner** `.rtc-alert--{danger,warning,success,info}`: persistent operational state, not a
   toast.
-- **Inputs** `.input` and `.field`. Errors use `aria-invalid` plus inline text.
+- **Inputs** `.input` and `.field`. Errors use `aria-invalid` plus inline text. A single-line
+  input or select is exactly `--control-h`; a textarea grows. Disabled is recessed (sunken
+  fill, quiet edge, muted text; GrayText in forced colours), never `opacity`. One checkbox
+  size, 18px.
+- **FilterBar** (`src/components/FilterBar.tsx`, RT-960): the one filter bar for every list.
+  - It is a section panel above the list. The screen keeps its own draft, URL state and
+    validation.
+  - Fields (`FilterField`) sit on one grid of equal tracks, so columns line up. Extra
+    fields join the same tracks. Notes go under the grid, never inside a cell.
+  - One verb: «تطبيق» / "Apply" (`btn-primary`, rate-limit gated, can be busy), after a
+    `btn-ghost` «مسح» / "Clear". No list filter sends a read on change. The one
+    exception is a search that narrows a list already loaded on the client: the platform
+    tenant directory narrows as you type and sends no read.
+  - Optional «فلاتر إضافية» disclosure: its count is the applied hidden filters and is in
+    its accessible name. The region is hidden, not unmounted. It opens when a hidden
+    field has an error.
+  - Chips for applied filters on every list with two or more filters. Removing one applies
+    straight away; a required filter has no remove control. The remove target is 24px.
+    Values are bidi-isolated (`isolate`, `ltr`).
+  - A list with one select filter uses `SelectFilterBar`.
 - **DataTable** (`src/components/DataTable.tsx`; usage rules in the notes below), **Drawer** (focus-trapped dialog), and
   **ListState** (loading / empty).
-- **Shell** (`src/shell/`): topbar, a recessed (`surface-sunken`) scope header, and a sidebar
-  whose active entry takes the teal wash and the teal Signal Line (RT-396).
+- **Shell v3** (`src/shell/`, RT-969; `ShellFrame.tsx` is shared by `AppShell` and
+  `PlatformShell`):
+  - **Sidebar** (`--shell-sidebar-w` 260px, inline start, full height, sticky): the brand
+    lockup (`TowerMark` on a teal tile, the product word and tag), the scope switcher
+    (`ScopeHeader`, tenant shell only), then the grouped navigation and sign-out. Its
+    navigation scrolls on its own.
+  - **Navigation model** (`nav-model.ts`): one role-filtered list of groups feeds the sidebar,
+    the compact drawer and the navigator. The groups follow the canvas: daily operations with no
+    heading, then «التكامل», then «الإدارة». The active entry takes the teal wash, the strong
+    weight and the Signal Line. A **count pill** after an entry's label is allowed only where a
+    query the shell already loads gives the number; never a request just for a count. None
+    ships yet.
+  - **Top bar** (`--shell-topbar-h` 64px): the compact menu button and mark (≤768px), the
+    **Ctrl K navigator** button, and the **user menu**. Nothing without backing (notifications,
+    system status) is rendered.
+  - **Ctrl K navigator** (`Navigator.tsx`): a client-side command palette over the role's
+    destinations and the stores in scope; no new contract (the stores are the scope menu's own
+    query). Ctrl+K / ⌘K or the button opens a modal dialog holding a combobox and a grouped
+    listbox (`aria-activedescendant`). Arrows move, Enter chooses, Escape closes, Tab stays,
+    focus returns to the invoker. A page choice navigates (the unsaved-work blocker still
+    guards it); a store choice runs `useScopeChange`, the switcher's guarded path. A shortcut
+    pressed while another modal is open does nothing.
+  - **User menu** (`UserMenu.tsx`): avatar, name and role on a disclosure button (not a
+    `role="menu"`) whose panel holds the language (RT-399) and theme (RT-398) switches,
+    unchanged. The user's stored language and theme are adopted when the shell mounts.
+  - **Page header** (`src/components/PageHeader.tsx`), the first thing every routed page
+    renders: `title` (the page's one `<h1>`, 24px), `subtitle` (one muted line: scope or what
+    the page shows), `children` (status chips or a second note, under the subtitle),
+    `actions` (at most one primary; destructive last) and `segmented` (a view switch,
+    `aria-pressed` buttons in a group), both at the inline end on the text's last line and
+    wrapping under it when narrow. `titleRef` makes the title a focus target; `titleId` lets a
+    region be labelled by it. A back link sits above the header, not in it.
+    `tests/unit/page-header.test.tsx` fails if a page inside the shell writes its own `<h1>`.
+  - **Content container** and **section panel**: §5.
+- **Form template** (`src/components/FormPage.tsx`, `FormField.tsx`, RT-971, canvas «نموذج»):
+  every create/edit form uses these parts, so no form keeps its own layout classes
+  (`tests/unit/form-template.test.tsx`).
+  - `FormPage`: a back link above the `PageHeader`, the page's banners (`notices`), then the
+    body. The body holds the form panel and an optional `FormAside` beside it ("what happens
+    next"); the aside wraps under the panel when narrow. `after` holds page sections that are
+    not part of the form, such as the store status control.
+  - `FormPanel`: the `<form>` itself, so the unsaved-work guard still tracks it.
+    - `panel` (a full page): one column, at most `--form-panel-max` (720px), with a 1px edge,
+      the object radius and no shadow. `FormErrorSummary` sits at its top. The action bar at
+      its foot (primary, then Cancel as `.btn-ghost`) sticks to the viewport bottom while the
+      form is taller than the viewport.
+    - `plain` (a drawer, or a form inside a section panel): the same parts with no surface of
+      its own, since panels never nest. Drawer forms do not use the summary.
+  - `FormSection`: a `<fieldset>` whose `<legend>` is the section title, with one or two
+    columns. `disabled` locks every control in it.
+  - `FormField`: label above the control, then the hint and the inline error.
+    - The required mark is a danger-coloured `*` drawn by CSS with empty alt text, so it is
+      not part of the label's text or name; the control carries `aria-required`.
+    - The error is `aria-invalid` + `aria-describedby`. It is a live region only with
+      `announceError`, for a form with no summary.
+- **Public screens** (`src/auth/AuthLayout.tsx`, RT-971, canvas «تسجيل الدخول»): sign-in and
+  accept-invitation.
+  - A form panel at the inline start holds the brand lockup, the language switch
+    (`LocaleSwitch`, no user), the centred form and the audit note.
+  - A decorative brand panel at the inline end is `aria-hidden` and hidden below 900px. It is
+    deep teal in light and the teal wash in dark.
+  - No card and no shadow.
+  - Passwords use `PasswordInput`: no placeholder, and a «إظهار كلمة المرور» toggle
+    (`aria-pressed`, `aria-controls`) with the registry's `reveal` / `conceal` glyphs.
 
 **Notes on these components.**
 - **Focus:** every focus stop draws the global outline (`src/styles/a11y.css`, RT-267) in
@@ -427,13 +587,16 @@ Each debt is tracked separately. Do not fold them into feature work.
 | Light-first token migration: Mineral Daylight neutrals + Tower Teal roles; retire Tower Gold, navy action and the dark default | UX-02, UX-04 (radius 8/12/16) | **RT-396** |
 | Opt-in dark theme: `[data-theme="dark"]` roles, top-bar switch, per-user persistence, no light flash | UX-02, UX-11 | **RT-398** |
 | Admin type migration Inter → Dubai (with Arabic line-height and the 12px floor) | UX-03 | **RT-397** |
-| Reconcile `PRODUCT.md` Principle 6 and the anti-reference note with light-first | UX-02 | **No ticket — owner to decide** (docs-only) |
+| Reconcile `PRODUCT.md` Principle 6 and the anti-reference note with light-first | UX-02 | **RT-966** (resolved) |
+| Shell v3: sidebar with scope switcher, top bar with Ctrl K navigator and user menu, page header, content container | UX-04, UX-09 | **RT-969** (this version). Screens follow: Overview v2 (RT-970), detail template (RT-961), forms and sign-in (RT-971), control states (RT-959) |
 
 ## 11. Do's and Don'ts
 
 **Do**
 - Use role tokens, never raw hex, so the light-first token slice can remap roles in one place.
-- Put tables directly on the work surface; reserve cards for genuine objects.
+- Put each data region in one section panel, its table edge to edge under the panel header;
+  reserve cards for genuine objects.
+- Start every routed page with `PageHeader`.
 - Give every state a non-color cue (text, icon, shape) and verify it in forced-colors.
 - Use logical CSS properties in any line you write or rewrite.
 - Isolate machine data (`dir="ltr"` / `<bdi>`) and keep it monospace.
@@ -444,7 +607,9 @@ Each debt is tracked separately. Do not fold them into feature work.
 - Use a box-shadow as the only focus indicator, or `outline: none` without an outline
   replacement.
 - Use success/warning/danger/info as a chart palette, or color alone for meaning.
-- Put a table inside a rounded card, or nest cards.
+- Put a table inside a card, or nest a panel or card inside a section panel.
+- Build a stat-card grid or a hero metric; the Overview's one KPI ledger strip and pipeline
+  strip (§2) are the only status-at-a-glance surfaces.
 - Animate truth values (count-ups, rolling money), add bounce easing or page-load choreography.
 - Copy design-handoff prototype themes, KPI coloring or dual-axis charts into production.
 - Introduce a new package (including Tailwind or an icon or i18n library) without an

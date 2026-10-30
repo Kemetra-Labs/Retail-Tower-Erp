@@ -1,6 +1,9 @@
 import { NoAccess } from "@/auth/NoAccess";
 import { Banner } from "@/components/Banner";
+import { BusyButton } from "@/components/BusyButton";
+import { TableScrollRegion } from "@/components/DataTableScroll";
 import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { type MessageKey, useT } from "@/i18n";
 import { useSignOut } from "@/shell/useSignOut";
@@ -76,7 +79,7 @@ function PayerRowView({
       </td>
       <td>
         {row.status === "suspended" ? (
-          <span className="badge badge--suspended">{t(payerStatusKey(row.status))}</span>
+          <span className="badge badge--warning">{t(payerStatusKey(row.status))}</span>
         ) : (
           <span className="badge">{t(payerStatusKey(row.status))}</span>
         )}
@@ -116,37 +119,41 @@ function PayerListBody({
       ) : null}
 
       {settled && rows.length > 0 ? (
-        <table className="data-table">
-          <caption className="data-table__caption">{t("payers.list.caption")}</caption>
-          <thead>
-            <tr>
-              <th scope="col">{t("payers.list.col.payer")}</th>
-              <th scope="col">{t("payers.list.col.category")}</th>
-              <th scope="col">{t("payers.list.col.scope")}</th>
-              <th scope="col">{t("payers.list.col.erpCustomer")}</th>
-              <th scope="col">{t("payers.list.col.status")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <PayerRowView key={row.payerRef} row={row} stores={stores} />
-            ))}
-          </tbody>
-        </table>
+        <TableScrollRegion>
+          {(captionId) => (
+            <table className="data-table">
+              <caption id={captionId} className="data-table__caption">
+                {t("payers.list.caption")}
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">{t("payers.list.col.payer")}</th>
+                  <th scope="col">{t("payers.list.col.category")}</th>
+                  <th scope="col">{t("payers.list.col.scope")}</th>
+                  <th scope="col">{t("payers.list.col.erpCustomer")}</th>
+                  <th scope="col">{t("payers.list.col.status")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <PayerRowView key={row.payerRef} row={row} stores={stores} />
+                ))}
+              </tbody>
+            </table>
+          )}
+        </TableScrollRegion>
       ) : null}
 
       {settled && hasMore ? (
         <div className="surface__actions">
-          <button
+          <BusyButton
             type="button"
             className="btn-secondary"
             onClick={loadMore}
-            disabled={isFetchingNextPage}
-            aria-busy={isFetchingNextPage || undefined}
+            busy={isFetchingNextPage}
           >
-            {isFetchingNextPage ? <span className="spinner" aria-hidden="true" /> : null}
             {t("payers.list.loadMore")}
-          </button>
+          </BusyButton>
         </div>
       ) : null}
     </>
@@ -184,15 +191,11 @@ export function PayerList(): React.JSX.Element {
 
   return (
     <div className="surface">
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("payers.list.title")}</h1>
-          <p className="content__sub">
-            {t.rich("payers.list.subtitle", { tenant: <bdi>{tenantName}</bdi> })}
-          </p>
-        </div>
-        {showHeaderCreate ? createButton : null}
-      </header>
+      <PageHeader
+        title={t("payers.list.title")}
+        subtitle={t.rich("payers.list.subtitle", { tenant: <bdi>{tenantName}</bdi> })}
+        actions={showHeaderCreate ? createButton : null}
+      />
 
       <PayerListBody state={list} stores={stores} createButton={createButton} />
 

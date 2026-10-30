@@ -2,43 +2,6 @@
  * time, contained status color, no brand color. Built from existing
  * tokens; no new color/font/dependency. */
 
-.audit-filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--space-3);
-  padding: var(--space-4);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-object);
-}
-/* Leading glyph anchors the bar as a query panel (Console v4.0). Aligned to the
- * input row, not the labels, so it sits beside the fields. */
-.audit-filters__lead {
-  display: inline-flex;
-  align-items: center;
-  height: 36px;
-  color: var(--color-text-muted);
-}
-.audit-filters__field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-.audit-filters__field label {
-  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
-  color: var(--color-text-muted);
-}
-.audit-filters__field .input {
-  width: auto;
-  min-width: 150px;
-}
-.audit-filters__actions {
-  display: flex;
-  gap: var(--space-2);
-  margin-inline-start: auto;
-}
-
 .audit-prequery {
   padding: var(--space-7) 0;
   color: var(--color-text-muted);
@@ -91,6 +54,7 @@
   color: var(--color-text-muted);
 }
 .audit-table__action {
+  position: relative;
   font-family: var(--font-mono);
   font-size: var(--text-machine);
   color: var(--color-primary-emphasis);
@@ -99,6 +63,18 @@
   padding: 0;
   cursor: pointer;
   text-align: start;
+}
+/* RT-959: a 36px hit area without a taller row (the RT-757 pattern). The text
+ * keeps its size; an invisible ::after widens only the target, centred with
+ * physical left/top + translate so it is symmetric in RTL as well. */
+.audit-table__action::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  inline-size: max(100%, var(--control-h));
+  block-size: max(100%, var(--control-h));
+  transform: translate(-50%, -50%);
 }
 /* RT-784: a recognisable label above a platform row's action code. Sans at
  * body size, so it reads as words; the code keeps the mono machine face. */
@@ -111,8 +87,15 @@
   display: block;
   font: var(--weight-strong) var(--text-body) / var(--leading-tight) var(--font-sans);
 }
-.audit-table__action:hover {
+.audit-table__action:hover:not(:disabled) {
   text-decoration: underline;
+}
+.audit-table__action:active:not(:disabled) {
+  color: var(--color-text);
+}
+.audit-table__action:disabled {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
 }
 .audit-table__action:focus-visible {
   border-radius: var(--radius-sm);

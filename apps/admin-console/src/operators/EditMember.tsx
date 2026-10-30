@@ -1,6 +1,8 @@
 import { Banner } from "@/components/Banner";
 import { ConfirmDelete } from "@/components/ConfirmDelete";
 import { Drawer } from "@/components/Drawer";
+import { FormField } from "@/components/FormField";
+import { FormPanel, FormSection } from "@/components/FormPage";
 import { GatedButton } from "@/components/GatedButton";
 import { type MessageKey, useT } from "@/i18n";
 import { textField } from "@/lib/form-field";
@@ -13,6 +15,7 @@ import { textField } from "@/lib/form-field";
  * On success: close, refresh the list (S4/S5).
  */
 import { useState } from "react";
+import { StoreAccessField } from "./StoreAccessField";
 import type { MemberRow } from "./useMembers";
 import { useRevokeMembership, useUpdateMembership } from "./useMembers";
 
@@ -81,71 +84,54 @@ export function EditMember({
     <Drawer title={t("operators.edit.title")} onClose={onClose}>
       {banner ? <Banner variant="danger" message={t(banner)} /> : null}
 
-      <form className="surface__form" onSubmit={onSave} noValidate>
-        <p className="surface__scope-line">
-          {t.rich("operators.edit.scopeLine", {
+      <FormPanel
+        variant="plain"
+        onSubmit={onSave}
+        actions={
+          <>
+            <GatedButton
+              type="submit"
+              className="btn-primary"
+              busy={update.isPending}
+              disabled={revoke.isPending}
+            >
+              {t("operators.edit.save")}
+            </GatedButton>
+            <button type="button" className="btn-ghost" onClick={onClose} disabled={pending}>
+              {t("common.cancel")}
+            </button>
+          </>
+        }
+      >
+        <FormSection
+          lead={t.rich("operators.edit.scopeLine", {
             name: (
               <strong>
                 <bdi>{memberName}</bdi>
               </strong>
             ),
           })}
-        </p>
+        >
+          <FormField id="edit-role" label={t("operators.form.role")} required>
+            {(aria) => (
+              <input
+                id="edit-role"
+                name="role_code"
+                className="input"
+                defaultValue={member.roleCode}
+                autoComplete="off"
+                {...aria}
+              />
+            )}
+          </FormField>
 
-        <div className="field">
-          <label htmlFor="edit-role">{t("operators.form.role")}</label>
-          <input
-            id="edit-role"
-            name="role_code"
-            className="input"
-            defaultValue={member.roleCode}
-            autoComplete="off"
+          <StoreAccessField
+            specific={specific}
+            onSpecificChange={setSpecific}
+            defaultStoreIds={member.accessibleStoreIds.join(", ")}
           />
-        </div>
-
-        <div className="field">
-          <span className="field-row__label">{t("operators.form.storeAccess")}</span>
-          <div className="drawer__radio-group">
-            <label className="drawer__radio">
-              <input
-                type="radio"
-                name="store_access"
-                checked={!specific}
-                onChange={() => setSpecific(false)}
-              />
-              {t("operators.storeAccess.all")}
-            </label>
-            <label className="drawer__radio">
-              <input
-                type="radio"
-                name="store_access"
-                checked={specific}
-                onChange={() => setSpecific(true)}
-              />
-              {t("operators.storeAccess.specific")}
-            </label>
-          </div>
-          {specific ? (
-            <input
-              name="store_ids"
-              className="input"
-              defaultValue={member.accessibleStoreIds.join(", ")}
-              placeholder={t("operators.form.storeIdsPlaceholder")}
-              autoComplete="off"
-            />
-          ) : null}
-        </div>
-
-        <div className="surface__actions">
-          <GatedButton type="submit" className="btn-primary" disabled={pending}>
-            {update.isPending ? <span className="spinner" aria-hidden="true" /> : null}
-            {t("operators.edit.save")}
-          </GatedButton>
-          <button type="button" className="btn-secondary" onClick={onClose} disabled={pending}>
-            {t("common.cancel")}
-          </button>
-        </div>
-      </form>
+        </FormSection>
+      </FormPanel>
 
       <section className="drawer__danger-section" aria-label={t("operators.edit.revoke.title")}>
         <h3 className="drawer__danger-title">{t("operators.edit.revoke.title")}</h3>

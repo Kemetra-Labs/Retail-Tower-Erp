@@ -144,6 +144,11 @@ export function statusKey(status: string): MessageKey {
 }
 
 /** A status filter value: the three statuses, and `any` for no status filter. */
+/** A known status is a neutral badge; an unrecognised one is danger (RT-956). */
+export function statusBadgeClass(status: string): string {
+  return Object.hasOwn(STATUS_KEYS, status) ? "badge" : "badge badge--danger";
+}
+
 export function statusFilterKey(status: string): MessageKey {
   return status === "any" ? "catalog.status.any" : statusKey(status);
 }

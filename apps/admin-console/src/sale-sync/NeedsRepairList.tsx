@@ -1,3 +1,5 @@
+import { NoAccess } from "@/auth/NoAccess";
+import { Banner } from "@/components/Banner";
 /**
  * RT-726 — Sales needing repair (`consoleListNeedsRepair`), for owner /
  * tenant_admin. The server's open NEEDS_REPAIR queue, newest first, keyset
@@ -10,10 +12,12 @@
  * in-scope stores and is a filter, not a scope change. An out-of-scope or
  * malformed store reads as not available (the API's non-disclosing 404).
  */
-import { NoAccess } from "@/auth/NoAccess";
-import { Banner } from "@/components/Banner";
+import { BusyButton } from "@/components/BusyButton";
+import { TableScrollRegion } from "@/components/DataTableScroll";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
+import { SelectFilterBar } from "@/components/FilterBar";
 import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { DateTime, type T, useT } from "@/i18n";
 import type { NeedsRepairItem } from "@/lib/sale-sync-ops-queries";
@@ -44,35 +48,29 @@ function useFilterStores(tenantId: string | null): FilterStore[] {
   return scopeMenuStores(rows, membership, null).map((s) => ({ id: s.id, name: s.name }));
 }
 
+/** The queue's store filter, on the shared FilterBar (RT-960): Apply, Clear. */
 function StoreFilter({
   stores,
   value,
-  onChange,
+  onApply,
 }: Readonly<{
   stores: readonly FilterStore[];
   value: string;
-  onChange: (storeId: string) => void;
+  onApply: (storeId: string) => void;
 }>): React.JSX.Element {
   const t = useT();
   // A URL store the roster does not list stays selectable, so its 404 is visible.
   const listed = value && !stores.some((s) => s.id === value) ? [...stores, { id: value }] : stores;
   return (
-    <div className="sale-sync__filter">
-      <label htmlFor="needs-repair-store">{t("saleSync.filter.store")}</label>
-      <select
-        id="needs-repair-store"
-        className="input"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <option value="">{t("saleSync.filter.allStores")}</option>
-        {listed.map((store) => (
-          <option key={store.id} value={store.id}>
-            {store.name ?? store.id}
-          </option>
-        ))}
-      </select>
-    </div>
+    <SelectFilterBar
+      label={t("saleSync.filter.label")}
+      id="needs-repair-store"
+      fieldLabel={t("saleSync.filter.store")}
+      value={value}
+      allLabel={t("saleSync.filter.allStores")}
+      options={listed.map((store) => ({ value: store.id, label: store.name ?? store.id }))}
+      onApply={onApply}
+    />
   );
 }
 
@@ -163,38 +161,41 @@ function Rows({
   }
   return (
     <>
-      <div className="table-scroll">
-        <table className="data-table">
-          <caption className="data-table__caption">{caption}</caption>
-          <thead>
-            <tr>
-              {columns.map((col) => (
-                <th key={col.key} scope="col">
-                  {col.header}
-                </th>
+      <TableScrollRegion>
+        {(captionId) => (
+          <table className="data-table">
+            <caption id={captionId} className="data-table__caption">
+              {caption}
+            </caption>
+            <thead>
+              <tr>
+                {columns.map((col) => (
+                  <th key={col.key} scope="col">
+                    {col.header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {list.rows.map((item) => (
+                <Row key={item.saleRef} item={item} storeName={nameOf(item.storeId)} />
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {list.rows.map((item) => (
-              <Row key={item.saleRef} item={item} storeName={nameOf(item.storeId)} />
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </tbody>
+          </table>
+        )}
+      </TableScrollRegion>
       {/* A failed continuation keeps the rows above and retries at the boundary. */}
       <StaleError error={list.inlineError} onRetry={list.retry} />
       {list.hasMore ? (
         <div>
-          <button
+          <BusyButton
             type="button"
             className="btn-secondary"
             onClick={list.loadMore}
-            disabled={list.isFetchingNextPage}
+            busy={list.isFetchingNextPage}
           >
-            {list.isFetchingNextPage ? <span className="spinner" aria-hidden="true" /> : null}
             {t("saleSync.list.loadMore")}
-          </button>
+          </BusyButton>
         </div>
       ) : null}
     </>
@@ -212,27 +213,25 @@ function Content({ scope }: Readonly<{ scope: SaleScope }>): React.JSX.Element {
 
   return (
     <div className="surface">
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("saleSync.list.title")}</h1>
-          <p className="content__sub">
-            {t.rich("saleSync.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
-          </p>
-        </div>
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={list.refresh}
-          disabled={!validStore}
-        >
-          {t("saleSync.list.refresh")}
-        </button>
-      </header>
+      <PageHeader
+        title={t("saleSync.list.title")}
+        subtitle={t.rich("saleSync.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
+        actions={
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={list.refresh}
+            disabled={!validStore}
+          >
+            {t("saleSync.list.refresh")}
+          </button>
+        }
+      />
       <p className="sale-sync__note">{t("saleSync.list.note")}</p>
       <StoreFilter
         stores={stores}
         value={storeId}
-        onChange={(next) => setSearch(next ? new URLSearchParams({ store: next }) : {})}
+        onApply={(next) => setSearch(next ? new URLSearchParams({ store: next }) : {})}
       />
       {validStore ? (
         <Rows list={list} filtered={storeId !== ""} nameOf={nameOf} />

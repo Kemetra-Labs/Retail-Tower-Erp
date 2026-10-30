@@ -336,7 +336,7 @@ describe("CatalogProductEdit (RT-768, CAT-C2a edit)", () => {
     expect(screen.queryByText("Leave without saving?")).toBeNull();
   });
 
-  test("Save is disabled while the request is in flight: one request only", async () => {
+  test("Save is busy while the request is in flight: one request only", async () => {
     let finish: (v: unknown) => void = () => undefined;
     consoleUpdateCatalogProduct.mockReturnValue(
       new Promise((r) => {
@@ -347,7 +347,9 @@ describe("CatalogProductEdit (RT-768, CAT-C2a edit)", () => {
     await loaded();
     type(tax(), "zero");
     fireEvent.click(save());
-    await waitFor(() => expect((save() as HTMLButtonElement).disabled).toBe(true));
+    // RT-959: busy, not disabled: it keeps focus and ignores repeat presses.
+    await waitFor(() => expect(save().getAttribute("aria-busy")).toBe("true"));
+    expect(save().hasAttribute("disabled")).toBe(false);
     fireEvent.click(save());
     expect(consoleUpdateCatalogProduct).toHaveBeenCalledTimes(1);
     await act(async () => finish(one(detail())));

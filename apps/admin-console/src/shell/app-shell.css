@@ -1,24 +1,20 @@
-/* SF-2 app shell layout (DESIGN.md App Shell; Console v4.0 visual adoption).
- * The frame: 56px topbar / 40px recessed scope bar / sidebar + content. Tower
- * Teal marks intent only: the active nav entry (wash + Signal Line), actions and
- * focus (RT-396). */
+/* Shell v3 frame (RT-969, owner-approved canvas 2026-10-30; DESIGN.md §9).
+ * A 260px sidebar at the inline start runs the full height; beside it, the
+ * 64px top bar, the support-session slot and the content. Tower Teal marks
+ * intent only: the active nav entry (wash + Signal Line), actions and focus
+ * (RT-396). Both the tenant and the platform shell use this grid. */
 .shell {
   min-height: 100dvh;
   display: grid;
-  grid-template-rows: var(--shell-topbar-h) auto var(--shell-scope-h) 1fr;
-  grid-template-columns: var(--shell-sidebar-w) 1fr;
+  grid-template-columns: var(--shell-sidebar-w) minmax(0, 1fr);
+  grid-template-rows: var(--shell-topbar-h) auto 1fr;
   grid-template-areas:
-    "topbar topbar"
-    "session session"
-    "scope scope"
+    "sidebar topbar"
+    "sidebar session"
     "sidebar content";
   background: var(--color-background);
 }
 /* RT-781: the support-session bar row; collapses to nothing when empty. */
-/* In a support session there is no scope bar: its row collapses. */
-.shell--session {
-  grid-template-rows: var(--shell-topbar-h) auto auto 1fr;
-}
 .shell-session-slot {
   grid-area: session;
   min-width: 0;
@@ -27,30 +23,31 @@
   display: none;
 }
 
-/* ---- Topbar ------------------------------------------------------------- */
-.topbar {
-  grid-area: topbar;
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  padding: 0 var(--space-5);
+/* ---- Skip link (RT-963) ---------------------------------------------------- */
+/* Out of the grid (absolute) and off-screen until it has focus. */
+.skip-link {
+  position: absolute;
+  inset-inline-start: var(--space-4);
+  top: var(--space-2);
+  z-index: 60;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-control);
   background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+  font-weight: var(--weight-strong);
+  box-shadow: var(--shadow-overlay);
+  transform: translateY(-200%);
 }
-.topbar__spacer {
-  flex: 1;
+.skip-link:focus {
+  transform: none;
 }
-/* RT-825: the top bar's language and theme switches. A plain wrapper on the
- * desktop top bar; at the compact width they move into the menu drawer. */
-.topbar__prefs {
-  display: contents;
-}
-/* RT-825: the compact-shell menu button. Hidden above 768px, where the sidebar
- * is the navigation. */
-.shell-menu-btn {
-  display: none;
+/* The skip target takes focus without drawing a ring around the whole page. */
+.content:focus:not(:focus-visible) {
+  outline: none;
 }
 
+/* ---- Brand lockup -------------------------------------------------------- */
+/* Also the sign-in, invitation, scope-gate and standalone platform headers. */
 .tower-lockup {
   display: inline-flex;
   align-items: center;
@@ -72,67 +69,177 @@
   padding: 3px 8px;
 }
 
+/* ---- Top bar ------------------------------------------------------------ */
+.topbar {
+  grid-area: topbar;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-6);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+.topbar__spacer {
+  flex: 1;
+}
+/* The mark is the sidebar's on the desktop; the compact top bar shows it. */
+.topbar__brand {
+  display: none;
+}
+/* RT-825: the compact-shell menu button. Hidden above 768px, where the sidebar
+ * is the navigation. */
+.shell-menu-btn {
+  display: none;
+}
+
+/* The user block and its menu (language, theme). */
+.user-menu {
+  position: relative;
+  flex-shrink: 0;
+}
 .topbar__user {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
+  min-height: 44px;
   padding: var(--space-1) var(--space-2);
+  border: 0;
   border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
 }
-.topbar__avatar-wrap {
-  position: relative;
-  display: inline-flex;
-  flex-shrink: 0;
+.topbar__user:hover {
+  background: var(--color-surface-sunken);
 }
 .topbar__avatar {
-  width: 28px;
-  height: 28px;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   background: var(--color-primary);
   display: grid;
   place-items: center;
-  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
+  font: var(--weight-strong) var(--text-control) / var(--leading-tight) var(--font-sans);
   color: var(--color-on-primary);
 }
-/* Presence dot — a truthful signal about the viewing operator (they are here,
- * now), not a claim about external systems. Decorative to AT (the name carries
- * identity); a later slice can drive it from real session liveness. */
-.topbar__online {
-  position: absolute;
-  inset-inline-end: -1px;
-  bottom: -1px;
-  width: 9px;
-  height: 9px;
-  border-radius: var(--radius-pill);
-  background: var(--color-success);
-  border: 2px solid var(--color-surface);
-}
 .topbar__name {
-  font-size: var(--text-control);
-  font-weight: var(--weight-strong);
-  line-height: var(--leading-tight);
+  display: flex;
+  flex-direction: column;
+  font: var(--weight-strong) var(--text-control) / var(--leading-tight) var(--font-sans);
 }
 .topbar__name small {
-  display: block;
-  font-weight: var(--weight-regular);
+  font: var(--weight-regular) var(--text-meta) / var(--leading-tight) var(--font-sans);
   color: var(--color-text-muted);
+}
+.topbar__caret {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+.user-menu__panel {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  inset-inline-end: 0;
+  z-index: 30;
+  min-width: 220px;
+  margin: 0;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-overlay);
+  animation: rtc-settle var(--duration-2) var(--ease-out);
+}
+.user-menu__legend {
+  padding: 0 0 var(--space-1);
+  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
+  color: var(--color-text-muted);
+}
+.user-menu__panel > button {
+  justify-content: flex-start;
+  width: 100%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .user-menu__panel {
+    animation: none;
+  }
 }
 
 /* ---- Sidebar ------------------------------------------------------------ */
+/* The surface runs the full height of the page; its contents stay in view
+ * while the page scrolls, and the navigation scrolls on its own, so the scope
+ * menu is never clipped by it. */
 .sidebar {
   grid-area: sidebar;
+  z-index: 10;
   background: var(--color-surface);
   border-inline-end: 1px solid var(--color-border);
-  padding: var(--space-4) var(--space-3);
+}
+.sidebar__inner {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-4) var(--space-4);
+}
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-2);
+}
+.sidebar__mark {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-control);
+  background: var(--color-primary);
+}
+.sidebar__mark .tower-mark {
+  width: 20px;
+  height: 20px;
+  color: var(--color-on-primary);
+}
+.sidebar__brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+/* Under the brand word the product label is plain muted text, not a pill. */
+.sidebar__brand-text .tower-lockup__tag {
+  padding: 0;
+  border: 0;
+  font-weight: var(--weight-regular);
+}
+.sidebar__nav {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.sidebar__spacer {
+  flex: 1;
+}
+.nav-group {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  overflow: auto;
 }
 .nav-section {
+  padding: 0 var(--space-3) var(--space-1);
   font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
   color: var(--color-text-muted); /* text-disabled scored 2.87:1 (axe, RT-267) */
-  padding: var(--space-4) var(--space-3) var(--space-2);
 }
 .nav-entry {
   position: relative;
@@ -141,9 +248,10 @@
   gap: var(--space-3);
   width: 100%;
   height: 40px;
+  flex-shrink: 0;
   padding: 0 var(--space-3);
   border-radius: var(--radius-control);
-  color: var(--color-text-muted);
+  color: var(--color-text);
   font-size: var(--text-body);
   text-align: start;
   background: transparent;
@@ -166,12 +274,9 @@
 .nav-entry--link {
   text-decoration: none;
 }
-.nav-entry--link:hover {
+.nav-entry--link:hover,
+.nav-signout:hover {
   background: var(--color-surface-sunken);
-  color: var(--color-text);
-}
-.nav-entry--link:hover .nav-entry__icon {
-  color: var(--color-text-muted);
 }
 .nav-entry:focus-visible {
   outline-offset: -2px; /* inset: entries fill the sidebar width */
@@ -179,6 +284,7 @@
 .nav-entry--active {
   background: var(--color-primary-soft);
   color: var(--color-primary-emphasis);
+  font-weight: var(--weight-strong);
   text-decoration: none;
 }
 .nav-entry--active .nav-entry__icon {
@@ -197,31 +303,31 @@
   border-end-end-radius: 2px;
   background: var(--color-primary);
 }
-.nav-signout:hover {
-  background: var(--color-surface-sunken);
-  color: var(--color-text);
-}
-.nav-signout:hover .nav-entry__icon {
+.nav-signout {
   color: var(--color-text-muted);
 }
 
 /* ---- Content ------------------------------------------------------------ */
 .content {
   grid-area: content;
-  padding: var(--space-7) var(--space-6);
+  padding: var(--shell-content-pad-block) var(--space-6) var(--space-7);
   overflow: auto;
   /* RT-826: a grid item defaults to min-width:auto and would grow to its widest
    * child; let it shrink so wide tables scroll in their own region. */
   min-inline-size: 0;
 }
+/* The content container: data stretches up to one measure, at the inline start. */
+.content__frame {
+  max-inline-size: var(--shell-content-max);
+}
 @media (max-width: 600px) {
   .content {
-    padding-inline: var(--space-4);
+    padding: var(--space-5) var(--space-4) var(--space-7);
   }
 }
 .content__title {
-  margin: 0 0 var(--space-2);
-  font: var(--weight-strong) var(--text-display) / var(--leading-title) var(--font-sans);
+  margin: 0;
+  font: var(--weight-strong) var(--text-screen-title) / var(--leading-title) var(--font-sans);
 }
 .content__sub {
   margin: 0;
@@ -256,7 +362,7 @@
 .shell-menu__nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-3);
 }
 .shell-menu__nav .nav-entry,
 .shell-menu__prefs .nav-entry {
@@ -276,29 +382,51 @@
 }
 
 /* ---- Compact shell, ≤768px (RT-825; RT-785 D1/D2/D3) --------------------- */
-/* One breakpoint for all shell chrome: the sidebar gives way to the menu
- * button and drawer, and the top bar keeps only the menu, the mark and the
- * avatar. The single column is minmax(0, 1fr) so no shell row can widen the
- * page; the scope bar grows to 48px for its 44px button. */
+/* One breakpoint for all shell chrome. The sidebar's navigation gives way to
+ * the menu button and drawer; the sidebar itself becomes the 48px scope row
+ * under the top bar (the scope stays one tap away, never behind the menu). The
+ * top bar keeps the menu, the mark, the navigator and the avatar. The single
+ * column is minmax(0, 1fr) so no shell row can widen the page. */
 @media (max-width: 768px) {
   .shell {
-    --shell-scope-h: 48px;
-    /* RT-826: minmax(0, 1fr), not 1fr (= minmax(auto, 1fr)): the column must
-     * not grow to the widest child, or wide tables widen the whole pane. */
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: var(--shell-topbar-h) auto auto 1fr;
     grid-template-areas:
       "topbar"
       "session"
-      "scope"
+      "sidebar"
       "content";
   }
   .sidebar {
+    background: var(--color-surface-sunken);
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .sidebar__inner {
+    position: static;
+    height: auto;
+    min-height: var(--shell-scope-h);
+    flex-direction: row;
+    align-items: center;
+    gap: 0;
+    padding: 0 var(--space-4);
+  }
+  .sidebar__brand,
+  .sidebar__nav {
+    display: none;
+  }
+  /* No scope to show: in a support session, and in the platform shell. */
+  .shell--session .sidebar,
+  .platform-shell .sidebar {
     display: none;
   }
   .topbar {
-    min-width: 0;
     gap: var(--space-3);
     padding: 0 var(--space-4);
+  }
+  .topbar__brand {
+    display: inline-flex;
+    flex-shrink: 0;
   }
   .shell-menu-btn {
     display: inline-flex;
@@ -319,15 +447,14 @@
   .shell-menu-btn:hover {
     background: var(--color-surface-sunken);
   }
-  /* The mark keeps the accessible name "Retail Tower OS"; the word and the
-   * product tag are visual only. */
-  .tower-lockup__word,
-  .tower-lockup__tag,
-  .topbar__prefs,
-  .topbar__name {
+  /* The user button keeps its name (aria-labelledby) but draws only the avatar. */
+  .topbar__name,
+  .topbar__caret {
     display: none;
   }
   .topbar__user {
+    justify-content: center;
+    min-width: 44px;
     padding: 0;
   }
 }

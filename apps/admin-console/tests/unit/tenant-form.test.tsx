@@ -26,6 +26,9 @@ import { setLocale } from "@/i18n/locale";
 import { createQueryClient } from "@/lib/query";
 import { TenantForm } from "@/tenants/TenantForm";
 
+/** RT-971: an error shows inline and in the summary; these match the inline one. */
+const INLINE = { selector: ".rtc-inline-error" };
+
 function renderForm(props: Parameters<typeof TenantForm>[0]): void {
   const qc = createQueryClient();
   function Tree({ children }: { children: ReactNode }) {
@@ -78,7 +81,7 @@ describe("TenantForm create", () => {
     createTenant.mockResolvedValue({ status: 409, error: { error: { request_id: "r1" } } });
     renderForm({ mode: "create" });
     submit({ slug: "taken", name: "Dup" });
-    expect(await screen.findByText(/slug is already in use/i)).toBeDefined();
+    expect(await screen.findByText(/slug is already in use/i, INLINE)).toBeDefined();
     expect(navigate).not.toHaveBeenCalled();
     // inline, not banner: the slug input is marked invalid
     expect(screen.getByLabelText(/slug/i).getAttribute("aria-invalid")).toBe("true");
@@ -93,14 +96,18 @@ describe("TenantForm create", () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
-  test("submit is disabled while the create is in flight", async () => {
+  test("submit is busy while the create is in flight", async () => {
     createTenant.mockReturnValue(new Promise(() => {}));
     renderForm({ mode: "create" });
     submit({ slug: "a", name: "B" });
+    // RT-959: busy, not disabled: it keeps focus and ignores repeat presses.
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /create tenant/i }).hasAttribute("disabled")).toBe(
-        true,
+      expect(screen.getByRole("button", { name: /create tenant/i }).getAttribute("aria-busy")).toBe(
+        "true",
       ),
+    );
+    expect(screen.getByRole("button", { name: /create tenant/i }).hasAttribute("disabled")).toBe(
+      false,
     );
   });
 });
@@ -153,12 +160,12 @@ describe("TenantForm Arabic", () => {
     fireEvent.change(screen.getByLabelText("الاسم"), { target: { value: "Dup" } });
     fireEvent.click(screen.getByRole("button", { name: "إضافة المؤسسة" }));
     expect(
-      await screen.findByText("هذا المعرّف المختصر مستخدم بالفعل. اختر معرّفًا آخر."),
+      await screen.findByText("هذا المعرّف المختصر مستخدم بالفعل. اختر معرّفًا آخر.", INLINE),
     ).toBeDefined();
     // the error is held as a catalog key, so a switch re-renders it
     act(() => setLocale("en"));
     expect(
-      await screen.findByText("That slug is already in use. Choose a different one."),
+      await screen.findByText("That slug is already in use. Choose a different one.", INLINE),
     ).toBeDefined();
     expect(screen.getByRole("heading", { name: "New tenant" })).toBeDefined();
   });

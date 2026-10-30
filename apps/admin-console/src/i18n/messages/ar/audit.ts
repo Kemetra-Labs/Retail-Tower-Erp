@@ -24,8 +24,7 @@ export const audit = {
   "audit.filters.storePlaceholder": "معرّف المتجر",
   "audit.filters.from": "من تاريخ",
   "audit.filters.to": "إلى تاريخ",
-  "audit.filters.apply": "تطبيق",
-  "audit.filters.clear": "مسح",
+  "audit.filters.label": "تصفية سجل التدقيق",
 
   "audit.prequery": "ابحث في نشاط التدقيق للمؤسسة {tenant}.",
 

@@ -33,6 +33,12 @@ vi.mock("@/context/ActiveContextProvider", () => ({
 
 import { CatalogProductDetail } from "@/catalog/CatalogProductDetail";
 import { createQueryClient } from "@/lib/query";
+import {
+  expectBackLinkFirst,
+  expectMoney,
+  expectPanels,
+  ledgerValue,
+} from "./detail-template-helpers";
 
 function renderDetail(productId = PRODUCT_1) {
   return render(
@@ -514,5 +520,12 @@ describe("CatalogProductDetail (RT-766, CAT-C1b)", () => {
     renderDetail();
     await loaded();
     expect(document.body.textContent).not.toContain(CATEGORY_1);
+  });
+  test("RT-961: the v3 detail template: data sections are panels, the price end-aligned", async () => {
+    renderDetail();
+    await loaded();
+    expectBackLinkFirst();
+    expectPanels(["Tenant values", "Identifiers", "Store overrides"]);
+    expectMoney(ledgerValue("Price", section("Tenant values")));
   });
 });

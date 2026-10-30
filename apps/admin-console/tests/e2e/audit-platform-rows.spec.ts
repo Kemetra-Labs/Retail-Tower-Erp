@@ -109,7 +109,7 @@ async function darkTheme(page: Page): Promise<void> {
 }
 
 async function search(page: Page, t: LocaleFixtures["t"]): Promise<void> {
-  await page.getByRole("button", { name: t("audit.filters.apply"), exact: true }).click();
+  await page.getByRole("button", { name: t("filter.apply"), exact: true }).click();
   await expect(page.getByText("platform.support_session.opened")).toBeVisible();
 }
 

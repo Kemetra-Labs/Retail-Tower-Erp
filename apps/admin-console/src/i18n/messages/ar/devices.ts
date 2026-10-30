@@ -7,11 +7,11 @@ import type { Messages } from "../types";
  * الصلاحية» (a revoked device is «موقوف الصلاحية»); Retired → «خارج الخدمة»;
  * Pairing → «الربط»; Credential expiry → «انتهاء الاعتماد»; Last seen →
  * «آخر نشاط»; Custody exception → «استثناء عهدة». No copy says or implies that
- * a device is healthy (RT-287 D-Q6): unknown stays «غير معروف».
+ * a device is healthy (RT-287 D-Q6): unknown stays «غير معروف»; a value the server
+ * does not record yet is «غير مسجّل» (RT-956).
  */
 export const devices = {
   // --- Navigation ------------------------------------------------------------
-  "devices.nav.section": "نقاط البيع",
   "devices.nav.label": "الأجهزة",
 
   // --- List ------------------------------------------------------------------
@@ -59,8 +59,6 @@ export const devices = {
   "devices.filter.unlistedStore": "متجر غير موجود في قائمتك",
   "devices.filter.trust": "حالة الصلاحية",
   "devices.filter.trustAny": "فعّالة وموقوفة (الافتراضي)",
-  "devices.filter.apply": "تطبيق",
-  "devices.filter.clear": "مسح",
 
   // --- Trust state -------------------------------------------------------------
   "devices.trust.active": "فعّال",
@@ -82,7 +80,7 @@ export const devices = {
   "devices.reason.unknown": "سبب غير معروف",
 
   // --- Last seen ---------------------------------------------------------------
-  "devices.lastSeen.unknown": "غير معروف",
+  "devices.lastSeen.notRecorded": "غير مسجّل",
   "devices.lastSeen.source.activity": "آخر طلب موثَّق من الجهاز",
   "devices.lastSeen.source.unknown": "مصدر غير معروف",
   "devices.lastSeen.notHealth": "آخر نشاط لا يعني أن الجهاز سليم. لا يُبلَّغ عن سلامة الأجهزة بعد.",

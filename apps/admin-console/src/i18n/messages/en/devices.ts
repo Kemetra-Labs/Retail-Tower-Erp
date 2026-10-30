@@ -3,7 +3,6 @@ import type { MessagesOf } from "../types";
 
 export const devices: MessagesOf<typeof ar> = {
   // --- Navigation ------------------------------------------------------------
-  "devices.nav.section": "Point of sale",
   "devices.nav.label": "Devices",
 
   // --- List ------------------------------------------------------------------
@@ -55,8 +54,6 @@ export const devices: MessagesOf<typeof ar> = {
   "devices.filter.unlistedStore": "A store not in your list",
   "devices.filter.trust": "Trust state",
   "devices.filter.trustAny": "Active and revoked (default)",
-  "devices.filter.apply": "Apply",
-  "devices.filter.clear": "Clear",
 
   // --- Trust state -------------------------------------------------------------
   "devices.trust.active": "Active",
@@ -78,7 +75,7 @@ export const devices: MessagesOf<typeof ar> = {
   "devices.reason.unknown": "Unknown reason",
 
   // --- Last seen ---------------------------------------------------------------
-  "devices.lastSeen.unknown": "Unknown",
+  "devices.lastSeen.notRecorded": "Not recorded",
   "devices.lastSeen.source.activity": "Last authenticated request from the device",
   "devices.lastSeen.source.unknown": "Unknown source",
   "devices.lastSeen.notHealth":

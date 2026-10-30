@@ -171,8 +171,8 @@ describe("StoreList pre-gate + state matrix", () => {
     listStores.mockResolvedValue({ status: 200, data: twoStores });
     renderList();
     expect(await screen.findByText("Cairo Festival City")).toBeDefined();
-    expect(screen.getByText("Active").className).toContain("badge--active");
-    expect(screen.getByText("Suspended").className).toContain("badge--suspended");
+    expect(screen.getByText("Active").className).toBe("badge");
+    expect(screen.getByText("Suspended").className).toContain("badge--warning");
     expect(screen.getByText("Northstar Retail")).toBeDefined();
   });
 
@@ -190,8 +190,8 @@ describe("StoreList pre-gate + state matrix", () => {
     expect(screen.getByRole("columnheader", { name: "المتجر" })).toBeDefined();
     expect(screen.getByRole("columnheader", { name: "الرمز" })).toBeDefined();
     expect(screen.getByRole("columnheader", { name: "الحالة" })).toBeDefined();
-    expect(screen.getByText("نشط").className).toContain("badge--active");
-    expect(screen.getByText("موقوف").className).toContain("badge--suspended");
+    expect(screen.getByText("نشط").className).toBe("badge");
+    expect(screen.getByText("موقوف").className).toContain("badge--warning");
     expect(screen.getByRole("link", { name: "إضافة متجر" })).toBeDefined();
     expect(screen.queryByText("Stores")).toBeNull();
     expect(screen.queryByText("Active")).toBeNull();

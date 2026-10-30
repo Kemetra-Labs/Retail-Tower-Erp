@@ -1,3 +1,5 @@
+import { BackArrow } from "@/components/BackArrow";
+import { Banner } from "@/components/Banner";
 /**
  * RT-766 — Catalog product detail «الصنف» (CAT-C1b, RT-752 AC 2 and D3). A
  * full, deep-linkable page: the tenant's values first, then the item's
@@ -16,10 +18,10 @@
  * is one non-disclosing "not available" state. With a store in scope the page
  * links to that store's on-hand stock (RT-728); it shows no ERP data.
  */
-import { BackArrow } from "@/components/BackArrow";
-import { Banner } from "@/components/Banner";
+import { DetailGrid } from "@/components/DetailPanel";
 import { GatedButton } from "@/components/GatedButton";
 import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/i18n";
 import type { CatalogProductDetail as ProductDetail } from "@/lib/catalog-queries";
 import { useEffect, useRef, useState } from "react";
@@ -151,44 +153,43 @@ function Loaded({
   return (
     <div className="surface">
       <BackLink />
-      <header className="surface__head">
-        <div>
-          <h1 ref={titleRef} tabIndex={-1} className="content__title">
-            <bdi dir="auto">{summary.name}</bdi>
-          </h1>
-          <p className="content__sub">
-            {t.rich(
-              canWriteCatalog(scope.role) || canWriteOverrides(scope.role)
-                ? "catalog.detail.subWriter"
-                : "catalog.detail.sub",
-              {
-                tenant: <bdi>{scope.tenantName}</bdi>,
-              },
-            )}
-          </p>
-        </div>
-        {onHand || canWrite ? (
-          <div className="surface__actions surface__actions--head">
-            {onHand ? (
-              <Link to={onHand} className="btn-ghost">
-                {t("catalog.detail.inventoryLink", { store: scope.activeStoreName ?? "" })}
-              </Link>
-            ) : null}
-            {canWrite ? (
-              <Link to={`/catalog/products/${summary.productId}/edit`} className="btn-primary">
-                {t("catalog.detail.edit")}
-              </Link>
-            ) : null}
-          </div>
-        ) : null}
-      </header>
+      <PageHeader
+        title={<bdi dir="auto">{summary.name}</bdi>}
+        titleRef={titleRef}
+        subtitle={t.rich(
+          canWriteCatalog(scope.role) || canWriteOverrides(scope.role)
+            ? "catalog.detail.subWriter"
+            : "catalog.detail.sub",
+          {
+            tenant: <bdi>{scope.tenantName}</bdi>,
+          },
+        )}
+        actions={
+          onHand || canWrite ? (
+            <div className="surface__actions surface__actions--head">
+              {onHand ? (
+                <Link to={onHand} className="btn-ghost">
+                  {t("catalog.detail.inventoryLink", { store: scope.activeStoreName ?? "" })}
+                </Link>
+              ) : null}
+              {canWrite ? (
+                <Link to={`/catalog/products/${summary.productId}/edit`} className="btn-primary">
+                  {t("catalog.detail.edit")}
+                </Link>
+              ) : null}
+            </div>
+          ) : null
+        }
+      />
       {justRetired ? (
         <Banner variant="success" message={t("catalog.retire.done", { name: summary.name })} />
       ) : null}
       {retired && !justRetired ? (
         <Banner variant="info" message={t("catalog.detail.retiredNotice")} />
       ) : null}
-      <TenantValues product={product} />
+      <DetailGrid>
+        <TenantValues product={product} />
+      </DetailGrid>
       <ProductIdentifiers
         product={product}
         writableTenantId={canWrite ? scope.tenantId : null}

@@ -4,7 +4,8 @@ import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
 import { ConfirmDelete } from "@/components/ConfirmDelete";
 import { ListState } from "@/components/ListState";
-import { type MessageKey, useT } from "@/i18n";
+import { PageHeader } from "@/components/PageHeader";
+import { useT } from "@/i18n";
 import { type Rf2ErrorRender, mapRf2Error } from "@/lib/rf2-queries";
 /**
  * SF-T2 — Tenant detail (T017). Read-first: labeled field rows, a display-only
@@ -20,25 +21,9 @@ import { type Rf2ErrorRender, mapRf2Error } from "@/lib/rf2-queries";
  */
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
+import { tenantStatusClass, tenantStatusLabel } from "./tenantStatus";
 import { useTenantDelete, useTenantDetail } from "./useTenantQueries";
 import "../shell/surface.css";
-
-const STATUS_CLASS: Record<string, string> = {
-  active: "badge badge--active",
-  suspended: "badge badge--suspended",
-  pending: "badge badge--pending",
-};
-
-/** The status code drives the badge label; the raw code is never the copy (UX-12). */
-const STATUS_LABEL: Record<string, MessageKey> = {
-  active: "tenants.status.active",
-  suspended: "tenants.status.suspended",
-  pending: "tenants.status.pending",
-};
-
-function statusLabel(status: string): MessageKey {
-  return Object.hasOwn(STATUS_LABEL, status) ? STATUS_LABEL[status] : "tenants.status.unknown";
-}
 
 export function TenantDetail(): React.JSX.Element {
   const t = useT();
@@ -95,9 +80,7 @@ export function TenantDetail(): React.JSX.Element {
       <Link to="/tenants" className="surface__back">
         <BackArrow /> {t("tenants.detail.back")}
       </Link>
-      <header className="surface__head">
-        <h1 className="content__title">{tenant.name}</h1>
-      </header>
+      <PageHeader title={tenant.name} />
 
       {deleteError?.kind === "banner" ? (
         <Banner
@@ -118,8 +101,8 @@ export function TenantDetail(): React.JSX.Element {
           <dt className="field-row__label">{t("tenants.field.status")}</dt>
           <dd className="field-row__value">
             {tenant.status ? (
-              <span className={STATUS_CLASS[tenant.status] ?? "badge"}>
-                {t(statusLabel(tenant.status))}
+              <span className={tenantStatusClass(tenant.status)}>
+                {t(tenantStatusLabel(tenant.status))}
               </span>
             ) : (
               "—"

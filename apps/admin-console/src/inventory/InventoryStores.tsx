@@ -1,3 +1,8 @@
+import { NoAccess } from "@/auth/NoAccess";
+import { Banner } from "@/components/Banner";
+import { TableScrollRegion } from "@/components/DataTableScroll";
+import { GatedButton } from "@/components/GatedButton";
+import { ListState } from "@/components/ListState";
 /**
  * RT-728 — Inventory, store picker. The stores whose inventory the caller may
  * read: with an active store, only that store (the API binds a store-scoped
@@ -8,10 +13,7 @@
  * Gate first: a role outside the read roles gets NoAccess and nothing is
  * requested.
  */
-import { NoAccess } from "@/auth/NoAccess";
-import { Banner } from "@/components/Banner";
-import { GatedButton } from "@/components/GatedButton";
-import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { useT } from "@/i18n";
 import { type ScopeMembership, scopeMenuStores } from "@/shell/scope-stores";
@@ -66,27 +68,31 @@ function usePickerStores(scope: InventoryScope): PickerState {
 function StoresTable({ stores }: Readonly<{ stores: PickerStore[] }>): React.JSX.Element {
   const t = useT();
   return (
-    <div className="table-scroll">
-      <table className="data-table">
-        <caption className="data-table__caption">{t("inventory.stores.caption")}</caption>
-        <thead>
-          <tr>
-            <th scope="col">{t("inventory.stores.col.store")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {stores.map((store) => (
-            <tr key={store.id} className="data-table__row data-table__row--static">
-              <th scope="row">
-                <Link to={`/inventory/stores/${store.id}`}>
-                  {store.name ? <bdi dir="auto">{store.name}</bdi> : <Machine value={store.id} />}
-                </Link>
-              </th>
+    <TableScrollRegion>
+      {(captionId) => (
+        <table className="data-table">
+          <caption id={captionId} className="data-table__caption">
+            {t("inventory.stores.caption")}
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">{t("inventory.stores.col.store")}</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {stores.map((store) => (
+              <tr key={store.id} className="data-table__row data-table__row--static">
+                <th scope="row">
+                  <Link to={`/inventory/stores/${store.id}`}>
+                    {store.name ? <bdi dir="auto">{store.name}</bdi> : <Machine value={store.id} />}
+                  </Link>
+                </th>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </TableScrollRegion>
   );
 }
 
@@ -119,12 +125,7 @@ function Content({ scope }: Readonly<{ scope: InventoryScope }>): React.JSX.Elem
   const picker = usePickerStores(scope);
   return (
     <div className="surface">
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("inventory.title")}</h1>
-          <p className="content__sub">{t("inventory.stores.sub")}</p>
-        </div>
-      </header>
+      <PageHeader title={t("inventory.title")} subtitle={t("inventory.stores.sub")} />
       <p className="inventory__note">{t("inventory.note.readOnly")}</p>
       <StoresBody picker={picker} />
     </div>

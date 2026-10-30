@@ -251,7 +251,7 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
       renderList();
       await tableReady();
       fireEvent.change(screen.getByLabelText("Name or code"), { target: { value: " 0012 " } });
-      fireEvent.click(screen.getByRole("button", { name: "Search" }));
+      fireEvent.click(screen.getByRole("button", { name: "Apply" }));
       await waitFor(() => expect(consoleListCatalogProducts).toHaveBeenCalledTimes(2));
       expect(consoleListCatalogProducts.mock.calls[1][0]).toEqual({
         q: " 0012 ",
@@ -275,7 +275,7 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
       await waitFor(() => expect(within(category).getByText("Beverages")).toBeDefined());
       fireEvent.change(screen.getByLabelText("Status"), { target: { value: "any" } });
       fireEvent.change(category, { target: { value: CATEGORY_1 } });
-      fireEvent.click(screen.getByRole("button", { name: "Search" }));
+      fireEvent.click(screen.getByRole("button", { name: "Apply" }));
       await waitFor(() => expect(consoleListCatalogProducts).toHaveBeenCalledTimes(2));
       expect(consoleListCatalogProducts.mock.calls[1][0]).toEqual({
         status: "any",
@@ -317,7 +317,7 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
       renderList();
       await tableReady();
       fireEvent.change(screen.getByLabelText("Status"), { target: { value: "retired" } });
-      fireEvent.click(screen.getByRole("button", { name: "Search" }));
+      fireEvent.click(screen.getByRole("button", { name: "Apply" }));
       expect(await screen.findByText("Salt")).toBeDefined();
       expect(consoleListCatalogProducts.mock.calls[1][0]).toMatchObject({
         status: "retired",

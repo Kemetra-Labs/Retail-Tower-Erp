@@ -1,9 +1,3 @@
-import { StoreDetail } from "@/stores/StoreDetail";
-import { StoreFormRoute } from "@/stores/StoreFormRoute";
-import { StoreList } from "@/stores/StoreList";
-import { TenantDetail } from "@/tenants/TenantDetail";
-import { TenantFormRoute } from "@/tenants/TenantFormRoute";
-import { TenantList } from "@/tenants/TenantList";
 /**
  * RF-2 nested route registration (T009). These routes mount inside the
  * protected layout route (`/` → ProtectedArea → AppShell → <Outlet/>), so they
@@ -15,7 +9,15 @@ import { TenantList } from "@/tenants/TenantList";
  * Kept as a single fragment so route registration is one reviewable seam, not
  * scattered edits across App.tsx per surface.
  */
+import { lazyPage } from "@/shell/lazyPage";
 import { Route } from "react-router";
+
+const StoreDetail = lazyPage(() => import("@/stores/StoreDetail"), "StoreDetail");
+const StoreFormRoute = lazyPage(() => import("@/stores/StoreFormRoute"), "StoreFormRoute");
+const StoreList = lazyPage(() => import("@/stores/StoreList"), "StoreList");
+const TenantDetail = lazyPage(() => import("@/tenants/TenantDetail"), "TenantDetail");
+const TenantFormRoute = lazyPage(() => import("@/tenants/TenantFormRoute"), "TenantFormRoute");
+const TenantList = lazyPage(() => import("@/tenants/TenantList"), "TenantList");
 
 export const rf2Routes = (
   <>

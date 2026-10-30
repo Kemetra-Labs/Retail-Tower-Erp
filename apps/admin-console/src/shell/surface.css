@@ -8,14 +8,111 @@
   flex-direction: column;
   gap: var(--space-5);
 }
+/* The page header (`PageHeader`, RT-969): text at the inline start, the
+ * segmented control and actions at the inline end on the text's last line;
+ * it wraps under the title when narrow. */
 .surface__head {
   display: flex;
-  align-items: flex-start;
+  flex-wrap: wrap;
+  align-items: flex-end;
   justify-content: space-between;
   gap: var(--space-4);
 }
-.surface__head .content__sub {
-  margin-top: var(--space-1);
+
+/* The section panel (RT-969, DESIGN.md §5): the surface a data region sits on.
+ * White, a 1px border, the object radius, no shadow. A table may sit inside it
+ * under the panel's header, edge to edge; panels never nest. */
+.section-panel {
+  min-width: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-object);
+  overflow: hidden;
+}
+.section-panel__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+}
+.section-panel__title {
+  margin: 0;
+  font: var(--weight-strong) var(--text-section-title) / var(--leading-title) var(--font-sans);
+}
+.section-panel__body {
+  padding: var(--space-4) var(--space-5);
+}
+
+/* RT-961: the v3 detail template (DESIGN.md §5). Ledger panels sit two to a
+ * row when the content is wide enough and stack otherwise (a lone ledger keeps
+ * its half); a full-width panel (a table) sits outside the grid. Inside a
+ * panel a ledger takes the panel's width, its rows divided by hairlines and
+ * its label column proportional (stacked on a phone, as below). These rules
+ * are scoped to `.detail-panel`; other section panels keep RT-969's defaults. */
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 26rem), 1fr));
+  gap: var(--space-5);
+  align-items: start;
+}
+.detail-panel > .section-panel__head + .section-panel__body {
+  padding-block-start: 0;
+}
+.detail-panel .surface__detail {
+  gap: 0;
+  margin: 0;
+}
+.detail-grid .detail-panel .surface__detail {
+  max-width: none;
+}
+.detail-panel .field-row {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  padding-block: var(--space-2);
+}
+.detail-panel .field-row:last-child {
+  border-bottom: 0;
+}
+.detail-panel .content__sub {
+  margin: 0;
+}
+.detail-panel .section-panel__body > * + * {
+  margin-block-start: var(--space-3);
+}
+
+/* A table inside its section panel: under the panel header, edge to edge, the
+ * header row tinted, the outer cells inset to the panel's text edge. */
+.section-panel .data-table thead th {
+  background: var(--color-background);
+}
+:is(.section-panel > .data-table, .section-panel > .data-table__scroll > .data-table)
+  :is(th, td):first-child {
+  padding-inline-start: var(--space-5);
+}
+:is(.section-panel > .data-table, .section-panel > .data-table__scroll > .data-table)
+  :is(th, td):last-child {
+  padding-inline-end: var(--space-5);
+}
+:is(.section-panel > .data-table, .section-panel > .data-table__scroll > .data-table)
+  tbody
+  tr:last-child
+  :is(td, th) {
+  border-bottom: 0;
+}
+.detail-panel .data-table__row--static:hover {
+  background-color: transparent;
+}
+/* The total a table arrives at, as served: under a strong rule, at the end of
+ * its column. */
+.data-table__total :is(th, td) {
+  padding: var(--space-3) var(--space-4);
+  border-top: 2px solid var(--color-text);
+  color: var(--color-text);
+  font-weight: var(--weight-strong);
+  font-size: var(--text-section-title);
+}
+.data-table__total th[scope="row"] {
+  text-align: end;
 }
 
 /* Detail layout: read-first field rows in a single column, max measure. */
@@ -32,18 +129,48 @@
   padding: var(--space-3) 0;
   border-bottom: 1px solid var(--color-border);
 }
+/* RT-961: the value is what the row is for, so it never reads lighter than its
+ * label (AC 2): both regular weight, the label muted at control size, the value
+ * in text colour at body size. */
 .field-row__label {
   color: var(--color-text-muted);
-  font: var(--weight-strong) var(--text-control) / var(--leading-title) var(--font-sans);
+  font: var(--weight-regular) var(--text-control) / var(--leading-title) var(--font-sans);
 }
 .field-row__value {
+  min-width: 0;
   color: var(--color-text);
+  font: var(--weight-regular) var(--text-body) / var(--leading-body) var(--font-sans);
 }
 .field-row__value--mono {
   font-family: var(--font-mono);
   font-size: var(--text-machine);
   color: var(--color-text-muted);
 }
+/* Precision Ledger (RT-961): money lines up at the inline end (the right in
+ * LTR, the left in RTL) in tabular numerals; the figures a ledger arrives at
+ * read stronger, and its total sits under a strong rule. These follow the
+ * base `.field-row__value` rule, whose `font` shorthand would reset them. */
+.field-row__value--money {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+.field-row--result .field-row__value {
+  font-weight: var(--weight-medium);
+}
+.field-row--total {
+  border-top: 2px solid var(--color-text);
+  border-bottom: 0;
+}
+.detail-panel .field-row--total {
+  padding-block-start: var(--space-3);
+}
+.field-row--total .field-row__label,
+.field-row--total .field-row__value {
+  color: var(--color-text);
+  font-weight: var(--weight-strong);
+  font-size: var(--text-section-title);
+}
+
 .surface__actions {
   display: flex;
   gap: var(--space-3);
@@ -56,7 +183,8 @@
   .surface__actions {
     flex-wrap: wrap;
   }
-  .field-row {
+  .field-row,
+  .detail-panel .field-row {
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-1);
   }
@@ -126,12 +254,6 @@
 /* Actions beside a title in .surface__head (RT-371): aligned with it, no top gap. */
 .surface__actions--head {
   margin-top: 0;
-}
-
-.surface__actions--divided {
-  margin-top: 0;
-  padding-top: var(--space-5);
-  border-top: 1px solid var(--color-border);
 }
 
 /* «حالة المتجر»: the V1 is_active control, set apart from the form. */

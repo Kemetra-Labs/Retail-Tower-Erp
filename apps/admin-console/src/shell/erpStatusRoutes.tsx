@@ -1,5 +1,3 @@
-import { ErpMappings } from "@/erp-mappings/ErpMappings";
-import { ErpStatus } from "@/erp-status/ErpStatus";
 /**
  * RT-560 ERP connection & sync status route registration (spec 016 Phase A).
  * Mounts inside the protected layout (`/` → ProtectedArea → AppShell →
@@ -10,7 +8,11 @@ import { ErpStatus } from "@/erp-status/ErpStatus";
  * RT-725 adds the ERPNext item and warehouse mappings as a child of the same
  * area, so the sidebar entry stays the one ERP entry.
  */
+import { lazyPage } from "@/shell/lazyPage";
 import { Route } from "react-router";
+
+const ErpMappings = lazyPage(() => import("@/erp-mappings/ErpMappings"), "ErpMappings");
+const ErpStatus = lazyPage(() => import("@/erp-status/ErpStatus"), "ErpStatus");
 
 export const erpStatusRoutes = (
   <>

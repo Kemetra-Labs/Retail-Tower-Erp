@@ -1,6 +1,7 @@
 import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
 import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
 import { type MessageKey, useT } from "@/i18n";
 import type { DeviceDetail as Detail } from "@/lib/device-queries";
 import { useStoreOf } from "@/shift-closes/useShiftCloses";
@@ -59,16 +60,16 @@ function DeviceHeading({ device, storeName, timeZone }: Readonly<LoadedProps>): 
     t("devices.detail.unlabelledTitle")
   );
   return (
-    <header className="surface__head">
-      <div>
-        <h1 className="content__title">{title}</h1>
-        <p className="content__sub">
+    <PageHeader
+      title={title}
+      subtitle={
+        <>
           {storeName ?? t("devices.list.unknownStore")}
           {" · "}
           {t.rich("devices.detail.zoneNote", { zone: <bdi dir="ltr">{timeZone ?? "UTC"}</bdi> })}
-        </p>
-      </div>
-    </header>
+        </>
+      }
+    />
   );
 }
 

@@ -1,11 +1,11 @@
 /**
- * SF-6-1 filter bar (T019). Uncontrolled native inputs (no form library, R6-5):
- * action prefix, actor id, store id (shown only when a store dimension is in
- * scope — scope-driven, never role-driven, FR-006-004), from/to date-time. One
- * primary Apply; a quiet Clear. Serializes to the contract's query params.
+ * SF-6-1 filters (T019), laid out by the shared FilterBar (RT-960).
+ * Uncontrolled native inputs (no form library, R6-5): action prefix, actor id,
+ * store id (shown only when a store dimension is in scope — scope-driven, never
+ * role-driven, FR-006-004), from/to date-time. Apply, a ghost Clear. Serializes
+ * to the contract's query params.
  */
-import { GatedButton } from "@/components/GatedButton";
-import { Icon } from "@/components/icons/Icon";
+import { FilterBar, type FilterChip, FilterField, ltr } from "@/components/FilterBar";
 import { useT } from "@/i18n";
 import { textField } from "@/lib/form-field";
 import { useRef } from "react";
@@ -21,12 +21,18 @@ const ACTION_EXAMPLE = "auth. / shift.";
 export interface AuditFiltersProps {
   /** True when the active scope carries a store dimension (shows the store filter). */
   storeInScope: boolean;
+  /** The applied filters (page state), shown as removable chips. */
+  applied: Filters;
   onApply: (filters: Filters) => void;
   onClear: () => void;
 }
 
+type ChipKey = "action" | "actor_user_id" | "store_id" | "from" | "to";
+const CHIP_FIELDS: readonly ChipKey[] = ["action", "actor_user_id", "store_id", "from", "to"];
+
 export function AuditFilters({
   storeInScope,
+  applied,
   onApply,
   onClear,
 }: Readonly<AuditFiltersProps>): React.JSX.Element {
@@ -48,23 +54,40 @@ export function AuditFilters({
     };
   }
 
+  const labels: Record<ChipKey, string> = {
+    action: t("audit.field.action"),
+    actor_user_id: t("audit.field.actor"),
+    store_id: t("audit.field.store"),
+    from: t("audit.filters.from"),
+    to: t("audit.filters.to"),
+  };
+  // A removed chip changes only its own filter: the next filters come from what is
+  // applied, never from other fields' unapplied text. Its (uncontrolled) input clears.
+  const chips: FilterChip[] = CHIP_FIELDS.filter((key) => applied[key]).map((key) => ({
+    key,
+    label: `${labels[key]}: ${ltr(String(applied[key]))}`,
+    onRemove: () => {
+      const input = formRef.current?.elements.namedItem(key);
+      if (input instanceof HTMLInputElement) input.value = "";
+      onApply({ ...applied, [key]: undefined });
+    },
+  }));
+
   return (
-    <form
-      ref={formRef}
-      className="audit-filters"
-      // Filters are not unsaved work: no Stay / Discard prompt for them (RT-268).
-      data-dirty-guard="off"
+    <FilterBar
+      label={t("audit.filters.label")}
+      formRef={formRef}
+      chips={chips}
       onSubmit={(e) => {
         e.preventDefault();
         onApply(read());
       }}
-      noValidate
+      onClear={() => {
+        formRef.current?.reset();
+        onClear();
+      }}
     >
-      <span className="audit-filters__lead" aria-hidden="true">
-        <Icon name="search" size="sm" />
-      </span>
-      <div className="audit-filters__field">
-        <label htmlFor="f-action">{t("audit.field.action")}</label>
+      <FilterField id="f-action" label={t("audit.field.action")}>
         {/* Action codes and IDs are machine data: typed and shown LTR (UX-11). */}
         <input
           id="f-action"
@@ -74,9 +97,8 @@ export function AuditFilters({
           placeholder={ACTION_EXAMPLE}
           autoComplete="off"
         />
-      </div>
-      <div className="audit-filters__field">
-        <label htmlFor="f-actor">{t("audit.field.actor")}</label>
+      </FilterField>
+      <FilterField id="f-actor" label={t("audit.field.actor")}>
         <input
           id="f-actor"
           name="actor_user_id"
@@ -85,10 +107,9 @@ export function AuditFilters({
           placeholder={t("audit.filters.actorPlaceholder")}
           autoComplete="off"
         />
-      </div>
+      </FilterField>
       {storeInScope ? (
-        <div className="audit-filters__field">
-          <label htmlFor="f-store">{t("audit.field.store")}</label>
+        <FilterField id="f-store" label={t("audit.field.store")}>
           <input
             id="f-store"
             name="store_id"
@@ -97,31 +118,14 @@ export function AuditFilters({
             placeholder={t("audit.filters.storePlaceholder")}
             autoComplete="off"
           />
-        </div>
+        </FilterField>
       ) : null}
-      <div className="audit-filters__field">
-        <label htmlFor="f-from">{t("audit.filters.from")}</label>
+      <FilterField id="f-from" label={t("audit.filters.from")}>
         <input id="f-from" name="from" type="datetime-local" className="input" />
-      </div>
-      <div className="audit-filters__field">
-        <label htmlFor="f-to">{t("audit.filters.to")}</label>
+      </FilterField>
+      <FilterField id="f-to" label={t("audit.filters.to")}>
         <input id="f-to" name="to" type="datetime-local" className="input" />
-      </div>
-      <div className="audit-filters__actions">
-        <GatedButton type="submit" className="btn-primary">
-          {t("audit.filters.apply")}
-        </GatedButton>
-        <button
-          type="button"
-          className="btn-ghost"
-          onClick={() => {
-            formRef.current?.reset();
-            onClear();
-          }}
-        >
-          {t("audit.filters.clear")}
-        </button>
-      </div>
-    </form>
+      </FilterField>
+    </FilterBar>
   );
 }

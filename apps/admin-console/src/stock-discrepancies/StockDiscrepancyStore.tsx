@@ -2,6 +2,7 @@ import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
 import { GatedButton } from "@/components/GatedButton";
 import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
 import { type MessageKey, useT } from "@/i18n";
 import type { NegativeOnHandItem, StockSnapshotStatus } from "@/lib/stock-discrepancy-queries";
 import { ScopeMismatchBanner } from "@/shell/ScopeMismatchBanner";
@@ -136,7 +137,7 @@ function ProductCell({ item }: Readonly<{ item: NegativeOnHandItem }>): React.JS
   }
   return (
     <td>
-      <span className="badge badge--suspended" title={t("stock.items.notMappedTitle")}>
+      <span className="badge badge--warning" title={t("stock.items.notMappedTitle")}>
         {t("stock.items.notMapped")}
       </span>
     </td>
@@ -212,7 +213,7 @@ function StoreErrorView({ error }: Readonly<{ error: StockDiscrepancyError }>): 
       <BackLink />
       {error.kind === "not-found" ? (
         <>
-          <h1 className="content__title">{t("stock.store.notFoundTitle")}</h1>
+          <PageHeader title={t("stock.store.notFoundTitle")} />
           <Banner
             variant="danger"
             message={t("stock.store.notFound")}
@@ -253,19 +254,19 @@ function StoreView({
   return (
     <div className="surface">
       <BackLink />
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("stock.title")}</h1>
-          <p className="content__sub">{t("stock.store.sub")}</p>
-        </div>
-        {showRefresh ? (
-          <RefreshButton
-            isPending={refresh.isPending}
-            blockReason={refreshBlockReason(snapshot)}
-            onRequest={() => void refresh.requestSnapshot()}
-          />
-        ) : null}
-      </header>
+      <PageHeader
+        title={t("stock.title")}
+        subtitle={t("stock.store.sub")}
+        actions={
+          showRefresh ? (
+            <RefreshButton
+              isPending={refresh.isPending}
+              blockReason={refreshBlockReason(snapshot)}
+              onRequest={() => void refresh.requestSnapshot()}
+            />
+          ) : null
+        }
+      />
       <OutcomeBanner outcome={refresh.outcome} />
       <SnapshotChangedNotice show={data.snapshotChanged} />
       <SnapshotStatusPanel snapshot={snapshot} />

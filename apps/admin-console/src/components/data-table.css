@@ -42,11 +42,23 @@
   cursor: pointer;
   transition: background-color var(--duration-2) var(--ease-out);
 }
-.data-table__row td {
+/* RT-961: a row that starts with a row header (`<th scope="row">`) gets the
+ * same padding and divider in that column, so the divider runs unbroken. */
+.data-table__row :is(td, th) {
   padding: var(--space-4);
-  min-height: 36px;
+  min-height: var(--control-h);
   border-bottom: 1px solid var(--color-border);
   color: var(--color-text);
+}
+.data-table__row th[scope="row"] {
+  text-align: start;
+  font-weight: var(--weight-medium);
+}
+/* Money and quantities line up at the inline end in tabular numerals; the
+ * header of such a column is end-aligned with them. */
+.data-table :is(th, td).data-table__cell--num {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
 }
 /* Real data rows fade in (skeleton rows are placeholders and stay still). */
 .data-table__row:not(.data-table__row--skeleton) {
@@ -88,8 +100,8 @@
   position: absolute;
   top: 50%;
   left: 50%;
-  inline-size: max(100%, 36px);
-  block-size: max(100%, 36px);
+  inline-size: max(100%, var(--control-h));
+  block-size: max(100%, var(--control-h));
   transform: translate(-50%, -50%);
 }
 .data-table__sort-mark {
@@ -104,9 +116,10 @@
 /* RT-753: the selection column and the bulk-context line above the table. */
 .data-table thead th.data-table__select,
 .data-table__row td.data-table__select {
-  inline-size: 44px;
+  /* The 36px checkbox cell plus its inline gap. */
+  inline-size: calc(var(--control-h) + var(--space-2));
   /* RT-757: a preferred width alone lets auto layout shrink the column below the 36px floor. */
-  min-inline-size: 44px;
+  min-inline-size: calc(var(--control-h) + var(--space-2));
   padding-inline: var(--space-4) 0;
 }
 /* RT-756: with selection on, the row is not a click target (the «Open» button
@@ -121,8 +134,6 @@
   padding-inline: var(--space-2);
 }
 .data-table__checkbox {
-  inline-size: 18px;
-  block-size: 18px;
   accent-color: var(--color-primary);
 }
 .data-table__selection {
@@ -167,4 +178,11 @@
 }
 .data-table__row--skeleton td:not(:first-child) .skeleton {
   inline-size: 24%;
+}
+
+/* RT-963: the older plain wrapper, kept for the detail screens that still use
+ * it (RT-974 moves them to the focusable, captioned DataTableScroll). It lives
+ * here with the table rules, not in one feature's stylesheet. */
+.table-scroll {
+  overflow-x: auto;
 }

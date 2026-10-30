@@ -82,8 +82,6 @@ export const catalog = {
   "catalog.filter.categoryStale": "فئة غير متاحة",
   "catalog.filter.categorySelected": "الفئة المحددة",
   "catalog.filter.categoriesFailed": "تعذّر تحميل الفئات.",
-  "catalog.filter.apply": "بحث",
-  "catalog.filter.clear": "مسح",
   "catalog.filter.qTooLong": "نص البحث لا يزيد على 100 حرف.",
   "catalog.filter.categoryInvalid": "الفئة في الرابط غير صالحة.",
 
@@ -235,7 +233,6 @@ export const catalog = {
   "catalog.edit.reloaded": "تم تحميل أحدث نسخة. ما كتبته محفوظ في النموذج. راجعه ثم احفظ مرة أخرى.",
   "catalog.edit.reloadFailed": "تعذّرت إعادة تحميل هذا الصنف. ما كتبته محفوظ في النموذج.",
 
-  "catalog.form.required": "(إلزامي)",
   "catalog.form.name": "الاسم",
   "catalog.form.description": "الوصف",
   "catalog.form.category": "الفئة",

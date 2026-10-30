@@ -1,10 +1,11 @@
 import { Banner } from "@/components/Banner";
-import { TowerMark } from "@/components/TowerMark";
+import { BusyButton } from "@/components/BusyButton";
 import { type MessageKey, useT } from "@/i18n";
 import { signIn } from "@/lib/client";
 /**
- * SF-1 sign-in surface (T020/T023). Centered card on the light canvas
- * (confirmed shape brief). Uncontrolled native form (R3-4, no form library).
+ * SF-1 sign-in surface (T020/T023), on the RT-971 public frame (canvas
+ * «تسجيل الدخول»: `AuthLayout`, no card). Uncontrolled native form (R3-4, no
+ * form library).
  * All states from the mockup: default, submitting, 401 generic, 429 retry-after.
  *
  * Logic lives in resolveSignIn (signin-flow.ts, unit-tested); this component
@@ -17,8 +18,9 @@ import { signIn } from "@/lib/client";
  * email and password inputs take machine input, so they stay LTR (UX-11).
  */
 import { type FormEvent, useState } from "react";
+import { AuthHead, AuthLayout } from "./AuthLayout";
+import { PasswordInput } from "./PasswordInput";
 import { type SignInResolution, resolveSignIn } from "./signin-flow";
-import "./signin.css";
 
 export interface SignInProps {
   /** Called with the resolved outcome so the shell can route (auto-select / chooser / no-access). */
@@ -34,13 +36,7 @@ type Phase =
 /** The submit button's label for the current phase. */
 function SubmitLabel({ phase }: Readonly<{ phase: Phase }>): React.JSX.Element {
   const t = useT();
-  if (phase.status === "submitting") {
-    return (
-      <>
-        <span className="spinner" aria-hidden="true" /> {t("auth.signIn.submitting")}
-      </>
-    );
-  }
+  if (phase.status === "submitting") return <>{t("auth.signIn.submitting")}</>;
   if (phase.status === "rate-limited") {
     return <>{t("auth.signIn.retryIn", { count: phase.retryAfterSeconds })}</>;
   }
@@ -92,75 +88,58 @@ export function SignIn({ onResolved }: Readonly<SignInProps>): React.JSX.Element
   const invalid = phase.status === "error";
 
   return (
-    <div className="signin-stage">
-      <div className="signin-shell">
-        <div className="signin-brand">
-          <span className="tower-lockup">
-            <TowerMark className="tower-mark" />
-            <span className="tower-lockup__word">Retail Tower OS</span>
-          </span>
+    <AuthLayout>
+      <AuthHead title={t("auth.signIn.title")} subtitle={t("auth.signIn.subtitle")} />
+
+      {phase.status === "error" ? (
+        <Banner variant="danger" message={t(phase.messageKey)} requestId={phase.requestId} />
+      ) : null}
+      {phase.status === "rate-limited" ? (
+        <Banner
+          variant="warning"
+          message={t("auth.signIn.errors.rateLimited", { count: phase.retryAfterSeconds })}
+          requestId={phase.requestId}
+        />
+      ) : null}
+
+      <form className="auth-fields" onSubmit={handleSubmit} noValidate>
+        <div className="field">
+          <label htmlFor="email">{t("auth.signIn.email.label")}</label>
+          <input
+            className="input"
+            id="email"
+            name="email"
+            type="email"
+            dir="ltr"
+            autoComplete="username"
+            placeholder="name@company.com"
+            disabled={disabled}
+            aria-invalid={invalid}
+            required
+          />
         </div>
-
-        <div className="signin-card">
-          <div className="signin-head">
-            <h1 className="signin-head__title">{t("auth.signIn.title")}</h1>
-            <p className="signin-head__sub">{t("auth.signIn.subtitle")}</p>
-          </div>
-
-          {phase.status === "error" ? (
-            <div className="signin-banner">
-              <Banner variant="danger" message={t(phase.messageKey)} requestId={phase.requestId} />
-            </div>
-          ) : null}
-          {phase.status === "rate-limited" ? (
-            <div className="signin-banner">
-              <Banner
-                variant="warning"
-                message={t("auth.signIn.errors.rateLimited", { count: phase.retryAfterSeconds })}
-                requestId={phase.requestId}
-              />
-            </div>
-          ) : null}
-
-          <form className="signin-form" onSubmit={handleSubmit} noValidate>
-            <div className="field">
-              <label htmlFor="email">{t("auth.signIn.email.label")}</label>
-              <input
-                className="input"
-                id="email"
-                name="email"
-                type="email"
-                dir="ltr"
-                autoComplete="username"
-                placeholder="you@operator.example"
-                disabled={disabled}
-                aria-invalid={invalid}
-                required
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="password">{t("auth.signIn.password.label")}</label>
-              <input
-                className="input"
-                id="password"
-                name="password"
-                type="password"
-                dir="ltr"
-                autoComplete="current-password"
-                placeholder="••••••••••"
-                disabled={disabled}
-                aria-invalid={invalid}
-                required
-              />
-            </div>
-            <button className="btn-primary signin-submit" type="submit" disabled={disabled}>
-              <SubmitLabel phase={phase} />
-            </button>
-          </form>
+        <div className="field">
+          <label htmlFor="password">{t("auth.signIn.password.label")}</label>
+          <PasswordInput
+            id="password"
+            name="password"
+            autoComplete="current-password"
+            disabled={disabled}
+            invalid={invalid}
+            required
+          />
         </div>
+        <BusyButton
+          className="btn-primary auth-submit"
+          type="submit"
+          busy={submitting}
+          disabled={rateLimited}
+        >
+          <SubmitLabel phase={phase} />
+        </BusyButton>
+      </form>
 
-        <p className="signin-foot">{t("auth.signIn.footer")}</p>
-      </div>
-    </div>
+      <p className="auth-note">{t("auth.signIn.invitesOnly")}</p>
+    </AuthLayout>
   );
 }

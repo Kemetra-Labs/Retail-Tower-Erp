@@ -445,6 +445,8 @@ describe("store filter (§4.5, A-6)", () => {
       expect(within(select).getByRole("option", { name: "Maadi" })).toBeDefined(),
     );
     fireEvent.change(select, { target: { value: STORE_A } });
+    // RT-960: the filter applies on Apply, not on change.
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     await waitFor(() =>
       expect(api.consoleGetSyncOpsSummary).toHaveBeenLastCalledWith({ store_id: STORE_A }),
     );

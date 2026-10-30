@@ -4,3 +4,16 @@
   margin: var(--space-8) auto;
   padding: 0 var(--space-5);
 }
+
+/* RT-958: the root fallback's title is its h1, at the banner title's size. */
+.rtc-crash__title {
+  margin: 0;
+  font-size: var(--text-body);
+}
+
+/* RT-958: Try again and the way out, side by side. */
+.rtc-crash__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

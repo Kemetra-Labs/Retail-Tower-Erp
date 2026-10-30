@@ -49,8 +49,9 @@ type ScopeKey = Pick<SaleScope, "tenantId" | "activeStoreId">;
 export const saleQueryKeys = {
   list: (scope: ScopeKey, query: SaleListQuery | null) =>
     ["sales", "list", scope.tenantId, scope.activeStoreId, query] as const,
+  /** A UUID is case-insensitive: the route ref and the server's lowercase ref share one key. */
   detail: (scope: ScopeKey, saleRef: string | undefined) =>
-    ["sales", "detail", scope.tenantId, scope.activeStoreId, saleRef] as const,
+    ["sales", "detail", scope.tenantId, scope.activeStoreId, saleRef?.toLowerCase()] as const,
 };
 
 class SaleFetchError extends Error {

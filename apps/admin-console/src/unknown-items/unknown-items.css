@@ -1,50 +1,6 @@
 /* RF-4a review-queue surface styles. Composed over the design tokens; reuses the
  * shared .surface frame (src/shell/surface.css). No new visual primitive. */
 
-/* Filter / sort / group control row above the queue table. Framed as a surface
- * panel to match the audit query bar (Console v4.0 — consistent filter chrome). */
-.unknown-item-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4);
-  align-items: flex-end;
-  margin: 0;
-  padding: var(--space-4);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-object);
-}
-.unknown-item-controls__legend {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  float: inline-start;
-  width: 100%;
-  padding: 0;
-  margin-block-end: var(--space-3);
-  color: var(--color-text-muted);
-  font: var(--weight-strong) var(--text-control) / var(--leading-title) var(--font-sans);
-}
-.unknown-item-controls__icon {
-  color: var(--color-text-muted);
-}
-.unknown-item-controls__field {
-  display: grid;
-  gap: var(--space-1);
-  font-size: var(--text-control);
-  color: var(--color-text-muted);
-}
-.unknown-item-controls__field input,
-.unknown-item-controls__field select {
-  min-height: 36px;
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-surface);
-  border: 1px solid var(--color-control-border);
-  border-radius: var(--radius-control);
-  color: var(--color-text);
-  font-size: var(--text-body);
-}
-
 /* Inspect-drawer read-only detail list. */
 .unknown-item-detail {
   display: grid;

@@ -179,15 +179,14 @@ export function ProductRetire({
               type="button"
               className="btn-destructive"
               onClick={() => void confirm()}
-              disabled={retire.isPending}
+              busy={retire.isPending}
             >
-              {retire.isPending ? <span className="spinner" aria-hidden="true" /> : null}
               {t("catalog.retire.confirm")}
             </GatedButton>
             <button
               ref={cancelRef}
               type="button"
-              className="btn-secondary"
+              className="btn-ghost"
               onClick={cancel}
               disabled={retire.isPending}
             >

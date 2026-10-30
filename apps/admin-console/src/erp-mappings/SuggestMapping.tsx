@@ -9,6 +9,8 @@
  * only after an explicit confirm; the call goes to Backend-Core, never to ERPNext.
  */
 import { ProductPicker } from "@/catalog/ProductPicker";
+import { FormField } from "@/components/FormField";
+import { FormPanel, FormSection } from "@/components/FormPage";
 import { useT } from "@/i18n";
 import type { CatalogProduct } from "@/lib/catalog-queries";
 import type { ErpnextItemMapping } from "@/lib/erp-mapping-queries";
@@ -77,7 +79,8 @@ function SuggestForm({
   }
 
   return (
-    <form
+    <FormPanel
+      variant="plain"
       className="map-form"
       aria-label={label}
       onSubmit={(e) => {
@@ -88,38 +91,42 @@ function SuggestForm({
         setRef(clean);
         setReview(true);
       }}
+      actions={
+        <>
+          <button type="submit" className="btn-primary">
+            {t("erp.map.review")}
+          </button>
+          {extraAction}
+          <button type="button" className="btn-secondary" onClick={onDismiss}>
+            {t("erp.map.items.suggest.dismiss")}
+          </button>
+        </>
+      }
     >
-      <p className="map-form__lead">{lead}</p>
-      <div className="field">
-        <label htmlFor={inputId}>{t("erp.map.items.suggest.ref")}</label>
-        <input
-          ref={refInput}
+      <FormSection lead={lead}>
+        <FormField
           id={inputId}
-          className="input input--mono"
-          dir="ltr"
-          autoComplete="off"
-          value={ref}
-          aria-invalid={empty}
-          aria-describedby={empty ? `${inputId}-error` : undefined}
-          onChange={(e) => setRef(e.target.value)}
-        />
-        {empty ? (
-          <p className="map-form__error" id={`${inputId}-error`}>
-            {t("erp.map.form.required")}
-          </p>
-        ) : null}
-      </div>
-      <p className="erp-note">{t("erp.map.items.suggest.note")}</p>
-      <div className="map-confirm__actions">
-        <button type="submit" className="btn-primary">
-          {t("erp.map.review")}
-        </button>
-        {extraAction}
-        <button type="button" className="btn-secondary" onClick={onDismiss}>
-          {t("erp.map.items.suggest.dismiss")}
-        </button>
-      </div>
-    </form>
+          label={t("erp.map.items.suggest.ref")}
+          required
+          error={empty ? t("erp.map.form.required") : undefined}
+          announceError
+        >
+          {(aria) => (
+            <input
+              ref={refInput}
+              id={inputId}
+              className="input input--mono"
+              dir="ltr"
+              autoComplete="off"
+              value={ref}
+              onChange={(e) => setRef(e.target.value)}
+              {...aria}
+            />
+          )}
+        </FormField>
+        <p className="erp-note">{t("erp.map.items.suggest.note")}</p>
+      </FormSection>
+    </FormPanel>
   );
 }
 

@@ -1,3 +1,7 @@
+import { BackArrow } from "@/components/BackArrow";
+import { Banner } from "@/components/Banner";
+import { GatedButton } from "@/components/GatedButton";
+import { ListState } from "@/components/ListState";
 /**
  * RT-768 product edit route «تعديل الصنف» (CAT-C2a, RT-752 AC 2: the edit form
  * is its own route under the detail). Gates first, so nothing is asked for what
@@ -11,10 +15,6 @@
  * values into another tenant's item. Create is not here: it is held by owner
  * decision D9 (RT-768 comment 13487) until pricing lands.
  */
-import { BackArrow } from "@/components/BackArrow";
-import { Banner } from "@/components/Banner";
-import { GatedButton } from "@/components/GatedButton";
-import { ListState } from "@/components/ListState";
 import { type MessageKey, useT } from "@/i18n";
 import type { CatalogProductDetail as ProductDetail } from "@/lib/catalog-queries";
 import { useRef } from "react";
@@ -113,25 +113,14 @@ function EditPage({
   const t = useT();
   const { productId, name } = product.summary;
   return (
-    <div className="surface">
-      <BackToItem productId={productId} />
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">
-            {t.rich("catalog.edit.title", { name: <bdi dir="auto">{name}</bdi> })}
-          </h1>
-          <p className="content__sub">
-            {t.rich("catalog.edit.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
-          </p>
-        </div>
-      </header>
-      <ProductEditForm
-        key={`${scope.tenantId}:${productId}`}
-        product={product}
-        tenantId={scope.tenantId}
-        reload={reload}
-      />
-    </div>
+    <ProductEditForm
+      key={`${scope.tenantId}:${productId}`}
+      product={product}
+      tenantId={scope.tenantId}
+      reload={reload}
+      title={t.rich("catalog.edit.title", { name: <bdi dir="auto">{name}</bdi> })}
+      subtitle={t.rich("catalog.edit.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
+    />
   );
 }
 

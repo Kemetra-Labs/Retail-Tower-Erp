@@ -4,6 +4,7 @@
  * exhausted. A muted count line shows how many rows are loaded (a noun-first
  * counter in Arabic, UX-12; no total, the contract gives none).
  */
+import { BusyButton } from "@/components/BusyButton";
 import { useT } from "@/i18n";
 import "./audit.css";
 
@@ -25,15 +26,14 @@ export function AuditPager({
     <div className="audit-pager">
       <span className="audit-pager__count">{t("audit.pager.loaded", { count: loadedCount })}</span>
       {hasMore ? (
-        <button
+        <BusyButton
           type="button"
           className="btn-secondary"
           onClick={onLoadMore}
-          disabled={isFetchingNextPage}
+          busy={isFetchingNextPage}
         >
-          {isFetchingNextPage ? <span className="spinner" aria-hidden="true" /> : null}
           {t("audit.pager.loadMore")}
-        </button>
+        </BusyButton>
       ) : null}
     </div>
   );

@@ -56,7 +56,7 @@ function NotAvailable({
         message={t("platform.start.notFound.body")}
         requestId={view.requestId}
       />
-      <button type="button" className="btn-secondary" onClick={onBack}>
+      <button type="button" className="btn-ghost" onClick={onBack}>
         {t("platform.start.notFound.back")}
       </button>
     </div>
@@ -199,16 +199,10 @@ function StartForm({
       <TicketField error={errors.ticketRef} />
       <ScopeFacts replacesSession={replacesSession} />
       <div className="surface__actions">
-        <GatedButton
-          type="submit"
-          className="btn-primary"
-          disabled={pending}
-          aria-busy={pending || undefined}
-        >
-          {pending ? <span className="spinner" aria-hidden="true" /> : null}
+        <GatedButton type="submit" className="btn-primary" busy={pending}>
           {t("platform.start.submit")}
         </GatedButton>
-        <button type="button" className="btn-secondary" onClick={onCancel} disabled={pending}>
+        <button type="button" className="btn-ghost" onClick={onCancel} disabled={pending}>
           {t("common.cancel")}
         </button>
       </div>

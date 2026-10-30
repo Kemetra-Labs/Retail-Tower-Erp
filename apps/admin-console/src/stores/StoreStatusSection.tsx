@@ -42,7 +42,6 @@ export function StoreStatusSection({
   const status = useStoreStatusMutation(activeTenantId, storeId);
   const [confirming, setConfirming] = useState(false);
   const active = isActive !== false;
-  const busy = disabled || status.isPending;
 
   async function apply(nextActive: boolean): Promise<void> {
     onStart();
@@ -56,8 +55,6 @@ export function StoreStatusSection({
     }
   }
 
-  const spinner = status.isPending ? <span className="spinner" aria-hidden="true" /> : null;
-
   return (
     <section className="surface__status" aria-labelledby="store-status-title">
       <h2 id="store-status-title" className="surface__section-title">
@@ -70,11 +67,11 @@ export function StoreStatusSection({
         {confirming ? null : (
           <GatedButton
             type="button"
-            className="btn-secondary"
+            className={active ? "btn-danger-quiet" : "btn-secondary"}
             onClick={active ? () => setConfirming(true) : () => apply(true)}
-            disabled={busy}
+            busy={status.isPending}
+            disabled={disabled}
           >
-            {active ? null : spinner}
             {t(active ? "stores.status.suspend" : "stores.status.activate")}
           </GatedButton>
         )}
@@ -90,14 +87,14 @@ export function StoreStatusSection({
               type="button"
               className="btn-destructive"
               onClick={() => apply(false)}
-              disabled={busy}
+              busy={status.isPending}
+              disabled={disabled}
             >
-              {spinner}
               {t("stores.status.suspend")}
             </GatedButton>
             <button
               type="button"
-              className="btn-secondary"
+              className="btn-ghost"
               onClick={() => setConfirming(false)}
               disabled={status.isPending}
             >

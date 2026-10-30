@@ -110,15 +110,14 @@ export function RepairControl({
             <GatedButton
               ref={confirmButton}
               className="btn-primary"
-              disabled={repair.pending}
+              busy={repair.pending}
               onClick={() => void confirm()}
             >
-              {repair.pending ? <span className="spinner" aria-hidden="true" /> : null}
               {t("saleSync.repair.confirm")}
             </GatedButton>
             <button
               type="button"
-              className="btn-secondary"
+              className="btn-ghost"
               disabled={repair.pending}
               onClick={() => setConfirming(false)}
             >

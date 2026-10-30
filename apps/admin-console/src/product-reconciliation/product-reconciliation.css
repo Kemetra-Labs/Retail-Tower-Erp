@@ -9,10 +9,6 @@
   gap: var(--space-1);
 }
 
-.recon-filter {
-  max-inline-size: 320px;
-}
-
 .recon-actions {
   display: flex;
   flex-wrap: wrap;

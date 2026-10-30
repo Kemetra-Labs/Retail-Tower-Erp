@@ -7,6 +7,7 @@
  * text. The inline error is NOT a live region: the form's error summary is what
  * announces a blocked submit, so the same words are not spoken twice.
  */
+import { FormField, type FormFieldProps } from "@/components/FormField";
 import { type MessageKey, useT } from "@/i18n";
 import type { CatalogCategory, CatalogProductDetail } from "@/lib/catalog-queries";
 import { TenantPrice } from "./CatalogDetailSections";
@@ -16,7 +17,6 @@ import {
   type ProductFormValues,
   extraCategoryOptions,
 } from "./productFormLogic";
-import "../components/inline-error.css";
 
 export const FIELD_IDS = {
   name: "product-name",
@@ -33,69 +33,17 @@ const MARK_KEY: Record<"refused" | "retired", MessageKey> = {
 type Errors = Partial<Record<keyof typeof FIELD_IDS, MessageKey>>;
 
 /**
- * One labelled field with its hint and inline error. Shared with the RT-769
- * identifier drawer, which also passes `warning`: a non-blocking notice (never
- * `aria-invalid`) in a polite status region (`<output>`) that is always rendered, so its
- * appearance is announced; it describes the field only while it has text.
+ * One labelled field with its hint and inline error: the shared `FormField`
+ * (RT-971 form template), taking the error as a catalog key so a locale switch
+ * re-renders it. Shared with the RT-769 identifier drawer, which also passes
+ * `warning` (see `FormField`).
  */
 export function Field({
-  id,
-  label,
-  required = false,
-  hint,
-  warning,
   error,
-  children,
-}: Readonly<{
-  id: string;
-  label: string;
-  required?: boolean;
-  hint?: string;
-  warning?: string | null;
-  error?: MessageKey;
-  children: (aria: React.AriaAttributes) => React.ReactNode;
-}>): React.JSX.Element {
+  ...props
+}: Readonly<Omit<FormFieldProps, "error"> & { error?: MessageKey }>): React.JSX.Element {
   const t = useT();
-  const describedBy = [
-    hint ? `${id}-hint` : null,
-    warning ? `${id}-warning` : null,
-    error ? `${id}-error` : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
-  return (
-    <div className="field">
-      <label htmlFor={id}>
-        {label}
-        {required ? (
-          <span className="field__required" aria-hidden="true">
-            {" "}
-            {t("catalog.form.required")}
-          </span>
-        ) : null}
-      </label>
-      {children({
-        "aria-required": required ? true : undefined,
-        "aria-invalid": error ? true : undefined,
-        "aria-describedby": describedBy || undefined,
-      })}
-      {hint ? (
-        <p id={`${id}-hint`} className="field__hint">
-          {hint}
-        </p>
-      ) : null}
-      {warning === undefined ? null : (
-        <output id={`${id}-warning`} className="field__warning">
-          {warning}
-        </output>
-      )}
-      {error ? (
-        <span id={`${id}-error`} className="rtc-inline-error">
-          {t(error)}
-        </span>
-      ) : null}
-    </div>
-  );
+  return <FormField {...props} error={error ? t(error) : undefined} />;
 }
 
 /**

@@ -3,14 +3,13 @@ import type { MessagesOf } from "../types";
 
 export const sales: MessagesOf<typeof ar> = {
   // --- Navigation ------------------------------------------------------------
-  "sales.nav.section": "Transactions",
   "sales.nav.label": "Sales",
 
   // --- List ------------------------------------------------------------------
   "sales.list.title": "Sales",
   "sales.list.sub": "Sales the server has received for one store in {tenant}. Read-only.",
   "sales.list.scopePrompt": "Select a tenant to view sales.",
-  "sales.list.queryPrompt": "Choose a store and a business-date range, then search.",
+  "sales.list.queryPrompt": "Choose a store and a business-date range, then apply.",
   "sales.list.queryPromptHint":
     "Nothing is read until both are set. A search covers at most 31 business days.",
   "sales.list.caption": "Sales received by the server, newest first",
@@ -57,6 +56,7 @@ export const sales: MessagesOf<typeof ar> = {
   "sales.filter.storePlaceholder": "Choose a store",
   "sales.filter.from": "From business date",
   "sales.filter.to": "To business date",
+  "sales.filter.period": "Period",
   "sales.filter.zoneNote":
     "Business dates are in the store's time zone ({zone}), both days included, at most 31 days.",
   "sales.filter.zonePending": "Choose a store: business dates are read in its time zone.",
@@ -70,8 +70,6 @@ export const sales: MessagesOf<typeof ar> = {
   "sales.filter.returns": "Returns",
   "sales.filter.erp": "ERPNext posting",
   "sales.filter.any": "Any",
-  "sales.filter.apply": "Search",
-  "sales.filter.clear": "Clear",
   "sales.filter.storeRequired": "Choose a store.",
   "sales.filter.datesRequired": "Enter both dates.",
   "sales.filter.dateInvalid": "Enter a real date between 2000 and 2100.",

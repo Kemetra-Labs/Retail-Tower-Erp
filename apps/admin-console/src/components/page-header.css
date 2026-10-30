@@ -1,0 +1,21 @@
+/* RT-969: the shared page header (DESIGN.md §9). The row itself is
+ * `.surface__head` (shell/surface.css); these are its parts. */
+.page-header__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.page-header__title {
+  overflow-wrap: anywhere;
+}
+.page-header__title:focus-visible {
+  outline-offset: 2px;
+}
+.page-header__end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-inline-start: auto;
+}

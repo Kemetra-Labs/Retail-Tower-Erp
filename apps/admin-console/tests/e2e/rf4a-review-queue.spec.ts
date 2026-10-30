@@ -126,6 +126,34 @@ test("S5: create a product from a pending item", async ({ page, t }) => {
   expect(sent).toEqual({ name: "Sparkling water 1L", tax_category: "VAT14" });
 });
 
+test("S5b (RT-959): a pending create keeps its submit focused and busy", async ({ page, t }) => {
+  await mockContext(page);
+  await mockQueue(page, [item]);
+  await page.route("**/api/v1/catalog/unknown-items/u1", (r) =>
+    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(item) }),
+  );
+  await page.route("**/api/v1/catalog/unknown-items/u1/create-product", async () => {
+    await new Promise(() => {});
+  });
+
+  await page.goto("/unknown-items");
+  await openRow(page, t, "5012345678900");
+  const drawer = page.getByRole("dialog", { name: t("unknownItems.drawer.title") });
+  await drawer.getByRole("button", { name: t("unknownItems.create.action") }).click();
+  await drawer.getByLabel(t("unknownItems.create.name")).fill("Sparkling water 1L");
+  await drawer.getByLabel(t("unknownItems.create.taxCategory")).fill("VAT14");
+  const submit = drawer.getByRole("button", { name: t("unknownItems.create.submit") });
+  await submit.click();
+
+  // Not inside the fields' disabled fieldset: busy, enabled, still focused.
+  await expect(submit).toHaveAttribute("aria-busy", "true");
+  // Native :disabled would come from the fieldset (Playwright's toBeEnabled also
+  // counts aria-disabled, which busy sets on purpose).
+  expect(await submit.evaluate((el) => el.matches(":disabled"))).toBe(false);
+  await expect(submit).toBeFocused();
+  await expect(drawer.getByRole("button", { name: t("common.cancel") })).toBeDisabled();
+});
+
 test("S6: reopen a dismissed item", async ({ page, t }) => {
   const dismissed = {
     ...item,
@@ -151,6 +179,8 @@ test("S6: reopen a dismissed item", async ({ page, t }) => {
 
   await page.goto("/unknown-items");
   await page.getByLabel(t("unknownItems.filters.status")).selectOption("dismissed");
+  // RT-960: the queue filters apply on Apply, not on change.
+  await page.getByRole("button", { name: t("filter.apply"), exact: true }).click();
   await page.getByText("6221234567890").click();
   const drawer = page.getByRole("dialog", { name: t("unknownItems.drawer.title") });
   await drawer.getByRole("button", { name: t("unknownItems.reopen.action") }).click();

@@ -1,5 +1,3 @@
-import { ProductReconciliation } from "@/product-reconciliation/ProductReconciliation";
-import { RunResults } from "@/product-reconciliation/RunResults";
 /**
  * RT-727 ERPNext product-master reconciliation route registration. Mounts
  * inside the protected layout (`/` → ProtectedArea → AppShell → <Outlet/>),
@@ -7,7 +5,14 @@ import { RunResults } from "@/product-reconciliation/RunResults";
  * authority on who may use it (a non-disclosing 404 otherwise); the page and
  * the sidebar entry mirror its roles (owner / tenant_admin).
  */
+import { lazyPage } from "@/shell/lazyPage";
 import { Route } from "react-router";
+
+const ProductReconciliation = lazyPage(
+  () => import("@/product-reconciliation/ProductReconciliation"),
+  "ProductReconciliation",
+);
+const RunResults = lazyPage(() => import("@/product-reconciliation/RunResults"), "RunResults");
 
 export const productReconciliationRoutes = (
   <>

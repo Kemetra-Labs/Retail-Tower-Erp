@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 const captureException = vi.fn();
 vi.mock("@sentry/react", () => ({
   captureException: (...args: unknown[]) => captureException(...args),
+  getClient: () => undefined,
 }));
 
 const SECRET = "boom a@b.test eyJhbGciOi.eyJzdWIiOiIx.c2ln";

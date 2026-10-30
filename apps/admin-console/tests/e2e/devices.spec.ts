@@ -107,22 +107,22 @@ test("S1: owner → fleet (server order) → filters → detail tabs → Back ke
   await page.route(`**/api/v1/devices/${DEVICE_2}`, (r) => r.fulfill(json(custodyDetail)));
 
   await page.goto("/");
-  await page.getByRole("link", { name: t("devices.nav.label") }).click();
+  await page.getByRole("link", { name: t("devices.nav.label"), exact: true }).click();
   await expect(page.getByRole("heading", { name: t("devices.list.title") })).toBeVisible();
 
-  // The server's exception-first order, as received; Unknown is never "healthy".
+  // The server's exception-first order, as received; a missing last activity is "not recorded".
   const rows = page.getByRole("row").filter({ hasText: "Dubai Mall" });
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toContainText("Till 2");
   await expect(rows.nth(0)).toContainText(t("devices.attention.custody"));
   await expect(rows.nth(1)).toContainText("Till 1");
-  await expect(rows.nth(1).getByText(t("devices.lastSeen.unknown"))).toBeVisible();
+  await expect(rows.nth(1).getByText(t("devices.lastSeen.notRecorded"))).toBeVisible();
   expect(queries[0].get("store_id")).toBeNull();
 
   // Filters are applied by the server, and live in the URL.
-  await page.getByLabel(t("devices.filter.store")).selectOption(DUBAI);
-  await page.getByLabel(t("devices.filter.trust")).selectOption("revoked");
-  await page.getByRole("button", { name: t("devices.filter.apply") }).click();
+  await page.getByLabel(t("devices.filter.store"), { exact: true }).selectOption(DUBAI);
+  await page.getByLabel(t("devices.filter.trust"), { exact: true }).selectOption("revoked");
+  await page.getByRole("button", { name: t("filter.apply"), exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/devices\\?store=${DUBAI}&state=revoked$`));
   await expect.poll(() => queries.at(-1)?.get("trust_state")).toBe("revoked");
   expect(queries.at(-1)?.get("store_id")).toBe(DUBAI);
@@ -142,7 +142,7 @@ test("S1: owner → fleet (server order) → filters → detail tabs → Back ke
 
   await page.getByRole("link", { name: t("devices.detail.back") }).click();
   await expect(page).toHaveURL(new RegExp(`/devices\\?store=${DUBAI}&state=revoked$`));
-  await expect(page.getByLabel(t("devices.filter.trust"))).toHaveValue("revoked");
+  await expect(page.getByLabel(t("devices.filter.trust"), { exact: true })).toHaveValue("revoked");
 });
 
 test("S2: Store Detail deep-links to the registry filtered to that store", async ({ page, t }) => {
@@ -154,7 +154,7 @@ test("S2: Store Detail deep-links to the registry filtered to that store", async
   await expect(page).toHaveURL(new RegExp(`/devices\\?store=${DUBAI}$`));
   await expect(page.getByRole("row").filter({ hasText: "Till 1" })).toBeVisible();
   expect(queries[0].get("store_id")).toBe(DUBAI);
-  await expect(page.getByLabel(t("devices.filter.store"))).toHaveValue(DUBAI);
+  await expect(page.getByLabel(t("devices.filter.store"), { exact: true })).toHaveValue(DUBAI);
 });
 
 test("S3: a deep link to a store outside the scope reads as unavailable, not empty", async ({
@@ -172,7 +172,9 @@ test("S3: a deep link to a store outside the scope reads as unavailable, not emp
   await expect(page.getByText(t("devices.list.storeUnavailable"))).toBeVisible();
   await expect(page.getByText(t("devices.list.empty"))).toHaveCount(0);
   expect(queries[0].get("store_id")).toBe(OTHER_STORE);
-  await expect(page.getByLabel(t("devices.filter.store"))).toHaveValue(OTHER_STORE);
+  await expect(page.getByLabel(t("devices.filter.store"), { exact: true })).toHaveValue(
+    OTHER_STORE,
+  );
 });
 
 test("S4: a refused role has no nav entry, and a direct URL reads as unavailable", async ({

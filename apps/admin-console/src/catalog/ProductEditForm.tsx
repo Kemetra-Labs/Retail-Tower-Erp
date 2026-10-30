@@ -1,6 +1,8 @@
 /**
  * RT-768 product edit form (CAT-C2a, RT-752 AC 3, decisions D5 and D7). A full
- * page form on its own route, with the shared error summary.
+ * page form on its own route, with the shared error summary, on the RT-971 form
+ * template (canvas «نموذج»): it renders the whole page, so its banners sit
+ * between the header and the form panel.
  *
  * What it guarantees:
  *   - PATCH sends `expectedUpdatedAt` and only the fields that changed
@@ -20,6 +22,7 @@
  */
 import { Banner } from "@/components/Banner";
 import { FormErrorSummary, useSummaryFocus } from "@/components/FormErrorSummary";
+import { FormPage, FormPanel, FormSection } from "@/components/FormPage";
 import { GatedButton } from "@/components/GatedButton";
 import { type MessageKey, useT } from "@/i18n";
 import type { CatalogProductDetail } from "@/lib/catalog-queries";
@@ -41,7 +44,6 @@ import {
 } from "./productFormLogic";
 import { catalogQueryKeys, useCatalogCategories } from "./useCatalog";
 import { useUpdateProduct } from "./useProductWrites";
-import "../shell/surface.css";
 import "./catalog.css";
 
 /** The one banner above the form: a failed write, or a state of the page. */
@@ -99,6 +101,9 @@ export interface ProductEditFormProps {
   tenantId: string;
   /** Read the item again; `undefined` when it could not be read. */
   reload: () => Promise<CatalogProductDetail | undefined>;
+  /** The page header: the form renders the whole page (RT-971). */
+  title: React.ReactNode;
+  subtitle?: React.ReactNode;
 }
 
 /** What the server last said the item is: the baseline every patch is measured against. */
@@ -116,6 +121,8 @@ export function ProductEditForm({
   product,
   tenantId,
   reload,
+  title,
+  subtitle,
 }: Readonly<ProductEditFormProps>): React.JSX.Element {
   const t = useT();
   const navigate = useNavigate();
@@ -240,16 +247,45 @@ export function ProductEditForm({
 
   const detailPath = `/catalog/products/${productId}`;
   return (
-    <>
-      {notice ? (
-        <NoticeBanner notice={notice} onReload={() => void onReload()} reloading={reloading} />
-      ) : null}
-      {reloadFailed ? <Banner variant="info" message={t("catalog.edit.reloadFailed")} /> : null}
-      {noChanges ? <Banner variant="info" message={t("catalog.edit.noChanges")} /> : null}
-      <form className="surface__form" onSubmit={onSubmit} noValidate>
-        <FormErrorSummary ref={summaryRef} entries={entries} />
-        <h2 className="surface__section-title">{t("catalog.edit.section")}</h2>
-        <fieldset className="catalog-form__fields" disabled={locked}>
+    <FormPage
+      back={{ to: detailPath, label: t("catalog.edit.back") }}
+      title={title}
+      subtitle={subtitle}
+      notices={
+        <>
+          {notice ? (
+            <NoticeBanner notice={notice} onReload={() => void onReload()} reloading={reloading} />
+          ) : null}
+          {reloadFailed ? <Banner variant="info" message={t("catalog.edit.reloadFailed")} /> : null}
+          {noChanges ? <Banner variant="info" message={t("catalog.edit.noChanges")} /> : null}
+        </>
+      }
+    >
+      <FormPanel
+        onSubmit={onSubmit}
+        summary={<FormErrorSummary ref={summaryRef} entries={entries} />}
+        actions={
+          <>
+            <GatedButton
+              type="submit"
+              className="btn-primary"
+              busy={update.isPending}
+              disabled={locked}
+            >
+              {t("catalog.edit.save")}
+            </GatedButton>
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => navigate(detailPath)}
+              disabled={update.isPending}
+            >
+              {t("common.cancel")}
+            </button>
+          </>
+        }
+      >
+        <FormSection title={t("catalog.edit.section")} disabled={locked}>
           <ProductFields
             values={values}
             errors={shown}
@@ -260,22 +296,8 @@ export function ProductEditForm({
             refusedCategory={categoryRefused}
             product={base.product}
           />
-        </fieldset>
-        <div className="surface__actions surface__actions--divided">
-          <GatedButton type="submit" className="btn-primary" disabled={update.isPending || locked}>
-            {update.isPending ? <span className="spinner" aria-hidden="true" /> : null}
-            {t("catalog.edit.save")}
-          </GatedButton>
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => navigate(detailPath)}
-            disabled={update.isPending}
-          >
-            {t("common.cancel")}
-          </button>
-        </div>
-      </form>
-    </>
+        </FormSection>
+      </FormPanel>
+    </FormPage>
   );
 }

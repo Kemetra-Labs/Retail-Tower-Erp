@@ -10,7 +10,9 @@
  * suggestion). There is no free-text product field. Product ids are shown as
  * received in the table: resolving a name for every row is out of scope.
  */
+import { TableScrollRegion } from "@/components/DataTableScroll";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
+import { SelectFilterBar } from "@/components/FilterBar";
 import { ListState } from "@/components/ListState";
 import { StatusPill } from "@/erp-status/parts";
 import { AsOf, Panel } from "@/erp-status/parts";
@@ -42,6 +44,7 @@ function columns(t: T): { key: string; header: string }[] {
   ];
 }
 
+/** The state filter, on the shared FilterBar (RT-960): Apply, Clear. */
 function StateFilter({
   value,
   onChange,
@@ -51,21 +54,18 @@ function StateFilter({
 }>): React.JSX.Element {
   const t = useT();
   return (
-    <div className="erp-filter">
-      <div className="erp-filter__field">
-        <label htmlFor="map-state-filter">{t("erp.map.items.filter")}</label>
-        <select
-          id="map-state-filter"
-          className="input"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        >
-          <option value="">{t("erp.map.items.filter.all")}</option>
-          <option value="suggested">{t("erp.map.items.filter.suggested")}</option>
-          <option value="confirmed">{t("erp.map.items.filter.confirmed")}</option>
-        </select>
-      </div>
-    </div>
+    <SelectFilterBar
+      label={t("erp.map.items.filter.label")}
+      id="map-state-filter"
+      fieldLabel={t("erp.map.items.filter")}
+      value={value}
+      allLabel={t("erp.map.items.filter.all")}
+      options={[
+        { value: "suggested", label: t("erp.map.items.filter.suggested") },
+        { value: "confirmed", label: t("erp.map.items.filter.confirmed") },
+      ]}
+      onApply={onChange}
+    />
   );
 }
 
@@ -200,38 +200,42 @@ function ItemTable({
   }
   if (list.rows.length === 0) return <ListState state="empty" emptyMessage={t(emptyKey)} />;
   return (
-    <div className="table-scroll">
-      <table className="data-table">
-        <caption className="data-table__caption">{t("erp.map.items.title")}</caption>
-        <thead>
-          <tr>
-            {cols.map((col) => (
-              <th key={col.key} scope="col">
-                {col.header}
-              </th>
+    <TableScrollRegion>
+      {(captionId) => (
+        <table className="data-table">
+          <caption id={captionId} className="data-table__caption">
+            {t("erp.map.items.title")}
+          </caption>
+          <thead>
+            <tr>
+              {cols.map((col) => (
+                <th key={col.key} scope="col">
+                  {col.header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {list.rows.map((row) => (
+              <ItemRowGroup
+                key={row.id}
+                row={row}
+                tenantId={tenantId}
+                action={action?.row.id === row.id ? action : null}
+                colSpan={cols.length}
+                onAction={setAction}
+                onClose={() => setAction(null)}
+                onDone={(done) => {
+                  setAction(null);
+                  if (done.kind === "retire") onRetired(done.row);
+                  else onConfirmed();
+                }}
+              />
             ))}
-          </tr>
-        </thead>
-        <tbody>
-          {list.rows.map((row) => (
-            <ItemRowGroup
-              key={row.id}
-              row={row}
-              tenantId={tenantId}
-              action={action?.row.id === row.id ? action : null}
-              colSpan={cols.length}
-              onAction={setAction}
-              onClose={() => setAction(null)}
-              onDone={(done) => {
-                setAction(null);
-                if (done.kind === "retire") onRetired(done.row);
-                else onConfirmed();
-              }}
-            />
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </tbody>
+        </table>
+      )}
+    </TableScrollRegion>
   );
 }
 

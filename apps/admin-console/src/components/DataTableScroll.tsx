@@ -24,3 +24,15 @@ export function DataTableScroll({
 export function useCaptionId(): string {
   return `data-table-caption-${useId()}`;
 }
+
+/**
+ * RT-963: a scroll region that makes its own caption id, for a table whose
+ * caption is written inline: `{(captionId) => <table><caption id={captionId}>…}`.
+ * Replaces the old unfocusable `.table-scroll` wrapper.
+ */
+export function TableScrollRegion({
+  children,
+}: Readonly<{ children: (captionId: string) => React.ReactNode }>): React.JSX.Element {
+  const captionId = useCaptionId();
+  return <DataTableScroll captionId={captionId}>{children(captionId)}</DataTableScroll>;
+}

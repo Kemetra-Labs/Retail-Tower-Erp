@@ -1,26 +1,6 @@
-/* /platform shell (RT-780): topbar / support-session slot / sidebar + content.
- * Reuses the tenant shell's topbar, sidebar and nav-entry rules (app-shell.css);
- * only the grid differs, because there is no tenant scope bar. Tokens only. */
-.platform-shell {
-  min-height: 100dvh;
-  display: grid;
-  grid-template-rows: var(--shell-topbar-h) auto 1fr;
-  grid-template-columns: var(--shell-sidebar-w) 1fr;
-  grid-template-areas:
-    "topbar topbar"
-    "session session"
-    "sidebar content";
-  background: var(--color-background);
-}
-.platform-shell .topbar {
-  grid-area: topbar;
-}
-.platform-shell .sidebar {
-  grid-area: sidebar;
-}
-.platform-shell .content {
-  grid-area: content;
-}
+/* /platform shell (RT-780): on the Shell v3 frame (RT-969). It is a `.shell`,
+ * so app-shell.css owns the grid; it has no scope switcher, so at the compact
+ * width its sidebar row goes (app-shell.css). Tokens only. */
 .platform-session-slot {
   grid-area: session;
   min-width: 0;
@@ -78,19 +58,6 @@
   margin: 0;
   color: var(--color-text-muted);
   max-width: 60ch;
-}
-
-/* RT-825: the compact shell. The sidebar is hidden (app-shell.css) and the
- * menu drawer stands in for it, so its grid row goes too. */
-@media (max-width: 768px) {
-  .platform-shell {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: var(--shell-topbar-h) auto 1fr;
-    grid-template-areas:
-      "topbar"
-      "session"
-      "content";
-  }
 }
 
 /* RT-782 (RT-777 S3, screen 30): the tenant directory and its start drawer. */

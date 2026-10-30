@@ -112,6 +112,8 @@ describe("the link step", () => {
     inspectUnknownItem.mockResolvedValue({ status: 200, data: dismissed });
     renderList();
     fireEvent.change(await screen.findByLabelText("Status"), { target: { value: "dismissed" } });
+    // RT-960: the queue filters apply on Apply, not on change.
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     fireEvent.click(await screen.findByText("5012345678900"));
     const drawer = await screen.findByRole("dialog", { name: "Unknown item" });
     await within(drawer).findByRole("button", { name: "Reopen" });
@@ -171,7 +173,9 @@ describe("linking", () => {
     const drawer = await reachConfirm();
     const button = within(drawer).getByRole("button", { name: "Link the identifier" });
     fireEvent.click(button);
-    await waitFor(() => expect(button.hasAttribute("disabled")).toBe(true));
+    // RT-959: busy, not disabled: it keeps focus and ignores repeat presses.
+    await waitFor(() => expect(button.getAttribute("aria-busy")).toBe("true"));
+    expect(button.hasAttribute("disabled")).toBe(false);
     fireEvent.click(button);
     expect(linkUnknownItem).toHaveBeenCalledTimes(1);
   });
@@ -206,8 +210,9 @@ describe("linking", () => {
     renderList();
     const drawer = await reachConfirm();
     fireEvent.click(within(drawer).getByRole("button", { name: "Link the identifier" }));
-    const alert = await within(drawer).findByRole("alert");
-    expect(alert.textContent).toMatch(/This item is not available/);
+    // RT-963: the non-disclosing notice is an info banner, announced politely.
+    const alert = await within(drawer).findByRole("status");
+    await waitFor(() => expect(alert.textContent).toMatch(/This item is not available/));
     expect(alert.textContent).not.toContain("backend english");
     expect(within(drawer).getByRole("button", { name: "Link the identifier" })).toBeDefined();
   });

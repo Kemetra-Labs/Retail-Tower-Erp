@@ -33,6 +33,9 @@ import { createQueryClient } from "@/lib/query";
 import { StoreForm } from "@/stores/StoreForm";
 import { StoreFormRoute } from "@/stores/StoreFormRoute";
 
+/** RT-971: an error shows inline and in the summary; these match the inline one. */
+const INLINE = { selector: ".rtc-inline-error" };
+
 function renderForm(props: Parameters<typeof StoreForm>[0]): void {
   const qc = createQueryClient();
   function Tree({ children }: { children: ReactNode }) {
@@ -118,7 +121,7 @@ describe("StoreForm create", () => {
     createStore.mockResolvedValue({ status: 409, error: { error: { request_id: "r1" } } });
     renderForm({ mode: "create" });
     submit({ code: "DUP", name: "Dup Store" });
-    expect(await screen.findByText(/store code is already in use/i)).toBeDefined();
+    expect(await screen.findByText(/store code is already in use/i, INLINE)).toBeDefined();
     const code = screen.getByLabelText(/store code/i);
     expect(code.getAttribute("aria-invalid")).toBe("true");
     expect(code.getAttribute("aria-describedby")).toBe("store-code-hint store-code-error");
@@ -211,7 +214,7 @@ describe("StoreForm edit", () => {
     updateStore.mockResolvedValue({ status: 200, data: { ...cfc, id: "s1", is_active: false } });
     renderForm({ mode: "edit", storeId: "s1", initial: cfc });
     expect(screen.getByRole("heading", { name: "Store status" })).toBeDefined();
-    expect(screen.getByText("Active").className).toContain("badge--active");
+    expect(screen.getByText("Active").className).toBe("badge");
     fireEvent.click(screen.getByRole("button", { name: "Suspend store" }));
     const confirm = screen.getByRole("region", { name: "Confirm: suspend store" });
     expect(confirm.textContent).toContain("Suspend Cairo Festival City?");
@@ -235,7 +238,7 @@ describe("StoreForm edit", () => {
   test("suspended store -> «Activate store» sends is_active=true", async () => {
     updateStore.mockResolvedValue({ status: 200, data: { id: "s1" } });
     renderForm({ mode: "edit", storeId: "s1", initial: { ...cfc, is_active: false } });
-    expect(screen.getByText("Suspended").className).toContain("badge--suspended");
+    expect(screen.getByText("Suspended").className).toContain("badge--warning");
     expect(screen.queryByRole("button", { name: "Suspend store" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Activate store" }));
     await waitFor(() => expect(updateStore).toHaveBeenCalledWith("s1", { is_active: true }));
@@ -335,7 +338,7 @@ describe("StoreFormRoute edit: the status toggle and the detail cache", () => {
     fireEvent.click(screen.getByRole("button", { name: "Activate store" }));
 
     expect(await screen.findByRole("button", { name: "Suspend store" })).toBeDefined();
-    expect(screen.getByText("Active").className).toContain("badge--active");
+    expect(screen.getByText("Active").className).toBe("badge");
     expect(readStore).toHaveBeenCalledTimes(1);
     expect((screen.getByLabelText(/store name/i) as HTMLInputElement).value).toBe("Unsaved name");
   });
@@ -402,23 +405,26 @@ describe("StoreForm Arabic", () => {
     createStore.mockResolvedValue({ status: 409, error: { error: { request_id: "r1" } } });
     renderForm({ mode: "create" });
     expect(screen.getByRole("heading", { name: "إضافة متجر" })).toBeDefined();
-    expect(screen.getByRole("heading", { name: "بيانات المتجر" })).toBeDefined();
+    expect(screen.getByRole("group", { name: "بيانات المتجر" })).toBeDefined();
     // the read-only scope line names the tenant as authored, isolated
     const tenant = screen.getByText("Northstar Retail");
     expect(tenant.tagName).toBe("BDI");
     expect(tenant.closest("p")?.textContent).toBe("سيُنشأ المتجر في Northstar Retail.");
     expect(screen.getByText("لا يمكن تغيير الرمز بعد إنشاء المتجر.")).toBeDefined();
     expect(screen.queryByRole("button", { name: /create store/i })).toBeNull();
-    fireEvent.change(screen.getByLabelText("رمز المتجر (إلزامي)"), { target: { value: "DUP" } });
-    fireEvent.change(screen.getByLabelText("اسم المتجر (إلزامي)"), {
+    fireEvent.change(screen.getByLabelText("رمز المتجر"), { target: { value: "DUP" } });
+    fireEvent.change(screen.getByLabelText("اسم المتجر"), {
       target: { value: "Dup Store" },
     });
     fireEvent.click(screen.getByRole("button", { name: "إنشاء المتجر" }));
     expect(
-      await screen.findByText("رمز المتجر هذا مستخدم بالفعل في هذه المؤسسة. اختر رمزًا آخر."),
+      await screen.findByText(
+        "رمز المتجر هذا مستخدم بالفعل في هذه المؤسسة. اختر رمزًا آخر.",
+        INLINE,
+      ),
     ).toBeDefined();
     act(() => setLocale("en"));
-    expect(await screen.findByText(/store code is already in use/i)).toBeDefined();
+    expect(await screen.findByText(/store code is already in use/i, INLINE)).toBeDefined();
   });
 
   test("edit form renders its Arabic title, hints, status control and actions", () => {
@@ -430,7 +436,7 @@ describe("StoreForm Arabic", () => {
     expect(screen.getByText("للقراءة فقط. لا يمكن تغيير الرمز بعد إنشاء المتجر.")).toBeDefined();
     expect(screen.getByText("استخدمه عند التواصل مع الدعم.")).toBeDefined();
     expect(screen.getByRole("heading", { name: "حالة المتجر" })).toBeDefined();
-    expect(screen.getByText("نشط").className).toContain("badge--active");
+    expect(screen.getByText("نشط").className).toBe("badge");
     expect(screen.getByRole("button", { name: "إيقاف المتجر" })).toBeDefined();
     expect(screen.getByRole("button", { name: "حفظ المتجر" })).toBeDefined();
     expect(screen.getByRole("button", { name: "إلغاء التعديل" })).toBeDefined();
@@ -451,7 +457,7 @@ describe("StoreForm Arabic", () => {
     setLocale("ar");
     createStore.mockResolvedValue({ status: 401 });
     renderForm({ mode: "create" });
-    fireEvent.change(screen.getByLabelText("رمز المتجر (إلزامي)"), { target: { value: "X" } });
+    fireEvent.change(screen.getByLabelText("رمز المتجر"), { target: { value: "X" } });
     fireEvent.click(screen.getByRole("button", { name: "إنشاء المتجر" }));
     expect(await screen.findByText(/^اختر مؤسسة قبل إدارة المتاجر\./)).toBeDefined();
     expect(navigate).not.toHaveBeenCalled();

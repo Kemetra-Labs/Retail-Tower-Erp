@@ -1,3 +1,4 @@
+import { Banner } from "@/components/Banner";
 /**
  * RT-727 shared pieces for the product-master reconciliation screens: the
  * read-error banner (every contract status mapped, request id shown), the
@@ -5,8 +6,10 @@
  * and the cursor-paged table. The pill, panel frame and as-of line are the
  * RT-560 ERP-status ones, so the integration area reads as one family.
  */
-import { Banner } from "@/components/Banner";
+import { BusyButton } from "@/components/BusyButton";
+import { TableScrollRegion } from "@/components/DataTableScroll";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
+import { SelectFilterBar } from "@/components/FilterBar";
 import { ListState as ListStateView } from "@/components/ListState";
 import { StatusPill } from "@/erp-status/parts";
 import { type MessageKey, type T, useT } from "@/i18n";
@@ -186,6 +189,7 @@ export function RefusalBanner({
   return <OutcomeBanner view={view} message={message} requestId={outcome.requestId} />;
 }
 
+/** The class filter, on the shared FilterBar (RT-960): Apply, Clear. */
 export function ClassFilter<C extends string>({
   id,
   classes,
@@ -199,22 +203,15 @@ export function ClassFilter<C extends string>({
 }>): React.JSX.Element {
   const t = useT();
   return (
-    <div className="recon-filter field">
-      <label htmlFor={id}>{t("productRecon.filter.class")}</label>
-      <select
-        id={id}
-        className="input"
-        value={value}
-        onChange={(e) => onChange(e.target.value as C | "")}
-      >
-        <option value="">{t("productRecon.filter.all")}</option>
-        {classes.map((cls) => (
-          <option key={cls} value={cls}>
-            {t(classView(cls).labelKey)}
-          </option>
-        ))}
-      </select>
-    </div>
+    <SelectFilterBar
+      label={t("productRecon.filter.label")}
+      id={id}
+      fieldLabel={t("productRecon.filter.class")}
+      value={value}
+      allLabel={t("productRecon.filter.all")}
+      options={classes.map((cls) => ({ value: cls, label: t(classView(cls).labelKey) }))}
+      onApply={(next) => onChange(next as C | "")}
+    />
   );
 }
 
@@ -293,37 +290,40 @@ export function ReconTable<R>({
       {list.rows.length === 0 ? (
         <ListStateView state="empty" emptyMessage={emptyMessage} />
       ) : (
-        <div className="table-scroll">
-          <table className="data-table">
-            <caption className="data-table__caption">{caption}</caption>
-            <thead>
-              <tr>
-                {columns.map((col) => (
-                  <th key={col.key} scope="col">
-                    {col.header}
-                  </th>
+        <TableScrollRegion>
+          {(captionId) => (
+            <table className="data-table">
+              <caption id={captionId} className="data-table__caption">
+                {caption}
+              </caption>
+              <thead>
+                <tr>
+                  {columns.map((col) => (
+                    <th key={col.key} scope="col">
+                      {col.header}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {list.rows.map((row) => (
+                  <Fragment key={rowKey(row)}>{renderRow(row)}</Fragment>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {list.rows.map((row) => (
-                <Fragment key={rowKey(row)}>{renderRow(row)}</Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </tbody>
+            </table>
+          )}
+        </TableScrollRegion>
       )}
       {list.hasMore ? (
         <div>
-          <button
+          <BusyButton
             type="button"
             className="btn-secondary"
             onClick={list.loadMore}
-            disabled={list.isFetchingNextPage}
+            busy={list.isFetchingNextPage}
           >
-            {list.isFetchingNextPage ? <span className="spinner" aria-hidden="true" /> : null}
             {t("productRecon.loadMore")}
-          </button>
+          </BusyButton>
         </div>
       ) : null}
     </>

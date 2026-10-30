@@ -55,7 +55,7 @@ test("RT-400: detail offers edit and no delete; save sends the name only", async
   await expect(page.getByRole("button", { name: /delete|حذف/i })).toHaveCount(0);
   await page.getByRole("link", { name: t("stores.detail.edit"), exact: true }).click();
 
-  await expect(page.getByRole("heading", { name: t("stores.form.section") })).toBeVisible();
+  await expect(page.getByRole("group", { name: t("stores.form.section") })).toBeVisible();
   await expect(page.locator("#store-code")).toHaveAttribute("readonly", "");
   await page.locator("#store-name").fill("CFC Mall");
   await page.getByRole("button", { name: t("stores.form.saveChanges"), exact: true }).click();

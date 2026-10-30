@@ -1,4 +1,3 @@
-import { UnknownItemList } from "@/unknown-items/UnknownItemList";
 /**
  * RF-4a nested route registration (T009). Mounts inside the protected layout
  * route (`/` → ProtectedArea → AppShell → <Outlet/>), so it sits behind RF-1's
@@ -9,6 +8,12 @@ import { UnknownItemList } from "@/unknown-items/UnknownItemList";
  * seam for this slice. RF-4b (link / create-product) is a later slice and adds
  * no route here.
  */
+import { lazyPage } from "@/shell/lazyPage";
 import { Route } from "react-router";
+
+const UnknownItemList = lazyPage(
+  () => import("@/unknown-items/UnknownItemList"),
+  "UnknownItemList",
+);
 
 export const rf4aRoutes = <Route path="unknown-items" element={<UnknownItemList />} />;

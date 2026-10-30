@@ -1,6 +1,3 @@
-import { SalesDaily } from "@/sales-daily/SalesDaily";
-import { SaleDetail } from "@/sales/SaleDetail";
-import { SaleList } from "@/sales/SaleList";
 /**
  * RT-587 sales route registration (spec 012). Mounts inside the protected
  * layout (`/` → ProtectedArea → AppShell → <Outlet/>), behind RF-1's context
@@ -9,7 +6,12 @@ import { SaleList } from "@/sales/SaleList";
  * RT-821: the daily received-sales report is a Sales sibling (RT-751 D6),
  * reached from the Sales screen, not from its own sidebar entry (UX-09).
  */
+import { lazyPage } from "@/shell/lazyPage";
 import { Route } from "react-router";
+
+const SalesDaily = lazyPage(() => import("@/sales-daily/SalesDaily"), "SalesDaily");
+const SaleDetail = lazyPage(() => import("@/sales/SaleDetail"), "SaleDetail");
+const SaleList = lazyPage(() => import("@/sales/SaleList"), "SaleList");
 
 export const saleRoutes = (
   <>

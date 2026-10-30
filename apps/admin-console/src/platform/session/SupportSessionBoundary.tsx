@@ -1,4 +1,3 @@
-import { useT } from "@/i18n";
 /**
  * RT-781 (RT-777 S2): the page body of a shell that can host a support session.
  * Once the session has expired the body is replaced by one calm state, so a
@@ -19,6 +18,8 @@ import { useT } from "@/i18n";
  * With no session (a member-entered tenant, a plain user) it renders its
  * children untouched.
  */
+import { PageHeader } from "@/components/PageHeader";
+import { useT } from "@/i18n";
 import { Link } from "react-router";
 import { SupportSessionBar } from "./SupportSessionBar";
 import type { SupportSessionController } from "./useSupportSession";
@@ -35,8 +36,10 @@ export function SupportSessionExpiredBody(): React.JSX.Element {
   const t = useT();
   return (
     <div className="support-session-expired">
-      <h1 className="content__title">{t("platform.session.expiredBody.title")}</h1>
-      <p className="content__sub">{t("platform.session.expiredBody.body")}</p>
+      <PageHeader
+        title={t("platform.session.expiredBody.title")}
+        subtitle={t("platform.session.expiredBody.body")}
+      />
       <Link className="btn-secondary" to={PLATFORM_HOME}>
         {t("platform.session.expiredBody.action")}
       </Link>
@@ -48,8 +51,10 @@ export function SupportSessionReadOnlyBody(): React.JSX.Element {
   const t = useT();
   return (
     <div className="support-session-expired">
-      <h1 className="content__title">{t("platform.session.readOnlyBody.title")}</h1>
-      <p className="content__sub">{t("platform.session.readOnlyBody.body")}</p>
+      <PageHeader
+        title={t("platform.session.readOnlyBody.title")}
+        subtitle={t("platform.session.readOnlyBody.body")}
+      />
       <Link className="btn-secondary" to={PLATFORM_HOME}>
         {t("platform.session.readOnlyBody.action")}
       </Link>

@@ -1,7 +1,9 @@
 import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
+import { BusyButton } from "@/components/BusyButton";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
 import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/i18n";
 import { type StoreDirectory, useStoreDirectory } from "@/shift-closes/useShiftCloses";
 /**
@@ -87,15 +89,14 @@ function Pager({ list }: Readonly<{ list: PairingCodeListState }>): React.JSX.El
       <div className="device-pager">
         <span>{t("devices.codes.loaded", { count: list.rows.length })}</span>
         {list.hasMore ? (
-          <button
+          <BusyButton
             type="button"
             className="btn-secondary"
             onClick={list.loadMore}
-            disabled={list.isFetchingNextPage}
+            busy={list.isFetchingNextPage}
           >
-            {list.isFetchingNextPage ? <span className="spinner" aria-hidden="true" /> : null}
             {t("devices.codes.loadMore")}
-          </button>
+          </BusyButton>
         ) : null}
       </div>
     </>
@@ -178,17 +179,15 @@ export function PairingCodes(): React.JSX.Element {
       <Link to="/devices" className="surface__back">
         <BackArrow /> {t("devices.codes.back")}
       </Link>
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("devices.codes.title")}</h1>
-          <p className="content__sub">
-            {t.rich("devices.codes.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
-          </p>
-        </div>
-        <button type="button" className="btn-primary" onClick={() => setPairing(true)}>
-          {t("devices.codes.issue")}
-        </button>
-      </header>
+      <PageHeader
+        title={t("devices.codes.title")}
+        subtitle={t.rich("devices.codes.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
+        actions={
+          <button type="button" className="btn-primary" onClick={() => setPairing(true)}>
+            {t("devices.codes.issue")}
+          </button>
+        }
+      />
       <ResultNotice result={cancel.result} />
       <div ref={region} tabIndex={-1} className="device-codes-region">
         <CodesBody list={list} directory={directory} cancel={cancel} />

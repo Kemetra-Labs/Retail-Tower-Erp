@@ -279,11 +279,10 @@ export function IdentifierAdd({
           </Field>
         </fieldset>
         <div className="surface__actions">
-          <GatedButton type="submit" className="btn-primary" disabled={pending || locked}>
-            {pending ? <span className="spinner" aria-hidden="true" /> : null}
+          <GatedButton type="submit" className="btn-primary" busy={pending} disabled={locked}>
             {t("catalog.identifier.add.submit")}
           </GatedButton>
-          <button type="button" className="btn-secondary" onClick={onClose} disabled={pending}>
+          <button type="button" className="btn-ghost" onClick={onClose} disabled={pending}>
             {t("common.cancel")}
           </button>
         </div>

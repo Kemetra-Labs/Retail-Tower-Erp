@@ -1,10 +1,17 @@
 import { DataTable, type DataTableColumn } from "@/components/DataTable";
 import { DocumentLocale } from "@/i18n";
+import { registerCatalog } from "@/i18n/catalogs";
+import { ar } from "@/i18n/messages/ar";
+import { en } from "@/i18n/messages/en";
 import { StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "@/styles/tokens.css";
 import "@/styles/controls.css";
 import "@/styles/a11y.css";
+
+// RT-962: the app loads catalogs on demand (main.tsx); a harness has both up front.
+registerCatalog("ar", ar);
+registerCatalog("en", en);
 
 /**
  * RT-756 e2e harness: the shared DataTable in selection mode, mounted on its

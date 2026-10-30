@@ -20,6 +20,11 @@
  * calls `onRowActivate`. It is named for the row from `selection.rowLabel`
  * ("Open Alpha"), the same caller-provided row name as the checkbox, so no
  * extra prop is needed. Without `selection` nothing changes.
+ *
+ * RT-963: a table without selection can opt into the same explicit «Open»
+ * control with `openLabel` (the row's name): rows then hold data only, and the
+ * button is the one way to open a row (DESIGN.md §5 "rows hold data, controls
+ * hold actions").
  */
 import "./data-table.css";
 import { useT } from "@/i18n";
@@ -76,6 +81,12 @@ export interface DataTableProps<Row> {
    */
   onSortChange?: (next: SortState | null) => void;
   selection?: DataTableSelection<Row>;
+  /**
+   * The row's name for an explicit «Open» button, without selection (RT-963).
+   * The row is then neither a click target nor a tab stop. Ignored with
+   * `selection`, which names its own open control.
+   */
+  openLabel?: (row: Row) => string;
 }
 
 function withToggled(selected: ReadonlySet<string>, key: string): ReadonlySet<string> {
@@ -117,6 +128,7 @@ export function DataTable<Row>({
   sort,
   onSortChange,
   selection,
+  openLabel,
 }: Readonly<DataTableProps<Row>>): React.JSX.Element {
   const captionId = useCaptionId();
   const t = useT();
@@ -127,6 +139,8 @@ export function DataTable<Row>({
     setRestored(next === null);
     onSortChange?.(next);
   };
+  // The explicit open control's row name: the selection's, or `openLabel`.
+  const openName = selection ? selection.rowLabel : openLabel;
   const pageKeys = rows.map(rowKey);
   const pageSelected = pageKeys.filter((k) => selection?.selectedKeys.has(k)).length;
   return (
@@ -147,7 +161,7 @@ export function DataTable<Row>({
                   }
                 />
               ) : null}
-              {selection ? <OpenHeader /> : null}
+              {openName ? <OpenHeader /> : null}
               {columns.map((col) => (
                 <th
                   key={col.key}
@@ -172,10 +186,8 @@ export function DataTable<Row>({
             {rows.map((row) => (
               <tr
                 key={rowKey(row)}
-                className={
-                  selection ? "data-table__row data-table__row--static" : "data-table__row"
-                }
-                {...(selection ? {} : rowActivation(row, onRowActivate))}
+                className={openName ? "data-table__row data-table__row--static" : "data-table__row"}
+                {...(openName ? {} : rowActivation(row, onRowActivate))}
               >
                 {selection ? (
                   <SelectCell
@@ -186,8 +198,8 @@ export function DataTable<Row>({
                     }
                   />
                 ) : null}
-                {selection ? (
-                  <OpenCell label={selection.rowLabel(row)} onOpen={() => onRowActivate(row)} />
+                {openName ? (
+                  <OpenCell label={openName(row)} onOpen={() => onRowActivate(row)} />
                 ) : null}
                 {columns.map((col) => (
                   <td key={col.key} className={col.mono ? "data-table__cell--mono" : undefined}>

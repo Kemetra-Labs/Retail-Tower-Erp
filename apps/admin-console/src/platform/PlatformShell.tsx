@@ -1,43 +1,22 @@
 /**
- * Tenant-less shell for `/platform` (RT-780, RT-777 §2). Top bar with a
- * platform identity label, a live-destinations-only sidebar (shell rule 7), and
- * the support-session bar (RT-781, RT-777 S2), which renders only while the
- * context carries a support session. It has no tenant scope bar: nothing here
- * switches the active tenant.
+ * Tenant-less shell for `/platform` (RT-780, RT-777 §2), on the Shell v3 frame
+ * (RT-969): a sidebar with the platform destinations only (shell rule 7), the
+ * top bar with the Ctrl K navigator over those destinations and the user menu,
+ * and the support-session bar (RT-781, RT-777 S2), which renders only while the
+ * context carries a support session. It has no scope switcher: nothing here
+ * switches the active tenant, and the navigator offers no store.
  */
 import { RateLimitBanner } from "@/components/RateLimitBanner";
-import { TowerMark } from "@/components/TowerMark";
-import { Icon } from "@/components/icons/Icon";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { useT } from "@/i18n";
-import { LocaleSwitch } from "@/i18n/LocaleSwitch";
-import { ShellMenuButton, ShellMenuDrawer, useShellMenu, useShellMenuId } from "@/shell/ShellMenu";
-import { ThemeToggle } from "@/theme/ThemeToggle";
-import { NavLink } from "react-router";
+import { useShellNavigator } from "@/shell/Navigator";
+import { NavEntries, ShellContent, ShellSidebar, ShellTopBar, SkipLink } from "@/shell/ShellFrame";
+import { ShellMenuDrawer, useShellMenu, useShellMenuId } from "@/shell/ShellMenu";
+import { PLATFORM_NAV } from "@/shell/nav-model";
 import { RateLimitClaimProvider, useRateLimitClaims } from "./rateLimitOwner";
 import { SupportSessionBarSlot, SupportSessionBoundary } from "./session/SupportSessionBoundary";
 import { useSupportSession } from "./session/useSupportSession";
-import "@/shell/app-shell.css";
 import "./platform.css";
-
-/** The platform destinations, for the sidebar and the compact-shell drawer (RT-825). */
-function PlatformNavEntries({
-  onNavigate,
-}: Readonly<{ onNavigate?: () => void }>): React.JSX.Element {
-  const t = useT();
-  return (
-    <NavLink
-      to="/platform/tenants"
-      className={({ isActive }) =>
-        isActive ? "nav-entry nav-entry--active" : "nav-entry nav-entry--link"
-      }
-      onClick={onNavigate}
-    >
-      <Icon name="tenant" className="nav-entry__icon" />
-      <span className="nav-entry__label">{t("platform.nav.tenants")}</span>
-    </NavLink>
-  );
-}
 
 export interface PlatformShellProps {
   onSignOut: () => void | Promise<void>;
@@ -55,49 +34,29 @@ export function PlatformShell({
   const user = context?.user;
   const menu = useShellMenu();
   const menuId = useShellMenuId();
-  const initials = (user?.display_name ?? user?.email ?? "?")
-    .split(/[\s@.]+/)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() ?? "")
-    .join("");
+  const navigator = useShellNavigator();
 
   return (
-    <div className="platform-shell">
-      <header className="topbar">
-        <ShellMenuButton menu={menu} drawerId={menuId} />
-        <span className="tower-lockup">
-          <TowerMark className="tower-mark" />
-          <span className="tower-lockup__word">Retail Tower OS</span>
-          <span className="tower-lockup__tag">{t("platform.label")}</span>
-        </span>
-        <div className="topbar__spacer" />
-        {/* RT-825: at the compact width these move into the menu drawer. */}
-        <div className="topbar__prefs">
-          <LocaleSwitch userId={user?.id} />
-          <ThemeToggle userId={user?.id} />
-        </div>
-        {user ? (
-          <span className="topbar__user">
-            <span className="topbar__avatar" aria-hidden="true">
-              {initials}
-            </span>
-            <span className="topbar__name">{user.display_name ?? user.email}</span>
-          </span>
-        ) : null}
-      </header>
+    <div className="shell platform-shell">
+      <SkipLink />
+      <ShellTopBar
+        menu={menu}
+        menuId={menuId}
+        navigator={navigator}
+        groups={PLATFORM_NAV}
+        withStores={false}
+        user={user}
+      />
 
       <div className="platform-session-slot" data-slot="support-session-bar">
         <SupportSessionBarSlot controller={supportSession} />
       </div>
-
-      <nav className="sidebar" aria-label={t("platform.nav.label")}>
-        <PlatformNavEntries />
-        <div className="topbar__spacer" />
-        <button type="button" className="nav-entry nav-signout" onClick={() => void onSignOut()}>
-          <Icon name="signOut" className="nav-entry__icon" />
-          <span className="nav-entry__label">{t("shell.signOut")}</span>
-        </button>
-      </nav>
+      <ShellSidebar
+        navLabel={t("platform.nav.label")}
+        tag={t("platform.label")}
+        groups={PLATFORM_NAV}
+        onSignOut={onSignOut}
+      />
 
       <ShellMenuDrawer
         menu={menu}
@@ -105,16 +64,16 @@ export function PlatformShell({
         user={user}
         navLabel={t("platform.nav.label")}
         onSignOut={onSignOut}
-        renderNav={(onNavigate) => <PlatformNavEntries onNavigate={onNavigate} />}
+        renderNav={(onNavigate) => <NavEntries groups={PLATFORM_NAV} onNavigate={onNavigate} />}
       />
 
-      <main className="content">
+      <ShellContent>
         {/* RT-931: a surface that shows its own 429 claims it; the shared banner skips that one. */}
         <RateLimitBanner hiddenThroughSeq={claimedThroughSeq} />
         <RateLimitClaimProvider value={claim}>
           <SupportSessionBoundary controller={supportSession}>{children}</SupportSessionBoundary>
         </RateLimitClaimProvider>
-      </main>
+      </ShellContent>
     </div>
   );
 }

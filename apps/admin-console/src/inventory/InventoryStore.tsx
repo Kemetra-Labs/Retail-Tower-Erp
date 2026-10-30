@@ -1,3 +1,6 @@
+import { NoAccess } from "@/auth/NoAccess";
+import { DataTableSkeleton } from "@/components/DataTableSkeleton";
+import { ListState } from "@/components/ListState";
 /**
  * RT-728 — one store's inventory: its stock locations (`listStockLocations`,
  * primary first) and its movement ledger (`listStockMovements` with
@@ -11,9 +14,7 @@
  * stays on the stock-discrepancy view). A store outside the caller's scope is
  * the API's non-disclosing 404 and reads as not available.
  */
-import { NoAccess } from "@/auth/NoAccess";
-import { DataTableSkeleton } from "@/components/DataTableSkeleton";
-import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
 import { DateTime, type T, useT } from "@/i18n";
 import type { StockLocation, StockMovement } from "@/lib/inventory-queries";
 import { ScopeMismatchBanner } from "@/shell/ScopeMismatchBanner";
@@ -71,7 +72,7 @@ function LocationsTable({ items }: Readonly<{ items: StockLocation[] }>): React.
               </td>
               <td>{t(locationKindKey(loc.kind))}</td>
               <td>
-                <span className={loc.isActive ? "badge badge--active" : "badge badge--suspended"}>
+                <span className={loc.isActive ? "badge badge--success" : "badge badge--warning"}>
                   {t(loc.isActive ? "inventory.locations.active" : "inventory.locations.inactive")}
                 </span>
               </td>
@@ -277,14 +278,10 @@ function StoreView({
   return (
     <div className="surface">
       <BackLink to="/inventory" label={t("inventory.store.back")} />
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">
-            {name ? <bdi dir="auto">{name}</bdi> : t("inventory.store.title")}
-          </h1>
-          <p className="content__sub">{t("inventory.store.sub")}</p>
-        </div>
-      </header>
+      <PageHeader
+        title={name ? <bdi dir="auto">{name}</bdi> : t("inventory.store.title")}
+        subtitle={t("inventory.store.sub")}
+      />
       <p className="inventory__note">{t("inventory.note.erpBook")}</p>
       <LocationsSection locations={locations} />
       <section className="inventory__section" aria-labelledby="inventory-movements">

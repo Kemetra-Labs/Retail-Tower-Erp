@@ -11,14 +11,13 @@ import type { Messages } from "../types";
  */
 export const sales = {
   // --- Navigation ------------------------------------------------------------
-  "sales.nav.section": "المعاملات",
   "sales.nav.label": "المبيعات",
 
   // --- List ------------------------------------------------------------------
   "sales.list.title": "المبيعات",
   "sales.list.sub": "عمليات البيع التي استلمها الخادم لمتجر واحد في {tenant}. للقراءة فقط.",
   "sales.list.scopePrompt": "اختر مؤسسة لعرض المبيعات.",
-  "sales.list.queryPrompt": "اختر متجرًا ونطاقًا من أيام العمل، ثم ابحث.",
+  "sales.list.queryPrompt": "اختر متجرًا ونطاقًا من أيام العمل، ثم طبّق.",
   "sales.list.queryPromptHint": "لا يُقرأ شيء قبل تحديد الاثنين. يغطي البحث 31 يوم عمل على الأكثر.",
   "sales.list.caption": "عمليات البيع التي استلمها الخادم، الأحدث أولًا",
   "sales.list.loadingNoun": "المبيعات",
@@ -63,6 +62,7 @@ export const sales = {
   "sales.filter.storePlaceholder": "اختر متجرًا",
   "sales.filter.from": "من يوم العمل",
   "sales.filter.to": "إلى يوم العمل",
+  "sales.filter.period": "الفترة",
   "sales.filter.zoneNote":
     "أيام العمل بتوقيت المتجر ({zone})، واليومان مشمولان، و31 يومًا على الأكثر.",
   "sales.filter.zonePending": "اختر متجرًا: تُقرأ أيام العمل بتوقيته.",
@@ -76,8 +76,6 @@ export const sales = {
   "sales.filter.returns": "المرتجعات",
   "sales.filter.erp": "الترحيل إلى ERPNext",
   "sales.filter.any": "الكل",
-  "sales.filter.apply": "بحث",
-  "sales.filter.clear": "مسح",
   "sales.filter.storeRequired": "اختر متجرًا.",
   "sales.filter.datesRequired": "أدخل التاريخين.",
   "sales.filter.dateInvalid": "أدخل تاريخًا صحيحًا بين 2000 و2100.",

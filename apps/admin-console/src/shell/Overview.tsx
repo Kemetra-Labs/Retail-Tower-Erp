@@ -3,7 +3,8 @@
  * default so it can be the `/` index element alongside the RF-2 nested routes
  * (T009). Reads scope from RF-1's provider; renders no authorization opinion.
  * RT-559: the scope line stays the first fact (AC-1); the spec 009 panels
- * follow it.
+ * follow it. RT-969: the title and scope line are the shared page header;
+ * RT-970: the panels render it, so Refresh sits among the header's actions.
  */
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { useT } from "@/i18n";
@@ -14,17 +15,16 @@ export function Overview(): React.JSX.Element {
   const { context } = useActiveContextValue();
   const tenant = <bdi>{context?.active_tenant?.name}</bdi>;
   return (
-    <>
-      <h1 className="content__title">{t("shell.overview.title")}</h1>
-      <p className="content__sub">
-        {context?.active_store
+    <OverviewPanels
+      title={t("shell.overview.title")}
+      subtitle={
+        context?.active_store
           ? t.rich("shell.overview.scope", {
               tenant,
               store: <bdi>{context.active_store.name}</bdi>,
             })
-          : tenant}
-      </p>
-      <OverviewPanels />
-    </>
+          : tenant
+      }
+    />
   );
 }

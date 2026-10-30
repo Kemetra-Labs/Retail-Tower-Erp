@@ -1,6 +1,8 @@
 import { Banner } from "@/components/Banner";
+import { FormErrorSummary, useSummaryFocus } from "@/components/FormErrorSummary";
+import { FormField } from "@/components/FormField";
+import { FormPage, FormPanel, FormSection } from "@/components/FormPage";
 import { GatedButton } from "@/components/GatedButton";
-import { InlineError } from "@/components/InlineError";
 import { type MessageKey, useT } from "@/i18n";
 import { textField } from "@/lib/form-field";
 import { type Rf2ErrorRender, mapRf2Error } from "@/lib/rf2-queries";
@@ -8,8 +10,9 @@ import { SAVED_NAVIGATION } from "@/shell/dirty-guard";
 /**
  * SF-T3 — Tenant create/edit form (T018). Uncontrolled native form (research
  * R4-3; no form library). No client-side validation — the backend is the
- * validation authority (FR-004-004). Field errors render inline (InlineError +
- * aria-invalid); surface errors render in the persistent Banner.
+ * validation authority (FR-004-004). Field errors render inline (aria-invalid)
+ * and in the error summary (RT-971 form template); surface errors render in the
+ * persistent Banner.
  *
  * Branching (mapped to the statuses the contract documents @ 62d0906):
  *   - success → route to the affected tenant detail, re-fetch
@@ -22,7 +25,6 @@ import { SAVED_NAVIGATION } from "@/shell/dirty-guard";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { useTenantMutations } from "./useTenantQueries";
-import "../shell/surface.css";
 
 export interface TenantFormProps {
   mode: "create" | "edit";
@@ -44,11 +46,14 @@ export function TenantForm({
   const [slugError, setSlugError] = useState<MessageKey | undefined>();
   const [banner, setBanner] = useState<Rf2ErrorRender | undefined>();
 
+  const summary = useSummaryFocus();
+
   const pending = create.isPending || update.isPending;
 
   function handleRender(render: Rf2ErrorRender): void {
     if (render.kind === "conflict" && render.field === "slug") {
       setSlugError(render.messageKey);
+      summary.focusSummary();
       return;
     }
     setBanner(render);
@@ -84,68 +89,81 @@ export function TenantForm({
   const title = t(mode === "create" ? "tenants.form.createTitle" : "tenants.form.editTitle");
   const submitLabel = t(mode === "create" ? "tenants.form.create" : "tenants.form.saveChanges");
 
+  const isEdit = mode === "edit";
+  const backPath = isEdit && tenantId ? `/tenants/${tenantId}` : "/tenants";
   return (
-    <div className="surface">
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{title}</h1>
-        </div>
-      </header>
+    <FormPage
+      back={{ to: backPath, label: t(isEdit ? "tenants.form.back" : "tenants.detail.back") }}
+      title={title}
+      notices={
+        banner && (banner.kind === "banner" || banner.kind === "not-found") ? (
+          <Banner
+            variant="danger"
+            message={t(banner.messageKey)}
+            requestId={banner.kind === "banner" ? banner.requestId : undefined}
+          />
+        ) : null
+      }
+    >
+      <FormPanel
+        onSubmit={onSubmit}
+        summary={
+          <FormErrorSummary
+            ref={summary.ref}
+            entries={slugError ? [{ fieldId: "tenant-slug", message: t(slugError) }] : []}
+          />
+        }
+        actions={
+          <>
+            <GatedButton type="submit" className="btn-primary" busy={pending}>
+              {submitLabel}
+            </GatedButton>
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => navigate(backPath)}
+              disabled={pending}
+            >
+              {t("common.cancel")}
+            </button>
+          </>
+        }
+      >
+        <FormSection title={t("tenants.form.section")} columns={2}>
+          <FormField id="tenant-name" label={t("tenants.field.name")} required>
+            {(aria) => (
+              <input
+                id="tenant-name"
+                name="name"
+                className="input"
+                defaultValue={initial?.name}
+                autoComplete="off"
+                {...aria}
+              />
+            )}
+          </FormField>
 
-      {banner && (banner.kind === "banner" || banner.kind === "not-found") ? (
-        <Banner
-          variant="danger"
-          message={t(banner.messageKey)}
-          requestId={banner.kind === "banner" ? banner.requestId : undefined}
-        />
-      ) : null}
-
-      <form className="surface__form" onSubmit={onSubmit} noValidate>
-        <div className="field">
-          <label htmlFor="tenant-slug">{t("tenants.field.slug")}</label>
-          <input
+          <FormField
             id="tenant-slug"
-            name="slug"
-            className="input"
-            defaultValue={initial?.slug}
-            readOnly={mode === "edit"}
-            aria-invalid={slugError ? "true" : undefined}
-            aria-describedby={slugError ? "tenant-slug-error" : undefined}
-            autoComplete="off"
-          />
-          <span id="tenant-slug-error">
-            <InlineError message={slugError ? t(slugError) : undefined} />
-          </span>
-        </div>
-
-        <div className="field">
-          <label htmlFor="tenant-name">{t("tenants.field.name")}</label>
-          <input
-            id="tenant-name"
-            name="name"
-            className="input"
-            defaultValue={initial?.name}
-            autoComplete="off"
-          />
-        </div>
-
-        <div className="surface__actions">
-          <GatedButton type="submit" className="btn-primary" disabled={pending}>
-            {pending ? <span className="spinner" aria-hidden="true" /> : null}
-            {submitLabel}
-          </GatedButton>
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() =>
-              navigate(mode === "edit" && tenantId ? `/tenants/${tenantId}` : "/tenants")
-            }
-            disabled={pending}
+            label={t("tenants.field.slug")}
+            required={!isEdit}
+            error={slugError ? t(slugError) : undefined}
           >
-            {t("common.cancel")}
-          </button>
-        </div>
-      </form>
-    </div>
+            {(aria) => (
+              <input
+                id="tenant-slug"
+                name="slug"
+                className="input input--mono"
+                dir="ltr"
+                defaultValue={initial?.slug}
+                readOnly={isEdit}
+                autoComplete="off"
+                {...aria}
+              />
+            )}
+          </FormField>
+        </FormSection>
+      </FormPanel>
+    </FormPage>
   );
 }

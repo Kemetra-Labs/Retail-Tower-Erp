@@ -2,6 +2,7 @@ import type { Locator } from "@playwright/test";
 import { expectNoAxeViolations } from "./axe";
 import { TIER1, mockRealisticApi } from "./compact-shell-data";
 import { type Page, expect, test } from "./fixtures";
+import { openUserMenu } from "./user-menu";
 
 /**
  * RT-825 (RT-785 SHELL-M1, D1/D2/D3): the compact shell at ≤768px. A ≥44px menu
@@ -166,7 +167,10 @@ for (const width of [360, 390, 412, 640, 768]) {
   test.describe(`compact shell at ${String(width)}px`, () => {
     test.use({ viewport: { width, height: 800 }, isMobile: true, hasTouch: true });
 
-    test("the top bar holds only the menu, the mark and the avatar", async ({ page, t }) => {
+    test("the top bar holds the menu, the mark, the navigator and the avatar", async ({
+      page,
+      t,
+    }) => {
       await mockApi(page);
       await page.goto("/");
       const button = menuButton(page, t);
@@ -183,7 +187,12 @@ for (const width of [360, 390, 412, 640, 768]) {
       await expect(
         page.locator(".topbar").getByRole("button", { name: t("theme.darkMode") }),
       ).toBeHidden();
-      await expect(page.locator(".sidebar")).toBeHidden();
+      // RT-969: the navigator is a 44px search button here.
+      await expectTouchTargets(page.locator(".navigator-trigger"), 1);
+      // RT-969: the sidebar's navigation moves to the drawer; the sidebar itself
+      // is the scope row under the top bar, so the scope stays one tap away.
+      await expect(page.locator(".sidebar__nav")).toBeHidden();
+      await expect(page.locator(".scope__btn")).toBeVisible();
       // The menu button sits at the inline start: right in Arabic, left in English.
       const bar = await boxOf(page, ".topbar");
       const rtl = (await page.locator("html").getAttribute("dir")) === "rtl";
@@ -216,7 +225,8 @@ for (const width of [360, 390, 412, 640, 768]) {
       await dialog.getByRole("link", { name: t("shell.nav.stores") }).tap();
       await expect(page).toHaveURL(/\/stores$/);
       await expect(dialog).toBeHidden();
-      await expect(button).toBeFocused();
+      // RT-963: a navigation hands focus to the new page's title, not back to the menu.
+      await expect(page.locator("h1[data-page-title]")).toBeFocused();
     });
 
     test("every drawer control and the scope controls are 44px touch targets", async ({
@@ -304,10 +314,13 @@ test.describe("compact shell checks at 390px", () => {
     }
   });
 
-  test("keyboard: the menu button is the first stop and opens the drawer", async ({ page, t }) => {
+  test("keyboard: the skip link, then the menu button, opens the drawer", async ({ page, t }) => {
     await mockApi(page);
     await page.goto("/");
     await page.locator(".content").waitFor();
+    // RT-963: the skip link is the shell's first stop.
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("link", { name: t("shell.skipToContent") })).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(menuButton(page, t)).toBeFocused();
     await page.keyboard.press("Enter");
@@ -325,7 +338,10 @@ test.describe("compact shell checks at 390px", () => {
     await page.emulateMedia({ forcedColors: "active" });
     await page.goto("/stores");
     await page.locator(".content").waitFor();
+    // RT-963: past the skip link to the menu button.
     await page.keyboard.press("Tab");
+    await page.keyboard.press("Tab");
+    await expect(menuButton(page, t)).toBeFocused();
     const ring = await menuButton(page, t).evaluate((el) => getComputedStyle(el).outlineStyle);
     expect(ring).not.toBe("none");
     await page.keyboard.press("Enter");
@@ -404,10 +420,13 @@ test.describe("desktop shell above 768px is unchanged", () => {
     await page.goto("/");
     await expect(page.locator(".sidebar")).toBeVisible();
     await expect(menuButton(page, t)).toBeHidden();
+    // RT-969: the theme and language switches sit in the top bar's user menu.
+    await openUserMenu(page);
     await expect(
       page.locator(".topbar").getByRole("button", { name: t("theme.darkMode") }),
     ).toBeVisible();
     await expect(page.locator(".topbar__name")).toBeVisible();
-    await expect(page.locator(".topbar .tower-lockup__tag")).toBeVisible();
+    // RT-969: the brand lockup and its product tag are the sidebar's.
+    await expect(page.locator(".sidebar .tower-lockup__tag")).toBeVisible();
   });
 });

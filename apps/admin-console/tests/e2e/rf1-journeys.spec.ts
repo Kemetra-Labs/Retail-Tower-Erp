@@ -39,7 +39,7 @@ test("S2: multi-membership lands on the full-screen scope gate", async ({ page, 
   await expect(page.getByText("Helios Markets")).toBeVisible();
 });
 
-test("resolved context renders the app shell with the gold scope header", async ({ page, t }) => {
+test("resolved context renders the app shell with the scope switcher", async ({ page, t }) => {
   await mockContext(page, {
     user,
     active_tenant: { id: "t1", name: "Northstar Retail" },
@@ -49,9 +49,9 @@ test("resolved context renders the app shell with the gold scope header", async 
   });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
-  // Scope header shows tenant > store
+  // The scope switcher (RT-969: in the sidebar) names the store, then its tenant.
   await expect(
-    page.getByRole("button", { name: /Northstar Retail.*Cairo Festival City/s }),
+    page.getByRole("button", { name: /Cairo Festival City.*Northstar Retail/s }),
   ).toBeVisible();
 });
 

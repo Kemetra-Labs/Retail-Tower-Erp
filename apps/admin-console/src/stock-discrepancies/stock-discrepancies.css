@@ -84,9 +84,6 @@
   color: var(--color-text-muted);
 }
 
-.table-scroll {
-  overflow-x: auto;
-}
 .stock-table time,
 .stock-table .nowrap {
   white-space: nowrap;

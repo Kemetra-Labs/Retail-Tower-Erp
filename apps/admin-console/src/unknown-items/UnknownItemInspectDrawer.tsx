@@ -71,7 +71,7 @@ function ReopenAction({
         <GatedButton
           type="button"
           className="btn-primary"
-          disabled={reopen.isPending}
+          busy={reopen.isPending}
           onClick={() =>
             reopen.mutate(item.id, {
               onSuccess: (res) => {
@@ -80,7 +80,6 @@ function ReopenAction({
             })
           }
         >
-          {reopen.isPending ? <span className="spinner" aria-hidden="true" /> : null}
           {t("unknownItems.reopen.action")}
         </GatedButton>
       </div>

@@ -2,7 +2,8 @@ import { expectNoAxeViolations } from "./axe";
 import { type Page, expect, test } from "./fixtures";
 
 /**
- * RT-559 Overview (spec 009) on the built SPA, in both locales. AC-12: changing
+ * RT-559 Overview (spec 009) on the built SPA, in both locales, as rebuilt by
+ * RT-970 (Overview v2). AC-12: changing
  * the store re-reads every panel and no row from the old scope stays visible.
  * AC-10 (OD-009-3): a plain /audit link, and no audit read at all.
  * AC-13: the page renders in light, dark and forced-colors (captures attached)
@@ -52,7 +53,7 @@ const ANSWERS = {
   shift: { all: 2, s2: 0 },
 } as const;
 
-/** RT-820 P-6: two stores on different business days (Cairo is already on the 16th). */
+/** Two stores on different business days: the scope has no single "today" (RT-970). */
 function salesSummary() {
   const kpis = (count: number) => ({
     receivedSales: { count, byCurrency: [{ currencyCode: "EGP", count, total: "1250.5000" }] },
@@ -105,7 +106,7 @@ function salesSummary() {
   };
 }
 
-type Panel = "stock" | "shift" | "unknown" | "receivables" | "audit";
+type Panel = "stock" | "shift" | "unknown" | "receivables" | "audit" | "glance";
 
 async function mock(page: Page): Promise<Record<Panel, (string | null)[]>> {
   const seen: Record<Panel, (string | null)[]> = {
@@ -114,6 +115,7 @@ async function mock(page: Page): Promise<Record<Panel, (string | null)[]>> {
     unknown: [],
     receivables: [],
     audit: [],
+    glance: [],
   };
   const json = (body: unknown) => ({
     status: 200,
@@ -165,7 +167,17 @@ async function mock(page: Page): Promise<Record<Panel, (string | null)[]>> {
       const n = store === "s2" ? ANSWERS[panel].s2 : ANSWERS[panel].all;
       return r.fulfill(json({ items: items(n), [cursorField]: null }));
     };
-  await page.route("**/api/v1/sales-summary**", (r) => r.fulfill(json(salesSummary())));
+  await page.route("**/api/v1/sales-summary**", (r) => {
+    seen.glance.push(storeOf(r.request().url()));
+    return r.fulfill(json(salesSummary()));
+  });
+  // RT-970: the pipeline's active devices and the store's latest sales.
+  await page.route("**/api/v1/devices?**", (r) =>
+    r.fulfill(json({ items: items(3), nextCursor: null })),
+  );
+  await page.route("**/api/v1/sales?**", (r) =>
+    r.fulfill(json({ items: [], nextCursor: null, storeTimezone: "Africa/Cairo" })),
+  );
   await page.route("**/api/v1/shift-closes**", counted("shift", "nextCursor"));
   await page.route("**/api/v1/catalog/unknown-items**", counted("unknown", "next_cursor"));
   // P-4 (flagged receivables) is withdrawn (RT-421): the Overview must not read receivables.
@@ -212,7 +224,7 @@ test("AC-12: changing the store re-reads every panel and drops the old scope's r
   await expect(ledger.getByText(stockLabel("Cairo Festival City"))).toBeHidden();
   await expect(ledger.getByText(count("overview.unknown.noun", 5))).toBeHidden();
   await expect(ledger.getByText(count("overview.shift.noun", 2))).toBeHidden();
-  for (const panel of ["shift", "unknown"] as const) {
+  for (const panel of ["shift", "unknown", "glance"] as const) {
     expect(seen[panel], panel).toContain("s2");
   }
   expect(seen.stock).toContain("s2");
@@ -245,10 +257,14 @@ test("AC-13: light, dark and forced-colors render; every control is keyboard-rea
     await page.screenshot({ path, fullPage: true });
     await testInfo.attach(`overview-${appLocale}-${name}`, { path, contentType: "image/png" });
   };
-  const sales = page.getByRole("region", { name: t("overview.sales.title") });
-  await expect(sales.getByText("Cairo Festival City").first()).toBeVisible();
-  await expect(sales.getByText(t("metrics.claim.unknown"), { exact: true })).toBeVisible();
-  await expect(sales.getByText(t("overview.sales.total"))).toBeHidden();
+  // Stores on different business days: no made-up scope "today" (RT-970).
+  const kpis = page.getByRole("region", { name: t("overview.kpi.label") });
+  await expect(kpis.getByText(t("overview.kpi.mixed"), { exact: false })).toBeVisible();
+  const pipeline = page.getByRole("region", { name: t("overview.pipeline.label") });
+  await expect(pipeline.getByText(t("overview.pipeline.devices", { count: 3 }))).toBeVisible();
+  await expect(
+    page.getByRole("img", { name: t("overview.trend.summary", { currency: "EGP" }) }),
+  ).toBeVisible();
   await expectNoAxeViolations(page, `overview ${appLocale} light`);
   await capture("light");
   await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
@@ -266,7 +282,10 @@ test("AC-13: light, dark and forced-colors render; every control is keyboard-rea
     t("overview.stock.open"),
     t("overview.shift.open"),
     t("overview.unknown.open"),
-    t("overview.sales.open"),
+    t("overview.pipeline.openDevices"),
+    t("overview.pipeline.openRepair"),
+    t("overview.trend.table"),
+    t("overview.recent.all"),
     t("shell.nav.audit"),
   ];
   const reached = new Set<string>();

@@ -3,18 +3,17 @@ import type { MessagesOf } from "../types";
 
 export const shell: MessagesOf<typeof ar> = {
   "shell.nav.label": "Primary",
+  "shell.sidebar.label": "Scope and navigation",
   "shell.nav.overview": "Overview",
   "shell.nav.section.management": "Management",
   "shell.nav.tenants": "Tenants",
   "shell.nav.stores": "Stores",
   "shell.nav.operators": "Operators",
   "shell.nav.audit": "Audit",
-  "shell.nav.section.inventory": "Inventory",
   "shell.nav.stockDiscrepancies": "Stock discrepancies",
-  "shell.nav.section.catalog": "Catalog",
-  "shell.nav.section.cash": "Cash",
   "shell.nav.shiftCloses": "Shift closes",
   "shell.nav.unknownItems": "Unknown items",
+  "shell.skipToContent": "Skip to content",
   "shell.signOut": "Sign out",
   "shell.menu": "Menu",
 
@@ -27,6 +26,16 @@ export const shell: MessagesOf<typeof ar> = {
   "shell.scope.loadFailed": "Couldn't load stores.",
   "shell.scope.noStores": "No stores you can open in this tenant.",
   "shell.scope.announce": "Now working in {tenant}, {store}.",
+  "shell.scope.in": " in ",
+
+  "shell.navigator.open": "Go to a page or store",
+  "shell.navigator.title": "Go to",
+  "shell.navigator.input": "Page or store name",
+  "shell.navigator.pages": "Pages",
+  "shell.navigator.stores": "Stores",
+  "shell.navigator.current": "(current)",
+  "shell.navigator.empty": "No page or store matches “{query}”.",
+  "shell.userMenu.prefs": "Preferences",
 
   "shell.gate.title": "Select your context",
   "shell.gate.sub": "Choose a tenant to continue.",

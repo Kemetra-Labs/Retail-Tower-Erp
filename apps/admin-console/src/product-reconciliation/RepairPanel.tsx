@@ -102,7 +102,7 @@ function RefForm({ input, locked, onInput, onReview, onCancel }: Readonly<RefFor
           <button type="submit" className="btn-primary">
             {t("productRecon.repair.review")}
           </button>
-          <button type="button" className="btn-secondary" onClick={onCancel}>
+          <button type="button" className="btn-ghost" onClick={onCancel}>
             {t("common.cancel")}
           </button>
         </div>
@@ -137,11 +137,10 @@ function ConfirmStep({
         })}
       </p>
       <div className="recon-actions">
-        <GatedButton className="btn-primary" disabled={pending} onClick={onConfirm}>
-          {pending ? <span className="spinner" aria-hidden="true" /> : null}
+        <GatedButton className="btn-primary" busy={pending} onClick={onConfirm}>
           {t("productRecon.repair.confirm")}
         </GatedButton>
-        <button type="button" className="btn-secondary" disabled={pending} onClick={onBack}>
+        <button type="button" className="btn-ghost" disabled={pending} onClick={onBack}>
           {t("productRecon.repair.back")}
         </button>
       </div>
@@ -253,15 +252,14 @@ function MappingRepair({ scope, target, onClose }: Readonly<RepairPanelProps>): 
             )}
           </p>
           <div className="recon-actions">
-            <GatedButton className="btn-primary" disabled={pending} onClick={() => void confirm()}>
-              {pending ? <span className="spinner" aria-hidden="true" /> : null}
+            <GatedButton className="btn-primary" busy={pending} onClick={() => void confirm()}>
               {t(
                 repoint
                   ? "productRecon.repair.mapping.repoint"
                   : "productRecon.repair.mapping.confirm",
               )}
             </GatedButton>
-            <button type="button" className="btn-secondary" disabled={pending} onClick={onClose}>
+            <button type="button" className="btn-ghost" disabled={pending} onClick={onClose}>
               {t("common.cancel")}
             </button>
           </div>
