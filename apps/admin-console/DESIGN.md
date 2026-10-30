@@ -80,7 +80,7 @@ spacing:
 > display face for headings and figures. §12 is the full rule set and lists what each earlier
 > rule it amends. It is **approved, not shipped**: `main` still renders v3.0 until the
 > migration slices in §10 land. §12.8 lists the decided items (1–3, each with a remaining step)
-> and the open ones (4–7) a slice waits on.
+> and the open ones (4–6) a slice waits on.
 >
 > **Version 3.0 — Shell v3 "Daylight Commerce" (RT-969, 2026-10-30).** On 2026-10-30 the owner
 > rejected the v2 Console look as "primitive, not a control panel" and approved direction
@@ -620,7 +620,7 @@ Each debt is tracked separately. Do not fold them into feature work.
 | Admin type migration Inter → Dubai (with Arabic line-height and the 12px floor) | UX-03 | **RT-397** |
 | Reconcile `PRODUCT.md` Principle 6 and the anti-reference note with light-first | UX-02 | **RT-966** (resolved) |
 | Shell v3: sidebar with scope switcher, top bar with Ctrl K navigator and user menu, page header, content container | UX-04, UX-09 | **RT-969**. Screens follow: Overview v2 (RT-970), detail template (RT-961), forms and sign-in (RT-971), control states (RT-959) |
-| v4.0 "Ink & Receipt": (a) Ink/Mint and elevation role tokens, light now, dark after §12.8.4; (b) Ink sidebar + Mint signal line; (c) receipt card + pipeline rail components; (d) Overview v4 (charts with table views); (e) display face; (f) list header bands and drawer headers (D-V9); (g) remaining screens per slice | UX-02, UX-03, UX-04, UX-13 | **Not filed yet.** One Jira issue per letter. Waits: (a) dark half on §12.8.4; (d) on §12.8.2 (each KPI's good direction) and §12.8.6 (data sources); (e) on §12.8.3 (licence + A/B); segmented controls in any slice on §12.8.7 |
+| v4.0 "Ink & Receipt": (a) Ink/Mint and elevation role tokens, light now, dark after §12.8.4; (b) Ink sidebar + Mint signal line; (c) receipt card + pipeline rail components; (d) Overview v4 (charts with table views); (e) display face; (f) list header bands and drawer headers (D-V9); (g) remaining screens per slice | UX-02, UX-03, UX-04, UX-13 | **Not filed yet.** One Jira issue per letter. Waits: (a) dark half on §12.8.4; (d) on §12.8.2 (each KPI's good direction) and §12.8.6 (data sources); (e) on §12.8.3 (licence + A/B); (f) and segmented controls follow D-V3 as amended (§12.6) |
 
 ## 11. Do's and Don'ts
 
@@ -660,7 +660,7 @@ hex.
 
 | Target role | Light | Use |
 | --- | --- | --- |
-| `--color-ink` | `#0a2125` | Sidebar surface; the hero receipt card; the one "ink" button style; tooltip fill; list header bands and drawer headers (D-V9). |
+| `--color-ink` | `#0a2125` | Sidebar surface; the hero receipt card; the one "ink" button style; the selected segment on light surfaces (D-V3); tooltip fill; list header bands and drawer headers (D-V9). |
 | `--color-mint` | `#5fe0cf` | Highlight **on Ink only** (D-V2): the active nav signal line and icon, hero figures' accent, chart focus point, the selected segment on Ink, the `Ctrl K` key, and the primary fill on Ink (bands, drawer headers, dark theme). Never text **or fill** on a light surface (it measures 1.6:1 on white). |
 | `--color-ink-muted` | `#a9c2c5` | Secondary text on Ink (≥ 4.5:1 on `--color-ink`). |
 | `--color-canvas` | `#f2f5f6` | Page background (replaces `--color-background` as the work surface value). |
@@ -742,11 +742,13 @@ keeps gaps for missing buckets; the hero sparkline states its period (for exampl
 ### 12.6 Components
 
 - **Buttons:** primary actions on light surfaces become **ink** (`--color-ink` fill, white
-  text, a short Ink shadow, −1px lift on hover). Teal stays for links and focus. `.btn-secondary` / `.btn-ghost` / danger variants and all §9 grammar
+  text, a short Ink shadow, −1px lift on hover). Teal stays for links, focus and the other
+  selection states on light surfaces (selected rows, checked boxes and radios, chosen chips). `.btn-secondary` / `.btn-ghost` / danger variants and all §9 grammar
   (one primary, ghost cancel, danger-quiet → destructive, busy, 36px) are unchanged.
-- **Segmented control:** on Ink the selected segment is Mint with Ink text (D-V2). On light
-  surfaces it is **open** (§12.8.7): the v9 boards draw it Ink with white text, but D-V3 keeps
-  "selection on light surfaces" Teal.
+- **Segmented control and tab sets (D-V3, owner decision 2026-10-30):** on light surfaces the
+  selected segment is Ink with white text; on Ink it is Mint with Ink text (D-V2). It keeps
+  `aria-pressed`/`aria-selected` and a difference beyond colour (the filled shape against
+  unfilled siblings, or weight), and maps to `Highlight`/`HighlightText` under forced colours.
 - **Status pill:** keeps text; its marker becomes a small rotated square.
 - **Avatars:** initials on Ink with Mint text, 8–14px radius by size.
 - **Sidebar footer:** a system-status block and a support card are allowed only with a
@@ -774,10 +776,12 @@ keeps gaps for missing buckets; the hero sparkline states its period (for exampl
 | §5: panels shadowless; 8px controls, 12px objects | One resting elevation; panels and cards 20px, controls 10–12px, top-bar search 14px (§12.5). |
 | §9 nav: teal wash + Signal Line | Mint signal line on Ink (§12.2). |
 | §9 buttons: `.btn-primary` teal fill | Ink fill on light surfaces (§12.6). |
+| §9 / UX-02: teal owns selection | The selected segment of a segmented control or tab set is Ink on light surfaces; other selection stays Teal (D-V3, §12.6). |
 
 ### 12.8 Decisions and open items before implementation
 
-Items 1–3 are owner decisions of 2026-10-30, each with a remaining step; items 4–7 are open.
+Items 1–3 and 7 are owner decisions of 2026-10-30 (1–3 each with a remaining step); items 4–6
+are open.
 
 1. **Constitution amendments — decided: amend the Constitution.** §1 puts the UX
    Constitution above this file, so the rows of §12.7 that touch UX-02 (dark surface,
@@ -806,5 +810,6 @@ Items 1–3 are owner decisions of 2026-10-30, each with a remaining step; items
 6. **Data sources:** the sidebar system-status block, the support card, store "share of
    today", low-stock severity, the credential-life ring and the business-day bar each need a
    backing read; render none of them without it.
-7. **Selected segment on light surfaces:** Ink (as drawn on the v9 boards) or Teal (as D-V3
-   says). Ink needs a D-V3 change in Confluence 62816260; Teal needs the boards redrawn.
+7. **Selected segment on light surfaces — decided: Ink.** D-V3 was amended in Confluence
+   62816260 (version 3): Ink with white text on light surfaces, Mint on Ink; every other
+   selection on light surfaces stays Teal (§12.6).

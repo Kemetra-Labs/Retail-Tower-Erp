@@ -1,6 +1,6 @@
 # Owner decisions 2026-10-30: Admin Console visual direction v4.0 «Ink & Receipt» — amendments to UX-02, UX-03, UX-04
 
-> **Approved by the owner and published 2026-10-30** (synced with version 2) as Confluence page
+> **Approved by the owner and published 2026-10-30** (synced with version 3) as Confluence page
 > [62816260](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/62816260) under the
 > Decisions register (5341185). **The Confluence page governs**; this file is the working
 > copy it was drafted from and may be deleted before merge.
@@ -51,13 +51,18 @@ UX-02, UX-03 and UX-04 as written on 2026-10-07; this page amends exactly those 
   figure's accent, the chart focus point, the selected segment and the `Ctrl K` key.
 - **Conditions:** never as text or fill on a light surface (it measures 1.6:1 on white).
 
-### D-V3 — Primary action fill (amends UX-02 «Teal Means Intent»)
+### D-V3 — Primary action fill and selected segment (amends UX-02 «Teal Means Intent»)
 
 - **Amends:** "Tower Teal owns primary action, selection, focus/interaction language and
   active brand identity."
-- **Decision:** on light surfaces the primary action is filled with Ink; Tower Teal keeps
-  focus, selection on light surfaces, links and brand identity. In the dark theme the primary
-  fill is Mint on Ink.
+- **Decision:** on light surfaces two things are filled with Ink (white text): the primary
+  action, and the **selected segment of a segmented control or tab set** (owner decision
+  2026-10-30, after the review of the DESIGN.md v4.0 pull request). Tower Teal keeps focus,
+  links, brand identity and the other selection states on light surfaces: selected rows,
+  checked boxes and radios, chosen filter chips. In the dark theme, and on any Ink surface,
+  the primary fill and the selected segment are Mint with Ink text.
+- **Conditions:** the selected segment keeps `aria-pressed` or `aria-selected` and a visible
+  difference beyond colour; under forced colours it maps to `Highlight`/`HighlightText`.
 - **Unchanged:** one primary per context; ghost cancel; danger-quiet → destructive grammar;
   busy and disabled rules (Admin `DESIGN.md` §9).
 
