@@ -34,6 +34,12 @@
  * Only the CURRENT pairing's terminal is drained (RT-221); a null terminal
  * drains nothing.
  *
+ * RT-997 (migration 0059, [GATED]): a close recorded with a `countAttempt` stamp
+ * writes the ACCEPTED Count Attempt just before the close row and the close's
+ * link to it just after, in the same transaction (a rollback takes all three);
+ * `recordRefusedCount` appends a refused count on the open shift. Attempts stay
+ * local: nothing here touches the outbox (see `shift-count-attempts.ts`).
+ *
  * The sync transitions apply only to a `pending` row and report whether they
  * did. Every send is an attempt, success included. Every instant given to the
  * repository is a canonical `toISOString()` instant (`invalid_timestamp`
@@ -43,6 +49,12 @@
  * note and closed-set codes only.
  */
 import type { DatabaseHandle } from '../db/client.js';
+import {
+  insertCloseCountLink,
+  insertCountAttempt,
+  type CountAttemptFact,
+  type CountAttemptStamp,
+} from './shift-count-attempts.js';
 import {
   buildCashMovementRequest,
   buildCloseShiftRequest,
@@ -168,7 +180,23 @@ export interface ShiftSyncDeadLetter extends ShiftSyncTransition {
   reason: ShiftSyncDeadLetterReason;
 }
 
-export interface RecordForcedCloseInput extends RecordShiftFactInput<ShiftCloseFact> {
+export interface RecordCloseInput extends RecordShiftFactInput<ShiftCloseFact> {
+  /**
+   * RT-997: the accepted Count Attempt this close rests on. Absent for a close
+   * made by a path that records none (a shift recorded before 0059).
+   */
+  countAttempt?: CountAttemptStamp;
+}
+
+/** A count the close refused after the till evaluated it (outcome `refused`). */
+export interface RecordRefusedCountInput {
+  scope: ShiftScope;
+  attempt: Omit<CountAttemptFact, 'outcome'>;
+  /** ISO-8601 UTC: when the fact was recorded. */
+  now: string;
+}
+
+export interface RecordForcedCloseInput extends RecordCloseInput {
   forcedReason: string;
   /**
    * Runs INSIDE the transaction, after the close row and the outbox row are
@@ -182,7 +210,13 @@ export interface RecordForcedCloseInput extends RecordShiftFactInput<ShiftCloseF
 export interface ShiftCashupRepo {
   recordOpen(input: RecordShiftFactInput<ShiftOpenFact>): RecordedShiftFact;
   recordMovement(input: RecordShiftFactInput<CashMovementFact>): RecordedShiftFact;
-  recordClose(input: RecordShiftFactInput<ShiftCloseFact>): RecordedShiftFact;
+  recordClose(input: RecordCloseInput): RecordedShiftFact;
+  /**
+   * RT-997 — appends a `refused` Count Attempt for the terminal's open shift
+   * (`ShiftCashupStateError('shift_not_open')` for any other shift). Never
+   * edits an earlier attempt: a recount is another row.
+   */
+  recordRefusedCount(input: RecordRefusedCountInput): void;
   /**
    * RT-554 — a manager's forced close of the terminal's open shift: the close
    * row (`close_kind = 'forced'`) and an ORIGINAL manager-envelope outbox row
@@ -485,8 +519,23 @@ export function createShiftCashupRepo(db: DatabaseHandle): ShiftCashupRepo {
     now: string;
     /** `null` = a normal close; the reason code = a forced close. */
     forcedReason: string | null;
+    countAttempt: CountAttemptStamp | undefined;
   }): void {
-    const { fact } = input;
+    const { fact, countAttempt } = input;
+    // RT-997: the accepted attempt goes in before the close row (0059 refuses
+    // an attempt on a closed shift) and the link after it (it names the close).
+    if (countAttempt !== undefined) {
+      insertCountAttempt(
+        run,
+        {
+          ...countAttempt,
+          shiftId: fact.shiftId,
+          countedCashMinor: fact.countedCashMinor,
+          outcome: 'accepted',
+        },
+        input.now,
+      );
+    }
     run(
       `INSERT INTO shift_cashup_closes (shift_id, closed_at, closing_user_id, close_kind,
          forced_reason, opening_float_minor, cash_sales_total_minor, cash_refunds_total_minor,
@@ -512,9 +561,16 @@ export function createShiftCashupRepo(db: DatabaseHandle): ShiftCashupRepo {
       fact.varianceApprovedByUserId ?? null,
       input.now,
     );
+    if (countAttempt !== undefined) {
+      insertCloseCountLink(
+        run,
+        { shiftId: fact.shiftId, attemptId: countAttempt.attemptId },
+        input.now,
+      );
+    }
   }
 
-  function recordClose(input: RecordShiftFactInput<ShiftCloseFact>): RecordedShiftFact {
+  function recordClose(input: RecordCloseInput): RecordedShiftFact {
     const { scope, now } = input;
     return db.transaction(() => {
       const open = requireOpenShift({ scope, shiftId: input.fact.shiftId });
@@ -523,13 +579,20 @@ export function createShiftCashupRepo(db: DatabaseHandle): ShiftCashupRepo {
         currencyCode: open.currencyCode,
       });
       checkCarriedTotals({ open, fact });
-      insertClose({ fact, now, forcedReason: null });
+      insertClose({ fact, now, forcedReason: null, countAttempt: input.countAttempt });
       return enqueue({
         scope,
         ref: { factKind: 'close', shiftId: fact.shiftId, movementId: null },
         request,
         now,
       });
+    })();
+  }
+
+  function recordRefusedCount(input: RecordRefusedCountInput): void {
+    db.transaction(() => {
+      requireOpenShift({ scope: input.scope, shiftId: input.attempt.shiftId });
+      insertCountAttempt(run, { ...input.attempt, outcome: 'refused' }, input.now);
     })();
   }
 
@@ -543,7 +606,12 @@ export function createShiftCashupRepo(db: DatabaseHandle): ShiftCashupRepo {
         forcedReason: input.forcedReason,
       });
       checkCarriedTotals({ open, fact });
-      insertClose({ fact, now, forcedReason: input.forcedReason });
+      insertClose({
+        fact,
+        now,
+        forcedReason: input.forcedReason,
+        countAttempt: input.countAttempt,
+      });
       const recorded = enqueue({
         scope,
         ref: { factKind: 'close', shiftId: fact.shiftId, movementId: null },
@@ -611,6 +679,7 @@ export function createShiftCashupRepo(db: DatabaseHandle): ShiftCashupRepo {
     recordOpen,
     recordMovement,
     recordClose,
+    recordRefusedCount,
     recordForcedClose,
     findOpenShift,
     nextFact,
