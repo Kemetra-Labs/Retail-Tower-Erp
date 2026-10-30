@@ -22,7 +22,10 @@
 #             dispatched ref; from anything but an admin-console/v* tag it must never start.
 #
 # Every job is environment-free and secret-free except publish and env-probe. The token is
-# read-only (workflow `permissions: {}`, contents: read per job).
+# read-only (workflow `permissions: {}`, contents: read per job). Only publish, admitted by the
+# environment, gets contents write, id-token write and attestations write: these scopes are
+# repo-wide (a monorepo token is never confined to apps/admin-console); the boundary is the
+# tag-only environment and this job's steps.
 name: release-admin-console
 
 "on":
