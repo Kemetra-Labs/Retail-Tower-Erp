@@ -21,6 +21,7 @@ import { load } from "js-yaml";
 import { resolveAiReservationTtlSeconds } from "../../src/ai-entitlements/ai-entitlements.tokens";
 import { readAiGatewayRuntime } from "../../src/ai/gateway/ai-gateway.runtime";
 import { isOutboxAuditEnabled } from "../../src/audit/audit-enqueuer.module";
+import { descopeAuthFactory } from "../../src/auth/descope-auth.client";
 import { readPublicAuthLimiterTimeoutMs } from "../../src/auth/public-auth-limiter";
 import { isLegacyRefundEnabled, isRefundSettleBeforePostEnabled } from "../../src/catalog/sales/refund-gates";
 import { isPosReturnsEnabled } from "../../src/catalog/sales/returns-gate";
@@ -221,6 +222,13 @@ describe("RT-984 production compose passes every API env setting", () => {
       ["CASHIER_TAKEOVER_LIMITER_TIMEOUT_MS", () => readTakeoverLimiterTimeoutMs()],
       ["DESCOPE_JWT_ISSUER", () => descopeVerifierConfig(PROJECT_ID)],
       ["DESCOPE_JWT_AUDIENCE", () => descopeVerifierConfig(PROJECT_ID)],
+      [
+        "DESCOPE_MANAGEMENT_KEY",
+        () => {
+          process.env["DESCOPE_PROJECT_ID"] = PROJECT_ID;
+          return Reflect.get(descopeAuthFactory(), "managementKey");
+        },
+      ],
       ["CONSOLE_SENTRY_DSN", () => resolveForwardTarget(process.env)],
     ];
 

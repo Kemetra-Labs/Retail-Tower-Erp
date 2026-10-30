@@ -17,7 +17,7 @@ import {
   type SessionRow,
 } from "@data-pulse-2/db/schema";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, ne, sql } from "drizzle-orm";
 import type { Pool } from "pg";
 
 /**
@@ -258,6 +258,25 @@ export class SessionRepository {
       .where(and(eq(sessions.id, id), isNull(sessions.revokedAt)));
     await this.cache.invalidate(id);
     return (result.rowCount ?? 0) > 0;
+  }
+
+  /**
+   * RT-937 (D-C): revoke every live session of `userId` EXCEPT `keepSessionId`
+   * (the caller's own, which just proved the current password). Returns the
+   * ids it revoked so the caller can end their support sessions. Already-revoked
+   * sessions are untouched (their `revoked_at` is preserved); another user's
+   * sessions are never matched.
+   */
+  async revokeOthersForUser(userId: string, keepSessionId: string): Promise<string[]> {
+    const rows = await this.db
+      .update(sessions)
+      .set({ revokedAt: sql`now()` })
+      .where(
+        and(eq(sessions.userId, userId), ne(sessions.id, keepSessionId), isNull(sessions.revokedAt)),
+      )
+      .returning({ id: sessions.id });
+    for (const row of rows) await this.cache.invalidate(row.id);
+    return rows.map((row) => row.id);
   }
 
   private isLive(row: SessionRow): boolean {

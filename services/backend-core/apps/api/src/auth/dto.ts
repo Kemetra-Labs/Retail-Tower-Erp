@@ -23,7 +23,7 @@ import { z } from "zod";
  * here, before any argon2 work. The value is passed on unchanged: no
  * trimming and no normalization.
  */
-function passwordString(minLength: number) {
+export function passwordString(minLength: number) {
   return z
     .string()
     .min(minLength)
@@ -65,6 +65,23 @@ export const PasswordResetConfirmSchema = z.object({
 export type PasswordResetConfirmInput = z.infer<
   typeof PasswordResetConfirmSchema
 >;
+
+/**
+ * POST /api/v1/auth/password/change (RT-937 item 2).
+ *
+ * The identity provider defines the password policy (RT-804): no minimum is
+ * repeated here, so a looser or stricter provider policy never disagrees with
+ * this schema. Only the shared maximum applies, before any provider work. Both
+ * values are passed on unchanged (no trimming, no normalization). Unknown
+ * fields are refused.
+ */
+export const PasswordChangeSchema = z
+  .object({
+    current_password: passwordString(1),
+    new_password: passwordString(1),
+  })
+  .strict();
+export type PasswordChangeInput = z.infer<typeof PasswordChangeSchema>;
 
 /** POST /api/v1/auth/email/verify/confirm */
 export const EmailVerifyConfirmSchema = z.object({

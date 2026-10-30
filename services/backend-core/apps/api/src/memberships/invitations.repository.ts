@@ -198,6 +198,51 @@ export class InvitationsRepository {
   }
 
   /**
+   * RT-937: insert the user an invitation creates. The email is verified (the
+   * invitation token, delivered to that address, is the proof) and there is NO
+   * local password: the password lives at the identity provider (D-D), so
+   * `password_hash` stays NULL and a native sign-in can never succeed for it.
+   * A concurrent or earlier user with the same email raises SQLSTATE 23505,
+   * which the caller maps to 409.
+   */
+  async insertUser(
+    client: PoolClient,
+    params: { readonly id: string; readonly email: string; readonly displayName: string },
+  ): Promise<void> {
+    const db = drizzle(client);
+    await db.insert(users).values({
+      id: params.id,
+      email: params.email,
+      displayName: params.displayName,
+      emailVerifiedAt: sql`now()`,
+    });
+  }
+
+  /**
+   * RT-937: link the new user to its external identity. A plain INSERT, never an
+   * upsert: an existing `(provider_key, issuer, subject)` raises 23505 (the whole
+   * acceptance rolls back) instead of silently re-activating or re-pointing a
+   * link that belongs to another user.
+   */
+  async insertExternalIdentityLink(
+    client: PoolClient,
+    params: {
+      readonly providerKey: string;
+      readonly issuer: string;
+      readonly subject: string;
+      readonly userId: string;
+      readonly email: string;
+    },
+  ): Promise<void> {
+    await client.query(
+      `INSERT INTO external_identity_links
+         (provider_key, issuer, subject, user_id, email, status)
+       VALUES ($1, $2, $3, $4, $5, 'active')`,
+      [params.providerKey, params.issuer, params.subject, params.userId, params.email],
+    );
+  }
+
+  /**
    * Conditionally mark an invitation as accepted.
    *
    * Only updates when `status = 'pending'` AND `expires_at > now()`,

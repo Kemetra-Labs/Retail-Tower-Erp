@@ -21,7 +21,9 @@
  */
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
 import { newId } from "@data-pulse-2/shared";
@@ -50,6 +52,8 @@ import {
 } from "../audit/audit-job.enqueuer";
 import type { AuditJobPayload } from "../audit/audit-job.types";
 import { recordAuthFailure } from "../observability/metrics/api.metrics";
+import type { ExternalCredentialPort } from "./external-credential.port";
+import type { OperatorTokenVerifier } from "./operator-token-verifier";
 
 /**
  * Pre-computed argon2id PHC string used for the constant-time path when
@@ -60,6 +64,9 @@ import { recordAuthFailure } from "../observability/metrics/api.metrics";
  */
 const DUMMY_PHC =
   "$argon2id$v=19$m=19456,t=2,p=1$YWJjZGVmZ2hpamtsbW5vcA$YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXowMTIzNDU";
+
+/** One message for a wrong current password, a rejected new password and an unverifiable provider answer. */
+const PASSWORD_CHANGE_REFUSED = "The password could not be changed";
 
 const SESSION_ABSOLUTE_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24h, per data-model §9.
 const PASSWORD_RESET_TTL_MS = 15 * 60 * 1000; // 15 min — research.md §PQ-4.
@@ -121,6 +128,22 @@ export interface AuthServiceOptions {
     owner: { readonly authSessionId: string } | { readonly userId: string },
     requestId: string | null,
   ) => Promise<void>;
+  /**
+   * RT-937 (owner decision D-A): a user with an ACTIVE external identity link
+   * signs in with the password held by the external provider, verified here on
+   * the server. `AuthModule` wires it; omitted by unit specs that cover only the
+   * native path, where every user signs in natively.
+   */
+  externalCredentials?: ExternalCredentials;
+}
+
+/** The seams a provider-backed sign-in needs; see {@link AuthServiceOptions.externalCredentials}. */
+export interface ExternalCredentials {
+  readonly port: ExternalCredentialPort;
+  /** Verifies the session token the provider returns (signature, issuer, audience, expiry). */
+  readonly verifier: OperatorTokenVerifier;
+  /** The subject of the user's ACTIVE external link, or null when the user has none. */
+  readonly activeLinkSubject: (userId: string) => Promise<string | null>;
 }
 
 /** Audit action strings emitted from the sign-in flow (per `tasks.md` T230). */
@@ -149,6 +172,7 @@ export class AuthService {
   private readonly auditEnqueuer: AuditJobEnqueuer;
   private readonly listMemberships: SignInMembershipsReader;
   private readonly endSupportSessions: NonNullable<AuthServiceOptions["endSupportSessions"]>;
+  private readonly external: ExternalCredentials | null;
 
   constructor(
     private readonly pool: Pool,
@@ -169,6 +193,7 @@ export class AuthService {
     this.auditEnqueuer = opts.auditEnqueuer ?? new NoOpAuditJobEnqueuer();
     this.listMemberships = opts.listMemberships ?? (() => Promise.resolve([]));
     this.endSupportSessions = opts.endSupportSessions ?? (() => Promise.resolve());
+    this.external = opts.externalCredentials ?? null;
   }
 
   private requireAuthTokens(): AuthTokenRepository {
@@ -189,7 +214,17 @@ export class AuthService {
    * and a separate CSPRNG cookie value. The controller sets the cookie.
    * Only the SHA-256 of that cookie is persisted.
    *
-   * Throws a uniform UnauthorizedException for ALL failure modes.
+   * Two credential authorities (RT-937, owner decision D-A):
+   *   - a user with an ACTIVE external identity link signs in ONLY with the
+   *     password held by the external provider; the local hash is ignored, so
+   *     a migrated user's old local password never works;
+   *   - a user with no active link keeps native sign-in until migrated.
+   * Either way the session minted below is the same native session, with the
+   * same cookie, rate limits, memberships and store authorization.
+   *
+   * Throws a uniform UnauthorizedException for ALL failure modes (a linked
+   * user's refusal is indistinguishable from a wrong password), and a 503 only
+   * when the provider itself is unavailable.
    */
   async signIn(input: SignInInput): Promise<SignInResult> {
     const { email, password } = input;
@@ -200,7 +235,15 @@ export class AuthService {
     const phc = userRow?.passwordHash ?? DUMMY_PHC;
     const passwordOk = await verifyPassword(phc, password);
 
-    if (!userRow || userRow.passwordHash === null || !passwordOk) {
+    // The provider is asked only about a known user who is linked: an unknown
+    // or unlinked email's password is never forwarded.
+    const linkSubject = userRow ? await this.externalLinkSubject(userRow.id) : null;
+    const viaProvider = userRow !== null && linkSubject !== null;
+    const authenticated = viaProvider
+      ? await this.authenticateExternally(email, password, linkSubject)
+      : userRow !== null && userRow.passwordHash !== null && passwordOk;
+
+    if (!userRow || !authenticated) {
       // T470 — observability: emit auth_failure_total{cause="bad_password"}
       // for every credential-verify failure branch (unknown email, SSO-only
       // null passwordHash, soft-deleted, wrong password). These branches are
@@ -234,21 +277,16 @@ export class AuthService {
     }
 
     // RT-130: only after a successful verify, so failure timing is untouched.
-    await this.upgradeStalePasswordHash(userRow.id, userRow.passwordHash, password);
+    // Only a native sign-in proved the local password; a provider sign-in never touches it.
+    if (!viaProvider && userRow.passwordHash !== null) {
+      await this.upgradeStalePasswordHash(userRow.id, userRow.passwordHash, password);
+    }
 
     // RT-343: read before the session exists, so a failed read leaves no
     // session behind.
     const memberships = await this.listMemberships(userRow.id);
 
-    const sessionId = newId();
-    const sessionCredential = generateRawToken();
-    const absoluteExpiresAt = new Date(Date.now() + SESSION_ABSOLUTE_EXPIRY_MS);
-    await this.sessions.create({
-      id: sessionId,
-      userId: userRow.id,
-      absoluteExpiresAt,
-      credentialHash: hashToken(sessionCredential),
-    });
+    const { sessionId, sessionCredential, absoluteExpiresAt } = await this.startSession(userRow.id);
 
     // T238/T230 — successful sign-in audit event. Action string is
     // mandated by `tasks.md` T230 (`auth.signin.{ok|failed}`); pairs with
@@ -279,6 +317,68 @@ export class AuthService {
       },
       memberships,
     };
+  }
+
+  /**
+   * Create one native dashboard session for `userId`. The row id and a separate
+   * CSPRNG cookie value are returned; only the SHA-256 of the cookie value is
+   * persisted. The caller sets the cookie. Shared by sign-in and by invitation
+   * acceptance (RT-937: a NEW invitee's session), so both mint identically.
+   */
+  async startSession(
+    userId: string,
+  ): Promise<{ sessionId: string; sessionCredential: string; absoluteExpiresAt: Date }> {
+    const sessionId = newId();
+    const sessionCredential = generateRawToken();
+    const absoluteExpiresAt = new Date(Date.now() + SESSION_ABSOLUTE_EXPIRY_MS);
+    await this.sessions.create({
+      id: sessionId,
+      userId,
+      absoluteExpiresAt,
+      credentialHash: hashToken(sessionCredential),
+    });
+    return { sessionId, sessionCredential, absoluteExpiresAt };
+  }
+
+  /** The subject of the user's ACTIVE external link; null when none, or when no provider is wired. */
+  private async externalLinkSubject(userId: string): Promise<string | null> {
+    return this.external ? await this.external.activeLinkSubject(userId) : null;
+  }
+
+  /**
+   * Verify a linked user's password at the provider. The provider's answer alone
+   * authenticates nobody: its session token is verified and its subject must be
+   * the one on the user's link. A refusal, a token that fails verification and a
+   * subject mismatch are all `false` (one generic 401 upstream); an outage is a
+   * 503, because an outage is not a wrong password.
+   */
+  private async authenticateExternally(
+    email: string,
+    password: string,
+    linkSubject: string,
+  ): Promise<boolean> {
+    const external = this.external;
+    if (!external) return false;
+    const result = await external.port.passwordSignIn(email, password);
+    if (result.kind === "unavailable") {
+      throw new ServiceUnavailableException("Identity provider unavailable");
+    }
+    if (result.kind !== "ok") return false;
+    return this.tokenIsForLink(external, result.sessionJwt, linkSubject);
+  }
+
+  /** True only when the provider's session token verifies and names the link's subject. */
+  private async tokenIsForLink(
+    external: ExternalCredentials,
+    sessionJwt: string,
+    linkSubject: string,
+  ): Promise<boolean> {
+    try {
+      const claims = await external.verifier.verify(sessionJwt);
+      return claims.sub === linkSubject;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -368,6 +468,53 @@ export class AuthService {
       userId: session.userId,
       absoluteExpiresAt: session.absoluteExpiresAt,
     };
+  }
+
+  // ---------------------------------------------------------------------
+  // Change password (RT-937 item 2)
+  // ---------------------------------------------------------------------
+
+  /**
+   * Replace the signed-in user's password at the external provider (old + new),
+   * then revoke the user's OTHER native sessions and end their support sessions
+   * (owner decision D-C). The caller's own session survives: it just proved the
+   * current password.
+   *
+   * Only a user with an ACTIVE external identity link can change a password here;
+   * there is no native change-password, and none is invented (409). A wrong
+   * current password, a rejected new password and an answer that fails
+   * verification are ONE generic 400, so the response cannot be used to probe
+   * either password; a provider outage is a 503. Nothing is revoked unless the
+   * provider's answer is verified against the user's link.
+   */
+  async changePassword(input: {
+    userId: string;
+    sessionId: string;
+    currentPassword: string;
+    newPassword: string;
+    requestId: string | null;
+  }): Promise<void> {
+    const user = await this.findActiveUserById(input.userId);
+    if (!user) throw new UnauthorizedException("Unauthorized");
+
+    const external = this.external;
+    const linkSubject = await this.externalLinkSubject(user.id);
+    if (!external || linkSubject === null) {
+      throw new ConflictException("Password change is not available for this account");
+    }
+
+    const result = await external.port.replacePassword(user.email, input.currentPassword, input.newPassword);
+    if (result.kind === "unavailable") {
+      throw new ServiceUnavailableException("Identity provider unavailable");
+    }
+    if (result.kind !== "ok" || !(await this.tokenIsForLink(external, result.sessionJwt, linkSubject))) {
+      throw new BadRequestException(PASSWORD_CHANGE_REFUSED);
+    }
+
+    const revoked = await this.sessions.revokeOthersForUser(user.id, input.sessionId);
+    for (const authSessionId of revoked) {
+      await this.endSupportSessions({ authSessionId }, input.requestId);
+    }
   }
 
   // ---------------------------------------------------------------------

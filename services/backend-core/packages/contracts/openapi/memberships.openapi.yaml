@@ -131,13 +131,35 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
   /api/v1/invitations/accept:
     post:
-      summary: Accept a pending invitation. Public — accept token authenticates the request.
+      summary: Accept a pending invitation (public; the accept token authenticates the request).
+      description: >
+        RT-937 (owner decisions D-D and D-B). The single-use token sent to the
+        invitee by email is the credential. Tenant, role and stores come from
+        the invitation, never from the request.
+
+
+        An EXISTING user gains the membership only: no session is created and
+        no cookie is set, so an invite token alone never signs anyone in to an
+        existing account.
+
+
+        A NEW user (`password` required) is created at the identity provider
+        with a verified email and an ACTIVE password, then the user, its
+        identity link and the membership are written together, and a session
+        cookie is set for that new user only. There is no local password. The
+        identity provider defines the password policy.
+
+
+        A used, expired, revoked or unknown token is the same opaque 400, with
+        no side effect. A retry after a partial failure converges on one
+        identity.
+
+
+        The request bounds (token, password and display name lengths) are
+        enforced by the server and are deliberately not declared as schema
+        bounds: setting a bound is a breaking change for consumers that pin
+        this contract, and this operation was contract-only until RT-937.
       operationId: acceptInvitation
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        The current runtime contains the existing-user service foundation but no
-        public controller route; new-user password/session semantics remain a
-        product and security decision. Do not generate this as a shipped route.
       security: []
       requestBody:
         required: true
@@ -145,26 +167,85 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               required: [token]
               properties:
                 token:
                   type: string
-                  description: Single-use token sent to the invitee by email.
+                  description: >
+                    Single-use token sent to the invitee by email. The server
+                    refuses an empty value and one over 1024 characters.
                 password:
                   type: string
-                  minLength: 12
-                  description: Required if the invitee is not yet a registered user.
+                  description: >
+                    Required if the invitee has no account yet; ignored for an
+                    existing user. The server refuses an empty value and one
+                    over 1024 Unicode code points (RT-153). The identity
+                    provider defines the rest of the password policy.
                 display_name:
                   type: string
+                  description: >
+                    Optional. The server refuses a blank value and one over 200
+                    characters.
       responses:
         "200":
-          description: Membership created and a session is established for the user.
+          description: >
+            Membership created. For a NEW user the response sets the HttpOnly
+            session cookie; for an existing user it sets none.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: HttpOnly; Secure; SameSite=Lax session cookie, NEW users only.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Membership"
         "400":
-          description: Invalid or expired token.
+          description: >
+            `validation_error` (malformed body, or a missing password for a new
+            user), the opaque invalid or expired token, or a password the
+            identity provider does not accept.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: >
+            `origin_rejected` (RT-430): the `Origin` header is present and is
+            neither the API's own origin nor listed in `ALLOWED_ORIGINS`. A
+            request with no `Origin` is admitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: >
+            An account already exists that the invitee cannot prove they own
+            (the email, or the identity link, is taken). Nothing is written.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: >
+            Rate-limited per IP. `Retry-After` gives the whole seconds until the
+            limiting bucket resets, 1 to 3600.
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/PublicAuthRetryAfter"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: >
+            The identity provider, or the rate limiter, is unavailable, or
+            account provisioning is not configured. Nothing is written.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   schemas:
     InvitationCreate:
@@ -236,6 +317,16 @@ components:
               type: string
               format: uuid
   headers:
+    PublicAuthRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        public-route 429 (RT-623). Rounded up from the bucket's remaining
+        window and clamped to 1 to 3600.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
     ConsoleRetryAfter:
       description: >
         Whole seconds the caller should wait before retrying, sent on every
