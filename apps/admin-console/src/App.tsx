@@ -3,6 +3,7 @@ import { ActiveContextProvider } from "@/context/ActiveContextProvider";
 import { DocumentLocale } from "@/i18n";
 import { createQueryClient } from "@/lib/query";
 import { RouteErrorFallback } from "@/observability/RouteErrorFallback";
+import { ShellRouteErrorFallback } from "@/observability/ShellRouteErrorFallback";
 import { Overview } from "@/shell/Overview";
 import { ProtectedArea } from "@/shell/ProtectedArea";
 import { SignInRoute } from "@/shell/SignInRoute";
@@ -79,21 +80,24 @@ const router = createBrowserRouter(
       {/* RT-780: the platform console has its own tenant-less gate. */}
       {platformRoutes}
       <Route path="/" element={<ProtectedArea />}>
-        <Route index element={<Overview />} />
-        {rf2Routes}
-        {rf4aRoutes}
-        {rf5Routes}
-        {rf6Routes}
-        {catalogRoutes}
-        {payerRoutes}
-        {stockDiscrepancyRoutes}
-        {inventoryRoutes}
-        {shiftCloseRoutes}
-        {erpStatusRoutes}
-        {productReconciliationRoutes}
-        {deviceRoutes}
-        {saleRoutes}
-        {saleSyncRoutes}
+        {/* RT-958: a page error renders inside the shell (navigation and scope stay). */}
+        <Route errorElement={<ShellRouteErrorFallback />}>
+          <Route index element={<Overview />} />
+          {rf2Routes}
+          {rf4aRoutes}
+          {rf5Routes}
+          {rf6Routes}
+          {catalogRoutes}
+          {payerRoutes}
+          {stockDiscrepancyRoutes}
+          {inventoryRoutes}
+          {shiftCloseRoutes}
+          {erpStatusRoutes}
+          {productReconciliationRoutes}
+          {deviceRoutes}
+          {saleRoutes}
+          {saleSyncRoutes}
+        </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Route>,

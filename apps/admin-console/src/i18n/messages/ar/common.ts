@@ -17,9 +17,22 @@ export const common = {
   "theme.darkMode": "الوضع الداكن",
 
   // RT-633: the top-level error fallback. Never shows the error itself.
+  // RT-958: What → Safety → Action → Evidence (DESIGN.md §8).
   "app.crash.title": "حدث خطأ غير متوقع",
-  "app.crash.body": "أعد تحميل الصفحة للمتابعة. إذا تكرر الخطأ فتواصل مع الدعم.",
+  "app.crash.what": "توقف عرض لوحة التحكم بسبب خطأ غير متوقع.",
+  "app.crash.safety":
+    "عرض هذه الصفحة لا يغيّر أي بيانات. إذا كنت قد حفظت شيئًا للتو، فتحقق من حفظه قبل إدخاله مرة أخرى.",
+  "app.crash.action": "أعد تحميل الصفحة للمتابعة. إذا تكرر الخطأ فتواصل مع الدعم.",
   "app.crash.reload": "إعادة تحميل الصفحة",
+  "app.crash.reference": "مرجع الخطأ: {id}",
+
+  // RT-958: a page error shown inside the shell; the menu and scope stay usable.
+  "app.routeError.title": "تعذّر عرض هذه الصفحة",
+  "app.routeError.what":
+    "حدث خطأ غير متوقع منع عرض هذه الصفحة. القائمة وشريط المؤسسة والمتجر ما زالا يعملان.",
+  "app.routeError.action":
+    "حاول مرة أخرى، أو اختر صفحة أخرى من القائمة. إذا تكرر الخطأ فتواصل مع الدعم.",
+  "app.routeError.toOverview": "الانتقال إلى نظرة عامة",
 
   "common.cancel": "إلغاء",
   "common.close": "إغلاق",
