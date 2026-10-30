@@ -1,3 +1,4 @@
+import { NoAccess } from "@/auth/NoAccess";
 /**
  * RT-560 — ERP connection & sync status (spec 016 Phase A, read-only), for
  * owner / tenant_admin. Four panels over Backend-Core only: the connector
@@ -10,7 +11,7 @@
  * in-scope stores, and narrows the three C3 panels; the connection is
  * tenant-wide. An out-of-scope store is the API's non-disclosing 404.
  */
-import { NoAccess } from "@/auth/NoAccess";
+import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { useT } from "@/i18n";
 import { type ScopeMembership, scopeMenuStores } from "@/shell/scope-stores";
@@ -88,22 +89,20 @@ function ErpStatusContent({ scope }: Readonly<{ scope: ErpScope }>): React.JSX.E
 
   return (
     <div className="surface erp-surface">
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("erp.title")}</h1>
-          <p className="content__sub">
-            {t.rich("erp.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
-          </p>
-        </div>
-        <div className="erp-head-actions">
-          <Link className="btn-secondary" to="/erp-connection/mappings">
-            {t("erp.map.link")}
-          </Link>
-          <button type="button" className="btn-secondary" onClick={refreshAll}>
-            {t("erp.refresh")}
-          </button>
-        </div>
-      </header>
+      <PageHeader
+        title={t("erp.title")}
+        subtitle={t.rich("erp.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
+        actions={
+          <div className="erp-head-actions">
+            <Link className="btn-secondary" to="/erp-connection/mappings">
+              {t("erp.map.link")}
+            </Link>
+            <button type="button" className="btn-secondary" onClick={refreshAll}>
+              {t("erp.refresh")}
+            </button>
+          </div>
+        }
+      />
 
       <ConnectionPanel state={connections} />
 

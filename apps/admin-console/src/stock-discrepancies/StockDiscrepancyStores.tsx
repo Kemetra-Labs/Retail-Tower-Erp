@@ -1,5 +1,6 @@
 import { Banner } from "@/components/Banner";
 import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
 import { DateTime, useT } from "@/i18n";
 import type { StoreNegativeOnHandSummary } from "@/lib/stock-discrepancy-queries";
 /**
@@ -23,14 +24,7 @@ type StoresData = ReturnType<typeof useNegativeOnHandStores>;
 
 function StoresHeader(): React.JSX.Element {
   const t = useT();
-  return (
-    <header className="surface__head">
-      <div>
-        <h1 className="content__title">{t("stock.title")}</h1>
-        <p className="content__sub">{t("stock.stores.sub")}</p>
-      </div>
-    </header>
-  );
+  return <PageHeader title={t("stock.title")} subtitle={t("stock.stores.sub")} />;
 }
 
 function StoresErrorBanner({

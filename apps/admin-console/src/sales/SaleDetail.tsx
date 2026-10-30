@@ -1,6 +1,7 @@
 import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
 import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
 import { DateTime, Money, useT } from "@/i18n";
 import type { SaleDetail as Detail } from "@/lib/sale-queries";
 import { SaleSyncSections } from "@/sale-sync/SaleSyncSections";
@@ -147,21 +148,20 @@ function Loaded({ detail }: Readonly<{ detail: Detail }>): React.JSX.Element {
   return (
     <div className="surface">
       <BackLink />
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">
-            {number
-              ? t.rich("sales.detail.title", { number: <SaleNumber value={number} /> })
-              : t("sales.detail.titleNoNumber")}
-          </h1>
-          <StatusChips sale={detail.summary} />
-          <p className="content__sub">
-            {t.rich("sales.detail.zoneNote", {
-              zone: <bdi dir="ltr">{detail.storeTimezone}</bdi>,
-            })}
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title={
+          number
+            ? t.rich("sales.detail.title", { number: <SaleNumber value={number} /> })
+            : t("sales.detail.titleNoNumber")
+        }
+      >
+        <StatusChips sale={detail.summary} />
+        <p className="content__sub">
+          {t.rich("sales.detail.zoneNote", {
+            zone: <bdi dir="ltr">{detail.storeTimezone}</bdi>,
+          })}
+        </p>
+      </PageHeader>
       <SummarySection detail={detail} />
       <ReceiptHeaderSection detail={detail} />
       <LinesSection detail={detail} />

@@ -2,6 +2,7 @@ import { Banner } from "@/components/Banner";
 import { ConfirmDelete } from "@/components/ConfirmDelete";
 import { DataTable } from "@/components/DataTable";
 import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
 import { SelectionSummary } from "@/components/SelectionSummary";
 import { Icon } from "@/components/icons/Icon";
 import { useRowSelection } from "@/components/useRowSelection";
@@ -195,12 +196,7 @@ export function UnknownItemList(): React.JSX.Element {
 
   return (
     <div className="surface">
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("unknownItems.title")}</h1>
-          <p className="content__sub">{t("unknownItems.sub")}</p>
-        </div>
-      </header>
+      <PageHeader title={t("unknownItems.title")} subtitle={t("unknownItems.sub")} />
 
       <fieldset className="unknown-item-controls">
         <legend className="unknown-item-controls__legend">

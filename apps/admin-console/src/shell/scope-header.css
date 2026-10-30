@@ -1,52 +1,83 @@
-/* Scope header bar (DESIGN.md §6): a recessed bar under the top bar. */
+/* Scope switcher (DESIGN.md §6; RT-969 Shell v3): in the sidebar under the
+ * brand, a full-width button naming the store and its tenant. At the compact
+ * width it is the sidebar's only content, the 48px row under the top bar. */
 .scope {
-  grid-area: scope;
   position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  height: var(--shell-scope-h);
-  padding: 0 var(--space-5);
-  background-color: var(--color-surface-sunken);
-  border-bottom: 1px solid var(--color-border);
+  min-width: 0;
 }
 .scope__btn {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: var(--space-2);
-  cursor: pointer;
-  background: transparent;
-  border: none;
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 52px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-background);
   color: var(--color-text);
-  font: var(--weight-strong) var(--text-control) / var(--leading-tight) var(--font-sans);
+  font: var(--weight-regular) var(--text-control) / var(--leading-tight) var(--font-sans);
+  text-align: start;
+  cursor: pointer;
 }
 .scope__btn:hover {
-  background: var(--color-primary-soft);
+  background: var(--color-surface-sunken);
 }
 .scope__btn:focus-visible {
   outline-offset: 1px; /* focus color from the global baseline */
 }
-/* Hierarchy by weight, not opacity: 0.7 opacity scored 3.99:1 (axe, RT-267). */
-.scope__crumb {
-  font-weight: var(--weight-medium);
+/* Decorative: the first letter of the store (or tenant) on the teal wash. */
+.scope__tile {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary-soft);
+  color: var(--color-primary-emphasis);
+  font: var(--weight-strong) var(--text-control) / 1 var(--font-sans);
 }
-.scope__sep {
-  opacity: 0.4;
-  padding: 0 var(--space-1);
+.scope__names {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* Long names truncate on one line each; the menu shows them in full. */
+.scope__current,
+.scope__crumb {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* Hierarchy by weight and tone, not opacity: 0.7 opacity scored 3.99:1 (axe, RT-267). */
+.scope__current {
+  font-weight: var(--weight-strong);
+}
+.scope__crumb {
+  font-size: var(--text-meta);
+  color: var(--color-text-muted);
 }
 /* The registry's sm (16) grid sizes the caret; it is never scaled (RT-696). */
 .scope__caret {
-  opacity: 0.8;
+  flex-shrink: 0;
+  color: var(--color-text-muted);
 }
 
+/* The menu opens under the button and may overhang the sidebar's edge. */
 .scope-menu {
   position: absolute;
-  top: 44px;
-  inset-inline-start: var(--space-5);
-  z-index: 20;
-  min-width: 280px;
+  top: calc(100% + var(--space-1));
+  inset-inline-start: 0;
+  z-index: 30;
+  min-width: 100%;
+  width: max-content;
+  max-inline-size: 320px;
+  max-block-size: calc(100dvh - 160px);
+  overflow: auto;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
@@ -71,6 +102,7 @@
   background: transparent;
   border: none;
   text-align: start;
+  overflow-wrap: anywhere;
 }
 .scope-menu__item:hover {
   background: var(--color-surface-sunken);
@@ -92,42 +124,34 @@
 }
 
 /* RT-825 (RT-785 D3): at the compact width the scope button and the menu items
- * are 44px touch targets (the bar is 48px, set on .shell), long names truncate
- * on the one-row button, and the menu stays inside the viewport. */
+ * are 44px touch targets in the 48px row, and the menu stays inside the
+ * viewport. */
 @media (max-width: 768px) {
   .scope {
-    min-width: 0;
-    padding: 0 var(--space-4);
+    flex: 1;
   }
   .scope__btn {
     min-height: 44px;
-    min-width: 0;
-    max-width: 100%;
+    padding: 0 var(--space-2);
+    border: 0;
+    background: transparent;
   }
-  .scope__crumb,
-  .scope__current {
-    min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+  .scope__tile {
+    display: none;
+  }
+  .scope__names {
+    flex-direction: row;
+    align-items: baseline;
+    gap: var(--space-2);
   }
   .scope__crumb {
     flex-shrink: 2;
   }
-  .scope__sep,
-  .scope__caret {
-    flex-shrink: 0;
-  }
   .scope-menu {
-    top: calc(100% + var(--space-1));
-    inset-inline-start: var(--space-4);
     min-width: min(280px, calc(100vw - 2 * var(--space-4)));
     max-inline-size: calc(100vw - 2 * var(--space-4));
-    max-block-size: calc(100dvh - 160px);
-    overflow: auto;
   }
   .scope-menu__item {
     min-height: 44px;
-    overflow-wrap: anywhere;
   }
 }

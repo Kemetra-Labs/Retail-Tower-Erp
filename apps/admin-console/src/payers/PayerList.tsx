@@ -2,6 +2,7 @@ import { NoAccess } from "@/auth/NoAccess";
 import { Banner } from "@/components/Banner";
 import { BusyButton } from "@/components/BusyButton";
 import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { type MessageKey, useT } from "@/i18n";
 import { useSignOut } from "@/shell/useSignOut";
@@ -183,15 +184,11 @@ export function PayerList(): React.JSX.Element {
 
   return (
     <div className="surface">
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("payers.list.title")}</h1>
-          <p className="content__sub">
-            {t.rich("payers.list.subtitle", { tenant: <bdi>{tenantName}</bdi> })}
-          </p>
-        </div>
-        {showHeaderCreate ? createButton : null}
-      </header>
+      <PageHeader
+        title={t("payers.list.title")}
+        subtitle={t.rich("payers.list.subtitle", { tenant: <bdi>{tenantName}</bdi> })}
+        actions={showHeaderCreate ? createButton : null}
+      />
 
       <PayerListBody state={list} stores={stores} createButton={createButton} />
 

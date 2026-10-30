@@ -6,6 +6,7 @@ description: >-
   one shared semantic color system with POS, Arabic-first (Dubai) type voice, RTL by structure.
   The token block below records the CURRENT SHIPPED tokens (src/styles/tokens.css). Since
   RT-396 and RT-397 the colours, radii and type ARE the approved light target (RT-392).
+  v3.0 (RT-969) adds the owner-approved Shell v3 "Daylight Commerce" frame.
 status: current-shipped-tokens
 # CURRENT SHIPPED TOKENS — a SUBSET of src/styles/tokens.css on main (colors, type, radius,
 # spacing); tokens.css is authoritative and also holds the scrim, overlay shadow, motion and
@@ -32,7 +33,7 @@ typography:
   fontFamily: "Dubai, Segoe UI, Tahoma, system-ui, sans-serif" # no font files served (RT-397)
   monoFamily: "ui-monospace, Consolas, monospace"
   display: "1.875rem" # rare
-  screen-title: "1.25rem"
+  screen-title: "1.5rem" # 24px, the page title (RT-969)
   section-title: "1rem"
   body: "0.875rem"
   control: "0.8125rem"
@@ -67,6 +68,16 @@ spacing:
 
 # Design System: Retail Tower Console
 
+> **Version 3.0 — Shell v3 "Daylight Commerce" (RT-969, 2026-10-30).** On 2026-10-30 the owner
+> rejected the v2 Console look as "primitive, not a control panel" and approved direction
+> **A + C pipeline strip** on the design canvas
+> <https://claude.ai/artifact/NvG61RAVXHdy2gjFgX3sZK> (artboards «المختار · A + مسار C — نظرة
+> عامة» and «المختار · المبيعات»): a Shopify/Stripe-like frame that keeps Tower Teal, Dubai and
+> Arabic-first RTL. v3.0 makes that canvas the documented authority for the shell: the sidebar
+> with the scope switcher in it, the 64px top bar with the Ctrl K navigator and the user menu,
+> the shared page header, the content container and section panels (§2, §5, §6, §9). Screens
+> adopt the canvas content per bounded slice (Overview v2, detail and form templates).
+>
 > **Version 2.0 — Constitution rebaseline (RT-265, 2026-10-10).** Supersedes v1.0 ("The Lit
 > Command Desk": dark default, navy action, Tower Gold authority, Inter). v1.0 is retired as
 > design intent and kept only in git history. Authority for future Admin UI is the
@@ -97,6 +108,7 @@ spacing:
 | Artifact | Status |
 | --- | --- |
 | `DESIGN.md` v1.0 (dark default, Tower Gold authority, navy action, Inter, English/LTR shell) | **Superseded** by this version. |
+| `DESIGN.md` v2.0 shell (56px top bar holding language and theme, a recessed scope bar under it, a 240px nav-only sidebar, 30px page titles) | **Superseded** by the v3.0 shell (RT-969). |
 | `PRODUCT.md` — Design Principle 6 ("dark by default … light alternate") and the dark-*default* note under Anti-references | **Superseded** by UX-02 light-first. The rest of PRODUCT.md (users, purpose, principles 1–5) stands. Reconciling PRODUCT.md is a separate docs change. |
 | `design_handoff_retail_tower_console/` — screens, charts, theme, KPI coloring, dual-axis patterns, route map, chart palette | **Reference/prototype only** (Final Audit; UX-13 prototype disposition). Nothing in it is production authority unless a Constitution-backed issue adopts it. |
 | `docs/design/_vision/`, `docs/design/rf1-auth-shell/`, `docs/design/rf6-audit-search/` mockups and their `tokens.css` | Historical slice references. They are not the target identity. |
@@ -112,6 +124,12 @@ hierarchy. It does not come from ornament, logos or a second accent color.
 Admin may use more **Responsive** motion than POS (UX-06). Expressive motion is rare and
 never on operational truth. `prefers-reduced-motion` collapses durations to instant, but
 focus, copy, status and border/icon feedback stay intact.
+
+**Status at a glance (v3.0, owner decision 2026-10-30).** The Overview may show status at a
+glance as **one KPI ledger strip** (a single section panel of label / value / delta cells,
+divided by rules, never one card per value) **plus one pipeline strip** (POS → server →
+ERPNext, each step with its count and its first problem). That is the only exception. Stat-card
+grids, hero metrics and decorative charts stay out, on the Overview and everywhere else.
 
 ## 3. Color (UX-02, UX-13)
 
@@ -207,6 +225,8 @@ focus, copy, status and border/icon feedback stay intact.
   `section-title`, `body`, `body-strong`, `control`, `meta`, `money-hero`, `money-total`,
   `numeric-row`, `machine`, `kbd`. Shipped as `--text-*` in `src/styles/tokens.css` (RT-397),
   equal to the approved values; `body-strong` and `money-hero` are not defined yet.
+- **Screen title: 24px** (`--text-screen-title`, 1.5rem, the approved canvas value since
+  RT-969). It is the page header's `<h1>` and nothing else at page level is that large.
 - **Readability floor: 12px.** No operator-readable text below 12px (declared CSS sizes are checked by
   `tests/unit/tokens-identity.test.ts`). Arabic body keeps generous line-height (1.7).
   Hierarchy comes from placement, spacing, weight and alignment before size.
@@ -246,13 +266,23 @@ focus, copy, status and border/icon feedback stay intact.
 - **Density:** Comfortable / Operational / Compact, chosen by context and not a user setting
   yet. Dense inside a region, breathing room between regions. Under pressure, compress space
   before meaning and reflow before shrinking.
-- **Data stretches; reading constrains.** Tables, grids and timelines take the available width.
-  Reading and form surfaces use a constrained measure (about 60–65ch).
-- **Tables are full-bleed work surfaces, never inside cards.** Surface grammar:
-  - **Work Surface:** flat, minimal radius, no shadow.
-  - **Section:** heading, spacing and an optional divider; not automatically a container.
-  - **Panel:** tone or divider is enough.
+- **Data stretches; reading constrains.** Tables, grids and timelines take the available width
+  of the content container. Reading and form surfaces use a constrained measure (about 60–65ch).
+- **Content container (v3.0):** the routed page renders in one container at the inline start,
+  `--shell-content-max` (1240px) wide at most, padded `--shell-content-pad-block` (28px) at the
+  top, `--space-6` (32px) at the sides and `--space-7` (48px) at the bottom; at ≤600px the sides
+  are `--space-4`. The page header comes first, then the regions.
+- **Data regions sit in section panels (v3.0).** Surface grammar:
+  - **Work Surface:** the canvas the content container sits on (`--color-background`).
+  - **Section panel** (`.section-panel`, `__head`, `__title`, `__body`): the surface of one data
+    region: `--color-surface`, a 1px `--color-border` edge, `--radius-object` (12px), no shadow.
+    A **table may live inside a section panel under its header**, edge to edge (no inner
+    padding, the header row tinted `--color-background`). A KPI ledger strip or a filter bar
+    is a section panel too.
+  - **Section:** heading, spacing and an optional divider inside a panel; not a container.
   - **Card:** only for a genuine independent, selectable or actionable object.
+  - **No nesting:** never a panel or card inside a section panel, and never a table inside a
+    card.
   - **Drawer:** attached, with real elevation.
   - **Dialog:** the strongest elevation.
 - **Shape (target):** 8px controls, 12px genuine contained objects, 16px independent overlays.
@@ -283,6 +313,11 @@ focus, copy, status and border/icon feedback stay intact.
 - **Location ≠ Scope ≠ State.** Product location, Tenant/Store scope and workflow state are
   separate axes. The shell owns persistent identity, scope and primary navigation; the
   screen owns the task.
+- **Scope lives in the sidebar (v3.0).** The scope switcher sits under the brand at the top of
+  the sidebar: the store (or «كل المتاجر») over its tenant, with a decorative initial tile. At
+  ≤768px the sidebar's navigation moves to the menu drawer and the sidebar itself becomes the
+  48px scope row under the top bar, so scope is never behind a menu (PRODUCT.md principle 1).
+  The Ctrl K navigator also offers the stores in scope; both run the same guarded change.
 - **Scope change is a context transition, not a filter click.** It must never silently discard
   unsaved form work; the user gets an explicit save / discard / stay path. Deep links never
   silently mutate scope.
@@ -312,7 +347,8 @@ focus, copy, status and border/icon feedback stay intact.
   above the accessibility floor. The current controls use 36px.
   - **Compact shell (≤768px, RT-785 D3, RT-825):** the menu button, the navigation drawer's
     entries, its language, theme, sign-out and close controls, the scope button and the
-    scope-menu items, and the primary action of a Tier 1 page are at least 44×44px.
+    scope-menu items, the navigator button and its options, the user button, and the primary
+    action of a Tier 1 page are at least 44×44px.
   - Dense secondary controls keep the WCAG 2.2 AA floor of 24px: table sort headers (36px
     effective hit area), inline links inside table cells and badges.
   - Desktop density does not change.
@@ -409,8 +445,40 @@ These classes exist on `main` and new work reuses them until a migration slice r
   size, 18px.
 - **DataTable** (`src/components/DataTable.tsx`; usage rules in the notes below), **Drawer** (focus-trapped dialog), and
   **ListState** (loading / empty).
-- **Shell** (`src/shell/`): topbar, a recessed (`surface-sunken`) scope header, and a sidebar
-  whose active entry takes the teal wash and the teal Signal Line (RT-396).
+- **Shell v3** (`src/shell/`, RT-969; `ShellFrame.tsx` is shared by `AppShell` and
+  `PlatformShell`):
+  - **Sidebar** (`--shell-sidebar-w` 260px, inline start, full height, sticky): the brand
+    lockup (`TowerMark` on a teal tile, the product word and tag), the scope switcher
+    (`ScopeHeader`, tenant shell only), then the grouped navigation and sign-out. Its
+    navigation scrolls on its own.
+  - **Navigation model** (`nav-model.ts`): one role-filtered list of groups feeds the sidebar,
+    the compact drawer and the navigator. The groups follow the canvas: daily operations with no
+    heading, then «التكامل», then «الإدارة». The active entry takes the teal wash, the strong
+    weight and the Signal Line. A **count pill** after an entry's label is allowed only where a
+    query the shell already loads gives the number; never a request just for a count. None
+    ships yet.
+  - **Top bar** (`--shell-topbar-h` 64px): the compact menu button and mark (≤768px), the
+    **Ctrl K navigator** button, and the **user menu**. Nothing without backing (notifications,
+    system status) is rendered.
+  - **Ctrl K navigator** (`Navigator.tsx`): a client-side command palette over the role's
+    destinations and the stores in scope; no new contract (the stores are the scope menu's own
+    query). Ctrl+K / ⌘K or the button opens a modal dialog holding a combobox and a grouped
+    listbox (`aria-activedescendant`). Arrows move, Enter chooses, Escape closes, Tab stays,
+    focus returns to the invoker. A page choice navigates (the unsaved-work blocker still
+    guards it); a store choice runs `useScopeChange`, the switcher's guarded path. A shortcut
+    pressed while another modal is open does nothing.
+  - **User menu** (`UserMenu.tsx`): avatar, name and role on a disclosure button (not a
+    `role="menu"`) whose panel holds the language (RT-399) and theme (RT-398) switches,
+    unchanged. The user's stored language and theme are adopted when the shell mounts.
+  - **Page header** (`src/components/PageHeader.tsx`), the first thing every routed page
+    renders: `title` (the page's one `<h1>`, 24px), `subtitle` (one muted line: scope or what
+    the page shows), `children` (status chips or a second note, under the subtitle),
+    `actions` (at most one primary; destructive last) and `segmented` (a view switch,
+    `aria-pressed` buttons in a group), both at the inline end on the text's last line and
+    wrapping under it when narrow. `titleRef` makes the title a focus target; `titleId` lets a
+    region be labelled by it. A back link sits above the header, not in it.
+    `tests/unit/page-header.test.tsx` fails if a page inside the shell writes its own `<h1>`.
+  - **Content container** and **section panel**: §5.
 
 **Notes on these components.**
 - **Focus:** every focus stop draws the global outline (`src/styles/a11y.css`, RT-267) in
@@ -458,12 +526,15 @@ Each debt is tracked separately. Do not fold them into feature work.
 | Opt-in dark theme: `[data-theme="dark"]` roles, top-bar switch, per-user persistence, no light flash | UX-02, UX-11 | **RT-398** |
 | Admin type migration Inter → Dubai (with Arabic line-height and the 12px floor) | UX-03 | **RT-397** |
 | Reconcile `PRODUCT.md` Principle 6 and the anti-reference note with light-first | UX-02 | **RT-966** (resolved) |
+| Shell v3: sidebar with scope switcher, top bar with Ctrl K navigator and user menu, page header, content container | UX-04, UX-09 | **RT-969** (this version). Screens follow: Overview v2 (RT-970), detail template (RT-961), forms and sign-in (RT-971), control states (RT-959) |
 
 ## 11. Do's and Don'ts
 
 **Do**
 - Use role tokens, never raw hex, so the light-first token slice can remap roles in one place.
-- Put tables directly on the work surface; reserve cards for genuine objects.
+- Put each data region in one section panel, its table edge to edge under the panel header;
+  reserve cards for genuine objects.
+- Start every routed page with `PageHeader`.
 - Give every state a non-color cue (text, icon, shape) and verify it in forced-colors.
 - Use logical CSS properties in any line you write or rewrite.
 - Isolate machine data (`dir="ltr"` / `<bdi>`) and keep it monospace.
@@ -474,7 +545,9 @@ Each debt is tracked separately. Do not fold them into feature work.
 - Use a box-shadow as the only focus indicator, or `outline: none` without an outline
   replacement.
 - Use success/warning/danger/info as a chart palette, or color alone for meaning.
-- Put a table inside a rounded card, or nest cards.
+- Put a table inside a card, or nest a panel or card inside a section panel.
+- Build a stat-card grid or a hero metric; the Overview's one KPI ledger strip and pipeline
+  strip (§2) are the only status-at-a-glance surfaces.
 - Animate truth values (count-ups, rolling money), add bounce easing or page-load choreography.
 - Copy design-handoff prototype themes, KPI coloring or dual-axis charts into production.
 - Introduce a new package (including Tailwind or an icon or i18n library) without an

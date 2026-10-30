@@ -12,7 +12,6 @@ import type { Messages } from "../types";
  */
 export const devices = {
   // --- Navigation ------------------------------------------------------------
-  "devices.nav.section": "نقاط البيع",
   "devices.nav.label": "الأجهزة",
 
   // --- List ------------------------------------------------------------------

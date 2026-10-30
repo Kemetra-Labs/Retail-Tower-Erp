@@ -3,16 +3,15 @@ import type { Messages } from "../types";
 /** Shell chrome and shared components (topbar, nav, scope, dialogs, banners). */
 export const shell = {
   "shell.nav.label": "التنقل الرئيسي",
+  // RT-969: the sidebar landmark (brand, scope switcher, navigation).
+  "shell.sidebar.label": "النطاق والتنقل",
   "shell.nav.overview": "نظرة عامة",
   "shell.nav.section.management": "الإدارة",
   "shell.nav.tenants": "المؤسسات",
   "shell.nav.stores": "المتاجر",
   "shell.nav.operators": "المستخدمون",
   "shell.nav.audit": "سجل التدقيق",
-  "shell.nav.section.inventory": "المخزون",
   "shell.nav.stockDiscrepancies": "فروقات المخزون",
-  "shell.nav.section.catalog": "الكتالوج",
-  "shell.nav.section.cash": "النقدية",
   "shell.nav.shiftCloses": "إقفالات الورديات",
   "shell.nav.unknownItems": "أصناف غير معروفة",
   "shell.signOut": "تسجيل الخروج",
@@ -28,6 +27,19 @@ export const shell = {
   "shell.scope.loadFailed": "تعذّر تحميل المتاجر.",
   "shell.scope.noStores": "لا توجد متاجر يمكنك فتحها في هذه المؤسسة.",
   "shell.scope.announce": "تعمل الآن في {tenant}، {store}.",
+  // RT-969: read between the store and its tenant in the switcher's name.
+  "shell.scope.in": " في ",
+
+  // RT-969: the Ctrl K navigator (pages and the stores in scope, client-side).
+  "shell.navigator.open": "انتقل إلى صفحة أو متجر",
+  "shell.navigator.title": "انتقل إلى",
+  "shell.navigator.input": "اسم الصفحة أو المتجر",
+  "shell.navigator.pages": "الصفحات",
+  "shell.navigator.stores": "المتاجر",
+  "shell.navigator.current": "(الحالي)",
+  "shell.navigator.empty": "لا توجد صفحة أو متجر يطابق «{query}».",
+  // RT-969: the user menu holds the language and theme switches.
+  "shell.userMenu.prefs": "التفضيلات",
 
   "shell.gate.title": "اختر نطاق العمل",
   "shell.gate.sub": "اختر مؤسسة للمتابعة.",

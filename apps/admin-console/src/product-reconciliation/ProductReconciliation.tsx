@@ -1,3 +1,4 @@
+import { NoAccess } from "@/auth/NoAccess";
 /**
  * RT-727 — ERPNext product-master reconciliation (Backend-Core spec 021), for
  * owner / tenant_admin, in the Integration area beside the ERP connection
@@ -9,7 +10,7 @@
  * requested; the API is the authority (a non-disclosing 404 otherwise) and the
  * gate mirrors its roles. The backlog class filter lives in the URL (`?class=`).
  */
-import { NoAccess } from "@/auth/NoAccess";
+import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/i18n";
 import type { BacklogClass } from "@/lib/product-reconciliation-queries";
 import { useSignOut } from "@/shell/useSignOut";
@@ -39,24 +40,22 @@ function Content({ scope }: Readonly<{ scope: ReconScope }>): React.JSX.Element 
 
   return (
     <div className="surface erp-surface">
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("productRecon.title")}</h1>
-          <p className="content__sub">
-            {t.rich("productRecon.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
-          </p>
-        </div>
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={() => {
-            backlog.retry();
-            runs.retry();
-          }}
-        >
-          {t("productRecon.refresh")}
-        </button>
-      </header>
+      <PageHeader
+        title={t("productRecon.title")}
+        subtitle={t.rich("productRecon.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
+        actions={
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              backlog.retry();
+              runs.retry();
+            }}
+          >
+            {t("productRecon.refresh")}
+          </button>
+        }
+      />
 
       <BacklogPanel
         list={backlog}

@@ -3,7 +3,6 @@ import type { MessagesOf } from "../types";
 
 export const sales: MessagesOf<typeof ar> = {
   // --- Navigation ------------------------------------------------------------
-  "sales.nav.section": "Transactions",
   "sales.nav.label": "Sales",
 
   // --- List ------------------------------------------------------------------

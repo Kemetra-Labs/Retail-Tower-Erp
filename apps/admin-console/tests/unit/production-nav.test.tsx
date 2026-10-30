@@ -35,30 +35,52 @@ function entryLabels(nav: HTMLElement): string[] {
 }
 
 /**
+ * RT-969: the heading of the canvas group a link sits in; "" for the first,
+ * daily-operations group, which has none.
+ */
+function groupOf(nav: HTMLElement, link: string): string {
+  const group = within(nav).getByRole("link", { name: link }).closest(".nav-group");
+  if (!group) throw new Error(`${link} is not in a nav group`);
+  return group.querySelector(".nav-section")?.textContent ?? "";
+}
+
+/** The entries of the group under `heading`. */
+function groupLabels(nav: HTMLElement, heading: string): string[] {
+  const section = within(nav).getByText(heading, { selector: ".nav-section" });
+  const group = section.closest(".nav-group") as HTMLElement;
+  return entryLabels(group);
+}
+
+/**
  * RT-270 (UX-09: no dead destinations). A production build lists only live
  * destinations. The dev-only RF-* placeholders are gone (RT-765 removed the last).
  */
 describe("production navigation", () => {
   test("production nav lists only live destinations", () => {
     const nav = renderShell("owner");
+    // RT-969: grouped as on the owner-approved canvas.
     expect(entryLabels(nav)).toEqual([
       "Overview",
-      "Tenants",
-      "Stores",
-      "Operators",
-      "Audit",
       "Sales",
-      "Stock discrepancies",
-      "Stock movements",
       "Items",
       "Unknown items",
+      "Stock movements",
+      "Stock discrepancies",
       "Shift closes",
+      "Devices",
       "Connection & sync",
       "Sales needing repair",
       "Product reconciliation",
-      "Devices",
+      "Audit",
+      "Stores",
+      "Operators",
+      "Tenants",
       "Payer accounts",
       "Sign out",
+    ]);
+    expect(Array.from(nav.querySelectorAll(".nav-section"), (h) => h.textContent)).toEqual([
+      "Integration",
+      "Management",
     ]);
     expect(nav.querySelector("[aria-disabled='true']")).toBeNull();
     expect(within(nav).queryByText(/^RF-/)).toBeNull();
@@ -99,10 +121,12 @@ describe("production navigation", () => {
     },
   );
 
+  // RT-969: the Integration heading also holds the audit log, so for these
+  // roles it is left with Audit alone.
   test.each(["store_manager", "cashier", "auditor"])("RT-560: %s has no entry", (role) => {
     const nav = renderShell(role);
     expect(entryLabels(nav)).not.toContain("Connection & sync");
-    expect(within(nav).queryByText("Integration")).toBeNull();
+    expect(groupLabels(nav, "Integration")).toEqual(["Audit"]);
   });
 
   // RT-726: the NEEDS_REPAIR queue shares the "Integration" heading (one
@@ -145,8 +169,8 @@ describe("production navigation", () => {
     },
   );
 
-  // RT-371: the device registry, in its own "Point of sale" section, for the
-  // roles the RT-365 API lets read it.
+  // RT-371: the device registry, for the roles the RT-365 API lets read it;
+  // RT-969 lists it with the daily operations, as on the canvas.
   test.each(["owner", "tenant_admin", "store_manager"])(
     "RT-371: %s sees Devices in its section",
     (role) => {
@@ -154,41 +178,40 @@ describe("production navigation", () => {
       expect(within(nav).getByRole("link", { name: "Devices" }).getAttribute("href")).toBe(
         "/devices",
       );
-      expect(within(nav).getByText("Point of sale").className).toBe("nav-section");
+      expect(groupOf(nav, "Devices")).toBe("");
     },
   );
 
   test.each(["store_staff", "cashier", "auditor"])("RT-371: %s has no Devices entry", (role) => {
     const nav = renderShell(role);
     expect(entryLabels(nav)).not.toContain("Devices");
-    expect(within(nav).queryByText("Point of sale")).toBeNull();
   });
 
-  // RT-587 (spec 012 FR-012 / OD-556-3): Sales, in its own "Transactions"
-  // section, only for the roles the console sales read serves.
+  // RT-587 (spec 012 FR-012 / OD-556-3): Sales, only for the roles the console
+  // sales read serves; RT-969 lists it right after Overview, as on the canvas.
   test.each(["owner", "tenant_admin", "store_manager"])(
     "RT-587: %s sees Sales in its section",
     (role) => {
       const nav = renderShell(role);
       expect(within(nav).getByRole("link", { name: "Sales" }).getAttribute("href")).toBe("/sales");
-      expect(within(nav).getByText("Transactions").className).toBe("nav-section");
+      expect(groupOf(nav, "Sales")).toBe("");
+      expect(entryLabels(nav).indexOf("Sales")).toBe(1);
     },
   );
 
   test.each(["store_staff", "cashier", "auditor"])("RT-587: %s has no Sales entry", (role) => {
     const nav = renderShell(role);
     expect(entryLabels(nav)).not.toContain("Sales");
-    expect(within(nav).queryByText("Transactions")).toBeNull();
   });
 
-  // RT-421: payer accounts, in their own "Payers" section, for owner / tenant_admin
-  // only (both payer routes are `@Roles("owner", "tenant_admin")`).
+  // RT-421: payer accounts, for owner / tenant_admin only (both payer routes are
+  // `@Roles("owner", "tenant_admin")`); RT-969 lists them under Management.
   test.each(["owner", "tenant_admin"])("RT-421: %s sees Payer accounts in its section", (role) => {
     const nav = renderShell(role);
     expect(within(nav).getByRole("link", { name: "Payer accounts" }).getAttribute("href")).toBe(
       "/payer-accounts",
     );
-    expect(within(nav).getByText("Payers").className).toBe("nav-section");
+    expect(groupOf(nav, "Payer accounts")).toBe("Management");
   });
 
   test.each(["store_manager", "store_staff", "cashier", "auditor"])(
@@ -211,8 +234,9 @@ describe("production navigation", () => {
     }
   });
 
-  // RT-765 (RT-752 AC 2): «الأصناف» leads the Catalog section, for the roles
-  // the catalog read API serves, and stays selected on its child routes.
+  // RT-765 (RT-752 AC 2): «الأصناف» comes right before the unknown-items queue,
+  // for the roles the catalog read API serves, and stays selected on its child
+  // routes. RT-969 lists both with the daily operations, as on the canvas.
   test.each(["owner", "tenant_admin", "store_manager"])(
     "RT-765: %s sees Items first in the Catalog section",
     (role) => {
@@ -221,7 +245,7 @@ describe("production navigation", () => {
       expect(items.getAttribute("href")).toBe("/catalog/products");
       const labels = entryLabels(nav);
       expect(labels.indexOf("Items")).toBe(labels.indexOf("Unknown items") - 1);
-      expect(within(nav).getByText("Catalog").className).toBe("nav-section");
+      expect(groupOf(nav, "Items")).toBe("");
     },
   );
 
@@ -229,8 +253,8 @@ describe("production navigation", () => {
     expect(entryLabels(renderShell(role))).not.toContain("Items");
   });
 
-  // RT-724: the unknown-items queue left the RF-4 gate, in its own "Catalog"
-  // section, for the roles the list API serves.
+  // RT-724: the unknown-items queue left the RF-4 gate, for the roles the list
+  // API serves (RT-969: with the daily operations, beside the catalog items).
   test.each(["owner", "tenant_admin", "store_manager"])(
     "RT-724: %s sees Unknown items in its section",
     (role) => {
@@ -238,7 +262,7 @@ describe("production navigation", () => {
       expect(within(nav).getByRole("link", { name: "Unknown items" }).getAttribute("href")).toBe(
         "/unknown-items",
       );
-      expect(within(nav).getByText("Catalog").className).toBe("nav-section");
+      expect(groupOf(nav, "Unknown items")).toBe("");
     },
   );
 

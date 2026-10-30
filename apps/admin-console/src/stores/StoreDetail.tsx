@@ -2,6 +2,7 @@ import { StorePolicySection } from "@/cash-policy/StorePolicySection";
 import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
 import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/i18n";
 /**
  * SF-S2 — Store detail (T027; RT-400 screen 19). Read-first field rows plus
@@ -67,20 +68,22 @@ export function StoreDetail(): React.JSX.Element {
 
   return (
     <div className="surface">
-      <header className="surface__head">
-        <h1 className="content__title">{store.name}</h1>
-        <div className="surface__actions surface__actions--head">
-          <Link
-            to={{ pathname: "/devices", search: `?store=${encodeURIComponent(store.id)}` }}
-            className="btn-ghost"
-          >
-            {t("stores.detail.devices")}
-          </Link>
-          <Link to={`/stores/${store.id}/edit`} className="btn-secondary">
-            {t("stores.detail.edit")}
-          </Link>
-        </div>
-      </header>
+      <PageHeader
+        title={store.name}
+        actions={
+          <div className="surface__actions surface__actions--head">
+            <Link
+              to={{ pathname: "/devices", search: `?store=${encodeURIComponent(store.id)}` }}
+              className="btn-ghost"
+            >
+              {t("stores.detail.devices")}
+            </Link>
+            <Link to={`/stores/${store.id}/edit`} className="btn-secondary">
+              {t("stores.detail.edit")}
+            </Link>
+          </div>
+        }
+      />
 
       <dl className="surface__detail">
         <div className="field-row">

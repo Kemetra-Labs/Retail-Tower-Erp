@@ -1,3 +1,4 @@
+import { NoAccess } from "@/auth/NoAccess";
 /**
  * RT-725 — ERPNext item and warehouse mappings, for owner / tenant_admin, under
  * the ERP connection area (`/erp-connection/mappings`, spec 016). Two panels
@@ -10,7 +11,7 @@
  * mirrors its roles. Nothing here reaches ERPNext: a mapping records a reference
  * in Retail Tower, and the Connector resolves it at posting time.
  */
-import { NoAccess } from "@/auth/NoAccess";
+import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { useErpScope } from "@/erp-status/useErpStatus";
 import { useT } from "@/i18n";
@@ -49,17 +50,15 @@ function MappingsContent({
   const stores = useMappingStores(tenantId);
   return (
     <div className="surface erp-surface">
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("erp.map.title")}</h1>
-          <p className="content__sub">
-            {t.rich("erp.map.sub", { tenant: <bdi>{tenantName ?? ""}</bdi> })}
-          </p>
-        </div>
-        <Link className="btn-ghost" to="/erp-connection">
-          {t("erp.map.back")}
-        </Link>
-      </header>
+      <PageHeader
+        title={t("erp.map.title")}
+        subtitle={t.rich("erp.map.sub", { tenant: <bdi>{tenantName ?? ""}</bdi> })}
+        actions={
+          <Link className="btn-ghost" to="/erp-connection">
+            {t("erp.map.back")}
+          </Link>
+        }
+      />
       <ItemMappings tenantId={tenantId} />
       <WarehouseMappings tenantId={tenantId} options={stores} />
     </div>

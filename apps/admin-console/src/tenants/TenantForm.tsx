@@ -1,6 +1,7 @@
 import { Banner } from "@/components/Banner";
 import { GatedButton } from "@/components/GatedButton";
 import { InlineError } from "@/components/InlineError";
+import { PageHeader } from "@/components/PageHeader";
 import { type MessageKey, useT } from "@/i18n";
 import { textField } from "@/lib/form-field";
 import { type Rf2ErrorRender, mapRf2Error } from "@/lib/rf2-queries";
@@ -86,11 +87,7 @@ export function TenantForm({
 
   return (
     <div className="surface">
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{title}</h1>
-        </div>
-      </header>
+      <PageHeader title={title} />
 
       {banner && (banner.kind === "banner" || banner.kind === "not-found") ? (
         <Banner

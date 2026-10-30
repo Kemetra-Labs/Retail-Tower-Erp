@@ -1,3 +1,6 @@
+import { NoAccess } from "@/auth/NoAccess";
+import { Banner } from "@/components/Banner";
+import { ListState } from "@/components/ListState";
 /**
  * RT-728 — one product's on-hand at one store (`getOnHand`), reached from a
  * movement row of the store's ledger; there is no free-text product entry.
@@ -14,9 +17,7 @@
  * Tracking identities (`listTrackingIdentities`) are requested only for owner /
  * tenant_admin, the API's roles; a 403 / 404 omits the section. Read-only.
  */
-import { NoAccess } from "@/auth/NoAccess";
-import { Banner } from "@/components/Banner";
-import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/i18n";
 import type { OnHand, TrackingIdentity } from "@/lib/inventory-queries";
 import { ScopeMismatchBanner } from "@/shell/ScopeMismatchBanner";
@@ -284,14 +285,10 @@ function ProductView({
   return (
     <div className="surface">
       <BackLink to={`/inventory/stores/${target.storeId}`} label={t("inventory.product.back")} />
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("inventory.product.title")}</h1>
-          <p className="content__sub">
-            {t.rich("inventory.product.sub", { ref: <Machine value={target.productId} /> })}
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title={t("inventory.product.title")}
+        subtitle={t.rich("inventory.product.sub", { ref: <Machine value={target.productId} /> })}
+      />
       <OnHandSection onHand={onHand} storeId={target.storeId} role={scope.role} />
       {canMoveStock(scope.role) ? (
         <StatusMoveSection

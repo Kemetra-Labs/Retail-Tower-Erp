@@ -10,6 +10,7 @@
  * re-enters the same location, which resets the router's error boundary; the
  * way out is the menu or Overview (not offered when Overview itself failed).
  */
+import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/i18n";
 import { Link, useLocation, useNavigate, useRouteError } from "react-router";
 import { ErrorReference } from "./ErrorFallback";
@@ -28,11 +29,7 @@ export function ShellRouteErrorFallback(): React.JSX.Element {
   };
   return (
     <div className="surface">
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("app.routeError.title")}</h1>
-        </div>
-      </header>
+      <PageHeader title={t("app.routeError.title")} />
       <div className="rtc-alert rtc-alert--danger" role="alert">
         <span className="rtc-alert__body">{t("app.routeError.what")}</span>
         <span className="rtc-alert__body">{t("app.crash.safety")}</span>

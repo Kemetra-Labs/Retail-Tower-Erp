@@ -6,6 +6,7 @@
  * (the scope bar above this content), so this prompt points there rather than
  * duplicating the chooser.
  */
+import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/i18n";
 import "../shell/surface.css";
 
@@ -13,11 +14,7 @@ export function ScopePrompt(): React.JSX.Element {
   const t = useT();
   return (
     <div className="surface">
-      <header className="surface__head">
-        <div>
-          <h1 className="content__title">{t("stores.list.title")}</h1>
-        </div>
-      </header>
+      <PageHeader title={t("stores.list.title")} />
       <p className="scope-prompt">{t("stores.scope.prompt")}</p>
     </div>
   );

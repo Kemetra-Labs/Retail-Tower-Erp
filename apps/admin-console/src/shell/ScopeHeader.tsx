@@ -3,10 +3,12 @@ import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { type T, useT } from "@/i18n";
 import { useStoreList } from "@/stores/useStoreQueries";
 /**
- * Persistent scope header (SF-2, T028): a recessed bar under the top bar,
- * always visible
- * in-context (rule 3). Click-to-switch opens the scope menu; selecting a tenant
- * or store drives the SF-3 mutators (which re-fetch — no optimistic update).
+ * Persistent scope switcher (SF-2, T028; RT-969 Shell v3): it sits in the
+ * sidebar under the brand, always visible in-context (rule 3; at the compact
+ * width it is the row under the top bar, RT-825). Click-to-switch opens the
+ * scope menu; selecting a store drives the SF-3 mutators (which re-fetch — no
+ * optimistic update) through `useScopeChange`, the path the Ctrl K navigator
+ * shares.
  *
  * RT-354: the menu lists the stores the caller may enter in the active tenant
  * (see scope-stores.ts). The list loads only while the menu is open and shares
@@ -17,8 +19,8 @@ import { useStoreList } from "@/stores/useStoreQueries";
  * politely to screen readers.
  */
 import { useEffect, useRef, useState } from "react";
-import { useDirtyGuard } from "./dirty-guard";
 import { type ScopeMembership, type ScopeStore, scopeMenuStores } from "./scope-stores";
+import { useScopeChange } from "./useScopeChange";
 import "./scope-header.css";
 
 /** Non-color "current scope" cue (RT-267/UX-11); aria-current names it for AT. */
@@ -101,6 +103,11 @@ function ScopeMenu({
   );
 }
 
+/** The first character of a name, for the decorative scope tile. */
+function initialOf(name: string | undefined): string {
+  return Array.from(name?.trim() ?? "")[0]?.toUpperCase() ?? "";
+}
+
 interface ScopeNames {
   tenant: string;
   /** The active store's name, or null for "All stores". */
@@ -130,8 +137,8 @@ function useScopeAnnouncement(scopeKey: string, names: ScopeNames, t: T): string
 
 export function ScopeHeader(): React.JSX.Element | null {
   const t = useT();
-  const { context, switchStore, clearStore } = useActiveContextValue();
-  const guard = useDirtyGuard();
+  const { context } = useActiveContextValue();
+  const scopeChange = useScopeChange();
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -152,9 +159,9 @@ export function ScopeHeader(): React.JSX.Element | null {
   };
   // A scope change is a context transition: unsaved work is confirmed first
   // (RT-268), then the server switch runs and the context re-fetches.
-  const changeScope = async (change: () => Promise<void>) => {
+  const changeScope = (storeId: string | null) => {
     closeMenu();
-    if (await guard.confirmLeave()) await change();
+    void scopeChange(storeId);
   };
 
   // Escape closes the open menu from the trigger or from inside the menu.
@@ -173,16 +180,20 @@ export function ScopeHeader(): React.JSX.Element | null {
         onClick={() => setOpen((v) => !v)}
         onKeyDown={closeOnEscape}
       >
-        {/* Names are isolated so a Latin-only name can't turn the Bidi_Mirrored
-            separator: › reads ‹ in Arabic with no code change (RT-266 §2.1). */}
-        <span className="scope__crumb">
-          <bdi>{tenant.name}</bdi>
+        {/* The tile is decoration: the two names carry the accessible name. */}
+        <span className="scope__tile" aria-hidden="true">
+          {initialOf(store?.name ?? tenant.name)}
         </span>
-        <span className="scope__sep" aria-hidden="true">
-          ›
-        </span>
-        <span className="scope__current">
-          {store ? <bdi>{store.name}</bdi> : t("shell.scope.allStores")}
+        {/* Names are isolated (RT-266 §2.1): a Latin-only name keeps its own
+            direction inside an Arabic run. Store first, then its tenant. */}
+        <span className="scope__names">
+          <span className="scope__current">
+            {store ? <bdi>{store.name}</bdi> : t("shell.scope.allStores")}
+          </span>
+          <span className="sr-only">{t("shell.scope.in")}</span>
+          <span className="scope__crumb">
+            <bdi>{tenant.name}</bdi>
+          </span>
         </span>
         <Icon name="disclosure" size="sm" className="scope__caret" />
       </button>
@@ -195,11 +206,11 @@ export function ScopeHeader(): React.JSX.Element | null {
           onKeyDown={closeOnEscape}
           onChooseStore={(storeId) => {
             if (storeId === store?.id) closeMenu();
-            else void changeScope(() => switchStore(storeId));
+            else changeScope(storeId);
           }}
           onAllStores={() => {
             if (!store) closeMenu();
-            else void changeScope(clearStore);
+            else changeScope(null);
           }}
         />
       ) : null}
