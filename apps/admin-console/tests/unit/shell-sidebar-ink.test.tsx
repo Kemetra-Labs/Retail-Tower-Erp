@@ -130,6 +130,26 @@ describe("RT-991 Ink sidebar stylesheet", () => {
     expect(forced).toMatch(/\.brand-mark \{[^}]*background: Canvas[^}]*CanvasText/s);
   });
 
+  test("forced colours: the sidebar text is named CanvasText, never left to the override", () => {
+    // ink-muted is 1.87:1 on the white forced Canvas; a checker that reads the
+    // author colour instead of the forced one (axe did, CI RT-991) would fail.
+    const forced = shell.slice(shell.indexOf("@media (forced-colors: active)"));
+    const block = /(\.sidebar,[^{]*)\{\s*color: CanvasText;\s*transition: none;/.exec(forced);
+    expect(block).not.toBeNull();
+    for (const selector of [
+      ".sidebar .nav-entry",
+      ".sidebar .nav-entry--link:hover",
+      ".sidebar .nav-entry--active",
+      ".sidebar .nav-section",
+      ".sidebar .tower-lockup__tag",
+      ".sidebar .nav-signout",
+    ]) {
+      expect(block?.[1]).toContain(selector);
+    }
+    const scopeForced = scope.slice(scope.indexOf("@media (forced-colors: active)"));
+    expect(scopeForced).toMatch(/\.sidebar \.scope__crumb[^{]*\{\s*color: CanvasText/);
+  });
+
   test("forced colours: the sidebar's own marker rule, the more specific one, goes to Highlight", () => {
     const forced = shell.slice(shell.indexOf("@media (forced-colors: active)"));
     // The sidebar marker (.sidebar .nav-entry--active::before, 0,3,1) outranks the

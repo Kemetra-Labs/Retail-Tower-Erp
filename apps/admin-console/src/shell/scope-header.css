@@ -183,3 +183,16 @@
     min-height: 44px;
   }
 }
+
+/* Forced colours (RT-991): the sidebar is Canvas here, so its scope button, tile
+ * and crumb take CanvasText, named explicitly (see app-shell.css). The menu it
+ * opens is a light surface and is unaffected. */
+@media (forced-colors: active) {
+  .sidebar .scope__btn,
+  .sidebar .scope__btn:hover,
+  .sidebar .scope__tile,
+  .sidebar .scope__crumb,
+  .sidebar .scope__caret {
+    color: CanvasText;
+  }
+}

@@ -442,6 +442,23 @@
     background-image: none;
     border-inline-end: 1px solid CanvasText;
   }
+  /* The sidebar's text is named as a system colour, not left to the browser's
+   * override. Its author colours are for Ink (ink-muted is 1.87:1 on the white
+   * Canvas): a checker that reads them instead of the forced value would fail,
+   * and the surface is Canvas here, so CanvasText is the one safe text colour.
+   * The active entry stays distinguishable by its Highlight marker. */
+  .sidebar,
+  .sidebar .tower-lockup__word,
+  .sidebar .tower-lockup__tag,
+  .sidebar .nav-section,
+  .sidebar .nav-entry,
+  .sidebar .nav-entry--link:hover,
+  .sidebar .nav-signout,
+  .sidebar .nav-signout:hover,
+  .sidebar .nav-entry--active {
+    color: CanvasText;
+    transition: none;
+  }
   .brand-mark {
     background: Canvas;
     border: 1px solid CanvasText;
