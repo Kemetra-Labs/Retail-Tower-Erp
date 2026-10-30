@@ -7,7 +7,7 @@
  * quick-sale code keeps its leading zeros and every space, so a pasted trailing
  * space is a miss, not something silently fixed.
  */
-import { FilterBar, type FilterChip, FilterField } from "@/components/FilterBar";
+import { FilterBar, type FilterChip, FilterField, isolate } from "@/components/FilterBar";
 import { type MessageKey, useT } from "@/i18n";
 import type { CatalogCategory } from "@/lib/catalog-queries";
 import { useState } from "react";
@@ -78,14 +78,14 @@ function useChips(
   if (applied.q !== "") {
     chips.push({
       key: "q",
-      label: `${t("catalog.filter.q")}: ${applied.q}`,
+      label: `${t("catalog.filter.q")}: ${isolate(applied.q)}`,
       onRemove: () => onApply({ ...applied, q: "" }),
     });
   }
   if (applied.status !== defaults.status) {
     chips.push({
       key: "status",
-      label: `${t("catalog.filter.status")}: ${t(statusFilterKey(applied.status))}`,
+      label: `${t("catalog.filter.status")}: ${isolate(t(statusFilterKey(applied.status)))}`,
       onRemove: () => onApply({ ...applied, status: defaults.status }),
     });
   }
@@ -95,7 +95,7 @@ function useChips(
       t("catalog.filter.categorySelected");
     chips.push({
       key: "category",
-      label: `${t("catalog.filter.category")}: ${name}`,
+      label: `${t("catalog.filter.category")}: ${isolate(name)}`,
       onRemove: () => onApply({ ...applied, categoryId: "" }),
     });
   }

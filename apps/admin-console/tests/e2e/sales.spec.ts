@@ -313,4 +313,17 @@ test("S5: arrival applies the active store and today, once; Clear returns there"
   await expect(p).toHaveURL(new RegExp(`/sales\\?${expected}$`));
   await p.waitForLoadState("networkidle");
   expect(queries.length).toBeLessThanOrEqual(3);
+
+  // From a filtered list, the Sales nav link (same page, no remount) lands on the default too.
+  // «فلاتر إضافية» is still open from above: Clear keeps the disclosure as it was.
+  await expect(p.getByRole("button", { name: t("filter.more"), exact: true })).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  await p.getByLabel(t("sales.filter.returns")).selectOption("partial");
+  await p.getByRole("button", { name: t("filter.apply"), exact: true }).click();
+  await expect(p).toHaveURL(/returns=partial/);
+  await p.getByRole("link", { name: t("sales.nav.label"), exact: true }).click();
+  await expect(p).toHaveURL(new RegExp(`/sales\\?${expected}$`));
+  await expect(p.getByRole("row").filter({ hasText: "R-0042" })).toBeVisible();
 });

@@ -18,6 +18,14 @@ import { useT } from "@/i18n";
 import { useId, useState } from "react";
 import "./filter-bar.css";
 
+/**
+ * A chip label is plain text, so it cannot hold a <bdi>. Isolate the value
+ * instead: `isolate` (FSI…PDI) for a name in either script, `ltr` (LRI…PDI) for
+ * machine data and dates, so "2026-10-23" never reorders inside Arabic copy.
+ */
+export const isolate = (value: string): string => `\u2068${value}\u2069`;
+export const ltr = (value: string): string => `\u2066${value}\u2069`;
+
 export interface FilterChip {
   key: string;
   label: string;

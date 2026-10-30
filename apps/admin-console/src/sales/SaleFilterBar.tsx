@@ -7,7 +7,7 @@
  * the authority on the range (AC-2). The page applies the active store and
  * today on arrival (RT-960, owner decision A).
  */
-import { FilterBar, type FilterChip, FilterField } from "@/components/FilterBar";
+import { FilterBar, type FilterChip, FilterField, isolate, ltr } from "@/components/FilterBar";
 import { type MessageKey, useT } from "@/i18n";
 import type { StoreInfo } from "@/shift-closes/useShiftCloses";
 import { useState } from "react";
@@ -174,18 +174,20 @@ function useChips(
   const options = useExtraOptions();
   const chips: FilterChip[] = [];
   const store = stores.find((s) => s.id === applied.storeId);
-  if (store) chips.push({ key: "store", label: `${t("sales.filter.store")}: ${store.name}` });
+  if (store) {
+    chips.push({ key: "store", label: `${t("sales.filter.store")}: ${isolate(store.name)}` });
+  }
   if (applied.fromDate && applied.toDate) {
     const period =
       applied.fromDate === applied.toDate
         ? applied.fromDate
         : `${applied.fromDate} – ${applied.toDate}`;
-    chips.push({ key: "period", label: `${t("sales.filter.period")}: ${period}` });
+    chips.push({ key: "period", label: `${t("sales.filter.period")}: ${ltr(period)}` });
   }
   if (applied.saleNumber) {
     chips.push({
       key: "number",
-      label: `${t("sales.filter.saleNumber")}: ${applied.saleNumber}`,
+      label: `${t("sales.filter.saleNumber")}: ${ltr(applied.saleNumber)}`,
       onRemove: () => onApply({ ...applied, saleNumber: "" }),
     });
   }
@@ -197,7 +199,7 @@ function useChips(
     if (option) {
       chips.push({
         key,
-        label: `${t(EXTRA_LABEL[key])}: ${option.label}`,
+        label: `${t(EXTRA_LABEL[key])}: ${isolate(option.label)}`,
         onRemove: () => onApply({ ...applied, [key]: "" }),
       });
     }

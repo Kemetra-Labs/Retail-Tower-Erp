@@ -66,11 +66,18 @@ function trackFit(page: Page) {
       const fields = [...grid.querySelectorAll<HTMLElement>(".filter-bar__field")].filter(
         (el) => el.offsetParent !== null,
       );
-      const offsets = fields.map((el) => {
+      const offset = (el: HTMLElement) => {
         const r = el.getBoundingClientRect();
         return Math.round(rtl ? box.right - r.right : r.left - box.left);
-      });
-      return { starts: starts.map(Math.round), offsets, count: fields.length };
+      };
+      const inExtra = (el: HTMLElement) => el.closest(".filter-bar__extra") !== null;
+      return {
+        starts: starts.map(Math.round),
+        offsets: fields.map(offset),
+        main: fields.filter((el) => !inExtra(el)).map(offset),
+        extra: fields.filter(inExtra).map(offset),
+        count: fields.length,
+      };
     });
 }
 
@@ -78,9 +85,20 @@ for (const route of SCREENS) {
   test(`${route}: fields sit on the grid tracks at 1440px`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await open(page, route);
+    // The second row is what drifted before (RT-960): open «فلاتر إضافية» so it is measured.
+    const more = page.locator(".filter-bar__more").first();
+    const hasMore = (await more.count()) > 0;
+    if (hasMore) await more.click();
     await expectNoAxeViolations(page, `${route} filter bar`);
-    const { starts, offsets, count } = await trackFit(page);
+    const { starts, offsets, main, extra, count } = await trackFit(page);
     expect(count).toBeGreaterThan(0);
+    if (hasMore) {
+      expect(extra.length).toBeGreaterThan(0);
+      // Each extra field sits exactly under the main-row field in its column.
+      extra
+        .slice(0, main.length)
+        .forEach((x, i) => expect(Math.abs(x - main[i])).toBeLessThanOrEqual(1));
+    }
     for (const offset of offsets) {
       expect(
         starts.some((s) => Math.abs(s - offset) <= 1),
@@ -121,3 +139,24 @@ for (const route of SCREENS) {
     for (const field of fit.fields) expect(field).toBe(fit.width);
   });
 }
+
+test("a removable chip has a 24px target and removing it applies at once", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockRealisticApi(page);
+  await page.goto("/devices?state=revoked");
+  const remove = page.locator(".filter-bar__chip-remove").first();
+  await expect(remove).toBeVisible();
+  // The ::after hit area: the point 11px off the glyph's centre still hits it.
+  const hits = await remove.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y = r.top + r.height / 2;
+    return [-11, 11].map((d) => {
+      const at = document.elementFromPoint(x, y + d);
+      return at === el || el.contains(at);
+    });
+  });
+  expect(hits).toEqual([true, true]);
+  await remove.click();
+  await expect(page).not.toHaveURL(/state=revoked/);
+});

@@ -449,7 +449,9 @@ These classes exist on `main` and new work reuses them until a migration slice r
   - Fields (`FilterField`) sit on one grid of equal tracks, so columns line up. Extra
     fields join the same tracks. Notes go under the grid, never inside a cell.
   - One verb: «تطبيق» / "Apply" (`btn-primary`, rate-limit gated, can be busy), after a
-    `btn-ghost` «مسح» / "Clear". No list filters on change.
+    `btn-ghost` «مسح» / "Clear". No list filter sends a read on change. The one
+    exception is a search that narrows a list already loaded on the client: the platform
+    tenant directory narrows as you type and sends no read.
   - Optional «فلاتر إضافية» disclosure: its count is the applied hidden filters and is in
     its accessible name. The region is hidden, not unmounted. It opens when a hidden
     field has an error.

@@ -1,4 +1,4 @@
-import { FilterBar, type FilterChip, FilterField } from "@/components/FilterBar";
+import { FilterBar, type FilterChip, FilterField, isolate } from "@/components/FilterBar";
 import { useT } from "@/i18n";
 /**
  * RT-371 filter bar: store and trust state, the two filters the contract has.
@@ -41,7 +41,7 @@ function useChips(
       stores.find((s) => s.id === applied.storeId)?.name ?? t("devices.filter.unlistedStore");
     chips.push({
       key: "store",
-      label: `${t("devices.filter.store")}: ${name}`,
+      label: `${t("devices.filter.store")}: ${isolate(name)}`,
       onRemove: () => onApply({ ...applied, storeId: "" }),
     });
   }
@@ -49,7 +49,7 @@ function useChips(
   if (trust) {
     chips.push({
       key: "trust",
-      label: `${t("devices.filter.trust")}: ${t(trust.key)}`,
+      label: `${t("devices.filter.trust")}: ${isolate(t(trust.key))}`,
       onRemove: () => onApply({ ...applied, trustState: "" }),
     });
   }

@@ -6,13 +6,13 @@ import { useStoreDirectory } from "@/shift-closes/useShiftCloses";
  * RT-587 — Sales search (spec 012 J1, read-only). One store's received sales
  * over an inclusive business-date range, newest first, keyset paged. Nothing
  * is read until a store and both dates are set (FR-004). Filters live in the
- * URL (FR-007). RT-960 (owner decision A): arriving with no filters applies the
- * active store and today in its zone, once; Clear returns to that default. With
+ * URL (FR-007). RT-960 (owner decision A): a URL with no filters applies the
+ * active store and today in its zone; Clear returns to that default. With
  * no active store (tenant-wide scope) the prompt stays. A role the API refuses (store_staff) gets the non-disclosing
  * not-available state and no form (AC-5). The results and paging states are in
  * `SaleResults.tsx` and `SalePager.tsx`.
  */
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { SaleFilterBar } from "./SaleFilterBar";
 import { Unavailable } from "./SalePager";
@@ -61,20 +61,19 @@ function arrivalDefault(
 }
 
 /**
- * Owner decision A (RT-960): with no filters in the URL, apply the default once,
- * replacing the empty entry so Back does not return to it. A ref guards the
- * write, so it cannot loop.
+ * Owner decision A (RT-960): whenever the URL has no filters (arrival, the nav
+ * link from a filtered list), apply the default, replacing the empty entry so
+ * Back does not return to it. It cannot loop: once written, the URL is not
+ * empty.
  */
 function useArrivalDefault(
   search: URLSearchParams,
   setSearch: ReturnType<typeof useSearchParams>[1],
   fallbackSearch: string,
 ): void {
-  const applied = useRef(false);
   const empty = search.toString() === "";
   useEffect(() => {
-    if (applied.current || !empty || !fallbackSearch) return;
-    applied.current = true;
+    if (!empty || !fallbackSearch) return;
     setSearch(new URLSearchParams(fallbackSearch), { replace: true });
   }, [empty, fallbackSearch, setSearch]);
 }
