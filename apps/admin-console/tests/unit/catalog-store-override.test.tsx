@@ -518,7 +518,7 @@ describe("store overrides on the item detail (RT-770, CAT-C2c)", () => {
     expect(await within(drawer()).findByText(/nothing was saved/)).toBeDefined();
   });
 
-  test("Save is disabled in flight: one request only", async () => {
+  test("Save is busy in flight: one request only", async () => {
     let finish: (v: unknown) => void = () => undefined;
     consoleUpsertStoreOverride.mockReturnValue(
       new Promise((r) => {
@@ -529,7 +529,9 @@ describe("store overrides on the item detail (RT-770, CAT-C2c)", () => {
     await openChange();
     fireEvent.click(radio("Available"));
     fireEvent.click(save());
-    await waitFor(() => expect((save() as HTMLButtonElement).disabled).toBe(true));
+    // RT-959: busy, not disabled: it keeps focus and ignores repeat presses.
+    await waitFor(() => expect(save().getAttribute("aria-busy")).toBe("true"));
+    expect(save().hasAttribute("disabled")).toBe(false);
     fireEvent.click(save());
     expect(consoleUpsertStoreOverride).toHaveBeenCalledTimes(1);
     finish(one(withOverride({ isActive: true })));

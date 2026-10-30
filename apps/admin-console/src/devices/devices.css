@@ -80,14 +80,31 @@
   border-block-end: 1px solid var(--color-border);
 }
 .device-tab {
-  min-block-size: 36px;
+  min-block-size: var(--control-h);
   padding-inline: var(--space-4);
   background: none;
   border: 0;
   border-block-end: 2px solid transparent;
+  border-start-start-radius: var(--radius-control);
+  border-start-end-radius: var(--radius-control);
   color: var(--color-text-muted);
   font: var(--weight-regular) var(--text-control) / var(--leading-tight) var(--font-sans);
   cursor: pointer;
+  transition: background-color var(--duration-2) var(--ease-out), color var(--duration-2)
+    var(--ease-out);
+}
+/* RT-959: the shared button states. Hover is neutral (never the teal selection
+ * wash), press one step deeper; focus is the global outline. */
+.device-tab:hover:not(:disabled, [aria-disabled="true"]) {
+  background-color: var(--color-surface-sunken);
+  color: var(--color-text);
+}
+.device-tab:active:not(:disabled, [aria-disabled="true"]) {
+  background-color: color-mix(in oklab, var(--color-surface-sunken), var(--color-text) 7%);
+}
+.device-tab:is(:disabled, [aria-disabled="true"]) {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
 }
 .device-tab[aria-selected="true"] {
   border-block-end-color: var(--color-primary);
@@ -130,6 +147,9 @@
 @media (forced-colors: active) {
   .device-tab[aria-selected="true"] {
     border-block-end-color: Highlight;
+  }
+  .device-tab:is(:disabled, [aria-disabled="true"]) {
+    color: GrayText;
   }
 }
 

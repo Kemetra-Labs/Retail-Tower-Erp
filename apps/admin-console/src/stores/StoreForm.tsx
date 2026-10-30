@@ -188,8 +188,7 @@ function FormActions({
   const t = useT();
   return (
     <div className="surface__actions surface__actions--divided">
-      <GatedButton type="submit" className="btn-primary" disabled={submitDisabled}>
-        {pending ? <span className="spinner" aria-hidden="true" /> : null}
+      <GatedButton type="submit" className="btn-primary" busy={pending} disabled={submitDisabled}>
         {t(isEdit ? "stores.form.saveChanges" : "stores.form.create")}
       </GatedButton>
       <button type="button" className="btn-ghost" onClick={onCancel} disabled={pending}>
@@ -308,7 +307,7 @@ export function StoreForm({ mode, storeId, initial }: Readonly<StoreFormProps>):
         <FormActions
           isEdit={isEdit}
           pending={pending}
-          submitDisabled={pending || statusPending || !timezone.canSave}
+          submitDisabled={statusPending || !timezone.canSave}
           onCancel={() => navigate(isEdit && storeId ? `/stores/${storeId}` : "/stores")}
         />
       </form>

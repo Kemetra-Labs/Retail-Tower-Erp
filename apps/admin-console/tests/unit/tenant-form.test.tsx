@@ -93,14 +93,18 @@ describe("TenantForm create", () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
-  test("submit is disabled while the create is in flight", async () => {
+  test("submit is busy while the create is in flight", async () => {
     createTenant.mockReturnValue(new Promise(() => {}));
     renderForm({ mode: "create" });
     submit({ slug: "a", name: "B" });
+    // RT-959: busy, not disabled: it keeps focus and ignores repeat presses.
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /create tenant/i }).hasAttribute("disabled")).toBe(
-        true,
+      expect(screen.getByRole("button", { name: /create tenant/i }).getAttribute("aria-busy")).toBe(
+        "true",
       ),
+    );
+    expect(screen.getByRole("button", { name: /create tenant/i }).hasAttribute("disabled")).toBe(
+      false,
     );
   });
 });

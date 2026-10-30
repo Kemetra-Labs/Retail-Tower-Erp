@@ -239,9 +239,9 @@ export function InviteMember({
           <GatedButton
             type="submit"
             className="btn-primary"
-            disabled={pending || tooEarly !== null}
+            busy={pending}
+            disabled={tooEarly !== null}
           >
-            {pending ? <span className="spinner" aria-hidden="true" /> : null}
             {tooEarly !== null
               ? t("operators.invite.retrying", { count: tooEarly })
               : t("operators.invite.submit")}

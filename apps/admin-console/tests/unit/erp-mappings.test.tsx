@@ -408,7 +408,9 @@ describe("confirm an item mapping", () => {
     const step = await openConfirm();
     const button = within(step).getByRole("button", { name: "Confirm" });
     fireEvent.click(button);
-    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(true));
+    // RT-959: busy, not disabled: it keeps focus and ignores repeat presses.
+    await waitFor(() => expect(button.getAttribute("aria-busy")).toBe("true"));
+    expect(button.hasAttribute("disabled")).toBe(false);
     fireEvent.click(button);
     settle(ok(itemRow({ state: "confirmed" })));
     expect(await screen.findByText("Mapping confirmed.")).toBeTruthy();

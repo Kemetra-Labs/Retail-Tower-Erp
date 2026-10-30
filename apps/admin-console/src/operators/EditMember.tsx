@@ -137,8 +137,12 @@ export function EditMember({
         </div>
 
         <div className="surface__actions">
-          <GatedButton type="submit" className="btn-primary" disabled={pending}>
-            {update.isPending ? <span className="spinner" aria-hidden="true" /> : null}
+          <GatedButton
+            type="submit"
+            className="btn-primary"
+            busy={update.isPending}
+            disabled={revoke.isPending}
+          >
             {t("operators.edit.save")}
           </GatedButton>
           <button type="button" className="btn-ghost" onClick={onClose} disabled={pending}>

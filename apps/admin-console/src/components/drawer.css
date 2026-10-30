@@ -81,8 +81,8 @@
 /* Its close button is a 44px touch target: the start drawer is the compact
  * shell's (RT-785 D3). */
 .drawer--start .drawer__head .btn-ghost {
-  min-width: 44px;
-  min-height: 44px;
+  min-width: var(--target-touch);
+  min-height: var(--target-touch);
   justify-content: center;
 }
 @keyframes drawer-in {

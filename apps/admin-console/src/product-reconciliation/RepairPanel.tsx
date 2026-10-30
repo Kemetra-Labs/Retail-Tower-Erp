@@ -137,8 +137,7 @@ function ConfirmStep({
         })}
       </p>
       <div className="recon-actions">
-        <GatedButton className="btn-primary" disabled={pending} onClick={onConfirm}>
-          {pending ? <span className="spinner" aria-hidden="true" /> : null}
+        <GatedButton className="btn-primary" busy={pending} onClick={onConfirm}>
           {t("productRecon.repair.confirm")}
         </GatedButton>
         <button type="button" className="btn-ghost" disabled={pending} onClick={onBack}>
@@ -253,8 +252,7 @@ function MappingRepair({ scope, target, onClose }: Readonly<RepairPanelProps>): 
             )}
           </p>
           <div className="recon-actions">
-            <GatedButton className="btn-primary" disabled={pending} onClick={() => void confirm()}>
-              {pending ? <span className="spinner" aria-hidden="true" /> : null}
+            <GatedButton className="btn-primary" busy={pending} onClick={() => void confirm()}>
               {t(
                 repoint
                   ? "productRecon.repair.mapping.repoint"

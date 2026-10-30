@@ -141,9 +141,9 @@ export function IdentifierRetire({
           type="button"
           className="btn-destructive"
           onClick={() => void confirm()}
-          disabled={pending || locked}
+          busy={pending}
+          disabled={locked}
         >
-          {pending ? <span className="spinner" aria-hidden="true" /> : null}
           {t("catalog.identifier.retire.confirm")}
         </GatedButton>
         <button type="button" className="btn-ghost" onClick={onClose} disabled={pending}>

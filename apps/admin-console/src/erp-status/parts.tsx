@@ -1,3 +1,4 @@
+import { Banner } from "@/components/Banner";
 /**
  * RT-560 shared pieces for the ERP status panels: the status pill (a dot plus
  * a text label, so colour is never the only cue; a hollow dot marks "no
@@ -5,7 +6,7 @@
  * the stale (inline) error, the Load more pager, and the cursor-paged table
  * shared by the posting backlog and the run history.
  */
-import { Banner } from "@/components/Banner";
+import { BusyButton } from "@/components/BusyButton";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
 import { ListState as ListStateView } from "@/components/ListState";
 import { DateTime, useT } from "@/i18n";
@@ -119,15 +120,14 @@ export function LoadMore<T>({ list }: Readonly<{ list: ListState<T> }>): React.J
   if (!list.hasMore) return null;
   return (
     <div>
-      <button
+      <BusyButton
         type="button"
         className="btn-secondary"
         onClick={list.loadMore}
-        disabled={list.isFetchingNextPage}
+        busy={list.isFetchingNextPage}
       >
-        {list.isFetchingNextPage ? <span className="spinner" aria-hidden="true" /> : null}
         {t("erp.loadMore")}
-      </button>
+      </BusyButton>
     </div>
   );
 }
