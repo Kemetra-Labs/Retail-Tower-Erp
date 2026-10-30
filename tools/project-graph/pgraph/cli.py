@@ -156,11 +156,12 @@ def _load_evidence_dir(path):
 
 
 def cmd_api_jest_select(args):
-    """RT-949 shadow selector. Never fails the caller: every problem becomes mode=full."""
+    """RT-949 shadow selector. Missing or failed evidence becomes mode=full; a malformed payload
+    raises, the step fails (it is continue-on-error) and the report shows NO_SELECTION."""
     from . import api_jest_select as sel
     candidates, evidence = _load_evidence_dir(args.evidence_dir)
     selection = sel.select_from_repo(args.repo, args.base, args.head, args.event, candidates,
-                                     evidence, args.repo_name)
+                                     evidence, args.repo_name, args.pr_number)
     pathlib.Path(args.out).write_text(json.dumps(selection.as_dict(), ensure_ascii=True), encoding="utf-8")
     _emit(selection.as_dict())
     return 0
@@ -230,6 +231,7 @@ def main(argv=None):
     js.add_argument("--head", required=True)
     js.add_argument("--event", required=True)
     js.add_argument("--repo-name", required=True)
+    js.add_argument("--pr-number", required=True, type=int)
     js.add_argument("--evidence-dir", required=True, help="candidates.json + one directory of REST dumps per candidate")
     js.add_argument("--out", required=True)
     js.set_defaults(func=cmd_api_jest_select)

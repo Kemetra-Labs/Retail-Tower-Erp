@@ -22,7 +22,7 @@ Anything else, including any error, is `full` with a reason."""
 from dataclasses import dataclass
 
 from . import gitio
-from .aggregate import _judge_job
+from .aggregate import _judge_job, _provenance_problem
 from .github import normalize_runs
 from .globs import compile_glob, normalize_path
 from .graph import Graph, GraphError, load_graph, validate_graph
@@ -70,12 +70,15 @@ def _verdict(graph, fast, change, base_side=False):
     path = normalize_path(change.path)
     c = graph.classify(path)
     if c.kind == "class":
+        # A shared class selects `all`, `[e2e]` or `[]` (graph schema); only `all` reaches this job.
         selects = graph.shared_class(c.owner)["selects"]
         return ("ignore", None) if selects != "all" else ("full", f"CLASS:{c.owner}")
     if c.kind != "product":
         return ("full", f"{c.kind.upper()}_PATH")
     if c.owner != PRODUCT:
-        return ("ignore", None)
+        # Another product's path is ignored unless one of its tiers selects this job (a semantic edge).
+        selected = set().union(*(graph.tier_jobs(c.owner, t) for t in c.tiers))
+        return ("full", f"SEMANTIC_EDGE:{c.owner}") if JOB in selected else ("ignore", None)
     if base_side:
         return ("full", "BACKEND_CORE")
     if change.status not in ("M", "A") or change.old_path:
@@ -114,12 +117,21 @@ def select(graph, anchor, pr_changes, base_changes, anchor_base=None):
     return Selection(FAST, "OK", anchor, anchor_base, tuple(sorted(files)))
 
 
-def find_anchor(candidates, evidence, repo_name, graph_data):
+def _run_is_for_pr(runs, records, plan, graph_data, pr_number):
+    """The run the gate's rule judged (latest among accepted records) lists this PR."""
+    producer = graph_data["trusted_check_producer"]["app_id"]
+    latest = max(r["run_id"] for r in records if _provenance_problem(r, plan, producer, WORKFLOW) is None)
+    run = next(r for r in runs if r.get("id") == latest)
+    return any(isinstance(pr, dict) and pr.get("number") == pr_number for pr in run.get("pull_requests") or [])
+
+
+def find_anchor(candidates, evidence, repo_name, graph_data, pr_number):
     """Newest (sha, event) candidate whose latest `bc/db-integration` is a trusted success.
 
     `evidence[sha]` holds the raw REST payloads for that commit: `runs` (workflow runs),
-    `jobs` (run id -> jobs, filter=all) and `checks` (check-runs), or `error`. Returns the
-    anchor SHA; raises AnchorUnavailable otherwise."""
+    `jobs` (run id -> jobs, filter=all) and `checks` (check-runs), or `error`. A `pull_request`
+    success counts only if its run lists this PR (a commit merged in from another branch may carry
+    another PR's green run). Returns the anchor SHA; raises AnchorUnavailable otherwise."""
     for sha, event in candidates:
         ev = evidence.get(sha)
         if not isinstance(ev, dict) or "error" in ev:
@@ -128,11 +140,13 @@ def find_anchor(candidates, evidence, repo_name, graph_data):
         jobs = {int(k): v for k, v in (ev.get("jobs") or {}).items()}
         records = [r for r in normalize_runs(repo_name, runs, jobs, ev.get("checks") or [])
                    if r["name"] == JOB]
-        outcome = _judge_job(JOB, records, {"head_sha": sha, "job_event": event}, graph_data,
-                             deadline_passed=True, rejected=[])
+        plan = {"head_sha": sha, "job_event": event}
+        outcome = _judge_job(JOB, records, plan, graph_data, deadline_passed=True, rejected=[])
         if outcome == "DUPLICATE_CHECK":
             raise AnchorUnavailable("ANCHOR_AMBIGUOUS")
-        if outcome is None:
+        if outcome is not None:
+            continue
+        if event == "push" or _run_is_for_pr(runs, records, plan, graph_data, pr_number):
             return sha
     raise AnchorUnavailable("NO_ANCHOR")
 
@@ -147,10 +161,12 @@ def _merge_base(repo, a, b):
     return out if proc.returncode == 0 and len(out) == 40 else None
 
 
-def select_from_repo(repo, base_rev, head, event, candidates, evidence, repo_name):
+def select_from_repo(repo, base_rev, head, event, candidates, evidence, repo_name, pr_number):
     """CLI path: trusted graph from `base_rev`, diffs from git plumbing, anchor from `evidence`."""
     if event != "pull_request":
         return _full("PUSH_EVENT")
+    if type(pr_number) is not int or pr_number <= 0:
+        return _full("NO_PR_NUMBER")
     try:
         data = load_graph(gitio.read_text(repo, base_rev, GRAPH_REPO_PATH) or "")
     except GraphError:
@@ -159,7 +175,7 @@ def select_from_repo(repo, base_rev, head, event, candidates, evidence, repo_nam
         return _full("TRUSTED_GRAPH_INVALID")
     graph = Graph(data)
     try:
-        anchor = find_anchor(candidates, evidence, repo_name, data)
+        anchor = find_anchor(candidates, evidence, repo_name, data, pr_number)
     except AnchorUnavailable as exc:
         return _full(str(exc))
     if not _is_ancestor(repo, anchor, head):
@@ -188,7 +204,8 @@ def report(selection, selected, total, results):
     if selection.get("mode") != FAST:
         return out
     if not selected:
-        out["flag"] = "EMPTY_SELECTION"
+        out["flag"] = "EMPTY_SELECTION"      # a fast mode with nothing selected: no miss claim
+        return out
     if failing is None:
         out["flag"] = out["flag"] or "NO_RESULTS"
         return out

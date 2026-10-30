@@ -224,7 +224,9 @@ jobs:
     # 25 minutes (RT-845): api-only since the db + worker suites moved to bc/db-package. Measured
     # on this repo's 2-core runner on PR #14 (RT-841): setup about 1 minute + api 15.0 minutes.
     # The product keeps 40 until it has more measurements; this repo uses its own measurement.
-    timeout-minutes: 25
+    # RT-949: +5 minutes for the shadow steps (full history fetch, selector capped at 3 minutes,
+    # report), so the shadow can never push the unchanged API run past the job timeout.
+    timeout-minutes: 30
     # RT-949: read-only scopes for the shadow selector's evidence (workflow runs, jobs, check-runs).
     permissions:
       contents: read
@@ -277,22 +279,23 @@ jobs:
       - name: Impact selection (shadow) - anchor, changed paths, related specs
         if: github.event_name == 'pull_request'
         continue-on-error: true
-        timeout-minutes: 4
+        timeout-minutes: 3
         working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/api-jest-shadow"
           mkdir -p "$out"
-          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$PR_NUMBER" =~ ^[0-9]+$ ]]
           python -m pip install --require-hashes --only-binary=:all: --no-deps -r tools/project-graph/requirements.txt
-          # Candidates, newest first: up to 20 PR commits, then the merge-base on main.
+          # Candidates, newest first: up to 10 PR commits, then the merge-base on main.
           mb="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
-          { git rev-list --max-count=20 "$HEAD_SHA" "^$mb" | jq -R '{sha: ., event: "pull_request"}'
+          { git rev-list --max-count=10 "$HEAD_SHA" "^$mb" | jq -R '{sha: ., event: "pull_request"}'
             jq -n --arg s "$mb" '{sha: $s, event: "push"}'; } | jq -s '.' > "$out/candidates.json"
           # REST dumps per candidate, as files (a failed call leaves a file missing => mode=full).
           for sha in $(jq -r '.[].sha' "$out/candidates.json"); do
@@ -312,9 +315,10 @@ jobs:
           done
           (cd tools/project-graph && python -m pgraph api-jest-select --repo "$GITHUB_WORKSPACE" \
             --base "$BASE_SHA" --head "$HEAD_SHA" --event pull_request --repo-name "$REPO" \
-            --evidence-dir "$out" --out "$out/selection.json")
+            --pr-number "$PR_NUMBER" --evidence-dir "$out" --out "$out/selection.json")
           cd services/backend-core/apps/api
-          pnpm exec jest --listTests | grep -c . > "$out/total.txt" || true
+          # A failed listing leaves total.txt absent, so the report shows "?" rather than 0.
+          if all="$(pnpm exec jest --listTests)"; then grep -c . <<<"$all" > "$out/total.txt" || true; fi
           : > "$out/selected.txt"
           if [ "$(jq -r .mode "$out/selection.json")" = fast ]; then
             mapfile -t files < <(jq -r --arg w "$GITHUB_WORKSPACE" '.files[] | $w + "/" + .' "$out/selection.json")

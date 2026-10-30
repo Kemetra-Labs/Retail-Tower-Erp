@@ -127,6 +127,13 @@ class SelectTests(unittest.TestCase):
         self._assert_full(_m("package.json"), "CLASS:root")
         self._assert_full(_m(BC + "apps/worker/src/x.ts"), "NOT_FAST_ELIGIBLE")
 
+    def test_other_product_with_a_semantic_edge_to_this_job_is_full(self):
+        data = load_graph(support.trusted_text())
+        data["products"]["pos"]["tiers"]["money"]["jobs"].append("bc/db-integration")
+        s = sel.select(Graph(data), A, [_m(API_SRC), _m("apps/pos/src/main/payments/x.ts")], [])
+        self.assertEqual(s.mode, "full")
+        self.assertTrue(s.reason.startswith("SEMANTIC_EDGE:pos"))
+
     def test_symlink_or_submodule_is_full(self):
         self._assert_full(_m(BC + "apps/api/src/reports/link.ts", mode="120000"), "SPECIAL_MODE")
 
@@ -180,7 +187,7 @@ class AnchorTests(unittest.TestCase):
         self.data = load_graph(support.trusted_text())
 
     def _find(self, candidates, evidence):
-        return sel.find_anchor(candidates, evidence, REPO, self.data)
+        return sel.find_anchor(candidates, evidence, REPO, self.data, 7)
 
     def test_newest_full_green_pr_commit_is_the_anchor(self):
         ev = {H: _evidence([_run(2, H)], {2: [_job(H, 22, "failure")]}, [{"id": 22, "app": GH_APP}]),
@@ -222,6 +229,16 @@ class AnchorTests(unittest.TestCase):
     def test_newer_red_run_on_the_same_commit_is_not_an_anchor(self):
         ev = _evidence([_run(1, A), _run(2, A)], {1: [_job(A, 11)], 2: [_job(A, 21, "failure")]},
                        [{"id": 11, "app": GH_APP}, {"id": 21, "app": GH_APP}])
+        with self.assertRaisesRegex(sel.AnchorUnavailable, "NO_ANCHOR"):
+            self._find([(A, "pull_request")], {A: ev})
+
+    def test_green_run_of_another_pr_is_not_an_anchor(self):
+        run = _run(1, A)
+        run["pull_requests"] = [{"number": 99, "base": {"sha": B}}]
+        ev = _evidence([run], {1: [_job(A, 11)]}, [{"id": 11, "app": GH_APP}])
+        with self.assertRaisesRegex(sel.AnchorUnavailable, "NO_ANCHOR"):
+            self._find([(A, "pull_request")], {A: ev})
+        run["pull_requests"] = []
         with self.assertRaisesRegex(sel.AnchorUnavailable, "NO_ANCHOR"):
             self._find([(A, "pull_request")], {A: ev})
 
@@ -277,7 +294,7 @@ class SelectFromRepoTests(unittest.TestCase):
         head = self._commit("review fix")
         evidence = {head: _evidence([], {}, []), **self._evidence_for(anchor)}
         s = sel.select_from_repo(self.repo, self.base, head, "pull_request",
-                                 [(head, "pull_request"), (anchor, "pull_request")], evidence, REPO)
+                                 [(head, "pull_request"), (anchor, "pull_request")], evidence, REPO, 7)
         self.assertEqual((s.mode, s.anchor, s.files), ("fast", anchor, (API_SPEC,)))
 
     def test_n13_anchor_not_an_ancestor_is_full(self):
@@ -289,7 +306,7 @@ class SelectFromRepoTests(unittest.TestCase):
         self._write(API_SPEC, "it('y', () => {});\n")
         head = self._commit("force-pushed")
         s = sel.select_from_repo(self.repo, self.base, head, "pull_request",
-                                 [(orphan, "pull_request")], self._evidence_for(orphan), REPO)
+                                 [(orphan, "pull_request")], self._evidence_for(orphan), REPO, 7)
         self.assertEqual((s.mode, s.reason), ("full", "ANCHOR_NOT_ANCESTOR"))
 
     def test_base_moved_with_backend_core_change_is_full(self):
@@ -301,16 +318,20 @@ class SelectFromRepoTests(unittest.TestCase):
         self._write(BC + "apps/api/src/reports/other.ts", "export const o = 1;\n")
         new_base = self._commit("main moved")
         s = sel.select_from_repo(self.repo, new_base, head, "pull_request",
-                                 [(head, "pull_request")], self._evidence_for(anchor, base=self.base), REPO)
+                                 [(head, "pull_request")], self._evidence_for(anchor, base=self.base), REPO, 7)
         self.assertEqual(s.mode, "full")
         self.assertTrue(s.reason.startswith("BASE_MOVED"))
 
+    def test_missing_pr_number_is_full(self):
+        s = sel.select_from_repo(self.repo, self.base, self.base, "pull_request", [], {}, REPO, None)
+        self.assertEqual((s.mode, s.reason), ("full", "NO_PR_NUMBER"))
+
     def test_push_event_and_unreadable_graph_are_full(self):
-        s = sel.select_from_repo(self.repo, self.base, self.base, "push", [], {}, REPO)
+        s = sel.select_from_repo(self.repo, self.base, self.base, "push", [], {}, REPO, 7)
         self.assertEqual((s.mode, s.reason), ("full", "PUSH_EVENT"))
         self._write("tools/project-graph/graph.yaml", "schema: broken\n")
         broken = self._commit("broken graph")
-        s = sel.select_from_repo(self.repo, broken, broken, "pull_request", [], {}, REPO)
+        s = sel.select_from_repo(self.repo, broken, broken, "pull_request", [], {}, REPO, 7)
         self.assertEqual((s.mode, s.reason), ("full", "TRUSTED_GRAPH_INVALID"))
 
 
@@ -343,7 +364,7 @@ class EvidenceDirTests(unittest.TestCase):
         self.assertEqual(candidates, [(A, "pull_request"), (H, "push")])
         self.assertEqual(sorted(evidence[A]), ["checks", "jobs", "runs"])
         self.assertEqual(evidence[H], {"error": "jobs"})
-        self.assertEqual(sel.find_anchor(candidates, evidence, REPO, load_graph(support.trusted_text())), A)
+        self.assertEqual(sel.find_anchor(candidates, evidence, REPO, load_graph(support.trusted_text()), 7), A)
 
     def test_missing_runs_file_is_an_error(self):
         from pgraph.cli import _load_evidence_dir
@@ -373,6 +394,7 @@ class ReportTests(unittest.TestCase):
         r = sel.report({"mode": "fast", "reason": "OK", "anchor": A, "files": [API_SRC]}, [], 683,
                        self._results([]))
         self.assertEqual(r["flag"], "EMPTY_SELECTION")
+        self.assertIsNone(r["misses"])
 
     def test_missing_results_never_claims_zero_misses(self):
         r = sel.report({"mode": "fast", "reason": "OK", "anchor": A, "files": [API_SRC]}, ["/w/a.spec.ts"],
