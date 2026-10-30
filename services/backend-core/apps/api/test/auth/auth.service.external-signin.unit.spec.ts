@@ -140,7 +140,7 @@ describe("AuthService.signIn — user with an active external link", () => {
     );
   });
 
-  it("still runs the native argon2 verify so latency does not reveal linkage", async () => {
+  it("still runs the native argon2 verify on every path", async () => {
     const { service } = build({});
     await service.signIn({ email: EMAIL, password: PASSWORD });
     expect(mockVerifyPassword).toHaveBeenCalledTimes(1);

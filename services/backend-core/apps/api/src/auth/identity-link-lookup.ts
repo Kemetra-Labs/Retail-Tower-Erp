@@ -102,6 +102,31 @@ export async function activeLinkSubjects(
 }
 
 /**
+ * Predicate (a), for credential sign-in (RT-937): the subject of `userId`'s ACTIVE
+ * link to ONE provider, or null when there is none. Filtering on the provider
+ * matters: a user whose only active link belongs to another provider (a link
+ * written before the owner-run cutover flips it) has no link to the provider that
+ * verifies passwords, so they keep native sign-in instead of being sent to the
+ * wrong provider and refused. More than one match fails closed (null).
+ */
+export async function activeLinkSubjectForProvider(
+  db: LinkQueryable,
+  userId: string,
+  providerKey: string,
+): Promise<string | null> {
+  const r = await db.query<{ subject: string }>(
+    `SELECT subject
+       FROM external_identity_links
+      WHERE user_id = $1
+        AND provider_key = $2
+        AND status = 'active'
+      LIMIT 2`,
+    [userId, providerKey],
+  );
+  return r.rows.length === 1 ? (r.rows[0]?.subject ?? null) : null;
+}
+
+/**
  * Predicate (b): which of `userIds` hold a link — ACTIVE OR DISABLED, any
  * provider — whose subject is `subject`. Audit alias only: the caller has
  * already bound the event to those users through a session, so a subject that

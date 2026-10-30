@@ -66,7 +66,7 @@ import {
   operatorTokenVerifierFactory,
 } from "./identity-provider.factory";
 import { EXTERNAL_CREDENTIAL_PORT, type ExternalCredentialPort } from "./external-credential.port";
-import { activeLinkSubjects } from "./identity-link-lookup";
+import { activeLinkSubjectForProvider } from "./identity-link-lookup";
 import {
   OPERATOR_CONTEXT_RESOLVER,
   PgOperatorContextResolver,
@@ -305,8 +305,10 @@ export class AlwaysAllowRedis implements RedisLike {
           externalCredentials: {
             port: externalCredential,
             verifier: operatorTokenVerifierFactory(),
-            activeLinkSubject: async (userId) =>
-              (await activeLinkSubjects(pool, [userId])).get(userId) ?? null,
+            // Only a link to THIS provider counts: a pre-cutover link to another
+            // provider leaves the user on native sign-in (review finding, RT-937).
+            activeLinkSubject: (userId) =>
+              activeLinkSubjectForProvider(pool, userId, externalCredential.identity.providerKey),
           },
           // RT-343: memberships are read on the domain pool, never the lookup pool.
           listMemberships: signInMembershipsReader(domainPool),

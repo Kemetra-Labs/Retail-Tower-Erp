@@ -324,6 +324,15 @@ A script without the marker, such as the owner-gated
   inventory write from the previous release is rejected (nothing is written);
   there is no catch-up step. Run it in the maintenance window 0042 requires.
 
+- **Accepting an invitation as a new user (RT-937, no migration).** Run
+  [`sql/invitation-acceptance-domain-grants.sql`](sql/invitation-acceptance-domain-grants.sql)
+  in the same step 2 of [`deploy/README.md`](../../deploy/README.md#deploy), with the
+  same `-v domain_role=<role>`. It grants the domain role `INSERT` on `users`,
+  `external_identity_links`, `memberships` and `store_access`, and `UPDATE` on
+  `invitations`. Without them the API refuses to boot in production. The new-user
+  path never updates or deletes a user or a link, so no other privilege is granted.
+  The auth lookup role gets nothing new and must still hold no membership mutation.
+
 - **Migration `0045_tracking_foundation` (RT-448).** Run
   [`sql/tracking-foundation-domain-grants.sql`](sql/tracking-foundation-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of
