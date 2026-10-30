@@ -1,10 +1,11 @@
 /**
- * clerk-identity-provider.adapter.integration.spec.ts — 029 D3 (HIGH-2 review fix).
+ * linking-identity-provider.adapter.integration.spec.ts — 029 D3 (HIGH-2 review fix).
  *
- * Real Postgres via Testcontainers (full schema incl. 0025). Constructs the REAL
- * `ClerkIdentityProviderAdapter` against the real pool to exercise the actual
- * `linkExternalIdentity` ON CONFLICT semantics — which the docker-free unit spec
- * cannot, because it mocks `query`.
+ * Real Postgres via Testcontainers (full schema incl. 0025). Constructs a REAL
+ * identity adapter (Descope, the only provider since RT-800) against the real
+ * pool to exercise the shared `LinkingIdentityProviderAdapter.linkExternalIdentity`
+ * ON CONFLICT semantics — which the docker-free unit spec cannot, because it
+ * mocks `query`. Moved from the retired Clerk adapter's spec (RT-800).
  *
  * The bug this guards (HIGH-2): the ON CONFLICT (provider_key, issuer, subject)
  * DO UPDATE clause updates `email` + `last_verified_at` but historically did NOT
@@ -18,7 +19,7 @@ import "reflect-metadata";
 
 import { Pool } from "pg";
 
-import { ClerkIdentityProviderAdapter } from "../../src/auth/clerk-identity-provider.adapter";
+import { DescopeIdentityProviderAdapter } from "../../src/auth/descope-identity-provider.adapter";
 import type { OperatorTokenVerifier } from "../../src/auth/operator-token-verifier";
 import {
   applyAllUpAndCreateAppRole,
@@ -27,17 +28,17 @@ import {
   type PgTestEnv,
 } from "../_helpers/postgres-container";
 
-const ISSUER = "https://clerk.dp2.local";
+const ISSUER = "https://api.descope.com/v1/apps/P2relinkTest0001";
 const USER_ID = "0e9a0000-0000-7000-8000-00000000ad01";
-const SUB = "user_clerk_relink_001";
+const SUB = "U2relinkSubject001";
 
 function fakeVerifier(): OperatorTokenVerifier {
-  return { verify: async () => ({ providerKey: "clerk", sub: SUB }) };
+  return { verify: async () => ({ providerKey: "descope", sub: SUB }) };
 }
 
 let env: PgTestEnv | null = null;
 let dockerSkipReason: string | null = null;
-let adapter: ClerkIdentityProviderAdapter;
+let adapter: DescopeIdentityProviderAdapter;
 
 beforeAll(async () => {
   try {
@@ -48,7 +49,7 @@ beforeAll(async () => {
     if (process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1") {
       // eslint-disable-next-line no-console
       console.warn(
-        `\n[clerk-identity-provider.adapter.integration.spec] Docker NOT AVAILABLE — skipping. Reason: ${dockerSkipReason}\n`,
+        `\n[linking-identity-provider.adapter.integration.spec] Docker NOT AVAILABLE — skipping. Reason: ${dockerSkipReason}\n`,
       );
       return;
     }
@@ -60,7 +61,7 @@ beforeAll(async () => {
      ON CONFLICT (id) DO NOTHING`,
     [USER_ID],
   );
-  adapter = new ClerkIdentityProviderAdapter(
+  adapter = new DescopeIdentityProviderAdapter(
     fakeVerifier(),
     env.admin as unknown as Pool,
     ISSUER,
@@ -78,7 +79,7 @@ function guard(): PgTestEnv {
   return env;
 }
 
-describe("ClerkIdentityProviderAdapter.linkExternalIdentity — ON CONFLICT (real DB)", () => {
+describe("LinkingIdentityProviderAdapter.linkExternalIdentity — ON CONFLICT (real DB)", () => {
   beforeEach(async () => {
     if (skip()) return;
     await guard().admin.query(`DELETE FROM external_identity_links`);
@@ -87,7 +88,7 @@ describe("ClerkIdentityProviderAdapter.linkExternalIdentity — ON CONFLICT (rea
   it("inserts a fresh active link and returns its id", async () => {
     if (skip()) return;
     const r = await adapter.linkExternalIdentity({
-      providerKey: "clerk",
+      providerKey: "descope",
       issuer: ISSUER,
       subject: SUB,
       userId: USER_ID,
@@ -108,13 +109,13 @@ describe("ClerkIdentityProviderAdapter.linkExternalIdentity — ON CONFLICT (rea
     await guard().admin.query(
       `INSERT INTO external_identity_links
          (provider_key, issuer, subject, user_id, email, status, disabled_at)
-       VALUES ('clerk', $1, $2, $3, 'old@id.example', 'disabled', now())`,
+       VALUES ('descope', $1, $2, $3, 'old@id.example', 'disabled', now())`,
       [ISSUER, SUB, USER_ID],
     );
 
     // Re-link the same subject — the adapter UPSERTs onto the disabled row.
     const r = await adapter.linkExternalIdentity({
-      providerKey: "clerk",
+      providerKey: "descope",
       issuer: ISSUER,
       subject: SUB,
       userId: USER_ID,
@@ -138,7 +139,7 @@ describe("ClerkIdentityProviderAdapter.linkExternalIdentity — ON CONFLICT (rea
     // method's return value promised). Single active row, status active.
     const active = await guard().admin.query<{ n: string }>(
       `SELECT COUNT(*)::text AS n FROM external_identity_links
-        WHERE provider_key = 'clerk' AND subject = $1 AND status = 'active'`,
+        WHERE provider_key = 'descope' AND subject = $1 AND status = 'active'`,
       [SUB],
     );
     expect(active.rows[0]?.n).toBe("1");

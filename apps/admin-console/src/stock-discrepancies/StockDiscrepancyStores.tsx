@@ -1,4 +1,5 @@
 import { Banner } from "@/components/Banner";
+import { TableScrollRegion } from "@/components/DataTableScroll";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { DateTime, useT } from "@/i18n";
@@ -103,25 +104,29 @@ function StoresTable({
 }: Readonly<{ stores: StoreNegativeOnHandSummary[] }>): React.JSX.Element {
   const t = useT();
   return (
-    <div className="table-scroll">
-      <table className="data-table stock-table">
-        <caption className="data-table__caption">{t("stock.stores.caption")}</caption>
-        <thead>
-          <tr>
-            <th scope="col">{t("stock.stores.col.store")}</th>
-            <th scope="col">{t("stock.stores.col.snapshot")}</th>
-            <th scope="col">{t("stock.stores.col.asOf")}</th>
-            <th scope="col">{t("stock.stores.col.negativeItems")}</th>
-            <th scope="col">{t("stock.stores.col.request")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {stores.map((row) => (
-            <StoreRow key={row.storeId} row={row} />
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <TableScrollRegion>
+      {(captionId) => (
+        <table className="data-table stock-table">
+          <caption id={captionId} className="data-table__caption">
+            {t("stock.stores.caption")}
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">{t("stock.stores.col.store")}</th>
+              <th scope="col">{t("stock.stores.col.snapshot")}</th>
+              <th scope="col">{t("stock.stores.col.asOf")}</th>
+              <th scope="col">{t("stock.stores.col.negativeItems")}</th>
+              <th scope="col">{t("stock.stores.col.request")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stores.map((row) => (
+              <StoreRow key={row.storeId} row={row} />
+            ))}
+          </tbody>
+        </table>
+      )}
+    </TableScrollRegion>
   );
 }
 

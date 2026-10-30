@@ -16,7 +16,7 @@ SRC="$(np "$2")"; FROZEN="$(np "$4")"; W="$(np "$5")"
 HERE="$(np "$(cd "$(dirname "$0")" && pwd)")"
 export MSYS_NO_PATHCONV=1 GIT_TERMINAL_PROMPT=0
 N="rt712-v$V"; MIR="$W/ERPNext-Connector.git"; APP=retail_tower_erpnext_connector
-PUB=(python "$HERE/publish.py" --mirror "$MIR" --source-repo Kemetra/Retail-Tower-Shadow --source-dir "$SRC")
+PUB=(python "$HERE/publish.py" --mirror "$MIR" --source-repo Kemetra-Labs/Retail-Tower-Erp --source-dir "$SRC")
 BENCH_DIR=/home/frappe/frappe-bench
 step() { echo; echo "=== [v$V] $*"; }
 dx() { docker exec -u frappe -w $BENCH_DIR -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' "$N-bench" bash -c "$1"; }

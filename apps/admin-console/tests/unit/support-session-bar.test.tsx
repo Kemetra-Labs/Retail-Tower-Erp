@@ -41,6 +41,10 @@ import {
 } from "@/lib/support-session-expiry";
 import { ProtectedArea } from "@/shell/ProtectedArea";
 import { platformRoutes } from "@/shell/platformRoutes";
+import { loadPlatformPages } from "./platform-pages";
+
+// RT-944: load the lazily routed pages before any test waits for one.
+await loadPlatformPages();
 
 const NOW = Date.parse("2026-10-22T10:00:00Z");
 const MIN = 60_000;
@@ -639,9 +643,11 @@ describe("tenant shell inside a session: read-only by construction", () => {
       await screen.findByRole("heading", { name: "Read-only support session" });
       expect(document.querySelectorAll("form, input, select, textarea")).toHaveLength(0);
       // Outside the header and the session bar, the only things left are the way back to
-      // the directory and sign out.
+      // the directory and sign out (and RT-963's skip link, which changes nothing).
       const left = writeish().map((el) => el.textContent?.trim());
-      expect(left.sort()).toEqual(["Go to organizations", "Organizations", "Sign out"].sort());
+      expect(left.sort()).toEqual(
+        ["Go to organizations", "Organizations", "Sign out", "Skip to content"].sort(),
+      );
       // Within the bar: exactly the session's own controls.
       const bar = screen.getByRole("region", { name: "Support session" });
       const names = within(bar)

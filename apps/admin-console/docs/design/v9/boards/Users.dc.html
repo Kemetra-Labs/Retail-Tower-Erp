@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>المستخدمون — Retail Tower Console</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f2f5f6}
+a{color:#0f766e}a:hover{color:#0b5b55}
+:focus-visible{outline:2px solid #14a394;outline-offset:2px}
+.disp{font-family:'Readex Pro',Dubai,'Segoe UI',sans-serif}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.nv{display:flex;align-items:center;gap:14px;min-height:46px;padding:0 14px;border-radius:12px;color:#a9c2c5;text-decoration:none;font-size:14px;position:relative}
+.nv:hover{background:rgba(255,255,255,.05);color:#ffffff}
+.nv svg{flex:none}
+.nv-on{color:#ffffff;font-weight:700;background:linear-gradient(90deg,rgba(43,196,179,.22),rgba(43,196,179,.04));box-shadow:inset 0 0 0 1px rgba(95,224,207,.22)}
+.nv-on::before{content:"";position:absolute;inset-inline-start:-16px;top:10px;bottom:10px;width:4px;border-radius:0 4px 4px 0;background:#5fe0cf;box-shadow:0 0 14px 2px rgba(95,224,207,.7)}
+.nv-on svg{color:#5fe0cf}
+.grp{font-size:11px;color:#5f8186;padding:0 14px 4px;font-weight:700}
+.hs{font-size:12px;color:#5b6d7c}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 16px;border-radius:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap;border:1px solid transparent}
+.ink{color:#ffffff;background:#0a2125;border-color:#0a2125;box-shadow:0 8px 18px -10px rgba(10,33,37,.8)}
+.ink:hover{color:#ffffff;background:#12333a}
+.ghost{color:#0a2125;background:#ffffff;border-color:#d6dfe3}
+.ghost:hover{border-color:#9fdcd2}
+.quiet{color:#33454f;background:transparent}
+.quiet:hover{background:#eef2f4}
+.dq{color:#b3261e;background:#ffffff;border-color:#f2d6d3}
+.dq:hover{background:#fdf3f2}
+.dd{color:#ffffff;background:#b3261e;border-color:#b3261e}
+.dd:hover{background:#9a1f19}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:9px;font-size:12px;font-weight:700;white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:2px;background:currentColor;transform:rotate(45deg)}
+.ok{background:#e4f5ec;color:#15774d}
+.warn{background:#fdf0dc;color:#8a4b00}
+.role{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px 0 12px;border-radius:9px;font-size:12px;font-weight:700;background:#eef2f4;color:#33454f;white-space:nowrap}
+.role svg{color:#0f766e}
+.role-unk{background:#ffffff;border:1px dashed #b7c5ca;color:#5b6d7c}
+.sec{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:24px;padding:0 6px;border-radius:8px;background:#0a2125;color:#5fe0cf;font-family:'Readex Pro',sans-serif;font-size:11px;font-weight:600}
+.box{background:#ffffff;border:1px solid #e3e9ec;border-radius:20px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25)}
+.sum{display:flex;flex-wrap:wrap;gap:10px}
+.sum span{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:12px;background:#ffffff;border:1px solid #e3e9ec;font-size:13px;color:#33454f}
+.sum b{font-family:'Readex Pro',sans-serif;font-weight:600;color:#0a2125}
+.tbl{width:100%;border-collapse:separate;border-spacing:0 8px;font-size:13px}
+.tbl th{font-size:12px;color:#5b6d7c;font-weight:700;text-align:start;padding:0 16px 2px}
+.tbl td{padding:12px 16px;background:#f8fafb;border-block:1px solid #eef2f4;white-space:nowrap}
+.tbl td:first-child{border-inline-start:1px solid #eef2f4;border-start-start-radius:14px;border-end-start-radius:14px}
+.tbl td:last-child{border-inline-end:1px solid #eef2f4;border-start-end-radius:14px;border-end-end-radius:14px}
+.tbl tr:hover td{background:#f2f8f7}
+.rv td{background:#fffaf2;border-color:#f3e3c6;color:#5b6d7c}
+.rv td:first-child{box-shadow:inset -3px 0 0 #f0a03c;border-color:#f3e3c6}
+.av{width:38px;height:38px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;flex:none;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:15px;background:linear-gradient(160deg,#e7f6f3,#cfeee8);color:#0f766e;box-shadow:inset 0 0 0 1px #bfe5dd}
+.av-off{background:#eef2f4;color:#5b6d7c;box-shadow:inset 0 0 0 1px #dde5e8}
+.av-mail{background:#ffffff;color:#0f766e;box-shadow:inset 0 0 0 1px #bfe5dd}
+.who{display:flex;align-items:center;gap:12px;min-width:0}
+.who span{display:flex;flex-direction:column;line-height:1.35;min-width:0}
+.who b{font-size:14px;font-weight:700;color:#0a2125}
+.acc{display:inline-flex;align-items:center;gap:8px}
+.bars{display:inline-flex;align-items:flex-end;gap:2px;height:16px}
+.bars i{display:block;width:4px;border-radius:2px;background:#0f8f80}
+.scrim{position:absolute;inset:0;background:rgba(10,33,37,.42);z-index:20}
+.drawer{position:absolute;inset-block:0;inset-inline-end:0;width:500px;max-width:100%;background:#ffffff;z-index:21;box-shadow:0 0 0 1px #e3e9ec,-24px 0 48px -20px rgba(10,33,37,.5);display:flex;flex-direction:column}
+.ib{width:36px;height:36px;border-radius:10px;border:0;background:transparent;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.ib:hover{background:rgba(255,255,255,.08)}
+.fl{display:flex;flex-direction:column;gap:6px}
+.fl>label,.fl>.lb{font-size:13px;font-weight:700;color:#0a2125}
+.req{color:#b3261e;margin-inline-start:2px}
+.in{height:42px;border:1px solid #c6d3d8;border-radius:11px;padding:0 12px;font:inherit;font-size:14px;color:#0a2125;background:#ffffff;box-sizing:border-box;width:100%}
+.in:focus{border-color:#0f766e;outline:2px solid #14a394;outline-offset:1px}
+.opts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.opt{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 12px;border:1px solid #d6dfe3;border-radius:12px;cursor:pointer;font:inherit;font-size:13px;font-weight:600;background:#ffffff;text-align:start;width:100%;color:#0a2125}
+.opt:hover{border-color:#9fdcd2}
+.opt-on{border-color:#0a2125;box-shadow:inset 0 0 0 1px #0a2125;background:#f6faf9}
+.radio{width:18px;height:18px;border-radius:50%;border:2px solid #53647a;box-sizing:border-box;display:flex;align-items:center;justify-content:center;flex:none}
+.opt-on .radio{border-color:#0a2125}
+.opt-on .radio::after{content:"";width:8px;height:8px;border-radius:50%;background:#0a2125}
+.chip{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 10px;border-radius:10px;border:1px solid #d6dfe3;background:#ffffff;font:inherit;font-size:12px;font-weight:600;color:#33454f;cursor:pointer}
+.chip-on{border-color:#0f766e;background:#e7f6f3;color:#0b5b55}
+.chk{width:14px;height:14px;border-radius:4px;border:2px solid #53647a;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center}
+.chip-on .chk{border-color:#0f766e;background:#0f766e}
+.chip-on .chk::after{content:"";width:6px;height:3px;border-inline-start:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) translate(1px,-1px)}
+.ft{border-top:1px solid #eef2f4;padding:14px 22px;display:flex;gap:8px;background:#fbfcfc}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#0f766e}
+.eyebrow i{width:18px;height:2px;border-radius:2px;background:#0f766e;display:block}
+.ledger{display:flex;flex-wrap:wrap;align-items:stretch;background:#ffffff;border:1px solid #e3e9ec;border-radius:18px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25);overflow:hidden}
+.ledger>div{display:flex;align-items:center;gap:12px;padding:14px 20px;min-width:0}
+.ledger>div+div{border-inline-start:1px solid #eef2f4}
+.ledger .lv{font-family:'Readex Pro',sans-serif;font-weight:600;font-size:22px;line-height:1;color:#0a2125;font-variant-numeric:tabular-nums}
+.ledger .ll{font-size:12px;color:#5b6d7c}
+.pile{display:flex;align-items:center}
+.pile span{width:34px;height:34px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:13px;background:#0a2125;color:#5fe0cf;box-shadow:0 0 0 3px #ffffff;margin-inline-start:-8px}
+.pile span:first-child{margin-inline-start:0}
+.pile .more{background:#e7f6f3;color:#0f766e}
+.grp-row td{background:transparent !important;border:0 !important;box-shadow:none !important;padding:10px 6px 0 !important}
+.grp-row span{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:700;color:#5b6d7c}
+.grp-row span::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,#e3e9ec,transparent)}
+.grp-row b{font-family:'Readex Pro',sans-serif;font-weight:600;color:#0a2125;background:#eef2f4;border-radius:6px;padding:0 7px}
+.mrow td{transition:background .14s,box-shadow .14s}
+.mrow:hover td{background:#ffffff;box-shadow:0 10px 22px -18px rgba(10,33,37,.45)}
+.mrow:hover td:first-child{box-shadow:inset -3px 0 0 #0f766e,0 10px 22px -18px rgba(10,33,37,.45)}
+.av{position:relative;background:#0a2125 !important;color:#5fe0cf !important;box-shadow:none !important}
+.av-off{background:#eef2f4 !important;color:#7a8b96 !important;box-shadow:inset 0 0 0 1px #dde5e8 !important}
+.av-mail{background:#ffffff !important;color:#0f766e !important;box-shadow:inset 0 0 0 1px #bfe5dd !important}
+.badge-r{position:absolute;bottom:-4px;inset-inline-end:-4px;width:18px;height:18px;border-radius:7px;background:#ffffff;box-shadow:0 0 0 1px #dfe7ea;display:flex !important;align-items:center;justify-content:center;color:#0f766e}
+.openb svg{transition:transform .14s}
+.mrow:hover .openb{border-color:#0a2125}
+.mrow:hover .openb svg{transform:translateX(-3px)}
+@media (prefers-reduced-motion: reduce){.mrow td,.openb svg{transition:none}}
+.band{position:relative;overflow:hidden;box-sizing:border-box;max-height:132px;min-height:112px;display:flex;flex-wrap:wrap;align-items:center;gap:14px 28px;padding:20px 26px;border-radius:22px;border:1px solid #0a2125;color:#ffffff;background-color:#0a2125;background-image:linear-gradient(rgba(95,224,207,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(95,224,207,.06) 1px,transparent 1px),radial-gradient(420px 200px at 0% 0%,rgba(95,224,207,.26),transparent 70%);background-size:24px 24px,24px 24px,100% 100%;box-shadow:0 18px 40px -28px rgba(10,33,37,.7)}
+.band>*:not(.band-orn){position:relative;z-index:1}
+.band-orn{position:absolute;inset-inline-end:0;bottom:0;width:360px;height:132px;opacity:.5;pointer-events:none}
+.band-id{flex:1 1 260px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.band-eye{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#5fe0cf}
+.band-eye i{width:18px;height:2px;border-radius:2px;background:#5fe0cf;display:block}
+.band-facts{display:flex;align-items:center;margin:0;padding:6px 4px;border-radius:16px;background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px rgba(95,224,207,.14)}
+.band-facts>div{display:flex;align-items:center;gap:10px;padding:4px 16px}
+.band-facts>div+div{border-inline-start:1px solid rgba(255,255,255,.1)}
+.band-facts>div>span:last-child{display:flex;flex-direction:column;gap:3px}
+.band-facts dd{margin:0;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:20px;line-height:1;font-variant-numeric:tabular-nums}
+.band-facts dt{font-size:12px;color:#a9c2c5;line-height:1.2}
+.band-facts .dot{width:9px;height:9px;border-radius:3px;transform:rotate(45deg);flex:none}
+.band .pile span{box-shadow:0 0 0 2px #0a2125;background:#163a40;color:#5fe0cf}
+.band .pile .more{background:#5fe0cf;color:#0a2125}
+.mint{color:#0a2125;background:#5fe0cf;border:1px solid #5fe0cf;box-shadow:0 10px 22px -12px rgba(95,224,207,.8)}
+.mint:hover{background:#86ebdd;color:#0a2125}
+@media (max-width: 640px){.band{max-height:none;background:#ffffff;color:#0a2125;border-color:#e3e9ec;box-shadow:none}.band-orn{display:none}.band-facts{display:none}.band-eye{color:#0f766e}.band-eye i{background:#0f766e}}
+@media (forced-colors: active){.band{background:Canvas;color:CanvasText;border:1px solid CanvasText}.band-orn{display:none}}
+</style>
+</helmet>
+
+<div style="position: relative; min-height: 100vh; display: flex; flex-wrap: wrap; align-items: stretch; background: #f2f5f6; color: #0a2125; font-family: Dubai, 'Segoe UI', Tahoma, system-ui, sans-serif; font-size: 14px; line-height: 1.6">
+
+  <aside aria-label="التنقل الرئيسي" style="flex: 1 1 240px; max-width: 100%; box-sizing: border-box; padding: 22px 16px; display: flex; flex-direction: column; gap: 22px; color: #ffffff; background-color: #0a2125; background-image: linear-gradient(rgba(95,224,207,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(95,224,207,.05) 1px, transparent 1px), radial-gradient(420px 260px at 100% 0%, rgba(43,196,179,.22), transparent 70%); background-size: 28px 28px, 28px 28px, 100% 100%">
+    <div style="display: flex; align-items: center; gap: 12px; padding: 0 4px">
+      <div aria-hidden="true" style="width: 44px; height: 44px; border-radius: 13px; background: linear-gradient(160deg, #5fe0cf, #0f766e 70%); display: flex; align-items: flex-end; justify-content: center; gap: 3px; padding-bottom: 10px; box-sizing: border-box">
+        <span style="width: 5px; height: 12px; border-radius: 2px; background: rgba(255,255,255,.7)"></span><span style="width: 5px; height: 22px; border-radius: 2px; background: #ffffff"></span><span style="width: 5px; height: 16px; border-radius: 2px; background: rgba(255,255,255,.85)"></span>
+      </div>
+      <div style="display: flex; flex-direction: column; line-height: 1.25"><span class="disp" style="font-weight: 600; font-size: 18px">Retail Tower</span><span style="font-size: 12px; color: #7fa3a8">منصة إدارة التجزئة</span></div>
+    </div>
+    <nav style="display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">العمليات</span>
+        <a class="nv" href="Overview-v9.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10l8-6 8 6v10H4z"/><path d="M10 20v-6h4v6"/></svg>الرئيسية</a>
+        <a class="nv" href="Sales.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>المبيعات</a>
+        <a class="nv" href="Catalog.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>الأصناف</a>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">الإدارة</span>
+        <a class="nv" href="Stores.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v10h16V10M3 10l2-6h14l2 6zM9 20v-6h6v6"/></svg>المتاجر</a>
+        <a class="nv" href="Devices.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>الأجهزة</a>
+        <a class="nv nv-on" href="#" aria-current="page"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M3 20a6 6 0 0112 0M16 4.5a3.5 3.5 0 010 7M18 20a6 6 0 00-3-5.2"/></svg>المستخدمون</a>
+      </div>
+    </nav>
+  </aside>
+
+  <div style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column">
+    <main style="width: 100%; max-width: 1360px; box-sizing: border-box; padding: 28px 26px 40px; display: flex; flex-direction: column; gap: 20px">
+      <header class="band" aria-labelledby="pg-h">
+        <svg class="band-orn" aria-hidden="true" viewBox="0 0 360 132" fill="none" stroke="#5fe0cf" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"><path d="M20 132V78h46v54M66 132V50h38v82M104 132V26l20-14 20 14v106M144 132V64h52v68M196 132V40h34v92M230 132V72h46v60M276 132V46h38v86M314 132V84h36v48" stroke-opacity=".55"/><path d="M30 92h6M46 92h6M30 106h6M46 106h6M76 62h5M90 62h5M76 76h5M90 76h5M76 90h5M90 90h5M114 40h4M128 40h4M114 54h4M128 54h4M114 68h4M128 68h4M114 82h4M128 82h4M156 78h7M176 78h7M156 92h7M176 92h7M206 54h5M218 54h5M206 68h5M218 68h5M206 82h5M218 82h5M242 86h6M260 86h6M286 60h5M300 60h5M286 74h5M300 74h5" stroke-opacity=".85"/><path d="M124 12V2"/></svg>
+        <div class="band-id">
+          <span class="band-eye"><i aria-hidden="true"></i>الإدارة</span>
+          <h1 id="pg-h" class="disp" style="margin: 0; font-size: 26px; font-weight: 600; line-height: 1.3">المستخدمون</h1>
+          <span style="font-size: 13px; color: #a9c2c5">مستخدمو <bdi>مؤسسة النيل للتجزئة</bdi>.</span>
+        </div>
+        <dl class="band-facts" aria-label="ملخص العضويات المعروضة">
+          <div class="bf-pile"><span class="pile" aria-hidden="true"><sc-for list="{{ pile }}" as="p" hint-placeholder-count="4"><span>{{ p.ini }}</span></sc-for><sc-if value="{{ hasMore }}" hint-placeholder-val="{{ true }}"><span class="more">+{{ pileMore }}</span></sc-if></span><span><dd>{{ total }}</dd><dt>مستخدمون</dt></span></div>
+          <div><span class="dot" aria-hidden="true" style="background: #5fd39a"></span><span><dd>{{ active }}</dd><dt>عضوية نشطة</dt></span></div>
+          <div><span class="dot" aria-hidden="true" style="background: #f5b759"></span><span><dd>{{ revoked }}</dd><dt>عضوية مُبطلة</dt></span></div>
+        </dl>
+        <button type="button" class="btn mint" onClick="{{ openInvite }}"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16v12H4z"/><path d="M4 7l8 6 8-6"/></svg>دعوة مستخدم</button>
+      </header>
+
+      <section class="box" aria-labelledby="m-h" style="padding: 18px 18px 10px">
+        <div style="display: flex; align-items: center; gap: 10px; padding: 0 4px 4px">
+          <span class="sec" aria-hidden="true">01</span>
+          <h2 id="m-h" class="disp" style="margin: 0; font-size: 16px; font-weight: 600">أعضاء المؤسسة</h2>
+          <span class="hs" style="margin-inline-start: auto">الوصول إلى المتاجر يُعرض كعدد؛ أسماء المتاجر غير متاحة في هذه القائمة.</span>
+        </div>
+        <table class="tbl">
+          <caption class="sr" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">المستخدمون</caption>
+          <thead><tr><th scope="col">المستخدم</th><th scope="col">الدور</th><th scope="col">الوصول إلى المتاجر</th><th scope="col">حالة العضوية</th><th scope="col"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">إجراءات</span></th></tr></thead>
+          <tbody>
+            <sc-for list="{{ members }}" as="m" hint-placeholder-count="7">
+              <sc-if value="{{ m.groupStart }}" hint-placeholder-val="{{ false }}"><tr class="grp-row"><td colspan="5"><span>{{ m.groupLabel }} <b>{{ m.groupCount }}</b></span></td></tr></sc-if>
+              <tr class="{{ m.cls }}">
+                <td style="width: 34%">
+                  <span class="who">
+                    <span class="{{ m.avCls }}" aria-hidden="true" style="display: inline-flex; flex-direction: row">{{ m.ini }}<sc-if value="{{ m.known }}" hint-placeholder-val="{{ true }}"><span class="badge-r"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="{{ m.glyph }}"/></svg></span></sc-if></span>
+                    <span>
+                      <b>{{ m.title }}</b>
+                      <sc-if value="{{ m.hasName }}" hint-placeholder-val="{{ true }}"><bdi dir="ltr" class="mono" style="color: #5b6d7c; text-align: end">{{ m.email }}</bdi></sc-if>
+                    </span>
+                  </span>
+                </td>
+                <td>
+                  <sc-if value="{{ m.known }}" hint-placeholder-val="{{ true }}"><span class="role"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="{{ m.glyph }}"/></svg>{{ m.role }}</span></sc-if>
+                  <sc-if value="{{ m.unknown }}" hint-placeholder-val="{{ false }}"><span class="role role-unk">دور غير معروف</span></sc-if>
+                </td>
+                <td>
+                  <span class="acc">
+                    <span class="bars" aria-hidden="true"><sc-for list="{{ m.bars }}" as="b" hint-placeholder-count="5"><i style="height: {{ b.h }}px; opacity: {{ b.o }}"></i></sc-for></span>
+                    {{ m.access }}
+                  </span>
+                </td>
+                <td>
+                  <sc-if value="{{ m.isActive }}" hint-placeholder-val="{{ true }}"><span class="pill ok">نشطة</span></sc-if>
+                  <sc-if value="{{ m.revoked }}" hint-placeholder-val="{{ false }}"><span class="pill warn">مُبطلة</span></sc-if>
+                </td>
+                <td style="text-align: end; width: 1%"><button type="button" class="btn ghost openb" style="height: 32px; font-size: 12px" onClick="{{ m.open }}" aria-label="فتح {{ m.title }}">فتح<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></button></td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <!-- Invite drawer (SF5-2) -->
+  <sc-if value="{{ isInvite }}" hint-placeholder-val="{{ true }}">
+    <div class="scrim" aria-hidden="true" onClick="{{ close }}"></div>
+    <div class="drawer" role="dialog" aria-modal="true" aria-labelledby="inv-h">
+      <div style="position: relative; overflow: hidden; padding: 20px 22px 18px; display: flex; align-items: flex-start; gap: 12px; color: #ffffff; background-color: #0a2125; background-image: linear-gradient(rgba(95,224,207,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(95,224,207,.07) 1px, transparent 1px), radial-gradient(260px 140px at 0% 0%, rgba(95,224,207,.3), transparent 70%); background-size: 22px 22px, 22px 22px, 100% 100%">
+        <svg aria-hidden="true" viewBox="0 0 200 90" style="position: absolute; inset-inline-end: 0; bottom: 0; width: 200px; height: 90px; opacity: .45; pointer-events: none" fill="none" stroke="#5fe0cf" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"><path d="M70 90V44h40v46M110 90V22l18-12 18 12v68M146 90V54h44v36" stroke-opacity=".6"/><path d="M80 56h6M94 56h6M80 68h6M94 68h6M120 34h4M132 34h4M120 46h4M132 46h4M120 58h4M132 58h4M156 64h6M170 64h6" stroke-opacity=".9"/><path d="M10 36l26-14 26 14v24H10z" stroke-opacity=".9"/><path d="M10 36l26 14 26-14"/></svg>
+        <span aria-hidden="true" style="position: relative; width: 46px; height: 46px; border-radius: 14px; background: rgba(95,224,207,.16); color: #5fe0cf; display: inline-flex; align-items: center; justify-content: center; flex: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16v12H4z"/><path d="M4 7l8 6 8-6"/></svg></span>
+        <div style="position: relative; flex: 1; display: flex; flex-direction: column; gap: 2px">
+          <h2 id="inv-h" class="disp" style="margin: 0; font-size: 19px; font-weight: 600">دعوة مستخدم</h2>
+          <span style="font-size: 13px; color: #a9c2c5">الدعوة إلى المؤسسة <bdi>مؤسسة النيل للتجزئة</bdi>.</span>
+        </div>
+        <button type="button" class="ib" aria-label="إغلاق" onClick="{{ close }}" style="position: relative; color: #c3d6d8"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div style="flex: 1; overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 18px">
+        <div class="fl">
+          <label for="inv-email">البريد الإلكتروني<span class="req" aria-hidden="true">*</span></label>
+          <input id="inv-email" class="in" type="email" dir="ltr" autocomplete="off" value="nour@nile-retail.eg" aria-required="true">
+        </div>
+        <div class="fl" role="radiogroup" aria-labelledby="inv-role">
+          <span id="inv-role" class="lb">الدور<span class="req" aria-hidden="true">*</span></span>
+          <div class="opts">
+            <sc-for list="{{ roles }}" as="r" hint-placeholder-count="4">
+              <sc-if value="{{ r.on }}" hint-placeholder-val="{{ false }}"><button type="button" role="radio" aria-checked="true" class="opt opt-on" onClick="{{ r.pick }}"><span class="radio" aria-hidden="true"></span>{{ r.label }}</button></sc-if>
+              <sc-if value="{{ r.off }}" hint-placeholder-val="{{ true }}"><button type="button" role="radio" aria-checked="false" class="opt" onClick="{{ r.pick }}"><span class="radio" aria-hidden="true"></span>{{ r.label }}</button></sc-if>
+            </sc-for>
+          </div>
+        </div>
+        <div class="fl" role="radiogroup" aria-labelledby="inv-acc">
+          <span id="inv-acc" class="lb">الوصول إلى المتاجر</span>
+          <div class="opts">
+            <sc-if value="{{ allOn }}" hint-placeholder-val="{{ false }}"><button type="button" role="radio" aria-checked="true" class="opt opt-on" onClick="{{ pickAll }}"><span class="radio" aria-hidden="true"></span>كل المتاجر</button></sc-if>
+            <sc-if value="{{ allOff }}" hint-placeholder-val="{{ true }}"><button type="button" role="radio" aria-checked="false" class="opt" onClick="{{ pickAll }}"><span class="radio" aria-hidden="true"></span>كل المتاجر</button></sc-if>
+            <sc-if value="{{ specOn }}" hint-placeholder-val="{{ true }}"><button type="button" role="radio" aria-checked="true" class="opt opt-on" onClick="{{ pickSpec }}"><span class="radio" aria-hidden="true"></span>متاجر محددة</button></sc-if>
+            <sc-if value="{{ specOff }}" hint-placeholder-val="{{ false }}"><button type="button" role="radio" aria-checked="false" class="opt" onClick="{{ pickSpec }}"><span class="radio" aria-hidden="true"></span>متاجر محددة</button></sc-if>
+          </div>
+          <sc-if value="{{ specOn }}" hint-placeholder-val="{{ true }}">
+            <div role="group" aria-label="متاجر محددة" style="display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; border-radius: 12px; background: #f6f9fa; border: 1px solid #eef2f4">
+              <sc-for list="{{ stores }}" as="s" hint-placeholder-count="4">
+                <button type="button" role="checkbox" aria-checked="{{ s.aria }}" class="{{ s.cls }}" onClick="{{ s.toggle }}"><span class="chk" aria-hidden="true"></span>{{ s.name }}</button>
+              </sc-for>
+              <span class="hs" style="flex-basis: 100%">{{ pickedText }}</span>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+      <div class="ft">
+        <button type="button" class="btn ink" style="flex: 1">إرسال الدعوة</button>
+        <button type="button" class="btn quiet" onClick="{{ close }}">إلغاء</button>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- Edit / revoke drawer (SF5-3) -->
+  <sc-if value="{{ isEdit }}" hint-placeholder-val="{{ false }}">
+    <div class="scrim" aria-hidden="true" onClick="{{ close }}"></div>
+    <div class="drawer" role="dialog" aria-modal="true" aria-labelledby="ed-h">
+      <div style="position: relative; overflow: hidden; padding: 20px 22px 18px; display: flex; align-items: flex-start; gap: 14px; color: #ffffff; background-color: #0a2125; background-image: linear-gradient(rgba(95,224,207,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(95,224,207,.07) 1px, transparent 1px), radial-gradient(260px 140px at 0% 0%, rgba(95,224,207,.3), transparent 70%); background-size: 22px 22px, 22px 22px, 100% 100%">
+        <span aria-hidden="true" class="disp" style="width: 52px; height: 52px; border-radius: 16px; background: rgba(95,224,207,.16); color: #5fe0cf; display: inline-flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 600; flex: none">{{ cur.ini }}</span>
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+          <span style="font-size: 12px; color: #a9c2c5">تعديل المستخدم</span>
+          <h2 id="ed-h" class="disp" style="margin: 0; font-size: 19px; font-weight: 600">{{ cur.title }}</h2>
+          <bdi dir="ltr" class="mono" style="color: #a9c2c5; text-align: end">{{ cur.email }}</bdi>
+        </div>
+        <button type="button" class="ib" aria-label="إغلاق" onClick="{{ close }}" style="color: #c3d6d8"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div style="flex: 1; overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 18px">
+        <span class="hs" style="font-size: 13px">أنت تعدّل <strong style="color: #0a2125"><bdi>{{ cur.title }}</bdi></strong>.</span>
+        <div class="fl" role="radiogroup" aria-labelledby="ed-role">
+          <span id="ed-role" class="lb">الدور<span class="req" aria-hidden="true">*</span></span>
+          <div class="opts">
+            <sc-for list="{{ roles }}" as="r" hint-placeholder-count="4">
+              <sc-if value="{{ r.on }}" hint-placeholder-val="{{ false }}"><button type="button" role="radio" aria-checked="true" class="opt opt-on" onClick="{{ r.pick }}"><span class="radio" aria-hidden="true"></span>{{ r.label }}</button></sc-if>
+              <sc-if value="{{ r.off }}" hint-placeholder-val="{{ true }}"><button type="button" role="radio" aria-checked="false" class="opt" onClick="{{ r.pick }}"><span class="radio" aria-hidden="true"></span>{{ r.label }}</button></sc-if>
+            </sc-for>
+          </div>
+        </div>
+        <div class="fl" role="radiogroup" aria-labelledby="ed-acc">
+          <span id="ed-acc" class="lb">الوصول إلى المتاجر</span>
+          <div class="opts">
+            <sc-if value="{{ allOn }}" hint-placeholder-val="{{ false }}"><button type="button" role="radio" aria-checked="true" class="opt opt-on" onClick="{{ pickAll }}"><span class="radio" aria-hidden="true"></span>كل المتاجر</button></sc-if>
+            <sc-if value="{{ allOff }}" hint-placeholder-val="{{ true }}"><button type="button" role="radio" aria-checked="false" class="opt" onClick="{{ pickAll }}"><span class="radio" aria-hidden="true"></span>كل المتاجر</button></sc-if>
+            <sc-if value="{{ specOn }}" hint-placeholder-val="{{ true }}"><button type="button" role="radio" aria-checked="true" class="opt opt-on" onClick="{{ pickSpec }}"><span class="radio" aria-hidden="true"></span>متاجر محددة</button></sc-if>
+            <sc-if value="{{ specOff }}" hint-placeholder-val="{{ false }}"><button type="button" role="radio" aria-checked="false" class="opt" onClick="{{ pickSpec }}"><span class="radio" aria-hidden="true"></span>متاجر محددة</button></sc-if>
+          </div>
+          <sc-if value="{{ specOn }}" hint-placeholder-val="{{ true }}">
+            <div role="group" aria-label="متاجر محددة" style="display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; border-radius: 12px; background: #f6f9fa; border: 1px solid #eef2f4">
+              <sc-for list="{{ stores }}" as="s" hint-placeholder-count="4">
+                <button type="button" role="checkbox" aria-checked="{{ s.aria }}" class="{{ s.cls }}" onClick="{{ s.toggle }}"><span class="chk" aria-hidden="true"></span>{{ s.name }}</button>
+              </sc-for>
+              <span class="hs" style="flex-basis: 100%">{{ pickedText }}</span>
+            </div>
+          </sc-if>
+        </div>
+
+        <section aria-labelledby="rv-h" style="margin-top: 4px; padding-top: 16px; border-top: 1px solid #f2d6d3; display: flex; flex-direction: column; gap: 10px">
+          <h3 id="rv-h" style="margin: 0; font-size: 14px; font-weight: 700; color: #8f1f1a">إبطال العضوية</h3>
+          <sc-if value="{{ notConfirming }}" hint-placeholder-val="{{ true }}">
+            <div><button type="button" class="btn dq" onClick="{{ startRevoke }}">إبطال العضوية</button></div>
+          </sc-if>
+          <sc-if value="{{ confirming }}" hint-placeholder-val="{{ false }}">
+            <div aria-label="تأكيد: إبطال" role="group" style="padding: 14px 16px; border-radius: 14px; background: #fdf3f2; border: 1px solid #f2d6d3; display: flex; flex-direction: column; gap: 12px">
+              <p style="margin: 0; font-size: 14px">إبطال <strong><bdi>عضوية {{ cur.title }}</bdi></strong>؟ يمكن لمسؤول التراجع عن ذلك لاحقًا.</p>
+              <div style="display: flex; gap: 8px"><button type="button" class="btn dd">إبطال</button><button type="button" class="btn quiet" onClick="{{ cancelRevoke }}">إلغاء</button></div>
+            </div>
+          </sc-if>
+        </section>
+      </div>
+      <div class="ft">
+        <button type="button" class="btn ink" style="flex: 1">حفظ التغييرات</button>
+        <button type="button" class="btn quiet" onClick="{{ close }}">إلغاء</button>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1680,"height":1000}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { drawer: 'invite', open: null, role: 'cashier', specific: true, picked: ['MAA'], confirming: false }; }
+  renderVals() {
+    const s = this.state;
+    const set = (o) => this.setState(o);
+    const G = {
+      tenant_admin: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
+      store_manager: 'M4 10v10h16V10M3 10l2-6h14l2 6z',
+      manager: 'M8 7V5h8v2M4 7h16v12H4zM4 12h16',
+      cashier: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6'
+    };
+    const L = { tenant_admin: 'مسؤول المؤسسة', store_manager: 'مدير المتجر', manager: 'المدير', cashier: 'الكاشير' };
+    const STORES = [['MAA', 'فرع المعادي'], ['NSR', 'فرع مدينة نصر'], ['SZD', 'فرع الشيخ زايد'], ['DOK', 'فرع الدقي'], ['ZMK', 'فرع الزمالك']];
+    const bars = (n) => [0, 1, 2, 3, 4].slice(0, n === 'all' ? 5 : Math.min(n, 5)).map((i) => ({ h: 8 + i * 2, o: n === 'all' ? 1 : 0.75 }));
+    const countText = (n) => n === 1 ? 'متجر واحد' : n === 2 ? 'متجران' : n + ' متاجر';
+    const m = (id, name, email, role, access, revoked) => {
+      const known = !!L[role];
+      const title = name || email;
+      return {
+        id: id, title: title, email: email, hasName: !!name, ini: name ? name.charAt(0) : '@',
+        avCls: revoked ? 'av av-off' : (name ? 'av' : 'av av-mail'),
+        roleCode: role, known: known, unknown: !known, role: L[role] || '', glyph: G[role] || '',
+        accessKind: access === 'all' ? 'all' : 'specific', storeIds: access === 'all' ? [] : access,
+        access: access === 'all' ? 'كل المتاجر' : countText(access.length), bars: bars(access === 'all' ? 'all' : access.length),
+        isActive: !revoked, revoked: revoked, cls: revoked ? 'rv' : ''
+      };
+    };
+    const list = [
+      m('m1', 'منى السيد', 'mona.elsayed@nile-retail.eg', 'tenant_admin', 'all', false),
+      m('m2', 'كريم عادل', 'karim.adel@nile-retail.eg', 'store_manager', ['MAA', 'NSR'], false),
+      m('m3', 'هالة فوزي', 'hala.fawzy@nile-retail.eg', 'store_manager', ['SZD'], false),
+      m('m4', 'يوسف ناصر', 'youssef.nasser@nile-retail.eg', 'manager', ['MAA', 'NSR', 'DOK'], false),
+      m('m5', null, 'cashier.maadi@nile-retail.eg', 'cashier', ['MAA'], false),
+      m('m6', 'طارق منير', 'tarek.mounir@nile-retail.eg', 'auditor', ['DOK'], false),
+      m('m7', 'سارة إبراهيم', 'sara.ibrahim@nile-retail.eg', 'cashier', ['NSR'], true)
+    ];
+    const ordered = list.filter((x) => !x.revoked).concat(list.filter((x) => x.revoked));
+    const nAct = list.filter((x) => !x.revoked).length;
+    const cur = list.find((x) => x.id === s.open) || list[1];
+    const roles = ['tenant_admin', 'store_manager', 'manager', 'cashier'].map((k) => ({ label: L[k], on: s.role === k, off: s.role !== k, pick: () => set({ role: k }) }));
+    const stores = STORES.map((x) => {
+      const on = s.picked.indexOf(x[0]) >= 0;
+      return { name: x[1], cls: on ? 'chip chip-on' : 'chip', aria: on ? 'true' : 'false', toggle: () => set({ picked: on ? s.picked.filter((p) => p !== x[0]) : s.picked.concat([x[0]]) }) };
+    });
+    const n = s.picked.length;
+    return {
+      pile: list.filter((x) => !x.revoked).slice(0, 4).map((x) => ({ ini: x.ini })), pileMore: Math.max(0, nAct - 4), hasMore: nAct > 4,
+      members: ordered.map((x, i) => Object.assign({}, x, { cls: (x.revoked ? 'rv ' : '') + 'mrow', groupStart: i === 0 || (x.revoked && !ordered[i - 1].revoked), groupLabel: x.revoked ? 'عضويات مُبطلة' : 'عضويات نشطة', groupCount: x.revoked ? list.length - nAct : nAct, open: () => set({ drawer: 'edit', open: x.id, role: L[x.roleCode] ? x.roleCode : null, specific: x.accessKind === 'specific', picked: x.storeIds.slice(), confirming: false }) })),
+      total: list.length, active: list.filter((x) => !x.revoked).length, revoked: list.filter((x) => x.revoked).length,
+      isInvite: s.drawer === 'invite', isEdit: s.drawer === 'edit', cur: cur,
+      openInvite: () => set({ drawer: 'invite', role: 'cashier', specific: true, picked: ['MAA'], confirming: false }),
+      close: () => set({ drawer: null, open: null, confirming: false }),
+      roles: roles, stores: stores,
+      allOn: !s.specific, allOff: s.specific, specOn: s.specific, specOff: !s.specific,
+      pickAll: () => set({ specific: false }), pickSpec: () => set({ specific: true }),
+      pickedText: n === 0 ? 'اختر متجرًا واحدًا على الأقل.' : 'المحدد: ' + countText(n),
+      confirming: s.confirming, notConfirming: !s.confirming,
+      startRevoke: () => set({ confirming: true }), cancelRevoke: () => set({ confirming: false })
+    };
+  }
+}
+</script>
+</body>
+</html>

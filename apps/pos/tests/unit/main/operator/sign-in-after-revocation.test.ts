@@ -17,7 +17,7 @@ import type { SafeStorageLike } from '../../../../src/main/secrets/safe-storage.
 import type { PairingStore } from '../../../../src/main/pairing/store.js';
 import type { DatabaseHandle } from '../../../../src/main/db/client.js';
 import type { BackendClient } from '../../../../src/main/operator/backend-client.js';
-import type { ClerkExchanger } from '../../../../src/main/operator/clerk-client.js';
+import type { OperatorExchanger } from '../../../../src/main/operator/operator-exchanger.js';
 import type { AuditEmitter } from '../../../../src/main/audit/audit-emitter.js';
 import type { CashierAdmissionResult } from '../../../../src/main/operator/cashier-admission-client.js';
 import {
@@ -122,7 +122,7 @@ function managerHarness(epochs: ReturnType<typeof epochSource>, signOut = signOu
         role: 'manager',
       }),
     ),
-  } as unknown as ClerkExchanger;
+  } as unknown as OperatorExchanger;
   const handler = new SignInHandler({
     clerk,
     backend,
@@ -223,7 +223,7 @@ describe('manager sign-in in flight when the device is revoked (Codex P1)', () =
             display_name: 'S',
             role: 'manager',
           }),
-      } as unknown as ClerkExchanger,
+      } as unknown as OperatorExchanger,
       backend,
       sessionManager: new SessionManager(),
       protoStore,

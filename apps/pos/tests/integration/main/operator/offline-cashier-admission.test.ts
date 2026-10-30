@@ -32,9 +32,9 @@ import {
 } from '../../../../src/main/operator/offline-grant-wiring.js';
 import { offlineAuthorityExpired } from '../../../../src/main/operator/offline-authority.js';
 import type {
-  ClerkExchanger,
-  ClerkExchangeResult,
-} from '../../../../src/main/operator/clerk-client.js';
+  OperatorExchanger,
+  OperatorExchangeResult,
+} from '../../../../src/main/operator/operator-exchanger.js';
 import type { InactivityMonitor } from '../../../../src/main/operator/inactivity-monitor.js';
 import type { PinManagementHandler } from '../../../../src/main/operator/pin-management.js';
 import type { ForcedCloseHandler } from '../../../../src/main/operator/forced-close-handler.js';
@@ -183,7 +183,7 @@ let pairingEpoch: string;
 /** The RT-444 sign-in admission guard, when a test installs one. */
 let guard: SessionAdmission | undefined;
 
-const managerClerk: { result: ClerkExchangeResult } = { result: { kind: 'no_connection' } };
+const managerClerk: { result: OperatorExchangeResult } = { result: { kind: 'no_connection' } };
 
 function fetchImpl(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   net.onSend?.();
@@ -275,7 +275,7 @@ function wire(): Wired {
       handlers.set(channel, fn);
     },
   } as unknown as IpcMain;
-  const clerk: ClerkExchanger = { exchange: () => Promise.resolve(managerClerk.result) };
+  const clerk: OperatorExchanger = { exchange: () => Promise.resolve(managerClerk.result) };
   registerOperatorHandlers(ipcMain, {
     signInHandler: new SignInHandler({
       clerk,

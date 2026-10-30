@@ -225,10 +225,15 @@ ambiguity.
 |:--|:--|:--|:--|
 | `width` | narrower than 1024 px, at least 600 px high | `الشاشة أصغر من 1024×768.` | `كبّر النافذة أو استخدم شاشة أكبر.` |
 | `height` | shorter than 600 px, at least 1024 px wide | `ارتفاع الشاشة أقل من الحد المدعوم.` | `كبّر النافذة، أو اضبط مقياس العرض في Windows على 100% أو 125%.` |
-| `both` | under both floors | `الشاشة أصغر من 1024×768.` | `كبّر النافذة، أو اضبط مقياس العرض في Windows على 100% أو 125%.` |
+| `both` | under both floors | `أبعاد الشاشة أقل من الحد المدعوم.` | `يحتاج النظام عرضًا لا يقل عن 1024 وارتفاعًا لا يقل عن 600 بكسل. كبّر النافذة أو اضبط مقياس عرض Windows.` |
 
-`both` uses the size heading, which is true of both dimensions, with the height action: on a
-scaled display, lowering Windows Scale or maximizing the window clears both floors.
+> **Amended by RT-912 (owner-approved 2026-10-18, RT-313 comment 12651; code authorized in
+> comment 14182; this contract amendment authorized by the owner on 2026-10-30).** The `both`
+> variant carries the approved text above, which states the real CSS-pixel floors (1024 wide,
+> 600 high) instead of treating 1024×768 as a hard minimum. `1024` and `600` are Western-digit
+> runs in `<bdi dir="ltr">`; `Windows` stays in the Arabic run. The `width` and `height`
+> variants are unchanged. The earlier `both` text (the size heading with the height action) is
+> retired.
 
 The panel grows past the viewport instead of clipping (`min-block-size: 100dvh`, `justify-content:
 safe center`), so on a very short viewport the card's top stays reachable by scrolling.

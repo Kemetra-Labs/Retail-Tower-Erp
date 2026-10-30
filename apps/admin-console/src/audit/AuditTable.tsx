@@ -16,6 +16,7 @@
  * its code (`auditActionLabelKey`). The code itself is unchanged; an action
  * without a label renders as before.
  */
+import { TableScrollRegion } from "@/components/DataTableScroll";
 import { formatEvidenceTime, useT } from "@/i18n";
 import { auditActionLabelKey } from "./auditActionLabel";
 import type { AuditRow } from "./useAuditSearch";
@@ -41,53 +42,63 @@ function ActionLabel({ row }: Readonly<{ row: AuditRow }>): React.JSX.Element | 
 export function AuditTable({ rows, onInspect }: Readonly<AuditTableProps>): React.JSX.Element {
   const t = useT();
   return (
-    <table className="audit-table">
-      <caption className="audit-table__caption">{t("audit.table.caption")}</caption>
-      <thead>
-        <tr>
-          <th scope="col">{t("audit.field.time")}</th>
-          <th scope="col">{t("audit.field.action")}</th>
-          <th scope="col">{t("audit.field.actor")}</th>
-          <th scope="col">{t("audit.field.target")}</th>
-          <th scope="col">{t("audit.field.store")}</th>
-          <th scope="col">{t("audit.table.requestShort")}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={row.id}>
-            <td className="audit-table__time">
-              <bdi dir="ltr">{formatEvidenceTime(row.occurred_at)}</bdi>
-            </td>
-            <td>
-              <button type="button" className="audit-table__action" onClick={() => onInspect(row)}>
-                <ActionLabel row={row} />
-                <bdi dir="ltr">{row.action}</bdi>
-              </button>
-            </td>
-            <td className="audit-table__muted">
-              {row.actor_label != null ? (
-                <bdi>{row.actor_label}</bdi>
-              ) : (
-                <bdi dir="ltr">{shortId(row.actor_user_id)}</bdi>
-              )}
-            </td>
-            <td className="audit-table__muted">
-              {row.target_type ? (
-                <bdi dir="ltr">{`${row.target_type} · ${shortId(row.target_id)}`}</bdi>
-              ) : (
-                "—"
-              )}
-            </td>
-            <td className="audit-table__mono">
-              <bdi dir="ltr">{shortId(row.store_id)}</bdi>
-            </td>
-            <td className="audit-table__mono">
-              <bdi dir="ltr">{shortId(row.request_id)}</bdi>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <TableScrollRegion>
+      {(captionId) => (
+        <table className="audit-table">
+          <caption id={captionId} className="audit-table__caption">
+            {t("audit.table.caption")}
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">{t("audit.field.time")}</th>
+              <th scope="col">{t("audit.field.action")}</th>
+              <th scope="col">{t("audit.field.actor")}</th>
+              <th scope="col">{t("audit.field.target")}</th>
+              <th scope="col">{t("audit.field.store")}</th>
+              <th scope="col">{t("audit.table.requestShort")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id}>
+                <td className="audit-table__time">
+                  <bdi dir="ltr">{formatEvidenceTime(row.occurred_at)}</bdi>
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className="audit-table__action"
+                    onClick={() => onInspect(row)}
+                  >
+                    <ActionLabel row={row} />
+                    <bdi dir="ltr">{row.action}</bdi>
+                  </button>
+                </td>
+                <td className="audit-table__muted">
+                  {row.actor_label != null ? (
+                    <bdi>{row.actor_label}</bdi>
+                  ) : (
+                    <bdi dir="ltr">{shortId(row.actor_user_id)}</bdi>
+                  )}
+                </td>
+                <td className="audit-table__muted">
+                  {row.target_type ? (
+                    <bdi dir="ltr">{`${row.target_type} · ${shortId(row.target_id)}`}</bdi>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+                <td className="audit-table__mono">
+                  <bdi dir="ltr">{shortId(row.store_id)}</bdi>
+                </td>
+                <td className="audit-table__mono">
+                  <bdi dir="ltr">{shortId(row.request_id)}</bdi>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </TableScrollRegion>
   );
 }

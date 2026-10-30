@@ -179,3 +179,10 @@
 .data-table__row--skeleton td:not(:first-child) .skeleton {
   inline-size: 24%;
 }
+
+/* RT-963: the older plain wrapper, kept for the detail screens that still use
+ * it (RT-974 moves them to the focusable, captioned DataTableScroll). It lives
+ * here with the table rules, not in one feature's stylesheet. */
+.table-scroll {
+  overflow-x: auto;
+}

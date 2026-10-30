@@ -232,7 +232,14 @@ describe("when the surface is refused", () => {
   test("a 403 on the list offers no suggestion and reads no catalog", async () => {
     api.tenantAdminListErpnextItemMappings.mockResolvedValue(failure(403));
     renderPage();
-    await within(itemsPanel()).findByRole("alert");
+    // RT-963: the refusal notice is an info banner, announced politely.
+    await waitFor(() =>
+      expect(
+        within(itemsPanel())
+          .getAllByRole("status")
+          .some((n) => n.classList.contains("rtc-alert")),
+      ).toBe(true),
+    );
     expect(screen.queryByRole("button", { name: "Suggest a mapping" })).toBeNull();
     expect(consoleListCatalogProducts).not.toHaveBeenCalled();
   });

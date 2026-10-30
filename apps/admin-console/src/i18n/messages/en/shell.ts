@@ -13,6 +13,7 @@ export const shell: MessagesOf<typeof ar> = {
   "shell.nav.stockDiscrepancies": "Stock discrepancies",
   "shell.nav.shiftCloses": "Shift closes",
   "shell.nav.unknownItems": "Unknown items",
+  "shell.skipToContent": "Skip to content",
   "shell.signOut": "Sign out",
   "shell.menu": "Menu",
 

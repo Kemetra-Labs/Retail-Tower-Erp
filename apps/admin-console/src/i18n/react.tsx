@@ -69,6 +69,19 @@ export function useT(): T {
   return tFor(useLocale());
 }
 
+/** The current page's title element (the shared `PageHeader` marks its `<h1>`). */
+const PAGE_TITLE = "h1[data-page-title]";
+
+/**
+ * RT-963 (WCAG 2.4.2): «<page> – <app>» when a page header is shown, else the
+ * app title alone. Read from the rendered `<h1>`, so it follows the locale and
+ * any name in the title.
+ */
+export function composeDocumentTitle(appTitle: string): string {
+  const page = document.querySelector(PAGE_TITLE)?.textContent?.trim();
+  return page ? `${page} – ${appTitle}` : appTitle;
+}
+
 /**
  * Keeps <html lang/dir> and the document title in step with the active
  * locale. Mounted once at the app root.
@@ -77,7 +90,7 @@ export function DocumentLocale(): null {
   const t = useT();
   useEffect(() => {
     applyLocaleToDocument(t.locale);
-    document.title = t("app.title");
+    document.title = composeDocumentTitle(t("app.title"));
   }, [t]);
   return null;
 }

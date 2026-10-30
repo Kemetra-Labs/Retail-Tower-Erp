@@ -5,7 +5,7 @@ import { resolveObservabilityConfig } from '../config.js';
 /**
  * RT-634 (OBS-5) — how the DSN, `env` and `release` reach main. All three are
  * runtime environment variables of the launched exe (the same route as
- * `VITE_API_BASE_URL` and `CLERK_PUBLISHABLE_KEY`); nothing is baked into the
+ * `VITE_API_BASE_URL` and `DESCOPE_PROJECT_ID`); nothing is baked into the
  * asar or the renderer bundle.
  */
 

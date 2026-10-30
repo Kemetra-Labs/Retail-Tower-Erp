@@ -3,6 +3,7 @@
  * in place, directly under the row it belongs to, with focus on the safe choice
  * (Keep code); while a cancel is pending no other row can start one.
  */
+import { TableScrollRegion } from "@/components/DataTableScroll";
 import { GatedButton } from "@/components/GatedButton";
 import { type MessageKey, type T, useT } from "@/i18n";
 import type { PairingCodeSummary } from "@/lib/device-queries";
@@ -130,42 +131,48 @@ export function CodesTable({
   t: T;
 }>): React.JSX.Element {
   return (
-    <table className="data-table">
-      <caption className="data-table__caption">{t("devices.codes.caption")}</caption>
-      <thead>
-        <tr>
-          <th scope="col">{t("devices.codes.col.terminal")}</th>
-          <th scope="col">{t("devices.codes.col.kind")}</th>
-          <th scope="col">{t("devices.codes.col.store")}</th>
-          <th scope="col">{t("devices.codes.col.replaces")}</th>
-          <th scope="col">{t("devices.codes.col.expires")}</th>
-          <th scope="col">{t("devices.codes.col.actions")}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((code) => (
-          <Fragment key={code.pairingCodeId}>
-            <CodeRow
-              code={code}
-              directory={directory}
-              busy={cancel.pending}
-              onCancel={cancel.ask}
-            />
-            {cancel.confirming?.pairingCodeId === code.pairingCodeId ? (
-              <tr>
-                <td colSpan={COLUMN_COUNT}>
-                  <CancelConfirm
-                    code={code}
-                    pending={cancel.pending}
-                    onConfirm={() => void cancel.confirm(code)}
-                    onKeep={cancel.keep}
-                  />
-                </td>
-              </tr>
-            ) : null}
-          </Fragment>
-        ))}
-      </tbody>
-    </table>
+    <TableScrollRegion>
+      {(captionId) => (
+        <table className="data-table">
+          <caption id={captionId} className="data-table__caption">
+            {t("devices.codes.caption")}
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">{t("devices.codes.col.terminal")}</th>
+              <th scope="col">{t("devices.codes.col.kind")}</th>
+              <th scope="col">{t("devices.codes.col.store")}</th>
+              <th scope="col">{t("devices.codes.col.replaces")}</th>
+              <th scope="col">{t("devices.codes.col.expires")}</th>
+              <th scope="col">{t("devices.codes.col.actions")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((code) => (
+              <Fragment key={code.pairingCodeId}>
+                <CodeRow
+                  code={code}
+                  directory={directory}
+                  busy={cancel.pending}
+                  onCancel={cancel.ask}
+                />
+                {cancel.confirming?.pairingCodeId === code.pairingCodeId ? (
+                  <tr>
+                    <td colSpan={COLUMN_COUNT}>
+                      <CancelConfirm
+                        code={code}
+                        pending={cancel.pending}
+                        onConfirm={() => void cancel.confirm(code)}
+                        onKeep={cancel.keep}
+                      />
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </TableScrollRegion>
   );
 }

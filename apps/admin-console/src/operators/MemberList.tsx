@@ -1,5 +1,6 @@
 import { Avatar } from "@/components/Avatar";
 import { Banner } from "@/components/Banner";
+import { DataTable, type DataTableColumn } from "@/components/DataTable";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
@@ -26,6 +27,49 @@ import "../shell/surface.css";
 function storeAccessLabel(row: MemberRow, t: T): string {
   if (row.storeAccessKind === "all") return t("operators.storeAccess.all");
   return t("operators.storeAccess.count", { count: row.accessibleStoreIds.length });
+}
+
+/** The member roster's columns; a row opens only through its «Open» button (RT-963). */
+function memberColumns(t: T): DataTableColumn<MemberRow>[] {
+  return [
+    {
+      key: "member",
+      header: t("operators.list.col.member"),
+      cell: (row) => (
+        <span className="member-cell">
+          <Avatar name={row.displayName ?? row.email} size={32} />
+          <span className="member-identity">
+            <span className="member-identity__name">{row.displayName ?? row.email}</span>
+            {row.displayName ? (
+              <span className="member-identity__email">
+                <bdi dir="ltr">{row.email}</bdi>
+              </span>
+            ) : null}
+          </span>
+        </span>
+      ),
+    },
+    {
+      key: "role",
+      header: t("operators.list.col.role"),
+      cell: (row) => <span className="badge">{t(roleKey(row.roleCode))}</span>,
+    },
+    {
+      key: "storeAccess",
+      header: t("operators.list.col.storeAccess"),
+      cell: (row) => storeAccessLabel(row, t),
+    },
+    {
+      key: "state",
+      header: t("operators.list.col.state"),
+      cell: (row) =>
+        row.revoked ? (
+          <span className="badge badge--warning">{t("operators.state.revoked")}</span>
+        ) : (
+          <span className="badge badge--success">{t("operators.state.active")}</span>
+        ),
+    },
+  ];
 }
 
 export function MemberList(): React.JSX.Element {
@@ -84,58 +128,14 @@ export function MemberList(): React.JSX.Element {
       ) : null}
 
       {!isLoading && !notFound && rows.length > 0 ? (
-        <table className="data-table">
-          <caption className="data-table__caption">{t("operators.list.caption")}</caption>
-          <thead>
-            <tr>
-              <th scope="col">{t("operators.list.col.member")}</th>
-              <th scope="col">{t("operators.list.col.role")}</th>
-              <th scope="col">{t("operators.list.col.storeAccess")}</th>
-              <th scope="col">{t("operators.list.col.state")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr
-                key={row.membershipId}
-                className="data-table__row"
-                tabIndex={0}
-                onClick={() => setEditing(row)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    setEditing(row);
-                  }
-                }}
-              >
-                <td>
-                  <span className="member-cell">
-                    <Avatar name={row.displayName ?? row.email} size={32} />
-                    <span className="member-identity">
-                      <span className="member-identity__name">{row.displayName ?? row.email}</span>
-                      {row.displayName ? (
-                        <span className="member-identity__email">
-                          <bdi dir="ltr">{row.email}</bdi>
-                        </span>
-                      ) : null}
-                    </span>
-                  </span>
-                </td>
-                <td>
-                  <span className="badge">{t(roleKey(row.roleCode))}</span>
-                </td>
-                <td>{storeAccessLabel(row, t)}</td>
-                <td>
-                  {row.revoked ? (
-                    <span className="badge badge--warning">{t("operators.state.revoked")}</span>
-                  ) : (
-                    <span className="badge badge--success">{t("operators.state.active")}</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <DataTable
+          caption={t("operators.list.caption")}
+          columns={memberColumns(t)}
+          rows={rows}
+          rowKey={(row) => row.membershipId}
+          onRowActivate={setEditing}
+          openLabel={(row) => row.displayName ?? row.email}
+        />
       ) : null}
 
       {inviting ? (

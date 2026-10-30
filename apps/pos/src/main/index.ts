@@ -127,7 +127,7 @@ import { randomUUID } from 'node:crypto';
 import { createWorkerRegistry } from './app/bootstrap-workers.js';
 import { createWindowFactory } from './app/bootstrap-window.js';
 import { createDatabaseHolder } from './app/bootstrap-db.js';
-import { resolveApiBaseUrl, resolveClerkExchanger, resolveMigrationsDir } from './bootstrap/env.js';
+import { resolveApiBaseUrl, resolveAuthExchanger, resolveMigrationsDir } from './bootstrap/env.js';
 import { registerCatalogue } from './bootstrap/catalogue.js';
 import { registerReturns } from './bootstrap/returns.js';
 import { registerSaleVoid } from './bootstrap/sale-void.js';
@@ -560,8 +560,8 @@ singleInstanceReady
     // RT-634 (OBS-5) — every Backend-Core call carries a fresh UUID
     // `X-Request-Id` (OBS-1 contract §2), logged locally with method, path
     // and status. ONE wrapper on the base fetch; all Backend-Core clients
-    // below are built on it. The identity provider exchanger (Clerk or
-    // Descope, resolveClerkExchanger) is not wrapped.
+    // below are built on it. The identity provider exchanger (Descope,
+    // resolveAuthExchanger) is not wrapped.
     // RT-719 — the build identity (`X-POS-Build-Commit`, `X-POS-Contract-Pin`) rides
     // the same shared fetch: added only on the device-token requests of the thirteen
     // reporting operations, omitted whenever the build has no honest identity.
@@ -702,14 +702,12 @@ singleInstanceReady
 
     // 004-operator-session — wire `operator.*` IPC.
     //
-    // Clerk credential exchange happens HERE in the main process; the
-    // password NEVER reaches Data-Pulse-2 (Wave 1 path b / AD-2 /
-    // Constitution v1.5.1). The Clerk Frontend API host is decoded
-    // from the publishable key (`CLERK_PUBLISHABLE_KEY` env var). If
-    // the key is unset or malformed in dev, we wire a stub exchanger
-    // that always refuses — the app still launches and `/sign-in` is
-    // reachable, but submit fails with the generic refusal copy. CI
-    // and production builds set the key; the stub is dev-only.
+    // Identity-provider (Descope) credential exchange happens HERE in the
+    // main process; the password NEVER reaches Backend-Core (Wave 1 path b /
+    // AD-2 / Constitution v1.5.1). If `DESCOPE_PROJECT_ID` is unset or
+    // malformed, we wire a stub exchanger that always refuses — the app still
+    // launches and `/sign-in` is reachable, but submit fails with the generic
+    // refusal copy.
     // RT-215 (Codex P1): neither holder accepts a credential while the device
     // is revoked, so a sign-in that completes late cannot repopulate one.
     const refuseWhileRevoked = { refuseWhile: () => pairingStore.isDeviceRevoked() };
@@ -818,13 +816,13 @@ singleInstanceReady
       fetch: backendFetch,
     });
     const operatorProtoStore = new ProtoSessionStore();
-    const clerkExchanger = resolveClerkExchanger(mainLogger);
+    const identityExchanger = resolveAuthExchanger(mainLogger);
     const deviceTokenAttestation = async (): Promise<string> =>
       (await readSendableDeviceToken()) ?? '';
     const operatorSignInHandler = new SignInHandler({
       // RT-215 (Codex P1): a late success under a revoked/replaced pairing is dropped.
       pairingEpoch: () => pairingStore.getPairingEpoch(),
-      clerk: clerkExchanger,
+      clerk: identityExchanger,
       backend: operatorBackend,
       sessionManager: operatorSessionManager,
       // 016 (review HIGH): JWT → operator-identity holder; envelope → sale-sync holder.
@@ -1050,13 +1048,13 @@ singleInstanceReady
     });
     // RT-358 (RT-247 D-A1) — ONE online credential check for the manager
     // online unlock and the in-place re-auth: one lockout, one in-flight gate.
-    const onlineCredentialVerifier = new OnlineCredentialVerifier({ clerk: clerkExchanger });
+    const onlineCredentialVerifier = new OnlineCredentialVerifier({ clerk: identityExchanger });
     registerSessionLockHandlers(guardedIpcMain, {
       unlockHandler: new SessionUnlockHandler({
         sessionManager: operatorSessionManager,
         verifyCashierPin: (operator_id, pin) =>
           operatorCashierSignInHandler.verifyPin(operator_id, pin),
-        clerk: clerkExchanger,
+        clerk: identityExchanger,
         onlineVerifier: onlineCredentialVerifier,
         // Q2 = yes: the online unlock keeps its fresh JWT (with the one-shot mark).
         jwtHolder: operatorJwtHolder,

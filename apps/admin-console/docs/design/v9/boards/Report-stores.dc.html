@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>المبيعات حسب المتجر — Retail Tower Console</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f2f5f6}
+a{color:#0f766e}a:hover{color:#0b5b55}
+:focus-visible{outline:2px solid #14a394;outline-offset:2px}
+.disp{font-family:'Readex Pro',Dubai,'Segoe UI',sans-serif}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.nv{display:flex;align-items:center;gap:14px;min-height:46px;padding:0 14px;border-radius:12px;color:#a9c2c5;text-decoration:none;font-size:14px;position:relative}
+.nv:hover{background:rgba(255,255,255,.05);color:#ffffff}
+.nv svg{flex:none}
+.nv-on{color:#ffffff;font-weight:700;background:linear-gradient(90deg,rgba(43,196,179,.22),rgba(43,196,179,.04));box-shadow:inset 0 0 0 1px rgba(95,224,207,.22)}
+.nv-on::before{content:"";position:absolute;inset-inline-start:-16px;top:10px;bottom:10px;width:4px;border-radius:0 4px 4px 0;background:#5fe0cf;box-shadow:0 0 14px 2px rgba(95,224,207,.7)}
+.nv-on svg{color:#5fe0cf}
+.grp{font-size:11px;color:#5f8186;padding:0 14px 4px;font-weight:700}
+.hs{font-size:12px;color:#5b6d7c}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 16px;border-radius:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap;border:1px solid transparent}
+.ink{color:#ffffff;background:#0a2125;border-color:#0a2125;box-shadow:0 8px 18px -10px rgba(10,33,37,.8)}
+.ink:hover{color:#ffffff;background:#12333a}
+.ghost{color:#0a2125;background:#ffffff;border-color:#d6dfe3}
+.ghost:hover{border-color:#9fdcd2}
+.quiet{color:#33454f;background:transparent}
+.quiet:hover{background:#eef2f4}
+.dq{color:#b3261e;background:#ffffff;border-color:#f2d6d3}
+.dq:hover{background:#fdf3f2}
+.dd{color:#ffffff;background:#b3261e;border-color:#b3261e}
+.dd:hover{background:#9a1f19}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:9px;font-size:12px;font-weight:700;white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:2px;background:currentColor;transform:rotate(45deg)}
+.ok{background:#e4f5ec;color:#15774d}
+.warn{background:#fdf0dc;color:#8a4b00}
+.role{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px 0 12px;border-radius:9px;font-size:12px;font-weight:700;background:#eef2f4;color:#33454f;white-space:nowrap}
+.role svg{color:#0f766e}
+.role-unk{background:#ffffff;border:1px dashed #b7c5ca;color:#5b6d7c}
+.sec{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:24px;padding:0 6px;border-radius:8px;background:#0a2125;color:#5fe0cf;font-family:'Readex Pro',sans-serif;font-size:11px;font-weight:600}
+.box{background:#ffffff;border:1px solid #e3e9ec;border-radius:20px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25)}
+.sum{display:flex;flex-wrap:wrap;gap:10px}
+.sum span{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:12px;background:#ffffff;border:1px solid #e3e9ec;font-size:13px;color:#33454f}
+.sum b{font-family:'Readex Pro',sans-serif;font-weight:600;color:#0a2125}
+.tbl{width:100%;border-collapse:separate;border-spacing:0 8px;font-size:13px}
+.tbl th{font-size:12px;color:#5b6d7c;font-weight:700;text-align:start;padding:0 16px 2px}
+.tbl td{padding:12px 16px;background:#f8fafb;border-block:1px solid #eef2f4;white-space:nowrap}
+.tbl td:first-child{border-inline-start:1px solid #eef2f4;border-start-start-radius:14px;border-end-start-radius:14px}
+.tbl td:last-child{border-inline-end:1px solid #eef2f4;border-start-end-radius:14px;border-end-end-radius:14px}
+.tbl tr:hover td{background:#f2f8f7}
+.rv td{background:#fffaf2;border-color:#f3e3c6;color:#5b6d7c}
+.rv td:first-child{box-shadow:inset -3px 0 0 #f0a03c;border-color:#f3e3c6}
+.av{width:38px;height:38px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;flex:none;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:15px;background:linear-gradient(160deg,#e7f6f3,#cfeee8);color:#0f766e;box-shadow:inset 0 0 0 1px #bfe5dd}
+.av-off{background:#eef2f4;color:#5b6d7c;box-shadow:inset 0 0 0 1px #dde5e8}
+.av-mail{background:#ffffff;color:#0f766e;box-shadow:inset 0 0 0 1px #bfe5dd}
+.who{display:flex;align-items:center;gap:12px;min-width:0}
+.who span{display:flex;flex-direction:column;line-height:1.35;min-width:0}
+.who b{font-size:14px;font-weight:700;color:#0a2125}
+.acc{display:inline-flex;align-items:center;gap:8px}
+.bars{display:inline-flex;align-items:flex-end;gap:2px;height:16px}
+.bars i{display:block;width:4px;border-radius:2px;background:#0f8f80}
+.scrim{position:absolute;inset:0;background:rgba(10,33,37,.42);z-index:20}
+.drawer{position:absolute;inset-block:0;inset-inline-end:0;width:500px;max-width:100%;background:#ffffff;z-index:21;box-shadow:0 0 0 1px #e3e9ec,-24px 0 48px -20px rgba(10,33,37,.5);display:flex;flex-direction:column}
+.ib{width:36px;height:36px;border-radius:10px;border:0;background:transparent;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.ib:hover{background:rgba(255,255,255,.08)}
+.fl{display:flex;flex-direction:column;gap:6px}
+.fl>label,.fl>.lb{font-size:13px;font-weight:700;color:#0a2125}
+.req{color:#b3261e;margin-inline-start:2px}
+.in{height:42px;border:1px solid #c6d3d8;border-radius:11px;padding:0 12px;font:inherit;font-size:14px;color:#0a2125;background:#ffffff;box-sizing:border-box;width:100%}
+.in:focus{border-color:#0f766e;outline:2px solid #14a394;outline-offset:1px}
+.opts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.opt{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 12px;border:1px solid #d6dfe3;border-radius:12px;cursor:pointer;font:inherit;font-size:13px;font-weight:600;background:#ffffff;text-align:start;width:100%;color:#0a2125}
+.opt:hover{border-color:#9fdcd2}
+.opt-on{border-color:#0a2125;box-shadow:inset 0 0 0 1px #0a2125;background:#f6faf9}
+.radio{width:18px;height:18px;border-radius:50%;border:2px solid #53647a;box-sizing:border-box;display:flex;align-items:center;justify-content:center;flex:none}
+.opt-on .radio{border-color:#0a2125}
+.opt-on .radio::after{content:"";width:8px;height:8px;border-radius:50%;background:#0a2125}
+.chip{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 10px;border-radius:10px;border:1px solid #d6dfe3;background:#ffffff;font:inherit;font-size:12px;font-weight:600;color:#33454f;cursor:pointer}
+.chip-on{border-color:#0f766e;background:#e7f6f3;color:#0b5b55}
+.chk{width:14px;height:14px;border-radius:4px;border:2px solid #53647a;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center}
+.chip-on .chk{border-color:#0f766e;background:#0f766e}
+.chip-on .chk::after{content:"";width:6px;height:3px;border-inline-start:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) translate(1px,-1px)}
+.ft{border-top:1px solid #eef2f4;padding:14px 22px;display:flex;gap:8px;background:#fbfcfc}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#0f766e}
+.eyebrow i{width:18px;height:2px;border-radius:2px;background:#0f766e;display:block}
+.ledger{display:flex;flex-wrap:wrap;align-items:stretch;background:#ffffff;border:1px solid #e3e9ec;border-radius:18px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25);overflow:hidden}
+.ledger>div{display:flex;align-items:center;gap:12px;padding:14px 20px;min-width:0}
+.ledger>div+div{border-inline-start:1px solid #eef2f4}
+.ledger .lv{font-family:'Readex Pro',sans-serif;font-weight:600;font-size:22px;line-height:1;color:#0a2125;font-variant-numeric:tabular-nums}
+.ledger .ll{font-size:12px;color:#5b6d7c}
+.pile{display:flex;align-items:center}
+.pile span{width:34px;height:34px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:13px;background:#0a2125;color:#5fe0cf;box-shadow:0 0 0 3px #ffffff;margin-inline-start:-8px}
+.pile span:first-child{margin-inline-start:0}
+.pile .more{background:#e7f6f3;color:#0f766e}
+.grp-row td{background:transparent !important;border:0 !important;box-shadow:none !important;padding:10px 6px 0 !important}
+.grp-row span{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:700;color:#5b6d7c}
+.grp-row span::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,#e3e9ec,transparent)}
+.grp-row b{font-family:'Readex Pro',sans-serif;font-weight:600;color:#0a2125;background:#eef2f4;border-radius:6px;padding:0 7px}
+.mrow td{transition:background .14s,box-shadow .14s}
+.mrow:hover td{background:#ffffff;box-shadow:0 10px 22px -18px rgba(10,33,37,.45)}
+.mrow:hover td:first-child{box-shadow:inset -3px 0 0 #0f766e,0 10px 22px -18px rgba(10,33,37,.45)}
+.av{position:relative;background:#0a2125 !important;color:#5fe0cf !important;box-shadow:none !important}
+.av-off{background:#eef2f4 !important;color:#7a8b96 !important;box-shadow:inset 0 0 0 1px #dde5e8 !important}
+.av-mail{background:#ffffff !important;color:#0f766e !important;box-shadow:inset 0 0 0 1px #bfe5dd !important}
+.badge-r{position:absolute;bottom:-4px;inset-inline-end:-4px;width:18px;height:18px;border-radius:7px;background:#ffffff;box-shadow:0 0 0 1px #dfe7ea;display:flex !important;align-items:center;justify-content:center;color:#0f766e}
+.openb svg{transition:transform .14s}
+.mrow:hover .openb{border-color:#0a2125}
+.mrow:hover .openb svg{transform:translateX(-3px)}
+@media (prefers-reduced-motion: reduce){.mrow td,.openb svg{transition:none}}
+.band{position:relative;overflow:hidden;box-sizing:border-box;max-height:132px;min-height:112px;display:flex;flex-wrap:wrap;align-items:center;gap:14px 28px;padding:20px 26px;border-radius:22px;border:1px solid #0a2125;color:#ffffff;background-color:#0a2125;background-image:linear-gradient(rgba(95,224,207,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(95,224,207,.06) 1px,transparent 1px),radial-gradient(420px 200px at 0% 0%,rgba(95,224,207,.26),transparent 70%);background-size:24px 24px,24px 24px,100% 100%;box-shadow:0 18px 40px -28px rgba(10,33,37,.7)}
+.band>*:not(.band-orn){position:relative;z-index:1}
+.band-orn{position:absolute;inset-inline-end:0;bottom:0;width:360px;height:132px;opacity:.5;pointer-events:none}
+.band-id{flex:1 1 260px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.band-eye{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#5fe0cf}
+.band-eye i{width:18px;height:2px;border-radius:2px;background:#5fe0cf;display:block}
+.band-facts{display:flex;align-items:center;margin:0;padding:6px 4px;border-radius:16px;background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px rgba(95,224,207,.14)}
+.band-facts>div{display:flex;align-items:center;gap:10px;padding:4px 16px}
+.band-facts>div+div{border-inline-start:1px solid rgba(255,255,255,.1)}
+.band-facts>div>span:last-child{display:flex;flex-direction:column;gap:3px}
+.band-facts dd{margin:0;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:20px;line-height:1;font-variant-numeric:tabular-nums}
+.band-facts dt{font-size:12px;color:#a9c2c5;line-height:1.2}
+.band-facts .dot{width:9px;height:9px;border-radius:3px;transform:rotate(45deg);flex:none}
+.band .pile span{box-shadow:0 0 0 2px #0a2125;background:#163a40;color:#5fe0cf}
+.band .pile .more{background:#5fe0cf;color:#0a2125}
+.mint{color:#0a2125;background:#5fe0cf;border:1px solid #5fe0cf;box-shadow:0 10px 22px -12px rgba(95,224,207,.8)}
+.mint:hover{background:#86ebdd;color:#0a2125}
+@media (max-width: 640px){.band{max-height:none;background:#ffffff;color:#0a2125;border-color:#e3e9ec;box-shadow:none}.band-orn{display:none}.band-facts{display:none}.band-eye{color:#0f766e}.band-eye i{background:#0f766e}}
+@media (forced-colors: active){.band{background:Canvas;color:CanvasText;border:1px solid CanvasText}.band-orn{display:none}}
+.gl{color:#e6f0f1 !important;background:rgba(255,255,255,.06) !important;border:1px solid rgba(255,255,255,.18) !important}
+.band{max-height:none !important}
+.num{font-family:'Readex Pro',sans-serif;font-variant-numeric:tabular-nums;font-weight:600}
+.tot{display:flex;flex-direction:column;gap:3px;padding:6px 16px;min-width:0}
+.tot+.tot{border-inline-start:1px solid rgba(255,255,255,.1)}
+.tot dt{font-size:12px;color:#a9c2c5}
+.tot dd{margin:0;display:flex;flex-direction:column;gap:1px}
+.tot .big{font-family:'Readex Pro',sans-serif;font-weight:600;font-size:22px;line-height:1.1;font-variant-numeric:tabular-nums}
+.tot small{font-size:11px;color:#5fe0cf;font-weight:600}
+.prop{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:9px;border:1px dashed rgba(255,255,255,.35);color:#e6f0f1;font-size:12px;font-weight:700}
+.presets{display:inline-flex;flex-wrap:wrap;gap:6px}
+.presets button{height:34px;padding:0 12px;border-radius:10px;border:1px solid #d6dfe3;background:#ffffff;font:inherit;font-size:12px;font-weight:700;color:#33454f;cursor:pointer}
+.presets .on{background:#0a2125;border-color:#0a2125;color:#ffffff}
+.tg{display:inline-flex;align-items:center;gap:10px;height:34px;padding:0 12px;border-radius:10px;border:1px solid #d6dfe3;background:#ffffff;font:inherit;font-size:12px;font-weight:700;color:#0a2125;cursor:pointer}
+.tg .sw{width:32px;height:18px;border-radius:9px;background:#c6d3d8;position:relative}
+.tg .sw::after{content:"";position:absolute;top:2px;inset-inline-start:2px;width:14px;height:14px;border-radius:50%;background:#ffffff;transition:inset-inline-start .14s}
+.tg.on .sw{background:#0a2125}
+.tg.on .sw::after{inset-inline-start:16px;background:#5fe0cf}
+.sel{height:34px;border:1px solid #c6d3d8;border-radius:10px;padding:0 12px;font-size:13px;background:#ffffff;display:inline-flex;align-items:center;gap:8px;box-sizing:border-box}
+.ctx{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:#33454f}
+.ctx span{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:8px;background:#f6f9fa;border:1px solid #eef2f4}
+.wb{display:grid;grid-template-columns:minmax(0,1fr) 370px;gap:18px;align-items:start}
+.rank{display:flex;flex-direction:column;gap:6px;padding:8px 18px 18px}
+.rk{display:grid;grid-template-columns:30px minmax(160px,210px) minmax(0,1fr) 120px 92px;gap:12px;align-items:center;width:100%;padding:10px 12px;border-radius:14px;border:1px solid transparent;background:transparent;font:inherit;text-align:start;cursor:pointer;color:#0a2125}
+.rk:hover{background:#f6faf9;border-color:#e3e9ec}
+.rk.on{background:#f2f8f7;border-color:#9fdcd2;box-shadow:inset -3px 0 0 #0a2125}
+.pos{width:28px;height:28px;border-radius:9px;background:#eef2f4;display:inline-flex;align-items:center;justify-content:center;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:13px}
+.rk.on .pos{background:#0a2125;color:#5fe0cf}
+.nm{display:flex;flex-direction:column;line-height:1.3;min-width:0}
+.nm b{font-size:14px}
+.nm span{font-size:11px;color:#5b6d7c}
+.trk{position:relative;height:26px;border-radius:8px;background:#f2f5f6;overflow:hidden}
+.trk i{position:absolute;inset-block:0;inset-inline-start:0;border-radius:8px;background:linear-gradient(90deg,#0f766e,#14a394)}
+.rk.on .trk i{background:linear-gradient(90deg,#0a2125,#1d4a50)}
+.trk .prev{position:absolute;top:-3px;bottom:-3px;width:3px;border-radius:2px;background:#0a2125;opacity:.55}
+.trk .shr{position:absolute;inset-inline-end:8px;top:0;bottom:0;display:flex;align-items:center;font-family:'Readex Pro',sans-serif;font-size:11px;font-weight:600;color:#33454f}
+.amt{text-align:end;font-family:'Readex Pro',sans-serif;font-variant-numeric:tabular-nums;font-weight:600;font-size:14px}
+.amt small{display:block;font-size:10px;color:#5b6d7c;font-weight:500}
+.dl{display:inline-flex;align-items:center;justify-content:center;gap:4px;height:24px;padding:0 8px;border-radius:8px;font-family:'Readex Pro',sans-serif;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.up{background:#e4f5ec;color:#15774d}
+.dn{background:#fde7e5;color:#b3261e}
+.nt{background:#eef2f4;color:#33454f}
+.mx{padding:6px 18px 18px;overflow-x:auto}
+.mxt{border-collapse:separate;border-spacing:4px;width:100%}
+.mxt th{font-size:11px;color:#5b6d7c;font-weight:700;padding:2px 4px;text-align:center;white-space:nowrap}
+.mxt th[scope=row]{text-align:start;color:#0a2125;font-size:12px}
+.mxt td{height:30px;border-radius:7px;text-align:center;font-family:'Readex Pro',sans-serif;font-size:10px;font-weight:600}
+.mxt tr.on th[scope=row]{color:#0f766e}
+.mxt tr.on td{box-shadow:inset 0 0 0 2px #0a2125}
+.lg{display:flex;align-items:center;gap:8px;margin:0 18px 16px;font-size:11px;color:#5b6d7c}
+.ramp{display:inline-flex;height:10px;width:140px;border-radius:5px;background:linear-gradient(90deg,#e3f4f1,#9fdcd2,#14a394,#0f766e,#0a4e49)}
+.panel{position:sticky;top:12px;background:#ffffff;border:1px solid #e3e9ec;border-radius:20px;overflow:hidden;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25)}
+.ph{position:relative;overflow:hidden;padding:18px 20px;color:#ffffff;background-color:#0a2125;background-image:linear-gradient(rgba(95,224,207,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(95,224,207,.06) 1px,transparent 1px),radial-gradient(240px 120px at 0% 0%,rgba(95,224,207,.28),transparent 70%);background-size:20px 20px,20px 20px,100% 100%}
+.pr{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:9px 20px;border-bottom:1px solid #eef2f4;font-size:13px}
+.pr>span:first-child{color:#33454f}
+.pr b{font-family:'Readex Pro',sans-serif;font-weight:600;font-variant-numeric:tabular-nums}
+.pr small{font-size:11px;color:#5b6d7c;font-weight:600}
+.spark{display:flex;align-items:flex-end;gap:3px;height:54px;padding:10px 20px 4px}
+.spark i{flex:1;border-radius:3px 3px 1px 1px;background:#9fdcd2}
+.spark i.u{background:transparent;border:1px dashed #b7c5ca;height:8px !important}
+.spark i.s{background:repeating-linear-gradient(135deg,#0f8f80 0 4px,#7fd3c8 4px 7px)}
+.plink{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 20px;border-top:1px solid #eef2f4;text-decoration:none;font-size:13px;font-weight:700;color:#0f766e}
+.plink:hover{background:#f2f8f7}
+.rt{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
+.rt th{font-size:12px;color:#5b6d7c;font-weight:700;text-align:start;padding:10px 12px;border-bottom:1px solid #e3e9ec;white-space:nowrap}
+.rt td,.rt tbody th{padding:10px 12px;border-bottom:1px solid #eef2f4;vertical-align:top;white-space:nowrap}
+.rt tbody th{text-align:start;font-weight:700;color:#0a2125;font-size:13px}
+.rt tr.on td,.rt tr.on th{background:#f2f8f7}
+.rt tfoot td{background:#0a2125;color:#ffffff;border:0;font-weight:700;padding:12px}
+.rt tfoot td:first-child{border-end-start-radius:12px}
+.rt tfoot td:last-child{border-end-end-radius:12px}
+.e{text-align:end}
+.cur{font-size:11px;color:#5b6d7c;font-weight:600}
+.contract{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:6px 18px 18px}
+.cf{padding:12px 14px;border-radius:14px;background:#f6f9fa;border:1px solid #e3e9ec;display:flex;flex-direction:column;gap:6px;font-size:12px}
+.cf b{font-size:13px}
+.cf code{font-family:ui-monospace,Consolas,monospace;font-size:11px;background:#ffffff;border:1px solid #e3e9ec;border-radius:6px;padding:1px 6px;direction:ltr;unicode-bidi:isolate}
+.rk.top{background:#0a2125;color:#ffffff;border-color:#0a2125;background-image:linear-gradient(rgba(95,224,207,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(95,224,207,.06) 1px,transparent 1px),radial-gradient(260px 90px at 0% 0%,rgba(95,224,207,.25),transparent 70%);background-size:18px 18px,18px 18px,100% 100%}
+.rk.top:hover{background-color:#0d2a2f}
+.rk.top .nm span,.rk.top .amt small{color:#a9c2c5}
+.rk.top .pos{background:rgba(95,224,207,.18);color:#5fe0cf}
+.rk.top .trk{background:rgba(255,255,255,.08)}
+.rk.top .trk i{background:linear-gradient(90deg,#5fe0cf,#2bc4b3)}
+.rk.top .trk .prev{background:#ffffff}
+.rk.top .trk .shr{color:#0a2125}
+.rk.top.on{box-shadow:0 0 0 2px #5fe0cf}
+.who{display:flex;align-items:center;gap:10px;min-width:0}
+.ti{position:relative;width:34px;height:34px;border-radius:11px;background:#0a2125;color:#5fe0cf;display:inline-flex;align-items:center;justify-content:center;font-family:'Readex Pro',sans-serif;font-weight:600;font-size:14px;flex:none}
+.rk.top .ti{background:#5fe0cf;color:#0a2125}
+.ti .cr{position:absolute;top:-9px;inset-inline-start:50%;transform:translateX(50%);color:#f0b445}
+.ti.off{background:#e9eff1;color:#7a8b96}
+.mv{display:inline-flex;align-items:center;gap:3px}
+.mv.u{color:#15774d}
+.mv.d{color:#b3261e}
+.rk.top .mv.u{color:#5fd39a}
+.mxt td{position:relative;border-radius:8px !important;box-shadow:inset 0 -2px 0 rgba(10,33,37,.08)}
+.mxt td .bs{position:absolute;top:2px;inset-inline-end:3px;font-size:8px;line-height:1;color:#f0b445}
+.sh{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;background:#e7f6f3;color:#0f766e}
+.storefront{position:absolute;inset-inline-end:10px;bottom:0;width:150px;height:96px;opacity:.5;pointer-events:none}
+.ph>*:not(.storefront){position:relative}
+.contract-bg{background-color:#fbfdfd;background-image:linear-gradient(rgba(15,118,110,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(15,118,110,.06) 1px,transparent 1px);background-size:16px 16px}
+</style>
+</helmet>
+
+<div style="position: relative; min-height: 100vh; display: flex; flex-wrap: wrap; align-items: stretch; background: #f2f5f6; color: #0a2125; font-family: Dubai, 'Segoe UI', Tahoma, system-ui, sans-serif; font-size: 14px; line-height: 1.6">
+  <aside aria-label="التنقل الرئيسي" style="flex: 1 1 240px; max-width: 100%; box-sizing: border-box; padding: 22px 16px; display: flex; flex-direction: column; gap: 22px; color: #ffffff; background-color: #0a2125; background-image: linear-gradient(rgba(95,224,207,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(95,224,207,.05) 1px, transparent 1px), radial-gradient(420px 260px at 100% 0%, rgba(43,196,179,.22), transparent 70%); background-size: 28px 28px, 28px 28px, 100% 100%">
+    <div style="display: flex; align-items: center; gap: 12px; padding: 0 4px">
+      <div aria-hidden="true" style="width: 44px; height: 44px; border-radius: 13px; background: linear-gradient(160deg, #5fe0cf, #0f766e 70%); display: flex; align-items: flex-end; justify-content: center; gap: 3px; padding-bottom: 10px; box-sizing: border-box">
+        <span style="width: 5px; height: 12px; border-radius: 2px; background: rgba(255,255,255,.7)"></span><span style="width: 5px; height: 22px; border-radius: 2px; background: #ffffff"></span><span style="width: 5px; height: 16px; border-radius: 2px; background: rgba(255,255,255,.85)"></span>
+      </div>
+      <div style="display: flex; flex-direction: column; line-height: 1.25"><span class="disp" style="font-weight: 600; font-size: 18px">Retail Tower</span><span style="font-size: 12px; color: #7fa3a8">منصة إدارة التجزئة</span></div>
+    </div>
+    <nav style="display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">العمليات</span>
+        <a class="nv" href="Overview-v9.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10l8-6 8 6v10H4z"/><path d="M10 20v-6h4v6"/></svg>الرئيسية</a>
+        <a class="nv" href="Sales.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>المبيعات</a>
+        <a class="nv" href="Catalog.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>الأصناف</a>
+        <a class="nv" href="Unknown-items.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6v12M8 6v12M12 6v8M16 6v12M20 6v5"/><circle cx="18" cy="17" r="3"/><path d="M18 16v1.5"/></svg>أصناف غير معروفة</a>
+        <a class="nv" href="Shifts.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M3 11h18M7 15h3M8 7V4h8v3"/></svg>الورديات</a>
+        <a class="nv" href="Inventory.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg>المخزون</a>
+        <a class="nv nv-on" href="Reports-hub.dc.html" aria-current="page"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>التقارير</a>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">الإدارة</span>
+        <a class="nv" href="Stores.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v10h16V10M3 10l2-6h14l2 6zM9 20v-6h6v6"/></svg>المتاجر</a>
+        <a class="nv" href="Devices.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>الأجهزة</a>
+        <a class="nv" href="Users.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M3 20a6 6 0 0112 0M16 4.5a3.5 3.5 0 010 7M18 20a6 6 0 00-3-5.2"/></svg>المستخدمون</a>
+        <a class="nv" href="Audit.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>سجل التدقيق</a>
+      </div>
+    </nav>
+  </aside>
+  <div style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column">
+    <main style="width: 100%; max-width: 1400px; box-sizing: border-box; padding: 22px 26px 40px; display: flex; flex-direction: column; gap: 18px">
+      <a href="Reports-hub.dc.html" style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; text-decoration: none; width: fit-content"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>التقارير</a>
+
+      <header class="band" aria-labelledby="pg-h">
+        <svg class="band-orn" aria-hidden="true" viewBox="0 0 360 132" fill="none" stroke="#5fe0cf" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" style="width: 360px; opacity: .55"><path d="M30 124V28l20 -8 20 8V124" stroke-opacity=".75"/><path d="M40 32h6M56 32h6M40 44h6M56 44h6M40 56h6M56 56h6M40 68h6M56 68h6M40 80h6M56 80h6M40 92h6M56 92h6M40 104h6M56 104h6M40 116h6M56 116h6" stroke-opacity=".9"/><path d="M50 20v-8" stroke-opacity=".9"/><path d="M92 124V42l20 -8 20 8V124" stroke-opacity=".75"/><path d="M102 46h6M118 46h6M102 58h6M118 58h6M102 70h6M118 70h6M102 82h6M118 82h6M102 94h6M118 94h6M102 106h6M118 106h6" stroke-opacity=".9"/><path d="M112 34v-8" stroke-opacity=".9"/><path d="M154 124V58l20 -8 20 8V124" stroke-opacity=".75"/><path d="M164 62h6M180 62h6M164 74h6M180 74h6M164 86h6M180 86h6M164 98h6M180 98h6M164 110h6M180 110h6" stroke-opacity=".9"/><path d="M174 50v-8" stroke-opacity=".9"/><path d="M216 124V84l20 -8 20 8V124" stroke-opacity=".75"/><path d="M226 88h6M242 88h6M226 100h6M242 100h6M226 112h6M242 112h6" stroke-opacity=".9"/><path d="M236 76v-8" stroke-opacity=".9"/><path d="M278 124V118l20 -8 20 8V124" stroke-opacity=".75"/><path d="" stroke-opacity=".9"/><path d="M298 110v-8" stroke-opacity=".9"/><path d="M38 8l6 6 6-9 6 9 6-6-3 13H41z" fill="#5fe0cf" fill-opacity=".85" stroke="none"/><path d="M10 124h340" stroke-opacity=".6"/><path d="M20 128h320" stroke-opacity=".25" stroke-dasharray="2 6"/></svg>
+        <div class="band-id" style="flex: 1 1 280px">
+          <span class="band-eye"><i aria-hidden="true"></i>التقارير · المبيعات</span>
+          <h1 id="pg-h" class="disp" style="margin: 0; font-size: 26px; font-weight: 600; line-height: 1.3">المبيعات حسب المتجر</h1>
+          <span style="font-size: 13px; color: #a9c2c5">أي متجر استلم أكثر وأقل في الفترة، وكيف تغيّر ترتيبه؟ أيام العمل <bdi dir="ltr">21</bdi>–<bdi dir="ltr">30</bdi> أكتوبر، مقارنة بـ <bdi dir="ltr">11</bdi>–<bdi dir="ltr">20</bdi> أكتوبر.</span>
+        </div>
+        <dl class="band-facts" aria-label="إجمالي النطاق من الخادم" style="padding: 8px 4px">
+          <div class="tot"><dt>المبيعات المستلمة</dt><dd><span class="big"><bdi dir="ltr">1,480,418.00</bdi></span><small>EGP · كل المتاجر</small></dd></div>
+          <div class="tot"><dt>عن الفترة السابقة</dt><dd><span class="big"><bdi dir="ltr">+6.4%</bdi></span><small>عن <bdi dir="ltr">11–20</bdi> أكتوبر</small></dd></div>
+          <div class="tot"><dt>المتاجر</dt><dd><span class="big">5</span><small>واحد بلا مبيعات</small></dd></div>
+        </dl>
+        <div class="band-act" style="flex-direction: column; align-items: flex-end; gap: 8px"><span class="prop">مقترح — يحتاج عقدًا</span><button type="button" class="btn gl">تصدير إلى ملف جداول</button></div>
+      </header>
+
+      <section class="box" style="padding: 14px 18px; display: flex; flex-direction: column; gap: 12px" aria-label="النطاق والمقارنة">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+          <div class="presets" role="group" aria-label="نطاقات جاهزة"><button type="button" aria-pressed="false">آخر 7 أيام عمل</button><button type="button" class="on" aria-pressed="true">آخر 10 أيام عمل</button><button type="button" aria-pressed="false">هذا الشهر حتى الآن</button><button type="button" aria-pressed="false">مخصص</button></div>
+          <button type="button" class="{{ cmpCls }}" role="switch" aria-checked="{{ cmpAria }}" onClick="{{ toggleCmp }}"><span class="sw" aria-hidden="true"></span>مقارنة بالفترة السابقة المساوية</button>
+          <span style="display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; margin-inline-start: auto">العملة<span class="sel"><bdi dir="ltr">EGP</bdi></span></span>
+        </div>
+        <div class="ctx"><span>المتاجر: كل متاجر النطاق (5)</span><span>حسب يوم العمل المحلي لكل متجر</span><span>المنطقة الزمنية: <bdi dir="ltr">Africa/Cairo</bdi></span><span>بتاريخ <bdi dir="ltr">14:32</bdi></span><span style="background: repeating-linear-gradient(135deg,#f6f9fa 0 5px,#eaf3f1 5px 9px)">30 أكتوبر حتى الآن</span></div>
+      </section>
+
+      <div class="wb">
+        <div style="display: flex; flex-direction: column; gap: 18px; min-width: 0">
+          <section class="box" aria-labelledby="rk-h">
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 18px 20px 0"><span class="sec" aria-hidden="true">01</span><span class="sh" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V9M10 20V4M16 20v-7M22 20H2"/></svg></span><h2 id="rk-h" class="disp" style="margin: 0; font-size: 16px; font-weight: 600">ترتيب المتاجر</h2><span class="hs" style="margin-inline-start: auto">الشريط: المبلغ وحصته من إجمالي النطاق · الخط الداكن: الفترة السابقة</span></div>
+            <div class="rank" role="list">
+              <sc-for list="{{ stores }}" as="s" hint-placeholder-count="5">
+                <button type="button" role="listitem" class="{{ s.cls }}" aria-pressed="{{ s.pressed }}" aria-label="{{ s.aria }}" onClick="{{ s.pick }}">
+                  <span class="pos">{{ s.rank }}</span>
+                  <span class="who"><span class="{{ s.tiCls }}" aria-hidden="true">{{ s.ini }}<sc-if value="{{ s.isTop }}" hint-placeholder-val="{{ false }}"><svg class="cr" width="16" height="12" viewBox="0 0 16 12" fill="currentColor"><path d="M0 3l4 3 4-6 4 6 4-3-2 9H2z"/></svg></sc-if></span><span class="nm"><b>{{ s.name }}</b><span class="{{ s.mvCls }}"><sc-if value="{{ s.mvUp }}" hint-placeholder-val="{{ false }}"><svg aria-hidden="true" width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4l9 12H3z"/></svg></sc-if><sc-if value="{{ s.mvDown }}" hint-placeholder-val="{{ false }}"><svg aria-hidden="true" width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 20L3 8h18z"/></svg></sc-if>{{ s.move }}</span></span></span>
+                  <span class="trk" aria-hidden="true"><i style="width: {{ s.w }}%"></i><sc-if value="{{ s.showPrev }}" hint-placeholder-val="{{ true }}"><span class="prev" style="inset-inline-start: {{ s.pw }}%"></span></sc-if><span class="shr">{{ s.share }}</span></span>
+                  <span class="amt"><bdi dir="ltr">{{ s.amt }}</bdi><small>{{ s.cnt }} مبيعة</small></span>
+                  <sc-if value="{{ s.showPrev }}" hint-placeholder-val="{{ true }}"><span class="{{ s.dCls }}"><bdi dir="ltr">{{ s.d }}</bdi></span></sc-if>
+                  <sc-if value="{{ s.noPrev }}" hint-placeholder-val="{{ false }}"><span></span></sc-if>
+                </button>
+              </sc-for>
+            </div>
+          </section>
+
+          <section class="box" aria-labelledby="mx-h">
+            <div style="display: flex; align-items: center; gap: 10px; padding: 18px 20px 0"><span class="sec" aria-hidden="true">02</span><span class="sh" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/></svg></span><h2 id="mx-h" class="disp" style="margin: 0; font-size: 16px; font-weight: 600">متجر × يوم عمل</h2><span class="hs" style="margin-inline-start: auto">أين ومتى تتركّز المبيعات؟ القيم بالألف EGP.</span></div>
+            <div class="mx">
+              <table class="mxt">
+                <caption style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">المبيعات المستلمة لكل متجر في كل يوم عمل، بالألف EGP</caption>
+                <thead><tr><th scope="col"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">المتجر</span></th><sc-for list="{{ dayHeads }}" as="h" hint-placeholder-count="10"><th scope="col">{{ h }}</th></sc-for></tr></thead>
+                <tbody>
+                  <sc-for list="{{ stores }}" as="s" hint-placeholder-count="5">
+                    <tr class="{{ s.rowCls }}"><th scope="row">{{ s.name }}</th><sc-for list="{{ s.cells }}" as="c" hint-placeholder-count="10"><td style="{{ c.st }}">{{ c.t }}<sc-if value="{{ c.best }}" hint-placeholder-val="{{ false }}"><span class="bs" aria-hidden="true">★</span></sc-if></td></sc-for></tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+            <div class="lg" aria-hidden="true"><span>أقل</span><span class="ramp"></span><span>أكثر</span><span style="margin-inline-start: 14px; display: inline-flex; align-items: center; gap: 6px"><i style="width: 14px; height: 10px; border-radius: 3px; border: 1px dashed #b7c5ca; display: inline-block"></i>غير معروف</span><span style="display: inline-flex; align-items: center; gap: 6px"><i style="width: 14px; height: 10px; border-radius: 3px; display: inline-block; background: repeating-linear-gradient(135deg,#9fdcd2 0 3px,#e3f4f1 3px 6px)"></i>حتى الآن</span><span style="display: inline-flex; align-items: center; gap: 6px"><i style="width: 14px; height: 10px; border-radius: 3px; display: inline-block; background: #f2f5f6"></i>لا مبيعات (صفر حقيقي)</span></div>
+          </section>
+        </div>
+
+        <aside class="panel" aria-labelledby="pd-h" aria-live="polite">
+          <div class="ph">
+            <svg class="storefront" aria-hidden="true" viewBox="0 0 150 96" fill="none" stroke="#5fe0cf" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"><path d="M14 96V40h122v56" stroke-opacity=".7"/><path d="M8 40l10-18h114l10 18z" stroke-opacity=".9"/><path d="M8 40c0 7 9 7 9 0 0 7 9 7 9 0 0 7 9 7 9 0 0 7 9 7 9 0 0 7 9 7 9 0 0 7 9 7 9 0 0 7 9 7 9 0 0 7 9 7 9 0 0 7 9 7 9 0 0 7 9 7 9 0 0 7 9 7 9 0 0 7 9 7 9 0 0 7 9 7 9 0 0 7 9 7 9 0 0 7 9 7 9 0 0 7 9 7 9 0" stroke-opacity=".6"/><path d="M28 96V62h26v34M70 58h52v24H70z" stroke-opacity=".8"/><path d="M96 58v24M70 70h52" stroke-opacity=".4"/><path d="M48 80h.01" stroke-width="3"/><path d="M40 14V4M110 14V4" stroke-opacity=".5"/></svg>
+            <span style="font-size: 12px; color: #a9c2c5">المتجر المختار · المرتبة {{ cur.rank }}</span>
+            <h2 id="pd-h" class="disp" style="margin: 2px 0 0; font-size: 20px; font-weight: 600">{{ cur.name }}</h2>
+            <div style="margin-top: 10px; display: flex; align-items: baseline; gap: 8px"><bdi dir="ltr" class="disp" style="font-size: 26px; font-weight: 600">{{ cur.amt }}</bdi><span style="font-size: 12px; color: #5fe0cf; font-weight: 700">EGP</span></div>
+            <span style="font-size: 12px; color: #a9c2c5">{{ cur.share }} من إجمالي النطاق · {{ cur.cnt }} مبيعة</span>
+          </div>
+          <div class="spark" aria-hidden="true"><sc-for list="{{ cur.spark }}" as="b" hint-placeholder-count="10"><i class="{{ b.c }}" style="height: {{ b.h }}%"></i></sc-for></div>
+          <p class="hs" style="margin: 0 20px 8px; font-size: 11px">أيام النطاق من 21 إلى 30 أكتوبر؛ اليوم غير المعروف مخطّط بالنقاط.</p>
+          <div class="pr"><span>عن الفترة السابقة</span><span class="{{ cur.dCls }}"><bdi dir="ltr">{{ cur.d }}</bdi></span></div>
+          <div class="pr"><span>متوسط قيمة المبيعة</span><span><b><bdi dir="ltr">{{ cur.avg }}</bdi></b> <small>EGP، من الخادم</small></span></div>
+          <div class="pr"><span>المرتجعات</span><span><b>{{ cur.rc }}</b> <small>· <bdi dir="ltr">{{ cur.rr }}</bdi> من المبيعات</small></span></div>
+          <div class="pr"><span>الإلغاءات</span><span><b>{{ cur.vc }}</b></span></div>
+          <div class="pr"><span>أفضل يوم</span><span><b>{{ cur.best }}</b></span></div>
+          <a class="plink" href="Store-detail.dc.html">تفاصيل المتجر<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></a>
+          <a class="plink" href="Sales.dc.html">مبيعات المتجر في هذه الفترة<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></a>
+          <a class="plink" href="Reports.dc.html">المبيعات المستلمة يوميًا لهذا المتجر<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></a>
+        </aside>
+      </div>
+
+      <section class="box" aria-labelledby="t-h">
+        <div style="display: flex; align-items: center; gap: 10px; padding: 18px 20px 4px"><span class="sec" aria-hidden="true">03</span><span class="sh" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16M10 6v12"/></svg></span><h2 id="t-h" class="disp" style="margin: 0; font-size: 16px; font-weight: 600">الأرقام الدقيقة</h2><span class="hs" style="margin-inline-start: auto">كل عملة في عمود مستقل. الإجمالي من الخادم.</span></div>
+        <div style="padding: 0 14px 16px; overflow-x: auto">
+          <table class="rt">
+            <caption style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">المبيعات المستلمة لكل متجر في النطاق، مع الفترة السابقة</caption>
+            <thead><tr><th scope="col">المتجر</th><th scope="col" class="e">عدد المبيعات</th><th scope="col" class="e">المبلغ (EGP)</th><th scope="col" class="e">المبلغ (USD)</th><th scope="col" class="e">المرتجعات</th><th scope="col" class="e">الإلغاءات</th><th scope="col" class="e">الفترة السابقة (EGP)</th><th scope="col" class="e">التغيّر</th></tr></thead>
+            <tbody>
+              <sc-for list="{{ stores }}" as="s" hint-placeholder-count="5">
+                <tr class="{{ s.rowCls }}"><th scope="row">{{ s.name }}</th><td class="e num">{{ s.cnt }}</td><td class="e num"><bdi dir="ltr">{{ s.amt }}</bdi></td><td class="e num"><bdi dir="ltr">{{ s.usd }}</bdi></td><td class="e num">{{ s.rc }}</td><td class="e num">{{ s.vc }}</td><td class="e num"><bdi dir="ltr">{{ s.prev }}</bdi></td><td class="e"><span class="{{ s.dCls }}"><bdi dir="ltr">{{ s.d }}</bdi></span></td></tr>
+              </sc-for>
+            </tbody>
+            <tfoot><tr><td>إجمالي النطاق (يشمل أيامًا حتى الآن)</td><td class="e">4,021</td><td class="e"><bdi dir="ltr">1,480,418.00</bdi></td><td class="e"><bdi dir="ltr">205.00</bdi></td><td class="e">80</td><td class="e">48</td><td class="e"><bdi dir="ltr">1,391,365.20</bdi></td><td class="e"><bdi dir="ltr">+6.4%</bdi></td></tr></tfoot>
+          </table>
+        </div>
+      </section>
+
+      <section class="box contract-bg" aria-labelledby="ct-h" style="border-style: dashed">
+        <div style="display: flex; align-items: center; gap: 10px; padding: 18px 20px 4px"><span class="sec" aria-hidden="true" style="background: #ffffff; color: #0a2125; box-shadow: inset 0 0 0 1px #0a2125">!</span><h2 id="ct-h" class="disp" style="margin: 0; font-size: 16px; font-weight: 600">العقد المطلوب من Backend-Core قبل التنفيذ</h2><span class="hs" style="margin-inline-start: auto">لا يُعرض هذا القسم في المنتج؛ هو جزء من المقترح.</span></div>
+        <div class="contract">
+          <div class="cf"><b>لكل متجر × يوم عمل</b><span>عدد المبيعات المستلمة، والمبلغ لكل عملة على حدة، والمرتجعات والإلغاءات، وعلامة «حتى الآن»، وعلامة «غير معروف».</span><span><code>store_id</code> <code>business_date</code> <code>amounts[currency]</code></span></div>
+          <div class="cf"><b>إجماليات من الخادم</b><span>إجمالي كل متجر في النطاق، وإجمالي النطاق، ومتوسط قيمة المبيعة لكل متجر — محسوبة في الخادم لا في الواجهة.</span><span><code>store_totals</code> <code>range_totals</code></span></div>
+          <div class="cf"><b>الفترة السابقة</b><span>إجماليات فترة مساوية الطول قبلها مباشرة، بالقواعد نفسها، مع ذكر حدودها صراحةً حتى يُسمّى خط الأساس.</span><span><code>baseline_range</code> <code>baseline_totals</code></span></div>
+          <div class="cf"><b>السياق والاكتمال</b><span>مناطق المتاجر الزمنية، ووقت القراءة، والمتاجر التي لم تُقرأ، كما في التقرير اليومي.</span></div>
+          <div class="cf"><b>الصلاحيات</b><span>من يرى كل المتاجر ومن يرى متاجره فقط؛ الترتيب يُحسب داخل نطاق المستخدم.</span></div>
+          <div class="cf"><b>قرار المالك</b><span>الاتجاه الجيد للمؤشر: زيادة المبيعات خضراء، والنقص أحمر، ويُذكر خط الأساس دائمًا (قرار 2026-10-30).</span></div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1680,"height":2300}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { on: 'NSR', cmp: true }; }
+  renderVals() {
+    const s = this.state;
+    const set = (o) => this.setState(o);
+    const fmt = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const DAYS = [21, 22, 23, 24, 25, 26, 27, 28, 29, 30];
+    const W = { 21: 'الأربعاء', 22: 'الخميس', 23: 'الجمعة', 24: 'السبت', 25: 'الأحد', 26: 'الاثنين', 27: 'الثلاثاء', 28: 'الأربعاء', 29: 'الخميس', 30: 'الجمعة' };
+    // id, name, count, EGP, USD, returns, voids, previous EGP, daily EGP (k), previous rank
+    const S = [
+      ['MAA', 'فرع المعادي', 1388, 512640.25, 120, 28, 17, 486210.4, [52, 57, 69, 66, null, 53, 56, 59, 65, 36], 1],
+      ['NSR', 'فرع مدينة نصر', 1162, 431905.5, 85, 23, 14, 389870.1, [44, 48, 60, 55, null, 45, 47, 51, 56, 26], 3],
+      ['SZD', 'فرع الشيخ زايد', 918, 338122.75, 0, 19, 11, 352940.7, [34, 38, 47, 44, null, 35, 37, 38, 43, 23], 2],
+      ['DOK', 'فرع الدقي', 553, 197749.5, 0, 10, 6, 162344, [18, 21, 26, 24, null, 19, 20, 23, 26, 20], 4],
+      ['ZMK', 'فرع الزمالك', 0, 0, 0, 0, 0, 0, [0, 0, 0, 0, null, 0, 0, 0, 0, 0], 5]
+    ];
+    const total = 1480418;
+    const top = S[0][3];
+    const ramp = (k) => { if (k === null) return 'border: 1px dashed #b7c5ca; background: #ffffff; color: #5b6d7c'; if (k === 0) return 'background: #f2f5f6; color: #7a8b96'; const t = k / 70; const c = t > 0.85 ? ['#0a4e49', '#ffffff'] : t > 0.7 ? ['#0f766e', '#ffffff'] : t > 0.5 ? ['#14a394', '#ffffff'] : t > 0.3 ? ['#9fdcd2', '#0a2125'] : ['#e3f4f1', '#0a2125']; return 'background: ' + c[0] + '; color: ' + c[1]; };
+    const stores = S.map((r, i) => {
+      const rank = i + 1;
+      const delta = r[7] ? (r[3] - r[7]) / r[7] * 100 : null;
+      const mv = r[9] - rank;
+      const on = s.on === r[0];
+      const cellsBest = Math.max.apply(null, r[8].filter((k) => k !== null));
+      const cells = r[8].map((k, j) => ({ best: !!k && k === cellsBest, t: k === null ? '؟' : (k === 0 ? '0' : k), st: ramp(k) + (DAYS[j] === 30 && k ? '; background-image: repeating-linear-gradient(135deg,rgba(255,255,255,.35) 0 3px,transparent 3px 6px)' : '') }));
+      const known = r[8].filter((k) => k !== null);
+      const bestK = Math.max.apply(null, known);
+      const bestDay = DAYS[r[8].indexOf(bestK)];
+      return {
+        id: r[0], name: r[1], rank: rank, cnt: r[2].toLocaleString('en-US'), amt: fmt(r[3]), usd: fmt(r[4]), rc: r[5], vc: r[6], prev: fmt(r[7]),
+        w: top ? Math.max(r[3] / top * 100, r[3] ? 2 : 0) : 0, pw: top ? Math.min(r[7] / top * 100, 100) : 0,
+        share: (r[3] / total * 100).toFixed(1) + '%',
+        d: delta === null ? '—' : (delta >= 0 ? '+' : '−') + Math.abs(delta).toFixed(1) + '%', dCls: 'dl ' + (delta === null ? 'nt' : delta >= 0 ? 'up' : 'dn'),
+        move: r[3] === 0 ? 'لا مبيعات في النطاق' : (mv > 0 ? 'صعد ' + mv + ' مرتبة' : mv < 0 ? 'تراجع ' + Math.abs(mv) + ' مرتبة' : 'المرتبة نفسها'),
+        showPrev: s.cmp, noPrev: !s.cmp, cells: cells, ini: r[1].replace('فرع ', '').charAt(0), isTop: rank === 1 && r[3] > 0, tiCls: 'ti' + (r[3] ? '' : ' off'),
+        mvUp: r[3] > 0 && mv > 0, mvDown: r[3] > 0 && mv < 0, mvCls: 'mv' + (mv > 0 ? ' u' : mv < 0 ? ' d' : ''),
+        cls: 'rk' + (rank === 1 && r[3] > 0 ? ' top' : '') + (on ? ' on' : ''), rowCls: on ? 'on' : '', pressed: on ? 'true' : 'false',
+        aria: 'المرتبة ' + rank + '، ' + r[1] + '، ' + fmt(r[3]) + ' EGP',
+        avg: r[2] ? fmt(r[3] / r[2]) : '—', rr: r[2] ? (r[5] / r[2] * 100).toFixed(1) + '%' : '—',
+        best: r[3] ? W[bestDay] + ' ' + bestDay + ' أكتوبر' : '—',
+        spark: r[8].map((k, j) => ({ h: k === null ? 10 : Math.max(k / 70 * 100, k ? 4 : 2), c: k === null ? 'u' : (DAYS[j] === 30 ? 's' : '') })),
+        pick: () => set({ on: r[0] })
+      };
+    });
+    return {
+      stores: stores, cur: stores.find((x) => x.id === s.on), dayHeads: DAYS.map((d) => d + ' ' + W[d].slice(0, 3)),
+      cmpCls: 'tg' + (s.cmp ? ' on' : ''), cmpAria: s.cmp ? 'true' : 'false', toggleCmp: () => set({ cmp: !s.cmp })
+    };
+  }
+}
+</script>
+</body>
+</html>

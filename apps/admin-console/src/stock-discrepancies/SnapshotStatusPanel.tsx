@@ -31,11 +31,12 @@ function SnapshotHeading({
   const asOf = asOfTime(snapshot);
   return (
     <div className="snapshot-panel__head">
-      <h2 className="snapshot-panel__asof">
+      {/* RT-963: a sentence about the snapshot, not a section heading. */}
+      <p className="snapshot-panel__asof">
         {asOf
           ? t.rich("stock.panel.asOf", { time: <DateTime value={asOf} /> })
           : t("stock.panel.noSnapshot")}
-      </h2>
+      </p>
       <span className={view.badgeClass}>{t(view.labelKey)}</span>
     </div>
   );

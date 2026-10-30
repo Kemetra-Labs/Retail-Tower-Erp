@@ -98,8 +98,25 @@ describe("mutation on 429", () => {
   });
 });
 
+/**
+ * RT-944: these run on a fake clock. The retry is timed by setTimeout and
+ * measured by Date.now, and the wait it is checked against is real seconds; on
+ * the real clock the outcome depended on how loaded the machine was. Faking
+ * both (and TanStack's zero-delay notification timer) makes every step exact.
+ */
 describe("read on 429", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  /** Advance the fake clock and let the query's promises and notifications settle. */
+  const elapse = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
+
   test("is retried exactly once, after Retry-After, never after the 1 s default", async () => {
+    // The largest jitter (999 ms), so the latest possible retry is the one checked.
+    vi.spyOn(Math, "random").mockReturnValue(0.9999);
     const calls: number[] = [];
     const queryFn = vi.fn(async () => {
       calls.push(Date.now());
@@ -113,9 +130,21 @@ describe("read on 429", () => {
       wrapper: withClient(),
     });
 
-    await waitFor(() => expect(result.current.isError).toBe(true), { timeout: 5000 });
+    // The 1 s default backoff would have retried by now; the 2 s Retry-After has not ended.
+    await elapse(1999);
+    expect(queryFn).toHaveBeenCalledTimes(1);
+    expect(result.current.isError).toBe(false);
+
+    // Retry-After plus that jitter is 2999 ms; one more ms lets the retry's own
+    // zero-delay notification run too. The one retry has run and failed.
+    await elapse(1001);
+    expect(result.current.isError).toBe(true);
     expect(queryFn).toHaveBeenCalledTimes(2);
     expect(calls[1] - calls[0]).toBeGreaterThanOrEqual(1900);
+
+    // Nothing is retried after that.
+    await elapse(60_000);
+    expect(queryFn).toHaveBeenCalledTimes(2);
   });
 
   test("a read with retry:false is sent once", async () => {
@@ -126,8 +155,9 @@ describe("read on 429", () => {
     const { result } = renderHook(() => useQuery({ queryKey: ["r2"], queryFn, retry: false }), {
       wrapper: withClient(),
     });
-    await waitFor(() => expect(result.current.isError).toBe(true));
-    await new Promise((r) => setTimeout(r, 1200));
+    await elapse(0);
+    expect(result.current.isError).toBe(true);
+    await elapse(1200);
     expect(queryFn).toHaveBeenCalledTimes(1);
   });
 });

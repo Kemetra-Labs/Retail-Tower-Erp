@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { app } from 'electron';
-import type { ClerkExchanger } from '../operator/clerk-client.js';
+import type { OperatorExchanger } from '../operator/operator-exchanger.js';
 import { resolveOperatorExchanger } from '../operator/resolve-exchanger.js';
 
 /**
@@ -22,10 +22,9 @@ export function resolveApiBaseUrl(): string {
 }
 
 /**
- * 004-operator-session / RT-792 — resolve the production `ClerkExchanger`.
+ * 004-operator-session / RT-945 — resolve the production `OperatorExchanger`.
  *
- * `OPERATOR_IDENTITY_PROVIDER` picks Clerk (default) or Descope; see
- * `operator/resolve-exchanger.ts`. When the provider's setting is unset or
+ * Descope is the only provider; see `operator/resolve-exchanger.ts`. When the provider's setting is unset or
  * malformed, returns a stub that always refuses so the app still launches
  * (the `/sign-in` route renders; submit fails with the generic
  * `invalid_input` refusal).
@@ -33,9 +32,9 @@ export function resolveApiBaseUrl(): string {
  * The fetch is the raw global, not `withRequestId`: the identity provider is
  * a third party, not Backend-Core.
  */
-export function resolveClerkExchanger(logger: {
+export function resolveAuthExchanger(logger: {
   warn(payload: object, msg: string): void;
-}): ClerkExchanger {
+}): OperatorExchanger {
   return resolveOperatorExchanger({
     env: process.env,
     fetch: globalThis.fetch.bind(globalThis),

@@ -132,6 +132,9 @@ describe('V5 frame across the 100 ms tier transition', () => {
  * on a defined target, never on <body>.
  */
 const HEIGHT_HEADING = 'ارتفاع الشاشة أقل من الحد المدعوم.';
+const BOTH_HEADING = 'أبعاد الشاشة أقل من الحد المدعوم.';
+const BOTH_GUIDANCE =
+  /^يحتاج النظام عرضًا لا يقل عن 1024 وارتفاعًا لا يقل عن 600 بكسل\. كبّر النافذة أو اضبط مقياس عرض Windows\.$/;
 const HEIGHT_ACTION = /^كبّر النافذة، أو اضبط مقياس العرض في Windows على 100% أو 125%\s?\.$/;
 
 function noticeBody(): Element | null {
@@ -168,12 +171,12 @@ describe('V5 frame at the height floor (RT-313)', () => {
     expect(showsScreen()).toBe(true);
   });
 
-  it('1023×599: under both floors — the size heading with the height action', () => {
+  it('1023×599: under both floors — the approved text that states both floors (RT-912)', () => {
     installViewport(1023, 599);
     signInCashier();
     renderFrame();
-    expect(screen.getByRole('heading', { level: 1, name: TOO_SMALL })).toBeInTheDocument();
-    expect(noticeBody()).toHaveTextContent(HEIGHT_ACTION);
+    expect(screen.getByRole('heading', { level: 1, name: BOTH_HEADING })).toBeInTheDocument();
+    expect(noticeBody()).toHaveTextContent(BOTH_GUIDANCE);
     expect(screen.queryByText('كبّر النافذة أو استخدم شاشة أكبر.')).not.toBeInTheDocument();
     expect(showsScreen()).toBe(false);
   });
@@ -234,7 +237,7 @@ describe('V5 frame across the height floor and combined crossings (RT-313)', () 
     renderFrame();
     resizeTo(1023, 599);
     await settleTier();
-    expect(screen.getAllByRole('heading', { level: 1, name: TOO_SMALL })).toHaveLength(1);
+    expect(screen.getAllByRole('heading', { level: 1, name: BOTH_HEADING })).toHaveLength(1);
     resizeTo(1280, 800);
     await settleTier();
     expect(showsScreen()).toBe(true);

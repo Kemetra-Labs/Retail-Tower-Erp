@@ -7,6 +7,8 @@ description: >-
   The token block below records the CURRENT SHIPPED tokens (src/styles/tokens.css). Since
   RT-396 and RT-397 the colours, radii and type ARE the approved light target (RT-392).
   v3.0 (RT-969) adds the owner-approved Shell v3 "Daylight Commerce" frame.
+  v4.0 (owner decision 2026-10-30) adopts the "Ink & Receipt" look (canvas board v9) as the
+  approved, not yet shipped, visual target (§12). The token block below stays shipped truth.
 status: current-shipped-tokens
 # CURRENT SHIPPED TOKENS — a SUBSET of src/styles/tokens.css on main (colors, type, radius,
 # spacing); tokens.css is authoritative and also holds the scrim, overlay shadow, motion and
@@ -68,6 +70,18 @@ spacing:
 
 # Design System: Retail Tower Console
 
+> **Version 4.0 — "Ink & Receipt" visual direction (owner decision, 2026-10-30).** The same
+> day the owner judged the v3.0 look (and its v4 canvas redraw) "too plain" and locked board
+> **v9** «✓ المعتمد · نظرة عامة v9» on the design canvas
+> <https://claude.ai/artifact/7LkLBupz4nTpvB4P4k4NW4> (boards v4–v8 there are history only).
+> v4.0 keeps the v3.0 structure (sidebar with scope, top bar with Ctrl K, page header, section
+> panels, templates) and replaces its **visual layer**: a dark Ink sidebar, receipt-style KPI
+> cards, a sale-pipeline rail, Mint as the highlight of the teal family, soft elevation and a
+> display face for headings and figures. §12 is the full rule set and lists what each earlier
+> rule it amends. It is **approved, not shipped**: `main` still renders v3.0 until the
+> migration slices in §10 land. §12.8 lists the decided items (1–3, each with a remaining step)
+> and the open ones (4–6) a slice waits on.
+>
 > **Version 3.0 — Shell v3 "Daylight Commerce" (RT-969, 2026-10-30).** On 2026-10-30 the owner
 > rejected the v2 Console look as "primitive, not a control panel" and approved direction
 > **A + C pipeline strip** on the design canvas
@@ -109,6 +123,7 @@ spacing:
 | --- | --- |
 | `DESIGN.md` v1.0 (dark default, Tower Gold authority, navy action, Inter, English/LTR shell) | **Superseded** by this version. |
 | `DESIGN.md` v2.0 shell (56px top bar holding language and theme, a recessed scope bar under it, a 240px nav-only sidebar, 30px page titles) | **Superseded** by the v3.0 shell (RT-969). |
+| `DESIGN.md` v3.0 visual layer ("Daylight Commerce": light sidebar, one KPI ledger strip, shadowless panels, Dubai-only type) | **Superseded as target** by v4.0 §12 (owner decision 2026-10-30). Still the shipped look on `main` until the §10 v4.0 slices land. The v3.0 structure stays. |
 | `PRODUCT.md` — Design Principle 6 ("dark by default … light alternate") and the dark-*default* note under Anti-references | **Superseded** by UX-02 light-first. The rest of PRODUCT.md (users, purpose, principles 1–5) stands. Reconciling PRODUCT.md is a separate docs change. |
 | `design_handoff_retail_tower_console/` — screens, charts, theme, KPI coloring, dual-axis patterns, route map, chart palette | **Reference/prototype only** (Final Audit; UX-13 prototype disposition). Nothing in it is production authority unless a Constitution-backed issue adopts it. |
 | `docs/design/_vision/`, `docs/design/rf1-auth-shell/`, `docs/design/rf6-audit-search/` mockups and their `tokens.css` | Historical slice references. They are not the target identity. |
@@ -120,6 +135,8 @@ dashboard or a marketing surface. POS navigates tasks; the Admin Console navigat
 Every screen answers *where am I acting, and what is true* before anything else. Identity
 comes through behavior: state handling, selection grammar, data geometry and surface
 hierarchy. It does not come from ornament, logos or a second accent color.
+*Amended by v4.0 (§12.1, D-V4/D-V9):* ornament is allowed, but only on the expressive surfaces
+listed in §12.1.
 
 Admin may use more **Responsive** motion than POS (UX-06). Expressive motion is rare and
 never on operational truth. `prefers-reduced-motion` collapses durations to instant, but
@@ -131,6 +148,11 @@ divided by rules, never one card per value) **plus one pipeline strip** (POS →
 ERPNext, each step with its count and its first problem). That is the only exception. Stat-card
 grids, hero metrics and decorative charts stay out, on the Overview and everywhere else.
 
+*Amended by v4.0 (§12.4):* the Overview shows one row of receipt KPI cards (one hero plus at
+most three), the pipeline as a compact rail beside the greeting, one trend chart and one
+composition chart. Every chart there answers a question with real data and has a table
+equivalent; decorative charts stay out. Other screens keep the rule above.
+
 ## 3. Color (UX-02, UX-13)
 
 **Target direction: Mineral Daylight + Tower Teal, light-first.**
@@ -141,7 +163,8 @@ grids, hero metrics and decorative charts stay out, on the Overview and everywhe
   toggle (`.btn-secondary` + `aria-pressed`, constant label) sets `data-theme="dark"` on
   `<html>`; the choice is kept per user in browser storage (no Backend-Core preference contract
   exists), and an inline script in `index.html` restores it before first paint.
-  No forced dark sidebar or dark shell to create personality. Components consume semantic
+  No forced dark sidebar or dark shell to create personality (*amended by v4.0 §12.1: the
+  sidebar is the one Ink surface in both themes; content surfaces stay light-first*). Components consume semantic
   role tokens, so the dark theme (and any future high-contrast theme) remaps roles without
   changing what a component means.
 - **Brand anchor.** Tower Teal `#0F766E` (the current POS teal) is the working primary anchor,
@@ -208,6 +231,8 @@ grids, hero metrics and decorative charts stay out, on the Overview and everywhe
   activity is occurring, and motion respects reduced-motion.
 - **Precision Ledger:** label/value alignment, tabular numerals, separators and anchored totals
   for money and operational relationships, instead of one card per value.
+- **v4.0 signatures (§12.2):** the Receipt card, the Pipeline rail, the Tower grid, the Mint
+  signal line, the Section index and data-bearing illustrations join these. They are grammar too: each has one job and is not used as decoration.
 
 ## 4. Typography and icons (UX-03)
 
@@ -227,6 +252,8 @@ grids, hero metrics and decorative charts stay out, on the Overview and everywhe
   equal to the approved values; `body-strong` and `money-hero` are not defined yet.
 - **Screen title: 24px** (`--text-screen-title`, 1.5rem, the approved canvas value since
   RT-969). It is the page header's `<h1>` and nothing else at page level is that large.
+  *Amended by v4.0 (§12.3):* the Overview greeting `<h1>` is 32px and KPI figures 30–34px,
+  in the display face; every other screen title stays 24px.
 - **Precision Ledger (RT-961).** In a detail ledger (`.field-row`) the value is what the row is
   for: body size, regular, text colour. The label is muted and never heavier than its value.
   Machine values keep mono. Money sits at the inline end (right in LTR, left in RTL) in tabular
@@ -305,8 +332,12 @@ grids, hero metrics and decorative charts stay out, on the Overview and everywhe
 - **Shape (target):** 8px controls, 12px genuine contained objects, 16px independent overlays.
   Round the object, not the page. Pills only for true status, counts or tags, never ordinary
   buttons. *Shipped as `--radius-control` / `--radius-object` / `--radius-overlay` (RT-396).*
+  *Amended by v4.0 (§12.5):* panels and cards 20px, controls 10–12px, the top-bar search 14px;
+  overlays keep the strongest elevation.
 - **Borders and tone before shadows.** Work surfaces, sections, cards and panels are shadowless.
   Popovers, drawers and dialogs may use restrained elevation.
+  *Amended by v4.0 (§12.5):* section panels and receipt cards take one soft resting elevation
+  token and a 20px radius; the border stays, so edges survive forced colours.
 - **One primary scroll owner** per workspace. A drawer may own its own scroll. Overflow belongs
   to the data surface, not the app shell.
 - **Table grammar (UX-10):**
@@ -589,7 +620,8 @@ Each debt is tracked separately. Do not fold them into feature work.
 | Opt-in dark theme: `[data-theme="dark"]` roles, top-bar switch, per-user persistence, no light flash | UX-02, UX-11 | **RT-398** |
 | Admin type migration Inter → Dubai (with Arabic line-height and the 12px floor) | UX-03 | **RT-397** |
 | Reconcile `PRODUCT.md` Principle 6 and the anti-reference note with light-first | UX-02 | **RT-966** (resolved) |
-| Shell v3: sidebar with scope switcher, top bar with Ctrl K navigator and user menu, page header, content container | UX-04, UX-09 | **RT-969** (this version). Screens follow: Overview v2 (RT-970), detail template (RT-961), forms and sign-in (RT-971), control states (RT-959) |
+| Shell v3: sidebar with scope switcher, top bar with Ctrl K navigator and user menu, page header, content container | UX-04, UX-09 | **RT-969**. Screens follow: Overview v2 (RT-970), detail template (RT-961), forms and sign-in (RT-971), control states (RT-959) |
+| v4.0 "Ink & Receipt": (a) Ink/Mint and elevation role tokens, light now, dark after §12.8.4; (b) Ink sidebar + Mint signal line; (c) receipt card + pipeline rail components; (d) Overview v4 (charts with table views); (e) display face; (f) list header bands and drawer headers (D-V9); (g) remaining screens per slice | UX-02, UX-03, UX-04, UX-13 | **Not filed yet.** One Jira issue per letter. Waits: (a) dark half on §12.8.4; (d) on §12.8.2 (each KPI's good direction) and §12.8.6 (data sources); (e) on §12.8.3 (licence + A/B); (f) and segmented controls follow D-V3 as amended (§12.6) |
 
 ## 11. Do's and Don'ts
 
@@ -604,14 +636,183 @@ Each debt is tracked separately. Do not fold them into feature work.
 - Keep operational state in persistent banners; respect `prefers-reduced-motion`.
 
 **Don't**
-- Add new gold, new navy-as-brand or dark-only surfaces; that deepens retired identity.
+- Add new gold, new navy-as-brand or dark-only surfaces; that deepens retired identity. (The
+  v4.0 Ink sidebar is the one sanctioned dark surface, §12.1.)
 - Use a box-shadow as the only focus indicator, or `outline: none` without an outline
   replacement.
 - Use success/warning/danger/info as a chart palette, or color alone for meaning.
 - Put a table inside a card, or nest a panel or card inside a section panel.
-- Build a stat-card grid or a hero metric; the Overview's one KPI ledger strip and pipeline
-  strip (§2) are the only status-at-a-glance surfaces.
+- Build a stat-card grid or a hero metric outside the Overview; the Overview's one receipt
+  KPI row and pipeline rail (§12.4) are the only status-at-a-glance surfaces.
 - Animate truth values (count-ups, rolling money), add bounce easing or page-load choreography.
 - Copy design-handoff prototype themes, KPI coloring or dual-axis charts into production.
 - Introduce a new package (including Tailwind or an icon or i18n library) without an
   authorizing Jira issue.
+
+## 12. v4.0 "Ink & Receipt" (owner decision 2026-10-30, approved, not shipped)
+
+The reference is board v9 «✓ المعتمد · نظرة عامة v9» on the canvas
+<https://claude.ai/artifact/7LkLBupz4nTpvB4P4k4NW4>. A versioned copy of the source of every current
+board, with an index mapping each board to its Jira slice, is in
+[`docs/design/v9/`](docs/design/v9/README.md). Where the canvas and this section differ,
+this section wins; where a rule here is silent, §1–§11 still apply. Values below are **target
+tokens**: a slice adds them to `src/styles/tokens.css` as roles, and components never spell the
+hex.
+
+### 12.1 Color
+
+| Target role | Light | Use |
+| --- | --- | --- |
+| `--color-ink` | `#0a2125` | Sidebar surface; the hero receipt card; the one "ink" button style; the selected segment on light surfaces (D-V3); tooltip fill; list header bands and drawer headers (D-V9). |
+| `--color-mint` | `#5fe0cf` | Highlight **on Ink only** (D-V2): the active nav signal line and icon, hero figures' accent, chart focus point, the selected segment on Ink, the `Ctrl K` key, and the primary fill on Ink (bands, drawer headers, dark theme). Never text **or fill** on a light surface (it measures 1.6:1 on white). |
+| `--color-ink-muted` | `#a9c2c5` | Secondary text on Ink (≥ 4.5:1 on `--color-ink`). |
+| `--color-canvas` | `#f2f5f6` | Page background (replaces `--color-background` as the work surface value). |
+
+- **Tower Teal stays the intent color** on light surfaces (links, primary emphasis, chart
+  series 1). Mint is the teal family's highlight for dark surfaces, not a second brand hue, so
+  the "no secondary accent" rule holds.
+- **The sidebar is Ink in both themes.** It is the one sanctioned dark surface; content
+  surfaces stay light-first, and the dark theme remaps them as before.
+- **Expressive surfaces (D-V4 + D-V9).** Gradients, glows, textures and illustration appear
+  **only** on: the hero receipt card, the Ink sidebar (Tower grid), the brand mark, chart area
+  fills, hero bands on detail pages, the top band of entity cards (the store skyline), list
+  page header bands and drawer headers (§12.6). Still none on tables, forms, operational
+  buttons, banners or status surfaces. Pure ornament (skyline, storefront, Tower grid) is
+  `aria-hidden`, at most 55% opacity, and hidden on narrow screens.
+- **Status colors are unchanged** (§3). Red, amber and green appear only on real states, and
+  always with text.
+- **Dark theme:** the primary fill is Mint on Ink (decided, D-V3). The token values for the
+  new roles are open (§12.8.4).
+
+### 12.2 Signatures
+
+- **Receipt card** (KPI cards and the payment summary only, D-V5): a section-panel surface split by a 2px dashed perforation with
+  half-circle notches at both inline edges. Top part: label, figure, icon tile at the inline
+  end. Bottom part: the delta chip and its comparison text. The notches are decorative
+  (`aria-hidden`); the card is one `<article>` or list item with the label as its name.
+- **Hero receipt**: the first KPI (net sales) on Ink with a Mint radial glow, the Tower grid,
+  a figure in white and a 14–16 point sparkline. At most one per screen.
+- **Pipeline rail**: POS → server → ERPNext as three nodes (status dot + name + one fact)
+  joined by a dotted line, in a `role="group"` named «مسار البيع». Each node's fact is text,
+  so the rail reads without color. It replaces the v3.0 pipeline strip on the Overview; the
+  sync screen keeps the full pipeline.
+- **Tower grid**: a faint 22–28px line grid (Mint at 5–6%) on Ink surfaces only.
+- **Mint signal line**: the active nav entry gets a 4px Mint bar at the inline start with a
+  soft glow, a Mint icon and a faint Mint wash. It replaces the teal wash in the sidebar.
+- **Section index**: a small badge («01», «02», …) before each Overview panel title. Optional
+  elsewhere; never on a screen with a single panel.
+- **Data-bearing illustrations** (D-V5): fleet map, device dots, credential-life ring,
+  business-day bar, live clock. Each has a text alternative or sits next to the same fact in
+  text, colour never carries its meaning alone, and none renders without a backing source
+  (§12.8.6).
+- **Brand mark**: three ascending bars on a Mint-to-teal tile (tower and chart at once). It
+  replaces the `TowerMark` glyph in the sidebar lockup once a slice draws the final asset.
+
+### 12.3 Typography
+
+- **Display face** for the Overview greeting, section titles, KPI and table figures, chart
+  labels and the `Ctrl K` key: **Readex Pro** (400/500/600/700, owner decision 2026-10-30,
+  self-hosted). Body and controls stay Dubai. Adoption waits on the A/B evidence in §12.8.
+- Overview greeting `<h1>` 32px; hero figure 34px; KPI figures 30px; every other screen title
+  stays 24px. Figures stay tabular and LTR-isolated.
+- **Currency chip**: the currency code (`EGP`) as a small display-face chip after the figure
+  in KPI cards and the donut center. Tables and ledgers keep `1,250.00 EGP` inline (§8).
+
+### 12.4 Overview composition
+
+From the top: greeting + pipeline rail; one slim alert banner (What → Safety → Action, ink
+action button, red inline-start edge); one row of receipt cards (hero + up to three); a daily
+trend chart (current vs previous period, hover tooltip with the difference) beside a category
+donut whose legend is a real `<table>` (name, amount, share); the latest-sales table. A side
+column holds quick actions (at most four, one color family, each with a one-line description),
+stores today (rank, net, share bar, status text) and low stock sorted by severity (a level bar
+per item, red only below the critical level). Each chart has `role="img"` with a summary
+label and a "view as table" path; the trend chart's period is a segmented control.
+Binding (D-V7, UX-13): each KPI names its scope, period, baseline and freshness; each chart
+keeps gaps for missing buckets; the hero sparkline states its period (for example «آخر 14
+يومًا»); the donut has at most five categories, in the `--color-viz-*` palette.
+
+### 12.5 Surfaces, shape and elevation
+
+- Section panels and receipt cards: `--color-surface`, 1px border, **20px radius**, one
+  resting elevation token (a 1px hairline plus a 32px, −24px spread shadow at ≈25% Ink).
+  Controls 10–12px, the top-bar search 14px.
+- **Table rows as strips** (Overview and other read-only tables): rows separated by 6px gaps,
+  each a sunken strip with a 12px radius. A row in a failure state carries a 3px red edge at
+  the inline start plus its status pill. Selectable tables (§9 DataTable) keep the ruled rows.
+- The top bar is translucent white with a backdrop blur over the canvas.
+
+### 12.6 Components
+
+- **Buttons:** primary actions on light surfaces become **ink** (`--color-ink` fill, white
+  text, a short Ink shadow, −1px lift on hover). Teal stays for links, focus and the other
+  selection states on light surfaces (selected rows, checked boxes and radios, chosen chips). `.btn-secondary` / `.btn-ghost` / danger variants and all §9 grammar
+  (one primary, ghost cancel, danger-quiet → destructive, busy, 36px) are unchanged.
+- **Segmented control and tab sets (D-V3, owner decision 2026-10-30):** on light surfaces the
+  selected segment is Ink with white text; on Ink it is Mint with Ink text (D-V2). It keeps
+  `aria-pressed`/`aria-selected` and a difference beyond colour (the filled shape against
+  unfilled siblings, or weight), and maps to `Highlight`/`HighlightText` under forced colours.
+- **Status pill:** keeps text; its marker becomes a small rotated square.
+- **Avatars:** initials on Ink with Mint text, 8–14px radius by size.
+- **Sidebar footer:** a system-status block and a support card are allowed only with a
+  backing source (§9 top-bar rule): nothing renders without real data or a real destination.
+- **List header band (D-V9):** one Ink band per list page holds the group label, the `h1`,
+  a scope subtitle, the single primary (Mint fill, Ink text) and at most three facts the
+  server serves for the whole set. A paged list shows scope and period, never a total.
+  Filters, banners and state stay below it, and it never changes colour with state. At
+  most 132px tall at 1280px; below 640px it becomes a plain light header. Ornament is
+  `aria-hidden` at ≤55% opacity; under forced colours it maps to `Canvas`/`CanvasText`.
+- **Drawer header (D-V9):** invite, edit and detail drawers may open with an Ink strip
+  (title, scope line, close). The form body stays light.
+- **Icon tiles:** one teal/Ink family (UX-03); an icon is coloured only when it carries
+  status.
+
+### 12.7 What v4.0 amends
+
+| Earlier rule | Now |
+| --- | --- |
+| §2 / §11: one KPI ledger strip, no stat cards, no hero metric, no charts on the Overview | One receipt row with one hero, plus two charts with table equivalents, on the Overview only (§12.4). |
+| §3: no forced dark sidebar | The sidebar is Ink in both themes (§12.1). |
+| §2: identity not from ornament | Ornament only on the expressive surfaces in §12.1 (D-V4, D-V9). |
+| §3: no gradients | Only on the expressive surfaces in §12.1. |
+| §4: Dubai only; nothing at page level larger than 24px | Display face for headings and figures (pending §12.8); Overview greeting and KPI sizes (§12.3). |
+| §5: panels shadowless; 8px controls, 12px objects | One resting elevation; panels and cards 20px, controls 10–12px, top-bar search 14px (§12.5). |
+| §9 nav: teal wash + Signal Line | Mint signal line on Ink (§12.2). |
+| §9 buttons: `.btn-primary` teal fill | Ink fill on light surfaces (§12.6). |
+| §9 / UX-02: teal owns selection | The selected segment of a segmented control or tab set is Ink on light surfaces; other selection stays Teal (D-V3, §12.6). |
+
+### 12.8 Decisions and open items before implementation
+
+Items 1–3 and 7 are owner decisions of 2026-10-30 (1–3 each with a remaining step); items 4–6
+are open.
+
+1. **Constitution amendments — decided: amend the Constitution.** §1 puts the UX
+   Constitution above this file, so the rows of §12.7 that touch UX-02 (dark surface,
+   gradients, ornament, primary-action fill), UX-03 (display face) and UX-04 (elevation,
+   radius, Overview composition) are amended in Confluence (RETAIL), not excepted for the
+   Console. **Approved and published 2026-10-30** as
+   [Owner decisions 2026-10-30 — Admin-Console visual direction v4.0](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/62816260)
+   (D-V1…D-V9, Confluence 62816260, under the Decisions register 5341185). D-V9, the list
+   and drawer header bands, was approved and added the same day.
+2. **Delta colour — decided: green/red by good direction.** A period delta is green when it
+   moves the way the business wants and red when it moves against it, with the arrow, the
+   signed value and the named baseline always shown. The colour follows each metric's
+   declared good direction, not the arrow: returns, voids and stuck postings rising is
+   **red**. A metric with no agreed good direction stays neutral. This **complies** with
+   UX-13 ("Direction Is Mathematics. Judgment Is Domain Meaning") and needs no amendment;
+   it does need each KPI's good direction recorded in its metric contract.
+3. **Display face — decided: Readex Pro, self-hosted.** No Google Fonts at runtime (the CSP
+   allows `'self'` only). Adoption needs (a) a license-checked (OFL) Arabic + Latin subset
+   served from the Console, and (b) same-screen A/B evidence against Dubai (§4). Dubai stays
+   the body face.
+4. **Dark-theme values** for `--color-ink` surfaces, `--color-mint`, `--color-canvas` and the
+   elevation token, with contrast pairs in `.design-sync/contrast-pairs.mjs`.
+5. **Forced colours (required evidence, not an open decision):** receipt notches, the Tower
+   grid and glows disappear; the perforation falls back to a `CanvasText` dashed rule; Ink
+   surfaces, bands and the hero card map to `Canvas`/`CanvasText`.
+6. **Data sources:** the sidebar system-status block, the support card, store "share of
+   today", low-stock severity, the credential-life ring and the business-day bar each need a
+   backing read; render none of them without it.
+7. **Selected segment on light surfaces — decided: Ink.** D-V3 was amended in Confluence
+   62816260 (version 3): Ink with white text on light surfaces, Mint on Ink; every other
+   selection on light surfaces stays Teal (§12.6).

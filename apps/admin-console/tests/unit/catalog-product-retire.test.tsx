@@ -103,7 +103,7 @@ describe("product Edit and Retire controls (RT-768, CAT-C2a)", () => {
     expect(screen.queryByRole("link", { name: /edit/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /retire/i })).toBeNull();
     expect(
-      screen.getByText(
+      await screen.findByText(
         "This item is retired, so it is read-only. Its identifiers stay bound to it.",
       ),
     ).toBeDefined();

@@ -63,6 +63,9 @@ describe('ScreenTooSmall (T013)', () => {
  * action. Western digits, each an isolated LTR run.
  */
 const HEIGHT_HEADING = 'ارتفاع الشاشة أقل من الحد المدعوم.';
+const BOTH_HEADING = 'أبعاد الشاشة أقل من الحد المدعوم.';
+const BOTH_GUIDANCE =
+  /^يحتاج النظام عرضًا لا يقل عن 1024 وارتفاعًا لا يقل عن 600 بكسل\. كبّر النافذة أو اضبط مقياس عرض Windows\.$/;
 const HEIGHT_ACTION = /^كبّر النافذة، أو اضبط مقياس العرض في Windows على 100% أو 125%\s?\.$/;
 
 function body(container: HTMLElement): Element | null {
@@ -83,25 +86,39 @@ describe('ScreenTooSmall variants (RT-313)', () => {
     expect(screen.queryByText('1024×768')).not.toBeInTheDocument();
   });
 
-  it('both: the size heading with the height action, not the width action', () => {
+  it('both: the approved text (RT-912) that states the 1024 and 600 floors', () => {
     const { container } = render(<ScreenTooSmall shortfall="both" />);
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('الشاشة أصغر من 1024×768.');
-    expect(body(container)).toHaveTextContent(HEIGHT_ACTION);
-    expect(screen.queryByText('كبّر النافذة أو استخدم شاشة أكبر.')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(BOTH_HEADING);
+    expect(body(container)).toHaveTextContent(BOTH_GUIDANCE);
+    expect(document.body.textContent).not.toMatch(/1024×768|100%|125%|استخدم شاشة أكبر/);
+    for (const n of ['1024', '600']) {
+      const run = screen.getByText(n);
+      expect(run.tagName).toBe('BDI');
+      expect(run).toHaveAttribute('dir', 'ltr');
+    }
   });
 
-  it.each(['height', 'both'] as const)(
-    '%s: the scale percentages are Western digits in LTR isolates',
-    (shortfall) => {
-      render(<ScreenTooSmall shortfall={shortfall} />);
-      for (const scale of ['100%', '125%']) {
-        const run = screen.getByText(scale);
-        expect(run.tagName).toBe('BDI');
-        expect(run).toHaveAttribute('dir', 'ltr');
-      }
-      expect(document.body.textContent).not.toMatch(/[٠-٩]/);
-    },
-  );
+  it('width and height keep their own copy, not the both text', () => {
+    for (const shortfall of ['width', 'height'] as const) {
+      const { container } = render(<ScreenTooSmall shortfall={shortfall} />);
+      expect(screen.getByRole('heading', { level: 1 })).not.toHaveTextContent(BOTH_HEADING);
+      expect(body(container)).not.toHaveTextContent(BOTH_GUIDANCE);
+      cleanup();
+    }
+  });
+
+  it.each([
+    ['height', ['100%', '125%']],
+    ['both', ['1024', '600']],
+  ] as const)('%s: the numbers are Western digits in LTR isolates', (shortfall, numbers) => {
+    render(<ScreenTooSmall shortfall={shortfall} />);
+    for (const n of numbers) {
+      const run = screen.getByText(n);
+      expect(run.tagName).toBe('BDI');
+      expect(run).toHaveAttribute('dir', 'ltr');
+    }
+    expect(document.body.textContent).not.toMatch(/[٠-٩]/);
+  });
 
   it.each(['height', 'both'] as const)(
     '%s: one <main>, one <h1>, nothing actionable, Arabic RTL',

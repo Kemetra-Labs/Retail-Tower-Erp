@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>مبيعات تحتاج إلى إصلاح — Retail Tower Console</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f2f5f6}
+a{color:#0f766e}a:hover{color:#0b5b55}
+:focus-visible{outline:2px solid #14a394;outline-offset:2px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.disp{font-family:'Readex Pro',Dubai,'Segoe UI',sans-serif}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.nv{display:flex;align-items:center;gap:14px;min-height:46px;padding:0 14px;border-radius:12px;color:#a9c2c5;text-decoration:none;font-size:14px;position:relative}
+.nv:hover{background:rgba(255,255,255,.05);color:#ffffff}
+.nv svg{flex:none}
+.nv-on{color:#ffffff;font-weight:700;background:linear-gradient(90deg,rgba(43,196,179,.22),rgba(43,196,179,.04));box-shadow:inset 0 0 0 1px rgba(95,224,207,.22)}
+.nv-on::before{content:"";position:absolute;inset-inline-start:-16px;top:10px;bottom:10px;width:4px;border-radius:0 4px 4px 0;background:#5fe0cf;box-shadow:0 0 14px 2px rgba(95,224,207,.7)}
+.nv-on svg{color:#5fe0cf}
+.grp{font-size:11px;color:#5f8186;padding:0 14px 4px;font-weight:700}
+.nb{margin-inline-start:auto;min-width:20px;height:20px;padding:0 6px;box-sizing:border-box;border-radius:10px;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
+.hs{font-size:12px;color:#5b6d7c}
+.btn{display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 16px;border-radius:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap}
+.ink{color:#ffffff;background:#0a2125;border:1px solid #0a2125}
+.ink:hover{color:#ffffff;background:#12333a}
+.ink[aria-busy="true"]{cursor:progress}
+.ghost{color:#0a2125;border:1px solid #d6dfe3;background:#ffffff}
+.ghost:hover{color:#0a2125;border-color:#9fb4ba}
+.quiet{color:#33454f;border:1px solid transparent;background:transparent}
+.quiet:hover{background:#e9eff1}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:9px;font-size:12px;font-weight:700;white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:2px;background:currentColor;transform:rotate(45deg)}
+.warn{background:#fdf0dc;color:#8a4b00}
+.pend{background:#e3eefa;color:#1b5fa8}
+.neu{background:#e9eff1;color:#33454f}
+.card{background:#ffffff;border:1px solid #e3e9ec;border-radius:20px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25);overflow:hidden;position:relative}
+.card::before{content:"";position:absolute;inset-block:0;inset-inline-start:0;width:4px;background:#f0a03c}
+.done::before{background:#4f7fe0}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:#eef2f4;border-top:1px solid #eef2f4}
+.facts div{background:#ffffff;padding:12px 20px;display:flex;flex-direction:column;gap:2px}
+.facts span{font-size:12px;color:#5b6d7c}
+.facts b{font-size:14px;font-weight:600}
+</style>
+</helmet>
+
+<div style="min-height: 100vh; display: flex; flex-wrap: wrap; align-items: stretch; background: #f2f5f6; color: #0a2125; font-family: Dubai, 'Segoe UI', Tahoma, system-ui, sans-serif; font-size: 14px; line-height: 1.6">
+
+  <aside aria-label="التنقل الرئيسي" style="flex: 1 1 240px; max-width: 100%; box-sizing: border-box; padding: 22px 16px; display: flex; flex-direction: column; gap: 22px; color: #ffffff; background-color: #0a2125; background-image: linear-gradient(rgba(95,224,207,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(95,224,207,.05) 1px, transparent 1px), radial-gradient(420px 260px at 100% 0%, rgba(43,196,179,.22), transparent 70%); background-size: 28px 28px, 28px 28px, 100% 100%">
+    <div style="display: flex; align-items: center; gap: 12px; padding: 0 4px">
+      <div aria-hidden="true" style="width: 44px; height: 44px; border-radius: 13px; background: linear-gradient(160deg, #5fe0cf, #0f766e 70%); display: flex; align-items: flex-end; justify-content: center; gap: 3px; padding-bottom: 10px; box-sizing: border-box">
+        <span style="width: 5px; height: 12px; border-radius: 2px; background: rgba(255,255,255,.7)"></span><span style="width: 5px; height: 22px; border-radius: 2px; background: #ffffff"></span><span style="width: 5px; height: 16px; border-radius: 2px; background: rgba(255,255,255,.85)"></span>
+      </div>
+      <div style="display: flex; flex-direction: column; line-height: 1.25"><span class="disp" style="font-weight: 600; font-size: 18px">Retail Tower</span><span style="font-size: 12px; color: #7fa3a8">منصة إدارة التجزئة</span></div>
+    </div>
+    <nav style="display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">العمليات</span>
+        <a class="nv" href="Overview-v9.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10l8-6 8 6v10H4z"/><path d="M10 20v-6h4v6"/></svg>الرئيسية</a>
+        <a class="nv" href="Sales.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>المبيعات</a>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="grp">التكامل</span>
+        <a class="nv" href="Sync.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 0114-5.3L20 9M20 4v5h-5"/><path d="M20 12a8 8 0 01-14 5.3L4 15M4 20v-5h5"/></svg>الاتصال والمزامنة<span class="nb" style="background: #e5484d; color: #ffffff">3</span></a>
+        <a class="nv nv-on" href="#" aria-current="page"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 00-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 005.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>مبيعات تحتاج إلى إصلاح<span class="nb" style="background: rgba(240,160,60,.18); color: #f5b759">2</span></a>
+      </div>
+    </nav>
+  </aside>
+
+  <div style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column">
+    <main style="width: 100%; max-width: 1100px; box-sizing: border-box; padding: 28px 26px 40px; display: flex; flex-direction: column; gap: 18px">
+      <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px">
+        <div style="flex: 1 1 360px; display: flex; flex-direction: column; gap: 2px">
+          <h1 class="disp" style="margin: 0; font-size: 24px; font-weight: 600; line-height: 1.35">مبيعات تحتاج إلى إصلاح</h1>
+          <span class="hs" style="font-size: 13px">مبيعات عُزلت مزامنتها مع الخادم بعد فشلها · الأحدث أولًا · آخر قراءة: <bdi dir="ltr">14:32</bdi></span>
+        </div>
+        <button type="button" class="btn ghost"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0114-5.3L20 9M20 4v5h-5"/><path d="M20 12a8 8 0 01-14 5.3L4 15M4 20v-5h5"/></svg>تحديث</button>
+      </div>
+
+      <div style="display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: 14px; background: #ffffff; border: 1px solid #e3e9ec; font-size: 13px; color: #33454f; line-height: 1.7">
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1b6ca8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 2px"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/></svg>
+        <span>هذه المبيعات وصلت إلى الخادم، لكن معالجتها فشلت فعُزلت. <strong>طلب إصلاح</strong> يطلب من الخادم إعادة معالجة البيع نفسه، ولا يغيّر ما دفعه العميل.</span>
+      </div>
+
+      <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}">
+        <section aria-label="لا شيء يحتاج إلى إصلاح" style="background: #ffffff; border: 1px solid #e3e9ec; border-radius: 20px; padding: 48px 24px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px">
+          <span aria-hidden="true" style="width: 72px; height: 72px; border-radius: 22px; background: #0a2125; color: #5fe0cf; display: flex; align-items: center; justify-content: center; box-shadow: 0 16px 30px -18px rgba(10,33,37,.9)"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg></span>
+          <strong class="disp" style="font-size: 18px; font-weight: 600">لا توجد مبيعات مفتوحة تحتاج إلى إصلاح.</strong>
+          <span class="hs" style="font-size: 13px">كل المبيعات التي وصلت إلى الخادم عولجت أو تُعاد محاولتها تلقائيًا. آخر قراءة <bdi dir="ltr">14:32</bdi>.</span>
+          <a href="Sync.dc.html" class="btn ghost" style="margin-top: 6px">عرض الاتصال والمزامنة</a>
+        </section>
+      </sc-if>
+      <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px">
+        <sc-for list="{{ rows }}" as="r" hint-placeholder-count="2">
+          <li class="{{ r.cls }}">
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 18px 20px 16px; padding-inline-start: 24px">
+              <div style="flex: 1 1 280px; display: flex; flex-direction: column; gap: 4px">
+                <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+                  <a href="Sale-detail.dc.html" dir="ltr" class="disp" style="font-weight: 600; font-size: 17px; text-decoration: none; color: #0a2125" aria-label="فتح البيع {{ r.ref }}">{{ r.ref }}</a>
+                  <sc-if value="{{ r.open }}" hint-placeholder-val="{{ true }}"><span class="pill warn">تحتاج إلى إصلاح</span></sc-if>
+                  <sc-if value="{{ r.requested }}" hint-placeholder-val="{{ false }}"><span class="pill pend">طُلب إصلاح المزامنة</span></sc-if>
+                </div>
+                <span class="hs" style="font-size: 13px">{{ r.store }} · {{ r.device }} · <bdi dir="ltr">{{ r.total }}</bdi></span>
+              </div>
+              <button type="button" class="btn quiet" aria-expanded="{{ r.logAttr }}" onClick="{{ r.toggleLog }}" style="height: 38px"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>سجل المزامنة</button>
+              <sc-if value="{{ r.waiting }}" hint-placeholder-val="{{ false }}"><button type="button" class="btn ink" disabled style="background: #e3eaed; border-color: #e3eaed; color: #33454f; box-shadow: none; cursor: not-allowed">طلب إصلاح · بعد <bdi dir="ltr">{{ r.wait }}</bdi> ث</button></sc-if>
+              <sc-if value="{{ r.idle }}" hint-placeholder-val="{{ true }}"><button type="button" class="btn ink" onClick="{{ r.ask }}"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 00-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 005.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>طلب إصلاح</button></sc-if>
+              <sc-if value="{{ r.requested }}" hint-placeholder-val="{{ false }}"><span class="hs" style="font-size: 13px" role="status">بانتظار معالجة الخادم · <a href="Sale-detail.dc.html">سجل المزامنة</a></span></sc-if>
+            </div>
+
+            <sc-if value="{{ r.confirming }}" hint-placeholder-val="{{ false }}">
+              <div role="group" aria-label="تأكيد طلب الإصلاح" style="margin: 0 20px 16px; padding: 14px 16px; border-radius: 14px; background: #f6faf9; border: 1px solid #d4ece7; display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+                <span style="flex: 1 1 100%; font-size: 14px; font-weight: 700">هل تطلب من الخادم إصلاح مزامنة البيع <bdi dir="ltr">{{ r.ref }}</bdi>؟</span>
+                <button type="button" class="btn ink" onClick="{{ r.confirm }}">تأكيد الإصلاح</button>
+                <button type="button" class="btn quiet" onClick="{{ r.cancel }}">إلغاء</button>
+              </div>
+            </sc-if>
+            <sc-if value="{{ r.sending }}" hint-placeholder-val="{{ false }}">
+              <div style="margin: 0 20px 16px; display: flex; align-items: center; gap: 10px">
+                <button type="button" class="btn ink" aria-busy="true" aria-disabled="true"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="animation: spin .8s linear infinite"><path d="M12 3a9 9 0 109 9"/></svg>جارٍ إرسال طلب الإصلاح…</button>
+              </div>
+            </sc-if>
+            <sc-if value="{{ r.failed }}" hint-placeholder-val="{{ false }}">
+              <div role="alert" style="margin: 0 20px 16px; padding: 12px 14px; border-radius: 12px; background: #fff4f3; border: 1px solid #f5d3cf; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 13px">
+                <span style="flex: 1 1 260px"><strong>طلبات كثيرة في وقت قصير. لم يُنفَّذ الإصلاح.</strong> <span style="color: #33454f">لم يتغيّر شيء في هذا البيع. يمكنك الطلب مجددًا بعد انتهاء المهلة.</span> <span class="mono" style="color: #5b6d7c"><bdi dir="ltr">req_a81f0c3d</bdi></span></span>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ r.logOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="margin: 0 20px 16px; padding: 14px 16px; border-radius: 14px; background: #f8fafb; border: 1px solid #eef2f4">
+                <table style="width: 100%; border-collapse: collapse; font-size: 13px">
+                  <caption style="text-align: start; font-size: 12px; color: #5b6d7c; padding-bottom: 6px">أحداث مزامنة البيع، الأقدم أولًا</caption>
+                  <thead><tr><th scope="col" style="text-align: start; font-weight: 500; color: #5b6d7c; font-size: 12px; padding: 4px 0">الوقت</th><th scope="col" style="text-align: start; font-weight: 500; color: #5b6d7c; font-size: 12px; padding: 4px 0">الحدث</th><th scope="col" style="text-align: start; font-weight: 500; color: #5b6d7c; font-size: 12px; padding: 4px 0">معرّف الارتباط</th></tr></thead>
+                  <tbody>
+                    <sc-for list="{{ r.events }}" as="e" hint-placeholder-count="3">
+                      <tr><td style="padding: 7px 0; border-top: 1px solid #eef2f4; width: 90px"><bdi dir="ltr">{{ e.at }}</bdi></td><td style="padding: 7px 0; border-top: 1px solid #eef2f4"><span style="display: inline-flex; align-items: center; gap: 8px"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 2px; transform: rotate(45deg); background: {{ e.color }}"></span>{{ e.text }}</span></td><td style="padding: 7px 0; border-top: 1px solid #eef2f4"><bdi dir="ltr" class="mono" style="color: #5b6d7c">{{ e.corr }}</bdi></td></tr>
+                    </sc-for>
+                  </tbody>
+                </table>
+              </div>
+            </sc-if>
+
+            <div class="facts">
+              <div><span>التصنيف</span><b>يحتاج إلى إصلاح</b></div>
+              <div><span>رمز السبب</span><b><bdi dir="ltr" class="mono" style="font-size: 13px">{{ r.reason }}</bdi></b></div>
+              <div><span>عدد المحاولات</span><b class="disp">{{ r.retries }}</b></div>
+              <div><span>وقت العزل</span><b><bdi dir="ltr">{{ r.at }}</bdi></b></div>
+            </div>
+          </li>
+        </sc-for>
+      </ul>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"view":{"editor":"enum","options":["قائمة","لا شيء يحتاج إلى إصلاح"],"default":"قائمة"},"$preview":{"width":1680,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { a: 'idle', b: 'idle', la: false, lb: false, until: 0 }; }
+  componentWillUnmount() { clearTimeout(this.t); clearInterval(this.iv); }
+  renderVals() {
+    const now = Date.now();
+    const waitLeft = Math.max(0, Math.ceil((this.state.until - now) / 1000));
+    const mk = (key, ref, store, device, total, reason, retries, at, failsWith, events) => {
+      const st = this.state[key];
+      const set = (v) => this.setState({ [key]: v });
+      const logKey = 'l' + key;
+      const waiting = st === 'failed' && waitLeft > 0;
+      return {
+        ref: ref, store: store, device: device, total: total, reason: reason, retries: retries, at: at, events: events,
+        cls: st === 'requested' ? 'card done' : 'card',
+        idle: st === 'idle' || (st === 'failed' && waitLeft === 0), confirming: st === 'confirm', sending: st === 'sending', failed: st === 'failed', requested: st === 'requested',
+        waiting: waiting, wait: String(waitLeft),
+        open: st !== 'requested',
+        logOpen: this.state[logKey], logAttr: this.state[logKey] ? 'true' : 'false',
+        toggleLog: () => this.setState({ [logKey]: !this.state[logKey] }),
+        ask: () => set('confirm'),
+        cancel: () => set('idle'),
+        confirm: () => {
+          set('sending'); clearTimeout(this.t);
+          this.t = setTimeout(() => {
+            if (failsWith) {
+              this.setState({ [key]: 'failed', until: Date.now() + 30000 });
+              clearInterval(this.iv);
+              this.iv = setInterval(() => { if (Date.now() > this.state.until) clearInterval(this.iv); this.forceUpdate(); }, 1000);
+            } else { set('requested'); }
+          }, 1300);
+        }
+      };
+    };
+    const ev = (at, text, color, corr) => ({ at: at, text: text, color: color, corr: corr });
+    const isEmpty = (this.props.view ?? 'قائمة') !== 'قائمة';
+    return {
+      isEmpty: isEmpty,
+      rows: isEmpty ? [] : [
+        mk('a', 'MAA-1-000428', 'فرع المعادي', 'كاشير 3', '154.25 EGP', 'payload_invalid', '5', '30 أكتوبر 13:12', false, [
+          ev('13:02', 'استلم الخادم البيع', '#2fb36d', 'c_91a2'), ev('13:02', 'فشلت المزامنة', '#e5484d', 'c_91a2'), ev('13:12', 'عُزلت المزامنة وتحتاج إلى إصلاح', '#f0a03c', 'c_91a2')
+        ]),
+        mk('b', 'SZD-1-000261', 'فرع الشيخ زايد', 'كاشير 1', '88.00 EGP', 'store_context_missing', '5', '30 أكتوبر 11:47', true, [
+          ev('11:30', 'استلم الخادم البيع', '#2fb36d', 'c_44f0'), ev('11:31', 'فشلت المزامنة', '#e5484d', 'c_44f0'), ev('11:47', 'عُزلت المزامنة وتحتاج إلى إصلاح', '#f0a03c', 'c_44f0')
+        ])
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

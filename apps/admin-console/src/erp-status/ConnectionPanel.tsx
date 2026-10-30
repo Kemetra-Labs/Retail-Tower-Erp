@@ -6,6 +6,7 @@
  * report and are labelled so, with the time they were reported; null reads
  * "not reported" (A-3). No credential secret exists in these reads.
  */
+import { TableScrollRegion } from "@/components/DataTableScroll";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
 import { ListState } from "@/components/ListState";
 import { DateTime, type MessageKey, type T, formatDuration, useT } from "@/i18n";
@@ -138,25 +139,29 @@ function Version({ health }: Readonly<{ health: ConnectorHealthView }>): React.J
 function ConnectionTable({ rows }: Readonly<{ rows: ConnectionRow[] }>): React.JSX.Element {
   const t = useT();
   return (
-    <div className="table-scroll">
-      <table className="data-table">
-        <caption className="data-table__caption">{t("erp.conn.caption")}</caption>
-        <thead>
-          <tr>
-            {headers(t).map((col) => (
-              <th key={col.key} scope="col">
-                {col.header}
-              </th>
+    <TableScrollRegion>
+      {(captionId) => (
+        <table className="data-table">
+          <caption id={captionId} className="data-table__caption">
+            {t("erp.conn.caption")}
+          </caption>
+          <thead>
+            <tr>
+              {headers(t).map((col) => (
+                <th key={col.key} scope="col">
+                  {col.header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <ConnectionTableRow key={row.instance.id} row={row} />
             ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <ConnectionTableRow key={row.instance.id} row={row} />
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </tbody>
+        </table>
+      )}
+    </TableScrollRegion>
   );
 }
 

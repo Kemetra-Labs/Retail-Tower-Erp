@@ -225,7 +225,8 @@ for (const width of [360, 390, 412, 640, 768]) {
       await dialog.getByRole("link", { name: t("shell.nav.stores") }).tap();
       await expect(page).toHaveURL(/\/stores$/);
       await expect(dialog).toBeHidden();
-      await expect(button).toBeFocused();
+      // RT-963: a navigation hands focus to the new page's title, not back to the menu.
+      await expect(page.locator("h1[data-page-title]")).toBeFocused();
     });
 
     test("every drawer control and the scope controls are 44px touch targets", async ({
@@ -313,10 +314,13 @@ test.describe("compact shell checks at 390px", () => {
     }
   });
 
-  test("keyboard: the menu button is the first stop and opens the drawer", async ({ page, t }) => {
+  test("keyboard: the skip link, then the menu button, opens the drawer", async ({ page, t }) => {
     await mockApi(page);
     await page.goto("/");
     await page.locator(".content").waitFor();
+    // RT-963: the skip link is the shell's first stop.
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("link", { name: t("shell.skipToContent") })).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(menuButton(page, t)).toBeFocused();
     await page.keyboard.press("Enter");
@@ -334,7 +338,10 @@ test.describe("compact shell checks at 390px", () => {
     await page.emulateMedia({ forcedColors: "active" });
     await page.goto("/stores");
     await page.locator(".content").waitFor();
+    // RT-963: past the skip link to the menu button.
     await page.keyboard.press("Tab");
+    await page.keyboard.press("Tab");
+    await expect(menuButton(page, t)).toBeFocused();
     const ring = await menuButton(page, t).evaluate((el) => getComputedStyle(el).outlineStyle);
     expect(ring).not.toBe("none");
     await page.keyboard.press("Enter");

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ClerkExchangeResult } from '../clerk-client.js';
+import type { OperatorExchangeResult } from '../operator-exchanger.js';
 import {
   createDescopeExchanger,
   isDescopeProjectId,
@@ -10,7 +10,7 @@ import {
 /**
  * RT-792 — Descope password sign-in exchanger (RT-790 approach A).
  *
- * Mirrors `clerk-client.test.ts`. Verifies:
+ * Verifies:
  *  - One POST to `https://api.descope.com/v1/auth/password/signin` with
  *    `Authorization: Bearer <projectId>` and JSON `{ loginId, password }`.
  *  - `sessionJwt` → `jwt`, `user.userId` → `operator_id`, name/email →
@@ -143,7 +143,7 @@ describe('createDescopeExchanger — success mapping', () => {
     const { fetchImpl } = cannedFetch(jsonResponse(signInBody()));
     const result = await exchangerFor(fetchImpl).exchange({ identifier: 'i', password: 'p' });
 
-    expect(result).toEqual<ClerkExchangeResult>({
+    expect(result).toEqual<OperatorExchangeResult>({
       kind: 'ok',
       jwt: SESSION_JWT,
       operator_id: 'U2abc',
@@ -192,7 +192,7 @@ describe('createDescopeExchanger — generic refusal (PR-2)', () => {
       jsonResponse({ errorCode: 'E062108', errorDescription: 'User not found' }, status),
     );
     const result = await exchangerFor(fetchImpl).exchange({ identifier: 'i', password: 'p' });
-    expect(result).toEqual<ClerkExchangeResult>({ kind: 'refused' });
+    expect(result).toEqual<OperatorExchangeResult>({ kind: 'refused' });
   });
 
   it('wrong password and unknown user give the same result', async () => {
@@ -206,7 +206,7 @@ describe('createDescopeExchanger — generic refusal (PR-2)', () => {
   it('returns refused on a malformed JSON body', async () => {
     const { fetchImpl } = cannedFetch(new Response('not json', { status: 200 }));
     const result = await exchangerFor(fetchImpl).exchange({ identifier: 'i', password: 'p' });
-    expect(result).toEqual<ClerkExchangeResult>({ kind: 'refused' });
+    expect(result).toEqual<OperatorExchangeResult>({ kind: 'refused' });
   });
 
   it.each<[string, unknown]>([
@@ -223,7 +223,7 @@ describe('createDescopeExchanger — generic refusal (PR-2)', () => {
   ])('returns refused on %s', async (_label, body) => {
     const { fetchImpl } = cannedFetch(jsonResponse(body));
     const result = await exchangerFor(fetchImpl).exchange({ identifier: 'i', password: 'p' });
-    expect(result).toEqual<ClerkExchangeResult>({ kind: 'refused' });
+    expect(result).toEqual<OperatorExchangeResult>({ kind: 'refused' });
   });
 });
 
@@ -231,7 +231,7 @@ describe('createDescopeExchanger — transport', () => {
   it('returns no_connection on a network rejection', async () => {
     const fetchImpl = vi.fn(() => Promise.reject(new TypeError('fetch failed')));
     const result = await exchangerFor(fetchImpl).exchange({ identifier: 'i', password: 'p' });
-    expect(result).toEqual<ClerkExchangeResult>({ kind: 'no_connection' });
+    expect(result).toEqual<OperatorExchangeResult>({ kind: 'no_connection' });
   });
 
   it('returns no_connection when the request times out', async () => {
@@ -242,7 +242,7 @@ describe('createDescopeExchanger — transport', () => {
         });
       });
     const result = await exchangerFor(fetchImpl, 5).exchange({ identifier: 'i', password: 'p' });
-    expect(result).toEqual<ClerkExchangeResult>({ kind: 'no_connection' });
+    expect(result).toEqual<OperatorExchangeResult>({ kind: 'no_connection' });
   });
 
   it('returns no_connection when the timeout cuts off the response body', async () => {
@@ -257,7 +257,7 @@ describe('createDescopeExchanger — transport', () => {
       return Promise.resolve(new Response(body, { status: 200 }));
     };
     const result = await exchangerFor(fetchImpl, 5).exchange({ identifier: 'i', password: 'p' });
-    expect(result).toEqual<ClerkExchangeResult>({ kind: 'no_connection' });
+    expect(result).toEqual<OperatorExchangeResult>({ kind: 'no_connection' });
   });
 });
 

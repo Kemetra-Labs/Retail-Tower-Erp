@@ -71,6 +71,19 @@ function submitCredentials(): void {
   fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
 }
 
+// Every test here signs in, re-fetches the context, then navigates into the
+// protected area. ActiveContextProvider does not re-render on navigation, so it
+// only sees the refreshed context when TanStack's setTimeout-batched
+// notification runs. In jsdom, React's post-navigation render and that timer
+// race: under load the render can go first, ProtectedArea reads the stale
+// signed-out entry and redirects back to /signin, where nothing sends the user
+// on (RT-944: the CI flake). Playwright passes these journeys in a real browser
+// (tests/e2e/signin-return.spec.ts S1-S3), but nothing in the app guarantees
+// that order either; these tests check the refresh, not the ordering. Notify
+// synchronously here so the order is fixed, then restore the default.
+beforeAll(() => notifyManager.setScheduler((cb) => cb()));
+afterAll(() => notifyManager.setScheduler((cb) => setTimeout(cb, 0)));
+
 describe("sign-in route enters the console with a fresh context (RT-343)", () => {
   const tenantContext = {
     status: 200,
@@ -176,14 +189,6 @@ describe("sign-in returns to the requested page (RT-355)", () => {
       memberships: oneTenant,
     },
   };
-
-  // jsdom runs React's post-navigation render before TanStack's default
-  // setTimeout-batched notification of the refreshed context, so ProtectedArea
-  // briefly sees the stale signed-out entry and redirects. A real browser does
-  // not (Playwright: tests/e2e/signin-return.spec.ts). Notify synchronously here
-  // so the landing URL can be asserted, then restore the default.
-  beforeAll(() => notifyManager.setScheduler((cb) => cb()));
-  afterAll(() => notifyManager.setScheduler((cb) => setTimeout(cb, 0)));
 
   beforeEach(() => {
     getActiveContext.mockReset();

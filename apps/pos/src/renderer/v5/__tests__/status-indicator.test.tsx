@@ -240,4 +240,14 @@ describe('StatusIndicator CSS', () => {
   it('never sets indicator text below 12px', () => {
     expect(css).not.toMatch(/font-size:\s*(?:var\(--font-size-2xs\)|1[01]px|[0-9]px)/);
   });
+
+  // Tripwire, not cascade proof: the printer row is a full-width button, so in
+  // the slim rail its glyph sat at the inline start, off the other glyphs'
+  // centre line (owner report 2026-10-30, build e4d25139).
+  it('centres the printer row glyph in the slim rail', () => {
+    const printerCss = readFileSync(resolve(__dirname, '../printer/printer.css'), 'utf8');
+    expect(printerCss).toMatch(
+      /\.v5-frame\[data-nav='slim'\] \.v5-status__row--action\s*\{[^}]*justify-content:\s*center/,
+    );
+  });
 });

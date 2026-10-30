@@ -1,20 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ClerkExchangeResult } from '../clerk-client.js';
+import type { OperatorExchangeResult } from '../operator-exchanger.js';
 import { resolveOperatorExchanger } from '../resolve-exchanger.js';
 
 /**
- * RT-792 — choosing the manager/admin credential exchanger.
+ * RT-792 / RT-945 — choosing the manager/admin credential exchanger.
  *
- * `OPERATOR_IDENTITY_PROVIDER` selects Clerk (default) or Descope. Any missing
- * or malformed setting logs one structured warning and yields an exchanger that
- * refuses generically WITHOUT a network call, exactly like the Clerk key
- * handling has always done.
+ * Descope is the only provider: `OPERATOR_IDENTITY_PROVIDER` unset, empty or
+ * `descope` selects it; any other value (including the retired `clerk`)
+ * refuses. Any missing or malformed setting logs one structured warning and
+ * yields an exchanger that refuses generically WITHOUT a network call.
  */
 
 const PROJECT_ID = 'P2abcdefghijklmnopqrstuvwxyz';
-const CLERK_HOST = 'clerk.example.com';
-const CLERK_PK = `pk_test_${Buffer.from(`${CLERK_HOST}$`).toString('base64')}`;
+const DESCOPE_SIGNIN_URL = 'https://api.descope.com/v1/auth/password/signin';
 
 function setup(env: Record<string, string | undefined>) {
   const fetchImpl = vi.fn(() => Promise.resolve(new Response('{}', { status: 401 })));
@@ -39,32 +38,21 @@ function warnedEvent(warn: ReturnType<typeof setup>['warn']): unknown {
   return call?.[0].event;
 }
 
-describe('resolveOperatorExchanger — default Clerk', () => {
-  it.each([undefined, '', 'clerk', ' Clerk '])(
-    'uses Clerk when the provider is %j',
-    async (provider) => {
-      const { fetchImpl, warn } = await exchange({
-        OPERATOR_IDENTITY_PROVIDER: provider,
-        CLERK_PUBLISHABLE_KEY: CLERK_PK,
-        DESCOPE_PROJECT_ID: PROJECT_ID,
-      });
-      expect(calledUrl(fetchImpl)).toBe(`https://${CLERK_HOST}/v1/client/sign_ins`);
-      expect(warn).not.toHaveBeenCalled();
-    },
-  );
-
-  it('refuses generically when the Clerk key is unset (unchanged behaviour)', async () => {
-    const { result, fetchImpl, warn } = await exchange({});
-    expect(result).toEqual<ClerkExchangeResult>({ kind: 'refused' });
-    expect(fetchImpl).not.toHaveBeenCalled();
-    expect(warnedEvent(warn)).toBe('operator.clerk.missing_publishable_key');
+describe('resolveOperatorExchanger — default Descope', () => {
+  it.each([undefined, '', '  '])('uses Descope when the provider is %j', async (provider) => {
+    const { fetchImpl, warn } = await exchange({
+      OPERATOR_IDENTITY_PROVIDER: provider,
+      DESCOPE_PROJECT_ID: PROJECT_ID,
+    });
+    expect(calledUrl(fetchImpl)).toBe(DESCOPE_SIGNIN_URL);
+    expect(warn).not.toHaveBeenCalled();
   });
 
-  it('refuses generically when the Clerk key is malformed (unchanged behaviour)', async () => {
-    const { result, fetchImpl, warn } = await exchange({ CLERK_PUBLISHABLE_KEY: 'sk_live_x' });
-    expect(result).toEqual<ClerkExchangeResult>({ kind: 'refused' });
+  it('refuses generically when the project id is unset and no provider is set', async () => {
+    const { result, fetchImpl, warn } = await exchange({});
+    expect(result).toEqual<OperatorExchangeResult>({ kind: 'refused' });
     expect(fetchImpl).not.toHaveBeenCalled();
-    expect(warnedEvent(warn)).toBe('operator.clerk.malformed_publishable_key');
+    expect(warnedEvent(warn)).toBe('operator.descope.missing_project_id');
   });
 });
 
@@ -75,9 +63,8 @@ describe('resolveOperatorExchanger — Descope', () => {
       const { fetchImpl, warn } = await exchange({
         OPERATOR_IDENTITY_PROVIDER: p,
         DESCOPE_PROJECT_ID: PROJECT_ID,
-        CLERK_PUBLISHABLE_KEY: CLERK_PK,
       });
-      expect(calledUrl(fetchImpl)).toBe('https://api.descope.com/v1/auth/password/signin');
+      expect(calledUrl(fetchImpl)).toBe(DESCOPE_SIGNIN_URL);
       expect(warn).not.toHaveBeenCalled();
     },
   );
@@ -94,9 +81,8 @@ describe('resolveOperatorExchanger — Descope', () => {
   it('refuses generically when the project id is unset', async () => {
     const { result, fetchImpl, warn } = await exchange({
       OPERATOR_IDENTITY_PROVIDER: 'descope',
-      CLERK_PUBLISHABLE_KEY: CLERK_PK,
     });
-    expect(result).toEqual<ClerkExchangeResult>({ kind: 'refused' });
+    expect(result).toEqual<OperatorExchangeResult>({ kind: 'refused' });
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(warnedEvent(warn)).toBe('operator.descope.missing_project_id');
   });
@@ -107,7 +93,7 @@ describe('resolveOperatorExchanger — Descope', () => {
       OPERATOR_IDENTITY_PROVIDER: 'descope',
       DESCOPE_PROJECT_ID: bad,
     });
-    expect(result).toEqual<ClerkExchangeResult>({ kind: 'refused' });
+    expect(result).toEqual<OperatorExchangeResult>({ kind: 'refused' });
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(warnedEvent(warn)).toBe('operator.descope.malformed_project_id');
     expect(JSON.stringify(warn.mock.calls)).not.toContain(bad);
@@ -120,20 +106,32 @@ describe('resolveOperatorExchanger — regional Descope project', () => {
       OPERATOR_IDENTITY_PROVIDER: 'descope',
       DESCOPE_PROJECT_ID: `Peuc1${'a'.repeat(27)}`,
     });
-    expect(result).toEqual<ClerkExchangeResult>({ kind: 'refused' });
+    expect(result).toEqual<OperatorExchangeResult>({ kind: 'refused' });
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(warnedEvent(warn)).toBe('operator.descope.regional_project_unsupported');
   });
 });
 
 describe('resolveOperatorExchanger — unknown provider', () => {
-  it('fails closed (no fallback to Clerk) and does not log the raw value', async () => {
+  it.each(['clerk', ' Clerk '])(
+    'refuses the retired provider %j without a network call',
+    async (p) => {
+      const { result, fetchImpl, warn } = await exchange({
+        OPERATOR_IDENTITY_PROVIDER: p,
+        DESCOPE_PROJECT_ID: PROJECT_ID,
+      });
+      expect(result).toEqual<OperatorExchangeResult>({ kind: 'refused' });
+      expect(fetchImpl).not.toHaveBeenCalled();
+      expect(warnedEvent(warn)).toBe('operator.identity.unknown_provider');
+    },
+  );
+
+  it('fails closed (no silent fallback) and does not log the raw value', async () => {
     const { result, fetchImpl, warn } = await exchange({
       OPERATOR_IDENTITY_PROVIDER: 'okta-secret-ish',
-      CLERK_PUBLISHABLE_KEY: CLERK_PK,
       DESCOPE_PROJECT_ID: PROJECT_ID,
     });
-    expect(result).toEqual<ClerkExchangeResult>({ kind: 'refused' });
+    expect(result).toEqual<OperatorExchangeResult>({ kind: 'refused' });
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(warnedEvent(warn)).toBe('operator.identity.unknown_provider');
     expect(JSON.stringify(warn.mock.calls)).not.toContain('okta-secret-ish');

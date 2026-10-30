@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>حالات الموصل والمزامنة — Retail Tower Console</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#0f766e}a:hover{color:#0b5b55}
+.disp{font-family:'Readex Pro',Dubai,'Segoe UI',sans-serif}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.cap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.cap b{font-family:'Readex Pro',sans-serif;font-size:11px;font-weight:600;color:#ffffff;background:#0a2125;border-radius:6px;padding:2px 8px}
+.cap span{font-size:15px;font-weight:700;color:#0a2125}
+.cap i{font-style:normal;font-size:12px;color:#5b6d7c}
+.box{background:#ffffff;border:1px solid #e3e9ec;border-radius:20px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25);overflow:hidden}
+.btn{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:10px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap}
+.ink{color:#ffffff;background:#0a2125;border:1px solid #0a2125}
+.ink:hover{color:#ffffff}
+.ghost{color:#0a2125;border:1px solid #d6dfe3;background:#ffffff}
+.ghost:hover{color:#0a2125}
+.conn{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin:18px;padding:16px;border-radius:16px}
+.ci{width:44px;height:44px;border-radius:13px;display:flex;align-items:center;justify-content:center;flex:none}
+.tag{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border-radius:9999px;font-size:12px;font-weight:700}
+.note{margin:0 18px 18px;font-size:13px;color:#33454f;line-height:1.6}
+.mini{display:flex;align-items:center;gap:8px;margin:18px;padding:14px;border-radius:14px;background:#f8fafb;border:1px solid #eef2f4}
+.mn{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:12px;color:#33454f}
+.md{width:12px;height:12px;border-radius:50%}
+.ml{flex:0 0 30px;height:2px;background:repeating-linear-gradient(90deg,#9fb4ba 0 5px,transparent 5px 9px)}
+</style>
+</helmet>
+<div style="width: 1440px; min-height: 1240px; box-sizing: border-box; padding: 40px; background: #f2f5f6; color: #0a2125; font-family: Dubai, 'Segoe UI', Tahoma, system-ui, sans-serif; font-size: 14px; line-height: 1.6; display: flex; flex-direction: column; gap: 24px">
+  <div style="display: flex; flex-direction: column; gap: 4px">
+    <h1 class="disp" style="margin: 0; font-size: 26px; font-weight: 600">الموصل والمزامنة — الحالات</h1>
+    <p style="margin: 0; color: #5b6d7c">كل مجال يُعرض بحالته الخاصة؛ لا توجد حالة واحدة مجمّعة. ما يبلّغ عنه الموصل يُكتب «حسب تقرير الموصل».</p>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px">
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="cap"><b>1</b><span>لا يوجد موصل مسجّل</span><i>مؤسسة جديدة</i></div>
+      <section class="box" style="padding: 34px 24px 30px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px">
+        <span class="ci" aria-hidden="true" style="width: 64px; height: 64px; border-radius: 18px; background: #0a2125; color: #5fe0cf"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/></svg></span>
+        <strong style="font-size: 16px">لا يوجد موصل ERPNext مسجّل لهذه المؤسسة.</strong>
+        <span style="color: #5b6d7c; max-width: 440px">تُحفظ المبيعات في الخادم كالمعتاد، لكنها لا تُرحَّل إلى ERPNext قبل تسجيل موصل.</span>
+        <a href="#" class="btn ghost" style="margin-top: 6px">دليل تسجيل الموصل</a>
+      </section>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="cap"><b>2</b><span>مسجّل ولم يظهر بعد</span><i>لم يتصل الموصل أول مرة</i></div>
+      <section class="box">
+        <div class="conn" style="background: #f4f7f8; border: 1px dashed #c6d3d8">
+          <span class="ci" aria-hidden="true" style="background: #e9eff1; color: #5b6d7c"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+          <div style="flex: 1 1 200px; display: flex; flex-direction: column; line-height: 1.4"><strong dir="ltr" class="mono" style="font-size: 14px; text-align: end">nile-connector-02</strong><span style="font-size: 12px; color: #5b6d7c">الاختبار · <bdi dir="ltr">nile-test.erp.example</bdi></span></div>
+          <span class="tag" style="background: #e9eff1; color: #33454f">لم يظهر بعد</span>
+        </div>
+        <p class="note">لا توجد إشارة من هذا المثيل حتى الآن. الإصدار والوصول إلى ERPNext: <strong>لم يُبلَّغ</strong>.</p>
+      </section>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="cap"><b>3</b><span>انقطع الاتصال</span><i>الموصل لا يصل إلى ERPNext</i></div>
+      <section class="box">
+        <div class="conn" style="background: #fff4f3; border: 1px solid #f5d3cf">
+          <span class="ci" aria-hidden="true" style="background: #fde7e5; color: #b3261e"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/><path d="M3 3l18 18"/></svg></span>
+          <div style="flex: 1 1 200px; display: flex; flex-direction: column; line-height: 1.4"><strong dir="ltr" class="mono" style="font-size: 14px; text-align: end">nile-connector-01</strong><span style="font-size: 12px; color: #5b6d7c">الإنتاج · آخر ظهور منذ <bdi dir="ltr">2</bdi> س</span></div>
+          <span class="tag" style="background: #fde7e5; color: #b3261e">لا يصل · حسب تقرير الموصل</span>
+        </div>
+        <div class="mini" aria-label="مسار البيع">
+          <span class="mn"><span class="md" aria-hidden="true" style="background: #2fb36d"></span>نقاط البيع</span><span class="ml" aria-hidden="true"></span>
+          <span class="mn"><span class="md" aria-hidden="true" style="background: #2fb36d"></span>الخادم · يحفظ</span><span class="ml" aria-hidden="true"></span>
+          <span class="mn"><span class="md" aria-hidden="true" style="background: #e5484d"></span>ERPNext · متوقف</span>
+        </div>
+        <p class="note"><strong>البيع مستمر والمبيعات محفوظة في الخادم.</strong> يتوقف الترحيل إلى ERPNext فقط حتى يعود الاتصال.</p>
+      </section>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="cap"><b>4</b><span>تعذّر قراءة حالة الاتصال</span><i>المشكلة في القراءة لا في الموصل</i></div>
+      <section class="box">
+        <div role="alert" style="margin: 18px 18px 12px; padding: 12px 14px; border-radius: 12px; background: #fdf5e8; border: 1px solid #f3dfbd; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 13px">
+          <span style="flex: 1 1 260px"><strong>تعذّر قراءة حالة الاتصال، لذلك تظهر كل المثيلات بلا إشارة.</strong> <span class="mono" style="color: #5b6d7c"><bdi dir="ltr">req_0b6e2f19</bdi></span></span>
+          <button type="button" class="btn ghost" style="height: 32px">إعادة المحاولة</button>
+        </div>
+        <div class="conn" style="margin-top: 0; background: #f4f7f8; border: 1px solid #e3e9ec">
+          <span class="ci" aria-hidden="true" style="background: #e9eff1; color: #5b6d7c"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></svg></span>
+          <div style="flex: 1 1 200px; display: flex; flex-direction: column; line-height: 1.4"><strong dir="ltr" class="mono" style="font-size: 14px; text-align: end">nile-connector-01</strong><span style="font-size: 12px; color: #5b6d7c">الإنتاج</span></div>
+          <span class="tag" style="background: #e9eff1; color: #33454f">غير معروف</span>
+        </div>
+      </section>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="cap"><b>5</b><span>مجال غير متاح بعد</span><i>الخادم لم يُرجع المطابقة</i></div>
+      <section class="box" style="padding: 18px; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 14px; background: #f5fbf8; border: 1px solid #d5eedf">
+          <span class="ci" aria-hidden="true" style="width: 40px; height: 40px; border-radius: 12px; background: #e4f5ec; color: #15774d"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg></span>
+          <div style="flex: 1; display: flex; flex-direction: column; line-height: 1.4"><strong>الترحيل إلى ERPNext</strong><span style="font-size: 13px; color: #15774d; font-weight: 700">لا يحتاج إلى متابعة</span></div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 14px; background: #f4f7f8; border: 1px dashed #c6d3d8">
+          <span class="ci" aria-hidden="true" style="width: 40px; height: 40px; border-radius: 12px; background: #e9eff1; color: #5b6d7c"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></svg></span>
+          <div style="flex: 1; display: flex; flex-direction: column; line-height: 1.4"><strong>المطابقة</strong><span style="font-size: 13px; color: #33454f; font-weight: 700">غير متاح بعد</span></div>
+        </div>
+      </section>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="cap"><b>6</b><span>كل شيء يعمل</span><i>هادئ، بلا احتفال</i></div>
+      <section class="box">
+        <div class="conn" style="background: #0a2125; color: #e6f0f1; background-image: radial-gradient(260px 140px at 0% 0%, rgba(95,224,207,.2), transparent 70%)">
+          <span class="ci" aria-hidden="true" style="background: rgba(95,224,207,.16); color: #5fe0cf"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg></span>
+          <div style="flex: 1 1 200px; display: flex; flex-direction: column; line-height: 1.4"><strong style="color: #ffffff">لا شيء يحتاج إلى متابعة</strong><span style="font-size: 12px; color: #a9c2c5">الترحيل والمطابقة سليمان · الموصل متصل منذ <bdi dir="ltr">20</bdi> ث</span></div>
+        </div>
+        <div class="mini" aria-label="مسار البيع">
+          <span class="mn"><span class="md" aria-hidden="true" style="background: #2fb36d"></span>نقاط البيع <b class="disp"><bdi dir="ltr">7/7</bdi></b></span><span class="ml" aria-hidden="true"></span>
+          <span class="mn"><span class="md" aria-hidden="true" style="background: #2fb36d"></span>الخادم <b class="disp"><bdi dir="ltr">1,284</bdi></b></span><span class="ml" aria-hidden="true"></span>
+          <span class="mn"><span class="md" aria-hidden="true" style="background: #2fb36d"></span>ERPNext <b class="disp"><bdi dir="ltr">1,284</bdi></b></span>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1240}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

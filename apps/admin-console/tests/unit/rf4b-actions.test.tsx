@@ -457,6 +457,9 @@ describe("bulk dismiss", () => {
     expect(await screen.findByRole("dialog", { name: "Unknown item" })).toBeDefined();
   });
 
+  // RT-944: 201 rows are the boundary under test, and rendering and querying them
+  // (about 2,700 nodes) took 0.5-2 s of the 1 s wait and 3-4 s of the 5 s test on
+  // a loaded runner. Nothing here is timed; the budgets fit the data size.
   test("more than 200 selected blocks the dismiss and says why", async () => {
     const many = Array.from({ length: BULK_DISMISS_MAX + 1 }, (_, i) => ({
       ...PENDING,
@@ -465,13 +468,15 @@ describe("bulk dismiss", () => {
     }));
     listUnknownItems.mockResolvedValue(page(...many));
     renderList();
-    fireEvent.click(await screen.findByLabelText("Select all rows on this page"));
+    fireEvent.click(
+      await screen.findByLabelText("Select all rows on this page", {}, { timeout: 5000 }),
+    );
     expect(screen.getByText(/at most 200 items/)).toBeDefined();
     expect(
       (screen.getByRole("button", { name: "Dismiss selected" }) as HTMLButtonElement).disabled,
     ).toBe(true);
     expect(bulkDismissUnknownItems).not.toHaveBeenCalled();
-  });
+  }, 15_000);
 
   test("the confirm step does not survive a scope change", async () => {
     listUnknownItems.mockResolvedValue(page(PENDING, PENDING_2));

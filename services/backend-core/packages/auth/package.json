@@ -30,7 +30,6 @@
     "lint": "tsc -p tsconfig.build.json --noEmit --incremental false"
   },
   "dependencies": {
-    "@clerk/backend": "3.4.5",
     "argon2": "0.44.0"
   },
   "devDependencies": {
