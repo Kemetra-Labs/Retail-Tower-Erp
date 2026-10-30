@@ -160,3 +160,49 @@ test("a removable chip has a 24px target and removing it applies at once", async
   await remove.click();
   await expect(page).not.toHaveURL(/state=revoked/);
 });
+
+// RT-960: every list with two or more filters shows its applied filters as chips.
+test("shift closes: an applied filter is a chip; removing it applies at once", async ({
+  page,
+  t,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockRealisticApi(page);
+  await page.goto("/shift-closes?kind=forced");
+  const chips = page.getByRole("list", { name: t("filter.applied") });
+  await expect(chips).toContainText(t("shift.kind.forced"));
+  await chips.getByRole("button").first().click();
+  await expect(page).not.toHaveURL(/kind=forced/);
+});
+
+test("unknown items: a non-default filter is a chip; removing it restores the default", async ({
+  page,
+  t,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockRealisticApi(page);
+  await page.goto("/unknown-items");
+  await page.getByLabel(t("unknownItems.filters.status")).selectOption("dismissed");
+  await page.getByRole("button", { name: t("filter.apply"), exact: true }).click();
+  const chips = page.getByRole("list", { name: t("filter.applied") });
+  await expect(chips).toContainText(t("unknownItems.status.dismissed"));
+  await chips.getByRole("button").first().click();
+  await expect(chips).toHaveCount(0);
+  await expect(page.getByLabel(t("unknownItems.filters.status"))).toHaveValue("pending");
+});
+
+test("audit: an applied filter is a chip; removing it clears the field and applies", async ({
+  page,
+  t,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockRealisticApi(page);
+  await page.goto("/audit");
+  await page.getByLabel(t("audit.field.action"), { exact: true }).fill("auth.");
+  await page.getByRole("button", { name: t("filter.apply"), exact: true }).click();
+  const chips = page.getByRole("list", { name: t("filter.applied") });
+  await expect(chips).toContainText("auth.");
+  await chips.getByRole("button").first().click();
+  await expect(chips).toHaveCount(0);
+  await expect(page.getByLabel(t("audit.field.action"), { exact: true })).toHaveValue("");
+});

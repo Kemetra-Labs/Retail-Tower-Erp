@@ -455,8 +455,9 @@ These classes exist on `main` and new work reuses them until a migration slice r
   - Optional «فلاتر إضافية» disclosure: its count is the applied hidden filters and is in
     its accessible name. The region is hidden, not unmounted. It opens when a hidden
     field has an error.
-  - Optional chips for applied filters. Removing one applies straight away; a required
-    filter has no remove control. The remove target is 24px.
+  - Chips for applied filters on every list with two or more filters. Removing one applies
+    straight away; a required filter has no remove control. The remove target is 24px.
+    Values are bidi-isolated (`isolate`, `ltr`).
   - A list with one select filter uses `SelectFilterBar`.
 - **DataTable** (`src/components/DataTable.tsx`; usage rules in the notes below), **Drawer** (focus-trapped dialog), and
   **ListState** (loading / empty).

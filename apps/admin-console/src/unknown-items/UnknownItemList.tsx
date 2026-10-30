@@ -1,7 +1,7 @@
 import { Banner } from "@/components/Banner";
 import { ConfirmDelete } from "@/components/ConfirmDelete";
 import { DataTable } from "@/components/DataTable";
-import { FilterBar, FilterField } from "@/components/FilterBar";
+import { FilterBar, type FilterChip, FilterField, isolate } from "@/components/FilterBar";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { SelectionSummary } from "@/components/SelectionSummary";
@@ -146,6 +146,45 @@ const DEFAULT_FILTERS: QueueFilters = {
   groupBy: "",
 };
 
+const STATUS_LABEL: Record<Status, MessageKey> = {
+  pending: "unknownItems.status.pending",
+  dismissed: "unknownItems.status.dismissed",
+  resolved: "unknownItems.status.resolved",
+};
+const SORT_LABEL: Record<QueueFilters["sort"], MessageKey> = {
+  age_desc: "unknownItems.sort.newest",
+  age_asc: "unknownItems.sort.oldest",
+  store: "unknownItems.sort.store",
+};
+const GROUP_LABEL: Record<Exclude<QueueFilters["groupBy"], "">, MessageKey> = {
+  store: "unknownItems.group.store",
+  source_system: "unknownItems.group.source",
+};
+
+/** Each filter away from its default, as a removable chip (RT-960). */
+function queueChips(
+  t: T,
+  applied: QueueFilters,
+  reset: (key: keyof QueueFilters) => void,
+): FilterChip[] {
+  const chips: FilterChip[] = [];
+  const add = (key: keyof QueueFilters, label: string, value: string) =>
+    chips.push({ key, label: `${label}: ${isolate(value)}`, onRemove: () => reset(key) });
+  if (applied.status !== DEFAULT_FILTERS.status) {
+    add("status", t("unknownItems.filters.status"), t(STATUS_LABEL[applied.status]));
+  }
+  if (applied.sourceSystem) {
+    add("sourceSystem", t("unknownItems.filters.source"), applied.sourceSystem);
+  }
+  if (applied.sort !== DEFAULT_FILTERS.sort) {
+    add("sort", t("unknownItems.filters.sort"), t(SORT_LABEL[applied.sort]));
+  }
+  if (applied.groupBy) {
+    add("groupBy", t("unknownItems.filters.groupBy"), t(GROUP_LABEL[applied.groupBy]));
+  }
+  return chips;
+}
+
 export function UnknownItemList(): React.JSX.Element {
   const t = useT();
   const { activeTenantId, activeStoreId } = useUnknownItemScope();
@@ -154,6 +193,11 @@ export function UnknownItemList(): React.JSX.Element {
   const [applied, setApplied] = useState<QueueFilters>(DEFAULT_FILTERS);
   const [draft, setDraft] = useState<QueueFilters>(DEFAULT_FILTERS);
   const { status, sourceSystem, sort, groupBy } = applied;
+  const chips = queueChips(t, applied, (key) => {
+    const next = { ...applied, [key]: DEFAULT_FILTERS[key] };
+    setApplied(next);
+    setDraft((current) => ({ ...current, [key]: DEFAULT_FILTERS[key] }));
+  });
   const setField =
     <K extends keyof QueueFilters>(key: K) =>
     (value: QueueFilters[K]) =>
@@ -227,6 +271,7 @@ export function UnknownItemList(): React.JSX.Element {
           setDraft(DEFAULT_FILTERS);
           setApplied(DEFAULT_FILTERS);
         }}
+        chips={chips}
       >
         <FilterField id="ui-status" label={t("unknownItems.filters.status")}>
           <select

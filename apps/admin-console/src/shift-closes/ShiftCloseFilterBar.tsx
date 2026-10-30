@@ -6,7 +6,7 @@
  * selected store's zone, else UTC, and the bar says which. The bar never offers
  * a zero-variance view: "exception" is non-zero variance only, set in the query.
  */
-import { FilterBar, FilterField } from "@/components/FilterBar";
+import { FilterBar, type FilterChip, FilterField, isolate, ltr } from "@/components/FilterBar";
 import { type MessageKey, useT } from "@/i18n";
 import { useState } from "react";
 import {
@@ -161,6 +161,62 @@ function ValueFields({ draft, set, errors }: Readonly<FieldsProps>): React.JSX.E
   );
 }
 
+/** The applied filters as removable chips (RT-960). */
+function useChips(
+  applied: Draft,
+  stores: readonly StoreInfo[],
+  onApply: (filters: ShiftCloseFilters) => void,
+): FilterChip[] {
+  const t = useT();
+  const chips: FilterChip[] = [];
+  const remove = (patch: Partial<Draft>) => () => onApply({ ...applied, ...patch });
+  if (applied.storeId) {
+    const name = stores.find((s) => s.id === applied.storeId)?.name ?? applied.storeId;
+    chips.push({
+      key: "store",
+      label: `${t("shift.filter.store")}: ${isolate(name)}`,
+      onRemove: remove({ storeId: "" }),
+    });
+  }
+  if (applied.fromDate || applied.toDate) {
+    const period = [applied.fromDate, applied.toDate].filter(Boolean).join(" – ");
+    chips.push({
+      key: "period",
+      label: `${t("shift.filter.from")} – ${t("shift.filter.to")}: ${ltr(period)}`,
+      onRemove: remove({ fromDate: "", toDate: "" }),
+    });
+  }
+  if (applied.closeKind) {
+    chips.push({
+      key: "kind",
+      label: `${t("shift.filter.kind")}: ${isolate(t(applied.closeKind === "forced" ? "shift.kind.forced" : "shift.kind.normal"))}`,
+      onRemove: remove({ closeKind: "" }),
+    });
+  }
+  if (applied.minVariance) {
+    chips.push({
+      key: "min",
+      label: `${t("shift.filter.minVariance")}: ${ltr(applied.minVariance)}`,
+      onRemove: remove({ minVariance: "" }),
+    });
+  }
+  if (applied.currency) {
+    chips.push({
+      key: "currency",
+      label: `${t("shift.filter.currency")}: ${ltr(applied.currency)}`,
+      onRemove: remove({ currency: "" }),
+    });
+  }
+  if (applied.approval) {
+    chips.push({
+      key: "approval",
+      label: `${t("shift.filter.approval")}: ${isolate(t(applied.approval === "approved" ? "shift.filter.approvalApproved" : "shift.filter.approvalNotApproved"))}`,
+      onRemove: remove({ approval: "" }),
+    });
+  }
+  return chips;
+}
+
 export function ShiftCloseFilterBar({
   applied,
   stores,
@@ -171,6 +227,7 @@ export function ShiftCloseFilterBar({
   const t = useT();
   const [draft, setDraft] = useState<Draft>(applied);
   const [errors, setErrors] = useState<FilterErrors>(initialErrors);
+  const chips = useChips(applied, stores, onApply);
 
   // The URL is the source of truth: when the applied filters change from outside
   // (Back, a deep link) the draft follows. The form itself stays mounted, so
@@ -220,6 +277,7 @@ export function ShiftCloseFilterBar({
       extra={<ValueFields draft={draft} set={set} errors={errors} />}
       extraActive={extraActive}
       extraOpen={Boolean(errors.minVariance || errors.currency)}
+      chips={chips}
       note={
         <p className="filter-bar__note-line">
           {t.rich("shift.filter.zoneNote", { zone: <bdi dir="ltr">{zone}</bdi> })}
