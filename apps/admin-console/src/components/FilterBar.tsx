@@ -45,6 +45,8 @@ export interface FilterBarProps {
   busy?: boolean;
   /** The apply verb; «تطبيق» unless a screen must search before any read. */
   applyLabel?: string;
+  /** For a screen with uncontrolled fields (it resets the form on Clear). */
+  formRef?: React.Ref<HTMLFormElement>;
 }
 
 export function FilterField({
@@ -134,6 +136,7 @@ export function FilterBar({
   note,
   busy = false,
   applyLabel,
+  formRef,
 }: Readonly<FilterBarProps>): React.JSX.Element {
   const t = useT();
   const regionId = useId();
@@ -143,6 +146,7 @@ export function FilterBar({
   return (
     <section className="section-panel filter-bar">
       <form
+        ref={formRef}
         className="filter-bar__form"
         aria-label={label}
         // Filters are not unsaved work: no Stay / Discard prompt for them (RT-268).
@@ -183,5 +187,82 @@ export function FilterBar({
         ) : null}
       </form>
     </section>
+  );
+}
+
+export interface SelectFilterOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * A list with one select filter (a store, a state, a class) on the FilterBar:
+ * the select edits a draft, Apply applies it, Clear returns to "all" (""). The
+ * applied value is the screen's (its URL or page state); the draft follows it.
+ */
+export function SelectFilterBar({
+  label,
+  id,
+  fieldLabel,
+  value,
+  allLabel,
+  options,
+  note,
+  onApply,
+}: Readonly<{
+  /** The form's accessible name. */
+  label: string;
+  id: string;
+  fieldLabel: string;
+  /** The applied value; "" is all. */
+  value: string;
+  allLabel: string;
+  options: readonly SelectFilterOption[];
+  /** A note under the field, tied to the select by `${id}-note`. */
+  note?: React.ReactNode;
+  onApply: (value: string) => void;
+}>): React.JSX.Element {
+  const [draft, setDraft] = useState(value);
+  const [synced, setSynced] = useState(value);
+  if (synced !== value) {
+    setSynced(value);
+    setDraft(value);
+  }
+  return (
+    <FilterBar
+      label={label}
+      onSubmit={(event) => {
+        event.preventDefault();
+        onApply(draft);
+      }}
+      onClear={() => {
+        setDraft("");
+        onApply("");
+      }}
+      note={
+        note ? (
+          <p id={`${id}-note`} className="filter-bar__note-line">
+            {note}
+          </p>
+        ) : undefined
+      }
+    >
+      <FilterField id={id} label={fieldLabel}>
+        <select
+          id={id}
+          className="input"
+          aria-describedby={note ? `${id}-note` : undefined}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+        >
+          <option value="">{allLabel}</option>
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </FilterField>
+    </FilterBar>
   );
 }

@@ -40,6 +40,7 @@ export const productRecon = {
   "productRecon.error.rateLimited": "طلبات كثيرة جدًا.",
 
   // --- Class filter and classes ------------------------------------------------------------
+  "productRecon.filter.label": "تصفية حسب التصنيف",
   "productRecon.filter.class": "التصنيف",
   "productRecon.filter.all": "كل التصنيفات",
   "productRecon.class.match": "مطابق",

@@ -2,43 +2,6 @@
  * time, contained status color, no brand color. Built from existing
  * tokens; no new color/font/dependency. */
 
-.audit-filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--space-3);
-  padding: var(--space-4);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-object);
-}
-/* Leading glyph anchors the bar as a query panel (Console v4.0). Aligned to the
- * input row, not the labels, so it sits beside the fields. */
-.audit-filters__lead {
-  display: inline-flex;
-  align-items: center;
-  height: var(--control-h);
-  color: var(--color-text-muted);
-}
-.audit-filters__field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-.audit-filters__field label {
-  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
-  color: var(--color-text-muted);
-}
-.audit-filters__field .input {
-  width: auto;
-  min-width: 150px;
-}
-.audit-filters__actions {
-  display: flex;
-  gap: var(--space-2);
-  margin-inline-start: auto;
-}
-
 .audit-prequery {
   padding: var(--space-7) 0;
   color: var(--color-text-muted);

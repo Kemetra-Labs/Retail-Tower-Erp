@@ -48,8 +48,6 @@ export const shift: MessagesOf<typeof ar> = {
   "shift.filter.approvalAny": "Any",
   "shift.filter.approvalApproved": "With a recorded approver",
   "shift.filter.approvalNotApproved": "Without a recorded approver",
-  "shift.filter.apply": "Apply",
-  "shift.filter.clear": "Clear",
   "shift.filter.minVarianceInvalid": "Enter a valid amount (for example 25.50).",
   "shift.filter.currencyInvalid": "Enter a three-letter currency code.",
   "shift.filter.dateInvalid": "Enter a real date between 2000 and 2100.",

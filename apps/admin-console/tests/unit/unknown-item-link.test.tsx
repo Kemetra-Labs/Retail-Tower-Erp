@@ -112,6 +112,8 @@ describe("the link step", () => {
     inspectUnknownItem.mockResolvedValue({ status: 200, data: dismissed });
     renderList();
     fireEvent.change(await screen.findByLabelText("Status"), { target: { value: "dismissed" } });
+    // RT-960: the queue filters apply on Apply, not on change.
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     fireEvent.click(await screen.findByText("5012345678900"));
     const drawer = await screen.findByRole("dialog", { name: "Unknown item" });
     await within(drawer).findByRole("button", { name: "Reopen" });

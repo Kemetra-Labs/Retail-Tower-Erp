@@ -129,6 +129,7 @@ export const saleSync: MessagesOf<typeof ar> = {
   "saleSync.list.storeNotFound": "This store is not available to you.",
   "saleSync.list.unknownStore": "Unknown store",
   "saleSync.list.openSale": "Open sale {ref}",
+  "saleSync.filter.label": "Filter sales needing repair",
   "saleSync.filter.store": "Store",
   "saleSync.filter.allStores": "All stores",
   "saleSync.col.externalId": "Source reference",

@@ -1,10 +1,10 @@
 import { Banner } from "@/components/Banner";
 import { ConfirmDelete } from "@/components/ConfirmDelete";
 import { DataTable } from "@/components/DataTable";
+import { FilterBar, FilterField } from "@/components/FilterBar";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { SelectionSummary } from "@/components/SelectionSummary";
-import { Icon } from "@/components/icons/Icon";
 import { useRowSelection } from "@/components/useRowSelection";
 import { DateTime, type MessageKey, type T, useT } from "@/i18n";
 import {
@@ -132,13 +132,32 @@ function UnknownItemListError({
   );
 }
 
+interface QueueFilters {
+  status: Status;
+  sourceSystem: string;
+  sort: NonNullable<ListUnknownItemsParams["sort"]>;
+  groupBy: NonNullable<ListUnknownItemsParams["group_by"]> | "";
+}
+
+const DEFAULT_FILTERS: QueueFilters = {
+  status: "pending",
+  sourceSystem: "",
+  sort: "age_desc",
+  groupBy: "",
+};
+
 export function UnknownItemList(): React.JSX.Element {
   const t = useT();
   const { activeTenantId, activeStoreId } = useUnknownItemScope();
-  const [sourceSystem, setSourceSystem] = useState("");
-  const [sort, setSort] = useState<NonNullable<ListUnknownItemsParams["sort"]>>("age_desc");
-  const [groupBy, setGroupBy] = useState<ListUnknownItemsParams["group_by"] | "">("");
-  const [status, setStatus] = useState<Status>("pending");
+  // RT-960: the fields edit a draft; Apply makes it the queue's filters (one
+  // read per Apply, not one per keystroke). They stay page state, as before.
+  const [applied, setApplied] = useState<QueueFilters>(DEFAULT_FILTERS);
+  const [draft, setDraft] = useState<QueueFilters>(DEFAULT_FILTERS);
+  const { status, sourceSystem, sort, groupBy } = applied;
+  const setField =
+    <K extends keyof QueueFilters>(key: K) =>
+    (value: QueueFilters[K]) =>
+      setDraft((current) => ({ ...current, [key]: value }));
   const [inspectId, setInspectId] = useState<string | null>(null);
   const [notice, setNotice] = useState<MessageKey | null>(null);
   const [bulkSummary, setBulkSummary] = useState<BulkSummary | null>(null);
@@ -198,60 +217,64 @@ export function UnknownItemList(): React.JSX.Element {
     <div className="surface">
       <PageHeader title={t("unknownItems.title")} subtitle={t("unknownItems.sub")} />
 
-      <fieldset className="unknown-item-controls">
-        <legend className="unknown-item-controls__legend">
-          <Icon name="search" size="sm" className="unknown-item-controls__icon" />
-          {t("unknownItems.filters.legend")}
-        </legend>
-        <label className="unknown-item-controls__field">
-          <span>{t("unknownItems.filters.status")}</span>
+      <FilterBar
+        label={t("unknownItems.filters.legend")}
+        onSubmit={(event) => {
+          event.preventDefault();
+          setApplied(draft);
+        }}
+        onClear={() => {
+          setDraft(DEFAULT_FILTERS);
+          setApplied(DEFAULT_FILTERS);
+        }}
+      >
+        <FilterField id="ui-status" label={t("unknownItems.filters.status")}>
           <select
+            id="ui-status"
             className="input"
-            value={status}
-            onChange={(e) => setStatus(e.target.value as Status)}
+            value={draft.status}
+            onChange={(e) => setField("status")(e.target.value as Status)}
           >
             <option value="pending">{t("unknownItems.status.pending")}</option>
             <option value="dismissed">{t("unknownItems.status.dismissed")}</option>
             <option value="resolved">{t("unknownItems.status.resolved")}</option>
           </select>
-        </label>
-        <label className="unknown-item-controls__field">
-          <span>{t("unknownItems.filters.source")}</span>
+        </FilterField>
+        <FilterField id="ui-source" label={t("unknownItems.filters.source")}>
           <input
+            id="ui-source"
             className="input"
             type="text"
-            value={sourceSystem}
-            onChange={(e) => setSourceSystem(e.target.value)}
+            value={draft.sourceSystem}
+            onChange={(e) => setField("sourceSystem")(e.target.value)}
             placeholder={t("unknownItems.filters.sourcePlaceholder")}
           />
-        </label>
-        <label className="unknown-item-controls__field">
-          <span>{t("unknownItems.filters.sort")}</span>
+        </FilterField>
+        <FilterField id="ui-sort" label={t("unknownItems.filters.sort")}>
           <select
+            id="ui-sort"
             className="input"
-            value={sort}
-            onChange={(e) => setSort(e.target.value as NonNullable<ListUnknownItemsParams["sort"]>)}
+            value={draft.sort}
+            onChange={(e) => setField("sort")(e.target.value as QueueFilters["sort"])}
           >
             <option value="age_desc">{t("unknownItems.sort.newest")}</option>
             <option value="age_asc">{t("unknownItems.sort.oldest")}</option>
             <option value="store">{t("unknownItems.sort.store")}</option>
           </select>
-        </label>
-        <label className="unknown-item-controls__field">
-          <span>{t("unknownItems.filters.groupBy")}</span>
+        </FilterField>
+        <FilterField id="ui-group" label={t("unknownItems.filters.groupBy")}>
           <select
+            id="ui-group"
             className="input"
-            value={groupBy}
-            onChange={(e) =>
-              setGroupBy(e.target.value as NonNullable<ListUnknownItemsParams["group_by"]> | "")
-            }
+            value={draft.groupBy}
+            onChange={(e) => setField("groupBy")(e.target.value as QueueFilters["groupBy"])}
           >
             <option value="">{t("unknownItems.group.none")}</option>
             <option value="store">{t("unknownItems.group.store")}</option>
             <option value="source_system">{t("unknownItems.group.source")}</option>
           </select>
-        </label>
-      </fieldset>
+        </FilterField>
+      </FilterBar>
 
       {error ? <UnknownItemListError error={error} onRetry={refetch} /> : null}
       {notice ? <Banner variant="success" message={t(notice)} /> : null}

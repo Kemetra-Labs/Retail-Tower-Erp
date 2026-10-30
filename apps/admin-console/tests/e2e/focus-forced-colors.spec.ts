@@ -280,7 +280,7 @@ for (const forcedColors of ["none", "active"] as const) {
         }),
       );
       await page.goto("/audit");
-      await page.getByRole("button", { name: t("audit.filters.apply") }).click();
+      await page.getByRole("button", { name: t("filter.apply") }).click();
       await page.getByRole("button", { name: "shift.forced_close" }).focus();
       await page.keyboard.press("Enter");
       const drawer = page.getByRole("dialog");

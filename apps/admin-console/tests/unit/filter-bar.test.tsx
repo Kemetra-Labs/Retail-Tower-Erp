@@ -87,9 +87,9 @@ describe("FilterBar", () => {
 
   test("an error in a hidden field opens the disclosure", () => {
     renderBar({ extra: <span>x</span>, extraOpen: true });
-    expect(
-      screen.getByRole("button", { name: "More filters" }).getAttribute("aria-expanded"),
-    ).toBe("true");
+    expect(screen.getByRole("button", { name: "More filters" }).getAttribute("aria-expanded")).toBe(
+      "true",
+    );
   });
 
   test("chips: each applied filter, removable unless required; removing calls back", () => {
@@ -102,7 +102,9 @@ describe("FilterBar", () => {
     });
     const list = screen.getByRole("list", { name: "Applied filters" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(2);
-    expect(within(list).queryByRole("button", { name: "Remove filter Store: Dubai Mall" })).toBeNull();
+    expect(
+      within(list).queryByRole("button", { name: "Remove filter Store: Dubai Mall" }),
+    ).toBeNull();
     fireEvent.click(within(list).getByRole("button", { name: "Remove filter Trust: Revoked" }));
     expect(onRemove).toHaveBeenCalledTimes(1);
   });

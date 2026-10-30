@@ -1,12 +1,12 @@
 /**
- * RT-18 filter bar. Only the filters the generated client has: store, a closed
- * date range, close kind, a minimum absolute variance, currency, and whether an
- * approver was recorded. One primary Apply, a quiet Clear. A date is read in the
+ * RT-18 filters, laid out by the shared FilterBar (RT-960). Only the filters the
+ * generated client has: store and a closed date range in the main row; close
+ * kind, a minimum absolute variance, currency and whether an approver was
+ * recorded behind «فلاتر إضافية». Apply, a ghost Clear. A date is read in the
  * selected store's zone, else UTC, and the bar says which. The bar never offers
  * a zero-variance view: "exception" is non-zero variance only, set in the query.
  */
-import { GatedButton } from "@/components/GatedButton";
-import { InlineError } from "@/components/InlineError";
+import { FilterBar, FilterField } from "@/components/FilterBar";
 import { type MessageKey, useT } from "@/i18n";
 import { useState } from "react";
 import {
@@ -51,11 +51,9 @@ function Field({
 }>): React.JSX.Element {
   const t = useT();
   return (
-    <div className="shift-filters__field">
-      <label htmlFor={id}>{label}</label>
+    <FilterField id={id} label={label} error={error ? t(error) : undefined}>
       {children}
-      <InlineError message={error ? t(error) : undefined} />
-    </div>
+    </FilterField>
   );
 }
 
@@ -66,7 +64,6 @@ function ScopeFields({
   stores,
 }: Readonly<FieldsProps & { stores: readonly StoreInfo[] }>): React.JSX.Element {
   const t = useT();
-  const zone = stores.find((s) => s.id === draft.storeId)?.timezone ?? "UTC";
   return (
     <>
       <Field id="sf-store" label={t("shift.filter.store")}>
@@ -104,9 +101,6 @@ function ScopeFields({
           onChange={(e) => set("toDate")(e.target.value)}
         />
       </Field>
-      <p className="shift-filters__zone">
-        {t.rich("shift.filter.zoneNote", { zone: <bdi dir="ltr">{zone}</bdi> })}
-      </p>
     </>
   );
 }
@@ -211,25 +205,28 @@ export function ShiftCloseFilterBar({
     onClear();
   }
 
+  const zone = stores.find((s) => s.id === draft.storeId)?.timezone ?? "UTC";
+  const extraActive = [
+    applied.closeKind,
+    applied.minVariance,
+    applied.currency,
+    applied.approval,
+  ].filter((value) => value !== "").length;
   return (
-    <form
-      className="shift-filters"
-      aria-label={t("shift.filter.label")}
-      // Filters are not unsaved work: no Stay / Discard prompt for them (RT-268).
-      data-dirty-guard="off"
+    <FilterBar
+      label={t("shift.filter.label")}
       onSubmit={submit}
-      noValidate
+      onClear={clear}
+      extra={<ValueFields draft={draft} set={set} errors={errors} />}
+      extraActive={extraActive}
+      extraOpen={Boolean(errors.minVariance || errors.currency)}
+      note={
+        <p className="filter-bar__note-line">
+          {t.rich("shift.filter.zoneNote", { zone: <bdi dir="ltr">{zone}</bdi> })}
+        </p>
+      }
     >
       <ScopeFields draft={draft} set={set} errors={errors} stores={stores} />
-      <ValueFields draft={draft} set={set} errors={errors} />
-      <div className="shift-filters__actions">
-        <GatedButton type="submit" className="btn-primary">
-          {t("shift.filter.apply")}
-        </GatedButton>
-        <button type="button" className="btn-ghost" onClick={clear}>
-          {t("shift.filter.clear")}
-        </button>
-      </div>
-    </form>
+    </FilterBar>
   );
 }

@@ -168,6 +168,8 @@ test("S2: the store filter narrows the C3 reads; the connection stays tenant-wid
   await expect(page.getByRole("row", { name: /Northstar ERP/ })).toBeVisible();
 
   await page.getByLabel(t("erp.filter.store")).selectOption(STORE);
+  // RT-960: the filter applies on Apply, not on change.
+  await page.getByRole("button", { name: t("filter.apply"), exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`store=${STORE}`));
   for (const path of ["summary", "posting-backlog", "reconciliation-runs"]) {
     await expect

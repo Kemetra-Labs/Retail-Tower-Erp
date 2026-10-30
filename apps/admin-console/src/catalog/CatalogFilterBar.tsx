@@ -1,13 +1,13 @@
 /**
- * RT-765 catalog filter form (CAT-C1a, RT-752 AC 4). Search text, status
- * (default «نشط») and category. Nothing is read until Search applies the form to
- * the URL. The store is not a filter here: it comes from the scope header. The
+ * RT-765 catalog filters (CAT-C1a, RT-752 AC 4), laid out by the shared
+ * FilterBar (RT-960). Search text, status (default «نشط») and category; Apply
+ * writes them to the URL. The store is not a filter here: it comes from the
+ * scope header. The
  * search text is sent exactly as typed (no trim): an exact barcode, SKU or
  * quick-sale code keeps its leading zeros and every space, so a pasted trailing
  * space is a miss, not something silently fixed.
  */
-import { GatedButton } from "@/components/GatedButton";
-import { InlineError } from "@/components/InlineError";
+import { FilterBar, type FilterChip, FilterField } from "@/components/FilterBar";
 import { type MessageKey, useT } from "@/i18n";
 import type { CatalogCategory } from "@/lib/catalog-queries";
 import { useState } from "react";
@@ -31,34 +31,6 @@ export interface CatalogFilterBarProps {
   initialErrors: FilterErrors;
   onApply: (filters: CatalogFilters) => void;
   onClear: () => void;
-}
-
-function Field({
-  id,
-  label,
-  error,
-  note,
-  children,
-}: Readonly<{
-  id: string;
-  label: string;
-  error?: MessageKey;
-  note?: string;
-  children: React.ReactNode;
-}>): React.JSX.Element {
-  const t = useT();
-  return (
-    <div className="catalog-filters__field">
-      <label htmlFor={id}>{label}</label>
-      {children}
-      {note ? (
-        <small id={`${id}-note`} className="catalog-filters__note">
-          {note}
-        </small>
-      ) : null}
-      <InlineError message={error ? t(error) : undefined} />
-    </div>
-  );
 }
 
 /** A category the list does not carry: "Unavailable" only once the list is known. */
@@ -95,6 +67,41 @@ function CategoryOptions({
   );
 }
 
+function useChips(
+  applied: CatalogFilters,
+  categories: readonly CatalogCategory[],
+  onApply: (filters: CatalogFilters) => void,
+): FilterChip[] {
+  const t = useT();
+  const defaults = defaultFilters();
+  const chips: FilterChip[] = [];
+  if (applied.q !== "") {
+    chips.push({
+      key: "q",
+      label: `${t("catalog.filter.q")}: ${applied.q}`,
+      onRemove: () => onApply({ ...applied, q: "" }),
+    });
+  }
+  if (applied.status !== defaults.status) {
+    chips.push({
+      key: "status",
+      label: `${t("catalog.filter.status")}: ${t(statusFilterKey(applied.status))}`,
+      onRemove: () => onApply({ ...applied, status: defaults.status }),
+    });
+  }
+  if (applied.categoryId !== "") {
+    const name =
+      categories.find((c) => c.categoryId.toLowerCase() === applied.categoryId)?.name ??
+      t("catalog.filter.categorySelected");
+    chips.push({
+      key: "category",
+      label: `${t("catalog.filter.category")}: ${name}`,
+      onRemove: () => onApply({ ...applied, categoryId: "" }),
+    });
+  }
+  return chips;
+}
+
 export function CatalogFilterBar({
   applied,
   categories,
@@ -107,10 +114,11 @@ export function CatalogFilterBar({
   const t = useT();
   const [draft, setDraft] = useState<CatalogFilters>(applied);
   const [errors, setErrors] = useState<FilterErrors>(initialErrors);
+  const chips = useChips(applied, categories, onApply);
 
   // The URL is the source of truth: when the applied filters change from outside
-  // (Back, a deep link, a tenant change) the draft follows. The form stays
-  // mounted, so keyboard focus survives a Search.
+  // (Back, a deep link, a tenant change, a removed chip) the draft follows. The
+  // form stays mounted, so keyboard focus survives an Apply.
   const appliedKey = JSON.stringify(applied);
   const [syncedKey, setSyncedKey] = useState(appliedKey);
   if (syncedKey !== appliedKey) {
@@ -138,21 +146,27 @@ export function CatalogFilterBar({
     onClear();
   }
 
+  const message = (key: MessageKey | undefined) => (key ? t(key) : undefined);
   return (
-    <form
-      className="catalog-filters"
-      aria-label={t("catalog.filter.label")}
-      // Filters are not unsaved work: no Stay / Discard prompt for them (RT-268).
-      data-dirty-guard="off"
+    <FilterBar
+      label={t("catalog.filter.label")}
       onSubmit={submit}
-      noValidate
+      onClear={clear}
+      chips={chips}
+      note={
+        <>
+          <p id="cf-q-note" className="filter-bar__note-line">
+            {t("catalog.filter.qNote")}
+          </p>
+          {categoriesFailed ? (
+            <p id="cf-category-note" className="filter-bar__note-line">
+              {t("catalog.filter.categoriesFailed")}
+            </p>
+          ) : null}
+        </>
+      }
     >
-      <Field
-        id="cf-q"
-        label={t("catalog.filter.q")}
-        error={errors.q}
-        note={t("catalog.filter.qNote")}
-      >
+      <FilterField id="cf-q" label={t("catalog.filter.q")} error={message(errors.q)}>
         <input
           id="cf-q"
           className="input"
@@ -166,8 +180,8 @@ export function CatalogFilterBar({
           value={draft.q}
           onChange={(e) => set("q")(e.target.value)}
         />
-      </Field>
-      <Field id="cf-status" label={t("catalog.filter.status")}>
+      </FilterField>
+      <FilterField id="cf-status" label={t("catalog.filter.status")}>
         <select
           id="cf-status"
           className="input"
@@ -180,12 +194,11 @@ export function CatalogFilterBar({
             </option>
           ))}
         </select>
-      </Field>
-      <Field
+      </FilterField>
+      <FilterField
         id="cf-category"
         label={t("catalog.filter.category")}
-        error={errors.category}
-        note={categoriesFailed ? t("catalog.filter.categoriesFailed") : undefined}
+        error={message(errors.category)}
       >
         <select
           id="cf-category"
@@ -202,15 +215,7 @@ export function CatalogFilterBar({
             failed={categoriesFailed}
           />
         </select>
-      </Field>
-      <div className="catalog-filters__actions">
-        <GatedButton type="submit" className="btn-primary">
-          {t("catalog.filter.apply")}
-        </GatedButton>
-        <button type="button" className="btn-ghost" onClick={clear}>
-          {t("catalog.filter.clear")}
-        </button>
-      </div>
-    </form>
+      </FilterField>
+    </FilterBar>
   );
 }

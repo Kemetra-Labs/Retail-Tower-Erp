@@ -443,6 +443,19 @@ These classes exist on `main` and new work reuses them until a migration slice r
   input or select is exactly `--control-h`; a textarea grows. Disabled is recessed (sunken
   fill, quiet edge, muted text; GrayText in forced colours), never `opacity`. One checkbox
   size, 18px.
+- **FilterBar** (`src/components/FilterBar.tsx`, RT-960): the one filter bar for every list.
+  - It is a section panel above the list. The screen keeps its own draft, URL state and
+    validation.
+  - Fields (`FilterField`) sit on one grid of equal tracks, so columns line up. Extra
+    fields join the same tracks. Notes go under the grid, never inside a cell.
+  - One verb: «تطبيق» / "Apply" (`btn-primary`, rate-limit gated, can be busy), after a
+    `btn-ghost` «مسح» / "Clear". No list filters on change.
+  - Optional «فلاتر إضافية» disclosure: its count is the applied hidden filters and is in
+    its accessible name. The region is hidden, not unmounted. It opens when a hidden
+    field has an error.
+  - Optional chips for applied filters. Removing one applies straight away; a required
+    filter has no remove control. The remove target is 24px.
+  - A list with one select filter uses `SelectFilterBar`.
 - **DataTable** (`src/components/DataTable.tsx`; usage rules in the notes below), **Drawer** (focus-trapped dialog), and
   **ListState** (loading / empty).
 - **Shell v3** (`src/shell/`, RT-969; `ShellFrame.tsx` is shared by `AppShell` and

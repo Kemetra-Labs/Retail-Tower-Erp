@@ -18,8 +18,7 @@ export const audit: MessagesOf<typeof ar> = {
   "audit.filters.storePlaceholder": "store id",
   "audit.filters.from": "From",
   "audit.filters.to": "To",
-  "audit.filters.apply": "Apply",
-  "audit.filters.clear": "Clear",
+  "audit.filters.label": "Audit filters",
 
   "audit.prequery": "Search audit activity for {tenant}.",
 

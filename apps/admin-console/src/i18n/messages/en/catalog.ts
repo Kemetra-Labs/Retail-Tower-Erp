@@ -81,8 +81,6 @@ export const catalog: MessagesOf<typeof ar> = {
   "catalog.filter.categoryStale": "Unavailable category",
   "catalog.filter.categorySelected": "Selected category",
   "catalog.filter.categoriesFailed": "Categories could not be loaded.",
-  "catalog.filter.apply": "Search",
-  "catalog.filter.clear": "Clear",
   "catalog.filter.qTooLong": "Search text can be at most 100 characters.",
   "catalog.filter.categoryInvalid": "The category in the link is not valid.",
 

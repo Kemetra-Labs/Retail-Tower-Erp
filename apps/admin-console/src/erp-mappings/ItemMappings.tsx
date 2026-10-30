@@ -11,6 +11,7 @@
  * received in the table: resolving a name for every row is out of scope.
  */
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
+import { SelectFilterBar } from "@/components/FilterBar";
 import { ListState } from "@/components/ListState";
 import { StatusPill } from "@/erp-status/parts";
 import { AsOf, Panel } from "@/erp-status/parts";
@@ -42,6 +43,7 @@ function columns(t: T): { key: string; header: string }[] {
   ];
 }
 
+/** The state filter, on the shared FilterBar (RT-960): Apply, Clear. */
 function StateFilter({
   value,
   onChange,
@@ -51,21 +53,18 @@ function StateFilter({
 }>): React.JSX.Element {
   const t = useT();
   return (
-    <div className="erp-filter">
-      <div className="erp-filter__field">
-        <label htmlFor="map-state-filter">{t("erp.map.items.filter")}</label>
-        <select
-          id="map-state-filter"
-          className="input"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        >
-          <option value="">{t("erp.map.items.filter.all")}</option>
-          <option value="suggested">{t("erp.map.items.filter.suggested")}</option>
-          <option value="confirmed">{t("erp.map.items.filter.confirmed")}</option>
-        </select>
-      </div>
-    </div>
+    <SelectFilterBar
+      label={t("erp.map.items.filter.label")}
+      id="map-state-filter"
+      fieldLabel={t("erp.map.items.filter")}
+      value={value}
+      allLabel={t("erp.map.items.filter.all")}
+      options={[
+        { value: "suggested", label: t("erp.map.items.filter.suggested") },
+        { value: "confirmed", label: t("erp.map.items.filter.confirmed") },
+      ]}
+      onApply={onChange}
+    />
   );
 }
 

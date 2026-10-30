@@ -8,6 +8,7 @@ import { Banner } from "@/components/Banner";
  */
 import { BusyButton } from "@/components/BusyButton";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
+import { SelectFilterBar } from "@/components/FilterBar";
 import { ListState as ListStateView } from "@/components/ListState";
 import { StatusPill } from "@/erp-status/parts";
 import { type MessageKey, type T, useT } from "@/i18n";
@@ -187,6 +188,7 @@ export function RefusalBanner({
   return <OutcomeBanner view={view} message={message} requestId={outcome.requestId} />;
 }
 
+/** The class filter, on the shared FilterBar (RT-960): Apply, Clear. */
 export function ClassFilter<C extends string>({
   id,
   classes,
@@ -200,22 +202,15 @@ export function ClassFilter<C extends string>({
 }>): React.JSX.Element {
   const t = useT();
   return (
-    <div className="recon-filter field">
-      <label htmlFor={id}>{t("productRecon.filter.class")}</label>
-      <select
-        id={id}
-        className="input"
-        value={value}
-        onChange={(e) => onChange(e.target.value as C | "")}
-      >
-        <option value="">{t("productRecon.filter.all")}</option>
-        {classes.map((cls) => (
-          <option key={cls} value={cls}>
-            {t(classView(cls).labelKey)}
-          </option>
-        ))}
-      </select>
-    </div>
+    <SelectFilterBar
+      label={t("productRecon.filter.label")}
+      id={id}
+      fieldLabel={t("productRecon.filter.class")}
+      value={value}
+      allLabel={t("productRecon.filter.all")}
+      options={classes.map((cls) => ({ value: cls, label: t(classView(cls).labelKey) }))}
+      onApply={(next) => onChange(next as C | "")}
+    />
   );
 }
 
