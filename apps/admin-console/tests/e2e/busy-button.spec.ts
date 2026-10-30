@@ -71,7 +71,7 @@ test("a pending submit keeps focus, is busy, and sends one request", async ({ pa
   expect(posts).toBe(1);
 });
 
-test("under forced colours a busy button stays apart from a disabled one", async ({ page, t }) => {
+test("under forced colours a busy button keeps its label colour", async ({ page, t }) => {
   await page.emulateMedia({ forcedColors: "active" });
   await mockBase(page);
   await page.route("**/api/v1/tenants", async (r) => {
@@ -84,16 +84,12 @@ test("under forced colours a busy button stays apart from a disabled one", async
   await page.getByLabel(t("tenants.field.slug"), { exact: true }).fill("acme");
   await page.getByLabel(t("tenants.field.name"), { exact: true }).fill("Acme Corp");
   const submit = page.getByRole("button", { name: t("tenants.form.create") });
+  const colour = () => submit.evaluate((el) => getComputedStyle(el).color);
+  const idle = await colour();
   await submit.click();
   await expect(submit).toHaveAttribute("aria-busy", "true");
-  // GrayText marks unavailable; busy keeps the button's own system colour.
-  const [busy, grayText] = await submit.evaluate((el) => {
-    const probe = document.createElement("span");
-    probe.style.color = "GrayText";
-    document.body.append(probe);
-    const gray = getComputedStyle(probe).color;
-    probe.remove();
-    return [getComputedStyle(el).color, gray];
-  });
-  expect(busy).not.toBe(grayText);
+  await expect(submit).toBeVisible();
+  // The rules that tell busy from unavailable are pinned in busy-button.test.tsx;
+  // emulated forced colours do not resolve GrayText reliably enough to compare.
+  expect(await colour()).toBe(idle);
 });

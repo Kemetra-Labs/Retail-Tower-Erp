@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { BusyButton } from "@/components/BusyButton";
 import { GatedButton } from "@/components/GatedButton";
 import { reportRateLimited, resetRateLimit } from "@/lib/rate-limit";
@@ -40,7 +42,7 @@ describe("BusyButton", () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
-  test("busy: a submit button does not submit its form, by click or by Enter", () => {
+  test("busy: a submit button does not submit its form on a click", () => {
     const onSubmit = vi.fn((e: React.FormEvent) => e.preventDefault());
     render(
       <form onSubmit={onSubmit}>
@@ -50,10 +52,9 @@ describe("BusyButton", () => {
         </BusyButton>
       </form>,
     );
+    // Enter in a field submits through a click on the default button, so the
+    // same guard covers it (proven in the browser: e2e busy-button.spec.ts).
     fireEvent.click(screen.getByRole("button"));
-    // Enter in a field submits through a click on the default button.
-    const field = screen.getByLabelText("Name");
-    fireEvent.keyDown(field, { key: "Enter", code: "Enter" });
     fireEvent.click(screen.getByRole("button"));
     expect(onSubmit).not.toHaveBeenCalled();
   });
@@ -96,4 +97,38 @@ describe("GatedButton is a BusyButton", () => {
     expect(button.hasAttribute("disabled")).toBe(true);
     expect(button.hasAttribute("aria-busy")).toBe(false);
   });
+});
+
+/**
+ * RT-959 (AC 6): busy is not unavailable, in forced colours too. The rules that
+ * recess an unavailable button, and that turn it GrayText in forced colours,
+ * must both exclude `[aria-busy="true"]`. (Hover and press rules name
+ * aria-disabled only to skip it, so they are not unavailable rules.)
+ */
+describe("busy stays apart from unavailable in the styles", () => {
+  const css = (file: string): string =>
+    readFileSync(join(process.cwd(), "src/styles", file), "utf8")
+      .replace(/\r\n/g, "\n")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+  /** Button rules that match an unavailable button and set its colour. */
+  const unavailableRules = (source: string): string[] =>
+    [...source.matchAll(/([^{}]*)\{([^{}]*)\}/g)]
+      .map((m) => ({ selector: m[1].replace(/\s+/g, " ").trim(), body: m[2] }))
+      .filter(
+        ({ selector, body }) =>
+          selector.includes(".btn-primary") &&
+          selector.includes('[aria-disabled="true"]') &&
+          !/:(hover|active)/.test(selector) &&
+          /(^|[;\s])color:/.test(body),
+      )
+      .map(({ selector }) => selector);
+
+  test.each(["controls.css", "a11y.css"])(
+    "%s: the unavailable rule skips a busy button",
+    (file) => {
+      const rules = unavailableRules(css(file));
+      expect(rules.length).toBeGreaterThan(0);
+      for (const rule of rules) expect(rule).toContain(':not([aria-busy="true"])');
+    },
+  );
 });
