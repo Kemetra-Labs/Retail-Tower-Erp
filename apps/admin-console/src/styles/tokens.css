@@ -123,6 +123,10 @@
   --shell-content-max: 1240px; /* the content container's measure */
   --shell-content-pad-block: 28px; /* the content's top padding, between space-5 and -6 */
 
+  /* Form page (RT-971, canvas «نموذج»): the form panel's measure and its aside. */
+  --form-panel-max: 720px;
+  --form-aside-max: 360px;
+
   /* Motion */
   --duration-1: 80ms;
   --duration-2: 150ms;

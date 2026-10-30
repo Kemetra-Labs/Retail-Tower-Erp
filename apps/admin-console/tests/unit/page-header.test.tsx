@@ -93,6 +93,7 @@ describe("RT-963 page title and focus", () => {
 /** Screens outside the shell keep their own title: sign-in, gates, crash. */
 const OUTSIDE_THE_SHELL = [
   "src/auth/AcceptInvitation.tsx",
+  "src/auth/AuthLayout.tsx",
   "src/auth/NoAccess.tsx",
   "src/auth/SignIn.tsx",
   "src/observability/ErrorFallback.tsx",

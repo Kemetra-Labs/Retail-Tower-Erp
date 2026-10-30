@@ -15,7 +15,6 @@ import { ListState } from "@/components/ListState";
  * values into another tenant's item. Create is not here: it is held by owner
  * decision D9 (RT-768 comment 13487) until pricing lands.
  */
-import { PageHeader } from "@/components/PageHeader";
 import { type MessageKey, useT } from "@/i18n";
 import type { CatalogProductDetail as ProductDetail } from "@/lib/catalog-queries";
 import { useRef } from "react";
@@ -114,19 +113,14 @@ function EditPage({
   const t = useT();
   const { productId, name } = product.summary;
   return (
-    <div className="surface">
-      <BackToItem productId={productId} />
-      <PageHeader
-        title={t.rich("catalog.edit.title", { name: <bdi dir="auto">{name}</bdi> })}
-        subtitle={t.rich("catalog.edit.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
-      />
-      <ProductEditForm
-        key={`${scope.tenantId}:${productId}`}
-        product={product}
-        tenantId={scope.tenantId}
-        reload={reload}
-      />
-    </div>
+    <ProductEditForm
+      key={`${scope.tenantId}:${productId}`}
+      product={product}
+      tenantId={scope.tenantId}
+      reload={reload}
+      title={t.rich("catalog.edit.title", { name: <bdi dir="auto">{name}</bdi> })}
+      subtitle={t.rich("catalog.edit.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
+    />
   );
 }
 

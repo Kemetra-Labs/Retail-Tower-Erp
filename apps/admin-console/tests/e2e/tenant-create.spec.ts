@@ -81,7 +81,9 @@ test("S2: duplicate slug renders an inline conflict on the slug field, no route 
   await page.getByLabel(t("tenants.field.name"), { exact: true }).fill("Dup Co");
   await page.getByRole("button", { name: t("tenants.form.create") }).click();
 
-  await expect(page.getByText(t("tenants.errors.slugConflict"))).toBeVisible();
+  // RT-971: inline on the field and listed in the error summary, which takes focus.
+  await expect(page.locator("#tenant-slug-error")).toHaveText(t("tenants.errors.slugConflict"));
+  await expect(page.locator(".form-error-summary")).toBeFocused();
   await expect(page.getByLabel(t("tenants.field.slug"), { exact: true })).toHaveAttribute(
     "aria-invalid",
     "true",
