@@ -27,7 +27,11 @@
   min-inline-size: 0;
   color: var(--color-text);
   font-size: var(--text-meta);
-  white-space: nowrap;
+}
+
+.pipeline-rail__text {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
 }
 
 .pipeline-rail__node:not(:last-child) {

@@ -102,6 +102,11 @@ describe("PipelineRail structure", () => {
 });
 
 describe("PipelineRail stylesheet", () => {
+  test("a long fact wraps inside its node instead of overflowing the rail", () => {
+    expect(css).not.toMatch(/white-space:\s*nowrap/);
+    expect(rule(css, ".pipeline-rail__text")).toMatch(/min-inline-size:\s*0/);
+  });
+
   test("connectors are a dotted line", () => {
     expect(rule(css, ".pipeline-rail__link")).toMatch(/dotted/);
   });

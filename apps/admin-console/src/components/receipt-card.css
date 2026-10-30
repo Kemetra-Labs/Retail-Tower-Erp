@@ -4,12 +4,15 @@
  * the perforation row clips them to the card, so the same rule works in both
  * directions with no physical offsets. Role tokens only.
  *
- * --receipt-notch-fill must equal the surface behind the card (the canvas), or
- * the notch reads as a disc instead of a bite. A screen may override it. */
+ * --receipt-notch-fill must equal the surface behind the card, or the notch
+ * reads as a disc instead of a bite. It defaults to the themed page background
+ * (every shipped surface paints it, and the dark theme remaps it). When the
+ * work surface moves to --color-canvas (RT-990 remaps its dark value, RT-991
+ * moves the shell), change this default; a screen may override it meanwhile. */
 
 .receipt-card {
   --receipt-notch: 18px;
-  --receipt-notch-fill: var(--color-canvas);
+  --receipt-notch-fill: var(--color-background);
   --receipt-inset: var(--space-4);
 
   display: flex;

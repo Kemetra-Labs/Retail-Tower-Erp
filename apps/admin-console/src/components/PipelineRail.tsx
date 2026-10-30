@@ -38,7 +38,9 @@ export function PipelineRail({
   return (
     // biome-ignore lint/a11y/useSemanticElements: a named group of read-only nodes, not form controls; a fieldset would announce a form grouping (DESIGN.md §12.2 asks for role="group").
     <div className="pipeline-rail" role="group" aria-label={t("pipelineRail.label")}>
-      <ol className="pipeline-rail__nodes">
+      {/* biome-ignore lint/a11y/useSemanticElements: Safari drops list semantics from a marker-free list; the role restores them. */}
+      {/* biome-ignore lint/a11y/noRedundantRoles: the same reason: the explicit role is the Safari workaround. */}
+      <ol className="pipeline-rail__nodes" role="list">
         {nodes.map((node, i) => (
           <li key={node.id} className="pipeline-rail__node">
             <span className="pipeline-rail__dot" data-status={node.status} aria-hidden="true" />

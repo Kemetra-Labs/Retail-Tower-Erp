@@ -115,8 +115,8 @@ describe("ReceiptCard stylesheet", () => {
     expect(card).toMatch(/box-shadow:\s*var\(--shadow-resting\)/);
   });
 
-  test("the notch is filled with the canvas role, never a literal", () => {
-    expect(css).toMatch(/--receipt-notch-fill:\s*var\(--color-canvas\)/);
+  test("the notch fill defaults to the themed page background, never a literal", () => {
+    expect(css).toMatch(/--receipt-notch-fill:\s*var\(--color-background\)/);
   });
 
   test("forced colours: notches disappear", () => {
