@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
   Optional,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
 import type { Pool, PoolClient } from "pg";
@@ -15,6 +16,15 @@ import { and, eq } from "drizzle-orm";
 import { runWithTenantContext, type TenantContext } from "@data-pulse-2/db";
 
 import { PG_POOL } from "../auth/auth.module";
+import { AuthService } from "../auth/auth.service";
+import {
+  EXTERNAL_CREDENTIAL_PORT,
+  type ExternalCredentialPort,
+} from "../auth/external-credential.port";
+import {
+  OPERATOR_TOKEN_VERIFIER,
+  type OperatorTokenVerifier,
+} from "../auth/operator-token-verifier";
 import {
   EMAIL_JOB_ENQUEUER,
   type EmailJobEnqueuer,
@@ -28,6 +38,34 @@ import { InvitationsRepository } from "./invitations.repository";
 export interface InviteResult {
   row: InvitationRow;
   roleCode: string;
+}
+
+/** Body of `POST /api/v1/invitations/accept`, after validation. */
+export interface AcceptInvitationInput {
+  readonly token: string;
+  /** Required only when the invitee has no account yet. */
+  readonly password?: string;
+  readonly displayName?: string;
+}
+
+/** A native session minted for a NEW invitee only (RT-937). */
+export interface StartedSession {
+  readonly sessionId: string;
+  readonly sessionCredential: string;
+  readonly absoluteExpiresAt: Date;
+}
+
+export interface AcceptInvitationResult {
+  /** The invitation's tenant (the Membership response names it). */
+  readonly tenantId: string;
+  readonly membership: MembershipDetail;
+  /** Null for an existing user: an invite token alone never mints a session for an existing account. */
+  readonly session: StartedSession | null;
+}
+
+/** The slice of `AuthService` acceptance needs (a fake in unit specs). */
+export interface SessionStarter {
+  startSession(userId: string): Promise<StartedSession>;
 }
 
 type TenantTxRunner = <T>(
@@ -49,6 +87,12 @@ const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 /** Uniform error thrown for every invalid-token case — no enumeration detail. */
 const INVALID_INVITATION_ERROR = "Invalid or expired invitation token";
 
+/** One message per provisioning refusal that is not the caller's token (no provider detail). */
+const ACCEPT_REFUSED = "The invitation could not be accepted";
+const PASSWORD_REQUIRED = "A password is required to create your account";
+const PASSWORD_NOT_ACCEPTED = "The password could not be set";
+const ACCOUNT_CONFLICT = "An account already exists for this invitation";
+
 /** Platform-admin context used for unauthenticated token lookups (RLS bypass). */
 const PLATFORM_ADMIN_CTX: TenantContext = { tenantId: null, isPlatformAdmin: true };
 
@@ -63,6 +107,17 @@ export class InvitationsService {
     @Inject(EMAIL_JOB_ENQUEUER)
     private readonly emailEnqueuer: EmailJobEnqueuer,
     @Optional() tx?: TenantTxRunner,
+    // RT-937: the three seams a NEW invitee's acceptance needs. Optional so the
+    // pre-existing constructions keep working; a missing one answers 503.
+    @Optional()
+    @Inject(EXTERNAL_CREDENTIAL_PORT)
+    private readonly external?: ExternalCredentialPort,
+    @Optional()
+    @Inject(OPERATOR_TOKEN_VERIFIER)
+    private readonly tokenVerifier?: OperatorTokenVerifier,
+    @Optional()
+    @Inject(AuthService)
+    private readonly sessionStarter?: SessionStarter,
   ) {
     this.tx = tx ?? runWithTenantContext;
   }
@@ -237,68 +292,245 @@ export class InvitationsService {
       isPlatformAdmin: true,
     };
 
-    return this.tx(this.pool, txContext, async (client) => {
-      // 3a: mark invitation accepted (conditional — race-safe)
-      const accepted = await this.invitations.markAccepted(client, invitation.id, user.id);
-      if (!accepted) {
-        throw new BadRequestException(INVALID_INVITATION_ERROR);
-      }
+    return this.tx(this.pool, txContext, (client) =>
+      this.grantMembership(client, invitation, user),
+    );
+  }
 
-      // 3b: create membership
-      const membershipId = newId();
-      const storeAccessKind = invitation.storeAccessKind as "all" | "specific";
-      try {
-        await this.invitations.createMembership(client, {
-          id: membershipId,
-          tenantId: invitation.tenantId,
-          userId: user.id,
-          roleId: invitation.roleId,
-          storeAccessKind,
-        });
-      } catch (err: unknown) {
-        if (isUniqueViolation(err, "memberships_tenant_user_active_uidx")) {
-          throw new ConflictException(
-            "An active membership already exists for this user in this tenant",
-          );
+  /**
+   * `POST /api/v1/invitations/accept` (RT-937, owner decisions D-D, RT-791 c13436).
+   *
+   *   - An EXISTING Backend-Core user gains the membership only: no provider
+   *     call and NO session, so an invite token alone can never sign anyone in
+   *     to an existing account.
+   *   - A NEW user is created at the identity provider (verified email, ACTIVE
+   *     password), then the user, its identity link and the invited membership
+   *     are written in ONE transaction, and a session is minted for that new
+   *     user only. There is no local password.
+   *
+   * The token is single-use: a used, expired or unknown token is the same opaque
+   * 400 with zero provider calls and zero writes. Tenant, role and stores come
+   * from the invitation row, never from the request. A retry after a partial
+   * failure (the provider user exists, the database write did not happen)
+   * converges on the one identity.
+   */
+  async acceptInvitation(input: AcceptInvitationInput): Promise<AcceptInvitationResult> {
+    const invitation = await this.lookupAndValidateAcceptToken(input.token);
+
+    const existing = await this.tx(
+      this.pool,
+      PLATFORM_ADMIN_CTX,
+      async (client) => await this.invitations.findUserByEmail(client, invitation.email),
+    );
+    if (existing) {
+      const membership = await this.acceptInvitationExistingUser(input.token);
+      return { tenantId: invitation.tenantId, membership, session: null };
+    }
+    return this.acceptForNewUser(input, invitation);
+  }
+
+  private async acceptForNewUser(
+    input: AcceptInvitationInput,
+    invitation: InvitationRow,
+  ): Promise<AcceptInvitationResult> {
+    const { external, sessionStarter } = this.requireProvisioning();
+    const password = input.password;
+    if (password === undefined || password.length === 0) {
+      throw new BadRequestException(PASSWORD_REQUIRED);
+    }
+
+    const email = invitation.email;
+    const name = input.displayName?.trim() || (email.split("@")[0] ?? email);
+    const subject = await this.provisionExternalIdentity(external, email, name, password);
+
+    const userId = newId();
+    const membership = await this.tx(
+      this.pool,
+      { tenantId: invitation.tenantId, isPlatformAdmin: true },
+      async (client) => {
+        try {
+          await this.invitations.insertUser(client, { id: userId, email, displayName: name });
+          await this.invitations.insertExternalIdentityLink(client, {
+            providerKey: external.identity.providerKey,
+            issuer: external.identity.issuer,
+            subject,
+            userId,
+            email,
+          });
+        } catch (err: unknown) {
+          // The email or the link already exists: refuse and roll everything back.
+          if (hasSqlState(err, "23505")) throw new ConflictException(ACCOUNT_CONFLICT);
+          throw err;
         }
-        throw err;
-      }
+        return this.grantMembership(client, invitation, { id: userId, email, displayName: name });
+      },
+    );
 
-      // 3c: insert store_access rows when kind is 'specific'
-      const storeIds: string[] = Array.isArray(invitation.invitedStoreIds)
-        ? invitation.invitedStoreIds
-        : [];
-      if (storeAccessKind === "specific" && storeIds.length > 0) {
-        await this.invitations.insertStoreAccessRows(
-          client,
-          membershipId,
-          invitation.tenantId,
-          storeIds,
+    // After the commit: a session exists only for a user that now exists.
+    const session = await sessionStarter.startSession(userId);
+    return { tenantId: invitation.tenantId, membership, session };
+  }
+
+  /** The provider seams a new invitee needs; any one missing is a deployment fault (503). */
+  private requireProvisioning(): {
+    external: ExternalCredentialPort;
+    verifier: OperatorTokenVerifier;
+    sessionStarter: SessionStarter;
+  } {
+    const { external, tokenVerifier: verifier, sessionStarter } = this;
+    if (!external || !verifier || !sessionStarter) {
+      throw new ServiceUnavailableException("Account provisioning is not configured");
+    }
+    return { external, verifier, sessionStarter };
+  }
+
+  /**
+   * Create (or adopt) the invitee's identity at the provider and return its
+   * subject. `rejected` on create means "could not create", most often because the
+   * loginId exists (the provider's error code is not relied on): load the user and
+   * either finish a half-done provisioning (no password yet: set it) or require
+   * proof of the existing password. A proof is a provider sign-in whose verified
+   * token names that same user; without it the invitee gets a 409, so holding an
+   * invitation never takes over someone else's provider account.
+   */
+  private async provisionExternalIdentity(
+    external: ExternalCredentialPort,
+    email: string,
+    name: string,
+    password: string,
+  ): Promise<string> {
+    const created = await external.createUser({ loginId: email, email, name });
+    switch (created.kind) {
+      case "created":
+        await this.setPasswordOrRefuse(external, email, password);
+        return created.userId;
+      case "unavailable":
+      case "unconfigured":
+        throw new ServiceUnavailableException("Identity provider unavailable");
+      case "rejected":
+        return this.adoptExistingProviderUser(external, email, password);
+    }
+  }
+
+  private async adoptExistingProviderUser(
+    external: ExternalCredentialPort,
+    email: string,
+    password: string,
+  ): Promise<string> {
+    const loaded = await external.loadUser(email);
+    if (loaded.kind === "unavailable" || loaded.kind === "unconfigured") {
+      throw new ServiceUnavailableException("Identity provider unavailable");
+    }
+    if (loaded.kind === "not_found") throw new BadRequestException(ACCEPT_REFUSED);
+
+    if (!loaded.passwordSet) {
+      await this.setPasswordOrRefuse(external, email, password);
+      return loaded.userId;
+    }
+
+    const signedIn = await external.passwordSignIn(email, password);
+    if (signedIn.kind === "unavailable") {
+      throw new ServiceUnavailableException("Identity provider unavailable");
+    }
+    if (signedIn.kind !== "ok" || !(await this.tokenNames(signedIn.sessionJwt, loaded.userId))) {
+      throw new ConflictException(ACCOUNT_CONFLICT);
+    }
+    return loaded.userId;
+  }
+
+  private async setPasswordOrRefuse(
+    external: ExternalCredentialPort,
+    email: string,
+    password: string,
+  ): Promise<void> {
+    const set = await external.setActivePassword(email, password);
+    if (set.kind === "ok") return;
+    if (set.kind === "rejected") throw new BadRequestException(PASSWORD_NOT_ACCEPTED);
+    throw new ServiceUnavailableException("Identity provider unavailable");
+  }
+
+  /** True only when the provider token verifies and its subject is `subject`. */
+  private async tokenNames(sessionJwt: string, subject: string): Promise<boolean> {
+    try {
+      const claims = await this.requireProvisioning().verifier.verify(sessionJwt);
+      return claims.sub === subject;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * The grant, inside the caller's transaction: mark the invitation accepted
+   * (conditional, race-safe), create the invited membership, and its store
+   * access rows. Tenant, role and stores come from the invitation row only.
+   * Shared by the existing-user and the new-user paths (RT-937).
+   */
+  private async grantMembership(
+    client: PoolClient,
+    invitation: InvitationRow,
+    user: { readonly id: string; readonly email: string; readonly displayName: string | null },
+  ): Promise<MembershipDetail> {
+    // mark invitation accepted (conditional — race-safe)
+    const accepted = await this.invitations.markAccepted(client, invitation.id, user.id);
+    if (!accepted) {
+      throw new BadRequestException(INVALID_INVITATION_ERROR);
+    }
+
+    // create membership
+    const membershipId = newId();
+    const storeAccessKind = invitation.storeAccessKind as "all" | "specific";
+    try {
+      await this.invitations.createMembership(client, {
+        id: membershipId,
+        tenantId: invitation.tenantId,
+        userId: user.id,
+        roleId: invitation.roleId,
+        storeAccessKind,
+      });
+    } catch (err: unknown) {
+      if (isUniqueViolation(err, "memberships_tenant_user_active_uidx")) {
+        throw new ConflictException(
+          "An active membership already exists for this user in this tenant",
         );
       }
+      throw err;
+    }
 
-      // Step 4: build MembershipDetail response (no tokenHash)
-      const accessibleStoreIds: readonly string[] =
-        storeAccessKind === "specific" ? storeIds : [];
-
-      // Re-read role code from the invitation's roleId via a roles lookup
-      // (the invitation row stores roleId not roleCode)
-      const roleCode = await getRoleCode(client, invitation.roleId, invitation.tenantId);
-
-      return {
+    // insert store_access rows when kind is 'specific'
+    const storeIds: string[] = Array.isArray(invitation.invitedStoreIds)
+      ? invitation.invitedStoreIds
+      : [];
+    if (storeAccessKind === "specific" && storeIds.length > 0) {
+      await this.invitations.insertStoreAccessRows(
+        client,
         membershipId,
-        user: {
-          id: user.id,
-          email: user.email,
-          displayName: user.displayName ?? null,
-        },
-        roleCode,
-        storeAccessKind,
-        accessibleStoreIds,
-        revokedAt: null,
-      };
-    });
+        invitation.tenantId,
+        storeIds,
+      );
+    }
+
+    // Step 4: build MembershipDetail response (no tokenHash)
+    const accessibleStoreIds: readonly string[] =
+      storeAccessKind === "specific" ? storeIds : [];
+
+    // Re-read role code from the invitation's roleId via a roles lookup
+    // (the invitation row stores roleId not roleCode)
+    const roleCode = await getRoleCode(client, invitation.roleId, invitation.tenantId);
+
+    return {
+      membershipId,
+      user: {
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName ?? null,
+      },
+      roleCode,
+      storeAccessKind,
+      accessibleStoreIds,
+      revokedAt: null,
+    };
   }
+
 }
 
 /**
@@ -325,6 +557,13 @@ async function getRoleCode(
   const row = rows[0];
   if (!row) throw new Error(`getRoleCode: role ${roleId} not found`);
   return row.code;
+}
+
+/** True when the error, or a `cause` below it, carries the given SQLSTATE. */
+function hasSqlState(err: unknown, sqlState: string): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const e = err as { code?: unknown; cause?: unknown };
+  return e.code === sqlState || hasSqlState(e.cause, sqlState);
 }
 
 /**

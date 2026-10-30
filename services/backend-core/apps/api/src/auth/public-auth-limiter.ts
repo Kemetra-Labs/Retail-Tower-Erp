@@ -26,6 +26,8 @@
  * non-integer or out-of-range value falls back to the default.
  */
 import { HttpException, HttpStatus } from "@nestjs/common";
+import { createLogger, type Logger } from "@data-pulse-2/shared";
+import type { Response } from "express";
 
 import type { RateLimitBucket, RateLimitDecision, RateLimiter } from "./rate-limit";
 
@@ -126,6 +128,56 @@ export async function releaseWithin(
     await Promise.race([limiter.release(bucketName, identifier).catch(() => undefined), t.done]);
   } finally {
     t.cancel();
+  }
+}
+
+let logger: Logger | null = null;
+function log(): Logger {
+  logger ??= createLogger({ service: "api.auth", level: process.env["LOG_LEVEL"] ?? "info" });
+  return logger;
+}
+
+/** RT-623: bounds of the `Retry-After` sent with a public-auth 429, in seconds. */
+const RETRY_AFTER_MIN_SECONDS = 1;
+const RETRY_AFTER_MAX_SECONDS = 3_600;
+
+/**
+ * Whole seconds until the bucket resets, rounded up so a client never retries
+ * early, clamped to [1, 3600]. A negative `resetMs` (a stub client that keeps
+ * no TTL) is treated as "now".
+ */
+export function retryAfterSeconds(resetMs: number): number {
+  const seconds = Math.ceil(Math.max(0, resetMs) / 1_000);
+  return Math.min(RETRY_AFTER_MAX_SECONDS, Math.max(RETRY_AFTER_MIN_SECONDS, seconds));
+}
+
+/**
+ * One public-route limiter hit with the RT-628 posture (owner ruling O6): a
+ * refusal is a 429 and a limiter outage is a 503, both with `Retry-After`, never
+ * a hang and never a 500. Used by public routes that have no failed-attempt
+ * accounting of their own (RT-937: invitation acceptance).
+ */
+export async function enforcePublicLimit(
+  limiter: RateLimiter,
+  hit: LimiterHit,
+  timeoutMs: number,
+  res: Response,
+): Promise<void> {
+  let decision: RateLimitDecision;
+  try {
+    decision = await checkWithin(limiter, hit, timeoutMs);
+  } catch (err) {
+    // The bucket name and the reason only: never the identifier (an IP address).
+    log().warn(
+      { bucket: hit.bucketName, reason: err instanceof PublicAuthLimiterUnavailable ? err.reason : "error" },
+      "public-auth rate limiter unavailable; failing closed (503)",
+    );
+    res.setHeader("Retry-After", String(PUBLIC_AUTH_UNAVAILABLE_RETRY_AFTER_SECONDS));
+    throw publicAuthUnavailable();
+  }
+  if (!decision.allowed) {
+    res.setHeader("Retry-After", String(retryAfterSeconds(decision.resetMs)));
+    throw new HttpException("Too many requests", HttpStatus.TOO_MANY_REQUESTS);
   }
 }
 

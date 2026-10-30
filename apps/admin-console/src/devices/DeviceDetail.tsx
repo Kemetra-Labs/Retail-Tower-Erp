@@ -1,5 +1,6 @@
 import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
+import { HeaderStatus } from "@/components/DetailPanel";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { type MessageKey, useT } from "@/i18n";
@@ -16,12 +17,16 @@ import { useStoreOf } from "@/shift-closes/useShiftCloses";
  * An open custody exception is stated above the tabs as what it is: the open
  * shift stays on this revoked device until it is closed. Nothing here resolves
  * it. A 404 is the API's uniform refusal and reads as not available.
+ *
+ * RT-974: the trust state is the page header's status and the lifecycle
+ * actions are its actions (DESIGN.md §9); their flows open in a drawer.
  */
 import { useState } from "react";
 import { Link, useLocation, useParams, useSearchParams } from "react-router";
 import { DeviceActions } from "./DeviceActions";
 import { DeviceHistory } from "./DeviceHistory";
 import { DeviceOverview } from "./DeviceOverview";
+import { TrustBadge } from "./DeviceParts";
 import {
   CustodyException,
   type DeviceTab,
@@ -69,7 +74,12 @@ function DeviceHeading({ device, storeName, timeZone }: Readonly<LoadedProps>): 
           {t.rich("devices.detail.zoneNote", { zone: <bdi dir="ltr">{timeZone ?? "UTC"}</bdi> })}
         </>
       }
-    />
+      actions={<DeviceActions device={device} timeZone={timeZone} />}
+    >
+      <HeaderStatus label={t("devices.field.trust")}>
+        <TrustBadge trustState={device.trustState} />
+      </HeaderStatus>
+    </PageHeader>
   );
 }
 
@@ -88,7 +98,6 @@ function Loaded(props: Readonly<LoadedProps>): React.JSX.Element {
     <div className="surface">
       <BackToDevices />
       <DeviceHeading {...props} />
-      <DeviceActions device={device} timeZone={timeZone} />
       {device.custodyExceptionShiftId ? (
         <CustodyException shiftId={device.custodyExceptionShiftId} />
       ) : null}

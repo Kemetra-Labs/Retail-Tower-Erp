@@ -37,6 +37,7 @@ import {
   expectMoney,
   expectNumericColumn,
   expectPanels,
+  headerStatus,
 } from "./detail-template-helpers";
 
 function renderDetail(shiftId: string = SHIFT_1, state?: unknown): void {
@@ -193,7 +194,7 @@ describe("ShiftCloseDetail (RT-18)", () => {
     });
     renderDetail();
     await screen.findByText("Shift summary");
-    expect(within(field("Close kind")).getByText("Forced close")).toBeDefined();
+    expect(headerStatus("Close kind").textContent).toBe("Close kind: Forced close");
     expect(
       within(field("Forced-close reason")).getByText("Cashier left the shift open"),
     ).toBeDefined();
@@ -332,5 +333,16 @@ describe("ShiftCloseDetail (RT-18)", () => {
     expectNumericColumn(movements.getByRole("table"), "Amount");
     // Machine ids stay mono.
     expect(field("Shift ID").classList.contains("field-row__value--mono")).toBe(true);
+  });
+
+  test("RT-974: the close kind is a status in the page header, not a summary row", async () => {
+    consoleGetShiftClose.mockResolvedValue({
+      status: 200,
+      data: detail({ closeKind: "forced", forcedReason: "Cashier left the shift open" }),
+    });
+    renderDetail();
+    await screen.findByText("Shift summary");
+    expect(headerStatus("Close kind").textContent).toBe("Close kind: Forced close");
+    expect(screen.queryByText("Close kind", { selector: "dt" })).toBeNull();
   });
 });

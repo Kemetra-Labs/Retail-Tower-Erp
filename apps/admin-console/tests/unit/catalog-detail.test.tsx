@@ -37,6 +37,7 @@ import {
   expectBackLinkFirst,
   expectMoney,
   expectPanels,
+  headerStatus,
   ledgerValue,
 } from "./detail-template-helpers";
 
@@ -108,7 +109,8 @@ describe("CatalogProductDetail (RT-766, CAT-C1b)", () => {
     renderDetail();
     await loaded();
     const tenant = section("Tenant values");
-    expect(within(tenant).getByText("Active")).toBeDefined();
+    // RT-974: the status sits in the page header, not in the tenant values.
+    expect(headerStatus("Status").textContent).toBe("Status: Active");
     expect(within(tenant).getByText("Still spring water, 1.5 litre bottle.")).toBeDefined();
     expect(within(tenant).getByText("Beverages")).toBeDefined();
     expect(within(tenant).getByText("standard")).toBeDefined();
@@ -140,7 +142,7 @@ describe("CatalogProductDetail (RT-766, CAT-C1b)", () => {
     consoleGetCatalogProduct.mockResolvedValue(one(detail({}, { status: "inactive" })));
     const first = renderDetail();
     await loaded();
-    expect(within(section("Tenant values")).getByText("Inactive")).toBeDefined();
+    expect(headerStatus("Status").textContent).toBe("Status: Inactive");
     expect(
       within(section("Tenant values")).getByText("Tenant availability").nextElementSibling
         ?.textContent,
@@ -149,7 +151,7 @@ describe("CatalogProductDetail (RT-766, CAT-C1b)", () => {
     consoleGetCatalogProduct.mockResolvedValue(one(detail({}, { status: "retired" })));
     renderDetail();
     await loaded();
-    expect(within(section("Tenant values")).getByText("Retired")).toBeDefined();
+    expect(headerStatus("Status").textContent).toBe("Status: Retired");
   });
 
   test("no description and no category say so; the item name keeps its own direction", async () => {
@@ -527,5 +529,13 @@ describe("CatalogProductDetail (RT-766, CAT-C1b)", () => {
     expectBackLinkFirst();
     expectPanels(["Tenant values", "Identifiers", "Store overrides"]);
     expectMoney(ledgerValue("Price", section("Tenant values")));
+  });
+
+  test("RT-974: the item's status is a status in the page header, not a tenant-values row", async () => {
+    consoleGetCatalogProduct.mockResolvedValue(one(detail({}, { status: "inactive" })));
+    renderDetail();
+    await loaded();
+    expect(headerStatus("Status").textContent).toBe("Status: Inactive");
+    expect(within(section("Tenant values")).queryByText("Status", { selector: "dt" })).toBeNull();
   });
 });

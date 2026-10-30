@@ -11,6 +11,13 @@ paths:
   /api/v1/auth/signin:
     post:
       summary: Sign in with email and password.
+      description: >
+        RT-937 (owner decision D-A). A user with an ACTIVE external identity link
+        signs in with the password held by the identity provider, verified on the
+        server; the request and response shapes and the session cookie are
+        unchanged. The local password of such a user never signs in, and the
+        refusal is the same generic 401 as a wrong password. A user with no
+        active link keeps native sign-in until migrated.
       operationId: signIn
       security: []
       requestBody:
@@ -57,6 +64,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "503":
+          description: >
+            The identity provider (or the public-auth rate limiter) is
+            unavailable. An outage is never reported as a wrong password.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/v1/auth/signout:
     post:
       summary: Sign out the current session.
@@ -75,6 +90,67 @@ paths:
             `origin_rejected` (RT-430): the request is authenticated by the
             `dp2_session` cookie and its `Origin` header is missing, or is
             neither the API's own origin nor listed in `ALLOWED_ORIGINS`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/auth/password/change:
+    post:
+      summary: Change the signed-in user's password (knows the current one).
+      description: >
+        RT-937 (owner decision D-A, D-C). Cookie session only. Replaces the
+        password at the identity provider (current + new), then revokes the
+        user's OTHER sessions; the calling session stays signed in. Only a user
+        with an ACTIVE external identity link can change a password here (409
+        otherwise). The provider defines the password policy. A wrong current
+        password, a rejected new password and an unverifiable provider answer are
+        ONE generic 400 and cannot be told apart. Failed attempts are counted per
+        user (5 per 15 minutes); a success does not count. That per-user budget
+        answers 429 with a `Retry-After` header only; the console rate limit
+        answers the full `TooManyRequests` response below.
+      operationId: changePassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordChangeRequest"
+      responses:
+        "204":
+          description: Password changed; the user's other sessions are revoked.
+        "400":
+          description: >
+            `validation_error` (malformed body), or the generic refusal (wrong
+            current password, rejected new password).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Not authenticated, or a non-session credential.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: >
+            `origin_rejected` (RT-430): the request is authenticated by the
+            `dp2_session` cookie and its `Origin` header is missing, or is
+            neither the API's own origin nor listed in `ALLOWED_ORIGINS`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The account has no active external identity link, so it has no password to change here.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          description: The identity provider (or the rate limiter) is unavailable.
           content:
             application/json:
               schema:
@@ -231,6 +307,48 @@ components:
         type: integer
         minimum: 1
         maximum: 3600
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5). Its own bound, 1 to 3600.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+  responses:
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this
+        class of operation is spent. The body is the canonical error
+        envelope with a non-disclosing message (no budget, class or window);
+        its `request_id` equals the `X-Request-Id` response header. Honour
+        `Retry-After`; never auto-retry a mutation. A 429 is not a 401: it
+        never means the session ended. The console limit is
+        server-configured and may not be enforced, so a client must handle a
+        429 but must not expect one.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body: the
+            inbound `X-Request-Id` when it is a well-formed UUID, otherwise a
+            server-minted one.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
   securitySchemes:
     cookieAuth:
       type: apiKey
@@ -255,6 +373,24 @@ components:
             At most 1024 Unicode code points (RT-153), the same maximum as
             `new_password`. Verified as sent: no trimming and no Unicode
             normalization.
+    PasswordChangeRequest:
+      type: object
+      additionalProperties: false
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: >
+            Verified as sent, with no trimming and no Unicode normalization.
+        new_password:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: >
+            At most 1024 Unicode code points (RT-153). The identity provider
+            defines the password policy; a rejected value is the generic 400.
     SignInResponse:
       type: object
       properties:

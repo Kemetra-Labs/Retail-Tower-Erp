@@ -370,3 +370,13 @@
 .surface__impact-review input {
   margin-block-start: var(--space-1);
 }
+
+/* RT-974: a status in the page header (HeaderStatus): the badge on its own
+ * line under the title; the field name is read by assistive tech only. */
+.detail-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+}

@@ -102,6 +102,9 @@ services:
       DESCOPE_PROJECT_ID: ${DESCOPE_PROJECT_ID:?DESCOPE_PROJECT_ID required (Descope project id)}
       DESCOPE_JWT_ISSUER: ${DESCOPE_JWT_ISSUER:-}
       DESCOPE_JWT_AUDIENCE: ${DESCOPE_JWT_AUDIENCE:-}
+      # RT-937 Admin sign-in and invite acceptance. A secret kept in backend.env;
+      # unset leaves every Management call unconfigured (503).
+      DESCOPE_MANAGEMENT_KEY: ${DESCOPE_MANAGEMENT_KEY:-}
       # RT-77 / RT-360 capture gates (RT-983). Off by default; turn
       # POS_SALE_TENDERS_ENABLED on only after a Connector with RT-78 and a
       # tender map is deployed, and SAME_METHOD only after RT-361.

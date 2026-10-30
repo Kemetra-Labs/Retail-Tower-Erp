@@ -42,6 +42,7 @@ interface SourceFile {
 
 /** Adapters (and the factory switch) name their provider by design. */
 const ADAPTER_FILES: readonly AllowEntry[] = [
+  "apps/api/src/auth/descope-auth.client.ts",
   "apps/api/src/auth/descope-identity-provider.adapter.ts",
   "apps/api/src/auth/identity-provider-kind.ts",
   "apps/api/src/auth/identity-provider.factory.ts",

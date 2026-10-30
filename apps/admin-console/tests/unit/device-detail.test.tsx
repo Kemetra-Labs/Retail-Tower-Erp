@@ -37,7 +37,7 @@ vi.mock("@/context/ActiveContextProvider", () => ({
 
 import { DeviceDetail } from "@/devices/DeviceDetail";
 import { createQueryClient } from "@/lib/query";
-import { expectBackLinkFirst, expectPanels } from "./detail-template-helpers";
+import { expectBackLinkFirst, expectPanels, headerStatus } from "./detail-template-helpers";
 
 function LocationProbe(): React.JSX.Element {
   const location = useLocation();
@@ -97,7 +97,7 @@ describe("DeviceDetail (RT-371)", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Till 1" })).toBeDefined();
     expect(field("Device ID").textContent).toBe(DEVICE_1);
     expect(field("Store").textContent).toBe("Dubai Mall");
-    expect(field("Trust state").textContent).toBe("Active");
+    expect(headerStatus("Trust state").textContent).toBe("Trust state: Active");
     expect(field("Credential expires").textContent).toContain("Expiry passed (not enforced yet)");
     expect(field("Last seen").textContent).toContain("Last authenticated request from the device");
     expect(screen.getByText(/does not mean the device is healthy/)).toBeDefined();
@@ -275,5 +275,14 @@ describe("DeviceDetail (RT-371)", () => {
     renderDetail(`/devices/${DEVICE_2}?tab=history`);
     await screen.findByRole("tabpanel", { name: "History" });
     expectPanels(["Events", "Replacement chain"]);
+  });
+
+  test("RT-974: the trust state is a status in the page header; the actions sit in the header", async () => {
+    renderDetail();
+    await screen.findByRole("heading", { level: 1, name: "Till 1" });
+    expect(headerStatus("Trust state").textContent).toBe("Trust state: Active");
+    expect(screen.queryByText("Trust state", { selector: "dt" })).toBeNull();
+    const revoke = screen.getByRole("button", { name: "Revoke" });
+    expect(revoke.closest(".page-header")).not.toBeNull();
   });
 });

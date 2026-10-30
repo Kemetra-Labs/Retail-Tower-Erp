@@ -1,7 +1,13 @@
 import { StorePolicySection } from "@/cash-policy/StorePolicySection";
 import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
-import { DetailGrid, DetailPanel, LedgerField, PanelBody } from "@/components/DetailPanel";
+import {
+  DetailGrid,
+  DetailPanel,
+  HeaderStatus,
+  LedgerField,
+  PanelBody,
+} from "@/components/DetailPanel";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/i18n";
@@ -90,7 +96,11 @@ export function StoreDetail(): React.JSX.Element {
             </Link>
           </div>
         }
-      />
+      >
+        <HeaderStatus label={t("stores.field.state")}>
+          <StoreStateBadge isActive={store.is_active} />
+        </HeaderStatus>
+      </PageHeader>
 
       <DetailGrid>
         <DetailPanel>
@@ -98,9 +108,6 @@ export function StoreDetail(): React.JSX.Element {
             <dl className="surface__detail">
               <LedgerField label={t("stores.field.code")} mono>
                 <bdi dir="ltr">{store.code}</bdi>
-              </LedgerField>
-              <LedgerField label={t("stores.field.state")}>
-                <StoreStateBadge isActive={store.is_active} />
               </LedgerField>
               <LedgerField label={t("stores.field.timezone")}>
                 <ZoneName zone={store.timezone} />

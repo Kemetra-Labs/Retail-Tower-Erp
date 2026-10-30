@@ -22,7 +22,7 @@ vi.mock("@/context/ActiveContextProvider", () => ({
 import { setLocale } from "@/i18n/locale";
 import { createQueryClient } from "@/lib/query";
 import { StoreDetail } from "@/stores/StoreDetail";
-import { expectBackLinkFirst } from "./detail-template-helpers";
+import { expectBackLinkFirst, headerStatus } from "./detail-template-helpers";
 
 function renderDetail(): void {
   const qc = createQueryClient();
@@ -66,7 +66,7 @@ describe("StoreDetail", () => {
     expect(screen.queryByRole("button", { name: /delete/i })).toBeNull();
   });
 
-  test("RT-477: shows the time zone row as «city (IANA id)», no UTC offset, between status and ID", async () => {
+  test("RT-477: shows the time zone row as «city (IANA id)», no UTC offset, between code and ID", async () => {
     readStore.mockResolvedValue({
       status: 200,
       data: {
@@ -84,7 +84,8 @@ describe("StoreDetail", () => {
     expect(screen.getByText("Africa/Cairo").tagName).toBe("BDI");
     expect(row?.textContent).not.toMatch(/GMT|UTC[+-]/);
     const labels = [...document.querySelectorAll(".field-row__label")].map((e) => e.textContent);
-    expect(labels).toEqual(["Code", "Status", "Time zone", "Store ID"]);
+    // RT-974: the state moved to the page header, so the zone row follows the code.
+    expect(labels).toEqual(["Code", "Time zone", "Store ID"]);
   });
 
   test("RT-477: a zone with no curated name is shown as its IANA identity", async () => {
@@ -172,5 +173,17 @@ describe("StoreDetail", () => {
     );
     expectBackLinkFirst();
     expect(screen.getByText("CFC").closest(".section-panel")).not.toBeNull();
+  });
+
+  test("RT-974: the store's state is a status in the page header, not a ledger row", async () => {
+    readStore.mockResolvedValue({
+      status: 200,
+      data: { id: "s1", code: "CFC", name: "Cairo Festival City", is_active: true },
+    });
+    renderDetail();
+    await screen.findByRole("heading", { name: "Cairo Festival City" });
+    expect(headerStatus("Status").textContent).toBe("Status: Active");
+    const labels = [...document.querySelectorAll(".field-row__label")].map((e) => e.textContent);
+    expect(labels).not.toContain("Status");
   });
 });

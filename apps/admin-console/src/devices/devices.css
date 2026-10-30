@@ -237,3 +237,10 @@
 .device-codes-region:focus-visible {
   outline: none;
 }
+
+/* RT-974: the lifecycle actions are the page header's actions; their hint
+ * sits under the buttons at the same inline end. */
+.page-header__end > .device-actions {
+  align-items: flex-end;
+  text-align: end;
+}

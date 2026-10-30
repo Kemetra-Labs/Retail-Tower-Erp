@@ -35,6 +35,7 @@ import {
   type CanActivate,
   type ExecutionContext,
   type INestApplication,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
@@ -127,6 +128,15 @@ class FakeAuthService {
 
   async confirmEmailVerification(input: { rawToken: string }): Promise<void> {
     this.lastConfirmEmailVerificationArgs = input;
+  }
+
+  // RT-937 item 2
+  lastChangePasswordArgs: unknown = null;
+  changePasswordError: Error | null = null;
+
+  async changePassword(input: unknown): Promise<void> {
+    this.lastChangePasswordArgs = input;
+    if (this.changePasswordError) throw this.changePasswordError;
   }
 }
 
@@ -254,6 +264,8 @@ beforeEach(() => {
   svc.lastConfirmPasswordResetArgs     = null;
   svc.lastRequestEmailVerificationArgs = null;
   svc.lastConfirmEmailVerificationArgs = null;
+  svc.lastChangePasswordArgs           = null;
+  svc.changePasswordError              = null;
 
   svc.signInResult = {
     sessionId: SESSION_ID,
@@ -966,5 +978,95 @@ describe("public-auth 429 carries Retry-After (RT-623)", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers["retry-after"]).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/auth/password/change (RT-937 item 2)
+// ---------------------------------------------------------------------------
+
+describe("POST /api/v1/auth/password/change", () => {
+  const body = { current_password: "Old-Password-1!", new_password: "New-Password-2!" };
+
+  it("happy path: 204, forwards the session's user and session id plus both passwords", async () => {
+    const res = await http().post("/api/v1/auth/password/change").send(body);
+
+    expect(res.status).toBe(204);
+    expect(svc.lastChangePasswordArgs).toEqual({
+      userId: USER_ID,
+      sessionId: SESSION_ID,
+      currentPassword: "Old-Password-1!",
+      newPassword: "New-Password-2!",
+      // The request-id interceptor is not mounted in this unit module.
+      requestId: null,
+    });
+  });
+
+  it("returns 401 when AuthGuard rejects — service not called", async () => {
+    guard.mode = "reject";
+    const res = await http().post("/api/v1/auth/password/change").send(body);
+
+    expect(res.status).toBe(401);
+    expect(svc.lastChangePasswordArgs).toBeNull();
+  });
+
+  it("returns 401 for a bearer-token principal: cookie session only", async () => {
+    guard.principal = { kind: "token", tokenId: TOKEN_ID, tenantId: TENANT_ID, userId: USER_ID, scope: "dashboard_api" as const } as Principal;
+    const res = await http().post("/api/v1/auth/password/change").send(body);
+
+    expect(res.status).toBe(401);
+    expect(svc.lastChangePasswordArgs).toBeNull();
+  });
+
+  it.each([
+    ["missing current_password", { new_password: "New-Password-2!" }],
+    ["missing new_password", { current_password: "Old-Password-1!" }],
+    ["empty new_password", { current_password: "Old-Password-1!", new_password: "" }],
+    ["unknown field", { ...body, extra: "x" }],
+  ])("returns 400 validation_error for %s — service not called", async (_name, payload) => {
+    const res = await http().post("/api/v1/auth/password/change").send(payload);
+
+    expect(res.status).toBe(400);
+    expectErrorEnvelope(res.body, "validation_error");
+    expect(svc.lastChangePasswordArgs).toBeNull();
+  });
+
+  it("rate-limits per user BEFORE any provider work: 429 with Retry-After", async () => {
+    rl.blockBucket("pwchange_user");
+    const res = await http().post("/api/v1/auth/password/change").send(body);
+
+    expect(res.status).toBe(429);
+    expect(res.headers["retry-after"]).toBeDefined();
+    expect(rl.calledBuckets).toEqual(["pwchange_user"]);
+    expect(svc.lastChangePasswordArgs).toBeNull();
+  });
+
+  it("releases the attempt on success, so only failed attempts count", async () => {
+    await http().post("/api/v1/auth/password/change").send(body);
+    expect(rl.releasedBuckets).toEqual(["pwchange_user"]);
+  });
+
+  it("keeps the attempt counted when the refusal is the generic 400 (a failed guess)", async () => {
+    svc.changePasswordError = new BadRequestException("The password could not be changed");
+    const res = await http().post("/api/v1/auth/password/change").send(body);
+
+    expect(res.status).toBe(400);
+    expect(rl.releasedBuckets).toEqual([]);
+  });
+
+  it("releases the attempt when the failure is not a failed guess (409 / 503)", async () => {
+    svc.changePasswordError = new ServiceUnavailableException("Identity provider unavailable");
+    const res = await http().post("/api/v1/auth/password/change").send(body);
+
+    expect(res.status).toBe(503);
+    expect(rl.releasedBuckets).toEqual(["pwchange_user"]);
+  });
+
+  it("never echoes either password in an error response", async () => {
+    svc.changePasswordError = new BadRequestException("The password could not be changed");
+    const res = await http().post("/api/v1/auth/password/change").send(body);
+
+    expect(JSON.stringify(res.body)).not.toContain("Old-Password-1!");
+    expect(JSON.stringify(res.body)).not.toContain("New-Password-2!");
   });
 });
