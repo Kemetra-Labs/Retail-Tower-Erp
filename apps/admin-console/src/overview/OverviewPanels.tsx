@@ -1,20 +1,33 @@
 /**
+ * RT-970 Overview v2 (owner-approved canvas «المختار · A + مسار C», 2026-10-30):
+ * the page header with Refresh, then the KPI ledger strip, the pipeline strip,
+ * the 14-day trend beside the attention list, and the latest sales. Every
+ * figure is an existing read (`useGlancePanels.ts`); nothing new is asked of
+ * Backend-Core. Note: the latest-sales read is `consoleListSales`, which
+ * records a `console_sales.listed` audit event per load and Refresh, as the
+ * Sales screen does.
+ *
  * RT-559 the Overview's panels under the scope line (spec 009 v1: P-1…P-4).
  * Nothing renders and nothing is read without an active tenant (AC-2). Reads
  * happen on load and on scope change (the shell remounts the route per scope,
  * and every key carries the scope), plus one manual refresh (NG-7: no polling).
- * P-6 (RT-820, AC-11) shows today's received sales per store, as text. Recent activity (P-5)
- * is deferred until Backend-Core can leave read-only audits out (OD-009-3,
+ * RT-820's per-store "today" rows (P-6) gave way to the KPI strip (RT-970).
+ * Recent activity (P-5) is deferred until Backend-Core can leave read-only audits out (OD-009-3,
  * RT-567): owner and tenant_admin get a plain link to `/audit` instead (AC-10).
  */
+import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/i18n";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { AttentionLedger } from "./AttentionLedger";
-import { SalesToday } from "./SalesToday";
+import { KpiStrip } from "./KpiStrip";
+import { PipelineStrip } from "./PipelineStrip";
+import { RecentSales } from "./RecentSales";
+import { TrendPanel } from "./TrendPanel";
 import { canOpenAudit } from "./overviewLogic";
-import { useOverviewSession } from "./useOverviewPanels";
+import { useActiveDevices, useGlanceSummary, useRecentSales } from "./useGlancePanels";
+import { type OverviewSession, useOverviewSession } from "./useOverviewPanels";
 import { OVERVIEW_KEY } from "./usePanelQuery";
 import "./overview.css";
 
@@ -61,18 +74,23 @@ function useRefresh(): { value: number; refresh: () => void } {
   return { value: state.value, refresh };
 }
 
-export function OverviewPanels(): React.JSX.Element | null {
+function Panels({
+  session,
+  nowMs,
+}: Readonly<{ session: OverviewSession; nowMs: number }>): React.JSX.Element {
   const t = useT();
-  const session = useOverviewSession();
-  const clock = useRefresh();
-  if (!session.tenantId) return null;
+  const summary = useGlanceSummary(session, nowMs);
+  const devices = useActiveDevices(session);
+  const recent = useRecentSales(session, nowMs);
   return (
     <div className="overview">
-      <div className="overview__toolbar">
-        <RefreshButton onRefresh={clock.refresh} />
+      <KpiStrip state={summary} />
+      <PipelineStrip session={session} summary={summary} devices={devices} />
+      <div className="overview__row">
+        <TrendPanel state={summary} />
+        <AttentionLedger session={session} nowMs={nowMs} />
       </div>
-      <AttentionLedger session={session} nowMs={clock.value} />
-      <SalesToday session={session} nowMs={clock.value} />
+      <RecentSales state={recent} />
       {canOpenAudit(session.role) ? (
         <p className="overview__related">
           <Link className="ledger__link" to="/audit">
@@ -80,6 +98,31 @@ export function OverviewPanels(): React.JSX.Element | null {
           </Link>
         </p>
       ) : null}
+    </div>
+  );
+}
+
+export interface OverviewPanelsProps {
+  title: React.ReactNode;
+  subtitle: React.ReactNode;
+}
+
+/** The page: header first; the panels only once a tenant is active (AC-2). */
+export function OverviewPanels({
+  title,
+  subtitle,
+}: Readonly<OverviewPanelsProps>): React.JSX.Element {
+  const session = useOverviewSession();
+  const clock = useRefresh();
+  const active = session.tenantId !== null;
+  return (
+    <div className="surface">
+      <PageHeader
+        title={title}
+        subtitle={subtitle}
+        actions={active ? <RefreshButton onRefresh={clock.refresh} /> : null}
+      />
+      {active ? <Panels session={session} nowMs={clock.value} /> : null}
     </div>
   );
 }

@@ -41,6 +41,13 @@ vi.mock("@/context/ActiveContextProvider", () => ({
 
 import { createQueryClient } from "@/lib/query";
 import { SaleDetail } from "@/sales/SaleDetail";
+import {
+  expectBackLinkFirst,
+  expectMoney,
+  expectNumericColumn,
+  expectPanels,
+  ledgerValue,
+} from "./detail-template-helpers";
 
 function LocationProbe(): React.JSX.Element {
   const location = useLocation();
@@ -386,5 +393,47 @@ describe("SaleDetail (RT-587, spec 012 J2)", () => {
         "/sales?store=abc&from=2026-10-01&to=2026-10-07",
       ),
     );
+  });
+  test("RT-961: the v3 detail template: panels, end-aligned money, the served total anchored", async () => {
+    consoleGetSale.mockResolvedValue({
+      status: 200,
+      data: detail({
+        returns: [
+          {
+            returnRef: RETURN_1,
+            recordedAt: "2026-10-08T09:00:00Z",
+            businessDate: "2026-10-08",
+            returnTotal: "10.0000",
+            lines: [{ lineRef: LINE_1, quantity: "1", lineAmount: "10.0000" }],
+          },
+        ],
+      }),
+    });
+    renderDetail();
+    await loaded();
+    expectBackLinkFirst();
+    expectPanels([
+      "Sale",
+      "Receipt header",
+      "Lines",
+      "Payments",
+      "Void",
+      "Returns",
+      "ERPNext posting",
+      "Related screens",
+    ]);
+    expectMoney(ledgerValue("Total", section("Sale")));
+    const lines = within(section("Lines")).getByRole("table");
+    for (const header of ["Unit price", "Line amount", "Tax"]) expectNumericColumn(lines, header);
+    // The sale total as served (nothing summed here) anchors the line amounts.
+    const total = lines.querySelector("tfoot tr.data-table__total");
+    expect(total?.querySelector('th[scope="row"]')?.textContent).toBe("Total");
+    expect(total?.querySelector("td.data-table__cell--num")?.textContent).toContain("250.00");
+    const payments = section("Payments");
+    expectNumericColumn(within(payments).getByRole("table"), "Amount");
+    expectMoney(ledgerValue("Change given", payments));
+    const returns = section("Returns");
+    expectNumericColumn(within(returns).getByRole("table"), "Amount");
+    expectMoney(ledgerValue("Return total", returns));
   });
 });

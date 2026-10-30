@@ -32,6 +32,12 @@ vi.mock("@/context/ActiveContextProvider", () => ({
 
 import { createQueryClient } from "@/lib/query";
 import { ShiftCloseDetail } from "@/shift-closes/ShiftCloseDetail";
+import {
+  expectBackLinkFirst,
+  expectMoney,
+  expectNumericColumn,
+  expectPanels,
+} from "./detail-template-helpers";
 
 function renderDetail(shiftId: string = SHIFT_1, state?: unknown): void {
   render(
@@ -290,5 +296,41 @@ describe("ShiftCloseDetail (RT-18)", () => {
     renderDetail();
     expect(await screen.findByText(/select a tenant to view shift closes/i)).toBeDefined();
     expect(consoleGetShiftClose).not.toHaveBeenCalled();
+  });
+  test("RT-961: the v3 detail template: the cash ledger is end-aligned and the variance anchored", async () => {
+    renderDetail();
+    await screen.findByText("Shift summary");
+    expectBackLinkFirst();
+    expectPanels([
+      "Shift summary",
+      "Cash reconciliation",
+      "Variance approval",
+      "Cash movements",
+      "Returns refunded in cash",
+    ]);
+    for (const label of [
+      "Opening float",
+      "Cash sales",
+      "Cash refunds",
+      "Pay-ins",
+      "Pay-outs",
+      "Expected cash",
+      "Counted cash",
+    ]) {
+      expectMoney(field(label));
+    }
+    // Expected and counted are the results the variance compares; the variance is the total.
+    for (const label of ["Expected cash", "Counted cash"]) {
+      expect(field(label).closest(".field-row")?.classList.contains("field-row--result")).toBe(
+        true,
+      );
+    }
+    const variance = field("Variance (counted − expected)");
+    expectMoney(variance);
+    expect(variance.closest(".field-row")?.classList.contains("field-row--total")).toBe(true);
+    const movements = within(screen.getByRole("region", { name: "Cash movements" }));
+    expectNumericColumn(movements.getByRole("table"), "Amount");
+    // Machine ids stay mono.
+    expect(field("Shift ID").classList.contains("field-row__value--mono")).toBe(true);
   });
 });

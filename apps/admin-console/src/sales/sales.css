@@ -36,21 +36,18 @@
   font-size: var(--text-control);
 }
 
-/* Detail: a section per concern, read-first field rows. */
-.sale-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-.sale-section .content__sub {
-  margin: 0;
-}
+/* Detail (RT-961): each block is a section panel; a return is a ledger and
+ * its table, divided from the one before it. */
 .sale-return {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   padding-block-start: var(--space-3);
   border-block-start: 1px solid var(--color-border);
+}
+.sale-return:first-child {
+  padding-block-start: 0;
+  border-block-start: 0;
 }
 .sale-amount {
   font-variant-numeric: tabular-nums;

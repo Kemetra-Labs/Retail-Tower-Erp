@@ -227,6 +227,14 @@ grids, hero metrics and decorative charts stay out, on the Overview and everywhe
   equal to the approved values; `body-strong` and `money-hero` are not defined yet.
 - **Screen title: 24px** (`--text-screen-title`, 1.5rem, the approved canvas value since
   RT-969). It is the page header's `<h1>` and nothing else at page level is that large.
+- **Precision Ledger (RT-961).** In a detail ledger (`.field-row`) the value is what the row is
+  for: body size, regular, text colour. The label is muted and never heavier than its value.
+  Machine values keep mono. Money sits at the inline end (right in LTR, left in RTL) in tabular
+  numerals, so decimals line up, in ledgers and in table columns (`data-table__cell--num`, header
+  included). The figures a ledger arrives at read stronger (`field-row--result`), and its total
+  is anchored under a 2px text-colour rule (`field-row--total`, `data-table__total`). A total is
+  shown only as served, never summed in the Console. A row header (`<th scope="row">`) keeps the
+  row divider.
 - **Readability floor: 12px.** No operator-readable text below 12px (declared CSS sizes are checked by
   `tests/unit/tokens-identity.test.ts`). Arabic body keeps generous line-height (1.7).
   Hierarchy comes from placement, spacing, weight and alignment before size.
@@ -285,6 +293,14 @@ grids, hero metrics and decorative charts stay out, on the Overview and everywhe
     card.
   - **Drawer:** attached, with real elevation.
   - **Dialog:** the strongest elevation.
+- **Detail template (v3, RT-961)** (`src/components/DetailPanel.tsx`): the back link, the page
+  header (title, status chips, actions), then a failure banner where the data has one (What →
+  Safety → Action → Evidence, §8), then the data regions. Each region is a `DetailPanel`, a
+  section panel named by its `h2`. Ledger panels sit in a `DetailGrid`, two to a row once
+  the content is wide enough (each at least 26rem) and stacked otherwise. A lone ledger keeps
+  its half. A table sits straight under its panel header, full width, outside the grid. DOM
+  order is reading order. It is used by sale, shift-close, device, catalog product and store
+  detail.
 - **Shape (target):** 8px controls, 12px genuine contained objects, 16px independent overlays.
   Round the object, not the page. Pills only for true status, counts or tags, never ordinary
   buttons. *Shipped as `--radius-control` / `--radius-object` / `--radius-overlay` (RT-396).*

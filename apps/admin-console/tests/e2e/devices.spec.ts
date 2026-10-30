@@ -107,7 +107,7 @@ test("S1: owner → fleet (server order) → filters → detail tabs → Back ke
   await page.route(`**/api/v1/devices/${DEVICE_2}`, (r) => r.fulfill(json(custodyDetail)));
 
   await page.goto("/");
-  await page.getByRole("link", { name: t("devices.nav.label") }).click();
+  await page.getByRole("link", { name: t("devices.nav.label"), exact: true }).click();
   await expect(page.getByRole("heading", { name: t("devices.list.title") })).toBeVisible();
 
   // The server's exception-first order, as received; a missing last activity is "not recorded".

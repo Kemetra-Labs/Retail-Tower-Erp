@@ -3,8 +3,13 @@
  * detail projection exactly as served: lines in the server's order, tenders,
  * the void and returns summaries and the ERP posting state. A block the sale
  * never recorded says so; nothing is computed, filled or re-sorted here.
+ *
+ * RT-961: each block is a section panel (DESIGN.md §5). A table sits under its
+ * panel header; money columns are end-aligned, and the lines are anchored by
+ * the sale total exactly as served (not a sum of the lines).
  */
 import { DataTableScroll, useCaptionId } from "@/components/DataTableScroll";
+import { DetailPanel, LedgerField, PanelBody } from "@/components/DetailPanel";
 import { DateTime, type MessageKey, Money, roleKey, useT } from "@/i18n";
 import type { SaleDetail, SaleLine, SaleReturn } from "@/lib/sale-queries";
 import { BusinessDate, ErpChip } from "./SaleParts";
@@ -38,26 +43,14 @@ export function Section({
 }: Readonly<{ id: string; titleKey: MessageKey; children: React.ReactNode }>): React.JSX.Element {
   const t = useT();
   return (
-    <section className="sale-section" aria-labelledby={id}>
-      <h2 id={id} className="surface__section-title">
-        {t(titleKey)}
-      </h2>
-      {children}
-    </section>
+    <DetailPanel id={id} title={t(titleKey)}>
+      <PanelBody>{children}</PanelBody>
+    </DetailPanel>
   );
 }
 
-export function Field({
-  label,
-  children,
-}: Readonly<{ label: string; children: React.ReactNode }>): React.JSX.Element {
-  return (
-    <div className="field-row">
-      <dt className="field-row__label">{label}</dt>
-      <dd className="field-row__value">{children}</dd>
-    </div>
-  );
-}
+/** A ledger row (RT-961): `money` end-aligns an amount. */
+export const Field = LedgerField;
 
 /** Machine data (references, document ids), isolated LTR. */
 function MachineText({ value }: Readonly<{ value: string }>): React.JSX.Element {
@@ -73,50 +66,58 @@ function LineRow({ line }: Readonly<{ line: SaleLine }>): React.JSX.Element {
       <th scope="row">
         <bdi dir="auto">{line.lineName}</bdi>
       </th>
-      <td className="sale-amount">
+      <td className="data-table__cell--num">
         <MachineText value={line.quantity} />
       </td>
       <td>
         <bdi dir="auto">{line.unit}</bdi>
       </td>
-      <td>
+      <td className="data-table__cell--num">
         <Money value={line.unitPrice} currency={line.currencyCode} />
       </td>
-      <td>
+      <td className="data-table__cell--num">
         <Money value={line.lineAmount} currency={line.currencyCode} />
       </td>
-      <td>
+      <td className="data-table__cell--num">
         {line.taxAmount === null ? (
           notRecorded
         ) : (
           <Money value={line.taxAmount} currency={line.currencyCode} />
         )}
       </td>
-      <td className="sale-amount">
+      <td className="data-table__cell--num">
         <MachineText value={line.returnedQuantity} />
       </td>
     </tr>
   );
 }
 
-const LINE_COLUMNS: MessageKey[] = [
-  "sales.lines.col.sequence",
-  "sales.lines.col.name",
-  "sales.lines.col.quantity",
-  "sales.lines.col.unit",
-  "sales.lines.col.unitPrice",
-  "sales.lines.col.amount",
-  "sales.lines.col.tax",
-  "sales.lines.col.returned",
-];
+/** A column header; `num` marks a money or quantity column (end-aligned). */
+interface Column {
+  key: MessageKey;
+  num?: boolean;
+}
 
-function HeadRow({ columns }: Readonly<{ columns: MessageKey[] }>): React.JSX.Element {
+const LINE_COLUMNS: Column[] = [
+  { key: "sales.lines.col.sequence" },
+  { key: "sales.lines.col.name" },
+  { key: "sales.lines.col.quantity", num: true },
+  { key: "sales.lines.col.unit" },
+  { key: "sales.lines.col.unitPrice", num: true },
+  { key: "sales.lines.col.amount", num: true },
+  { key: "sales.lines.col.tax", num: true },
+  { key: "sales.lines.col.returned", num: true },
+];
+/** The line-amount column, under which the sale total is anchored. */
+const LINE_AMOUNT_INDEX = 5;
+
+function HeadRow({ columns }: Readonly<{ columns: Column[] }>): React.JSX.Element {
   const t = useT();
   return (
     <thead>
       <tr>
-        {columns.map((key) => (
-          <th key={key} scope="col">
+        {columns.map(({ key, num }) => (
+          <th key={key} scope="col" className={num ? "data-table__cell--num" : undefined}>
             {t(key)}
           </th>
         ))}
@@ -125,16 +126,38 @@ function HeadRow({ columns }: Readonly<{ columns: MessageKey[] }>): React.JSX.El
   );
 }
 
+/** The sale total as served, under the line-amount column. */
+function LinesTotal({ detail }: Readonly<{ detail: SaleDetail }>): React.JSX.Element {
+  const t = useT();
+  const after = LINE_COLUMNS.length - LINE_AMOUNT_INDEX - 1;
+  return (
+    <tfoot>
+      <tr className="data-table__total">
+        <th scope="row" colSpan={LINE_AMOUNT_INDEX}>
+          {t("sales.field.total")}
+        </th>
+        <td className="data-table__cell--num">
+          <Money value={detail.summary.posTotal} currency={detail.summary.currencyCode} />
+        </td>
+        <td colSpan={after} />
+      </tr>
+    </tfoot>
+  );
+}
+
 export function LinesSection({ detail }: Readonly<{ detail: SaleDetail }>): React.JSX.Element {
   const t = useT();
+  const empty = detail.lines.length === 0;
+  const unordered = detail.lineOrder === "not_recorded";
   return (
-    <Section id="sale-lines" titleKey="sales.section.lines">
-      {detail.lineOrder === "not_recorded" ? (
-        <p className="content__sub">{t("sales.lines.orderNotRecorded")}</p>
+    <DetailPanel id="sale-lines" title={t("sales.section.lines")}>
+      {unordered || empty ? (
+        <PanelBody>
+          {unordered ? <p className="content__sub">{t("sales.lines.orderNotRecorded")}</p> : null}
+          {empty ? <p className="content__sub">{t("sales.lines.empty")}</p> : null}
+        </PanelBody>
       ) : null}
-      {detail.lines.length === 0 ? (
-        <p className="content__sub">{t("sales.lines.empty")}</p>
-      ) : (
+      {empty ? null : (
         <ScrollTable caption={t("sales.lines.caption")}>
           <HeadRow columns={LINE_COLUMNS} />
           <tbody>
@@ -142,16 +165,17 @@ export function LinesSection({ detail }: Readonly<{ detail: SaleDetail }>): Reac
               <LineRow key={line.lineRef} line={line} />
             ))}
           </tbody>
+          <LinesTotal detail={detail} />
         </ScrollTable>
       )}
-    </Section>
+    </DetailPanel>
   );
 }
 
-const TENDER_COLUMNS: MessageKey[] = [
-  "sales.payments.col.method",
-  "sales.payments.col.amount",
-  "sales.payments.col.reference",
+const TENDER_COLUMNS: Column[] = [
+  { key: "sales.payments.col.method" },
+  { key: "sales.payments.col.amount", num: true },
+  { key: "sales.payments.col.reference" },
 ];
 
 export function PaymentsSection({ detail }: Readonly<{ detail: SaleDetail }>): React.JSX.Element {
@@ -165,7 +189,7 @@ export function PaymentsSection({ detail }: Readonly<{ detail: SaleDetail }>): R
     );
   }
   return (
-    <Section id="sale-payments" titleKey="sales.section.payments">
+    <DetailPanel id="sale-payments" title={t("sales.section.payments")}>
       <ScrollTable caption={t("sales.payments.caption")}>
         <HeadRow columns={TENDER_COLUMNS} />
         <tbody>
@@ -175,7 +199,7 @@ export function PaymentsSection({ detail }: Readonly<{ detail: SaleDetail }>): R
               className="data-table__row data-table__row--static"
             >
               <td>{t(tenderMethodKey(tender))}</td>
-              <td>
+              <td className="data-table__cell--num">
                 <Money value={tender.amount} currency={currency} />
               </td>
               <td>{tender.reference ? <MachineText value={tender.reference} /> : null}</td>
@@ -183,15 +207,17 @@ export function PaymentsSection({ detail }: Readonly<{ detail: SaleDetail }>): R
           ))}
         </tbody>
       </ScrollTable>
-      <p className="content__sub">{t("sales.payments.netNote")}</p>
-      {detail.changeGiven === null ? null : (
-        <dl className="surface__detail">
-          <Field label={t("sales.payments.changeGiven")}>
-            <Money value={detail.changeGiven} currency={currency} />
-          </Field>
-        </dl>
-      )}
-    </Section>
+      <PanelBody>
+        {detail.changeGiven === null ? null : (
+          <dl className="surface__detail">
+            <Field label={t("sales.payments.changeGiven")} money>
+              <Money value={detail.changeGiven} currency={currency} />
+            </Field>
+          </dl>
+        )}
+        <p className="content__sub">{t("sales.payments.netNote")}</p>
+      </PanelBody>
+    </DetailPanel>
   );
 }
 
@@ -234,6 +260,12 @@ export function VoidSection({
   );
 }
 
+const RETURN_COLUMNS: Column[] = [
+  { key: "sales.returns.col.item" },
+  { key: "sales.returns.col.quantity", num: true },
+  { key: "sales.returns.col.amount", num: true },
+];
+
 function ReturnBlock({
   entry,
   lineNames,
@@ -255,18 +287,12 @@ function ReturnBlock({
         <Field label={t("sales.returns.businessDate")}>
           <BusinessDate value={entry.businessDate} />
         </Field>
-        <Field label={t("sales.returns.total")}>
+        <Field label={t("sales.returns.total")} money>
           <Money value={entry.returnTotal} currency={currency} />
         </Field>
       </dl>
       <ScrollTable caption={t("sales.returns.caption")}>
-        <HeadRow
-          columns={[
-            "sales.returns.col.item",
-            "sales.returns.col.quantity",
-            "sales.returns.col.amount",
-          ]}
-        />
+        <HeadRow columns={RETURN_COLUMNS} />
         <tbody>
           {entry.lines.map((returned) => (
             <tr key={returned.lineRef} className="data-table__row data-table__row--static">
@@ -275,10 +301,10 @@ function ReturnBlock({
                   {lineNames.get(returned.lineRef) ?? t("sales.returns.unknownLine")}
                 </bdi>
               </th>
-              <td className="sale-amount">
+              <td className="data-table__cell--num">
                 <MachineText value={returned.quantity} />
               </td>
-              <td>
+              <td className="data-table__cell--num">
                 <Money value={returned.lineAmount} currency={currency} />
               </td>
             </tr>
