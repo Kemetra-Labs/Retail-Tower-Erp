@@ -153,6 +153,12 @@ paths:
         A used, expired, revoked or unknown token is the same opaque 400, with
         no side effect. A retry after a partial failure converges on one
         identity.
+
+
+        The request bounds (token, password and display name lengths) are
+        enforced by the server and are deliberately not declared as schema
+        bounds: setting a bound is a breaking change for consumers that pin
+        this contract, and this operation was contract-only until RT-937.
       operationId: acceptInvitation
       security: []
       requestBody:
@@ -166,20 +172,21 @@ paths:
               properties:
                 token:
                   type: string
-                  minLength: 1
-                  maxLength: 1024
-                  description: Single-use token sent to the invitee by email.
+                  description: >
+                    Single-use token sent to the invitee by email. The server
+                    refuses an empty value and one over 1024 characters.
                 password:
                   type: string
-                  minLength: 1
-                  maxLength: 1024
                   description: >
                     Required if the invitee has no account yet; ignored for an
-                    existing user. At most 1024 Unicode code points (RT-153).
+                    existing user. The server refuses an empty value and one
+                    over 1024 Unicode code points (RT-153). The identity
+                    provider defines the rest of the password policy.
                 display_name:
                   type: string
-                  minLength: 1
-                  maxLength: 200
+                  description: >
+                    Optional. The server refuses a blank value and one over 200
+                    characters.
       responses:
         "200":
           description: >
