@@ -39,13 +39,52 @@ export const overview = {
   "overview.unknown.noun": "الأصناف",
   "overview.unknown.open": "مراجعة الأصناف",
 
-  // --- P-6 today's received sales (RT-820, spec 009 OD-009-1) ------------------
-  "overview.sales.title": "المبيعات المستلمة اليوم",
-  "overview.sales.open": "عرض مبيعات المتجر",
-  "overview.sales.total": "كل المتاجر في النطاق",
-  "overview.sales.mixedDays":
-    "المتاجر في أيام عمل مختلفة، لذلك لا يُعرض إجمالي واحد للنطاق. لكل متجر يوم عمله الحالي.",
-  "overview.sales.more": "المعروض أول صفحة من المتاجر فقط. افتح المبيعات لرؤية الباقي.",
-  "overview.sales.openSales": "فتح المبيعات",
-  "overview.sales.none": "لا توجد متاجر في هذا النطاق.",
+  // --- Overview v2 (RT-970) ---------------------------------------------------
+  "overview.unavailable": "غير متاح",
+  "overview.panel.failed": "تعذّر تحميل هذا الجزء. لم يتغيّر شيء.",
+  "overview.panel.retry": "إعادة المحاولة",
+
+  "overview.kpi.label": "مؤشرات اليوم حتى الآن",
+  "overview.kpi.transactions": "العمليات",
+  "overview.kpi.soFar": "حتى الآن · {date}",
+  "overview.kpi.compareNote": "يُقارَن اليوم حتى الآن بيوم العمل السابق كاملًا.",
+  "overview.kpi.up": "أعلى من يوم العمل السابق كاملًا ({value})",
+  "overview.kpi.down": "أقل من يوم العمل السابق كاملًا ({value})",
+  "overview.kpi.same": "مثل يوم العمل السابق كاملًا ({value})",
+  "overview.kpi.previousUnknown": "يوم العمل السابق: غير متاح",
+  "overview.kpi.mixed":
+    "المتاجر في أيام عمل مختلفة، فلا يوجد «اليوم» واحد للنطاق. اختر متجرًا، أو افتح المبيعات اليومية.",
+  "overview.kpi.none": "لا توجد متاجر في هذا النطاق.",
+
+  "overview.pipeline.label": "مسار البيع من الكاشير إلى ERPNext",
+  "overview.pipeline.pos": "نقاط البيع",
+  "overview.pipeline.devices": "الأجهزة الموثوقة: {count}",
+  "overview.pipeline.devicesAtLeast": "الأجهزة الموثوقة: {count} أو أكثر",
+  "overview.pipeline.posNote": "لا يُسجَّل آخر نشاط للجهاز، فلا يُعرض اتصاله.",
+  "overview.pipeline.server": "استلمها الخادم",
+  "overview.pipeline.received": "عمليات اليوم: {count}",
+  "overview.pipeline.asOf": "حتى {asOf}",
+  "overview.pipeline.erp": "الترحيل إلى ERPNext",
+  "overview.pipeline.posted": "مُرحَّلة: {posted} من {received}",
+  "overview.pipeline.openDevices": "عرض الأجهزة",
+  "overview.pipeline.openSales": "عرض المبيعات",
+  "overview.pipeline.openRepair": "إصلاح المبيعات",
+  "overview.pipeline.openConnection": "حالة الربط",
+
+  "overview.trend.title": "المبيعات المستلمة، آخر 14 يوم عمل",
+  "overview.trend.view": "طريقة العرض",
+  "overview.trend.chart": "رسم",
+  "overview.trend.table": "جدول",
+  "overview.trend.summary":
+    "أعمدة المبيعات المستلمة بعملة {currency} لكل يوم عمل. الجدول يعرض الأرقام نفسها.",
+  "overview.trend.colDay": "يوم العمل",
+  "overview.trend.colSales": "المبيعات المستلمة ({currency})",
+  "overview.trend.colCount": "العمليات",
+  "overview.trend.colState": "الحالة",
+  "overview.trend.empty": "لا مبيعات مستلمة في هذه الأيام.",
+
+  "overview.recent.title": "آخر العمليات",
+  "overview.recent.all": "كل المبيعات",
+  "overview.recent.needsStore": "اختر متجرًا من مُبدِّل النطاق لعرض آخر عملياته.",
+  "overview.recent.none": "لا مبيعات مستلمة لهذا المتجر في آخر 31 يوم عمل.",
 } satisfies Messages;
