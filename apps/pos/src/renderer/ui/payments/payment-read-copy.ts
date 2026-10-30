@@ -1,4 +1,5 @@
 import type { PaymentAttemptRendererView, RefusalReason } from '../../../shared/payments/types.js';
+import { SHIFT_COPY } from '../../v5/shift/shift-copy.js';
 
 /**
  * RT-340 / RT-341 — the payment lines Checkout shows after main has been read
@@ -64,6 +65,8 @@ export function moneyStillDue(attempt: PaymentAttemptRendererView): boolean {
 export function confirmRefusalCopy(reason: RefusalReason | null, stillDue: boolean): string | null {
   if (reason === 'tender_underpaid') return stillDue ? null : CONFIRM_RETRY_COPY;
   if (reason === 'no_session') return CONFIRM_NO_SESSION_COPY;
+  // RT-998: a retry cannot help until a shift is open, so it is not the retry line.
+  if (reason === 'shift_not_open') return SHIFT_COPY.settleNeedsShift;
   if (reason !== null && SESSION_REFUSALS.has(reason)) return CONFIRM_NOT_ALLOWED_COPY;
   return CONFIRM_RETRY_COPY;
 }

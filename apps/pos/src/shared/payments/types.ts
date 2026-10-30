@@ -97,6 +97,9 @@ export const REFUSAL_REASONS = [
   'tender_not_yet_supported',
   // RT-700 (P-26-1): a card tender while `POS_PULSE_FEATURE_CARD_TENDER` is off.
   'card_tender_disabled',
+  // RT-998 (RT-276 c14719): cash while the shift cash-up is on and the terminal
+  // has no open shift — `cash-shift-gate.ts`. Nothing is recorded or settled.
+  'shift_not_open',
   'line_not_applied',
   'dependency_unavailable',
   // Voucher refusals — typed Slice-3 for forward use; Slice-4 wires the validate / redeem paths.

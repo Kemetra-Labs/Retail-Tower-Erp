@@ -56,6 +56,10 @@ export function CheckoutRoute(): JSX.Element {
   const handleReturnedToSale = useCallback((): void => {
     void navigate('/app/cart');
   }, [navigate]);
+  // RT-998: main refused a cash tender with no open shift; the cashier opens it.
+  const handleOpenShift = useCallback((): void => {
+    void navigate('/app/shift');
+  }, [navigate]);
   const backToSale = useCheckoutBackToSale({ onReturned: handleReturnedToSale });
   // Main's durable answer per handoff; Back stays disabled until it is known.
   const backEligibility = useBackToSaleEligibility();
@@ -78,6 +82,7 @@ export function CheckoutRoute(): JSX.Element {
       onNewSale={handleNewSale}
       onBackToSale={backToSale}
       backToSaleEligibility={backEligibility}
+      onOpenShift={handleOpenShift}
     />
   );
 }

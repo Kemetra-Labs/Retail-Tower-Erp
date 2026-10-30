@@ -21,9 +21,11 @@ const MANAGER_PATH = '/app/shift/manager';
  * RT-17 slice 4 part 3 — the shift notice in the v5 frame.
  *
  * The "shift required" gate (10919): a cashier with no open shift sees a
- * persistent banner with the way to open one. Selling is NOT blocked: 10919
- * names the gate but does not say it stops a sale, and blocking would also
- * strand a manager (who cannot open a shift on the device path). With an
+ * persistent banner with the way to open one. Building a sale is not blocked,
+ * but RT-998 (RT-276 c14719) makes the CASH tender need an open shift: main
+ * refuses it with no shift (`cash-shift-gate.ts`), so the banner is the early
+ * warning for that block. A manager cannot open a shift on the device path
+ * (only a cashier session can), so a manager gets the status link only. With an
  * open shift (or an unreadable status) the notice is one quiet link to the
  * shift screen; a manager or admin gets the way to the shift status instead,
  * and no status read. With the flag off (or not yet hydrated) nothing renders

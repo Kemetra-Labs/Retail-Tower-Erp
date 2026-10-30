@@ -36,6 +36,7 @@
  */
 
 import { attemptActionPayload } from '../action-payload.js';
+import type { CashShiftGate } from '../cash-shift-gate.js';
 import { requireOperatorSession } from '../require-operator-session.js';
 import type { OperatorSessionForPayments } from '../require-operator-session.js';
 import type { ConfirmOutcome, PaymentAttemptFsm } from '../fsm/payment-attempt-fsm.js';
@@ -109,6 +110,13 @@ export interface PaymentsConfirmHandlerDeps {
   /** UUID v4 generator used to action_id-namespace per-line redeem/reverse. */
   uuid?: () => string;
   clock: () => Date;
+  /**
+   * RT-998 — an attempt holding an applied cash line settles only while the
+   * terminal has an open shift (`cash-shift-gate.ts`): a shift closed after the
+   * apply must not let the cash settle outside every shift window. Absent means
+   * no gate; production always wires it, and with the shift flag off it allows.
+   */
+  cashShiftGate?: CashShiftGate;
 }
 
 export type PaymentsConfirmHandler = (
@@ -143,6 +151,7 @@ export function createPaymentsConfirmHandler(
     clock,
     settlement,
     settledAuditReconciler,
+    cashShiftGate,
   } = deps;
   const voucherDeps = voucherDepsOf(deps);
 
@@ -220,6 +229,15 @@ export function createPaymentsConfirmHandler(
       return await Promise.resolve({ kind: 'refused', reason: 'attempt_terminal' });
     }
 
+    // RT-998 — before the voucher redeem sweep, so a refused settle has touched
+    // nothing: the attempt stays `started` and a retry settles once a shift is open.
+    if (
+      holdsAppliedCash(linesRepo, req.payment_attempt_id) &&
+      cashShiftGate?.(row) === 'shift_required'
+    ) {
+      return { kind: 'refused', reason: 'shift_not_open' };
+    }
+
     return await sweepAndSettle({
       deps: { linesRepo, paymentAttemptFsm, auditEmitter, clock, settlement },
       voucherDeps,
@@ -228,6 +246,16 @@ export function createPaymentsConfirmHandler(
       req,
     });
   };
+}
+
+/** The attempt holds a cash line that is applied (and so would settle as cash). */
+function holdsAppliedCash(
+  linesRepo: Pick<PaymentTenderLinesRepository, 'findByAttempt'>,
+  paymentAttemptId: string,
+): boolean {
+  return linesRepo
+    .findByAttempt(paymentAttemptId)
+    .some((l) => l.tender_type === 'cash' && l.state === 'applied');
 }
 
 interface SettleContext {

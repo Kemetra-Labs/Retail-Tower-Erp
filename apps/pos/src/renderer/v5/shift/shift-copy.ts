@@ -1,3 +1,4 @@
+import type { Role } from '../../../shared/operator/role';
 import type {
   ShiftCashupRefusal,
   ShiftMovementReasonCode,
@@ -61,12 +62,29 @@ const GENERAL_COPY = {
   invalidAmount: 'أدخل مبلغًا صحيحًا بخانتين عشريتين على الأكثر.',
 } as const;
 
-/** The "shift required" gate (frame notice). */
+/**
+ * The "shift required" gate (frame notice).
+ *
+ * RT-998 — text approved by the owner as drafted (every line below that mentions
+ * cash). Main refuses a cash tender while no shift is open, so these lines say
+ * what is true and what to do: no reason token, no amount, no identifier. The
+ * refusal at the apply records nothing («لم يُسجَّل شيء»); the one at the settle
+ * does not (the cash line is recorded, the sale is not complete).
+ */
 const GATE_COPY = {
-  gateBanner: 'لا توجد وردية مفتوحة على هذا الجهاز. افتح وردية بمبلغ الافتتاح قبل البيع.',
+  gateBanner: 'لا توجد وردية مفتوحة على هذا الجهاز. لا يُقبل الدفع النقدي قبل فتح وردية.',
   gateAction: 'فتح الوردية',
   manageShift: 'إدارة الوردية',
   managerLink: 'حالة الوردية',
+  // Main refused a cash apply (`shift_not_open`): a cashier can open the shift.
+  cashNeedsShiftCashier:
+    'لا توجد وردية مفتوحة على هذا الجهاز، ولا يُقبل الدفع النقدي قبل فتحها. افتح الوردية ثم أكمل الدفع. لم يُسجَّل شيء.',
+  // A manager or admin cannot open a shift (it opens from a cashier session only).
+  cashNeedsShiftOther:
+    'لا توجد وردية مفتوحة على هذا الجهاز، ولا يُقبل الدفع النقدي قبل فتحها. اطلب من الكاشير فتح الوردية. لم يُسجَّل شيء.',
+  // Main refused the settle (`shift_not_open`): the cash line is recorded, the sale is not.
+  settleNeedsShift:
+    'لا توجد وردية مفتوحة على هذا الجهاز، فلم تكتمل الدفعة. افتح الوردية (أو اطلب من الكاشير فتحها) ثم اضغط «تأكيد الدفع».',
 } as const;
 
 /** Opening a shift. */
@@ -183,4 +201,11 @@ export const MOVEMENT_REASON_LABELS: Readonly<Record<ShiftMovementReasonCode, st
 /** The user message for a typed refusal; anything outside the closed set is generic. */
 export function shiftRefusalMessage(reason: ShiftCashupRefusal): string {
   return Object.hasOwn(REFUSAL_COPY, reason) ? REFUSAL_COPY[reason] : SHIFT_COPY.unknownRefusal;
+}
+
+/** RT-998 — the line for a cash apply main refused `shift_not_open`, by who is signed in. */
+export function cashNeedsShiftMessage(role: Role | null): string {
+  return role === 'cashier' || role === null
+    ? SHIFT_COPY.cashNeedsShiftCashier
+    : SHIFT_COPY.cashNeedsShiftOther;
 }

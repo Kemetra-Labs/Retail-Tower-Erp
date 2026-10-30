@@ -10,6 +10,8 @@ import { PinnedPrimary } from './CheckoutActionBar.js';
 import { QuickAmounts } from '../../v5/checkout/QuickAmounts.js';
 import { CashKeypad } from '../../v5/checkout/CashKeypad.js';
 import { Notice } from '../../v5/foundation/Notice.js';
+import { cashNeedsShiftMessage, SHIFT_COPY } from '../../v5/shift/shift-copy.js';
+import { useOperatorSessionStore } from '../../stores/operator-session-store.js';
 
 /**
  * 006-payments-tender Slice 2 + S3d T151, recomposed for RT-243 W1-C
@@ -68,6 +70,12 @@ export interface CashEntryProps {
    * has not seen a tender main already holds. The caller reads main again.
    */
   onNothingOwed?: () => void;
+  /**
+   * RT-998 — main refused the cash `shift_not_open`: no shift is open on this
+   * terminal. The route owner takes a cashier to the shift screen (this surface
+   * is Router-agnostic); without it the message shows with no way on.
+   */
+  onOpenShift?: (() => void) | undefined;
 }
 
 export function CashEntry({
@@ -79,10 +87,16 @@ export function CashEntry({
   onApplied,
   onDraftChange,
   onNothingOwed,
+  onOpenShift,
 }: Readonly<CashEntryProps>): JSX.Element {
   const [rawInput, setRawInput] = useState<string>('');
   const [bridgeRefusal, setBridgeRefusal] = useState<boolean>(false);
   const [nothingOwed, setNothingOwed] = useState<boolean>(false);
+  // RT-998: main refused the cash apply because no shift is open on this terminal.
+  const [needsShift, setNeedsShift] = useState<boolean>(false);
+  const role = useOperatorSessionStore((s) =>
+    s.state.kind === 'signedIn' ? s.state.session.role : null,
+  );
   // RT-437: the amount main refused as out of range (null when none).
   const [refusedAmountMinor, setRefusedAmountMinor] = useState<number | null>(null);
   const [isApplying, setIsApplying] = useState<boolean>(false);
@@ -165,6 +179,7 @@ export function CashEntry({
     if (tenderApply !== undefined && paymentAttemptId !== undefined) {
       setBridgeRefusal(false);
       setNothingOwed(false);
+      setNeedsShift(false);
       setIsApplying(true);
       try {
         const response = await tenderApply({
@@ -180,6 +195,10 @@ export function CashEntry({
           // in the field for correction and give the field focus back.
           setRefusedAmountMinor(amountAppliedMinor);
           inputRef.current?.focus();
+        } else if (response.reason === 'shift_not_open') {
+          // RT-998 — retrying can never help until a shift is open: say so, and
+          // keep the amount in the field so the same cash applies right after.
+          setNeedsShift(true);
         } else if (response.reason === 'attempt_fully_tendered') {
           // Retrying can never help here, so this is not the generic line.
           setNothingOwed(true);
@@ -298,6 +317,24 @@ export function CashEntry({
         <PinnedPrimary>
           {/* The refusal travels with the apply, so it is never below the fold
               while the button is pinned (Codex P2 on #569). */}
+          {needsShift && (
+            <div role="status" aria-live="polite">
+              <Notice tone="warning" testId="cash-entry-needs-shift">
+                {cashNeedsShiftMessage(role)}
+              </Notice>
+              {role === 'cashier' && onOpenShift !== undefined && (
+                <button
+                  type="button"
+                  className="cash-entry__open-shift v5-btn v5-btn--quiet"
+                  data-testid="cash-entry-open-shift"
+                  style={{ minHeight: touchTarget.min }}
+                  onClick={onOpenShift}
+                >
+                  {SHIFT_COPY.gateAction}
+                </button>
+              )}
+            </div>
+          )}
           {bridgeRefusal && (
             <div
               className="cash-entry__bridge-refusal"
