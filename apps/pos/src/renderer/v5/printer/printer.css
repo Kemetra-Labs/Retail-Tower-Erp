@@ -118,6 +118,15 @@
   border-radius: var(--radius-control);
 }
 
+/*
+ * Slim rail: the row's text is visually hidden, so its glyph would sit at the
+ * inline start of the full-width button, off the centre line the other
+ * status glyphs share. The whole width stays the target; the glyph centres.
+ */
+.v5-frame[data-nav='slim'] .v5-status__row--action {
+  justify-content: center;
+}
+
 .v5-status__line {
   display: block;
 }
