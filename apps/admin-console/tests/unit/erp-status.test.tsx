@@ -87,8 +87,16 @@ function panel(name: RegExp): HTMLElement {
   return screen.getAllByRole("region", { name })[0] as HTMLElement;
 }
 
-async function connectionRow(name: string): Promise<HTMLElement> {
-  return screen.findByRole("row", { name: new RegExp(name) });
+/**
+ * RT-944: wait on the cheap text query, then resolve the row once. Polling the
+ * row query itself walks the page's accessibility tree on every check, and on a
+ * loaded runner those checks alone used up the 1 s wait.
+ */
+async function rowOf(name: string): Promise<HTMLElement> {
+  const label = await screen.findByText(name);
+  const row = screen.getByRole("row", { name: new RegExp(name) });
+  expect(row.contains(label)).toBe(true);
+  return row;
 }
 
 /** Today's Backend-Core main: no heartbeat sender, so every instance is never_seen. */
@@ -164,8 +172,8 @@ describe("role gate (A-6)", () => {
 describe("connection panel (A-1, A-2, A-3)", () => {
   test("today's main: every instance reads no signal, with no error and nothing healthy", async () => {
     renderPage();
-    const cairo = await connectionRow("Cairo ERP");
-    const giza = await connectionRow("Giza ERP");
+    const cairo = await rowOf("Cairo ERP");
+    const giza = await rowOf("Giza ERP");
     for (const row of [cairo, giza]) {
       expect(within(row).getByText("No signal")).toBeDefined();
       expect(within(row).getByText("Never")).toBeDefined();
@@ -199,7 +207,7 @@ describe("connection panel (A-1, A-2, A-3)", () => {
       }),
     );
     renderPage();
-    const row = await connectionRow("Cairo ERP");
+    const row = await rowOf("Cairo ERP");
     expect(within(row).getByText(label)).toBeDefined();
     if (liveness === "stale") expect(within(row).getByText("7 minutes ago")).toBeDefined();
   });
@@ -207,13 +215,13 @@ describe("connection panel (A-1, A-2, A-3)", () => {
   test("an instance with no C2 row reads no signal", async () => {
     api.listConnectorHealth.mockResolvedValue(ok({ items: [] }));
     renderPage();
-    expect(within(await connectionRow("Cairo ERP")).getByText("No signal")).toBeDefined();
+    expect(within(await rowOf("Cairo ERP")).getByText("No signal")).toBeDefined();
   });
 
   test("a failed C2 read: every instance at no signal, said plainly, never healthy", async () => {
     api.listConnectorHealth.mockResolvedValue(failure(500));
     renderPage();
-    const row = await connectionRow("Cairo ERP");
+    const row = await rowOf("Cairo ERP");
     expect(within(row).getByText("No signal")).toBeDefined();
     expect(screen.getByText(/couldn't read the connection status/i)).toBeDefined();
     expect(within(panel(/connector connection/i)).queryByText("Connected")).toBeNull();
@@ -245,7 +253,7 @@ describe("connection panel (A-1, A-2, A-3)", () => {
       }),
     );
     renderPage();
-    const cairo = await connectionRow("Cairo ERP");
+    const cairo = await rowOf("Cairo ERP");
     expect(
       screen.getByRole("columnheader", { name: "Version (reported by the connector)" }),
     ).toBeDefined();
@@ -257,7 +265,7 @@ describe("connection panel (A-1, A-2, A-3)", () => {
     const reported = (_: string, el: Element | null) =>
       el?.tagName === "SMALL" && (el.textContent ?? "").startsWith("Reported ");
     expect(within(cairo).getAllByText(reported)).toHaveLength(2);
-    const giza = await connectionRow("Giza ERP");
+    const giza = await rowOf("Giza ERP");
     expect(within(giza).getAllByText("Not reported")).toHaveLength(2);
   });
 
@@ -276,7 +284,7 @@ describe("connection panel (A-1, A-2, A-3)", () => {
     expect(alert.textContent).toContain("Couldn't load the connector instances.");
     expect(alert.textContent).toContain("req-c1");
     fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
-    expect(await connectionRow("Cairo ERP")).toBeDefined();
+    expect(await rowOf("Cairo ERP")).toBeDefined();
   });
 });
 
@@ -297,7 +305,7 @@ describe("connection truth regressions (review H1, M2, M4)", () => {
       }),
     );
     renderPage();
-    expect(within(await connectionRow("Cairo ERP")).getByText("Connected")).toBeDefined();
+    expect(within(await rowOf("Cairo ERP")).getByText("Connected")).toBeDefined();
     api.listConnectorHealth.mockResolvedValue(failure(500));
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     await waitFor(() =>
@@ -313,7 +321,7 @@ describe("connection truth regressions (review H1, M2, M4)", () => {
   test("with no C2 row nothing is asserted about the instance, and no cause is invented", async () => {
     api.listConnectorHealth.mockResolvedValue(ok({ items: [] }));
     renderPage();
-    const row = await connectionRow("Cairo ERP");
+    const row = await rowOf("Cairo ERP");
     expect(within(row).getByText("No signal")).toBeDefined();
     expect(within(row).getAllByText("Unknown")).toHaveLength(3);
     expect(within(row).queryByText("Never")).toBeNull();
@@ -377,7 +385,7 @@ describe("posting backlog (A-5)", () => {
       }),
     );
     renderPage();
-    const first = await screen.findByRole("row", { name: /SALE-1/ });
+    const first = await rowOf("SALE-1");
     expect(within(first).getByText("validation")).toBeDefined();
     expect(within(first).getByText("Sale posting")).toBeDefined();
     const second = screen.getByRole("row", { name: /SALE-2/ });
@@ -393,7 +401,7 @@ describe("posting backlog (A-5)", () => {
       return Promise.resolve(failure(500));
     });
     renderPage();
-    await screen.findByRole("row", { name: /SALE-0001/ });
+    await rowOf("SALE-0001");
     fireEvent.click(screen.getByRole("button", { name: "Load more" }));
     expect(await screen.findByText(/showing the last successful read/i)).toBeDefined();
     expect(screen.getByRole("row", { name: /SALE-0001/ })).toBeDefined();
@@ -473,7 +481,7 @@ describe("store filter (§4.5, A-6)", () => {
 describe("malformed store filter", () => {
   test("is never sent: the C3 panels read not-found and the connection still loads", async () => {
     renderPage("/erp-connection?store=not-a-store");
-    expect(await connectionRow("Cairo ERP")).toBeDefined();
+    expect(await rowOf("Cairo ERP")).toBeDefined();
     const summary = panel(/sync summary/i);
     expect(within(summary).getByRole("alert").textContent).toContain(
       "This store isn't available to you.",
@@ -485,7 +493,7 @@ describe("malformed store filter", () => {
 
   test("Refresh still sends nothing for the malformed filter (review M1)", async () => {
     renderPage("/erp-connection?store=not-a-store");
-    await connectionRow("Cairo ERP");
+    await rowOf("Cairo ERP");
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     await waitFor(() => expect(api.tenantAdminListConnectorInstances).toHaveBeenCalledTimes(2));
     expect(api.consoleGetSyncOpsSummary).not.toHaveBeenCalled();
@@ -497,7 +505,7 @@ describe("malformed store filter", () => {
 describe("stale state (A-8)", () => {
   test("a failed re-read keeps the earlier data and says it is from the last read", async () => {
     renderPage();
-    await connectionRow("Cairo ERP");
+    await rowOf("Cairo ERP");
     api.tenantAdminListConnectorInstances.mockResolvedValue(failure(500));
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     const connection = panel(/connector connection/i);

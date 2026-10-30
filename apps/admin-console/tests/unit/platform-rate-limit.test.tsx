@@ -210,7 +210,9 @@ describe("overlapping 429s", () => {
     expect(await within(drawer).findByText(/Too many requests, and no session/)).toBeDefined();
     expect(within(drawer).getAllByText(/Too many requests/)).toHaveLength(1);
     expect(submitButton(drawer).textContent).toMatch(/Wait \d+s/);
-    expect(tryAgainButtons()).toHaveLength(0);
+    // RT-944: the drawer's own controls. The shell banner's retry for the bar's
+    // 429 may already be up (CLAIM_GRACE_MS is real time); it is counted below.
+    expect(within(drawer).queryAllByRole("button", { name: /^Try again/ })).toHaveLength(0);
 
     // The bar's 429 was not the drawer's to claim: the shell banner shows it, once.
     const banner = await waitFor(() => {
