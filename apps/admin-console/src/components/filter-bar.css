@@ -30,9 +30,10 @@
   display: none;
 }
 
-/* Actions close the main row at the inline end: more filters, Clear, Apply. */
+/* Actions on their own row at the inline end: more filters, Clear, Apply. One
+ * place on every list, however many fields it has. */
 .filter-bar__actions {
-  grid-column: -2 / -1;
+  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -130,7 +131,6 @@
     padding: var(--space-4);
   }
   .filter-bar__actions {
-    grid-column: 1 / -1;
     justify-content: stretch;
   }
   .filter-bar__actions > * {

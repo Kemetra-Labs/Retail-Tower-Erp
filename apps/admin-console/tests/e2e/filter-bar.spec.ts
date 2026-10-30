@@ -5,6 +5,7 @@
  * Clear. Both locales.
  */
 import { CAIRO, storeSummary } from "../unit/sales-daily-fixtures";
+import { expectNoAxeViolations } from "./axe";
 import { mockRealisticApi } from "./compact-shell-data";
 import { type Page, expect, test } from "./fixtures";
 
@@ -77,6 +78,7 @@ for (const route of SCREENS) {
   test(`${route}: fields sit on the grid tracks at 1440px`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await open(page, route);
+    await expectNoAxeViolations(page, `${route} filter bar`);
     const { starts, offsets, count } = await trackFit(page);
     expect(count).toBeGreaterThan(0);
     for (const offset of offsets) {
