@@ -193,17 +193,31 @@ removes the reason for choosing it. The §6.1 check fails on such an account.
 
    **Terminal set up before RT-945 (Clerk retired):** remove the retired
    `CLERK_PUBLISHABLE_KEY` and any `OPERATOR_IDENTITY_PROVIDER` other than
-   `descope`, at Machine **and** User scope. A leftover `clerk` value refuses
-   every manager/admin sign-in, even with `DESCOPE_PROJECT_ID` set.
+   `descope`. A leftover `clerk` value refuses every manager/admin sign-in,
+   even with `DESCOPE_PROJECT_ID` set. User scope belongs to whoever runs the
+   command, so clean it in **two places**:
 
-   ```powershell
-   foreach ($scope in 'Machine','User') {
-     [Environment]::SetEnvironmentVariable('CLERK_PUBLISHABLE_KEY', [NullString]::Value, $scope)
-     if ([Environment]::GetEnvironmentVariable('OPERATOR_IDENTITY_PROVIDER', $scope) -ne 'descope') {
-       [Environment]::SetEnvironmentVariable('OPERATOR_IDENTITY_PROVIDER', [NullString]::Value, $scope)
+   - Machine scope, in this administrator PowerShell:
+
+     ```powershell
+     [Environment]::SetEnvironmentVariable('CLERK_PUBLISHABLE_KEY', [NullString]::Value, 'Machine')
+     if ([Environment]::GetEnvironmentVariable('OPERATOR_IDENTITY_PROVIDER', 'Machine') -ne 'descope') {
+       [Environment]::SetEnvironmentVariable('OPERATOR_IDENTITY_PROVIDER', [NullString]::Value, 'Machine')
      }
-   }
-   ```
+     ```
+
+   - User scope, signed in as **each cashier account** in a normal (not
+     elevated) PowerShell:
+
+     ```powershell
+     [Environment]::SetEnvironmentVariable('CLERK_PUBLISHABLE_KEY', [NullString]::Value, 'User')
+     if ([Environment]::GetEnvironmentVariable('OPERATOR_IDENTITY_PROVIDER', 'User') -ne 'descope') {
+       [Environment]::SetEnvironmentVariable('OPERATOR_IDENTITY_PROVIDER', [NullString]::Value, 'User')
+     }
+     ```
+
+   The §6 readiness check, run as the cashier, fails if either scope still
+   holds a retired value.
 
 3. Create (or check) the cashier shortcut. **Target** is the full path to
    `POS Pulse.exe` with **nothing after it**; **Start in** is its folder.
@@ -263,6 +277,9 @@ foreach ($n in 'VITE_API_BASE_URL','DESCOPE_PROJECT_ID') {
 # RT-945: Descope is the only provider; any other effective value refuses manager/admin sign-in.
 $idp = [Environment]::GetEnvironmentVariable('OPERATOR_IDENTITY_PROVIDER', 'Process')
 Check ([string]::IsNullOrWhiteSpace($idp) -or $idp.Trim() -eq 'descope') "OPERATOR_IDENTITY_PROVIDER is unset or descope (found: $idp)"
+# The same shape the POS accepts: P + 27 letters/digits, US region (a regional id, 32+ chars, is refused). Value not shown.
+$dpid = [Environment]::GetEnvironmentVariable('DESCOPE_PROJECT_ID', 'Process')
+Check ("$dpid".Trim() -cmatch '^P[A-Za-z0-9]{27,30}$') 'DESCOPE_PROJECT_ID is a well-formed US-region project id (value not shown)'
 # RT-322 update origin and channel. Skip this block on a terminal that does not self-update
 # (all four values empty); if any is set at any scope, every check must pass (process-only values fail). The origin value is never printed.
 $userUpd = @((Get-Item 'HKCU:\Environment').Property | Where-Object { $_ -eq 'ELECTRON_UPDATE_FEED_URL' -or $_ -like 'POS_PULSE_UPDATE_*' })

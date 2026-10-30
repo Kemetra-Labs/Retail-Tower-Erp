@@ -84,8 +84,8 @@ compose stack. Redis is containerized by default.
    install the RT-945 build, set `DESCOPE_PROJECT_ID` to this deployment's
    Descope project, and clear `OPERATOR_IDENTITY_PROVIDER` (or set `descope`);
    a terminal left on `clerk` refuses every manager/admin sign-in. Rolling back
-   to an older image also needs `DESCOPE_PROJECT_ID` set, because the compose
-   file requires it.
+   to an older image also needs `DESCOPE_PROJECT_ID` to be set, because the
+   compose file requires it.
 
 ## Deploy
 
