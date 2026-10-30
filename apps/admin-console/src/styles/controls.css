@@ -115,17 +115,18 @@
   transform: translateY(1px);
 }
 /* Unavailable reads as recessed, not faded: the label stays legible. A busy
- * button is not unavailable: it keeps its variant colours (below). */
+ * button (aria-disabled + aria-busy) is not unavailable: it keeps its variant
+ * colours (below). Native disabled always reads as unavailable, busy or not. */
 :is(.btn-primary, .btn-secondary, .btn-ghost, .btn-danger-quiet, .btn-destructive):is(
     :disabled,
-    [aria-disabled="true"]
-  ):not([aria-busy="true"]) {
+    [aria-disabled="true"]:not([aria-busy="true"])
+  ) {
   background-color: var(--color-surface-sunken);
   border-color: var(--color-border);
   color: var(--color-text-muted);
   cursor: not-allowed;
 }
-.btn-ghost:is(:disabled, [aria-disabled="true"]):not([aria-busy="true"]) {
+.btn-ghost:is(:disabled, [aria-disabled="true"]:not([aria-busy="true"])) {
   background-color: transparent;
   border-color: transparent;
 }
@@ -138,7 +139,7 @@
     .btn-ghost,
     .btn-danger-quiet,
     .btn-destructive
-  )[aria-busy="true"] {
+  )[aria-busy="true"]:not(:disabled) {
   cursor: progress;
 }
 @media (prefers-reduced-motion: reduce) {

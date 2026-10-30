@@ -102,8 +102,9 @@ describe("GatedButton is a BusyButton", () => {
 /**
  * RT-959 (AC 6): busy is not unavailable, in forced colours too. The rules that
  * recess an unavailable button, and that turn it GrayText in forced colours,
- * must both exclude `[aria-busy="true"]`. (Hover and press rules name
- * aria-disabled only to skip it, so they are not unavailable rules.)
+ * must both exclude `[aria-busy="true"]`, and only on the aria-disabled branch:
+ * a natively disabled button (a Retry-After during a request) always reads as
+ * unavailable. (Hover and press rules name aria-disabled only to skip it.)
  */
 describe("busy stays apart from unavailable in the styles", () => {
   const css = (file: string): string =>
@@ -128,7 +129,10 @@ describe("busy stays apart from unavailable in the styles", () => {
     (file) => {
       const rules = unavailableRules(css(file));
       expect(rules.length).toBeGreaterThan(0);
-      for (const rule of rules) expect(rule).toContain(':not([aria-busy="true"])');
+      for (const rule of rules) {
+        expect(rule).toContain('[aria-disabled="true"]:not([aria-busy="true"])');
+        expect(rule).not.toMatch(/\):not\(\[aria-busy="true"\]\)/);
+      }
     },
   );
 });

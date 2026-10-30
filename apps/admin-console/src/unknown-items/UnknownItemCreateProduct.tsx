@@ -163,16 +163,16 @@ export function UnknownItemCreateProduct({
           machine
           required
         />
-
-        <div className="unknown-item-detail__actions">
-          <GatedButton busy={create.isPending} type="submit" className="btn-primary">
-            {t("unknownItems.create.submit")}
-          </GatedButton>
-          <button type="button" className="btn-ghost" onClick={onCancel}>
-            {t("common.cancel")}
-          </button>
-        </div>
       </fieldset>
+      {/* RT-959: outside the disabled fieldset, so the busy submit keeps focus. */}
+      <div className="unknown-item-detail__actions">
+        <GatedButton busy={create.isPending} type="submit" className="btn-primary">
+          {t("unknownItems.create.submit")}
+        </GatedButton>
+        <button type="button" className="btn-ghost" onClick={onCancel} disabled={create.isPending}>
+          {t("common.cancel")}
+        </button>
+      </div>
     </form>
   );
 }

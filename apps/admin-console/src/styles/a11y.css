@@ -35,8 +35,8 @@
   }
   :is(.btn-primary, .btn-secondary, .btn-ghost, .btn-danger-quiet, .btn-destructive):is(
       :disabled,
-      [aria-disabled="true"]
-    ):not([aria-busy="true"]) {
+      [aria-disabled="true"]:not([aria-busy="true"])
+    ) {
     border-color: GrayText;
     color: GrayText;
   }
