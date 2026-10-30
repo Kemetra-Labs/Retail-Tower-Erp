@@ -203,7 +203,9 @@ test("S2b: a filtered empty list names the filters and Clear returns to the defa
   await mockBase(p, "owner");
   await mockList(p, [{ items: [], nextCursor: null }]);
   await p.goto("/catalog/products?q=zzz&status=retired");
-  await expect(p.getByText(/zzz/)).toBeVisible();
+  // The search text shows in the applied-filter chip and in the empty message;
+  // the exact match is the empty message's isolated <bdi>.
+  await expect(p.getByText("zzz", { exact: true })).toBeVisible();
   await expectNoAxeViolations(p, "catalog filtered empty");
   await p.getByRole("button", { name: t("catalog.list.clearFilters") }).click();
   await expect(p).toHaveURL(/\/catalog\/products$/);
