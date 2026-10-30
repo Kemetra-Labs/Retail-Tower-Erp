@@ -48,6 +48,13 @@ class FastClassTests(unittest.TestCase):
         s = sel.select(Graph(data), A, [_m(API_SRC)], [])
         self.assertEqual((s.mode, s.reason), ("full", "NO_FAST_CLASS"))
 
+    def test_null_fast_class_validates_and_answers_full(self):
+        data = load_graph(support.trusted_text())
+        data["products"]["backend-core"]["api_jest_fast"] = None
+        self.assertEqual(validate_graph(data), [])
+        s = sel.select(Graph(data), A, [_m(API_SRC)], [])
+        self.assertEqual((s.mode, s.reason), ("full", "NO_FAST_CLASS"))
+
     def test_malformed_fast_class_fails_validation(self):
         data = load_graph(support.trusted_text())
         data["products"]["backend-core"]["api_jest_fast"] = {"globs": "apps/api/**"}

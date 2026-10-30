@@ -248,8 +248,8 @@ def _check_shared(data, roots, errs):
 def _check_tiers(data, errs):
     for pname, prod in data["products"].items():
         named = [(tname, tier["globs"] + tier.get("exclude", [])) for tname, tier in prod["tiers"].items()]
-        if "api_jest_fast" in prod:
-            fast = prod["api_jest_fast"]
+        fast = prod.get("api_jest_fast")
+        if isinstance(fast, dict):          # `null` means absent; the schema check rejects other shapes
             named.append(("api_jest_fast", fast["globs"] + fast.get("exclude", [])))
         for tname, globs in named:
             for g in globs:
