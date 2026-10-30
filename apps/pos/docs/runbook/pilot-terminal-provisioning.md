@@ -191,6 +191,20 @@ removes the reason for choosing it. The §6.1 check fails on such an account.
    [Environment]::SetEnvironmentVariable('<NAME>', [NullString]::Value, 'Machine')
    ```
 
+   **Terminal set up before RT-945 (Clerk retired):** remove the retired
+   `CLERK_PUBLISHABLE_KEY` and any `OPERATOR_IDENTITY_PROVIDER` other than
+   `descope`, at Machine **and** User scope. A leftover `clerk` value refuses
+   every manager/admin sign-in, even with `DESCOPE_PROJECT_ID` set.
+
+   ```powershell
+   foreach ($scope in 'Machine','User') {
+     [Environment]::SetEnvironmentVariable('CLERK_PUBLISHABLE_KEY', [NullString]::Value, $scope)
+     if ([Environment]::GetEnvironmentVariable('OPERATOR_IDENTITY_PROVIDER', $scope) -ne 'descope') {
+       [Environment]::SetEnvironmentVariable('OPERATOR_IDENTITY_PROVIDER', [NullString]::Value, $scope)
+     }
+   }
+   ```
+
 3. Create (or check) the cashier shortcut. **Target** is the full path to
    `POS Pulse.exe` with **nothing after it**; **Start in** is its folder.
 4. **Reboot** the terminal.
@@ -246,6 +260,9 @@ Check ($userPos.Count -eq 0) "no POS_PULSE_* variable in User scope (found: $($u
 foreach ($n in 'VITE_API_BASE_URL','DESCOPE_PROJECT_ID') {
   Check (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($n, 'Machine'))) "$n is set in Machine scope (value not shown)"
 }
+# RT-945: Descope is the only provider; any other effective value refuses manager/admin sign-in.
+$idp = [Environment]::GetEnvironmentVariable('OPERATOR_IDENTITY_PROVIDER', 'Process')
+Check ([string]::IsNullOrWhiteSpace($idp) -or $idp.Trim() -eq 'descope') "OPERATOR_IDENTITY_PROVIDER is unset or descope (found: $idp)"
 # RT-322 update origin and channel. Skip this block on a terminal that does not self-update
 # (all four values empty); if any is set at any scope, every check must pass (process-only values fail). The origin value is never printed.
 $userUpd = @((Get-Item 'HKCU:\Environment').Property | Where-Object { $_ -eq 'ELECTRON_UPDATE_FEED_URL' -or $_ -like 'POS_PULSE_UPDATE_*' })
