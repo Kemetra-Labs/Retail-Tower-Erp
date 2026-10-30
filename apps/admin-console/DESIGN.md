@@ -374,7 +374,9 @@ These classes exist on `main` and new work reuses them until a migration slice r
   in. All of it is zero under reduced motion.
 - **Badge** `.badge`. Each variant is a §3 color role, not a status name (RT-956):
   - no modifier is neutral: a recorded state that claims nothing, such as "active" on a
-    store or a device. An enabled flag is not a proven outcome, so it is never green.
+    store or a device. An enabled flag is not a proven outcome, so it is not green.
+    Known gap: "active" on tenants, operators and stock locations is still
+    `--success`. Align it in its own slice; do not copy it into new work.
   - `--success` (green) marks a proven outcome only.
   - `--warning` (amber) marks caution or a degraded state, such as suspended, revoked
     membership, a sync failure or a voided sale.

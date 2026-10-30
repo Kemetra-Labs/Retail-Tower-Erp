@@ -1,3 +1,4 @@
+import type { SaleDetail } from "@/lib/sale-queries";
 /**
  * RT-726 query hooks for the sale sync-ops surfaces: the sync status and the
  * audit timeline of one sale, the NEEDS_REPAIR queue, and the one guarded
@@ -239,18 +240,21 @@ export function useRepairSale(target: SaleTarget): RepairState {
     }
     if (!keepsKey(next)) key.current = undefined;
     if (next.kind === "repaired") {
+      const synced = next.status.syncStatus;
       queryClient.setQueryData(saleSyncQueryKeys.status(target), next.status);
+      // The sale detail's header chip reads the same `sync_status`: write the
+      // server's answer into it so the chip and this section agree (RT-956). No
+      // refetch: a failed detail read would unmount this hook and drop its key.
+      queryClient.setQueryData<SaleDetail>(
+        saleQueryKeys.detail(target.scope, target.saleRef),
+        (old) => old && { ...old, summary: { ...old.summary, syncStatus: synced } },
+      );
     } else {
       void queryClient.invalidateQueries({ queryKey: saleSyncQueryKeys.status(target) });
     }
     void queryClient.invalidateQueries({ queryKey: saleSyncQueryKeys.timeline(target) });
     void queryClient.invalidateQueries({
       queryKey: [...saleSyncQueryKeys.all(target.scope), "needs-repair"],
-    });
-    // The sale detail's header chip reads the same `sync_status` through its own
-    // query: refresh it too, so the chip and this section never disagree (RT-956).
-    void queryClient.invalidateQueries({
-      queryKey: saleQueryKeys.detail(target.scope, target.saleRef),
     });
     setOutcome(next);
     setPending(false);

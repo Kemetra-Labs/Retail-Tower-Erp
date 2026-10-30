@@ -33,6 +33,7 @@ vi.mock("@/context/ActiveContextProvider", () => ({
 import { createQueryClient } from "@/lib/query";
 import { reportRateLimited, resetRateLimit } from "@/lib/rate-limit";
 import { SaleSyncSections } from "@/sale-sync/SaleSyncSections";
+import { saleQueryKeys } from "@/sales/useSales";
 
 function renderSections(client = createQueryClient()): void {
   render(
@@ -290,18 +291,48 @@ describe("SaleSyncSections (RT-726)", () => {
     );
   });
 
-  test("a repair also refreshes the sale detail, so its header chip agrees with this section (RT-956)", async () => {
+  // RT-956: the sale detail's header chip reads the same `sync_status`. A repair
+  // writes the server's answer into the cached detail and never refetches it, so
+  // a failed detail read cannot unmount this section and drop a kept key.
+  const DETAIL_KEY = saleQueryKeys.detail({ tenantId: "t1", activeStoreId: null }, SALE);
+  const seededClient = () => {
+    const client = createQueryClient();
+    client.setQueryData(DETAIL_KEY, {
+      summary: { saleRef: SALE, syncStatus: "failed-needs-repair" },
+    });
+    return client;
+  };
+  const cachedSync = (client: ReturnType<typeof createQueryClient>) =>
+    client.getQueryData<{ summary: { syncStatus: string } }>(DETAIL_KEY)?.summary.syncStatus;
+  const detailInvalidations = (spy: { mock: { calls: unknown[][] } }) =>
+    spy.mock.calls.filter(([f]) =>
+      JSON.stringify((f as { queryKey?: unknown })?.queryKey ?? null).includes('"detail"'),
+    );
+
+  test("a confirmed repair updates the sale detail's chip to the server's status, with no refetch", async () => {
     api.consoleRepairSaleSync.mockResolvedValue(
       ok(syncStatus({ syncStatus: "failed-retryable", deadLetter: null })),
     );
-    const client = createQueryClient();
+    const client = seededClient();
     const invalidate = vi.spyOn(client, "invalidateQueries");
     renderSections(client);
     const confirm = await openConfirm();
     fireEvent.click(within(confirm).getByRole("button", { name: "Confirm repair" }));
     await within(statusRegion()).findByText(/The server accepted the repair/);
-    const keys = invalidate.mock.calls.map(([filters]) => filters?.queryKey);
-    expect(keys).toContainEqual(expect.arrayContaining(["sales", "detail", SALE]));
+    expect(cachedSync(client)).toBe("failed-retryable");
+    expect(detailInvalidations(invalidate)).toEqual([]);
+  });
+
+  test("an unconfirmed repair leaves the sale detail alone, so the kept key survives", async () => {
+    api.consoleRepairSaleSync.mockResolvedValue(failure(503));
+    const client = seededClient();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    renderSections(client);
+    const confirm = await openConfirm();
+    fireEvent.click(within(confirm).getByRole("button", { name: "Confirm repair" }));
+    await within(statusRegion()).findByText(/did not confirm the result and may have acted/);
+    expect(cachedSync(client)).toBe("failed-needs-repair");
+    expect(detailInvalidations(invalidate)).toEqual([]);
   });
 
   test("409 repair_conflict changes nothing, refreshes the status, and is not retried", async () => {
