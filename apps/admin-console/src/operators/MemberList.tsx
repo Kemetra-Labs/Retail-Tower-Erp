@@ -127,9 +127,9 @@ export function MemberList(): React.JSX.Element {
                 <td>{storeAccessLabel(row, t)}</td>
                 <td>
                   {row.revoked ? (
-                    <span className="badge badge--suspended">{t("operators.state.revoked")}</span>
+                    <span className="badge badge--warning">{t("operators.state.revoked")}</span>
                   ) : (
-                    <span className="badge badge--active">{t("operators.state.active")}</span>
+                    <span className="badge badge--success">{t("operators.state.active")}</span>
                   )}
                 </td>
               </tr>

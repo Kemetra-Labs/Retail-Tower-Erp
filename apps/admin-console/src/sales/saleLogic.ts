@@ -78,6 +78,35 @@ export function erpStateKey({ erpPostingState }: { erpPostingState: string }): M
   return keyOf(ERP_KEYS, erpPostingState, "sales.erp.unknown");
 }
 
+// --- Chip classes (RT-956: an unknown or unrecognised state is danger) -----------
+
+const SYNC_CHIPS: Record<string, string> = {
+  captured: "badge",
+  synced: "badge",
+  "failed-retryable": "badge badge--warning",
+  "failed-needs-repair": "badge badge--warning",
+};
+
+export function syncChipClass({ syncStatus }: { syncStatus: string }): string {
+  return Object.hasOwn(SYNC_CHIPS, syncStatus) ? SYNC_CHIPS[syncStatus] : "badge badge--danger";
+}
+
+/** `failed` and `unknown` (or any code the console does not know) are danger. */
+const ERP_CHIPS: Record<string, string> = {
+  posted: "badge",
+  pending: "badge badge--pending",
+};
+
+export function erpChipClass({ erpPostingState }: { erpPostingState: string }): string {
+  return Object.hasOwn(ERP_CHIPS, erpPostingState)
+    ? ERP_CHIPS[erpPostingState]
+    : "badge badge--danger";
+}
+
+export function returnChipClass({ returnState }: { returnState: string }): string {
+  return Object.hasOwn(RETURN_KEYS, returnState) ? "badge" : "badge badge--danger";
+}
+
 const TENDER_KEYS: Record<string, MessageKey> = {
   cash: "sales.tender.cash",
   card_external: "sales.tender.card_external",

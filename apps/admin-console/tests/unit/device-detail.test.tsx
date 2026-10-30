@@ -104,11 +104,12 @@ describe("DeviceDetail (RT-371)", () => {
     expect(consoleGetDevice).toHaveBeenCalledWith(DEVICE_1);
   });
 
-  test("Overview: last seen not recorded is Unknown, in the danger role", async () => {
+  test("Overview: last seen not recorded reads Not recorded, quiet, never Unknown (RT-956)", async () => {
     renderDetail();
     await screen.findByRole("heading", { level: 1, name: "Till 1" });
-    const unknown = within(field("Last seen")).getByText("Unknown");
-    expect(unknown.className).toContain("device-flag--danger");
+    const notRecorded = within(field("Last seen")).getByText("Not recorded");
+    expect(notRecorded.className).toBe("device-quiet");
+    expect(within(field("Last seen")).queryByText("Unknown")).toBeNull();
   });
 
   test("the custody exception is stated above the tabs, with the shift id, and nothing resolves it", async () => {

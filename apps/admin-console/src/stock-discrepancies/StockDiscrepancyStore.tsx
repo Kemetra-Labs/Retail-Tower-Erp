@@ -137,7 +137,7 @@ function ProductCell({ item }: Readonly<{ item: NegativeOnHandItem }>): React.JS
   }
   return (
     <td>
-      <span className="badge badge--suspended" title={t("stock.items.notMappedTitle")}>
+      <span className="badge badge--warning" title={t("stock.items.notMappedTitle")}>
         {t("stock.items.notMapped")}
       </span>
     </td>

@@ -77,7 +77,7 @@ function PayerRowView({
       </td>
       <td>
         {row.status === "suspended" ? (
-          <span className="badge badge--suspended">{t(payerStatusKey(row.status))}</span>
+          <span className="badge badge--warning">{t(payerStatusKey(row.status))}</span>
         ) : (
           <span className="badge">{t(payerStatusKey(row.status))}</span>
         )}

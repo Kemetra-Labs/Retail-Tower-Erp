@@ -60,7 +60,7 @@ export interface SnapshotStatusView extends SnapshotStatusLabel {
 const STATUS_VIEW: Record<SnapshotStatusCode, SnapshotStatusView> = {
   fresh: {
     labelKey: "stock.status.fresh",
-    badgeClass: "badge badge--active",
+    badgeClass: "badge badge--success",
     hasSnapshot: true,
     noSnapshotReasonKey: null,
     notice: null,
@@ -68,7 +68,7 @@ const STATUS_VIEW: Record<SnapshotStatusCode, SnapshotStatusView> = {
   },
   stale: {
     labelKey: "stock.status.stale",
-    badgeClass: "badge badge--suspended",
+    badgeClass: "badge badge--warning",
     hasSnapshot: true,
     noSnapshotReasonKey: null,
     notice: null,

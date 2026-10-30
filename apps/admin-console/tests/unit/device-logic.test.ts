@@ -74,10 +74,10 @@ describe("device logic (RT-371)", () => {
     expect(revokeReasonKey({ revokeReason: "bored" })).toBe("devices.reason.unknown");
   });
 
-  test("last seen: no value is Unknown", () => {
+  test("last seen: no value is not recorded (RT-956), never Unknown", () => {
     expect(lastSeenView({ lastSeenAt: null, lastSeenSource: null })).toEqual({
-      kind: "unknown",
-      key: "devices.lastSeen.unknown",
+      kind: "notRecorded",
+      key: "devices.lastSeen.notRecorded",
     });
   });
 

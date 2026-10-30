@@ -32,11 +32,8 @@
   margin-inline-start: auto;
 }
 
-/* Trust state: a bordered text pill. Active stays neutral (not proven healthy). */
-.device-trust--danger {
-  border-color: var(--color-danger);
-  color: var(--color-danger);
-}
+/* Trust state: a bordered text pill. Active stays neutral (not proven healthy);
+ * revoked and unknown take the shared `.badge--danger` role (controls.css). */
 .device-trust--muted {
   color: var(--color-text-muted);
 }
