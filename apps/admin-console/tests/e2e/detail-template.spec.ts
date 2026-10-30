@@ -94,3 +94,40 @@ test("device detail: axe clean on the templated overview", async ({ page }) => {
   await open(page, DETAIL_ROUTES.device);
   await expectNoAxeViolations(page, "device detail");
 });
+
+for (const [name, route] of Object.entries(DETAIL_ROUTES)) {
+  test(`${name} detail at 390px: no page-header action is clipped (RT-974)`, async ({ page }) => {
+    await mockDetailTemplate(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(route);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    const boxes = await page.locator(".page-header__end :is(a, button)").evaluateAll((controls) =>
+      controls.map((el) => {
+        const box = el.getBoundingClientRect();
+        return { text: el.textContent, left: box.left, right: box.right };
+      }),
+    );
+    const width = await page.evaluate(() => document.documentElement.clientWidth);
+    for (const box of boxes) {
+      expect(box.left, box.text ?? "").toBeGreaterThanOrEqual(0);
+      expect(box.right, box.text ?? "").toBeLessThanOrEqual(width);
+    }
+  });
+}
+
+test("sale detail: a failed ERP posting shows the state-only banner under the header (RT-974)", async ({
+  page,
+  t,
+}) => {
+  await open(page, DETAIL_ROUTES.sale);
+  const banner = page.getByRole("alert");
+  await expect(banner).toContainText(t("sales.erpFailure.sale"));
+  await expect(banner).toContainText(
+    t("sales.erpFailure.evidence", { field: t("sales.erp.sale"), state: t("sales.erp.failed") }),
+  );
+  await expect(banner.getByRole("link", { name: t("erp.nav.label") })).toHaveAttribute(
+    "href",
+    "/erp-connection",
+  );
+  await expectNoAxeViolations(page, "sale detail with the ERP failure banner");
+});

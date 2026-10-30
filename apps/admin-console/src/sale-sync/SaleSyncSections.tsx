@@ -1,3 +1,4 @@
+import { DataTableScroll, useCaptionId } from "@/components/DataTableScroll";
 import { ListState } from "@/components/ListState";
 /**
  * RT-726 — the sale sync-ops sections of the sale detail (`/sales/:saleRef`):
@@ -181,6 +182,7 @@ function TimelineSection({ saleRef, timeZone }: Readonly<SectionProps>): React.J
   const t = useT();
   const scope = useSaleScope();
   const read = useSaleAuditTimeline({ scope, saleRef });
+  const captionId = useCaptionId();
   const entries = read.data?.entries ?? [];
   let body: React.ReactNode = null;
   if (read.isLoading) {
@@ -198,9 +200,11 @@ function TimelineSection({ saleRef, timeZone }: Readonly<SectionProps>): React.J
     body = <p className="content__sub">{t("saleSync.timeline.empty")}</p>;
   } else if (read.data) {
     body = (
-      <div className="table-scroll">
+      <DataTableScroll captionId={captionId}>
         <table className="data-table">
-          <caption className="data-table__caption">{t("saleSync.timeline.caption")}</caption>
+          <caption id={captionId} className="data-table__caption">
+            {t("saleSync.timeline.caption")}
+          </caption>
           <thead>
             <tr>
               <th scope="col">{t("saleSync.timeline.col.at")}</th>
@@ -215,7 +219,7 @@ function TimelineSection({ saleRef, timeZone }: Readonly<SectionProps>): React.J
             ))}
           </tbody>
         </table>
-      </div>
+      </DataTableScroll>
     );
   }
   return (

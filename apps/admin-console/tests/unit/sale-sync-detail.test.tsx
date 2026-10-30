@@ -482,4 +482,13 @@ describe("SaleSyncSections (RT-726)", () => {
     const keys = api.consoleRepairSaleSync.mock.calls.map((call) => call[1]);
     expect(keys[1]).not.toBe(keys[0]);
   });
+
+  test("RT-974: the timeline table scrolls in its own region, named by its caption", async () => {
+    renderSections();
+    const table = await within(timelineRegion()).findByRole("table");
+    const scroll = table.closest(".data-table__scroll");
+    expect(scroll).not.toBeNull();
+    expect(scroll?.getAttribute("tabindex")).toBe("0");
+    expect(scroll?.getAttribute("aria-labelledby")).toBe(table.querySelector("caption")?.id);
+  });
 });

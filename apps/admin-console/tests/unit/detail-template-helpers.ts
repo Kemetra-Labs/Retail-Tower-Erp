@@ -53,3 +53,14 @@ export function expectNumericColumn(table: HTMLElement, header: string): void {
     expect(cell.classList.contains("data-table__cell--num"), header).toBe(true);
   }
 }
+
+/**
+ * RT-974: a status in the page header (`HeaderStatus`), by its field label: the
+ * badge, named for assistive tech as "<label>: <value>".
+ */
+export function headerStatus(label: string): HTMLElement {
+  const statuses = [...document.querySelectorAll<HTMLElement>(".page-header .detail-status")];
+  const status = statuses.find((el) => el.textContent?.startsWith(`${label}:`));
+  if (!status) throw new Error(`no header status ${label}`);
+  return status;
+}
