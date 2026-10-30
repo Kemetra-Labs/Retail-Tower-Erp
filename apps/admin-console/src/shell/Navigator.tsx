@@ -8,8 +8,11 @@
  *   modal already owns the keyboard.
  * - A modal dialog holding a combobox and its listbox (WAI-ARIA combobox with
  *   `aria-activedescendant`): focus stays in the input; arrows move, Enter
- *   chooses, Escape closes. Tab cannot leave (the input is its only stop), so
- *   `aria-modal` is honest. Focus returns to whatever held it before.
+ *   chooses, Escape closes. Tab cannot leave (the input is its only stop, or
+ *   the input and the store list's retry), so `aria-modal` is honest. Focus
+ *   returns to whatever held it before.
+ * - A failed store list says so, with a retry, as the scope menu does; it
+ *   never reads as a tenant with no stores.
  * - Choosing a page navigates (the unsaved-work blocker still guards it);
  *   choosing a store runs the same guarded scope change as the switcher, so
  *   the navigator can never change scope silently (RT-268).
@@ -117,19 +120,29 @@ export function NavigatorTrigger({
   );
 }
 
+interface StoreOptions {
+  options: Option[];
+  loading: boolean;
+  /** The list failed to load; `retry` asks again. */
+  failed: boolean;
+  retry: () => void;
+}
+
 /** The stores in scope as options: All stores first, then each store (RT-354). */
-function useStoreOptions(enabled: boolean): { options: Option[]; loading: boolean } {
+function useStoreOptions(enabled: boolean): StoreOptions {
   const t = useT();
   const { context } = useActiveContextValue();
   const tenantId = enabled ? (context?.active_tenant?.id ?? null) : null;
-  const { result, isLoading } = useStoreList(tenantId);
-  if (!tenantId) return { options: [], loading: false };
+  const { result, isLoading, refetch } = useStoreList(tenantId);
+  if (!tenantId) return { options: [], loading: false, failed: false, retry: refetch };
   const activeStore = context?.active_store;
   const rows = result?.kind === "rows" && Array.isArray(result.rows) ? result.rows : [];
   const membership = context?.memberships?.find((m) => m.tenant_id === tenantId);
   const stores = scopeMenuStores(rows, membership, activeStore);
   return {
     loading: isLoading,
+    failed: result?.kind === "error",
+    retry: refetch,
     options: [
       {
         id: "store:all",
@@ -164,6 +177,7 @@ export function NavigatorDialog({
   const scopeChange = useScopeChange();
   const baseId = `navigator-${useId().replaceAll(":", "")}`;
   const inputRef = useRef<HTMLInputElement>(null);
+  const retryRef = useRef<HTMLButtonElement>(null);
   const scrimRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -240,8 +254,10 @@ export function NavigatorDialog({
         onClose();
         break;
       case "Tab":
-        // The input is the dialog's only stop: Tab stays (aria-modal).
+        // Tab stays in the dialog (aria-modal): on the input, or on to the
+        // store list's retry when there is one.
         e.preventDefault();
+        retryRef.current?.focus();
         break;
       default:
     }
@@ -344,8 +360,30 @@ export function NavigatorDialog({
           {renderGroup(`${baseId}-stores`, t("shell.navigator.stores"), shownStores)}
         </div>
         {stores.loading ? <p className="navigator__note">{t("shell.scope.loading")}</p> : null}
+        {stores.failed ? (
+          <div className="navigator__note navigator__failed">
+            <span>{t("shell.scope.loadFailed")}</span>
+            <button
+              ref={retryRef}
+              type="button"
+              className="btn-ghost"
+              onClick={stores.retry}
+              onKeyDown={(e) => {
+                if (e.key === "Tab") {
+                  e.preventDefault();
+                  inputRef.current?.focus();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  onClose();
+                }
+              }}
+            >
+              {t("common.tryAgain")}
+            </button>
+          </div>
+        ) : null}
         <output className="navigator__note" aria-live="polite">
-          {shown.length === 0 && !stores.loading
+          {shown.length === 0 && !stores.loading && !stores.failed
             ? t("shell.navigator.empty", { query: query.trim() })
             : ""}
         </output>

@@ -149,3 +149,26 @@ for (const theme of ["light", "dark"] as const) {
     await expectNoAxeViolations(page, `navigator open, ${theme}`);
   });
 }
+
+test("a failed store list says so, offers a retry, and stays accessible", async ({ page, t }) => {
+  let fail = true;
+  await page.route("**/api/v1/stores", (r) =>
+    fail
+      ? r.fulfill({ status: 500, contentType: "application/json", body: "{}" })
+      : r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(stores) }),
+  );
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+  await page.keyboard.press("Control+K");
+  const dialog = page.getByRole("dialog", { name: t("shell.navigator.title") });
+  await expect(dialog.getByText(t("shell.scope.loadFailed"))).toBeVisible();
+  await expectNoAxeViolations(page, "navigator, store list failed");
+  // Keyboard only: Tab reaches the retry, Enter asks again.
+  await page.keyboard.press("Tab");
+  const retry = dialog.getByRole("button", { name: t("common.tryAgain") });
+  await expect(retry).toBeFocused();
+  fail = false;
+  await page.keyboard.press("Enter");
+  await expect(dialog.getByRole("option", { name: "New Cairo Mall" })).toBeVisible();
+  await expect(dialog.getByText(t("shell.scope.loadFailed"))).toBeHidden();
+});

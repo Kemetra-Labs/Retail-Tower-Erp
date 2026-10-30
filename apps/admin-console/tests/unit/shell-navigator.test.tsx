@@ -224,6 +224,28 @@ describe("what it offers", () => {
     expect(combobox().getAttribute("aria-expanded")).toBe("false");
   });
 
+  test("a failed store list says so and offers a retry, never 'no stores'", async () => {
+    listStores.mockResolvedValue({ status: 500, error: { error: { code: "internal" } } });
+    renderShell();
+    fireEvent.click(trigger());
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    expect(screen.getByText("Couldn't load stores.")).toBeDefined();
+    // Pages still work, and All stores stays a valid choice.
+    expect(optionNames()).toContain("Overview");
+    expect(optionNames()).toContain("All stores(current)");
+    // The retry is the dialog's second Tab stop; Tab cycles input <-> retry.
+    fireEvent.keyDown(combobox(), { key: "Tab" });
+    expect(document.activeElement).toBe(retry);
+    fireEvent.keyDown(retry, { key: "Tab" });
+    expect(document.activeElement).toBe(combobox());
+    listStores.mockResolvedValue(stores);
+    const calls = listStores.mock.calls.length;
+    fireEvent.click(retry);
+    await screen.findByRole("option", { name: /New Cairo Mall/ });
+    expect(listStores.mock.calls.length).toBeGreaterThan(calls);
+    expect(screen.queryByText("Couldn't load stores.")).toBeNull();
+  });
+
   test("folds case, Arabic marks and letter variants", () => {
     expect(foldForSearch("المَبيعات")).toBe(foldForSearch("المبيعات"));
     expect(foldForSearch("إقفالات")).toBe(foldForSearch("اقفالات"));
