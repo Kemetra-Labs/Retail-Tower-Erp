@@ -23,9 +23,10 @@ const vizMinimum = (role) => (/^viz-(seq|div-(neg|pos))-1$/.test(role) ? 2 : 3);
 // owns their dark values, so these pairs stay out of CONTRAST_PAIRS, which the dark
 // theme test and the Claude Design bundle gate also run. Same
 // [foreground, background, minimum ratio] shape; "white" is the surface role.
-export const V4_COLOUR_ROLES = ['ink', 'mint', 'ink-muted', 'canvas'];
+export const V4_COLOUR_ROLES = ['ink', 'mint', 'ink-muted', 'on-ink', 'canvas'];
 export const V4_LIGHT_PAIRS = [
-  ['ink-muted', 'ink', 4.5], ['surface', 'ink', 4.5], ['ink', 'mint', 4.5], ['mint', 'ink', 3],
+  ['ink-muted', 'ink', 4.5], ['on-ink', 'ink', 4.5], ['surface', 'ink', 4.5], ['ink', 'mint', 4.5],
+  ['mint', 'ink', 3],
   ['ink', 'surface', 4.5], ['on-primary', 'ink', 4.5],
   ['text', 'canvas', 4.5], ['text-muted', 'canvas', 4.5], ['control-border', 'canvas', 3],
   ['focus-ring', 'canvas', 3], ['primary-emphasis', 'canvas', 4.5],

@@ -182,12 +182,15 @@ describe("RT-396 light-first tokens", () => {
  */
 describe("RT-989 v4.0 light roles", () => {
   const V4_HEX = ["#0a2125", "#5fe0cf", "#a9c2c5", "#f2f5f6"];
+  // RT-991 adds on-ink (white on Ink, the same in every theme): a role, so a
+  // component never spells #ffffff; its value is pinned here, not in V4_HEX.
 
   test("the colour roles have the §12.1 light values", () => {
     expect(Object.fromEntries(V4_COLOUR_ROLES.map((r) => [r, resolve(r)]))).toEqual({
       ink: "#0a2125",
       mint: "#5fe0cf",
       "ink-muted": "#a9c2c5",
+      "on-ink": "#ffffff",
       canvas: "#f2f5f6",
     });
   });

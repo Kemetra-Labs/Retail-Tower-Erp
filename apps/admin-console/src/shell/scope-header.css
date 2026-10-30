@@ -78,6 +78,10 @@
   max-inline-size: 320px;
   max-block-size: calc(100dvh - 160px);
   overflow: auto;
+  /* Inside the Ink sidebar (RT-991) the menu is a light surface: surface text and
+   * the Tower Teal focus ring, not the sidebar's white text and Mint ring. */
+  color: var(--color-text);
+  --color-focus-ring: var(--color-primary);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
@@ -123,6 +127,26 @@
   font-size: var(--text-control);
 }
 
+/* The sidebar is Ink (RT-991, D-V1): the button, its tile and its text take the
+ * Ink roles. The menu it opens is a light surface, so it keeps the surface text and
+ * the Tower Teal focus ring (Mint is 1.6:1 on white, D-V2). */
+.sidebar .scope__btn {
+  border-color: color-mix(in srgb, var(--color-mint) 16%, transparent);
+  border-radius: var(--radius-field-lg);
+  background: color-mix(in srgb, var(--color-on-ink) 4%, transparent);
+  color: var(--color-on-ink);
+}
+.sidebar .scope__btn:hover {
+  background: color-mix(in srgb, var(--color-on-ink) 8%, transparent);
+}
+.sidebar .scope__tile {
+  background: color-mix(in srgb, var(--color-mint) 16%, transparent);
+  color: var(--color-mint);
+}
+.sidebar .scope__crumb,
+.sidebar .scope__caret {
+  color: var(--color-ink-muted);
+}
 /* RT-825 (RT-785 D3): at the compact width the scope button and the menu items
  * are 44px touch targets in the 48px row, and the menu stays inside the
  * viewport. */
@@ -130,11 +154,15 @@
   .scope {
     flex: 1;
   }
-  .scope__btn {
+  .scope__btn,
+  .sidebar .scope__btn {
     min-height: 44px;
     padding: 0 var(--space-2);
     border: 0;
     background: transparent;
+  }
+  .sidebar .scope__btn:hover {
+    background: color-mix(in srgb, var(--color-on-ink) 8%, transparent);
   }
   .scope__tile {
     display: none;
@@ -153,5 +181,18 @@
   }
   .scope-menu__item {
     min-height: 44px;
+  }
+}
+
+/* Forced colours (RT-991): the sidebar is Canvas here, so its scope button, tile
+ * and crumb take CanvasText, named explicitly (see app-shell.css). The menu it
+ * opens is a light surface and is unaffected. */
+@media (forced-colors: active) {
+  .sidebar .scope__btn,
+  .sidebar .scope__btn:hover,
+  .sidebar .scope__tile,
+  .sidebar .scope__crumb,
+  .sidebar .scope__caret {
+    color: CanvasText;
   }
 }

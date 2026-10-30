@@ -38,6 +38,7 @@
   --color-ink: #0a2125; /* sidebar, hero receipt, primary fill and selected segment on light */
   --color-mint: #5fe0cf; /* highlight on Ink only (D-V2) */
   --color-ink-muted: #a9c2c5; /* secondary text on Ink */
+  --color-on-ink: #ffffff; /* primary text and icons on Ink; white in every theme, as Ink is dark in both (RT-991) */
   --color-canvas: #f2f5f6; /* the v4.0 work-surface background */
 
   /* Data visualisation (RT-822, UX-13): a separate family that never reuses a
