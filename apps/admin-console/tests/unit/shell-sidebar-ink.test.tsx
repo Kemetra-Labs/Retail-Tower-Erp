@@ -78,6 +78,17 @@ describe("RT-991 Ink sidebar stylesheet", () => {
     expect(sidebar).not.toMatch(/--color-(surface|background|text)\b/);
   });
 
+  test("the brand mark's three bars ascend in reading order: 12, 16, 22px (DESIGN.md §12.2)", () => {
+    const heights = [1, 2, 3].map((n) =>
+      Number(
+        new RegExp(`\\.brand-mark__bar:nth-child\\(${n}\\)\\s*\\{[^}]*height:\\s*(\\d+)px`).exec(
+          shell,
+        )?.[1],
+      ),
+    );
+    expect(heights).toEqual([12, 16, 22]);
+  });
+
   test("secondary text is ink-muted and the primary text on Ink is on-ink", () => {
     expect(shell).toMatch(
       /\.sidebar \.tower-lockup__tag,[^{]*\.sidebar \.nav-section,[^{]*\{\s*color: var\(--color-ink-muted\)/,

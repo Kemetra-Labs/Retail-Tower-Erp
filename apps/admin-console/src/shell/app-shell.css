@@ -244,12 +244,13 @@
   height: 12px;
   background: color-mix(in srgb, var(--color-on-ink) 70%, transparent);
 }
+/* Ascending in reading order (DESIGN.md §12.2): 12, 16, 22; the tallest is solid. */
 .brand-mark__bar:nth-child(2) {
-  height: 22px;
-}
-.brand-mark__bar:nth-child(3) {
   height: 16px;
   background: color-mix(in srgb, var(--color-on-ink) 85%, transparent);
+}
+.brand-mark__bar:nth-child(3) {
+  height: 22px;
 }
 .sidebar__brand-text {
   display: flex;
