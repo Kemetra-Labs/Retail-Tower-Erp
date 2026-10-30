@@ -195,11 +195,18 @@ re-head for those rows.
 
 ## Admin Console release
 
-The Admin Console is a static bundle built and published by `Kemetra/Admin-Console`
-(RT-337): release tag `admin-console-<sha12>` with `admin-console-<sha12>.tar.gz`
-and its `.sha256`. Caddy serves `/srv/console/current`, which is a **relative**
+The Admin Console is a static bundle built and published by this repository's
+root workflow `.github/workflows/release-admin-console.yml` (RT-717): an immutable
+GitHub release `admin-console/vX.Y.Z` with `admin-console-vX.Y.Z.tar.gz`, its
+`.sha256`, `release-manifest.json` and a build-provenance attestation for the
+archive. Caddy serves `/srv/console/current`, which is a **relative**
 symlink inside `CONSOLE_RELEASES_DIR`, so a release or rollback is a symlink swap
 with no Caddy restart (and no interruption of API or POS traffic).
+
+Releases from the frozen `Kemetra/Admin-Console` (tag and directory
+`admin-console-<sha12>`, for example `admin-console-50d8aa029177`) are no longer
+published. A host may still hold one under `releases/`; keep it as a rollback
+target until the new release is accepted.
 
 Run this from the Backend-Core checkout. `op run` passes `deploy/prod.env` only
 to its child process, so set the (non-secret) directory explicitly here, with
@@ -207,7 +214,8 @@ the same value as `CONSOLE_RELEASES_DIR` in `deploy/prod.env`.
 
 ```bash
 CONSOLE_RELEASES_DIR=/opt/dp2-console   # same value as in deploy/prod.env
-REL=admin-console-<sha12>
+TAG=admin-console/vX.Y.Z
+REL="admin-console-${TAG#admin-console/}"   # admin-console-vX.Y.Z: asset and directory name
 
 # Steps 1-3 run in a subshell: it stops at the first failure, and this shell
 # stays in the repo checkout. Paste the whole block at once.
@@ -215,13 +223,19 @@ REL=admin-console-<sha12>
   set -e
   cd "$CONSOLE_RELEASES_DIR"
 
-  # 1. Fetch the pinned release and verify its checksum.
-  gh release download "$REL" --repo Kemetra/Admin-Console --dir incoming
-  (cd incoming && sha256sum -c "$REL.tar.gz.sha256")
+  # 1. Fetch the pinned release, verify its checksum and its build provenance
+  #    (signed by release-admin-console.yml for exactly this tag).
+  gh release download "$TAG" --repo Kemetra-Labs/Retail-Tower-Erp --dir "incoming/$REL" \
+    --pattern "$REL.tar.gz" --pattern "$REL.tar.gz.sha256"
+  (cd "incoming/$REL" && sha256sum -c "$REL.tar.gz.sha256")
+  gh attestation verify "incoming/$REL/$REL.tar.gz" --repo Kemetra-Labs/Retail-Tower-Erp \
+    --signer-workflow Kemetra-Labs/Retail-Tower-Erp/.github/workflows/release-admin-console.yml \
+    --source-ref "refs/tags/$TAG"
 
-  # 2. Unpack into its own directory and check what it is.
+  # 2. Unpack into its own directory and check what it is. backendContractPin
+  #    must be the commit of the Backend-Core release this host runs (see below).
   mkdir -p "releases/$REL"
-  tar -xzf "incoming/$REL.tar.gz" -C "releases/$REL"
+  tar -xzf "incoming/$REL/$REL.tar.gz" -C "releases/$REL"
   cat "releases/$REL/version.json"   # sha + backendContractPin
 
   # 3. Switch atomically (relative target, resolved inside the container too).
@@ -247,7 +261,10 @@ deploy/console-smoke.sh https://api.example.test
 Record every deployment as a pair: the Console `sha` and `backendContractPin` from
 `version.json`, plus the Backend-Core commit (`<deploy-ref>`) and image digests.
 Only pair a Console release with a Backend-Core release whose API contract it was
-built against.
+built against: the Console's `backendContractPin` is the Backend-Core commit it
+was generated from, so it should be the commit of the running Backend-Core
+release (for example `admin-console/v0.1.0` pins `6e41450…`, the commit of
+`backend-core/v0.3.2`).
 
 **Rollback:** point `current` back at the previously recorded release, then rerun
 the smoke test from the repo checkout. Keep previous release directories until
