@@ -1,5 +1,7 @@
 import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
+import { DataTableScroll, useCaptionId } from "@/components/DataTableScroll";
+import { DetailGrid, DetailPanel, LedgerField as Field, PanelBody } from "@/components/DetailPanel";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -23,6 +25,11 @@ import type { ShiftCloseDetail as Detail, ShiftCashMovement } from "@/lib/shift-
  * persisted `approverCheck` is RT-384 / RT-385, not in the contract) and it
  * never changes the variance. Actors are bare ids: the contract carries no
  * names. A 404 is the API's uniform refusal and reads as not available.
+ *
+ * RT-961: the v3 detail template. The summary and the cash reconciliation sit
+ * side by side as ledgers; the cash figures are end-aligned, expected and
+ * counted read as the results they are, and the variance is the anchored total
+ * (its direction still in words, never colour).
  */
 import { Link, useLocation, useParams } from "react-router";
 import { ShiftScopePrompt } from "./ShiftScopePrompt";
@@ -57,36 +64,28 @@ function BackLink(): React.JSX.Element {
   );
 }
 
-function Field({
-  label,
-  mono,
-  children,
-}: Readonly<{ label: string; mono?: boolean; children: React.ReactNode }>): React.JSX.Element {
-  return (
-    <div className="field-row">
-      <dt className="field-row__label">{label}</dt>
-      <dd className={mono ? "field-row__value field-row__value--mono" : "field-row__value"}>
-        {children}
-      </dd>
-    </div>
-  );
-}
-
 /** An actor or reference id: machine data, isolated LTR (UX-11). */
 function MachineId({ value }: Readonly<{ value: string }>): React.JSX.Element {
   return <bdi dir="ltr">{value}</bdi>;
 }
 
+/** A section panel named by its title; `table` puts the content edge to edge. */
 function Section({
+  id,
   titleKey,
+  table,
   children,
-}: Readonly<{ titleKey: MessageKey; children: React.ReactNode }>): React.JSX.Element {
+}: Readonly<{
+  id: string;
+  titleKey: MessageKey;
+  table?: boolean;
+  children: React.ReactNode;
+}>): React.JSX.Element {
   const t = useT();
   return (
-    <section className="shift-section">
-      <h2 className="surface__section-title">{t(titleKey)}</h2>
-      {children}
-    </section>
+    <DetailPanel id={id} title={t(titleKey)}>
+      {table ? children : <PanelBody>{children}</PanelBody>}
+    </DetailPanel>
   );
 }
 
@@ -100,7 +99,7 @@ function SummarySection({ detail, storeName, timeZone }: Readonly<LoadedProps>):
   const t = useT();
   const locale = useLocale();
   return (
-    <Section titleKey="shift.detail.section.summary">
+    <Section id="shift-summary" titleKey="shift.detail.section.summary">
       <dl className="surface__detail">
         <Field label={t("shift.field.store")}>{storeName ?? t("shift.list.unknownStore")}</Field>
         <Field label={t("shift.field.shiftId")} mono>
@@ -149,18 +148,25 @@ function CashSection({ detail }: Readonly<{ detail: Detail }>): React.JSX.Elemen
     ["shift.field.cashRefunds", detail.cashRefundsTotal],
     ["shift.field.payIn", detail.payInTotal],
     ["shift.field.payOut", detail.payOutTotal],
+  ];
+  const results: [MessageKey, string][] = [
     ["shift.field.expected", detail.expectedCash],
     ["shift.field.counted", detail.countedCash],
   ];
   return (
-    <Section titleKey="shift.detail.section.cash">
+    <Section id="shift-cash" titleKey="shift.detail.section.cash">
       <dl className="surface__detail">
         {figures.map(([key, value]) => (
-          <Field key={key} label={t(key)}>
+          <Field key={key} label={t(key)} money>
             <Money value={value} currency={currency} />
           </Field>
         ))}
-        <Field label={t("shift.field.variance")}>
+        {results.map(([key, value]) => (
+          <Field key={key} label={t(key)} money result>
+            <Money value={value} currency={currency} />
+          </Field>
+        ))}
+        <Field label={t("shift.field.variance")} money total>
           <span className="shift-variance">
             <Money signed value={detail.variance} currency={currency} />
             <small className="shift-variance__label">{t(varianceDirectionKey(detail))}</small>
@@ -175,7 +181,7 @@ function ApprovalSection({ detail }: Readonly<{ detail: Detail }>): React.JSX.El
   const t = useT();
   const approver = detail.varianceApprovedByUserId;
   return (
-    <Section titleKey="shift.detail.section.approval">
+    <Section id="shift-approval" titleKey="shift.detail.section.approval">
       {approver ? (
         <dl className="surface__detail">
           <Field label={t("shift.field.approver")} mono>
@@ -207,7 +213,7 @@ function MovementRow({
       </td>
       <td>{t(movementKindKey(movement))}</td>
       <td>{t(reasonCodeKey(movement))}</td>
-      <td>
+      <td className="data-table__cell--num">
         <Money value={movement.amount} currency={currency} />
       </td>
       <td>{movement.note ? <bdi dir="auto">{movement.note}</bdi> : null}</td>
@@ -223,34 +229,45 @@ function MovementsSection({
   timeZone,
 }: Readonly<{ detail: Detail; timeZone?: string }>): React.JSX.Element {
   const t = useT();
+  const captionId = useCaptionId();
   return (
-    <Section titleKey="shift.detail.section.movements">
+    <Section
+      id="shift-movements"
+      titleKey="shift.detail.section.movements"
+      table={detail.cashMovements.length > 0}
+    >
       {detail.cashMovements.length === 0 ? (
         <p className="content__sub">{t("shift.movement.empty")}</p>
       ) : (
-        <table className="data-table">
-          <caption className="data-table__caption">{t("shift.movement.caption")}</caption>
-          <thead>
-            <tr>
-              <th scope="col">{t("shift.movement.col.time")}</th>
-              <th scope="col">{t("shift.movement.col.kind")}</th>
-              <th scope="col">{t("shift.movement.col.reason")}</th>
-              <th scope="col">{t("shift.movement.col.amount")}</th>
-              <th scope="col">{t("shift.movement.col.note")}</th>
-              <th scope="col">{t("shift.movement.col.recordedBy")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {detail.cashMovements.map((m) => (
-              <MovementRow
-                key={m.movementId}
-                movement={m}
-                currency={detail.currencyCode}
-                timeZone={timeZone}
-              />
-            ))}
-          </tbody>
-        </table>
+        <DataTableScroll captionId={captionId}>
+          <table className="data-table">
+            <caption id={captionId} className="data-table__caption">
+              {t("shift.movement.caption")}
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">{t("shift.movement.col.time")}</th>
+                <th scope="col">{t("shift.movement.col.kind")}</th>
+                <th scope="col">{t("shift.movement.col.reason")}</th>
+                <th scope="col" className="data-table__cell--num">
+                  {t("shift.movement.col.amount")}
+                </th>
+                <th scope="col">{t("shift.movement.col.note")}</th>
+                <th scope="col">{t("shift.movement.col.recordedBy")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail.cashMovements.map((m) => (
+                <MovementRow
+                  key={m.movementId}
+                  movement={m}
+                  currency={detail.currencyCode}
+                  timeZone={timeZone}
+                />
+              ))}
+            </tbody>
+          </table>
+        </DataTableScroll>
       )}
     </Section>
   );
@@ -259,7 +276,7 @@ function MovementsSection({
 function ReturnsSection({ refs }: Readonly<{ refs: readonly string[] }>): React.JSX.Element {
   const t = useT();
   return (
-    <Section titleKey="shift.detail.section.returns">
+    <Section id="shift-returns" titleKey="shift.detail.section.returns">
       {refs.length === 0 ? (
         <p className="content__sub">{t("shift.returns.empty")}</p>
       ) : (
@@ -286,11 +303,15 @@ function Loaded({ detail, storeName, timeZone }: Readonly<LoadedProps>): React.J
           zone: <bdi dir="ltr">{timeZone ?? "UTC"}</bdi>,
         })}
       />
-      <SummarySection detail={detail} storeName={storeName} timeZone={timeZone} />
-      <CashSection detail={detail} />
-      <ApprovalSection detail={detail} />
+      <DetailGrid>
+        <SummarySection detail={detail} storeName={storeName} timeZone={timeZone} />
+        <CashSection detail={detail} />
+      </DetailGrid>
       <MovementsSection detail={detail} timeZone={timeZone} />
-      <ReturnsSection refs={detail.cashRefundReturnRefs} />
+      <DetailGrid>
+        <ApprovalSection detail={detail} />
+        <ReturnsSection refs={detail.cashRefundReturnRefs} />
+      </DetailGrid>
     </div>
   );
 }

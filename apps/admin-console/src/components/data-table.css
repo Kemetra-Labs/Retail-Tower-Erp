@@ -42,11 +42,23 @@
   cursor: pointer;
   transition: background-color var(--duration-2) var(--ease-out);
 }
-.data-table__row td {
+/* RT-961: a row that starts with a row header (`<th scope="row">`) gets the
+ * same padding and divider in that column, so the divider runs unbroken. */
+.data-table__row :is(td, th) {
   padding: var(--space-4);
   min-height: var(--control-h);
   border-bottom: 1px solid var(--color-border);
   color: var(--color-text);
+}
+.data-table__row th[scope="row"] {
+  text-align: start;
+  font-weight: var(--weight-medium);
+}
+/* Money and quantities line up at the inline end in tabular numerals; the
+ * header of such a column is end-aligned with them. */
+.data-table :is(th, td).data-table__cell--num {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
 }
 /* Real data rows fade in (skeleton rows are placeholders and stay still). */
 .data-table__row:not(.data-table__row--skeleton) {

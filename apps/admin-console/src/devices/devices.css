@@ -117,12 +117,6 @@
   gap: var(--space-5);
 }
 
-.device-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
 /* History: an ordered timeline of recorded events, oldest first. */
 .device-history {
   display: flex;
