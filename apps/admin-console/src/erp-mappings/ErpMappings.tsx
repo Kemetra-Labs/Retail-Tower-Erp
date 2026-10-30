@@ -56,7 +56,7 @@ function MappingsContent({
             {t.rich("erp.map.sub", { tenant: <bdi>{tenantName ?? ""}</bdi> })}
           </p>
         </div>
-        <Link className="btn-secondary" to="/erp-connection">
+        <Link className="btn-ghost" to="/erp-connection">
           {t("erp.map.back")}
         </Link>
       </header>

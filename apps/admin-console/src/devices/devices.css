@@ -152,6 +152,10 @@
   flex-wrap: wrap;
   gap: var(--space-2);
 }
+/* The first irreversible action starts a new group, away from replace and move. */
+.device-actions__bar > .btn-secondary + .device-actions__destructive {
+  margin-inline-start: var(--space-4);
+}
 
 .device-reasons {
   display: flex;

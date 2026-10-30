@@ -366,7 +366,11 @@ These classes exist on `main` and new work reuses them until a migration slice r
 - **Buttons:** five variants: `.btn-primary` (Tower Teal fill), `.btn-secondary`,
   `.btn-ghost` (cancel, close, back), `.btn-danger-quiet` (red edge and text on surface) and
   `.btn-destructive` (red fill). `.btn-danger-quiet` starts a destructive action;
-  `.btn-destructive` appears only in its confirm step. One primary per context. Hover is
+  `.btn-destructive` appears only in its confirm step: a flow whose confirm is red opens with
+  `.btn-danger-quiet`, placed last and set apart from the non-destructive actions beside it
+  (device revoke and retire, store suspend). Cancel, close and back are always `.btn-ghost`,
+  never primary or secondary. `tests/unit/button-grammar.test.ts` enforces both. One primary
+  per context. Hover is
   neutral, never the selection wash. Unavailable is recessed, not faded. Press is Contact
   (80ms).
 - **Motion:** route changes stay instant (UX-06). The drawer has an enter and an exit. New

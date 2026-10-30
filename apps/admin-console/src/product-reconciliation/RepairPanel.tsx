@@ -102,7 +102,7 @@ function RefForm({ input, locked, onInput, onReview, onCancel }: Readonly<RefFor
           <button type="submit" className="btn-primary">
             {t("productRecon.repair.review")}
           </button>
-          <button type="button" className="btn-secondary" onClick={onCancel}>
+          <button type="button" className="btn-ghost" onClick={onCancel}>
             {t("common.cancel")}
           </button>
         </div>
@@ -141,7 +141,7 @@ function ConfirmStep({
           {pending ? <span className="spinner" aria-hidden="true" /> : null}
           {t("productRecon.repair.confirm")}
         </GatedButton>
-        <button type="button" className="btn-secondary" disabled={pending} onClick={onBack}>
+        <button type="button" className="btn-ghost" disabled={pending} onClick={onBack}>
           {t("productRecon.repair.back")}
         </button>
       </div>
@@ -261,7 +261,7 @@ function MappingRepair({ scope, target, onClose }: Readonly<RepairPanelProps>): 
                   : "productRecon.repair.mapping.confirm",
               )}
             </GatedButton>
-            <button type="button" className="btn-secondary" disabled={pending} onClick={onClose}>
+            <button type="button" className="btn-ghost" disabled={pending} onClick={onClose}>
               {t("common.cancel")}
             </button>
           </div>

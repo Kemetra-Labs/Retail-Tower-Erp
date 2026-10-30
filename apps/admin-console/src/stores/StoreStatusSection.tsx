@@ -70,7 +70,7 @@ export function StoreStatusSection({
         {confirming ? null : (
           <GatedButton
             type="button"
-            className="btn-secondary"
+            className={active ? "btn-danger-quiet" : "btn-secondary"}
             onClick={active ? () => setConfirming(true) : () => apply(true)}
             disabled={busy}
           >
@@ -97,7 +97,7 @@ export function StoreStatusSection({
             </GatedButton>
             <button
               type="button"
-              className="btn-secondary"
+              className="btn-ghost"
               onClick={() => setConfirming(false)}
               disabled={status.isPending}
             >

@@ -268,7 +268,7 @@ export function ProductEditForm({
           </GatedButton>
           <button
             type="button"
-            className="btn-secondary"
+            className="btn-ghost"
             onClick={() => navigate(detailPath)}
             disabled={update.isPending}
           >

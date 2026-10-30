@@ -85,7 +85,7 @@ export function InlineConfirm({
           {pending ? <span className="spinner" aria-hidden="true" /> : null}
           {confirmLabel}
         </GatedButton>
-        <button type="button" className="btn-secondary" onClick={onCancel} disabled={pending}>
+        <button type="button" className="btn-ghost" onClick={onCancel} disabled={pending}>
           {t("common.cancel")}
         </button>
       </div>

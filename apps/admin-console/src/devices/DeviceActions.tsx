@@ -17,6 +17,9 @@ import type { FlowAction } from "./flowTypes";
 import { actionsFor } from "./lifecycleLogic";
 import "./devices.css";
 
+/** Irreversible lifecycle actions: they open in the quiet-danger variant, last and set apart. */
+const DESTRUCTIVE: readonly FlowAction[] = ["revoke", "retire"];
+
 const LABELS: Record<FlowAction, MessageKey> = {
   revoke: "devices.actions.revoke",
   replace: "devices.actions.replace",
@@ -32,6 +35,8 @@ export function DeviceActions({
   const [open, setOpen] = useState<FlowAction | null>(null);
   const region = useRef<HTMLElement>(null);
   const actions = actionsFor(device.trustState);
+  const safe = actions.filter((a) => !DESTRUCTIVE.includes(a));
+  const destructive = DESTRUCTIVE.filter((a) => actions.includes(a));
 
   // The drawer returns focus to the button that opened it; if that button no longer
   // exists, keep the operator's place instead of dropping to <body>.
@@ -51,11 +56,15 @@ export function DeviceActions({
         ) : actions.length > 0 ? (
           <>
             <fieldset className="device-actions__bar" aria-label={t("devices.actions.label")}>
-              {actions.map((action) => (
+              {[...safe, ...destructive].map((action) => (
                 <button
                   key={action}
                   type="button"
-                  className="btn-secondary"
+                  className={
+                    DESTRUCTIVE.includes(action)
+                      ? "btn-danger-quiet device-actions__destructive"
+                      : "btn-secondary"
+                  }
                   onClick={() => setOpen(action)}
                 >
                   {t(LABELS[action])}
