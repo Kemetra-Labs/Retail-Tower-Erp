@@ -271,8 +271,14 @@ $fin = On ([Environment]::GetEnvironmentVariable('POS_PULSE_FEATURE_SALE_FINALIZ
 Check (-not ($pay -and -not $fin)) 'D-1: PAYMENTS is not on while SALE_FINALIZATION is off'
 $userPos = @((Get-Item 'HKCU:\Environment').Property | Where-Object { $_ -like 'POS_PULSE_*' })
 Check ($userPos.Count -eq 0) "no POS_PULSE_* variable in User scope (found: $($userPos -join ', '))"
+$runtimeUser = @((Get-Item 'HKCU:\Environment').Property |
+  Where-Object { $_ -in @('VITE_API_BASE_URL', 'DESCOPE_PROJECT_ID') })
+Check ($runtimeUser.Count -eq 0) "no API or Descope project override in User scope (found: $($runtimeUser -join ', '))"
 foreach ($n in 'VITE_API_BASE_URL','DESCOPE_PROJECT_ID') {
-  Check (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($n, 'Machine'))) "$n is set in Machine scope (value not shown)"
+  $m = [Environment]::GetEnvironmentVariable($n, 'Machine')
+  $p = [Environment]::GetEnvironmentVariable($n, 'Process')
+  Check (-not [string]::IsNullOrWhiteSpace($m)) "$n is set in Machine scope (value not shown)"
+  Check ($p -ceq $m) "$n effective value comes from Machine scope (value not shown)"
 }
 # RT-945: Descope is the only provider; any other effective value refuses manager/admin sign-in.
 # Check each scope too: a User-scope value can hide a stale Machine-scope one that other cashiers inherit.
