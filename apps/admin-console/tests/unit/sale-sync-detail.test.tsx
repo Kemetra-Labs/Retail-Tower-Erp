@@ -323,6 +323,27 @@ describe("SaleSyncSections (RT-726)", () => {
     expect(detailInvalidations(invalidate)).toEqual([]);
   });
 
+  test("the chip update reaches a detail opened by an uppercase route ref (the server answers lowercase)", async () => {
+    api.consoleRepairSaleSync.mockResolvedValue(
+      ok(syncStatus({ syncStatus: "failed-retryable", deadLetter: null })),
+    );
+    const routeKey = saleQueryKeys.detail(
+      { tenantId: "t1", activeStoreId: null },
+      SALE.toUpperCase(),
+    );
+    const client = createQueryClient();
+    client.setQueryData(routeKey, {
+      summary: { saleRef: SALE, syncStatus: "failed-needs-repair" },
+    });
+    renderSections(client);
+    const confirm = await openConfirm();
+    fireEvent.click(within(confirm).getByRole("button", { name: "Confirm repair" }));
+    await within(statusRegion()).findByText(/The server accepted the repair/);
+    expect(
+      client.getQueryData<{ summary: { syncStatus: string } }>(routeKey)?.summary.syncStatus,
+    ).toBe("failed-retryable");
+  });
+
   test("an unconfirmed repair leaves the sale detail alone, so the kept key survives", async () => {
     api.consoleRepairSaleSync.mockResolvedValue(failure(503));
     const client = seededClient();
