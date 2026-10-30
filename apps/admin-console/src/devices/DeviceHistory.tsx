@@ -10,6 +10,7 @@
  * detail only. They render here and nowhere else (not in the list, the URL,
  * the title or a query key).
  */
+import { DetailGrid, DetailPanel, PanelBody } from "@/components/DetailPanel";
 import { DateTime, useT } from "@/i18n";
 import type { DeviceDetail } from "@/lib/device-queries";
 import { Link, useLocation } from "react-router";
@@ -106,27 +107,31 @@ export function DeviceHistory({
 }: Readonly<{ device: DeviceDetail; timeZone?: string }>): React.JSX.Element {
   const t = useT();
   return (
-    <>
-      <section className="device-section">
-        <h2 className="surface__section-title">{t("devices.history.events")}</h2>
-        <ol className="device-history">
-          <Event title={t("devices.history.paired")} at={device.createdAt} timeZone={timeZone} />
-          <RevokeEvent device={device} timeZone={timeZone} />
-          <RetireEvent device={device} timeZone={timeZone} />
-        </ol>
-        {device.revokedAt ? null : <p className="content__sub">{t("devices.history.noRevoke")}</p>}
-      </section>
-      <section className="device-section">
-        <h2 className="surface__section-title">{t("devices.history.chain")}</h2>
-        <dl className="surface__detail">
-          <Field label={t("devices.history.replaces")}>
-            <ChainLink deviceId={device.replacesDeviceId} />
-          </Field>
-          <Field label={t("devices.history.replacedBy")}>
-            <ChainLink deviceId={device.replacedByDeviceId} />
-          </Field>
-        </dl>
-      </section>
-    </>
+    <DetailGrid>
+      <DetailPanel id="device-history-events" title={t("devices.history.events")}>
+        <PanelBody>
+          <ol className="device-history">
+            <Event title={t("devices.history.paired")} at={device.createdAt} timeZone={timeZone} />
+            <RevokeEvent device={device} timeZone={timeZone} />
+            <RetireEvent device={device} timeZone={timeZone} />
+          </ol>
+          {device.revokedAt ? null : (
+            <p className="content__sub">{t("devices.history.noRevoke")}</p>
+          )}
+        </PanelBody>
+      </DetailPanel>
+      <DetailPanel id="device-history-chain" title={t("devices.history.chain")}>
+        <PanelBody>
+          <dl className="surface__detail">
+            <Field label={t("devices.history.replaces")}>
+              <ChainLink deviceId={device.replacesDeviceId} />
+            </Field>
+            <Field label={t("devices.history.replacedBy")}>
+              <ChainLink deviceId={device.replacedByDeviceId} />
+            </Field>
+          </dl>
+        </PanelBody>
+      </DetailPanel>
+    </DetailGrid>
   );
 }

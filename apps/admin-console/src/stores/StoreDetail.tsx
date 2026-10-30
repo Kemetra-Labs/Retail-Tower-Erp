@@ -1,6 +1,7 @@
 import { StorePolicySection } from "@/cash-policy/StorePolicySection";
 import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
+import { DetailGrid, DetailPanel, LedgerField, PanelBody } from "@/components/DetailPanel";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/i18n";
@@ -22,6 +23,9 @@ import { useT } from "@/i18n";
  * RT-389: the shift variance policy section sits under the fields. It decides
  * its own visibility from the role (owner / tenant_admin edit, store_manager
  * reads, others see nothing), so this page adds no role gate of its own.
+ *
+ * RT-961: the v3 detail template: the back link to the list, the page header,
+ * then the store's ledger in a section panel.
  */
 import { Link, useParams } from "react-router";
 import { ScopePrompt } from "./ScopePrompt";
@@ -68,6 +72,9 @@ export function StoreDetail(): React.JSX.Element {
 
   return (
     <div className="surface">
+      <Link to="/stores" className="surface__back">
+        <BackArrow /> {t("stores.detail.back")}
+      </Link>
       <PageHeader
         title={store.name}
         actions={
@@ -85,32 +92,26 @@ export function StoreDetail(): React.JSX.Element {
         }
       />
 
-      <dl className="surface__detail">
-        <div className="field-row">
-          <dt className="field-row__label">{t("stores.field.code")}</dt>
-          <dd className="field-row__value field-row__value--mono">
-            <bdi dir="ltr">{store.code}</bdi>
-          </dd>
-        </div>
-        <div className="field-row">
-          <dt className="field-row__label">{t("stores.field.state")}</dt>
-          <dd className="field-row__value">
-            <StoreStateBadge isActive={store.is_active} />
-          </dd>
-        </div>
-        <div className="field-row">
-          <dt className="field-row__label">{t("stores.field.timezone")}</dt>
-          <dd className="field-row__value">
-            <ZoneName zone={store.timezone} />
-          </dd>
-        </div>
-        <div className="field-row">
-          <dt className="field-row__label">{t("stores.field.id")}</dt>
-          <dd className="field-row__value field-row__value--mono">
-            <bdi dir="ltr">{store.id}</bdi>
-          </dd>
-        </div>
-      </dl>
+      <DetailGrid>
+        <DetailPanel>
+          <PanelBody>
+            <dl className="surface__detail">
+              <LedgerField label={t("stores.field.code")} mono>
+                <bdi dir="ltr">{store.code}</bdi>
+              </LedgerField>
+              <LedgerField label={t("stores.field.state")}>
+                <StoreStateBadge isActive={store.is_active} />
+              </LedgerField>
+              <LedgerField label={t("stores.field.timezone")}>
+                <ZoneName zone={store.timezone} />
+              </LedgerField>
+              <LedgerField label={t("stores.field.id")} mono>
+                <bdi dir="ltr">{store.id}</bdi>
+              </LedgerField>
+            </dl>
+          </PanelBody>
+        </DetailPanel>
+      </DetailGrid>
 
       <StorePolicySection storeId={store.id} timeZone={store.timezone} />
     </div>

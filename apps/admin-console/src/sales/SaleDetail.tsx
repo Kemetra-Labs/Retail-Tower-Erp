@@ -1,5 +1,6 @@
 import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
+import { DetailGrid } from "@/components/DetailPanel";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { DateTime, Money, useT } from "@/i18n";
@@ -18,6 +19,10 @@ import { useStoreOf } from "@/shift-closes/useShiftCloses";
  * RT-726: for owner / tenant_admin the page also hosts the sale sync-ops
  * sections (`src/sale-sync/`): the server sync status, the sync timeline and
  * the guarded repair request. This module itself still reads only.
+ *
+ * RT-961: the v3 detail template. The back link, the page header with the
+ * status chips, then the ledger panels two to a row (the sale beside its
+ * payments), the lines and returns full width, and the remaining ledgers.
  */
 import { Link, useLocation, useParams } from "react-router";
 import {
@@ -93,7 +98,7 @@ function SummarySection({ detail }: Readonly<{ detail: Detail }>): React.JSX.Ele
         <Field label={t("sales.field.operator")}>
           <RecordedName name={sale.operator.displayName} source={sale.operator.nameSource} />
         </Field>
-        <Field label={t("sales.field.total")}>
+        <Field label={t("sales.field.total")} money>
           <Money value={sale.posTotal} currency={sale.currencyCode} />
         </Field>
       </dl>
@@ -162,15 +167,19 @@ function Loaded({ detail }: Readonly<{ detail: Detail }>): React.JSX.Element {
           })}
         </p>
       </PageHeader>
-      <SummarySection detail={detail} />
-      <ReceiptHeaderSection detail={detail} />
+      <DetailGrid>
+        <SummarySection detail={detail} />
+        <PaymentsSection detail={detail} />
+      </DetailGrid>
       <LinesSection detail={detail} />
-      <PaymentsSection detail={detail} />
-      <VoidSection detail={detail} timeZone={detail.storeTimezone} />
       <ReturnsSection detail={detail} timeZone={detail.storeTimezone} />
-      <ErpSection detail={detail} />
-      <SaleSyncSections saleRef={detail.summary.saleRef} timeZone={detail.storeTimezone} />
-      <RelatedSection detail={detail} />
+      <DetailGrid>
+        <ErpSection detail={detail} />
+        <VoidSection detail={detail} timeZone={detail.storeTimezone} />
+        <SaleSyncSections saleRef={detail.summary.saleRef} timeZone={detail.storeTimezone} />
+        <ReceiptHeaderSection detail={detail} />
+        <RelatedSection detail={detail} />
+      </DetailGrid>
     </div>
   );
 }

@@ -37,6 +37,7 @@ vi.mock("@/context/ActiveContextProvider", () => ({
 
 import { DeviceDetail } from "@/devices/DeviceDetail";
 import { createQueryClient } from "@/lib/query";
+import { expectBackLinkFirst, expectPanels } from "./detail-template-helpers";
 
 function LocationProbe(): React.JSX.Element {
   const location = useLocation();
@@ -260,5 +261,19 @@ describe("DeviceDetail (RT-371)", () => {
     expect(field("Store").textContent).toBe("Unknown store");
     expect(screen.getByText("UTC")).toBeDefined();
     expect(readStore).toHaveBeenCalledWith(DUBAI_STORE);
+  });
+  test("RT-961: the v3 detail template: the overview ledger sits in a panel", async () => {
+    renderDetail();
+    await screen.findByRole("heading", { level: 1 });
+    expectBackLinkFirst();
+    expect(field("Device ID").closest(".section-panel")).not.toBeNull();
+    expect(field("Device ID").classList.contains("field-row__value--mono")).toBe(true);
+  });
+
+  test("RT-961: the history tab's sections are panels", async () => {
+    consoleGetDevice.mockResolvedValue({ status: 200, data: revokedDetail });
+    renderDetail(`/devices/${DEVICE_2}?tab=history`);
+    await screen.findByRole("tabpanel", { name: "History" });
+    expectPanels(["Events", "Replacement chain"]);
   });
 });
