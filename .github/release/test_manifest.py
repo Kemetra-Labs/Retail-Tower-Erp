@@ -52,7 +52,7 @@ class ManifestTest(unittest.TestCase):
     def run_main(self, product, *extra, mode="dry-run"):
         out = tempfile.mkdtemp(dir=self.tmp.name)
         rc = manifest.main(["--product", product, "--sha", self.sha, "--mode", mode, "--repo", self.repo,
-                            "--repository", "Kemetra/Retail-Tower-Shadow", "--ci-url", "https://github.com/x/actions/runs/1",
+                            "--repository", "Kemetra-Labs/Retail-Tower-Erp", "--ci-url", "https://github.com/x/actions/runs/1",
                             "--out", out, *extra])
         data = json.loads(pathlib.Path(out, "release-manifest.json").read_text()) if rc == 0 else None
         return rc, data, out
@@ -75,6 +75,9 @@ class ManifestTest(unittest.TestCase):
         self.assertIn("release-manifest.json", sums)
         prov = json.loads(pathlib.Path(out, "provenance.intoto.json").read_text())
         self.assertFalse(prov["predicate"]["runDetails"]["metadata"]["signed"])
+        # The build type follows the source repository, never a frozen or retired repository.
+        self.assertEqual(prov["predicate"]["buildDefinition"]["buildType"],
+                         "https://github.com/Kemetra-Labs/Retail-Tower-Erp/.github/workflows/release")
 
     def test_admin_pin_and_connector_semantic_trees(self):
         self.assertEqual(self.run_main("admin-console", "--artifact", f"dist={self.art}")[1]
