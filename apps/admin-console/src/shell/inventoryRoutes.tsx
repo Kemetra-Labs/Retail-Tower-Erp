@@ -1,6 +1,3 @@
-import { InventoryProduct } from "@/inventory/InventoryProduct";
-import { InventoryStore } from "@/inventory/InventoryStore";
-import { InventoryStores } from "@/inventory/InventoryStores";
 /**
  * RT-728 inventory read-view route registration. Mounts inside the protected
  * layout (`/` → ProtectedArea → AppShell → <Outlet/>), behind RF-1's context
@@ -9,7 +6,12 @@ import { InventoryStores } from "@/inventory/InventoryStores";
  * entry mirror the console read roles. The product page is reached from a
  * movement row, never from a free-text product id.
  */
+import { lazyPage } from "@/shell/lazyPage";
 import { Route } from "react-router";
+
+const InventoryProduct = lazyPage(() => import("@/inventory/InventoryProduct"), "InventoryProduct");
+const InventoryStore = lazyPage(() => import("@/inventory/InventoryStore"), "InventoryStore");
+const InventoryStores = lazyPage(() => import("@/inventory/InventoryStores"), "InventoryStores");
 
 export const inventoryRoutes = (
   <>

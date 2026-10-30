@@ -8,16 +8,24 @@
  * Kept free of React and of the `@/` path alias, so the e2e suites can import it
  * to select by the same copy the app renders.
  */
+import { catalogFor } from "./catalogs";
 import { type Locale, getLocale, intlTag } from "./locale";
-import { ar } from "./messages/ar";
-import { en } from "./messages/en";
+import type { ar } from "./messages/ar";
 import type { Message, Messages } from "./messages/types";
 
 export type MessageKey = keyof typeof ar;
 
 export type Params = Record<string, string | number>;
 
-const CATALOGS: Record<Locale, Messages> = { ar, en };
+/**
+ * RT-962: the catalogs load on demand (catalogs.ts), but the language switch
+ * names the OTHER language in its own words before that catalog is fetched.
+ * tests/unit/i18n-catalog-loading.test.ts keeps these equal to the catalogs.
+ */
+const SWITCH_LABELS: Record<Locale, Messages> = {
+  ar: { "locale.switch.name": "العربية", "locale.switch.action": "التبديل إلى العربية" },
+  en: { "locale.switch.name": "English", "locale.switch.action": "Switch to English" },
+};
 
 const numberFormats = new Map<Locale, Intl.NumberFormat>();
 const pluralRules = new Map<Locale, Intl.PluralRules>();
@@ -56,9 +64,14 @@ export function splitTemplate(text: string): string[] {
   return text.split(PLACEHOLDER);
 }
 
-/** Resolve a key to its template in `locale`, before params are filled. */
+/**
+ * Resolve a key to its template in `locale`, before params are filled. A locale
+ * whose catalog is not loaded yet answers the key itself: it is never made
+ * active (locale.ts), so this only guards against a crash.
+ */
 export function templateFor(locale: Locale, key: MessageKey, params?: Params): string {
-  return template(locale, CATALOGS[locale][key] as Message, params);
+  const message = catalogFor(locale)?.[key] ?? SWITCH_LABELS[locale][key];
+  return message === undefined ? key : template(locale, message, params);
 }
 
 /** The localized string for `key` in `locale`, with params filled in. */

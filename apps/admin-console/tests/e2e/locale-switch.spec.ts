@@ -65,7 +65,8 @@ test("the switch flips the frame and the choice survives a reload, before the bu
   await openUserMenu(page);
   await page.getByRole("button", { name: translate(next, "locale.switch.action") }).click();
 
-  expect(await docLocale(page)).toEqual({ lang: TAG[next], dir: DIR[next] });
+  // RT-962: the other catalog may still be on its way; the frame flips once it lands.
+  await expect.poll(() => docLocale(page)).toEqual({ lang: TAG[next], dir: DIR[next] });
   const nav = page.getByRole("navigation", { name: translate(next, "shell.nav.label") });
   await expect(nav.getByRole("link", { name: translate(next, "shell.nav.stores") })).toBeVisible();
   await expect(page.getByText(translate(next, "theme.darkMode"))).toBeVisible();
@@ -86,9 +87,28 @@ test("the switch flips the frame and the choice survives a reload, before the bu
   await page.reload();
   await openUserMenu(page);
   await page.getByRole("button", { name: translate(appLocale, "locale.switch.action") }).click();
-  expect(await docLocale(page)).toEqual({ lang: TAG[appLocale], dir: DIR[appLocale] });
+  await expect.poll(() => docLocale(page)).toEqual({ lang: TAG[appLocale], dir: DIR[appLocale] });
   await page.reload();
   expect(await docLocale(page)).toEqual({ lang: TAG[appLocale], dir: DIR[appLocale] });
+});
+
+test("RT-962: a catalog that can't be fetched shows a retry in the painted language, then the Console", async ({
+  page,
+  appLocale,
+  t,
+}) => {
+  await mockApi(page);
+  const catalog = /\/assets\/(ar|en)-[\w-]+\.js$/;
+  await page.route(catalog, (r) => r.abort());
+  await page.goto("/");
+  const retry = page.getByRole("button", {
+    name: appLocale === "ar" ? "إعادة المحاولة" : "Try again",
+  });
+  await expect(page.getByRole("alert")).toBeVisible();
+  expect(await docLocale(page)).toEqual({ lang: TAG[appLocale], dir: DIR[appLocale] });
+  await page.unroute(catalog);
+  await retry.click();
+  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
 });
 
 test("logical CSS mirrors the layout: sidebar on the inline start", async ({ page, appLocale }) => {
