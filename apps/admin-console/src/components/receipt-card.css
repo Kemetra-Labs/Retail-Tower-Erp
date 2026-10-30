@@ -1,0 +1,124 @@
+/* RT-992 receipt card (DESIGN.md §12.2, §12.5). A section-panel surface at the
+ * panel radius with the one resting elevation, split by a 2px dashed
+ * perforation. The notches are half circles centred on the card's inline edges:
+ * the perforation row clips them to the card, so the same rule works in both
+ * directions with no physical offsets. Role tokens only.
+ *
+ * --receipt-notch-fill must equal the surface behind the card, or the notch
+ * reads as a disc instead of a bite. It defaults to the themed page background
+ * (every shipped surface paints it, and the dark theme remaps it). When the
+ * work surface moves to --color-canvas (RT-990 remaps its dark value, RT-991
+ * moves the shell), change this default; a screen may override it meanwhile. */
+
+.receipt-card {
+  --receipt-notch: 18px;
+  --receipt-notch-fill: var(--color-background);
+  --receipt-inset: var(--space-4);
+
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-resting);
+}
+
+.receipt-card__top {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5) var(--space-3);
+}
+
+.receipt-card__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: var(--space-2);
+  min-inline-size: 0;
+}
+
+.receipt-card__label {
+  color: var(--color-text-muted);
+  font-size: var(--text-control);
+  font-weight: var(--weight-medium);
+}
+
+.receipt-card__figure {
+  color: var(--color-text);
+  font-size: var(--text-display);
+  font-weight: var(--weight-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--leading-tight);
+}
+
+.receipt-card__icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: 42px;
+  block-size: 42px;
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  border-radius: var(--radius-field-lg);
+  margin-inline-start: auto;
+}
+
+.receipt-card__perf {
+  position: relative;
+  /* Reach the card's outer edge (over its 1px border) so each notch is centred
+   * on the edge; overflow clips the outer half. */
+  margin-inline: -1px;
+  block-size: var(--receipt-notch);
+  overflow: hidden;
+}
+
+.receipt-card__rule {
+  position: absolute;
+  inset-inline: calc(var(--receipt-inset) + 1px);
+  inset-block-start: calc(50% - 1px);
+  border-block-start: 2px dashed var(--color-border);
+}
+
+.receipt-card__notch {
+  position: absolute;
+  inset-block-start: 0;
+  box-sizing: border-box;
+  inline-size: var(--receipt-notch);
+  block-size: var(--receipt-notch);
+  background: var(--receipt-notch-fill);
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+}
+
+.receipt-card__notch--start {
+  inset-inline-start: calc(var(--receipt-notch) / -2);
+}
+
+.receipt-card__notch--end {
+  inset-inline-end: calc(var(--receipt-notch) / -2);
+}
+
+.receipt-card__bottom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5) var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+
+@media (forced-colors: active) {
+  /* Notches are fills; forced colours would paint them as plain discs. The
+   * perforation alone keeps the split. */
+  .receipt-card__notch {
+    display: none;
+  }
+
+  .receipt-card__rule {
+    border-block-start: 2px dashed CanvasText;
+  }
+}
