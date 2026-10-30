@@ -60,7 +60,13 @@ import { AuthController } from "./auth.controller";
 import { AuthGuard } from "./auth.guard";
 import { DashboardAuthGuard } from "./dashboard-auth.guard";
 import { PosOperatorAuthGuard } from "./pos-operator-auth.guard";
-import { identityProviderFactory } from "./identity-provider.factory";
+import {
+  externalCredentialFactory,
+  identityProviderFactory,
+  operatorTokenVerifierFactory,
+} from "./identity-provider.factory";
+import { EXTERNAL_CREDENTIAL_PORT, type ExternalCredentialPort } from "./external-credential.port";
+import { activeLinkSubjects } from "./identity-link-lookup";
 import {
   OPERATOR_CONTEXT_RESOLVER,
   PgOperatorContextResolver,
@@ -274,6 +280,12 @@ export class AlwaysAllowRedis implements RedisLike {
       inject: [PG_POOL, AUTH_LOOKUP_POOL],
     },
     PosOperatorAuthGuard,
+    // RT-937: password verify / replace and invited-user provisioning at the
+    // configured identity provider. Exported so the invitation service shares it.
+    {
+      provide: EXTERNAL_CREDENTIAL_PORT,
+      useFactory: externalCredentialFactory,
+    },
     {
       provide: AuthService,
       useFactory: (
@@ -283,9 +295,19 @@ export class AlwaysAllowRedis implements RedisLike {
         emailJobs: EmailJobEnqueuer,
         auditEnqueuer: AuditJobEnqueuer,
         domainPool: Pool,
+        externalCredential: ExternalCredentialPort,
       ): AuthService =>
         new AuthService(pool, sessions, authTokens, emailJobs, {
           auditEnqueuer,
+          // RT-937 (D-A): a user with an ACTIVE identity link signs in with the
+          // provider's password. `pool` is the auth-lookup pool, the role the
+          // link lookup is documented to use (identity-link-lookup.ts).
+          externalCredentials: {
+            port: externalCredential,
+            verifier: operatorTokenVerifierFactory(),
+            activeLinkSubject: async (userId) =>
+              (await activeLinkSubjects(pool, [userId])).get(userId) ?? null,
+          },
           // RT-343: memberships are read on the domain pool, never the lookup pool.
           listMemberships: signInMembershipsReader(domainPool),
           // RT-414: support sessions live on the domain pool (0062).
@@ -299,6 +321,7 @@ export class AlwaysAllowRedis implements RedisLike {
         EMAIL_JOB_ENQUEUER,
         AUDIT_JOB_ENQUEUER,
         PG_POOL,
+        EXTERNAL_CREDENTIAL_PORT,
       ],
     },
     DatabasePoolBoundaryVerifier,
@@ -310,6 +333,7 @@ export class AlwaysAllowRedis implements RedisLike {
     DashboardAuthGuard,
     PosOperatorAuthGuard,
     OPERATOR_CONTEXT_RESOLVER,
+    EXTERNAL_CREDENTIAL_PORT,
     SessionRepository,
     AuthTokenRepository,
     // PG_POOL is exported so downstream modules (ContextModule, future

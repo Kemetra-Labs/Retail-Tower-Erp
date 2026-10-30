@@ -54,14 +54,17 @@ import {
   publicAuthUnavailable,
   readPublicAuthLimiterTimeoutMs,
   releaseWithin,
+  retryAfterSeconds,
 } from "./public-auth-limiter";
 import { createLogger, type Logger } from "@data-pulse-2/shared";
 import {
   EmailVerifyConfirmSchema,
+  PasswordChangeSchema,
   PasswordResetConfirmSchema,
   PasswordResetRequestSchema,
   SignInSchema,
   type EmailVerifyConfirmInput,
+  type PasswordChangeInput,
   type PasswordResetConfirmInput,
   type PasswordResetRequestInput,
   type SignInInput,
@@ -69,6 +72,7 @@ import {
   type SignInResult,
 } from "./dto";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
+import { ConsoleRateLimit } from "../console-rate-limit/console-rate-limit.decorator";
 import {
   recordAuthFailure,
   recordSuspiciousLogin,
@@ -210,6 +214,50 @@ export class AuthController {
       throw new UnauthorizedException("Unauthorized");
     }
     setSessionCookie(res, credential, result.absoluteExpiresAt);
+  }
+
+  // ---------------------------------------------------------------------
+  // POST /password/change — guarded (cookie session only); 204 / 400.
+  // ---------------------------------------------------------------------
+
+  @Post("password/change")
+  @HttpCode(HttpStatus.NO_CONTENT)
+  // RT-430: AuthGuard already refuses a cookie request from a foreign Origin.
+  @UseGuards(AuthGuard)
+  // RT-619: createInvitation-style explicit class; the per-user bucket below is the brute-force bound.
+  @ConsoleRateLimit("write")
+  async changePassword(
+    @Body(new ZodValidationPipe(PasswordChangeSchema)) body: PasswordChangeInput,
+    @Req() req: AuthedRequest,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    const principal = req.principal;
+    if (principal?.kind !== "session") {
+      throw new UnauthorizedException("Unauthorized");
+    }
+    // The per-user budget counts FAILED attempts only: reserved up front, released
+    // on success and on any failure that is not a wrong guess (409 / 503).
+    await this.guardRateLimit(
+      "pwchange_user",
+      principal.userId,
+      RATE_LIMIT_BUCKETS.passwordChangePerUser,
+      res,
+    );
+    try {
+      await this.authService.changePassword({
+        userId: principal.userId,
+        sessionId: principal.sessionId,
+        currentPassword: body.current_password,
+        newPassword: body.new_password,
+        requestId: req.requestId ?? null,
+      });
+    } catch (err) {
+      if (!(err instanceof BadRequestException)) {
+        await releaseWithin(this.rateLimiter, "pwchange_user", principal.userId, this.limiterTimeoutMs);
+      }
+      throw err;
+    }
+    await releaseWithin(this.rateLimiter, "pwchange_user", principal.userId, this.limiterTimeoutMs);
   }
 
   // ---------------------------------------------------------------------
@@ -359,20 +407,6 @@ export class AuthController {
   }
 }
 
-/** RT-623: bounds of the `Retry-After` sent with a public-auth 429, in seconds. */
-const RETRY_AFTER_MIN_SECONDS = 1;
-const RETRY_AFTER_MAX_SECONDS = 3_600;
-
-/**
- * Whole seconds until the bucket resets, rounded up so a client never retries
- * early, clamped to [1, 3600]. A negative `resetMs` (a stub client that keeps
- * no TTL) is treated as "now".
- */
-function retryAfterSeconds(resetMs: number): number {
-  const seconds = Math.ceil(Math.max(0, resetMs) / 1_000);
-  return Math.min(RETRY_AFTER_MAX_SECONDS, Math.max(RETRY_AFTER_MIN_SECONDS, seconds));
-}
-
 function readClientIp(req: AuthedRequest): string {
   // Express sets `req.ip` honoring `trust proxy`. Behind the dashboard
   // edge in production this should be configured; for now, fall back to
@@ -381,7 +415,7 @@ function readClientIp(req: AuthedRequest): string {
   return String(ip);
 }
 
-function setSessionCookie(
+export function setSessionCookie(
   res: Response,
   sessionId: string,
   expires: Date,

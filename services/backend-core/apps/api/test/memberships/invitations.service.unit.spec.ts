@@ -162,6 +162,8 @@ function makeFakeRepo(): jest.Mocked<InvitationsRepository> {
     markAccepted:        jest.fn(),
     createMembership:    jest.fn(),
     insertStoreAccessRows: jest.fn(),
+    insertUser:           jest.fn(),
+    insertExternalIdentityLink: jest.fn(),
   } as jest.Mocked<InvitationsRepository>;
 }
 

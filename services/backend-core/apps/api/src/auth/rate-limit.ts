@@ -75,6 +75,13 @@ export const RATE_LIMIT_BUCKETS = {
   passwordResetPerIp: { limit: 100, windowMs: 24 * 60 * 60 * 1000 },
   passwordResetConfirmPerIp: { limit: 10, windowMs: 15 * 60 * 1000 },
   pairingPerIp: { limit: 30, windowMs: 60 * 60 * 1000 },
+  // RT-937: invitation acceptance per IP. The route is public (the single-use token
+  // is the credential) and can create a user, so it is bounded like sign-in.
+  invitationAcceptPerIp: { limit: 20, windowMs: 15 * 60 * 1000 },
+  // RT-937: change-password attempts per signed-in user. Counts FAILED attempts
+  // only (the hit is released on success), so a stolen session cannot be used
+  // to guess the current password faster than the provider's own lockout.
+  passwordChangePerUser: { limit: 5, windowMs: 15 * 60 * 1000 },
   // RT-141: verification-email requests per user. Over the limit the request
   // is still answered 202 (contract) but no further email is sent.
   emailVerifyRequestPerUser: { limit: 3, windowMs: 60 * 60 * 1000 },

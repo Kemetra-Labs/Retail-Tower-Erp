@@ -244,3 +244,33 @@ describe("SessionRepository", () => {
     );
   });
 });
+
+describe("SessionRepository.revokeOthersForUser (RT-937 item 2, D-C)", () => {
+  it("revokes the user's other live sessions, keeps the current one, and leaves other users alone", async () => {
+    const kept = newId();
+    const otherLive = newId();
+    const otherAlreadyRevoked = newId();
+    await repo.create(sessionInput(kept, futureExpiry()));
+    await repo.create(sessionInput(otherLive, futureExpiry()));
+    await repo.create(sessionInput(otherAlreadyRevoked, futureExpiry()));
+    await repo.revoke(otherAlreadyRevoked);
+
+    const strangerId = newId();
+    await pool!.query(
+      `INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)`,
+      [strangerId, `stranger-${strangerId}@example.com`, "phc-placeholder"],
+    );
+    const strangerSession = newId();
+    await repo.create({ ...sessionInput(strangerSession, futureExpiry()), userId: strangerId });
+
+    const revoked = await repo.revokeOthersForUser(userId, kept);
+
+    expect(revoked).toContain(otherLive);
+    expect(revoked).not.toContain(kept);
+    expect(revoked).not.toContain(otherAlreadyRevoked);
+    expect(revoked).not.toContain(strangerSession);
+    expect(await repo.findActiveById(kept)).not.toBeNull();
+    expect(await repo.findActiveById(otherLive)).toBeNull();
+    expect(await repo.findActiveById(strangerSession)).not.toBeNull();
+  });
+});

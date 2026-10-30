@@ -13,7 +13,9 @@
 import type { Pool } from "pg";
 
 import { descopeVerifierFactory } from "../pos-operators/descope-verifier";
+import { descopeAuthFactory } from "./descope-auth.client";
 import { descopeIdentityProviderFactory } from "./descope-identity-provider.adapter";
+import type { ExternalCredentialPort } from "./external-credential.port";
 import { identityProviderKind } from "./identity-provider-kind";
 import type { IdentityProviderPort } from "./identity-provider.port";
 import type { OperatorTokenVerifier } from "./operator-token-verifier";
@@ -35,6 +37,20 @@ export function identityProviderFactory(pool: Pool): IdentityProviderPort {
   switch (kind) {
     case "descope":
       return descopeIdentityProviderFactory(pool);
+    default:
+      return unsupportedKind(kind);
+  }
+}
+
+/**
+ * The credential adapter of the configured provider (`DI`: `EXTERNAL_CREDENTIAL_PORT`, RT-937):
+ * password verify / replace and invited-user provisioning.
+ */
+export function externalCredentialFactory(): ExternalCredentialPort {
+  const kind = identityProviderKind();
+  switch (kind) {
+    case "descope":
+      return descopeAuthFactory();
     default:
       return unsupportedKind(kind);
   }

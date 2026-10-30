@@ -48,7 +48,7 @@ const REFRESH_TOKEN_DRN = "DSR";
 
 const REJECTED = "descope verifier: token rejected";
 
-function assertProjectId(projectId: string): string {
+export function assertProjectId(projectId: string): string {
   if (!PROJECT_ID_RE.test(projectId)) {
     throw new Error("DESCOPE_PROJECT_ID is malformed (expected an alphanumeric project id)");
   }

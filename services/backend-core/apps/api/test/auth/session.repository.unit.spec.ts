@@ -440,3 +440,33 @@ describe("SessionRepository.revoke", () => {
     expect(cache.invalidate).toHaveBeenCalledWith(SESSION_ID);
   });
 });
+
+// ===========================================================================
+// F. revokeOthersForUser (RT-937 item 2, D-C)
+// ===========================================================================
+
+describe("SessionRepository.revokeOthersForUser", () => {
+  it("F17: returns the ids it revoked and invalidates the cache for each", async () => {
+    const otherA = "0193b000-0000-7000-8000-0000000000a1";
+    const otherB = "0193b000-0000-7000-8000-0000000000a2";
+    _updateReturningRows = [{ id: otherA }, { id: otherB }] as unknown as SessionRow[];
+    const cache = makeFakeCache();
+    const { repo } = buildRepo(cache);
+
+    const revoked = await repo.revokeOthersForUser(USER_ID, SESSION_ID);
+
+    expect(revoked).toEqual([otherA, otherB]);
+    expect(cache.invalidate).toHaveBeenCalledTimes(2);
+    expect(cache.invalidate).toHaveBeenCalledWith(otherA);
+    expect(cache.invalidate).toHaveBeenCalledWith(otherB);
+  });
+
+  it("F18: no other live session — returns [] and invalidates nothing", async () => {
+    _updateReturningRows = [];
+    const cache = makeFakeCache();
+    const { repo } = buildRepo(cache);
+
+    expect(await repo.revokeOthersForUser(USER_ID, SESSION_ID)).toEqual([]);
+    expect(cache.invalidate).not.toHaveBeenCalled();
+  });
+});
