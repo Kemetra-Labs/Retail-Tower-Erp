@@ -4,15 +4,14 @@
  * The two existing factories (`operatorTokenVerifierFactory`, `identityProviderFactory`)
  * are the single selection point every module uses, so switching the env var
  * switches sign-in, shifts, audit events, sales and settlement together.
- * Unset / empty selects Clerk (unchanged default); an unknown value fails at
- * boot in every environment; production refuses to boot when the selected
- * provider is not configured. Offline: building the remote JWKS makes no request.
+ * Descope is the only provider since RT-800: unset / empty selects it; any
+ * other value (including the retired `clerk`) fails at boot in every
+ * environment; production refuses to boot when Descope is not configured. Offline: building the remote JWKS makes no request.
  */
 import "reflect-metadata";
 
 import type { Pool } from "pg";
 
-import { ClerkIdentityProviderAdapter } from "../../src/auth/clerk-identity-provider.adapter";
 import {
   DESCOPE_PROVIDER_KEY,
   DescopeIdentityProviderAdapter,
@@ -22,7 +21,6 @@ import {
   operatorTokenVerifierFactory,
 } from "../../src/auth/identity-provider.factory";
 import { identityProviderKind } from "../../src/auth/identity-provider-kind";
-import { ClerkBackendVerifier } from "../../src/pos-operators/clerk-verifier";
 import { DescopeJwksVerifier } from "../../src/pos-operators/descope-verifier";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -32,7 +30,6 @@ const pool = {} as unknown as Pool;
 const KEYS = [
   "IDENTITY_PROVIDER",
   "NODE_ENV",
-  "CLERK_SECRET_KEY",
   "DESCOPE_PROJECT_ID",
   "DESCOPE_JWT_ISSUER",
   "DESCOPE_JWT_AUDIENCE",
@@ -52,10 +49,9 @@ afterAll(() => {
 
 describe("identityProviderKind", () => {
   it.each<[string | undefined, string]>([
-    [undefined, "clerk"],
-    ["", "clerk"],
-    ["  ", "clerk"],
-    ["clerk", "clerk"],
+    [undefined, "descope"],
+    ["", "descope"],
+    ["  ", "descope"],
     ["descope", "descope"],
     [" descope ", "descope"],
   ])("%p selects %s", (value, expected) => {
@@ -63,7 +59,7 @@ describe("identityProviderKind", () => {
     expect(identityProviderKind()).toBe(expected);
   });
 
-  it.each(["auth0", "DESCOPE", "Clerk", "descope,clerk"])(
+  it.each(["clerk", "auth0", "DESCOPE", "Clerk", "descope,clerk"])(
     "unknown value %p fails closed",
     (value) => {
       process.env["IDENTITY_PROVIDER"] = value;
@@ -80,9 +76,14 @@ describe("identityProviderKind", () => {
 });
 
 describe("operatorTokenVerifierFactory — provider selection", () => {
-  it("default stays Clerk", () => {
-    process.env["CLERK_SECRET_KEY"] = "sk_test_x";
-    expect(operatorTokenVerifierFactory()).toBeInstanceOf(ClerkBackendVerifier);
+  it("default (unset) is the Descope JWKS verifier", () => {
+    process.env["DESCOPE_PROJECT_ID"] = PROJECT_ID;
+    expect(operatorTokenVerifierFactory()).toBeInstanceOf(DescopeJwksVerifier);
+  });
+
+  it("the retired 'clerk' value fails at boot (no silent fallback)", () => {
+    process.env["IDENTITY_PROVIDER"] = "clerk";
+    expect(() => operatorTokenVerifierFactory()).toThrow(/IDENTITY_PROVIDER must be 'descope'/);
   });
 
   it("descope + project id → the Descope JWKS verifier (no network at build time)", () => {
@@ -91,7 +92,7 @@ describe("operatorTokenVerifierFactory — provider selection", () => {
     expect(operatorTokenVerifierFactory()).toBeInstanceOf(DescopeJwksVerifier);
   });
 
-  it("descope in production does not require CLERK_SECRET_KEY", () => {
+  it("descope in production boots with only DESCOPE_PROJECT_ID", () => {
     process.env["NODE_ENV"] = "production";
     process.env["IDENTITY_PROVIDER"] = "descope";
     process.env["DESCOPE_PROJECT_ID"] = PROJECT_ID;
@@ -101,7 +102,6 @@ describe("operatorTokenVerifierFactory — provider selection", () => {
   it("descope in production without DESCOPE_PROJECT_ID fails at boot", () => {
     process.env["NODE_ENV"] = "production";
     process.env["IDENTITY_PROVIDER"] = "descope";
-    process.env["CLERK_SECRET_KEY"] = "sk_live_x";
     expect(() => operatorTokenVerifierFactory()).toThrow(/DESCOPE_PROJECT_ID is required in production/);
   });
 
@@ -119,8 +119,9 @@ describe("operatorTokenVerifierFactory — provider selection", () => {
 });
 
 describe("identityProviderFactory — provider selection", () => {
-  it("default stays the Clerk adapter", () => {
-    expect(identityProviderFactory(pool)).toBeInstanceOf(ClerkIdentityProviderAdapter);
+  it("default (unset) is the Descope adapter", () => {
+    process.env["DESCOPE_PROJECT_ID"] = PROJECT_ID;
+    expect(identityProviderFactory(pool)).toBeInstanceOf(DescopeIdentityProviderAdapter);
   });
 
   it("descope → the Descope adapter, keyed 'descope' with the derived issuer", async () => {
