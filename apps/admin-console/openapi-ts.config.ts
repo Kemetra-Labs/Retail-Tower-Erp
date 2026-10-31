@@ -253,6 +253,22 @@ export const PIN_FILE_PATH = "contracts/backend-core/PIN" as const;
  *     `getSafetyTtlSetting`, `setSafetyTtlSetting` and
  *     `listInventorySafetyFindings` with their schemas. Nothing wraps them.
  * The other 25 sources are byte-identical, `auth` and `memberships` included.
+ *
+ * Re-pin to main for RT-807 (2026-10-31, owner decision in chat "Repin to main"):
+ * bumped 6e41450 -> 8b4461d, AHEAD of any Backend-Core release. RT-937 (#152,
+ * f8b222a) is in no `backend-core/v0.3.x` tag, so until the next release the lab
+ * answers 404 on `changePassword`, which the «حسابي» page shows as a plain
+ * failure. Done with `pnpm generate:client --repin 8b4461d...`. Of the 27
+ * composed sources two changed:
+ *   - `auth.openapi.yaml` (RT-937): adds `changePassword` and the
+ *     `PasswordChangeRequest` schema (wrapped in `src/lib/client.ts`), signin 503,
+ *     and documents the Descope-backed sign-in. `requestPasswordReset` and
+ *     `confirmPasswordReset` stay unwrapped: on main they still run the native
+ *     reset, and RT-937 item 3 (provider-backed reset) is open.
+ *   - `memberships.openapi.yaml` (RT-937): `acceptInvitation` becomes a runtime
+ *     route; its body bounds were removed (RT-937 c14722), so `AcceptInvitation`
+ *     needed no change. Adapting it is RT-807 item 4, out of this slice.
+ * The other 25 sources are byte-identical.
  */
 export const BACKEND_CORE_PIN: ContractsPin = parsePin(
   readFileSync(resolve(repoRoot, PIN_FILE_PATH), "utf8"),

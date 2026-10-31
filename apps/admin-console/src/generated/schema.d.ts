@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 6e41450553c87ac44884bb0c6d189fd54599020e
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 8b4461da92be271e6c38b6907aed036c6e183054
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -48,7 +48,10 @@ export namespace AuthSchema {
             };
             get?: never;
             put?: never;
-            /** Sign in with email and password. */
+            /**
+             * Sign in with email and password.
+             * @description RT-937 (owner decision D-A). A user with an ACTIVE external identity link signs in with the password held by the identity provider, verified on the server; the request and response shapes and the session cookie are unchanged. The local password of such a user never signs in, and the refusal is the same generic 401 as a wrong password. A user with no active link keeps native sign-in until migrated.
+             */
             post: operations["signIn"];
             delete?: never;
             options?: never;
@@ -67,6 +70,26 @@ export namespace AuthSchema {
             put?: never;
             /** Sign out the current session. */
             post: operations["signOut"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/auth/password/change": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Change the signed-in user's password (knows the current one).
+             * @description RT-937 (owner decision D-A, D-C). Cookie session only. Replaces the password at the identity provider (current + new), then revokes the user's OTHER sessions; the calling session stays signed in. Only a user with an ACTIVE external identity link can change a password here (409 otherwise). The provider defines the password policy. A wrong current password, a rejected new password and an unverifiable provider answer are ONE generic 400 and cannot be told apart. Failed attempts are counted per user (5 per 15 minutes); a success does not count. That per-user budget answers 429 with a `Retry-After` header only; the console rate limit answers the full `TooManyRequests` response below.
+             */
+            post: operations["changePassword"];
             delete?: never;
             options?: never;
             head?: never;
@@ -168,6 +191,12 @@ export namespace AuthSchema {
                 /** @description At most 1024 Unicode code points (RT-153), the same maximum as `new_password`. Verified as sent: no trimming and no Unicode normalization. */
                 password: string;
             };
+            PasswordChangeRequest: {
+                /** @description Verified as sent, with no trimming and no Unicode normalization. */
+                current_password: string;
+                /** @description At most 1024 Unicode code points (RT-153). The identity provider defines the password policy; a rejected value is the generic 400. */
+                new_password: string;
+            };
             SignInResponse: {
                 user?: components["schemas"]["UserSummary"];
                 /** @description Memberships available to this user. The dashboard uses this list to drive the active-tenant chooser when the user has more than one. */
@@ -197,12 +226,29 @@ export namespace AuthSchema {
                 };
             };
         };
-        responses: never;
+        responses: {
+            /** @description 429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. The body is the canonical error envelope with a non-disclosing message (no budget, class or window); its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`; never auto-retry a mutation. A 429 is not a 401: it never means the session ended. The console limit is server-configured and may not be enforced, so a client must handle a 429 but must not expect one. */
+            TooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    /** @description The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a well-formed UUID, otherwise a server-minted one. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
         parameters: never;
         requestBodies: never;
         headers: {
             /** @description Whole seconds the caller should wait before retrying, sent on every public-auth 429 (RT-623). Rounded up from the bucket's remaining window and clamped to 1 to 3600. */
             PublicAuthRetryAfter: number;
+            /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600. */
+            ConsoleRetryAfter: number;
         };
         pathItems: never;
     }
@@ -260,6 +306,15 @@ export namespace AuthSchema {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
+                /** @description The identity provider (or the public-auth rate limiter) is unavailable. An outage is never reported as a wrong password. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
             };
         };
         signOut: {
@@ -289,6 +344,74 @@ export namespace AuthSchema {
                 };
                 /** @description `origin_rejected` (RT-430): the request is authenticated by the `dp2_session` cookie and its `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`. */
                 403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        changePassword: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PasswordChangeRequest"];
+                };
+            };
+            responses: {
+                /** @description Password changed; the user's other sessions are revoked. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description `validation_error` (malformed body), or the generic refusal (wrong current password, rejected new password). */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not authenticated, or a non-session credential. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description `origin_rejected` (RT-430): the request is authenticated by the `dp2_session` cookie and its `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The account has no active external identity link, so it has no password to change here. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                429: components["responses"]["TooManyRequests"];
+                /** @description The identity provider (or the rate limiter) is unavailable. */
+                503: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -1615,7 +1738,18 @@ export namespace MembershipsSchema {
             };
             get?: never;
             put?: never;
-            /** Accept a pending invitation. Public — accept token authenticates the request. */
+            /**
+             * Accept a pending invitation (public; the accept token authenticates the request).
+             * @description RT-937 (owner decisions D-D and D-B). The single-use token sent to the invitee by email is the credential. Tenant, role and stores come from the invitation, never from the request.
+             *
+             *     An EXISTING user gains the membership only: no session is created and no cookie is set, so an invite token alone never signs anyone in to an existing account.
+             *
+             *     A NEW user (`password` required) is created at the identity provider with a verified email and an ACTIVE password, then the user, its identity link and the membership are written together, and a session cookie is set for that new user only. There is no local password. The identity provider defines the password policy.
+             *
+             *     A used, expired, revoked or unknown token is the same opaque 400, with no side effect. A retry after a partial failure converges on one identity.
+             *
+             *     The request bounds (token, password and display name lengths) are enforced by the server and are deliberately not declared as schema bounds: setting a bound is a breaking change for consumers that pin this contract, and this operation was contract-only until RT-937.
+             */
             post: operations["acceptInvitation"];
             delete?: never;
             options?: never;
@@ -1700,6 +1834,8 @@ export namespace MembershipsSchema {
         parameters: never;
         requestBodies: never;
         headers: {
+            /** @description Whole seconds the caller should wait before retrying, sent on every public-route 429 (RT-623). Rounded up from the bucket's remaining window and clamped to 1 to 3600. */
+            PublicAuthRetryAfter: number;
             /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600; it is not the POS `RetryAfter` header. */
             ConsoleRetryAfter: number;
         };
@@ -1863,30 +1999,72 @@ export namespace MembershipsSchema {
             requestBody: {
                 content: {
                     "application/json": {
-                        /** @description Single-use token sent to the invitee by email. */
+                        /** @description Single-use token sent to the invitee by email. The server refuses an empty value and one over 1024 characters. */
                         token: string;
-                        /** @description Required if the invitee is not yet a registered user. */
+                        /** @description Required if the invitee has no account yet; ignored for an existing user. The server refuses an empty value and one over 1024 Unicode code points (RT-153). The identity provider defines the rest of the password policy. */
                         password?: string;
+                        /** @description Optional. The server refuses a blank value and one over 200 characters. */
                         display_name?: string;
                     };
                 };
             };
             responses: {
-                /** @description Membership created and a session is established for the user. */
+                /** @description Membership created. For a NEW user the response sets the HttpOnly session cookie; for an existing user it sets none. */
                 200: {
                     headers: {
+                        /** @description HttpOnly; Secure; SameSite=Lax session cookie, NEW users only. */
+                        "Set-Cookie"?: string;
                         [name: string]: unknown;
                     };
                     content: {
                         "application/json": components["schemas"]["Membership"];
                     };
                 };
-                /** @description Invalid or expired token. */
+                /** @description `validation_error` (malformed body, or a missing password for a new user), the opaque invalid or expired token, or a password the identity provider does not accept. */
                 400: {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description `origin_rejected` (RT-430): the `Origin` header is present and is neither the API's own origin nor listed in `ALLOWED_ORIGINS`. A request with no `Origin` is admitted. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description An account already exists that the invitee cannot prove they own (the email, or the identity link, is taken). Nothing is written. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Rate-limited per IP. `Retry-After` gives the whole seconds until the limiting bucket resets, 1 to 3600. */
+                429: {
+                    headers: {
+                        "Retry-After": components["headers"]["PublicAuthRetryAfter"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The identity provider, or the rate limiter, is unavailable, or account provisioning is not configured. Nothing is written. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
                 };
             };
         };

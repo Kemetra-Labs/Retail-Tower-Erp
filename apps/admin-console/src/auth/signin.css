@@ -142,9 +142,12 @@
 
 /* The brand panel: decoration. Light: the deep teal with surface text; dark:
  * the teal wash with the page text, so both hold contrast. */
+/* RT-807 (PW-5, DESIGN.md §12.1): flat Ink in both themes, as Ink is dark in
+ * both. The public screens are not an expressive surface: no mark, grid or
+ * glow. Translucent on-ink fills keep the flow card and chips on the panel. */
 .auth-brand-panel {
-  --brand-bg: var(--color-primary-emphasis);
-  --brand-fg: var(--color-on-primary);
+  --brand-bg: var(--color-ink);
+  --brand-fg: var(--color-on-ink);
   position: relative;
   overflow: hidden;
   flex: 1 1 32rem;
@@ -156,19 +159,6 @@
   background: var(--brand-bg);
   color: var(--brand-fg);
 }
-[data-theme="dark"] .auth-brand-panel {
-  --brand-bg: var(--color-primary-soft);
-  --brand-fg: var(--color-text);
-}
-.auth-brand-panel__mark {
-  position: absolute;
-  inset-block-start: calc(-1 * var(--space-8));
-  inset-inline-start: calc(-1 * var(--space-8));
-  inline-size: 36rem;
-  block-size: 36rem;
-  color: color-mix(in oklab, var(--brand-fg) 14%, var(--brand-bg));
-  stroke-width: 0.6;
-}
 .auth-brand-panel__flow,
 .auth-brand-panel__copy {
   position: relative;
@@ -179,12 +169,12 @@
 }
 .auth-brand-panel__flow {
   padding: var(--space-4) var(--space-5);
+  border: 1px solid color-mix(in oklab, var(--color-ink-muted) 25%, transparent);
   border-radius: var(--radius-object);
-  background: var(--color-surface);
-  color: var(--color-text);
+  background: color-mix(in oklab, var(--brand-fg) 6%, var(--brand-bg));
 }
 .auth-brand-panel__flow-title {
-  color: var(--color-text-muted);
+  color: var(--color-ink-muted);
   font-size: var(--text-meta);
 }
 .auth-brand-panel__flow-steps {
@@ -197,15 +187,11 @@
 .auth-brand-panel__step {
   padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
-}
-.auth-brand-panel__step--erp {
-  background: var(--color-primary-soft);
-  color: var(--color-primary-emphasis);
+  background: color-mix(in oklab, var(--brand-fg) 10%, var(--brand-bg));
 }
 .auth-brand-panel__arrow {
   display: inline-block;
-  color: var(--color-text-muted);
+  color: var(--color-ink-muted);
 }
 [dir="rtl"] .auth-brand-panel__arrow {
   transform: scaleX(-1);
@@ -214,7 +200,7 @@
   font: var(--weight-strong) var(--text-screen-title) / var(--leading-title) var(--font-sans);
 }
 .auth-brand-panel__body {
-  color: color-mix(in oklab, var(--brand-fg) 82%, var(--brand-bg));
+  color: var(--color-ink-muted);
 }
 
 @media (max-width: 900px) {

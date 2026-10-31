@@ -14,6 +14,7 @@ import { LocaleSwitch } from "@/i18n/LocaleSwitch";
  *
  * The brand panel is decoration (`aria-hidden`): it repeats nothing a person
  * needs to sign in. Below 900px it is not shown, so the form comes first.
+ * RT-807 (PW-5): it is flat Ink, with no watermark mark (DESIGN.md §12.1).
  */
 import "./signin.css";
 
@@ -21,7 +22,6 @@ function BrandPanel(): React.JSX.Element {
   const t = useT();
   return (
     <div className="auth-brand-panel" aria-hidden="true">
-      <TowerMark className="auth-brand-panel__mark" />
       <div className="auth-brand-panel__flow">
         <span className="auth-brand-panel__flow-title">{t("auth.brand.flowTitle")}</span>
         <span className="auth-brand-panel__flow-steps">
@@ -29,7 +29,9 @@ function BrandPanel(): React.JSX.Element {
           <span className="auth-brand-panel__arrow">→</span>
           <span className="auth-brand-panel__step">{t("auth.brand.flowServer")}</span>
           <span className="auth-brand-panel__arrow">→</span>
-          <span className="auth-brand-panel__step auth-brand-panel__step--erp">ERPNext</span>
+          <bdi className="auth-brand-panel__step" dir="ltr">
+            ERPNext
+          </bdi>
         </span>
       </div>
       <div className="auth-brand-panel__copy">

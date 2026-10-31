@@ -1,6 +1,7 @@
 import { localeUserKey } from "@/i18n/locale";
 import { themeUserKey } from "@/theme/theme";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { UserMenu } from "@/shell/UserMenu";
@@ -22,17 +23,18 @@ afterEach(() => {
 
 describe("UserMenu", () => {
   test("is named by the name and role, collapsed, with its switches not shown", () => {
-    render(<UserMenu user={user} roleLabel="Tenant admin" />);
+    render(<UserMenu user={user} roleLabel="Tenant admin" />, { wrapper: MemoryRouter });
     expect(button().getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByRole("button", { name: "Dark mode" })).toBeNull();
   });
 
   test("opens the language and theme switches; Escape closes it back to its button", () => {
-    render(<UserMenu user={user} roleLabel="Tenant admin" />);
+    render(<UserMenu user={user} roleLabel="Tenant admin" />, { wrapper: MemoryRouter });
     fireEvent.click(button());
     expect(button().getAttribute("aria-expanded")).toBe("true");
     const group = screen.getByRole("group", { name: "Preferences" });
-    expect(button().getAttribute("aria-controls")).toBe(group.id);
+    const panel = document.getElementById(button().getAttribute("aria-controls") ?? "");
+    expect(panel?.contains(group)).toBe(true);
     const theme = screen.getByRole("button", { name: "Dark mode" });
     expect(theme.getAttribute("aria-pressed")).toBe("false");
     expect(screen.getByRole("button", { name: "التبديل إلى العربية" })).toBeDefined();
@@ -48,6 +50,7 @@ describe("UserMenu", () => {
         <UserMenu user={user} roleLabel="Tenant admin" />
         <p>outside</p>
       </>,
+      { wrapper: MemoryRouter },
     );
     fireEvent.click(button());
     fireEvent.pointerDown(screen.getByText("outside"));
@@ -55,7 +58,7 @@ describe("UserMenu", () => {
   });
 
   test("the theme switch still persists per user (RT-398)", () => {
-    render(<UserMenu user={user} roleLabel="Tenant admin" />);
+    render(<UserMenu user={user} roleLabel="Tenant admin" />, { wrapper: MemoryRouter });
     fireEvent.click(button());
     act(() => {
       fireEvent.click(screen.getByRole("button", { name: "Dark mode" }));
@@ -67,8 +70,17 @@ describe("UserMenu", () => {
   test("restores the user's stored language and theme on mount, panel closed", () => {
     window.localStorage.setItem(localeUserKey("u1"), "ar");
     window.localStorage.setItem(themeUserKey("u1"), "dark");
-    render(<UserMenu user={user} roleLabel="مسؤول المؤسسة" />);
+    render(<UserMenu user={user} roleLabel="مسؤول المؤسسة" />, { wrapper: MemoryRouter });
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(document.documentElement.lang).toBe("ar-EG");
+  });
+
+  test("RT-807 (PW-1): links to «My account» under the preferences, and closes on follow", () => {
+    render(<UserMenu user={user} roleLabel="Tenant admin" />, { wrapper: MemoryRouter });
+    fireEvent.click(button());
+    const link = screen.getByRole("link", { name: "My account" });
+    expect(link.getAttribute("href")).toBe("/account");
+    fireEvent.click(link);
+    expect(button().getAttribute("aria-expanded")).toBe("false");
   });
 });
