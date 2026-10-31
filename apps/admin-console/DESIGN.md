@@ -664,7 +664,7 @@ hex.
 | Target role | Light | Use |
 | --- | --- | --- |
 | `--color-ink` | `#0a2125` | Sidebar surface; the hero receipt card; the one "ink" button style; the selected segment on light surfaces (D-V3); tooltip fill; list header bands and drawer headers (D-V9). |
-| `--color-mint` | `#5fe0cf` | Highlight **on Ink only** (D-V2): the active nav signal line and icon, hero figures' accent, chart focus point, the selected segment on Ink, the `Ctrl K` key, and the primary fill on Ink (bands, drawer headers, dark theme). Never text **or fill** on a light surface (it measures 1.6:1 on white). |
+| `--color-mint` | `#5fe0cf` | Highlight **on Ink only** (D-V2): the active nav signal line and icon, hero figures' accent, chart focus point, the selected segment on Ink, the `Ctrl K` key, and the primary fill on Ink (bands, drawer headers, dark theme). Never text **or fill** on a light surface (it measures 1.6:1 on white). In the dark theme it is also the primary fill and the selected segment, with Ink text, never text or a link colour (D-V10). |
 | `--color-ink-muted` | `#a9c2c5` | Secondary text on Ink (≥ 4.5:1 on `--color-ink`). |
 | `--color-canvas` | `#f2f5f6` | Page background (replaces `--color-background` as the work surface value). |
 
@@ -681,8 +681,9 @@ hex.
   `aria-hidden`, at most 55% opacity, and hidden on narrow screens.
 - **Status colors are unchanged** (§3). Red, amber and green appear only on real states, and
   always with text.
-- **Dark theme:** the primary fill is Mint on Ink (decided, D-V3). The token values for the
-  new roles are open (§12.8.4).
+- **Dark theme (D-V3, D-V10):** the primary fill and the selected segment are Mint with Ink
+  text. The four Ink roles keep their light values; canvas and the resting shadow take the
+  dark values in §12.8.4.
 
 ### 12.2 Signatures
 
@@ -783,8 +784,8 @@ keeps gaps for missing buckets; the hero sparkline states its period (for exampl
 
 ### 12.8 Decisions and open items before implementation
 
-Items 1–3 and 7 are owner decisions of 2026-10-30 (1–3 each with a remaining step); items 4–6
-are open.
+Items 1–3 and 7 are owner decisions of 2026-10-30 (1–3 each with a remaining step); item 4 is
+an owner decision of 2026-10-31 (D-V10); items 5–6 are open.
 
 1. **Constitution amendments — decided: amend the Constitution.** §1 puts the UX
    Constitution above this file, so the rows of §12.7 that touch UX-02 (dark surface,
@@ -805,8 +806,52 @@ are open.
    allows `'self'` only). Adoption needs (a) a license-checked (OFL) Arabic + Latin subset
    served from the Console, and (b) same-screen A/B evidence against Dubai (§4). Dubai stays
    the body face.
-4. **Dark-theme values** for `--color-ink` surfaces, `--color-mint`, `--color-canvas` and the
-   elevation token, with contrast pairs in `.design-sync/contrast-pairs.mjs`.
+4. **Dark-theme values — decided 2026-10-31 (RT-990; D-V10 in Confluence 62816260).** The
+   sidebar is Ink in both themes (D-V1) and Mint is fixed (D-V2), so four roles repeat their
+   light value; only canvas and the resting shadow are new. Restate all of them in the
+   `[data-theme="dark"]` block (the token test resolves dark pairs inside that block).
+
+   | Role | Light | Dark |
+   | --- | --- | --- |
+   | `--color-ink` | `#0a2125` | `#0a2125` |
+   | `--color-mint` | `#5fe0cf` | `#5fe0cf` |
+   | `--color-ink-muted` | `#a9c2c5` | `#a9c2c5` |
+   | `--color-on-ink` | `#ffffff` | `#ffffff` |
+   | `--color-canvas` | `#f2f5f6` | `#0e161f` (the approved dark `--color-background`) |
+   | `--shadow-resting` | `0 1px 2px rgb(10 33 37 / 0.04), 0 12px 32px -24px rgb(10 33 37 / 0.25)` | `0 1px 2px rgb(14 22 31 / 0.6), 0 12px 32px -24px rgb(14 22 31 / 0.9)` |
+
+   - **Mint in the dark theme (D-V10 amends D-V2):** a fill with Ink text, the primary action and
+     the selected segment (D-V3), on dark panels and canvas; never text or a link colour (links
+     stay Tower Teal). Light stays Ink fill with white text, so the slice adds a derived fill and
+     on-fill role pair (light `ink`/`on-ink`, dark `mint`/`ink`); `--color-ink` itself never
+     becomes Mint, as it is also the sidebar, band and hero surface.
+   - **Ink separates by edge, not luminance, on dark** (accepted): Ink is 1.09:1 against the dark
+     canvas and 1.03:1 against dark panels, so the sidebar, bands, hero and tooltip read through
+     the 1px border, the Tower grid and the Mint glow. Under forced colours they map to
+     `Canvas`/`CanvasText` (item 5).
+   - **The resting shadow is a depth cue only.** It is an alpha of the dark background, so it is
+     nearly invisible on the canvas; the 1px `--color-border` carries the panel edge.
+   - **Contrast pairs** (`[foreground, background, minimum]`, role names without `--color-`),
+     proposed as `V4_DARK_PAIRS` in `.design-sync/contrast-pairs.mjs`; the forbidden list
+     (`mint` on `surface`) is light-only, because the Mint fill is sanctioned on dark:
+
+     ```js
+     export const V4_DARK_PAIRS = [
+       ['ink-muted', 'ink', 4.5], ['on-ink', 'ink', 4.5], ['mint', 'ink', 3], ['ink', 'mint', 4.5],
+       ['mint', 'canvas', 3], ['mint', 'surface', 3], ['mint', 'surface-sunken', 3],
+       ['text', 'canvas', 4.5], ['text-muted', 'canvas', 4.5], ['control-border', 'canvas', 3],
+       ['focus-ring', 'canvas', 3], ['primary-emphasis', 'canvas', 4.5],
+       ...['success', 'warning', 'danger', 'info'].map((s) => [s, 'canvas', 4.5]),
+     ];
+     ```
+
+     Measured, all passing: ink-muted on ink 8.92; on-ink on ink 16.70; mint on ink 10.38; ink
+     on mint 10.38; mint on canvas 11.32, on surface 10.12, on surface-sunken 10.90; text on
+     canvas 15.44; text-muted and control-border on canvas 8.21; focus-ring 7.49;
+     primary-emphasis 9.95; success 8.88, warning 8.81, danger 8.02, info 8.05.
+   - **Not adopted from the v9 «Sales dark» board:** its teal-tinted surface family (`#091719`,
+     `#10242a`) and its control border `#2f5158` (1.86:1, under the 3:1 control boundary). The
+     board stays the reference for Ink, Mint, the Mint-tinted nav wash and the Mint fill.
 5. **Forced colours (required evidence, not an open decision):** receipt notches, the Tower
    grid and glows disappear; the perforation falls back to a `CanvasText` dashed rule; Ink
    surfaces, bands and the hero card map to `Canvas`/`CanvasText`.
