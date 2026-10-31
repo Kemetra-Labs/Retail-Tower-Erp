@@ -7,8 +7,8 @@
  * --receipt-notch-fill must equal the surface behind the card, or the notch
  * reads as a disc instead of a bite. It defaults to the themed page background
  * (every shipped surface paints it, and the dark theme remaps it). When the
- * work surface moves to --color-canvas (RT-990 remaps its dark value, RT-991
- * moves the shell), change this default; a screen may override it meanwhile. */
+ * work surface moves to --color-canvas (its dark value is set, RT-1037; RT-991
+ * moved the shell), change this default; a screen may override it meanwhile. */
 
 .receipt-card {
   --receipt-notch: 18px;

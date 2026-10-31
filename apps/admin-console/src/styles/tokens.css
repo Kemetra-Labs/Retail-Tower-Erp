@@ -31,15 +31,19 @@
   --color-info: #1b6ca8; /* information / pending */
 
   /* v4.0 "Ink & Receipt" roles (RT-989; DESIGN.md §12.1; Confluence 62816260
-   * D-V1..D-V3). Light values only. Declared for the slices that follow: no
-   * component uses them yet, so no screen changes. The dark theme does not remap
-   * them until RT-990 decides their dark values. Mint is a highlight on Ink only:
-   * it is 1.6:1 on white, so never text or fill on a light surface. */
+   * D-V1..D-V3). The dark block restates them with the D-V10 values (RT-1037).
+   * Mint is a highlight on Ink only in light: it is 1.6:1 on white, so never text
+   * or fill on a light surface. */
   --color-ink: #0a2125; /* sidebar, hero receipt, primary fill and selected segment on light */
   --color-mint: #5fe0cf; /* highlight on Ink only (D-V2) */
   --color-ink-muted: #a9c2c5; /* secondary text on Ink */
   --color-on-ink: #ffffff; /* primary text and icons on Ink; white in every theme, as Ink is dark in both (RT-991) */
   --color-canvas: #f2f5f6; /* the v4.0 work-surface background */
+  /* The primary-action fill pair (D-V3, D-V10): Ink with on-ink text in light,
+   * Mint with Ink text in dark. --color-ink itself never becomes Mint, as it is
+   * also the sidebar, band and hero surface. */
+  --color-action-fill: var(--color-ink);
+  --color-on-action-fill: var(--color-on-ink);
 
   /* Data visualisation (RT-822, UX-13): a separate family that never reuses a
    * status or intent role. Every mark clears 3:1 on all three layers; the
@@ -206,11 +210,25 @@
   --color-viz-div-pos-2: #7e74e1;
   --color-viz-div-pos-3: #a9a5ff;
 
+  /* v4.0 roles in dark (RT-1037; DESIGN.md §12.8.4, D-V10). Ink is dark in both
+   * themes and Mint is fixed, so four roles repeat their light value; canvas is
+   * the dark background and the resting shadow is an alpha of it. Mint becomes
+   * the primary-action fill here, with Ink text. */
+  --color-ink: #0a2125;
+  --color-mint: #5fe0cf;
+  --color-ink-muted: #a9c2c5;
+  --color-on-ink: #ffffff;
+  --color-canvas: #0e161f;
+  --color-action-fill: var(--color-mint);
+  --color-on-action-fill: var(--color-ink);
+
   --color-on-primary: var(--color-background); /* text on a teal or danger fill is dark */
   --color-control-border: var(--color-text-muted);
   --color-focus-ring: var(--color-primary);
   --color-scrim: rgb(14 22 31 / 0.7); /* background at 70% */
   --shadow-overlay: 0 12px 32px rgb(14 22 31 / 0.7), 0 2px 6px rgb(14 22 31 / 0.5);
+  /* A depth cue only: the 1px --color-border carries the panel edge on dark. */
+  --shadow-resting: 0 1px 2px rgb(14 22 31 / 0.6), 0 12px 32px -24px rgb(14 22 31 / 0.9);
 }
 
 @media (prefers-reduced-motion: reduce) {
