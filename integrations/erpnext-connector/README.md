@@ -498,11 +498,12 @@ yourself.
 
 | Repository | Role |
 | --- | --- |
-| [Confluence RETAIL — Decisions](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/5341185/Decisions) | Durable architecture, accepted ADRs and runbooks. `Kemetra/Orchestrator` is retired and frozen (AD-ORCH-003). |
 | [Backend-Core](https://github.com/Kemetra/Backend-Core) | Backend, OpenAPI contracts, orchestration and the single contract boundary. |
 | [POS](https://github.com/Kemetra/POS) | Windows offline-capable cashier terminal. |
 | [Admin-Console](https://github.com/Kemetra/Admin-Console) | Admin and operations frontend. |
 | **ERPNext-Connector** | **This repository**: the only ERPNext / Frappe adapter. |
+
+Durable architecture, accepted ADRs and runbooks live in [Confluence RETAIL — Decisions](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/5341185/Decisions). `Kemetra/Orchestrator` is retired and frozen (AD-ORCH-003).
 
 ## License
 

@@ -20,7 +20,7 @@ No OpenAPI, migration, package or CI file is changed by this plan.
 | Repo | Ref | Note |
 |---|---|---|
 | Backend-Core | `origin/main` `ddae78a7` | re-verified for this plan |
-| Orchestrator | `origin/main` `420db8b` | AD-CASH-001 read from here |
+| Orchestrator (historical; retired, AD-ORCH-003) | `origin/main` `420db8b` | AD-CASH-001 was originally read from here; the decision of record is now its Confluence copy |
 | POS, Admin-Console | not re-verified | Their facts below come from AD-CASH-001 (POS `543688ff`, Admin-Console `08b67b4`). The POS shift-service line numbers have since moved; the RT-284 comment 11873 cites `shift-cashup-service.ts:293,736-751`. Treat the record's POS line numbers as historical. |
 
 Confluence pages *Shift & Cash Management* (24674305), *Policy, Permissions …* (23134209) and *Organization & Store Management* (23625729) were last modified on 2026-10-07, which is before the record. Nothing new to reconcile.

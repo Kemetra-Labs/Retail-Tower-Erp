@@ -3,7 +3,7 @@
 **Status:** PLANNING-ONLY — draft for owner review. No SDK, no project key, no config, no event, no network call, no CSP/CI/package change is authored or implied here.
 **Jira:** [RT-480](https://rahmaqanater.atlassian.net/browse/RT-480) (Work Mode: Planning) · Parent [RT-5](https://rahmaqanater.atlassian.net/browse/RT-5) W5 Console Operations.
 **Owning repo:** `Kemetra/Admin-Console`. **Policy authority:** Confluence RETAIL decisions (the former `Kemetra/Orchestrator` Technical Handbook, retired by AD-ORCH-003, is cited here as historical source only; it was read, not edited).
-**Date:** 2026-10-15.
+**Date:** 2026-10-15. **Last updated:** 2026-10-31 (RT-910: Orchestrator references repointed).
 
 **Baselines verified for this plan**
 
