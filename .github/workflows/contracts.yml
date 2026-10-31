@@ -169,3 +169,20 @@ jobs:
         run: |
           python -m contracts_check --repo "$GITHUB_WORKSPACE" \
             --oasdiff "$RUNNER_TEMP/oasdiff/oasdiff" --summary "$GITHUB_STEP_SUMMARY"
+
+      # RT-1030 (plan RT-1029): every system release manifest passes the offline gate (G1-G3, G5:
+      # .github/release/system_gate.py), and each consumer PIN at its release is compatible with
+      # the Backend-Core contract at the Backend-Core release (G4). Releases and commits are read
+      # from the full history checked out above; an incompatible system version fails here.
+      - name: System release gate
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for manifest in system/releases/*.json; do
+            echo "::group::$manifest"
+            python .github/release/system_gate.py --manifest "$manifest" --main origin/main
+            mapfile -t revs < <(python .github/release/system_gate.py --manifest "$manifest" --contracts-args)
+            (cd tools/contracts-check && python -m contracts_check --repo "$GITHUB_WORKSPACE" \
+              --oasdiff "$RUNNER_TEMP/oasdiff/oasdiff" --only pins "${revs[@]}" --summary "$GITHUB_STEP_SUMMARY")
+            echo "::endgroup::"
+          done

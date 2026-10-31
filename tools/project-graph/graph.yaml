@@ -243,6 +243,10 @@ shared_classes:   # precedence: lower wins; two matches at the SAME precedence =
   tooling: { precedence: 2, globs: [tools/**], selects: all }
   e2e:     { precedence: 3, globs: [tests/e2e/**], selects: [e2e] }
   docs:    { precedence: 3, globs: [docs/**], selects: [] }
+  # RT-1030: system release manifests (system/releases/*.json) name the product releases deployed
+  # together; contracts/check runs the system release gate (G1-G5) on every one of them. A shared
+  # class can only select all, [e2e] or [], and a new system version is rare, so it selects all.
+  system:  { precedence: 3, globs: [system/**], selects: all }
   # RT-578 (CI Modernization PR-1): the two root prose files select no job. Precedence 3 beats
   # root's 4, so they never fall through to the "*" catch-all below. No code, workflow or build
   # reads them (RT-578 PR evidence); a new root file still hits `root` and selects everything.

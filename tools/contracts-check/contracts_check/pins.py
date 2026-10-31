@@ -101,6 +101,12 @@ def read_blob(repo, blob):
     return proc.stdout if proc.returncode == 0 else None
 
 
+def read_at(repo, rev, path):
+    """`path` at commit `rev` from the object store, or None when it is not there (RT-1030)."""
+    proc = _git(repo, "show", f"{rev}:{path}")
+    return proc.stdout if proc.returncode == 0 else None
+
+
 def hash_object(repo, data):
     proc = _git(repo, "hash-object", "--stdin", stdin=data)
     if proc.returncode != 0:
@@ -160,11 +166,22 @@ def compare_file(oasdiff, base_path, revision_path, severity_levels, subject):
     return [Finding("pins", subject, OK, "identical API surface")]
 
 
-def check_consumer(repo, consumer, contracts_root, oasdiff, severity_levels, *, repository):
+def check_consumer(repo, consumer, contracts_root, oasdiff, severity_levels, *, repository,
+                   pin_rev=None, backend_rev=None):
+    """Findings for one consumer. By default the PIN, the vendored copies and the contract come
+    from the working tree. RT-1030: `pin_rev` reads the PIN and vendored copies at that commit
+    (the consumer's release) and `backend_rev` reads the contract at that commit (the
+    Backend-Core release), so a system release can be checked without checking anything out."""
     repo = pathlib.Path(repo)
     name, pin_path = consumer["name"], consumer["pin"]
     try:
-        text = (repo / pin_path).read_text(encoding="utf-8")
+        if pin_rev:
+            raw = read_at(repo, pin_rev, pin_path)
+            if raw is None:
+                raise OSError(f"{pin_path} does not exist at {pin_rev}")
+            text = raw.decode("utf-8")
+        else:
+            text = (repo / pin_path).read_text(encoding="utf-8")
         files = parse_pin(text)
         header = parse_header(text)
     except (OSError, UnicodeDecodeError, PinError) as exc:
@@ -184,20 +201,34 @@ def check_consumer(repo, consumer, contracts_root, oasdiff, severity_levels, *, 
                 continue
             vendored = consumer.get("vendored")
             if vendored:
-                copy = repo / vendored / path
-                if not copy.is_file():
+                if pin_rev:
+                    copy_bytes = read_at(repo, pin_rev, f"{vendored}/{path}")
+                else:
+                    copy = repo / vendored / path
+                    copy_bytes = copy.read_bytes() if copy.is_file() else None
+                if copy_bytes is None:
                     findings.append(Finding("pins", subject, FAIL, f"vendored copy {vendored}/{path} is missing"))
                     continue
-                actual = hash_object(repo, copy.read_bytes())
+                actual = hash_object(repo, copy_bytes)
                 if actual != blob:
                     findings.append(Finding("pins", subject, FAIL,
                                             f"vendored copy {vendored}/{path} hashes to {actual}, PIN says {blob}"))
                     continue
-            current = repo / contracts_root / path
-            if not current.is_file():
-                findings.append(Finding("pins", subject, FAIL,
-                                        f"pinned file {contracts_root}/{path} no longer exists in the tree"))
-                continue
+            if backend_rev:
+                revision = read_at(repo, backend_rev, f"{contracts_root}/{path}")
+                if revision is None:
+                    findings.append(Finding("pins", subject, FAIL,
+                                            f"pinned file {contracts_root}/{path} does not exist at {backend_rev}"))
+                    continue
+                current = pathlib.Path(tmp) / "backend" / name / path
+                current.parent.mkdir(parents=True, exist_ok=True)
+                current.write_bytes(revision)
+            else:
+                current = repo / contracts_root / path
+                if not current.is_file():
+                    findings.append(Finding("pins", subject, FAIL,
+                                            f"pinned file {contracts_root}/{path} no longer exists in the tree"))
+                    continue
             base = pathlib.Path(tmp) / name / path
             base.parent.mkdir(parents=True, exist_ok=True)
             base.write_bytes(data)

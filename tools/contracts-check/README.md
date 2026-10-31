@@ -23,6 +23,8 @@ CONTRACTS_CHECK_OASDIFF=/path/to/oasdiff python -m unittest discover -s tests -v
 python -m contracts_check --repo ../.. --oasdiff /path/to/oasdiff [--summary summary.md] [--only pins|connector|identical]
 ```
 
+For a system release (RT-1030), `--backend-rev <rev>` reads the contract at that commit instead of the working tree, and each `--consumer-rev <name>=<rev>` reads that consumer's PIN (and vendored copies) at its commit. With any `--consumer-rev`, the pins check runs only the named consumers. `.github/release/system_gate.py --contracts-args` prints these arguments for a manifest in `system/releases/`.
+
 `oasdiff` is the bc/oasdiff pin (1.32.1, sha256-verified). Without `CONTRACTS_CHECK_OASDIFF` the real-oasdiff tests are skipped locally; CI always sets it. The check needs full history (`fetch-depth: 0`) because pinned blobs come from older commits.
 
 ## Known gaps (named, not silently relaxed)

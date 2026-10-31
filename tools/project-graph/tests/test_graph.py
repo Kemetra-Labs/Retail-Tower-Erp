@@ -197,6 +197,11 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.g.classify("NEWS.md").owner, "root")
         self.assertEqual(self.g.classify("apps/pos/README.md").kind, "product")
 
+    def test_system_releases_select_the_contracts_check(self):
+        # RT-1030: a system release manifest has its own class (it selects all, which runs contracts/check).
+        self.assertEqual(self.g.classify("system/releases/lab-2026.11.0.json").owner, "system")
+        self.assertEqual(self.g.classify("system/releases/README.md").owner, "system")
+
     def test_product_github_dirs_are_policy(self):
         g = self.g
         for path in ("apps/pos/.github/workflows/ci.yml", "apps/admin-console/.github/scripts/fetch-pinned-contracts.sh",
