@@ -357,7 +357,9 @@ describe("RT-1021 v4.0 surfaces", () => {
     serve(noSession());
     mount();
     const drawer = await openDrawer();
-    expect(drawer.querySelector(".drawer__scope")?.textContent).toBe("Read-only support access");
+    // The line names the kind of access only: the read-only fact lives in the body copy,
+    // so the header claims no API boundary (the API still admits tenant writes, P0-b).
+    expect(drawer.querySelector(".drawer__scope")?.textContent).toBe("Support access");
   });
 });
 

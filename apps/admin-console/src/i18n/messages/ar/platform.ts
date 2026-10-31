@@ -97,7 +97,7 @@ export const platform = {
     "تعذّر التأكد من فتح المؤسسة لأن قراءة الحالة بعد التبديل لم تكتمل. أعد تحميل الصفحة للتحقق.",
 
   "platform.start.title": "جلسة دعم: {name}",
-  "platform.start.scopeLine": "وصول دعم للقراءة فقط",
+  "platform.start.scopeLine": "وصول دعم",
   "platform.start.required": "(إلزامي)",
   "platform.start.optional": "(اختياري)",
   "platform.start.purpose.label": "الغرض",

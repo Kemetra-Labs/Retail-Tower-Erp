@@ -92,7 +92,7 @@ export const platform: MessagesOf<typeof ar> = {
     "Couldn't confirm the organization opened, because reading the state after the switch didn't finish. Reload the page to check.",
 
   "platform.start.title": "Support session: {name}",
-  "platform.start.scopeLine": "Read-only support access",
+  "platform.start.scopeLine": "Support access",
   "platform.start.required": "(required)",
   "platform.start.optional": "(optional)",
   "platform.start.purpose.label": "Purpose",
