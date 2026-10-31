@@ -71,6 +71,21 @@ export const tenants = {
   "stores.detail.back": "العودة إلى المتاجر",
   "stores.detail.edit": "تعديل المتجر",
   "stores.detail.devices": "أجهزة هذا المتجر",
+  // RT-1012 (v4.0): list band facts and the numbered detail sections.
+  "stores.band.label": "ملخص قائمة المتاجر",
+  "stores.band.active": "متاجر نشطة",
+  "stores.band.suspended": "متاجر موقوفة",
+  "stores.band.total": "متاجر",
+  "stores.section.data": "بيانات المتجر",
+  "stores.timing.sub": "يحدّد تاريخ يوم العمل وأوقات الورديات",
+  "stores.detail.changeTimezone": "تغيير المنطقة الزمنية",
+  "stores.detail.devicesSection": "أجهزة هذا المتجر",
+  "stores.detail.devicesBody":
+    "تُدار أجهزة الكاشير ورموز الربط وحالة الثقة في «الأجهزة»، مفلترةً على هذا المتجر.",
+  "stores.detail.statusBody": "يطلب إيقاف المتجر تأكيدًا أولًا. يمكنك تفعيله لاحقًا من صفحة التعديل.",
+  "stores.detail.statusBodySuspended": "هذا المتجر موقوف. يمكنك تفعيله من صفحة التعديل.",
+  "stores.detail.activateStatus": "تفعيل هذا المتجر",
+  "stores.detail.changeStatus": "إيقاف هذا المتجر أو تفعيله",
 
   "stores.form.createTitle": "إضافة متجر",
   "stores.form.editTitle": "تعديل {name}",

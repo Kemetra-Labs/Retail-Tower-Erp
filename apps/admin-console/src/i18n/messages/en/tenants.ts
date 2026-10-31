@@ -60,6 +60,23 @@ export const tenants: MessagesOf<typeof ar> = {
   "stores.detail.back": "Back to stores",
   "stores.detail.edit": "Edit store",
   "stores.detail.devices": "Devices in this store",
+  // RT-1012 (v4.0): list band facts and the numbered detail sections.
+  "stores.band.label": "Store list summary",
+  "stores.band.active": "Active stores",
+  "stores.band.suspended": "Suspended stores",
+  "stores.band.total": "Stores",
+  "stores.section.data": "Store details",
+  "stores.timing.sub": "Sets the business date and shift times",
+  "stores.detail.changeTimezone": "Change time zone",
+  "stores.detail.devicesSection": "This store's devices",
+  "stores.detail.devicesBody":
+    "Cashier devices, pairing codes and their trust state are managed in Devices, filtered to this store.",
+  "stores.detail.statusBody":
+    "Suspending a store asks you to confirm first. You can activate it again from the edit page.",
+  "stores.detail.statusBodySuspended":
+    "This store is suspended. Activate it again from the edit page.",
+  "stores.detail.activateStatus": "Activate this store",
+  "stores.detail.changeStatus": "Suspend or activate this store",
 
   "stores.form.createTitle": "Add store",
   "stores.form.editTitle": "Edit {name}",
