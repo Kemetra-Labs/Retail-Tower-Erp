@@ -215,9 +215,74 @@ function Done({
   );
 }
 
+const STEPS = [
+  { id: "details", key: "devices.flow.step.details" },
+  { id: "review", key: "devices.flow.step.review" },
+  { id: "done", key: "devices.flow.step.done" },
+] as const satisfies readonly { id: LifecycleFlowState["step"]; key: MessageKey }[];
+
+/**
+ * Where the flow is (RT-1013): details, the server's impact, the outcome. The
+ * current step is named by `aria-current` and its bold text, never colour alone.
+ */
+function Steps({ step }: Readonly<{ step: LifecycleFlowState["step"] }>): React.JSX.Element {
+  const t = useT();
+  const at = Math.max(
+    0,
+    STEPS.findIndex((s) => s.id === step),
+  );
+  return (
+    <>
+      <ol className="device-steps" aria-label={t("devices.flow.steps")}>
+        {STEPS.map((s, i) => (
+          <li key={s.id} aria-current={s.id === step ? "step" : undefined}>
+            <span className="device-steps__n" aria-hidden="true">
+              {i + 1}
+            </span>
+            {t(s.key)}
+          </li>
+        ))}
+      </ol>
+      {/* A persistent polite region: the text changes with the step, so a screen reader
+          announces the move even while focus is on a button. */}
+      <output className="sr-only">
+        {t("devices.flow.stepStatus", {
+          n: at + 1,
+          total: STEPS.length,
+          name: t(STEPS[at].key),
+        })}
+      </output>
+    </>
+  );
+}
+
+/** The drawer's scope line (RT-1013): which device and store the action acts on. */
+function DeviceScope({
+  device,
+  storeName,
+}: Readonly<{ device: DeviceDetail; storeName?: string }>): React.JSX.Element {
+  const t = useT();
+  return (
+    <>
+      {device.label ? <bdi dir="auto">{device.label}</bdi> : t("devices.list.unlabelled")}
+      {" · "}
+      {storeName ? <bdi dir="auto">{storeName}</bdi> : t("devices.list.unknownStore")}
+      {/* Labels are not unique: an unlabelled device is told apart by its id. */}
+      {device.label ? null : (
+        <>
+          {" · "}
+          <bdi dir="ltr">{device.deviceId}</bdi>
+        </>
+      )}
+    </>
+  );
+}
+
 export interface LifecycleFlowProps {
   action: FlowAction;
   device: DeviceDetail;
+  /** The device's store, as the page shows it, for the drawer's scope line. */
+  storeName?: string;
   timeZone?: string;
   onClose: () => void;
   /** Hand over to another action (after a security revoke, the replacement). */
@@ -227,6 +292,7 @@ export interface LifecycleFlowProps {
 export function LifecycleFlow({
   action,
   device,
+  storeName,
   timeZone,
   onClose,
   onSwitch,
@@ -237,8 +303,14 @@ export function LifecycleFlow({
   // an issued pairing code would land on an unmounted component and be lost.
   const busy = flow.pending;
   return (
-    <Drawer title={t(TITLE[action])} onClose={onClose} dismissible={!busy}>
-      <form className="surface__form" noValidate onSubmit={flow.onSubmit}>
+    <Drawer
+      title={t(TITLE[action])}
+      onClose={onClose}
+      dismissible={!busy}
+      scope={<DeviceScope device={device} storeName={storeName} />}
+    >
+      <form className="surface__form device-flow" noValidate onSubmit={flow.onSubmit}>
+        <Steps step={flow.step} />
         {flow.step === "details" ? (
           <Details action={action} flow={flow} device={device} onClose={onClose} />
         ) : null}
