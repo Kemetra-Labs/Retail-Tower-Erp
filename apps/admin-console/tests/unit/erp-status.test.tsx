@@ -643,6 +643,17 @@ describe("sale pipeline and sections (RT-1011)", () => {
     expect(within(band).queryByText(/Last read:/)).toBeNull();
   });
 
+  test("a connection table still waiting for its health read keeps the band from claiming a last read", async () => {
+    api.listConnectorHealth.mockReturnValue(new Promise(() => {}));
+    renderPage();
+    await within(panel(/permanently rejected postings/i)).findByText(
+      "No permanently rejected postings.",
+    );
+    await within(panel(/reconciliation history/i)).findByText(/Maadi|Unknown store/);
+    const band = screen.getByRole("heading", { level: 1 }).closest("header") as HTMLElement;
+    expect(within(band).queryByText(/Last read:/)).toBeNull();
+  });
+
   test("two faulting environments are joined with the locale's own separator", async () => {
     api.tenantAdminListConnectorInstances.mockResolvedValue(
       ok({
