@@ -583,7 +583,8 @@ Trivial fixes (typos, log-message tweaks, dependency bumps) MAY skip the pipelin
 
 ## Key technical decisions (locked)
 
-- Stack: Electron 40 + React 19 + Vite 8 + TypeScript 5.6 (strict) + Tailwind 4.
+- Stack: Electron 44 + React 19 + Vite 8 + TypeScript 5.6 (strict) + Tailwind 4. The runtime line is
+  Electron 44 (`docs/runtime/electron-44-upgrade-plan.md`); RT-986 moved it to 44.9.1 within that line.
 - Local DB: `better-sqlite3` with a custom transactional migration runner.
 - Secrets: Electron `safeStorage` (DPAPI on Windows). Production refuses to start without it.
 - Money: integer minor units, `Number.isSafeInteger` guarded; ≥ 95% coverage on the module.
