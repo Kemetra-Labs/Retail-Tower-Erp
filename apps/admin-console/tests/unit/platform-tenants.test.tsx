@@ -324,6 +324,45 @@ describe("row actions are completable (UX Addendum A3)", () => {
   });
 });
 
+describe("RT-1021 v4.0 surfaces", () => {
+  test("the directory has no Ink band: the plain page h1 and one numbered panel", async () => {
+    serve(noSession());
+    mount();
+    const h1 = await screen.findByRole("heading", { name: "Organizations", level: 1 });
+    expect(h1.closest(".list-band")).toBeNull();
+    expect(document.querySelector(".list-band")).toBeNull();
+    const panel = (
+      await screen.findByRole("heading", { name: "All organizations", level: 2 })
+    ).closest("section") as HTMLElement;
+    // The badge is decoration: hidden from assistive technology, the heading is the name.
+    const badge = panel.querySelector(".section-index");
+    expect(badge?.textContent).toBe("01");
+    expect(badge?.getAttribute("aria-hidden")).toBe("true");
+    expect(await within(panel).findByRole("table")).toBeDefined();
+    expect(within(panel).getByRole("searchbox")).toBeDefined();
+  });
+
+  test("a row's initials tile is decorative (hidden from assistive technology)", async () => {
+    serve(noSession());
+    mount();
+    const rows = within(await table())
+      .getAllByRole("row")
+      .slice(1);
+    const tile = rows[0].querySelector(".platform-directory__tile");
+    expect(tile?.getAttribute("aria-hidden")).toBe("true");
+    expect(tile?.textContent).toBe("D");
+  });
+
+  test("the start drawer states its scope in the Ink header, from the shared Drawer", async () => {
+    serve(noSession());
+    mount();
+    const drawer = await openDrawer();
+    // The line names the kind of access only: the read-only fact lives in the body copy,
+    // so the header claims no API boundary (the API still admits tenant writes, P0-b).
+    expect(drawer.querySelector(".drawer__scope")?.textContent).toBe("Support access");
+  });
+});
+
 describe("start drawer: validation and the request body", () => {
   test("the drawer names the tenant, the scope, the duration and the suspended rule", async () => {
     serve(noSession());

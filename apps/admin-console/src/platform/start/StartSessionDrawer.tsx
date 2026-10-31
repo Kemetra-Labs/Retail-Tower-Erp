@@ -239,6 +239,7 @@ export function StartSessionDrawer(props: Readonly<StartSessionDrawerProps>): Re
   return (
     <Drawer
       title={t("platform.start.title", { name: tenant.name })}
+      scope={t("platform.start.scopeLine")}
       onClose={onClose}
       dismissible={!start.pending}
     >

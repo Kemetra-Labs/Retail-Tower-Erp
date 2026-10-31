@@ -135,22 +135,48 @@ function Identity({ controller }: Readonly<{ controller: SupportSessionControlle
   return (
     <>
       <span className="support-session-bar__badge">{t("platform.session.badge")}</span>
-      {tenantName ? <span>{t(tenantKey, { name: tenantName })}</span> : null}
-      <span>
-        {t("platform.session.purpose", {
-          purpose: t(`platform.session.purpose.${session.purpose}` as MessageKey),
-        })}
+      <span className="support-session-bar__who">
+        {tenantName ? <span>{t(tenantKey, { name: tenantName })}</span> : null}
+        <span>
+          {t("platform.session.purpose", {
+            purpose: t(`platform.session.purpose.${session.purpose}` as MessageKey),
+          })}
+        </span>
       </span>
       {session.ticket_ref ? (
-        <span>
+        <span className="support-session-bar__chip">
           {t("platform.session.ticket")}:{" "}
           <bdi dir="ltr" className="support-session-bar__mono">
             {session.ticket_ref}
           </bdi>
         </span>
       ) : null}
-      <span className="support-session-bar__badge support-session-bar__badge--quiet">
-        {t("platform.session.readOnly")}
+      <span className="support-session-bar__chip">{t("platform.session.readOnly")}</span>
+    </>
+  );
+}
+
+/**
+ * RT-1021 (v4.0): the time as text, with one muted note under it, and the
+ * renewal cap as text. The contract serves `expires_at` and `renewal_cap_at`
+ * only (no start time), so no ring or track is drawn: a fill would have no
+ * backing source (DESIGN.md 12.8.6).
+ */
+function Clock({ controller }: Readonly<{ controller: SupportSessionController }>) {
+  const t = useT();
+  const { state, session } = controller;
+  return (
+    <>
+      <span className="support-session-bar__clock">
+        <span className="support-session-bar__time">{timeTextFor(t, controller)}</span>
+        <span className="support-session-bar__note">
+          {t(`platform.session.note.${state}` as MessageKey)}
+        </span>
+      </span>
+      <span className="support-session-bar__cap">
+        {t.rich("platform.session.capAt", {
+          time: <bdi dir="ltr">{formatDateTime(session.renewal_cap_at)}</bdi>,
+        })}
       </span>
     </>
   );
@@ -191,7 +217,7 @@ export function SupportSessionBar({
       </output>
       <div className="support-session-bar__main">
         <Identity controller={controller} />
-        <span className="support-session-bar__time">{timeTextFor(t, controller)}</span>
+        <Clock controller={controller} />
         <span className="support-session-bar__actions">
           <RenewButton controller={controller} />
           <GatedButton
