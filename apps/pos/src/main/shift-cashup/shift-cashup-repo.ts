@@ -37,7 +37,8 @@
  * RT-997 (migration 0059, [GATED]): a close recorded with a `countAttempt` stamp
  * writes the ACCEPTED Count Attempt just before the close row and the close's
  * link to it just after, in the same transaction (a rollback takes all three);
- * `recordRefusedCount` appends a refused count on the open shift. Attempts stay
+ * `recordRefusedCount` appends a refused count on the open shift, and
+ * `recordAbandonedCount` (RT-1003) an abandoned one. Attempts stay
  * local: nothing here touches the outbox (see `shift-count-attempts.ts`).
  *
  * The sync transitions apply only to a `pending` row and report whether they
@@ -196,6 +197,9 @@ export interface RecordRefusedCountInput {
   now: string;
 }
 
+/** RT-1003: a count the cashier walked away from (outcome `abandoned`). */
+export type RecordAbandonedCountInput = RecordRefusedCountInput;
+
 export interface RecordForcedCloseInput extends RecordCloseInput {
   forcedReason: string;
   /**
@@ -217,6 +221,11 @@ export interface ShiftCashupRepo {
    * edits an earlier attempt: a recount is another row.
    */
   recordRefusedCount(input: RecordRefusedCountInput): void;
+  /**
+   * RT-1003 — appends an `abandoned` Count Attempt (the cashier walked away
+   * from the count) for the terminal's open shift, as `recordRefusedCount`.
+   */
+  recordAbandonedCount(input: RecordAbandonedCountInput): void;
   /**
    * RT-554 — a manager's forced close of the terminal's open shift: the close
    * row (`close_kind = 'forced'`) and an ORIGINAL manager-envelope outbox row
@@ -596,6 +605,13 @@ export function createShiftCashupRepo(db: DatabaseHandle): ShiftCashupRepo {
     })();
   }
 
+  function recordAbandonedCount(input: RecordAbandonedCountInput): void {
+    db.transaction(() => {
+      requireOpenShift({ scope: input.scope, shiftId: input.attempt.shiftId });
+      insertCountAttempt(run, { ...input.attempt, outcome: 'abandoned' }, input.now);
+    })();
+  }
+
   function recordForcedClose(input: RecordForcedCloseInput): RecordedShiftFact {
     const { scope, now } = input;
     return db.transaction(() => {
@@ -680,6 +696,7 @@ export function createShiftCashupRepo(db: DatabaseHandle): ShiftCashupRepo {
     recordMovement,
     recordClose,
     recordRefusedCount,
+    recordAbandonedCount,
     recordForcedClose,
     findOpenShift,
     nextFact,

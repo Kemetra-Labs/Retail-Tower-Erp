@@ -36,6 +36,9 @@
  *   • Nothing that reveals the expected cash before the close, and no
  *     `users.id`, crosses the bridge: the status is an explicit allowlist (no
  *     `openingUserId`).
+ *   • `abandonCount` (RT-1003): the cashier walked away from a count they had
+ *     entered; the service records it as an `abandoned` Count Attempt. The
+ *     answer is `{ kind: 'recorded' }` alone: no id, amount or variance.
  *
  * Admission (flag, session, lock, cashier or manager identity) is the
  * service's and the enrolment's: every call goes through it.
@@ -277,5 +280,10 @@ export function createShiftCashupBridge(deps: ShiftCashupBridgeDeps): ShiftCashu
           displayName: m.displayName,
         })),
       })),
+    abandonCount: (req) =>
+      attempt('abandonCount', () => {
+        service.recordAbandonedCount({ countedCashMinor: req.countedCashMinor });
+        return { kind: 'recorded' as const };
+      }),
   };
 }

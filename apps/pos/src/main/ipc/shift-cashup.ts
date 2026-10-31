@@ -5,7 +5,7 @@
  * `registerShiftCashupIpc` is the flag gate: with
  * `POS_PULSE_FEATURE_SHIFT_CASHUP` off (default) it registers nothing. With
  * it on, it composes the service, the manager PIN store and enrolment, and
- * their bridge, registers the seven handlers on the lock-guarded `ipcMain`,
+ * their bridge, registers its handlers on the lock-guarded `ipcMain`,
  * and subscribes the manager record refresh to session starts (review round 1
  * P2-1: an online manager / admin sign-in renews that manager's record on
  * this terminal). None of the channels is on the locked-session allowlist, so
@@ -27,7 +27,10 @@
  *     review round 1). No approver id, close kind or anything else;
  *   • `status` / `listEnrolledManagers`: no payload (undefined or `{}`);
  *   • `enrollManagerPin`: exactly `{ managerPin, currentPin? }`, each 6–8
- *     ASCII digits (an undefined current PIN is none).
+ *     ASCII digits (an undefined current PIN is none);
+ *   • `abandonCount` (RT-1003): exactly `{ countedCashMinor }`, a safe
+ *     integer ≥ 0 — the blind count the cashier walked away from. No actor,
+ *     shift, attempt id, time or outcome: main records it as `abandoned`.
  *
  * No operator, user id, scope, currency, id, time or key can be smuggled in:
  * main derives them all.
@@ -40,6 +43,7 @@ import {
   MANAGER_REF_PATTERN,
   SHIFT_MOVEMENT_REASON_CODES,
   SHIFT_NOTE_MAX_LENGTH,
+  type ShiftAbandonCountRequest,
   type ShiftCashupBridgeAPI,
   type ShiftCloseApprover,
   type ShiftCloseRequest,
@@ -77,6 +81,7 @@ const PRINTABLE = /^[^\p{Cc}]+$/u;
 const OPEN_KEYS = ['openingFloatMinor'] as const;
 const MOVEMENT_KEYS = ['amountMinor', 'reasonCode', 'note'] as const;
 const CLOSE_KEYS = ['countedCashMinor', 'approver'] as const;
+const ABANDON_KEYS = ['countedCashMinor'] as const;
 const APPROVER_KEYS = ['managerRef', 'managerPin'] as const;
 const ENROL_KEYS = ['managerPin', 'currentPin'] as const;
 const REVOKE_KEYS = ['managerRef'] as const;
@@ -166,6 +171,13 @@ export function readCloseRequest(value: unknown): ShiftCloseRequest | null {
   return { countedCashMinor, ...approver };
 }
 
+/** RT-1003: `{ countedCashMinor }` exactly, or null. */
+export function readAbandonCountRequest(value: unknown): ShiftAbandonCountRequest | null {
+  if (!isClosedShape(value, ABANDON_KEYS)) return null;
+  const { countedCashMinor } = value;
+  return isMinorFrom(countedCashMinor, 0) ? { countedCashMinor } : null;
+}
+
 /** `{ managerPin, currentPin? }` exactly, or null. */
 export function readEnrollRequest(value: unknown): ShiftManagerPinEnrollRequest | null {
   if (!isClosedShape(value, ENROL_KEYS)) return null;
@@ -211,6 +223,7 @@ export function registerShiftCashupHandlers(ipcMain: IpcMain, deps: ShiftCashupI
     ENROLL_MANAGER_PIN,
     LIST_ENROLLED_MANAGERS,
     REVOKE_MANAGER_PIN,
+    ABANDON_COUNT,
   } = SHIFT_CASHUP_IPC_CHANNELS;
   ipcMain.handle(
     OPEN,
@@ -241,6 +254,10 @@ export function registerShiftCashupHandlers(ipcMain: IpcMain, deps: ShiftCashupI
   ipcMain.handle(
     REVOKE_MANAGER_PIN,
     validated(readRevokeRequest, (req) => bridge.revokeManagerPin(req)),
+  );
+  ipcMain.handle(
+    ABANDON_COUNT,
+    validated(readAbandonCountRequest, (req) => bridge.abandonCount(req)),
   );
 }
 

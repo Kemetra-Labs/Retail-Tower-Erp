@@ -196,6 +196,18 @@ export type ShiftEnrolledManagersResponse =
   | { kind: 'managers'; managers: ShiftEnrolledManager[] }
   | ShiftCashupRefused;
 
+/**
+ * RT-1003 — the cashier walked away from a blind count they had entered (the
+ * approval dialog dismissed, or the close left with an unsent count). The
+ * amount only: main derives the cashier, the shift, the id and the time, and
+ * records an `abandoned` Count Attempt. The answer says nothing else.
+ */
+export interface ShiftAbandonCountRequest {
+  countedCashMinor: number;
+}
+
+export type ShiftAbandonCountResponse = { kind: 'recorded' } | ShiftCashupRefused;
+
 export interface ShiftCashupBridgeAPI {
   open(req: ShiftOpenRequest): Promise<ShiftOpenResponse>;
   payIn(req: ShiftMovementRequest): Promise<ShiftMovementResponse>;
@@ -205,4 +217,5 @@ export interface ShiftCashupBridgeAPI {
   enrollManagerPin(req: ShiftManagerPinEnrollRequest): Promise<ShiftManagerPinEnrollResponse>;
   listEnrolledManagers(): Promise<ShiftEnrolledManagersResponse>;
   revokeManagerPin(req: ShiftManagerPinRevokeRequest): Promise<ShiftManagerPinRevokeResponse>;
+  abandonCount(req: ShiftAbandonCountRequest): Promise<ShiftAbandonCountResponse>;
 }

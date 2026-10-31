@@ -172,6 +172,7 @@ export function makeShiftProofBridge(state: ShiftProofState): ShiftCashupBridgeA
     listEnrolledManagers: () => Promise.resolve({ kind: 'managers', managers: MANAGERS }),
     enrollManagerPin: () => Promise.resolve({ kind: 'enrolled' }),
     revokeManagerPin: () => Promise.resolve({ kind: 'revoked' }),
+    abandonCount: () => Promise.resolve({ kind: 'recorded' }),
   };
 }
 

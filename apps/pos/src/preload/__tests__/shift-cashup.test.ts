@@ -47,6 +47,8 @@ describe('preload shiftCashup bridge', () => {
       SHIFT_CASHUP_IPC_CHANNELS.REVOKE_MANAGER_PIN,
       { managerRef: '7f3c1e2a-0b4d-4c5e-8f60-0000000000aa' },
     ],
+    // RT-1003
+    ['abandonCount', SHIFT_CASHUP_IPC_CHANNELS.ABANDON_COUNT, { countedCashMinor: 52_000 }],
   ] as const)('%s invokes its channel with the request', async (member, channel, arg) => {
     const { shiftCashup } = await import('../shift-cashup');
     const call = shiftCashup[member] as (a: unknown) => Promise<unknown>;
@@ -75,6 +77,7 @@ describe('preload shiftCashup bridge', () => {
       shiftCashup?: Record<string, unknown>;
     };
     expect(Object.keys(api.shiftCashup ?? {}).sort()).toEqual([
+      'abandonCount',
       'close',
       'enrollManagerPin',
       'listEnrolledManagers',

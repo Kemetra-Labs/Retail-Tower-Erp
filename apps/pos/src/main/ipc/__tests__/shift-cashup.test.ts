@@ -87,7 +87,7 @@ const NOTE_MAX = 'n'.repeat(SHIFT_NOTE_MAX_LENGTH);
 const MOVEMENT = { amountMinor: 1, reasonCode: 'bank_drop' };
 
 describe('shiftCashup IPC registration', () => {
-  it('registers exactly the eight channels, none on the lock allowlist', () => {
+  it('registers exactly the shiftCashup channels, none on the lock allowlist', () => {
     const { handlers } = setup();
     expect([...handlers.keys()].sort()).toEqual([...CHANNELS].sort());
     for (const channel of CHANNELS) expect(LOCKED_ALLOWED_CHANNELS.has(channel)).toBe(false);
@@ -297,7 +297,7 @@ describe('registerShiftCashupIpc — the flag gate', () => {
     expect(row?.[0]?.values).toEqual([['2026-10-05T08:00:00.000Z']]);
   });
 
-  it('registers the seven channels over the composed service with the flag on', async () => {
+  it('registers the channels over the composed service with the flag on', async () => {
     const { handlers, invoke } = register(true);
     expect([...handlers.keys()].sort()).toEqual([...CHANNELS].sort());
     await expect(invoke(STATUS)).resolves.toEqual({ kind: 'refused', reason: 'no_session' });

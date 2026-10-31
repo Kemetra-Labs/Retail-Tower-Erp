@@ -15,8 +15,10 @@
  *     open, the cash-up was computed) and the close was refused: the variance
  *     needs a manager, the manager's PIN failed, the drawer moved after the
  *     approval. Written by `recordRefusedCount` after the refusal.
- *   • `abandoned` — allowed by the schema; nothing writes it yet (the cashier's
- *     walk-away is a renderer event with no channel, see the RT-997 report).
+ *   • `abandoned` — RT-1003: the cashier walked away from a count they had
+ *     entered (the approval dialog dismissed, or the close left with an unsent
+ *     count). The renderer reports it over `shiftCashup:abandonCount` and
+ *     `recordAbandonedCount` appends it; nothing is evaluated for it.
  *
  * A fact holds who counted, how much, the outcome and when, and nothing the
  * cashier could not already see: no expected cash, no variance. It stays on the

@@ -32,11 +32,24 @@ function fakeService() {
     verifyApprover: vi.fn(() => Promise.resolve(null)),
     listApprovers: vi.fn(() => []),
     readStatus: vi.fn(() => Promise.resolve({})),
+    recordAbandonedCount: vi.fn(() => {
+      calls.push('recordAbandonedCount');
+    }),
   };
   return { service: service as unknown as ShiftCashupService, raw: service, calls };
 }
 
 describe('notifyOnShiftClose', () => {
+  it('passes an abandoned count through (RT-1003) without notifying: nothing closed', () => {
+    const { service, raw, calls } = fakeService();
+    const onClosed = vi.fn(() => calls.push('notified'));
+    const wrapped = notifyOnShiftClose(service, onClosed);
+    wrapped.recordAbandonedCount({ countedCashMinor: 52_000 });
+    expect(raw.recordAbandonedCount).toHaveBeenCalledWith({ countedCashMinor: 52_000 });
+    expect(calls).toEqual(['recordAbandonedCount']);
+    expect(onClosed).not.toHaveBeenCalled();
+  });
+
   it('notifies after a normal close and returns the close result unchanged', () => {
     const { service, calls } = fakeService();
     const onClosed = vi.fn(() => calls.push('notified'));

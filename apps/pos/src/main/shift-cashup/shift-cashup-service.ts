@@ -139,8 +139,15 @@
  * evaluated (a scanned count over the cap, no open shift, drawer cash in
  * flight, an unusable session) writes nothing. The forced close's manager
  * count is an attempt by the manager. Nothing about an attempt reaches the
- * renderer or the status: the count stays blind. `abandoned` is in the schema
- * but nothing writes it here: the cashier's walk-away is a renderer event.
+ * renderer or the status: the count stays blind.
+ *
+ * RT-1003 — `recordAbandonedCount`: the renderer reports that the cashier
+ * walked away from a count they had entered (the approval dialog dismissed,
+ * or the close left with an unsent count). It is appended as an ABANDONED
+ * attempt of the admitted cashier on the open shift, at the till's instant.
+ * Nothing is evaluated for it: no cash-up, no variance, no probe tally, and
+ * drawer cash in flight does not refuse it. Only a plausible amount (RT-278
+ * S1) on an open shift is recorded; the renderer sends the amount alone.
  *
  * Refusals of the shift state (`ShiftCashupStateError`) and of a fact's values
  * (`ShiftFactInvalidError`, `ShiftCashupSourceError`) come through unchanged.
@@ -279,6 +286,11 @@ export interface CloseShiftInput {
   approver?: VerifiedApprover;
 }
 
+/** RT-1003: the blind count the cashier walked away from. */
+export interface AbandonedCountInput {
+  countedCashMinor: number;
+}
+
 export interface ClosedShift {
   shiftId: string;
   closedAt: string;
@@ -338,6 +350,8 @@ export interface ShiftCashupService {
   verifyApprover(input: VerifyApproverInput): Promise<VerifiedApprover | null>;
   listApprovers(): EnrolledManager[];
   readStatus(): Promise<ShiftCashupServiceStatus>;
+  /** RT-1003 — records an abandoned Count Attempt (module header). */
+  recordAbandonedCount(input: AbandonedCountInput): void;
 }
 
 export interface ShiftCashupServiceDeps {
@@ -358,6 +372,7 @@ export interface ShiftCashupServiceDeps {
     | 'recordMovement'
     | 'recordClose'
     | 'recordRefusedCount'
+    | 'recordAbandonedCount'
     | 'recordForcedClose'
     | 'findOpenShift'
   >;
@@ -998,6 +1013,29 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
       });
       issued.add(approver);
       return approver;
+    },
+
+    recordAbandonedCount(input) {
+      const { scope, userId } = admit();
+      const { countedCashMinor } = input;
+      requirePlausibleAmount({
+        entry: 'counted_cash',
+        amountMinor: countedCashMinor,
+        currencyCode: deps.currencyCode,
+      });
+      const now = deps.now();
+      const open = openShiftAt({ scope, now });
+      repo.recordAbandonedCount({
+        scope,
+        attempt: {
+          attemptId: deps.newId(),
+          shiftId: open.shiftId,
+          actorUserId: userId,
+          countedCashMinor,
+          attemptedAt: now,
+        },
+        now,
+      });
     },
 
     listApprovers() {
