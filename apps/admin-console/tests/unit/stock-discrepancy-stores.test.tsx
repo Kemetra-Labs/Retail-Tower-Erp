@@ -253,4 +253,53 @@ describe("StockDiscrepancyStores (RT-178)", () => {
     expect(await screen.findByRole("link", { name: "Maadi" })).toBeDefined();
     expect(listErpnextNegativeOnHandStores).toHaveBeenLastCalledWith({ cursor: "c2" });
   });
+
+  test("RT-1017: the Ink band names the tenant, carries no facts, and the legend says unknown is not zero", async () => {
+    activeContext.mockReturnValue(ctx("owner"));
+    listErpnextNegativeOnHandStores.mockResolvedValue({
+      status: 200,
+      data: {
+        items: [
+          summary(S1, "Cairo Festival City", snapshot(), 2),
+          summary(S3, "Zamalek", snapshot({ status: "no_snapshot", ...none }), 0),
+        ],
+        nextCursor: "c2",
+      },
+    });
+    renderStores();
+    await screen.findByRole("link", { name: "Cairo Festival City" });
+
+    const band = document.querySelector("header.list-band") as HTMLElement;
+    expect(band).not.toBeNull();
+    expect(within(band).getByRole("heading", { level: 1 }).textContent).toBe(
+      "ERPNext stock discrepancies",
+    );
+    expect(band.querySelector(".list-band__group")?.textContent).toBe("Operations");
+    expect(band.querySelector(".list-band__sub")?.textContent).toMatch(/in Northstar Retail\.$/);
+    // A paged list serves no whole-set figure: no facts, no total, no action.
+    expect(band.querySelector("dl.list-band__facts")).toBeNull();
+    expect(band.querySelector(".list-band__end")).toBeNull();
+    // The legend names the three states once and the two rules the page rests on.
+    const legend = within(screen.getByRole("list", { name: "Snapshot states" }));
+    expect(legend.getByText("Fresh snapshot")).toBeDefined();
+    expect(legend.getByText("Stale snapshot")).toBeDefined();
+    expect(legend.getByText("No ERPNext snapshot")).toBeDefined();
+    expect(screen.getByText(/not a running balance/i).textContent).toMatch(/does not mean zero/i);
+    // The stores are one panel named by its heading; a single panel has no index badge.
+    const panel = screen
+      .getByRole("heading", { level: 2, name: "Stores" })
+      .closest("section") as HTMLElement;
+    expect(panel.querySelector(".section-index")).toBeNull();
+    // The initials tile is decoration; the name beside it is the link.
+    expect(panel.querySelector(".stock-store__tile")?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  test("RT-1017: an error shows under the band, outside the panel, and the band stays the same", async () => {
+    activeContext.mockReturnValue(ctx("owner"));
+    listErpnextNegativeOnHandStores.mockResolvedValue({ status: 500, error: {} });
+    renderStores();
+    expect(await screen.findByRole("button", { name: /retry/i })).toBeDefined();
+    expect(document.querySelectorAll("header.list-band")).toHaveLength(1);
+    expect(screen.queryByRole("heading", { level: 2, name: "Stores" })).toBeNull();
+  });
 });

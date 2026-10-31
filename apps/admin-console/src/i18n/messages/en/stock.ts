@@ -25,6 +25,12 @@ export const stock: MessagesOf<typeof ar> = {
   // --- Store summary list -------------------------------------------------
   "stock.stores.sub":
     "Items with negative on-hand quantity in each store's latest recorded ERPNext snapshot. Read-only; resolve the cause in ERPNext Desk.",
+  // RT-1017: the band's scope line, and the legend above the rows.
+  "stock.stores.bandSub":
+    "Items below zero in the latest recorded ERPNext snapshot of each store in {tenant}.",
+  "stock.stores.legendLabel": "Snapshot states",
+  "stock.stores.legend":
+    "A snapshot is a read from ERPNext at a set time, not a running balance. “Unknown” does not mean zero.",
   "stock.stores.notFound":
     "Not found. ERPNext stock discrepancies are not available to you in this tenant.",
   "stock.stores.caption": "Stores",
