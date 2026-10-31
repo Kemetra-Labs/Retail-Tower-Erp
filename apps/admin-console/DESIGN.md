@@ -539,7 +539,7 @@ These classes exist on `main` and new work reuses them until a migration slice r
     renders: `title` (the page's one `<h1>`, 24px), `subtitle` (one muted line: scope or what
     the page shows), `children` (status chips or a second note, under the subtitle),
     `actions` (at most one primary; destructive last) and `segmented` (a view switch,
-    `aria-pressed` buttons in a group), both at the inline end on the text's last line and
+    `aria-pressed` buttons in a group; the pressed segment is the action-fill pair, §12.6), both at the inline end on the text's last line and
     wrapping under it when narrow. `titleRef` makes the title a focus target; `titleId` lets a
     region be labelled by it. A back link sits above the header, not in it.
     `tests/unit/page-header.test.tsx` fails if a page inside the shell writes its own `<h1>`.
@@ -754,6 +754,12 @@ keeps gaps for missing buckets; the hero sparkline states its period (for exampl
   selected segment is Ink with white text; on Ink it is Mint with Ink text (D-V2). It keeps
   `aria-pressed`/`aria-selected` and a difference beyond colour (the filled shape against
   unfilled siblings, or weight), and maps to `Highlight`/`HighlightText` under forced colours.
+  **Shipped for `.segmented` (RT-1039):** the pressed segment reads `--color-action-fill` with
+  `--color-on-action-fill` (Ink with white on light, Mint with Ink on dark) on its recessed
+  track, with the stronger weight; unpressed hover stays neutral; under forced colours every
+  segment keeps a `ButtonText` boundary and the pressed one is `Highlight`/`HighlightText`.
+  The device detail tabs (`DeviceTabs`) keep the Teal Signal Line until a board draws a
+  filled tab set (the Devices board draws none; open decision, RT-1039).
 - **Status pill:** keeps text; its marker becomes a small rotated square.
 - **Avatars:** initials on Ink with Mint text, 8–14px radius by size.
 - **Sidebar footer:** a system-status block and a support card are allowed only with a
