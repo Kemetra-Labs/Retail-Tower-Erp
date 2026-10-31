@@ -2,12 +2,15 @@ import {
   canReadErpStatus,
   domainKey,
   domainStatusView,
+  erpNodeView,
   flattenPages,
+  isLinkDown,
   isStoreFilter,
   joinConnections,
   livenessSignal,
   mismatchEntries,
   nextCursor,
+  oldestRead,
   postingKindKey,
   reachabilityKey,
   runStatusView,
@@ -246,5 +249,82 @@ describe("cursor paging", () => {
         { items: [3], nextCursor: null },
       ]),
     ).toEqual([1, 2, 3]);
+  });
+});
+
+describe("sale pipeline (RT-1011)", () => {
+  const read = (domains: Parameters<typeof erpNodeView>[0]["domains"], over = {}) => ({
+    isLoading: false,
+    failed: false,
+    domains,
+    ...over,
+  });
+
+  test("link-down is only the connector's own report that ERPNext does not answer", () => {
+    const rows = (over: Parameters<typeof healthView>[0], disabled = false) =>
+      joinConnections([instance({ disabled_at: disabled ? "2026-10-01T00:00:00Z" : null })], {
+        items: [healthView(over)],
+      });
+    expect(isLinkDown(rows({ erpnextReachable: false }))).toBe(true);
+    expect(isLinkDown(rows({ erpnextReachable: true }))).toBe(false);
+    // Not reported is not "down": nothing is known, nothing is claimed.
+    expect(isLinkDown(rows({ erpnextReachable: null }))).toBe(false);
+    expect(isLinkDown(rows({ erpnextReachable: false }, true))).toBe(false);
+    // A failed C2 read leaves no health rows: never link-down.
+    expect(isLinkDown(joinConnections([instance()], undefined))).toBe(false);
+    expect(isLinkDown([])).toBe(false);
+  });
+
+  test("the ERPNext node reads the posting domain's own status, with its count", () => {
+    expect(
+      erpNodeView(read([{ domain: "posting", status: "ok", headlineCount: 0 }]), false),
+    ).toEqual({
+      status: "ok",
+      factKey: "erp.domainStatus.ok",
+      count: 0,
+    });
+    expect(
+      erpNodeView(read([{ domain: "posting", status: "attention", headlineCount: 3 }]), false),
+    ).toEqual({ status: "attention", factKey: "erp.domainStatus.attention", count: 3 });
+    // Other domains never stand in for posting: there is no combined "ERP OK" (A-4).
+    expect(
+      erpNodeView(read([{ domain: "reconciliation", status: "ok", headlineCount: 0 }]), false),
+    ).toEqual({ status: "unknown", factKey: "erp.pipeline.erp.unavailable" });
+  });
+
+  test("not available and unknown statuses are unknown, never a failure or a success", () => {
+    expect(
+      erpNodeView(
+        read([{ domain: "posting", status: "not_available", headlineCount: null }]),
+        false,
+      ),
+    ).toEqual({ status: "unknown", factKey: "erp.domainStatus.notAvailable", count: undefined });
+    expect(erpNodeView(read([{ domain: "posting", status: "whatever" }]), false).status).toBe(
+      "unknown",
+    );
+  });
+
+  test("loading and a failed read are 'not read', never stale counts", () => {
+    const domains = [{ domain: "posting", status: "attention", headlineCount: 3 }];
+    expect(erpNodeView(read(domains, { isLoading: true }), false)).toEqual({
+      status: "unknown",
+      factKey: "erp.pipeline.erp.loading",
+    });
+    expect(erpNodeView(read(domains, { failed: true }), false)).toEqual({
+      status: "unknown",
+      factKey: "erp.pipeline.erp.unavailable",
+    });
+  });
+
+  test("the connector's report that ERPNext is unreachable wins, as a fault with its source", () => {
+    expect(
+      erpNodeView(read([{ domain: "posting", status: "ok", headlineCount: 0 }]), true),
+    ).toEqual({ status: "failed", factKey: "erp.pipeline.erp.unreachable" });
+  });
+
+  test("the band's read time is the oldest read, ignoring panels with none", () => {
+    expect(oldestRead([30, undefined, 10, 20])).toBe(10);
+    expect(oldestRead([undefined, 0])).toBeUndefined();
+    expect(oldestRead([])).toBeUndefined();
   });
 });

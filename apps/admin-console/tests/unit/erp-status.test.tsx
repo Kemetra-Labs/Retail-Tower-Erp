@@ -514,3 +514,73 @@ describe("stale state (A-8)", () => {
     expect(within(connection).getByText(/^Last read:/)).toBeDefined();
   });
 });
+
+describe("sale pipeline and sections (RT-1011)", () => {
+  test("the full pipeline states each node's fact in words, and invents no count", async () => {
+    renderPage();
+    const rail = await screen.findByRole("group", { name: "Sale pipeline" });
+    const nodes = within(rail).getAllByRole("listitem");
+    expect(nodes).toHaveLength(3);
+    expect(within(nodes[0]).getByText("Device status isn't read on this page")).toBeDefined();
+    expect(within(nodes[1]).getByText(/No count of synced sales is read here/)).toBeDefined();
+    expect(
+      within(nodes[1])
+        .getByRole("link", { name: "Open sales needing repair" })
+        .getAttribute("href"),
+    ).toBe("/sales-needing-repair");
+    await waitFor(() =>
+      expect(within(nodes[2]).getByText("Nothing needs attention · Count: 0")).toBeDefined(),
+    );
+    // No device fraction and no sale totals: nothing here is served.
+    expect(rail.textContent ?? "").not.toMatch(/\d+\s*\/\s*\d+/);
+  });
+
+  test("the four sections carry their index badges in reading order", async () => {
+    renderPage();
+    await screen.findByText("Cairo ERP");
+    const badges = [...document.querySelectorAll(".section-index")];
+    expect(badges.map((b) => b.textContent)).toEqual(["01", "02", "03", "04"]);
+    for (const badge of badges) expect(badge.getAttribute("aria-hidden")).toBe("true");
+    // The badge is beside the heading, never inside it: the heading keeps its name.
+    expect(screen.getByRole("heading", { name: "Connector connection" })).toBeDefined();
+  });
+
+  test("link-down: the connector's report turns the ERPNext node to a fault and says sales are saved", async () => {
+    api.listConnectorHealth.mockResolvedValue(
+      ok({
+        items: [
+          healthView({
+            connectorId: INSTANCE_A,
+            liveness: "healthy",
+            lastSeenAt: "2026-10-16T09:00:00Z",
+            secondsSinceLastSeen: 30,
+            erpnextReachable: false,
+            reportedFieldsAt: "2026-10-16T09:00:00Z",
+          }),
+          healthView({ connectorId: INSTANCE_B }),
+        ],
+      }),
+    );
+    renderPage();
+    const rail = await screen.findByRole("group", { name: "Sale pipeline" });
+    await waitFor(() =>
+      expect(within(rail).getByText("Not reachable · as reported by the connector")).toBeDefined(),
+    );
+    expect(screen.getByText(/Selling continues and sales are saved on the server/)).toBeDefined();
+  });
+
+  test("with no connector report of a fault, no reassurance is shown", async () => {
+    renderPage();
+    await screen.findByRole("group", { name: "Sale pipeline" });
+    await screen.findByText("Cairo ERP");
+    expect(screen.queryByText(/Selling continues/)).toBeNull();
+  });
+
+  test("the band names the scope and the last read", async () => {
+    renderPage();
+    await screen.findByText("Cairo ERP");
+    const band = screen.getByRole("heading", { level: 1 }).closest("header") as HTMLElement;
+    expect(within(band).getByText(/Northstar Retail/)).toBeDefined();
+    await waitFor(() => expect(within(band).getByText(/Last read:/)).toBeDefined());
+  });
+});

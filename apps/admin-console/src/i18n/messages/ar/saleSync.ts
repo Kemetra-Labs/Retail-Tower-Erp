@@ -126,6 +126,7 @@ export const saleSync = {
 
   // --- NEEDS_REPAIR list --------------------------------------------------------------
   "saleSync.list.title": "مبيعات تحتاج إلى إصلاح",
+  "saleSync.list.bandSub": "مبيعات عُزلت مزامنتها · {tenant}",
   "saleSync.list.sub":
     "عمليات بيع أوقف الخادم مزامنتها ولن يعيد محاولتها تلقائيًا في {tenant}، الأحدث أولًا. يُطلب الإصلاح من صفحة كل بيع على حدة.",
   "saleSync.list.note":

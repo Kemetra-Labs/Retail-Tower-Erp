@@ -83,6 +83,16 @@ export const erp: MessagesOf<typeof ar> = {
   "erp.domainStatus.notAvailable": "Not available yet",
   "erp.domainStatus.unknown": "Unknown status",
 
+  // --- Sale pipeline (RT-1011): each node states its fact in words --------------------
+  "erp.pipeline.pos.notRead": "Device status isn't read on this page",
+  "erp.pipeline.server.noCount": "No count of synced sales is read here · {link}",
+  "erp.pipeline.server.repairLink": "Open sales needing repair",
+  "erp.pipeline.erp.loading": "Reading the posting status",
+  "erp.pipeline.erp.unavailable": "The posting status wasn't read",
+  "erp.pipeline.erp.unreachable": "Not reachable · as reported by the connector",
+  "erp.linkDown.note":
+    "Selling continues and sales are saved on the server. Only posting to ERPNext pauses until the connection returns.",
+
   // --- Posting backlog (C3) -------------------------------------------------------------
   "erp.backlog.title": "Permanently rejected postings",
   "erp.backlog.sub":

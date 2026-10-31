@@ -29,6 +29,7 @@ import {
   flattenPages,
   joinConnections,
   nextCursor,
+  oldestRead,
   requestIdOf,
 } from "./erpStatusLogic";
 
@@ -139,12 +140,6 @@ type ListResult = Pick<
   "error" | "data" | "isLoading" | "dataUpdatedAt" | "refetch"
 >;
 
-/** The oldest of the read times that exist. */
-function oldest(times: readonly (number | undefined)[]): number | undefined {
-  const known = times.filter((time): time is number => time !== undefined);
-  return known.length > 0 ? Math.min(...known) : undefined;
-}
-
 const storeFilter = (query: ErpQuery) => (query.storeId ? { store_id: query.storeId } : {});
 
 const pageQuery = (query: ErpQuery, cursor: string | undefined): PageQuery => ({
@@ -185,7 +180,7 @@ export function useConnections(query: ErpQuery): ConnectionsState {
     rows: joinConnections(instances.data?.items ?? [], healthFailed ? undefined : health.data),
     healthFailed,
     // The pills come from C2, so "last read" is the older of the two reads.
-    asOf: oldest([panel.asOf, healthFailed ? undefined : healthPanel.asOf]),
+    asOf: oldestRead([panel.asOf, healthFailed ? undefined : healthPanel.asOf]),
     retry: () => {
       void instances.refetch();
       void health.refetch();
