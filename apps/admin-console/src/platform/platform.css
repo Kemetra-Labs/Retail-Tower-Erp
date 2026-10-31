@@ -69,23 +69,103 @@
 .platform-directory__note {
   margin: 0;
   color: var(--color-text-muted);
+  font-size: var(--text-meta);
+  margin-inline-start: auto;
 }
 .platform-directory__search {
   max-width: 480px;
 }
+/* RT-1021 (v4.0): the list is one numbered panel (20px radius, the resting
+ * elevation); the rows are read-only strips (6px gaps, sunken, 12px radius);
+ * a tenant the caller belongs to gets the teal tile and chip, one they can only
+ * support gets the Ink tile with Mint initials. Tokens only (C5, C9). */
+.platform-directory__panel {
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-resting);
+}
+.platform-directory__results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-5) var(--space-4);
+}
+.platform-directory__results > .data-table__scroll {
+  margin-inline: calc(var(--space-5) * -1);
+  padding-inline: var(--space-5);
+}
+.platform-directory .data-table--strips {
+  border-collapse: separate;
+  border-spacing: 0 6px;
+}
+.platform-directory .data-table--strips thead th {
+  border-bottom: 0;
+  background: var(--color-surface);
+}
+.platform-directory .data-table--strips tbody .data-table__row :is(td, th) {
+  background: var(--color-surface-sunken);
+  border-block: 1px solid var(--color-border);
+}
+.platform-directory .data-table--strips tbody .data-table__row > :first-child {
+  border-inline-start: 1px solid var(--color-border);
+  border-start-start-radius: 12px;
+  border-end-start-radius: 12px;
+}
+.platform-directory .data-table--strips tbody .data-table__row > :last-child {
+  border-inline-end: 1px solid var(--color-border);
+  border-start-end-radius: 12px;
+  border-end-end-radius: 12px;
+  text-align: end;
+}
+.platform-directory__identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.platform-directory__who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.35;
+}
+.platform-directory__tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  inline-size: 38px;
+  block-size: 38px;
+  border-radius: 12px;
+  background: var(--color-ink);
+  color: var(--color-mint);
+  font-weight: var(--weight-strong);
+}
+.platform-directory__tile--member {
+  background: var(--color-primary-soft);
+  color: var(--color-primary-emphasis);
+}
 .platform-directory__name {
   display: block;
   font-weight: var(--weight-strong);
+  overflow-wrap: anywhere;
 }
 .platform-directory__slug {
   display: block;
   font-family: var(--font-mono);
   font-size: var(--text-machine);
   color: var(--color-text-muted);
+  overflow-wrap: anywhere;
 }
 .platform-directory__member {
-  display: block;
-  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: 7px;
+  background: var(--color-primary-soft);
+  color: var(--color-primary-emphasis);
+  font-size: var(--text-meta);
+  font-weight: var(--weight-strong);
 }
 .platform-directory__count {
   margin: 0;
@@ -108,6 +188,32 @@
 }
 .start-session__facts .field-row__value {
   margin: 0;
+}
+/* RT-1021: each fact is a soft tile in the light body of the Ink-headed drawer. */
+.start-session__facts .field-row {
+  grid-template-columns: 1fr;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface-sunken);
+}
+
+/* Forced colours: no shadow, tints or ink tiles; system colours carry the split. */
+@media (forced-colors: active) {
+  .platform-directory__panel {
+    box-shadow: none;
+  }
+  .platform-directory__tile,
+  .platform-directory__member {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .platform-directory .data-table--strips tbody .data-table__row :is(td, th) {
+    background: Canvas;
+    border-color: CanvasText;
+  }
 }
 .start-session__state {
   display: grid;
