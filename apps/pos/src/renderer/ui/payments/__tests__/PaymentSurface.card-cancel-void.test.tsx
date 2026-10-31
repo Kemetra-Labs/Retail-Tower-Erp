@@ -224,6 +224,9 @@ describe('RT-256 — card cancel requires a terminal void before another charge 
     // Catalog tone `danger` (Codex P2): not the muted Back explanation style.
     // RT-243 W1-C: the tone is the styling hook (`[data-tone='danger']`).
     expect(reason).toHaveAttribute('data-tone', 'danger');
+    // RT-1025: M-P13 never suggests completing the payment, so the unavailable
+    // «تأكيد الدفع» with «اختر طريقة الدفع» is not offered beside it.
+    expect(screen.queryByTestId('payment-surface-commit-unavailable')).not.toBeInTheDocument();
   });
 
   it('a mixed cash + card cancel still gets the terminal-void line (the card may stand)', async () => {
