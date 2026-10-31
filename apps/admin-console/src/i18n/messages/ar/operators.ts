@@ -24,6 +24,15 @@ export const operators = {
   "operators.list.col.storeAccess": "الوصول إلى المتاجر",
   "operators.list.col.state": "حالة العضوية",
 
+  // RT-1014 v4.0: the band's facts (counts of the whole, unpaged list) and the panel.
+  "operators.band.label": "ملخص العضويات",
+  "operators.band.total": "العضويات",
+  "operators.band.active": "عضويات نشطة",
+  "operators.band.revoked": "عضويات مُبطلة",
+  "operators.list.section": "أعضاء المؤسسة",
+  "operators.list.sectionNote":
+    "الوصول إلى المتاجر يُعرض كعدد؛ أسماء المتاجر غير متاحة في هذه القائمة.",
+
   // Membership state (the revoked marker). Feminine: they agree with «العضوية».
   "operators.state.active": "نشطة",
   "operators.state.revoked": "مُبطلة",

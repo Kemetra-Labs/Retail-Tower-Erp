@@ -22,6 +22,10 @@ import { useSignOut } from "@/shell/useSignOut";
  *   - 425               → disabled submit + countdown, auto-retry with same key (≤ a bound)
  *   - precondition-401   → route to the scope chooser (handled by useInviteAuth)
  *   - session-expiry-401 → sign out (handled by useInviteAuth)
+ *
+ * RT-1014 (v4.0): the «Inviting to tenant …» scope line sits in the drawer's Ink
+ * header strip (the `scope` prop), not in the body. The form, its keys and every
+ * outcome above are unchanged.
  */
 import { useState } from "react";
 import { StoreAccessField } from "./StoreAccessField";
@@ -164,7 +168,17 @@ export function InviteMember({
   }
 
   return (
-    <Drawer title={t("operators.invite.title")} onClose={onClose}>
+    <Drawer
+      title={t("operators.invite.title")}
+      scope={t.rich("operators.invite.scopeLine", {
+        tenant: (
+          <strong>
+            <bdi>{activeTenant.name}</bdi>
+          </strong>
+        ),
+      })}
+      onClose={onClose}
+    >
       {banner ? (
         <Banner
           variant={banner.variant}
@@ -194,15 +208,7 @@ export function InviteMember({
           </>
         }
       >
-        <FormSection
-          lead={t.rich("operators.invite.scopeLine", {
-            tenant: (
-              <strong>
-                <bdi>{activeTenant.name}</bdi>
-              </strong>
-            ),
-          })}
-        >
+        <FormSection>
           <FormField
             id="invite-email"
             label={t("operators.form.email")}

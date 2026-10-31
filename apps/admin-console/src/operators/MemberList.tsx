@@ -1,74 +1,72 @@
 import { Avatar } from "@/components/Avatar";
 import { Banner } from "@/components/Banner";
-import { DataTable, type DataTableColumn } from "@/components/DataTable";
-import { ListHeaderBand } from "@/components/ListHeaderBand";
+import { type BandFacts, ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
-import { type T, roleKey, useT } from "@/i18n";
+import { type T, useT } from "@/i18n";
 import "@/components/avatar.css";
 /**
- * SF5-1 — Member list (T012/T013). The membership graph for the active tenant
- * rendered as a `.data-table` (DESIGN.md rule 7): Member (name over mono email),
- * Role badge, Store access (All stores / N stores — ids/count not names, OQ-3),
- * State (Revoked badge when revoked_at). Page header + right-aligned "Invite
- * member" primary.
+ * SF5-1 — Member list (T012/T013). The membership graph for the active tenant,
+ * rendered as a table grouped by role (DESIGN.md rule 7): Member (name over mono
+ * email), Role, Store access (All stores / N stores — ids/count not names,
+ * OQ-3), State (Revoked badge when revoked_at). Page header + right-aligned
+ * "Invite member" primary.
  *
  * Pre-call guard (FR-005-007): no active tenant → scope prompt, `listMembers`
  * never called (it has no precondition-401). `listMembers` documents only 404 →
  * uniform banner with request_id. The invite/edit drawers mount from here.
+ *
+ * RT-1014 (v4.0): the band's facts are the counts of the whole list — total,
+ * active, revoked — because `listMembers` is unpaged (an array, no paging
+ * parameters); they appear only after a successful read of at least one member,
+ * never while loading, on a 404 or on the empty state. The first fact carries an
+ * avatar pile of the loaded active members. Every state sits in one v4 panel
+ * (the 404 banner stays below the band, outside it).
  */
 import { useState } from "react";
 import { EditMember } from "./EditMember";
 import { InviteMember } from "./InviteMember";
+import { MemberTable } from "./MemberTable";
 import { OperatorScopePrompt } from "./OperatorScopePrompt";
+import { memberCounts } from "./memberGroups";
 import { type MemberRow, useMembers } from "./useMembers";
+import "./users.css";
 import "../shell/surface.css";
 
-function storeAccessLabel(row: MemberRow, t: T): string {
-  if (row.storeAccessKind === "all") return t("operators.storeAccess.all");
-  return t("operators.storeAccess.count", { count: row.accessibleStoreIds.length });
+/** How many avatars the band's pile shows before «+N». */
+const PILE_SIZE = 4;
+
+/** The avatars of the loaded active members: decoration beside the served total. */
+function AvatarPile({ rows }: Readonly<{ rows: readonly MemberRow[] }>): React.JSX.Element | null {
+  const active = rows.filter((row) => !row.revoked);
+  if (active.length === 0) return null;
+  return (
+    <span className="member-pile" aria-hidden="true">
+      {active.slice(0, PILE_SIZE).map((row) => (
+        <Avatar key={row.membershipId} name={row.displayName ?? row.email} size={28} />
+      ))}
+      {active.length > PILE_SIZE ? (
+        <span className="member-pile__more">+{active.length - PILE_SIZE}</span>
+      ) : null}
+    </span>
+  );
 }
 
-/** The member roster's columns; a row opens only through its «Open» button (RT-963). */
-function memberColumns(t: T): DataTableColumn<MemberRow>[] {
+/** The band facts (C1): counts of the full list, named by what they count. */
+function bandFacts(rows: readonly MemberRow[], t: T): BandFacts {
+  const counts = memberCounts(rows);
   return [
     {
-      key: "member",
-      header: t("operators.list.col.member"),
-      cell: (row) => (
-        <span className="member-cell">
-          <Avatar name={row.displayName ?? row.email} size={32} />
-          <span className="member-identity">
-            <span className="member-identity__name">{row.displayName ?? row.email}</span>
-            {row.displayName ? (
-              <span className="member-identity__email">
-                <bdi dir="ltr">{row.email}</bdi>
-              </span>
-            ) : null}
-          </span>
+      label: t("operators.band.total"),
+      value: (
+        <span className="member-fact">
+          <AvatarPile rows={rows} />
+          <span>{counts.total}</span>
         </span>
       ),
     },
-    {
-      key: "role",
-      header: t("operators.list.col.role"),
-      cell: (row) => <span className="badge">{t(roleKey(row.roleCode))}</span>,
-    },
-    {
-      key: "storeAccess",
-      header: t("operators.list.col.storeAccess"),
-      cell: (row) => storeAccessLabel(row, t),
-    },
-    {
-      key: "state",
-      header: t("operators.list.col.state"),
-      cell: (row) =>
-        row.revoked ? (
-          <span className="badge badge--warning">{t("operators.state.revoked")}</span>
-        ) : (
-          <span className="badge badge--success">{t("operators.state.active")}</span>
-        ),
-    },
+    { label: t("operators.band.active"), value: counts.active },
+    { label: t("operators.band.revoked"), value: counts.revoked },
   ];
 }
 
@@ -88,6 +86,7 @@ export function MemberList(): React.JSX.Element {
 
   const rows = result?.kind === "rows" ? result.rows : [];
   const notFound = result?.kind === "not-found" ? { requestId: result.requestId } : undefined;
+  const hasRows = !isLoading && !notFound && rows.length > 0;
 
   return (
     <div className="surface">
@@ -97,8 +96,11 @@ export function MemberList(): React.JSX.Element {
         group={t("shell.nav.section.management")}
         title={t("operators.title")}
         subtitle={t.rich("operators.list.subtitle", { tenant: <bdi>{activeTenant.name}</bdi> })}
+        facts={
+          hasRows ? { label: t("operators.band.label"), items: bandFacts(rows, t) } : undefined
+        }
         actions={
-          !isLoading && !notFound && rows.length > 0 ? (
+          hasRows ? (
             <button type="button" className="btn-primary" onClick={() => setInviting(true)}>
               {t("operators.list.invite")}
             </button>
@@ -114,30 +116,32 @@ export function MemberList(): React.JSX.Element {
         />
       ) : null}
 
-      {isLoading ? <ListState state="loading" label={t("operators.list.loadingNoun")} /> : null}
+      {notFound ? null : (
+        <div className="section-panel members-panel">
+          {hasRows ? (
+            <header className="section-panel__head">
+              <h2 className="section-panel__title">{t("operators.list.section")}</h2>
+              <p className="members-panel__note">{t("operators.list.sectionNote")}</p>
+            </header>
+          ) : null}
 
-      {!isLoading && !notFound && rows.length === 0 ? (
-        <ListState
-          state="empty"
-          emptyMessage={t("operators.list.empty")}
-          action={
-            <button type="button" className="btn-primary" onClick={() => setInviting(true)}>
-              {t("operators.list.invite")}
-            </button>
-          }
-        />
-      ) : null}
+          {isLoading ? <ListState state="loading" label={t("operators.list.loadingNoun")} /> : null}
 
-      {!isLoading && !notFound && rows.length > 0 ? (
-        <DataTable
-          caption={t("operators.list.caption")}
-          columns={memberColumns(t)}
-          rows={rows}
-          rowKey={(row) => row.membershipId}
-          onRowActivate={setEditing}
-          openLabel={(row) => row.displayName ?? row.email}
-        />
-      ) : null}
+          {!isLoading && rows.length === 0 ? (
+            <ListState
+              state="empty"
+              emptyMessage={t("operators.list.empty")}
+              action={
+                <button type="button" className="btn-primary" onClick={() => setInviting(true)}>
+                  {t("operators.list.invite")}
+                </button>
+              }
+            />
+          ) : null}
+
+          {hasRows ? <MemberTable rows={rows} onOpen={setEditing} /> : null}
+        </div>
+      )}
 
       {inviting ? (
         <InviteMember
