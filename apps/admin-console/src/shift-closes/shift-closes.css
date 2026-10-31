@@ -111,10 +111,6 @@
   background: var(--color-ink);
   color: var(--color-on-ink);
 }
-.shift-token--result em {
-  color: var(--color-mint);
-  font-style: normal;
-}
 .shift-op {
   inline-size: 16px;
   color: var(--color-text-muted);
@@ -403,9 +399,6 @@
   .shift-token--result {
     border: 1px solid CanvasText;
     background: Canvas;
-    color: CanvasText;
-  }
-  .shift-token--result em {
     color: CanvasText;
   }
   .shift-timebar {

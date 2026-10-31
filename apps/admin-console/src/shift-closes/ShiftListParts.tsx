@@ -81,7 +81,7 @@ export function FormulaStrip(): React.JSX.Element {
         <span className="shift-formula__lead">{t("shift.formula.lead")}</span>
         <span className="shift-formula__eq" role="img" aria-label={t("shift.formula.aria")}>
           <span className="shift-token shift-token--result" aria-hidden="true">
-            {t("shift.list.col.variance")} <em>≠ 0</em>
+            {t("shift.list.col.variance")}
           </span>
           <span className="shift-op" aria-hidden="true">
             =
