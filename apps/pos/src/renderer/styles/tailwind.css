@@ -417,9 +417,7 @@ body {
        STRONG border token rather than the decorative hairline. */
     border: 1px solid var(--color-border-strong);
     border-radius: var(--radius-control);
-    transition:
-      border-color 150ms ease,
-      box-shadow 150ms ease;
+    transition: border-color 150ms ease;
     min-block-size: 44px;
   }
 
@@ -431,8 +429,8 @@ body {
   select:focus-visible,
   textarea:focus-visible {
     border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent);
-    outline: none;
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
   }
 
   label {
@@ -521,54 +519,6 @@ body {
     background: var(--color-overlay-scrim);
   }
 
-  .dialog-panel {
-    position: fixed;
-    inset-block-start: 50%;
-    inset-inline-start: 50%;
-    transform: translate(-50%, -50%);
-    inline-size: 480px;
-    max-inline-size: calc(100vw - var(--space-6));
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-card);
-    box-shadow: var(--shadow-overlay);
-    padding-block-start: 28px;
-    padding-inline: 28px;
-    padding-block-end: 24px;
-    outline: none;
-  }
-
-  /* RTL re-anchor (POS v3.5 root dir="rtl" fix). The panel centres with
-     `inset-inline-start: 50%` + a PHYSICAL translate(-50%, …); under RTL,
-     `inset-inline-start` resolves to the RIGHT edge, so the physical
-     translate flings the panel off-centre. Centring is symmetric, so we
-     pin it with physical `left: 50%`. Required by the root RTL change (a
-     regression this slice introduces), not a redesign. */
-  [dir='rtl'] .dialog-panel {
-    inset-inline-start: auto;
-    left: 50%;
-    right: auto;
-  }
-
-  .dialog-panel h2 {
-    font-size: 1.125rem;
-    font-weight: var(--font-weight-bold);
-    letter-spacing: -0.01em;
-    color: var(--color-text);
-    margin: 0 0 var(--space-3);
-  }
-
-  .dialog-panel p {
-    font-size: var(--font-size-sm);
-    color: var(--color-text-muted);
-    margin: 0 0 var(--space-5);
-    line-height: var(--line-height-relaxed);
-  }
-
-  .dialog-panel__body {
-    margin-block-end: var(--space-5);
-  }
-
   /* RT-241 (D-B1): the drawer-failure banner is retired; the drawer notice is
      a v5 Banner/Notice (v5/foundation/messages.css). */
 
@@ -606,7 +556,6 @@ body {
 
   @media (prefers-reduced-motion: reduce) {
     /* Dialog fade-in */
-    .dialog-panel,
     .dialog-overlay {
       transition: none;
       animation: none;
@@ -981,24 +930,6 @@ body {
     font-size: var(--font-size-xs);
     color: var(--color-text-muted);
   }
-  .account-row__kind {
-    margin-inline-start: auto;
-    /* kit.css used the raw 0.6875rem literal; mapped to the existing token. */
-    font-size: var(--font-size-2xs);
-    font-weight: var(--font-weight-bold);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--color-text-muted);
-    flex-shrink: 0;
-  }
-  .account-row__kind--cover {
-    color: var(--color-primary);
-    background: var(--color-primary-soft);
-    border-radius: var(--radius-pill);
-    padding: 3px 10px;
-    font-weight: var(--font-weight-semibold);
-    font-variant-numeric: tabular-nums;
-  }
 
   /* ── Held sales (park & recall) tray + chips ──────────────────────────── */
   .held-tray {
@@ -1009,14 +940,6 @@ body {
     border-block-end: 1px solid var(--color-border-soft);
     background: var(--color-surface-sunken);
     overflow-x: auto;
-  }
-  .held-tray__label {
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-bold);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--color-text-muted);
-    white-space: nowrap;
   }
   .held-chip {
     display: inline-flex;
@@ -1123,7 +1046,7 @@ body {
   .voucher-error {
     font-size: var(--font-size-xs);
     color: var(--color-danger);
-    margin: 4px 2px 0;
+    margin: var(--space-1) 0 0;
   }
   .voucher-hint {
     font-size: var(--font-size-xs);
@@ -1462,64 +1385,6 @@ body {
     inline-size: var(--space-6);
     block-size: 1px;
     background: var(--color-border, var(--color-surface-elevated));
-  }
-
-  /* ── v4 field — form control geometry ───────────────────────────────── */
-  .v4-field {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .v4-field__label {
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
-    color: var(--color-text);
-  }
-
-  .v4-field__hint {
-    font-size: var(--font-size-xs);
-    line-height: var(--line-height-normal);
-    color: var(--color-text-muted);
-  }
-
-  /* Field controls. Ported from the retired `.sign-in-form__field input` rules
-   * so the v4 field carries the same WCAG 1.4.11 control boundary and focus
-   * treatment — but at 44px, not the old 40px, to meet the touch-target NFR.
-   * Scoped to the wrapper so it styles any control a field holds. */
-  .v4-field label {
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
-    color: var(--color-text);
-  }
-
-  .v4-field input,
-  .v4-field select {
-    block-size: 44px;
-    inline-size: 100%;
-    padding-inline: var(--space-3);
-    background-color: var(--color-surface-elevated);
-    border: 1px solid var(--color-border-strong);
-    border-radius: var(--radius-control);
-    color: var(--color-text);
-    font-size: var(--font-size-md);
-    outline: none;
-    transition:
-      border-color var(--duration-2) var(--ease-out),
-      box-shadow var(--duration-2) var(--ease-out);
-  }
-
-  .v4-field input:focus,
-  .v4-field select:focus {
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
-  }
-
-  .v4-field input:disabled,
-  .v4-field select:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-    background-color: var(--color-surface-muted);
   }
 
   /* ── v4 selectable row — roster entries, list choices ───────────────────

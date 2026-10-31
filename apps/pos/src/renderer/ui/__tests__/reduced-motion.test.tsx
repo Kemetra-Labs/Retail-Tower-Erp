@@ -24,7 +24,7 @@ afterEach(cleanup);
  * removed or reintroduces a duration, turns a test red. The computed-style
  * proof under a real `prefers-reduced-motion: reduce` stays with RT-260.
  *
- * The first version of this test matched `.dialog-panel` / `.dialog-overlay`,
+ * The first version of this test matched a dialog class and `.dialog-overlay`,
  * classes no component uses, so it passed while the lock dialog and the text
  * inputs still animated.
  */
@@ -240,10 +240,9 @@ describe('F2 — the global text/number input transition stops under reduce', ()
       );
       expect(setters.length, 'the global rule that animates the input').toBeGreaterThan(0);
       for (const setter of setters) {
-        // Normal motion is unchanged: the 150 ms border/shadow transition stays.
-        expect(setter.decls['transition']).toMatch(
-          /border-color 150ms ease,\s*box-shadow 150ms ease/,
-        );
+        // Normal motion: the 150 ms border-color transition stays. The focus ring
+        // is an outline (RT-1022) and is not eased, so box-shadow is no longer animated.
+        expect(setter.decls['transition']).toBe('border-color 150ms ease');
         const stops = REDUCE_RULES.filter(
           (r) =>
             r.file === setter.file &&

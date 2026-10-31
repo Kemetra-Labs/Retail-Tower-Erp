@@ -245,7 +245,7 @@ function PinField(
     <div className="v5-recovery-fields">
       <p>{RECOVERY_COPY.approvalBody}</p>
       <label htmlFor={pinId}>
-        {RECOVERY_COPY.pinLabel} — <bdi>{props.approver.display_name}</bdi>
+        {RECOVERY_COPY.pinLabel} (<bdi>{props.approver.display_name}</bdi>)
       </label>
       <input
         ref={props.inputRef}
