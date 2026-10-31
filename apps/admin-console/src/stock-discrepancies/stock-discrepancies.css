@@ -99,3 +99,230 @@
 .stock-table a:focus-visible {
   text-decoration-color: currentColor;
 }
+
+/* ---- RT-1017: v4.0 «Ink & Receipt» on the stock discrepancy surfaces ------
+ * Opt-in by `surface--v4`, as on Sales (RT-1009). Shape only: existing role
+ * tokens and tints by color-mix, so no new colour role or contrast pair (C5).
+ * Dubai stays (C9). */
+
+/* Panels: 20px radius and the one resting elevation (§12.5). */
+.surface--v4 .section-panel,
+.surface--v4 .snapshot-panel,
+.surface--v4 .desk-guidance {
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-resting);
+}
+
+/* The results panel holds every state of its list: legend, rows, notices, pager. */
+.stock-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-block-end: var(--space-4);
+}
+.stock-results > :not(.section-panel__head, .data-table__scroll) {
+  margin-inline: var(--space-5);
+}
+.stock-results__foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+.stock-results__foot:empty {
+  display: none;
+}
+/* The ruled rows of a list that opens its rows (§12.5): a value never breaks
+ * mid-reference; the table scrolls in its own region instead. */
+.stock-results .data-table__row td:not(:first-child) {
+  white-space: nowrap;
+}
+
+/* The legend: what each snapshot state means, above the rows. */
+.stock-legend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.stock-legend__lead,
+.stock-legend__note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-control);
+  line-height: var(--leading-body);
+}
+.stock-legend__states {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A store: a decorative initials tile (Ink with Mint text, the avatar family of
+ * §12.6) beside its name. A very long name wraps inside its cell. */
+.stock-store {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  /* A floor, so a very long name wraps inside its cell instead of squeezing the
+   * column to a letter wide; the table scrolls in its own region beyond it. */
+  min-inline-size: 14rem;
+}
+.stock-store__tile {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: 32px;
+  block-size: 32px;
+  border-radius: 10px;
+  background: var(--color-ink);
+  color: var(--color-mint);
+  font: var(--weight-strong) var(--text-meta) / 1 var(--font-sans);
+  unicode-bidi: isolate;
+}
+.stock-store a {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Status pills: text first, colour only reinforces; a small rotated square
+ * leads, drawn in the text colour (as the Sales chips, RT-1009). */
+.surface--v4 :is(.stock-table, .stock-legend__states, .snapshot-panel) .badge {
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-color: transparent;
+  border-radius: 9px;
+  background-color: color-mix(in srgb, currentColor 10%, var(--color-surface));
+  font-size: var(--text-meta);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+}
+.surface--v4 :is(.stock-table, .stock-legend__states, .snapshot-panel) .badge::before {
+  content: "";
+  flex: none;
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 2px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+
+/* The snapshot panel: its facts as sunken cells. The wording and the order are
+ * unchanged; only the shape is. */
+.surface--v4 .snapshot-panel__meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: var(--space-3);
+}
+.surface--v4 .snapshot-panel__meta > div {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-sunken);
+}
+
+/* The store page: the negative items beside the Desk steps, stacked when narrow. */
+.stock-store-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+@media (min-width: 1100px) {
+  .stock-store-grid {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  }
+}
+.stock-store-grid > .desk-guidance {
+  max-width: none;
+}
+/* With no items panel (no snapshot), the guide takes the whole row. */
+.stock-store-grid > .desk-guidance:only-child {
+  grid-column: 1 / -1;
+}
+
+/* The Desk steps: numbered in an Ink tile; the warning step carries the danger
+ * text colour on the surface (an existing pair). The marks are decoration:
+ * the sentence beside each is the step. */
+.surface--v4 .desk-guidance {
+  background: var(--color-surface);
+}
+.surface--v4 .desk-guidance ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-inline-start: 0;
+  /* An empty marker, not `none`: Safari drops the list role on `none`. */
+  list-style-type: "";
+  counter-reset: desk-step;
+}
+.surface--v4 .desk-guidance li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  counter-increment: desk-step;
+}
+.surface--v4 .desk-guidance li::before {
+  content: counter(desk-step);
+  content: counter(desk-step) / "";
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: 24px;
+  block-size: 24px;
+  border-radius: 8px;
+  background: var(--color-ink);
+  color: var(--color-mint);
+  font: var(--weight-strong) var(--text-meta) / 1 var(--font-sans);
+}
+.surface--v4 .desk-guidance li:last-child::before {
+  content: "!";
+  content: "!" / "";
+  border: 1px solid var(--color-danger);
+  background: var(--color-surface);
+  color: var(--color-danger);
+}
+
+/* The refresh hint under the primary, inside the Ink band (from 640px; below
+ * that the band is a plain light header). */
+@media (min-width: 640px) {
+  .list-band .refresh-action small {
+    color: var(--color-ink-muted);
+  }
+}
+
+/* Forced colours: no shadow, tints or Ink tiles; system colours carry the split. */
+@media (forced-colors: active) {
+  .surface--v4 .section-panel,
+  .surface--v4 .snapshot-panel,
+  .surface--v4 .desk-guidance {
+    box-shadow: none;
+  }
+  .surface--v4 :is(.stock-table, .stock-legend__states, .snapshot-panel) .badge {
+    border-color: CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .surface--v4 :is(.stock-table, .stock-legend__states, .snapshot-panel) .badge::before {
+    background: CanvasText;
+  }
+  .stock-store__tile,
+  .surface--v4 .desk-guidance li::before,
+  .surface--v4 .desk-guidance li:last-child::before {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .surface--v4 .snapshot-panel__meta > div {
+    background: Canvas;
+    border-color: CanvasText;
+  }
+  .list-band .refresh-action small {
+    color: CanvasText;
+  }
+}

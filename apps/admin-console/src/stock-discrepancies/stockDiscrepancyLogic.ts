@@ -126,6 +126,22 @@ export function negativeCountLabel(status: SnapshotStatusCode, count: number): M
     : { key: "stock.stores.countUnknown" };
 }
 
+/**
+ * Up to two initials from a store's name, for the decorative tile in the list
+ * (RT-1017): the first letter or digit of each of the first two words (words
+ * with none are skipped); never empty.
+ */
+export function storeInitials(name: string): string {
+  const initials = name
+    .split(/\s+/)
+    .map((word) => /[\p{L}\p{N}]/u.exec(word)?.[0] ?? "")
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+  return initials || "?";
+}
+
 /** The "as of" time to show, or null when the API reports no snapshot. */
 export function asOfTime(snapshot: StockSnapshotStatus): string | null {
   return STATUS_VIEW[snapshot.status].hasSnapshot ? snapshot.readAt : null;
