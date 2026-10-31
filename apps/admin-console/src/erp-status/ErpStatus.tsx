@@ -11,7 +11,7 @@ import { NoAccess } from "@/auth/NoAccess";
  * in-scope stores, and narrows the three C3 panels; the connection is
  * tenant-wide. An out-of-scope store is the API's non-disclosing 404.
  */
-import { PageHeader } from "@/components/PageHeader";
+import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { useT } from "@/i18n";
 import { type ScopeMembership, scopeMenuStores } from "@/shell/scope-stores";
@@ -89,7 +89,8 @@ function ErpStatusContent({ scope }: Readonly<{ scope: ErpScope }>): React.JSX.E
 
   return (
     <div className="surface erp-surface">
-      <PageHeader
+      <ListHeaderBand
+        group={t("erp.nav.section")}
         title={t("erp.title")}
         subtitle={t.rich("erp.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
         actions={

@@ -126,6 +126,71 @@
   margin: 0;
   font: var(--weight-strong) var(--text-screen-title) / var(--leading-title) var(--font-sans);
 }
+.drawer__heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.drawer__scope {
+  margin: 0;
+  font-size: var(--text-control);
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+/* RT-995 (D-V9, DESIGN.md §12.6): an end drawer (invite, edit, detail) opens with
+ * an Ink strip: title, scope line, close. Its form body below stays a light
+ * surface. The navigation drawer (side="start") is not one of these and keeps its
+ * light header. Ink in both themes; the Tower grid is its only ornament, drawn as
+ * its own background; the focus ring is Mint on Ink. No hex: roles from
+ * tokens.css, tints from color-mix. */
+.drawer:not(.drawer--start) .drawer__head {
+  color: var(--color-on-ink);
+  background-color: var(--color-ink);
+  background-image: linear-gradient(
+      color-mix(in srgb, var(--color-mint) 6%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--color-mint) 6%, transparent) 1px,
+      transparent 1px
+    ),
+    radial-gradient(
+      320px 160px at 0% 0%,
+      color-mix(in srgb, var(--color-mint) 22%, transparent),
+      transparent 70%
+    );
+  background-size: 24px 24px, 24px 24px, 100% 100%;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-mint) 14%, transparent);
+  --color-focus-ring: var(--color-mint);
+}
+.drawer:not(.drawer--start) .drawer__scope {
+  color: var(--color-ink-muted);
+}
+.drawer:not(.drawer--start) .drawer__head .btn-ghost {
+  --btn-fg: var(--color-on-ink);
+  --btn-fg-hover: var(--color-on-ink);
+  --btn-bg-hover: color-mix(in srgb, var(--color-on-ink) 10%, transparent);
+  --btn-bg-press: color-mix(in srgb, var(--color-on-ink) 16%, transparent);
+}
+/* Forced colours: Canvas/CanvasText with a 1px rule and no ornament; the text and
+ * the close button are named as system colours, not left to the override. */
+@media (forced-colors: active) {
+  .drawer:not(.drawer--start) .drawer__head {
+    background-image: none;
+    border-bottom: 1px solid CanvasText;
+    color: CanvasText;
+  }
+  .drawer:not(.drawer--start) .drawer__scope {
+    color: CanvasText;
+  }
+  .drawer:not(.drawer--start) .drawer__head .btn-ghost {
+    --btn-fg: ButtonText;
+    --btn-fg-hover: ButtonText;
+  }
+}
 .drawer__body {
   padding: var(--space-5);
   overflow: auto;

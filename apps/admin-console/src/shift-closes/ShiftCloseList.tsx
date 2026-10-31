@@ -2,8 +2,8 @@ import { Banner } from "@/components/Banner";
 import { BusyButton } from "@/components/BusyButton";
 import { DataTable, type DataTableColumn } from "@/components/DataTable";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
+import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
-import { PageHeader } from "@/components/PageHeader";
 import { DateTime, Money, type T, useT } from "@/i18n";
 import type { ShiftCloseSummary } from "@/lib/shift-close-queries";
 /**
@@ -239,7 +239,8 @@ export function ShiftCloseList(): React.JSX.Element {
 
   return (
     <div className="surface">
-      <PageHeader
+      <ListHeaderBand
+        group={t("shell.nav.section.operations")}
         title={t("shift.list.title")}
         subtitle={t.rich("shift.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
       />

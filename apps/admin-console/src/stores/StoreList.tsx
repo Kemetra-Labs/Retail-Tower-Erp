@@ -1,8 +1,8 @@
 import { Banner } from "@/components/Banner";
 import { DataTable } from "@/components/DataTable";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
+import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
-import { PageHeader } from "@/components/PageHeader";
 import { type SortState, type SortValue, sortRows } from "@/components/tableSort";
 import { type T, useT } from "@/i18n";
 import { intlTag } from "@/i18n/locale";
@@ -142,7 +142,8 @@ export function StoreList(): React.JSX.Element {
 
   return (
     <div className="surface">
-      <PageHeader
+      <ListHeaderBand
+        group={t("shell.nav.section.management")}
         title={t("stores.list.title")}
         subtitle={t.rich("stores.list.sub", { tenant: <bdi>{activeTenantName}</bdi> })}
         actions={

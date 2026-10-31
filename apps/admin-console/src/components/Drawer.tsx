@@ -34,6 +34,11 @@ export interface DrawerProps {
   side?: "start" | "end";
   /** The dialog's id, for an opener's `aria-controls`. */
   id?: string;
+  /**
+   * RT-995 (D-V9): one muted line under the title naming where the drawer acts
+   * (the tenant, the store). Drawn in the Ink header strip of an end drawer.
+   */
+  scope?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -54,6 +59,7 @@ export function Drawer({
   dismissible = true,
   side = "end",
   id,
+  scope,
   children,
 }: Readonly<DrawerProps>): React.JSX.Element {
   const t = useT();
@@ -161,7 +167,14 @@ export function Drawer({
         onKeyDown={onKeyDown}
       >
         <header className="drawer__head">
-          <h2 className="drawer__title">{title}</h2>
+          {scope ? (
+            <div className="drawer__heading">
+              <h2 className="drawer__title">{title}</h2>
+              <p className="drawer__scope">{scope}</p>
+            </div>
+          ) : (
+            <h2 className="drawer__title">{title}</h2>
+          )}
           <button
             type="button"
             className="btn-ghost"

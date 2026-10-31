@@ -1,8 +1,8 @@
 import { Avatar } from "@/components/Avatar";
 import { Banner } from "@/components/Banner";
 import { DataTable, type DataTableColumn } from "@/components/DataTable";
+import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
-import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { type T, roleKey, useT } from "@/i18n";
 import "@/components/avatar.css";
@@ -93,7 +93,8 @@ export function MemberList(): React.JSX.Element {
     <div className="surface">
       {/* Single-primary (DESIGN.md 6): header invite shows only when there are
           rows; the empty state carries its own invite primary. */}
-      <PageHeader
+      <ListHeaderBand
+        group={t("shell.nav.section.management")}
         title={t("operators.title")}
         subtitle={t.rich("operators.list.subtitle", { tenant: <bdi>{activeTenant.name}</bdi> })}
         actions={

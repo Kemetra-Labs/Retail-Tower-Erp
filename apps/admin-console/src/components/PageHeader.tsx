@@ -45,6 +45,29 @@ function usePageTitle(title: React.RefObject<HTMLHeadingElement | null>): void {
   });
 }
 
+export interface BandFact {
+  /** What the figure counts, as the reader names it ("Active memberships"). */
+  label: string;
+  /** The figure the server serves for the whole set. */
+  value: React.ReactNode;
+}
+
+/** One to three facts, never more (D-V9). */
+export type BandFacts =
+  | readonly [BandFact]
+  | readonly [BandFact, BandFact]
+  | readonly [BandFact, BandFact, BandFact];
+
+/**
+ * RT-995 (D-V9): the Ink band of a list page, rendered through `ListHeaderBand`.
+ * `group` is the navigation-group label above the title; `facts` are at most
+ * three values the server serves for the whole set, named by `label`.
+ */
+export interface PageHeaderBand {
+  group: string;
+  facts?: { label: string; items: BandFacts };
+}
+
 export interface PageHeaderProps {
   title: React.ReactNode;
   subtitle?: React.ReactNode;
@@ -52,6 +75,8 @@ export interface PageHeaderProps {
   segmented?: React.ReactNode;
   titleRef?: React.Ref<HTMLHeadingElement>;
   titleId?: string;
+  /** The Ink list band variant (RT-995); use `ListHeaderBand`, not this prop. */
+  band?: PageHeaderBand;
   children?: React.ReactNode;
 }
 
@@ -62,6 +87,7 @@ export function PageHeader({
   segmented,
   titleRef,
   titleId,
+  band,
   children,
 }: Readonly<PageHeaderProps>): React.JSX.Element {
   const hasEnd = Boolean(actions) || Boolean(segmented);
@@ -72,24 +98,45 @@ export function PageHeader({
     if (typeof titleRef === "function") titleRef(node);
     else if (titleRef) titleRef.current = node;
   };
+  const ink = band ? " list-band" : "";
   return (
-    <header className="surface__head page-header">
-      <div className="page-header__text">
+    <header className={`surface__head page-header${ink}`}>
+      <div className={`page-header__text${band ? " list-band__id" : ""}`}>
+        {band ? (
+          <span className="list-band__group">
+            <span className="list-band__rule" aria-hidden="true" />
+            {band.group}
+          </span>
+        ) : null}
         <h1
           ref={setTitle}
           id={titleId}
           // A focus target after navigation (never a Tab stop).
           tabIndex={-1}
           data-page-title=""
-          className="content__title page-header__title"
+          className={`content__title page-header__title${band ? " list-band__title" : ""}`}
         >
           {title}
         </h1>
-        {subtitle ? <p className="content__sub page-header__sub">{subtitle}</p> : null}
+        {subtitle ? (
+          <p className={`content__sub page-header__sub${band ? " list-band__sub" : ""}`}>
+            {subtitle}
+          </p>
+        ) : null}
         {children}
       </div>
+      {band?.facts ? (
+        <dl className="list-band__facts" aria-label={band.facts.label}>
+          {band.facts.items.map((fact) => (
+            <div key={fact.label}>
+              <dd>{fact.value}</dd>
+              <dt>{fact.label}</dt>
+            </div>
+          ))}
+        </dl>
+      ) : null}
       {hasEnd ? (
-        <div className="page-header__end">
+        <div className={`page-header__end${band ? " list-band__end" : ""}`}>
           {segmented}
           {actions}
         </div>
