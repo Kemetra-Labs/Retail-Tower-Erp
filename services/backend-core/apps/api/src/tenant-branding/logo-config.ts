@@ -65,6 +65,8 @@ export const SVG_MAX_EXPANDED_NODES = 2_000;
 export const SVG_MAX_TURBULENCE_OCTAVES = 10;
 /** The rasterizer child is killed after this; the upload is `svg_unsupported`. */
 export const SVG_RENDER_TIMEOUT_MS = 8_000;
+/** Renders running or waiting per API process; one more is refused (`svg_unsupported`), so a wait is at most this × the timeout. */
+export const SVG_MAX_PENDING_RENDERS = 4;
 
 export const SLOTS = ["boot", "pairing", "sign_in", "lock"] as const;
 export type Slot = (typeof SLOTS)[number];
@@ -108,4 +110,10 @@ export const CANONICAL_RENDITION_CONFIG = JSON.stringify({
   slots: SLOTS.map((slot) => ({ slot, width: SLOT_BOXES[slot].width, height: SLOT_BOXES[slot].height })),
   scales: SCALES,
   trim_tolerance: TRIM_TOLERANCE,
+  warnings: {
+    ink_alpha_min: INK_ALPHA_MIN,
+    low_contrast_min_ratio: LOW_CONTRAST_MIN_RATIO,
+    receipt_black_coverage_max_percent: RECEIPT_BLACK_COVERAGE_MAX_PERCENT,
+    receipt_thin_max_percent: RECEIPT_THIN_MAX_PERCENT,
+  },
 });

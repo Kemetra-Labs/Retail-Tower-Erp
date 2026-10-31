@@ -34,6 +34,12 @@ describe("rasterizeCheckedSvg", () => {
     expect(all).toEqual(["ok", "svg_unsupported", "ok"]);
   });
 
+  it("refuses at once past the pending cap, so the wait stays bounded", async () => {
+    const all = await Promise.all(Array.from({ length: 6 }, () => rasterizeCheckedSvg(GOOD)).map(code));
+    expect(all.filter((c) => c === "ok")).toHaveLength(4);
+    expect(all.slice(4)).toEqual(["svg_unsupported", "svg_unsupported"]);
+  });
+
   it("kills the child at the timeout and refuses with svg_unsupported", async () => {
     expect(await code(rasterizeCheckedSvg(GOOD, 1))).toBe("svg_unsupported");
   });

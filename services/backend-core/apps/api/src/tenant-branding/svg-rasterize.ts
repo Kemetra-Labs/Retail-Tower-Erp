@@ -10,16 +10,18 @@
  *   - loads no system font and has no resource directory;
  *   - is killed after SVG_RENDER_TIMEOUT_MS, which is refused as
  *     `svg_unsupported` (rasterizer limits exceeded, contract §5).
- * One render runs at a time per API process; the others wait their turn, so
- * a hostile upload costs one child for at most the timeout and never blocks
- * the event loop or the shared libuv threadpool.
+ * One render runs at a time per API process and at most
+ * SVG_MAX_PENDING_RENDERS run or wait; one more is refused at once, so a
+ * hostile upload costs one child for at most the timeout, never blocks the
+ * event loop or the shared libuv threadpool, and the wait any other tenant
+ * sees is bounded.
  *
  * The child is the defence in depth behind the in-repo gate (svg-scan.ts),
  * which already refuses every `<image>` and every non-fragment reference.
  */
 import { spawn } from "node:child_process";
 
-import { MAX_SIDE_PX, SVG_RASTER_HEIGHT_PX, SVG_RENDER_TIMEOUT_MS } from "./logo-config";
+import { MAX_SIDE_PX, SVG_MAX_PENDING_RENDERS, SVG_RASTER_HEIGHT_PX, SVG_RENDER_TIMEOUT_MS } from "./logo-config";
 import { reject } from "./logo-refusal";
 
 /** The PNG a 4000 × 960 RGBA render can encode to, with headroom. */
@@ -49,10 +51,15 @@ process.stdin.on("end", () => {
 `;
 
 let queue: Promise<unknown> = Promise.resolve();
+let pending = 0;
 
-/** Runs `work` after every earlier render has settled (one at a time). */
+/** Runs `work` after every earlier render has settled (one at a time); refuses past the pending cap. */
 function serialized<T>(work: () => Promise<T>): Promise<T> {
-  const run = queue.then(work, work);
+  if (pending >= SVG_MAX_PENDING_RENDERS) return Promise.reject(new Error("svg render queue full"));
+  pending += 1;
+  const run = queue.then(work, work).finally(() => {
+    pending -= 1;
+  });
   queue = run.catch(() => undefined);
   return run;
 }
