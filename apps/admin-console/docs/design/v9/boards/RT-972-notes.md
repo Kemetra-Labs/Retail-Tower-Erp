@@ -67,8 +67,8 @@ RETAIL 62816260).
 
 - the Ink sidebar;
 - the D-V9 list band with a Mint primary;
-- the Ink aside «ماذا يحدث بعد الإنشاء»;
-- the Ink primary on the light form.
+- the Ink primary on the light form;
+- the aside «ماذا يحدث بعد الإنشاء» as a light section panel (PC-5).
 
 No receipt card is drawn: §12.2 limits receipt cards to KPI cards and the payment summary.
 
@@ -83,6 +83,10 @@ No receipt card is drawn: §12.2 limits receipt cards to KPI cards and the payme
   before a price write.
 - **PC-4.** The categories-failed text for create. The shipped `catalog.form.categoriesFailed` says
   «تبقى الفئة الحالية كما هي», which is right for edit, not create.
+- **PC-5.** The form-side aside. The v9 `Product-edit.dc.html` board draws it on Ink with a glow,
+  but §12.1 does not list a form aside among the Ink or expressive surfaces, and §12 wins over a
+  board. These boards draw it as a light panel; the owner decides whether the aside joins that
+  list. This also applies to change password.
 
 ## 2. Tracking holds and recall (RT-455)
 
@@ -111,12 +115,15 @@ No receipt card is drawn: §12.2 limits receipt cards to KPI cards and the payme
 
 - Release is owner only. A tenant_admin sees the button recessed, with the reason.
 - Placing a hold and creating a recall are for owner or tenant_admin.
-- A store_manager only reads findings for its own stores.
+- A store_manager only reads findings for its own stores. `getTrackingHold` is owner or
+  tenant_admin, so for a store_manager the rows show the finding's own fields, with no «عرض» link
+  and no drawer.
 
 **Band facts.** The findings list is not paged, so the band can count the whole set:
 
 - active holds;
-- expired-but-sellable lots;
+- expired-but-sellable positions (one finding per identity, store and stocking unit, so the label
+  says «مواضع», positions, not lots; TR-8);
 - `generatedAt`.
 
 **Drawn as unavailable, with the reason:**
@@ -142,6 +149,10 @@ No receipt card is drawn: §12.2 limits receipt cards to KPI cards and the payme
   one (RT-455 item 5, decisions 967 and 968).
 - **TR-7.** Names of products and stores. Findings carry `tenantProductRef` and `storeIds` only. The
   board shows names read from the catalog and the store list. A batch read for this is not decided.
+- **TR-8.** What the second band fact counts. Findings are per identity, store and stocking unit;
+  a count of distinct lots would need the client to group them. The owner picks one.
+- **TR-9.** What a hold means at the POS. The safety feed (`inventory-safety-feed.yaml`, draft)
+  has no POS consumer on `main`, so the boards make no claim about when tills stop selling.
 
 ## 3. Change and forgot password (RT-807)
 
@@ -172,7 +183,7 @@ v3 artboard's confirm field is not in the issue or the contract, so it is left o
     told apart;
   - 409 is blocked with a reason: no identity link;
   - 429 per user;
-  - 503 provider down;
+  - 503, the identity provider or the rate limiter is unavailable, so the outcome is not confirmed;
   - 401;
   - success says the other sessions were signed out and this one stays open.
 - **Forgot password:** the same confirmation for every address (202).
@@ -191,6 +202,8 @@ Invite acceptance, RT-807 item 4, is not drawn here.
 - **PW-4.** Whether to add a "confirm new password" field. It is not in RT-807.
 - **PW-5.** The colour of the public brand panel. §12.1 does not list it as an expressive surface.
   It is drawn flat on Ink, without the grid or glow, as a proposal. The shipped panel is deep teal.
+- **PW-6.** POS sign-in. RT-807 aims for the same credentials on POS and Admin, but cashiers sign
+  in with a PIN and POS is out of RT-807's scope. The boards therefore make no claim about POS.
 
 ## 4. Inventory item detail (W3)
 
@@ -225,3 +238,6 @@ say why.
 - **II-3.** A batch's hold history. There is no list read, so this is a placeholder.
 - **II-4.** The expiry correction history. The server keeps it, but there is no read contract, so
   this is a placeholder.
+- **II-5.** Reading one identity. There is no get-by-id read: the page would have to page through
+  `listTrackingIdentities` for the product (owner or tenant_admin only). A single read is a
+  Backend-Core decision.

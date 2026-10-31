@@ -93,7 +93,7 @@ a{color:#0f766e}a:hover{color:#0b5b55}
         <div style="flex: 1 1 280px; display: flex; flex-direction: column; gap: 4px; min-width: 0">
           <span style="font-size: 12px; color: #a9c2c5; font-weight: 700">دفعة · عصير مانجو 1 لتر</span>
           <h1 id="pg-h" class="disp" style="margin: 0; font-size: 24px; font-weight: 600; line-height: 1.3"><bdi dir="ltr" class="mono" style="font-size: 22px">LOT-2026-1004</bdi></h1>
-          <span style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #a9c2c5"><span class="pill" style="color: #ffffff; background: rgba(255,255,255,.1); border: 1px solid rgba(169,194,197,.4)">لا حجز نشط</span>تُباع في كل المتاجر حتى نهاية يوم انتهائها.</span>
+          <span style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #a9c2c5"><span class="pill" style="color: #ffffff; background: rgba(255,255,255,.1); border: 1px solid rgba(169,194,197,.4)">لا حجز نشط</span>لا حجز جودة ولا حجز استدعاء نشط على هذه الدفعة.</span>
         </div>
         <button type="button" class="btn mint" onClick="{{ openHold }}">وضع حجز جودة</button>
       </section>
@@ -144,7 +144,7 @@ a{color:#0f766e}a:hover{color:#0b5b55}
       <form style="padding: 18px 20px; display: flex; flex-direction: column; gap: 14px" novalidate>
         <div class="f"><label for="h-r" class="req">السبب</label><select id="h-r" class="ctl mono" dir="ltr"><option>supplier_notice</option><option>label_misprint</option></select><span class="ph">قائمة الأسباب المعتمدة لم تُحدَّد · TR-5</span></div>
         <div class="f"><label for="h-n">ملاحظة</label><textarea id="h-n" class="ctl" rows="3" dir="auto" style="padding: 8px 12px"></textarea><span class="hint">اختيارية، حتى 500 حرف. لا تكتب بيانات شخصية.</span></div>
-        <div class="ban b-warn" role="note"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a35a00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg><span>يُنقل ما في «قابل للبيع» و«فحص مرتجع» من هذه الدفعة إلى «حجز جودة» في كل المتاجر، ولا تُباع حتى يرفع المالك الحجز.</span></div>
+        <div class="ban b-warn" role="note"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a35a00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg><span>يُنقل ما في «قابل للبيع» و«فحص مرتجع» من هذه الدفعة إلى «حجز جودة» في كل المتاجر، والدفعة المحجوزة لا تُباع. رفع الحجز لمالك المؤسسة فقط.</span></div>
         <div style="display: flex; gap: 8px"><button type="button" class="btn ink">وضع الحجز</button><button type="button" class="btn quiet" onClick="{{ close }}">إلغاء</button></div>
       </form>
     </aside>

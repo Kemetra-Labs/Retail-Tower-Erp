@@ -42,8 +42,8 @@ a{color:#0f766e}a:hover{color:#0b5b55}
 .hint{font-size:12px;color:#5b6d7c}
 .err{font-size:12px;color:#b3261e;display:flex;gap:6px;align-items:center}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
-.step{display:flex;gap:12px;align-items:flex-start;font-size:13px;line-height:1.6;color:#c3d6d8}
-.sn{width:24px;height:24px;border-radius:8px;background:#0a2125;color:#5fe0cf;border:1px solid rgba(95,224,207,.35);display:flex;align-items:center;justify-content:center;font-family:'Readex Pro',sans-serif;font-size:12px;font-weight:600;flex:none}
+.step{display:flex;gap:12px;align-items:flex-start;font-size:13px;line-height:1.6;color:#33454f}
+.sn{width:24px;height:24px;border-radius:8px;background:#e7f6f3;color:#0b5b55;display:flex;align-items:center;justify-content:center;font-family:'Readex Pro',sans-serif;font-size:12px;font-weight:600;flex:none}
 .spin{width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,.35);border-top-color:#ffffff}
 @media (prefers-reduced-motion:no-preference){.spin{animation:sp .9s linear infinite}}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -145,13 +145,13 @@ a{color:#0f766e}a:hover{color:#0b5b55}
           </div>
         </form>
 
-        <!-- Aside on Ink: what happens after the create (steps state contract facts only) -->
-        <aside aria-labelledby="as-h" style="flex: 1 1 300px; max-width: 420px; min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 20px 22px; border-radius: 20px; background: #0a2125; color: #e6f0f1; background-image: radial-gradient(300px 180px at 0% 0%, rgba(95,224,207,.22), transparent 70%)">
-          <h2 id="as-h" class="disp" style="margin: 0; font-size: 16px; font-weight: 600; color: #ffffff">ماذا يحدث بعد الإنشاء</h2>
+        <!-- Aside: a light section panel. §12.1 does not list a form aside among the Ink or expressive surfaces (PC-5). -->
+        <aside class="box" aria-labelledby="as-h" style="flex: 1 1 300px; max-width: 420px; min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 20px 22px">
+          <h2 id="as-h" class="disp" style="margin: 0; font-size: 16px; font-weight: 600">ماذا يحدث بعد الإنشاء</h2>
           <div class="step"><span class="sn">1</span><span>يُضاف الصنف مرة واحدة إلى كتالوج المؤسسة. إعادة المحاولة بالقيم نفسها لا تُنشئ صنفًا ثانيًا.</span></div>
-          <div class="step"><span class="sn">2</span><span>تنتقل إلى صفحة الصنف لتضيف له باركود أو SKU، فيتعرّف عليه الكاشير عند المسح.</span></div>
-          <div class="step"><span class="sn">3</span><span>لا تعرض نقطة البيع صنفًا بلا سعر.</span></div>
-          <div style="margin-top: 4px; padding-top: 12px; border-top: 1px dashed rgba(169,194,197,.35); font-size: 12px; color: #a9c2c5">الإضافة متاحة لمالك المؤسسة ومسؤولها.</div>
+          <div class="step"><span class="sn">2</span><span>تنتقل إلى صفحة الصنف لتضيف له باركود أو SKU ليتعرّف عليه الكاشير عند المسح.</span></div>
+          <div class="step"><span class="sn">3</span><span>لا تبيع نقطة البيع صنفًا بلا سعر.</span></div>
+          <div style="margin-top: 4px; padding-top: 12px; border-top: 1px dashed #d6dfe3; font-size: 12px; color: #5b6d7c">الإضافة متاحة لمالك المؤسسة ومسؤولها.</div>
         </aside>
       </div>
     </main>
