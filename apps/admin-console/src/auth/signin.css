@@ -140,8 +140,6 @@
   cursor: not-allowed;
 }
 
-/* The brand panel: decoration. Light: the deep teal with surface text; dark:
- * the teal wash with the page text, so both hold contrast. */
 /* RT-807 (PW-5, DESIGN.md §12.1): flat Ink in both themes, as Ink is dark in
  * both. The public screens are not an expressive surface: no mark, grid or
  * glow. Translucent on-ink fills keep the flow card and chips on the panel. */

@@ -15,7 +15,7 @@
  * language and theme are adopted here, when the shell mounts (RT-398/399).
  *
  * RT-807 (PW-1): under the preferences, a link to the «حسابي» page, where the
- * password is changed. Following it closes the panel.
+ * password is changed (`accountLink`). Following it closes the panel.
  */
 import { Icon } from "@/components/icons/Icon";
 import { useT } from "@/i18n";
@@ -28,6 +28,12 @@ import { Link } from "react-router";
 export interface UserMenuProps {
   user: { id?: string; display_name?: string | null; email?: string | null };
   roleLabel?: string;
+  /**
+   * RT-807: show the «حسابي» link. Only the tenant shell outside a support
+   * session sets it: `/account` sits behind the tenant gate, and a support
+   * session offers no write (RT-391/RT-414).
+   */
+  accountLink?: boolean;
 }
 
 /** Up to two initials from the name, or from the email's local part. */
@@ -39,7 +45,11 @@ function initialsOf(user: UserMenuProps["user"]): string {
     .join("");
 }
 
-export function UserMenu({ user, roleLabel }: Readonly<UserMenuProps>): React.JSX.Element {
+export function UserMenu({
+  user,
+  roleLabel,
+  accountLink = false,
+}: Readonly<UserMenuProps>): React.JSX.Element {
   const t = useT();
   // Restore this user's own language and theme now, not when the panel opens.
   useUserLocale(user.id);
@@ -97,9 +107,15 @@ export function UserMenu({ user, roleLabel }: Readonly<UserMenuProps>): React.JS
             <LocaleSwitch userId={user.id} />
             <ThemeToggle userId={user.id} />
           </fieldset>
-          <Link to="/account" className="btn-ghost user-menu__link" onClick={() => setOpen(false)}>
-            {t("shell.userMenu.account")}
-          </Link>
+          {accountLink ? (
+            <Link
+              to="/account"
+              className="btn-ghost user-menu__link"
+              onClick={() => setOpen(false)}
+            >
+              {t("shell.userMenu.account")}
+            </Link>
+          ) : null}
         </div>
       ) : null}
     </div>

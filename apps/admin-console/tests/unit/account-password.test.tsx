@@ -150,12 +150,13 @@ describe("account page", () => {
     ).toBe(true);
   });
 
-  test("429: tells how long to wait", async () => {
+  test("429: no second banner on the page (the shell banner and the submit countdown say it)", async () => {
     mockChange.mockResolvedValue(result(429, { retryAfter: "240" }));
     renderPage();
     fill("old-secret", "new-secret", "new-secret");
     await submit();
-    expect(screen.getByText("Too many attempts. You can try again in 240s.")).toBeDefined();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/Too many attempts/)).toBeNull();
   });
 
   test("503: says the change is not confirmed and keeps the fields for a retry", async () => {

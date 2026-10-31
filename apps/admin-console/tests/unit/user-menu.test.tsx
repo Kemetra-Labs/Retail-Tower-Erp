@@ -76,11 +76,19 @@ describe("UserMenu", () => {
   });
 
   test("RT-807 (PW-1): links to «My account» under the preferences, and closes on follow", () => {
-    render(<UserMenu user={user} roleLabel="Tenant admin" />, { wrapper: MemoryRouter });
+    render(<UserMenu user={user} roleLabel="Tenant admin" accountLink />, {
+      wrapper: MemoryRouter,
+    });
     fireEvent.click(button());
     const link = screen.getByRole("link", { name: "My account" });
     expect(link.getAttribute("href")).toBe("/account");
     fireEvent.click(link);
     expect(button().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("RT-807: no «My account» link unless the shell asks for it (platform shell, support session)", () => {
+    render(<UserMenu user={user} roleLabel="Tenant admin" />, { wrapper: MemoryRouter });
+    fireEvent.click(button());
+    expect(screen.queryByRole("link", { name: "My account" })).toBeNull();
   });
 });

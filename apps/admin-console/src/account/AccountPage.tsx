@@ -122,12 +122,9 @@ function OutcomeBanner({
         />
       );
     case "rate-limited":
-      return (
-        <Banner
-          variant="warning"
-          message={t("auth.signIn.errors.rateLimited", { count: outcome.retryAfterSeconds })}
-        />
-      );
+      // The shell's RateLimitBanner and the submit's countdown already say it
+      // (the middleware fed the shared clock); a second banner would repeat it.
+      return null;
     case "not-confirmed":
       return (
         <Banner
