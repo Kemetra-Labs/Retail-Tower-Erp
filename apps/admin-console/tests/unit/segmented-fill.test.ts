@@ -64,7 +64,18 @@ describe("RT-1039 segmented control fill", () => {
 });
 
 describe("RT-1039 forced colours", () => {
-  const forced = css.slice(css.indexOf("@media (forced-colors: active)"));
+  // Only the body of the media block, by brace matching: a rule moved after it must fail.
+  const start = css.indexOf("@media (forced-colors: active)");
+  let depth = 0;
+  let end = start;
+  for (let i = css.indexOf("{", start); i < css.length; i++) {
+    if (css[i] === "{") depth++;
+    if (css[i] === "}" && --depth === 0) {
+      end = i;
+      break;
+    }
+  }
+  const forced = css.slice(start, end);
 
   test("every segment keeps a boundary and the pressed one is Highlight / HighlightText", () => {
     expect(forced).toMatch(/\.segmented__btn \{\s*border-color: ButtonText;/);

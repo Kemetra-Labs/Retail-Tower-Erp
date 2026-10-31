@@ -539,8 +539,8 @@ These classes exist on `main` and new work reuses them until a migration slice r
     renders: `title` (the page's one `<h1>`, 24px), `subtitle` (one muted line: scope or what
     the page shows), `children` (status chips or a second note, under the subtitle),
     `actions` (at most one primary; destructive last) and `segmented` (a view switch,
-    `aria-pressed` buttons in a group; the pressed segment is the action-fill pair, §12.6), both at the inline end on the text's last line and
-    wrapping under it when narrow. `titleRef` makes the title a focus target; `titleId` lets a
+    `aria-pressed` buttons in a group; the pressed segment is the action-fill pair, §12.6),
+    both at the inline end on the text's last line and wrapping under it when narrow. `titleRef` makes the title a focus target; `titleId` lets a
     region be labelled by it. A back link sits above the header, not in it.
     `tests/unit/page-header.test.tsx` fails if a page inside the shell writes its own `<h1>`.
   - **Content container** and **section panel**: §5.
@@ -787,7 +787,7 @@ keeps gaps for missing buckets; the hero sparkline states its period (for exampl
 | §5: panels shadowless; 8px controls, 12px objects | One resting elevation; panels and cards 20px, controls 10–12px, top-bar search 14px (§12.5). |
 | §9 nav: teal wash + Signal Line | Mint signal line on Ink (§12.2). |
 | §9 buttons: `.btn-primary` teal fill | Ink fill on light surfaces (§12.6). |
-| §9 / UX-02: teal owns selection | The selected segment of a segmented control or tab set is Ink on light surfaces; other selection stays Teal (D-V3, §12.6). |
+| §9 / UX-02: teal owns selection | The selected segment of a segmented control is Ink on light surfaces (tab sets: open, RT-1039); other selection stays Teal (D-V3, §12.6). |
 
 ### 12.8 Decisions and open items before implementation
 
