@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import {
   CONTRAST_PAIRS,
   V4_COLOUR_ROLES,
+  V4_DARK_PAIRS,
   V4_FORBIDDEN_PAIRS,
   V4_LIGHT_PAIRS,
   VIZ_CATEGORICAL,
@@ -177,10 +178,10 @@ describe("RT-396 light-first tokens", () => {
 
 /**
  * RT-989 v4.0 "Ink & Receipt" roles (DESIGN.md §12.1 and §12.5; Confluence 62816260
- * D-V1..D-V3, D-V6). Light values only: the dark theme is RT-990. The roles are
- * declared for later slices, so components must not spell their values.
+ * D-V1..D-V3, D-V6), with the RT-1037 dark values (§12.8.4, D-V10). Components
+ * must not spell their values.
  */
-describe("RT-989 v4.0 light roles", () => {
+describe("RT-989 / RT-1037 v4.0 roles", () => {
   const V4_HEX = ["#0a2125", "#5fe0cf", "#a9c2c5", "#f2f5f6"];
   // RT-991 adds on-ink (white on Ink, the same in every theme): a role, so a
   // component never spells #ffffff; its value is pinned here, not in V4_HEX.
@@ -192,6 +193,8 @@ describe("RT-989 v4.0 light roles", () => {
       "ink-muted": "#a9c2c5",
       "on-ink": "#ffffff",
       canvas: "#f2f5f6",
+      "action-fill": "#0a2125",
+      "on-action-fill": "#ffffff",
     });
   });
 
@@ -212,9 +215,27 @@ describe("RT-989 v4.0 light roles", () => {
     }).toEqual({ panel: "20px", field: "10px", fieldLg: "12px", search: "14px" });
   });
 
-  test("the v4.0 roles are light-only: the dark block does not redefine them yet", () => {
-    for (const role of V4_COLOUR_ROLES) expect(shippedDark).not.toHaveProperty(`--color-${role}`);
-    expect(shippedDark).not.toHaveProperty("--shadow-resting");
+  test("RT-1037: the dark block restates every v4.0 role with the D-V10 values", () => {
+    expect(Object.fromEntries(V4_COLOUR_ROLES.map((r) => [r, resolve(r, shippedDark)]))).toEqual({
+      ink: "#0a2125",
+      mint: "#5fe0cf",
+      "ink-muted": "#a9c2c5",
+      "on-ink": "#ffffff",
+      canvas: "#0e161f",
+      "action-fill": "#5fe0cf",
+      "on-action-fill": "#0a2125",
+    });
+    // Restated, not inherited: the test resolves dark pairs inside the dark block.
+    for (const role of V4_COLOUR_ROLES) expect(shippedDark).toHaveProperty(`--color-${role}`);
+    // Canvas is the approved dark background, and the shadow is an alpha of it.
+    expect(resolve("canvas", shippedDark)).toBe(resolve("background", shippedDark));
+    expect(shippedDark["--shadow-resting"]).toBe(
+      "0 1px 2px rgb(14 22 31 / 0.6), 0 12px 32px -24px rgb(14 22 31 / 0.9)",
+    );
+  });
+
+  test.each(V4_DARK_PAIRS)("dark: %s on %s passes (>= %s:1)", (fg, bg, min) => {
+    expect(ratio(fg, bg, shippedDark)).toBeGreaterThanOrEqual(min);
   });
 
   test.each(V4_LIGHT_PAIRS)("%s on %s passes (>= %s:1)", (fg, bg, min) => {
@@ -290,7 +311,14 @@ describe("RT-397 Dubai type", () => {
 describe("RT-398 dark theme", () => {
   test("the dark block equals the approved dark block, every value", () => {
     expect(Object.keys(approvedDark).length).toBeGreaterThan(0);
-    expect(shippedDark).toEqual(approvedDark);
+    // The v4.0 roles (RT-1037) come from DESIGN.md §12.8.4, not the RT-392 block;
+    // their dark values are pinned in the RT-989 tests above.
+    const rt392Dark = Object.fromEntries(
+      Object.entries(shippedDark).filter(
+        ([name]) => !V4_ROLE_NAMES.includes(name) && name !== "--shadow-resting",
+      ),
+    );
+    expect(rt392Dark).toEqual(approvedDark);
   });
 
   test("the dark block comes after :root, so it wins at equal specificity", () => {

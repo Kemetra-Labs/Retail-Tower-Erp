@@ -823,7 +823,8 @@ an owner decision of 2026-10-31 (D-V10); items 5–6 are open.
    - **Mint in the dark theme (D-V10 amends D-V2):** a fill with Ink text, the primary action and
      the selected segment (D-V3), on dark panels and canvas; never text or a link colour (links
      stay Tower Teal). Light stays Ink fill with white text, so the slice adds a derived fill and
-     on-fill role pair (light `ink`/`on-ink`, dark `mint`/`ink`); `--color-ink` itself never
+     on-fill role pair, `--color-action-fill` / `--color-on-action-fill` (light `ink`/`on-ink`,
+     dark `mint`/`ink`; shipped by RT-1037); `--color-ink` itself never
      becomes Mint, as it is also the sidebar, band and hero surface.
    - **Ink separates by edge, not luminance, on dark** (accepted): Ink is 1.09:1 against the dark
      canvas and 1.03:1 against dark panels, so the sidebar, bands, hero and tooltip read through
