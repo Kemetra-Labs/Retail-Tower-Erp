@@ -619,7 +619,11 @@ lab-01 runs), `jira_key` and `dry_run` (default `true`).
    `--document-version '$LATEST'`, then `update-document-default-version`. The workflow
    always runs the default version.
 2. Add `ssm:SendCommand` on `document/RT-ConsoleLabDeploy` for the lab-01 managed node
-   (`Host=lab-01`) to the deploy role's identity policy and its boundary. The role still
+   (`Host=lab-01`) to the deploy role's identity policy and its boundary. The live job also
+   calls `ssm:DescribeInstanceInformation` (to find the node) and `ssm:GetCommandInvocation`
+   (to poll the result). Neither has a resource type, so both are granted on `*`. The role
+   already holds them for the Backend-Core deploy; check that both the identity policy and
+   the boundary allow them, and add them if not. The role still
    never gets `AWS-RunShellScript`, `StartSession` or `CreateDocument` / `UpdateDocument`.
    The trust policy needs no change, because its `sub` is scoped to the `aws-lab`
    environment, not to one workflow file (see the residual risks above).
