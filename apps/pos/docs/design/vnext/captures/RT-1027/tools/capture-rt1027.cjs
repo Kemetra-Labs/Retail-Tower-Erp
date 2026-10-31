@@ -3,7 +3,9 @@
 // offsets inside the screen section and the commit's size). PHASE=before|after names the output
 // as the evidence folder does: rt1027-<phase>-<State>-<W>x<H>[-forced].png and rt1027-<phase>-log.json.
 // Usage (apps/pos, with Vite running): PLAYWRIGHT_CORE=$PWD/node_modules/playwright-core CHROME=<chrome>
-//   PHASE=after ONLY=Open,OpenInvalid,Closed,ClosedApproved node docs/design/vnext/captures/RT-1027/tools/capture-rt1027.cjs <outDir> <baseUrl>
+//   PHASE=before ONLY=Open,OpenInvalid,Closed,ClosedApproved node docs/design/vnext/captures/RT-1027/tools/capture-rt1027.cjs <outDir> <baseUrl>
+//   PHASE=after ONLY=Open,OpenInvalid,Opened,Closed,ClosedApproved,Unavailable node docs/design/vnext/captures/RT-1027/tools/capture-rt1027.cjs <outDir> <baseUrl>
+// (before on main 8696ba18: 16 log rows; after on this branch: 24.)
 // RT-658 — capture every G-2 shift state from the DEV harness (#/dev/shift-proof) at 1024×768 and
 // 1280×800, light and forced-colors, and run axe plus the fit / target / type checks on each.
 // Interactive states are reached the way an operator reaches them: by the visible controls.
