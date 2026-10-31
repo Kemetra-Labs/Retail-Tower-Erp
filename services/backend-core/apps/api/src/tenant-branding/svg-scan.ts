@@ -15,13 +15,17 @@
  *     their local part in any namespace and any case; attribute values are
  *     entity-decoded and CSS-unescaped before matching;
  *   - `svg_unsupported`: no `<svg>` root, more than SVG_MAX_ELEMENTS elements
- *     or SVG_MAX_DEPTH nesting, or neither a usable `viewBox` nor a positive
- *     absolute `width` and `height`.
+ *     or SVG_MAX_DEPTH nesting, neither a usable `viewBox` nor a positive
+ *     absolute `width` and `height`, or a rasterizer work bound exceeded:
+ *     fragment references (`<use href="#a">`, `url(#p)`) expand to more than
+ *     SVG_MAX_EXPANDED_NODES nodes or form a cycle (a `<use>` / pattern fan-out
+ *     is exponential in the nesting), or `feTurbulence` asks for more than
+ *     SVG_MAX_TURBULENCE_OCTAVES octaves.
  *
  * Passing this gate is required before the bytes reach the rasterizer, which
  * itself runs with resource loading off (defence in depth).
  */
-import { SVG_MAX_DEPTH, SVG_MAX_ELEMENTS } from "./logo-config";
+import { SVG_MAX_DEPTH, SVG_MAX_ELEMENTS, SVG_MAX_EXPANDED_NODES, SVG_MAX_TURBULENCE_OCTAVES } from "./logo-config";
 import { reject, rejectUnsafe, type SvgUnsafeConstruct } from "./logo-refusal";
 
 const BOM = "﻿";
@@ -98,11 +102,27 @@ export function checkCss(value: string): void {
   }
 }
 
-function checkAttribute(name: string, value: string): void {
+/** The `#id` targets of the `url(#id)` references in a (CSS) value. */
+function cssFragments(value: string): string[] {
+  const out: string[] = [];
+  const re = /url\(\s*['"]?\s*#([^'")\s]*)/g;
+  const css = normalizeCss(value);
+  for (let m = re.exec(css); m !== null; m = re.exec(css)) out.push(m[1]!);
+  return out;
+}
+
+/** FR-07 checks of one attribute; returns the fragment ids it references. */
+function checkAttribute(name: string, value: string): string[] {
   const local = localName(name);
   if (local.startsWith("on")) rejectUnsafe("event_handler");
-  if (local === "href" && !value.trim().startsWith("#")) rejectUnsafe("external_reference");
+  const refs: string[] = [];
+  if (local === "href") {
+    const target = value.trim();
+    if (!target.startsWith("#")) rejectUnsafe("external_reference");
+    refs.push(target.slice(1));
+  }
   checkCss(value);
+  return [...refs, ...cssFragments(value)];
 }
 
 interface StartTag {
@@ -160,13 +180,48 @@ function hasUsableSize(attributes: ReadonlyMap<string, string>): boolean {
   return isAbsoluteLength(attributes.get("width")) && isAbsoluteLength(attributes.get("height"));
 }
 
+/** An open element: its node count and the fragment references inside it. */
+interface Frame {
+  readonly name: string;
+  readonly id: string | null;
+  count: number;
+  readonly refs: string[];
+}
+
+/** An element with an `id`: what one reference to it costs before expansion. */
+interface Target {
+  readonly count: number;
+  readonly refs: readonly string[];
+}
+
 interface ScanState {
-  readonly stack: string[];
+  readonly stack: Frame[];
+  readonly targets: Map<string, Target>;
+  /** Fragment references to expand, with how many times each may be rendered. */
+  readonly documentRefs: Array<{ id: string; times: number }>;
   elements: number;
   sawRoot: boolean;
   rootSized: boolean;
   /** Character data inside a `<style>` element, checked when it closes. */
   style: string | null;
+}
+
+/** A closed element adds its count and references to its parent and, with an `id`, becomes a target. */
+function closeFrame(state: ScanState, frame: Frame): void {
+  if (frame.id !== null) state.targets.set(frame.id, { count: frame.count, refs: frame.refs });
+  const parent = state.stack.at(-1);
+  if (parent !== undefined) {
+    parent.count += frame.count;
+    parent.refs.push(...frame.refs);
+    return;
+  }
+  for (const id of frame.refs) state.documentRefs.push({ id, times: 1 });
+}
+
+function checkTurbulence(tag: StartTag): void {
+  if (localName(tag.name) !== "feturbulence") return;
+  const octaves = Number(tag.attributes.get("numOctaves") ?? "1");
+  if (!Number.isFinite(octaves) || octaves > SVG_MAX_TURBULENCE_OCTAVES) reject("svg_unsupported");
 }
 
 function onStartTag(state: ScanState, tag: StartTag): void {
@@ -180,17 +235,58 @@ function onStartTag(state: ScanState, tag: StartTag): void {
   if (state.elements > SVG_MAX_ELEMENTS || state.stack.length + 1 > SVG_MAX_DEPTH) reject("svg_unsupported");
   const unsafe = UNSAFE_ELEMENTS.get(localName(tag.name));
   if (unsafe !== undefined) rejectUnsafe(unsafe);
-  for (const [name, value] of tag.attributes) checkAttribute(name, value);
-  if (tag.selfClosing) return;
-  state.stack.push(tag.name);
+  const refs: string[] = [];
+  for (const [name, value] of tag.attributes) refs.push(...checkAttribute(name, value));
+  checkTurbulence(tag);
+  const frame: Frame = { name: tag.name, id: tag.attributes.get("id") ?? null, count: 1, refs };
+  if (tag.selfClosing) {
+    closeFrame(state, frame);
+    return;
+  }
+  state.stack.push(frame);
   if (localName(tag.name) === "style") state.style = "";
 }
 
 function onEndTag(state: ScanState, name: string): void {
-  if (state.stack.pop() !== name) reject("image_malformed");
+  const frame = state.stack.pop();
+  if (frame === undefined || frame.name !== name) reject("image_malformed");
   if (state.style !== null && localName(name) === "style") {
     checkCss(state.style);
+    // A stylesheet rule may apply to every element: count it that many times.
+    for (const id of cssFragments(state.style)) state.documentRefs.push({ id, times: SVG_MAX_ELEMENTS });
     state.style = null;
+  }
+  closeFrame(state, frame);
+}
+
+/**
+ * The nodes the rasterizer may visit: every element once, plus each fragment
+ * reference expanded (recursively) into its target. A cycle or a total above
+ * SVG_MAX_EXPANDED_NODES is refused. Unknown targets render nothing.
+ */
+function checkExpansion(state: ScanState): void {
+  const cost = new Map<string, number>();
+  const visiting = new Set<string>();
+  const expand = (id: string): number => {
+    const known = cost.get(id);
+    if (known !== undefined) return known;
+    const target = state.targets.get(id);
+    if (target === undefined) return 0;
+    if (visiting.has(id)) reject("svg_unsupported");
+    visiting.add(id);
+    let total = target.count;
+    for (const ref of target.refs) {
+      total += expand(ref);
+      if (total > SVG_MAX_EXPANDED_NODES) reject("svg_unsupported");
+    }
+    visiting.delete(id);
+    cost.set(id, total);
+    return total;
+  };
+  let total = state.elements;
+  for (const { id, times } of state.documentRefs) {
+    total += expand(id) * times;
+    if (total > SVG_MAX_EXPANDED_NODES) reject("svg_unsupported");
   }
 }
 
@@ -263,7 +359,15 @@ export function scanSvg(bytes: Buffer): string {
   let s = decodeUtf8(bytes);
   if (s.startsWith(BOM)) s = s.slice(1);
   s = s.replace(WS_RE, "");
-  const state: ScanState = { stack: [], elements: 0, sawRoot: false, rootSized: false, style: null };
+  const state: ScanState = {
+    stack: [],
+    targets: new Map(),
+    documentRefs: [],
+    elements: 0,
+    sawRoot: false,
+    rootSized: false,
+    style: null,
+  };
   let pos = 0;
   while (pos < s.length) {
     const lt = s.indexOf("<", pos);
@@ -274,5 +378,6 @@ export function scanSvg(bytes: Buffer): string {
   }
   if (!state.sawRoot || state.stack.length !== 0) reject("image_malformed");
   if (!state.rootSized) reject("svg_unsupported");
+  checkExpansion(state);
   return s;
 }

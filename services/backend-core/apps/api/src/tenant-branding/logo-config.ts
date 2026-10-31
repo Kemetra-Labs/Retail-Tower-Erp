@@ -55,6 +55,10 @@ export const SVG_RASTER_HEIGHT_PX = 960;
 /** FR-07 rasterizer limits (`svg_unsupported`). */
 export const SVG_MAX_ELEMENTS = 5000;
 export const SVG_MAX_DEPTH = 64;
+/** Nodes the rasterizer may visit once fragment references are expanded (`<use>` / pattern fan-out). */
+export const SVG_MAX_EXPANDED_NODES = 50_000;
+/** `feTurbulence` work is pixels × octaves. */
+export const SVG_MAX_TURBULENCE_OCTAVES = 10;
 
 export const SLOTS = ["boot", "pairing", "sign_in", "lock"] as const;
 export type Slot = (typeof SLOTS)[number];

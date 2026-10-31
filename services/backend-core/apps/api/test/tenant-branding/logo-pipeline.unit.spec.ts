@@ -53,6 +53,13 @@ async function refusal(bytes: Buffer): Promise<{ code: string; construct: string
   throw new Error("expected a refusal");
 }
 
+/** Five levels of ten `<use>` each over ten rects: 55 elements that expand to over 10^5 nodes. */
+const FAN_OUT = (() => {
+  let defs = `<g id="l0">${"<rect width='1' height='1'/>".repeat(10)}</g>`;
+  for (let level = 1; level <= 4; level += 1) defs += `<g id="l${level}">${`<use href="#l${level - 1}"/>`.repeat(10)}</g>`;
+  return `<defs>${defs}</defs><use href="#l4"/>`;
+})();
+
 const sha = (b: Buffer): string => createHash("sha256").update(b).digest("hex");
 
 /** The horizontal reference logo: a 1024 × 256 navy block (exactly 4:1) in a transparent margin. */
@@ -291,8 +298,19 @@ describe("SVG", () => {
     ["a root that is not svg", Buffer.from(`<?xml version="1.0"?><html/>`)],
     ["more than 5000 elements", svg(`<g>${"<rect/>".repeat(5000)}</g>`)],
     ["nesting deeper than 64", svg(`${"<g>".repeat(64)}${"</g>".repeat(64)}`)],
+    ["a <use> fan-out bomb (10^5 nodes from 55 elements)", svg(FAN_OUT)],
+    ["a <use> reference cycle", svg(`<g id="a"><use href="#b"/></g><g id="b"><use href="#a"/></g>`)],
+    ["a pattern used by a stylesheet rule on every element", svg(`<defs><pattern id="p">${"<rect/>".repeat(20)}</pattern></defs><style>rect{fill:url(#p)}</style>${RECT}`)],
+    ["feTurbulence with 1000 octaves", svg(`<filter id="f"><feTurbulence numOctaves="1000"/></filter>${RECT}`)],
   ])("svg_unsupported: %s", async (_name, bytes) => {
     expect(await refusal(bytes)).toEqual({ code: "svg_unsupported", construct: null });
+  });
+
+  it("accepts modest <use> reuse and gradient inheritance", async () => {
+    const body = `<defs><linearGradient id="a"><stop offset="0" stop-color="#102060"/></linearGradient>
+      <linearGradient id="b" href="#a"/><g id="mark"><rect x="0" y="0" width="100" height="100" fill="url(#b)"/></g></defs>
+      <use href="#mark" x="50" y="50"/><use href="#mark" x="150" y="50"/><use href="#mark" x="250" y="50"/>`;
+    await expect(processLogo(svg(body))).resolves.toBeDefined();
   });
 
   it("accepts absolute width and height without a viewBox", async () => {

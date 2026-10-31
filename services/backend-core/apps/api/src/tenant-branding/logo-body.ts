@@ -19,11 +19,13 @@ import type { NextFunction, Request, Response } from "express";
 
 import { MAX_UPLOAD_BYTES } from "./logo-config";
 
-/** The two upload operations: `POST …/logo/preview` and `PUT …/logo`. */
-const UPLOAD_PATH_RE = /^\/api\/v1\/tenants\/[^/]+\/logo(?:\/preview)?\/?$/;
+/** The two upload operations: `PUT …/logo` and `POST …/logo/preview`. */
+const SAVE_PATH_RE = /^\/api\/v1\/tenants\/[^/]+\/logo\/?$/;
+const PREVIEW_PATH_RE = /^\/api\/v1\/tenants\/[^/]+\/logo\/preview\/?$/;
 
 function isUpload(req: Pick<Request, "method" | "path">): boolean {
-  return (req.method === "PUT" || req.method === "POST") && UPLOAD_PATH_RE.test(req.path);
+  if (req.method === "PUT") return SAVE_PATH_RE.test(req.path);
+  return req.method === "POST" && PREVIEW_PATH_RE.test(req.path);
 }
 
 /** Express middleware: keep the global body parsers off the logo upload routes. */
