@@ -18,7 +18,7 @@ import type { Response } from "express";
 
 import { annotateAudit, Auditable } from "../audit/auditable.decorator";
 import { PosDeviceAuthGuard } from "../auth/pos-device-auth.guard";
-import { DeviceBearer, ReportsBuildIdentity } from "../auth/route-auth";
+import { DeviceBearer } from "../auth/route-auth";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import type { TenantContextRequest } from "../context/types";
 import { IfNoneMatchSchema, NoQuerySchema } from "./branding.query";
@@ -35,7 +35,6 @@ export class TenantBrandingDeviceController {
   @DeviceBearer()
   @UseGuards(PosDeviceAuthGuard)
   @Auditable("tenant.branding.device_read")
-  @ReportsBuildIdentity()
   async read(
     @Req() request: TenantContextRequest,
     @Query(new ZodValidationPipe(NoQuerySchema)) _query: Record<string, never>,

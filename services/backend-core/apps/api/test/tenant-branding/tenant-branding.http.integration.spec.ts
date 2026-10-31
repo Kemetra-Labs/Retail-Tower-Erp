@@ -67,9 +67,16 @@ const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x4
 let version1 = "";
 let version2 = "";
 
+/** The raw bytes under `contentType`: superagent would otherwise JSON- or form-encode a Buffer for those types. */
 function upload(req: request.Test, contentType = "application/octet-stream"): request.Test {
-  return req.set("Content-Type", contentType);
+  return req.set("Content-Type", contentType).serialize((body: unknown) => body as string);
 }
+
+beforeAll(async () => {
+  // Computed here (not by an earlier test) so one failing test cannot cascade.
+  version1 = (await processLogo(LOGO_1)).version;
+  version2 = (await processLogo(LOGO_2)).version;
+});
 
 function preview(session: string | null, bytes: Buffer, contentType?: string, tenantId = TENANT_A): request.Test {
   return upload(h.post(previewPath(tenantId), session, bytes), contentType);
@@ -184,7 +191,7 @@ describe("preview", () => {
       h.conforms("LogoPreview", res.body);
       expect((res.body as { version: string }).version).toBe(expected);
     }
-    version1 = expected;
+    expect(expected).toBe(version1);
   });
 
   it("returns the 8 screen renditions and the 203-dpi receipt rendition", async () => {
@@ -269,7 +276,7 @@ describe("save", () => {
 
   it("refuses a replace from a stale revision with 409 logo_changed_concurrently, changing nothing", async () => {
     if (skip()) return;
-    version2 = (await preview(SES_OWNER_ALL, LOGO_2).expect(200)).body.version as string;
+    expect((await preview(SES_OWNER_ALL, LOGO_2).expect(200)).body.version).toBe(version2);
     expectError(await save(SES_OWNER_ALL, LOGO_2, { preview_version: version2, expected_revision: 0 }), 409, "logo_changed_concurrently");
     const now = await h.get(logoPath(TENANT_A), SES_OWNER_ALL).expect(200);
     expect(now.body).toMatchObject({ revision: 1, logo: { version: version1 } });

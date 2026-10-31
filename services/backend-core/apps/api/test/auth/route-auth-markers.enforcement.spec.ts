@@ -171,6 +171,8 @@ describe("route auth markers are enforced at the route (RT-129 / A9)", () => {
       "ShiftCashUpController.closeShift",
       "ShiftCashUpController.openShift",
       "ShiftCashUpController.recordCashMovement",
+      // RT-473 S2: the POS tenant branding read (device bearer only).
+      "TenantBrandingDeviceController.read",
     ]);
     expect(deviceAttested.length).toBeGreaterThan(0);
   });
