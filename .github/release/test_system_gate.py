@@ -48,17 +48,17 @@ class SystemGateTest(unittest.TestCase):
             return sh(repo, "rev-parse", "HEAD")
 
         cls.bc = commit({system_gate.POS_SUPPORTED: SUPPORTED.format(installed=INSTALLED_ONLY, build=BUILD, other="1" * 40)}, "backend")
-        sh(repo, "tag", "-a", "-m", "r", "backend-core/v1.0.0", cls.bc)
+        sh(repo, "-c", "user.name=t", "-c", "user.email=t@t", "tag", "-a", "-m", "r", "backend-core/v1.0.0", cls.bc)
         cls.console = commit({system_gate.CONSOLE_PIN: PIN.format(c=cls.bc)}, "console")
-        sh(repo, "tag", "-a", "-m", "r", "admin-console/v1.0.0", cls.console)
+        sh(repo, "-c", "user.name=t", "-c", "user.email=t@t", "tag", "-a", "-m", "r", "admin-console/v1.0.0", cls.console)
         cls.erp = commit({"integrations/erpnext-connector/x.py": "x = 1\n"}, "erp")
         # A Console release whose PIN names another Backend commit.
         cls.stale = commit({system_gate.CONSOLE_PIN: PIN.format(c="2" * 40)}, "stale console")
-        sh(repo, "tag", "-a", "-m", "r", "admin-console/v0.9.0", cls.stale)
+        sh(repo, "-c", "user.name=t", "-c", "user.email=t@t", "tag", "-a", "-m", "r", "admin-console/v0.9.0", cls.stale)
         # A commit off main.
         sh(repo, "checkout", "-q", "-b", "side", cls.erp)
         cls.side = commit({"side.txt": "s\n"}, "side")
-        sh(repo, "tag", "-a", "-m", "r", "backend-core/v9.9.9", cls.side)
+        sh(repo, "-c", "user.name=t", "-c", "user.email=t@t", "tag", "-a", "-m", "r", "backend-core/v9.9.9", cls.side)
         sh(repo, "checkout", "-q", "main")
 
     @classmethod
