@@ -1,0 +1,676 @@
+openapi: 3.1.0
+info:
+  title: Data-Pulse-2 — Console Sales by Store Read API
+  version: "1.0.0-draft"
+  description: >
+    Jira RT-1008 (owner decision RT-996 comment 14797, 2026-10-31): the
+    Admin-Console «Sales by store» report (Reports slice G9). One read-only
+    aggregate operation:
+
+      `consoleGetSalesByStore` — every store in the caller's scope over an
+      inclusive business-date range, ranked by received sales in one chosen
+      currency, with each store's share of the scope, average sale, best
+      day, dense per-day figures and the same figures over the equal-length
+      period just before the range.
+
+    Every figure, rank, share and ratio is computed by Backend-Core over
+    recorded facts. A client, and any model, presents the figures as given
+    and never sums, subtracts or divides them (AI-13; spec 009 §6.3 / AC-9).
+
+
+    **Posture.** `1.0.0-draft`, `x-runtime-status: contract-only`. `[GATED]`
+    contract approved by the owner on 2026-10-31 (RT-996 D-1, RT-1008). No
+    controller, guard wiring, service or query serves this path yet; the
+    runtime is a separate issue and removes only the operation's marker.
+
+
+    **Relation to `console-sales-summary.openapi.yaml` (RT-649).** That
+    operation (`consoleGetSalesSummary`) stays unchanged (D-1). This one is a
+    separate read so the summary keeps its shape. It reuses, by reference
+    and without restating a different rule, the summary's:
+
+      - **auth, guards and store scope** — the `cookieAuth` session only,
+        `SessionOnlyAdminGuard` → `TenantContextGuard` → `RolesGuard`, roles
+        `owner`, `tenant_admin`, `store_manager`, and the operator-surface
+        store scope of its `all_in_scope` mode, including inactive and
+        soft-deleted stores of a tenant-wide scope (D-6). A role outside the
+        list is the non-disclosing 404, for any input; there is no 403.
+      - **business date** — every bucket is a store business date in that
+        store's timezone, with the summary's per-fact rules (sales, voids
+        and returns on their own stored business date; legacy refunds by
+        `refunded_at` in the store's current IANA timezone).
+      - **completeness** — `completeness: received_only`: only the facts the
+        server had received and committed by `asOf`, from one consistent
+        database snapshot. A later read of the same range may be higher.
+      - **figures and money** — `receivedSales`, `voids`, `returns` and
+        `legacyRefunds` mean exactly what they mean there (gross POS totals,
+        never netted; legacy refunds beside returns, D-7); money is an
+        exact-decimal string with four fractional digits, split by currency
+        and never converted or added across currencies.
+      - **audit and error envelope** — one audit event per 200 only; the
+        canonical `{ error: { code, message, request_id } }` envelope; 429
+        `rate_limited` with `Retry-After`; `Cache-Control: no-store` on every
+        200.
+
+    The schemas `DecimalTotal`, `CurrencyCode`, `BusinessDate`, `Count`,
+    `CurrencyTotal`, `MoneyFacts` and `Error` are declared here identically
+    to that file (the contracts are self-contained files with no cross-file
+    `$ref`).
+
+
+    **Scope.** Always every store in the caller's scope; there is no
+    `store_id` and no paging (D-9). At most 500 stores: a larger scope is
+    400 `scope_too_large`, never truncated, checked after the guards and
+    before any figure is read. A caller whose scope holds no store gets a
+    200 with `storeCount: 0`, no stores, zero totals and `rankable: false`.
+    `storeStatus` reports each store as `active`, `inactive` (`is_active`
+    false) or `deleted` (soft-deleted; takes precedence).
+
+
+    **Range and baseline.** `from` and `to` are inclusive, `to >= from`, at
+    most 31 business days (`to - from <= 30`), as in the summary. The
+    baseline is ALWAYS the equal-length period immediately before the range
+    (D-2): `baseline.to = from - 1 day`, `baseline.from = from - dayCount
+    days`, `baseline.dayCount = to - from + 1`, for every preset. Its bounds
+    are returned for both `compare` values; with `compare=none` every
+    baseline figure (`baselineRank`, `ranking.baselineTotal`,
+    `ranking.deltaRatio`) is null and the baseline is not read.
+
+
+    **Day state (per store).** Each store's `ranking.days[]` is dense (one
+    entry per date from `from` to `to`, zero-filled) and each date carries a
+    `state` relative to THAT store's `currentBusinessDate` at `asOf`:
+    `complete` (an earlier date), `so_far` (the store's current business
+    date: received so far, the day is not over) or `not_begun` (a later
+    date; its figures are zero). A range with a `so_far` date is shown as
+    including days so far (D-2b); there is no time-of-day cut on the
+    baseline. There is no per-day unknown flag in v1 (D-3); the
+    `received_only` statement covers it.
+
+
+    **Ranking (D-4, D-5, D-6b).** The ranking currency is the required
+    `currency`. Stores are ranked by their gross received total in that
+    currency over the range, descending; ties by received count descending,
+    then `storeRef` ascending. Ranks are unique consecutive positions 1..n;
+    no two stores share a rank. A store with no received sale in that currency in the range is
+    unranked (`rank: null`) and listed after every ranked store, by
+    `storeRef` ascending. A scope of one store (or none) is `rankable:
+    false`: every `rank` and `baselineRank` is null. `baselineRank` applies
+    the same rule over the baseline period to the same stores; it is null
+    for a store unranked there. `storesWithoutSales` counts the unranked
+    stores.
+
+
+    **Ratios (D-10).** `share`, `averageSale` and `deltaRatio` are decimal
+    strings with exactly four fractional digits, rounded half-even from the
+    exact quotient, and null when the divisor is zero:
+
+      - `share` = store ranking total / scope ranking total (0..1).
+      - `averageSale` = store ranking total / store ranking count (money in
+        the ranking currency).
+      - `deltaRatio` = (ranking total - baseline total) / baseline total;
+        negative when the store sold less than in the baseline.
+
+    No return rate is computed (D-12): returns and sales are bucketed on
+    different dates, so they are not the same sales.
+
+
+    **Audit.** One `console_sales.by_store_read` event per authorized read,
+    emitted by the request audit interceptor after a 200 only, with `from`,
+    `to`, `currency`, `compare` and the number of stores returned in its
+    metadata; never a figure, a rank or a store name. Refusals (400 / 401 /
+    404 / 429) are not audited.
+
+
+    **Error envelope.** As in the summary. 400 `validation_error` (a
+    malformed, repeated or unknown query key — `store_id`, `cursor` and
+    `page_size` are unknown here —, a missing `from`, `to` or `currency`, a
+    date that is not a calendar date, `to` before `from`, a range wider than
+    31 business days, a `compare` outside its values) or 400
+    `scope_too_large` (more than 500 stores in scope); 401 unauthenticated;
+    404 non-disclosing not-found; 429 `rate_limited`; 500 internal.
+
+servers:
+  - url: https://api.example.com
+
+tags:
+  - name: console-sales
+    description: >
+      Console-facing reads of received sales (RT-561), their deterministic
+      summary (RT-649) and the sales-by-store ranking (RT-1008).
+
+security:
+  - cookieAuth: []
+
+paths:
+  /api/v1/sales-by-store:
+    get:
+      summary: Received sales per store, ranked in one currency, with the previous equal-length period.
+      operationId: consoleGetSalesByStore
+      x-audit-action: console_sales.by_store_read
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        Contract approved as a design boundary only (RT-996 D-1, RT-1008).
+        Backend-Core has no controller, service or query for this route yet;
+        the runtime issue removes this marker and adds
+        `console_sales.by_store_read` to the read action-kind registry.
+      tags: [console-sales]
+      description: >
+        Every store of the caller's scope (at most 500) over an inclusive
+        range of at most 31 business days, ranked by received sales in
+        `currency`, with per-currency facts, ratios, best day, dense per-day
+        figures and the baseline period. Read only; computed by the server
+        over the facts it had received by `asOf` (see the API description
+        for every rule).
+
+        Audit: one `console_sales.by_store_read` event per 200, with `from`,
+        `to`, `currency`, `compare` and the store count; no figure.
+      parameters:
+        - $ref: "#/components/parameters/BusinessDateFrom"
+        - $ref: "#/components/parameters/BusinessDateTo"
+        - $ref: "#/components/parameters/RankingCurrency"
+        - $ref: "#/components/parameters/Compare"
+      responses:
+        "200":
+          description: The sales-by-store report of the caller's scope and range.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleSalesByStore"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+      description: >
+        The human dashboard session cookie (httpOnly `dp2_session`), verified
+        by `SessionOnlyAdminGuard`. The only accepted credential on this
+        surface: without a valid session cookie, a machine bearer, a POS
+        `device` token or an `operatorAuthorization` envelope is rejected
+        (401). With a valid session cookie, the cookie authenticates the
+        request and any `Authorization` header is ignored (the repo-wide
+        `AuthGuard` rule). `RolesGuard` +
+        `@Roles("owner", "tenant_admin", "store_manager")` gate the route
+        (default deny → 404). 401 semantics are owned by 028 (G10).
+
+  headers:
+    CacheControlNoStore:
+      description: >
+        `no-store` on every 200: the body carries the tenant's commercial
+        figures, so no shared or browser cache keeps them.
+      required: true
+      schema:
+        type: string
+        const: no-store
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5). Its own bound, 1 to 3600.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+
+  parameters:
+    BusinessDateFrom:
+      name: from
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date
+      description: First business date of the range, inclusive, in each store's timezone.
+    BusinessDateTo:
+      name: to
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date
+      description: >
+        Last business date of the range, inclusive. `to >= from` and
+        `to - from <= 30` (31 business days), else 400 `validation_error`.
+        Never truncated.
+    RankingCurrency:
+      name: currency
+      in: query
+      required: true
+      schema:
+        type: string
+        pattern: '^[A-Z]{3}$'
+      description: >
+        The ranking currency (ISO-4217, upper case). Ranks, `share`,
+        `averageSale`, the baseline figures, `bestDay` and the per-store
+        `days[]` are in this currency only; the per-currency facts still
+        list every currency. A currency with no fact in scope is valid: every
+        store is then unranked.
+    Compare:
+      name: compare
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [previous_period, none]
+        default: previous_period
+      description: >
+        `previous_period` (default) reads the baseline period and fills the
+        baseline figures; `none` leaves them null. The baseline bounds are
+        returned either way.
+
+  schemas:
+    DecimalTotal:
+      type: string
+      pattern: '^[0-9]{1,19}\.[0-9]{4}$'
+      description: >
+        Exact-decimal non-negative sum as a string (never a float) at the
+        stored scale of four fractional digits, for example `"150.0000"`.
+    CurrencyCode:
+      type: string
+      pattern: '^[A-Z]{3}$'
+      description: ISO-4217 alphabetic currency code.
+    BusinessDate:
+      type: string
+      format: date
+      description: A store business date, `YYYY-MM-DD` in the store's timezone.
+    Count:
+      type: integer
+      minimum: 0
+      description: An exact count over received facts. Zero is a real zero, never an unknown.
+
+    CurrencyTotal:
+      type: object
+      additionalProperties: false
+      required: [currencyCode, count, total]
+      properties:
+        currencyCode:
+          $ref: "#/components/schemas/CurrencyCode"
+        count:
+          type: integer
+          minimum: 1
+          description: The facts in this currency (at least one, or the currency is absent).
+        total:
+          $ref: "#/components/schemas/DecimalTotal"
+
+    MoneyFacts:
+      type: object
+      additionalProperties: false
+      required: [count, byCurrency]
+      description: >
+        A counted money fact. `count` is the sum of `byCurrency[].count`;
+        `byCurrency` is ordered by `currencyCode` and empty when `count` is 0.
+        Totals are never added across currencies.
+      properties:
+        count:
+          $ref: "#/components/schemas/Count"
+        byCurrency:
+          type: array
+          items:
+            $ref: "#/components/schemas/CurrencyTotal"
+
+    ShareRatio:
+      type: [string, "null"]
+      pattern: '^(0\.[0-9]{4}|1\.0000)$'
+      description: >
+        A share between `"0.0000"` and `"1.0000"`, four fractional digits,
+        rounded half-even; null when the divisor is zero.
+    SignedRatio:
+      type: [string, "null"]
+      pattern: '^-?[0-9]{1,19}\.[0-9]{4}$'
+      description: >
+        A signed ratio, four fractional digits, rounded half-even (`"-0.2500"`
+        is a 25 % fall); null when the divisor is zero or the baseline was
+        not read. Never `"-0.0000"`.
+    DecimalQuotient:
+      type: [string, "null"]
+      pattern: '^[0-9]{1,19}\.[0-9]{4}$'
+      description: >
+        A non-negative money quotient in the ranking currency, four
+        fractional digits, rounded half-even; null when the divisor is zero.
+
+    StoreFacts:
+      type: object
+      additionalProperties: false
+      required: [receivedSales, returns, voids, legacyRefunds]
+      description: >
+        Received facts over the whole range, per currency, with the summary's
+        meaning (RT-649). Each fact on its own business date; nothing netted.
+      properties:
+        receivedSales:
+          $ref: "#/components/schemas/MoneyFacts"
+        returns:
+          $ref: "#/components/schemas/MoneyFacts"
+        voids:
+          $ref: "#/components/schemas/MoneyFacts"
+        legacyRefunds:
+          $ref: "#/components/schemas/MoneyFacts"
+
+    StoreDay:
+      type: object
+      additionalProperties: false
+      required: [businessDate, state, count, total]
+      description: One business date of a store, received sales in the ranking currency.
+      properties:
+        businessDate:
+          $ref: "#/components/schemas/BusinessDate"
+        state:
+          type: string
+          enum: [complete, so_far, not_begun]
+          description: >
+            Relative to the store's `currentBusinessDate` at `asOf`: an
+            earlier date is `complete`, that date is `so_far`, a later date is
+            `not_begun` (zero figures).
+        count:
+          $ref: "#/components/schemas/Count"
+        total:
+          $ref: "#/components/schemas/DecimalTotal"
+
+    BestDay:
+      type: [object, "null"]
+      additionalProperties: false
+      required: [businessDate, total]
+      description: >
+        The range date with the highest received total in the ranking
+        currency (earliest date on a tie); null when the store has no
+        received sale in that currency in the range.
+      properties:
+        businessDate:
+          $ref: "#/components/schemas/BusinessDate"
+        total:
+          $ref: "#/components/schemas/DecimalTotal"
+
+    StoreRanking:
+      type: object
+      additionalProperties: false
+      required: [total, count, share, averageSale, baselineTotal, deltaRatio, bestDay, days]
+      description: The store's received sales in the ranking currency.
+      properties:
+        total:
+          $ref: "#/components/schemas/DecimalTotal"
+        count:
+          $ref: "#/components/schemas/Count"
+        share:
+          $ref: "#/components/schemas/ShareRatio"
+        averageSale:
+          $ref: "#/components/schemas/DecimalQuotient"
+        baselineTotal:
+          type: [string, "null"]
+          pattern: '^[0-9]{1,19}\.[0-9]{4}$'
+          description: >
+            Received total in the ranking currency over the baseline period;
+            null with `compare=none`. `"0.0000"` is a real zero.
+        deltaRatio:
+          $ref: "#/components/schemas/SignedRatio"
+        bestDay:
+          $ref: "#/components/schemas/BestDay"
+        days:
+          type: array
+          minItems: 1
+          maxItems: 31
+          description: One entry per business date from `from` to `to`, ascending, zero-filled.
+          items:
+            $ref: "#/components/schemas/StoreDay"
+
+    StoreSalesByStore:
+      type: object
+      additionalProperties: false
+      required:
+        - storeRef
+        - storeName
+        - storeStatus
+        - storeTimezone
+        - currentBusinessDate
+        - rank
+        - baselineRank
+        - facts
+        - ranking
+      properties:
+        storeRef:
+          type: string
+          format: uuid
+        storeName:
+          type: string
+          minLength: 1
+          description: The store's current name (D-8), also for an inactive or deleted store.
+        storeStatus:
+          type: string
+          enum: [active, inactive, deleted]
+          description: "`deleted` (soft-deleted) takes precedence over `inactive`."
+        storeTimezone:
+          type: string
+          minLength: 1
+          description: >
+            The store's current IANA timezone (`stores.timezone`, `UTC` until
+            configured): the zone of `currentBusinessDate` and of the legacy
+            refund buckets.
+        currentBusinessDate:
+          $ref: "#/components/schemas/BusinessDate"
+        rank:
+          type: [integer, "null"]
+          minimum: 1
+          description: Position 1..n in the ranking currency; null when unranked or not `rankable`.
+        baselineRank:
+          type: [integer, "null"]
+          minimum: 1
+          description: >
+            The same rule over the baseline period; null when unranked there,
+            with `compare=none`, or when not `rankable`.
+        facts:
+          $ref: "#/components/schemas/StoreFacts"
+        ranking:
+          $ref: "#/components/schemas/StoreRanking"
+
+    Baseline:
+      type: object
+      additionalProperties: false
+      required: [rule, from, to, dayCount]
+      description: The equal-length period immediately before the range (D-2); always present.
+      properties:
+        rule:
+          type: string
+          const: previous_equal_length
+        from:
+          $ref: "#/components/schemas/BusinessDate"
+        to:
+          $ref: "#/components/schemas/BusinessDate"
+        dayCount:
+          type: integer
+          minimum: 1
+          maximum: 31
+
+    ScopeDay:
+      type: object
+      additionalProperties: false
+      required: [businessDate, facts]
+      description: >
+        One business date over every store of the scope: each store's facts
+        of that store-local business date, added by the server per currency.
+      properties:
+        businessDate:
+          $ref: "#/components/schemas/BusinessDate"
+        facts:
+          $ref: "#/components/schemas/StoreFacts"
+
+    ConsoleSalesByStore:
+      type: object
+      additionalProperties: false
+      required:
+        - from
+        - to
+        - currency
+        - compare
+        - asOf
+        - completeness
+        - baseline
+        - rankable
+        - storeCount
+        - storesWithoutSales
+        - rangeTotals
+        - days
+        - stores
+      properties:
+        from:
+          $ref: "#/components/schemas/BusinessDate"
+        to:
+          $ref: "#/components/schemas/BusinessDate"
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        compare:
+          type: string
+          enum: [previous_period, none]
+        asOf:
+          type: string
+          format: date-time
+          description: >
+            Server time after the read's snapshot: every figure covers the
+            facts received and committed by then, and no fact still queued on
+            a terminal.
+        completeness:
+          type: string
+          const: received_only
+          description: >
+            Always `received_only`: the figures exclude everything still
+            queued on a terminal, so they are never presented as complete.
+        baseline:
+          $ref: "#/components/schemas/Baseline"
+        rankable:
+          type: boolean
+          description: False when the scope holds fewer than two stores (D-6b); every rank is then null.
+        storeCount:
+          type: integer
+          minimum: 0
+          maximum: 500
+          description: Every store of the scope, including inactive and deleted ones; equals `stores` length.
+        storesWithoutSales:
+          type: integer
+          minimum: 0
+          maximum: 500
+          description: Stores with no received sale in the ranking currency in the range (the unranked stores).
+        rangeTotals:
+          $ref: "#/components/schemas/StoreFacts"
+        days:
+          type: array
+          minItems: 1
+          maxItems: 31
+          description: >
+            Scope totals per business date from `from` to `to`, ascending,
+            zero-filled (also when `storeCount` is 0).
+          items:
+            $ref: "#/components/schemas/ScopeDay"
+        stores:
+          type: array
+          maxItems: 500
+          description: >
+            Every store of the scope: ranked stores by `rank` ascending, then
+            the unranked stores by `storeRef` ascending.
+          items:
+            $ref: "#/components/schemas/StoreSalesByStore"
+
+    Error:
+      type: object
+      required: [error]
+      description: >
+        Canonical error envelope. Out-of-scope and cross-tenant refusals are
+        non-disclosing (§II, §XII): they never name the cause.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id; the cause is recorded server-side.
+
+  responses:
+    ValidationFailure:
+      description: >
+        validation_error (400): a malformed query value, an unknown query key
+        (including `store_id`, `cursor` and `page_size`), a query key given
+        more than once, a missing `from`, `to` or `currency`, a date that is
+        not a calendar date (`2026-02-30`), `to` before `from`, a range wider
+        than 31 business days, or a `compare` outside its values. Or
+        scope_too_large (400): the caller's scope holds more than 500 stores;
+        nothing is truncated. Checked after the guards and before any figure
+        is read.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: >
+        Unauthenticated (401): a missing or invalid session cookie, or a
+        non-cookie credential without a valid session cookie.
+        Non-disclosing. Owned by 028 (G10).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: >
+        not_found (404), non-disclosing: a role outside `owner` /
+        `tenant_admin` / `store_manager`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SystemFailure:
+      description: >
+        system_failure (500): unexpected server error; the cause is recorded
+        server-side under `request_id`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this
+        class of operation is spent. The body is the canonical error
+        envelope with a non-disclosing message (no budget, class or window);
+        its `request_id` equals the `X-Request-Id` response header. Honour
+        `Retry-After`. A 429 is not a 401: it never means the session ended.
+        The console limit is server-configured and may not be enforced, so a
+        client must handle a 429 but must not expect one.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body: the
+            inbound `X-Request-Id` when it is a well-formed UUID, otherwise a
+            server-minted one.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
