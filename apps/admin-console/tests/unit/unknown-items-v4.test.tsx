@@ -88,14 +88,33 @@ describe("Unknown items v4.0 band and drawer header", () => {
     );
   });
 
-  test("the states and the table sit in one results panel below the band and the filters", async () => {
+  test("the band, then the filters, then one results panel holding the bulk bar and the table", async () => {
     listUnknownItems.mockResolvedValue({ status: 200, data: { items: [ITEM], next_cursor: null } });
     renderList();
-    const container = document.body;
     await screen.findByText("5012345678900");
-    const panel = container.querySelector(".unknown-results") as HTMLElement;
+    const band = document.querySelector(".list-band") as HTMLElement;
+    const filters = screen.getByRole("form", { name: "Queue filters" });
+    const panel = document.querySelector(".unknown-results") as HTMLElement;
+    const follows = (a: Node, b: Node) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(band, filters)).toBe(true);
+    expect(follows(filters, panel)).toBe(true);
     expect(panel.querySelector("table")).not.toBeNull();
+    expect(panel.querySelector(".unknown-item-bulk")).not.toBeNull();
     expect(panel.querySelector(".list-band")).toBeNull();
+    // The panel's wash is only for an active selection: the bar starts plain.
+    expect(panel.querySelector('.data-table__selection[data-active="true"]')).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select 5012345678900" }));
+    await waitFor(() =>
+      expect(panel.querySelector('.data-table__selection[data-active="true"]')).not.toBeNull(),
+    );
+  });
+
+  test("an empty queue's state sits inside the results panel", async () => {
+    listUnknownItems.mockResolvedValue({ status: 200, data: { items: [], next_cursor: null } });
+    renderList();
+    const empty = await screen.findByText(/no unknown items to review/i);
+    expect((document.querySelector(".unknown-results") as HTMLElement).contains(empty)).toBe(true);
   });
 
   test("a load failure stays a banner and the results panel is not drawn", async () => {
@@ -121,5 +140,22 @@ describe("Unknown items v4.0 band and drawer header", () => {
     for (const name of ["Create product", "Link to a product", "Dismiss"]) {
       expect(within(drawer).getByRole("button", { name })).toBeDefined();
     }
+  });
+
+  test.each([
+    ["resolved", "Resolved", "badge--success"],
+    ["dismissed", "Dismissed", null],
+  ])("the drawer's %s status pill reads %s with its colour role", async (status, label, role) => {
+    listUnknownItems.mockResolvedValue({ status: 200, data: { items: [ITEM], next_cursor: null } });
+    inspectUnknownItem.mockResolvedValue({
+      status: 200,
+      data: { ...ITEM, resolution_status: status },
+    });
+    renderList();
+    fireEvent.click(await screen.findByRole("button", { name: "Open 5012345678900" }));
+    const drawer = await screen.findByRole("dialog", { name: "Unknown item" });
+    await waitFor(() => expect(drawer.querySelector(".badge")?.textContent).toBe(label));
+    const badge = drawer.querySelector(".badge") as HTMLElement;
+    expect(badge.className).toBe(role ? `badge ${role}` : "badge");
   });
 });

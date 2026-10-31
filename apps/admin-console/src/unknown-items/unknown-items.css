@@ -91,7 +91,7 @@
 /* The results: one panel holding every state, the bulk bar and the table. The
  * rows open the drawer and, on the pending queue, are selectable, so they keep
  * the ruled rows of a selectable table (§12.5). */
-.unknown-results {
+.surface--v4 .unknown-results {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -129,8 +129,10 @@
   white-space: nowrap;
 }
 
-/* The bulk bar sits in the panel as a teal-washed dock (selection stays Teal). */
-.unknown-results > .unknown-item-bulk {
+/* While rows are selected the bulk bar is a teal-washed dock (selection stays
+ * Teal); with nothing selected it stays plain, so the wash never reads as a
+ * selection that was not made. */
+.unknown-results > .unknown-item-bulk:has(.data-table__selection[data-active="true"]) {
   padding: var(--space-3) var(--space-4);
   border-radius: 14px;
   background: var(--color-primary-soft);
@@ -158,10 +160,10 @@
 
 /* Forced colours: no shadow or tints; system colours carry the split. */
 @media (forced-colors: active) {
-  .unknown-results {
+  .surface--v4 .unknown-results {
     box-shadow: none;
   }
-  .unknown-results > .unknown-item-bulk {
+  .unknown-results > .unknown-item-bulk:has(.data-table__selection[data-active="true"]) {
     border: 1px solid CanvasText;
     background: Canvas;
   }
