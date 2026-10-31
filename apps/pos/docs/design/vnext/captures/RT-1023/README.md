@@ -40,3 +40,6 @@ CHROMIUM="C:/Program Files/Google/Chrome/Application/chrome.exe" node docs/desig
 
 `STATES=<comma list>` limits which states run. Without `CHROMIUM`, the script uses Playwright's
 own browser.
+
+The script exits non-zero and prints each failing capture when any check fails. The baseline has
+no labels, so for a `before` run, set `EXPECT_LABELS=0`.

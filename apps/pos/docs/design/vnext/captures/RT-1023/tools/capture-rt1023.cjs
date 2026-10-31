@@ -14,6 +14,28 @@ const [outDir, prefix = 'rt1023', base = 'http://localhost:5173'] = process.argv
 const SIZES = { 1024: 768, 1280: 800 };
 const STATES = (process.env.STATES || 'Connected,Checking,Offline,Attention,PrinterFailed,AllRows').split(',');
 const ROUTES = { sale: '/app/cart', dashboard: '/app/dashboard' };
+// The baseline (before RT-1023) has no labels: run it with EXPECT_LABELS=0.
+const EXPECT_LABELS = process.env.EXPECT_LABELS !== '0';
+
+/** Why a capture fails its checks; empty when it passes. */
+function failures(c, axe, errors) {
+  const out = [];
+  if (axe.length > 0) out.push(`axe: ${axe.join(', ')}`);
+  if (!c.inView) out.push('footer out of view');
+  if (!c.inNav) out.push('footer outside the rail');
+  if (c.navScrolls) out.push('rail scrolls');
+  if (c.small > 0) out.push(`${c.small} text node(s) under 12px`);
+  if (c.overflowX) out.push('horizontal overflow');
+  if (errors.length > 0) out.push(`page errors: ${errors.join(' | ')}`);
+  if (c.rows.length === 0) out.push('no status rows');
+  for (const r of c.rows) {
+    if (r.row === 'printer' && r.height < 44) out.push(`printer row ${r.height}px < 44px`);
+    if (!EXPECT_LABELS) continue;
+    if (r.label === null) out.push(`${r.row}: no visible label`);
+    else if (r.labelPx !== 12 || r.labelClipped || !r.labelInRow) out.push(`${r.row}: label does not fit`);
+  }
+  return out;
+}
 
 function checks() {
   const ind = document.querySelector('[data-testid=v5-status-indicator]');
@@ -72,7 +94,8 @@ function checks() {
               .violations.map((v) => `${v.id}(${v.nodes.length})`));
           }
           const c = await page.evaluate(checks);
-          log.push({ state, where, width: +w, mode, file, axe, ...c, errors });
+          const failed = failures(c, axe, errors);
+          log.push({ state, where, width: +w, mode, file, axe, ...c, errors, failed });
           console.log(state, where, w, mode, JSON.stringify({ axe, labels: c.rows.map((x) => x.label), v: c.inView, n: c.inNav, sc: c.navScrolls, s: c.small, x: c.overflowX, clip: c.rows.some((x) => x.labelClipped), e: errors }));
           await page.close();
         }
@@ -81,4 +104,8 @@ function checks() {
   }
   fs.writeFileSync(path.join(outDir, `${prefix}-capture-log.json`), `${JSON.stringify(log, null, 2)}\n`);
   await browser.close();
+  const bad = log.filter((x) => x.failed.length > 0);
+  for (const x of bad) console.error('FAIL', x.file, x.failed.join('; '));
+  console.log(`${log.length - bad.length}/${log.length} captures pass`);
+  if (bad.length > 0) process.exit(1);
 })().catch((e) => { console.error(e); process.exit(1); });
