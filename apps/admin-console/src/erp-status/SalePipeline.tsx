@@ -52,7 +52,7 @@ export function SalePipeline({
     <>
       {[...new Set(down.map((row) => envKey(row.instance.environment)))].map((key, i) => (
         <span key={key}>
-          {i > 0 ? "، " : null}
+          {i > 0 ? t("erp.pipeline.listSeparator") : null}
           {t(key)}
         </span>
       ))}

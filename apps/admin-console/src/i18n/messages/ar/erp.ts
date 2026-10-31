@@ -92,6 +92,7 @@ export const erp = {
   "erp.domainStatus.unknown": "حالة غير معروفة",
 
   // --- Sale pipeline (RT-1011): each node states its fact in words --------------------
+  "erp.pipeline.listSeparator": "، ",
   "erp.pipeline.pos.notRead": "حالة الأجهزة لا تُقرأ في هذه الصفحة",
   "erp.pipeline.server.noCount": "لا يُقرأ هنا عدّ للمبيعات المتزامنة · {link}",
   "erp.pipeline.server.repairLink": "فتح المبيعات التي تحتاج إلى إصلاح",
@@ -101,7 +102,7 @@ export const erp = {
   "erp.pipeline.erp.unavailable": "لم تُقرأ حالة الترحيل",
   "erp.pipeline.erp.unreachable": "لا يصل · حسب تقرير الموصل",
   "erp.linkDown.note":
-    "البيع مستمر والمبيعات محفوظة في الخادم. يتوقف الترحيل إلى ERPNext فقط حتى يعود الاتصال.",
+    "المبيعات محفوظة في الخادم. ينتظر الترحيل إلى ERPNext حتى يعود الاتصال.",
 
   // --- Posting backlog (C3) -------------------------------------------------------------
   "erp.backlog.title": "الترحيلات المرفوضة نهائيًا",

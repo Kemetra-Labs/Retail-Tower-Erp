@@ -180,7 +180,11 @@ export function useConnections(query: ErpQuery): ConnectionsState {
     rows: joinConnections(instances.data?.items ?? [], healthFailed ? undefined : health.data),
     healthFailed,
     // The pills come from C2, so "last read" is the older of the two reads.
-    asOf: oldestRead([panel.asOf, healthFailed ? undefined : healthPanel.asOf]),
+    // With no instances read on screen there is no connection table to date.
+    asOf:
+      panel.asOf === undefined
+        ? undefined
+        : oldestRead([panel.asOf, healthFailed ? undefined : healthPanel.asOf]),
     retry: () => {
       void instances.refetch();
       void health.refetch();

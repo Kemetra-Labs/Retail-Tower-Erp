@@ -570,7 +570,7 @@ describe("sale pipeline and sections (RT-1011)", () => {
     const erp = within(rail).getAllByRole("listitem")[2];
     expect(within(erp).getByText(/Pilot/)).toBeDefined();
     expect(within(erp).getByText(/Reported/)).toBeDefined();
-    expect(screen.getByText(/Selling continues and sales are saved on the server/)).toBeDefined();
+    expect(screen.getByText(/Sales are saved on the server/)).toBeDefined();
   });
 
   test("a stale connector's old 'false' shows no fault and no reassurance", async () => {
@@ -594,14 +594,14 @@ describe("sale pipeline and sections (RT-1011)", () => {
     await screen.findByText("Cairo ERP");
     await waitFor(() => expect(within(rail).getByText("Nothing needs attention")).toBeDefined());
     expect(within(rail).queryByText(/Not reachable/)).toBeNull();
-    expect(screen.queryByText(/Selling continues/)).toBeNull();
+    expect(screen.queryByText(/Sales are saved on the server/)).toBeNull();
   });
 
   test("with no connector report of a fault, no reassurance is shown", async () => {
     renderPage();
     await screen.findByRole("group", { name: "Sale pipeline" });
     await screen.findByText("Cairo ERP");
-    expect(screen.queryByText(/Selling continues/)).toBeNull();
+    expect(screen.queryByText(/Sales are saved on the server/)).toBeNull();
   });
 
   test("no registered connector: the ERPNext node is not a green posting status", async () => {
@@ -630,6 +630,40 @@ describe("sale pipeline and sections (RT-1011)", () => {
     const band = screen.getByRole("heading", { level: 1 }).closest("header") as HTMLElement;
     expect(within(band).getByText(/Northstar Retail/)).toBeDefined();
     await waitFor(() => expect(within(band).getByText(/Last read:/)).toBeDefined());
+  });
+
+  test("an unread connection table keeps the band from claiming a last read", async () => {
+    api.tenantAdminListConnectorInstances.mockResolvedValue(failure(500));
+    renderPage();
+    await within(panel(/connector connection/i)).findByText(/couldn't load/i);
+    await within(panel(/permanently rejected postings/i)).findByText(
+      "No permanently rejected postings.",
+    );
+    const band = screen.getByRole("heading", { level: 1 }).closest("header") as HTMLElement;
+    expect(within(band).queryByText(/Last read:/)).toBeNull();
+  });
+
+  test("two faulting environments are joined with the locale's own separator", async () => {
+    api.tenantAdminListConnectorInstances.mockResolvedValue(
+      ok({
+        items: [
+          instance({ id: INSTANCE_A, display_name: "Cairo ERP", environment: "pilot" }),
+          instance({ id: INSTANCE_B, display_name: "Giza ERP", environment: "prod" }),
+        ],
+      }),
+    );
+    api.listConnectorHealth.mockResolvedValue(
+      ok({
+        items: [
+          healthView({ connectorId: INSTANCE_A, ...live, erpnextReachable: false }),
+          healthView({ connectorId: INSTANCE_B, ...live, erpnextReachable: false }),
+        ],
+      }),
+    );
+    renderPage();
+    const rail = await screen.findByRole("group", { name: "Sale pipeline" });
+    await waitFor(() => expect(rail.textContent ?? "").toMatch(/Pilot, Production/));
+    expect(rail.textContent ?? "").not.toContain("\u060C");
   });
 
   test("a panel with nothing loaded keeps the band from claiming a last read", async () => {
