@@ -20,28 +20,27 @@
  * RT-963: the header also names the document («<page> – <app>», WCAG 2.4.2)
  * and, after a navigation to another path, moves focus to its `<h1>`, so a
  * screen reader starts on the new page (scope changes and the first load
- * leave focus where it is).
+ * leave focus where it is; RT-978: navigations are recorded by `RouteEffects`).
  * The header keeps the classes earlier screens style against (`surface__head`,
  * `content__title`, `content__sub`).
  */
 import { composeDocumentTitle, useT } from "@/i18n";
+import { takeNavigationFocus } from "@/shell/route-transition";
 import { useEffect, useRef } from "react";
 import "@/shell/surface.css";
 import "./page-header.css";
 
-/** The path the last page header was shown for; null before the first page. */
-let shownPath: string | null = null;
-
-/** Names the document after the page, and moves focus to its title on a navigation. */
+/**
+ * Names the document after the page, and moves focus to its title when the
+ * router root saw a navigation (RT-978: `RouteEffects` records every path
+ * change, including routes without a header, so a return from sign-in to the
+ * same path counts and a scope-change remount does not).
+ */
 function usePageTitle(title: React.RefObject<HTMLHeadingElement | null>): void {
   const t = useT();
   useEffect(() => {
     document.title = composeDocumentTitle(t("app.title"));
-    const path = window.location.pathname;
-    if (path === shownPath) return;
-    const navigated = shownPath !== null;
-    shownPath = path;
-    if (navigated) title.current?.focus();
+    if (takeNavigationFocus()) title.current?.focus();
   });
 }
 

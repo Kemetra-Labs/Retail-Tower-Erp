@@ -40,6 +40,25 @@ describe("Banner", () => {
       await waitFor(() => expect(status.textContent).toContain("Notice."));
     },
   );
+
+  // RT-978: a banner that stays mounted while its severity moves from alert to
+  // status (a stale snapshot becoming «no warehouse mapping») is a new status
+  // region: its text must land after the empty first commit as well.
+  test("a banner that moves from warning to info refills its status region after an empty commit", async () => {
+    const { rerender } = render(<Banner variant="warning" message="Stale." />);
+    expect(screen.getByRole("alert").textContent).toContain("Stale.");
+    rerender(<Banner variant="info" message="Not mapped." />);
+    const status = screen.getByRole("status");
+    expect(status.textContent).toBe("");
+    await waitFor(() => expect(status.textContent).toContain("Not mapped."));
+  });
+
+  test("a banner that moves from info to danger is an alert populated at once", async () => {
+    const { rerender } = render(<Banner variant="info" message="Fine." />);
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Fine."));
+    rerender(<Banner variant="danger" message="Broken." />);
+    expect(screen.getByRole("alert").textContent).toContain("Broken.");
+  });
 });
 
 describe("InlineError", () => {
