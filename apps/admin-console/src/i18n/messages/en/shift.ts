@@ -33,6 +33,15 @@ export const shift: MessagesOf<typeof ar> = {
   "shift.list.col.approver": "Recorded approver",
   "shift.list.unknownStore": "Unknown store",
 
+  // --- v4.0 band and formula strip (RT-1015) ---------------------------------
+  "shift.band.label": "List scope",
+  "shift.band.period": "Period",
+  "shift.band.periodFrom": "From {date}",
+  "shift.band.periodTo": "Until {date}",
+  "shift.band.zone": "Dates time zone",
+  "shift.formula.lead": "Only closes with a non-zero variance are listed.",
+  "shift.formula.aria": "Variance = counted cash − expected cash",
+
   // --- Filters -------------------------------------------------------------
   "shift.filter.label": "Filter shift closes",
   "shift.filter.store": "Store",
@@ -71,6 +80,11 @@ export const shift: MessagesOf<typeof ar> = {
   "shift.detail.loadFailed": "This shift close could not be loaded.",
   "shift.detail.retry": "Retry",
   "shift.detail.zoneNote": "Times are in {zone}.",
+  "shift.detail.cashServed": "As recorded by the server",
+  "shift.timebar.label": "Opened {opened}, closed {closed}, recorded on the server {received}",
+  "shift.timebar.duration": "Shift duration",
+  "shift.timebar.durationJoin": "{hours} and {minutes}",
+  "shift.timebar.legend": "The white mark is when the server recorded the close.",
   "shift.detail.section.summary": "Shift summary",
   "shift.detail.section.cash": "Cash reconciliation",
   "shift.detail.section.approval": "Variance approval",

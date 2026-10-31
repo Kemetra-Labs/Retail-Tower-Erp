@@ -67,6 +67,14 @@ function paragraph(text: string): HTMLElement {
   return screen.getByText((_, el) => el?.tagName === "P" && el.textContent === text);
 }
 
+/** The band's facts list: a described list named by its scope label. */
+function bandFacts(): HTMLElement {
+  const facts = document.querySelector<HTMLElement>(".list-band__facts");
+  if (!facts) throw new Error("no band facts");
+  expect(facts.getAttribute("aria-label")).toBe("List scope");
+  return facts;
+}
+
 function row(name: string | RegExp): HTMLElement {
   return screen.getByRole("row", { name });
 }
@@ -382,5 +390,95 @@ describe("ShiftCloseList (RT-18)", () => {
     await tableReady();
     const names = screen.getAllByRole("button").map((b) => b.textContent ?? "");
     expect(names.join("|")).not.toMatch(/approve|accept|resolve|edit|delete|save/i);
+  });
+
+  test("RT-1015: the band shows scope and period only, from the applied filters, never a count", async () => {
+    renderList(`/shift-closes?store=${DUBAI_STORE}&from=2026-10-01&to=2026-10-07&min=10.00`);
+    await tableReady();
+    const band = bandFacts();
+    expect(within(band).getByText("Period")).toBeDefined();
+    expect(within(band).getByText("2026-10-01 → 2026-10-07")).toBeDefined();
+    expect(within(band).getByText("Dates time zone")).toBeDefined();
+    expect(within(band).getByText("Asia/Dubai")).toBeDefined();
+    expect(within(band).getByText("Minimum absolute variance")).toBeDefined();
+    expect(within(band).getByText("10.00")).toBeDefined();
+    // The page serves no total: nothing in the band counts rows.
+    expect(band.textContent).not.toMatch(/loaded|total/i);
+  });
+
+  test("RT-1015: with no filter applied the band has no facts", async () => {
+    renderList();
+    await tableReady();
+    expect(document.querySelector(".list-band__facts")).toBeNull();
+    expect(screen.getByRole("heading", { level: 1, name: "Shift closes" })).toBeDefined();
+  });
+
+  test("RT-1015: an open-ended period is worded, and the zone waits for the store roster", async () => {
+    renderList("/shift-closes?from=2026-10-01");
+    await tableReady();
+    const band = bandFacts();
+    expect(within(band).getByText("2026-10-01").closest("div")?.textContent).toContain(
+      "From 2026-10-01",
+    );
+    expect(within(band).getByText("UTC")).toBeDefined();
+  });
+
+  test("RT-1015: the variance formula is stated in words and as one labelled formula", async () => {
+    renderList();
+    await tableReady();
+    expect(screen.getByText("Only closes with a non-zero variance are listed.")).toBeDefined();
+    expect(
+      screen.getByRole("img", { name: "Variance = counted cash − expected cash" }),
+    ).toBeDefined();
+  });
+
+  test("RT-1015: direction is words and a sign beside a mark that has no length", async () => {
+    consoleListShiftCloses.mockResolvedValue(
+      page([
+        summary({ shiftId: SHIFT_1, variance: "-40.0000", countedCash: "2810.0000" }),
+        summary({ shiftId: SHIFT_2 }),
+      ]),
+    );
+    renderList();
+    await tableReady();
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(within(rows[0]).getByText("-40.00 EGP")).toBeDefined();
+    expect(within(rows[0]).getByText("Short")).toBeDefined();
+    expect(within(rows[1]).getByText("+25.00 EGP")).toBeDefined();
+    expect(within(rows[1]).getByText("Over")).toBeDefined();
+    const marks = [...document.querySelectorAll(".shift-results .shift-vbar")];
+    expect(marks.map((m) => m.className)).toEqual([
+      "shift-vbar shift-vbar--short",
+      "shift-vbar shift-vbar--over",
+    ]);
+    for (const mark of marks) expect(mark.getAttribute("aria-hidden")).toBe("true");
+    // No inline size or colour: the mark never encodes a magnitude.
+    for (const mark of marks) expect(mark.getAttribute("style")).toBeNull();
+  });
+
+  test("RT-1015: a forced close is a pill with its word; every result state is in one panel", async () => {
+    consoleListShiftCloses.mockResolvedValue(
+      page([summary({ closeKind: "forced", forcedReason: "left open" })]),
+    );
+    renderList();
+    await tableReady();
+    const pill = within(screen.getByRole("table")).getByText("Forced close");
+    expect(pill.className).toContain("shift-kind");
+    expect(pill.closest(".shift-results")).not.toBeNull();
+    expect(document.querySelectorAll(".shift-results")).toHaveLength(1);
+  });
+
+  test("RT-1015: the 404 state is an empty state in the panel, not a banner", async () => {
+    consoleListShiftCloses.mockResolvedValue(failure(404));
+    renderList();
+    const message = await screen.findByText("Shift closes are not available to you.");
+    expect(message.closest(".shift-results")).not.toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  test("RT-1015: the list is one panel, so it carries no section index", async () => {
+    renderList();
+    await tableReady();
+    expect(document.querySelector(".section-index")).toBeNull();
   });
 });
