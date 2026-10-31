@@ -29,8 +29,9 @@ const LABELS: Record<FlowAction, MessageKey> = {
 
 export function DeviceActions({
   device,
+  storeName,
   timeZone,
-}: Readonly<{ device: DeviceDetail; timeZone?: string }>): React.JSX.Element {
+}: Readonly<{ device: DeviceDetail; storeName?: string; timeZone?: string }>): React.JSX.Element {
   const t = useT();
   const [open, setOpen] = useState<FlowAction | null>(null);
   const region = useRef<HTMLElement>(null);
@@ -80,6 +81,7 @@ export function DeviceActions({
           key={open}
           action={open}
           device={device}
+          storeName={storeName}
           timeZone={timeZone}
           onClose={() => setOpen(null)}
           onSwitch={setOpen}
