@@ -74,7 +74,7 @@ function DeviceHeading({ device, storeName, timeZone }: Readonly<LoadedProps>): 
           {t.rich("devices.detail.zoneNote", { zone: <bdi dir="ltr">{timeZone ?? "UTC"}</bdi> })}
         </>
       }
-      actions={<DeviceActions device={device} timeZone={timeZone} />}
+      actions={<DeviceActions device={device} storeName={storeName} timeZone={timeZone} />}
     >
       <HeaderStatus label={t("devices.field.trust")}>
         <TrustBadge trustState={device.trustState} />
@@ -95,7 +95,7 @@ function Loaded(props: Readonly<LoadedProps>): React.JSX.Element {
     setSearch(next === "overview" ? {} : { tab: next }, { replace: true, state: location.state });
 
   return (
-    <div className="surface">
+    <div className="surface device-surface">
       <BackToDevices />
       <DeviceHeading {...props} />
       {device.custodyExceptionShiftId ? (

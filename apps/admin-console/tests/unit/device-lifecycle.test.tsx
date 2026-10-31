@@ -790,3 +790,30 @@ describe("review fixes (RT-372)", () => {
     expect(within(dialog()).queryByRole("button", { name: "Retire device" })).toBeNull();
   });
 });
+
+describe("RT-1013: the drawer's scope line and step indicator", () => {
+  beforeEach(resetMocks);
+
+  test("the Ink head names the device and its store; the dialog keeps its title as its name", async () => {
+    await openRevoke();
+    await within(dialog()).findByText("Dubai Mall");
+    const head = dialog().querySelector(".drawer__scope");
+    expect(head?.textContent).toBe("Till 1 · Dubai Mall");
+    expect(screen.getByRole("dialog", { name: "Revoke device" })).toBeDefined();
+  });
+
+  test("the steps name where the flow is with aria-current, and move with it", async () => {
+    consoleGetDeviceImpact.mockResolvedValue({ status: 200, data: impact() });
+    await openRevoke();
+    const steps = () => within(dialog()).getByRole("list", { name: "Steps" });
+    const current = () =>
+      within(steps())
+        .getAllByRole("listitem")
+        .filter((li) => li.getAttribute("aria-current") === "step")
+        .map((li) => li.textContent);
+    expect(current()).toEqual(["1Details"]);
+    await chooseReason("Lost");
+    await within(dialog()).findByText("Allowed by the server.");
+    expect(current()).toEqual(["2Impact"]);
+  });
+});

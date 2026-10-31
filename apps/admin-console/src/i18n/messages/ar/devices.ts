@@ -138,6 +138,10 @@ export const devices = {
   "devices.flow.review": "مراجعة الأثر",
   "devices.flow.back": "رجوع",
   "devices.flow.done": "تم",
+  "devices.flow.steps": "الخطوات",
+  "devices.flow.step.details": "التفاصيل",
+  "devices.flow.step.review": "الأثر",
+  "devices.flow.step.done": "النتيجة",
   "devices.flow.checking": "جارٍ سؤال الخادم عمّا سيحدث…",
   "devices.flow.error.notFound": "هذا الجهاز لم يعد متاحًا لك.",
   "devices.flow.error.generic":

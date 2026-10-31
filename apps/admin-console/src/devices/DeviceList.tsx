@@ -18,6 +18,12 @@ import { type StoreDirectory, useStoreDirectory } from "@/shift-closes/useShiftC
  * A failed continuation keeps the loaded rows and offers an inline retry
  * (UX-10). A 404 is the API's uniform refusal: with a store filter it reads as
  * "this store's devices are not available to you", never as an empty list.
+ *
+ * RT-1013 (v4.0): the band carries scope only. `DevicePage` serves no whole-set
+ * value (only `items` and `nextCursor`), so it shows no fact, and "loaded so far"
+ * stays in the pager, never dressed up as a total. Every result state sits in one
+ * results panel; the rows open a device, so they keep a selectable table's ruled
+ * rows (DESIGN.md §12.5).
  */
 import { useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
@@ -211,7 +217,15 @@ function awaitingRoster(list: DeviceListState, directory: StoreDirectory): boole
   return list.rows.length > 0 && !directory.ready;
 }
 
-function Results({
+function Results(props: Readonly<ResultsProps>): React.JSX.Element {
+  return (
+    <div className="section-panel device-results">
+      <ResultState {...props} />
+    </div>
+  );
+}
+
+function ResultState({
   list,
   directory,
   filters,
@@ -280,14 +294,14 @@ export function DeviceList(): React.JSX.Element {
 
   if (!scope.tenantId) {
     return (
-      <div className="surface">
+      <div className="surface device-surface">
         <p className="content__sub">{t("devices.list.scopePrompt")}</p>
       </div>
     );
   }
 
   return (
-    <div className="surface">
+    <div className="surface device-surface">
       <ListHeaderBand
         group={t("shell.nav.section.operations")}
         title={t("devices.list.title")}
