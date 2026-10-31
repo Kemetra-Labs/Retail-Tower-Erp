@@ -86,6 +86,13 @@
   font-size: var(--font-size-sm);
 }
 
+/* M-P3 (RT-1025): neutral as freeze 15 approves it: grey rule, muted glyph, no tint. */
+.v5-checkout__back-reason[data-tone='neutral'] {
+  --tone-ink: var(--color-text-muted);
+  border-color: var(--color-border);
+  background: var(--color-surface-elevated);
+}
+
 .v5-checkout__back-reason[data-tone='danger'] {
   --tone-ink: var(--color-danger);
   border-color: var(--color-danger);
@@ -781,6 +788,12 @@
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
   color: var(--color-warning-emphasis);
+}
+
+/* M-P30 (RT-1025): no method chosen yet is guidance, not a shortfall: neutral ink. */
+.v5-checkout-actions__reason[data-tone='neutral'] {
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-regular);
 }
 
 /*
