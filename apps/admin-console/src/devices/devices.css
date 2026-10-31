@@ -319,7 +319,7 @@
  * unchanged. Selection is Teal on light surfaces (§12.6), never colour alone: the
  * control itself is checked. */
 .device-flow .drawer__radio {
-  min-block-size: 44px;
+  min-block-size: var(--target-touch);
   padding-inline: var(--space-3);
   border: 1px solid var(--color-control-border);
   border-radius: var(--radius-field-lg);

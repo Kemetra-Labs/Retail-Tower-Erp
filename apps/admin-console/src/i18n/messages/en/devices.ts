@@ -138,6 +138,7 @@ export const devices: MessagesOf<typeof ar> = {
   "devices.flow.step.details": "Details",
   "devices.flow.step.review": "Impact",
   "devices.flow.step.done": "Outcome",
+  "devices.flow.stepStatus": "Step {n} of {total}: {name}",
   "devices.flow.checking": "Asking the server what will happen…",
   "devices.flow.error.notFound": "This device is no longer available to you.",
   "devices.flow.error.generic":

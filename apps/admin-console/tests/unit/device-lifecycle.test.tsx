@@ -812,12 +812,25 @@ describe("RT-1013: the drawer's scope line and step indicator", () => {
         .filter((li) => li.getAttribute("aria-current") === "step")
         .map((li) => li.textContent);
     expect(current()).toEqual(["1Details"]);
+    const status = () => dialog().querySelector("output.sr-only") as HTMLElement;
+    expect(status().textContent).toBe("Step 1 of 3: Details");
     await chooseReason("Lost");
     await within(dialog()).findByText("Allowed by the server.");
     expect(current()).toEqual(["2Impact"]);
+    expect(status().textContent).toBe("Step 2 of 3: Impact");
     consoleRevokeDevice.mockResolvedValue(revoked());
     click("Revoke device");
     await within(dialog()).findByText("The device is revoked.");
     expect(current()).toEqual(["3Outcome"]);
+    expect(status().textContent).toBe("Step 3 of 3: Outcome");
+  });
+
+  test("an unlabelled device is told apart in the scope line by its id", async () => {
+    consoleGetDevice.mockResolvedValue({ status: 200, data: detail({ label: null }) });
+    renderDetail();
+    await screen.findByRole("heading", { level: 1, name: "Unlabelled device" });
+    click("Revoke");
+    await within(dialog()).findByText("Dubai Mall");
+    expect(dialog().querySelector(".drawer__scope")?.textContent).toContain(DEVICE_1);
   });
 });

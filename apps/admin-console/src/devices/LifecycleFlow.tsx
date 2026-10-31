@@ -227,17 +227,32 @@ const STEPS = [
  */
 function Steps({ step }: Readonly<{ step: LifecycleFlowState["step"] }>): React.JSX.Element {
   const t = useT();
+  const at = Math.max(
+    0,
+    STEPS.findIndex((s) => s.id === step),
+  );
   return (
-    <ol className="device-steps" aria-label={t("devices.flow.steps")}>
-      {STEPS.map((s, i) => (
-        <li key={s.id} aria-current={s.id === step ? "step" : undefined}>
-          <span className="device-steps__n" aria-hidden="true">
-            {i + 1}
-          </span>
-          {t(s.key)}
-        </li>
-      ))}
-    </ol>
+    <>
+      <ol className="device-steps" aria-label={t("devices.flow.steps")}>
+        {STEPS.map((s, i) => (
+          <li key={s.id} aria-current={s.id === step ? "step" : undefined}>
+            <span className="device-steps__n" aria-hidden="true">
+              {i + 1}
+            </span>
+            {t(s.key)}
+          </li>
+        ))}
+      </ol>
+      {/* A persistent polite region: the text changes with the step, so a screen reader
+          announces the move even while focus is on a button. */}
+      <output className="sr-only">
+        {t("devices.flow.stepStatus", {
+          n: at + 1,
+          total: STEPS.length,
+          name: t(STEPS[at].key),
+        })}
+      </output>
+    </>
   );
 }
 
@@ -252,6 +267,13 @@ function DeviceScope({
       {device.label ? <bdi dir="auto">{device.label}</bdi> : t("devices.list.unlabelled")}
       {" · "}
       {storeName ? <bdi dir="auto">{storeName}</bdi> : t("devices.list.unknownStore")}
+      {/* Labels are not unique: an unlabelled device is told apart by its id. */}
+      {device.label ? null : (
+        <>
+          {" · "}
+          <bdi dir="ltr">{device.deviceId}</bdi>
+        </>
+      )}
     </>
   );
 }
