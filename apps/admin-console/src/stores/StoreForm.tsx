@@ -38,6 +38,10 @@ import { SAVED_NAVIGATION } from "@/shell/dirty-guard";
  *
  * Create makes the time zone required with Africa/Cairo preselected: a UI rule
  * (owner decision, Jira RT-477 comment 12083); the contract keeps it optional.
+ *
+ * RT-1012 (v4.0): the form, the impact review and the status section take the
+ * v4 panel shapes through the `stores-v4` wrapper (`stores.css`); the order of
+ * the review, the confirm and the outcome banners is unchanged.
  */
 import { useIsMutating } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
@@ -55,6 +59,7 @@ import {
 } from "./useStoreQueries";
 import { useStoreScope } from "./useStoreScope";
 import { useTimezoneChange } from "./useTimezoneChange";
+import "./stores.css";
 
 export interface StoreFormProps {
   mode: "create" | "edit";
@@ -285,68 +290,70 @@ export function StoreForm({ mode, storeId, initial }: Readonly<StoreFormProps>):
 
   const detailPath = isEdit && storeId ? `/stores/${storeId}` : "/stores";
   return (
-    <FormPage
-      back={{ to: detailPath, label: t(isEdit ? "stores.form.back" : "stores.detail.back") }}
-      title={title}
-      // Scope is fixed to the active tenant — shown, not selectable (FR-004-005).
-      subtitle={
-        isEdit
-          ? undefined
-          : t.rich("stores.form.scopeLine", { tenant: <bdi>{activeTenantName}</bdi> })
-      }
-      notices={errors.banner ? <FormBanner render={errors.banner} mode={mode} /> : null}
-      aside={isEdit ? null : <NextSteps />}
-      after={
-        isEdit && storeId ? (
-          <StoreStatusSection
-            storeId={storeId}
-            storeName={initial?.name}
-            isActive={initial?.is_active}
-            disabled={pending}
-            onStart={() => errors.setBanner(undefined)}
-            onError={errors.show}
-          />
-        ) : null
-      }
-    >
-      <FormPanel
-        onSubmit={onSubmit}
-        summary={
-          <FormErrorSummary
-            ref={summary.ref}
-            entries={summaryEntries(t, errors.codeError, errors.timezoneError)}
-          />
+    <div className="stores-v4 stores-v4--wrap">
+      <FormPage
+        back={{ to: detailPath, label: t(isEdit ? "stores.form.back" : "stores.detail.back") }}
+        title={title}
+        // Scope is fixed to the active tenant — shown, not selectable (FR-004-005).
+        subtitle={
+          isEdit
+            ? undefined
+            : t.rich("stores.form.scopeLine", { tenant: <bdi>{activeTenantName}</bdi> })
         }
-        actions={
-          <FormActions
-            isEdit={isEdit}
-            pending={pending}
-            submitDisabled={statusPending || !timezone.canSave}
-            onCancel={() => navigate(detailPath)}
-          />
+        notices={errors.banner ? <FormBanner render={errors.banner} mode={mode} /> : null}
+        aside={isEdit ? null : <NextSteps />}
+        after={
+          isEdit && storeId ? (
+            <StoreStatusSection
+              storeId={storeId}
+              storeName={initial?.name}
+              isActive={initial?.is_active}
+              disabled={pending}
+              onStart={() => errors.setBanner(undefined)}
+              onError={errors.show}
+            />
+          ) : null
         }
       >
-        <StoreFields
-          isEdit={isEdit}
-          storeId={storeId}
-          initial={initial}
-          codeError={errors.codeError}
-        />
-
-        <FormSection title={t("stores.form.timingSection")}>
-          <TimezoneField
-            value={timezone.zone}
-            onChange={(zone) => {
-              errors.setTimezoneError(undefined);
-              timezone.select(zone);
-            }}
-            required={!isEdit}
-            current={initial?.timezone}
-            error={errors.timezoneError}
+        <FormPanel
+          onSubmit={onSubmit}
+          summary={
+            <FormErrorSummary
+              ref={summary.ref}
+              entries={summaryEntries(t, errors.codeError, errors.timezoneError)}
+            />
+          }
+          actions={
+            <FormActions
+              isEdit={isEdit}
+              pending={pending}
+              submitDisabled={statusPending || !timezone.canSave}
+              onCancel={() => navigate(detailPath)}
+            />
+          }
+        >
+          <StoreFields
+            isEdit={isEdit}
+            storeId={storeId}
+            initial={initial}
+            codeError={errors.codeError}
           />
-          <TimezoneImpact change={timezone} />
-        </FormSection>
-      </FormPanel>
-    </FormPage>
+
+          <FormSection title={t("stores.form.timingSection")}>
+            <TimezoneField
+              value={timezone.zone}
+              onChange={(zone) => {
+                errors.setTimezoneError(undefined);
+                timezone.select(zone);
+              }}
+              required={!isEdit}
+              current={initial?.timezone}
+              error={errors.timezoneError}
+            />
+            <TimezoneImpact change={timezone} />
+          </FormSection>
+        </FormPanel>
+      </FormPage>
+    </div>
   );
 }

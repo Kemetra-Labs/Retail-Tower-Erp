@@ -66,7 +66,7 @@ describe("StoreDetail", () => {
     expect(screen.queryByRole("button", { name: /delete/i })).toBeNull();
   });
 
-  test("RT-477: shows the time zone row as «city (IANA id)», no UTC offset, between code and ID", async () => {
+  test("RT-477: shows the time zone row as «city (IANA id)», no UTC offset, after code and ID", async () => {
     readStore.mockResolvedValue({
       status: 200,
       data: {
@@ -84,8 +84,9 @@ describe("StoreDetail", () => {
     expect(screen.getByText("Africa/Cairo").tagName).toBe("BDI");
     expect(row?.textContent).not.toMatch(/GMT|UTC[+-]/);
     const labels = [...document.querySelectorAll(".field-row__label")].map((e) => e.textContent);
-    // RT-974: the state moved to the page header, so the zone row follows the code.
-    expect(labels).toEqual(["Code", "Time zone", "Store ID"]);
+    // RT-974: the state is in the page header. RT-1012: the code and ID are section 01,
+    // the time zone is section 02 («Timing»), so the zone row follows them.
+    expect(labels).toEqual(["Code", "Store ID", "Time zone"]);
   });
 
   test("RT-477: a zone with no curated name is shown as its IANA identity", async () => {
