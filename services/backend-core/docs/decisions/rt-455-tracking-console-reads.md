@@ -5,7 +5,7 @@
 | **Jira** | RT-455 (F8, Admin-Console). Inputs: RT-972 boards and owner decisions (comment 14943). Related: RT-449 (F2), RT-450 (F3), RT-451 (F4), RT-453 (F6), RT-50 (Gate 7 record, comments 11763–11765). |
 | **Work Mode** | Planning (contract-first). Docs only: no production code, contract file, migration, rate-limit class or CI change. |
 | **Status** | **Proposed.** Every operation below needs owner approval and an owning issue before any `[GATED]` contract file changes. |
-| **Baseline** | `Kemetra-Labs/Retail-Tower-Erp` `origin/main` = `35a0d666` (RT-1039, #199). `inventory.yaml` is `1.8.0-draft`, `catalog/tracking-profile.yaml` is `1.1.0-draft`. |
+| **Baseline** | `Kemetra-Labs/Retail-Tower-Erp` `origin/main` = `35a0d666` (RT-1039, #199), re-checked at `8b4461da` (#200): the contract files are identical. `inventory.yaml` is `1.8.0-draft`, `catalog/tracking-profile.yaml` is `1.1.0-draft`. |
 | **Why docs only** | `packages/contracts/openapi/**` is `[GATED]` (`services/backend-core/CLAUDE.md`). RT-449's approval (c13434) covers its named commands, the feed, the TTL and the findings read only. So the drafts live here as YAML fragments. |
 
 Line references are to `origin/main` at the baseline above.
@@ -28,6 +28,11 @@ Line references are to `origin/main` at the baseline above.
 | **II-3** hold history | `listTrackingHolds?trackingIdentityId=` (same read as TR-3a) | New RT-449 follow-up |
 | **II-4** expiry-correction history | `listTrackingIdentityExpiryCorrections` | New RT-449 follow-up |
 | **II-5** one identity | `getTrackingIdentity` | New RT-449 follow-up |
+| **TR-1** route and navigation | Decided (c14943): its own entry under الكتالوج والمخزون, hidden by TR-6 | RT-455 only (Console) |
+| **TR-7** product and store names | Decided (c14943): no API; the Console uses the catalog and store lists | RT-455 only (Console) |
+| **TR-8** what the band counts | Decided (c14943): positions, as the server reports them. Nothing to add: the computed list already has one finding per identity × store × unit | RT-455 only (Console) |
+| **TR-9** a hold at the POS | Out of scope: the POS consumer of the safety feed | RT-454 |
+| **II-1** what the item detail is | Confirmed (c14943): one batch or serial | n/a |
 
 **Proposed new issue** (not created; the owner decides): *Backend-Core — tracking Console reads and fixed safety reason codes (RT-449 follow-up) [GATED contract]*, under RT-3, Work Mode Implementation, one PR: contract + runtime + tests. It blocks RT-455. RT-449 itself is In Review and its two-PR scope (c13434) is closed, so this is not added to it.
 
@@ -40,17 +45,22 @@ Taken from `inventory.yaml` 1.8.0-draft as it is on `main`:
 - `cookieAuth`, tenant from the session, nothing tenant-, store- or actor-shaped accepted from the request (§XII, FR-052).
 - A row of another tenant is a non-disclosing 404 (`NotFoundOrCrossTenant`).
 - **Role rule per family, unchanged:**
-  - **Identity reads.** `listTrackingIdentities` (line 393) is owner / tenant_admin, and a caller without the role gets a non-disclosing **404**. II-2, II-4 and II-5 follow it.
-  - **Hold and recall reads.** `getTrackingHold` (line 824) and `getInventoryRecall` (line 934) are owner / tenant_admin, and other roles get **403**. TR-3a and TR-3b follow them.
+  - **Identity reads.** `listTrackingIdentities` (line 394) is owner / tenant_admin, and a caller without the role gets a non-disclosing **404**. II-2 and II-5 follow it, and also document the baseline's `403 Forbidden` response (lines 420–421).
+  - **Hold, recall and expiry-correction reads.** `getTrackingHold` (line 824), `getInventoryRecall` (line 934) and the expiry-correction `POST` are owner / tenant_admin, and other roles get **403**. That is `denyAs: 403` in `InventorySafetyController`. TR-3a, TR-3b and II-4 follow them. II-4 sits on the same path as that `POST`, so one path never answers a store_manager both 403 and 404.
   - **Findings.** The findings read keeps its store_manager narrowing (line 758).
 - **Keyset pages** follow the RT-731 wording (`listStockMovements`, line 290):
   - a total, stable order on values fixed at write;
   - an opaque `cursor` bound to the operation, tenant and filters;
   - `limit` 1–200, default 50;
-  - `nextCursor` required and nullable.
+  - `nextCursor` required and nullable;
+  - the RT-731 safety rule (`inventory.yaml` lines 324–332): the cursor carries only a position and a digest of the filters. Its position is ANDed with the tenant and the filters, never replacing them, and the role is checked on every request, never carried by the cursor.
 - Projections set `additionalProperties: false`.
-- **Contract-only marker.** Every new operation carries `x-runtime-status: contract-only` with an `x-runtime-note` naming its runtime issue, until the runtime ships (CONTRIBUTING.md, RT-805).
-- **Rate-limit class.** Each `cookieAuth` operation gets a class in `apps/api/test/console-rate-limit/classes/inventory/inventory.rate-limit.yaml` *in the same PR as the contract*. The intended class is listed per operation below. This record adds no entry, because the ratchet fails on an unknown operation.
+- **Contract-only marker.** The fragments carry `x-runtime-status: contract-only`. That is right only if a contract PR lands before its runtime. If the follow-up ships contract and runtime in one PR (OD-0), drop both keys: the route-conformance spec fails on a marked operation that has a route (CONTRIBUTING.md, RT-805). When the markers are kept, `x-runtime-note` names the real issue key once it exists.
+- **Rate-limit class.** Each `cookieAuth` operation gets a class in its contract's own file under `apps/api/test/console-rate-limit/classes/`, *in the same PR as the contract*:
+  - `inventory/inventory.rate-limit.yaml` for the inventory reads;
+  - `catalog/tracking-profile.rate-limit.yaml` for TR-6.
+
+  The intended class is listed per operation below. This record adds no entry, because the ratchet fails on an unknown operation.
 - **Versions.** `inventory.yaml` → `1.9.0-draft`; `catalog/tracking-profile.yaml` → `1.2.0-draft`. Everything is additive except TR-5 (§5).
 - `InventoryReasonCode` (the RT-435 position-move codes) is not touched. TR-5 changes only `SafetyReasonCode`.
 
@@ -120,9 +130,12 @@ paths:
         A filter id that is not of this tenant matches no hold and answers
         an empty page. Keyset pagination as `listStockMovements` (RT-731):
         an opaque `cursor` bound to this operation, the tenant and the
-        filters. Holds are tenant-level (RT-449 H2), so the list is not
-        store-scoped. Owner or tenant_admin, as `getTrackingHold`; any
-        other role is a 403.
+        filters. The order key is fixed at placement, but `status` is not:
+        a hold released during a walk of `status=active` drops out of the
+        later pages, so that walk is not guaranteed to reach every hold
+        that was active when it started. Holds are tenant-level (RT-449
+        H2), so the list is not store-scoped. Owner or tenant_admin, as
+        `getTrackingHold`; any other role is a 403.
       security:
         - cookieAuth: []
       parameters:
@@ -150,6 +163,9 @@ paths:
             Opaque keyset cursor from a prior page's `nextCursor`, bound to the
             operation, the tenant and the filters. A value the server did not
             issue, or one reused with other filters, is 400 `validation_error`.
+            Its position is ANDed with the tenant and the filters and never
+            replaces them; the role is checked on every request and is never
+            carried by the cursor.
           schema: { type: string, minLength: 1, maxLength: 1024 }
         - name: limit
           in: query
@@ -217,6 +233,11 @@ paths:
         - name: cursor
           in: query
           required: false
+          description: >
+            Opaque keyset cursor from a prior page's `nextCursor`, bound to the
+            operation, the tenant and `productId`; a foreign or reused value is
+            400 `validation_error`. Its position is ANDed with the tenant and
+            the filter; the role is checked on every request.
           schema: { type: string, minLength: 1, maxLength: 1024 }
         - name: limit
           in: query
@@ -277,14 +298,14 @@ components:
 
 RT-50 G7-12 lists the Gate 7 health findings. RT-449 (F2) owns only 953 and 954, which are on `main`. Two different kinds of finding remain.
 
-**State findings: tracking consistency (956).** These are current conditions, bounded by the tenant's products and identities, so they fit the unpaged, computed-on-read list. Proposal: one new kind, `tracking_consistency`, with a `check` field. It follows the `expiring_lot` precedent: it is in the `oneOf` now, so clients handle it before it is ever emitted.
+**State findings: tracking consistency (956).** These are current conditions, so they fit the unpaged, computed-on-read list, provided each check has a fixed grain. The grain is the set of fields that makes a finding unique, and it must be bounded by products, identities and stores, never by effects. Proposal: one new kind, `tracking_consistency`, with a `check` field. It follows the `expiring_lot` precedent: it is in the `oneOf` now, so clients handle it before it is ever emitted.
 
-| `check` | Condition (RT-50 G7-2 / G7-12) | Data exists from |
-|---|---|---|
-| `identity_without_edge_map` | An identity with no ERP edge-map row | RT-448 tables; real rows from RT-453 |
-| `untracked_effect_on_tracked_product` | An effect with no identity on a product whose mode is not `none` | RT-451 |
-| `serial_position_out_of_range` | A serial identity's position outside {0, 1} at a store | RT-451 (serial selling stays off, Q11) |
-| `profile_erp_flag_mismatch` | The Catalog profile and the ERP Item flags disagree | RT-452 / RT-453 evidence |
+| `check` | Condition (RT-50 G7-2 / G7-12) | One finding per | Data exists from |
+|---|---|---|---|
+| `identity_without_edge_map` | An identity with no ERP edge-map row | identity | RT-448 tables; real rows from RT-453 |
+| `untracked_effect_on_tracked_product` | At least one effect with no identity on a product whose mode is not `none` | product × store × stocking unit (not per effect) | RT-451 |
+| `serial_position_out_of_range` | A serial identity's position outside {0, 1} | identity × store × stocking unit | RT-451 (serial selling stays off, Q11) |
+| `profile_erp_flag_mismatch` | The Catalog profile and the ERP Item flags disagree | product | RT-452 / RT-453 evidence |
 
 Each `check` is emitted only once its producing runtime ships. The contract says so in the description, as 1.8.0 does for `expiring_lot`.
 
@@ -308,16 +329,21 @@ components:
     TrackingConsistencyFinding:
       type: object
       additionalProperties: false
-      required: [kind, severity, check, tenantProductRef, trackingIdentityId, storeId]
+      required: [kind, severity, check, tenantProductRef, trackingIdentityId, storeId, stockingUnit]
       description: >
         RT-50 G7-12 (956), reserved in 1.9.0-draft: a tracked product or
-        identity whose records disagree. Each `check` is emitted only once the
-        runtime that produces its data has shipped (see `check`). A
-        store_manager sees a finding only when `storeId` is in its scope;
-        a tenant-wide finding (`storeId` null) is owner / tenant_admin only.
+        identity whose records disagree, one finding per check grain
+        (identity; product × store × unit; identity × store × unit;
+        product). Each `check` is emitted only once the runtime that
+        produces its data has shipped. A store_manager sees a finding only
+        when `storeId` is in its scope; a tenant-wide finding (`storeId`
+        null) is owner / tenant_admin only.
       properties:
         kind: { type: string, const: tracking_consistency }
-        severity: { type: string, const: critical }
+        severity:
+          type: string
+          const: critical
+          description: Proposed value; the owner decides it (OD-8).
         check:
           type: string
           enum:
@@ -336,6 +362,11 @@ components:
           description: >
             The store of a position check (`untracked_effect_on_tracked_product`,
             `serial_position_out_of_range`); null for a tenant-wide check.
+        stockingUnit:
+          oneOf:
+            - $ref: "#/components/schemas/StockingUnit"
+            - type: "null"
+          description: The stocking unit of a position check; null for a tenant-wide check.
 ```
 
 **Event findings: sold under hold, unvalidated tracked line, held ERP intent (G7-9 rows 2 and 3).** These record past sale lines, not a current state. Adding them to the unpaged, computed list would make it grow with every such sale and never shrink. RT-450 also reserved them for "Inventory Health and the Tracking Resolution queue (later issues)".
@@ -345,7 +376,14 @@ components:
 - **(a) Recommended:** a separate keyset-paged read, written by the same contract as TR-2 (OD-1). It is filtered by `kind` (`sold_under_hold`, `unvalidated_tracked_line`, `erp_intent_held`) and store, newest first. RT-451 produces the rows. The band then counts only current-state findings (TR-8), and the event list has its own tab.
 - **(b)** Reserved kinds in `listInventorySafetyFindings`, limited to a window of business dates. This needs a window policy value, and the list stays unpaged.
 
-`tracking_unresolved` sales are not repeated as findings: they are the TR-2 queue.
+**`tracking_unresolved` sales are not repeated as findings: they are the TR-2 queue.** This is a deliberate change from merged `sales.yaml` (lines 628–641). That file says a row-4 sale raises a critical finding that surfaces "through Inventory Health and the Tracking Resolution queue".
+
+The consequence is store_manager visibility. If the queue is owner / tenant_admin only (§2), a store_manager's health view never shows an unresolved tracked sale at its own store.
+
+**Owner decision OD-9: how the row-4 finding surfaces.**
+
+- **(a) Recommended:** keep the queue as the only surface, and let a store_manager see a count-only line for its own stores. The count comes from the queue read itself, narrowed like the findings read.
+- **(b)** Add a `tracking_unresolved_sale` kind to the computed list, one per sale. A sale leaves it when it is resolved, so the list stays bounded by the backlog.
 
 ---
 
@@ -354,13 +392,16 @@ components:
 **Proposal: no name field and no name read.** This matches the owner's TR-7 decision for products and stores:
 
 - The Console resolves `placedBy`, `releasedBy`, `createdBy` and the expiry `createdBy` through the existing `listMembers` (`tenants.openapi.yaml` line 132). It returns `user.id`, `user.display_name` and `user.email`.
-- Any member of the tenant can call it, and the screens that show an actor (the hold and recall drawers) are owner / tenant_admin only.
+- It is owner / tenant_admin only: `tenants.controller.ts` declares `@RolesFromParam("id", "owner", "tenant_admin")`, and any other role gets a 404. The screens that show an actor (the hold and recall drawers) are also owner / tenant_admin only, so the read is available wherever it is needed.
 - The inventory contract stays free of personal data (§XIV); its actor fields stay "an internal actor reference, not PII".
 
 **Known limits, for the Console copy:**
 
-- `listForTenant` (`apps/api/src/context/membership.repository.ts`, the `isNull(memberships.revokedAt)` filter) leaves out revoked members.
-- So a hold placed by someone whose membership was later revoked does not resolve, and neither does an actor who is not a tenant member, such as a platform support session.
+- `listForTenant` (`apps/api/src/context/membership.repository.ts`) filters out:
+  - revoked memberships (`revokedAt`);
+  - deleted memberships (`deletedAt`);
+  - deleted users (`users.deletedAt`).
+- So a hold placed by someone who has since left the tenant does not resolve, and neither does an actor who was never a tenant member, such as a platform support session.
 - The Console then shows a neutral fallback label (a message key, UX-12) and never the raw id.
 
 **Owner decision OD-3:** accept this, or ask for a name projection on the hold, recall and correction objects later. That would be a new PII decision, and the work would go to the follow-up issue.
@@ -371,24 +412,47 @@ components:
 
 The owner decided this on RT-972 c14943: `supplier_notice`, `authority_notice` and `label_misprint`, plus «أخرى» with a required note, fixed in the contract.
 
+The enum applies to **commands only**. Projections keep the existing pattern, so a row written under the 0072 pattern still reads back. `SafetyReasonCode` stays as it is and is used by `TrackingHold`, `InventoryRecall`, `InventoryRecallSummary` and `TrackingIdentityExpiryCorrection`. A new `SafetyReasonCodeInput` is what the three commands accept.
+
 ```yaml
 components:
   schemas:
-    SafetyReasonCode:
+    SafetyReasonCodeInput:
       type: string
       enum: [supplier_notice, authority_notice, label_misprint, other]
       description: >
         RT-449 / RT-455 TR-5 (owner decision RT-972 c14943): the governed
-        reason of a quality hold, a recall or an expiry correction.
-        `other` («أخرى») requires a non-empty `note`; without one the
-        command is a 400 `validation_error` and nothing is written.
+        reason a command accepts for a quality hold, a recall or an expiry
+        correction. `other` («أخرى») requires a non-empty `note`; without
+        one the command is a 400 `validation_error` and nothing is written.
+        Projections keep `SafetyReasonCode` (the pattern), so a recorded
+        code outside this list still reads back.
+    PlaceQualityHoldCommand:
+      properties:
+        reasonCode:
+          $ref: "#/components/schemas/SafetyReasonCodeInput"
+    CreateInventoryRecallCommand:
+      properties:
+        reasonCode:
+          $ref: "#/components/schemas/SafetyReasonCodeInput"
+    CorrectTrackingIdentityExpiryCommand:
+      properties:
+        reasonCode:
+          $ref: "#/components/schemas/SafetyReasonCodeInput"
 ```
+
+These are partial overrides: only `reasonCode` changes in each command.
 
 **Effects the owner must accept:**
 
-1. **It is a breaking request change.** Today the schema is a free `pattern`; an enum narrows it, and `bc/oasdiff` will very likely report a breaking change. The justification: the commands cannot be reached until RT-453 writes identities, and no client exists (RT-455 is not built).
-2. **It cannot be contract-only.** `placeQualityHold`, `createInventoryRecall` and `correctTrackingIdentityExpiry` are routed. The runtime DTO and the `note`-required check must change in the same PR, so this belongs to the follow-up as Implementation, not to a contract-only PR.
-3. **Existing rows.** 0072 was never applied to a lab or live database (RT-449 c14364), so no stored code needs mapping. This needs verification in the follow-up against any database where 0072 has since been applied.
+1. **It is a breaking request change, and only a request change.** Today the command schema is a free `pattern`; the enum narrows it, and `bc/oasdiff` will very likely report a breaking change. Response schemas do not change.
+   - The justification: the commands cannot be reached until RT-453 writes identities, and no screen calls them (RT-455 is not built).
+   - The Console's generated types already carry `SafetyReasonCode: string` (`apps/admin-console/src/generated/schema.d.ts`). They are regenerated with the contract.
+2. **It cannot be contract-only.** `placeQualityHold`, `createInventoryRecall` and `correctTrackingIdentityExpiry` are routed, so this belongs to the follow-up as Implementation, not to a contract-only PR. Two runtime rules change in the same PR:
+   - the DTO enum;
+   - the "non-empty note with `other`" check. It is a runtime rule because `SafetyNote` has no `minLength`.
+3. **No migration.** The 0072 `CHECK (reason_code ~ '^[a-z][a-z0-9_]{0,63}$')` constraints (`0072_inventory_safety.sql` lines 185, 263, 370) already admit all four values and stay as they are.
+4. **Existing rows.** Keeping the pattern on projections means no stored code breaks a read. The follow-up still lists the distinct `reason_code` values in `tracking_holds`, `inventory_recalls` and `tracking_identity_expiry_corrections` on every database where 0072 is applied, and attaches the result as evidence. Per RT-449, 0072 was never applied to a lab or live database (RT-449 c14364), so no stored code needs mapping. This needs verification in the follow-up against any database where 0072 has since been applied.
 
 **Owner decision OD-4: the expiry-correction list.**
 
@@ -456,7 +520,12 @@ components:
 - **Recommended:** this Catalog read.
 - **Alternative:** a field on `getActiveContext`. It saves one request at Console start, but it widens a contract every surface uses.
 
-The responses follow `tracking-profile.yaml`'s own style: inline `Error` responses plus its shared `TooManyRequests`.
+**This changes the file's stated rule, deliberately.**
+
+- The responses follow `tracking-profile.yaml`'s own style: inline `Error` responses plus its shared `TooManyRequests`.
+- The roles do not follow it. The file's info block says owner / tenant-admin only, a non-disclosing 404 on a missing role, and "Two operations".
+- This read admits store_manager and answers other roles 403, because it is a tenant-level read with no path id: there is nothing whose existence a 404 would hide.
+- Applying it therefore also amends the info block: three operations, and a per-operation role rule. The rate-limit entry goes in `catalog/tracking-profile.rate-limit.yaml`.
 
 ---
 
@@ -495,6 +564,7 @@ paths:
                 $ref: "#/components/schemas/TrackingIdentity"
         "400": { $ref: "#/components/responses/ValidationFailure" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "5XX": { $ref: "#/components/responses/SystemFailure" }
@@ -537,6 +607,7 @@ paths:
                 $ref: "#/components/schemas/TrackingIdentityPositions"
         "400": { $ref: "#/components/responses/ValidationFailure" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "5XX": { $ref: "#/components/responses/SystemFailure" }
@@ -601,8 +672,9 @@ paths:
         RT-455 II-4 (proposal): the append-only expiry history of one
         identity (RT-449 H7), newest first (`createdAt DESC, id DESC`).
         Keyset pagination as `listStockMovements` (RT-731), the cursor bound
-        to the identity. Owner or tenant_admin; an identity of another
-        tenant, and a caller without the role, is a non-disclosing 404.
+        to the identity. Owner or tenant_admin, like the `POST` on this path
+        (`InventorySafetyController`, `denyAs: 403`): any other role is a
+        403. An identity of another tenant is a non-disclosing 404.
       security:
         - cookieAuth: []
       parameters:
@@ -610,6 +682,11 @@ paths:
         - name: cursor
           in: query
           required: false
+          description: >
+            Opaque keyset cursor from a prior page's `nextCursor`, bound to the
+            operation, the tenant and the identity; a foreign or reused value
+            is 400 `validation_error`. Its position is ANDed with the tenant
+            and the identity; the role is checked on every request.
           schema: { type: string, minLength: 1, maxLength: 1024 }
         - name: limit
           in: query
@@ -624,6 +701,7 @@ paths:
                 $ref: "#/components/schemas/TrackingIdentityExpiryCorrectionList"
         "400": { $ref: "#/components/responses/ValidationFailure" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
         "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "5XX": { $ref: "#/components/responses/SystemFailure" }
@@ -663,6 +741,7 @@ II-3 is `listTrackingHolds?trackingIdentityId=<id>&status=all` (§3.1). The hero
 | **OD-6** | Identity positions summed over locations | Sum, as `OnHand` |
 | **OD-7** | Accept the breaking request change of TR-5 (no consumer, unreachable until RT-453) | Accept |
 | **OD-8** | Severity of `tracking_consistency` | `critical` (each check breaks posting or reconciliation) |
+| **OD-9** | How a `tracking_unresolved` sale surfaces, since it is not a finding: a deliberate change from `sales.yaml`, which affects store_manager visibility | (a) the queue, plus a count-only line for a store_manager's own stores |
 
 **Needs verification in the follow-up:**
 
