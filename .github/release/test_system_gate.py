@@ -12,24 +12,12 @@ import system_gate  # noqa: E402
 
 PIN = ("repo: Kemetra-Labs/Retail-Tower-Erp\ncommit: {c}\n"
        "source: services/backend-core/packages/contracts/openapi\nfile: a.yaml " + "0" * 40 + "\n")
-SUPPORTED = """schema: retail-tower/pos-compat@1
-fleet_baseline:
-  installed:
-    - kind: build
-      build_id: {installed}
-supported:
-  - kind: build
-    build_id: {build}
-    pos_pin:
-      bc_commit: {other}
-      build_id: {nested}
-  - build_id: {first}
-    kind: build
-"""
-BUILD = "9" * 40
-INSTALLED_ONLY = "8" * 40
-NESTED_ONLY = "6" * 40
-FIRST_KEY = "5" * 40
+# G5 parses with contracts-compat itself, so the fixture is the real, valid matrix of this
+# checkout and the parser is the real one.
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+COMPAT_LIB = str(REPO_ROOT / "services/backend-core/contracts-compat/lib")
+REAL_MATRIX = (REPO_ROOT / system_gate.POS_SUPPORTED).read_text(encoding="utf-8")
+BUILD = sorted(system_gate.supported_builds(REAL_MATRIX, COMPAT_LIB))[0]
 
 
 def sh(repo, *args):
@@ -52,7 +40,7 @@ class SystemGateTest(unittest.TestCase):
             sh(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", msg)
             return sh(repo, "rev-parse", "HEAD")
 
-        cls.bc = commit({system_gate.POS_SUPPORTED: SUPPORTED.format(installed=INSTALLED_ONLY, build=BUILD, other="1" * 40, nested=NESTED_ONLY, first=FIRST_KEY)}, "backend")
+        cls.bc = commit({system_gate.POS_SUPPORTED: REAL_MATRIX}, "backend")
         sh(repo, "-c", "user.name=t", "-c", "user.email=t@t", "tag", "-a", "-m", "r", "backend-core/v1.0.0", cls.bc)
         cls.console = commit({system_gate.CONSOLE_PIN: PIN.format(c=cls.bc)}, "console")
         sh(repo, "-c", "user.name=t", "-c", "user.email=t@t", "tag", "-a", "-m", "r", "admin-console/v1.0.0", cls.console)
@@ -60,6 +48,13 @@ class SystemGateTest(unittest.TestCase):
         # A Console release whose PIN names another Backend commit.
         cls.stale = commit({system_gate.CONSOLE_PIN: PIN.format(c="2" * 40)}, "stale console")
         sh(repo, "-c", "user.name=t", "-c", "user.email=t@t", "tag", "-a", "-m", "r", "admin-console/v0.9.0", cls.stale)
+        # Backend-Core releases whose matrix quotes the build_id (valid) or is broken (invalid).
+        quoted = REAL_MATRIX.replace(f"build_id: {BUILD}", f'build_id: "{BUILD}"')
+        assert quoted != REAL_MATRIX
+        cls.quoted = commit({system_gate.POS_SUPPORTED: quoted}, "quoted matrix")
+        sh(repo, "-c", "user.name=t", "-c", "user.email=t@t", "tag", "-a", "-m", "r", "backend-core/v1.1.0", cls.quoted)
+        cls.broken = commit({system_gate.POS_SUPPORTED: "supported:\n  - kind: build\n    build_id: " + BUILD + "\n"}, "broken matrix")
+        sh(repo, "-c", "user.name=t", "-c", "user.email=t@t", "tag", "-a", "-m", "r", "backend-core/v2.0.0", cls.broken)
         # A commit off main.
         sh(repo, "checkout", "-q", "-b", "side", cls.erp)
         cls.side = commit({"side.txt": "s\n"}, "side")
@@ -88,8 +83,8 @@ class SystemGateTest(unittest.TestCase):
         path.write_text(json.dumps(data), encoding="utf-8")
         return str(path)
 
-    def gate(self, path):
-        return system_gate.evaluate(self.repo, path, "main")
+    def gate(self, path, compat_lib=COMPAT_LIB):
+        return system_gate.evaluate(self.repo, path, "main", compat_lib)
 
     def failed(self, results):
         return {rule for rule, ok, _ in results if not ok}
@@ -98,7 +93,8 @@ class SystemGateTest(unittest.TestCase):
         results = self.gate(self.manifest())
         self.assertEqual(self.failed(results), set())
         self.assertEqual([r for r, _, _ in results], ["G1", "G2", "G3", "G5"])
-        self.assertEqual(system_gate.main(["--repo", self.repo, "--manifest", self.manifest(), "--main", "main"]), 0)
+        self.assertEqual(system_gate.main(["--repo", self.repo, "--manifest", self.manifest(), "--main", "main",
+                                           "--compat-lib", COMPAT_LIB]), 0)
 
     def test_g1_refuses_an_unknown_key_a_missing_key_and_a_bad_value(self):
         self.assertEqual(self.failed(self.gate(self.manifest(extra={"x": 1}))), {"G1"})
@@ -119,7 +115,8 @@ class SystemGateTest(unittest.TestCase):
     def test_g1_failure_stops_before_git_rules(self):
         results = self.gate(self.manifest(schema="other"))
         self.assertEqual([r for r, _, _ in results], ["G1"])
-        self.assertEqual(system_gate.main(["--repo", self.repo, "--manifest", self.manifest(schema="other"), "--main", "main"]), 1)
+        self.assertEqual(system_gate.main(["--repo", self.repo, "--manifest", self.manifest(schema="other"), "--main", "main",
+                                           "--compat-lib", COMPAT_LIB]), 1)
 
     def test_g2_refuses_a_missing_tag(self):
         results = self.gate(self.manifest(adminConsole={"release": "admin-console/v7.0.0"}))
@@ -139,14 +136,17 @@ class SystemGateTest(unittest.TestCase):
 
     def test_g5_refuses_a_pos_build_outside_the_supported_list(self):
         self.assertEqual(self.failed(self.gate(self.manifest(pos={"build": "7" * 40}))), {"G5"})
-        # installed but not supported, and a bc_commit value, are not membership
-        self.assertEqual(self.failed(self.gate(self.manifest(pos={"build": INSTALLED_ONLY}))), {"G5"})
-        self.assertEqual(self.failed(self.gate(self.manifest(pos={"build": "1" * 40}))), {"G5"})
-        # a build_id nested under pos_pin is not an entry of the list
-        self.assertEqual(self.failed(self.gate(self.manifest(pos={"build": NESTED_ONLY}))), {"G5"})
 
-    def test_g5_accepts_build_id_as_the_first_key_of_an_entry(self):
-        self.assertEqual(self.failed(self.gate(self.manifest(pos={"build": FIRST_KEY}))), set())
+    def test_g5_reads_the_matrix_with_the_contracts_compat_parser(self):
+        # a quoted build_id is the same build to contracts-compat (G3 fails: another commit)
+        self.assertNotIn("G5", self.failed(self.gate(self.manifest(backendCore={"release": "backend-core/v1.1.0"}))))
+
+    def test_g5_fails_closed_on_an_invalid_matrix_or_a_missing_parser(self):
+        results = self.gate(self.manifest(backendCore={"release": "backend-core/v2.0.0"}))
+        self.assertIn("G5", self.failed(results))
+        self.assertIn("invalid matrix", dict((r, d) for r, _, d in results)["G5"])
+        missing = self.gate(self.manifest(), compat_lib=os.path.join(self.tmp.name, "no-lib"))
+        self.assertEqual(self.failed(missing), {"G5"})
 
     def test_contracts_args_name_the_release_commits(self):
         out = system_gate.contracts_args(self.repo, json.loads(pathlib.Path(self.manifest()).read_text(encoding="utf-8")))

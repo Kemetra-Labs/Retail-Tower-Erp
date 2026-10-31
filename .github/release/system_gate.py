@@ -11,18 +11,20 @@ This gate proves from git objects alone that they fit together:
   G2  each release tag resolves to a commit, and every commit is on --main;
   G3  the Admin Console release's contracts/backend-core/PIN `commit:` is the Backend-Core
       release commit (the RT-1007 pin rule, C7-D2);
-  G5  the POS build is in `supported:` of the Backend-Core release's pos-supported.yaml.
+  G5  the POS build is a `supported:` entry of the Backend-Core release's pos-supported.yaml,
+      read with contracts-compat's own parser and structure check (never re-implemented).
 
 G4 (each consumer PIN against the Backend-Core contract under `oasdiff breaking`) runs in
 tools/contracts-check; `--contracts-args` prints its revision arguments. The checks that need the
 GitHub API (release immutability, attestations, the compat check run, the ERP image attestation,
 the aws-lab reviewer) belong to the deploy workflow preflight (RT-1031).
 
-Stdlib only, reads git objects only (never the working tree), fails closed: anything it cannot
-read is a failure. Exit 0 = every rule passed, 1 = a rule failed, 2 = usage error.
+Stdlib plus node (for contracts-compat's parser, from --compat-lib), reads release data from git
+objects only, fails closed: anything it cannot read or parse is a failure. Exit 0 = every rule passed, 1 = a rule failed, 2 = usage error.
 """
 import argparse
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -80,30 +82,42 @@ def check_shape(data, name):
     return None
 
 
-def supported_builds(text):
-    """build_id values of the entries of the top-level `supported:` list of pos-supported.yaml.
+# Runs in a child node process (ESM), like .github/release/compat-gate.cjs: the matrix is parsed
+# and validated by contracts-compat itself. Input on stdin: the matrix text; output: JSON.
+PARSE_SCRIPT = """
+import { readFileSync } from "node:fs";
+const [ys, ev] = await Promise.all([import(process.env.COMPAT_YAML), import(process.env.COMPAT_EVALUATE)]);
+let out;
+try {
+  const m = ys.parseYamlSubset(readFileSync(0, "utf8"));
+  const problems = ev.validateStructure(m);
+  out = problems.length > 0 ? { error: "invalid matrix: " + problems.join("; ") }
+    : { builds: m.supported.filter((s) => s.kind === "build").map((s) => s.build_id) };
+} catch (e) {
+  out = { error: e.message };
+}
+process.stdout.write(JSON.stringify(out));
+"""
 
-    Only a key of the list entry itself counts (`- build_id:` or a sibling key at the entry's
-    indent); a build_id nested deeper, such as under `pos_pin:`, is not membership."""
-    builds, inside, entry = set(), False, None
-    for line in text.splitlines():
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        if not line[0].isspace():
-            inside, entry = line.rstrip() == "supported:", None
-            continue
-        if not inside:
-            continue
-        item = re.match(r"^( +)- +(.*)$", line)
-        if item and (entry is None or len(item.group(1)) + 2 == entry):
-            entry = len(item.group(1)) + 2   # the indent of the entry's own keys
-            key_line, indent = item.group(2), entry
-        else:
-            key_line, indent = line.strip(), len(line) - len(line.lstrip(" "))
-        match = re.fullmatch(r"build_id:\s*([0-9a-f]{40})\s*", key_line)
-        if match and indent == entry:
-            builds.add(match.group(1))
-    return builds
+
+def supported_builds(text, compat_lib):
+    """build_id of every `kind: build` entry of `supported:`, as contracts-compat parses it.
+    Raises ValueError when the parser is missing, fails, or rejects the matrix."""
+    lib = pathlib.Path(compat_lib).resolve()
+    env = {}
+    for name, file in (("COMPAT_YAML", "yaml-subset.mjs"), ("COMPAT_EVALUATE", "evaluate.mjs")):
+        if not (lib / file).is_file():
+            raise ValueError(f"contracts-compat parser {lib / file} is missing")
+        env[name] = (lib / file).as_uri()
+    try:
+        proc = subprocess.run(["node", "--input-type=module", "-e", PARSE_SCRIPT], input=text,
+                              capture_output=True, text=True, check=False, env={**os.environ, **env})
+        out = json.loads(proc.stdout)
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"cannot run the contracts-compat parser: {exc}") from None
+    if proc.returncode != 0 or "error" in out or not isinstance(out.get("builds"), list):
+        raise ValueError(out.get("error") or f"contracts-compat parser exited {proc.returncode}")
+    return set(out["builds"])
 
 
 def pin_commit(text):
@@ -119,7 +133,7 @@ def commits_of(repo, data):
     }
 
 
-def evaluate(repo, manifest_path, main_ref):
+def evaluate(repo, manifest_path, main_ref, compat_lib=None):
     """[(rule, ok, detail)] in rule order. A G1 failure stops before the git rules."""
     path = pathlib.Path(manifest_path)
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -152,13 +166,22 @@ def evaluate(repo, manifest_path, main_ref):
 
     baseline = show(repo, backend, POS_SUPPORTED) if backend else None
     build = data["pos"]["build"]
+    try:
+        supported = supported_builds(baseline, compat_lib or default_compat_lib(repo)) if baseline else None
+    except ValueError as exc:
+        results.append(("G5", False, f"{POS_SUPPORTED} at the Backend-Core release: {exc}"))
+        return results
     if baseline is None:
         results.append(("G5", False, f"cannot read {POS_SUPPORTED} at the Backend-Core release"))
-    elif build not in supported_builds(baseline):
+    elif build not in supported:
         results.append(("G5", False, f"POS build {build} is not supported by the Backend-Core release"))
     else:
         results.append(("G5", True, f"POS build {build} is supported by the Backend-Core release"))
     return results
+
+
+def default_compat_lib(repo):
+    return pathlib.Path(repo) / "services/backend-core/contracts-compat/lib"
 
 
 def contracts_args(repo, data):
@@ -178,6 +201,7 @@ def main(argv=None):
     parser.add_argument("--repo", default=".")
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--main", default="origin/main", help="ref every release must be on")
+    parser.add_argument("--compat-lib", help="contracts-compat lib directory (default: the one in --repo)")
     parser.add_argument("--contracts-args", action="store_true",
                         help="print the contracts-check G4 arguments, one per line, instead of gating")
     args = parser.parse_args(argv)
@@ -186,7 +210,7 @@ def main(argv=None):
             data = json.loads(pathlib.Path(args.manifest).read_text(encoding="utf-8"))
             print("\n".join(contracts_args(args.repo, data)))
             return 0
-        results = evaluate(args.repo, args.manifest, args.main)
+        results = evaluate(args.repo, args.manifest, args.main, args.compat_lib)
     except (OSError, ValueError, KeyError, TypeError) as exc:
         print(f"system-gate: {args.manifest}: {exc}", file=sys.stderr)
         return 2
