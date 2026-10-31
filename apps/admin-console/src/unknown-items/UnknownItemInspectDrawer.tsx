@@ -23,6 +23,9 @@ import {
  * by role (VG-5): a store-scoped actor's reopen gets the backend's 403, shown
  * as the tenant-wide-authority banner. Each action owns its inline error; this
  * surface owns the panel + the read-only detail.
+ * RT-1018 (v4.0): the drawer opens with the Ink header (title, tenant scope
+ * line, close); the status reads as a pill, its text first. Actions, steps and
+ * errors are unchanged.
  * RT-399: enum fields render their localized labels (never the raw code), ids
  * stay LTR-isolated, and the instants render as operational times.
  */
@@ -37,6 +40,8 @@ import "./unknown-items.css";
 export interface UnknownItemInspectDrawerProps {
   id: string;
   activeTenantId: string | null;
+  /** The active tenant's name for the Ink header's scope line (RT-1018). */
+  activeTenantName?: string | null;
   onClose: () => void;
   /**
    * Called after a successful write so the parent can close + refresh. Carries
@@ -104,6 +109,12 @@ function machine(value: string | null): React.ReactNode {
   return value === null ? null : <bdi dir="ltr">{value}</bdi>;
 }
 
+/** The pill colour role by lifecycle state (text always carries it); dismissed is neutral. */
+const STATUS_BADGE: Partial<Record<ReviewQueueItem["resolution_status"], string>> = {
+  pending: "badge--pending",
+  resolved: "badge--success",
+};
+
 function DetailBody({ item }: Readonly<{ item: ReviewQueueItem }>): React.JSX.Element {
   const t = useT();
   // An enum value outside the contract shows verbatim rather than a guess.
@@ -120,7 +131,11 @@ function DetailBody({ item }: Readonly<{ item: ReviewQueueItem }>): React.JSX.El
       <Field label={t("unknownItems.field.store")} value={machine(item.store_id)} />
       <Field
         label={t("unknownItems.field.status")}
-        value={label(resolutionStatusKey(item.resolution_status), item.resolution_status)}
+        value={
+          <span className={`badge ${STATUS_BADGE[item.resolution_status] ?? ""}`.trim()}>
+            {label(resolutionStatusKey(item.resolution_status), item.resolution_status)}
+          </span>
+        }
       />
       <Field
         label={t("unknownItems.field.resolutionAction")}
@@ -142,6 +157,7 @@ function DetailBody({ item }: Readonly<{ item: ReviewQueueItem }>): React.JSX.El
 export function UnknownItemInspectDrawer({
   id,
   activeTenantId,
+  activeTenantName = null,
   onClose,
   onCompleted,
 }: Readonly<UnknownItemInspectDrawerProps>): React.JSX.Element {
@@ -157,7 +173,15 @@ export function UnknownItemInspectDrawer({
   const isDismissed = item?.resolution_status === "dismissed";
 
   return (
-    <Drawer title={t("unknownItems.drawer.title")} onClose={onClose}>
+    <Drawer
+      title={t("unknownItems.drawer.title")}
+      scope={
+        activeTenantName
+          ? t.rich("unknownItems.drawer.scope", { tenant: <bdi>{activeTenantName}</bdi> })
+          : undefined
+      }
+      onClose={onClose}
+    >
       {isLoading ? (
         <ListState state="loading" label={t("unknownItems.drawer.loadingNoun")} />
       ) : null}

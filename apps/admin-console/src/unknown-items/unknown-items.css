@@ -82,3 +82,100 @@
 .unknown-item-link > p {
   margin: 0;
 }
+
+/* ---- RT-1018: v4.0 «Ink & Receipt» on the review queue --------------------
+ * Opt-in by `surface--v4` (the band comes from the shared ListHeaderBand). Shape
+ * only, on existing role tokens: no new colour role or contrast pair (C5);
+ * Dubai stays (C9). */
+
+/* The results: one panel holding every state, the bulk bar and the table. The
+ * rows open the drawer and, on the pending queue, are selectable, so they keep
+ * the ruled rows of a selectable table (§12.5). */
+.unknown-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-resting);
+}
+.unknown-results > .data-table__scroll {
+  margin-inline: calc(var(--space-5) * -1);
+}
+.unknown-results .data-table :is(th, td):first-child {
+  padding-inline-start: var(--space-5);
+}
+.unknown-results .data-table :is(th, td):last-child {
+  padding-inline-end: var(--space-5);
+}
+.unknown-results .data-table thead th {
+  background: var(--color-surface);
+}
+/* A machine value never breaks mid-reference: the table scrolls in its own
+ * region (RT-825) instead. */
+.unknown-results .data-table__row td:not(:last-child) {
+  white-space: nowrap;
+}
+
+/* The identifier type as a small chip: text first, a neutral wash. */
+.unknown-item-type {
+  display: inline-flex;
+  align-items: center;
+  block-size: 24px;
+  padding-inline: 9px;
+  border-radius: 8px;
+  background: var(--color-surface-sunken);
+  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
+  white-space: nowrap;
+}
+
+/* The bulk bar sits in the panel as a teal-washed dock (selection stays Teal). */
+.unknown-results > .unknown-item-bulk {
+  padding: var(--space-3) var(--space-4);
+  border-radius: 14px;
+  background: var(--color-primary-soft);
+}
+
+/* The status pill in the drawer: the v4 pill shape, a small rotated square in
+ * the text colour; the label always carries the state. */
+.unknown-item-detail .badge {
+  gap: 6px;
+  block-size: 26px;
+  padding-inline: 10px;
+  border-color: transparent;
+  border-radius: 9px;
+  background-color: color-mix(in srgb, currentColor 10%, var(--color-surface));
+}
+.unknown-item-detail .badge::before {
+  content: "";
+  flex: none;
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 2px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+
+/* Forced colours: no shadow or tints; system colours carry the split. */
+@media (forced-colors: active) {
+  .unknown-results {
+    box-shadow: none;
+  }
+  .unknown-results > .unknown-item-bulk {
+    border: 1px solid CanvasText;
+    background: Canvas;
+  }
+  .unknown-item-type {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .unknown-item-detail .badge {
+    border-color: CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .unknown-item-detail .badge::before {
+    background: CanvasText;
+  }
+}

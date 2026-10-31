@@ -108,6 +108,9 @@ export const stock = {
   // --- Unknown items review queue (RF-4a) -----------------------------------
   "unknownItems.title": "أصناف غير معروفة",
   "unknownItems.sub": "مراجع أصناف من POS بانتظار المراجعة في هذه المؤسسة.",
+  // RT-1018 (D-V9): the band subtitle and the drawer scope line name the tenant.
+  "unknownItems.band.sub": "مراجع أصناف من POS بانتظار المراجعة في {tenant}.",
+  "unknownItems.drawer.scope": "قائمة المراجعة · {tenant}",
   "unknownItems.filters.legend": "عوامل تصفية القائمة",
   "unknownItems.filters.source": "نظام المصدر",
   "unknownItems.filters.sourcePlaceholder": "كل المصادر",
