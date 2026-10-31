@@ -48,21 +48,27 @@ async function openList(page: Page, width: number): Promise<void> {
 
 interface BandLayout {
   height: number;
+  /** The store name renders whole: its text is not cut by its own box. */
+  nameWhole: boolean;
   allInside: boolean;
   pageOverflow: number;
   periodLines: number;
   periodText: string;
 }
 
-/** Where the band's facts and actions land, measured on their text. */
-function measure(page: Page): Promise<BandLayout> {
-  return page.evaluate(() => {
+/**
+ * Where the band's facts and actions land, measured on their text. `allowCut`
+ * (from 640px) measures a name cut on purpose by its clipped box; without it
+ * (a phone) every value is measured by its text, so no clip can hide.
+ */
+function measure(page: Page, allowCut: boolean): Promise<BandLayout> {
+  return page.evaluate((allowCut) => {
     const band = document.querySelector("header.list-band") as HTMLElement;
     const box = band.getBoundingClientRect();
     const parts = [...band.querySelectorAll("dd, .list-band__end")];
     const allInside = parts.every((el) => {
       // A name cut on purpose is measured by its clipped box; any other value by its text.
-      const cut = el.querySelector(".list-band__trunc");
+      const cut = allowCut ? el.querySelector(".list-band__trunc") : null;
       const range = document.createRange();
       range.selectNodeContents(el);
       const r = cut ? cut.getBoundingClientRect() : range.getBoundingClientRect();
@@ -72,19 +78,21 @@ function measure(page: Page): Promise<BandLayout> {
     const range = document.createRange();
     range.selectNodeContents(period);
     const lineTops = new Set([...range.getClientRects()].map((r) => Math.round(r.top)));
+    const name = band.querySelector(".list-band__trunc") as HTMLElement;
     return {
       height: Math.round(box.height),
+      nameWhole: name.scrollWidth <= name.clientWidth + 1,
       allInside,
       pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       periodLines: lineTops.size,
       periodText: period.textContent ?? "",
     };
-  });
+  }, allowCut);
 }
 
 test("1280: one row within 132px, the cross-year period whole on one line", async ({ page }) => {
   await openList(page, 1280);
-  const layout = await measure(page);
+  const layout = await measure(page, true);
   expect(layout.height).toBeLessThanOrEqual(132);
   expect(layout.allInside).toBe(true);
   expect(layout.periodLines).toBe(1);
@@ -94,7 +102,7 @@ test("1280: one row within 132px, the cross-year period whole on one line", asyn
 
 test("900: the band wraps its facts and actions rather than clipping them", async ({ page }) => {
   await openList(page, 900);
-  const layout = await measure(page);
+  const layout = await measure(page, true);
   expect(layout.allInside).toBe(true);
   expect(layout.periodText).toMatch(/2026.*2027/);
   expect(layout.pageOverflow).toBe(0);
@@ -102,9 +110,11 @@ test("900: the band wraps its facts and actions rather than clipping them", asyn
 
 test("390: a long unbroken store name wraps; the page never scrolls sideways", async ({ page }) => {
   await openList(page, 390);
-  const layout = await measure(page);
+  const layout = await measure(page, false);
   // The fixture's unbroken name is the one rendered, so the wrap is really exercised.
   await expect(page.locator("dl.list-band__facts dd").first()).toHaveText(UNBROKEN);
+  // On a phone the name is never cut: it wraps whole.
+  expect(layout.nameWhole).toBe(true);
   expect(layout.allInside).toBe(true);
   expect(layout.pageOverflow).toBe(0);
 });
