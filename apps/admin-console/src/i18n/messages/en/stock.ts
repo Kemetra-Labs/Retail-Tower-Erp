@@ -96,6 +96,9 @@ export const stock: MessagesOf<typeof ar> = {
   // --- Unknown items review queue (RF-4a) -----------------------------------
   "unknownItems.title": "Unknown items",
   "unknownItems.sub": "POS item references awaiting review in this tenant.",
+  // RT-1018 (D-V9): the band subtitle and the drawer scope line name the tenant.
+  "unknownItems.band.sub": "POS item references awaiting review in {tenant}.",
+  "unknownItems.drawer.scope": "Review queue · {tenant}",
   "unknownItems.filters.legend": "Queue filters",
   "unknownItems.filters.source": "Source system",
   "unknownItems.filters.sourcePlaceholder": "All sources",
