@@ -1,6 +1,9 @@
 import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
+import { TableScrollRegion } from "@/components/DataTableScroll";
+import { DetailPanel } from "@/components/DetailPanel";
 import { GatedButton } from "@/components/GatedButton";
+import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { type MessageKey, useT } from "@/i18n";
@@ -16,6 +19,13 @@ import { ScopeMismatchBanner } from "@/shell/ScopeMismatchBanner";
  * "Request fresh snapshot" (owner / tenant_admin only) calls the existing
  * `triggerReconciliationRun`. A 404 renders as not-found.
  * RT-399: the quantity stays the exact API string, LTR-isolated and tabular.
+ *
+ * RT-1017 (v4.0): the page opens with the Ink band (group, the page title, one
+ * scope line, and "Request fresh snapshot" as its one primary). The band shows
+ * no store name and no facts: the page response serves neither (the snapshot's
+ * own facts stay in the snapshot panel below). Notices and the snapshot panel
+ * sit under the band; the negative items are one numbered panel, shown only
+ * when a snapshot exists; the Desk steps are a guide card.
  */
 import { useState } from "react";
 import { Link, useParams } from "react-router";
@@ -172,27 +182,34 @@ function ItemsTable({
   const t = useT();
   if (items.length === 0) return null;
   return (
-    <div className="table-scroll">
-      <table className="data-table stock-table">
-        <caption className="data-table__caption">{t("stock.items.caption")}</caption>
-        <thead>
-          <tr>
-            <th scope="col">{t("stock.items.col.product")}</th>
-            <th scope="col">{t("stock.items.col.erpnextItem")}</th>
-            <th scope="col">{t("stock.items.col.warehouse")}</th>
-            <th scope="col" className="num">
-              {t("stock.items.col.quantity")}
-            </th>
-            <th scope="col">{t("stock.items.col.uom")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <ItemRow key={`${item.erpnextWarehouseRef}/${item.erpnextItemRef.name}`} item={item} />
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <TableScrollRegion>
+      {(captionId) => (
+        <table className="data-table stock-table">
+          <caption id={captionId} className="data-table__caption">
+            {t("stock.items.caption")}
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">{t("stock.items.col.product")}</th>
+              <th scope="col">{t("stock.items.col.erpnextItem")}</th>
+              <th scope="col">{t("stock.items.col.warehouse")}</th>
+              <th scope="col" className="num">
+                {t("stock.items.col.quantity")}
+              </th>
+              <th scope="col">{t("stock.items.col.uom")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <ItemRow
+                key={`${item.erpnextWarehouseRef}/${item.erpnextItemRef.name}`}
+                item={item}
+              />
+            ))}
+          </tbody>
+        </table>
+      )}
+    </TableScrollRegion>
   );
 }
 
@@ -243,6 +260,42 @@ interface StoreViewProps {
   showRefresh: boolean;
 }
 
+/** A failed re-read or "Load more" under the rows, and the pager. */
+function ItemsFoot({ data }: Readonly<{ data: StoreData }>): React.JSX.Element {
+  const t = useT();
+  return (
+    <div className="stock-results__foot">
+      <InlineLoadError error={data.inlineError} onRetry={data.retryInline} />
+      <LoadMoreButton
+        hasMore={data.hasMore}
+        isFetching={data.isFetchingNextPage}
+        label={t("stock.store.loadMore")}
+        onLoadMore={data.loadMore}
+      />
+    </div>
+  );
+}
+
+/**
+ * The negative items as one numbered panel, only when a snapshot exists: with
+ * none, the state notice above says the stock is unknown and no panel claims
+ * otherwise (AC2).
+ */
+function ItemsSection({
+  snapshot,
+  data,
+}: Readonly<{ snapshot: StockSnapshotStatus; data: StoreData }>): React.JSX.Element {
+  const t = useT();
+  if (!statusView(snapshot.status).hasSnapshot) return <ItemsFoot data={data} />;
+  return (
+    <DetailPanel title={t("stock.items.caption")} index={1} className="stock-results">
+      <NoNegativeItems snapshot={snapshot} itemCount={data.items.length} />
+      <ItemsTable items={data.items} />
+      <ItemsFoot data={data} />
+    </DetailPanel>
+  );
+}
+
 function StoreView({
   storeId,
   snapshot,
@@ -252,9 +305,10 @@ function StoreView({
   const t = useT();
   const refresh = useSnapshotRequest(storeId);
   return (
-    <div className="surface">
+    <div className="surface surface--v4">
       <BackLink />
-      <PageHeader
+      <ListHeaderBand
+        group={t("shell.nav.section.operations")}
         title={t("stock.title")}
         subtitle={t("stock.store.sub")}
         actions={
@@ -270,16 +324,10 @@ function StoreView({
       <OutcomeBanner outcome={refresh.outcome} />
       <SnapshotChangedNotice show={data.snapshotChanged} />
       <SnapshotStatusPanel snapshot={snapshot} />
-      <NoNegativeItems snapshot={snapshot} itemCount={data.items.length} />
-      <ItemsTable items={data.items} />
-      <InlineLoadError error={data.inlineError} onRetry={data.retryInline} />
-      <LoadMoreButton
-        hasMore={data.hasMore}
-        isFetching={data.isFetchingNextPage}
-        label={t("stock.store.loadMore")}
-        onLoadMore={data.loadMore}
-      />
-      <DeskGuidance />
+      <div className="stock-store-grid">
+        <ItemsSection snapshot={snapshot} data={data} />
+        <DeskGuidance />
+      </div>
     </div>
   );
 }

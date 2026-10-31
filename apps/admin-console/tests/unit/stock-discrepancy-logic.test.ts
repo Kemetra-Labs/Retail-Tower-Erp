@@ -16,6 +16,7 @@ import {
   pagesShareSnapshot,
   refreshBlockReason,
   snapshotStatusLabel,
+  storeInitials,
 } from "@/stock-discrepancies/stockDiscrepancyLogic";
 import { describe, expect, test } from "vitest";
 
@@ -210,5 +211,14 @@ describe("paging consistency, store id, refresh block (P3 fixes)", () => {
       variant: "danger",
       messageKey: "stock.refresh.outcome.error",
     });
+  });
+
+  test("RT-1017: storeInitials takes up to two leading letters and is never empty", () => {
+    expect(storeInitials("Cairo Festival City")).toBe("CF");
+    expect(storeInitials("zamalek")).toBe("Z");
+    expect(storeInitials("فرع مدينة نصر")).toBe("فم");
+    expect(storeInitials("  Store-7 ")).toBe("S7");
+    expect(storeInitials("")).toBe("?");
+    expect(storeInitials("   ")).toBe("?");
   });
 });

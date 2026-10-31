@@ -35,6 +35,11 @@ export const stock = {
   // --- Store summary list -------------------------------------------------
   "stock.stores.sub":
     "الأصناف ذات الرصيد السالب في أحدث لقطة ERPNext مسجّلة لكل متجر. للعرض فقط؛ عالج السبب في واجهة ERPNext.",
+  // RT-1017: سطر النطاق في الشريط، ودليل الحالات فوق الصفوف.
+  "stock.stores.bandSub": "الأصناف دون الصفر في أحدث لقطة ERPNext مسجّلة لكل متجر في {tenant}.",
+  "stock.stores.legendLabel": "حالات اللقطة",
+  "stock.stores.legend":
+    "اللقطة قراءة من ERPNext في وقت محدد، وليست رصيدًا جاريًا. «غير معروف» لا يعني صفرًا.",
   "stock.stores.notFound": "غير موجود. فروقات مخزون ERPNext غير متاحة لك في هذه المؤسسة.",
   "stock.stores.caption": "المتاجر",
   "stock.stores.col.store": "المتجر",

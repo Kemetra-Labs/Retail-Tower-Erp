@@ -11,6 +11,8 @@ import type { ScopeKey, StockDiscrepancyError } from "./useStockDiscrepancies";
 export interface DiscrepancyScope {
   scope: ScopeKey;
   role: string | null;
+  /** The active tenant's name, for the list band's scope line (RT-1017). */
+  tenantName: string | null;
 }
 
 type ActiveContext = ReturnType<typeof useActiveContextValue>["context"];
@@ -19,11 +21,12 @@ function idOf(entity: { id?: string } | null | undefined): string | null {
   return entity?.id ?? null;
 }
 
-/** Pure projection of the active context onto the query scope and role. */
+/** Pure projection of the active context onto the query scope, role and tenant name. */
 export function scopeFromContext(context: ActiveContext): DiscrepancyScope {
   return {
     scope: { tenantId: idOf(context?.active_tenant), activeStoreId: idOf(context?.active_store) },
     role: context?.active_role_code ?? null,
+    tenantName: context?.active_tenant?.name ?? null,
   };
 }
 
