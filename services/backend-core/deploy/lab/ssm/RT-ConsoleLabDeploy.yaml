@@ -130,7 +130,28 @@ mainSteps:
           flock -n 9 || stop "another-deploy-is-running"
           WORK="$(mktemp -d)"
           STAGE=""
-          trap 'rm -rf "$WORK"; if [ -n "$STAGE" ]; then rm -rf "$STAGE"; fi' EXIT
+          PREV=""
+          SWAPPED=no
+          SMOKE_OK=no
+          # Swaps `current` back to the previous target, once; only after this run swapped it.
+          revert() {
+            [ "$SWAPPED" = yes ] || return 0
+            if ln -sfn "$PREV" "$CONSOLE_DIR/current.next" && mv -Tf "$CONSOLE_DIR/current.next" "$CONSOLE_DIR/current"; then
+              SWAPPED=reverted
+              say "RT_REVERT restored current=${PREV#releases/}"
+            else
+              say "RT_REVERT failed current=$REL"
+            fi
+          }
+          # Any exit after the swap and before the smoke passed (a failed check, or an abort under
+          # set -e) reverts the swap first; then the temporary directories go.
+          on_exit() {
+            if [ "$SWAPPED" = yes ] && [ "$SMOKE_OK" != yes ]; then revert; fi
+            rm -rf "$WORK"
+            if [ -n "$STAGE" ]; then rm -rf "$STAGE"; fi
+          }
+          trap on_exit EXIT
+          trap 'exit 1' INT TERM HUP
 
           # Reads one KEY=value line; refuses a key that is missing or set twice.
           env_value() {
@@ -205,7 +226,6 @@ mainSteps:
 
           # ---------------------------------------------------------------- swap
           GATE=swap
-          SWAPPED=no
           if [ "$PREV" = "releases/$REL" ]; then
             say "RT_SWAP unchanged current=$REL"
           else
@@ -220,14 +240,6 @@ mainSteps:
           # ---------------------------------------------------------------- G-Smoke
           GATE=G-Smoke
           # On a failed smoke, `current` goes back to the previous target before the run stops.
-          revert() {
-            [ "$SWAPPED" = yes ] || return 0
-            if ln -sfn "$PREV" "$CONSOLE_DIR/current.next" && mv -Tf "$CONSOLE_DIR/current.next" "$CONSOLE_DIR/current"; then
-              say "RT_REVERT restored current=${PREV#releases/}"
-            else
-              say "RT_REVERT failed current=$REL"
-            fi
-          }
           smoke_fail() { revert; stop "$1"; }
           [ "$(origin_get "$WORK/served.json" /version.json)" = 200 ] || smoke_fail "origin-version-json-not-200-after-the-swap"
           [ "$(version_field "$WORK/served.json" sha)" = "$EXPECTED_SHA" ] || smoke_fail "origin-does-not-serve-ExpectedSha"
@@ -235,6 +247,7 @@ mainSteps:
           mkdir "$WORK/curl"
           printf 'resolve = %s:80:127.0.0.1\n' "$ORIGIN_HOST" > "$WORK/curl/.curlrc"
           CURL_HOME="$WORK/curl" bash "$SMOKE" "http://$ORIGIN_HOST" </dev/null || smoke_fail "console-smoke-failed"
+          SMOKE_OK=yes
           pass console-smoke
           say "RT_DONE release=$RELEASE_TAG"
           RT_CONSOLE_SCRIPT

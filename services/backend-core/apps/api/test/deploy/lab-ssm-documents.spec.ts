@@ -524,11 +524,24 @@ describe("RT-ConsoleLabDeploy (lab-01, RT-1007)", () => {
     const swap = b.slice(b.indexOf("GATE=swap"), b.indexOf("pass swap"));
     expectInOrder(swap, ['ln -sfn "$PREV" "$CONSOLE_DIR/current.bak-pre-$REL-$RUN_ID"', 'ln -sfn "releases/$REL" "$CONSOLE_DIR/current.next"']);
     const smoke = b.slice(b.indexOf("GATE=G-Smoke"), b.indexOf("pass console-smoke"));
-    expect(smoke).toContain('[ "$SWAPPED" = yes ] || return 0');
-    expect(smoke).toContain('ln -sfn "$PREV" "$CONSOLE_DIR/current.next" && mv -Tf "$CONSOLE_DIR/current.next" "$CONSOLE_DIR/current"');
+    expect(b).toContain('[ "$SWAPPED" = yes ] || return 0');
+    expect(b).toContain('ln -sfn "$PREV" "$CONSOLE_DIR/current.next" && mv -Tf "$CONSOLE_DIR/current.next" "$CONSOLE_DIR/current"');
     expect(smoke).toContain("smoke_fail() { revert; stop \"$1\"; }");
     // every check after the swap reverts on failure; none stops without it
     for (const line of smoke.split("\n").filter((l) => /\|\| (stop|smoke_fail) /.test(l))) expect(line).toMatch(/\|\| smoke_fail "[A-Za-z0-9-]+"$/);
+  });
+
+  it("reverts on ANY exit after the swap until the smoke passed, not only a failed check (an abort under set -e too)", () => {
+    // the revert runs at most once, and the EXIT trap and signals all go through it
+    expect(b).toContain("SWAPPED=reverted");
+    expect(b).toContain('if [ "$SWAPPED" = yes ] && [ "$SMOKE_OK" != yes ]; then revert; fi');
+    expect(b).toContain("trap on_exit EXIT\n");
+    expect(b).toContain("trap 'exit 1' INT TERM HUP\n");
+    // the state the trap reads exists before the trap is set (set -u)
+    expectInOrder(b, ['PREV=""', "SWAPPED=no", "SMOKE_OK=no", "trap on_exit EXIT", "GATE=G-Host"]);
+    // SMOKE_OK is set only after the last smoke check, immediately before the pass
+    expect(b).toContain('|| smoke_fail "console-smoke-failed"\nSMOKE_OK=yes\npass console-smoke\n');
+    expect([...b.matchAll(/SMOKE_OK=yes/g)]).toHaveLength(1);
   });
 
   it("smokes the origin on this host, never the public edge (Cloudflare injects a script there, RT-1005 c14785)", () => {
@@ -540,7 +553,7 @@ describe("RT-ConsoleLabDeploy (lab-01, RT-1007)", () => {
 
   it("never deletes a release: the only removals are its own temporary directories", () => {
     const removals = b.split("\n").filter((l) => /\brm\b/.test(l) && !l.trim().startsWith("#")).map((l) => l.trim());
-    expect(removals).toEqual([`trap 'rm -rf "$WORK"; if [ -n "$STAGE" ]; then rm -rf "$STAGE"; fi' EXIT`]);
+    expect(removals).toEqual(['rm -rf "$WORK"', 'if [ -n "$STAGE" ]; then rm -rf "$STAGE"; fi']);
     // STAGE is a fresh directory under incoming/, and is cleared once it has been renamed into releases/
     expectInOrder(b, ['STAGE="$CONSOLE_DIR/incoming/.stage-$REL-$RUN_ID"', 'mv -T "$STAGE" "$TGT"', '  STAGE=""\nfi\n']);
     expect(consoleDeploy.command).toContain('rm -f "$RT_SCRIPT"');
