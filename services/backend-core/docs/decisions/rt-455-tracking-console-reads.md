@@ -415,7 +415,7 @@ The consequence is store_manager visibility. If the queue is owner / tenant_admi
 
 The owner decided this on RT-972 c14943: `supplier_notice`, `authority_notice` and `label_misprint`, plus «أخرى» with a required note, fixed in the contract.
 
-**Where the note rule lives.** The list is a schema enum. The "note required with `other`" rule is stated in the description and enforced by the runtime as a 400. This follows the convention `inventory.yaml` already uses for `createStatusMove`'s `correction` note: no `if`/`then` in the schema. A schema conditional could not reject a whitespace-only note anyway, and the runtime turns such a note into null.
+**Where the note rule lives.** The list is a schema enum. The "note required with `other`" rule is stated in the description and enforced by the runtime as a 400. This follows the convention `inventory.yaml` already uses for `createStatusMove`'s `correction` note: no `if`/`then` in the schema. JSON Schema does not apply the runtime's trim-to-null normalization. The runtime trims the note, turns a whitespace-only value into `null`, and only then enforces the `other` requirement.
 
 The enum applies to **commands only**. Projections keep the existing pattern, so a row written under the 0072 pattern still reads back. `SafetyReasonCode` stays as it is and is used by `TrackingHold`, `InventoryRecall`, `InventoryRecallSummary` and `TrackingIdentityExpiryCorrection`. A new `SafetyReasonCodeInput` is what the three commands accept.
 
