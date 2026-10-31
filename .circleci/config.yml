@@ -493,12 +493,17 @@ jobs:
       - store_test_results:
           path: /tmp/test-reports
 
-  # RT-1036: the Admin Console Playwright suite for a pushed feature branch, as admin/e2e. GitHub
-  # runs it in the pinned Playwright image (and checks that image against the lockfile); here
-  # Chromium is installed at the lockfile's @playwright/test version (`pnpm exec playwright`),
-  # with its system deps, under a hard stop. CircleCI sets CI=true, so retries (2), forbidOnly
-  # and the JSON report behave as on GitHub; the last step lists retried tests, as admin/e2e's
-  # two retry-report steps do, so a pass on retry is never a silent green.
+  # RT-1036: the Admin Console Playwright suite for a pushed feature branch, as admin/e2e.
+  # CircleCI sets CI=true, so retries (2), forbidOnly and the JSON report behave as on GitHub;
+  # the last step lists retried tests, as admin/e2e's two retry-report steps do, so a pass on
+  # retry is never a silent green.
+  # The suite runs inside the same digest-pinned Playwright image as admin/e2e, read from
+  # admin-console.yml at run time, so there is no second pin to drift. The console ships no web
+  # font, so its text renders in fontconfig's system-ui / sans-serif pick. The full machine
+  # image has more fonts than the Playwright image, and its wider fallback face failed three
+  # layout specs that pass on GitHub (canary #417, RT-1036 comment 14899). Install and build
+  # still run on the VM. The container gets the VM's .nvmrc Node and pnpm (as setup-node does on
+  # GitHub) and runs as the VM user, so the report step can still write next to its output.
   remote-admin-e2e:
     machine:
       image: ubuntu-2404:2026.05.1
@@ -517,10 +522,31 @@ jobs:
           working_directory: ~/project/apps/admin-console
           command: timeout -k 1m 10m pnpm build
       - run:
-          name: Install Chromium for the lockfile's Playwright version
-          working_directory: ~/project/apps/admin-console
+          name: Pull admin/e2e's Playwright image (checked against the lockfile)
+          working_directory: ~/project
           no_output_timeout: 10m
-          command: timeout -k 1m 10m pnpm exec playwright install --with-deps chromium
+          command: |
+            # The same pin check as admin/e2e's first step: one digest-pinned image, at the
+            # Playwright version the lockfile resolves.
+            wf=.github/workflows/admin-console.yml
+            lock=apps/admin-console/pnpm-lock.yaml
+            mapfile -t images < <(grep -oE 'mcr\.microsoft\.com/playwright:v[0-9]+\.[0-9]+\.[0-9]+-noble@sha256:[0-9a-f]{64}' "$wf" | sort -u)
+            if [ "${#images[@]}" -ne 1 ]; then
+              echo "Expected one digest-pinned mcr.microsoft.com/playwright:vX.Y.Z-noble image in $wf, found ${#images[@]}."
+              exit 1
+            fi
+            image_version=$(sed -E 's/^[^:]+:v([0-9.]+)-noble@.*$/\1/' <<< "${images[0]}")
+            mapfile -t locked < <(grep -oE "^  '@playwright/test@[0-9]+\.[0-9]+\.[0-9]+':" "$lock" | sed -E "s/^.*@([0-9.]+)':$/\1/" | sort -u)
+            if [ "${#locked[@]}" -ne 1 ] || [ "${locked[0]}" != "$image_version" ]; then
+              echo "$lock resolves @playwright/test to '${locked[*]:-none}' but $wf pins the image for $image_version."
+              exit 1
+            fi
+            timeout -k 1m 10m docker pull --quiet "${images[0]}"
+            printf '%s\n' "${images[0]}" > /tmp/playwright-image
+            # Font evidence: what the console's system-ui / sans-serif fallback resolves to.
+            fonts='echo "system-ui: $(fc-match system-ui)"; echo "sans-serif: $(fc-match sans-serif)"; echo "sans-serif:lang=ar: $(fc-match sans-serif:lang=ar)"; echo "font files: $(fc-list | wc -l)"'
+            echo "VM:"; bash -c "$fonts" || true
+            echo "Image ${images[0]}:"; docker run --rm "${images[0]}" bash -c "$fonts" || true
       - run:
           name: Admin Console Playwright E2E (remote, advisory)
           working_directory: ~/project/apps/admin-console
@@ -529,7 +555,16 @@ jobs:
             # The marker exists only on this VM and only once the guard, install and build have
             # passed, so the report step below never runs branch code after a failed guard.
             touch /tmp/e2e-started
-            timeout -k 1m 20m pnpm test:e2e
+            node_dir="$(dirname "$(dirname "$(command -v node)")")"
+            corepack_home="${COREPACK_HOME:-$HOME/.cache/node/corepack}"
+            # The inner timeout stops the suite; the outer one is a backstop for the container.
+            timeout -k 1m 22m docker run --rm --init --ipc=host \
+              --user "$(id -u):$(id -g)" -e HOME=/tmp -e CI \
+              -e COREPACK_HOME="$corepack_home" -e COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+              -v "$node_dir:$node_dir:ro" -v "$corepack_home:$corepack_home" \
+              -v "$HOME/project:$HOME/project" -w "$PWD" \
+              "$(cat /tmp/playwright-image)" \
+              bash -c "export PATH=\"$node_dir/bin:\$PATH\"; node --version; timeout -k 1m 20m pnpm test:e2e"
       - run:
           name: Report E2E retries
           when: always
