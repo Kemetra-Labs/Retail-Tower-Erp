@@ -115,6 +115,15 @@ describe("ListHeaderBand semantics", () => {
     expect(bandCss).toMatch(/\.list-band__facts > div \{[^}]*flex-direction: column-reverse/s);
   });
 
+  test("RT-1009: a fact value is never cut; only a marked name ellipsizes, its title holding it", () => {
+    const dd = bandCss.match(/\.list-band__facts dd \{([^}]*)\}/g) ?? [];
+    expect(dd.length).toBeGreaterThan(0);
+    for (const rule of dd) {
+      expect(rule).not.toMatch(/text-overflow|max-inline-size|overflow:/);
+    }
+    expect(bandCss).toMatch(/\.list-band__trunc \{[^}]*text-overflow: ellipsis/s);
+  });
+
   test("at most three facts, by type", () => {
     // A fourth fact must not compile: @ts-expect-error fails the typecheck if it does.
     render(

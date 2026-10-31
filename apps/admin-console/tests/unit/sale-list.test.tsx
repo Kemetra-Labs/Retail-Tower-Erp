@@ -210,6 +210,10 @@ describe("SaleList (RT-587, spec 012 J1)", () => {
     expect(terms).toEqual(["Store", "Period", "Received up to"]);
     const values = [...dl.querySelectorAll("dd")].map((dd) => dd.textContent);
     expect(values[0]).toBe("Cairo Festival");
+    // Only the store name may be cut, and its title keeps it whole (the period never is).
+    const name = dl.querySelector("dd bdi.list-band__trunc") as HTMLElement;
+    expect(name.getAttribute("title")).toBe("Cairo Festival");
+    expect(dl.querySelectorAll(".list-band__trunc")).toHaveLength(1);
     expect(values[1]).toMatch(/^Oct 1\D+7, 2026$/);
     expect(values[2]).toBe(asOfText);
     expect(dl.textContent).not.toMatch(/total|net|count/i);

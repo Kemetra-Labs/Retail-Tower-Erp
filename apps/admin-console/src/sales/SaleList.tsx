@@ -112,7 +112,7 @@ function useBandFacts(
     {
       label: t("sales.field.store"),
       value: store ? (
-        <bdi dir="auto" title={store.name}>
+        <bdi dir="auto" title={store.name} className="list-band__trunc">
           {store.name}
         </bdi>
       ) : (

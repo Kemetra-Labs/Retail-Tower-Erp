@@ -111,8 +111,9 @@
     padding: var(--space-1) var(--space-3);
   }
   /* RT-1009: with facts the band stays one row within 132px. The identity may
-   * shrink (its subtitle already ellipsizes), the facts take their content
-   * width, and a long value is cut with an ellipsis rather than wrapping. */
+   * shrink (its subtitle already ellipsizes) and the facts take their content
+   * width. A value is never cut, except a name the caller marks with
+   * `list-band__trunc` and a `title` holding it in full. */
   .list-band:has(.list-band__facts) {
     flex-wrap: nowrap;
   }
@@ -126,14 +127,18 @@
     min-inline-size: 0;
   }
   .list-band__facts > div {
-    min-inline-size: 0;
+    flex: none;
   }
   .list-band__facts dd {
-    max-inline-size: 18ch;
-    overflow: hidden;
     font-size: var(--text-body);
     white-space: nowrap;
+  }
+  .list-band__facts .list-band__trunc {
+    display: inline-block;
+    max-inline-size: 18ch;
+    overflow: hidden;
     text-overflow: ellipsis;
+    vertical-align: bottom;
   }
   .list-band__end {
     flex: none;
