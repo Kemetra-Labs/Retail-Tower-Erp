@@ -376,7 +376,7 @@ describe("DeviceList v4.0 shape (RT-1013)", () => {
     listStores.mockResolvedValue({ status: 200, data: stores });
   });
 
-  test("the band carries scope only: no facts, because a device page serves no whole-set value", async () => {
+  test("guard: the band carries scope only, no facts, because a device page serves no whole-set value", async () => {
     consoleListDevices.mockResolvedValue(page([summary()], "next-cursor"));
     renderList();
     await tableReady();

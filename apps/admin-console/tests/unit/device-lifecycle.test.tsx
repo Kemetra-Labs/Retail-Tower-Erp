@@ -815,5 +815,9 @@ describe("RT-1013: the drawer's scope line and step indicator", () => {
     await chooseReason("Lost");
     await within(dialog()).findByText("Allowed by the server.");
     expect(current()).toEqual(["2Impact"]);
+    consoleRevokeDevice.mockResolvedValue(revoked());
+    click("Revoke device");
+    await within(dialog()).findByText("The device is revoked.");
+    expect(current()).toEqual(["3Outcome"]);
   });
 });
