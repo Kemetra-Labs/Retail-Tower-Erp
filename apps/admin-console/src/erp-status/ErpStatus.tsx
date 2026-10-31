@@ -121,7 +121,11 @@ function ErpStatusContent({ scope }: Readonly<{ scope: ErpScope }>): React.JSX.E
         }
       />
 
-      <SalePipeline connections={connections} summary={summary} filtered={storeId !== ""} />
+      <SalePipeline
+        connections={connections}
+        summary={summary}
+        filtered={validStore && storeId !== ""}
+      />
       <ConnectionPanel state={connections} />
 
       <StoreFilter

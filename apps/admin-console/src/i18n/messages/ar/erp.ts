@@ -101,8 +101,7 @@ export const erp = {
   "erp.pipeline.erp.noConnector": "لا يوجد موصل مسجّل",
   "erp.pipeline.erp.unavailable": "لم تُقرأ حالة الترحيل",
   "erp.pipeline.erp.unreachable": "لا يصل · حسب تقرير الموصل",
-  "erp.linkDown.note":
-    "المبيعات محفوظة في الخادم. ينتظر الترحيل إلى ERPNext حتى يعود الاتصال.",
+  "erp.linkDown.note": "المبيعات محفوظة في الخادم. ينتظر الترحيل إلى ERPNext حتى يعود الاتصال.",
 
   // --- Posting backlog (C3) -------------------------------------------------------------
   "erp.backlog.title": "الترحيلات المرفوضة نهائيًا",

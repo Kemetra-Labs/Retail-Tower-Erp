@@ -624,6 +624,15 @@ describe("sale pipeline and sections (RT-1011)", () => {
     expect(within(rail).queryByText("Nothing needs attention")).toBeNull();
   });
 
+  test("a malformed store filter reads as not read, not as following a store", async () => {
+    renderPage("/erp-connection?store=not-a-uuid");
+    const rail = await screen.findByRole("group", { name: "Sale pipeline" });
+    await waitFor(() =>
+      expect(within(rail).getByText("The posting status wasn't read")).toBeDefined(),
+    );
+    expect(within(rail).queryByText(/follows the selected store/)).toBeNull();
+  });
+
   test("the band names the scope and the last read, once every panel has data", async () => {
     renderPage();
     await screen.findByText("Cairo ERP");
