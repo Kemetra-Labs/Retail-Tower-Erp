@@ -56,6 +56,21 @@ export const STATUS_COPY = {
 } as const;
 
 /**
+ * RT-1023 (owner decision 2026-10-31) — the one-word label under each glyph
+ * in the slim rail, doc 15 M-O5. It names the row, not its state: the state
+ * stays on the glyph and in the row's full text (`status-mapping.test.ts`
+ * checks these against doc 15).
+ */
+export const STATUS_ROW_LABEL = {
+  connection: 'الاتصال',
+  sync: 'المزامنة',
+  held: 'المعلّقة',
+  printer: 'الطابعة',
+} as const;
+
+export type StatusRowName = keyof typeof STATUS_ROW_LABEL;
+
+/**
  * RT-322 (S-B, design §6) — the update notice: the single cashier-facing update
  * string, «update ready, installs after shift close». No version, no cause.
  */

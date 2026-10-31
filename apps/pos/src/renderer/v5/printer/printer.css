@@ -122,6 +122,9 @@
  * Slim rail: the row's text is visually hidden, so its glyph would sit at the
  * inline start of the full-width button, off the centre line the other
  * status glyphs share. The whole width stays the target; the glyph centres.
+ * Since RT-1023 the row is a column (glyph over its label), so this centres
+ * the pair in the 44px block and the slim `.v5-status__row` rule's
+ * `align-items: center` centres it across the rail.
  */
 .v5-frame[data-nav='slim'] .v5-status__row--action {
   justify-content: center;

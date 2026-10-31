@@ -11,9 +11,11 @@ import {
   useTerminalStatusStore,
 } from '../../terminal-status/terminal-status-store';
 import { useAttentionDeadline } from '../../terminal-status/use-attention-deadline';
+import type { StatusRowName } from '../../terminal-status/status-copy';
 import { useBannerState } from '../../ui/receipts/useBannerState';
 import { useOperatorSessionStore } from '../../stores/operator-session-store';
 import { PrinterStatusRow } from '../printer/PrinterStatusRow';
+import { StatusRowLabel } from './StatusRowLabel';
 import { usePrinterChoiceSync } from '../printer/printer-store';
 import { Icon } from '../../icons/Icon';
 import type { IconName } from '../../icons/registry';
@@ -28,12 +30,16 @@ const MARK: Readonly<Record<IndicatorTone, IconName>> = {
   neutral: 'status.neutral',
 };
 
-function RowContent({ row }: Readonly<{ row: IndicatorRow }>): JSX.Element {
+function RowContent({
+  name,
+  row,
+}: Readonly<{ name: StatusRowName; row: IndicatorRow }>): JSX.Element {
   return (
     <>
       <span className="v5-status__mark">
         <Icon name={MARK[row.tone]} size="sm" />
       </span>
+      <StatusRowLabel name={name} />
       <span className="v5-status__text">
         {row.before}
         {row.count !== null && (
@@ -60,8 +66,8 @@ function RowContent({ row }: Readonly<{ row: IndicatorRow }>): JSX.Element {
  * panel; while the last print failed it still leads with «فشل آخر إيصال».
  *
  * Only the connection row is a polite live region, so a connection change is
- * announced and a count change is not. In the slim rail the rows collapse to
- * their glyphs; the text stays in the accessibility tree.
+ * announced and a count change is not. In the slim rail each row shows its glyph
+ * over a one-word label (RT-1023); the full text stays in the accessibility tree.
  */
 export function StatusIndicator(): JSX.Element {
   const snapshot = useTerminalStatusStore((s) => s.snapshot);
@@ -86,16 +92,16 @@ export function StatusIndicator(): JSX.Element {
         aria-live="polite"
         aria-atomic="true"
       >
-        <RowContent row={view.connection} />
+        <RowContent name="connection" row={view.connection} />
       </p>
       {view.sync !== null && (
         <p className="v5-status__row" data-row="sync" data-tone={view.sync.tone}>
-          <RowContent row={view.sync} />
+          <RowContent name="sync" row={view.sync} />
         </p>
       )}
       {view.held !== null && (
         <p className="v5-status__row" data-row="held" data-tone={view.held.tone}>
-          <RowContent row={view.held} />
+          <RowContent name="held" row={view.held} />
         </p>
       )}
       {sessionId !== undefined ? (
@@ -103,7 +109,7 @@ export function StatusIndicator(): JSX.Element {
       ) : (
         printer !== null && (
           <p className="v5-status__row" data-row="printer" data-tone={printer.tone}>
-            <RowContent row={printer} />
+            <RowContent name="printer" row={printer} />
           </p>
         )
       )}

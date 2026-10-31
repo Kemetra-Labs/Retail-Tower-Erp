@@ -198,13 +198,44 @@ describe('StatusIndicator — printer row (D-6-7)', () => {
   });
 });
 
+function shortLabel(el: HTMLElement | null): HTMLElement | null {
+  return el?.querySelector<HTMLElement>('.v5-status__label') ?? null;
+}
+
 describe('StatusIndicator — slim rail and lifetime', () => {
-  it('keeps the row text in the slim rail (shown as dots, read by assistive tech)', async () => {
-    installApi(snap('offline', { pending: 2, oldestPendingAt: '2026-10-17T11:00:00.000Z' }));
+  // RT-1023 (owner decision 2026-10-31): the slim rail is on every screen, so
+  // glyphs alone could not tell «offline» from «printer unknown». Each row
+  // shows a short one-word label under its glyph (DESIGN.md "dot plus text").
+  it('shows a short label under each glyph in the slim rail, and keeps the full text', async () => {
+    printFailed = true;
+    installApi(
+      snap('offline', { pending: 3, held: 1, oldestPendingAt: '2026-10-17T11:00:00.000Z' }),
+    );
     await renderAt('/app/cart');
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(screen.getByTestId('v5-frame')).toHaveAttribute('data-nav', 'slim');
+    const held = indicator().querySelector<HTMLElement>('[data-row="held"]');
+    expect(shortLabel(row('connection'))).toHaveTextContent(/^الاتصال$/);
+    expect(shortLabel(row('sync'))).toHaveTextContent(/^المزامنة$/);
+    expect(shortLabel(held)).toHaveTextContent(/^المعلّقة$/);
+    expect(shortLabel(row('printer'))).toHaveTextContent(/^الطابعة$/);
     expect(row('connection')).toHaveTextContent('غير متصل');
     expect(row('sync')).toHaveTextContent('عمليتان بانتظار الإرسال');
+    expect(held).toHaveTextContent('إرسال عملية واحدة بخصم مؤجَّل');
+    expect(row('printer')).toHaveTextContent('فشل آخر إيصال');
+  });
+
+  it('keeps the short label out of the accessibility tree: names and announcements are unchanged', async () => {
+    installApi(snap('offline'));
+    await renderAt('/app/cart');
+    for (const el of Array.from(indicator().querySelectorAll('.v5-status__label'))) {
+      expect(el).toHaveAttribute('aria-hidden', 'true');
+    }
+    expect(row('connection')?.querySelector('.v5-status__text')).toHaveTextContent(/^غير متصل$/);
+    // The printer button's name still carries its visible label (WCAG 2.5.3).
+    expect(within(indicator()).getByRole('button')).toHaveAccessibleName(/^الطابعة/);
   });
 
   it('unsubscribes from the push on unmount', async () => {
@@ -239,6 +270,19 @@ describe('StatusIndicator CSS', () => {
 
   it('never sets indicator text below 12px', () => {
     expect(css).not.toMatch(/font-size:\s*(?:var\(--font-size-2xs\)|1[01]px|[0-9]px)/);
+  });
+
+  // Tripwires, not cascade proof (jsdom applies no stylesheet): the short label
+  // shows only in the slim rail, at 12px, under a centred glyph. The captures
+  // in captures/RT-1023 prove it renders and fits.
+  it('RT-1023: shows the short label only in the slim rail, at 12px, under the glyph', () => {
+    expect(css).toMatch(/\.v5-status__label\s*\{[^}]*display:\s*none/);
+    expect(css).toMatch(
+      /\.v5-frame\[data-nav='slim'\] \.v5-status__label\s*\{[^}]*display:\s*block[^}]*font-size:\s*var\(--font-size-xs\)/,
+    );
+    expect(css).toMatch(
+      /\.v5-frame\[data-nav='slim'\] \.v5-status__row\s*\{[^}]*flex-direction:\s*column[^}]*align-items:\s*center/,
+    );
   });
 
   // Tripwire, not cascade proof: the printer row is a full-width button, so in
