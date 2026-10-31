@@ -18,6 +18,7 @@ import { SHIFT_COPY, shiftRefusalMessage } from '../shift/shift-copy';
 import {
   MANAGERS,
   OPENED_AT,
+  FLOAT_FIELD,
   enableShiftFlag,
   fakeShiftBridge,
   openShiftView,
@@ -82,21 +83,21 @@ describe('RT-658 — the cashier screen on the G-6 page header', () => {
     cashier(fakeShiftBridge());
     const card = await screen.findByRole('region', { name: SHIFT_COPY.openHeading });
     expect(card).toHaveClass('v5-shift-card');
-    expect(within(card).getByLabelText(SHIFT_COPY.floatLabel)).toHaveAttribute('dir', 'ltr');
+    expect(within(card).getByLabelText(FLOAT_FIELD)).toHaveAttribute('dir', 'ltr');
     expect(within(card).getByRole('button', { name: SHIFT_COPY.openCommit })).toBeInTheDocument();
   });
 
   it('marks an invalid float on the field and shows a warning notice', async () => {
     cashier(fakeShiftBridge());
     const card = await screen.findByRole('region', { name: SHIFT_COPY.openHeading });
-    fireEvent.change(within(card).getByLabelText(SHIFT_COPY.floatLabel), {
+    fireEvent.change(within(card).getByLabelText(FLOAT_FIELD), {
       target: { value: '12.345' },
     });
     press(SHIFT_COPY.openCommit, card);
     const alert = within(card).getByRole('alert');
     expect(alert.querySelector('.v5-notice[data-tone="warning"]')).not.toBeNull();
     expect(alert).toHaveTextContent(SHIFT_COPY.invalidAmount);
-    const input = within(card).getByLabelText(SHIFT_COPY.floatLabel);
+    const input = within(card).getByLabelText(FLOAT_FIELD);
     expect(input).toHaveAttribute('aria-invalid', 'true');
     expect(input.getAttribute('aria-describedby')).toBe(alert.id);
   });
@@ -129,7 +130,7 @@ describe('RT-658 — the cashier screen on the G-6 page header', () => {
       .mockResolvedValue({ kind: 'status', status: OPEN });
     cashier(bridge);
     const card = await screen.findByRole('region', { name: SHIFT_COPY.openHeading });
-    fireEvent.change(within(card).getByLabelText(SHIFT_COPY.floatLabel), {
+    fireEvent.change(within(card).getByLabelText(FLOAT_FIELD), {
       target: { value: '500' },
     });
     press(SHIFT_COPY.openCommit, card);
@@ -326,5 +327,44 @@ describe('RT-658 — the manager page on the G-6 cards', () => {
     press(SHIFT_COPY.enrollCommit, pin);
     const saved = await within(pin).findByText(SHIFT_COPY.enrolled);
     expect(saved.closest('.v5-notice')).toHaveAttribute('data-tone', 'success');
+  });
+});
+
+describe('RT-1027 — the open-shift card: centred, its amount in EGP, the full commit', () => {
+  it('names the float field with its EGP unit, the unit an LTR run (M-P16)', async () => {
+    cashier(fakeShiftBridge());
+    const card = await screen.findByRole('region', { name: SHIFT_COPY.openHeading });
+    // jsdom pads an inline span in the computed name, so read the label itself.
+    const input = within(card).getByLabelText<HTMLInputElement>(FLOAT_FIELD);
+    expect(input).toHaveAttribute('inputmode', 'decimal');
+    expect(input.labels?.[0]?.querySelector('[dir="ltr"]')).toHaveTextContent(/^EGP$/);
+  });
+
+  it('commits with the 56px commit button, still the primary', async () => {
+    cashier(fakeShiftBridge());
+    const card = await screen.findByRole('region', { name: SHIFT_COPY.openHeading });
+    const commit = within(card).getByRole('button', { name: SHIFT_COPY.openCommit });
+    expect(commit).toHaveClass('v5-btn', 'v5-btn--primary', 'v5-btn--commit');
+  });
+
+  it('centres only the opening column, not the unavailable state', async () => {
+    const { container } = cashier(fakeShiftBridge());
+    const card = await screen.findByRole('region', { name: SHIFT_COPY.openHeading });
+    expect(card.parentElement).toHaveClass('v5-shift-state', 'v5-shift-state--open');
+
+    cleanup();
+    resetShiftStores();
+    const refused = fakeShiftBridge();
+    refused.status.mockResolvedValue({ kind: 'refused', reason: 'session_locked' });
+    const again = cashier(refused);
+    await screen.findByRole('button', { name: SHIFT_COPY.retry });
+    expect(again.container.querySelector('.v5-shift-state--open')).toBeNull();
+    expect(container.querySelector('.v5-shift-state--open')).toBeNull();
+  });
+
+  it('leaves the close count without a unit (out of scope)', async () => {
+    cashier(fakeShiftBridge(OPEN));
+    const close = await screen.findByRole('region', { name: SHIFT_COPY.closeHeading });
+    expect(within(close).getByLabelText(SHIFT_COPY.countLabel)).toBeInTheDocument();
   });
 });

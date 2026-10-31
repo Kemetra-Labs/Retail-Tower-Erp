@@ -84,9 +84,10 @@ function CashierShift({ bridge }: Readonly<{ bridge: ShiftCashupBridgeAPI }>): J
   const open = state.status.openShift;
   const notice = outcome !== null && <ShiftOutcome outcome={outcome} />;
   if (open === null) {
-    // G-2 Closed: the outcome and the opening form share one narrow column.
+    // G-2 Closed: the outcome and the opening form share one narrow column,
+    // centred in the work area (RT-1027).
     return (
-      <div className="v5-shift-state">
+      <div className="v5-shift-state v5-shift-state--open">
         {notice}
         <OpenShiftPanel
           bridge={bridge}
@@ -226,11 +227,13 @@ function OpenShiftPanel(
         onChange={setValue}
         error={error}
         inputRef={fieldRef}
+        // RT-1027: no shift is open, so no shift currency yet; EGP as above.
+        unit="EGP"
       />
       <div className="v5-shift-commit">
         <button
           type="button"
-          className="v5-shift-btn v5-shift-btn--primary v5-btn v5-btn--primary"
+          className="v5-shift-btn v5-shift-btn--primary v5-btn v5-btn--primary v5-btn--commit"
           disabled={busy}
           onClick={submit}
         >

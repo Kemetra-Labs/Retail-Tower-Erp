@@ -16,6 +16,7 @@ import { latinLeaks } from '../../ui/payments/__tests__/latin-leaks';
 import { V5ShiftRoute } from '../shift/V5ShiftRoute';
 import { SHIFT_COPY, shiftRefusalMessage } from '../shift/shift-copy';
 import {
+  FLOAT_FIELD,
   enableShiftFlag,
   fakeShiftBridge,
   openShiftView,
@@ -105,10 +106,10 @@ describe('RT-278 — the opening float', () => {
   it('above EGP 100,000.00: no call, the field invalid with the line, the amount kept, focus on it', async () => {
     const bridge = fakeShiftBridge();
     const { container } = renderRoute(bridge);
-    await screen.findByLabelText(SHIFT_COPY.floatLabel);
-    type(SHIFT_COPY.floatLabel, '100000.01');
+    await screen.findByLabelText(FLOAT_FIELD);
+    type(FLOAT_FIELD, '100000.01');
     press(SHIFT_COPY.openCommit);
-    expectRefusedEntry(SHIFT_COPY.floatLabel, '100000.01');
+    expectRefusedEntry(FLOAT_FIELD, '100000.01');
     expect(bridge.open).not.toHaveBeenCalled();
     expect(latinLeaks(container)).toEqual([]);
   });
@@ -116,8 +117,8 @@ describe('RT-278 — the opening float', () => {
   it('at the cap is sent', async () => {
     const bridge = fakeShiftBridge();
     renderRoute(bridge);
-    await screen.findByLabelText(SHIFT_COPY.floatLabel);
-    type(SHIFT_COPY.floatLabel, '100000');
+    await screen.findByLabelText(FLOAT_FIELD);
+    type(FLOAT_FIELD, '100000');
     press(SHIFT_COPY.openCommit);
     await waitFor(() => {
       expect(bridge.open).toHaveBeenCalledWith({ openingFloatMinor: 10_000_000 });
@@ -188,7 +189,7 @@ describe("RT-278 — main's own amount_out_of_range", () => {
       bridge: () => fakeShiftBridge(),
       refuse: (b: FakeShiftBridge) => b.open.mockResolvedValue(REFUSED),
       openDialog: null,
-      label: SHIFT_COPY.floatLabel,
+      label: FLOAT_FIELD,
       value: '500',
       commit: SHIFT_COPY.openCommit,
       // No dialog was open, and none opens.
