@@ -60,7 +60,7 @@
 | **Admin-Console** | [`Kemetra/Admin-Console`](https://github.com/Kemetra/Admin-Console) | Operator web UI · catalog · inventory views · sync ops |
 | **ERPNext-Connector** | [`Kemetra/ERPNext-Connector`](https://github.com/Kemetra/ERPNext-Connector) | The only ERPNext/Frappe adapter · DocType mapping · posting |
 
-<sub>One architecture, one set of contracts, one AI-embedded design. <a href="https://github.com/Kemetra/Orchestrator"><code>Kemetra/Orchestrator</code></a> is the technical handbook, not a track.</sub>
+<sub>One architecture, one set of contracts, one AI-embedded design. The former <code>Kemetra/Orchestrator</code> handbook is retired (AD-ORCH-003); durable decisions live in <a href="https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/5341185/Decisions">Confluence RETAIL</a>.</sub>
 
 POS is the **edge** of the platform: it reads the resolved catalogue **down** into a local read model for offline lookup and drains finalized sales **up** from a local outbox, speaking only to Backend-Core's `/api/pos/v1/*` contracts and never to ERPNext (the one other outbound call is the operator sign-in credential exchange with the identity provider, see [`src/main/operator/clerk-client.ts`](src/main/operator/clerk-client.ts)). Full detail: [docs/architecture/synchronization.md](docs/architecture/synchronization.md).
 
