@@ -18,6 +18,7 @@ import { ZodValidationPipe } from "./common/zod-validation.pipe";
 import { assertDeploymentEnvironmentConfigured } from "./connector/deployment-environment";
 import { ContextInterceptor } from "./context/context.interceptor";
 import { loadOpenApiContracts } from "./openapi/loader";
+import { logoUploadPassthrough } from "./tenant-branding/logo-body";
 
 async function bootstrap(): Promise<void> {
   // RT-152: production must declare which deployment environment it is, before
@@ -76,6 +77,9 @@ async function bootstrap(): Promise<void> {
   // Express middleware
   app.use(cookieParser());
   app.use(helmet());
+  // RT-473 S2: the logo upload routes take raw bytes under any Content-Type;
+  // this runs before Nest's JSON / urlencoded parsers (registered at init).
+  app.use(logoUploadPassthrough);
 
   // Global interceptors — RequestIdInterceptor must run first so the others
   // can read request.requestId. ContextInterceptor bridges

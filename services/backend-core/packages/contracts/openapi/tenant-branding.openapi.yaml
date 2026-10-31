@@ -10,11 +10,11 @@ info:
     only, and there is no light variant).
 
 
-    **Posture.** `1.0.0-draft`, contract-only: every operation carries
-    `x-runtime-status: contract-only` until the RT-473 S2 runtime ships. `[GATED]`
-    contract; the owner approved the spec 039 decisions OD-1…OD-6, OD-9…OD-11 and
-    OD-13…OD-15 on 2026-10-13. The persistence it needs (migration `0046`) and the
-    image libraries (OD-2) are separate `[GATED]` changes in S2.
+    **Posture.** `[GATED]` contract; the owner approved the spec 039 decisions
+    OD-1…OD-6, OD-9…OD-11 and OD-13…OD-15 on 2026-10-13. RT-473 S2 ships the
+    runtime of every operation (migration `0076`, approved as `0046`; the
+    `sharp` / `@resvg/resvg-js` image libraries, OD-2), with the OD-7 slot boxes
+    and the OD-8 receipt dpi (203) as server configuration. No wire change.
 
 
     **Surfaces.**
@@ -72,10 +72,6 @@ paths:
     get:
       summary: Read the paired terminal's tenant branding.
       operationId: posGetTenantBranding
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-473 S1 contract PR; the controller ships in RT-473 S2 after the
-        `[GATED]` migration and dependency changes.
       tags: [branding-pos]
       security:
         - device: []
@@ -120,8 +116,6 @@ paths:
     get:
       summary: Read the tenant's current logo.
       operationId: consoleGetTenantLogo
-      x-runtime-status: contract-only
-      x-runtime-note: RT-473 S1 contract PR; the controller ships in RT-473 S2.
       tags: [branding-console]
       security:
         - cookieAuth: []
@@ -148,8 +142,6 @@ paths:
     put:
       summary: Save or replace the tenant logo.
       operationId: consolePutTenantLogo
-      x-runtime-status: contract-only
-      x-runtime-note: RT-473 S1 contract PR; the controller ships in RT-473 S2.
       tags: [branding-console]
       security:
         - cookieAuth: []
@@ -197,8 +189,6 @@ paths:
     delete:
       summary: Remove the tenant logo.
       operationId: consoleDeleteTenantLogo
-      x-runtime-status: contract-only
-      x-runtime-note: RT-473 S1 contract PR; the controller ships in RT-473 S2.
       tags: [branding-console]
       security:
         - cookieAuth: []
@@ -240,8 +230,6 @@ paths:
     post:
       summary: Validate and render a logo without storing it.
       operationId: consolePreviewTenantLogo
-      x-runtime-status: contract-only
-      x-runtime-note: RT-473 S1 contract PR; the controller ships in RT-473 S2.
       tags: [branding-console]
       security:
         - cookieAuth: []
