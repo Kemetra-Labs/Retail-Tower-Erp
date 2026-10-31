@@ -3,7 +3,8 @@
 
 /* Buttons: one system. A shared base; each variant sets only its role colours
  * through the --btn-* properties, so states behave the same everywhere.
- *   .btn-primary       the one main action of a context (teal fill)
+ *   .btn-primary       the one main action of a context (Ink fill on light,
+ *                      Mint fill on dark: --color-action-fill, D-V3 / D-V10)
  *   .btn-secondary     a supporting action (surface, control edge)
  *   .btn-ghost         a quiet action: cancel, close, back
  *   .btn-danger-quiet  STARTS a destructive action (red edge and text)
@@ -43,21 +44,50 @@
     var(--ease-out), color var(--duration-2) var(--ease-out), transform var(--duration-1)
     var(--ease-out);
 }
-[data-theme="dark"] :is(.btn-primary, .btn-destructive) {
+[data-theme="dark"] .btn-destructive {
   --btn-press-toward: var(--color-background);
 }
 
+/* The primary action (RT-1038; DESIGN.md §12.6; D-V3, D-V10): the action-fill pair,
+ * Ink with white text on light and Mint with Ink text on dark. Hover moves the fill
+ * one step toward the text colour in light (Ink cannot go deeper) and one step
+ * toward Ink in dark; press is the deepest step. The lift and short Ink shadow
+ * below are the other hover signal. A primary on an Ink surface (list band, store
+ * hero, support-session bar) redraws these properties as Mint in its own rule. */
 .btn-primary {
-  --btn-bg: var(--color-primary);
-  --btn-fg: var(--color-on-primary);
-  --btn-edge: var(--color-primary);
-  --btn-bg-hover: var(--color-primary-emphasis);
-  --btn-edge-hover: var(--color-primary-emphasis);
-  --btn-bg-press: color-mix(in oklab, var(--color-primary-emphasis), var(--btn-press-toward) 18%);
+  --btn-hover-toward: var(--color-on-action-fill);
+  --btn-hover-amount: 12%;
+  --btn-bg: var(--color-action-fill);
+  --btn-fg: var(--color-on-action-fill);
+  --btn-edge: var(--color-action-fill);
+  --btn-bg-hover: color-mix(
+    in oklab,
+    var(--color-action-fill),
+    var(--btn-hover-toward) var(--btn-hover-amount)
+  );
+  --btn-edge-hover: var(--btn-bg-hover);
+  --btn-bg-press: var(--color-action-fill);
   --btn-weight: var(--weight-strong);
+  /* The shared transition plus the hover shadow, so it eases in with the lift. */
+  transition: background-color var(--duration-2) var(--ease-out), border-color var(--duration-2)
+    var(--ease-out), color var(--duration-2) var(--ease-out), transform var(--duration-1)
+    var(--ease-out), box-shadow var(--duration-2) var(--ease-out);
+}
+[data-theme="dark"] .btn-primary {
+  --btn-hover-amount: 8%;
+  --btn-bg-press: color-mix(in oklab, var(--color-action-fill), var(--color-on-action-fill) 18%);
 }
 /* Focus: the global outline (a11y.css). Its 2px offset keeps the ring on the
- * page ground, where it holds 3:1, instead of on the teal fill. */
+ * page ground, where it holds 3:1, instead of on the fill. */
+.btn-primary:hover:not(:disabled, [aria-disabled="true"]) {
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--color-ink) 28%, transparent);
+}
+/* The lift only where a pointer really hovers, so it cannot stick after a tap. */
+@media (hover: hover) {
+  .btn-primary:hover:not(:disabled, [aria-disabled="true"]) {
+    transform: translateY(-1px);
+  }
+}
 
 /* RT-829 (RT-785 D3): at the compact shell width the primary action of a page
  * is a 44×44px touch target. One rule on the shared role, so every Tier 1 page
@@ -142,8 +172,13 @@
   )[aria-busy="true"]:not(:disabled) {
   cursor: progress;
 }
+/* The press drops the hover shadow with the lift: it sits on the page again. */
+.btn-primary:active:not(:disabled, [aria-disabled="true"]) {
+  box-shadow: none;
+}
 @media (prefers-reduced-motion: reduce) {
-  :is(.btn-primary, .btn-secondary, .btn-ghost, .btn-danger-quiet, .btn-destructive):active {
+  :is(.btn-primary, .btn-secondary, .btn-ghost, .btn-danger-quiet, .btn-destructive):active,
+  .btn-primary:hover:not(:disabled, [aria-disabled="true"]) {
     transform: none;
   }
 }
