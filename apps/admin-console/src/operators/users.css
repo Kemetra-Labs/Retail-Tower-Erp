@@ -1,0 +1,231 @@
+/* RT-1014: v4.0 «Ink & Receipt» on the Users surface (DESIGN.md §12).
+ *
+ * Scoped by the surface's own classes (`members-*`, `member-*`), so no other
+ * screen changes shape. Shape only: existing role tokens, tints by color-mix, so
+ * no new colour role or contrast pair (C5). Dubai stays (C9). Logical properties
+ * throughout (RTL by structure, C3). No animation. */
+
+/* ---- The panel that holds every result state (§12.5) ------------------------ */
+.members-panel {
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-resting);
+}
+.members-panel__note {
+  flex: 1 1 24ch;
+  margin: 0;
+  font-size: var(--text-meta);
+  color: var(--color-text-muted);
+}
+/* Loading, empty and the scope prompt sit inside the panel's edge, not on it. */
+.members-panel > .list-state,
+.members-panel > .scope-prompt {
+  padding: var(--space-6) var(--space-5);
+}
+.members-panel > .scope-prompt {
+  max-inline-size: none;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* ---- The table: one tbody per role ------------------------------------------- */
+.member-table :is(th, td):first-child {
+  padding-inline-start: var(--space-5);
+}
+.member-table :is(th, td):last-child {
+  padding-inline-end: var(--space-5);
+}
+.members-panel .member-table thead th {
+  background: var(--color-surface);
+}
+/* A member's values do not break mid-word; the table scrolls in its own region. */
+.member-row td:not(:first-child) {
+  white-space: nowrap;
+}
+.member-table .member-group th {
+  padding: var(--space-4) var(--space-5) var(--space-2);
+  border-block-end: 1px solid var(--color-border);
+  background: var(--color-surface);
+  text-align: start;
+  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
+  color: var(--color-text-muted);
+}
+.member-group__count {
+  display: inline-block;
+  margin-inline-start: var(--space-2);
+  padding: 0 7px;
+  border-radius: 6px;
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+.member-table tbody + tbody .member-group th {
+  padding-block-start: var(--space-5);
+}
+
+/* Avatars: initials on Ink with Mint text (§12.6); a revoked member is muted. */
+.member-table .member-cell .avatar {
+  border-radius: var(--radius-field-lg);
+  background: var(--color-ink);
+  color: var(--color-mint);
+}
+.member-row--revoked .member-cell .avatar {
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+/* A revoked membership: muted text and a caution edge at the inline start. The
+ * state pill and its text carry the meaning; the edge only reinforces it. */
+.member-table .member-row--revoked td {
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-warning) 5%, var(--color-surface));
+}
+.member-row--revoked > :first-child {
+  position: relative;
+}
+.member-row--revoked > :first-child::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: 3px;
+  background: var(--color-warning);
+}
+
+/* Role: a neutral tag; an unrecognised role is dashed and says so in text. */
+.member-role {
+  display: inline-flex;
+  align-items: center;
+  block-size: 28px;
+  padding-inline: 10px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
+  white-space: nowrap;
+}
+.member-role--unknown {
+  border: 1px dashed var(--color-control-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+/* Store access: a small meter, the count is the text beside it. */
+.member-access {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.member-access__bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  block-size: 16px;
+}
+.member-access__bars i {
+  display: block;
+  inline-size: 4px;
+  border-radius: 2px;
+  background: var(--color-primary);
+}
+.member-access__bars i:nth-child(1) {
+  block-size: 8px;
+}
+.member-access__bars i:nth-child(2) {
+  block-size: 10px;
+}
+.member-access__bars i:nth-child(3) {
+  block-size: 12px;
+}
+.member-access__bars i:nth-child(4) {
+  block-size: 14px;
+}
+.member-access__bars i:nth-child(5) {
+  block-size: 16px;
+}
+
+/* Status pills: text first, colour only reinforces; a small rotated square
+ * leads, drawn in the text colour (as on the Sales list). */
+.member-table .badge {
+  gap: 6px;
+  block-size: 26px;
+  padding-inline: 10px;
+  border-color: transparent;
+  border-radius: 9px;
+  background-color: color-mix(in srgb, currentColor 10%, var(--color-surface));
+  font-size: var(--text-meta);
+  white-space: nowrap;
+}
+.member-table .badge::before {
+  content: "";
+  flex: none;
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 2px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+
+/* ---- The band's first fact: an avatar pile beside the total ------------------ */
+.member-fact {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.member-pile {
+  display: inline-flex;
+  align-items: center;
+}
+.member-pile > * + * {
+  margin-inline-start: -8px;
+}
+.member-pile .avatar {
+  border-radius: var(--radius-field-lg);
+  background: color-mix(in srgb, var(--color-on-ink) 12%, var(--color-ink));
+  color: var(--color-mint);
+  box-shadow: 0 0 0 2px var(--color-ink);
+}
+.member-pile__more {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 28px;
+  block-size: 28px;
+  border-radius: var(--radius-field-lg);
+  background: var(--color-mint);
+  color: var(--color-ink);
+  box-shadow: 0 0 0 2px var(--color-ink);
+  font: var(--weight-strong) var(--text-meta) / 1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+/* Narrow, the band is a plain light header: the Ink pile has no ground there. */
+@media (max-width: 639.98px) {
+  .member-pile {
+    display: none;
+  }
+}
+
+/* Forced colours: no tints, edges or ornament; system colours carry the split. */
+@media (forced-colors: active) {
+  .members-panel {
+    box-shadow: none;
+  }
+  .member-pile {
+    display: none;
+  }
+  .member-table .member-cell .avatar,
+  .member-role,
+  .member-table .badge {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .member-table .member-row--revoked td {
+    background: Canvas;
+    color: CanvasText;
+  }
+  .member-row--revoked > :first-child::before,
+  .member-access__bars i {
+    background: CanvasText;
+  }
+}

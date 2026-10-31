@@ -13,6 +13,10 @@ import { textField } from "@/lib/form-field";
  * nested card — rule 5) with a `.btn-danger-quiet` opener + confirm step via
  * `revokeMembership`. Both ops document only 200/204 + 404 → uniform banner.
  * On success: close, refresh the list (S4/S5).
+ *
+ * RT-1014 (v4.0): the «Editing …» scope line sits in the drawer's Ink header strip
+ * (the `scope` prop), not in the body. The form, the revoke step and the 404
+ * handling are unchanged.
  */
 import { useState } from "react";
 import { StoreAccessField } from "./StoreAccessField";
@@ -81,7 +85,17 @@ export function EditMember({
   const memberName = member.displayName ?? member.email;
 
   return (
-    <Drawer title={t("operators.edit.title")} onClose={onClose}>
+    <Drawer
+      title={t("operators.edit.title")}
+      scope={t.rich("operators.edit.scopeLine", {
+        name: (
+          <strong>
+            <bdi>{memberName}</bdi>
+          </strong>
+        ),
+      })}
+      onClose={onClose}
+    >
       {banner ? <Banner variant="danger" message={t(banner)} /> : null}
 
       <FormPanel
@@ -103,15 +117,7 @@ export function EditMember({
           </>
         }
       >
-        <FormSection
-          lead={t.rich("operators.edit.scopeLine", {
-            name: (
-              <strong>
-                <bdi>{memberName}</bdi>
-              </strong>
-            ),
-          })}
-        >
+        <FormSection>
           <FormField id="edit-role" label={t("operators.form.role")} required>
             {(aria) => (
               <input
