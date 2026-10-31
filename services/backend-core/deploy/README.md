@@ -279,6 +279,26 @@ CONSOLE_RELEASES_DIR=/opt/dp2-console   # same value as in deploy/prod.env
 `index.html` and `version.json` are served `no-cache` and `/assets/*` (content-
 hashed) as immutable, so browsers pick up a new release on the next load.
 
+**A host without `gh`** (lab-01 has none, RT-1005): verify the attestation on a
+workstation first, with `gh attestation verify` as in step 1, and note the archive's
+`sha256`. Then fetch the two assets on the host with `curl` from the public release
+URL (GitHub serves a tag with `/` at that literal path), and check them against both
+the `.sha256` and that digest before step 2:
+
+```bash
+EXPECT=<64 hex sha256 of the archive verified on the workstation>
+BASE="https://github.com/Kemetra-Labs/Retail-Tower-Erp/releases/download/$TAG"
+mkdir -p "incoming/$REL"
+curl -fsSL --proto '=https' -o "incoming/$REL/$REL.tar.gz" "$BASE/$REL.tar.gz"
+curl -fsSL --proto '=https' -o "incoming/$REL/$REL.tar.gz.sha256" "$BASE/$REL.tar.gz.sha256"
+(cd "incoming/$REL" && sha256sum -c "$REL.tar.gz.sha256")
+echo "$EXPECT  incoming/$REL/$REL.tar.gz" | sha256sum -c -
+```
+
+On the lab, prefer the [Console lab deploy workflow](#console-lab-deploy-workflow-rt-1007),
+which does exactly this with the digest the workflow verified. The manual steps stay the
+fallback, and the only path for a rollback to a legacy `admin-console-<sha12>` directory.
+
 ## Verify
 
 ```bash
@@ -551,6 +571,64 @@ Residual risks:
 - `aws-lab` has `can_admins_bypass=true` (an owner decision).
 
 The environment reviewer is therefore the human gate.
+
+## Console lab deploy workflow (RT-1007)
+
+The manual `Deploy Console lab` workflow (`.github/workflows/deploy-console-lab.yml`)
+puts one published Admin Console release (`admin-console/vX.Y.Z`) on lab-01. It replaces
+the manual [Admin Console release](#admin-console-release) steps on the lab; those steps
+stay the fallback, and the only path back to a legacy `admin-console-<sha12>` directory.
+
+Run it from `main` with `console_release`, `backend_release` (the Backend-Core release
+lab-01 runs), `jira_key` and `dry_run` (default `true`).
+
+- **preflight** (every run, GitHub only, deploys nothing):
+  - the release is immutable and its tag commit is on `main`;
+  - the archive matches its `.sha256` and has a build-provenance attestation signed by
+    `release-admin-console.yml` for that tag;
+  - `version.json` names that commit.
+
+  It then applies the **pin rule**: the Console's `backendContractPin` must equal the commit
+  of `backend_release`, or the run refuses. To deploy over a Backend-Core release with other
+  contracts, re-pin the Console to it and publish a new Console release. The planned ledger
+  is the `deploy-console-lab-plan-<run id>` artifact.
+- **live** (`dry_run: false` only): after the `aws-lab` reviewer approves, the job assumes
+  the deploy role by OIDC and runs the owner-created SSM document `RT-ConsoleLabDeploy`
+  ([`deploy/lab/ssm/`](lab/ssm/)) on lab-01. The document:
+  - checks that lab-01 runs `backend_release`;
+  - fetches the archive with `curl` and checks it against its `.sha256` and the digest the
+    preflight verified;
+  - checks `version.json`, keeps the previous `current` target, and swaps `current`
+    atomically;
+  - smokes the origin, and **swaps back** if the smoke fails.
+
+  It takes the same host lock as the Backend-Core deploy, deletes nothing and restarts
+  nothing. The live ledger is the `deploy-console-lab-live-ledger-<run id>` artifact.
+
+**Owner-only, before the first live run** (no agent or CI job does any of this):
+
+1. Create the document from the merged file, in `AWS_REGION`, with the setup identity
+   (never root or the deploy role):
+
+   ```bash
+   aws ssm create-document --name RT-ConsoleLabDeploy --document-type Command \
+     --document-format YAML --content file://deploy/lab/ssm/RT-ConsoleLabDeploy.yaml
+   ```
+
+   After a merged change to the file, run `update-document` with
+   `--document-version '$LATEST'`, then `update-document-default-version`. The workflow
+   always runs the default version.
+2. Add `ssm:SendCommand` on `document/RT-ConsoleLabDeploy` for the lab-01 managed node
+   (`Host=lab-01`) to the deploy role's identity policy and its boundary. The live job also
+   calls `ssm:DescribeInstanceInformation` (to find the node) and `ssm:GetCommandInvocation`
+   (to poll the result). Neither has a resource type, so both are granted on `*`. The role
+   already holds them for the Backend-Core deploy; check that both the identity policy and
+   the boundary allow them, and add them if not. The role still
+   never gets `AWS-RunShellScript`, `StartSession` or `CreateDocument` / `UpdateDocument`.
+   The trust policy needs no change, because its `sub` is scoped to the `aws-lab`
+   environment, not to one workflow file (see the residual risks above).
+3. Dry-run first (`dry_run: true`), then a live same-release redeploy (the release
+   directory is reused and `current` does not change).
 
 ## Operations
 

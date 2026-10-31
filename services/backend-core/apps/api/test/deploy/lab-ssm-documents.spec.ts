@@ -34,6 +34,8 @@ const load = (file: string): { text: string; doc: Doc; command: string; body: st
 };
 const backup = load("RT-BackendLabBackup.yaml");
 const deploy = load("RT-BackendLabDeploy.yaml");
+// RT-1007 (RT-717 C7): the Admin Console swap on lab-01, run by the root deploy-console-lab.yml.
+const consoleDeploy = load("RT-ConsoleLabDeploy.yaml");
 
 function bashWorks(): boolean {
   const probe = spawnSync("bash", ["-c", "printf ok"], { encoding: "utf8" });
@@ -54,6 +56,7 @@ function expectInOrder(body: string, needles: string[]): void {
 describe.each([
   ["RT-BackendLabBackup", backup, ["ReleaseTag", "CurrentRelease", "JiraKey"]],
   ["RT-BackendLabDeploy", deploy, ["ReleaseTag", "ReleaseSha", "ApiDigest", "WorkerDigest", "MigrateDigest", "CurrentRelease", "JiraKey", "BackupName", "BackupSha256", "RollbackAllowed"]],
+  ["RT-ConsoleLabDeploy", consoleDeploy, ["ReleaseTag", "ArchiveDigest", "ExpectedSha", "ExpectedPin", "BackendRelease", "JiraKey"]],
 ])("%s document", (_name, d, params) => {
   it("is a schema 2.2 Command document with one Linux shell step", () => {
     expect(d.doc.schemaVersion).toBe("2.2");
@@ -444,5 +447,132 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
       const line = b.split("\n").find((l) => l.includes(needle)) ?? "";
       expect({ needle, line }).toEqual({ needle, line: expect.stringMatching(/\|\| stop "[a-z-]+"$/) });
     }
+  });
+});
+
+describe("RT-ConsoleLabDeploy (lab-01, RT-1007)", () => {
+  const b = consoleDeploy.body;
+  const params = consoleDeploy.doc.parameters;
+
+  it("follows the order host, fetch, check, swap, smoke", () => {
+    expectInOrder(b, [
+      "GATE=G-Host",
+      "pass G-Host",
+      "GATE=fetch",
+      "pass fetch",
+      "GATE=check",
+      'stop "version-json-is-not-ExpectedPin"',
+      "pass check",
+      "GATE=swap",
+      'mv -Tf "$CONSOLE_DIR/current.next" "$CONSOLE_DIR/current" || stop "swap-failed"',
+      "pass swap",
+      "GATE=G-Smoke",
+      'smoke_fail "console-smoke-failed"',
+      'say "RT_DONE release=$RELEASE_TAG"',
+    ]);
+  });
+
+  it("takes the Backend-Core deploy's lock, so the two never run at once on lab-01", () => {
+    expect(b).toContain("exec 9>/run/rt-lab-deploy.lock\n");
+    expect(deploy.body).toContain("exec 9>/run/rt-lab-deploy.lock\n");
+  });
+
+  it("deploys only monorepo releases; the Backend-Core release must be a monorepo release too", () => {
+    const tag = new RegExp(params.ReleaseTag?.allowedPattern ?? "^$");
+    expect(tag.test("admin-console/v0.1.0")).toBe(true);
+    expect(tag.test("admin-console-50d8aa029177")).toBe(false);
+    expect(tag.test("admin-console/v0.1.0/../x")).toBe(false);
+    expect(params.BackendRelease?.allowedPattern).toBe(deploy.doc.parameters.ReleaseTag?.allowedPattern);
+    expect(params.ArchiveDigest?.allowedPattern).toBe("^sha256:[0-9a-f]{64}$");
+    expect(params.ExpectedSha?.allowedPattern).toBe("^[0-9a-f]{40}$");
+    expect(params.ExpectedPin?.allowedPattern).toBe("^[0-9a-f]{40}$");
+  });
+
+  it("G-Host: changes nothing unless lab-01 runs BackendRelease and the Console layout is the recorded one", () => {
+    const host = b.slice(b.indexOf("GATE=G-Host"), b.indexOf("pass G-Host"));
+    expect(host).toContain('grep -qE "$BACKEND_DIR_RE" "$DC" || stop "wrapper-does-not-use-BackendRelease"');
+    expect(host).toContain('[ "$SENTRY" = "$BACKEND_ID" ] || stop "SENTRY_RELEASE-is-not-BackendRelease"');
+    expect(host).toContain('[ -L "$CONSOLE_DIR/current" ] || stop "console-layout-missing"');
+    expect(host).not.toMatch(/\bln\b|\bmv\b|\bcp\b|\brm\b|tar -x/);
+    expect(b).toContain("CONSOLE_DIR=/opt/dp2-console\n");
+  });
+
+  it("fetches over https only and checks the archive against its .sha256 and the attested digest before unpacking", () => {
+    const fetch = b.slice(b.indexOf("GATE=fetch"), b.indexOf("pass fetch"));
+    expect(fetch).toContain("curl -fsSL --proto '=https' --tlsv1.2");
+    expect(fetch).toContain('--max-filesize "$MAX_ASSET_BYTES"');
+    expectInOrder(fetch, [
+      'sha256sum --check --strict "$REL.tar.gz.sha256"',
+      '= "$ARCHIVE_DIGEST" ] || stop "archive-is-not-ArchiveDigest"',
+      'stop "archive-holds-a-non-regular-entry"',
+      'stop "unsafe-archive-entry-path"',
+      "tar -xzf",
+      'mv -T "$STAGE" "$TGT"',
+    ]);
+    // never unpacks over an existing release directory
+    expect(fetch).toContain('if [ ! -d "$TGT" ]; then');
+  });
+
+  it("binds a new or reused release directory to ExpectedSha and ExpectedPin before the swap", () => {
+    const check = b.slice(b.indexOf("GATE=check"), b.indexOf("pass check"));
+    expect(check).toContain('[ "$(version_field "$TGT/version.json" sha)" = "$EXPECTED_SHA" ] || stop');
+    expect(check).toContain('[ "$(version_field "$TGT/version.json" backendContractPin)" = "$EXPECTED_PIN" ] || stop');
+    expect(b.indexOf("pass check")).toBeLessThan(b.indexOf("GATE=swap"));
+  });
+
+  it("swaps atomically, keeps the previous target, and reverts it on any failed smoke", () => {
+    const swap = b.slice(b.indexOf("GATE=swap"), b.indexOf("pass swap"));
+    expectInOrder(swap, ['ln -sfn "$PREV" "$CONSOLE_DIR/current.bak-pre-$REL-$RUN_ID"', 'ln -sfn "releases/$REL" "$CONSOLE_DIR/current.next"']);
+    const smoke = b.slice(b.indexOf("GATE=G-Smoke"), b.indexOf("pass console-smoke"));
+    expect(b).toContain('[ "$SWAPPED" = yes ] || return 0');
+    expect(b).toContain('ln -sfn "$PREV" "$CONSOLE_DIR/current.next" && mv -Tf "$CONSOLE_DIR/current.next" "$CONSOLE_DIR/current"');
+    expect(smoke).toContain("smoke_fail() { revert; stop \"$1\"; }");
+    // every check after the swap reverts on failure; none stops without it
+    for (const line of smoke.split("\n").filter((l) => /\|\| (stop|smoke_fail) /.test(l))) expect(line).toMatch(/\|\| smoke_fail "[A-Za-z0-9-]+"$/);
+  });
+
+  it("reverts on ANY exit after the swap until the smoke passed, not only a failed check (an abort under set -e too)", () => {
+    // the revert runs at most once, and the EXIT trap and signals all go through it
+    expect(b).toContain("SWAPPED=reverted");
+    expect(b).toContain('if [ "$SWAPPED" = yes ] && [ "$SMOKE_OK" != yes ]; then revert; fi');
+    expect(b).toContain("trap on_exit EXIT\n");
+    expect(b).toContain("trap 'exit 1' INT TERM HUP\n");
+    // the state the trap reads exists before the trap is set (set -u)
+    expectInOrder(b, ['PREV=""', "SWAPPED=no", "SMOKE_OK=no", "trap on_exit EXIT", "GATE=G-Host"]);
+    // the swap is marked before the mv, so a signal between them cannot leave the new release live
+    expect(b).toContain('ln -sfn "releases/$REL" "$CONSOLE_DIR/current.next" && SWAPPED=yes && mv -Tf');
+    expect([...b.matchAll(/SWAPPED=yes/g)]).toHaveLength(1);
+    // SMOKE_OK is set only after the last smoke check, immediately before the pass
+    expect(b).toContain('|| smoke_fail "console-smoke-failed"\nSMOKE_OK=yes\npass console-smoke\n');
+    expect([...b.matchAll(/SMOKE_OK=yes/g)]).toHaveLength(1);
+  });
+
+  it("smokes the origin on this host, never the public edge (Cloudflare injects a script there, RT-1005 c14785)", () => {
+    expect(b).toContain('--resolve "$ORIGIN_HOST:80:127.0.0.1"');
+    expect(b).toContain("printf 'resolve = %s:80:127.0.0.1\\n' \"$ORIGIN_HOST\" > \"$WORK/curl/.curlrc\"");
+    expect(b).toContain('CURL_HOME="$WORK/curl" bash "$SMOKE" "http://$ORIGIN_HOST"');
+    expect(b).not.toContain("https://$ORIGIN_HOST");
+  });
+
+  it("never deletes a release: the only removals are its own temporary directories", () => {
+    const removals = b.split("\n").filter((l) => /\brm\b/.test(l) && !l.trim().startsWith("#")).map((l) => l.trim());
+    expect(removals).toEqual(['rm -rf "$WORK"', 'if [ -n "$STAGE" ]; then rm -rf "$STAGE"; fi']);
+    // STAGE is a fresh directory under incoming/, and is cleared once it has been renamed into releases/
+    expectInOrder(b, ['STAGE="$CONSOLE_DIR/incoming/.stage-$REL-$RUN_ID"', 'mv -T "$STAGE" "$TGT"', '  STAGE=""\nfi\n']);
+    expect(consoleDeploy.command).toContain('rm -f "$RT_SCRIPT"');
+  });
+
+  itBash("derives the asset, directory and Backend-Core names from both tags without a raw `/`", () => {
+    const start = b.indexOf('REL="');
+    const defs = b.slice(start, b.indexOf('echo "console deploy', start));
+    const run = (consoleTag: string, backendTag: string, wrapper: string): string =>
+      spawnSync("bash", ["-c", `RELEASE_TAG='${consoleTag}' BACKEND_RELEASE='${backendTag}'\n${defs}\nprintf '%s|%s|%s|' "$REL" "$BACKEND_SLUG" "$BACKEND_ID"; grep -qE "$BACKEND_DIR_RE" <<<'${wrapper}' && printf match || printf nomatch`], { encoding: "utf8" }).stdout;
+    expect(run("admin-console/v0.1.0", "backend-core/v0.3.2", "--env-file /opt/rt-lab/backend/release-backend-core-v0.3.2/release.env")).toBe(
+      "admin-console-v0.1.0|backend-core-v0.3.2|v0.3.2|match",
+    );
+    // v0.3.2 is a prefix of v0.3.20, and `.` is not a wildcard
+    expect(run("admin-console/v0.1.0", "backend-core/v0.3.2", "release-backend-core-v0.3.20/x release-backend-core-v0x3x2/y")).toBe(
+      "admin-console-v0.1.0|backend-core-v0.3.2|v0.3.2|nomatch",
+    );
   });
 });

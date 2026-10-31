@@ -1,0 +1,257 @@
+# RT-1007 (RT-717 Phase C7): lab-01 deploy of one pinned Admin Console release for the
+# GitHub `Deploy Console lab` workflow (deploy-console-lab.yml), over SSM Run Command.
+#
+# THIS DOCUMENT IS THE SECURITY BOUNDARY. The SSM agent runs it as root, and the deploy role
+# may run nothing else (no AWS shell document, no sessions). The OWNER creates it from this
+# file (never CI); see deploy/README.md, "Console lab deploy workflow".
+#
+# The Console is a static bundle that Caddy serves from the relative symlink `current` under
+# /opt/dp2-console (host layout recorded on lab-01, RT-1005 c14783). A deploy is an atomic
+# symlink swap: nothing restarts, and nothing is ever deleted.
+#
+# Order, stopping at the first failure:
+#   G-Host    lab-01 runs BackendRelease (its compose wrapper and SENTRY_RELEASE), the
+#             Console layout is the recorded one, and the origin serves /version.json
+#   fetch     the archive from its GitHub release (or the existing release directory),
+#             sha256 checked against the release .sha256 and the attested ArchiveDigest
+#   check     version.json names ExpectedSha and ExpectedPin
+#   swap      record the previous target, then swap `current` atomically
+#   G-Smoke   the origin serves ExpectedSha, then deploy/console-smoke.sh against the origin;
+#             on failure, swap `current` back to the previous target and stop
+#
+# Only monorepo releases admin-console/vX.Y.Z are deployed (owner decision, RT-1007 c14794).
+# A rollback to a legacy admin-console-<sha12> directory stays a manual runbook step.
+#
+# Parameters reach the script only as SSM_<name> environment variables (interpolationType
+# ENV_VAR, SSM Agent 3.3.2746.0 or newer). The script never contains a `{{ }}` placeholder,
+# and each value is re-validated before use. An older agent sets no SSM_* variable, and the
+# script stops.
+#
+# Output contract: stdout carries only fixed `RT_*` lines that the workflow parses with strict
+# patterns (the Actions log of this public repo is public). Command output goes to a root-only
+# log under /var/log/rt-deploy.
+schemaVersion: "2.2"
+description: "RT lab-01: deploy one pinned Admin Console release by checksum with host, pin and origin smoke gates, reverting the symlink swap on a failed smoke (RT-1007)."
+parameters:
+  ReleaseTag:
+    type: String
+    description: "Target Admin Console release of the monorepo, admin-console/vX.Y.Z."
+    allowedPattern: "^admin-console/v[0-9]+\\.[0-9]+\\.[0-9]+$"
+    interpolationType: ENV_VAR
+  ArchiveDigest:
+    type: String
+    description: "Attested digest of the release archive, sha256:<64 hex> (verified by the workflow preflight)."
+    allowedPattern: "^sha256:[0-9a-f]{64}$"
+    interpolationType: ENV_VAR
+  ExpectedSha:
+    type: String
+    description: "Commit the release was built from (version.json sha), 40 hex."
+    allowedPattern: "^[0-9a-f]{40}$"
+    interpolationType: ENV_VAR
+  ExpectedPin:
+    type: String
+    description: "Backend-Core contract pin of the release (version.json backendContractPin), 40 hex."
+    allowedPattern: "^[0-9a-f]{40}$"
+    interpolationType: ENV_VAR
+  BackendRelease:
+    type: String
+    description: "Backend-Core release lab-01 must be running now, backend-core/vX.Y.Z (G-Host)."
+    allowedPattern: "^backend-core/v[0-9]+\\.[0-9]+\\.[0-9]+$"
+    interpolationType: ENV_VAR
+  JiraKey:
+    type: String
+    description: "Jira issue authorizing the run, RT-<number>."
+    allowedPattern: "^RT-[1-9][0-9]{0,5}$"
+    interpolationType: ENV_VAR
+mainSteps:
+  - action: aws:runShellScript
+    name: deployConsoleRelease
+    precondition:
+      StringEquals:
+        - platformType
+        - Linux
+    inputs:
+      timeoutSeconds: "600"
+      runCommand:
+        - |
+          set -eu
+          umask 077
+          RT_SCRIPT="$(mktemp /root/.rt-lab-console-deploy.XXXXXX)"
+          cat > "$RT_SCRIPT" <<'RT_CONSOLE_SCRIPT'
+          set -euo pipefail
+          export LC_ALL=C
+          umask 077
+
+          # Host contract (lab-01, recorded 2026-10-31, RT-1005 c14783).
+          CONSOLE_DIR=/opt/dp2-console
+          BACKEND_DIR=/opt/rt-lab/backend
+          DC="$BACKEND_DIR/dc"
+          BACKEND_ENV=/root/rt-lab-secrets/backend.env
+          LOG_DIR=/var/log/rt-deploy
+          ORIGIN_HOST=lab.kemetralabs.com
+          REPO=Kemetra-Labs/Retail-Tower-Erp
+          MAX_ASSET_BYTES=$((32 * 1024 * 1024))
+
+          GATE=inputs
+          RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
+          mkdir -p "$LOG_DIR"
+          LOG="$LOG_DIR/console-deploy-$RUN_ID.log"
+          # fd 3 keeps the real stdout for RT_* lines; everything else goes to the root-only log.
+          exec 3>&1 >>"$LOG" 2>&1
+
+          say() { printf '%s\n' "$*" >&3; }
+          pass() { say "RT_GATE $1 pass"; }
+          stop() { echo "stopped at gate $GATE: $*"; say "RT_FAIL gate=$GATE reason=$*"; exit 1; }
+
+          RELEASE_TAG="${SSM_ReleaseTag:-}"
+          ARCHIVE_DIGEST="${SSM_ArchiveDigest:-}"
+          EXPECTED_SHA="${SSM_ExpectedSha:-}"
+          EXPECTED_PIN="${SSM_ExpectedPin:-}"
+          BACKEND_RELEASE="${SSM_BackendRelease:-}"
+          JIRA_KEY="${SSM_JiraKey:-}"
+          [[ "$RELEASE_TAG" =~ ^admin-console/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || stop "ReleaseTag-missing-or-invalid"
+          [[ "$ARCHIVE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || stop "ArchiveDigest-missing-or-invalid"
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || stop "ExpectedSha-missing-or-invalid"
+          [[ "$EXPECTED_PIN" =~ ^[0-9a-f]{40}$ ]] || stop "ExpectedPin-missing-or-invalid"
+          [[ "$BACKEND_RELEASE" =~ ^backend-core/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || stop "BackendRelease-missing-or-invalid"
+          [[ "$JIRA_KEY" =~ ^RT-[1-9][0-9]{0,5}$ ]] || stop "JiraKey-missing-or-invalid"
+          # Names, never the raw tag: admin-console/v1.2.3 -> admin-console-v1.2.3 (asset and directory),
+          # backend-core/v1.2.3 -> backend-core-v1.2.3 (slug) -> v1.2.3 (id, = SENTRY_RELEASE).
+          REL="admin-console-${RELEASE_TAG#admin-console/}"
+          BACKEND_SLUG="${BACKEND_RELEASE/\//-}"
+          BACKEND_ID="${BACKEND_SLUG#backend-core-}"
+          # Release-directory matcher (ERE): each dot a literal [.], and the slug must end there.
+          BACKEND_DIR_RE="release-${BACKEND_SLUG//./[.]}([^0-9A-Za-z.]|\$)"
+          echo "console deploy for $JIRA_KEY: $RELEASE_TAG over Backend-Core $BACKEND_RELEASE"
+
+          GATE=lock
+          # The lock the Backend-Core deploy document takes: one lab-01 deploy at a time.
+          exec 9>/run/rt-lab-deploy.lock
+          flock -n 9 || stop "another-deploy-is-running"
+          WORK="$(mktemp -d)"
+          STAGE=""
+          PREV=""
+          SWAPPED=no
+          SMOKE_OK=no
+          # Swaps `current` back to the previous target, once; only after this run swapped it.
+          revert() {
+            [ "$SWAPPED" = yes ] || return 0
+            if ln -sfn "$PREV" "$CONSOLE_DIR/current.next" && mv -Tf "$CONSOLE_DIR/current.next" "$CONSOLE_DIR/current"; then
+              SWAPPED=reverted
+              say "RT_REVERT restored current=${PREV#releases/}"
+            else
+              say "RT_REVERT failed current=$REL"
+            fi
+          }
+          # Any exit after the swap and before the smoke passed (a failed check, or an abort under
+          # set -e) reverts the swap first; then the temporary directories go.
+          on_exit() {
+            if [ "$SWAPPED" = yes ] && [ "$SMOKE_OK" != yes ]; then revert; fi
+            rm -rf "$WORK"
+            if [ -n "$STAGE" ]; then rm -rf "$STAGE"; fi
+          }
+          trap on_exit EXIT
+          trap 'exit 1' INT TERM HUP
+
+          # Reads one KEY=value line; refuses a key that is missing or set twice.
+          env_value() {
+            local file="$1" key="$2" count
+            count="$(grep -c "^$key=" "$file" || true)"
+            [ "$count" = 1 ] || return 1
+            grep "^$key=" "$file" | cut -d= -f2-
+          }
+          # A field of a version.json, or nothing when it is unreadable.
+          version_field() {
+            python3 -c 'import json, sys; v = json.load(open(sys.argv[1])); print(v.get(sys.argv[2], "") if isinstance(v, dict) else "")' "$1" "$2" </dev/null 2>/dev/null || true
+          }
+          # A path on the origin (Caddy on this host, port 80, as the tunnel reaches it), not the public edge.
+          origin_get() {
+            curl -sS --max-time 10 --resolve "$ORIGIN_HOST:80:127.0.0.1" -o "$1" -w '%{http_code}' "http://$ORIGIN_HOST$2" </dev/null || true
+          }
+
+          # ---------------------------------------------------------------- G-Host
+          GATE=G-Host
+          [ -x "$DC" ] && [ -f "$BACKEND_ENV" ] || stop "host-contract-files-missing"
+          command -v curl >/dev/null && command -v python3 >/dev/null && command -v tar >/dev/null && command -v sha256sum >/dev/null || stop "host-contract-tools-missing"
+          grep -qE "$BACKEND_DIR_RE" "$DC" || stop "wrapper-does-not-use-BackendRelease"
+          SENTRY="$(env_value "$BACKEND_ENV" SENTRY_RELEASE)" || stop "SENTRY_RELEASE-missing-or-duplicated"
+          [ "$SENTRY" = "$BACKEND_ID" ] || stop "SENTRY_RELEASE-is-not-BackendRelease"
+          SMOKE="$BACKEND_DIR/release-$BACKEND_SLUG/deploy/console-smoke.sh"
+          [ -f "$SMOKE" ] || stop "backend-release-lacks-console-smoke"
+          [ -d "$CONSOLE_DIR/releases" ] && [ -d "$CONSOLE_DIR/incoming" ] && [ -L "$CONSOLE_DIR/current" ] || stop "console-layout-missing"
+          PREV="$(readlink "$CONSOLE_DIR/current")"
+          [[ "$PREV" =~ ^releases/admin-console-(v[0-9]+\.[0-9]+\.[0-9]+|[0-9a-f]{12})$ ]] || stop "current-is-not-a-release-directory"
+          [ -f "$CONSOLE_DIR/$PREV/version.json" ] || stop "current-release-has-no-version-json"
+          [ "$(origin_get "$WORK/prior.json" /version.json)" = 200 ] || stop "origin-version-json-not-200-before-the-swap"
+          say "RT_PRIOR current=${PREV#releases/}"
+          pass G-Host
+
+          # ---------------------------------------------------------------- fetch
+          GATE=fetch
+          TGT="$CONSOLE_DIR/releases/$REL"
+          if [ ! -d "$TGT" ]; then
+            # GitHub serves a tag with `/` at this literal path (its own browser_download_url form).
+            BASE="https://github.com/$REPO/releases/download/$RELEASE_TAG"
+            for ASSET in "$REL.tar.gz" "$REL.tar.gz.sha256"; do
+              curl -fsSL --proto '=https' --tlsv1.2 --max-time 120 --max-filesize "$MAX_ASSET_BYTES" \
+                -o "$WORK/$ASSET" "$BASE/$ASSET" </dev/null || stop "release-asset-download-failed"
+            done
+            [ "$(awk 'END { print NR }' "$WORK/$REL.tar.gz.sha256")" = 1 ] || stop "sha256-file-must-list-one-asset"
+            (cd "$WORK" && sha256sum --check --strict "$REL.tar.gz.sha256") || stop "archive-does-not-match-its-sha256-file"
+            [ "sha256:$(sha256sum "$WORK/$REL.tar.gz" | cut -d' ' -f1)" = "$ARCHIVE_DIGEST" ] || stop "archive-is-not-ArchiveDigest"
+            LISTED="$(tar -tvzf "$WORK/$REL.tar.gz" --numeric-owner)" || stop "archive-unreadable"
+            [[ "$(cut -c1 <<<"$LISTED" | sort -u | tr -d '\n')" =~ ^[-d]+$ ]] || stop "archive-holds-a-non-regular-entry"
+            while IFS= read -r ENTRY; do
+              case "$ENTRY" in . | ./ | ./*) ;; *) stop "archive-entry-outside-its-root" ;; esac
+              case "$ENTRY" in *..* | *\\*) stop "unsafe-archive-entry-path" ;; *) ;; esac
+            done < <(tar -tzf "$WORK/$REL.tar.gz")
+            # Unpacked next to the releases (same file system), world-readable for Caddy, then renamed into place.
+            STAGE="$CONSOLE_DIR/incoming/.stage-$REL-$RUN_ID"
+            (umask 022 && mkdir "$STAGE" \
+              && tar -xzf "$WORK/$REL.tar.gz" -C "$STAGE" --no-same-owner --no-same-permissions)
+            mv -T "$STAGE" "$TGT"
+            STAGE=""
+          fi
+          pass fetch
+
+          # ---------------------------------------------------------------- check
+          GATE=check
+          # Downloaded now or already present, the directory must be the release the workflow verified.
+          [ -f "$TGT/index.html" ] && [ -f "$TGT/version.json" ] || stop "release-directory-incomplete"
+          [ "$(version_field "$TGT/version.json" app)" = retail-tower-console ] || stop "version-json-is-not-the-console"
+          [ "$(version_field "$TGT/version.json" sha)" = "$EXPECTED_SHA" ] || stop "version-json-is-not-ExpectedSha"
+          [ "$(version_field "$TGT/version.json" backendContractPin)" = "$EXPECTED_PIN" ] || stop "version-json-is-not-ExpectedPin"
+          say "RT_TARGET release=$REL digest=$ARCHIVE_DIGEST"
+          pass check
+
+          # ---------------------------------------------------------------- swap
+          GATE=swap
+          if [ "$PREV" = "releases/$REL" ]; then
+            say "RT_SWAP unchanged current=$REL"
+          else
+            ln -sfn "$PREV" "$CONSOLE_DIR/current.bak-pre-$REL-$RUN_ID"
+            # marked before the mv, so a signal during it still reverts (revert to PREV is a no-op if mv never ran)
+            ln -sfn "releases/$REL" "$CONSOLE_DIR/current.next" && SWAPPED=yes && mv -Tf "$CONSOLE_DIR/current.next" "$CONSOLE_DIR/current" || stop "swap-failed"
+            say "RT_SWAP from=${PREV#releases/} to=$REL"
+          fi
+          [ "$(readlink "$CONSOLE_DIR/current")" = "releases/$REL" ] || stop "current-is-not-the-target"
+          pass swap
+
+          # ---------------------------------------------------------------- G-Smoke
+          GATE=G-Smoke
+          # On a failed smoke, `current` goes back to the previous target before the run stops.
+          smoke_fail() { revert; stop "$1"; }
+          [ "$(origin_get "$WORK/served.json" /version.json)" = 200 ] || smoke_fail "origin-version-json-not-200-after-the-swap"
+          [ "$(version_field "$WORK/served.json" sha)" = "$EXPECTED_SHA" ] || smoke_fail "origin-does-not-serve-ExpectedSha"
+          # console-smoke takes only a base URL; a private curlrc pins the origin hostname to this host.
+          mkdir "$WORK/curl"
+          printf 'resolve = %s:80:127.0.0.1\n' "$ORIGIN_HOST" > "$WORK/curl/.curlrc"
+          CURL_HOME="$WORK/curl" bash "$SMOKE" "http://$ORIGIN_HOST" </dev/null || smoke_fail "console-smoke-failed"
+          SMOKE_OK=yes
+          pass console-smoke
+          say "RT_DONE release=$RELEASE_TAG"
+          RT_CONSOLE_SCRIPT
+          RC=0
+          /bin/bash "$RT_SCRIPT" || RC=$?
+          rm -f "$RT_SCRIPT"
+          exit "$RC"
