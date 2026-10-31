@@ -41,5 +41,12 @@ CHROMIUM="C:/Program Files/Google/Chrome/Application/chrome.exe" node docs/desig
 `STATES=<comma list>` limits which states run. Without `CHROMIUM`, the script uses Playwright's
 own browser.
 
-The script exits non-zero and prints each failing capture when any check fails. The baseline has
-no labels, so for a `before` run, set `EXPECT_LABELS=0`.
+The script exits non-zero and prints each failing capture when any check fails. It also checks
+that each state shows exactly its expected rows.
+
+The baseline has no labels and no `AllRows` state, so a `before` run lists the five baseline
+states and sets `EXPECT_LABELS=0`:
+
+```bash
+CHROMIUM="C:/Program Files/Google/Chrome/Application/chrome.exe" STATES=Connected,Checking,Offline,Attention,PrinterFailed EXPECT_LABELS=0 node docs/design/vnext/captures/RT-1023/tools/capture-rt1023.cjs docs/design/vnext/captures/RT-1023/before before
+```

@@ -17,9 +17,23 @@ const ROUTES = { sale: '/app/cart', dashboard: '/app/dashboard' };
 // The baseline (before RT-1023) has no labels: run it with EXPECT_LABELS=0.
 const EXPECT_LABELS = process.env.EXPECT_LABELS !== '0';
 
+// The rows each state must show, in order (the manager always has the printer row, RT-886).
+const EXPECTED_ROWS = {
+  Connected: ['connection', 'printer'],
+  Checking: ['connection', 'printer'],
+  Offline: ['connection', 'printer'],
+  Attention: ['connection', 'sync', 'printer'],
+  PrinterFailed: ['connection', 'printer'],
+  AllRows: ['connection', 'sync', 'held', 'printer'],
+};
+
 /** Why a capture fails its checks; empty when it passes. */
-function failures(c, axe, errors) {
+function failures(c, axe, errors, state) {
   const out = [];
+  const want = EXPECTED_ROWS[state];
+  const got = c.rows.map((r) => r.row).join(',');
+  if (!want) out.push(`no expected rows for state ${state}`);
+  else if (got !== want.join(',')) out.push(`rows ${got || 'none'}, expected ${want.join(',')}`);
   if (axe.length > 0) out.push(`axe: ${axe.join(', ')}`);
   if (!c.inView) out.push('footer out of view');
   if (!c.inNav) out.push('footer outside the rail');
@@ -27,7 +41,6 @@ function failures(c, axe, errors) {
   if (c.small > 0) out.push(`${c.small} text node(s) under 12px`);
   if (c.overflowX) out.push('horizontal overflow');
   if (errors.length > 0) out.push(`page errors: ${errors.join(' | ')}`);
-  if (c.rows.length === 0) out.push('no status rows');
   for (const r of c.rows) {
     if (r.row === 'printer' && r.height < 44) out.push(`printer row ${r.height}px < 44px`);
     if (!EXPECT_LABELS) continue;
@@ -94,7 +107,7 @@ function checks() {
               .violations.map((v) => `${v.id}(${v.nodes.length})`));
           }
           const c = await page.evaluate(checks);
-          const failed = failures(c, axe, errors);
+          const failed = failures(c, axe, errors, state);
           log.push({ state, where, width: +w, mode, file, axe, ...c, errors, failed });
           console.log(state, where, w, mode, JSON.stringify({ axe, labels: c.rows.map((x) => x.label), v: c.inView, n: c.inNav, sc: c.navScrolls, s: c.small, x: c.overflowX, clip: c.rows.some((x) => x.labelClipped), e: errors }));
           await page.close();
