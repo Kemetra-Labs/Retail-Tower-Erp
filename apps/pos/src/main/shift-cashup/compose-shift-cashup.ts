@@ -129,6 +129,9 @@ export function notifyOnShiftClose(
     verifyApprover: (input) => service.verifyApprover(input),
     listApprovers: () => service.listApprovers(),
     readStatus: () => service.readStatus(),
+    recordAbandonedCount: (input) => {
+      service.recordAbandonedCount(input);
+    },
   };
 }
 

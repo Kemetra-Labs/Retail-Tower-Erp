@@ -71,6 +71,9 @@ export function fakeShiftBridge(status: ShiftStatusView = statusView()): FakeShi
     revokeManagerPin: vi.fn<ShiftCashupBridgeAPI['revokeManagerPin']>(() =>
       Promise.resolve({ kind: 'revoked' }),
     ),
+    abandonCount: vi.fn<ShiftCashupBridgeAPI['abandonCount']>(() =>
+      Promise.resolve({ kind: 'recorded' }),
+    ),
   };
 }
 

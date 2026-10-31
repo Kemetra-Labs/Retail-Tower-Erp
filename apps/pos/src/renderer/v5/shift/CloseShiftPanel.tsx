@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { isShiftAmountWithinBound } from '../../../shared/shift-cashup/amount-bound';
 import type { ShiftCashupBridgeAPI, ShiftCloseResponse } from '../../../shared/shift-cashup/types';
+import { useAbandonedCount } from './abandoned-count';
 import { ManagerApprovalDialog } from './ManagerApprovalDialog';
 import { callShift, useSingleFlight } from './shift-bridge';
 import { SHIFT_COPY, shiftRefusalMessage } from './shift-copy';
@@ -54,8 +55,17 @@ export function CloseShiftPanel(props: Props): JSX.Element {
   const commitRef = useRef<HTMLButtonElement>(null);
   const countRef = useRef<HTMLInputElement>(null);
   useFocusBackAfterApproval(approving, commitRef);
+  // RT-1003: a count the cashier walks away from is an abandoned Count Attempt.
+  const abandoned = useAbandonedCount({
+    bridge: props.bridge,
+    currencyCode: props.currencyCode,
+    count,
+    approving,
+  });
 
   const closed = (answer: Closed): void => {
+    // Before the parent hears of it: the panel may go before the approval clears.
+    abandoned.markCompleted();
     props.onClosed({
       currencyCode: props.currencyCode,
       ...(answer.varianceMinor === undefined ? {} : { varianceMinor: answer.varianceMinor }),
@@ -80,6 +90,7 @@ export function CloseShiftPanel(props: Props): JSX.Element {
       return;
     }
     setError(null);
+    abandoned.markSent(count);
     run(async () => {
       const answer = await callShift(() => props.bridge.close({ countedCashMinor }));
       if (answer.kind === 'closed') closed(answer);
@@ -118,6 +129,7 @@ export function CloseShiftPanel(props: Props): JSX.Element {
           bridge={props.bridge}
           countedCashMinor={approving}
           onDismiss={() => {
+            abandoned.abandonApproval(approving);
             setApproving(null);
           }}
           onClosed={(answer) => {

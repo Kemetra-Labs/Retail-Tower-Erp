@@ -2,6 +2,8 @@ import { ipcRenderer } from 'electron';
 
 import { SHIFT_CASHUP_IPC_CHANNELS } from '../shared/shift-cashup/channels.js';
 import type {
+  ShiftAbandonCountRequest,
+  ShiftAbandonCountResponse,
   ShiftCashupBridgeAPI,
   ShiftCloseRequest,
   ShiftCloseResponse,
@@ -27,7 +29,8 @@ import type {
  * renderer reads the flag from `app.config` before offering the flow).
  * Nothing that reveals the expected cash comes back. Part 2: the close may
  * name a listed manager and carry their PIN, and a manager enrols theirs; a
- * PIN only goes in.
+ * PIN only goes in. RT-1003: an abandoned blind count goes in as its amount
+ * only, and only `recorded` (or a refusal) comes back.
  */
 export const shiftCashup: ShiftCashupBridgeAPI = {
   open: (req: ShiftOpenRequest) =>
@@ -54,4 +57,9 @@ export const shiftCashup: ShiftCashupBridgeAPI = {
       SHIFT_CASHUP_IPC_CHANNELS.REVOKE_MANAGER_PIN,
       req,
     ) as Promise<ShiftManagerPinRevokeResponse>,
+  abandonCount: (req: ShiftAbandonCountRequest) =>
+    ipcRenderer.invoke(
+      SHIFT_CASHUP_IPC_CHANNELS.ABANDON_COUNT,
+      req,
+    ) as Promise<ShiftAbandonCountResponse>,
 };

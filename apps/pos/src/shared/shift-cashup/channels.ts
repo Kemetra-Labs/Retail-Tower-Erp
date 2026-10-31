@@ -20,6 +20,8 @@ export const SHIFT_CASHUP_IPC_CHANNELS = {
   LIST_ENROLLED_MANAGERS: 'shiftCashup:listEnrolledManagers',
   // RT-438: a signed-in manager revokes a manager PIN (their own or another's).
   REVOKE_MANAGER_PIN: 'shiftCashup:revokeManagerPin',
+  // RT-1003: the cashier walked away from a blind count they had entered.
+  ABANDON_COUNT: 'shiftCashup:abandonCount',
 } as const;
 
 export type ShiftCashupIpcChannel =
