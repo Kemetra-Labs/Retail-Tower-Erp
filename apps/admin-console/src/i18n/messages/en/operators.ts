@@ -17,6 +17,14 @@ export const operators: MessagesOf<typeof ar> = {
   "operators.list.col.storeAccess": "Store access",
   "operators.list.col.state": "State",
 
+  "operators.band.label": "Membership summary",
+  "operators.band.total": "Memberships",
+  "operators.band.active": "Active memberships",
+  "operators.band.revoked": "Revoked memberships",
+  "operators.list.section": "Tenant members",
+  "operators.list.sectionNote":
+    "Store access is shown as a count; store names are not available in this list.",
+
   "operators.state.active": "Active",
   "operators.state.revoked": "Revoked",
 
