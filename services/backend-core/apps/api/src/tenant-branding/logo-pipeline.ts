@@ -6,10 +6,10 @@
  *   2. PNG: the in-repo chunk walk (header bomb guard, CRC, nothing after
  *      IEND), then a libvips decode with a pixel limit, converted to sRGB
  *      with every metadata chunk dropped. SVG: the in-repo gate, then resvg
- *      with system fonts and every resource off, at a fixed size (FR-09).
- *      The SVG itself is never kept.
- *   3. Trim (FR-08), shape checks on the trimmed box (FR-09; size minimums
- *      for PNG only), 8% clear space, capped master.
+ *      in a killable child process at a fixed size (svg-rasterize.ts). The
+ *      SVG itself is never kept.
+ *   3. Trim (FR-08), shape checks on the trimmed box (FR-09), 8% clear
+ *      space, capped master.
  *   4. Renditions (FR-10, FR-12), warnings (contract §6), presentation
  *      (FR-11) and the content version (FR-13).
  *
@@ -18,7 +18,6 @@
  */
 import { createHash } from "node:crypto";
 
-import { renderAsync, Resvg, type ResvgRenderOptions } from "@resvg/resvg-js";
 import sharp from "sharp";
 
 import {
@@ -26,7 +25,6 @@ import {
   MASTER_MAX_SIDE_PX,
   MAX_ASPECT,
   MAX_PIXELS,
-  MAX_SIDE_PX,
   MIN_HORIZONTAL_HEIGHT_PX,
   MIN_SQUARE_SIDE_PX,
   PIPELINE_VERSION,
@@ -36,7 +34,6 @@ import {
   SCALES,
   SLOT_BOXES,
   SLOTS,
-  SVG_RASTER_HEIGHT_PX,
   type Scale,
   type Slot,
 } from "./logo-config";
@@ -57,6 +54,7 @@ import {
   type Box,
   type Rgba,
 } from "./raster-ops";
+import { rasterizeCheckedSvg } from "./svg-rasterize";
 import { hasSvgSignature, scanSvg } from "./svg-scan";
 
 export const LOGO_WARNINGS = ["low_contrast", "receipt_high_black_coverage", "receipt_thin_strokes"] as const;
@@ -86,9 +84,6 @@ export interface ProcessedLogo {
   readonly receipt: ReceiptRenditionImage;
 }
 
-/** resvg with no system fonts and no resource directory: it can read nothing but the text it is given. */
-const RESVG_BASE: ResvgRenderOptions = { font: { loadSystemFonts: false }, logLevel: "off" };
-
 /** libvips decode of a PNG to straight-alpha 8-bit sRGB RGBA, metadata dropped. */
 async function decodePng(bytes: Buffer): Promise<Rgba> {
   try {
@@ -105,30 +100,13 @@ async function decodePng(bytes: Buffer): Promise<Rgba> {
   }
 }
 
-/** FR-09: a fixed raster height, the width capped at MAX_SIDE_PX. */
-function svgFit(width: number, height: number): NonNullable<ResvgRenderOptions["fitTo"]> {
-  return width * SVG_RASTER_HEIGHT_PX > MAX_SIDE_PX * height
-    ? { mode: "width", value: MAX_SIDE_PX }
-    : { mode: "height", value: SVG_RASTER_HEIGHT_PX };
-}
-
 async function rasterizeSvg(bytes: Buffer): Promise<Rgba> {
-  const text = scanSvg(bytes);
-  let png: Buffer;
-  try {
-    const probe = new Resvg(text, RESVG_BASE);
-    const fitTo = svgFit(probe.width, probe.height);
-    png = (await renderAsync(text, { ...RESVG_BASE, fitTo })).asPng();
-  } catch {
-    return reject("svg_unsupported");
-  }
-  return decodePng(png);
+  return decodePng(await rasterizeCheckedSvg(scanSvg(bytes)));
 }
 
-/** FR-09 on the trimmed content box (OD-4). Size minimums apply to PNG only. */
-function checkShape(box: Box, checkMinimum: boolean): void {
+/** FR-09 on the trimmed content box (OD-4), for PNG and rasterized SVG alike. */
+function checkShape(box: Box): void {
   if (box.width < box.height || box.width > MAX_ASPECT * box.height) reject("aspect_ratio_out_of_range");
-  if (!checkMinimum) return;
   const squareIsh = box.width * 4 < box.height * 5;
   const bigEnough = squareIsh
     ? box.width >= MIN_SQUARE_SIDE_PX && box.height >= MIN_SQUARE_SIDE_PX
@@ -162,22 +140,22 @@ export function logoVersion(masterPng: Buffer): string {
   return createHash("sha256").update(masterPng).update(PIPELINE_VERSION, "utf8").update(CANONICAL_RENDITION_CONFIG, "utf8").digest("hex");
 }
 
-async function decode(bytes: Buffer): Promise<{ raster: Rgba; isSvg: boolean }> {
+async function decode(bytes: Buffer): Promise<Rgba> {
   if (hasPngSignature(bytes)) {
     inspectPng(bytes);
-    return { raster: await decodePng(bytes), isSvg: false };
+    return decodePng(bytes);
   }
-  if (hasSvgSignature(bytes)) return { raster: await rasterizeSvg(bytes), isSvg: true };
+  if (hasSvgSignature(bytes)) return rasterizeSvg(bytes);
   return reject("file_type_not_allowed");
 }
 
 /** Validates, normalizes and renders an upload; throws `LogoRejectedError` on a §5 refusal. */
 export async function processLogo(bytes: Buffer): Promise<ProcessedLogo> {
-  const { raster, isSvg } = await decode(bytes);
+  const raster = await decode(bytes);
   const opaque = isOpaque(raster);
   const box = contentBox(raster, opaque);
   if (box === null) reject("image_empty");
-  checkShape(box, !isSvg);
+  checkShape(box);
 
   const padded = cropWithClearSpace(raster, box, opaque);
   const capped = containSize(padded.width, padded.height, MASTER_MAX_SIDE_PX, MASTER_MAX_SIDE_PX);

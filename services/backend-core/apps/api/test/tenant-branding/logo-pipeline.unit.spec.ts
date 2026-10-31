@@ -60,6 +60,13 @@ const FAN_OUT = (() => {
   return `<defs>${defs}</defs><use href="#l4"/>`;
 })();
 
+/** The pr-review repro: about 55 elements that took resvg 155 s to render before the gate counted expansion. */
+const OPACITY_BOMB = (() => {
+  let defs = `<rect id="g0" width="400" height="100" opacity="0.5" fill="#102060"/>`;
+  for (let level = 1; level <= 4; level += 1) defs += `<g id="g${level}">${`<use href="#g${level - 1}"/>`.repeat(10)}</g>`;
+  return `<defs>${defs}</defs><use href="#g4"/>`;
+})();
+
 const sha = (b: Buffer): string => createHash("sha256").update(b).digest("hex");
 
 /** The horizontal reference logo: a 1024 × 256 navy block (exactly 4:1) in a transparent margin. */
@@ -113,7 +120,7 @@ describe("a valid horizontal PNG", () => {
   });
 
   it("pins the receipt dots (platform-independent: the inflated rows, not the deflate bytes)", () => {
-    expect(sha(idatStream(out.receipt.png))).toBe(sha(idatStream(out.receipt.png)));
+    expect(sha(idatStream(out.receipt.png))).toBe("a4b4bc5175df16a7628514f8ed4a033f514238012f9622593519a83bd6c2d53f");
     const rows = idatStream(out.receipt.png);
     const rowBytes = Math.ceil(383 / 8) + 1;
     expect(rows.length).toBe(rowBytes * 95);
@@ -212,11 +219,16 @@ describe("accepted shapes", () => {
 });
 
 describe("SVG", () => {
-  it("rasterizes a safe SVG at a fixed size and skips the size minimum (FR-09)", async () => {
+  it("rasterizes a safe SVG at a fixed size, so a small but well-framed viewBox meets the minimum (FR-09)", async () => {
     const tiny = `<rect x="5" y="5" width="30" height="10" fill="#102060"/>`;
     const out = await processLogo(svg(tiny, `xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20"`));
     expect(out.screen).toHaveLength(8);
     expect(out.master.width).toBe(1024);
+  });
+
+  it("image_too_small: content that fills only a corner of the SVG canvas", async () => {
+    const corner = svg(`<rect x="0" y="0" width="20" height="10" fill="#102060"/>`, `xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000"`);
+    expect(await refusal(corner)).toEqual({ code: "image_too_small", construct: null });
   });
 
   it("accepts a BOM and leading whitespace, and fragment references", async () => {
@@ -299,6 +311,7 @@ describe("SVG", () => {
     ["more than 5000 elements", svg(`<g>${"<rect/>".repeat(5000)}</g>`)],
     ["nesting deeper than 64", svg(`${"<g>".repeat(64)}${"</g>".repeat(64)}`)],
     ["a <use> fan-out bomb (10^5 nodes from 55 elements)", svg(FAN_OUT)],
+    ["the review's render bomb: 4 levels of 10 <use> over a translucent rect (10^4 nodes)", svg(OPACITY_BOMB)],
     ["a <use> reference cycle", svg(`<g id="a"><use href="#b"/></g><g id="b"><use href="#a"/></g>`)],
     ["a pattern used by a stylesheet rule on every element", svg(`<defs><pattern id="p">${"<rect/>".repeat(20)}</pattern></defs><style>rect{fill:url(#p)}</style>${RECT}`)],
     ["feTurbulence with 1000 octaves", svg(`<filter id="f"><feTurbulence numOctaves="1000"/></filter>${RECT}`)],

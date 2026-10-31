@@ -22,7 +22,7 @@ import { DeviceBearer, ReportsBuildIdentity } from "../auth/route-auth";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import type { TenantContextRequest } from "../context/types";
 import { IfNoneMatchSchema, NoQuerySchema } from "./branding.query";
-import { brandingEtag, type TenantBrandingBody } from "./branding.projections";
+import type { TenantBrandingBody } from "./branding.projections";
 import { TenantBrandingService } from "./branding.service";
 
 const CACHE_CONTROL = "no-cache, private";
@@ -50,11 +50,10 @@ export class TenantBrandingDeviceController {
     }
     if (request.posDeviceId !== undefined) annotateAudit(request, { device_id: request.posDeviceId });
 
-    const body = await this.service.read(tenantId);
-    const etag = brandingEtag(body.tenant_display_name, body.revision);
+    const { etag, body } = await this.service.deviceRead(tenantId, wanted.data);
     res.setHeader("ETag", etag);
     res.setHeader("Cache-Control", CACHE_CONTROL);
-    if (wanted.data === etag) {
+    if (body === null) {
       res.status(304);
       return undefined;
     }

@@ -19,9 +19,9 @@ import type { NextFunction, Request, Response } from "express";
 
 import { MAX_UPLOAD_BYTES } from "./logo-config";
 
-/** The two upload operations: `PUT …/logo` and `POST …/logo/preview`. */
-const SAVE_PATH_RE = /^\/api\/v1\/tenants\/[^/]+\/logo\/?$/;
-const PREVIEW_PATH_RE = /^\/api\/v1\/tenants\/[^/]+\/logo\/preview\/?$/;
+/** The two upload operations, `PUT …/logo` and `POST …/logo/preview`; case-insensitive, as Express routing is. */
+const SAVE_PATH_RE = /^\/api\/v1\/tenants\/[^/]+\/logo\/?$/i;
+const PREVIEW_PATH_RE = /^\/api\/v1\/tenants\/[^/]+\/logo\/preview\/?$/i;
 
 function isUpload(req: Pick<Request, "method" | "path">): boolean {
   if (req.method === "PUT") return SAVE_PATH_RE.test(req.path);

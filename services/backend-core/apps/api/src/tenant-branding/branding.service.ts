@@ -26,6 +26,7 @@ import type { Pool, PoolClient } from "pg";
 import { PG_POOL } from "../auth/auth.module";
 import { insertLogoRemoved, insertLogoReplaced, type LogoAudit } from "./branding-audit";
 import {
+  brandingEtag,
   toBrandingBody,
   toPreviewBody,
   type LogoPreviewBody,
@@ -57,6 +58,20 @@ export class TenantBrandingService {
   /** `posGetTenantBranding` / `consoleGetTenantLogo`: the same body on both surfaces. */
   read(tenantId: string): Promise<TenantBrandingBody> {
     return this.inTenant(tenantId, (client) => this.body(client, tenantId));
+  }
+
+  /**
+   * `posGetTenantBranding`: the ETag comes from the name and revision alone
+   * (FR-18), so an unchanged poll (`304`) never loads the rendition bytes.
+   */
+  deviceRead(tenantId: string, ifNoneMatch: string | undefined): Promise<{ etag: string; body: TenantBrandingBody | null }> {
+    return this.inTenant(tenantId, async (client) => {
+      const head = await this.repo.head(client, tenantId);
+      if (head.name === null) throw new Error("tenant branding: the tenant row is not visible in its own context");
+      const etag = brandingEtag(head.name, head.revision);
+      if (ifNoneMatch === etag) return { etag, body: null };
+      return { etag, body: toBrandingBody(head.name, head.revision, await this.repo.logo(client, tenantId)) };
+    });
   }
 
   /** `consolePreviewTenantLogo`: validates and renders; stores and audits nothing. */

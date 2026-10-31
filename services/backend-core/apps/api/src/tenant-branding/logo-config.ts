@@ -49,16 +49,22 @@ export const TRIM_TOLERANCE = 10;
  */
 export const MASTER_MAX_SIDE_PX = 1024;
 
-/** A rasterized SVG's fixed height (FR-09), width-capped at MAX_SIDE_PX. */
+/**
+ * A rasterized SVG's fixed height (FR-09), width-capped at MAX_SIDE_PX. The
+ * FR-09 size minimum is still checked on the trimmed box, so an SVG whose
+ * content fills only a corner of its canvas is `image_too_small`.
+ */
 export const SVG_RASTER_HEIGHT_PX = 960;
 
 /** FR-07 rasterizer limits (`svg_unsupported`). */
 export const SVG_MAX_ELEMENTS = 5000;
 export const SVG_MAX_DEPTH = 64;
 /** Nodes the rasterizer may visit once fragment references are expanded (`<use>` / pattern fan-out). */
-export const SVG_MAX_EXPANDED_NODES = 50_000;
+export const SVG_MAX_EXPANDED_NODES = 2_000;
 /** `feTurbulence` work is pixels × octaves. */
 export const SVG_MAX_TURBULENCE_OCTAVES = 10;
+/** The rasterizer child is killed after this; the upload is `svg_unsupported`. */
+export const SVG_RENDER_TIMEOUT_MS = 8_000;
 
 export const SLOTS = ["boot", "pairing", "sign_in", "lock"] as const;
 export type Slot = (typeof SLOTS)[number];
@@ -89,10 +95,14 @@ export const RECEIPT_THIN_MAX_PERCENT = 10;
 
 /**
  * The canonical rendition configuration hashed into `version` (FR-13):
- * a fixed key order and no whitespace, so it is the same string everywhere.
+ * a fixed key order and no whitespace. The master PNG's deflate bytes come
+ * from Node's bundled zlib, so its version is part of the input too: a Node
+ * upgrade that could change those bytes changes the version visibly instead
+ * of silently.
  */
 export const CANONICAL_RENDITION_CONFIG = JSON.stringify({
   clear_space_percent: CLEAR_SPACE_PERCENT,
+  deflate: `zlib-${process.versions.zlib}`,
   master_max_side_px: MASTER_MAX_SIDE_PX,
   receipt: { dpi: RECEIPT_DPI, max_height_px: RECEIPT_MAX_H_PX, max_width_px: RECEIPT_MAX_W_PX },
   slots: SLOTS.map((slot) => ({ slot, width: SLOT_BOXES[slot].width, height: SLOT_BOXES[slot].height })),

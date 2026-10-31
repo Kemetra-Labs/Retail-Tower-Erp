@@ -146,8 +146,9 @@ paths:
       security:
         - cookieAuth: []
       description: >
-        Runs under `SELECT … FOR UPDATE` on the tenant's `tenants` row, which
-        always exists, so two first uploads at revision `0` cannot both pass.
+        Runs under a per-tenant transaction lock (a `pg_advisory_xact_lock`
+        that every logo write takes; RT-473 S2), so two first uploads at
+        revision `0` cannot both pass.
         Order of checks, each stopping the call: (1) re-run the full pipeline
         on the body (`422` on failure); (2) the computed version must equal
         `preview_version` (`409 logo_preview_mismatch`); (3) idempotent replay
@@ -193,7 +194,7 @@ paths:
       security:
         - cookieAuth: []
       description: >
-        Runs under `SELECT … FOR UPDATE` on the tenant's `tenants` row. Order of
+        Runs under the same per-tenant transaction lock. Order of
         checks: (1) no logo stored → `200` with the current branding, no audit;
         (2) `expected_revision` mismatch → `409 logo_changed_concurrently`; (3)
         delete the record and its renditions, increment `revision`, write

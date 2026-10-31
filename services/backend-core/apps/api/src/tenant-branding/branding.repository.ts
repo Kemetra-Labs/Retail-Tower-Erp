@@ -36,10 +36,18 @@ interface RenditionRow {
 
 const SLOT_ORDER: readonly string[] = SLOTS;
 
+/**
+ * The advisory-lock key every tenant logo write takes (save, remove and any
+ * future OD-8 re-render job MUST use this same key to serialize with them).
+ */
+export function tenantLogoLockKey(tenantId: string): string {
+  return `tenant_logo:${tenantId.toLowerCase()}`;
+}
+
 export class BrandingRepository {
   /** Serialises every logo write of the tenant until COMMIT. */
   async lock(client: PoolClient, tenantId: string): Promise<void> {
-    await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [`tenant_logo:${tenantId}`]);
+    await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [tenantLogoLockKey(tenantId)]);
   }
 
   /** `tenants.name` (OD-10), or null when the tenant is not visible. */
@@ -67,6 +75,11 @@ export class BrandingRepository {
       [tenantId],
     );
     return Number(r.rows[0]!.revision);
+  }
+
+  /** The display name and revision only: enough for the FR-18 ETag, without the image bytes. */
+  async head(client: PoolClient, tenantId: string): Promise<{ name: string | null; revision: number }> {
+    return { name: await this.displayName(client, tenantId), revision: await this.revision(client, tenantId) };
   }
 
   /** The stored version, or null when no logo is stored. */
