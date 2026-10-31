@@ -29,6 +29,23 @@ function useDurationText(minutes: number | null): string | null {
   return h ?? m;
 }
 
+/**
+ * One written-out time. The summary section already lists the same three times
+ * as ledger rows, so the time bar repeats them for the eye only: hidden from
+ * assistive technology, which gets them from the summary and the bar's name.
+ */
+function Fact({
+  label,
+  children,
+}: Readonly<{ label: string; children: React.ReactNode }>): React.JSX.Element {
+  return (
+    <div className="shift-timebar__fact" aria-hidden="true">
+      <span className="shift-timebar__label">{label}</span>
+      <span className="shift-timebar__value">{children}</span>
+    </div>
+  );
+}
+
 export function ShiftTimeBar({ detail, timeZone }: Readonly<Props>): React.JSX.Element | null {
   const t = useT();
   const facts = shiftTimeFacts(detail);
@@ -52,39 +69,34 @@ export function ShiftTimeBar({ detail, timeZone }: Readonly<Props>): React.JSX.E
             className="shift-timebar__span"
             style={{ insetInlineStart: `${bar.startPct}%`, width: `${bar.endPct - bar.startPct}%` }}
           />
-          <span
-            className="shift-timebar__mark"
-            style={{ insetInlineStart: `${bar.receivedPct}%` }}
-          />
+          {bar.receivedPct === null ? null : (
+            <span
+              className="shift-timebar__mark"
+              style={{ insetInlineStart: `${bar.receivedPct}%` }}
+            />
+          )}
         </div>
       ) : null}
-      <dl className="shift-timebar__facts">
-        <div>
-          <dt>{t("shift.field.openedAt")}</dt>
-          <dd>
-            <DateTime value={detail.openedAt} timeZone={timeZone} />
-          </dd>
-        </div>
+      <div className="shift-timebar__facts">
+        <Fact label={t("shift.field.openedAt")}>
+          <DateTime value={detail.openedAt} timeZone={timeZone} />
+        </Fact>
         {duration ? (
-          <div>
-            <dt>{t("shift.timebar.duration")}</dt>
-            <dd>{duration}</dd>
-          </div>
+          <dl className="shift-timebar__fact">
+            <dt className="shift-timebar__label">{t("shift.timebar.duration")}</dt>
+            <dd className="shift-timebar__value">{duration}</dd>
+          </dl>
         ) : null}
-        <div>
-          <dt>{t("shift.field.closedAt")}</dt>
-          <dd>
-            <DateTime value={detail.closedAt} timeZone={timeZone} />
-          </dd>
-        </div>
-        <div>
-          <dt>{t("shift.field.receivedAt")}</dt>
-          <dd>
-            <DateTime value={detail.receivedAt} timeZone={timeZone} />
-          </dd>
-        </div>
-      </dl>
-      {bar ? <p className="shift-timebar__legend">{t("shift.timebar.legend")}</p> : null}
+        <Fact label={t("shift.field.closedAt")}>
+          <DateTime value={detail.closedAt} timeZone={timeZone} />
+        </Fact>
+        <Fact label={t("shift.field.receivedAt")}>
+          <DateTime value={detail.receivedAt} timeZone={timeZone} />
+        </Fact>
+      </div>
+      {bar?.receivedPct == null ? null : (
+        <p className="shift-timebar__legend">{t("shift.timebar.legend")}</p>
+      )}
     </div>
   );
 }

@@ -84,7 +84,7 @@ export const shift: MessagesOf<typeof ar> = {
   "shift.timebar.label": "Opened {opened}, closed {closed}, recorded on the server {received}",
   "shift.timebar.duration": "Shift duration",
   "shift.timebar.durationJoin": "{hours} and {minutes}",
-  "shift.timebar.legend": "The white mark is when the server recorded the close.",
+  "shift.timebar.legend": "The vertical tick is when the server recorded the close.",
   "shift.detail.section.summary": "Shift summary",
   "shift.detail.section.cash": "Cash reconciliation",
   "shift.detail.section.approval": "Variance approval",

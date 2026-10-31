@@ -25,8 +25,9 @@ describe("shiftTimeFacts", () => {
     if (!bar) return;
     expect(bar.startPct).toBeGreaterThan(0);
     expect(bar.startPct).toBeLessThan(bar.endPct);
-    expect(bar.endPct).toBeLessThanOrEqual(bar.receivedPct);
-    expect(bar.receivedPct).toBeLessThan(100);
+    expect(bar.receivedPct).not.toBeNull();
+    expect(bar.endPct).toBeLessThanOrEqual(bar.receivedPct ?? -1);
+    expect(bar.receivedPct ?? 999).toBeLessThanOrEqual(100);
   });
 
   test("no readable openedAt means no model at all (AC 3)", () => {
@@ -50,13 +51,18 @@ describe("shiftTimeFacts", () => {
     });
   });
 
-  test("a recording time that is not readable falls back to the close", () => {
-    const facts = shiftTimeFacts({
-      openedAt: OPENED_AT,
-      closedAt: CLOSED_AT,
-      receivedAt: "nope",
-    });
-    expect(facts?.bar?.receivedPct).toBe(facts?.bar?.endPct);
+  test("the server's recording is a mark only when it lands inside the axis", () => {
+    const base = { openedAt: OPENED_AT, closedAt: CLOSED_AT };
+    // Unreadable, before the open (POS clock ahead), or synced months late: text only.
+    for (const receivedAt of ["nope", "2026-10-07T07:00:00Z", "2027-01-07T20:31:12Z", null]) {
+      expect(
+        shiftTimeFacts({ ...base, receivedAt })?.bar?.receivedPct,
+        String(receivedAt),
+      ).toBeNull();
+    }
+    // The span itself is still drawn.
+    const late = shiftTimeFacts({ ...base, receivedAt: "2027-01-07T20:31:12Z" });
+    expect(late?.bar?.endPct).toBeGreaterThan(late?.bar?.startPct ?? 100);
   });
 
   test("splits whole minutes into hours and the rest", () => {
@@ -102,6 +108,21 @@ describe("ShiftTimeBar", () => {
     expect(screen.queryByRole("img")).toBeNull();
     expect(screen.queryByText("Shift duration")).toBeNull();
     expect(screen.getByText("Opened at")).toBeDefined();
+  });
+
+  test("no mark and no legend when the recording is outside the axis; the label still names it", () => {
+    render(<ShiftTimeBar detail={detail({ receivedAt: "2027-01-07T20:31:12Z" })} timeZone="UTC" />);
+    expect(document.querySelector(".shift-timebar__mark")).toBeNull();
+    expect(screen.queryByText(/vertical tick/)).toBeNull();
+    expect(screen.getByRole("img").getAttribute("aria-label")).toContain("Jan 7, 2027");
+  });
+
+  test("the repeated times are for the eye only; the duration stays readable", () => {
+    render(<ShiftTimeBar detail={detail()} timeZone="UTC" />);
+    const hidden = document.querySelectorAll(".shift-timebar__fact[aria-hidden='true']");
+    expect(hidden).toHaveLength(3);
+    const duration = screen.getByText("Shift duration").closest("dl");
+    expect(duration?.getAttribute("aria-hidden")).toBeNull();
   });
 
   test("an hour-only duration drops the empty minutes", () => {

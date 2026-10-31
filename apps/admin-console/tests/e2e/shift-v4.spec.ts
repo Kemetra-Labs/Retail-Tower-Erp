@@ -166,20 +166,64 @@ for (const width of [1280, 390]) {
   });
 }
 
-test("a very long Arabic tenant name keeps the band within 132px and the page unwidened", async ({
-  page,
-  t,
-  appLocale,
-}) => {
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await mock(page, LONG_TENANT);
-  await page.goto(LIST_URL);
-  await expect(page.getByRole("heading", { level: 1, name: t("shift.list.title") })).toBeVisible();
-  const band = await page.locator(".list-band").boundingBox();
-  expect(band?.height ?? 999).toBeLessThanOrEqual(132);
-  expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
-  await capture(page, "shifts-list-long-tenant-1280", appLocale);
-});
+for (const width of [1280, 390]) {
+  test(`a very long Arabic tenant name at ${width} keeps the band and the page in bounds`, async ({
+    page,
+    t,
+    appLocale,
+  }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await mock(page, LONG_TENANT);
+    await page.goto(LIST_URL);
+    await expect(
+      page.getByRole("heading", { level: 1, name: t("shift.list.title") }),
+    ).toBeVisible();
+    if (width >= 1200) {
+      const band = await page.locator(".list-band").boundingBox();
+      expect(band?.height ?? 999).toBeLessThanOrEqual(132);
+    }
+    expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
+    await capture(page, `shifts-list-long-tenant-${width}`, appLocale);
+  });
+
+  test(`a failed load puts a banner under the band at ${width}, and the band states no scope`, async ({
+    page,
+    t,
+    appLocale,
+  }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await mock(page);
+    await page.route("**/api/v1/shift-closes?**", (r) =>
+      r.fulfill(json({ error: { code: "system_failure", message: "x" } }, 500)),
+    );
+    await page.goto(LIST_URL);
+    await expect(page.getByText(t("shift.list.loadFailed"))).toBeVisible();
+    await expect(page.locator("dl.list-band__facts")).toHaveCount(0);
+    expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
+    await expectNoAxeViolations(page, `shift list banner ${width}`);
+    await capture(page, `shifts-list-banner-${width}`, appLocale);
+  });
+
+  test(`a dense page of 25 closes at ${width} stays in bounds`, async ({ page, appLocale }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await mock(page);
+    const items = Array.from({ length: 25 }, (_, i) =>
+      row({
+        shiftId: `0190f000-0000-7000-8000-${String(i + 1).padStart(12, "0")}`,
+        closeKind: i % 4 === 0 ? "forced" : "normal",
+        variance: i % 2 === 0 ? "-12.5000" : "7.2500",
+      }),
+    );
+    await page.route("**/api/v1/shift-closes?**", (r) =>
+      r.fulfill(json({ items, nextCursor: "next" })),
+    );
+    await page.goto(LIST_URL);
+    await expect(page.getByRole("row", { name: /Dubai Mall/ })).toHaveCount(25);
+    expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
+    await expectNoAxeViolations(page, `shift list dense ${width}`);
+    await capture(page, `shifts-list-dense-${width}`, appLocale);
+  });
+}
 
 test("forced colours: the time bar and the formula icon map to system colours", async ({
   page,
@@ -198,11 +242,10 @@ test("forced colours: the time bar and the formula icon map to system colours", 
   await expect(bar).toBeVisible();
   const style = await bar.evaluate((el) => {
     const s = getComputedStyle(el);
-    return { bg: s.backgroundColor, image: s.backgroundImage, border: s.borderTopStyle };
+    return { bg: s.backgroundColor, image: s.backgroundImage };
   });
   expect(style.bg).not.toBe(ink);
   expect(style.image).toBe("none");
-  expect(style.border).toBe("solid");
   await capture(page, "shift-detail-forced-colors-1280", appLocale);
   await page.goto(LIST_URL);
   await expect(page.getByRole("img", { name: t("shift.formula.aria") })).toBeVisible();

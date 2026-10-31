@@ -3,9 +3,11 @@
  * served `openedAt`, `closedAt` and `receivedAt` along one axis and derives the
  * whole-minute duration; it never touches a cash figure.
  *
- * The axis runs from the open to the later of the close and the server's
- * recording, with a little padding so the first and last marks are not cut.
- * Anything it cannot place honestly is omitted: no `openedAt` (or an
+ * The axis runs from the open to the close, with a little padding so the first
+ * and last marks are not cut. The server's recording is a mark only when it
+ * lands inside that window (clocks differ: a POS clock ahead of the server, or
+ * a close synced months late, would put it far outside), otherwise it is left
+ * to the text. Anything it cannot place honestly is omitted: no `openedAt` (or an
  * unreadable open/close) means no model at all; a close before the open (the
  * POS clock) or a zero-length shift means no bar and no duration, and the
  * times stay as text.
@@ -21,7 +23,8 @@ export interface TimeBarMarks {
   /** Percent along the axis, from the inline start. */
   startPct: number;
   endPct: number;
-  receivedPct: number;
+  /** The server's recording, or null when it falls outside the axis (the text still states it). */
+  receivedPct: number | null;
 }
 
 export interface ShiftTimeFacts {
@@ -43,15 +46,18 @@ function round1(value: number): number {
 }
 
 function markFor(opened: number, closed: number, received: number | null): TimeBarMarks | null {
-  const recorded = received ?? closed;
-  const last = Math.max(closed, recorded);
-  const total = last - opened;
+  const total = closed - opened;
   if (total <= 0) return null;
   const pad = total * PAD;
   const from = opened - pad;
-  const width = total + pad * 2;
-  const pct = (ms: number) => round1(((ms - from) / width) * 100);
-  return { startPct: pct(opened), endPct: pct(closed), receivedPct: pct(recorded) };
+  const to = closed + pad;
+  const pct = (ms: number) => round1(((ms - from) / (to - from)) * 100);
+  const inside = received !== null && received >= from && received <= to;
+  return {
+    startPct: pct(opened),
+    endPct: pct(closed),
+    receivedPct: inside ? pct(received) : null,
+  };
 }
 
 /** The model, or null when the shift has no readable open (AC 3) or close. */

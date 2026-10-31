@@ -91,7 +91,7 @@ export const shift = {
   "shift.timebar.label": "فُتحت {opened}، وأُقفلت {closed}، وسُجّلت في الخادم {received}",
   "shift.timebar.duration": "مدة الوردية",
   "shift.timebar.durationJoin": "{hours} و{minutes}",
-  "shift.timebar.legend": "العلامة البيضاء: وقت التسجيل في الخادم.",
+  "shift.timebar.legend": "العلامة الرأسية: وقت التسجيل في الخادم.",
   "shift.detail.section.summary": "ملخص الوردية",
   "shift.detail.section.cash": "تسوية النقد",
   "shift.detail.section.approval": "اعتماد الفرق",

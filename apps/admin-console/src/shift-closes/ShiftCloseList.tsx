@@ -254,6 +254,8 @@ export function ShiftCloseList(): React.JSX.Element {
   // The dates' zone is a fact only once the store roster has settled (no UTC flash).
   const bandZone = filters.storeId && !directory.ready ? undefined : zone;
   const facts = useBandFacts(filters, { zone: bandZone });
+  // Only once a page has loaded: not while waiting, and not after a refusal (404, 400, 401, failure).
+  const showFacts = valid && !list.isLoading && !list.error;
 
   if (!scope.tenantId) return <ShiftScopePrompt />;
 
@@ -263,7 +265,7 @@ export function ShiftCloseList(): React.JSX.Element {
         group={t("shell.nav.section.operations")}
         title={t("shift.list.title")}
         subtitle={t.rich("shift.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
-        facts={valid && facts ? { label: t("shift.band.label"), items: facts } : undefined}
+        facts={showFacts && facts ? { label: t("shift.band.label"), items: facts } : undefined}
       />
       <FormulaStrip />
 

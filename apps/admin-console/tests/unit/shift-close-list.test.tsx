@@ -406,6 +406,57 @@ describe("ShiftCloseList (RT-18)", () => {
     expect(band.textContent).not.toMatch(/loaded|total/i);
   });
 
+  test("RT-1015: a zero minimum is the default floor, so the band does not state it", async () => {
+    renderList("/shift-closes?from=2026-10-01&min=0");
+    await tableReady();
+    expect(consoleListShiftCloses.mock.calls[0][0]).toMatchObject({ min_abs_variance: "0.0001" });
+    const band = bandFacts();
+    expect(within(band).queryByText("Minimum absolute variance")).toBeNull();
+    expect(within(band).getByText("Period")).toBeDefined();
+  });
+
+  test("RT-1015: the band states no scope while loading or after a refusal", async () => {
+    const url = `/shift-closes?store=${DUBAI_STORE}&from=2026-10-01&to=2026-10-07&min=10.00`;
+    consoleListShiftCloses.mockReturnValue(new Promise(() => {}));
+    const first = render(
+      <QueryClientProvider client={createQueryClient()}>
+        <MemoryRouter initialEntries={[url]}>
+          <ShiftCloseList />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(listStores).toHaveBeenCalled());
+    await waitFor(() => expect(consoleListShiftCloses).toHaveBeenCalled());
+    expect(screen.getByRole("heading", { level: 1, name: "Shift closes" })).toBeDefined();
+    expect(document.querySelector(".list-band__facts")).toBeNull();
+    first.unmount();
+
+    for (const refusal of [failure(404), failure(400), failure(401), failure(500)]) {
+      consoleListShiftCloses.mockReset();
+      consoleListShiftCloses.mockResolvedValue(refusal);
+      const view = render(
+        <QueryClientProvider client={createQueryClient()}>
+          <MemoryRouter initialEntries={[url]}>
+            <ShiftCloseList />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      await waitFor(() => expect(consoleListShiftCloses).toHaveBeenCalled());
+      await waitFor(() =>
+        expect(document.querySelector(".shift-results, .rtc-alert, [role='alert']")).not.toBeNull(),
+      );
+      expect(document.querySelector(".list-band__facts")).toBeNull();
+      view.unmount();
+    }
+  });
+
+  test("RT-1015: an empty result is a loaded page, so the band still states its scope", async () => {
+    consoleListShiftCloses.mockResolvedValue(page([]));
+    renderList("/shift-closes?from=2026-10-01");
+    await screen.findByText("No shift closes match these filters.");
+    expect(within(bandFacts()).getByText("Period")).toBeDefined();
+  });
+
   test("RT-1015: with no filter applied the band has no facts", async () => {
     renderList();
     await tableReady();

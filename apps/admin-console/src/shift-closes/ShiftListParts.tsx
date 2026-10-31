@@ -7,15 +7,17 @@ import { type MessageKey, useT } from "@/i18n";
  * - `useBandFacts`: the band shows the list's scope and period only, never a
  *   count (the page serves none). The page echoes no scope, so each fact is the
  *   filter the server was asked to apply to the whole set: the dates (with the
- *   zone they are read in), and the minimum absolute variance. With none of
- *   them applied the band has no facts and the subtitle names the tenant.
+ *   zone they are read in), and a minimum absolute variance the person chose
+ *   (the default non-zero floor is not stated). With none of them applied the
+ *   band has no facts and the subtitle names the tenant. The caller shows them
+ *   only once a page has loaded, never while loading or after a refusal.
  * - `FormulaStrip`: the variance rule in words and as tokens, with the
  *   direction legend. The tokens and bars are decoration (`aria-hidden`); the
  *   sentence and the labelled formula carry the meaning.
  * - `VarianceMark`: a fixed half bar on the side of the direction, beside the
  *   amount and its word. It has no length, so it never reads as a magnitude.
  */
-import type { ShiftCloseFilters } from "./shiftCloseFilters";
+import { type ShiftCloseFilters, chosenMinVariance } from "./shiftCloseFilters";
 import type { VarianceDirection } from "./shiftCloseLogic";
 
 interface ZoneInfo {
@@ -51,10 +53,11 @@ export function useBandFacts(
       facts.push({ label: t("shift.band.zone"), value: <bdi dir="ltr">{zone}</bdi> });
     }
   }
-  if (filters.minVariance) {
+  const minimum = chosenMinVariance(filters);
+  if (minimum) {
     facts.push({
       label: t("shift.filter.minVariance"),
-      value: <bdi dir="ltr">{filters.minVariance}</bdi>,
+      value: <bdi dir="ltr">{minimum}</bdi>,
     });
   }
   // At most three are ever pushed (period, zone, floor), as D-V9 allows.
