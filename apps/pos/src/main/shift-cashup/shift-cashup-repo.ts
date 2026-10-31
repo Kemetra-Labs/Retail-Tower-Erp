@@ -61,6 +61,7 @@ import {
   buildEnvelopeRepairRequest,
   buildForcedCloseShiftRequest,
   buildOpenShiftRequest,
+  envelopeRequestOf,
   isoInstant,
   ShiftFactInvalidError,
   type CashMovementFact,
@@ -89,6 +90,11 @@ export interface RecordShiftFactInput<F> {
   fact: F;
   /** ISO-8601 UTC: when the fact was queued. */
   now: string;
+  /**
+   * RT-1004: the fact's credential path; `device` when absent. A manager's open
+   * or normal close is `envelope` (its body carries no `operatorUserId`).
+   */
+  authPath?: ShiftAuthPath;
 }
 
 export interface RecordedShiftFact {
@@ -388,6 +394,19 @@ function repairEnqueueInput(input: { target: RepairTargetRow; now: string }): En
   };
 }
 
+/** The row's request on `authPath` (RT-1004: an envelope body drops the claim). */
+function onPath(
+  request: ShiftWireRequest,
+  authPath: ShiftAuthPath | undefined,
+): {
+  request: ShiftWireRequest;
+  authPath: ShiftAuthPath;
+} {
+  return authPath === 'envelope'
+    ? { request: envelopeRequestOf(request), authPath }
+    : { request, authPath: 'device' };
+}
+
 function queued(head: HeadRow): QueuedShiftFact {
   return {
     seq: head.seq,
@@ -477,7 +496,7 @@ export function createShiftCashupRepo(db: DatabaseHandle): ShiftCashupRepo {
       return enqueue({
         scope,
         ref: { factKind: 'open', shiftId: fact.shiftId, movementId: null },
-        request,
+        ...onPath(request, input.authPath),
         now,
       });
     })();
@@ -583,7 +602,7 @@ export function createShiftCashupRepo(db: DatabaseHandle): ShiftCashupRepo {
       return enqueue({
         scope,
         ref: { factKind: 'close', shiftId: fact.shiftId, movementId: null },
-        request,
+        ...onPath(request, input.authPath),
         now,
       });
     })();

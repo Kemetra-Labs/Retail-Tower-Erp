@@ -83,14 +83,14 @@ describe('/app/shift and /app/shift/manager through the AppRouter', () => {
   });
 
   it.each(['manager', 'admin'] as const)(
-    'guards the cashier shift screen from a %s, before any call',
+    'renders the shift screen for a %s too, who may open a shift (RT-1004)',
     async (role) => {
       signIn(role, true);
       renderAt('/app/shift');
-      await waitFor(() => {
-        expect(window.location.pathname).toBe('/sign-in');
-      });
-      expect(bridge.status).not.toHaveBeenCalled();
+      const frame = await screen.findByTestId('v5-frame');
+      expect(
+        await within(frame).findByRole('heading', { level: 1, name: 'الوردية' }),
+      ).toBeInTheDocument();
     },
   );
 

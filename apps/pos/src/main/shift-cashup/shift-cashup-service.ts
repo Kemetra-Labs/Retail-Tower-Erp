@@ -10,10 +10,23 @@
  *   3. the session unlocked, else `session_locked`;
  *   4. the session's `users.id`, else `no_cashier_identity`. Only an admitted
  *      cashier session has one (RT-113 P2), and the device path needs it as
- *      `operatorUserId` (part 1, decision 3). Manager / admin facts go through
- *      the manager envelope, a later part of RT-17.
+ *      `operatorUserId` (part 1, decision 3).
  *
- * Each fact is attributed to that cashier and recorded on the session's scope
+ * RT-1004 (owner decision 2026-10-31) — a manager or admin signed in online on
+ * the terminal may open a shift and close it: step 4 then takes the manager's
+ * own `users.id` (`getManager`, for the same operator session), the shift's
+ * owner. Backend-Core's device path admits cashiers only, so that open and
+ * close are queued on the manager-envelope path (no `operatorUserId`; the
+ * envelope's operator is the recorded actor), and `onEnvelopeFactRecorded`
+ * asks for a drain while that envelope is still held. A manager signed in
+ * offline has no `users.id` and is refused as before. A manager's NORMAL close
+ * is of a shift they opened (`not_shift_opener` otherwise, before any count is
+ * evaluated): closing another user's shift stays the forced close (RT-554).
+ * Pay-ins and pay-outs stay cashier only. A cashier admitted later on the same
+ * terminal finds the shift open and records into it (and may close it) on the
+ * device path; no second shift is opened.
+ *
+ * Each fact is attributed to that user and recorded on the session's scope
  * (tenant, branch, current pairing's terminal) through the part 1 repository,
  * which builds and stores its exact request once (the shift sync engine sends
  * it later). The clock is read once per call. The service is synchronous: a
@@ -160,9 +173,11 @@ import {
 import type { OperatorSessionForPayments } from '../payments/require-operator-session.js';
 import { maxShiftAmountMinor } from './shift-amount-bound.js';
 import { computeCashup, type Cashup } from './shift-cashup-calculator.js';
+import type { Role } from '../../shared/operator/role.js';
 import {
   ShiftCashupStateError,
   type OpenShiftView,
+  type ShiftAuthPath,
   type ShiftCashupRepo,
   type ShiftScope,
 } from './shift-cashup-repo.js';
@@ -186,6 +201,8 @@ export type ShiftCashupRefusalReason =
   | 'no_session'
   | 'session_locked'
   | 'no_cashier_identity'
+  // RT-1004: a manager's normal close is of a shift they opened only.
+  | 'not_shift_opener'
   | 'pay_out_exceeds_drawer_cash'
   | 'variance_approval_required'
   | 'clock_regressed'
@@ -220,6 +237,16 @@ export type ShiftCashupSession = Pick<
   OperatorSessionForPayments,
   'operator_session_id' | 'operator_id' | 'tenant_id' | 'branch_id' | 'terminal_id' | 'user_id'
 >;
+
+/**
+ * RT-1004 — the current session's manager / admin identity (`managerIdentityOf`):
+ * the `users.id` an online sign-in captured, for the operator session it names.
+ */
+export interface ShiftCashupManager {
+  operatorSessionId: string;
+  role: Role;
+  userId?: string;
+}
 
 export interface OpenShiftInput {
   openingFloatMinor: number;
@@ -345,6 +372,14 @@ export interface ShiftCashupServiceDeps {
   isEnabled: () => boolean;
   /** The operator session on the paired terminal; null when none or unpaired. */
   getSession: () => ShiftCashupSession | null;
+  /** RT-1004: the session's manager / admin identity; absent or null: none. */
+  getManager?: () => ShiftCashupManager | null;
+  /**
+   * RT-1004: called once a manager-envelope fact (an open or a close) is
+   * recorded, to drain the outbox while the manager's envelope is held. It
+   * never fails the fact, which is already durable.
+   */
+  onEnvelopeFactRecorded?: () => void;
   isSessionLocked: () => boolean;
   /** The current pairing's scope (for the status); null while unpaired. */
   pairedScope: () => Promise<ShiftScope | null>;
@@ -396,7 +431,12 @@ interface Actor {
   session: ShiftCashupSession;
   scope: ShiftScope;
   userId: string;
+  /** `device` for an admitted cashier; `envelope` for a manager (RT-1004). */
+  authPath: ShiftAuthPath;
 }
+
+/** RT-1004: the roles that may open and close their own shift on the envelope path. */
+const MANAGER_ROLES: ReadonlySet<Role> = new Set<Role>(['manager', 'admin']);
 
 /** The close's synchronous pre-check, done: the shift, its cash-up, the variance. */
 interface ClosePlan {
@@ -648,10 +688,48 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
   }
 
   /** The admitted cashier (module header, steps 1–4). */
-  function admit(): Actor {
+  function admitCashier(): Actor {
     const session = requireSession();
     const userId = session.user_id ?? refuse('no_cashier_identity');
-    return { session, scope: scopeOf(session), userId };
+    return { session, scope: scopeOf(session), userId, authPath: 'device' };
+  }
+
+  /**
+   * RT-1004: the admitted cashier, else the session's own manager / admin
+   * signed in online (their `users.id`, on the envelope path).
+   */
+  function admit(): Actor {
+    const session = requireSession();
+    if (session.user_id !== undefined) {
+      return { session, scope: scopeOf(session), userId: session.user_id, authPath: 'device' };
+    }
+    const manager = deps.getManager?.() ?? null;
+    const own =
+      manager !== null &&
+      manager.operatorSessionId === session.operator_session_id &&
+      MANAGER_ROLES.has(manager.role);
+    const userId = (own ? manager.userId : undefined) ?? refuse('no_cashier_identity');
+    return { session, scope: scopeOf(session), userId: userId.toLowerCase(), authPath: 'envelope' };
+  }
+
+  /**
+   * RT-1004: a manager closes, normally, only a shift they opened; any other
+   * open shift is the forced close's (RT-554). Checked before the count.
+   */
+  function requireOwnShift(actor: Actor): void {
+    if (actor.authPath !== 'envelope') return;
+    const open = repo.findOpenShift(actor.scope);
+    if (open !== null && open.openingUserId !== actor.userId) refuse('not_shift_opener');
+  }
+
+  /** RT-1004: the drain hook after a manager-envelope fact; never fails the fact. */
+  function envelopeRecorded(authPath: ShiftAuthPath): void {
+    if (authPath !== 'envelope') return;
+    try {
+      deps.onEnvelopeFactRecorded?.();
+    } catch {
+      // The fact is already durable; the sync engine's own tick sends it.
+    }
   }
 
   /** The usable pairing's RT-215 epoch, captured before an await. */
@@ -830,7 +908,7 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
 
   return {
     openShift(input) {
-      const { scope, userId } = admit();
+      const { scope, userId, authPath } = admit();
       requirePlausibleAmount({
         entry: 'opening_float',
         amountMinor: input.openingFloatMinor,
@@ -849,12 +927,14 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
           openingFloatMinor: input.openingFloatMinor,
         },
         now: opened.openedAt,
+        authPath,
       });
+      envelopeRecorded(authPath);
       return opened;
     },
 
     recordCashMovement(input) {
-      const { scope, userId } = admit();
+      const { scope, userId } = admitCashier();
       const now = deps.now();
       const open = openShiftAt({ scope, now });
       guardPayIn({ scope, open, movement: input, now });
@@ -878,7 +958,8 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
 
     closeShift(input) {
       const actor = admit();
-      const { scope, userId } = actor;
+      const { scope, userId, authPath } = actor;
+      requireOwnShift(actor);
       const { countedCashMinor } = input;
       const approver =
         input.approver === undefined
@@ -910,7 +991,9 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
           fact,
           now: closedAt,
           countAttempt: acceptedStamp(deps.newId(), count),
+          authPath,
         });
+        envelopeRecorded(authPath);
         return closedShiftOf(fact);
       });
     },
@@ -958,7 +1041,9 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
     },
 
     async verifyApprover(input) {
-      const { session: admitted, scope, userId: closerUserId } = admit();
+      const actor = admit();
+      const { session: admitted, scope, userId: closerUserId } = actor;
+      requireOwnShift(actor);
       const epoch = currentEpoch();
       const { countedCashMinor } = input;
       const plan = planClose({ scope, countedCashMinor });

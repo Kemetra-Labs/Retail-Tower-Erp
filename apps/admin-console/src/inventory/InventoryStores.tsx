@@ -2,7 +2,6 @@ import { NoAccess } from "@/auth/NoAccess";
 import { Banner } from "@/components/Banner";
 import { TableScrollRegion } from "@/components/DataTableScroll";
 import { GatedButton } from "@/components/GatedButton";
-import { ListState } from "@/components/ListState";
 /**
  * RT-728 — Inventory, store picker. The stores whose inventory the caller may
  * read: with an active store, only that store (the API binds a store-scoped
@@ -13,7 +12,8 @@ import { ListState } from "@/components/ListState";
  * Gate first: a role outside the read roles gets NoAccess and nothing is
  * requested.
  */
-import { PageHeader } from "@/components/PageHeader";
+import { ListHeaderBand } from "@/components/ListHeaderBand";
+import { ListState } from "@/components/ListState";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { useT } from "@/i18n";
 import { type ScopeMembership, scopeMenuStores } from "@/shell/scope-stores";
@@ -125,7 +125,11 @@ function Content({ scope }: Readonly<{ scope: InventoryScope }>): React.JSX.Elem
   const picker = usePickerStores(scope);
   return (
     <div className="surface">
-      <PageHeader title={t("inventory.title")} subtitle={t("inventory.stores.sub")} />
+      <ListHeaderBand
+        group={t("shell.nav.section.operations")}
+        title={t("inventory.title")}
+        subtitle={t("inventory.stores.sub")}
+      />
       <p className="inventory__note">{t("inventory.note.readOnly")}</p>
       <StoresBody picker={picker} />
     </div>

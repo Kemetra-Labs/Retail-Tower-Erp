@@ -322,7 +322,7 @@ export function CashEntry({
               <Notice tone="warning" testId="cash-entry-needs-shift">
                 {cashNeedsShiftMessage(role)}
               </Notice>
-              {role === 'cashier' && onOpenShift !== undefined && (
+              {onOpenShift !== undefined && (
                 <button
                   type="button"
                   className="cash-entry__open-shift v5-btn v5-btn--quiet"

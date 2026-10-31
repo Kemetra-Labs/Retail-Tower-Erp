@@ -480,12 +480,27 @@ export interface EnvelopeRepairSource {
  * already holds replays `200`.
  */
 export function buildEnvelopeRepairRequest(source: EnvelopeRepairSource): ShiftWireRequest {
-  const stored = JSON.parse(source.deviceBody) as Record<string, unknown>;
-  const body = Object.fromEntries(
-    Object.entries(stored).filter(([key]) => key !== 'operatorUserId'),
-  );
   return {
     idempotencyKey: `${IDEMPOTENCY_KEY_PREFIX[source.factKind]}${source.factId}:repair-${String(source.supersededSeq)}`,
-    body: JSON.stringify(body),
+    body: withoutClaim(source.deviceBody),
   };
+}
+
+/**
+ * RT-1004 — a manager's ORIGINAL fact (open, normal close) goes out on the
+ * manager-envelope path: the device body less `operatorUserId` (an envelope
+ * request that carries it is a 401; the actor is the envelope's operator),
+ * under the fact's own Idempotency-Key. The stated opening / closing user is
+ * the manager, whom Backend-Core checks is a user of the store.
+ */
+export function envelopeRequestOf(request: ShiftWireRequest): ShiftWireRequest {
+  return { idempotencyKey: request.idempotencyKey, body: withoutClaim(request.body) };
+}
+
+/** A stored device body, byte for byte less its `operatorUserId` claim. */
+function withoutClaim(deviceBody: string): string {
+  const stored = JSON.parse(deviceBody) as Record<string, unknown>;
+  return JSON.stringify(
+    Object.fromEntries(Object.entries(stored).filter(([key]) => key !== 'operatorUserId')),
+  );
 }

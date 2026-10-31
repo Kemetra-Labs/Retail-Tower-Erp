@@ -2,8 +2,8 @@ import { Banner } from "@/components/Banner";
 import { BusyButton } from "@/components/BusyButton";
 import { DataTable, type DataTableColumn } from "@/components/DataTable";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
+import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
-import { PageHeader } from "@/components/PageHeader";
 import { DateTime, type T, useT } from "@/i18n";
 import type { DeviceSummary } from "@/lib/device-queries";
 import { type StoreDirectory, useStoreDirectory } from "@/shift-closes/useShiftCloses";
@@ -288,7 +288,8 @@ export function DeviceList(): React.JSX.Element {
 
   return (
     <div className="surface">
-      <PageHeader
+      <ListHeaderBand
+        group={t("shell.nav.section.operations")}
         title={t("devices.list.title")}
         subtitle={t.rich("devices.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
         actions={

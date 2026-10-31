@@ -86,14 +86,17 @@ describe('CashEntry — main refused the cash: no open shift (RT-998)', () => {
   });
 
   it.each(['manager', 'admin'] as const)(
-    'a %s gets the line that says a cashier opens the shift, and no open-shift action',
+    'a %s gets their own line and the open-shift action too (RT-1004)',
     async (role) => {
       signIn(role);
-      renderBridged(() => Promise.resolve(REFUSED), vi.fn());
+      const onOpenShift = vi.fn();
+      renderBridged(() => Promise.resolve(REFUSED), onOpenShift);
       fireEvent.click(screen.getByTestId('cash-entry-confirm'));
       const notice = await screen.findByTestId('cash-entry-needs-shift');
       expect(notice).toHaveTextContent(SHIFT_COPY.cashNeedsShiftOther);
-      expect(screen.queryByTestId('cash-entry-open-shift')).not.toBeInTheDocument();
+      expect(notice).not.toHaveTextContent('الكاشير');
+      fireEvent.click(screen.getByTestId('cash-entry-open-shift'));
+      expect(onOpenShift).toHaveBeenCalledTimes(1);
     },
   );
 
