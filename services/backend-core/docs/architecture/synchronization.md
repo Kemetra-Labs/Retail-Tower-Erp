@@ -70,8 +70,8 @@ sequenceDiagram
 | Money | Integer minor units / value objects — never floats |
 
 Program-wide view: the
-[Orchestrator](https://github.com/Kemetra/Orchestrator)
-control plane.
+[Confluence RETAIL Decisions index](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/5341185/Decisions)
+(durable decisions; the former `Kemetra/Orchestrator` handbook is retired, AD-ORCH-003).
 
 > Architecture is stable; this document does not assert feature/merge status. See `specs/**`,
 > `docs/agent-os/`, and `CLAUDE.md` for the authoritative implementation state.

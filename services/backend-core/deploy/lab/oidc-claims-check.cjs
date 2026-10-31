@@ -35,8 +35,9 @@ const ACTOR_ID = "206601658";
 const ENVIRONMENT = "aws-lab";
 const AUDIENCE = "sts.amazonaws.com";
 const ISSUER = "https://token.actions.githubusercontent.com";
-// The workflow the trust policy pins as job_workflow_ref (the S4 deploy job).
-const TRUSTED_WORKFLOW_FILE = "deploy-lab.yml";
+// The deploy workflows the trust policy pins as job_workflow_ref. The first is the
+// value suggested when the check runs from a workflow that is not one of them.
+const TRUSTED_WORKFLOW_FILES = ["deploy-lab.yml", "deploy-erp-lab.yml", "deploy-console-lab.yml"];
 const DEFAULT_WORKFLOW_FILE = "oidc-claims-check.yml";
 const JIRA_RE = /^RT-[1-9]\d*$/;
 const WORKFLOW_FILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml$/;
@@ -116,8 +117,9 @@ function evaluate(claims, workflowFile) {
     rows,
     info,
     ok: rows.every((r) => r.status === "MATCH"),
-    // What the trust policy would pin if the observed form is right: same repo and ref, the deploy workflow file.
-    derived: refForm ? workflowRef(TRUSTED_WORKFLOW_FILE) : null,
+    // What the trust policy would pin if the observed form is right: same repo and ref, this
+    // deploy workflow when the check runs from one, else the Backend-Core deploy workflow.
+    derived: refForm ? workflowRef(TRUSTED_WORKFLOW_FILES.includes(workflowFile) ? workflowFile : TRUSTED_WORKFLOW_FILES[0]) : null,
   };
 }
 
