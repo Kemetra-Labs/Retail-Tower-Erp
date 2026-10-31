@@ -66,10 +66,36 @@
   white-space: nowrap;
 }
 
-/* Slim rail (active sale): glyphs only, centred; the text stays for assistive tech. */
+/* RT-1023: the row's one-word name belongs to the slim rail only. */
+.v5-status__label {
+  display: none;
+}
+
+/*
+ * Slim rail (every screen): each row is its glyph over a one-word label
+ * (RT-1023, DESIGN.md "dot plus text"), centred; the full text stays for
+ * assistive tech. The label keeps the text colour; the tone stays on the glyph.
+ */
 .v5-frame[data-nav='slim'] .v5-status {
   justify-items: center;
   padding-inline: 0;
+}
+
+.v5-frame[data-nav='slim'] .v5-status__row {
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  inline-size: 100%;
+  text-align: center;
+}
+
+.v5-frame[data-nav='slim'] .v5-status__label {
+  display: block;
+  max-inline-size: 100%;
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-snug);
+  overflow-wrap: anywhere;
 }
 
 .v5-frame[data-nav='slim'] .v5-status__text {

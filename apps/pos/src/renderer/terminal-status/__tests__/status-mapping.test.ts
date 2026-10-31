@@ -21,7 +21,7 @@ import {
   rowText,
   syncAttentionDueAt,
 } from '../status-mapping';
-import { STATUS_COPY } from '../status-copy';
+import { STATUS_COPY, STATUS_ROW_LABEL } from '../status-copy';
 
 const HOUR = 60 * 60 * 1000;
 
@@ -254,5 +254,14 @@ describe('status copy — verbatim from the frozen sources', () => {
     expect(doc24).toContain(`Connection: «${STATUS_COPY.offline}»`);
     expect(doc24).toContain(`Connection: «${STATUS_COPY.checking}»`);
     expect(doc24).toContain(`(«${STATUS_COPY.printerFailed}»)`);
+  });
+
+  it('RT-1023: the slim-rail short labels match the doc 15 catalogue row M-O5', () => {
+    const labels = Object.values(STATUS_ROW_LABEL)
+      .map((l) => `«${l}»`)
+      .join(' / ');
+    expect(doc15).toContain(
+      `| M-O5 | Slim-rail status labels (connection / sync / held / printer) | ${labels} |`,
+    );
   });
 });

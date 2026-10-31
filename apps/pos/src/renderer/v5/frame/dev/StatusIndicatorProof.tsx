@@ -29,6 +29,10 @@ import { OneFrameProof, readOneFrameProofParams } from './OneFrameProof';
  * the pending sales for OfflinePending / Sending / Paused / Attention24h, the
  * dead letters for Attention / OfflineAttention — so the count-aware copy can
  * be captured at 1, 2, 3 and 11. Without it each state keeps its count.
+ *
+ * RT-1023: `AllRows` shows every row at once (connection, sync attention, a
+ * held sale and the failed printer), the tallest footer, so the slim-rail
+ * labels can be checked for fit at 1024×768.
  */
 
 export const STATUS_PROOF_STATES = [
@@ -43,6 +47,7 @@ export const STATUS_PROOF_STATES = [
   'Attention24h',
   'OfflineAttention',
   'PrinterFailed',
+  'AllRows',
 ] as const;
 export type StatusProofState = (typeof STATUS_PROOF_STATES)[number];
 
@@ -74,32 +79,31 @@ function pending(n: number): Partial<TerminalStatusSync> {
   return { pending: n, oldestPendingAt: new Date(Date.now() - 20 * 60 * 1000).toISOString() };
 }
 
+/** Each state's snapshot; `count` is the RT-646 override (null keeps the state's own). */
+const SNAPSHOTS: Readonly<
+  Record<StatusProofState, (count: number | null) => TerminalStatusSnapshot>
+> = {
+  Connected: () => snapshot('online'),
+  Checking: () => snapshot('checking'),
+  Offline: () => snapshot('offline'),
+  Degraded: () => snapshot('degraded'),
+  OfflinePending: (count) => snapshot('offline', pending(count ?? 3)),
+  Sending: (count) => snapshot('online', pending(count ?? 3)),
+  Paused: (count) =>
+    snapshot('online', { ...pending(count ?? 2), paused: 'no_operator_credential' }),
+  Attention: (count) => snapshot('online', { ...pending(1), deadLetter: count ?? 2 }),
+  Attention24h: (count) =>
+    snapshot('online', {
+      pending: count ?? 2,
+      oldestPendingAt: new Date(Date.now() - 26 * HOUR).toISOString(),
+    }),
+  OfflineAttention: (count) => snapshot('offline', { ...pending(2), deadLetter: count ?? 1 }),
+  PrinterFailed: () => snapshot('online'),
+  AllRows: (count) => snapshot('online', { ...pending(3), held: 1, deadLetter: count ?? 1 }),
+};
+
 function snapshotFor(state: StatusProofState, count: number | null): TerminalStatusSnapshot {
-  switch (state) {
-    case 'Checking':
-      return snapshot('checking');
-    case 'Offline':
-      return snapshot('offline');
-    case 'Degraded':
-      return snapshot('degraded');
-    case 'OfflinePending':
-      return snapshot('offline', pending(count ?? 3));
-    case 'Sending':
-      return snapshot('online', pending(count ?? 3));
-    case 'Paused':
-      return snapshot('online', { ...pending(count ?? 2), paused: 'no_operator_credential' });
-    case 'Attention':
-      return snapshot('online', { ...pending(1), deadLetter: count ?? 2 });
-    case 'Attention24h':
-      return snapshot('online', {
-        pending: count ?? 2,
-        oldestPendingAt: new Date(Date.now() - 26 * HOUR).toISOString(),
-      });
-    case 'OfflineAttention':
-      return snapshot('offline', { ...pending(2), deadLetter: count ?? 1 });
-    default:
-      return snapshot('online');
-  }
+  return SNAPSHOTS[state](count);
 }
 
 function hashParam(key: string): string | null {
@@ -130,7 +134,9 @@ export function StatusIndicatorProof(): JSX.Element {
   const params = readOneFrameProofParams();
   return (
     <OneFrameProof
-      params={state === 'PrinterFailed' ? { ...params, banner: 'printer' } : params}
+      params={
+        state === 'PrinterFailed' || state === 'AllRows' ? { ...params, banner: 'printer' } : params
+      }
       extraApi={{ terminalStatus: statusBridge(state) }}
     />
   );
