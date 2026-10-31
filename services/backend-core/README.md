@@ -54,7 +54,7 @@
 | **Admin-Console** | [`Kemetra/Admin-Console`](https://github.com/Kemetra/Admin-Console) | Operator web UI · catalog · inventory views · sync ops |
 | **ERPNext-Connector** | [`Kemetra/ERPNext-Connector`](https://github.com/Kemetra/ERPNext-Connector) | The only ERPNext/Frappe adapter · DocType mapping · posting |
 
-<sub>One architecture, one set of contracts, one AI-embedded design. [`Kemetra/Orchestrator`](https://github.com/Kemetra/Orchestrator) is the technical handbook, not a track.</sub>
+<sub>One architecture, one set of contracts, one AI-embedded design. The former `Kemetra/Orchestrator` handbook is retired (AD-ORCH-003); durable decisions live in [Confluence RETAIL](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/5341185/Decisions).</sub>
 
 Resolved catalog flows **down** to the edges; sales and inventory rise **up** toward ERPNext through the connector posting feed. Full flow, sequence and boundary guarantees: [Synchronization](docs/architecture/synchronization.md).
 
