@@ -40,6 +40,15 @@ export const shift = {
   "shift.list.col.approver": "المعتمِد المسجَّل",
   "shift.list.unknownStore": "متجر غير معروف",
 
+  // --- v4.0 band and formula strip (RT-1015) ---------------------------------
+  "shift.band.label": "نطاق القائمة",
+  "shift.band.period": "الفترة",
+  "shift.band.periodFrom": "من {date}",
+  "shift.band.periodTo": "حتى {date}",
+  "shift.band.zone": "توقيت التواريخ",
+  "shift.formula.lead": "تُعرض هنا الإقفالات التي فيها فرق غير صفري فقط.",
+  "shift.formula.aria": "الفرق = النقد المعدود − النقد المتوقع",
+
   // --- Filters -------------------------------------------------------------
   "shift.filter.label": "تصفية الإقفالات",
   "shift.filter.store": "المتجر",
@@ -78,6 +87,11 @@ export const shift = {
   "shift.detail.loadFailed": "تعذّر تحميل هذا الإقفال.",
   "shift.detail.retry": "إعادة المحاولة",
   "shift.detail.zoneNote": "الأوقات بتوقيت {zone}.",
+  "shift.detail.cashServed": "كما سجّلها الخادم",
+  "shift.timebar.label": "فُتحت {opened}، وأُقفلت {closed}، وسُجّلت في الخادم {received}",
+  "shift.timebar.duration": "مدة الوردية",
+  "shift.timebar.durationJoin": "{hours} و{minutes}",
+  "shift.timebar.legend": "العلامة الرأسية: وقت التسجيل في الخادم.",
   "shift.detail.section.summary": "ملخص الوردية",
   "shift.detail.section.cash": "تسوية النقد",
   "shift.detail.section.approval": "اعتماد الفرق",

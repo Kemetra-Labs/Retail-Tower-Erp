@@ -10,6 +10,7 @@ import {
 } from "@/components/DetailPanel";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
+import { ReceiptCard } from "@/components/ReceiptCard";
 import {
   DateTime,
   type MessageKey,
@@ -38,13 +39,10 @@ import type { ShiftCloseDetail as Detail, ShiftCashMovement } from "@/lib/shift-
  * (its direction still in words, never colour).
  */
 import { Link, useLocation, useParams } from "react-router";
+import { KindPill } from "./ShiftKindPill";
 import { ShiftScopePrompt } from "./ShiftScopePrompt";
-import {
-  closeKindKey,
-  movementKindKey,
-  reasonCodeKey,
-  varianceDirectionKey,
-} from "./shiftCloseLogic";
+import { ShiftTimeBar } from "./ShiftTimeBar";
+import { movementKindKey, reasonCodeKey, varianceDirectionKey } from "./shiftCloseLogic";
 import {
   type ShiftCloseError,
   useShiftCloseDetail,
@@ -75,21 +73,26 @@ function MachineId({ value }: Readonly<{ value: string }>): React.JSX.Element {
   return <bdi dir="ltr">{value}</bdi>;
 }
 
-/** A section panel named by its title; `table` puts the content edge to edge. */
+/**
+ * A section panel named by its title; `table` puts the content edge to edge.
+ * `index` is the section's position badge («01»…), decoration beside the title.
+ */
 function Section({
   id,
   titleKey,
+  index,
   table,
   children,
 }: Readonly<{
   id: string;
   titleKey: MessageKey;
+  index: number;
   table?: boolean;
   children: React.ReactNode;
 }>): React.JSX.Element {
   const t = useT();
   return (
-    <DetailPanel id={id} title={t(titleKey)}>
+    <DetailPanel id={id} title={t(titleKey)} index={index}>
       {table ? children : <PanelBody>{children}</PanelBody>}
     </DetailPanel>
   );
@@ -105,7 +108,7 @@ function SummarySection({ detail, storeName, timeZone }: Readonly<LoadedProps>):
   const t = useT();
   const locale = useLocale();
   return (
-    <Section id="shift-summary" titleKey="shift.detail.section.summary">
+    <Section id="shift-summary" titleKey="shift.detail.section.summary" index={1}>
       <dl className="surface__detail">
         <Field label={t("shift.field.store")}>{storeName ?? t("shift.list.unknownStore")}</Field>
         <Field label={t("shift.field.shiftId")} mono>
@@ -142,41 +145,70 @@ function SummarySection({ detail, storeName, timeZone }: Readonly<LoadedProps>):
   );
 }
 
+/** How a figure enters the expected cash (the contract's arithmetic): a sign, never a sum. */
+type LedgerSign = "·" | "+" | "−";
+
+/**
+ * RT-1015: the cash reconciliation as the receipt card. The signed variance as
+ * served is the card's figure, its direction in words beside it; below the
+ * perforation every other figure sits exactly as served. Nothing is computed
+ * here: the sign marks are decoration (`aria-hidden`) for how the contract
+ * builds the expected cash, and the labels stay the meaning.
+ */
 function CashSection({ detail }: Readonly<{ detail: Detail }>): React.JSX.Element {
   const t = useT();
   const currency = detail.currencyCode;
-  const figures: [MessageKey, string][] = [
-    ["shift.field.openingFloat", detail.openingFloat],
-    ["shift.field.cashSales", detail.cashSalesTotal],
-    ["shift.field.cashRefunds", detail.cashRefundsTotal],
-    ["shift.field.payIn", detail.payInTotal],
-    ["shift.field.payOut", detail.payOutTotal],
+  const figures: [MessageKey, string, LedgerSign][] = [
+    ["shift.field.openingFloat", detail.openingFloat, "·"],
+    ["shift.field.cashSales", detail.cashSalesTotal, "+"],
+    ["shift.field.cashRefunds", detail.cashRefundsTotal, "−"],
+    ["shift.field.payIn", detail.payInTotal, "+"],
+    ["shift.field.payOut", detail.payOutTotal, "−"],
   ];
   const results: [MessageKey, string][] = [
     ["shift.field.expected", detail.expectedCash],
     ["shift.field.counted", detail.countedCash],
   ];
   return (
-    <Section id="shift-cash" titleKey="shift.detail.section.cash">
-      <dl className="surface__detail">
-        {figures.map(([key, value]) => (
-          <Field key={key} label={t(key)} money>
-            <Money value={value} currency={currency} />
-          </Field>
-        ))}
-        {results.map(([key, value]) => (
-          <Field key={key} label={t(key)} money result>
-            <Money value={value} currency={currency} />
-          </Field>
-        ))}
-        <Field label={t("shift.field.variance")} money total>
-          <span className="shift-variance">
-            <Money signed value={detail.variance} currency={currency} />
-            <small className="shift-variance__label">{t(varianceDirectionKey(detail))}</small>
-          </span>
-        </Field>
-      </dl>
-    </Section>
+    <ReceiptCard
+      section
+      index={2}
+      label={t("shift.detail.section.cash")}
+      figure={
+        <span className="shift-receipt__figure">
+          <span className="shift-receipt__figure-label">{t("shift.field.variance")}</span>
+          <Money signed value={detail.variance} currency={currency} />
+          <span className="shift-receipt__direction">{t(varianceDirectionKey(detail))}</span>
+        </span>
+      }
+    >
+      <div className="shift-ledger">
+        <dl className="surface__detail">
+          {figures.map(([key, value, sign]) => (
+            <Field
+              key={key}
+              label={
+                <>
+                  <span className="shift-sign" aria-hidden="true">
+                    {sign}
+                  </span>
+                  {t(key)}
+                </>
+              }
+              money
+            >
+              <Money value={value} currency={currency} />
+            </Field>
+          ))}
+          {results.map(([key, value]) => (
+            <Field key={key} label={t(key)} money result>
+              <Money value={value} currency={currency} />
+            </Field>
+          ))}
+        </dl>
+        <p className="shift-ledger__note">{t("shift.detail.cashServed")}</p>
+      </div>
+    </ReceiptCard>
   );
 }
 
@@ -184,7 +216,7 @@ function ApprovalSection({ detail }: Readonly<{ detail: Detail }>): React.JSX.El
   const t = useT();
   const approver = detail.varianceApprovedByUserId;
   return (
-    <Section id="shift-approval" titleKey="shift.detail.section.approval">
+    <Section id="shift-approval" titleKey="shift.detail.section.approval" index={4}>
       {approver ? (
         <dl className="surface__detail">
           <Field label={t("shift.field.approver")} mono>
@@ -237,13 +269,14 @@ function MovementsSection({
     <Section
       id="shift-movements"
       titleKey="shift.detail.section.movements"
+      index={3}
       table={detail.cashMovements.length > 0}
     >
       {detail.cashMovements.length === 0 ? (
         <p className="content__sub">{t("shift.movement.empty")}</p>
       ) : (
         <DataTableScroll captionId={captionId}>
-          <table className="data-table">
+          <table className="data-table data-table--strips">
             <caption id={captionId} className="data-table__caption">
               {t("shift.movement.caption")}
             </caption>
@@ -279,7 +312,7 @@ function MovementsSection({
 function ReturnsSection({ refs }: Readonly<{ refs: readonly string[] }>): React.JSX.Element {
   const t = useT();
   return (
-    <Section id="shift-returns" titleKey="shift.detail.section.returns">
+    <Section id="shift-returns" titleKey="shift.detail.section.returns" index={5}>
       {refs.length === 0 ? (
         <p className="content__sub">{t("shift.returns.empty")}</p>
       ) : (
@@ -298,7 +331,7 @@ function ReturnsSection({ refs }: Readonly<{ refs: readonly string[] }>): React.
 function Loaded({ detail, storeName, timeZone }: Readonly<LoadedProps>): React.JSX.Element {
   const t = useT();
   return (
-    <div className="surface">
+    <div className="surface surface--shifts">
       <BackLink />
       <PageHeader
         title={t("shift.detail.title")}
@@ -307,9 +340,10 @@ function Loaded({ detail, storeName, timeZone }: Readonly<LoadedProps>): React.J
         })}
       >
         <HeaderStatus label={t("shift.field.kind")}>
-          <span className="badge">{t(closeKindKey(detail))}</span>
+          <KindPill close={detail} />
         </HeaderStatus>
       </PageHeader>
+      <ShiftTimeBar detail={detail} timeZone={timeZone} />
       <DetailGrid>
         <SummarySection detail={detail} storeName={storeName} timeZone={timeZone} />
         <CashSection detail={detail} />
@@ -329,9 +363,11 @@ function ErrorView({
 }: Readonly<{ error: ShiftCloseError; onRetry: () => void }>): React.JSX.Element {
   const t = useT();
   return (
-    <div className="surface">
+    <div className="surface surface--shifts">
       {error.kind === "not-found" ? (
-        <ListState state="empty" emptyMessage={t("shift.detail.notFound")} />
+        <div className="section-panel">
+          <ListState state="empty" emptyMessage={t("shift.detail.notFound")} />
+        </div>
       ) : (
         <Banner
           variant="danger"
@@ -368,12 +404,12 @@ export function ShiftCloseDetail(): React.JSX.Element {
   if (!scope.tenantId) return <ShiftScopePrompt />;
   if (isLoading || awaitingStore(detail, store.ready)) {
     return (
-      <div className="surface">
+      <div className="surface surface--shifts">
         <ListState state="loading" label={t("shift.detail.loadingNoun")} />
       </div>
     );
   }
   if (error) return <ErrorView error={error} onRetry={retry} />;
-  if (!detail) return <div className="surface" />;
+  if (!detail) return <div className="surface surface--shifts" />;
   return <Loaded detail={detail} storeName={store.name} timeZone={store.timeZone} />;
 }

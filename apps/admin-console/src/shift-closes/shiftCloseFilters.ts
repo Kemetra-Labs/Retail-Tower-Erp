@@ -121,10 +121,18 @@ export function buildListQuery({ filters, timeZone }: ListRequest): ShiftCloseLi
   };
 }
 
+/**
+ * The minimum a person asked for, or undefined when the field is blank or zero
+ * (the default floor is not a choice, so nothing states it as one).
+ */
+export function chosenMinVariance(filters: ShiftCloseFilters): string | undefined {
+  const typed = filters.minVariance;
+  return typed === "" || ZERO_AMOUNT.test(typed) ? undefined : typed;
+}
+
 /** A blank or zero minimum is raised to the non-zero floor. */
 function minAbsVariance(filters: ShiftCloseFilters): string {
-  const typed = filters.minVariance;
-  return typed === "" || ZERO_AMOUNT.test(typed) ? MIN_NONZERO_VARIANCE : typed;
+  return chosenMinVariance(filters) ?? MIN_NONZERO_VARIANCE;
 }
 
 function attributeFilters(filters: ShiftCloseFilters): ShiftCloseListQuery {
