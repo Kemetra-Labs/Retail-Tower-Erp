@@ -413,31 +413,36 @@ jobs:
           name: Install (Backend-Core)
           working_directory: ~/project/services/backend-core
           command: |
-            pnpm install --frozen-lockfile --ignore-scripts
+            timeout -k 1m 10m pnpm install --frozen-lockfile --ignore-scripts
             mkdir -p /tmp/remote && touch /tmp/remote/installed
       - run:
-          name: Build, static checks and rule specs (remote, advisory)
+          name: Build, static checks and rule specs (remote, advisory; 15 min budget)
           working_directory: ~/project/services/backend-core
           no_output_timeout: 10m
           command: |
+            # One wall-clock budget for the whole step: each command gets only what is left.
+            deadline=$((SECONDS + 15 * 60))
+            bounded() { left=$((deadline - SECONDS)); [ "$left" -gt 0 ] || { echo "Step budget used up before: $*"; return 124; }; timeout -k 1m "$left" "$@"; }
             rc=0
-            timeout -k 1m 10m pnpm -r run build || rc=1
-            timeout -k 1m 10m pnpm lint || rc=1
-            timeout -k 1m 10m pnpm lint:eslint || rc=1
-            timeout -k 1m 10m pnpm typecheck || rc=1
-            node --test tools/eslint-rules/__tests__/no-unscoped-tenant-query.spec.js || rc=1
-            node --test tools/oasdiff/__tests__/consumer-impact.spec.mjs || rc=1
+            bounded pnpm -r run build || rc=1
+            bounded pnpm lint || rc=1
+            bounded pnpm lint:eslint || rc=1
+            bounded pnpm typecheck || rc=1
+            bounded node --test tools/eslint-rules/__tests__/no-unscoped-tenant-query.spec.js || rc=1
+            bounded node --test tools/oasdiff/__tests__/consumer-impact.spec.mjs || rc=1
             exit $rc
       - run:
-          name: worker (Docker-free), shared and auth tests (remote, advisory)
+          name: worker (Docker-free), shared and auth tests (remote, advisory; 10 min budget)
           when: always
           working_directory: ~/project/services/backend-core
           no_output_timeout: 10m
           command: |
             [ -f /tmp/remote/installed ] || { echo "Install did not complete; no tests run."; exit 1; }
+            deadline=$((SECONDS + 10 * 60))
+            bounded() { left=$((deadline - SECONDS)); [ "$left" -gt 0 ] || { echo "Step budget used up before: $*"; return 124; }; timeout -k 1m "$left" "$@"; }
             rc=0
             for pkg in worker shared auth; do
-              timeout -k 1m 10m pnpm --filter "@data-pulse-2/$pkg" test || rc=1
+              bounded pnpm --filter "@data-pulse-2/$pkg" test || rc=1
             done
             exit $rc
 
@@ -458,20 +463,23 @@ jobs:
           name: Install (Admin Console)
           working_directory: ~/project/apps/admin-console
           command: |
-            pnpm install --frozen-lockfile --ignore-scripts
+            timeout -k 1m 10m pnpm install --frozen-lockfile --ignore-scripts
             mkdir -p /tmp/remote && touch /tmp/remote/installed
       - run:
-          name: API client drift, build and lint (remote, advisory)
+          name: API client drift, build and lint (remote, advisory; 15 min budget)
           working_directory: ~/project/apps/admin-console
           no_output_timeout: 10m
           command: |
+            deadline=$((SECONDS + 15 * 60))
+            bounded() { left=$((deadline - SECONDS)); [ "$left" -gt 0 ] || { echo "Step budget used up before: $*"; return 124; }; timeout -k 1m "$left" "$@"; }
             rc=0
-            # generate:client reads the pinned contract sources with `git show <pin>:<path>`.
-            timeout -k 1m 10m pnpm generate:client || rc=1
+            # generate:client reads the pinned contract sources with `git show <pin>:<path>`;
+            # CircleCI's checkout is a full clone, so the pin commit is present.
+            bounded pnpm generate:client || rc=1
             git diff --exit-code --stat src/generated/ \
               || { echo "API client drift: src/generated/ differs from a regeneration at the pinned Backend-Core commit."; rc=1; }
-            timeout -k 1m 10m pnpm build || rc=1
-            timeout -k 1m 10m pnpm lint || rc=1
+            bounded pnpm build || rc=1
+            bounded pnpm lint || rc=1
             exit $rc
       - run:
           name: Admin Console vitest with coverage (remote, advisory)
@@ -481,13 +489,16 @@ jobs:
           command: |
             [ -f /tmp/remote/installed ] || { echo "Install did not complete; no tests run."; exit 1; }
             mkdir -p /tmp/test-reports
-            timeout -k 1m 20m pnpm exec vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=/tmp/test-reports/remote-admin-vitest.xml
+            timeout -k 1m 15m pnpm exec vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=/tmp/test-reports/remote-admin-vitest.xml
       - store_test_results:
           path: /tmp/test-reports
 
   # RT-1036: the Admin Console Playwright suite for a pushed feature branch, as admin/e2e. GitHub
-  # runs it in the pinned Playwright image; here Chromium is installed at the lockfile's
-  # @playwright/test version (`pnpm exec playwright`), with its system deps, under a hard stop.
+  # runs it in the pinned Playwright image (and checks that image against the lockfile); here
+  # Chromium is installed at the lockfile's @playwright/test version (`pnpm exec playwright`),
+  # with its system deps, under a hard stop. CircleCI sets CI=true, so retries (2), forbidOnly
+  # and the JSON report behave as on GitHub; the last step lists retried tests, as admin/e2e's
+  # two retry-report steps do, so a pass on retry is never a silent green.
   remote-admin-e2e:
     machine:
       image: ubuntu-2404:2026.05.1
@@ -500,7 +511,7 @@ jobs:
       - run:
           name: Install (Admin Console)
           working_directory: ~/project/apps/admin-console
-          command: pnpm install --frozen-lockfile --ignore-scripts
+          command: timeout -k 1m 10m pnpm install --frozen-lockfile --ignore-scripts
       - run:
           name: Build
           working_directory: ~/project/apps/admin-console
@@ -509,17 +520,43 @@ jobs:
           name: Install Chromium for the lockfile's Playwright version
           working_directory: ~/project/apps/admin-console
           no_output_timeout: 10m
-          command: timeout -k 1m 15m pnpm exec playwright install --with-deps chromium
+          command: timeout -k 1m 10m pnpm exec playwright install --with-deps chromium
       - run:
           name: Admin Console Playwright E2E (remote, advisory)
           working_directory: ~/project/apps/admin-console
           no_output_timeout: 10m
-          command: timeout -k 1m 25m pnpm test:e2e
+          command: |
+            # The marker exists only on this VM and only once the guard, install and build have
+            # passed, so the report step below never runs branch code after a failed guard.
+            touch /tmp/e2e-started
+            timeout -k 1m 20m pnpm test:e2e
+      - run:
+          name: Report E2E retries
+          when: always
+          working_directory: ~/project/apps/admin-console
+          command: |
+            if [ ! -f /tmp/e2e-started ] || [ ! -f playwright-report/e2e-results.json ]; then
+              echo "The E2E tests did not run or wrote no JSON report (see the earlier steps)."
+              exit 0
+            fi
+            node .github/scripts/report-flaky-e2e.mjs || echo "report-flaky-e2e.mjs failed; the counts below still apply."
+            [ -f playwright-report/e2e-retries.md ] && cat playwright-report/e2e-retries.md
+            node -e '
+              const r = JSON.parse(require("node:fs").readFileSync("playwright-report/e2e-results.json", "utf8"));
+              const tests = [];
+              const visit = (s) => { for (const sp of s.specs ?? []) for (const t of sp.tests ?? []) tests.push(t); for (const c of s.suites ?? []) visit(c); };
+              for (const s of r.suites ?? []) visit(s);
+              const by = {};
+              for (const t of tests) by[t.status] = (by[t.status] ?? 0) + 1;
+              const retries = tests.reduce((n, t) => n + Math.max(0, (t.results ?? []).length - 1), 0);
+              console.log(`tests ${tests.length}: expected ${by.expected ?? 0}, flaky ${by.flaky ?? 0}, unexpected ${by.unexpected ?? 0}, skipped ${by.skipped ?? 0}; retry attempts ${retries}`);
+            '
 
   # RT-1036: the POS static checks and vitest suite for a pushed feature branch, as pos/static and
   # pos/test. One unsharded run with the unmodified vitest.config.ts, so the coverage thresholds
   # are evaluated once, on the whole suite, as the merge job does. The guard already fetched
-  # origin/main, which the source-scope guard test diffs against. As in remote-admin, the test
+  # origin/main, which the source-scope guard test diffs against (GitHub fetches it at depth 1;
+  # the triple-dot diff works here because CircleCI's checkout is a full clone). As in remote-admin, the test
   # step runs after failed static checks only if the install finished.
   remote-pos:
     machine:
@@ -534,20 +571,22 @@ jobs:
           name: Install (POS, no lifecycle scripts)
           working_directory: ~/project/apps/pos
           command: |
-            npm ci --ignore-scripts
+            timeout -k 1m 10m npm ci --ignore-scripts
             mkdir -p /tmp/remote && touch /tmp/remote/installed
       - run:
-          name: POS static checks (remote, advisory)
+          name: POS static checks (remote, advisory; 15 min budget)
           working_directory: ~/project/apps/pos
           no_output_timeout: 10m
           command: |
+            deadline=$((SECONDS + 15 * 60))
+            bounded() { left=$((deadline - SECONDS)); [ "$left" -gt 0 ] || { echo "Step budget used up before: $*"; return 124; }; timeout -k 1m "$left" "$@"; }
             rc=0
-            timeout -k 1m 10m npm test -- tests/contract/backend-core || rc=1
-            timeout -k 1m 10m npm run codegen:verify || rc=1
-            timeout -k 1m 10m npm run build:renderer || rc=1
-            timeout -k 1m 10m npm run typecheck || rc=1
-            timeout -k 1m 10m npm run lint || rc=1
-            node scripts/check-index-size.mjs || rc=1
+            bounded npm test -- tests/contract/backend-core || rc=1
+            bounded npm run codegen:verify || rc=1
+            bounded npm run build:renderer || rc=1
+            bounded npm run typecheck || rc=1
+            bounded npm run lint || rc=1
+            bounded node scripts/check-index-size.mjs || rc=1
             exit $rc
       - run:
           name: POS vitest with coverage, whole suite (remote, advisory)
