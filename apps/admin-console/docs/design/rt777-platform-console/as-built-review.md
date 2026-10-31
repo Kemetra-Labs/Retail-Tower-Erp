@@ -104,6 +104,6 @@ console, which is its quietest band.
 | F1 | P1-1 no-access layout | CSS fix, one file. Merged in #100; frame 76 re-captured | RT-929 |
 | F2 | P1-2 "session gone" notice, and End `gone` | Flow and copy (copy needs owner approval) | RT-930 |
 | F3 | Withdrawn: the «المالك» role was a fixture artifact (§0). The «لوحة التحكم» label is a minor observation (§3) | None | None |
-| F4 | P2-1 single rate-limit surface | Shell and platform | RT-931 |
+| F4 | P2-1 single rate-limit surface | Shell and platform. Frames 62 and 68 re-captured from main 87249807 (mocked Backend-Core) | RT-931 |
 | F5 | P2-2, P2-3 and the minor copy items | Directory and drawer polish (copy needs owner approval) | RT-932 |
 | F6 | Tenant status in the directory | Repin to Backend-Core with RT-843, then UI | RT-933 |
