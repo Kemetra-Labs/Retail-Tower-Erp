@@ -440,6 +440,19 @@ Do not merge a PR unless explicitly requested.
 
 Never force-push unless the owner explicitly instructs it.
 
+### Sync with main and batch fixes before a PR push (RT-948 option 1a)
+
+The CI plan diffs the PR base against the head. A branch that is behind `main` is charged for `main`'s newer commits: it can select the whole Backend-Core suite, or every job, for a change that touches neither. RT-921 c14837 measured about 500 extra Backend-Core runner-minutes from this across 20 branches.
+
+For every push to a PR that targets `main` (the first push and each corrective push), when that push is otherwise authorized:
+
+1. `git fetch origin` and compare the branch's merge-base with `origin/main`. If `main` has moved, merge `origin/main` into the branch in the same push. Use a normal merge: no rebase, no force-push, and no push made only to sync.
+2. Batch all review findings of one round (CodeRabbit or other reviewers) into one fix set. Run the relevant local tests, then push once for that round.
+3. Stop and report instead of merging blindly on a merge conflict, a stacked PR, uncommitted work, or a `main` change to shared, contract, security or policy paths.
+4. Each new head SHA needs its own green `required` on GitHub. Before merging, check `main` again; if it moved after the checks ran, sync and get fresh checks.
+
+This is a working practice, not an enforced branch rule. It never authorizes a push, a merge or a gate bypass.
+
 ## 12. Testing
 
 Run the narrowest relevant validation first.
