@@ -24,6 +24,7 @@ import { cashDraft } from '../../v5/checkout/cash-draft.js';
 import { RecoveryPanel } from '../../v5/checkout/RecoveryPanel.js';
 import { ConfirmDialog } from '../../v5/foundation/ConfirmDialog.js';
 import { ToneIcon } from '../../v5/foundation/ToneIcon.js';
+import { Icon } from '../../icons/Icon.js';
 import { Notice } from '../../v5/foundation/Notice.js';
 import { DISCOUNT_COPY } from '../../v5/sale/discount/discount-copy.js';
 import { envelopeAmountDue } from '../../../shared/cart/handoff-envelope.js';
@@ -447,10 +448,44 @@ function BackToSaleButton(
   );
 }
 
+/** M-P catalogue (freeze 15): the reason under the unavailable commit before any tender (RT-1025). */
+const NO_TENDER_REASON_COPY = 'اختر طريقة الدفع';
+
+/**
+ * RT-1025: before any tender the commit is present but unavailable (dashed,
+ * `foundation/buttons.css`), so the money column is never blank; its reason
+ * sits under it. It never settles, so it is natively disabled.
+ */
+function UnavailableCommit(): JSX.Element {
+  return (
+    <button
+      type="button"
+      className="v5-btn v5-btn--primary v5-btn--commit"
+      data-testid="payment-surface-commit-unavailable"
+      disabled
+      aria-describedby="payment-commit-reason"
+    >
+      تأكيد الدفع
+    </button>
+  );
+}
+
+/** Why settle is not offered yet: no method chosen (M-P30), or money still owed. */
+function commitReasonCopy(awaitingTender: boolean, owed: boolean): string | null {
+  if (awaitingTender) return NO_TENDER_REASON_COPY;
+  return owed ? 'المبلغ أقل من المستحق' : null;
+}
+
+/** Freeze 15 tones: M-P13 danger, M-P3 neutral (RT-1025), M-P1/M-P2 info. */
+function backReasonTone(reason: BackReason): 'danger' | 'neutral' | 'info' {
+  if (reason === 'card_void') return 'danger';
+  return reason === 'entry_open' ? 'neutral' : 'info';
+}
+
 /** Why Back is disabled: money recorded, money reversed, or an entry is open. */
 function BackBlockedReason(props: Readonly<{ back: BackControl }>): JSX.Element | null {
   if (!props.back.showReason || props.back.reason === null) return null;
-  const tone = props.back.reason === 'card_void' ? 'danger' : 'info';
+  const tone = backReasonTone(props.back.reason);
   // RT-243 W1-C: the V5 Notice treatment (tone border, tint, tone icon), so the
   // M-P13 danger reads as danger by shape too, never by colour alone.
   return (
@@ -459,7 +494,13 @@ function BackBlockedReason(props: Readonly<{ back: BackControl }>): JSX.Element 
       data-testid="payment-surface-back-blocked"
       data-tone={tone}
     >
-      <ToneIcon tone={tone} />
+      {tone === 'neutral' ? (
+        <span className="v5-tone-icon" data-icon="neutral">
+          <Icon name="status.neutral" />
+        </span>
+      ) : (
+        <ToneIcon tone={tone} />
+      )}
       <span>{BACK_REASON_COPY[props.back.reason]}</span>
     </output>
   );
@@ -1618,6 +1659,16 @@ function PaymentSurfaceBody({
   // the projection is not trustworthy until main has been read again.
   const entryOwnsPrimary = phase === 'entry' && remainingBalanceMinor > 0 && afterApply === 'idle';
   const showSettle = hasAppliedLine && !entryOwnsPrimary && afterApply === 'idle' && !cancelOpen;
+  // RT-1025: no method chosen and nothing recorded yet; at 0 due «إتمام البيع» owns the slot.
+  // Never beside a refusal line or M-P13, which must not suggest completing the payment.
+  const awaitingTender =
+    phase === 'tender_selection' &&
+    !hasAppliedLine &&
+    !zeroDue &&
+    afterApply === 'idle' &&
+    !cancelOpen &&
+    bridgeRefusalCopy === null &&
+    !cardVoidRequired;
   const entryOpen =
     bridge !== null && phase === 'entry' && paymentAttemptId !== null && !cancelOpen;
   // RT-243 W1-C (RT-255 item 1) — the change or shortfall of the cash being
@@ -1680,6 +1731,25 @@ function PaymentSurfaceBody({
     }
   }
 
+  /** The settle commit at 0 due: nothing is offered while main is being read back. */
+  function completeZeroControl(): JSX.Element | null {
+    if (afterApply !== 'idle') return null;
+    return (
+      <button
+        type="button"
+        className="v5-btn v5-btn--primary v5-btn--commit"
+        data-testid="payment-surface-complete-zero"
+        disabled={isStarting || isConfirming}
+        onKeyDown={guardCommitKey}
+        onClick={() => {
+          void handleCompleteZero();
+        }}
+      >
+        {DISCOUNT_COPY.completeSale}
+      </button>
+    );
+  }
+
   /**
    * The action bar's primary slot. RT-298: while a cancel is open nothing here
    * may move the attempt on, the post-apply read retry included (Codex P2, #576).
@@ -1698,24 +1768,8 @@ function PaymentSurfaceBody({
         </button>
       );
     }
-    // As the settle commit: nothing is offered while main is being read back.
-    if (zeroDue) {
-      if (afterApply !== 'idle') return null;
-      return (
-        <button
-          type="button"
-          className="v5-btn v5-btn--primary v5-btn--commit"
-          data-testid="payment-surface-complete-zero"
-          disabled={isStarting || isConfirming}
-          onKeyDown={guardCommitKey}
-          onClick={() => {
-            void handleCompleteZero();
-          }}
-        >
-          {DISCOUNT_COPY.completeSale}
-        </button>
-      );
-    }
+    if (zeroDue) return completeZeroControl();
+    if (awaitingTender) return <UnavailableCommit />;
     if (!showSettle) return null;
     return (
       <button
@@ -1743,14 +1797,16 @@ function PaymentSurfaceBody({
         </output>
       );
     }
-    if (!showSettle || fullyTendered) return null;
+    const reason = commitReasonCopy(awaitingTender, showSettle && !fullyTendered);
+    if (reason === null) return null;
     return (
       <p
         id="payment-commit-reason"
         className="v5-checkout-actions__reason"
         data-testid="payment-surface-commit-reason"
+        data-tone={awaitingTender ? 'neutral' : undefined}
       >
-        المبلغ أقل من المستحق
+        {reason}
       </p>
     );
   }

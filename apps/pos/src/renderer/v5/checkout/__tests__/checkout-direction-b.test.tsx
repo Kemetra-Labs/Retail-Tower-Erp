@@ -446,3 +446,20 @@ describe('Checkout action slots keep their place (A2, N-02) — CSS tripwire', (
     expect(css).not.toMatch(/v5-ledger__actions[^{]*:not\(:has/);
   });
 });
+
+describe('M-P3 is a neutral notice (RT-1025, freeze 15) — CSS tripwire', () => {
+  const css = readFileSync(resolve(__dirname, '../checkout.css'), 'utf-8').replace(
+    /\/\*[\s\S]*?\*\//g,
+    '',
+  );
+
+  it('the neutral back reason has its own rule and borrows no info colour', () => {
+    const neutral = css
+      .split('}')
+      .map((rule) => rule.split('{'))
+      .filter(([sel]) => sel?.includes(".v5-checkout__back-reason[data-tone='neutral']"))
+      .map(([, body]) => body ?? '');
+    expect(neutral.length).toBeGreaterThanOrEqual(1);
+    expect(neutral.join('')).not.toMatch(/--color-info/);
+  });
+});
