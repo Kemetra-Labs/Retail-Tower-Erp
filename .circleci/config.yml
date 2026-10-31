@@ -556,7 +556,7 @@ jobs:
             # passed, so the report step below never runs branch code after a failed guard.
             touch /tmp/e2e-started
             node_dir="$(dirname "$(dirname "$(command -v node)")")"
-            corepack_home="${COREPACK_HOME:-$HOME/.cache/node/corepack}"
+            corepack_home="${COREPACK_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/node/corepack}"
             # The inner timeout stops the suite; the outer one is a backstop for the container.
             timeout -k 1m 22m docker run --rm --init --ipc=host \
               --user "$(id -u):$(id -g)" -e HOME=/tmp -e CI \
