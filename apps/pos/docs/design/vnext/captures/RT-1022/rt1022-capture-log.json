@@ -1,0 +1,294 @@
+[
+  {
+    "label": "before",
+    "mode": "light",
+    "errors": [],
+    "voidJournal": {
+      "file": "rt1022-void-journal-light-before-1024x768.png",
+      "field": {
+        "rowGap": "6px"
+      },
+      "facts": null,
+      "row": {
+        "rowGap": "6px",
+        "columnGap": "12px"
+      },
+      "state": {
+        "columnGap": "6px",
+        "paddingLeft": "10px",
+        "paddingRight": "10px"
+      }
+    },
+    "voidDialog": {
+      "file": "rt1022-void-dialog-pin-focus-light-before-1024x768.png",
+      "pin": {
+        "outlineStyle": "solid",
+        "outlineWidth": "3px",
+        "outlineOffset": "2px",
+        "boxShadow": "color(srgb 0.0588235 0.462745 0.431373 / 0.2) 0px 0px 0px 3px",
+        "transition": "border-color, box-shadow"
+      },
+      "field": {
+        "rowGap": "6px"
+      },
+      "facts": {
+        "rowGap": "6px",
+        "columnGap": "16px"
+      },
+      "row": {
+        "rowGap": "6px",
+        "columnGap": "12px"
+      },
+      "state": {
+        "columnGap": "6px",
+        "paddingLeft": "10px",
+        "paddingRight": "10px"
+      }
+    },
+    "managerHome": {
+      "file": "rt1022-manager-home-light-before-1024x768.png",
+      "tile": {
+        "borderTopColor": "rgb(216, 223, 231)",
+        "borderTopWidth": "1px"
+      },
+      "tileBorderStrongToken": "#6f7b89"
+    },
+    "globalTextInput": {
+      "outlineStyle": "solid",
+      "outlineWidth": "2px",
+      "outlineOffset": "2px",
+      "boxShadow": "color(srgb 0.0588235 0.462745 0.431373 / 0.2) 0px 0px 0px 3px",
+      "transitionProperty": "border-color, box-shadow",
+      "borderTopColor": "rgb(15, 118, 110)"
+    },
+    "voucherError": {
+      "file": "rt1022-voucher-error-light-before-1024x768.png",
+      "text": "رمز القسيمة غير صالح — يجب ألا يقل عن ٣ أحرف.",
+      "margin": {
+        "top": "4px",
+        "right": "2px",
+        "bottom": "0px",
+        "left": "2px"
+      }
+    }
+  },
+  {
+    "label": "before",
+    "mode": "forced",
+    "errors": [],
+    "voidJournal": {
+      "file": "rt1022-void-journal-forced-before-1024x768.png",
+      "field": {
+        "rowGap": "6px"
+      },
+      "facts": null,
+      "row": {
+        "rowGap": "6px",
+        "columnGap": "12px"
+      },
+      "state": {
+        "columnGap": "6px",
+        "paddingLeft": "10px",
+        "paddingRight": "10px"
+      }
+    },
+    "voidDialog": {
+      "file": "rt1022-void-dialog-pin-focus-forced-before-1024x768.png",
+      "pin": {
+        "outlineStyle": "solid",
+        "outlineWidth": "3px",
+        "outlineOffset": "2px",
+        "boxShadow": "none",
+        "transition": "border-color, box-shadow"
+      },
+      "field": {
+        "rowGap": "6px"
+      },
+      "facts": {
+        "rowGap": "6px",
+        "columnGap": "16px"
+      },
+      "row": {
+        "rowGap": "6px",
+        "columnGap": "12px"
+      },
+      "state": {
+        "columnGap": "6px",
+        "paddingLeft": "10px",
+        "paddingRight": "10px"
+      }
+    },
+    "managerHome": {
+      "file": "rt1022-manager-home-forced-before-1024x768.png",
+      "tile": {
+        "borderTopColor": "rgb(0, 0, 0)",
+        "borderTopWidth": "1px"
+      },
+      "tileBorderStrongToken": "#6f7b89"
+    },
+    "globalTextInput": {
+      "outlineStyle": "solid",
+      "outlineWidth": "2px",
+      "outlineOffset": "2px",
+      "boxShadow": "none",
+      "transitionProperty": "border-color, box-shadow",
+      "borderTopColor": "rgb(55, 0, 110)"
+    },
+    "voucherError": {
+      "file": "rt1022-voucher-error-forced-before-1024x768.png",
+      "text": "رمز القسيمة غير صالح — يجب ألا يقل عن ٣ أحرف.",
+      "margin": {
+        "top": "4px",
+        "right": "2px",
+        "bottom": "0px",
+        "left": "2px"
+      }
+    }
+  },
+  {
+    "label": "after",
+    "mode": "light",
+    "errors": [],
+    "voidJournal": {
+      "file": "rt1022-void-journal-light-after-1024x768.png",
+      "field": {
+        "rowGap": "8px"
+      },
+      "facts": null,
+      "row": {
+        "rowGap": "8px",
+        "columnGap": "12px"
+      },
+      "state": {
+        "columnGap": "8px",
+        "paddingLeft": "12px",
+        "paddingRight": "12px"
+      }
+    },
+    "voidDialog": {
+      "file": "rt1022-void-dialog-pin-focus-light-after-1024x768.png",
+      "pin": {
+        "outlineStyle": "solid",
+        "outlineWidth": "3px",
+        "outlineOffset": "2px",
+        "boxShadow": "none",
+        "transition": "border-color"
+      },
+      "field": {
+        "rowGap": "8px"
+      },
+      "facts": {
+        "rowGap": "8px",
+        "columnGap": "16px"
+      },
+      "row": {
+        "rowGap": "8px",
+        "columnGap": "12px"
+      },
+      "state": {
+        "columnGap": "8px",
+        "paddingLeft": "12px",
+        "paddingRight": "12px"
+      }
+    },
+    "managerHome": {
+      "file": "rt1022-manager-home-light-after-1024x768.png",
+      "tile": {
+        "borderTopColor": "rgb(111, 123, 137)",
+        "borderTopWidth": "1px"
+      },
+      "tileBorderStrongToken": "#6f7b89"
+    },
+    "globalTextInput": {
+      "outlineStyle": "solid",
+      "outlineWidth": "2px",
+      "outlineOffset": "2px",
+      "boxShadow": "none",
+      "transitionProperty": "border-color",
+      "borderTopColor": "rgb(15, 118, 110)"
+    },
+    "voucherError": {
+      "file": "rt1022-voucher-error-light-after-1024x768.png",
+      "text": "رمز القسيمة غير صالح: يجب ألا يقل عن 3 أحرف.",
+      "margin": {
+        "top": "4px",
+        "right": "0px",
+        "bottom": "0px",
+        "left": "0px"
+      }
+    }
+  },
+  {
+    "label": "after",
+    "mode": "forced",
+    "errors": [],
+    "voidJournal": {
+      "file": "rt1022-void-journal-forced-after-1024x768.png",
+      "field": {
+        "rowGap": "8px"
+      },
+      "facts": null,
+      "row": {
+        "rowGap": "8px",
+        "columnGap": "12px"
+      },
+      "state": {
+        "columnGap": "8px",
+        "paddingLeft": "12px",
+        "paddingRight": "12px"
+      }
+    },
+    "voidDialog": {
+      "file": "rt1022-void-dialog-pin-focus-forced-after-1024x768.png",
+      "pin": {
+        "outlineStyle": "solid",
+        "outlineWidth": "3px",
+        "outlineOffset": "2px",
+        "boxShadow": "none",
+        "transition": "border-color"
+      },
+      "field": {
+        "rowGap": "8px"
+      },
+      "facts": {
+        "rowGap": "8px",
+        "columnGap": "16px"
+      },
+      "row": {
+        "rowGap": "8px",
+        "columnGap": "12px"
+      },
+      "state": {
+        "columnGap": "8px",
+        "paddingLeft": "12px",
+        "paddingRight": "12px"
+      }
+    },
+    "managerHome": {
+      "file": "rt1022-manager-home-forced-after-1024x768.png",
+      "tile": {
+        "borderTopColor": "rgb(0, 0, 0)",
+        "borderTopWidth": "1px"
+      },
+      "tileBorderStrongToken": "#6f7b89"
+    },
+    "globalTextInput": {
+      "outlineStyle": "solid",
+      "outlineWidth": "2px",
+      "outlineOffset": "2px",
+      "boxShadow": "none",
+      "transitionProperty": "border-color",
+      "borderTopColor": "rgb(55, 0, 110)"
+    },
+    "voucherError": {
+      "file": "rt1022-voucher-error-forced-after-1024x768.png",
+      "text": "رمز القسيمة غير صالح: يجب ألا يقل عن 3 أحرف.",
+      "margin": {
+        "top": "4px",
+        "right": "0px",
+        "bottom": "0px",
+        "left": "0px"
+      }
+    }
+  }
+]

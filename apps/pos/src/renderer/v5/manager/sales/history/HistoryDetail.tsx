@@ -96,7 +96,7 @@ function Reversals({ detail }: Readonly<{ detail: SaleHistoryDetail }>): JSX.Ele
     <section aria-label={C.returns}>
       {detail.void !== null && (
         <p className="v5-history-mark" data-testid="history-voided">
-          {C.voided} — {C.voidedAt} <bdi dir="ltr">{stamp(detail.void.voided_at)}</bdi>
+          {C.voided}: {C.voidedAt} <bdi dir="ltr">{stamp(detail.void.voided_at)}</bdi>
         </p>
       )}
       {detail.returns.length > 0 && (

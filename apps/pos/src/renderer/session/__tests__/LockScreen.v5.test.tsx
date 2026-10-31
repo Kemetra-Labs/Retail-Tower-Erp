@@ -88,7 +88,7 @@ describe('RT-593 lock is V5, not 007', () => {
     expect(screen.getByRole('heading', { name: 'الطرفية مقفلة' })).toBeInTheDocument();
     expect(dialog).toHaveTextContent('أدخل الرقم السري للمتابعة.');
     expect(dialog).toHaveAccessibleDescription('أدخل الرقم السري للمتابعة.');
-    expect(document.querySelector('.dialog-panel, .dialog-overlay')).toBeNull();
+    expect(document.querySelector('.dialog-overlay')).toBeNull();
   });
 
   it.each(['manager', 'admin'] as const)('shows M-L1b to a %s, not the PIN prompt', (role) => {

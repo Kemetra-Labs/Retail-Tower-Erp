@@ -48,7 +48,7 @@
 .v5-sales-field {
   display: grid;
   flex: 0 1 320px;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .v5-sales-field label {
