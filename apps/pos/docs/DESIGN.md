@@ -347,7 +347,7 @@ neither cold clinical grey nor warm beige, are not decided yet *(target, UX-02)*
 ### Primary
 - **Tower Teal** (primary, `#0F766E`; called Pharmacy Teal before RT-261, same value): the one next action — the commit button, the selected nav entry, the selected tender, the focus ring. White on it is 5.47:1.
 - **Deep Teal** (primary-emphasis): hover and pressed state of the commit (7.95:1 on white).
-- **Teal Wash** (primary-soft): selected-state fill — active nav entry, selected tender tile, listbox active option, scan-acknowledge row flash — always with Tower Teal ink (4.84:1 on the wash).
+- **Teal Wash** (primary-soft): selected-state fill — active nav entry, selected tender tile, listbox active option, scan-acknowledge row flash — always with Tower Teal ink (4.84:1 on the wash); the nav rail's brand mark is the same wash and ink (owner decision 2026-10-31, RT-1024: "Soft tile"), so it never reads as a commit button.
 
 ### Neutral
 - **Clinical Canvas** (background): the page behind panels.
@@ -367,7 +367,7 @@ neither cold clinical grey nor warm beige, are not decided yet *(target, UX-02)*
 - **Pending Blue** (info family): syncing, informational notices, and "recorded but not yet proven downstream".
 
 ### Named Rules
-**The Commit-Teal Rule.** Filled teal appears on at most one control per region, plus selected-state washes. Large teal fills are allowed for the primary commit — the v3.5 One-Accent Rule is superseded.
+**The Commit-Teal Rule.** Filled teal appears on at most one control per region, plus selected-state washes. The brand mark is decorative and never a teal fill (RT-1024). Large teal fills are allowed for the primary commit — the v3.5 One-Accent Rule is superseded.
 
 **The No-Accent Rule.** There is no separate accent role. Selection is `primary-soft` fill + `primary` ink + a 2px inline-start bar + `aria-current`.
 

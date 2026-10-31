@@ -1,0 +1,138 @@
+[
+  {
+    "where": "sale",
+    "width": 1024,
+    "mode": "light",
+    "file": "after-sale-1024x768.png",
+    "mark": {
+      "background": "rgb(230, 244, 241)",
+      "color": "rgb(15, 118, 110)",
+      "border": "0px solid",
+      "width": 32,
+      "height": 32,
+      "radius": "10px",
+      "contrast": 4.84
+    },
+    "filledTeal": [],
+    "errors": []
+  },
+  {
+    "where": "sale",
+    "width": 1024,
+    "mode": "forced",
+    "file": "after-sale-1024x768-forced.png",
+    "mark": {
+      "background": "rgb(255, 255, 255)",
+      "color": "rgb(0, 0, 0)",
+      "border": "1px solid",
+      "width": 32,
+      "height": 32,
+      "radius": "10px",
+      "contrast": 21
+    },
+    "filledTeal": [],
+    "errors": []
+  },
+  {
+    "where": "sale",
+    "width": 1280,
+    "mode": "light",
+    "file": "after-sale-1280x800.png",
+    "mark": {
+      "background": "rgb(230, 244, 241)",
+      "color": "rgb(15, 118, 110)",
+      "border": "0px solid",
+      "width": 32,
+      "height": 32,
+      "radius": "10px",
+      "contrast": 4.84
+    },
+    "filledTeal": [],
+    "errors": []
+  },
+  {
+    "where": "sale",
+    "width": 1280,
+    "mode": "forced",
+    "file": "after-sale-1280x800-forced.png",
+    "mark": {
+      "background": "rgb(255, 255, 255)",
+      "color": "rgb(0, 0, 0)",
+      "border": "1px solid",
+      "width": 32,
+      "height": 32,
+      "radius": "10px",
+      "contrast": 21
+    },
+    "filledTeal": [],
+    "errors": []
+  },
+  {
+    "where": "dashboard",
+    "width": 1024,
+    "mode": "light",
+    "file": "after-dashboard-1024x768.png",
+    "mark": {
+      "background": "rgb(230, 244, 241)",
+      "color": "rgb(15, 118, 110)",
+      "border": "0px solid",
+      "width": 32,
+      "height": 32,
+      "radius": "10px",
+      "contrast": 4.84
+    },
+    "filledTeal": [],
+    "errors": []
+  },
+  {
+    "where": "dashboard",
+    "width": 1024,
+    "mode": "forced",
+    "file": "after-dashboard-1024x768-forced.png",
+    "mark": {
+      "background": "rgb(255, 255, 255)",
+      "color": "rgb(0, 0, 0)",
+      "border": "1px solid",
+      "width": 32,
+      "height": 32,
+      "radius": "10px",
+      "contrast": 21
+    },
+    "filledTeal": [],
+    "errors": []
+  },
+  {
+    "where": "dashboard",
+    "width": 1280,
+    "mode": "light",
+    "file": "after-dashboard-1280x800.png",
+    "mark": {
+      "background": "rgb(230, 244, 241)",
+      "color": "rgb(15, 118, 110)",
+      "border": "0px solid",
+      "width": 32,
+      "height": 32,
+      "radius": "10px",
+      "contrast": 4.84
+    },
+    "filledTeal": [],
+    "errors": []
+  },
+  {
+    "where": "dashboard",
+    "width": 1280,
+    "mode": "forced",
+    "file": "after-dashboard-1280x800-forced.png",
+    "mark": {
+      "background": "rgb(255, 255, 255)",
+      "color": "rgb(0, 0, 0)",
+      "border": "1px solid",
+      "width": 32,
+      "height": 32,
+      "radius": "10px",
+      "contrast": 21
+    },
+    "filledTeal": [],
+    "errors": []
+  }
+]
