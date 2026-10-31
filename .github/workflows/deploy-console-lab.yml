@@ -1,0 +1,413 @@
+# RT-1007 (RT-717 Phase C7, plan c14793): manual, approval-gated deploy of one Admin Console
+# release to lab-01, modelled on deploy-lab.yml and deploy-erp-lab.yml.
+#
+# preflight (every run): GitHub only, no AWS. Verifies an already published, immutable
+# admin-console/vX.Y.Z release (release-admin-console.yml): its commit is on main, its archive
+# matches its .sha256 and carries a build-provenance attestation signed by
+# release-admin-console.yml for that tag, and its version.json names that commit. It then applies
+# the pin rule (owner decision C7-D2): the Console's backendContractPin must equal the commit of
+# the Backend-Core release lab-01 runs. It reads back the aws-lab environment and uploads a planned
+# ledger. It changes nothing.
+#
+# live (dry_run=false only): after the aws-lab reviewer approves, the job assumes the deploy role
+# through GitHub OIDC (no stored keys) and runs exactly one owner-created SSM document,
+# RT-ConsoleLabDeploy, on the single Online node tagged Environment=lab, Host=lab-01. The document
+# is the security boundary (services/backend-core/deploy/lab/ssm/): it re-checks the archive digest
+# and version.json on the host, swaps the `current` symlink, smokes the origin and reverts the swap
+# on a failed smoke. Only strict RT_* lines reach this public log and the ledger. It fails closed
+# while AWS_ROLE_ARN / AWS_REGION are unset.
+#
+# Only monorepo releases are deployed (owner decision, RT-1007 c14794); a rollback to a legacy
+# admin-console-<sha12> directory stays the manual runbook step (deploy/README.md).
+# Concurrency is shared with deploy-lab.yml and deploy-erp-lab.yml: one lab deploy at a time.
+name: Deploy Console lab
+
+"on":
+  workflow_dispatch:
+    inputs:
+      console_release:
+        description: Published Admin Console release admin-console/vX.Y.Z of this repository (from release-admin-console.yml)
+        required: true
+        type: string
+      backend_release:
+        description: Backend-Core release lab-01 runs now, backend-core/vX.Y.Z (the pin rule compares against its commit; lab-01 must prove it)
+        required: true
+        type: string
+      jira_key:
+        description: Jira issue authorizing this run (RT-<number>)
+        required: true
+        type: string
+      dry_run:
+        description: Preflight only (default). false runs the live deploy after preflight, with aws-lab approval
+        required: true
+        type: boolean
+        default: true
+
+permissions: {}
+
+concurrency:
+  group: deploy-aws-lab
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: preflight (verify release, pin rule, planned ledger, no deploy)
+    # No job-level `if`: a dispatch from any other ref must FAIL in the first step, not skip green.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read # release metadata and assets, tag commits, compare
+      attestations: read # gh attestation verify
+      actions: read # read (never create) the aws-lab environment
+    outputs:
+      archive_digest: ${{ steps.plan.outputs.archive_digest }}
+      release_sha: ${{ steps.plan.outputs.release_sha }}
+      contract_pin: ${{ steps.plan.outputs.contract_pin }}
+      environment_gate: ${{ steps.plan.outputs.environment_gate }}
+    steps:
+      - name: Guard (main only, validated inputs)
+        env:
+          RUN_REF: ${{ github.ref }}
+          CONSOLE_RELEASE: ${{ inputs.console_release }}
+          BACKEND_RELEASE: ${{ inputs.backend_release }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          [ "$RUN_REF" = "refs/heads/main" ] || fail "must be dispatched from refs/heads/main"
+          [[ "$CONSOLE_RELEASE" =~ ^admin-console/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "console_release must be admin-console/vX.Y.Z"
+          [[ "$BACKEND_RELEASE" =~ ^backend-core/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "backend_release must be backend-core/vX.Y.Z"
+          [[ "$JIRA_KEY" =~ ^RT-[1-9][0-9]{0,5}$ ]] || fail "jira_key must be RT-<number>"
+          case "$DRY_RUN" in true | false) ;; *) fail "dry_run must be true or false" ;; esac
+
+      # Release metadata, tag commits and assets through the read-only token; no checkout, no
+      # repository code runs in this job.
+      - name: Verify the Console release (immutable, on main, checksum, attestation, version.json)
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CONSOLE_RELEASE: ${{ inputs.console_release }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          REL="admin-console-${CONSOLE_RELEASE#admin-console/}"
+          jq -e '.isImmutable == true and .isDraft == false' \
+            <<<"$(gh release view "$CONSOLE_RELEASE" --repo "$REPO" --json isImmutable,isDraft)" >/dev/null \
+            || fail "$CONSOLE_RELEASE is not a published, immutable release"
+          SHA="$(gh api "repos/$REPO/commits/refs/tags/$CONSOLE_RELEASE" --jq .sha)" || fail "cannot resolve tag $CONSOLE_RELEASE"
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || fail "tag $CONSOLE_RELEASE does not name a commit"
+          case "$(gh api "repos/$REPO/compare/$SHA...main" --jq .status)" in
+            ahead | identical) ;;
+            *) fail "$CONSOLE_RELEASE ($SHA) is not on main" ;;
+          esac
+          DL="$RUNNER_TEMP/release"
+          mkdir -p "$DL"
+          gh release download "$CONSOLE_RELEASE" --repo "$REPO" --dir "$DL" \
+            --pattern "$REL.tar.gz" --pattern "$REL.tar.gz.sha256" || fail "cannot download $REL.tar.gz and its .sha256"
+          [ "$(awk 'END { print NR }' "$DL/$REL.tar.gz.sha256")" = 1 ] || fail "the .sha256 must list exactly one file"
+          (cd "$DL" && sha256sum --check --strict "$REL.tar.gz.sha256") || fail "$REL.tar.gz does not match its .sha256"
+          gh attestation verify "$DL/$REL.tar.gz" --repo "$REPO" \
+            --signer-workflow Kemetra-Labs/Retail-Tower-Erp/.github/workflows/release-admin-console.yml \
+            --source-ref "refs/tags/$CONSOLE_RELEASE" >/dev/null || fail "no valid release-admin-console.yml attestation for $REL.tar.gz from refs/tags/$CONSOLE_RELEASE"
+          DIGEST="sha256:$(sha256sum "$DL/$REL.tar.gz" | cut -d' ' -f1)"
+          VERSION="$(tar -xzOf "$DL/$REL.tar.gz" ./version.json)" || fail "the archive has no version.json"
+          jq -e --arg sha "$SHA" '.app == "retail-tower-console" and .sha == $sha' <<<"$VERSION" >/dev/null \
+            || fail "version.json does not name $SHA"
+          PIN="$(jq -r '.backendContractPin // ""' <<<"$VERSION")"
+          [[ "$PIN" =~ ^[0-9a-f]{40}$ ]] || fail "version.json has no 40-hex backendContractPin"
+          { echo "digest=$DIGEST"; echo "sha=$SHA"; echo "pin=$PIN"; } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve the Backend-Core release commit
+        id: backend
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BACKEND_RELEASE: ${{ inputs.backend_release }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          gh release view "$BACKEND_RELEASE" --repo "$REPO" --json tagName >/dev/null || fail "$BACKEND_RELEASE is not a published release"
+          SHA="$(gh api "repos/$REPO/commits/refs/tags/$BACKEND_RELEASE" --jq .sha)" || fail "cannot resolve tag $BACKEND_RELEASE"
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || fail "tag $BACKEND_RELEASE does not name a commit"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      # C7-D2: the Console's contract pin must be exactly the commit of the Backend-Core release
+      # lab-01 runs. A mismatch refuses here, before any AWS step: re-pin the Console to that
+      # release and publish a new Console release instead.
+      - name: Apply the pin rule
+        env:
+          PIN: ${{ steps.release.outputs.pin }}
+          BACKEND_SHA: ${{ steps.backend.outputs.sha }}
+          BACKEND_RELEASE: ${{ inputs.backend_release }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          [[ "$PIN" =~ ^[0-9a-f]{40}$ ]] || fail "no Console contract pin"
+          [[ "$BACKEND_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "no Backend-Core release commit"
+          [ "$PIN" = "$BACKEND_SHA" ] \
+            || fail "pin rule: the Console pins $PIN, but $BACKEND_RELEASE is $BACKEND_SHA (re-pin the Console to that release and publish a new Console release)"
+          echo "pin rule: the Console pins $BACKEND_RELEASE ($BACKEND_SHA)"
+
+      # Report the approval gate; never create it. A 404 is "not visible", not proof it is missing.
+      - name: Read back the aws-lab environment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if OUT="$(gh api "repos/$REPO/environments/aws-lab" 2>&1)"; then
+            jq '{status: "present", reviewers: ([.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length)}' \
+              <<<"$OUT" > "$RUNNER_TEMP/environment.json"
+          elif grep -q "Not Found" <<<"$OUT"; then
+            echo '{"status":"not-visible","reviewers":0}' > "$RUNNER_TEMP/environment.json"
+          else
+            echo '{"status":"unknown","reviewers":0}' > "$RUNNER_TEMP/environment.json"
+          fi
+
+      - name: Write the planned ledger
+        id: plan
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+          CONSOLE_RELEASE: ${{ inputs.console_release }}
+          BACKEND_RELEASE: ${{ inputs.backend_release }}
+          DIGEST: ${{ steps.release.outputs.digest }}
+          SHA: ${{ steps.release.outputs.sha }}
+          PIN: ${{ steps.release.outputs.pin }}
+          BACKEND_SHA: ${{ steps.backend.outputs.sha }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          GATE="$(jq -r 'if .status == "present" and (.reviewers | type) == "number" and .reviewers >= 1 then "reviewed" else "unverified" end' \
+            "$RUNNER_TEMP/environment.json" 2>/dev/null || echo unverified)"
+          mkdir -p "$RUNNER_TEMP/plan"
+          jq -n --arg jira "$JIRA_KEY" --arg actor "$ACTOR" --arg run "$RUN_URL" --arg tag "$CONSOLE_RELEASE" \
+            --arg digest "$DIGEST" --arg sha "$SHA" --arg pin "$PIN" --arg backend "$BACKEND_RELEASE" \
+            --arg bsha "$BACKEND_SHA" --arg gate "$GATE" --arg dry "$DRY_RUN" '{
+              schemaVersion: 1, kind: "rt1007-console-lab-planned-ledger", mode: (if $dry == "true" then "dry-run" else "live" end),
+              outcome: "planned", refusals: [],
+              jiraKey: $jira, actor: $actor, runUrl: $run, generatedAt: (now | todate),
+              target: {host: "lab-01", environment: "aws-lab", release: $tag, sha: $sha, archiveDigest: $digest, contractPin: $pin},
+              backend: {release: $backend, sha: $bsha, source: "operator-declared; RT-ConsoleLabDeploy G-Host checks it on lab-01"},
+              pinRule: "pass", environmentGate: $gate
+            }' > "$RUNNER_TEMP/plan/planned-ledger.json"
+          {
+            echo "## Console lab deploy plan ($([ "$DRY_RUN" = true ] && echo dry run || echo live))"
+            echo
+            echo "$CONSOLE_RELEASE ($SHA, archive $DIGEST) on lab-01 over Backend-Core $BACKEND_RELEASE, $JIRA_KEY."
+            echo "Pin rule: pass. Environment gate: $GATE."
+          } >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "archive_digest=$DIGEST"
+            echo "release_sha=$SHA"
+            echo "contract_pin=$PIN"
+            echo "environment_gate=$GATE"
+          } >> "$GITHUB_OUTPUT"
+          if [ "$DRY_RUN" = "false" ] && [ "$GATE" != "reviewed" ]; then
+            echo "::error::live run refused: the aws-lab environment was not read back with a required reviewer"
+            exit 1
+          fi
+
+      - name: Upload the planned ledger
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: deploy-console-lab-plan-${{ github.run_id }}
+          path: ${{ runner.temp }}/plan/
+          if-no-files-found: warn
+          retention-days: 90
+
+  live:
+    name: live deploy (aws-lab, OIDC, SSM RT-ConsoleLabDeploy on lab-01)
+    needs: preflight
+    if: ${{ inputs.dry_run == false }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: aws-lab
+    permissions:
+      contents: read # checkout of main for the claim printer
+      id-token: write # the OIDC token for the deploy role; nothing else is granted
+    steps:
+      - name: Guard (main only, live run, verified plan)
+        env:
+          RUN_REF: ${{ github.ref }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          CONSOLE_RELEASE: ${{ inputs.console_release }}
+          BACKEND_RELEASE: ${{ inputs.backend_release }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+          ARCHIVE_DIGEST: ${{ needs.preflight.outputs.archive_digest }}
+          RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
+          CONTRACT_PIN: ${{ needs.preflight.outputs.contract_pin }}
+          ENVIRONMENT_GATE: ${{ needs.preflight.outputs.environment_gate }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          [ "$RUN_REF" = "refs/heads/main" ] || fail "must be dispatched from refs/heads/main"
+          [ "$DRY_RUN" = "false" ] || fail "the live job runs only when dry_run=false"
+          [ "$ENVIRONMENT_GATE" = "reviewed" ] || fail "preflight did not read back aws-lab with a required reviewer"
+          [[ "$CONSOLE_RELEASE" =~ ^admin-console/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "console_release must be admin-console/vX.Y.Z"
+          [[ "$BACKEND_RELEASE" =~ ^backend-core/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "backend_release must be backend-core/vX.Y.Z"
+          [[ "$JIRA_KEY" =~ ^RT-[1-9][0-9]{0,5}$ ]] || fail "jira_key must be RT-<number>"
+          [[ "$ARCHIVE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "preflight plan lacks the archive digest"
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "preflight plan lacks the release commit"
+          [[ "$CONTRACT_PIN" =~ ^[0-9a-f]{40}$ ]] || fail "preflight plan lacks the contract pin"
+
+      # Fails closed until the owner sets both non-secret variables on aws-lab. Runs before any token is requested.
+      - name: Check the deploy variables (fail closed when unset)
+        env:
+          AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          [ -n "${AWS_ROLE_ARN:-}" ] || fail "AWS_ROLE_ARN is not set on the aws-lab environment: the live deploy stays off"
+          [ -n "${AWS_REGION:-}" ] || fail "AWS_REGION is not set on the aws-lab environment: the live deploy stays off"
+          [[ "$AWS_ROLE_ARN" =~ ^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,128}$ ]] \
+            || fail "AWS_ROLE_ARN must be an IAM role ARN (never root, a user or an access key)"
+          [[ "$AWS_REGION" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]$ ]] || fail "AWS_REGION must be a region name such as us-east-1"
+
+      - name: Checkout main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      # Non-secret trust-policy claims before the first assume, so a deny is diagnosed, not guessed.
+      - name: Print the OIDC claims (non-secret, informational)
+        env:
+          JIRA_KEY: ${{ inputs.jira_key }}
+        run: |
+          set -euo pipefail
+          [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ] \
+            || { echo "::error::no OIDC request variables: the job needs id-token: write"; exit 1; }
+          echo "::add-mask::$ACTIONS_ID_TOKEN_REQUEST_TOKEN"
+          RESPONSE="$(curl --silent --show-error --fail --max-time 20 \
+            --header "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com")" || { echo "::error::the OIDC token request failed"; exit 1; }
+          TOKEN="$(jq -er .value <<<"$RESPONSE" 2>/dev/null)" || { echo "::error::the OIDC response held no token"; exit 1; }
+          echo "::add-mask::$TOKEN"
+          printf '%s' "$TOKEN" | node services/backend-core/deploy/lab/oidc-claims-check.cjs \
+            --jira-key "$JIRA_KEY" --workflow-file deploy-console-lab.yml --summary "$GITHUB_STEP_SUMMARY" \
+            || echo "::warning::a claim differs from the trust design; see the step summary (AWS STS still decides)"
+
+      - name: Assume the deploy role (GitHub OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: rt-deploy-console-lab-${{ github.run_id }}
+          role-duration-seconds: 3600
+
+      - name: Run RT-ConsoleLabDeploy on lab-01
+        id: ssm
+        env:
+          CONSOLE_RELEASE: ${{ inputs.console_release }}
+          BACKEND_RELEASE: ${{ inputs.backend_release }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+          ARCHIVE_DIGEST: ${{ needs.preflight.outputs.archive_digest }}
+          RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
+          CONTRACT_PIN: ${{ needs.preflight.outputs.contract_pin }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          LIVE="$RUNNER_TEMP/live"
+          mkdir -p "$LIVE"
+          fail() { echo "::error::$*"; echo "$*" > "$LIVE/failure.txt"; exit 1; }
+          RESULT_RE='^RT_(GATE|FAIL|PRIOR|TARGET|SWAP|REVERT|DONE)( [A-Za-z0-9=:._/-]+)*$'
+
+          # One Online managed node, found by its owner-set tags (a tag filter cannot be mixed with PingStatus).
+          NODE="$(aws ssm describe-instance-information \
+            --filters "Key=tag:Environment,Values=lab" "Key=tag:Host,Values=lab-01" \
+            --query "InstanceInformationList[?PingStatus=='Online'].InstanceId" --output text)" || fail "describe-instance-information failed"
+          [[ "$NODE" =~ ^mi-[0-9a-f]{17}$ ]] || fail "no single Online SSM node tagged Environment=lab, Host=lab-01"
+
+          jq -n --arg t "$CONSOLE_RELEASE" --arg d "$ARCHIVE_DIGEST" --arg s "$RELEASE_SHA" --arg p "$CONTRACT_PIN" \
+            --arg b "$BACKEND_RELEASE" --arg j "$JIRA_KEY" \
+            '{ReleaseTag: [$t], ArchiveDigest: [$d], ExpectedSha: [$s], ExpectedPin: [$p], BackendRelease: [$b], JiraKey: [$j]}' \
+            > "$LIVE/params.json"
+
+          CMD="$(aws ssm send-command --instance-ids "$NODE" --document-name RT-ConsoleLabDeploy --document-version '$DEFAULT' \
+            --parameters "file://$LIVE/params.json" --timeout-seconds 600 --comment "deploy-console-lab run $RUN_ID $JIRA_KEY" \
+            --query Command.CommandId --output text)" || fail "send-command was refused"
+          [[ "$CMD" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || fail "no command ID"
+          echo "command $CMD on $NODE"
+          # The document runs up to 600 s; polling stops a minute later.
+          STATUS=Pending
+          DEADLINE=$(( $(date +%s) + 660 ))
+          while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+            sleep 10
+            STATUS="$(aws ssm get-command-invocation --command-id "$CMD" --instance-id "$NODE" \
+              --query Status --output text 2>/dev/null || echo Pending)"
+            case "$STATUS" in Success | Failed | Cancelled | TimedOut | Undeliverable | Terminated) break ;; *) ;; esac
+          done
+          echo "$STATUS" > "$LIVE/status"
+          # The raw output never reaches the log: only strict RT_* lines are kept.
+          aws ssm get-command-invocation --command-id "$CMD" --instance-id "$NODE" \
+            --query StandardOutputContent --output text 2>/dev/null \
+            | grep -E "$RESULT_RE" > "$LIVE/deploy.lines" || true
+          cat "$LIVE/deploy.lines"
+          [ "$STATUS" = Success ] || fail "the document ended $STATUS"
+          grep -qxF "RT_DONE release=$CONSOLE_RELEASE" "$LIVE/deploy.lines" || fail "the document did not report completion"
+
+      # The live ledger: prior and new `current`, digest, gate results and the failure boundary,
+      # built only from the strict RT_* lines. No secrets.
+      - name: Write the live ledger
+        if: always()
+        env:
+          CONSOLE_RELEASE: ${{ inputs.console_release }}
+          BACKEND_RELEASE: ${{ inputs.backend_release }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+          ARCHIVE_DIGEST: ${{ needs.preflight.outputs.archive_digest }}
+          RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SSM_OUTCOME: ${{ steps.ssm.outcome }}
+        run: |
+          set -euo pipefail
+          LIVE="$RUNNER_TEMP/live"
+          OUT="$RUNNER_TEMP/live-ledger"
+          mkdir -p "$LIVE" "$OUT"
+          LINES="$(cat "$LIVE/deploy.lines" 2>/dev/null || true)"
+          FAILURE="$(cat "$LIVE/failure.txt" 2>/dev/null || true)"
+          if [ -z "$FAILURE" ] && [ "$SSM_OUTCOME" != success ]; then
+            FAILURE="live job stopped before or during the SSM run (outcome: ${SSM_OUTCOME:-not-run})"
+          fi
+          jq -n --arg release "$CONSOLE_RELEASE" --arg sha "$RELEASE_SHA" --arg digest "$ARCHIVE_DIGEST" \
+            --arg backend "$BACKEND_RELEASE" --arg jira "$JIRA_KEY" --arg actor "$ACTOR" --arg run "$RUN_URL" \
+            --arg failure "$FAILURE" --arg lines "$LINES" '
+            def kv: split(" ")[1:] | map(capture("^(?<key>[^=]+)=(?<value>.*)$")) | from_entries;
+            ($lines | split("\n") | map(select(length > 0))) as $all
+            | {
+                schemaVersion: 1, kind: "rt1007-console-lab-live-ledger", mode: "live",
+                outcome: (if $failure == "" and ($all | any(. == "RT_DONE release=" + $release)) then "deployed" else "failed" end),
+                jiraKey: $jira, actor: $actor, runUrl: $run, generatedAt: (now | todate),
+                target: {host: "lab-01", environment: "aws-lab", release: $release, sha: $sha, archiveDigest: $digest},
+                backend: {release: $backend, source: (if ($all | any(. == "RT_GATE G-Host pass"))
+                  then "host-verified by RT-ConsoleLabDeploy G-Host" else "not host-verified: G-Host did not pass" end)},
+                prior: ([$all[] | select(startswith("RT_PRIOR ")) | kv] | first),
+                swap: ([$all[] | select(startswith("RT_SWAP "))] | first),
+                gates: [$all[] | select(startswith("RT_GATE ")) | split(" ") | {gate: .[1], result: .[2]}],
+                revert: [$all[] | select(startswith("RT_REVERT "))],
+                failureBoundary: ([$all[] | select(startswith("RT_FAIL ")) | kv] | first // (if $failure == "" then null else {reason: $failure} end))
+              }' > "$OUT/ledger.json"
+          {
+            echo "## Console lab deploy live: $(jq -r '.outcome | ascii_upcase' "$OUT/ledger.json")"
+            echo
+            echo "$CONSOLE_RELEASE ($RELEASE_SHA, archive $ARCHIVE_DIGEST) on lab-01 over Backend-Core $BACKEND_RELEASE, $JIRA_KEY."
+            echo
+            echo '```'
+            printf '%s\n' "$LINES"
+            echo '```'
+            if [ -n "$FAILURE" ]; then echo; echo "Failure boundary: $FAILURE"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the live ledger
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: deploy-console-lab-live-ledger-${{ github.run_id }}
+          path: ${{ runner.temp }}/live-ledger/
+          if-no-files-found: warn
+          retention-days: 90
