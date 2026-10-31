@@ -556,7 +556,7 @@ Cart rows show name (wrapping to two lines), quantity stepper, unit price and li
 - **Default:** muted ink on canvas, control radius, 44px entries.
 - **Active:** Teal Wash fill, Tower Teal ink, a 2px inline-start bar and `aria-current="page"`.
 - Cashiers do not see unavailable or unauthorised placeholder routes (OD-6); manager and admin roles keep them *(VN-S10)*.
-- The nav footer hosts the **status indicator**: connection, sale sync and printer, each a dot plus text *(VN-S6)*.
+- The nav footer hosts the **status indicator**: connection, sale sync and printer, each a dot plus text *(VN-S6)*. In the slim rail each row shows its glyph over a one-word 12px label in text colour («الاتصال», «المزامنة», «المعلّقة», «الطابعة», doc 15 M-O5); the tone stays on the glyph and the full state text stays in the accessibility tree (owner decision 2026-10-31, RT-1023: "Short label under glyph").
 
 ### Status and feedback
 | Form | Where | Anatomy | Dismissal |
