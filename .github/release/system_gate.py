@@ -64,7 +64,7 @@ def check_shape(data, name):
         return f"top-level keys must be exactly {sorted(FIELDS)}"
     if data["schema"] != SCHEMA:
         return f"schema must be {SCHEMA!r}"
-    if not isinstance(data["system"], str) or not FIELDS["system"].match(data["system"]):
+    if not isinstance(data["system"], str) or not FIELDS["system"].fullmatch(data["system"]):
         return "system must look like lab-YYYY.MM.N"
     if name != f"{data['system']}.json":
         return f"file {name} must be named {data['system']}.json"
@@ -75,7 +75,7 @@ def check_shape(data, name):
         if not isinstance(value, dict) or set(value) != set(fields):
             return f"{key} keys must be exactly {sorted(fields)}"
         for field, pattern in fields.items():
-            if not isinstance(value[field], str) or not pattern.match(value[field]):
+            if not isinstance(value[field], str) or not pattern.fullmatch(value[field]):
                 return f"{key}.{field} {value[field]!r} does not match {pattern.pattern}"
     return None
 

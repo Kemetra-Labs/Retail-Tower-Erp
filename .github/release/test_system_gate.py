@@ -42,7 +42,7 @@ class SystemGateTest(unittest.TestCase):
             for rel, text in files.items():
                 p = pathlib.Path(repo, rel)
                 p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(text)
+                p.write_text(text, encoding="utf-8")
             sh(repo, "add", ".")
             sh(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", msg)
             return sh(repo, "rev-parse", "HEAD")
@@ -80,7 +80,7 @@ class SystemGateTest(unittest.TestCase):
             else:
                 data[key] = value
         path = pathlib.Path(tempfile.mkdtemp(dir=self.tmp.name), f"{name}.json")
-        path.write_text(json.dumps(data))
+        path.write_text(json.dumps(data), encoding="utf-8")
         return str(path)
 
     def gate(self, path):
@@ -100,6 +100,10 @@ class SystemGateTest(unittest.TestCase):
         self.assertEqual(self.failed(self.gate(self.manifest(pos=None))), {"G1"})
         self.assertEqual(self.failed(self.gate(self.manifest(backendCore={"release": "backend-core/latest"}))), {"G1"})
         self.assertEqual(self.failed(self.gate(self.manifest(erpnext={"image": "rt-erpnext:latest", "sha": self.erp}))), {"G1"})
+        # `$` alone would also accept a trailing newline; every value must match in full
+        image = "ghcr.io/kemetra-labs/rt-erpnext@sha256:" + "a" * 64
+        self.assertEqual(self.failed(self.gate(self.manifest(erpnext={"image": image + "\n", "sha": self.erp}))), {"G1"})
+        self.assertEqual(self.failed(self.gate(self.manifest(pos={"build": BUILD + "\n"}))), {"G1"})
 
     def test_g1_refuses_a_file_name_that_is_not_the_system_name(self):
         path = self.manifest()
@@ -135,7 +139,7 @@ class SystemGateTest(unittest.TestCase):
         self.assertEqual(self.failed(self.gate(self.manifest(pos={"build": "1" * 40}))), {"G5"})
 
     def test_contracts_args_name_the_release_commits(self):
-        out = system_gate.contracts_args(self.repo, json.loads(pathlib.Path(self.manifest()).read_text()))
+        out = system_gate.contracts_args(self.repo, json.loads(pathlib.Path(self.manifest()).read_text(encoding="utf-8")))
         self.assertEqual(out, ["--backend-rev", self.bc,
                                "--consumer-rev", f"Admin-Console={self.console}",
                                "--consumer-rev", f"ERPNext-Connector={self.erp}"])
