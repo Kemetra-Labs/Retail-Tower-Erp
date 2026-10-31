@@ -49,7 +49,8 @@ test("S1: a deep link survives sign-in and auto-select returns to it", async ({ 
   await signIn(page, t);
 
   await expect(page).toHaveURL(/\/audit\?actor=u1#top$/);
-  await expect(page.getByRole("heading", { name: t("audit.title") })).toBeVisible();
+  // Exact: the results panel's own heading is "Audit events" (RT-1019).
+  await expect(page.getByRole("heading", { name: t("audit.title"), exact: true })).toBeVisible();
 });
 
 test("S2: several tenants land on the chooser at /, not the deep link", async ({ page, t }) => {
