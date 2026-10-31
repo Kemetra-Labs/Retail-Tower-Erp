@@ -2,6 +2,7 @@ import {
   canReadInventory,
   canReadTracking,
   integrationStateKey,
+  integrationTone,
   inventoryStatusKey,
   isHiddenSection,
   isUuid,
@@ -42,6 +43,17 @@ describe("inventory logic (RT-728)", () => {
     expect(integrationStateKey(undefined)).toBe("inventory.value.notRecorded");
     expect(integrationStateKey("confirmed")).toBe("inventory.integration.confirmed");
     expect(integrationStateKey("weird" as never)).toBe("inventory.value.unknown");
+  });
+
+  test("a posting state's pill tone reinforces its text: no posting is neutral, unknown is danger", () => {
+    expect(integrationTone("confirmed")).toBe("badge--success");
+    expect(integrationTone("pending")).toBe("badge--pending");
+    expect(integrationTone("rejected")).toBe("badge--danger");
+    expect(integrationTone("reconciliation_required")).toBe("badge--warning");
+    expect(integrationTone("not_posted")).toBe("");
+    expect(integrationTone("external")).toBe("");
+    expect(integrationTone(null)).toBe("");
+    expect(integrationTone("weird" as never)).toBe("badge--danger");
   });
 
   test("an ad-hoc movement has no product to open", () => {

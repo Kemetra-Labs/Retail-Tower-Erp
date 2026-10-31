@@ -25,19 +25,6 @@
   font-size: var(--text-meta);
 }
 
-.inventory__section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding-block-start: var(--space-3);
-  border-block-start: 1px solid var(--color-border);
-}
-
-.inventory__section-title {
-  margin: 0;
-  font: var(--weight-strong) var(--text-section-title) / var(--leading-title) var(--font-sans);
-}
-
 .inventory__figures {
   display: flex;
   flex-wrap: wrap;
@@ -51,4 +38,183 @@
 .inventory__figures dd {
   margin: 0;
   font-size: var(--text-money-total);
+}
+
+/* ---- RT-1016: v4.0 «Ink & Receipt» on the Inventory surface ---------------
+ * Opt-in by `inventory--v4` on the page surface, so no other screen picks these
+ * rules up, whichever chunk loaded first. Shape only: the existing role tokens,
+ * tints by color-mix, so no new colour role or contrast pair (C5). */
+
+/* Panels: 20px radius, the one resting elevation (§12.5). */
+.inventory--v4 .section-panel {
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-resting);
+}
+
+/* The read-only and ERP-book notes, one strip under the band. */
+.inventory__strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-object);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-resting);
+}
+.inventory__strip .inventory__note {
+  max-inline-size: none;
+}
+
+/* What sits in a panel under its header: states, banners, notes. */
+.inventory__panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 0 var(--space-5) var(--space-4);
+}
+.inventory__panel-body--solo {
+  padding-block-start: var(--space-4);
+}
+.inventory__panel-body > .content__sub {
+  margin: 0;
+}
+
+/* A table inside a panel: inset from the panel edge, scrolling in its own region. */
+.inventory--v4 .section-panel .data-table__scroll {
+  padding-inline: var(--space-3);
+  padding-block-end: var(--space-3);
+}
+.inventory--v4 .inventory__panel-body .data-table__scroll {
+  padding-inline: 0;
+  padding-block-end: 0;
+}
+.inventory--v4 .section-panel .data-table thead th {
+  background: var(--color-surface);
+}
+/* A reference or a quantity never breaks mid-value (it has no break points); the
+ * ledger's other cells wrap, so the table scrolls in its own region only when a
+ * reference is wider than the panel. */
+.inventory--v4 .data-table__row td.inventory__wrap {
+  min-inline-size: 12rem;
+  white-space: normal;
+}
+
+/* Read-only tables as strips (§12.5): 6px gaps, sunken, 12px radius. */
+.inventory--v4 .data-table--strips {
+  border-collapse: separate;
+  border-spacing: 0 6px;
+}
+.inventory--v4 .data-table--strips tbody .data-table__row :is(td, th) {
+  background: var(--color-surface-sunken);
+  border-block: 1px solid var(--color-border);
+}
+.inventory--v4 .data-table--strips tbody .data-table__row > :first-child {
+  border-inline-start: 1px solid var(--color-border);
+  border-start-start-radius: 12px;
+  border-end-start-radius: 12px;
+}
+.inventory--v4 .data-table--strips tbody .data-table__row > :last-child {
+  border-inline-end: 1px solid var(--color-border);
+  border-start-end-radius: 12px;
+  border-end-end-radius: 12px;
+}
+.inventory--v4 .data-table--strips thead th {
+  border-bottom: 0;
+}
+
+/* Status pills: text first, colour only reinforces; a small rotated square leads,
+ * drawn in the text colour. */
+.inventory--v4 .badge {
+  gap: 6px;
+  block-size: 26px;
+  padding: 0 10px;
+  border-color: transparent;
+  border-radius: 9px;
+  background-color: color-mix(in srgb, currentColor 10%, var(--color-surface));
+  font-size: var(--text-meta);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+}
+.inventory--v4 .badge::before {
+  content: "";
+  flex: none;
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 2px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+
+/* The ERP book entry: a dashed note, never a number that was not served. */
+.inventory--v4 .inventory__figures {
+  gap: 0;
+}
+.inventory--v4 .inventory__figures > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+  inline-size: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 1px dashed var(--color-control-border);
+  border-radius: var(--radius-object);
+}
+.inventory--v4 .inventory__figures dd {
+  font-size: var(--text-body);
+  font-weight: var(--weight-strong);
+}
+
+/* Load older: a full-width dashed target, as on the board. */
+.inventory__more {
+  display: flex;
+  padding: 0 var(--space-4) var(--space-4);
+}
+.inventory__more > .btn-secondary {
+  flex: 1;
+  min-block-size: var(--target-touch);
+  border-style: dashed;
+  border-radius: var(--radius-object);
+}
+
+/* The status-move form sits in its panel; its outcome reads above the submit. */
+.inventory__move {
+  padding-block-start: var(--space-3);
+}
+.inventory__move .surface__form {
+  max-inline-size: none;
+}
+.inventory__move-submit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding-block-start: var(--space-3);
+  border-block-start: 1px solid var(--color-border);
+}
+
+/* Forced colours: no shadow, tints or strips; system colours carry the split. */
+@media (forced-colors: active) {
+  .inventory--v4 .section-panel,
+  .inventory__strip {
+    box-shadow: none;
+    border-color: CanvasText;
+  }
+  .inventory--v4 .badge {
+    border-color: CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .inventory--v4 .badge::before {
+    background: CanvasText;
+  }
+  .inventory--v4 .data-table--strips tbody .data-table__row :is(td, th) {
+    background: Canvas;
+    border-color: CanvasText;
+  }
+  .inventory--v4 .inventory__figures > div {
+    border-color: CanvasText;
+  }
 }
