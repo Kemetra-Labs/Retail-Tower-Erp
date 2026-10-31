@@ -81,13 +81,15 @@ describe("MemberList", () => {
     expect(await screen.findByText("Amal Saleh")).toBeDefined();
     expect(screen.getByText("amal@northstar.eg")).toBeDefined();
     // Role codes render as role labels (RT-399), never raw.
-    expect(screen.getByText("Tenant admin")).toBeDefined();
-    expect(screen.getByText("Store manager")).toBeDefined();
+    // RT-1014: the role is also the group header, so the role column's cell names it.
+    expect(screen.getByRole("cell", { name: "Tenant admin" })).toBeDefined();
+    expect(screen.getByRole("cell", { name: "Store manager" })).toBeDefined();
     expect(screen.queryByText("tenant_admin")).toBeNull();
     expect(screen.queryByText("store_manager")).toBeNull();
     expect(screen.getByText(/all stores/i)).toBeDefined();
     expect(screen.getByText(/2 stores/i)).toBeDefined();
-    expect(screen.getByText(/revoked/i)).toBeDefined();
+    // RT-1014: the band's «Revoked memberships» fact matches /revoked/i too, so the state cell.
+    expect(screen.getByRole("cell", { name: "Revoked" })).toBeDefined();
     // store access shown as ids/count, not resolved names (OQ-3)
     expect(screen.queryByText(/cairo/i)).toBeNull();
   });
@@ -125,7 +127,7 @@ describe("MemberList", () => {
       ],
     });
     renderList();
-    expect(await screen.findByText("Unknown role")).toBeDefined();
+    expect(await screen.findByRole("cell", { name: "Unknown role" })).toBeDefined();
     expect(screen.queryByText("store_staff")).toBeNull();
     expect(screen.getByText("1 store")).toBeDefined();
   });
@@ -138,8 +140,8 @@ describe("MemberList", () => {
     expect(await screen.findByRole("button", { name: "دعوة مستخدم" })).toBeDefined();
     expect(screen.getByRole("heading", { name: "المستخدمون" })).toBeDefined();
     expect(screen.getByRole("columnheader", { name: "الدور" })).toBeDefined();
-    expect(screen.getByText("مسؤول المؤسسة")).toBeDefined();
-    expect(screen.getByText("مدير المتجر")).toBeDefined();
+    expect(screen.getByRole("cell", { name: "مسؤول المؤسسة" })).toBeDefined();
+    expect(screen.getByRole("cell", { name: "مدير المتجر" })).toBeDefined();
     expect(screen.getByText("كل المتاجر")).toBeDefined();
     expect(screen.getByText("متجران")).toBeDefined();
     expect(screen.getByText("مُبطلة")).toBeDefined();
