@@ -2,7 +2,7 @@
 
 Jira RT-236 (Planning). This plan feeds the `[GATED]` contract issue RT-384. `spec.md` and the contract draft are written in RT-384, not here.
 
-**The decision of record is [AD-CASH-001](https://github.com/Kemetra/Orchestrator/blob/main/docs/decisions/AD-CASH-001-shift-variance-approval-policy.md)** in Kemetra/Orchestrator. Its status is **Accepted** on Orchestrator `main` (`420db8b`):
+**The decision of record is [AD-CASH-001](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/37683202)** (Confluence RETAIL copy; originally authored in the now-retired `Kemetra/Orchestrator`, source `main` `420db8b`). Its status was **Accepted** on Orchestrator `main` at that SHA:
 
 - reviewed head `e73362b`, merged through PR #218 as `3218e8b` on 2026-10-11. The PR title still says "(Proposed)", but the merged file's status line reads "Accepted";
 - decisions DR-1 to DR-13 ratified in RT-236 comment 11539, with the owner rulings on DR-4, DR-6 and DR-10 in comment 11543.

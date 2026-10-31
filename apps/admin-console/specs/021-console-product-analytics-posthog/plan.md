@@ -2,7 +2,7 @@
 
 **Status:** PLANNING-ONLY — draft for owner review. No SDK, no project key, no config, no event, no network call, no CSP/CI/package change is authored or implied here.
 **Jira:** [RT-480](https://rahmaqanater.atlassian.net/browse/RT-480) (Work Mode: Planning) · Parent [RT-5](https://rahmaqanater.atlassian.net/browse/RT-5) W5 Console Operations.
-**Owning repo:** `Kemetra/Admin-Console`. **Policy authority:** `Kemetra/Orchestrator` Technical Handbook (read only here — not edited).
+**Owning repo:** `Kemetra/Admin-Console`. **Policy authority:** Confluence RETAIL decisions (the former `Kemetra/Orchestrator` Technical Handbook, retired by AD-ORCH-003, is cited here as historical source only; it was read, not edited).
 **Date:** 2026-10-15.
 
 **Baselines verified for this plan**
@@ -10,7 +10,7 @@
 | Repo | `origin/main` SHA | What was read |
 |---|---|---|
 | `Kemetra/Admin-Console` | `fd6eb13` | routes (`src/App.tsx`, `src/shell/*Routes.tsx`), `src/auth/AcceptInvitation.tsx`, `index.html`, `src/vite-env.d.ts`, `e2e.config.ts`, `package.json`, spec 020 |
-| `Kemetra/Orchestrator` | `420db8b` | `CLAUDE.md` §Sanctioned non-ERPNext egress + Observability-egress invariant; `docs/decisions/AD-TOOL-003-…md`; `docs/tooling/observability-phase-0-inventory.md`; `docs/tooling/deepwiki-adoption.md` §4 |
+| `Kemetra/Orchestrator` (historical; retired, AD-ORCH-003) | `420db8b` | `CLAUDE.md` §Sanctioned non-ERPNext egress + Observability-egress invariant; `docs/decisions/AD-TOOL-003-…md`; `docs/tooling/observability-phase-0-inventory.md`; `docs/tooling/deepwiki-adoption.md` §4 |
 | `Kemetra/Backend-Core` | `ddae78a` | `.specify/memory/constitution.md` §XIV PII & Data Lifecycle Discipline + §PII & Data Lifecycle |
 
 > **Not to be confused with:** spec [020](../020-console-observability-instrumentation/spec.md) (Sentry frontend errors + replay — AD-TOOL-003 D1), [RT-391](https://rahmaqanater.atlassian.net/browse/RT-391) (Platform Control Center diagnostics, Done), [RT-40](https://rahmaqanater.atlassian.net/browse/RT-40) (pilot observability sink / SigNoz), or the `e2e.config.ts` line that turns **off** the e2e CLI's own PostHog telemetry. This plan is about *product-usage analytics of the Console UI* only.
@@ -164,7 +164,7 @@ With few operators, "someone on tenant X opened receivables at 09:02 in `ar`" is
 - Calendar reminder 60 days before credit expiry; re-decide continue/stop then.
 - No card-linked auto-upgrade without owner confirmation (verify what the plan allows).
 
-## 7. Allowed egress and handbook update (proposal — Orchestrator is NOT edited here)
+## 7. Allowed egress and handbook update (proposal — nothing in the retired Orchestrator is edited here)
 
 ### 7.1 Proposed amendment to Orchestrator `CLAUDE.md` §Sanctioned non-ERPNext egress (Console line)
 > - **Retail-Tower-Console:** Data-Pulse-2 contracts only (plus its own auth provider) · Sentry (frontend error and session-replay telemetry, DSN-gated, default-inert) · **PostHog Cloud EU (`eu.i.posthog.com` [+ `eu-assets.i.posthog.com` if the verification below shows the SDK contacts it]; product-usage analytics: allowlisted, anonymous UI-interaction events only; key-gated, default-inert, consent-gated; autocapture, replay, flags, surveys, heatmaps and exception capture off) — per AD-TOOL-00X.**
@@ -189,7 +189,7 @@ Each is blocked on the one before it.
 | # | Proposed issue | Repo / owner | Gate in | Done when |
 |---|---|---|---|---|
 | F1 | Owner decision: adopt-limited / defer / reject + §9 ODs | Owner (Jira RT-480 comment) | This plan reviewed | Decision recorded on RT-480 |
-| F2 | Orchestrator: AD-TOOL-00X + `CLAUDE.md` egress-list amendment (§7.1–7.2) | `Kemetra/Orchestrator` (Docs) | F1 = adopt | PR merged |
+| F2 | Egress-list amendment (§7.1–7.2) as a Confluence RETAIL decision record (originally planned as an Orchestrator AD-TOOL-00X + `CLAUDE.md` change; Orchestrator is retired, AD-ORCH-003) | Confluence RETAIL (Docs) | F1 = adopt | PR merged |
 | F3 | Account setup: EU org/project, IP off, all non-analytics products off, $0 billing limits, owner-only access, DPA signed, credits/region verified | Owner, outside repos | F2 merged | Checklist evidence (screenshots) on Jira |
 | F4 | Legal: jurisdiction + cross-border transfer + consent model | Owner/legal | F1 | Written answer on Jira |
 | F5 | Infra: Console CSP | Deployment owner | F2 | CSP live in preprod |
