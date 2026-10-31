@@ -136,7 +136,7 @@ test("T031 a11y: a member row is keyboard-focusable and Enter opens the edit dra
   const row = page.getByRole("row").filter({ hasText: "Omar Khaled" });
   await expect(row).not.toHaveAttribute("tabindex", /.*/);
   const open = row.getByRole("button", {
-    name: t("table.selection.openRow", { value: "Omar Khaled" }),
+    name: t("table.selection.openRow", { value: "Omar Khaled (omar@northstar.eg)" }),
   });
   await open.focus();
   await expect(open).toBeFocused();

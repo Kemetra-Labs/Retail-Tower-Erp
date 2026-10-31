@@ -38,15 +38,23 @@ const ROLE: Record<BannerVariant, "alert" | "status"> = {
   info: "status",
 };
 
-export function Banner({
+export function Banner(props: Readonly<BannerProps>): React.JSX.Element {
+  const role = ROLE[props.variant];
+  // RT-978: keyed by the role, so a banner whose severity crosses between alert
+  // and status is a new live-region element (not a role flip on a live one) and
+  // re-runs its empty first commit.
+  return <BannerRegion key={role} role={role} {...props} />;
+}
+
+function BannerRegion({
+  role,
   variant,
   title,
   message,
   requestId,
   action,
-}: Readonly<BannerProps>): React.JSX.Element {
+}: Readonly<BannerProps & { role: "alert" | "status" }>): React.JSX.Element {
   const t = useT();
-  const role = ROLE[variant];
   const filled = useFilledAfterMount(role === "alert");
   return (
     <div className={`rtc-alert rtc-alert--${variant}`} role={role}>

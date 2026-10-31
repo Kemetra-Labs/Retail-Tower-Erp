@@ -115,7 +115,7 @@ test("one table with a header row per role; every member keeps a named Open butt
   await expect(groups.last()).toContainText(roleName("auditor"));
   await expect(page.getByRole("table")).toHaveCount(1);
   for (const m of MEMBERS) {
-    const name = m.user.display_name ?? m.user.email;
+    const name = m.user.display_name ? `${m.user.display_name} (${m.user.email})` : m.user.email;
     await expect(
       page.getByRole("button", { name: t("table.selection.openRow", { value: name }) }),
     ).toHaveCount(1);

@@ -60,7 +60,9 @@ test("S4: edit a member → 200 → drawer closes + list re-fetches", async ({ p
   await page.goto("/operators");
   // RT-963: a member opens through the row's «Open» button.
   await page
-    .getByRole("button", { name: t("table.selection.openRow", { value: "Omar Khaled" }) })
+    .getByRole("button", {
+      name: t("table.selection.openRow", { value: "Omar Khaled (omar@northstar.eg)" }),
+    })
     .click();
   const drawer = page.getByRole("dialog", { name: t("operators.edit.title") });
   await expect(drawer).toBeVisible();
@@ -94,7 +96,9 @@ test("S5: revoke → confirm → 204 → revoked marker on the refreshed list", 
   await page.goto("/operators");
   // RT-963: a member opens through the row's «Open» button.
   await page
-    .getByRole("button", { name: t("table.selection.openRow", { value: "Omar Khaled" }) })
+    .getByRole("button", {
+      name: t("table.selection.openRow", { value: "Omar Khaled (omar@northstar.eg)" }),
+    })
     .click();
   await page.getByRole("button", { name: t("operators.edit.revoke.open") }).click();
   // confirm step names the member

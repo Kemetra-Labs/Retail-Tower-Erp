@@ -10,12 +10,12 @@ import "@/components/data-table.css";
  * with the role and its count). `DataTable` has no group rows, so this keeps its
  * markup and classes: one caption, one set of column headers, the explicit «Open»
  * button first in every row and named for the member (RT-963, RT-978), so every
- * member stays reachable with the same name as before the regroup.
+ * member stays reachable by a name that tells same-named members apart.
  *
  * The cells are today's: identity (name over mono email), role, store access as
  * a count (names are not served, OQ-3) and the membership state.
  */
-import { groupMembers } from "./memberGroups";
+import { groupMembers, memberOpenName } from "./memberGroups";
 import type { MemberRow } from "./useMembers";
 import "./users.css";
 
@@ -146,7 +146,7 @@ export function MemberTable({
                     : "data-table__row data-table__row--static member-row"
                 }
               >
-                <OpenCell label={row.displayName ?? row.email} onOpen={() => onOpen(row)} />
+                <OpenCell label={memberOpenName(row)} onOpen={() => onOpen(row)} />
                 {columns.map((col) => (
                   <td key={col.key}>{col.cell(row)}</td>
                 ))}

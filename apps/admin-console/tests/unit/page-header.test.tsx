@@ -1,8 +1,12 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { createRef } from "react";
-import { afterEach, describe, expect, test } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { createRef, useState } from "react";
+import { Link, MemoryRouter, Route, Routes } from "react-router";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { PageHeader } from "@/components/PageHeader";
+import { setLocale } from "@/i18n/locale";
+import { translate } from "@/i18n/translate";
+import { RouteEffects } from "@/shell/RouteEffects";
 import { sourcesUnder } from "./source-scan";
 
 /**
@@ -62,31 +66,142 @@ describe("PageHeader", () => {
   });
 });
 
-describe("RT-963 page title and focus", () => {
+describe("RT-963 page title", () => {
   test("names the document «<page> – <app>»", () => {
     render(<PageHeader title="Stores" />);
     expect(document.title).toBe("Stores – Retail Tower Console");
   });
+});
 
-  test("a navigation to another path moves focus to the new page's title", () => {
-    window.history.pushState({}, "", "/rt963-a");
-    const first = render(<PageHeader title="Stores" />);
-    first.unmount();
-    window.history.pushState({}, "", "/rt963-b");
-    render(<PageHeader title="Devices" />);
-    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1 }));
+/**
+ * RT-978: the root `RouteEffects` records route transitions (so a route without
+ * a page header still counts) and names the document after each one.
+ */
+function GoTo({ to }: Readonly<{ to: string }>): React.JSX.Element {
+  return <Link to={to}>{`go ${to}`}</Link>;
+}
+
+/** A routed page whose body is remounted when its scope changes (ProtectedArea's keyed Outlet). */
+function ScopedPage({ title }: Readonly<{ title: string }>): React.JSX.Element {
+  const [scope, setScope] = useState(1);
+  return (
+    <div key={scope}>
+      <PageHeader title={title} />
+      <button type="button" onClick={() => setScope(scope + 1)}>
+        switch scope
+      </button>
+    </div>
+  );
+}
+
+function renderRoutes(initial: string): ReturnType<typeof render> {
+  return render(
+    <MemoryRouter initialEntries={[initial]}>
+      <RouteEffects />
+      <Routes>
+        <Route
+          path="/stores"
+          element={
+            <>
+              <ScopedPage title="Stores" />
+              <GoTo to="/devices" />
+              <GoTo to="/signin" />
+            </>
+          }
+        />
+        <Route
+          path="/devices"
+          element={
+            <>
+              <PageHeader title="Devices" />
+              <GoTo to="/stores" />
+            </>
+          }
+        />
+        <Route
+          path="/signin"
+          element={
+            <>
+              <p>Sign in</p>
+              <GoTo to="/stores" />
+            </>
+          }
+        />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+describe("RT-978 document title across routes", () => {
+  beforeEach(() => setLocale("en"));
+
+  test("a route without a page header (after sign-out) names the document with the app title", () => {
+    renderRoutes("/stores");
+    expect(document.title).toBe("Stores – Retail Tower Console");
+    fireEvent.click(screen.getByText("go /signin"));
+    expect(document.title).toBe("Retail Tower Console");
   });
 
-  test("the same path remounted (a scope change) leaves focus where it is", () => {
-    window.history.pushState({}, "", "/rt963-c");
-    const first = render(<PageHeader title="Sales" />);
-    first.unmount();
-    const button = document.createElement("button");
-    document.body.append(button);
+  test("the same holds in Arabic", () => {
+    setLocale("ar");
+    renderRoutes("/stores");
+    fireEvent.click(screen.getByText("go /signin"));
+    expect(document.title).toBe(translate("ar", "app.title"));
+    expect(document.title).not.toBe("Retail Tower Console");
+  });
+
+  test("a route with a page header names the document after its page", () => {
+    renderRoutes("/signin");
+    expect(document.title).toBe("Retail Tower Console");
+    fireEvent.click(screen.getByText("go /stores"));
+    expect(document.title).toBe("Stores – Retail Tower Console");
+  });
+});
+
+describe("RT-963 and RT-978 focus after navigation", () => {
+  beforeEach(() => setLocale("en"));
+
+  test("the first load leaves focus where it is", () => {
+    renderRoutes("/stores");
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  test("a navigation to another path moves focus to the new page's title", () => {
+    renderRoutes("/stores");
+    fireEvent.click(screen.getByText("go /devices"));
+    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1, name: "Devices" }));
+  });
+
+  test("returning from sign-in to the same path moves focus to that page's title", () => {
+    renderRoutes("/stores");
+    expect(document.activeElement).toBe(document.body);
+    // Session expired on /stores: sign-in has no page header, then the return.
+    fireEvent.click(screen.getByText("go /signin"));
+    fireEvent.click(screen.getByText("go /stores"));
+    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1, name: "Stores" }));
+  });
+
+  test("the same path remounted by a scope change leaves focus where it is", () => {
+    renderRoutes("/stores");
+    const button = screen.getByRole("button", { name: "switch scope" });
     button.focus();
-    render(<PageHeader title="Sales" />);
-    expect(document.activeElement).toBe(button);
-    button.remove();
+    fireEvent.click(button);
+    // The scope body was replaced: the old button is gone and focus did not go to the title.
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  test("a scope change after a navigation does not move focus again", () => {
+    renderRoutes("/stores");
+    fireEvent.click(screen.getByText("go /signin"));
+    fireEvent.click(screen.getByText("go /stores"));
+    const title = screen.getByRole("heading", { level: 1, name: "Stores" });
+    expect(document.activeElement).toBe(title);
+    const other = document.createElement("button");
+    document.body.append(other);
+    other.focus();
+    fireEvent.click(screen.getByRole("button", { name: "switch scope" }));
+    expect(document.activeElement).toBe(other);
+    other.remove();
   });
 });
 
