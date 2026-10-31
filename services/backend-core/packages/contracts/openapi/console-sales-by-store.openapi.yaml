@@ -213,6 +213,7 @@ components:
       description: >
         `no-store` on every 200: the body carries the tenant's commercial
         figures, so no shared or browser cache keeps them.
+      required: true
       schema:
         type: string
         const: no-store
