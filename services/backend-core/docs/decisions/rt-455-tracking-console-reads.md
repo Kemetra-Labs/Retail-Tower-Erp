@@ -133,7 +133,10 @@ paths:
         filters. The order key is fixed at placement, but `status` is not:
         a hold released during a walk of `status=active` drops out of the
         later pages, so that walk is not guaranteed to reach every hold
-        that was active when it started. Holds are tenant-level (RT-449
+        that was active when it started. Conversely, a hold released
+        during a walk of `status=released` can enter its later pages, so
+        neither status-filtered walk is a complete snapshot of membership
+        at its start. Holds are tenant-level (RT-449
         H2), so the list is not store-scoped. Owner or tenant_admin, as
         `getTrackingHold`; any other role is a 403.
       security:
@@ -412,6 +415,8 @@ The consequence is store_manager visibility. If the queue is owner / tenant_admi
 
 The owner decided this on RT-972 c14943: `supplier_notice`, `authority_notice` and `label_misprint`, plus «أخرى» with a required note, fixed in the contract.
 
+**Where the note rule lives.** The list is a schema enum. The "note required with `other`" rule is stated in the description and enforced by the runtime as a 400. This follows the convention `inventory.yaml` already uses for `createStatusMove`'s `correction` note: no `if`/`then` in the schema. A schema conditional could not reject a whitespace-only note anyway, and the runtime turns such a note into null.
+
 The enum applies to **commands only**. Projections keep the existing pattern, so a row written under the 0072 pattern still reads back. `SafetyReasonCode` stays as it is and is used by `TrackingHold`, `InventoryRecall`, `InventoryRecallSummary` and `TrackingIdentityExpiryCorrection`. A new `SafetyReasonCodeInput` is what the three commands accept.
 
 ```yaml
@@ -446,7 +451,7 @@ These are partial overrides: only `reasonCode` changes in each command.
 **Effects the owner must accept:**
 
 1. **It is a breaking request change, and only a request change.** Today the command schema is a free `pattern`; the enum narrows it, and `bc/oasdiff` will very likely report a breaking change. Response schemas do not change.
-   - The justification: the commands cannot be reached until RT-453 writes identities, and no screen calls them (RT-455 is not built).
+   - The justification: the three commands are routed, but each answers 404 until RT-453 writes identities, because there is nothing to act on. No screen calls them yet (RT-455 is not built).
    - The Console's generated types already carry `SafetyReasonCode: string` (`apps/admin-console/src/generated/schema.d.ts`). They are regenerated with the contract.
 2. **It cannot be contract-only.** `placeQualityHold`, `createInventoryRecall` and `correctTrackingIdentityExpiry` are routed, so this belongs to the follow-up as Implementation, not to a contract-only PR. Two runtime rules change in the same PR:
    - the DTO enum;
@@ -737,7 +742,7 @@ II-3 is `listTrackingHolds?trackingIdentityId=<id>&status=all` (§3.1). The hero
 | **OD-4** | Expiry corrections use the same reason list | Same list |
 | **OD-5** | The tracked-products signal as a Catalog read, or a field on `getActiveContext` | Catalog read |
 | **OD-6** | Identity positions summed over locations | Sum, as `OnHand` |
-| **OD-7** | Accept the breaking request change of TR-5 (no consumer, unreachable until RT-453) | Accept |
+| **OD-7** | Accept the breaking request change of TR-5 (no consumer; the routed commands answer 404 until RT-453 writes identities) | Accept |
 | **OD-8** | Severity of `tracking_consistency` | `critical` (each check breaks posting or reconciliation) |
 | **OD-9** | How a `tracking_unresolved` sale surfaces, since it is not a finding: a deliberate change from `sales.yaml`, which affects store_manager visibility | (a) the queue, plus a count-only line for a store_manager's own stores |
 
