@@ -12,7 +12,7 @@
  * fault, labelled with the environment of the registrations that report it and dated, and shows the "sales are saved" reassurance the
  * Sync-states board draws for that state. No combined "ERP OK" exists (A-4).
  */
-import { type PipelineRailNode, PipelineRail } from "@/components/PipelineRail";
+import { PipelineRail, type PipelineRailNode } from "@/components/PipelineRail";
 import { DateTime, useT } from "@/i18n";
 import { Link } from "react-router";
 import { envKey } from "./ConnectionPanel";

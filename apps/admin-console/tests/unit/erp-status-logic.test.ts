@@ -15,9 +15,9 @@ import {
   reachabilityKey,
   runStatusView,
   runTriggerKey,
-  unreachableRows,
   signalView,
   sinceSeconds,
+  unreachableRows,
 } from "@/erp-status/erpStatusLogic";
 import { describe, expect, test } from "vitest";
 import { healthView, instance } from "./erp-status-fixtures";
