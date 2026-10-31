@@ -28,6 +28,9 @@
 # only .circleci/; the branch's own code (.nvmrc, packageManager, lockfile, build scripts,
 # tests) still runs, which is the point, and the protection is that the jobs read no secrets.
 # This repo and its CircleCI builds are public: the jobs store test results only, no artifacts.
+# RT-1036 adds remote-dev-backend-fast, remote-dev-admin, remote-dev-admin-e2e and remote-dev-pos
+# with the same guard.
+# Not covered remotely: POS Windows packaging and Electron e2e, and the ERPNext Connector.
 
 version: 2.1
 
@@ -48,11 +51,14 @@ parameters:
     default: false
   # RT-981: set only on a manual pipeline for a pushed feature branch, together with
   # remote_expected_sha. api runs the api Jest suite (as bc/db-integration, without coverage);
-  # db-package runs the db and worker suites (as bc/db-package). none (every push and PR) leaves
-  # the lane as it was.
+  # db-package runs the db and worker suites (as bc/db-package). RT-1036: backend-fast runs the
+  # Backend-Core build, static checks and Docker-free tests (as bc/fast), admin the Admin Console
+  # checks and unit tests (as admin/build-test), admin-e2e its Playwright suite (as admin/e2e),
+  # pos the POS static checks and vitest suite (as pos/static and pos/test). none (every push and
+  # PR) leaves the lane as it was.
   remote_suite:
     type: enum
-    enum: [none, api, db-package]
+    enum: [none, api, db-package, backend-fast, admin, admin-e2e, pos]
     default: none
   # RT-981: the full 40-character commit SHA the owner expects the branch to be at. The remote
   # job refuses to run on any other commit.
@@ -134,6 +140,37 @@ commands:
               exit 1
             fi
             echo "Guard passed: $head on $CIRCLE_BRANCH; .circleci/ equals origin/main $(git rev-parse --short refs/remotes/origin/main)."
+
+  # RT-1036: Node from the root .nvmrc for a product directory, as backend-setup does for
+  # Backend-Core; pnpm through corepack when the product's package.json names a packageManager
+  # (Admin Console), npm from Node otherwise (POS).
+  node-toolchain:
+    description: Node from the root .nvmrc, and the product's package manager, on PATH.
+    parameters:
+      app_dir:
+        type: string
+    steps:
+      - run:
+          name: Node from the root .nvmrc, package manager from << parameters.app_dir >>
+          working_directory: ~/project/<< parameters.app_dir >>
+          command: |
+            node_version="$(tr -d '[:space:]' < ~/project/.nvmrc)"
+            [ -n "$node_version" ] || { echo "The root .nvmrc is empty."; exit 1; }
+            nvm install "$node_version"
+            node_bin="$(dirname "$(nvm which "$node_version")")"
+            [ -x "$node_bin/node" ] || { echo "nvm gave no node binary for $node_version ($node_bin)."; exit 1; }
+            echo "export PATH=\"$node_bin:\$PATH\"" >> "$BASH_ENV"
+            export PATH="$node_bin:$PATH"
+            pm="$(node -p "require('./package.json').packageManager || ''")"
+            if [ -n "$pm" ]; then
+              corepack enable
+              corepack prepare "$pm" --activate
+              echo "package manager: $pm"
+            else
+              echo "package manager: npm $(npm --version)"
+            fi
+            echo "nproc=$(nproc)"
+            node --version
 
 jobs:
   backend-api-jest:
@@ -359,6 +396,171 @@ jobs:
       - store_test_results:
           path: /tmp/test-reports
 
+  # RT-1036: the Backend-Core build, static checks and Docker-free tests for a pushed feature
+  # branch, as bc/fast. lint is a --noEmit typecheck that resolves sibling workspaces through
+  # their built dist/, so the build runs first. As in remote-admin, the test step runs after
+  # failed checks only if the install finished.
+  remote-backend-fast:
+    machine:
+      image: ubuntu-2404:2026.05.1
+    resource_class: large
+    steps:
+      - checkout
+      - remote-guard
+      - node-toolchain:
+          app_dir: services/backend-core
+      - run:
+          name: Install (Backend-Core)
+          working_directory: ~/project/services/backend-core
+          command: |
+            pnpm install --frozen-lockfile --ignore-scripts
+            mkdir -p /tmp/remote && touch /tmp/remote/installed
+      - run:
+          name: Build, static checks and rule specs (remote, advisory)
+          working_directory: ~/project/services/backend-core
+          no_output_timeout: 10m
+          command: |
+            rc=0
+            timeout -k 1m 10m pnpm -r run build || rc=1
+            timeout -k 1m 10m pnpm lint || rc=1
+            timeout -k 1m 10m pnpm lint:eslint || rc=1
+            timeout -k 1m 10m pnpm typecheck || rc=1
+            node --test tools/eslint-rules/__tests__/no-unscoped-tenant-query.spec.js || rc=1
+            node --test tools/oasdiff/__tests__/consumer-impact.spec.mjs || rc=1
+            exit $rc
+      - run:
+          name: worker (Docker-free), shared and auth tests (remote, advisory)
+          when: always
+          working_directory: ~/project/services/backend-core
+          no_output_timeout: 10m
+          command: |
+            [ -f /tmp/remote/installed ] || { echo "Install did not complete; no tests run."; exit 1; }
+            rc=0
+            for pkg in worker shared auth; do
+              timeout -k 1m 10m pnpm --filter "@data-pulse-2/$pkg" test || rc=1
+            done
+            exit $rc
+
+  # RT-1036: the Admin Console checks and unit tests for a pushed feature branch, as
+  # admin/build-test without its parity manifest and Sonar upload. The checks step records every
+  # failure and the test step still runs after it, so one run reports both; the test step runs
+  # only if the install finished, which happens only after the guard passed.
+  remote-admin:
+    machine:
+      image: ubuntu-2404:2026.05.1
+    resource_class: large
+    steps:
+      - checkout
+      - remote-guard
+      - node-toolchain:
+          app_dir: apps/admin-console
+      - run:
+          name: Install (Admin Console)
+          working_directory: ~/project/apps/admin-console
+          command: |
+            pnpm install --frozen-lockfile --ignore-scripts
+            mkdir -p /tmp/remote && touch /tmp/remote/installed
+      - run:
+          name: API client drift, build and lint (remote, advisory)
+          working_directory: ~/project/apps/admin-console
+          no_output_timeout: 10m
+          command: |
+            rc=0
+            # generate:client reads the pinned contract sources with `git show <pin>:<path>`.
+            timeout -k 1m 10m pnpm generate:client || rc=1
+            git diff --exit-code --stat src/generated/ \
+              || { echo "API client drift: src/generated/ differs from a regeneration at the pinned Backend-Core commit."; rc=1; }
+            timeout -k 1m 10m pnpm build || rc=1
+            timeout -k 1m 10m pnpm lint || rc=1
+            exit $rc
+      - run:
+          name: Admin Console vitest with coverage (remote, advisory)
+          when: always
+          working_directory: ~/project/apps/admin-console
+          no_output_timeout: 10m
+          command: |
+            [ -f /tmp/remote/installed ] || { echo "Install did not complete; no tests run."; exit 1; }
+            mkdir -p /tmp/test-reports
+            timeout -k 1m 20m pnpm exec vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=/tmp/test-reports/remote-admin-vitest.xml
+      - store_test_results:
+          path: /tmp/test-reports
+
+  # RT-1036: the Admin Console Playwright suite for a pushed feature branch, as admin/e2e. GitHub
+  # runs it in the pinned Playwright image; here Chromium is installed at the lockfile's
+  # @playwright/test version (`pnpm exec playwright`), with its system deps, under a hard stop.
+  remote-admin-e2e:
+    machine:
+      image: ubuntu-2404:2026.05.1
+    resource_class: large
+    steps:
+      - checkout
+      - remote-guard
+      - node-toolchain:
+          app_dir: apps/admin-console
+      - run:
+          name: Install (Admin Console)
+          working_directory: ~/project/apps/admin-console
+          command: pnpm install --frozen-lockfile --ignore-scripts
+      - run:
+          name: Build
+          working_directory: ~/project/apps/admin-console
+          command: timeout -k 1m 10m pnpm build
+      - run:
+          name: Install Chromium for the lockfile's Playwright version
+          working_directory: ~/project/apps/admin-console
+          no_output_timeout: 10m
+          command: timeout -k 1m 15m pnpm exec playwright install --with-deps chromium
+      - run:
+          name: Admin Console Playwright E2E (remote, advisory)
+          working_directory: ~/project/apps/admin-console
+          no_output_timeout: 10m
+          command: timeout -k 1m 25m pnpm test:e2e
+
+  # RT-1036: the POS static checks and vitest suite for a pushed feature branch, as pos/static and
+  # pos/test. One unsharded run with the unmodified vitest.config.ts, so the coverage thresholds
+  # are evaluated once, on the whole suite, as the merge job does. The guard already fetched
+  # origin/main, which the source-scope guard test diffs against. As in remote-admin, the test
+  # step runs after failed static checks only if the install finished.
+  remote-pos:
+    machine:
+      image: ubuntu-2404:2026.05.1
+    resource_class: large
+    steps:
+      - checkout
+      - remote-guard
+      - node-toolchain:
+          app_dir: apps/pos
+      - run:
+          name: Install (POS, no lifecycle scripts)
+          working_directory: ~/project/apps/pos
+          command: |
+            npm ci --ignore-scripts
+            mkdir -p /tmp/remote && touch /tmp/remote/installed
+      - run:
+          name: POS static checks (remote, advisory)
+          working_directory: ~/project/apps/pos
+          no_output_timeout: 10m
+          command: |
+            rc=0
+            timeout -k 1m 10m npm test -- tests/contract/backend-core || rc=1
+            timeout -k 1m 10m npm run codegen:verify || rc=1
+            timeout -k 1m 10m npm run build:renderer || rc=1
+            timeout -k 1m 10m npm run typecheck || rc=1
+            timeout -k 1m 10m npm run lint || rc=1
+            node scripts/check-index-size.mjs || rc=1
+            exit $rc
+      - run:
+          name: POS vitest with coverage, whole suite (remote, advisory)
+          when: always
+          working_directory: ~/project/apps/pos
+          no_output_timeout: 10m
+          command: |
+            [ -f /tmp/remote/installed ] || { echo "Install did not complete; no tests run."; exit 1; }
+            mkdir -p /tmp/test-reports
+            timeout -k 1m 30m npm test -- --coverage --exclude 'tests/contract/backend-core/**' --reporter=default --reporter=junit --outputFile.junit=/tmp/test-reports/remote-pos-vitest.xml
+      - store_test_results:
+          path: /tmp/test-reports
+
 workflows:
   advisory:
     when:
@@ -462,4 +664,53 @@ workflows:
         - not: << pipeline.parameters.tia_probe >>
     jobs:
       - remote-db-package:
+          serial-group: << pipeline.project.slug >>/remote-dev
+
+  # RT-1036: as the two RT-981 workflows above.
+  remote-dev-backend-fast:
+    when:
+      and:
+        - equal: [backend-fast, << pipeline.parameters.remote_suite >>]
+        - not:
+            equal: [main, << pipeline.git.branch >>]
+        - not: << pipeline.parameters.full_tia_analysis >>
+        - not: << pipeline.parameters.tia_probe >>
+    jobs:
+      - remote-backend-fast:
+          serial-group: << pipeline.project.slug >>/remote-dev
+
+  remote-dev-admin:
+    when:
+      and:
+        - equal: [admin, << pipeline.parameters.remote_suite >>]
+        - not:
+            equal: [main, << pipeline.git.branch >>]
+        - not: << pipeline.parameters.full_tia_analysis >>
+        - not: << pipeline.parameters.tia_probe >>
+    jobs:
+      - remote-admin:
+          serial-group: << pipeline.project.slug >>/remote-dev
+
+  remote-dev-admin-e2e:
+    when:
+      and:
+        - equal: [admin-e2e, << pipeline.parameters.remote_suite >>]
+        - not:
+            equal: [main, << pipeline.git.branch >>]
+        - not: << pipeline.parameters.full_tia_analysis >>
+        - not: << pipeline.parameters.tia_probe >>
+    jobs:
+      - remote-admin-e2e:
+          serial-group: << pipeline.project.slug >>/remote-dev
+
+  remote-dev-pos:
+    when:
+      and:
+        - equal: [pos, << pipeline.parameters.remote_suite >>]
+        - not:
+            equal: [main, << pipeline.git.branch >>]
+        - not: << pipeline.parameters.full_tia_analysis >>
+        - not: << pipeline.parameters.tia_probe >>
+    jobs:
+      - remote-pos:
           serial-group: << pipeline.project.slug >>/remote-dev
