@@ -153,6 +153,14 @@ describe("oidc-claims-check helper", () => {
     expect(told.code).toBe(0);
   });
 
+  it.each(["deploy-erp-lab.yml", "deploy-console-lab.yml"])("names %s itself as the value to pin when that deploy workflow runs the check", (file) => {
+    const ref = `Kemetra-Labs/Retail-Tower-Erp/.github/workflows/${file}@refs/heads/main`;
+    const { code, out } = run(jwt({ ...GOOD, job_workflow_ref: ref }), ["--jira-key", "RT-1007", "--workflow-file", file]);
+    expect(code).toBe(0);
+    expect(out).toContain(`The value the trust policy pins for the deploy job is \`${ref}\`.`);
+    expect(out).not.toContain("deploy-lab.yml@refs/heads/main`.");
+  });
+
   it("refuses to suggest a pin when job_workflow_ref is not in the expected form", () => {
     const { out } = run(jwt({ ...GOOD, job_workflow_ref: "Someone/Else/.github/workflows/x.yml@refs/heads/main" }));
     expect(out).toContain("do not pin it until it is understood");
