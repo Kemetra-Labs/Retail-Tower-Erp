@@ -278,12 +278,13 @@ export function AppRouter(props: Readonly<AppRouterProps>): JSX.Element {
             // RT-17 slice 4 part 3 — the shift cash-up screens. Each leaves for
             // /app (before any call) while POS_PULSE_FEATURE_SHIFT_CASHUP is
             // off; main registers no shift handler then either.
-            // The cashier screen records device-path facts (cashier only); a
-            // manager or admin is turned away before any call.
+            // The shift screen: a cashier records on the device path; RT-1004 —
+            // a manager or admin opens and closes their own shift on the
+            // manager-envelope path (main re-checks the role on every call).
             {
               path: 'shift',
               element: (
-                <OperatorRouteGuard allow={['cashier']}>
+                <OperatorRouteGuard allow={['cashier', 'manager', 'admin']}>
                   <V5ShiftRoute />
                 </OperatorRouteGuard>
               ),

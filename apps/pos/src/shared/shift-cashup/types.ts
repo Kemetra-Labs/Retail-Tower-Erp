@@ -46,9 +46,12 @@ export const SHIFT_CASHUP_REFUSALS = [
   'feature_disabled',
   'no_session',
   'session_locked',
-  // The session has no `users.id` (a manager / admin): the device path
-  // records cashier facts only; the manager-envelope path is a later part.
+  // The session has no `users.id` to record the fact with: a manager / admin
+  // signed in offline, or a pay-in / pay-out outside a cashier session
+  // (RT-1004: a manager signed in online opens and closes their own shift).
   'no_cashier_identity',
+  // RT-1004: a manager's normal close is of a shift they opened only.
+  'not_shift_opener',
   'invalid_input',
   // RT-278 S1: an opening float, pay-in or count above its plausibility cap
   // (scanner or typing digits). Names no amount and no bound.

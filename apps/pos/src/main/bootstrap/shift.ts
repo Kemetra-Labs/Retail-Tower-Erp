@@ -153,5 +153,10 @@ export function registerShift(deps: ShiftDeps): void {
     onShiftClosed: () => {
       updateService.notifyShiftClosed();
     },
+    // RT-1004: a manager's open or close goes out under their envelope; drain it now,
+    // while they are still signed in (the 5 s tick sends it otherwise).
+    onEnvelopeFactRecorded: () => {
+      void shiftSyncDrainNowRef.current?.().catch(() => false);
+    },
   });
 }

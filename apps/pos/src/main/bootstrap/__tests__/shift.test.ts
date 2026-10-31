@@ -292,6 +292,20 @@ describe('registerShift IPC wiring (both flag states pass the same sources)', ()
     expect(h.onStarted).toHaveBeenCalledWith(listener);
   });
 
+  it('drains the shift outbox after a manager-envelope fact (RT-1004), and tolerates no engine yet', async () => {
+    const h = makeHarness();
+    registerShift(h.deps);
+    const hook = ipcDeps().onEnvelopeFactRecorded as () => void;
+    expect(() => {
+      hook();
+    }).not.toThrow();
+    const drain = vi.fn().mockRejectedValue(new Error('offline'));
+    h.drainRef.current = drain;
+    hook();
+    await Promise.resolve();
+    expect(drain).toHaveBeenCalledTimes(1);
+  });
+
   it('reports a cashier shift close to the updater (RT-772 safe point)', () => {
     const h = makeHarness();
     registerShift(h.deps);

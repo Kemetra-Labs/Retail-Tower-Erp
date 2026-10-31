@@ -14,7 +14,7 @@ import {
 } from '../../../sales-sync/__tests__/__helpers__/sales-sync-fixture.js';
 import type { ManagerPinVerdict } from '../../../operator/manager-pin-store.js';
 import { composeShiftCashupService, type ShiftCashupSession } from '../../compose-shift-cashup.js';
-import type { ShiftCashupService } from '../../shift-cashup-service.js';
+import type { ShiftCashupManager, ShiftCashupService } from '../../shift-cashup-service.js';
 import { createShiftCashupRepo, type ShiftScope } from '../../shift-cashup-repo.js';
 import { SCOPE, USER } from './shift-sync-fixture.js';
 
@@ -59,6 +59,18 @@ export function managerSession(): ShiftCashupSession {
   };
 }
 
+/**
+ * RT-1004 — the manager identity of `managerSession()`, as an online sign-in
+ * captured it (`manager_user_id`).
+ */
+export function onlineManager(): ShiftCashupManager {
+  return {
+    operatorSessionId: managerSession().operator_session_id,
+    role: 'manager',
+    userId: MANAGER,
+  };
+}
+
 export interface ServiceHarness {
   service: ShiftCashupService;
   /** Mutable inputs the service reads on every call. */
@@ -82,6 +94,10 @@ export interface ServiceHarness {
     approvers: Array<{ managerRef: string; displayName: string }>;
     /** Every list asked of the manager PIN store. */
     listCalls: Array<{ scope: ShiftScope; now: string }>;
+    /** RT-1004: the current session's manager identity (null: none). */
+    manager: ShiftCashupManager | null;
+    /** RT-1004: how many manager-envelope facts the service recorded. */
+    envelopeFacts: number;
   };
 }
 
@@ -112,6 +128,8 @@ export function serviceHarness(
     verifyCalls: [],
     approvers: [{ managerRef: MANAGER_REF, displayName: 'Mona Manager' }],
     listCalls: [],
+    manager: null,
+    envelopeFacts: 0,
   };
   let ids = 0;
   const service = composeShiftCashupService({
@@ -123,6 +141,10 @@ export function serviceHarness(
         : options.varianceApprovalThresholdMinor,
     isEnabled: () => state.enabled,
     getSession: () => state.session,
+    getManager: () => state.manager,
+    onEnvelopeFactRecorded: () => {
+      state.envelopeFacts += 1;
+    },
     isSessionLocked: () => state.locked,
     pairedScope: async () => {
       await Promise.resolve();

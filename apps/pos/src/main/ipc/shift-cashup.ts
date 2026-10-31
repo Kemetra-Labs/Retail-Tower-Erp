@@ -246,7 +246,7 @@ export function registerShiftCashupHandlers(ipcMain: IpcMain, deps: ShiftCashupI
 
 export interface RegisterShiftCashupIpcDeps
   extends
-    Omit<ComposeShiftCashupServiceDeps, 'managerPins'>,
+    Omit<ComposeShiftCashupServiceDeps, 'managerPins' | 'getManager'>,
     Pick<ManagerPinEnrollmentDeps, 'getManager'>,
     Pick<ManagerOnlineRefreshDeps, 'currentTerminalId'> {
   /** `POS_PULSE_FEATURE_SHIFT_CASHUP` at boot. */

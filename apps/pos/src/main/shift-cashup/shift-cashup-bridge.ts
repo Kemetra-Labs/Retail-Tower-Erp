@@ -88,6 +88,7 @@ const SERVICE_REFUSALS: Readonly<Record<ShiftCashupRefusalReason, ShiftCashupRef
   no_session: 'no_session',
   session_locked: 'session_locked',
   no_cashier_identity: 'no_cashier_identity',
+  not_shift_opener: 'not_shift_opener',
   pay_out_exceeds_drawer_cash: 'pay_out_not_accepted',
   variance_approval_required: 'variance_approval_required',
   clock_regressed: 'clock_regressed',

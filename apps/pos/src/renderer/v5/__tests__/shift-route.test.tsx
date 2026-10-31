@@ -68,15 +68,31 @@ describe('V5ShiftRoute — gating', () => {
   });
 
   it.each(['manager', 'admin'] as const)(
-    'turns a %s away before any call (the device path is cashier-only)',
+    'lets a %s open a shift with the float (RT-1004)',
     async (role) => {
       signIn(role);
       enableShiftFlag();
       const bridge = fakeShiftBridge();
       renderRoute(bridge);
-      expect(await screen.findByTestId('where')).toHaveTextContent('/app');
-      expect(screen.queryByRole('heading', { name: SHIFT_COPY.title })).not.toBeInTheDocument();
-      for (const member of Object.values(bridge)) expect(member).not.toHaveBeenCalled();
+      await screen.findByLabelText(SHIFT_COPY.floatLabel);
+      type(SHIFT_COPY.floatLabel, '500');
+      press(SHIFT_COPY.openCommit);
+      await waitFor(() => {
+        expect(bridge.open).toHaveBeenCalledWith({ openingFloatMinor: 50_000 });
+      });
+    },
+  );
+
+  it.each(['manager', 'admin'] as const)(
+    'shows a %s the open shift and its blind-count close, but no pay-in / pay-out',
+    async (role) => {
+      signIn(role);
+      enableShiftFlag();
+      renderRoute(openBridge());
+      expect(await screen.findByTestId('shift-summary')).toBeInTheDocument();
+      expect(screen.getByTestId('shift-close-panel')).toBeInTheDocument();
+      expect(screen.queryByTestId('shift-actions')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: SHIFT_COPY.payIn })).not.toBeInTheDocument();
     },
   );
 
