@@ -115,8 +115,10 @@
   inline-size: 32px;
   block-size: 32px;
   border-radius: var(--radius-control);
-  background: var(--color-primary);
-  color: var(--color-primary-on);
+  /* RT-1024 (UX-02): a Teal Wash tile, not a fill. Filled teal is the commit
+     colour (Commit-Teal Rule), so a filled mark read as a "+ new" button. */
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
 }
 
 .v5-frame__brand-name {

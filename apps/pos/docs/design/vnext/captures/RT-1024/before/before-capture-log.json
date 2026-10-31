@@ -1,0 +1,146 @@
+[
+  {
+    "where": "sale",
+    "width": 1024,
+    "mode": "light",
+    "file": "before-sale-1024x768.png",
+    "mark": {
+      "background": "rgb(15, 118, 110)",
+      "color": "rgb(255, 255, 255)",
+      "border": "0px solid",
+      "width": 32,
+      "height": 32,
+      "radius": "10px",
+      "contrast": 5.47
+    },
+    "filledTeal": [
+      "span.v5-frame__brand-mark"
+    ],
+    "errors": []
+  },
+  {
+    "where": "sale",
+    "width": 1024,
+    "mode": "forced",
+    "file": "before-sale-1024x768-forced.png",
+    "mark": {
+      "background": "rgb(255, 255, 255)",
+      "color": "rgb(0, 0, 0)",
+      "border": "1px solid",
+      "width": 32,
+      "height": 32,
+      "radius": "10px",
+      "contrast": 21
+    },
+    "filledTeal": [],
+    "errors": []
+  },
+  {
+    "where": "sale",
+    "width": 1280,
+    "mode": "light",
+    "file": "before-sale-1280x800.png",
+    "mark": {
+      "background": "rgb(15, 118, 110)",
+      "color": "rgb(255, 255, 255)",
+      "border": "0px solid",
+      "width": 32,
+      "height": 32,
+      "radius": "10px",
+      "contrast": 5.47
+    },
+    "filledTeal": [
+      "span.v5-frame__brand-mark"
+    ],
+    "errors": []
+  },
+  {
+    "where": "sale",
+    "width": 1280,
+    "mode": "forced",
+    "file": "before-sale-1280x800-forced.png",
+    "mark": {
+      "background": "rgb(255, 255, 255)",
+      "color": "rgb(0, 0, 0)",
+      "border": "1px solid",
+      "width": 32,
+      "height": 32,
+      "radius": "10px",
+      "contrast": 21
+    },
+    "filledTeal": [],
+    "errors": []
+  },
+  {
+    "where": "dashboard",
+    "width": 1024,
+    "mode": "light",
+    "file": "before-dashboard-1024x768.png",
+    "mark": {
+      "background": "rgb(15, 118, 110)",
+      "color": "rgb(255, 255, 255)",
+      "border": "0px solid",
+      "width": 32,
+      "height": 32,
+      "radius": "10px",
+      "contrast": 5.47
+    },
+    "filledTeal": [
+      "span.v5-frame__brand-mark"
+    ],
+    "errors": []
+  },
+  {
+    "where": "dashboard",
+    "width": 1024,
+    "mode": "forced",
+    "file": "before-dashboard-1024x768-forced.png",
+    "mark": {
+      "background": "rgb(255, 255, 255)",
+      "color": "rgb(0, 0, 0)",
+      "border": "1px solid",
+      "width": 32,
+      "height": 32,
+      "radius": "10px",
+      "contrast": 21
+    },
+    "filledTeal": [],
+    "errors": []
+  },
+  {
+    "where": "dashboard",
+    "width": 1280,
+    "mode": "light",
+    "file": "before-dashboard-1280x800.png",
+    "mark": {
+      "background": "rgb(15, 118, 110)",
+      "color": "rgb(255, 255, 255)",
+      "border": "0px solid",
+      "width": 32,
+      "height": 32,
+      "radius": "10px",
+      "contrast": 5.47
+    },
+    "filledTeal": [
+      "span.v5-frame__brand-mark"
+    ],
+    "errors": []
+  },
+  {
+    "where": "dashboard",
+    "width": 1280,
+    "mode": "forced",
+    "file": "before-dashboard-1280x800-forced.png",
+    "mark": {
+      "background": "rgb(255, 255, 255)",
+      "color": "rgb(0, 0, 0)",
+      "border": "1px solid",
+      "width": 32,
+      "height": 32,
+      "radius": "10px",
+      "contrast": 21
+    },
+    "filledTeal": [],
+    "errors": []
+  }
+]
