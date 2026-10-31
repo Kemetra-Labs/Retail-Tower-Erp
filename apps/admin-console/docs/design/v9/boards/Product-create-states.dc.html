@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>إضافة صنف — الحالات</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#0f766e}
+.disp{font-family:'Readex Pro',Dubai,'Segoe UI',sans-serif}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.cap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.cap b{font-family:'Readex Pro',sans-serif;font-size:12px;font-weight:600;color:#ffffff;background:#0a2125;border-radius:6px;padding:2px 8px}
+.cap span{font-size:15px;font-weight:700;color:#0a2125}
+.cap i{font-style:normal;font-size:12px;color:#5b6d7c}
+.box{background:#ffffff;border:1px solid #e3e9ec;border-radius:20px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25);overflow:hidden}
+.sk{height:10px;border-radius:5px;background:#e9eff1}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 16px;border-radius:11px;font:inherit;font-size:13px;font-weight:700;white-space:nowrap;border:1px solid transparent;text-decoration:none}
+.ink{color:#ffffff;background:#0a2125;border-color:#0a2125}
+.mint{color:#0a2125;background:#5fe0cf;border-color:#5fe0cf}
+.quiet{color:#33454f;background:transparent}
+.sec{color:#33454f;background:#ffffff;border-color:#c6d3d8}
+.empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:30px 24px 26px}
+.eico{width:64px;height:64px;border-radius:18px;display:flex;align-items:center;justify-content:center;margin-bottom:4px}
+.ban{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:14px;font-size:13px}
+.ban svg{flex:none;margin-top:2px}
+.b-bad{background:#fdf3f2;border:1px solid #f2d6d3;color:#5c1410}
+.b-warn{background:#fffaf2;border:1px solid #f3dfbd;color:#5a3300}
+.b-info{background:#f2f8fb;border:1px solid #cfe3ef;color:#123b52}
+.b-ok{background:#effaf3;border:1px solid #c8ead6;color:#0d4f33}
+.fl{display:flex;flex-direction:column;gap:6px}
+.fl span{font-size:13px;font-weight:700}
+.in{height:40px;border:1px solid #9fb0bc;border-radius:10px;padding:0 12px;font:inherit;font-size:14px;background:#ffffff;box-sizing:border-box;width:100%;display:flex;align-items:center}
+.lk{background:#f6f8f9;border-color:#d6dfe3;color:#33454f}
+.tag{font-size:12px;font-weight:700;color:#5b6d7c;background:#eef2f4;border-radius:6px;padding:2px 8px;width:fit-content}
+.new{font-size:12px;font-weight:700;color:#7a4b00;background:#fff4dc;border:1px solid #f3dfbd;border-radius:6px;padding:1px 8px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.bar{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid #eef2f4;background:#fbfcfc}
+.cell{display:flex;flex-direction:column;gap:10px}
+.spin{width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,.35);border-top-color:#ffffff}
+</style>
+</helmet>
+<div style="width: 1440px; min-height: 1900px; box-sizing: border-box; padding: 40px; background: #f2f5f6; color: #0a2125; font-family: Dubai, 'Segoe UI', Tahoma, system-ui, sans-serif; font-size: 14px; line-height: 1.6; display: flex; flex-direction: column; gap: 28px">
+  <div style="display: flex; flex-direction: column; gap: 4px">
+    <h1 class="disp" style="margin: 0; font-size: 26px; font-weight: 600">إضافة صنف — الحالات (RT-827)</h1>
+    <p style="margin: 0; color: #5b6d7c; max-width: 1100px">النصوص من موجز RT-827 (<bdi dir="ltr" class="mono">docs/design/rt827-product-create/README.md</bdi> §7) ومفاتيحه. ما عليه وسم «نص جديد» يحتاج مفتاح رسالة. المسار موقوف بقرار المالك D9 حتى يوجد عقد لكتابة السعر؛ هذه اللوحة تصف المسار عند فتحه.</p>
+  </div>
+
+  <!-- Row 1: entry, empty, loading -->
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px">
+    <div class="cell"><div class="cap"><b>1</b><span>الدخول: شريط رأس القائمة</span><i>D-V9 · الإجراء الوحيد بلون Mint على Ink</i></div>
+      <section aria-labelledby="c1-h" style="border-radius: 20px; padding: 18px 20px; color: #ffffff; background-color: #0a2125; background-image: linear-gradient(rgba(95,224,207,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(95,224,207,.05) 1px, transparent 1px); background-size: 24px 24px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap">
+        <div style="flex: 1 1 200px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #a9c2c5; font-weight: 700">الكتالوج والمخزون</span><h2 id="c1-h" class="disp" style="margin: 0; font-size: 22px; font-weight: 600">الأصناف</h2><span style="font-size: 13px; color: #a9c2c5">الأصناف المسجَّلة في مؤسسة النيل للتجزئة.</span></div>
+        <a href="Product-create.dc.html" class="btn mint">إضافة صنف</a>
+      </section>
+      <span class="hs" style="font-size: 12px; color: #5b6d7c">يظهر الزر لمالك المؤسسة ومسؤولها فقط. الحقائق الثلاث في الشريط كما في لوحة الأصناف.</span>
+    </div>
+    <div class="cell"><div class="cap"><b>2</b><span>الكتالوج فارغ (كاتب)</span></div>
+      <section class="box empty"><div class="eico" aria-hidden="true" style="background: #0a2125; color: #5fe0cf"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg></div><strong>لا توجد أصناف نشطة بعد.</strong><span style="color: #33454f; max-width: 320px">أضف أول صنف إلى الكتالوج، ثم أضف له باركود أو SKU.</span><a href="Product-create.dc.html" class="btn ink" style="margin-top: 6px">إضافة صنف</a></section>
+    </div>
+    <div class="cell"><div class="cap"><b>3</b><span>تحميل النموذج</span><i>قائمة الفئات تُقرأ أولًا</i></div>
+      <section class="box" aria-busy="true" style="padding: 22px 24px; display: flex; flex-direction: column; gap: 18px"><span class="sr" role="status">جارٍ التحميل</span>
+        <div class="fl"><span>الاسم</span><div class="in"></div></div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px"><div class="fl"><span>الفئة</span><div class="in lk" style="gap: 10px"><div class="sk" style="width: 60%"></div></div></div><div class="fl"><span>فئة الضريبة</span><div class="in"></div></div></div>
+        <div class="sk" style="width: 40%"></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Row 2: load error, blocked x2 -->
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px">
+    <div class="cell"><div class="cap"><b>4</b><span>فشل تحميل الفئات</span><i>النموذج يبقى صالحًا «بدون فئة»</i></div>
+      <div class="ban b-warn" role="alert"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a35a00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg><div style="display: flex; flex-direction: column; gap: 8px"><strong>تعذّر تحميل الفئات. يمكنك إنشاء الصنف بدون فئة، أو إعادة المحاولة.</strong><span class="new">نص جديد · المفتاح الحالي categoriesFailed خاص بالتعديل</span><span class="btn sec" style="height: 32px; width: fit-content">إعادة المحاولة</span></div></div>
+    </div>
+    <div class="cell"><div class="cap"><b>5</b><span>محظور: الدور للقراءة فقط</span><i>مدير متجر</i></div>
+      <section class="box empty"><div class="eico" aria-hidden="true" style="background: #e9eff1; color: #33454f"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11h14v10H5zM8 11V7a4 4 0 018 0v4"/></svg></div><strong>يمكنك عرض الأصناف دون إضافتها.</strong><span style="color: #33454f; max-width: 320px">إضافة الأصناف متاحة لمالك المؤسسة ومسؤولها.</span><a href="Catalog.dc.html" style="font-size: 13px; font-weight: 700">العودة إلى الأصناف</a></section>
+    </div>
+    <div class="cell"><div class="cap"><b>6</b><span>محظور: رفض الخادم (404)</span><i>رفض لا يكشف السبب</i></div>
+      <div class="ban b-bad" role="alert"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b3261e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11h14v10H5zM8 11V7a4 4 0 018 0v4"/></svg><div style="display: flex; flex-direction: column; gap: 6px"><strong>ليست لديك صلاحية إضافة أصناف في هذه المؤسسة.</strong><span>لم يُنشأ أي صنف.</span></div></div>
+    </div>
+  </div>
+
+  <!-- Row 3: submit lifecycle -->
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px">
+    <div class="cell"><div class="cap"><b>7</b><span>جارٍ الإنشاء</span><i>الحقول مقفلة؛ لا مفتاح ثانٍ</i></div>
+      <section class="box" aria-busy="true"><div style="padding: 18px; display: flex; flex-direction: column; gap: 12px"><div class="fl"><span>الاسم</span><div class="in lk">عصير جوافة 1 لتر</div></div><div class="fl"><span>فئة الضريبة</span><div class="in lk mono" dir="ltr">STD</div></div></div>
+        <div class="bar"><span class="btn ink" aria-disabled="true"><span class="spin" aria-hidden="true"></span>جارٍ الإنشاء…</span><span style="font-size: 12px; color: #5b6d7c" role="status">الحقول مقفلة حتى يصل الرد.</span></div></section>
+    </div>
+    <div class="cell"><div class="cap"><b>8</b><span>400 · خلل المفتاح</span><i>idempotency_key_required / malformed</i></div>
+      <div class="ban b-bad" role="alert"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b3261e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg><div style="display: flex; flex-direction: column; gap: 6px"><strong>لم يقبل الخادم طلب الإنشاء لخلل في لوحة التحكم، فلم يُنشأ أي صنف.</strong><span>أعد المحاولة. إذا تكرر ذلك فأبلغ الدعم برقم الطلب.</span><span style="font-size: 12px">رقم الطلب: <bdi dir="ltr" class="mono">req_7f3a…</bdi></span></div></div>
+    </div>
+    <div class="cell"><div class="cap"><b>9</b><span>409 · تعارض مع محاولة سابقة</span><i>القيم محفوظة في النموذج</i></div>
+      <div class="ban b-warn" role="alert"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a35a00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg><div style="display: flex; flex-direction: column; gap: 8px"><strong>تعارض هذا الطلب مع محاولة سابقة، فلم يُنشئ هذا الطلب أي صنف.</strong><span>ربما أنشأت المحاولة السابقة الصنف: ابحث عنه في قائمة الأصناف قبل أن تحاول مرة أخرى. ما كتبته محفوظ في النموذج.</span><a href="Catalog.dc.html" class="btn sec" style="height: 32px; width: fit-content">عرض الأصناف</a></div></div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px">
+    <div class="cell"><div class="cap"><b>10</b><span>425 · الطلب السابق قيد المعالجة</span><i>إعادة يدوية بعد العدّ (OD-4)</i></div>
+      <div class="ban b-info" role="status"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1b5fa8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><div style="display: flex; flex-direction: column; gap: 8px"><strong>لا يزال طلب الإنشاء السابق قيد المعالجة، ولم يُنشأ صنف ثانٍ.</strong><span>يمكنك إعادة المحاولة بعد 3 ثوانٍ بالقيم نفسها. الحقول مقفلة حتى ذلك الحين، حتى لا يُرسل طلب جديد.</span><span class="btn ink" aria-disabled="true" style="height: 32px; width: fit-content; background: #e3eaed; border-color: #e3eaed; color: #5b6d7c">إعادة المحاولة بعد 3 ثوانٍ</span></div></div>
+    </div>
+    <div class="cell"><div class="cap"><b>11</b><span>422 · الفئة لم تعد متاحة</span><i>خطأ حقل في الملخّص وتحت الحقل</i></div>
+      <section class="box" style="padding: 16px 18px; display: flex; flex-direction: column; gap: 12px">
+        <div role="alert" style="padding: 12px 14px; border-radius: 12px; background: #fff4f3; border: 1px solid #f5d3cf; display: flex; flex-direction: column; gap: 4px"><strong style="font-size: 14px">خطأ يحتاج إلى إصلاح</strong><a href="#" style="font-size: 13px; color: #b3261e">الفئة: هذه الفئة لم تعد متاحة. اختر فئة أخرى أو اترك الصنف بدون فئة.</a></div>
+        <div class="fl"><span>الفئة</span><div class="in" aria-invalid="true" style="border-color: #b3261e; box-shadow: 0 0 0 1px #b3261e">مشروبات موسمية (غير متاحة)</div><small style="color: #b3261e; font-size: 12px; font-weight: 700">هذه الفئة لم تعد متاحة. اختر فئة أخرى أو اترك الصنف بدون فئة.</small></div>
+      </section>
+    </div>
+    <div class="cell"><div class="cap"><b>12</b><span>500 أو لا رد · النتيجة غير معروفة</span><i>لا يقول «لم يُحفظ شيء»</i></div>
+      <div class="ban b-warn" role="alert"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a35a00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg><div style="display: flex; flex-direction: column; gap: 8px"><strong>لم يصل ردّ مؤكَّد من الخادم، فقد يكون الصنف قد أُنشئ.</strong><span>أعد المحاولة بالقيم نفسها: إن كان قد أُنشئ فستنتقل إليه ولن يُنشأ مرة ثانية.</span><div style="display: flex; gap: 8px"><span class="btn ink" style="height: 32px">إعادة المحاولة</span><span class="btn quiet" style="height: 32px">تعديل القيم</span></div></div></div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px">
+    <div class="cell"><div class="cap"><b>13</b><span>429 · طلبات كثيرة</span><i>الحقول تبقى قابلة للتعديل</i></div>
+      <div class="ban b-warn" role="status"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a35a00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><div style="display: flex; flex-direction: column; gap: 8px"><strong>يمكنك المحاولة مرة أخرى بعد 12 ثانية.</strong><span>لم يُكتب شيء، فالمحاولة التالية طلب جديد.</span></div></div>
+    </div>
+    <div class="cell" style="grid-column: span 2"><div class="cap"><b>14</b><span>بعد الإنشاء: صفحة الصنف الجديد</span><i>«تعديل الصنف» يبقى إجراء الرأس؛ الخطوة التالية في الشريط</i></div>
+      <section class="box" style="padding: 18px 20px; display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap"><h2 class="disp" style="margin: 0; font-size: 20px; font-weight: 600; flex: 1">عصير جوافة 1 لتر</h2><span class="btn ink">تعديل الصنف</span></div>
+        <div class="ban b-ok" role="status"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#15774d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg><div style="display: flex; flex-direction: column; gap: 8px"><strong>أُنشئ الصنف عصير جوافة 1 لتر. أضف له باركود أو SKU ليتعرّف عليه الكاشير عند المسح.</strong><span class="btn sec" style="height: 32px; width: fit-content">إضافة باركود أو SKU</span></div></div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px">
+          <div style="padding: 12px 14px; border-radius: 12px; background: #f8fafb; border: 1px solid #eef2f4; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 12px; color: #5b6d7c">المعرّفات</span><span>لا توجد معرّفات بعد. أضف باركود أو SKU ليتمكّن الكاشير من مسح هذا الصنف.</span></div>
+          <div style="padding: 12px 14px; border-radius: 12px; background: #f8fafb; border: 1px solid #eef2f4; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 12px; color: #5b6d7c">السعر</span><strong>بلا سعر</strong><span style="font-size: 13px; color: #5a3300">لا يوجد سعر: لن تبيع نقطة البيع هذا الصنف حتى يُحدَّد له سعر.</span></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="cell"><div class="cap"><b>15</b><span>شرطي · لو شُحن الإنشاء قبل كتابة السعر (OD-2)</span><i>لا ينطبق ما دام D9 قائمًا</i></div>
+    <section class="box" style="max-width: 720px; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px">
+      <div class="ban b-warn" role="note"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a35a00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg><strong>سيُنشأ الصنف بلا سعر. لا تبيع نقطة البيع صنفًا بلا سعر، ولا يمكن تحديد السعر من لوحة التحكم بعد.</strong></div>
+      <div class="fl"><span>التوفر</span><div class="in lk" style="border-style: dashed">مكان محجوز: سطر للقراءة فقط بدل خانة «متاح للبيع افتراضيًا»</div><span class="tag">نص السطر لم يُحدَّد · سؤال مفتوح PC-3</span></div>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

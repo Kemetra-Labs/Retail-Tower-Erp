@@ -266,7 +266,11 @@
   font-size: var(--text-control);
 }
 
-/* A two-way view switch: one pressed segment on a recessed track. */
+/* A view switch: one pressed segment on a recessed track (RT-1039; DESIGN.md §12.6;
+ * D-V3, D-V10). The pressed segment is the action-fill pair, Ink with white text on
+ * light and Mint with Ink text on dark. It differs from its siblings by more than
+ * colour: a filled shape against bare ones, and a stronger weight. Hover and press on
+ * an unpressed segment stay neutral; only the pressed state reads the fill. */
 .segmented {
   display: inline-flex;
   gap: 2px;
@@ -287,9 +291,9 @@
   cursor: pointer;
 }
 .segmented__btn[aria-pressed="true"] {
-  background: var(--color-surface);
-  border-color: var(--color-border);
-  color: var(--color-text);
+  background: var(--color-action-fill);
+  border-color: var(--color-action-fill);
+  color: var(--color-on-action-fill);
   font-weight: var(--weight-strong);
 }
 
@@ -465,7 +469,15 @@
     border: 1px solid CanvasText;
     background: Canvas;
   }
+  /* The track's fill is dropped: every segment keeps a boundary, and the pressed one
+   * is the system selection pair. */
+  .segmented__btn {
+    border-color: ButtonText;
+  }
   .segmented__btn[aria-pressed="true"] {
+    forced-color-adjust: none;
+    background: Highlight;
     border-color: Highlight;
+    color: HighlightText;
   }
 }
