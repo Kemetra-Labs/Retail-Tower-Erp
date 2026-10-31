@@ -118,3 +118,10 @@
     stroke: Highlight;
   }
 }
+
+/* RT-1020: the section index sits beside the title, before it. */
+.daily-chart__title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}

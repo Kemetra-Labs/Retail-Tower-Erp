@@ -98,7 +98,7 @@ test("RT-821: Sales links to the report; the default range is read once for the 
   });
   await page
     .getByRole("main")
-    .getByRole("link", { name: t("salesDaily.back") })
+    .getByRole("link", { name: t("salesDaily.back"), exact: true })
     .click();
   // RT-960 (owner decision A): Sales then applies the active store and today.
   await expect(page).toHaveURL(
@@ -150,8 +150,9 @@ test("RT-823: Tab goes Show → export → currency → chart region → each ba
   await expect(page.getByRole("table").first()).toBeVisible();
   await page.getByRole("button", { name: t("filter.apply"), exact: true }).focus();
   const stops: string[] = [];
-  // Show, then the export button, the currency select, the chart region, 8 bars, 2 table regions, the definitions.
-  for (let i = 0; i < 14; i++) {
+  // Show, then the export button, the currency select, the chart region, 8 bars, then (RT-1020)
+  // the day panel's picker and its two links, 2 table regions, the definitions.
+  for (let i = 0; i < 17; i++) {
     await page.keyboard.press("Tab");
     stops.push(
       await page.evaluate(() => {
@@ -170,6 +171,9 @@ test("RT-823: Tab goes Show → export → currency → chart region → each ba
     "select",
     t("salesDaily.chart.title"),
     ...Array.from({ length: 8 }, () => "bar"),
+    "select",
+    t("salesDaily.day.salesLink"),
+    t("salesDaily.day.rowLink"),
     t("salesDaily.table.money.caption"),
     t("salesDaily.table.status.caption"),
     t("salesDaily.about"),

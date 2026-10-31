@@ -9,11 +9,11 @@ import { GatedButton } from "@/components/GatedButton";
  * business days; the default is the last 7 completed days plus today, read
  * only once the store's zone is known so a UTC guess never fires a read.
  *
- * Entry (UX-09 "navigation has a capacity budget"): an in-page link from the
- * Sales screen and a back link here, not a new sidebar destination. Spec 015
- * (Reports) stays deferred until more than one report exists.
+ * Entry: the Reports index (RT-1020), an in-page link from the Sales screen and
+ * a back link to each here. RT-1020 (v4.0): the Ink band names the scope in its
+ * subtitle and carries the served period, zone(s) and read time as its facts.
  */
-import { PageHeader } from "@/components/PageHeader";
+import { type BandFacts, ListHeaderBand } from "@/components/ListHeaderBand";
 import { type MessageKey, useT } from "@/i18n";
 import type { SalesSummaryErrorRender } from "@/lib/sales-summary-queries";
 import { Notice, Unavailable } from "@/sales/SalePager";
@@ -21,10 +21,12 @@ import { canReadSales } from "@/sales/saleLogic";
 import { type SaleScope, useSaleScope } from "@/sales/useSales";
 import { type StoreDirectory, useStoreDirectory } from "@/shift-closes/useShiftCloses";
 import { Link, useSearchParams } from "react-router";
+import { useDailyBandFacts } from "./DailyBand";
 import { DailyRangeForm } from "./DailyRangeForm";
 import { DailyReport } from "./DailyTables";
 import {
   type DailyRange,
+  type ReportModel,
   buildSummaryQuery,
   defaultRange,
   rangeFromSearch,
@@ -68,10 +70,22 @@ function appliedRange(
 function Loading(): React.JSX.Element {
   const t = useT();
   return (
-    <output className="list-state list-state--loading" aria-busy="true">
-      <span className="spinner" aria-hidden="true" />
-      <span className="list-state__msg">{t("salesDaily.loading")}</span>
-    </output>
+    <div className="section-panel daily-loading">
+      {/* RT-1020: the shape of what is coming; no figure, no bar height from data. */}
+      <span className="daily-loading__bars" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+        <i />
+        <i />
+        <i />
+        <i />
+      </span>
+      <output className="list-state list-state--loading" aria-busy="true">
+        <span className="spinner" aria-hidden="true" />
+        <span className="list-state__msg">{t("salesDaily.loading")}</span>
+      </output>
+    </div>
   );
 }
 
@@ -108,20 +122,32 @@ function Failure({ daily }: Readonly<{ daily: SalesDailyState }>): React.JSX.Ele
   );
 }
 
+/** The loaded report, or null while loading, after a failure and before a read. */
+function loadedModel(daily: SalesDailyState): ReportModel | null {
+  if (daily.isLoading || daily.error || !daily.summary) return null;
+  return reportModel(daily.summary);
+}
+
 function Body({
   daily,
+  model,
   scope,
   directory,
-}: Readonly<{ daily: SalesDailyState; scope: SaleScope; directory: StoreDirectory }>) {
+}: Readonly<{
+  daily: SalesDailyState;
+  model: ReportModel | null;
+  scope: SaleScope;
+  directory: StoreDirectory;
+}>) {
   if (daily.isLoading) return <Loading />;
   if (daily.error) return <Failure daily={daily} />;
-  if (!daily.summary) return null;
-  const model = reportModel(daily.summary);
+  if (!daily.summary || !model) return null;
   const ref = model.storeRef ?? scope.activeStoreId ?? "";
   return (
     <DailyReport
       model={model}
       storeName={directory.nameOf(ref) ?? ref}
+      storeId={model.scope === "store" ? ref : null}
       readStores={daily.summary.stores.length}
     />
   );
@@ -135,19 +161,41 @@ function ZoneNote({ scope, directory }: Readonly<{ scope: SaleScope; directory: 
   return <>{t.rich("sales.filter.zoneNote", { zone: <bdi dir="ltr">{zone}</bdi> })}</>;
 }
 
+/** The band's one line: the store, or the whole scope, and the tenant. */
+function useBandSubtitle(scope: SaleScope, directory: StoreDirectory): React.ReactNode {
+  const t = useT();
+  const tenant = <bdi>{scope.tenantName}</bdi>;
+  if (!scope.activeStoreId) return t.rich("salesDaily.band.subScope", { tenant });
+  const store = directory.nameOf(scope.activeStoreId);
+  if (!store) return t.rich("salesDaily.band.subTenant", { tenant });
+  return t.rich("salesDaily.band.subStore", { store: <bdi>{store}</bdi>, tenant });
+}
+
 function Shell({
-  scope,
+  subtitle,
+  facts,
   children,
-}: Readonly<{ scope: SaleScope; children: React.ReactNode }>): React.JSX.Element {
+}: Readonly<{
+  subtitle: React.ReactNode;
+  facts?: BandFacts;
+  children: React.ReactNode;
+}>): React.JSX.Element {
   const t = useT();
   return (
-    <div className="surface">
-      <Link to="/sales" className="surface__back">
-        <BackArrow /> {t("salesDaily.back")}
-      </Link>
-      <PageHeader
+    <div className="surface surface--v4 daily-surface">
+      <div className="daily-crumbs">
+        <Link to="/reports" className="surface__back">
+          <BackArrow /> {t("salesDaily.back.reports")}
+        </Link>
+        <Link to="/sales" className="surface__back">
+          <BackArrow /> {t("salesDaily.back")}
+        </Link>
+      </div>
+      <ListHeaderBand
+        group={t("salesDaily.band.group")}
         title={t("salesDaily.title")}
-        subtitle={t.rich("salesDaily.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
+        subtitle={subtitle}
+        facts={facts ? { label: t("salesDaily.band.label"), items: facts } : undefined}
       />
       {children}
     </div>
@@ -165,6 +213,9 @@ export function SalesDaily(): React.JSX.Element {
   const valid = range !== null && Object.keys(validateRange(range)).length === 0;
   const query = permitted && valid ? buildSummaryQuery(range, scope.activeStoreId) : null;
   const daily = useSalesDaily(scope, query);
+  const model = loadedModel(daily);
+  const facts = useDailyBandFacts(model, daily.summary?.stores.length ?? 0);
+  const subtitle = useBandSubtitle(scope, directory);
 
   if (!scope.tenantId) {
     return (
@@ -175,13 +226,13 @@ export function SalesDaily(): React.JSX.Element {
   }
   if (!permitted) {
     return (
-      <Shell scope={scope}>
+      <Shell subtitle={subtitle}>
         <Unavailable />
       </Shell>
     );
   }
   return (
-    <Shell scope={scope}>
+    <Shell subtitle={subtitle} facts={facts}>
       <DailyRangeForm
         range={range}
         zoneNote={<ZoneNote scope={scope} directory={directory} />}
@@ -189,7 +240,11 @@ export function SalesDaily(): React.JSX.Element {
         onApply={(next) => setSearch(rangeToSearch(next))}
         onClear={() => setSearch(new URLSearchParams())}
       />
-      {range === null ? <Loading /> : <Body daily={daily} scope={scope} directory={directory} />}
+      {range === null ? (
+        <Loading />
+      ) : (
+        <Body daily={daily} model={model} scope={scope} directory={directory} />
+      )}
     </Shell>
   );
 }

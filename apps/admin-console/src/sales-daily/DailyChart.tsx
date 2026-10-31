@@ -23,7 +23,7 @@ import {
   currenciesOf,
 } from "./chartModel";
 import type { ReportModel } from "./dailyLogic";
-import { dayRowId } from "./dayRowId";
+import { dayRowId, goToDayRow } from "./dayRowId";
 import "./daily-chart.css";
 
 function dayFormat(locale: Locale, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
@@ -62,14 +62,6 @@ function markOf(bar: ChartBar): Mark | null {
   return bar.state === "so-far" ? "so-far" : null;
 }
 
-/** Moves focus to the table row of the bar (a hash link does not focus a `<tr>`). */
-function goToRow(event: React.MouseEvent, date: string): void {
-  const row = document.getElementById(dayRowId(date));
-  if (!row) return;
-  event.preventDefault();
-  row.focus();
-}
-
 function labelKeyOf(bar: ChartBar): MessageKey {
   if (bar.kind === "unknown") return "salesDaily.chart.barUnknown";
   if (bar.kind === "not-begun") return "salesDaily.chart.barNotBegun";
@@ -95,7 +87,7 @@ function Bar({
       href={`#${dayRowId(bar.date)}`}
       className="daily-chart__link"
       aria-label={label}
-      onClick={(event) => goToRow(event, bar.date)}
+      onClick={(event) => goToDayRow(event, bar.date)}
     >
       <rect
         className="daily-chart__hit"
@@ -201,7 +193,14 @@ function Empty({ model }: Readonly<{ model: ReportModel }>): React.JSX.Element {
   );
 }
 
-export function DailyChart({ model }: Readonly<{ model: ReportModel }>): React.JSX.Element {
+export function DailyChart({
+  model,
+  badge,
+}: Readonly<{
+  model: ReportModel;
+  /** RT-1020: the decorative section index shown before the title. */
+  badge?: React.ReactNode;
+}>): React.JSX.Element {
   const t = useT();
   const direction = DIRECTION[useLocale()];
   const captionId = `daily-chart-caption-${useId()}`;
@@ -214,8 +213,11 @@ export function DailyChart({ model }: Readonly<{ model: ReportModel }>): React.J
   return (
     <figure className="daily-chart">
       <figcaption className="daily-chart__caption">
-        <span id={captionId} className="daily-chart__title">
-          {t("salesDaily.chart.title")}
+        <span className="daily-chart__title-row">
+          {badge}
+          <span id={captionId} className="daily-chart__title">
+            {t("salesDaily.chart.title")}
+          </span>
         </span>
         <span className="daily-chart__summary">{t("salesDaily.chart.summary", { currency })}</span>
         <span className="daily-chart__legend">{t("salesDaily.chart.legend")}</span>
