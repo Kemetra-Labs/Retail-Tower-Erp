@@ -323,10 +323,13 @@ function useStoreName(tenantId: string | null, storeId: string): string | undefi
   return result?.kind === "rows" ? result.rows.find((s) => s.id === storeId)?.name : undefined;
 }
 
-/** The served locations list, as the band's two facts; none until it answers. */
+/**
+ * The served locations list, as the band's two facts; none until it answers,
+ * and none while a re-read has failed (the panel keeps its rows and says so).
+ */
 function useBandFacts(locations: LocationsState): BandFacts | undefined {
   const t = useT();
-  if (!locations.data) return undefined;
+  if (!locations.data || locations.inlineError) return undefined;
   const items = locations.data.items;
   return [
     { label: t("inventory.band.locations"), value: formatNumber(items.length) },

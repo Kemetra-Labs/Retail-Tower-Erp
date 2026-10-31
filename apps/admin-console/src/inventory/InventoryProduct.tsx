@@ -311,11 +311,15 @@ function TrackingSection({
 
 // --- Page ------------------------------------------------------------------------
 
-/** The served physical and sellable on-hand, as the band's facts; none until it answers. */
+/**
+ * The served physical and sellable on-hand, as the band's facts; none until it
+ * answers, and none while a re-read has failed (the panel keeps its figures and
+ * says so, so the band never shows a number the page itself calls stale).
+ */
 function useBandFacts(onHand: ReadState<OnHand>): BandFacts | undefined {
   const t = useT();
   const data = onHand.data;
-  if (!data) return undefined;
+  if (!data || onHand.inlineError) return undefined;
   return [
     {
       label: t("inventory.onHand.physical"),

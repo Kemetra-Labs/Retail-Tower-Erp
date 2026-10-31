@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -89,9 +89,12 @@ const stores = [
   { id: STORE, code: "CAI", name: "Cairo Festival", timezone: "Africa/Cairo", is_active: true },
 ];
 
+let client = createQueryClient();
+
 function renderAt(entry: string): void {
+  client = createQueryClient();
   render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[entry]}>
         <Routes>
           <Route path="/inventory" element={<InventoryStores />} />
@@ -199,6 +202,32 @@ describe("store page band and panels (RT-1016)", () => {
     renderAt(`/inventory/stores/${STORE}`);
     const pill = await screen.findByText("Confirmed by ERPNext");
     expect(pill.className).toContain("badge--success");
+  });
+});
+
+describe("a failed re-read keeps the panel and drops the band's facts (RT-1016)", () => {
+  const reread = () => act(() => client.refetchQueries({ queryKey: ["inventory"] }));
+
+  test("store page: locations stay with the stale notice; the band shows no fact", async () => {
+    renderAt(`/inventory/stores/${STORE}`);
+    await screen.findByLabelText("Store summary");
+    api.listStockLocations.mockResolvedValue({ status: 500, error: {} });
+    await reread();
+    expect(await screen.findByText(/could not be refreshed/)).toBeDefined();
+    expect(screen.getByText("Roof")).toBeDefined();
+    expect(screen.queryByLabelText("Store summary")).toBeNull();
+  });
+
+  test("product page: the on-hand rows stay with the stale notice; the band shows no fact", async () => {
+    renderAt(`/inventory/stores/${STORE}/products/${PRODUCT}`);
+    await screen.findByLabelText("On-hand summary");
+    api.getOnHand.mockResolvedValue({ status: 500, error: {} });
+    await reread();
+    expect(await screen.findByText(/could not be refreshed/)).toBeDefined();
+    expect(screen.queryByLabelText("On-hand summary")).toBeNull();
+    // The panel still holds the last read's by-status rows, not an invented zero.
+    expect(screen.getByRole("table", { name: "On-hand by inventory status" })).toBeDefined();
+    expect(screen.getAllByText("-1.2500").length).toBeGreaterThan(0);
   });
 });
 
