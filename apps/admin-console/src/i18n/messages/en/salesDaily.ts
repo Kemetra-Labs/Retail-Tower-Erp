@@ -6,8 +6,6 @@ export const salesDaily: MessagesOf<typeof ar> = {
   // --- Entry and heading -------------------------------------------------------
   "salesDaily.entry": "Daily received sales",
   "salesDaily.title": "Daily received sales",
-  "salesDaily.sub":
-    "Sales the server has received per business day in {tenant}, for the store chosen in the scope header or for every store in scope. Read-only.",
   "salesDaily.back": "Sales",
 
   // --- Range form --------------------------------------------------------------
@@ -70,4 +68,63 @@ export const salesDaily: MessagesOf<typeof ar> = {
   "salesDaily.retry": "Retry",
   "salesDaily.rateLimited": "Too many requests. Try again when the wait ends.",
   "salesDaily.rateLimitedHint": "The banner at the top of the page shows the time left.",
+
+  // --- RT-1020 (v4.0): the report's band and day panel -------------------------
+  "salesDaily.band.group": "Reports · Sales",
+  "salesDaily.band.label": "Report context from the server",
+  "salesDaily.band.subStore": "{store} · {tenant}",
+  "salesDaily.band.subScope": "All stores in scope · {tenant}",
+  "salesDaily.band.subTenant": "{tenant}",
+  "salesDaily.band.zone": "Time zone",
+  "salesDaily.band.asOf": "Read at",
+  "salesDaily.back.reports": "Reports",
+  "salesDaily.day.title": "Business day detail",
+  "salesDaily.day.hint":
+    "The same figures as the day's row in the two tables below, with no new calculation.",
+  "salesDaily.day.pick": "Business day",
+  "salesDaily.day.notBegunNote": "This business day has not begun, so it has no figures yet.",
+  "salesDaily.day.unknownNote":
+    "The figures for this day could not be determined, and they are not zero.",
+  "salesDaily.day.salesLink": "Sales for this day",
+  "salesDaily.day.rowLink": "This day's row in the table",
+
+  // --- RT-1020 (v4.0): the reports index ---------------------------------------
+  "reports.nav.label": "Reports",
+  "reports.index.sub":
+    "{tenant} · each report answers one question with server figures and their context",
+  "reports.index.noneOpen": "Your role has no report or review screen here.",
+  "reports.group.sales": "Sales",
+  "reports.group.cash": "Cash and shifts",
+  "reports.group.stock": "Inventory",
+  "reports.group.erp": "ERPNext integration",
+  "reports.status.available": "Available",
+  "reports.status.review": "Review screen",
+  "reports.status.proposed": "Proposed, not available yet",
+  "reports.answers": "Answers:",
+  "reports.open.report": "Open the report",
+  "reports.open.screen": "Open the screen",
+  "reports.item.daily.q":
+    "How many sales, voids and returns did the server receive each business day, and where are their sync and ERPNext posting now?",
+  "reports.item.shiftVariance.title": "Cash variance in shifts",
+  "reports.item.shiftVariance.q":
+    "Which shift close recorded a shortage or an overage, and was an approver recorded?",
+  "reports.item.stockDiscrepancies.title": "ERPNext stock discrepancies",
+  "reports.item.stockDiscrepancies.q":
+    "Which items are negative in the latest ERPNext snapshot of each store?",
+  "reports.item.salesRepair.title": "Sales needing repair",
+  "reports.item.salesRepair.q": "Which sales stopped syncing, why, and who asked for the repair?",
+  "reports.item.byStore.title": "Sales by store",
+  "reports.item.byStore.q":
+    "Which store received the most and the least in the period, and how did its rank change?",
+  "reports.item.byHour.title": "Sales by hour",
+  "reports.item.byHour.q":
+    "When do sales peak in the business day, and are there enough registers then?",
+  "reports.item.shortageTrend.title": "Shortage and overage trend",
+  "reports.item.shortageTrend.q": "Does a shortage repeat in one store or shift across the weeks?",
+  "reports.item.stockMovement.title": "Stock movement by type",
+  "reports.item.stockMovement.q":
+    "How much stock came in, went out, was adjusted and was transferred in the period, per store?",
+  "reports.item.postingHealth.title": "Posting health across days",
+  "reports.item.postingHealth.q":
+    "How many days ended with every sale posted, and where do failures cluster?",
 };

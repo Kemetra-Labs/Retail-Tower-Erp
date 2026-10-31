@@ -14,7 +14,8 @@
  * still running is marked in words (and a pattern), never by colour alone.
  */
 import { DataTableScroll, useCaptionId } from "@/components/DataTableScroll";
-import { DateTime, type MessageKey, Money, formatNumber, useT } from "@/i18n";
+import { SectionIndex } from "@/components/SectionIndex";
+import { DateTime, type MessageKey, useT } from "@/i18n";
 import {
   METRIC_IDS,
   type MetricId,
@@ -23,100 +24,20 @@ import {
 } from "@/metrics/metricRegistry";
 import { BusinessDate } from "@/sales/SaleParts";
 import { useId } from "react";
+import {
+  MONEY_METRICS,
+  MoneyCell,
+  type MoneyMetric,
+  STATE_MARK,
+  STATUS_METRICS,
+  StatusCell,
+  Zones,
+} from "./DailyCells";
 import { DailyChart } from "./DailyChart";
+import { DayPanel } from "./DayPanel";
 import { ExportButton } from "./ExportButton";
-import type { DayRow, DayState, ReportModel } from "./dailyLogic";
+import type { DayRow, ReportModel } from "./dailyLogic";
 import { dayRowId } from "./dayRowId";
-
-type MoneyMetric = "receivedSales" | "voids" | "returns" | "legacyRefunds";
-const MONEY_METRICS: readonly MoneyMetric[] = [
-  "receivedSales",
-  "voids",
-  "returns",
-  "legacyRefunds",
-];
-const STATUS_METRICS: readonly MetricId[] = ["syncStatus", "erpPosting", "shiftCloses"];
-
-const STATE_MARK: Record<Exclude<DayState, "complete">, MessageKey> = {
-  "so-far": "metrics.context.soFar",
-  "not-begun": "salesDaily.row.notBegun",
-};
-
-function Unknown(): React.JSX.Element {
-  const t = useT();
-  return <span className="daily-table__unknown">{t("metrics.claim.unknown")}</span>;
-}
-
-function Count({ value }: Readonly<{ value: number }>): React.JSX.Element {
-  const t = useT();
-  return <span className="daily-table__count">{formatNumber(value, t.locale)}</span>;
-}
-
-function MoneyCell({ kpis, metric }: Readonly<{ kpis: SalesKpis | null; metric: MoneyMetric }>) {
-  if (!kpis) return <Unknown />;
-  const facts = kpis[metric];
-  return (
-    <>
-      <Count value={facts.count} />
-      {facts.byCurrency.length > 0 ? (
-        <ul className="daily-table__lines">
-          {facts.byCurrency.map((c) => (
-            <li key={c.currencyCode}>
-              <Money value={c.total} currency={c.currencyCode} />
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </>
-  );
-}
-
-type Part = [MessageKey, number];
-
-function partsOf(metric: MetricId, kpis: SalesKpis): Part[] {
-  if (metric === "syncStatus") {
-    const s = kpis.syncStatus;
-    return [
-      ["metrics.part.captured", s.captured],
-      ["metrics.part.synced", s.synced],
-      ["metrics.part.failedRetryable", s.failedRetryable],
-      ["metrics.part.failedNeedsRepair", s.failedNeedsRepair],
-    ];
-  }
-  if (metric === "erpPosting") {
-    const e = kpis.erpPosting;
-    return [
-      ["metrics.part.posted", e.posted],
-      ["metrics.part.pending", e.pending],
-      ["metrics.part.failed", e.failed],
-      ["metrics.part.unknown", e.unknown],
-    ];
-  }
-  const c = kpis.shiftCloses;
-  return [
-    ["metrics.part.normal", c.normal],
-    ["metrics.part.forced", c.forced],
-    ["metrics.part.withVariance", c.withVariance],
-    ["metrics.part.approvalMissing.yes", c.approvalMissing.yes],
-    ["metrics.part.approvalMissing.no", c.approvalMissing.no],
-    ["metrics.part.approvalMissing.unknown", c.approvalMissing.unknown],
-  ];
-}
-
-function StatusCell({ kpis, metric }: Readonly<{ kpis: SalesKpis | null; metric: MetricId }>) {
-  const t = useT();
-  if (!kpis) return <Unknown />;
-  return (
-    <>
-      {metric === "shiftCloses" ? <Count value={kpis.shiftCloses.count} /> : null}
-      <ul className="daily-table__lines">
-        {partsOf(metric, kpis).map(([labelKey, count]) => (
-          <li key={labelKey}>{t("metrics.claim.part", { label: t(labelKey), count })}</li>
-        ))}
-      </ul>
-    </>
-  );
-}
 
 function DayHeader({ row }: Readonly<{ row: DayRow }>): React.JSX.Element {
   const t = useT();
@@ -157,14 +78,24 @@ function DailyTable({
   model,
   contextId,
   withRowIds,
-}: Readonly<{ spec: TableSpec; model: ReportModel; contextId: string; withRowIds: boolean }>) {
+  position,
+}: Readonly<{
+  spec: TableSpec;
+  model: ReportModel;
+  contextId: string;
+  withRowIds: boolean;
+  position: number;
+}>) {
   const t = useT();
   const captionId = useCaptionId();
   const hintId = useId();
   return (
-    <section className="daily-report__table">
-      <h2 className="daily-report__heading">{t(spec.captionKey)}</h2>
-      <p id={hintId} className="daily-report__hint">
+    <section className="section-panel daily-report__table">
+      <div className="section-panel__head">
+        <SectionIndex position={position} />
+        <h2 className="section-panel__title">{t(spec.captionKey)}</h2>
+      </div>
+      <p id={hintId} className="daily-report__hint daily-report__panel-hint">
         {t(spec.hintKey)}
       </p>
       <DataTableScroll captionId={captionId}>
@@ -212,21 +143,6 @@ function DailyTable({
         </table>
       </DataTableScroll>
     </section>
-  );
-}
-
-function Zones({ zones }: Readonly<{ zones: readonly string[] }>): React.JSX.Element {
-  const t = useT();
-  const sep = t.locale === "ar" ? "، " : ", ";
-  return (
-    <>
-      {zones.map((z, i) => (
-        <span key={z}>
-          {i > 0 ? sep : null}
-          <bdi dir="ltr">{z}</bdi>
-        </span>
-      ))}
-    </>
   );
 }
 
@@ -337,14 +253,33 @@ function Definitions(): React.JSX.Element {
 export function DailyReport({
   model,
   storeName,
+  storeId,
   readStores,
-}: Readonly<{ model: ReportModel; storeName: string; readStores: number }>): React.JSX.Element {
+}: Readonly<{
+  model: ReportModel;
+  storeName: string;
+  /** The store of a one-store read, for the day panel's Sales link; null for a scope. */
+  storeId: string | null;
+  readStores: number;
+}>): React.JSX.Element {
   const contextId = useId();
   return (
     <div className="daily-report">
-      <ReportContext model={model} storeName={storeName} readStores={readStores} id={contextId} />
-      <ExportButton model={model} storeName={model.scope === "store" ? storeName : null} />
-      <DailyChart model={model} />
+      <div className="daily-report__main">
+        <section className="section-panel daily-report__chart-panel">
+          <div className="section-panel__body daily-report__chart-body">
+            <ReportContext
+              model={model}
+              storeName={storeName}
+              readStores={readStores}
+              id={contextId}
+            />
+            <ExportButton model={model} storeName={model.scope === "store" ? storeName : null} />
+            <DailyChart model={model} badge={<SectionIndex position={1} />} />
+          </div>
+        </section>
+        <DayPanel model={model} storeId={storeId} position={2} />
+      </div>
       {TABLES.map((spec, index) => (
         <DailyTable
           key={spec.captionKey}
@@ -352,6 +287,7 @@ export function DailyReport({
           model={model}
           contextId={contextId}
           withRowIds={index === 0}
+          position={index + 3}
         />
       ))}
       <Definitions />

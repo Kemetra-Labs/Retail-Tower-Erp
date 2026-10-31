@@ -67,6 +67,7 @@ describe("production navigation", () => {
       "Stock movements",
       "Stock discrepancies",
       "Shift closes",
+      "Reports",
       "Devices",
       "Connection & sync",
       "Sales needing repair",
@@ -92,6 +93,21 @@ describe("production navigation", () => {
       expect(entryLabels(renderShell(role))).toContain("Shift closes");
     },
   );
+
+  test.each(["owner", "tenant_admin", "store_manager"])(
+    "RT-1020: the reports index is listed for %s, and opens /reports",
+    (role) => {
+      const nav = renderShell(role);
+      expect(entryLabels(nav)).toContain("Reports");
+      expect(within(nav).getByRole("link", { name: "Reports" }).getAttribute("href")).toBe(
+        "/reports",
+      );
+    },
+  );
+
+  test("RT-1020: a role that can open no report or review screen gets no reports entry", () => {
+    expect(entryLabels(renderShell("store_staff"))).not.toContain("Reports");
+  });
 
   test.each(["owner", "tenant_admin", "store_manager"])(
     "RT-728: the inventory read views are listed for %s",
