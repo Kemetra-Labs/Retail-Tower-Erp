@@ -60,3 +60,12 @@ export function memberCounts(rows: readonly MemberRow[]): MemberCounts {
   const revoked = rows.filter((m) => m.revoked).length;
   return { total: rows.length, active: rows.length - revoked, revoked };
 }
+
+/**
+ * RT-978: the accessible name of a member's «Open» button. The display name
+ * alone is not unique (two members can share one), so the e-mail, which is, is
+ * added; a member without a display name is named by the e-mail alone.
+ */
+export function memberOpenName(row: Pick<MemberRow, "displayName" | "email">): string {
+  return row.displayName ? `${row.displayName} (${row.email})` : row.email;
+}

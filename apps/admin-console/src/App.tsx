@@ -6,6 +6,7 @@ import { RouteErrorFallback } from "@/observability/RouteErrorFallback";
 import { ShellRouteErrorFallback } from "@/observability/ShellRouteErrorFallback";
 import { Overview } from "@/shell/Overview";
 import { ProtectedArea } from "@/shell/ProtectedArea";
+import { RouteEffects } from "@/shell/RouteEffects";
 import { SignInRoute } from "@/shell/SignInRoute";
 /**
  * RF-1 application root, extended by RF-2 (T009). Composes the providers and the
@@ -61,6 +62,8 @@ function RootLayout(): React.JSX.Element {
     <ActiveContextProvider>
       {/* RT-399: <html lang/dir> and the title follow the active locale. */}
       <DocumentLocale />
+      {/* RT-978: route changes rename the document and feed the focus rule. */}
+      <RouteEffects />
       <DirtyGuardProvider>
         <NavigationBlocker />
         <Outlet />

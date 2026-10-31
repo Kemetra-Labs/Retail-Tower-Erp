@@ -151,22 +151,22 @@ describe("MemberList grouped by role", () => {
       within(managers)
         .getAllByRole("button")
         .map((b) => b.getAttribute("aria-label")),
-    ).toEqual(["Open Sami Store", "Open Omar Khaled"]);
+    ).toEqual(["Open Sami Store (m4@northstar.eg)", "Open Omar Khaled (m2@northstar.eg)"]);
   });
 
-  test("every member is in exactly one group and keeps the same open action name", async () => {
+  test("every member is in exactly one group, and the open action is named by name and e-mail", async () => {
     listMembers.mockResolvedValue({ status: 200, data: mixed });
     renderList();
     await screen.findByRole("table");
     const opens = screen.getAllByRole("button", { name: /^Open / });
     expect(opens.map((b) => b.getAttribute("aria-label")).sort()).toEqual(
       [
-        "Open Amal Saleh",
-        "Open Cara Cashier",
-        "Open Omar Khaled",
-        "Open Sami Store",
-        "Open Una Known",
-        // No display name: the e-mail names the member, as before the regroup.
+        "Open Amal Saleh (m3@northstar.eg)",
+        "Open Cara Cashier (m1@northstar.eg)",
+        "Open Omar Khaled (m2@northstar.eg)",
+        "Open Sami Store (m4@northstar.eg)",
+        "Open Una Known (m5@northstar.eg)",
+        // No display name: the e-mail alone names the member (never repeated).
         "Open m6@northstar.eg",
       ].sort(),
     );
@@ -179,11 +179,35 @@ describe("MemberList grouped by role", () => {
     expect(screen.queryByText("mystery_role")).toBeNull();
   });
 
+  // RT-978: two members may share a display name; the e-mail tells their buttons apart.
+  test("two members with the same display name get distinct open names, in both locales", async () => {
+    listMembers.mockResolvedValue({
+      status: 200,
+      data: [member("a1", "Omar Khaled", "cashier"), member("a2", "Omar Khaled", "cashier")],
+    });
+    const { unmount } = renderList();
+    await screen.findByRole("table");
+    const en = screen.getAllByRole("button", { name: /^Open / });
+    expect(en.map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Open Omar Khaled (a1@northstar.eg)",
+      "Open Omar Khaled (a2@northstar.eg)",
+    ]);
+    unmount();
+    setLocale("ar");
+    renderList();
+    await screen.findByRole("table");
+    const ar = screen.getAllByRole("button", { name: /^فتح / });
+    expect(ar.map((b) => b.getAttribute("aria-label"))).toEqual([
+      "فتح Omar Khaled (a1@northstar.eg)",
+      "فتح Omar Khaled (a2@northstar.eg)",
+    ]);
+  });
+
   test("the open action in a group opens that member's edit drawer with the scope line in its header", async () => {
     listMembers.mockResolvedValue({ status: 200, data: mixed });
     renderList();
     await screen.findByRole("table");
-    fireEvent.click(screen.getByRole("button", { name: "Open Omar Khaled" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Omar Khaled (m2@northstar.eg)" }));
     const dialog = await screen.findByRole("dialog", { name: "Edit member" });
     expect(within(dialog).getByText("Omar Khaled")).toBeDefined();
     expect(within(dialog).getByText(/^Editing/)).toBeDefined();
