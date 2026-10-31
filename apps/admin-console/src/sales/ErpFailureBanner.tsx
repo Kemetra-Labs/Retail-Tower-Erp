@@ -7,6 +7,9 @@
  * The detail read carries the state and nothing else: no reason, no record of
  * what the failure changed. So the banner states neither a cause nor a safety
  * claim; a per-sale reason waits for a Backend-Core contract (RT-977).
+ *
+ * RT-1009: the v4 shape (a red strip at the inline start) comes from the
+ * `sale-erp-failure` wrapper; the copy and the action are unchanged.
  */
 import { Banner } from "@/components/Banner";
 import { canReadErpStatus } from "@/erp-status/erpStatusLogic";
@@ -40,20 +43,22 @@ export function ErpFailureBanner({
   const failure = failureOf(detail.erpPosting);
   if (!failure) return null;
   return (
-    <Banner
-      variant="danger"
-      title={t(failure.what)}
-      message={t("sales.erpFailure.evidence", {
-        field: t(failure.field),
-        state: t(erpStateKey({ erpPostingState: failure.state })),
-      })}
-      action={
-        canReadErpStatus(role) ? (
-          <Link to="/erp-connection" className="btn-secondary">
-            {t("erp.nav.label")}
-          </Link>
-        ) : undefined
-      }
-    />
+    <div className="sale-erp-failure">
+      <Banner
+        variant="danger"
+        title={t(failure.what)}
+        message={t("sales.erpFailure.evidence", {
+          field: t(failure.field),
+          state: t(erpStateKey({ erpPostingState: failure.state })),
+        })}
+        action={
+          canReadErpStatus(role) ? (
+            <Link to="/erp-connection" className="btn-secondary">
+              {t("erp.nav.label")}
+            </Link>
+          ) : undefined
+        }
+      />
+    </div>
   );
 }

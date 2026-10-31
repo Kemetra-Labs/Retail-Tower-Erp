@@ -1,5 +1,5 @@
-import { ListHeaderBand } from "@/components/ListHeaderBand";
-import { useT } from "@/i18n";
+import { type BandFacts, ListHeaderBand } from "@/components/ListHeaderBand";
+import { DateTime, useT } from "@/i18n";
 import type { SaleItem, SaleListQuery } from "@/lib/sale-queries";
 import { useStoreDirectory } from "@/shift-closes/useShiftCloses";
 /**
@@ -11,11 +11,16 @@ import { useStoreDirectory } from "@/shift-closes/useShiftCloses";
  * no active store (tenant-wide scope) the prompt stays. A role the API refuses (store_staff) gets the non-disclosing
  * not-available state and no form (AC-5). The results and paging states are in
  * `SaleResults.tsx` and `SalePager.tsx`.
+ *
+ * RT-1009 (v4.0): the band's facts are the list's scope and period only, as
+ * the served page echoes them (`storeRef`, `from`/`to`, `asOf`); no count or
+ * net, which the page does not serve. The results sit in one v4 panel.
  */
 import { useEffect } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { SaleFilterBar } from "./SaleFilterBar";
 import { Unavailable } from "./SalePager";
+import { BusinessDateRange } from "./SaleParts";
 import { QueryPrompt, Results } from "./SaleResults";
 import {
   type FilterErrors,
@@ -92,18 +97,54 @@ function ListBody({
   return model.valid ? <QueryPrompt /> : null;
 }
 
+/**
+ * The band facts (C1, AC 2): the store, the period and the read time, each
+ * from the loaded page. Nothing before a page arrives; never a count.
+ */
+function useBandFacts(
+  list: SaleListState,
+  stores: readonly { id: string; name: string }[],
+): BandFacts | undefined {
+  const t = useT();
+  if (!list.hasPages || !list.storeRef || !list.from || !list.to || !list.asOf) return undefined;
+  const store = stores.find((s) => s.id.toLowerCase() === list.storeRef?.toLowerCase());
+  return [
+    {
+      label: t("sales.field.store"),
+      value: store ? (
+        <bdi dir="auto" title={store.name}>
+          {store.name}
+        </bdi>
+      ) : (
+        t("sales.unknownStore")
+      ),
+    },
+    { label: t("sales.band.period"), value: <BusinessDateRange from={list.from} to={list.to} /> },
+    {
+      label: t("sales.band.asOf"),
+      value: <DateTime value={list.asOf} timeZone={list.storeTimezone} />,
+    },
+  ];
+}
+
 function Shell({
   scope,
+  facts,
   children,
-}: Readonly<{ scope: SaleScope; children: React.ReactNode }>): React.JSX.Element {
+}: Readonly<{
+  scope: SaleScope;
+  facts?: BandFacts;
+  children: React.ReactNode;
+}>): React.JSX.Element {
   const t = useT();
   return (
-    <div className="surface">
+    <div className="surface surface--v4">
       {/* RT-821: the daily report is reached from here, not from the sidebar (UX-09). */}
       <ListHeaderBand
         group={t("shell.nav.section.operations")}
         title={t("sales.list.title")}
         subtitle={t.rich("sales.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
+        facts={facts ? { label: t("sales.band.label"), items: facts } : undefined}
         actions={
           <div className="surface__actions surface__actions--head">
             <Link to="/sales-daily" className="btn-secondary">
@@ -129,6 +170,7 @@ export function SaleList(): React.JSX.Element {
   const model = listModel(search, permitted);
   const list = useSaleList(scope, model.query);
   const fallback = permitted ? arrivalDefault(scope.activeStoreId, directory.stores) : null;
+  const facts = useBandFacts(list, directory.stores);
   useArrivalDefault(search, setSearch, fallback ? filtersToSearch(fallback).toString() : "");
 
   if (!scope.tenantId) {
@@ -146,7 +188,7 @@ export function SaleList(): React.JSX.Element {
     );
   }
   return (
-    <Shell scope={scope}>
+    <Shell scope={scope} facts={model.query ? facts : undefined}>
       <SaleFilterBar
         applied={model.filters}
         stores={directory.stores}

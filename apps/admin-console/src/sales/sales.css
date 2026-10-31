@@ -60,3 +60,153 @@
 .surface__head .sale-chips {
   margin-block: var(--space-2);
 }
+
+/* ---- RT-1009: v4.0 «Ink & Receipt» on the Sales surface ------------------
+ * Opt-in by `surface--v4` so other screens keep their shapes until their own
+ * slice. Shape only: the existing role tokens, tints by color-mix, so no new
+ * colour role or contrast pair (C5). Dubai stays (C9). */
+
+/* Panels and receipt cards: 20px radius, the one resting elevation (§12.5). */
+.surface--v4 .section-panel {
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-resting);
+}
+
+/* The list's results: one panel holding every state, the rows ruled (the rows
+ * open a sale: a selectable table keeps its ruled rows). */
+.sale-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+}
+.sale-results > .data-table__scroll {
+  margin-inline: calc(var(--space-5) * -1);
+}
+.sale-results .data-table :is(th, td):first-child {
+  padding-inline-start: var(--space-5);
+}
+.sale-results .data-table :is(th, td):last-child {
+  padding-inline-end: var(--space-5);
+}
+.sale-results .data-table thead th {
+  background: var(--color-surface);
+}
+/* A value never breaks mid-reference: the table scrolls in its own region
+ * (RT-825) instead; only the status chips may wrap. */
+.sale-results .data-table__row td:not(:last-child) {
+  white-space: nowrap;
+}
+.sale-results > .sale-pager {
+  padding-block-start: var(--space-3);
+  border-block-start: 1px dashed var(--color-border);
+}
+
+/* Status pills: text first, colour only reinforces; a small rotated square
+ * leads, drawn in the text colour (no new role). */
+.surface--v4 .sale-chips {
+  gap: var(--space-2);
+}
+.surface--v4 .sale-chips .badge {
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-color: transparent;
+  border-radius: 9px;
+  background-color: color-mix(in srgb, currentColor 10%, var(--color-surface));
+  font-size: var(--text-meta);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+}
+.surface--v4 .sale-chips .badge::before {
+  content: "";
+  flex: none;
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 2px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+
+/* Read-only detail tables as strips (§12.5): 6px gaps, sunken, 12px radius. */
+.surface--v4 .data-table--strips {
+  border-collapse: separate;
+  border-spacing: 0 6px;
+}
+.surface--v4 .data-table--strips tbody .data-table__row :is(td, th) {
+  background: var(--color-surface-sunken);
+  border-block: 1px solid var(--color-border);
+  border-bottom-color: var(--color-border);
+}
+.surface--v4 .data-table--strips tbody .data-table__row > :first-child {
+  border-inline-start: 1px solid var(--color-border);
+  border-start-start-radius: 12px;
+  border-end-start-radius: 12px;
+}
+.surface--v4 .data-table--strips tbody .data-table__row > :last-child {
+  border-inline-end: 1px solid var(--color-border);
+  border-start-end-radius: 12px;
+  border-end-end-radius: 12px;
+}
+.surface--v4 .data-table--strips thead th {
+  border-bottom: 0;
+}
+.surface--v4 .data-table--strips tfoot .data-table__total :is(th, td) {
+  border-block-start: 2px solid var(--color-text);
+}
+
+/* The payment summary as a receipt card: its tenders below the perforation. */
+.surface--v4 .receipt-card {
+  --receipt-notch-fill: var(--color-background);
+}
+.sale-payments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  inline-size: 100%;
+  color: var(--color-text);
+  font-size: var(--text-body);
+}
+.sale-payments .surface__detail {
+  max-width: none;
+  margin: 0;
+}
+
+/* The ERP posting failure: the v4 banner shape, a red strip at the inline
+ * start; the copy and its order are unchanged (RT-974, state only). */
+.sale-erp-failure .rtc-alert {
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  padding-inline-start: calc(var(--space-4) + 4px);
+}
+.sale-erp-failure .rtc-alert::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: 4px;
+  background: var(--color-danger);
+}
+
+/* Forced colours: no shadow, tints or strips; system colours carry the split. */
+@media (forced-colors: active) {
+  .surface--v4 .section-panel {
+    box-shadow: none;
+  }
+  .surface--v4 .sale-chips .badge {
+    border-color: CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .surface--v4 .sale-chips .badge::before {
+    background: CanvasText;
+  }
+  .surface--v4 .data-table--strips tbody .data-table__row :is(td, th) {
+    background: Canvas;
+    border-color: CanvasText;
+  }
+  .sale-erp-failure .rtc-alert::before {
+    background: CanvasText;
+  }
+}

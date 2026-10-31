@@ -1,0 +1,23 @@
+/* RT-1009 section index badge (DESIGN.md §12.2). A small Teal-on-wash tag
+ * before a section title. Role tokens only: the primary text on its soft wash
+ * (primary-emphasis on primary-soft) is an existing 4.5:1 pair. */
+
+.section-index {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--color-primary-soft);
+  color: var(--color-primary-emphasis);
+  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+}
+
+@media (forced-colors: active) {
+  .section-index {
+    border: 1px solid CanvasText;
+    color: CanvasText;
+  }
+}

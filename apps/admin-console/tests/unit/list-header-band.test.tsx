@@ -268,7 +268,7 @@ describe("applied to the existing list pages", () => {
 
   test.each(Object.entries(PAGES))("%s renders the band with its navigation group", (file, key) => {
     const src = read(file);
-    expect(src).toContain('import { ListHeaderBand } from "@/components/ListHeaderBand"');
+    expect(src).toMatch(/import \{[^}]*ListHeaderBand[^}]*\} from "@\/components\/ListHeaderBand"/);
     expect(src).toContain(`group={t("${key}")}`);
     // One header per page, and no plain PageHeader left beside the band.
     expect(src).not.toMatch(/<PageHeader\b/);

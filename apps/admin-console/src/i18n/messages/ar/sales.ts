@@ -14,6 +14,9 @@ export const sales = {
   "sales.nav.label": "المبيعات",
 
   // --- List ------------------------------------------------------------------
+  "sales.band.label": "نطاق القائمة",
+  "sales.band.period": "الفترة",
+  "sales.band.asOf": "استلمها الخادم حتى",
   "sales.list.title": "المبيعات",
   "sales.list.sub": "عمليات البيع التي استلمها الخادم لمتجر واحد في {tenant}. للقراءة فقط.",
   "sales.list.scopePrompt": "اختر مؤسسة لعرض المبيعات.",
