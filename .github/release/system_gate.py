@@ -81,14 +81,27 @@ def check_shape(data, name):
 
 
 def supported_builds(text):
-    """build_id values under the top-level `supported:` list of pos-supported.yaml."""
-    builds, inside = set(), False
+    """build_id values of the entries of the top-level `supported:` list of pos-supported.yaml.
+
+    Only a key of the list entry itself counts (`- build_id:` or a sibling key at the entry's
+    indent); a build_id nested deeper, such as under `pos_pin:`, is not membership."""
+    builds, inside, entry = set(), False, None
     for line in text.splitlines():
-        if line and not line[0].isspace() and not line.startswith("#"):
-            inside = line.rstrip() == "supported:"
+        if not line.strip() or line.lstrip().startswith("#"):
             continue
-        match = re.match(r"^\s*(?:-\s+)?build_id:\s*([0-9a-f]{40})\s*$", line)
-        if inside and match:
+        if not line[0].isspace():
+            inside, entry = line.rstrip() == "supported:", None
+            continue
+        if not inside:
+            continue
+        item = re.match(r"^( +)- +(.*)$", line)
+        if item and (entry is None or len(item.group(1)) + 2 == entry):
+            entry = len(item.group(1)) + 2   # the indent of the entry's own keys
+            key_line, indent = item.group(2), entry
+        else:
+            key_line, indent = line.strip(), len(line) - len(line.lstrip(" "))
+        match = re.fullmatch(r"build_id:\s*([0-9a-f]{40})\s*", key_line)
+        if match and indent == entry:
             builds.add(match.group(1))
     return builds
 

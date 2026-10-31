@@ -22,9 +22,14 @@ supported:
     build_id: {build}
     pos_pin:
       bc_commit: {other}
+      build_id: {nested}
+  - build_id: {first}
+    kind: build
 """
 BUILD = "9" * 40
 INSTALLED_ONLY = "8" * 40
+NESTED_ONLY = "6" * 40
+FIRST_KEY = "5" * 40
 
 
 def sh(repo, *args):
@@ -47,7 +52,7 @@ class SystemGateTest(unittest.TestCase):
             sh(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", msg)
             return sh(repo, "rev-parse", "HEAD")
 
-        cls.bc = commit({system_gate.POS_SUPPORTED: SUPPORTED.format(installed=INSTALLED_ONLY, build=BUILD, other="1" * 40)}, "backend")
+        cls.bc = commit({system_gate.POS_SUPPORTED: SUPPORTED.format(installed=INSTALLED_ONLY, build=BUILD, other="1" * 40, nested=NESTED_ONLY, first=FIRST_KEY)}, "backend")
         sh(repo, "-c", "user.name=t", "-c", "user.email=t@t", "tag", "-a", "-m", "r", "backend-core/v1.0.0", cls.bc)
         cls.console = commit({system_gate.CONSOLE_PIN: PIN.format(c=cls.bc)}, "console")
         sh(repo, "-c", "user.name=t", "-c", "user.email=t@t", "tag", "-a", "-m", "r", "admin-console/v1.0.0", cls.console)
@@ -137,6 +142,11 @@ class SystemGateTest(unittest.TestCase):
         # installed but not supported, and a bc_commit value, are not membership
         self.assertEqual(self.failed(self.gate(self.manifest(pos={"build": INSTALLED_ONLY}))), {"G5"})
         self.assertEqual(self.failed(self.gate(self.manifest(pos={"build": "1" * 40}))), {"G5"})
+        # a build_id nested under pos_pin is not an entry of the list
+        self.assertEqual(self.failed(self.gate(self.manifest(pos={"build": NESTED_ONLY}))), {"G5"})
+
+    def test_g5_accepts_build_id_as_the_first_key_of_an_entry(self):
+        self.assertEqual(self.failed(self.gate(self.manifest(pos={"build": FIRST_KEY}))), set())
 
     def test_contracts_args_name_the_release_commits(self):
         out = system_gate.contracts_args(self.repo, json.loads(pathlib.Path(self.manifest()).read_text(encoding="utf-8")))
