@@ -35,7 +35,8 @@
 }
 .list-band__facts > div {
   display: flex;
-  flex-direction: column;
+  /* The markup is dt then dd (valid dl content); the figure reads first. */
+  flex-direction: column-reverse;
   gap: 2px;
 }
 .list-band__facts dd {

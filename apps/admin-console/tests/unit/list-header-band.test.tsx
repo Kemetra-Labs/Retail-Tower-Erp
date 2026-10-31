@@ -106,6 +106,13 @@ describe("ListHeaderBand semantics", () => {
       "9",
       "3",
     ]);
+    // Valid dl content: in each group the term comes first, then its description,
+    // so assistive technology pairs every figure with its own label.
+    for (const group of Array.from(facts.children)) {
+      expect(Array.from(group.children).map((e) => e.tagName)).toEqual(["DT", "DD"]);
+    }
+    // The figure still reads first, by a column-reverse flex, not by markup order.
+    expect(bandCss).toMatch(/\.list-band__facts > div \{[^}]*flex-direction: column-reverse/s);
   });
 
   test("at most three facts, by type", () => {
@@ -240,6 +247,8 @@ describe("Ink drawer header", () => {
     const forced = mediaBlock(drawerCss, "(forced-colors: active)");
     expect(forced).toMatch(/\.drawer__head \{[^}]*background-image: none[^}]*CanvasText/s);
     expect(forced).toMatch(/--btn-fg: ButtonText/);
+    // ButtonText is paired with ButtonFace, so the close icon never sits on Canvas.
+    expect(forced).toMatch(/\.drawer__head \.btn-ghost \{[^}]*--btn-bg: ButtonFace/s);
   });
 });
 

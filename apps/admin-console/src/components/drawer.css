@@ -187,6 +187,9 @@
     color: CanvasText;
   }
   .drawer:not(.drawer--start) .drawer__head .btn-ghost {
+    --btn-bg: ButtonFace;
+    --btn-bg-hover: ButtonFace;
+    --btn-bg-press: ButtonFace;
     --btn-fg: ButtonText;
     --btn-fg-hover: ButtonText;
   }

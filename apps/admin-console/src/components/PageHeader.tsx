@@ -129,8 +129,9 @@ export function PageHeader({
         <dl className="list-band__facts" aria-label={band.facts.label}>
           {band.facts.items.map((fact) => (
             <div key={fact.label}>
-              <dd>{fact.value}</dd>
+              {/* dt before dd (the dl content model); CSS shows the figure on top. */}
               <dt>{fact.label}</dt>
+              <dd>{fact.value}</dd>
             </div>
           ))}
         </dl>
