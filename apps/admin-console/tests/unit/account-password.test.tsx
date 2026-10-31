@@ -178,6 +178,28 @@ describe("account page", () => {
     expect(await screen.findByText("sign-in page")).toBeDefined();
   });
 
+  test("401 and a sign-out request that fails: still clears locally and goes to sign-in", async () => {
+    mockChange.mockResolvedValue(result(401));
+    mockRefresh.mockResolvedValue(result(401));
+    mockSignOut.mockRejectedValue(new TypeError("Failed to fetch"));
+    renderPage();
+    fill("old-secret", "new-secret", "new-secret");
+    await submit();
+    expect(await screen.findByText("sign-in page")).toBeDefined();
+  });
+
+  test("editing a field clears its own error and keeps the others", async () => {
+    renderPage();
+    fireEvent.change(field("New password"), { target: { value: "new-secret-1" } });
+    fireEvent.change(field("Confirm new password"), { target: { value: "new-secret-2" } });
+    await submit();
+    expect(field("Current password").getAttribute("aria-invalid")).toBe("true");
+    expect(field("Confirm new password").getAttribute("aria-invalid")).toBe("true");
+    fireEvent.change(field("Confirm new password"), { target: { value: "new-secret-1" } });
+    expect(field("Confirm new password").getAttribute("aria-invalid")).toBeNull();
+    expect(field("Current password").getAttribute("aria-invalid")).toBe("true");
+  });
+
   test("Arabic copy (UX-12): the page and the primary action", () => {
     setLocale("ar");
     renderPage();

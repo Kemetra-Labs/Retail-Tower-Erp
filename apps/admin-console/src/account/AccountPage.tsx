@@ -40,6 +40,19 @@ import {
 const FIELD_IDS = { current: "account-current", next: "account-new", confirm: "account-confirm" };
 type FieldName = keyof typeof FIELD_IDS;
 type FieldErrors = Partial<Record<FieldName, MessageKey>>;
+const FIELD_BY_INPUT: Record<string, FieldName> = {
+  current_password: "current",
+  new_password: "next",
+  confirm_password: "confirm",
+};
+
+/** Editing a field clears its own error; the other fields keep theirs. */
+function withoutError(errors: FieldErrors, input: EventTarget): FieldErrors {
+  const name = FIELD_BY_INPUT[(input as HTMLInputElement).name];
+  if (!name || !errors[name]) return errors;
+  const { [name]: _cleared, ...rest } = errors;
+  return rest;
+}
 
 /** Client checks before anything is sent: every field filled, the confirm matching. */
 function validate(fields: PasswordChangeFields): FieldErrors {
@@ -243,6 +256,7 @@ export function AccountPage(): React.JSX.Element {
       <FormPanel
         onSubmit={onSubmit}
         onReset={() => setErrors({})}
+        onChange={(e) => setErrors((current) => withoutError(current, e.target))}
         summary={<FormErrorSummary ref={summary.ref} entries={summaryEntries(t, errors)} />}
         actions={
           <>
