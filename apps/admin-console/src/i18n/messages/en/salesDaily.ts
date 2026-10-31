@@ -82,7 +82,7 @@ export const salesDaily: MessagesOf<typeof ar> = {
   "salesDaily.day.hint":
     "The same figures as the day's row in the two tables below, with no new calculation.",
   "salesDaily.day.pick": "Business day",
-  "salesDaily.day.notBegunNote": "This business day has not begun, so it has no figures yet.",
+  "salesDaily.day.notBegunNote": "This business day has not begun yet.",
   "salesDaily.day.unknownNote":
     "The figures for this day could not be determined, and they are not zero.",
   "salesDaily.day.salesLink": "Sales for this day",

@@ -188,27 +188,34 @@ describe("SalesDaily v4 band and day panel (RT-1020)", () => {
     expect(within(panel).queryByText("0")).toBeNull();
   });
 
-  test("a day that has not begun says so, and the panel opens on the latest day that has", async () => {
+  describe("a day that has not begun", () => {
     // The store's day is the 22nd, so the range's last day (the 23rd) has not begun.
-    consoleGetSalesSummary.mockResolvedValue(
-      ok(
-        storeSummary(
-          cairoStore({
-            currentBusinessDate: "2026-10-22",
-            // A dense read may zero-fill the day that has not begun: still no figures.
-            days: zeroDays("2026-10-16", "2026-10-23"),
-          }),
-        ),
-      ),
-    );
-    renderReport();
-    const panel = await dayPanel();
-    const picker = within(panel).getByLabelText("Business day") as HTMLSelectElement;
-    expect(picker.value).toBe("2026-10-22");
-    fireEvent.change(picker, { target: { value: "2026-10-23" } });
-    expect(within(panel).getByText(/has not begun/i)).toBeDefined();
-    expect(within(panel).queryByText(/not zero/i)).toBeNull();
-    expect(within(panel).getByText("Unknown")).toBeDefined();
+    async function openOnLastDay(days: ReturnType<typeof zeroDays>): Promise<HTMLElement> {
+      consoleGetSalesSummary.mockResolvedValue(
+        ok(storeSummary(cairoStore({ currentBusinessDate: "2026-10-22", days }))),
+      );
+      renderReport();
+      const panel = await dayPanel();
+      const picker = within(panel).getByLabelText("Business day") as HTMLSelectElement;
+      // The panel opens on the latest day that has begun, not on the future one.
+      expect(picker.value).toBe("2026-10-22");
+      fireEvent.change(picker, { target: { value: "2026-10-23" } });
+      return panel;
+    }
+
+    test("a read that lacks it: Unknown with the not-begun note", async () => {
+      const panel = await openOnLastDay(zeroDays("2026-10-16", "2026-10-22"));
+      expect(within(panel).getByText("Unknown")).toBeDefined();
+      expect(within(panel).getByText("This business day has not begun yet.")).toBeDefined();
+      expect(within(panel).queryByText(/not zero/i)).toBeNull();
+    });
+
+    test("a read that zero-fills it: the served figures, as the table shows, with the note", async () => {
+      const panel = await openOnLastDay(zeroDays("2026-10-16", "2026-10-23"));
+      expect(within(panel).getByText("This business day has not begun yet.")).toBeDefined();
+      expect(within(panel).queryByText("Unknown")).toBeNull();
+      expect(panel.querySelector(".daily-day__figures")).not.toBeNull();
+    });
   });
 
   test("the Sales link carries the store and the day in a one-store read, and is absent for a scope", async () => {

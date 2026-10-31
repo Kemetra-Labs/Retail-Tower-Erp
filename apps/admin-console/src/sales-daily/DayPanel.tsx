@@ -12,7 +12,7 @@
  */
 import { SectionIndex } from "@/components/SectionIndex";
 import { useT } from "@/i18n";
-import { metricDefinition } from "@/metrics/metricRegistry";
+import { type SalesKpis, metricDefinition } from "@/metrics/metricRegistry";
 import { BusinessDate } from "@/sales/SaleParts";
 import { useId, useState } from "react";
 import { Link } from "react-router";
@@ -41,9 +41,10 @@ function pickedRow(model: ReportModel, chosen: string | null): DayRow | undefine
 
 function DayFigures({ row }: Readonly<{ row: DayRow }>): React.JSX.Element {
   const t = useT();
-  // A day that has not begun has nothing to report, even when the read zero-fills
-  // it; a begun day the read lacks is unknown.
-  if (row.state === "not-begun" || !row.kpis) {
+  // The panel shows what the table shows: a day the read lacks is Unknown (with the
+  // not-begun note when it has not begun); a day the read carries shows its served
+  // figures, with the not-begun note above them when it has not begun.
+  if (!row.kpis) {
     const note =
       row.state === "not-begun" ? "salesDaily.day.notBegunNote" : "salesDaily.day.unknownNote";
     return (
@@ -54,12 +55,24 @@ function DayFigures({ row }: Readonly<{ row: DayRow }>): React.JSX.Element {
     );
   }
   return (
+    <>
+      {row.state === "not-begun" ? (
+        <p className="daily-report__hint">{t("salesDaily.day.notBegunNote")}</p>
+      ) : null}
+      <FigureList kpis={row.kpis} />
+    </>
+  );
+}
+
+function FigureList({ kpis }: Readonly<{ kpis: SalesKpis }>): React.JSX.Element {
+  const t = useT();
+  return (
     <dl className="daily-day__figures">
       {MONEY_METRICS.map((metric) => (
         <div key={metric}>
           <dt>{t(metricDefinition(metric).labelKey)}</dt>
           <dd>
-            <MoneyCell kpis={row.kpis} metric={metric} />
+            <MoneyCell kpis={kpis} metric={metric} />
           </dd>
         </div>
       ))}
@@ -67,7 +80,7 @@ function DayFigures({ row }: Readonly<{ row: DayRow }>): React.JSX.Element {
         <div key={metric}>
           <dt>{t(metricDefinition(metric).labelKey)}</dt>
           <dd>
-            <StatusCell kpis={row.kpis} metric={metric} />
+            <StatusCell kpis={kpis} metric={metric} />
           </dd>
         </div>
       ))}

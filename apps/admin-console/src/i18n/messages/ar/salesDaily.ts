@@ -81,7 +81,7 @@ export const salesDaily = {
   "salesDaily.day.title": "تفاصيل يوم العمل",
   "salesDaily.day.hint": "الأرقام نفسها من صف اليوم في الجدولين أدناه، بلا حساب جديد.",
   "salesDaily.day.pick": "يوم العمل",
-  "salesDaily.day.notBegunNote": "لم يبدأ يوم العمل هذا بعد، فلا أرقام له.",
+  "salesDaily.day.notBegunNote": "لم يبدأ يوم العمل هذا بعد.",
   "salesDaily.day.unknownNote": "تعذّر تحديد أرقام هذا اليوم، وهي ليست صفرًا.",
   "salesDaily.day.salesLink": "مبيعات هذا اليوم",
   "salesDaily.day.rowLink": "صف هذا اليوم في الجدول",
