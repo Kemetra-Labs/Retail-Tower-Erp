@@ -12,6 +12,10 @@
  * table sits under its panel header, and the tenant price is end-aligned.
  * Tables scroll in their own region (RT-826), so a narrow panel never clips
  * a row action.
+ *
+ * RT-1010 (v4.0): each section carries its index badge («01»...) in reading
+ * order; the read-only tables are strips (DESIGN.md §12.5). The page shows no
+ * ERPNext identity section: the catalog detail contract serves none.
  */
 import { DataTableScroll, useCaptionId } from "@/components/DataTableScroll";
 import { DetailPanel, LedgerField, PanelBody } from "@/components/DetailPanel";
@@ -41,16 +45,18 @@ function Code({ value }: Readonly<{ value: string }>): React.JSX.Element {
 function Section({
   id,
   title,
+  index,
   table,
   children,
 }: Readonly<{
   id: string;
   title: string;
+  index?: number;
   table?: React.ReactNode;
   children?: React.ReactNode;
 }>): React.JSX.Element {
   return (
-    <DetailPanel id={id} title={title}>
+    <DetailPanel id={id} title={title} index={index}>
       {children ? <PanelBody>{children}</PanelBody> : null}
       {table}
     </DetailPanel>
@@ -74,7 +80,7 @@ export function TenantValues({
   const t = useT();
   const { summary } = product;
   return (
-    <Section id="catalog-detail-tenant" title={t("catalog.detail.tenant.title")}>
+    <Section id="catalog-detail-tenant" title={t("catalog.detail.tenant.title")} index={1}>
       <dl className="surface__detail">
         <Row label={t("catalog.detail.field.description")}>
           {product.description ? (
@@ -154,7 +160,10 @@ export function Identifiers({
   storeLabel,
   actions,
   rowAction,
+  index,
 }: Readonly<{
+  /** RT-1010: the section's position on the page («02»). */
+  index?: number;
   identifiers: readonly CatalogIdentifier[];
   storeLabel: (id: string) => StoreLabel;
   actions?: React.ReactNode;
@@ -165,7 +174,7 @@ export function Identifiers({
   const empty = identifiers.length === 0;
   const table = empty ? null : (
     <DataTableScroll captionId={captionId}>
-      <table className="data-table catalog-readonly">
+      <table className="data-table data-table--strips catalog-readonly">
         <caption id={captionId} className="data-table__caption">
           {t("catalog.detail.identifiers.caption")}
         </caption>
@@ -195,6 +204,7 @@ export function Identifiers({
     <Section
       id="catalog-detail-identifiers"
       title={t("catalog.detail.identifiers.title")}
+      index={index}
       table={table}
     >
       {actions || empty ? (
@@ -275,7 +285,7 @@ function StoreOverride({
         <p className="catalog-detail__empty">{t("catalog.detail.overrides.noValues")}</p>
       ) : (
         <DataTableScroll captionId={captionId}>
-          <table className="data-table catalog-readonly">
+          <table className="data-table data-table--strips catalog-readonly">
             <caption id={captionId} className="data-table__caption">
               {t("catalog.detail.overrides.caption", { store: label.name ?? label.id })}
             </caption>
@@ -314,7 +324,7 @@ export function StoreOverrides({
   const t = useT();
   const stores = storeDeviations(product.storeOverrides, product.summary);
   return (
-    <Section id="catalog-detail-overrides" title={t("catalog.detail.overrides.title")}>
+    <Section id="catalog-detail-overrides" title={t("catalog.detail.overrides.title")} index={3}>
       <p className="catalog-detail__note">{t("catalog.detail.overrides.sub")}</p>
       {children}
       {stores.length === 0 ? (

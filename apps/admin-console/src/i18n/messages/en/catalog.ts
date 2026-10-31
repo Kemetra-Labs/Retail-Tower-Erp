@@ -239,6 +239,11 @@ export const catalog: MessagesOf<typeof ar> = {
   "catalog.edit.reloaded":
     "The latest version is loaded. What you typed is kept. Check it, then save again.",
   "catalog.edit.reloadFailed": "Could not reload this item. What you typed is kept.",
+  // RT-1010: the note beside the edit form. Each step is true of the page today.
+  "catalog.edit.after.title": "What happens after you save",
+  "catalog.edit.after.changed": "The new values apply to this item across the whole tenant.",
+  "catalog.edit.after.stores": "Stores with their own values keep them.",
+  "catalog.edit.after.price": "The price is not changed here.",
 
   "catalog.form.name": "Name",
   "catalog.form.description": "Description",

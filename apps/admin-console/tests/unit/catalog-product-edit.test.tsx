@@ -770,3 +770,38 @@ describe("CatalogProductEdit (RT-768, CAT-C2a edit)", () => {
     });
   });
 });
+
+describe("CatalogProductEdit v4.0 (RT-1010)", () => {
+  beforeEach(() => {
+    consoleGetCatalogProduct.mockReset();
+    consoleListCatalogCategories.mockReset();
+    consoleUpdateCatalogProduct.mockReset();
+    activeContext.mockReset();
+    activeContext.mockReturnValue(ctx());
+    consoleGetCatalogProduct.mockResolvedValue(one(detail()));
+    consoleListCatalogCategories.mockResolvedValue(categories);
+  });
+
+  test("the note beside the form says what happens after save, in three true steps", async () => {
+    renderEdit();
+    await loaded();
+    const note = screen.getByRole("complementary", { name: "What happens after you save" });
+    const steps = within(note)
+      .getAllByRole("listitem")
+      .map((li) => li.textContent);
+    expect(steps).toEqual([
+      "The new values apply to this item across the whole tenant.",
+      "Stores with their own values keep them.",
+      "The price is not changed here.",
+    ]);
+  });
+
+  test("the form panel opts into the v4 panel shape and the price stays read-only", async () => {
+    const { container } = renderEdit();
+    await loaded();
+    expect(container.querySelector("form.form-panel.catalog-edit")).not.toBeNull();
+    expect(screen.getByText("Prices are not edited here.")).toBeDefined();
+    expect(screen.queryByRole("textbox", { name: /^Price/ })).toBeNull();
+    expect(screen.queryByRole("spinbutton")).toBeNull();
+  });
+});
