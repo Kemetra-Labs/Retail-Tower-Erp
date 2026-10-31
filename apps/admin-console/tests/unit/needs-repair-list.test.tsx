@@ -93,6 +93,21 @@ describe("NeedsRepairList (RT-726)", () => {
     expect(api.consoleListNeedsRepair).not.toHaveBeenCalled();
   });
 
+  test("RT-1011: the page has a D-V9 band: group, h1 and scope, no facts, one h1", async () => {
+    renderList();
+    await screen.findByRole("link", { name: "Open sale POS-CAI-0042" });
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    const band = screen.getByRole("heading", { level: 1 }).closest("header") as HTMLElement;
+    expect(within(band).getByText("Integration")).toBeDefined();
+    expect(within(band).getByText(/Sales whose sync was quarantined/)).toBeDefined();
+    expect(within(band).getByText(/Northstar/)).toBeDefined();
+    // The queue is paged: the band shows no count or total of any kind.
+    expect(band.querySelector("dl")).toBeNull();
+    expect(within(band).getByRole("button", { name: "Refresh" })).toBeDefined();
+    // The long explanation and the read-only note stay, below the band.
+    expect(screen.getByText(/A repair is requested from each sale's page/)).toBeDefined();
+  });
+
   test("rows link to the sale; machine data is LTR; no repair action on the list", async () => {
     renderList();
     await screen.findByRole("link", { name: "Open sale POS-CAI-0042" });

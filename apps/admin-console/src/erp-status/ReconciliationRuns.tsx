@@ -88,7 +88,7 @@ export function ReconciliationRuns({
 }: Readonly<{ list: RunList; nameOf: StoreNameOf }>): React.JSX.Element {
   const t = useT();
   return (
-    <Panel id="erp-runs" title={t("erp.runs.title")}>
+    <Panel id="erp-runs" title={t("erp.runs.title")} index={4}>
       <p className="content__sub">
         {t.rich("erp.runs.sub", {
           link: <Link to="/stock-discrepancies">{t("shell.nav.stockDiscrepancies")}</Link>,

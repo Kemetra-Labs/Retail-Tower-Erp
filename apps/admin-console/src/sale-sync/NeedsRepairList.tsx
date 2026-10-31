@@ -16,8 +16,8 @@ import { BusyButton } from "@/components/BusyButton";
 import { TableScrollRegion } from "@/components/DataTableScroll";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
 import { SelectFilterBar } from "@/components/FilterBar";
+import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
-import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { DateTime, type T, useT } from "@/i18n";
 import type { NeedsRepairItem } from "@/lib/sale-sync-ops-queries";
@@ -163,7 +163,7 @@ function Rows({
     <>
       <TableScrollRegion>
         {(captionId) => (
-          <table className="data-table">
+          <table className="data-table data-table--strips">
             <caption id={captionId} className="data-table__caption">
               {caption}
             </caption>
@@ -212,10 +212,13 @@ function Content({ scope }: Readonly<{ scope: SaleScope }>): React.JSX.Element {
   const nameOf = (id: string) => stores.find((s) => s.id === id)?.name;
 
   return (
-    <div className="surface">
-      <PageHeader
+    <div className="surface sale-sync-surface">
+      {/* RT-1011 (D-V9 amendment 2026-10-31): the band holds the group, title, scope and the
+          refresh; it serves no whole-set fact (the queue is paged), so it carries none. */}
+      <ListHeaderBand
+        group={t("erp.nav.section")}
         title={t("saleSync.list.title")}
-        subtitle={t.rich("saleSync.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
+        subtitle={t.rich("saleSync.list.bandSub", { tenant: <bdi>{scope.tenantName}</bdi> })}
         actions={
           <button
             type="button"
@@ -227,25 +230,32 @@ function Content({ scope }: Readonly<{ scope: SaleScope }>): React.JSX.Element {
           </button>
         }
       />
-      <p className="sale-sync__note">{t("saleSync.list.note")}</p>
+      <div className="sale-sync__intro">
+        <p className="sale-sync__note">
+          {t.rich("saleSync.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
+        </p>
+        <p className="sale-sync__note">{t("saleSync.list.note")}</p>
+      </div>
       <StoreFilter
         stores={stores}
         value={storeId}
         onApply={(next) => setSearch(next ? new URLSearchParams({ store: next }) : {})}
       />
-      {validStore ? (
-        <Rows list={list} filtered={storeId !== ""} nameOf={nameOf} />
-      ) : (
-        // A malformed store filter is never sent: it reads as not available.
-        <Banner variant="warning" message={t("saleSync.list.storeNotFound")} />
-      )}
-      {list.asOf ? (
-        <p className="sale-sync__asof">
-          {t.rich("saleSync.list.asOf", {
-            time: <DateTime value={new Date(list.asOf).toISOString()} />,
-          })}
-        </p>
-      ) : null}
+      <div className="sale-sync__panel">
+        {validStore ? (
+          <Rows list={list} filtered={storeId !== ""} nameOf={nameOf} />
+        ) : (
+          // A malformed store filter is never sent: it reads as not available.
+          <Banner variant="warning" message={t("saleSync.list.storeNotFound")} />
+        )}
+        {list.asOf ? (
+          <p className="sale-sync__asof">
+            {t.rich("saleSync.list.asOf", {
+              time: <DateTime value={new Date(list.asOf).toISOString()} />,
+            })}
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }

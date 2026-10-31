@@ -62,7 +62,7 @@ function SummaryBody({ state }: Readonly<{ state: SummaryState }>): React.JSX.El
 export function SyncSummary({ state }: Readonly<{ state: SummaryState }>): React.JSX.Element {
   const t = useT();
   return (
-    <Panel id="erp-summary" title={t("erp.summary.title")}>
+    <Panel id="erp-summary" title={t("erp.summary.title")} index={2}>
       <p className="content__sub">{t("erp.summary.note")}</p>
       <StaleError panel={state} />
       <SummaryBody state={state} />

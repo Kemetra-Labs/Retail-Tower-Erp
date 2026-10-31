@@ -13,7 +13,7 @@ import { NoAccess } from "@/auth/NoAccess";
  */
 import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
-import { useT } from "@/i18n";
+import { DateTime, useT } from "@/i18n";
 import { type ScopeMembership, scopeMenuStores } from "@/shell/scope-stores";
 import { useSignOut } from "@/shell/useSignOut";
 import { useStoreList } from "@/stores/useStoreQueries";
@@ -21,9 +21,10 @@ import { Link, useSearchParams } from "react-router";
 import { ConnectionPanel } from "./ConnectionPanel";
 import { PostingBacklog } from "./PostingBacklog";
 import { ReconciliationRuns } from "./ReconciliationRuns";
+import { SalePipeline } from "./SalePipeline";
 import { type FilterStore, StoreFilter } from "./StoreFilter";
 import { SyncSummary } from "./SyncSummary";
-import { canReadErpStatus, isStoreFilter } from "./erpStatusLogic";
+import { canReadErpStatus, isStoreFilter, pageLastRead } from "./erpStatusLogic";
 import {
   type ErpError,
   type ErpQuery,
@@ -87,12 +88,27 @@ function ErpStatusContent({ scope }: Readonly<{ scope: ErpScope }>): React.JSX.E
     for (const panel of [connections, summary, backlog, runs]) panel.retry();
   };
 
+  // The band's read time: the oldest read, once every panel has data (never overstates freshness).
+  const lastRead = pageLastRead([connections.asOf, summary.asOf, backlog.asOf, runs.asOf]);
+
   return (
-    <div className="surface erp-surface">
+    <div className="surface erp-surface erp-surface--v4">
       <ListHeaderBand
         group={t("erp.nav.section")}
         title={t("erp.title")}
-        subtitle={t.rich("erp.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
+        subtitle={
+          <>
+            {t.rich("erp.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
+            {lastRead === undefined ? null : (
+              <>
+                {" · "}
+                {t.rich("erp.asOf", {
+                  time: <DateTime value={new Date(lastRead).toISOString()} />,
+                })}
+              </>
+            )}
+          </>
+        }
         actions={
           <div className="erp-head-actions">
             <Link className="btn-secondary" to="/erp-connection/mappings">
@@ -105,6 +121,11 @@ function ErpStatusContent({ scope }: Readonly<{ scope: ErpScope }>): React.JSX.E
         }
       />
 
+      <SalePipeline
+        connections={connections}
+        summary={summary}
+        filtered={validStore && storeId !== ""}
+      />
       <ConnectionPanel state={connections} />
 
       <StoreFilter

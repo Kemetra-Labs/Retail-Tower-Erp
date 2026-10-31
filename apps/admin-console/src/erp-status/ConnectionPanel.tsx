@@ -22,7 +22,7 @@ const ENV_KEYS: Record<string, MessageKey> = {
   prod: "erp.env.prod",
 };
 
-function envKey(environment: string): MessageKey {
+export function envKey(environment: string): MessageKey {
   return Object.hasOwn(ENV_KEYS, environment) ? ENV_KEYS[environment] : "erp.env.unknown";
 }
 
@@ -141,7 +141,7 @@ function ConnectionTable({ rows }: Readonly<{ rows: ConnectionRow[] }>): React.J
   return (
     <TableScrollRegion>
       {(captionId) => (
-        <table className="data-table">
+        <table className="data-table data-table--strips">
           <caption id={captionId} className="data-table__caption">
             {t("erp.conn.caption")}
           </caption>
@@ -210,7 +210,7 @@ export function ConnectionPanel({
 }: Readonly<{ state: ConnectionsState }>): React.JSX.Element {
   const t = useT();
   return (
-    <Panel id="erp-connection" title={t("erp.conn.title")}>
+    <Panel id="erp-connection" title={t("erp.conn.title")} index={1}>
       <StaleError panel={state} />
       <ConnectionBody state={state} />
       <AsOf at={state.asOf} />

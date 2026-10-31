@@ -201,7 +201,7 @@ function TimelineSection({ saleRef, timeZone }: Readonly<SectionProps>): React.J
   } else if (read.data) {
     body = (
       <DataTableScroll captionId={captionId}>
-        <table className="data-table">
+        <table className="data-table data-table--strips">
           <caption id={captionId} className="data-table__caption">
             {t("saleSync.timeline.caption")}
           </caption>
