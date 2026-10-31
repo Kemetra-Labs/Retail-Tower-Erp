@@ -3,6 +3,10 @@
 > **Status:** Planning artifact for Jira **RT-65** (Work Mode: Planning). Nothing in this document
 > changes code or dependencies. Implementation is carried by **RT-108** and **RT-109**, and the
 > verification by **RT-110**. Recorded 2026-10-01.
+>
+> **Later update:** the 44.5.1 target and probe results below are historical. RT-986 (2026-10-31)
+> moved POS to Electron 44.9.1 within the same 44 line; the native-module rebuild for that version
+> is re-proved by the `release-pos` packaging step on main.
 
 ## 1. Baseline (verified)
 
