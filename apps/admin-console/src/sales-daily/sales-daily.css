@@ -121,3 +121,247 @@
   align-items: center;
   gap: var(--space-3);
 }
+
+/* ---- RT-1020: v4.0 «Ink & Receipt» on the daily report ---------------------
+ * Opt-in by `daily-surface`, so no other screen changes shape. Shape only: the
+ * existing role tokens, tints by color-mix, so no new colour role or contrast
+ * pair (C5). Dubai stays (C9). Nothing here carries meaning by colour: a day
+ * still running, a day not begun and an unknown figure all say so in words; the
+ * dashed outline and the hatch only reinforce them. */
+
+.daily-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+}
+
+/* A long zone list wraps inside its fact instead of widening the band. */
+.daily-band__zones {
+  display: -webkit-box;
+  max-inline-size: 34ch;
+  white-space: normal;
+  /* At most three lines keep the band within its 132px; the full list is the
+   * title here and the context line below. */
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+.daily-surface .section-panel {
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-resting);
+}
+
+/* The chart panel (the context line, the export, the chart) beside the day
+ * panel from a wide content area; stacked below it. */
+.daily-report__main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+@media (min-width: 1100px) {
+  .daily-report__main {
+    grid-template-columns: minmax(0, 2fr) minmax(17rem, 1fr);
+  }
+}
+.daily-report__chart-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* The day panel. */
+.daily-day__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.daily-day__body > .daily-report__hint {
+  margin: 0;
+}
+.daily-day__pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.daily-day__pick label {
+  font-weight: var(--weight-strong);
+}
+.daily-day__label {
+  margin: 0;
+  font: var(--weight-strong) var(--text-section-title) / var(--leading-title) var(--font-sans);
+}
+.daily-day__figures {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+.daily-day__figures > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-field-lg);
+  background: var(--color-surface-sunken);
+}
+.daily-day__figures dt {
+  color: var(--color-text-muted);
+}
+.daily-day__figures dd {
+  margin: 0;
+  text-align: end;
+}
+/* The panel has no scroll region, so a long amount wraps here (the tables keep
+ * their nowrap lines inside their own scroll region). */
+.daily-day__figures .daily-table__lines {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.daily-day__unknown {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.daily-day__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The two exact tables, each in its own panel; the rows are strips. */
+.daily-report__table {
+  gap: var(--space-2);
+  padding-block-end: var(--space-4);
+}
+.daily-report__table > .daily-report__panel-hint {
+  padding-inline: var(--space-5);
+}
+.daily-report__table > .data-table__scroll {
+  padding-inline: var(--space-4);
+}
+.daily-surface .daily-table {
+  border-collapse: separate;
+  border-spacing: 0 6px;
+}
+.daily-surface .daily-table thead th {
+  border-bottom: 0;
+  background: var(--color-surface);
+}
+.daily-surface .daily-table :is(tbody, tfoot) :is(th, td) {
+  border-block: 1px solid var(--color-border);
+  background-color: var(--color-surface-sunken);
+}
+.daily-surface .daily-table tfoot :is(th, td) {
+  border-block-start: 2px solid var(--color-text);
+  border-block-end: 1px solid var(--color-border);
+}
+.daily-surface .daily-table :is(tbody, tfoot) tr > :first-child {
+  border-inline-start: 1px solid var(--color-border);
+  border-start-start-radius: var(--radius-field-lg);
+  border-end-start-radius: var(--radius-field-lg);
+}
+.daily-surface .daily-table :is(tbody, tfoot) tr > :last-child {
+  border-inline-end: 1px solid var(--color-border);
+  border-start-end-radius: var(--radius-field-lg);
+  border-end-end-radius: var(--radius-field-lg);
+}
+/* The strips are already sunken, so the "so far" hatch is drawn in a muted ink. */
+.daily-surface .daily-table__row--partial :is(th, td) {
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 var(--space-2),
+    color-mix(in srgb, var(--color-text-muted) 16%, transparent) var(--space-2) var(--space-3)
+  );
+}
+
+/* A day still running, a day not begun and an unknown figure: words in a dashed pill. */
+.daily-surface :is(.daily-table__mark, .daily-table__unknown) {
+  display: inline-block;
+  padding: 0 var(--space-2);
+  border: 1px dashed var(--color-control-border);
+  border-radius: 8px;
+  font-size: var(--text-meta);
+  font-style: normal;
+  font-weight: var(--weight-strong);
+  color: var(--color-text-muted);
+}
+
+/* Loading: the shape of the report, no figure; the status text stays. */
+.daily-loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+}
+.daily-loading__bars {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  block-size: 6rem;
+}
+.daily-loading__bars > i {
+  flex: 1;
+  border-radius: 8px 8px 2px 2px;
+  background: var(--color-surface-sunken);
+}
+.daily-loading__bars > i:nth-child(1) {
+  block-size: 40%;
+}
+.daily-loading__bars > i:nth-child(2) {
+  block-size: 55%;
+}
+.daily-loading__bars > i:nth-child(3) {
+  block-size: 70%;
+}
+.daily-loading__bars > i:nth-child(4) {
+  block-size: 50%;
+}
+.daily-loading__bars > i:nth-child(5) {
+  block-size: 62%;
+}
+.daily-loading__bars > i:nth-child(6) {
+  block-size: 45%;
+}
+.daily-loading__bars > i:nth-child(7) {
+  block-size: 80%;
+}
+
+/* Failure and the 429 wait keep their copy; only the shape follows v4. */
+.daily-surface .rtc-alert {
+  border-radius: 14px;
+}
+
+@media (forced-colors: active) {
+  .daily-surface .section-panel {
+    box-shadow: none;
+    border-color: CanvasText;
+  }
+  .daily-surface .daily-table :is(tbody, tfoot) :is(th, td) {
+    background-color: Canvas;
+    border-color: CanvasText;
+  }
+  .daily-surface .daily-table__row--partial :is(th, td) {
+    background-image: none;
+  }
+  .daily-surface :is(.daily-table__mark, .daily-table__unknown) {
+    border-color: CanvasText;
+    color: CanvasText;
+  }
+  .daily-day__figures > div {
+    background: Canvas;
+    border-color: CanvasText;
+  }
+  .daily-loading__bars > i {
+    background: GrayText;
+  }
+}
