@@ -30,6 +30,7 @@ import { SAVED_NAVIGATION } from "@/shell/dirty-guard";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
+import { ProductEditAside } from "./ProductEditAside";
 import { FIELD_IDS, ProductFields } from "./ProductFormFields";
 import {
   FIELD_ORDER,
@@ -251,6 +252,7 @@ export function ProductEditForm({
       back={{ to: detailPath, label: t("catalog.edit.back") }}
       title={title}
       subtitle={subtitle}
+      aside={<ProductEditAside />}
       notices={
         <>
           {notice ? (
@@ -262,6 +264,7 @@ export function ProductEditForm({
       }
     >
       <FormPanel
+        className="catalog-edit"
         onSubmit={onSubmit}
         summary={<FormErrorSummary ref={summaryRef} entries={entries} />}
         actions={
