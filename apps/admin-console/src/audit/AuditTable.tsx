@@ -15,6 +15,10 @@
  * RT-784: a platform support-session row also shows a recognisable label above
  * its code (`auditActionLabelKey`). The code itself is unchanged; an action
  * without a label renders as before.
+ *
+ * RT-1019 (v4.0): the code sits in a bordered mono chip under its label; a
+ * refused platform access gets a red inline-start edge beside its words. The
+ * rows open a drawer, so the table keeps its ruled rows (DESIGN.md §12.5).
  */
 import { TableScrollRegion } from "@/components/DataTableScroll";
 import { formatEvidenceTime, useT } from "@/i18n";
@@ -60,7 +64,15 @@ export function AuditTable({ rows, onInspect }: Readonly<AuditTableProps>): Reac
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id}>
+              <tr
+                key={row.id}
+                // A refused platform access carries a red edge; its label says so in words.
+                className={
+                  auditActionLabelKey(row) === "audit.action.crossTenantRefused"
+                    ? "audit-table__row--refused"
+                    : undefined
+                }
+              >
                 <td className="audit-table__time">
                   <bdi dir="ltr">{formatEvidenceTime(row.occurred_at)}</bdi>
                 </td>
@@ -71,7 +83,9 @@ export function AuditTable({ rows, onInspect }: Readonly<AuditTableProps>): Reac
                     onClick={() => onInspect(row)}
                   >
                     <ActionLabel row={row} />
-                    <bdi dir="ltr">{row.action}</bdi>
+                    <bdi dir="ltr" className="audit-code">
+                      {row.action}
+                    </bdi>
                   </button>
                 </td>
                 <td className="audit-table__muted">
