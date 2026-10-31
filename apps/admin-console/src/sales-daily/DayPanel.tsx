@@ -41,8 +41,9 @@ function pickedRow(model: ReportModel, chosen: string | null): DayRow | undefine
 
 function DayFigures({ row }: Readonly<{ row: DayRow }>): React.JSX.Element {
   const t = useT();
-  if (!row.kpis) {
-    // A day that has not begun has nothing to report; a begun day the read lacks is unknown.
+  // A day that has not begun has nothing to report, even when the read zero-fills
+  // it; a begun day the read lacks is unknown.
+  if (row.state === "not-begun" || !row.kpis) {
     const note =
       row.state === "not-begun" ? "salesDaily.day.notBegunNote" : "salesDaily.day.unknownNote";
     return (

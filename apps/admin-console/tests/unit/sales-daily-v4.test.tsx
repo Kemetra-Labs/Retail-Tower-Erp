@@ -195,7 +195,8 @@ describe("SalesDaily v4 band and day panel (RT-1020)", () => {
         storeSummary(
           cairoStore({
             currentBusinessDate: "2026-10-22",
-            days: zeroDays("2026-10-16", "2026-10-22"),
+            // A dense read may zero-fill the day that has not begun: still no figures.
+            days: zeroDays("2026-10-16", "2026-10-23"),
           }),
         ),
       ),
