@@ -31,6 +31,7 @@ export const V4_LIGHT_PAIRS = [
   ['ink-muted', 'ink', 4.5], ['on-ink', 'ink', 4.5], ['surface', 'ink', 4.5], ['ink', 'mint', 4.5],
   ['mint', 'ink', 3],
   ['ink', 'surface', 4.5], ['on-primary', 'ink', 4.5], ['on-action-fill', 'action-fill', 4.5],
+  ['action-fill', 'canvas', 3], ['action-fill', 'surface', 3], ['action-fill', 'background', 3],
   ['text', 'canvas', 4.5], ['text-muted', 'canvas', 4.5], ['control-border', 'canvas', 3],
   ['focus-ring', 'canvas', 3], ['primary-emphasis', 'canvas', 4.5],
   ...['success', 'warning', 'danger', 'info'].map((s) => [s, 'canvas', 4.5]),
@@ -43,6 +44,7 @@ export const V4_DARK_PAIRS = [
   ['focus-ring', 'canvas', 3], ['primary-emphasis', 'canvas', 4.5],
   ...['success', 'warning', 'danger', 'info'].map((s) => [s, 'canvas', 4.5]),
   ['on-action-fill', 'action-fill', 4.5],
+  ['action-fill', 'canvas', 3], ['action-fill', 'surface', 3], ['action-fill', 'background', 3],
 ];
 // Pairs a component must never draw. [foreground, background, ceiling]: the real
 // ratio stays below the ceiling, so the value proves the ban. Mint on white is 1.6:1.

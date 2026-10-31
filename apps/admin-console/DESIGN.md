@@ -447,7 +447,8 @@ equivalent; decorative charts stay out. Other screens keep the rule above.
 These classes exist on `main` and new work reuses them until a migration slice replaces them.
 **Bold** items are the deprecated identity each slice must not extend.
 
-- **Buttons:** five variants: `.btn-primary` (Tower Teal fill), `.btn-secondary`,
+- **Buttons:** five variants: `.btn-primary` (Ink fill on light, Mint on dark: the
+  `--color-action-fill` pair, §12.6; shipped by RT-1038), `.btn-secondary`,
   `.btn-ghost` (cancel, close, back), `.btn-danger-quiet` (red edge and text on surface) and
   `.btn-destructive` (red fill). `.btn-danger-quiet` starts a destructive action;
   `.btn-destructive` appears only in its confirm step: a flow whose confirm is red opens with
