@@ -54,7 +54,7 @@
 | **Admin-Console** ◀ you are here | [`Kemetra/Admin-Console`](https://github.com/Kemetra/Admin-Console) | Operator web UI · catalog · inventory views · sync ops |
 | **ERPNext-Connector** | [`Kemetra/ERPNext-Connector`](https://github.com/Kemetra/ERPNext-Connector) | The only ERPNext/Frappe adapter · DocType mapping · posting |
 
-<sub>Management screens read <b>down</b> from Backend-Core and operator actions go <b>up</b> to it; Backend-Core orchestrates everything beyond (<a href="docs/architecture/sync-overview.md">sync overview</a>). <a href="https://github.com/Kemetra/Orchestrator"><code>Kemetra/Orchestrator</code></a> is the technical handbook, not a track.</sub>
+<sub>Management screens read <b>down</b> from Backend-Core and operator actions go <b>up</b> to it; Backend-Core orchestrates everything beyond (<a href="docs/architecture/sync-overview.md">sync overview</a>). The former <code>Kemetra/Orchestrator</code> handbook is retired (AD-ORCH-003); durable decisions live in <a href="https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/5341185/Decisions">Confluence RETAIL</a>.</sub>
 
 <details><summary><b>More architecture views</b></summary>
 
