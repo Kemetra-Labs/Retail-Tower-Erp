@@ -57,16 +57,14 @@ test("shift-close detail: the cash ledger lines up at the inline end; the varian
   page,
 }) => {
   await open(page, DETAIL_ROUTES.shift);
-  const cash = '[aria-labelledby="shift-cash"]';
-  expectAligned(
-    await endEdges(page, `${cash} .field-row__value--money:not(.field-row--total *) > bdi`),
-    "cash figures",
-  );
+  // RT-1015: the cash reconciliation is the receipt card; its figure is the variance.
+  const cash = "section.receipt-card";
+  expectAligned(await endEdges(page, `${cash} .field-row__value--money > bdi`), "cash figures");
   const money = page.locator(`${cash} .field-row__value--money`);
   await expect(money.first()).toHaveCSS("font-variant-numeric", "tabular-nums");
   await expect(money.first()).toHaveCSS("text-align", "end");
-  const total = page.locator(`${cash} .field-row--total`);
-  await expect(total).toHaveCSS("border-top-width", "2px");
+  const figure = page.locator(`${cash} .receipt-card__figure`);
+  await expect(figure).toHaveCSS("font-variant-numeric", "tabular-nums");
   await expectNoAxeViolations(page, "shift-close detail");
 });
 
