@@ -1,0 +1,1970 @@
+[
+  {
+    "state": "Connected",
+    "where": "sale",
+    "width": 1024,
+    "mode": "light",
+    "file": "after-Connected-sale-1024x768.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Connected",
+    "where": "sale",
+    "width": 1024,
+    "mode": "forced",
+    "file": "after-Connected-sale-1024x768-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Connected",
+    "where": "sale",
+    "width": 1280,
+    "mode": "light",
+    "file": "after-Connected-sale-1280x800.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Connected",
+    "where": "sale",
+    "width": 1280,
+    "mode": "forced",
+    "file": "after-Connected-sale-1280x800-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Connected",
+    "where": "dashboard",
+    "width": 1024,
+    "mode": "light",
+    "file": "after-Connected-dashboard-1024x768.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Connected",
+    "where": "dashboard",
+    "width": 1024,
+    "mode": "forced",
+    "file": "after-Connected-dashboard-1024x768-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Connected",
+    "where": "dashboard",
+    "width": 1280,
+    "mode": "light",
+    "file": "after-Connected-dashboard-1280x800.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Connected",
+    "where": "dashboard",
+    "width": 1280,
+    "mode": "forced",
+    "file": "after-Connected-dashboard-1280x800-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Checking",
+    "where": "sale",
+    "width": 1024,
+    "mode": "light",
+    "file": "after-Checking-sale-1024x768.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "neutral",
+        "text": "الاتصالجارٍ التحقق من الاتصال",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Checking",
+    "where": "sale",
+    "width": 1024,
+    "mode": "forced",
+    "file": "after-Checking-sale-1024x768-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "neutral",
+        "text": "الاتصالجارٍ التحقق من الاتصال",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Checking",
+    "where": "sale",
+    "width": 1280,
+    "mode": "light",
+    "file": "after-Checking-sale-1280x800.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "neutral",
+        "text": "الاتصالجارٍ التحقق من الاتصال",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Checking",
+    "where": "sale",
+    "width": 1280,
+    "mode": "forced",
+    "file": "after-Checking-sale-1280x800-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "neutral",
+        "text": "الاتصالجارٍ التحقق من الاتصال",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Checking",
+    "where": "dashboard",
+    "width": 1024,
+    "mode": "light",
+    "file": "after-Checking-dashboard-1024x768.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "neutral",
+        "text": "الاتصالجارٍ التحقق من الاتصال",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Checking",
+    "where": "dashboard",
+    "width": 1024,
+    "mode": "forced",
+    "file": "after-Checking-dashboard-1024x768-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "neutral",
+        "text": "الاتصالجارٍ التحقق من الاتصال",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Checking",
+    "where": "dashboard",
+    "width": 1280,
+    "mode": "light",
+    "file": "after-Checking-dashboard-1280x800.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "neutral",
+        "text": "الاتصالجارٍ التحقق من الاتصال",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Checking",
+    "where": "dashboard",
+    "width": 1280,
+    "mode": "forced",
+    "file": "after-Checking-dashboard-1280x800-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "neutral",
+        "text": "الاتصالجارٍ التحقق من الاتصال",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Offline",
+    "where": "sale",
+    "width": 1024,
+    "mode": "light",
+    "file": "after-Offline-sale-1024x768.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "warning",
+        "text": "الاتصالغير متصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Offline",
+    "where": "sale",
+    "width": 1024,
+    "mode": "forced",
+    "file": "after-Offline-sale-1024x768-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "warning",
+        "text": "الاتصالغير متصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Offline",
+    "where": "sale",
+    "width": 1280,
+    "mode": "light",
+    "file": "after-Offline-sale-1280x800.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "warning",
+        "text": "الاتصالغير متصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Offline",
+    "where": "sale",
+    "width": 1280,
+    "mode": "forced",
+    "file": "after-Offline-sale-1280x800-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "warning",
+        "text": "الاتصالغير متصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Offline",
+    "where": "dashboard",
+    "width": 1024,
+    "mode": "light",
+    "file": "after-Offline-dashboard-1024x768.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "warning",
+        "text": "الاتصالغير متصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Offline",
+    "where": "dashboard",
+    "width": 1024,
+    "mode": "forced",
+    "file": "after-Offline-dashboard-1024x768-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "warning",
+        "text": "الاتصالغير متصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Offline",
+    "where": "dashboard",
+    "width": 1280,
+    "mode": "light",
+    "file": "after-Offline-dashboard-1280x800.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "warning",
+        "text": "الاتصالغير متصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Offline",
+    "where": "dashboard",
+    "width": 1280,
+    "mode": "forced",
+    "file": "after-Offline-dashboard-1280x800-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "warning",
+        "text": "الاتصالغير متصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Attention",
+    "where": "sale",
+    "width": 1024,
+    "mode": "light",
+    "file": "after-Attention-sale-1024x768.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "sync",
+        "tone": "danger",
+        "text": "المزامنةتحتاج مراجعة",
+        "label": "المزامنة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Attention",
+    "where": "sale",
+    "width": 1024,
+    "mode": "forced",
+    "file": "after-Attention-sale-1024x768-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "sync",
+        "tone": "danger",
+        "text": "المزامنةتحتاج مراجعة",
+        "label": "المزامنة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Attention",
+    "where": "sale",
+    "width": 1280,
+    "mode": "light",
+    "file": "after-Attention-sale-1280x800.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "sync",
+        "tone": "danger",
+        "text": "المزامنةتحتاج مراجعة",
+        "label": "المزامنة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Attention",
+    "where": "sale",
+    "width": 1280,
+    "mode": "forced",
+    "file": "after-Attention-sale-1280x800-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "sync",
+        "tone": "danger",
+        "text": "المزامنةتحتاج مراجعة",
+        "label": "المزامنة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Attention",
+    "where": "dashboard",
+    "width": 1024,
+    "mode": "light",
+    "file": "after-Attention-dashboard-1024x768.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "sync",
+        "tone": "danger",
+        "text": "المزامنةتحتاج مراجعة",
+        "label": "المزامنة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Attention",
+    "where": "dashboard",
+    "width": 1024,
+    "mode": "forced",
+    "file": "after-Attention-dashboard-1024x768-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "sync",
+        "tone": "danger",
+        "text": "المزامنةتحتاج مراجعة",
+        "label": "المزامنة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Attention",
+    "where": "dashboard",
+    "width": 1280,
+    "mode": "light",
+    "file": "after-Attention-dashboard-1280x800.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "sync",
+        "tone": "danger",
+        "text": "المزامنةتحتاج مراجعة",
+        "label": "المزامنة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "Attention",
+    "where": "dashboard",
+    "width": 1280,
+    "mode": "forced",
+    "file": "after-Attention-dashboard-1280x800-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "sync",
+        "tone": "danger",
+        "text": "المزامنةتحتاج مراجعة",
+        "label": "المزامنة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "neutral",
+        "text": "الطابعةالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "PrinterFailed",
+    "where": "sale",
+    "width": 1024,
+    "mode": "light",
+    "file": "after-PrinterFailed-sale-1024x768.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "warning",
+        "text": "الطابعةفشل آخر إيصالالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "PrinterFailed",
+    "where": "sale",
+    "width": 1024,
+    "mode": "forced",
+    "file": "after-PrinterFailed-sale-1024x768-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "warning",
+        "text": "الطابعةفشل آخر إيصالالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "PrinterFailed",
+    "where": "sale",
+    "width": 1280,
+    "mode": "light",
+    "file": "after-PrinterFailed-sale-1280x800.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "warning",
+        "text": "الطابعةفشل آخر إيصالالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "PrinterFailed",
+    "where": "sale",
+    "width": 1280,
+    "mode": "forced",
+    "file": "after-PrinterFailed-sale-1280x800-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "warning",
+        "text": "الطابعةفشل آخر إيصالالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "PrinterFailed",
+    "where": "dashboard",
+    "width": 1024,
+    "mode": "light",
+    "file": "after-PrinterFailed-dashboard-1024x768.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "warning",
+        "text": "الطابعةفشل آخر إيصالالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "PrinterFailed",
+    "where": "dashboard",
+    "width": 1024,
+    "mode": "forced",
+    "file": "after-PrinterFailed-dashboard-1024x768-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "warning",
+        "text": "الطابعةفشل آخر إيصالالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "PrinterFailed",
+    "where": "dashboard",
+    "width": 1280,
+    "mode": "light",
+    "file": "after-PrinterFailed-dashboard-1280x800.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "warning",
+        "text": "الطابعةفشل آخر إيصالالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "PrinterFailed",
+    "where": "dashboard",
+    "width": 1280,
+    "mode": "forced",
+    "file": "after-PrinterFailed-dashboard-1280x800-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "warning",
+        "text": "الطابعةفشل آخر إيصالالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "AllRows",
+    "where": "sale",
+    "width": 1024,
+    "mode": "light",
+    "file": "after-AllRows-sale-1024x768.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "sync",
+        "tone": "danger",
+        "text": "المزامنةتحتاج مراجعة",
+        "label": "المزامنة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "held",
+        "tone": "neutral",
+        "text": "المعلّقةإرسال عملية واحدة بخصم مؤجَّل",
+        "label": "المعلّقة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "warning",
+        "text": "الطابعةفشل آخر إيصالالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "AllRows",
+    "where": "sale",
+    "width": 1024,
+    "mode": "forced",
+    "file": "after-AllRows-sale-1024x768-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "sync",
+        "tone": "danger",
+        "text": "المزامنةتحتاج مراجعة",
+        "label": "المزامنة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "held",
+        "tone": "neutral",
+        "text": "المعلّقةإرسال عملية واحدة بخصم مؤجَّل",
+        "label": "المعلّقة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "warning",
+        "text": "الطابعةفشل آخر إيصالالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "AllRows",
+    "where": "sale",
+    "width": 1280,
+    "mode": "light",
+    "file": "after-AllRows-sale-1280x800.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "sync",
+        "tone": "danger",
+        "text": "المزامنةتحتاج مراجعة",
+        "label": "المزامنة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "held",
+        "tone": "neutral",
+        "text": "المعلّقةإرسال عملية واحدة بخصم مؤجَّل",
+        "label": "المعلّقة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "warning",
+        "text": "الطابعةفشل آخر إيصالالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "AllRows",
+    "where": "sale",
+    "width": 1280,
+    "mode": "forced",
+    "file": "after-AllRows-sale-1280x800-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "sync",
+        "tone": "danger",
+        "text": "المزامنةتحتاج مراجعة",
+        "label": "المزامنة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "held",
+        "tone": "neutral",
+        "text": "المعلّقةإرسال عملية واحدة بخصم مؤجَّل",
+        "label": "المعلّقة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "warning",
+        "text": "الطابعةفشل آخر إيصالالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "AllRows",
+    "where": "dashboard",
+    "width": 1024,
+    "mode": "light",
+    "file": "after-AllRows-dashboard-1024x768.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "sync",
+        "tone": "danger",
+        "text": "المزامنةتحتاج مراجعة",
+        "label": "المزامنة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "held",
+        "tone": "neutral",
+        "text": "المعلّقةإرسال عملية واحدة بخصم مؤجَّل",
+        "label": "المعلّقة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "warning",
+        "text": "الطابعةفشل آخر إيصالالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "AllRows",
+    "where": "dashboard",
+    "width": 1024,
+    "mode": "forced",
+    "file": "after-AllRows-dashboard-1024x768-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "sync",
+        "tone": "danger",
+        "text": "المزامنةتحتاج مراجعة",
+        "label": "المزامنة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "held",
+        "tone": "neutral",
+        "text": "المعلّقةإرسال عملية واحدة بخصم مؤجَّل",
+        "label": "المعلّقة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "warning",
+        "text": "الطابعةفشل آخر إيصالالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "AllRows",
+    "where": "dashboard",
+    "width": 1280,
+    "mode": "light",
+    "file": "after-AllRows-dashboard-1280x800.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "sync",
+        "tone": "danger",
+        "text": "المزامنةتحتاج مراجعة",
+        "label": "المزامنة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "held",
+        "tone": "neutral",
+        "text": "المعلّقةإرسال عملية واحدة بخصم مؤجَّل",
+        "label": "المعلّقة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "warning",
+        "text": "الطابعةفشل آخر إيصالالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  },
+  {
+    "state": "AllRows",
+    "where": "dashboard",
+    "width": 1280,
+    "mode": "forced",
+    "file": "after-AllRows-dashboard-1280x800-forced.png",
+    "axe": [],
+    "rows": [
+      {
+        "row": "connection",
+        "tone": "success",
+        "text": "الاتصالمتصل",
+        "label": "الاتصال",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "sync",
+        "tone": "danger",
+        "text": "المزامنةتحتاج مراجعة",
+        "label": "المزامنة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "held",
+        "tone": "neutral",
+        "text": "المعلّقةإرسال عملية واحدة بخصم مؤجَّل",
+        "label": "المعلّقة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 36
+      },
+      {
+        "row": "printer",
+        "tone": "warning",
+        "text": "الطابعةفشل آخر إيصالالطابعة",
+        "label": "الطابعة",
+        "labelPx": 12,
+        "labelClipped": false,
+        "labelInRow": true,
+        "height": 44
+      }
+    ],
+    "inView": true,
+    "inNav": true,
+    "navScrolls": false,
+    "small": 0,
+    "overflowX": false,
+    "errors": []
+  }
+]
