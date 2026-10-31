@@ -2,8 +2,8 @@ import { Banner } from "@/components/Banner";
 import { ConfirmDelete } from "@/components/ConfirmDelete";
 import { DataTable } from "@/components/DataTable";
 import { FilterBar, type FilterChip, FilterField, isolate } from "@/components/FilterBar";
+import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
-import { PageHeader } from "@/components/PageHeader";
 import { SelectionSummary } from "@/components/SelectionSummary";
 import { useRowSelection } from "@/components/useRowSelection";
 import { DateTime, type MessageKey, type T, useT } from "@/i18n";
@@ -41,6 +41,11 @@ import {
  * selection scope is tenant + store + filters + sort, so any change to them
  * empties it. It is the visible page only: there is no "select all matching"
  * (no authoritative total and no handler exist for this queue).
+ *
+ * RT-1018 (v4.0, D-V9 amended 2026-10-31): the list opens with the Ink header
+ * band (group, title, a subtitle naming the tenant). The queue is a paged,
+ * cursor-read list and the contract serves no whole-set count, so the band
+ * holds no facts. The results (states, bulk bar, table) sit in one v4 panel.
  */
 import { useMemo, useState } from "react";
 import { UnknownItemErrorBanner } from "./UnknownItemErrorBanner";
@@ -85,7 +90,9 @@ function columns(t: T) {
     {
       key: "type",
       header: t("unknownItems.col.type"),
-      cell: (r: ReviewQueueItem) => identifierTypeLabel(t, r.identifier_type),
+      cell: (r: ReviewQueueItem) => (
+        <span className="unknown-item-type">{identifierTypeLabel(t, r.identifier_type)}</span>
+      ),
     },
     {
       key: "store",
@@ -187,7 +194,7 @@ function queueChips(
 
 export function UnknownItemList(): React.JSX.Element {
   const t = useT();
-  const { activeTenantId, activeStoreId } = useUnknownItemScope();
+  const { activeTenantId, activeTenantName, activeStoreId } = useUnknownItemScope();
   // RT-960: the fields edit a draft; Apply makes it the queue's filters (one
   // read per Apply, not one per keystroke). They stay page state, as before.
   const [applied, setApplied] = useState<QueueFilters>(DEFAULT_FILTERS);
@@ -258,8 +265,16 @@ export function UnknownItemList(): React.JSX.Element {
   }
 
   return (
-    <div className="surface">
-      <PageHeader title={t("unknownItems.title")} subtitle={t("unknownItems.sub")} />
+    <div className="surface surface--v4">
+      <ListHeaderBand
+        group={t("shell.nav.section.operations")}
+        title={t("unknownItems.title")}
+        subtitle={
+          activeTenantName
+            ? t.rich("unknownItems.band.sub", { tenant: <bdi>{activeTenantName}</bdi> })
+            : t("unknownItems.sub")
+        }
+      />
 
       <FilterBar
         label={t("unknownItems.filters.legend")}
@@ -346,73 +361,80 @@ export function UnknownItemList(): React.JSX.Element {
       {bulkError ? <UnknownItemErrorBanner error={bulkError} /> : null}
       {bulk.isError ? <Banner variant="danger" message={t("errors.server")} /> : null}
 
-      {isLoading ? <ListState state="loading" label={t("unknownItems.loadingNoun")} /> : null}
+      {error ? null : (
+        <div className="section-panel unknown-results">
+          {isLoading ? <ListState state="loading" label={t("unknownItems.loadingNoun")} /> : null}
 
-      {!isLoading && !error && rows.length === 0 ? (
-        <ListState
-          state="empty"
-          emptyMessage={t(status === "pending" ? "unknownItems.empty" : "unknownItems.emptyStatus")}
-        />
-      ) : null}
-
-      {!isLoading && selectable ? (
-        <section className="unknown-item-bulk" aria-label={t("unknownItems.bulk.action")}>
-          <SelectionSummary
-            selectedCount={selectedIds.length}
-            mode={selection.mode}
-            onClear={() => setSelected(new Set())}
-          />
-          {!confirmingBulk ? (
-            <button
-              type="button"
-              className="btn-danger-quiet"
-              disabled={selectedIds.length === 0 || overLimit || bulk.isPending}
-              onClick={() => setConfirmedKey(confirmKey)}
-            >
-              {t("unknownItems.bulk.action")}
-            </button>
-          ) : null}
-          {overLimit ? (
-            <Banner
-              variant="warning"
-              message={t("unknownItems.bulk.overLimit", { max: BULK_DISMISS_MAX })}
+          {!isLoading && !error && rows.length === 0 ? (
+            <ListState
+              state="empty"
+              emptyMessage={t(
+                status === "pending" ? "unknownItems.empty" : "unknownItems.emptyStatus",
+              )}
             />
           ) : null}
-          {confirmingBulk && selectedIds.length > 0 && !overLimit ? (
-            <ConfirmDelete
-              resourceName={t("unknownItems.bulk.resource", { count: selectedIds.length })}
-              confirmLabel={t("unknownItems.bulk.action")}
-              pending={bulk.isPending}
-              onConfirm={onBulkConfirm}
-              onCancel={() => setConfirmedKey(null)}
+
+          {!isLoading && selectable ? (
+            <section className="unknown-item-bulk" aria-label={t("unknownItems.bulk.action")}>
+              <SelectionSummary
+                selectedCount={selectedIds.length}
+                mode={selection.mode}
+                onClear={() => setSelected(new Set())}
+              />
+              {!confirmingBulk ? (
+                <button
+                  type="button"
+                  className="btn-danger-quiet"
+                  disabled={selectedIds.length === 0 || overLimit || bulk.isPending}
+                  onClick={() => setConfirmedKey(confirmKey)}
+                >
+                  {t("unknownItems.bulk.action")}
+                </button>
+              ) : null}
+              {overLimit ? (
+                <Banner
+                  variant="warning"
+                  message={t("unknownItems.bulk.overLimit", { max: BULK_DISMISS_MAX })}
+                />
+              ) : null}
+              {confirmingBulk && selectedIds.length > 0 && !overLimit ? (
+                <ConfirmDelete
+                  resourceName={t("unknownItems.bulk.resource", { count: selectedIds.length })}
+                  confirmLabel={t("unknownItems.bulk.action")}
+                  pending={bulk.isPending}
+                  onConfirm={onBulkConfirm}
+                  onCancel={() => setConfirmedKey(null)}
+                />
+              ) : null}
+            </section>
+          ) : null}
+
+          {!isLoading && !error && rows.length > 0 ? (
+            <DataTable
+              caption={t("unknownItems.caption")}
+              columns={columns(t)}
+              rows={rows}
+              rowKey={(r) => r.id}
+              onRowActivate={(r) => setInspectId(r.id)}
+              selection={
+                selectable
+                  ? {
+                      selectedKeys: selection.selectedKeys,
+                      onSelectionChange: setSelected,
+                      rowLabel: (r) => r.identifier_value,
+                    }
+                  : undefined
+              }
             />
           ) : null}
-        </section>
-      ) : null}
-
-      {!isLoading && !error && rows.length > 0 ? (
-        <DataTable
-          caption={t("unknownItems.caption")}
-          columns={columns(t)}
-          rows={rows}
-          rowKey={(r) => r.id}
-          onRowActivate={(r) => setInspectId(r.id)}
-          selection={
-            selectable
-              ? {
-                  selectedKeys: selection.selectedKeys,
-                  onSelectionChange: setSelected,
-                  rowLabel: (r) => r.identifier_value,
-                }
-              : undefined
-          }
-        />
-      ) : null}
+        </div>
+      )}
 
       {inspectId ? (
         <UnknownItemInspectDrawer
           id={inspectId}
           activeTenantId={activeTenantId}
+          activeTenantName={activeTenantName}
           onClose={() => setInspectId(null)}
           onCompleted={(next) => {
             setInspectId(null);
