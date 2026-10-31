@@ -240,8 +240,10 @@
 .stock-store-grid > .desk-guidance {
   max-width: none;
 }
-/* With no items panel (no snapshot), the guide takes the whole row. */
-.stock-store-grid > .desk-guidance:only-child {
+/* With no items panel (no snapshot) the grid holds only the pager foot (hidden when
+ * empty) and the guide, which then takes the whole row. */
+.stock-store-grid > .desk-guidance:only-child,
+.stock-store-grid > .stock-results__foot + .desk-guidance {
   grid-column: 1 / -1;
 }
 
