@@ -42,3 +42,407 @@
   font-size: var(--text-machine);
   color: var(--color-text-muted);
 }
+
+/* ---- RT-1015: v4.0 «Ink & Receipt» on the Shifts surface ----------------------
+ * Opt-in by `surface--shifts` so other screens keep their shapes until their own
+ * slice. Role tokens only (tints by color-mix), so no new colour role or contrast
+ * pair (C5). Dubai stays (C9). Direction is words and a sign; the marks below are
+ * decoration and never carry it alone (UX-13). */
+
+.surface--shifts .section-panel {
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-resting);
+}
+
+/* The variance formula strip under the band: the rule in words, then as tokens. */
+.shift-formula {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-search);
+  background: var(--color-surface);
+}
+.shift-formula__icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: 40px;
+  block-size: 40px;
+  border-radius: var(--radius-field-lg);
+  background: var(--color-ink);
+  color: var(--color-mint);
+}
+.shift-formula__body {
+  display: flex;
+  flex: 1 1 260px;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-inline-size: 0;
+}
+.shift-formula__lead {
+  color: var(--color-text);
+  font-size: var(--text-control);
+}
+.shift-formula__eq {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.shift-token {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  block-size: 34px;
+  padding-inline: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-field-lg);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  font-size: var(--text-control);
+  font-weight: var(--weight-strong);
+}
+.shift-token--result {
+  border-color: var(--color-ink);
+  background: var(--color-ink);
+  color: var(--color-on-ink);
+}
+.shift-token--result em {
+  color: var(--color-mint);
+  font-style: normal;
+}
+.shift-op {
+  inline-size: 16px;
+  color: var(--color-text-muted);
+  font-size: var(--text-section-title);
+  text-align: center;
+}
+.shift-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-inline-start: auto;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.shift-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A direction mark beside the signed amount: a fixed half bar on the side of
+ * the direction. It has no length, so it never reads as a magnitude, and the
+ * word beside the amount stays the meaning. */
+.shift-vbar {
+  position: relative;
+  flex: none;
+  inline-size: 42px;
+  block-size: 14px;
+  align-self: center;
+}
+.shift-vbar::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 50%;
+  inline-size: 1px;
+  background: var(--color-text-muted);
+}
+.shift-vbar::after {
+  content: "";
+  position: absolute;
+  inset-block: 3px;
+  inline-size: 16px;
+  border-radius: 3px;
+  background: var(--color-text-muted);
+}
+.shift-vbar--short::after {
+  inset-inline-end: 50%;
+}
+.shift-vbar--over::after {
+  inset-inline-start: 50%;
+}
+.shift-vbar--none::after {
+  display: none;
+}
+.shift-variance--marked {
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* The list's results: one panel holding every state, the rows ruled (a row
+ * opens the close: a selectable table keeps its ruled rows, §12.5). */
+.shift-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+}
+.shift-results > .data-table__scroll {
+  margin-inline: calc(var(--space-5) * -1);
+}
+.shift-results .data-table :is(th, td):first-child {
+  padding-inline-start: var(--space-5);
+}
+.shift-results .data-table :is(th, td):last-child {
+  padding-inline-end: var(--space-5);
+}
+.shift-results .data-table thead th {
+  background: var(--color-surface);
+}
+.shift-results .data-table__row td:not(:last-child) {
+  white-space: nowrap;
+}
+.shift-results > .shift-pager {
+  padding-block-start: var(--space-3);
+  border-block-start: 1px dashed var(--color-border);
+}
+
+/* Close-kind pills: text first, a small rotated square leads in the text colour. */
+.surface--shifts .shift-kind {
+  gap: 6px;
+  block-size: 26px;
+  padding: 0 10px;
+  border-radius: 9px;
+  font-size: var(--text-meta);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+}
+.surface--shifts .shift-kind::before {
+  content: "";
+  flex: none;
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 2px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+
+/* The time bar: an Ink hero band on the detail page (D-V4), the open and close
+ * times as a span, the server's recording time as a mark. Every time is also
+ * written out below it. */
+.shift-timebar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  overflow: hidden;
+  border: 1px solid var(--color-ink);
+  border-radius: var(--radius-panel);
+  background-color: var(--color-ink);
+  background-image: linear-gradient(
+      color-mix(in srgb, var(--color-mint) 6%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--color-mint) 6%, transparent) 1px,
+      transparent 1px
+    ),
+    radial-gradient(
+      420px 220px at 0% 0%,
+      color-mix(in srgb, var(--color-mint) 26%, transparent),
+      transparent 70%
+    );
+  background-size: 24px 24px, 24px 24px, 100% 100%;
+  box-shadow: var(--shadow-resting);
+  color: var(--color-on-ink);
+  --color-focus-ring: var(--color-mint);
+}
+.shift-timebar__track {
+  position: relative;
+  block-size: 10px;
+  margin-block: var(--space-2);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--color-on-ink) 8%, transparent);
+}
+.shift-timebar__span {
+  position: absolute;
+  inset-block: 0;
+  border-radius: 5px;
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--color-mint) 35%, transparent),
+    var(--color-mint)
+  );
+}
+/* The fade follows the time axis, which runs from the inline start. */
+.shift-timebar__span:dir(rtl) {
+  background: linear-gradient(
+    to left,
+    color-mix(in srgb, var(--color-mint) 35%, transparent),
+    var(--color-mint)
+  );
+}
+.shift-timebar__mark {
+  position: absolute;
+  inset-block: -5px;
+  inline-size: 4px;
+  border-radius: 2px;
+  background: var(--color-on-ink);
+}
+.shift-timebar__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-6);
+}
+.shift-timebar__fact {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 2px;
+  min-inline-size: 0;
+  margin: 0;
+}
+.shift-timebar__value {
+  margin: 0;
+  color: var(--color-on-ink);
+  font-size: var(--text-body);
+  font-weight: var(--weight-strong);
+  font-variant-numeric: tabular-nums;
+}
+.shift-timebar__label {
+  color: var(--color-ink-muted);
+  font-size: var(--text-meta);
+}
+.shift-timebar__legend {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: var(--text-meta);
+}
+
+/* The cash reconciliation as a receipt card: the variance is the figure; the
+ * ledger below the perforation is every figure exactly as served. */
+.surface--shifts .receipt-card {
+  --receipt-notch-fill: var(--color-background);
+}
+.shift-receipt__figure {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+}
+.shift-receipt__figure-label {
+  flex-basis: 100%;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+  font-weight: var(--weight-medium);
+}
+.shift-receipt__direction {
+  color: var(--color-text-muted);
+  font-size: var(--text-control);
+  font-weight: var(--weight-strong);
+}
+.shift-ledger {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  inline-size: 100%;
+  color: var(--color-text);
+  font-size: var(--text-body);
+}
+.shift-ledger .surface__detail {
+  max-width: none;
+  margin: 0;
+}
+.shift-ledger__note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.shift-sign {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 18px;
+  block-size: 18px;
+  margin-inline-end: var(--space-2);
+  border-radius: 6px;
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  font-size: var(--text-meta);
+  font-weight: var(--weight-strong);
+}
+
+/* Read-only detail tables as strips (§12.5). */
+.surface--shifts .data-table--strips {
+  border-collapse: separate;
+  border-spacing: 0 6px;
+}
+.surface--shifts .data-table--strips tbody .data-table__row :is(td, th) {
+  background: var(--color-surface-sunken);
+  border-block: 1px solid var(--color-border);
+}
+.surface--shifts .data-table--strips tbody .data-table__row > :first-child {
+  border-inline-start: 1px solid var(--color-border);
+  border-start-start-radius: 12px;
+  border-end-start-radius: 12px;
+}
+.surface--shifts .data-table--strips tbody .data-table__row > :last-child {
+  border-inline-end: 1px solid var(--color-border);
+  border-start-end-radius: 12px;
+  border-end-end-radius: 12px;
+}
+.surface--shifts .data-table--strips thead th {
+  border-bottom: 0;
+}
+
+/* Forced colours: Ink surfaces map to Canvas/CanvasText with a 1px border; the
+ * Tower grid, glows and ornament go; the span reads as Highlight; the receipt
+ * card keeps its dashed CanvasText rule (receipt-card.css). */
+@media (forced-colors: active) {
+  .surface--shifts .section-panel {
+    box-shadow: none;
+  }
+  .shift-formula__icon,
+  .shift-token--result {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .shift-token--result em {
+    color: CanvasText;
+  }
+  .shift-timebar {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    box-shadow: none;
+    color: CanvasText;
+  }
+  .shift-timebar__track {
+    border: 1px solid CanvasText;
+    background: Canvas;
+  }
+  .shift-timebar__span {
+    background: Highlight;
+  }
+  .shift-timebar__mark {
+    background: CanvasText;
+  }
+  .shift-timebar__value,
+  .shift-timebar__label,
+  .shift-timebar__legend {
+    color: CanvasText;
+  }
+  .shift-vbar::before,
+  .shift-vbar::after {
+    background: CanvasText;
+  }
+  .surface--shifts .shift-kind {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .surface--shifts .shift-kind::before {
+    background: CanvasText;
+  }
+  .surface--shifts .data-table--strips tbody .data-table__row :is(td, th) {
+    background: Canvas;
+    border-color: CanvasText;
+  }
+}
