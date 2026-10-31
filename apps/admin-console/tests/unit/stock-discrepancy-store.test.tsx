@@ -571,7 +571,8 @@ describe("StockDiscrepancyStore (RT-178)", () => {
     const panel = screen
       .getByRole("heading", { level: 2, name: "Items below zero in ERPNext" })
       .closest("section") as HTMLElement;
-    expect(panel.querySelector(".section-index")?.textContent).toBe("01");
+    // One numbered section on a page is a mistake (DESIGN §12.2): none here.
+    expect(panel.querySelector(".section-index")).toBeNull();
   });
 
   test("RT-1017: a blocked primary keeps its reason inside the band", async () => {
@@ -607,5 +608,17 @@ describe("StockDiscrepancyStore (RT-178)", () => {
       screen.queryByRole("heading", { level: 2, name: "Items below zero in ERPNext" }),
     ).toBeNull();
     expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  test("RT-1017: rows the API served are shown even if the status says no snapshot", async () => {
+    activeContext.mockReturnValue(ctx("owner"));
+    listErpnextNegativeOnHand.mockResolvedValue(
+      page(snapshot({ status: "no_snapshot", runId: null, readAt: null, recordedAt: null }), [
+        item(),
+      ]),
+    );
+    renderStore();
+    expect(await screen.findByText("ITM-0001")).toBeDefined();
+    expect(document.body.textContent ?? "").not.toMatch(/no items below zero/i);
   });
 });

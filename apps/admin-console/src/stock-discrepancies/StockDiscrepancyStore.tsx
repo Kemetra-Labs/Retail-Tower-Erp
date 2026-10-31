@@ -24,8 +24,8 @@ import { ScopeMismatchBanner } from "@/shell/ScopeMismatchBanner";
  * scope line, and "Request fresh snapshot" as its one primary). The band shows
  * no store name and no facts: the page response serves neither (the snapshot's
  * own facts stay in the snapshot panel below). Notices and the snapshot panel
- * sit under the band; the negative items are one numbered panel, shown only
- * when a snapshot exists; the Desk steps are a guide card.
+ * sit under the band; the negative items are one panel, shown when a snapshot
+ * exists or rows were served; the Desk steps are a guide card.
  */
 import { useState } from "react";
 import { Link, useParams } from "react-router";
@@ -277,18 +277,21 @@ function ItemsFoot({ data }: Readonly<{ data: StoreData }>): React.JSX.Element {
 }
 
 /**
- * The negative items as one numbered panel, only when a snapshot exists: with
- * none, the state notice above says the stock is unknown and no panel claims
- * otherwise (AC2).
+ * The negative items as one panel, when a snapshot exists or rows were served:
+ * with neither, the state notice above says the stock is unknown and no panel
+ * claims otherwise (AC2).
  */
 function ItemsSection({
   snapshot,
   data,
 }: Readonly<{ snapshot: StockSnapshotStatus; data: StoreData }>): React.JSX.Element {
   const t = useT();
-  if (!statusView(snapshot.status).hasSnapshot) return <ItemsFoot data={data} />;
+  // Rows the API served are always shown, whatever the status says.
+  if (!statusView(snapshot.status).hasSnapshot && data.items.length === 0) {
+    return <ItemsFoot data={data} />;
+  }
   return (
-    <DetailPanel title={t("stock.items.caption")} index={1} className="stock-results">
+    <DetailPanel title={t("stock.items.caption")} className="stock-results">
       <NoNegativeItems snapshot={snapshot} itemCount={data.items.length} />
       <ItemsTable items={data.items} />
       <ItemsFoot data={data} />

@@ -2,7 +2,7 @@ import { expectNoAxeViolations } from "./axe";
 /**
  * RT-1017 — the ERPNext stock discrepancy band in a real layout. The list band
  * carries no facts and no action (the page is paged and the API serves no
- * whole-set figure): from 1200px it stays within 132px with a very long Arabic
+ * whole-set figure): at 1280px it stays within 132px with a very long Arabic
  * tenant name; on a phone it is a plain light header and the page never scrolls
  * sideways. The store page's one primary sits in the band. Both routes pass
  * axe. Forced colours map the band and the panels to system colours.
@@ -138,11 +138,11 @@ test("390: a long unbroken store name wraps; the page never scrolls sideways", a
     .first()
     .evaluate((el) => el.getBoundingClientRect().width);
   expect(cell).toBeGreaterThanOrEqual(200);
-  // Below 640px the band is a plain light header: no Ink ground.
-  const ground = await page
+  // Below 640px the band is a plain light header: its ornament (the Tower grid) is not drawn.
+  const ornament = await page
     .locator("header.list-band")
-    .evaluate((el) => getComputedStyle(el).backgroundColor);
-  expect(ground).not.toBe("rgb(10, 33, 37)");
+    .evaluate((el) => getComputedStyle(el).backgroundImage);
+  expect(ornament).toBe("none");
 });
 
 test("390: the store page keeps its primary and the page never scrolls sideways", async ({

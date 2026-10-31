@@ -128,13 +128,15 @@ export function negativeCountLabel(status: SnapshotStatusCode, count: number): M
 
 /**
  * Up to two initials from a store's name, for the decorative tile in the list
- * (RT-1017). Leading letters or digits of the first two words; never empty.
+ * (RT-1017): the first letter or digit of each of the first two words (words
+ * with none are skipped); never empty.
  */
 export function storeInitials(name: string): string {
-  const words = name.split(/[\s._-]+/).filter(Boolean);
-  const initials = words
+  const initials = name
+    .split(/\s+/)
+    .map((word) => /[\p{L}\p{N}]/u.exec(word)?.[0] ?? "")
+    .filter(Boolean)
     .slice(0, 2)
-    .map((word) => Array.from(word)[0] ?? "")
     .join("")
     .toUpperCase();
   return initials || "?";

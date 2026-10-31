@@ -240,6 +240,10 @@
 .stock-store-grid > .desk-guidance {
   max-width: none;
 }
+/* With no items panel (no snapshot), the guide takes the whole row. */
+.stock-store-grid > .desk-guidance:only-child {
+  grid-column: 1 / -1;
+}
 
 /* The Desk steps: numbered in an Ink tile; the warning step carries the danger
  * text colour on the surface (an existing pair). The marks are decoration:
@@ -252,7 +256,8 @@
   flex-direction: column;
   gap: var(--space-3);
   padding-inline-start: 0;
-  list-style: none;
+  /* An empty marker, not `none`: Safari drops the list role on `none`. */
+  list-style-type: "";
   counter-reset: desk-step;
 }
 .surface--v4 .desk-guidance li {
@@ -263,6 +268,7 @@
 }
 .surface--v4 .desk-guidance li::before {
   content: counter(desk-step);
+  content: counter(desk-step) / "";
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -276,6 +282,7 @@
 }
 .surface--v4 .desk-guidance li:last-child::before {
   content: "!";
+  content: "!" / "";
   border: 1px solid var(--color-danger);
   background: var(--color-surface);
   color: var(--color-danger);

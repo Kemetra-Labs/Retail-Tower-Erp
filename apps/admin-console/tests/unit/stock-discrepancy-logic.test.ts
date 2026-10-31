@@ -217,7 +217,9 @@ describe("paging consistency, store id, refresh block (P3 fixes)", () => {
     expect(storeInitials("Cairo Festival City")).toBe("CF");
     expect(storeInitials("zamalek")).toBe("Z");
     expect(storeInitials("فرع مدينة نصر")).toBe("فم");
-    expect(storeInitials("  Store-7 ")).toBe("S7");
+    expect(storeInitials("  Store-7 ")).toBe("S");
+    expect(storeInitials("(Cairo) #12 Mall")).toBe("C1");
+    expect(storeInitials("- Mall")).toBe("M");
     expect(storeInitials("")).toBe("?");
     expect(storeInitials("   ")).toBe("?");
   });
