@@ -241,7 +241,7 @@ export const catalog: MessagesOf<typeof ar> = {
   "catalog.edit.reloadFailed": "Could not reload this item. What you typed is kept.",
   // RT-1010: the note beside the edit form. Each step is true of the page today.
   "catalog.edit.after.title": "What happens after you save",
-  "catalog.edit.after.changed": "Only the values you changed are saved, for the whole tenant.",
+  "catalog.edit.after.changed": "The new values apply to this item across the whole tenant.",
   "catalog.edit.after.stores": "Stores with their own values keep them.",
   "catalog.edit.after.price": "The price is not changed here.",
 

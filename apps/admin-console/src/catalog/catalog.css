@@ -347,6 +347,18 @@
   border-bottom: 0;
 }
 
+/* The shared panel table drops the last row's bottom rule; a strip is closed on
+ * all sides, so the last strip keeps its own (the rule outranks surface.css). */
+.catalog-v4
+  .section-panel
+  > .data-table__scroll
+  > .data-table--strips
+  tbody
+  tr:last-child
+  :is(td, th) {
+  border-bottom: 1px solid var(--color-border);
+}
+
 /* A strip table sits inset in its panel, so the strips never touch its edge. */
 .catalog-v4 .section-panel > .data-table__scroll {
   padding-inline: var(--space-3);

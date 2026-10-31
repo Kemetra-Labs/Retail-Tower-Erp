@@ -568,13 +568,12 @@ describe("CatalogProductDetail v4.0 (RT-1010)", () => {
     expect(container.textContent).not.toMatch(/ERPNext/i);
   });
 
-  test("the loaded page opts into the v4 surface and its read-only tables are strips", async () => {
+  test("the loaded page opts into the catalog v4 look and its read-only tables are strips", async () => {
     consoleGetCatalogProduct.mockResolvedValue(one(detail({ identifiers: [identifier()] })));
     const { container } = renderDetail();
     await loaded();
     const root = container.querySelector(".surface");
     expect(root?.classList.contains("catalog-v4")).toBe(true);
-    expect(root?.classList.contains("surface--v4")).toBe(true);
     const identifiers = within(section("Identifiers")).getByRole("table");
     expect(identifiers.classList.contains("data-table--strips")).toBe(true);
   });

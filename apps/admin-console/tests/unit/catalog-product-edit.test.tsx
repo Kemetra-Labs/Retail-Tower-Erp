@@ -790,7 +790,7 @@ describe("CatalogProductEdit v4.0 (RT-1010)", () => {
       .getAllByRole("listitem")
       .map((li) => li.textContent);
     expect(steps).toEqual([
-      "Only the values you changed are saved, for the whole tenant.",
+      "The new values apply to this item across the whole tenant.",
       "Stores with their own values keep them.",
       "The price is not changed here.",
     ]);
@@ -801,5 +801,7 @@ describe("CatalogProductEdit v4.0 (RT-1010)", () => {
     await loaded();
     expect(container.querySelector("form.form-panel.catalog-edit")).not.toBeNull();
     expect(screen.getByText("Prices are not edited here.")).toBeDefined();
+    expect(screen.queryByRole("textbox", { name: /^Price/ })).toBeNull();
+    expect(screen.queryByRole("spinbutton")).toBeNull();
   });
 });

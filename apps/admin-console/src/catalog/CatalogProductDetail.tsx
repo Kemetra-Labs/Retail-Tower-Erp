@@ -19,7 +19,7 @@ import { Banner } from "@/components/Banner";
  * links to that store's on-hand stock (RT-728); it shows no ERP data.
  *
  * RT-1010 (v4.0): the loaded page opts into the v4 panel and pill shapes
- * (`surface--v4 catalog-v4`) and numbers its sections 01 to 03; behaviour,
+ * (`catalog-v4`) and numbers its sections 01 to 03; behaviour,
  * reads and copy are unchanged.
  */
 import { DetailGrid, HeaderStatus } from "@/components/DetailPanel";
@@ -155,7 +155,7 @@ function Loaded({
     setEditingStore(storeId);
   }
   return (
-    <div className="surface surface--v4 catalog-v4">
+    <div className="surface catalog-v4">
       <BackLink />
       <PageHeader
         title={<bdi dir="auto">{summary.name}</bdi>}

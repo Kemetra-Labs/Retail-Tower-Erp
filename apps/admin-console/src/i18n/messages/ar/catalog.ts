@@ -234,7 +234,7 @@ export const catalog = {
   "catalog.edit.reloadFailed": "تعذّرت إعادة تحميل هذا الصنف. ما كتبته محفوظ في النموذج.",
   // RT-1010: the note beside the edit form. Each step is true of the page today.
   "catalog.edit.after.title": "ماذا يحدث بعد الحفظ",
-  "catalog.edit.after.changed": "تُحفظ القيم التي غيّرتها فقط، على مستوى المؤسسة كلها.",
+  "catalog.edit.after.changed": "تسري القيم الجديدة على هذا الصنف في المؤسسة كلها.",
   "catalog.edit.after.stores": "المتاجر التي لها قيم خاصة تحتفظ بها.",
   "catalog.edit.after.price": "السعر لا يتغيّر من هنا.",
 

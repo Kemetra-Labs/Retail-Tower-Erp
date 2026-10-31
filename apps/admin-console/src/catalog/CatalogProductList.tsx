@@ -76,7 +76,7 @@ function Shell({
 }: Readonly<{ scope: CatalogScope; children: React.ReactNode }>): React.JSX.Element {
   const t = useT();
   return (
-    <div className="surface surface--v4 catalog-v4">
+    <div className="surface catalog-v4">
       <ListHeaderBand
         group={t("shell.nav.section.operations")}
         title={t("catalog.list.title")}

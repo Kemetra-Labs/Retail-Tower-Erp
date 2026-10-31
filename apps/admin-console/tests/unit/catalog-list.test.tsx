@@ -669,7 +669,7 @@ describe("CatalogProductList v4.0 (RT-1010)", () => {
     expect(container.querySelector(".surface")?.classList.contains("catalog-v4")).toBe(true);
   });
 
-  test("an empty result and the not-available state sit in the same panel", async () => {
+  test("an empty result sits in the same panel", async () => {
     consoleListCatalogProducts.mockResolvedValue(page([]));
     renderList();
     const empty = await screen.findByText("There are no active items yet.");
