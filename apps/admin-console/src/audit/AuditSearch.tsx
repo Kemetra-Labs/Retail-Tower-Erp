@@ -17,6 +17,7 @@ import { useEffect, useState } from "react";
 import { AuditFilters } from "./AuditFilters";
 import { AuditInspectDrawer } from "./AuditInspectDrawer";
 import { AuditPager } from "./AuditPager";
+import { AuditBanner, AuditResultsPanel } from "./AuditResultsPanel";
 import { OperatorScopePromptLike } from "./AuditScopePrompt";
 import { AuditTable } from "./AuditTable";
 import type { AuditFilters as Filters } from "./auditQueryKeys";
@@ -44,6 +45,16 @@ function ScopeLine({
   );
 }
 
+/** The band's evidence note: rows keep their recorded UTC times (RT-1019). */
+function UtcNote(): React.JSX.Element {
+  const t = useT();
+  return (
+    <p className="audit-band-note">
+      {t.rich("audit.band.utc", { zone: <bdi dir="ltr">UTC</bdi> })}
+    </p>
+  );
+}
+
 /** A failed "Load more" page, with a retry of just that page (RT-269). */
 function ContinuationBanner({
   error,
@@ -51,18 +62,20 @@ function ContinuationBanner({
 }: Readonly<{ error: AuditError; onRetry: () => void }>): React.JSX.Element {
   const t = useT();
   return (
-    <Banner
-      variant="danger"
-      message={t(
-        error.kind === "forbidden" ? "audit.continuation.forbidden" : "audit.continuation.failed",
-      )}
-      requestId={error.requestId}
-      action={
-        <button type="button" className="btn-secondary" onClick={onRetry}>
-          {t("audit.continuation.retry")}
-        </button>
-      }
-    />
+    <AuditBanner>
+      <Banner
+        variant="danger"
+        message={t(
+          error.kind === "forbidden" ? "audit.continuation.forbidden" : "audit.continuation.failed",
+        )}
+        requestId={error.requestId}
+        action={
+          <button type="button" className="btn-secondary" onClick={onRetry}>
+            {t("audit.continuation.retry")}
+          </button>
+        }
+      />
+    </AuditBanner>
   );
 }
 
@@ -126,6 +139,7 @@ export function AuditSearch(): React.JSX.Element {
         group={t("erp.nav.section")}
         title={t("audit.title")}
         subtitle={<ScopeLine tenant={activeTenant} store={activeStore} />}
+        actions={<UtcNote />}
       />
 
       {/* Keyed on scope so the uncontrolled inputs clear on a scope switch (S6). */}
@@ -137,55 +151,63 @@ export function AuditSearch(): React.JSX.Element {
         onClear={onClear}
       />
 
-      {error ? (
-        <Banner
-          variant="danger"
-          message={t(
-            error.kind === "forbidden" ? "audit.errors.forbidden" : "audit.errors.searchFailed",
-          )}
-          requestId={error.requestId}
-        />
-      ) : null}
+      <AuditResultsPanel>
+        {error ? (
+          <AuditBanner>
+            <Banner
+              variant="danger"
+              message={t(
+                error.kind === "forbidden" ? "audit.errors.forbidden" : "audit.errors.searchFailed",
+              )}
+              requestId={error.requestId}
+            />
+          </AuditBanner>
+        ) : null}
 
-      {showPreQuery ? (
-        <p className="audit-prequery">
-          {t.rich("audit.prequery", { tenant: <bdi>{activeTenant.name}</bdi> })}
-        </p>
-      ) : null}
+        {showPreQuery ? (
+          <p className="audit-prequery">
+            {t.rich("audit.prequery", { tenant: <bdi>{activeTenant.name}</bdi> })}
+          </p>
+        ) : null}
 
-      {isLoading ? <ListState state="loading" label={t("audit.list.loadingNoun")} /> : null}
+        {isLoading ? <ListState state="loading" label={t("audit.list.loadingNoun")} /> : null}
 
-      {showEmpty ? (
-        <ListState
-          state="empty"
-          emptyMessage={t("audit.list.empty")}
-          action={
-            <button type="button" className="btn-ghost" onClick={onClear}>
-              {t("audit.list.clearFilters")}
-            </button>
-          }
-        />
-      ) : null}
-
-      {showRows ? (
-        <>
-          <AuditTable rows={rows} onInspect={setInspecting} />
-          {/* RT-269 (UX-10): a failed "Load more" keeps the rows above and
-              offers a retry of just that page; it replaces "Load more". */}
-          {continuationError ? (
-            <ContinuationBanner error={continuationError} onRetry={retryContinuation} />
-          ) : null}
-          <AuditPager
-            loadedCount={rows.length}
-            hasMore={hasMore && !continuationError}
-            isFetchingNextPage={isFetchingNextPage}
-            onLoadMore={loadMore}
+        {showEmpty ? (
+          <ListState
+            state="empty"
+            emptyMessage={t("audit.list.empty")}
+            action={
+              <button type="button" className="btn-ghost" onClick={onClear}>
+                {t("audit.list.clearFilters")}
+              </button>
+            }
           />
-        </>
-      ) : null}
+        ) : null}
+
+        {showRows ? (
+          <>
+            <AuditTable rows={rows} onInspect={setInspecting} />
+            {/* RT-269 (UX-10): a failed "Load more" keeps the rows above and
+                offers a retry of just that page; it replaces "Load more". */}
+            {continuationError ? (
+              <ContinuationBanner error={continuationError} onRetry={retryContinuation} />
+            ) : null}
+            <AuditPager
+              loadedCount={rows.length}
+              hasMore={hasMore && !continuationError}
+              isFetchingNextPage={isFetchingNextPage}
+              onLoadMore={loadMore}
+            />
+          </>
+        ) : null}
+      </AuditResultsPanel>
 
       {inspecting ? (
-        <AuditInspectDrawer row={inspecting} onClose={() => setInspecting(null)} />
+        <AuditInspectDrawer
+          row={inspecting}
+          scope={<ScopeLine tenant={activeTenant} store={activeStore} />}
+          onClose={() => setInspecting(null)}
+        />
       ) : null}
     </div>
   );

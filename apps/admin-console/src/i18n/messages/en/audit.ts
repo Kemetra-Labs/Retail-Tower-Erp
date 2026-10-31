@@ -4,6 +4,9 @@ import type { MessagesOf } from "../types";
 export const audit: MessagesOf<typeof ar> = {
   "audit.title": "Audit",
   "audit.header.scope": "{tenant} · {store}",
+  "audit.band.utc": "Times are {zone} as recorded",
+  "audit.panel.hint":
+    "Each row is evidence as recorded: codes are not translated and times are not converted.",
   "audit.scopePrompt":
     "Select a tenant to search its audit activity. Use the tenant selector in the scope bar above to choose where you are working.",
 
