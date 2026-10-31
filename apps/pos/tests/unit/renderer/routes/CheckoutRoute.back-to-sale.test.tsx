@@ -13,6 +13,7 @@ import { useFeatureFlagsStore } from '../../../../src/renderer/stores/feature-fl
 import { CartState } from '../../../../src/shared/cart/cart-state.js';
 import type { PaymentIntentEnvelope } from '../../../../src/shared/cart/handoff-envelope.js';
 import type { PaymentAttemptRendererView } from '../../../../src/shared/payments/types.js';
+import { expectNoAxeViolations } from '../../../../src/renderer/test-utils/axe-config.js';
 
 /**
  * RT-26 — CheckoutRoute Back / Esc wiring. Main (`cart.returnToSale`) decides;
@@ -539,5 +540,10 @@ describe('CheckoutRoute — RT-240 Back reasons use the catalog wording (M-P1 / 
     expect(screen.getByTestId('payment-surface-back-blocked')).toHaveTextContent(
       /^اضغط Esc لإغلاق إدخال المبلغ أولاً\.$/,
     );
+    // RT-1025: freeze 15 approves M-P3 in the neutral tone, not info.
+    const notice = screen.getByTestId('payment-surface-back-blocked');
+    expect(notice).toHaveAttribute('data-tone', 'neutral');
+    expect(notice.querySelector('[data-icon="neutral"]')).not.toBeNull();
+    await expectNoAxeViolations(screen.getByTestId('payment-surface'));
   });
 });

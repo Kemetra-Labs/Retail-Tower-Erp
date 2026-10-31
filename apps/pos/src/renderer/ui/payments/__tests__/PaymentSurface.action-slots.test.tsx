@@ -192,10 +192,70 @@ describe('RT-238 — the action bar is outside the scrolling regions', () => {
     expect(end.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('has both slots from the start, even before any action exists', () => {
-    render(<PaymentSurface _testBridge={makeBridge()} />);
+  // RT-1025 (approved spec change, owner decision 2026-10-31): before any tender
+  // the commit slot shows an unavailable commit with its reason, so the money
+  // column is never blank. Cancel stays empty (15 §4 A2: no opposite action).
+  it('before any tender: an unavailable commit says why, and the cancel slot stays empty', () => {
+    const bridge = makeBridge();
+    render(<PaymentSurface _testBridge={bridge} />);
     expect(slot('start')).toBeEmptyDOMElement();
-    expect(slot('end')).toBeEmptyDOMElement();
+    const commit = within(slot('end')).getByTestId('payment-surface-commit-unavailable');
+    expect(commit).toHaveClass('v5-btn', 'v5-btn--primary', 'v5-btn--commit');
+    expect(commit).toBeDisabled();
+    expect(commit).toHaveAccessibleDescription('اختر طريقة الدفع');
+    const reason = screen.getByTestId('payment-surface-commit-reason');
+    expect(reason).toHaveTextContent(/^اختر طريقة الدفع$/);
+    // M-P30 is guidance, not a shortfall: the neutral reason tone (freeze 15).
+    expect(reason).toHaveAttribute('data-tone', 'neutral');
+    fireEvent.click(commit);
+    expect(bridge.confirm).not.toHaveBeenCalled();
+  });
+
+  it('while the chosen tender is starting, «اختر طريقة الدفع» is no longer said', async () => {
+    const bridge = makeBridge();
+    let finishStart: (v: { kind: 'ok'; payment_attempt_id: string }) => void = () => {};
+    const pendingStart = new Promise<{ kind: 'ok'; payment_attempt_id: string }>((resolve) => {
+      finishStart = resolve;
+    });
+    bridge.start.mockReturnValueOnce(pendingStart);
+    render(<PaymentSurface _testBridge={bridge} />);
+    await act(async () => {
+      screen.getByTestId('tender-cash').click();
+      await Promise.resolve();
+    });
+    expect(bridge.start).toHaveBeenCalled();
+    expect(screen.queryByTestId('payment-surface-commit-unavailable')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('payment-surface-commit-reason')).not.toBeInTheDocument();
+    await act(async () => {
+      finishStart({ kind: 'ok', payment_attempt_id: 'pa-001' });
+      await Promise.resolve();
+    });
+  });
+
+  it('a refused start shows its refusal alone: no unavailable commit beside it', async () => {
+    const bridge = makeBridge();
+    bridge.start.mockResolvedValueOnce({ kind: 'refused', reason: 'x' });
+    render(<PaymentSurface _testBridge={bridge} />);
+    await act(async () => {
+      screen.getByTestId('tender-cash').click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(await screen.findByText('تعذّر بدء عملية الدفع. يرجى المحاولة مرة أخرى.')).toBeVisible();
+    expect(screen.queryByTestId('payment-surface-commit-unavailable')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('payment-surface-commit-reason')).not.toBeInTheDocument();
+  });
+
+  it('choosing a tender replaces the unavailable commit with the entry apply', async () => {
+    await openCash();
+    expect(screen.queryByTestId('payment-surface-commit-unavailable')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('payment-surface-commit-reason')).not.toBeInTheDocument();
+    expect(within(slot('end')).getByTestId('cash-entry-confirm')).toBeInTheDocument();
+  });
+
+  it('before any tender the unavailable commit passes axe', async () => {
+    const { container } = render(<PaymentSurface _testBridge={makeBridge()} />);
+    await expectNoAxeViolations(container);
   });
 });
 
