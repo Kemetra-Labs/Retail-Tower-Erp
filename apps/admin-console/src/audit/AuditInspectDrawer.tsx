@@ -21,6 +21,8 @@ import "./audit.css";
 
 export interface AuditInspectDrawerProps {
   row: AuditRow;
+  /** The scope line of the Ink header (RT-995): the tenant, and the store if active. */
+  scope?: React.ReactNode;
   onClose: () => void;
 }
 
@@ -47,6 +49,7 @@ function actorValue(row: AuditRow): React.ReactNode {
 
 export function AuditInspectDrawer({
   row,
+  scope,
   onClose,
 }: Readonly<AuditInspectDrawerProps>): React.JSX.Element {
   const t = useT();
@@ -59,8 +62,8 @@ export function AuditInspectDrawer({
   const labelKey = auditActionLabelKey(row);
 
   return (
-    <Drawer title={t("audit.inspect.title")} onClose={onClose}>
-      <dl className="surface__detail">
+    <Drawer title={t("audit.inspect.title")} scope={scope} onClose={onClose}>
+      <dl className="surface__detail audit-inspect__fields">
         <Field
           label={t("audit.field.time")}
           value={<bdi dir="ltr">{formatEvidenceTime(row.occurred_at)}</bdi>}

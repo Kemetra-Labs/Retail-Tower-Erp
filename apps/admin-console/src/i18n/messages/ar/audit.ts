@@ -9,6 +9,10 @@ import type { Messages } from "../types";
 export const audit = {
   "audit.title": "سجل التدقيق",
   "audit.header.scope": "{tenant} · {store}",
+  // RT-1019: the band's evidence note and the results panel's hint. Rows are
+  // evidence: the code is not translated and the time is not converted.
+  "audit.band.utc": "الأوقات بتوقيت {zone} كما سُجّلت",
+  "audit.panel.hint": "كل صف دليل كما سُجّل: لا يُترجم الرمز ولا تُحوَّل الأوقات.",
   "audit.scopePrompt":
     "اختر مؤسسة للبحث في نشاط التدقيق الخاص بها. استخدم محدِّد المؤسسة في شريط النطاق أعلاه لاختيار المكان الذي تعمل فيه.",
 

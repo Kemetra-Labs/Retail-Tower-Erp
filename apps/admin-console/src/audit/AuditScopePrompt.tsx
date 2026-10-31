@@ -6,13 +6,16 @@
 import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/i18n";
 import "../shell/surface.css";
+import "./audit.css";
 
 export function OperatorScopePromptLike(): React.JSX.Element {
   const t = useT();
   return (
     <div className="surface">
       <PageHeader title={t("audit.title")} />
-      <p className="scope-prompt">{t("audit.scopePrompt")}</p>
+      <div className="section-panel audit-results audit-prompt">
+        <p className="scope-prompt">{t("audit.scopePrompt")}</p>
+      </div>
     </div>
   );
 }
