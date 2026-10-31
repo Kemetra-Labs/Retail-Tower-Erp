@@ -33,6 +33,7 @@ test("production sidebar shows no RF-* placeholder entries", async ({ page, t })
     t("inventory.nav.label"),
     t("shell.nav.stockDiscrepancies"),
     t("shell.nav.shiftCloses"),
+    t("reports.nav.label"),
     t("devices.nav.label"),
     t("erp.nav.label"),
     t("saleSync.nav.label"),

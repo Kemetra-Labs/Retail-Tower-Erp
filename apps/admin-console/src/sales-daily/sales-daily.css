@@ -217,6 +217,12 @@
   margin: 0;
   text-align: end;
 }
+/* The panel has no scroll region, so a long amount wraps here (the tables keep
+ * their nowrap lines inside their own scroll region). */
+.daily-day__figures .daily-table__lines {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .daily-day__unknown {
   display: flex;
   flex-direction: column;
