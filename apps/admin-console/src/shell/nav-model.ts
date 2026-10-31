@@ -6,6 +6,7 @@ import type { MessageKey } from "@/i18n";
 import { canReadInventory } from "@/inventory/inventoryLogic";
 import { canReadPayers } from "@/payers/payerAccess";
 import { canUseProductReconciliation } from "@/product-reconciliation/productReconLogic";
+import { canOpenAnyReport } from "@/reports/reportsLogic";
 import { canUseSaleSyncOps } from "@/sale-sync/saleSyncLogic";
 import { canReadSales } from "@/sales/saleLogic";
 import { canReadShiftCloses } from "@/shift-closes/shiftCloseLogic";
@@ -94,6 +95,9 @@ const TENANT_NAV: readonly GatedGroup[] = [
         icon: "cash",
         canRead: canReadShiftCloses,
       },
+      // RT-1020: the reports index (the daily report, the review screens and
+      // the proposed reports). Listed only for a role that can open one.
+      { label: "reports.nav.label", to: "/reports", icon: "audit", canRead: canOpenAnyReport },
       // RT-371: the device registry, for the roles the RT-365 API lets read it.
       { label: "devices.nav.label", to: "/devices", icon: "terminal", canRead: canReadDevices },
     ],

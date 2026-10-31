@@ -1,0 +1,129 @@
+/* RT-1020 (v4.0) the reports index. Existing role tokens only; tints by
+ * color-mix, so no new colour role or contrast pair (C5). Logical properties
+ * throughout (RTL by structure). The state of an item is always written in its
+ * pill; the pill's shape (solid, outlined, dashed) only reinforces it. */
+
+.reports {
+  gap: var(--space-6);
+}
+
+.reports-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.reports-group__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.reports-group__title {
+  margin: 0;
+  font: var(--weight-strong) var(--text-section-title) / var(--leading-title) var(--font-sans);
+}
+
+.reports-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 18.75rem), 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.reports-grid > li {
+  display: flex;
+  min-inline-size: 0;
+}
+
+.reports-card {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-inline-size: 0;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-resting);
+  color: var(--color-text);
+  text-decoration: none;
+}
+a.reports-card:hover {
+  border-color: var(--color-primary-emphasis);
+}
+/* A proposed report is a plain, dashed card: nothing to open, no preview. */
+.reports-card--proposed {
+  border-style: dashed;
+  background: var(--color-surface-sunken);
+  box-shadow: none;
+}
+
+.reports-card__title {
+  font: var(--weight-strong) var(--text-body) / var(--leading-title) var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.reports-card__question {
+  color: var(--color-text-muted);
+  font-size: var(--text-control);
+}
+.reports-card__question b {
+  color: var(--color-text);
+}
+.reports-card__open {
+  margin-block-start: auto;
+  padding-block-start: var(--space-2);
+  color: var(--color-primary-emphasis);
+  font: var(--weight-strong) var(--text-control) / var(--leading-tight) var(--font-sans);
+}
+
+.reports-pill {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  padding: 2px 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
+}
+.reports-pill::before {
+  content: "";
+  flex: none;
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 2px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+.reports-pill--available {
+  background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface));
+  color: var(--color-success);
+}
+.reports-pill--review {
+  background: var(--color-primary-soft);
+  color: var(--color-primary-emphasis);
+}
+.reports-pill--proposed {
+  border: 1px dashed var(--color-control-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+@media (forced-colors: active) {
+  .reports-card {
+    border-color: CanvasText;
+    box-shadow: none;
+  }
+  .reports-pill {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .reports-pill--proposed {
+    border-style: dashed;
+  }
+  .reports-card__open {
+    color: LinkText;
+  }
+}

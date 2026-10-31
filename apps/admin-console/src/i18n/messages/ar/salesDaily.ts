@@ -3,8 +3,6 @@ export const salesDaily = {
   // --- Entry and heading -------------------------------------------------------
   "salesDaily.entry": "المبيعات المستلمة يوميًا",
   "salesDaily.title": "المبيعات المستلمة يوميًا",
-  "salesDaily.sub":
-    "المبيعات التي استلمها الخادم لكل يوم عمل في {tenant}، للمتجر المختار في رأس النطاق أو لكل متاجر النطاق. للقراءة فقط.",
   "salesDaily.back": "المبيعات",
 
   // --- Range form --------------------------------------------------------------
@@ -70,4 +68,54 @@ export const salesDaily = {
   "salesDaily.retry": "إعادة المحاولة",
   "salesDaily.rateLimited": "طلبات كثيرة جدًا. أعد المحاولة عند انتهاء الانتظار.",
   "salesDaily.rateLimitedHint": "يعرض الشريط أعلى الصفحة وقت الانتظار المتبقي.",
+
+  // --- RT-1020 (v4.0): the report's band and day panel -------------------------
+  "salesDaily.band.group": "التقارير · المبيعات",
+  "salesDaily.band.label": "سياق التقرير من الخادم",
+  "salesDaily.band.subStore": "{store} · {tenant}",
+  "salesDaily.band.subScope": "كل متاجر النطاق · {tenant}",
+  "salesDaily.band.subTenant": "{tenant}",
+  "salesDaily.band.zone": "المنطقة الزمنية",
+  "salesDaily.band.asOf": "وقت القراءة",
+  "salesDaily.back.reports": "التقارير",
+  "salesDaily.day.title": "تفاصيل يوم العمل",
+  "salesDaily.day.hint": "الأرقام نفسها من صف اليوم في الجدولين أدناه، بلا حساب جديد.",
+  "salesDaily.day.pick": "يوم العمل",
+  "salesDaily.day.notBegunNote": "لم يبدأ يوم العمل هذا بعد، فلا أرقام له.",
+  "salesDaily.day.unknownNote": "تعذّر تحديد أرقام هذا اليوم، وهي ليست صفرًا.",
+  "salesDaily.day.salesLink": "مبيعات هذا اليوم",
+  "salesDaily.day.rowLink": "صف هذا اليوم في الجدول",
+
+  // --- RT-1020 (v4.0): the reports index ---------------------------------------
+  "reports.nav.label": "التقارير",
+  "reports.index.sub": "{tenant} · كل تقرير يجيب عن سؤال واحد بأرقام الخادم وسياقها",
+  "reports.index.noneOpen": "لا يتاح لدورك أي تقرير أو شاشة مراجعة هنا.",
+  "reports.group.sales": "المبيعات",
+  "reports.group.cash": "النقد والورديات",
+  "reports.group.stock": "المخزون",
+  "reports.group.erp": "التكامل مع ERPNext",
+  "reports.status.available": "متاح",
+  "reports.status.review": "شاشة مراجعة",
+  "reports.status.proposed": "مقترح، غير متاح بعد",
+  "reports.answers": "يجيب عن:",
+  "reports.open.report": "فتح التقرير",
+  "reports.open.screen": "فتح الشاشة",
+  "reports.item.daily.q":
+    "كم استلم الخادم من مبيعات وإلغاءات ومرتجعات في كل يوم عمل، وأين وصلت مزامنتها وترحيلها إلى ERPNext الآن؟",
+  "reports.item.shiftVariance.title": "فروقات النقد في الورديات",
+  "reports.item.shiftVariance.q": "أي إقفال سُجّل فيه عجز أو زيادة، وهل سُجّل له معتمِد؟",
+  "reports.item.stockDiscrepancies.title": "فروقات مخزون ERPNext",
+  "reports.item.stockDiscrepancies.q": "أي الأصناف سالبة في أحدث لقطة من ERPNext لكل متجر؟",
+  "reports.item.salesRepair.title": "المبيعات تحتاج إلى إصلاح",
+  "reports.item.salesRepair.q": "أي مبيعات توقفت مزامنتها، ولماذا، ومن طلب إصلاحها؟",
+  "reports.item.byStore.title": "المبيعات حسب المتجر",
+  "reports.item.byStore.q": "أي متجر استلم أكثر وأقل في الفترة، وكيف تغيّر ترتيبه؟",
+  "reports.item.byHour.title": "المبيعات حسب الساعة",
+  "reports.item.byHour.q": "متى تبلغ المبيعات ذروتها في يوم العمل، وهل يكفي عدد نقاط البيع وقتها؟",
+  "reports.item.shortageTrend.title": "اتجاه العجز والزيادة",
+  "reports.item.shortageTrend.q": "هل يتكرر العجز في متجر أو وردية بعينها عبر الأسابيع؟",
+  "reports.item.stockMovement.title": "حركة المخزون حسب النوع",
+  "reports.item.stockMovement.q": "كم دخل وخرج وتسوّى وتحوّل من المخزون في الفترة، لكل متجر؟",
+  "reports.item.postingHealth.title": "صحة الترحيل عبر الأيام",
+  "reports.item.postingHealth.q": "كم يومًا انتهى بكل مبيعاته مرحَّلة، وأين تتجمّع حالات الفشل؟",
 };
