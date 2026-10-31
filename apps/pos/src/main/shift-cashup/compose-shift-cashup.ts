@@ -77,6 +77,8 @@ export interface ComposeShiftCashupServiceDeps extends Pick<
   ShiftCashupServiceDeps,
   | 'isEnabled'
   | 'getSession'
+  | 'getManager'
+  | 'onEnvelopeFactRecorded'
   | 'isSessionLocked'
   | 'pairedScope'
   | 'pairingEpoch'
@@ -134,6 +136,10 @@ export function composeShiftCashupService(deps: ComposeShiftCashupServiceDeps): 
   const service = createShiftCashupService({
     isEnabled: deps.isEnabled,
     getSession: deps.getSession,
+    ...(deps.getManager === undefined ? {} : { getManager: deps.getManager }),
+    ...(deps.onEnvelopeFactRecorded === undefined
+      ? {}
+      : { onEnvelopeFactRecorded: deps.onEnvelopeFactRecorded }),
     isSessionLocked: deps.isSessionLocked,
     pairedScope: deps.pairedScope,
     pairingEpoch: deps.pairingEpoch,

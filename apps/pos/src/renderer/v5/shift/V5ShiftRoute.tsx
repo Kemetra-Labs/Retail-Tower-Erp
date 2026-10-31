@@ -24,6 +24,7 @@ import {
   type FieldError,
 } from './ShiftParts';
 import { ShiftScreen } from './ShiftScreen';
+import { useOperatorSessionStore } from '../../stores/operator-session-store';
 import { Notice } from '../foundation/Notice';
 import { Icon } from '../../icons/Icon';
 
@@ -32,20 +33,22 @@ interface Props {
   readonly bridge?: ShiftCashupBridgeAPI | null;
 }
 
-/** The device path records cashier facts only (`no_cashier_identity` otherwise). */
-const CASHIER_ROLES: ReadonlyArray<Role> = ['cashier'];
+/**
+ * RT-1004: a cashier records on the device path; a manager or admin signed in
+ * online opens and closes their own shift on the manager-envelope path.
+ */
+const SHIFT_ROLES: ReadonlyArray<Role> = ['cashier', 'manager', 'admin'];
 
 /**
- * RT-17 slice 4 part 3 — `/app/shift`: the cashier's shift. With no open
+ * RT-17 slice 4 part 3 — `/app/shift`: the terminal's shift. With no open
  * shift, the opening float; with one, its summary (float and movement totals
- * only — never the expected cash), pay-in / pay-out and the blind-count close.
- * Every refusal shows its closed-set user message. Cashier only: the router
- * guards the route and this screen leaves for `/app` for any other role,
- * before any call.
+ * only — never the expected cash), pay-in / pay-out (a cashier only) and the
+ * blind-count close. Every refusal shows its closed-set user message. Main
+ * re-checks the session and the role on every call.
  */
 export function V5ShiftRoute({ bridge }: Props): JSX.Element | null {
   return (
-    <ShiftScreen title={SHIFT_COPY.title} bridge={bridge} allow={CASHIER_ROLES}>
+    <ShiftScreen title={SHIFT_COPY.title} bridge={bridge} allow={SHIFT_ROLES}>
       {(api) => <CashierShift bridge={api} />}
     </ShiftScreen>
   );
@@ -59,6 +62,10 @@ type Outcome =
 function CashierShift({ bridge }: Readonly<{ bridge: ShiftCashupBridgeAPI }>): JSX.Element {
   const { state, reload } = useShiftStatus(bridge);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  // RT-1004: pay-in and pay-out stay cashier only.
+  const canMove = useOperatorSessionStore(
+    (s) => s.state.kind === 'signedIn' && s.state.session.role === 'cashier',
+  );
   const done = (next: Outcome): void => {
     setOutcome(next);
     reload();
@@ -96,6 +103,7 @@ function CashierShift({ bridge }: Readonly<{ bridge: ShiftCashupBridgeAPI }>): J
       <OpenShift
         bridge={bridge}
         open={open}
+        canMove={canMove}
         onRecorded={(movement) => {
           done({ kind: 'recorded', movement });
         }}
@@ -237,6 +245,7 @@ function OpenShift(
   props: Readonly<{
     bridge: ShiftCashupBridgeAPI;
     open: ShiftOpenShiftView;
+    canMove: boolean;
     onRecorded: (movement: MovementKind) => void;
     onClosed: (closed: ShiftClosed) => void;
   }>,
@@ -271,26 +280,13 @@ function OpenShift(
             <dd>{money(open.payOutTotalMinor)}</dd>
           </div>
         </dl>
-        <div className="v5-shift-commit" data-testid="shift-actions">
-          <button
-            type="button"
-            className="v5-shift-btn v5-btn"
-            onClick={() => {
-              setMovement('payIn');
+        {props.canMove && (
+          <MovementActions
+            onPick={(kind) => {
+              setMovement(kind);
             }}
-          >
-            {SHIFT_COPY.payIn}
-          </button>
-          <button
-            type="button"
-            className="v5-shift-btn v5-btn"
-            onClick={() => {
-              setMovement('payOut');
-            }}
-          >
-            {SHIFT_COPY.payOut}
-          </button>
-        </div>
+          />
+        )}
       </ShiftCard>
       <CloseShiftPanel
         bridge={props.bridge}
@@ -311,6 +307,33 @@ function OpenShift(
           }}
         />
       )}
+    </div>
+  );
+}
+
+function MovementActions({
+  onPick,
+}: Readonly<{ onPick: (kind: MovementKind) => void }>): JSX.Element {
+  return (
+    <div className="v5-shift-commit" data-testid="shift-actions">
+      <button
+        type="button"
+        className="v5-shift-btn v5-btn"
+        onClick={() => {
+          onPick('payIn');
+        }}
+      >
+        {SHIFT_COPY.payIn}
+      </button>
+      <button
+        type="button"
+        className="v5-shift-btn v5-btn"
+        onClick={() => {
+          onPick('payOut');
+        }}
+      >
+        {SHIFT_COPY.payOut}
+      </button>
     </div>
   );
 }

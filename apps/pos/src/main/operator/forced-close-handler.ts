@@ -78,6 +78,8 @@ const CATEGORY_OF_REASON: Readonly<Record<ShiftCashupRefusalReason, RefusalCateg
   no_session: 'not_signed_in',
   session_locked: 'not_signed_in',
   no_cashier_identity: 'not_signed_in',
+  // RT-1004: a normal close's refusal; a forced close never answers it.
+  not_shift_opener: 'state_invalid',
   pay_out_exceeds_drawer_cash: 'invalid_input',
   variance_approval_required: 'invalid_input',
   clock_regressed: 'invalid_input',

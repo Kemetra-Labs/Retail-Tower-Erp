@@ -4,7 +4,7 @@
  * way in for a manager, and nothing at all while the flag is off.
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, screen, waitFor } from '@testing-library/react';
+import { cleanup, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 
 import { ShiftNotice } from '../shift/ShiftNotice';
@@ -85,16 +85,19 @@ describe('ShiftNotice — the cashier’s "shift required" gate', () => {
     );
   });
 
-  it('is quiet with an open shift: one link to manage it, no banner', async () => {
-    signIn('cashier');
-    enableShiftFlag();
-    renderNotice(fakeShiftBridge(statusView({ openShift: openShiftView() })));
-    expect(await screen.findByRole('link', { name: SHIFT_COPY.manageShift })).toHaveAttribute(
-      'href',
-      '/app/shift',
-    );
-    expect(screen.queryByTestId('shift-gate-banner')).not.toBeInTheDocument();
-  });
+  it.each(['cashier', 'manager'] as const)(
+    'is quiet with an open shift for a %s: one link to manage it, no banner',
+    async (role) => {
+      signIn(role);
+      enableShiftFlag();
+      renderNotice(fakeShiftBridge(statusView({ openShift: openShiftView() })));
+      expect(await screen.findByRole('link', { name: SHIFT_COPY.manageShift })).toHaveAttribute(
+        'href',
+        '/app/shift',
+      );
+      expect(screen.queryByTestId('shift-gate-banner')).not.toBeInTheDocument();
+    },
+  );
 
   it('still offers the shift screen when the status cannot be read', async () => {
     signIn('cashier');
@@ -128,7 +131,7 @@ describe('ShiftNotice — the cashier’s "shift required" gate', () => {
 
 describe('ShiftNotice — the manager’s way in', () => {
   it.each(['manager', 'admin'] as const)(
-    'offers a %s the shift status, and reads nothing for it',
+    'offers a %s the shift status and, with no open shift, the gate to open one (RT-1004)',
     async (role) => {
       signIn(role);
       enableShiftFlag();
@@ -138,10 +141,12 @@ describe('ShiftNotice — the manager’s way in', () => {
         'href',
         '/app/shift/manager',
       );
-      await waitFor(() => {
-        expect(bridge.status).not.toHaveBeenCalled();
-      });
-      expect(screen.queryByTestId('shift-gate-banner')).not.toBeInTheDocument();
+      const banner = await screen.findByTestId('shift-gate-banner');
+      expect(banner).toHaveTextContent(SHIFT_COPY.gateBanner);
+      expect(screen.getByRole('link', { name: SHIFT_COPY.gateAction })).toHaveAttribute(
+        'href',
+        '/app/shift',
+      );
     },
   );
 });

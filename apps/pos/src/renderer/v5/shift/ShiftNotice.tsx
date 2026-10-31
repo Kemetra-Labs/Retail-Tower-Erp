@@ -24,12 +24,11 @@ const MANAGER_PATH = '/app/shift/manager';
  * persistent banner with the way to open one. Building a sale is not blocked,
  * but RT-998 (RT-276 c14719) makes the CASH tender need an open shift: main
  * refuses it with no shift (`cash-shift-gate.ts`), so the banner is the early
- * warning for that block. A manager cannot open a shift on the device path
- * (only a cashier session can), so a manager gets the status link only. With an
- * open shift (or an unreadable status) the notice is one quiet link to the
- * shift screen; a manager or admin gets the way to the shift status instead,
- * and no status read. With the flag off (or not yet hydrated) nothing renders
- * and nothing is called.
+ * warning for that block. RT-1004: a manager or admin may open a shift too, so
+ * they get the same gate, plus the way to the shift status. With an open shift
+ * (or an unreadable status) the gate is one quiet link to the shift screen.
+ * With the flag off (or not yet hydrated) nothing renders and nothing is
+ * called.
  */
 export function ShiftNotice({ bridge }: Props): JSX.Element | null {
   const enabled = useFeatureFlagsStore((s) => s.shiftCashup);
@@ -59,19 +58,21 @@ function RoutedShiftNotice(
 ): JSX.Element | null {
   const { pathname } = useLocation();
   if (pathname.startsWith(SHIFT_PATH)) return null;
-  if (props.role !== 'cashier') {
-    return (
+  const gate = <ShiftGateNotice bridge={props.bridge} pathname={pathname} />;
+  if (props.role === 'cashier') return gate;
+  return (
+    <>
+      {gate}
       <p className="v5-shift-notice">
         <Link to={MANAGER_PATH}>{SHIFT_COPY.managerLink}</Link>
       </p>
-    );
-  }
-  return <CashierShiftNotice bridge={props.bridge} pathname={pathname} />;
+    </>
+  );
 }
 
 type Gate = 'unknown' | 'none' | 'open';
 
-function CashierShiftNotice(
+function ShiftGateNotice(
   props: Readonly<{
     bridge: ShiftCashupBridgeAPI;
     pathname: string;

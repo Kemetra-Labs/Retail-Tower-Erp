@@ -16,7 +16,12 @@ const REFUSAL_COPY: Readonly<Record<ShiftCashupRefusal, string>> = Object.freeze
   feature_disabled: 'إدارة الوردية غير مفعّلة على هذا الجهاز.',
   no_session: 'لا توجد جلسة تشغيل صالحة على هذا الجهاز. سجّل الدخول من جديد.',
   session_locked: 'الجلسة مقفلة. افتحها ثم حاول مجددًا.',
-  no_cashier_identity: 'تُفتح الوردية وتُسجَّل حركاتها وتُغلق من جلسة كاشير فقط.',
+  // RT-1004 — DRAFT pending owner approval.
+  no_cashier_identity:
+    'تعذّر تسجيل هذه العملية من هذه الجلسة، ولم يُسجَّل شيء. الإيداع والسحب من جلسة كاشير فقط، ويفتح المدير الوردية ويغلقها بعد تسجيل دخوله عبر الإنترنت.',
+  // RT-1004 — DRAFT pending owner approval.
+  not_shift_opener:
+    'فتح هذه الوردية مستخدم آخر، فلا يغلقها المدير إلا بالإغلاق الإجباري. لم يُسجَّل شيء.',
   invalid_input: 'البيانات غير صالحة. راجع المبلغ والسبب والملاحظة.',
   // RT-278 S1 (OD-278-6, doc 15 M-W5): the pre-check and main's refusal. No
   // amount, no bound; never «حاول مجددًا» (the same amount can never pass).
@@ -79,12 +84,13 @@ const GATE_COPY = {
   // Main refused a cash apply (`shift_not_open`): a cashier can open the shift.
   cashNeedsShiftCashier:
     'لا توجد وردية مفتوحة على هذا الجهاز، ولا يُقبل الدفع النقدي قبل فتحها. افتح الوردية ثم أكمل الدفع. لم يُسجَّل شيء.',
-  // A manager or admin cannot open a shift (it opens from a cashier session only).
+  // RT-1004 — DRAFT pending owner approval: a manager or admin opens the shift too.
   cashNeedsShiftOther:
-    'لا توجد وردية مفتوحة على هذا الجهاز، ولا يُقبل الدفع النقدي قبل فتحها. اطلب من الكاشير فتح الوردية. لم يُسجَّل شيء.',
+    'لا توجد وردية مفتوحة على هذا الجهاز، ولا يُقبل الدفع النقدي قبل فتحها. افتح الوردية (بعد تسجيل دخولك عبر الإنترنت) ثم أكمل الدفع. لم يُسجَّل شيء.',
   // Main refused the settle (`shift_not_open`): the cash line is recorded, the sale is not.
+  // RT-1004 — DRAFT pending owner approval (no longer «اطلب من الكاشير»).
   settleNeedsShift:
-    'لا توجد وردية مفتوحة على هذا الجهاز، فلم تكتمل الدفعة. افتح الوردية (أو اطلب من الكاشير فتحها) ثم اضغط «تأكيد الدفع».',
+    'لا توجد وردية مفتوحة على هذا الجهاز، فلم تكتمل الدفعة. افتح الوردية ثم اضغط «تأكيد الدفع».',
 } as const;
 
 /** Opening a shift. */
