@@ -257,6 +257,11 @@ DESIGN.md §Navigation: "connection, sale sync and printer, each a dot plus text
   of scope. It never shows «جاهز»: the printer is not observable (R-H3).
 - In the slim rail (active sale) it collapses to dots with an accessible name. In the labelled
   panel it shows the text.
+  **Amended by RT-1023 (owner decision 2026-10-31, "Short label under glyph"):** the slim rail
+  is on every screen, and glyphs alone could not tell «غير متصل» from an unknown printer. Each
+  row now shows its glyph over a one-word 12px label («الاتصال», «المزامنة», «المعلّقة»,
+  «الطابعة», doc 15 M-O5) in text colour. The label is `aria-hidden`; the full state text stays
+  in the accessibility tree, and the connection row stays the only live region.
 - `role="status"` with polite live updates only on a **connection** change. Count changes are
   not announced.
 
