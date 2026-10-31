@@ -11,7 +11,9 @@
  *   - is killed after SVG_RENDER_TIMEOUT_MS, which is refused as
  *     `svg_unsupported` (rasterizer limits exceeded, contract §5).
  * One render runs at a time per API process and at most
- * SVG_MAX_PENDING_RENDERS run or wait; one more is refused at once, so a
+ * SVG_MAX_PENDING_RENDERS run or wait; one more is refused at once with
+ * `RenderQueueFullError` (a capacity refusal, not a validation one: the
+ * controller answers the contract's retryable `429 rate_limited`), so a
  * hostile upload costs one child for at most the timeout, never blocks the
  * event loop or the shared libuv threadpool, and the wait any other tenant
  * sees is bounded.
@@ -50,12 +52,20 @@ process.stdin.on("end", () => {
 });
 `;
 
+/** The renderer is at capacity: retry later. Not a refusal of the file. */
+export class RenderQueueFullError extends Error {
+  constructor() {
+    super("svg render queue full");
+    this.name = "RenderQueueFullError";
+  }
+}
+
 let queue: Promise<unknown> = Promise.resolve();
 let pending = 0;
 
 /** Runs `work` after every earlier render has settled (one at a time); refuses past the pending cap. */
 function serialized<T>(work: () => Promise<T>): Promise<T> {
-  if (pending >= SVG_MAX_PENDING_RENDERS) return Promise.reject(new Error("svg render queue full"));
+  if (pending >= SVG_MAX_PENDING_RENDERS) return Promise.reject(new RenderQueueFullError());
   pending += 1;
   const run = queue.then(work, work).finally(() => {
     pending -= 1;
@@ -98,8 +108,12 @@ function renderInChild(svg: string, timeoutMs: number): Promise<Buffer> {
 
 /**
  * The PNG of a checked SVG at the FR-09 fixed size (height SVG_RASTER_HEIGHT_PX,
- * width capped at MAX_SIDE_PX). Any render failure or timeout is `svg_unsupported`.
+ * width capped at MAX_SIDE_PX). Any render failure or timeout is `svg_unsupported`;
+ * a full queue is `RenderQueueFullError`.
  */
 export function rasterizeCheckedSvg(svg: string, timeoutMs: number = SVG_RENDER_TIMEOUT_MS): Promise<Buffer> {
-  return serialized(() => renderInChild(svg, timeoutMs)).catch(() => reject("svg_unsupported"));
+  return serialized(() => renderInChild(svg, timeoutMs)).catch((err: unknown) => {
+    if (err instanceof RenderQueueFullError) throw err;
+    return reject("svg_unsupported");
+  });
 }

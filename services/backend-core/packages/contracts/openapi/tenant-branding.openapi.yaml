@@ -908,7 +908,9 @@ components:
         `Retry-After`; never auto-retry a mutation. A 429 is not a 401: it
         never means the session ended. The console limit is
         server-configured and may not be enforced, so a client must handle a
-        429 but must not expect one.
+        429 but must not expect one. On `consolePreviewTenantLogo` and
+        `consolePutTenantLogo` the same 429 also means the server's SVG
+        renderer is at capacity (RT-473 S2); retry after `Retry-After`.
       headers:
         Retry-After:
           $ref: "#/components/headers/ConsoleRetryAfter"

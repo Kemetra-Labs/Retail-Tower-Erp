@@ -65,7 +65,7 @@ export const SVG_MAX_EXPANDED_NODES = 2_000;
 export const SVG_MAX_TURBULENCE_OCTAVES = 10;
 /** The rasterizer child is killed after this; the upload is `svg_unsupported`. */
 export const SVG_RENDER_TIMEOUT_MS = 8_000;
-/** Renders running or waiting per API process; one more is refused (`svg_unsupported`), so a wait is at most this × the timeout. */
+/** Renders running or waiting per API process; one more gets a retryable 429, so a wait is at most this × the timeout. */
 export const SVG_MAX_PENDING_RENDERS = 4;
 
 export const SLOTS = ["boot", "pairing", "sign_in", "lock"] as const;

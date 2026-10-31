@@ -32,10 +32,11 @@ import {
   Put,
   Query,
   Req,
+  Res,
   UnauthorizedException,
   UseGuards,
 } from "@nestjs/common";
-import type { Request } from "express";
+import type { Request, Response } from "express";
 
 import { annotateAudit, Auditable } from "../audit/auditable.decorator";
 import { Roles } from "../auth/roles.decorator";
@@ -56,7 +57,9 @@ import {
 import type { LogoPreviewBody, TenantBrandingBody } from "./branding.projections";
 import { LogoConflictError, TenantBrandingService, type WriteInput } from "./branding.service";
 import { readLogoBody } from "./logo-body";
+import { SVG_RENDER_TIMEOUT_MS } from "./logo-config";
 import { LogoRejectedError, REJECTION_MESSAGES } from "./logo-refusal";
+import { RenderQueueFullError } from "./svg-rasterize";
 
 const NOT_FOUND = { code: "not_found", message: "Not Found" } as const;
 
@@ -94,10 +97,11 @@ export class TenantBrandingConsoleController {
     @Req() request: UploadRequest,
     @Param("tenant_id") tenantId: string,
     @Query(new ZodValidationPipe(NoQuerySchema)) _query: Record<string, never>,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<LogoPreviewBody> {
     sessionTenant(request, tenantId);
     const bytes = await readLogoBody(request);
-    return mapErrors(() => this.service.preview(bytes));
+    return mapErrors(res, () => this.service.preview(bytes));
   }
 
   @Put(LOGO)
@@ -106,10 +110,11 @@ export class TenantBrandingConsoleController {
     @Req() request: UploadRequest,
     @Param("tenant_id") tenantId: string,
     @Query(new ZodValidationPipe(SaveQuerySchema)) query: SaveQuery,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<TenantBrandingBody> {
     const input = writer(request, sessionTenant(request, tenantId), query.expected_revision);
     const bytes = await readLogoBody(request);
-    return mapErrors(() => this.service.save(input, bytes, query.preview_version));
+    return mapErrors(res, () => this.service.save(input, bytes, query.preview_version));
   }
 
   @Delete(LOGO)
@@ -119,7 +124,7 @@ export class TenantBrandingConsoleController {
     @Query(new ZodValidationPipe(RemoveQuerySchema)) query: RemoveQuery,
   ): Promise<TenantBrandingBody> {
     const input = writer(request, sessionTenant(request, tenantId), query.expected_revision);
-    return mapErrors(() => this.service.remove(input));
+    return mapErrors(null, () => this.service.remove(input));
   }
 }
 
@@ -139,8 +144,20 @@ function writer(request: TenantContextRequest, tenantId: string, expectedRevisio
   return { tenantId, actorUserId, requestId: request.requestId ?? null, expectedRevision };
 }
 
+/**
+ * The SVG renderer is at capacity: the contract's retryable `429 rate_limited`
+ * (declared on every cookieAuth operation), with `Retry-After` and
+ * `Cache-Control: no-store`; `X-Request-Id` is set for every request.
+ */
+function rendererBusy(res: Response | null): HttpException {
+  res?.setHeader("Retry-After", String(Math.ceil(SVG_RENDER_TIMEOUT_MS / 1000)));
+  res?.setHeader("Cache-Control", "no-store");
+  return new HttpException({ code: "rate_limited", message: "The image renderer is busy. Retry shortly." }, 429);
+}
+
 /** The contract's 4xx for a pipeline or precondition refusal, or null (→ 500). */
-function toHttpError(err: unknown): HttpException | null {
+function toHttpError(err: unknown, res: Response | null): HttpException | null {
+  if (err instanceof RenderQueueFullError) return rendererBusy(res);
   if (err instanceof LogoRejectedError) {
     return new HttpException(
       {
@@ -155,10 +172,10 @@ function toHttpError(err: unknown): HttpException | null {
   return null;
 }
 
-async function mapErrors<T>(work: () => Promise<T>): Promise<T> {
+async function mapErrors<T>(res: Response | null, work: () => Promise<T>): Promise<T> {
   try {
     return await work();
   } catch (err) {
-    throw toHttpError(err) ?? err;
+    throw toHttpError(err, res) ?? err;
   }
 }

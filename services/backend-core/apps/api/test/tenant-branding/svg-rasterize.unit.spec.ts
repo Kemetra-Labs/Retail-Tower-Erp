@@ -4,7 +4,7 @@
  * renders run one at a time.
  */
 import { LogoRejectedError } from "../../src/tenant-branding/logo-refusal";
-import { rasterizeCheckedSvg } from "../../src/tenant-branding/svg-rasterize";
+import { rasterizeCheckedSvg, RenderQueueFullError } from "../../src/tenant-branding/svg-rasterize";
 import { RECT, SVG_ROOT } from "./__support__/logo-images";
 
 const GOOD = `<svg ${SVG_ROOT}>${RECT}</svg>`;
@@ -14,6 +14,7 @@ async function code(work: Promise<unknown>): Promise<string> {
     await work;
     return "ok";
   } catch (err) {
+    if (err instanceof RenderQueueFullError) return "queue_full";
     return err instanceof LogoRejectedError ? err.code : `unexpected: ${String(err)}`;
   }
 }
@@ -34,10 +35,10 @@ describe("rasterizeCheckedSvg", () => {
     expect(all).toEqual(["ok", "svg_unsupported", "ok"]);
   });
 
-  it("refuses at once past the pending cap, so the wait stays bounded", async () => {
+  it("refuses at once past the pending cap with a capacity error (not a file refusal)", async () => {
     const all = await Promise.all(Array.from({ length: 6 }, () => rasterizeCheckedSvg(GOOD)).map(code));
     expect(all.filter((c) => c === "ok")).toHaveLength(4);
-    expect(all.slice(4)).toEqual(["svg_unsupported", "svg_unsupported"]);
+    expect(all.slice(4)).toEqual(["queue_full", "queue_full"]);
   });
 
   it("kills the child at the timeout and refuses with svg_unsupported", async () => {
