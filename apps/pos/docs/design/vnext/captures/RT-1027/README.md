@@ -10,7 +10,7 @@ UX-04 (impeccable critique, 2026-10-31). With no shift open, the G-2 opening col
 
 ## Captures
 
-`rt1027-{before,after}-<State>-<W>x<H>[-forced].png`, from `#/dev/shift-proof?state=<State>`, before on `main` 8696ba18 and after on this branch. States: Open and ClosedApproved (outcome notice plus card).
+`rt1027-{before,after}-<State>-<W>x<H>[-forced].png`, from `#/dev/shift-proof?state=<State>`, before on `main` 8696ba18 and after on this branch. States: Open and ClosedApproved (outcome notice plus card). The logs list every state checked; their `file` names follow the same scheme, and only the Open and ClosedApproved PNGs are committed.
 
 Every open-shift state (Open, OpenInvalid, Closed, ClosedApproved, plus Opened and Unavailable after) was checked at 1024×768 and 1280×800, light and forced colours ([before log](rt1027-before-log.json), [after log](rt1027-after-log.json)):
 
