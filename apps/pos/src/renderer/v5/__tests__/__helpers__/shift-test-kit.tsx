@@ -12,6 +12,7 @@ import type { Role } from '../../../../shared/operator/role';
 import type { ShiftCashupBridgeAPI, ShiftStatusView } from '../../../../shared/shift-cashup/types';
 import { useFeatureFlagsStore } from '../../../stores/feature-flags-store';
 import { useOperatorSessionStore } from '../../../stores/operator-session-store';
+import { SHIFT_COPY } from '../../shift/shift-copy';
 
 export type FakeShiftBridge = { [K in keyof ShiftCashupBridgeAPI]: Mock<ShiftCashupBridgeAPI[K]> };
 
@@ -120,3 +121,6 @@ export function renderAt(input: {
 
 /** Every amount the screens could format (`N.NN EGP`), anywhere in `text`. */
 export const MONEY_TEXT = /\d+\.\d{2}\s*EGP/;
+
+/** RT-1027: the opening float's accessible name, its unit composed as M-P16 does. */
+export const FLOAT_FIELD = `${SHIFT_COPY.floatLabel} (EGP)`;

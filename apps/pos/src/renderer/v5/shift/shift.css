@@ -119,6 +119,20 @@
   inline-size: min(480px, 100%);
 }
 
+/* RT-1027 (UX-04): with no shift open, the opening column is centred in the
+   work area. The section body and the page grow to the frame's height so the
+   column can sit in the middle; `safe` keeps it from clipping if it outgrows. */
+.v5-screen-section__body:has(> .v5-shift-page > .v5-shift-state--open),
+.v5-shift-page:has(> .v5-shift-state--open) {
+  flex: 1 1 auto;
+}
+
+.v5-shift-state--open {
+  flex: 1 1 auto;
+  align-content: safe center;
+  justify-items: center;
+}
+
 .v5-shift-muted {
   margin: 0;
   color: var(--color-text-muted);

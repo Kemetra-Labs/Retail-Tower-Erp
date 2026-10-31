@@ -87,6 +87,8 @@ interface AmountFieldProps {
   /** The message shown under the field and announced; null when none. */
   readonly error?: FieldError | null;
   readonly inputRef?: Ref<HTMLInputElement>;
+  /** RT-1027: the currency after the label, as M-P16 does («… (EGP)»); none when absent. */
+  readonly unit?: string;
 }
 
 /** A labelled amount entry: LTR and tabular, described by its message, marked only when invalid. */
@@ -97,7 +99,15 @@ export function ShiftAmountField(props: AmountFieldProps): JSX.Element {
   return (
     <>
       <div className="v5-shift-field">
-        <label htmlFor={inputId}>{props.label}</label>
+        <label htmlFor={inputId}>
+          {props.label}
+          {props.unit !== undefined && (
+            <>
+              {' ('}
+              <span dir="ltr">{props.unit}</span>)
+            </>
+          )}
+        </label>
         <input
           id={inputId}
           ref={props.inputRef}

@@ -17,6 +17,7 @@ import {
   readShiftProofState,
 } from '../shift/dev/ShiftProof';
 import { SHIFT_COPY, shiftRefusalMessage } from '../shift/shift-copy';
+import { FLOAT_FIELD } from './__helpers__/shift-test-kit';
 
 function at(state: string): void {
   window.location.hash = `#/dev/shift-proof?state=${state}`;
@@ -60,7 +61,7 @@ describe('ShiftProof', () => {
     at('Opened');
     render(<ShiftProof />);
     const card = await screen.findByRole('region', { name: SHIFT_COPY.openHeading });
-    await user.type(within(card).getByLabelText(SHIFT_COPY.floatLabel), '500');
+    await user.type(within(card).getByLabelText(FLOAT_FIELD), '500');
     await user.click(within(card).getByRole('button', { name: SHIFT_COPY.openCommit }));
     expect(await screen.findByText(SHIFT_COPY.opened)).toBeInTheDocument();
     expect(await screen.findByTestId('shift-summary')).toHaveTextContent('500.00 EGP');

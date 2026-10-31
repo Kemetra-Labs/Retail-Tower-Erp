@@ -15,6 +15,7 @@ import { PARK_COPY, terminalParkedCount } from '../park/park-copy';
 import {
   MANAGERS,
   MONEY_TEXT,
+  FLOAT_FIELD,
   enableShiftFlag,
   fakeShiftBridge,
   openShiftView,
@@ -74,8 +75,8 @@ describe('V5ShiftRoute — gating', () => {
       enableShiftFlag();
       const bridge = fakeShiftBridge();
       renderRoute(bridge);
-      await screen.findByLabelText(SHIFT_COPY.floatLabel);
-      type(SHIFT_COPY.floatLabel, '500');
+      await screen.findByLabelText(FLOAT_FIELD);
+      type(FLOAT_FIELD, '500');
       press(SHIFT_COPY.openCommit);
       await waitFor(() => {
         expect(bridge.open).toHaveBeenCalledWith({ openingFloatMinor: 50_000 });
@@ -117,7 +118,7 @@ describe('V5ShiftRoute — gating', () => {
     const bridge = fakeShiftBridge();
     (window as unknown as { api: unknown }).api = { shiftCashup: bridge };
     renderRoute(undefined);
-    expect(await screen.findByLabelText(SHIFT_COPY.floatLabel)).toBeInTheDocument();
+    expect(await screen.findByLabelText(FLOAT_FIELD)).toBeInTheDocument();
     expect(bridge.status).toHaveBeenCalledTimes(1);
   });
 
@@ -129,7 +130,7 @@ describe('V5ShiftRoute — gating', () => {
     renderRoute(bridge);
     expect(await screen.findByText(shiftRefusalMessage('session_locked'))).toBeInTheDocument();
     press(SHIFT_COPY.retry);
-    expect(await screen.findByLabelText(SHIFT_COPY.floatLabel)).toBeInTheDocument();
+    expect(await screen.findByLabelText(FLOAT_FIELD)).toBeInTheDocument();
   });
 });
 
@@ -142,8 +143,8 @@ describe('V5ShiftRoute — open a shift', () => {
       .mockResolvedValueOnce({ kind: 'status', status: statusView() })
       .mockResolvedValue(OPEN);
     renderRoute(bridge);
-    await screen.findByLabelText(SHIFT_COPY.floatLabel);
-    type(SHIFT_COPY.floatLabel, '٥٠٠.٥');
+    await screen.findByLabelText(FLOAT_FIELD);
+    type(FLOAT_FIELD, '٥٠٠.٥');
     press(SHIFT_COPY.openCommit);
     await waitFor(() => {
       expect(bridge.open).toHaveBeenCalledWith({ openingFloatMinor: 50_050 });
@@ -161,8 +162,8 @@ describe('V5ShiftRoute — open a shift', () => {
     enableShiftFlag();
     const bridge = fakeShiftBridge();
     renderRoute(bridge);
-    await screen.findByLabelText(SHIFT_COPY.floatLabel);
-    type(SHIFT_COPY.floatLabel, value);
+    await screen.findByLabelText(FLOAT_FIELD);
+    type(FLOAT_FIELD, value);
     press(SHIFT_COPY.openCommit);
     expect(await screen.findByText(SHIFT_COPY.invalidAmount)).toBeInTheDocument();
     expect(bridge.open).not.toHaveBeenCalled();
@@ -173,8 +174,8 @@ describe('V5ShiftRoute — open a shift', () => {
     enableShiftFlag();
     const bridge = fakeShiftBridge();
     renderRoute(bridge);
-    await screen.findByLabelText(SHIFT_COPY.floatLabel);
-    type(SHIFT_COPY.floatLabel, '0');
+    await screen.findByLabelText(FLOAT_FIELD);
+    type(FLOAT_FIELD, '0');
     press(SHIFT_COPY.openCommit);
     await waitFor(() => {
       expect(bridge.open).toHaveBeenCalledWith({ openingFloatMinor: 0 });
@@ -189,8 +190,8 @@ describe('V5ShiftRoute — open a shift', () => {
       const bridge = fakeShiftBridge();
       bridge.open.mockResolvedValue({ kind: 'refused', reason });
       renderRoute(bridge);
-      await screen.findByLabelText(SHIFT_COPY.floatLabel);
-      type(SHIFT_COPY.floatLabel, '100');
+      await screen.findByLabelText(FLOAT_FIELD);
+      type(FLOAT_FIELD, '100');
       press(SHIFT_COPY.openCommit);
       expect(await screen.findByRole('alert')).toHaveTextContent(shiftRefusalMessage(reason));
     },
@@ -202,8 +203,8 @@ describe('V5ShiftRoute — open a shift', () => {
     const bridge = fakeShiftBridge();
     bridge.open.mockRejectedValue(new Error('boom: secret detail'));
     renderRoute(bridge);
-    await screen.findByLabelText(SHIFT_COPY.floatLabel);
-    type(SHIFT_COPY.floatLabel, '100');
+    await screen.findByLabelText(FLOAT_FIELD);
+    type(FLOAT_FIELD, '100');
     press(SHIFT_COPY.openCommit);
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(shiftRefusalMessage('unavailable'));
@@ -380,7 +381,7 @@ describe('V5ShiftRoute — the blind-count close', () => {
     const outcome = await screen.findByTestId('shift-closed-outcome');
     expect(outcome).toHaveTextContent(SHIFT_COPY.closed);
     expect(screen.queryByTestId('shift-variance')).not.toBeInTheDocument();
-    expect(await screen.findByLabelText(SHIFT_COPY.floatLabel)).toBeInTheDocument();
+    expect(await screen.findByLabelText(FLOAT_FIELD)).toBeInTheDocument();
   });
 
   it('does not send an invalid count', async () => {
@@ -673,8 +674,8 @@ describe('V5ShiftRoute — a committed outcome survives a failed refresh', () =>
     signIn('cashier');
     enableShiftFlag();
     renderRoute(bridge);
-    await screen.findByLabelText(SHIFT_COPY.floatLabel);
-    type(SHIFT_COPY.floatLabel, '500');
+    await screen.findByLabelText(FLOAT_FIELD);
+    type(FLOAT_FIELD, '500');
     press(SHIFT_COPY.openCommit);
     expect(await screen.findByText(SHIFT_COPY.refreshFailed)).toBeInTheDocument();
     expect(screen.getByText(SHIFT_COPY.opened)).toBeInTheDocument();
