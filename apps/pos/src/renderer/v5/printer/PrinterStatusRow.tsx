@@ -2,6 +2,7 @@ import type { JSX } from 'react';
 import { Icon } from '../../icons/Icon';
 import type { IconName } from '../../icons/registry';
 import { STATUS_COPY } from '../../terminal-status/status-copy';
+import { StatusRowLabel } from '../frame/StatusRowLabel';
 import { PRINTER_COPY, printerLabel } from './printer-copy';
 import { openPrinterPanel, usePrinterStore } from './printer-store';
 import './printer.css';
@@ -22,7 +23,8 @@ const MARK: Readonly<Record<RowTone, IconName>> = {
  * never says «جاهز»: a name is not proof the printer works. Before main
  * answered, the row shows no printer text rather than a guess.
  *
- * In the slim rail only the glyph shows; the text stays for assistive tech.
+ * In the slim rail the glyph shows over the one-word label «الطابعة»
+ * (RT-1023); the full text stays for assistive tech and names the button.
  */
 export function PrinterStatusRow({
   lastPrintFailed,
@@ -46,6 +48,7 @@ export function PrinterStatusRow({
       <span className="v5-status__mark">
         <Icon name={MARK[tone]} size="sm" />
       </span>
+      <StatusRowLabel name="printer" />
       <span className="v5-status__text">
         {lastPrintFailed && <span className="v5-status__line">{STATUS_COPY.printerFailed}</span>}
         {label === null ? (

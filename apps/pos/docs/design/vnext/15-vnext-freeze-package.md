@@ -340,6 +340,7 @@ Conditional rows (marked ⏳) depend on the named contract and must not ship bef
 | M-O2 | Sync pending | Count-aware, one form per plural category: see §5.1 (RT-646), owner-approved 2026-10-17. The frozen single form was «‹n› عمليات بانتظار الإرسال» | info |
 | M-O3 | Sync needs attention (manager) | Count-aware, one form per plural category: see §5.1 (RT-646), owner-approved 2026-10-17. The frozen single form was «تعذّر إرسال ‹n› عمليات. راجع المدير.» | danger |
 | M-O4 | Healthy indicator | «متصل» (only from a real signal; never hard-coded) | success |
+| M-O5 | Slim-rail status labels (connection / sync / held / printer) | «الاتصال» / «المزامنة» / «المعلّقة» / «الطابعة» | neutral (row name under the glyph; RT-1023, owner decision 2026-10-31) |
 | **Manager approval** ⏳ RT-114 | | | |
 | M-A1 | Approval needed | «هذا الإجراء يحتاج موافقة المدير.» | info |
 | M-A2 | Approved / denied | «وافق المدير ‹الاسم›.» / «لم يوافق المدير. لم يتغيّر شيء.» | success / neutral |

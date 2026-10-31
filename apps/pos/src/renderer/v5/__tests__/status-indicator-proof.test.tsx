@@ -44,6 +44,7 @@ const EXPECTED: Record<(typeof STATUS_PROOF_STATES)[number], [string, string | n
   Attention24h: ['متصل', 'تحتاج مراجعة'],
   OfflineAttention: ['غير متصل', 'تحتاج مراجعة'],
   PrinterFailed: ['متصل', null],
+  AllRows: ['متصل', 'تحتاج مراجعة'],
 };
 
 /** RT-605: the notices-stack banners each state shows (M-O3 text, M-O1). */
@@ -59,6 +60,7 @@ const BANNERS: Record<(typeof STATUS_PROOF_STATES)[number], [string | null, bool
   Attention24h: ['تعذّر إرسال عمليتين. راجع المدير.', false],
   OfflineAttention: ['تعذّر إرسال عملية واحدة. راجع المدير.', true],
   PrinterFailed: [null, false],
+  AllRows: ['تعذّر إرسال عملية واحدة. راجع المدير.', false],
 };
 
 describe('StatusIndicatorProof', () => {
@@ -75,14 +77,20 @@ describe('StatusIndicatorProof', () => {
     const [connection, sync] = EXPECTED[state];
     const indicator = await screen.findByTestId('v5-status-indicator');
     await waitFor(() => {
-      expect(indicator.querySelector('[data-row="connection"]')).toHaveTextContent(
+      // The state text alone: RT-1023's slim-rail label («الاتصال») sits beside it.
+      expect(indicator.querySelector('[data-row="connection"] .v5-status__text')).toHaveTextContent(
         new RegExp(`^${connection}$`),
       );
     });
     const syncRow = indicator.querySelector('[data-row="sync"]');
     if (sync === null) expect(syncRow).toBeNull();
     else expect(syncRow).toHaveTextContent(sync);
-    if (state === 'PrinterFailed') {
+    if (state === 'AllRows') {
+      expect(indicator.querySelector('[data-row="held"]')).toHaveTextContent(
+        'إرسال عملية واحدة بخصم مؤجَّل',
+      );
+    }
+    if (state === 'PrinterFailed' || state === 'AllRows') {
       await waitFor(() => {
         expect(indicator.querySelector('[data-row="printer"]')).toHaveTextContent('فشل آخر إيصال');
       });
