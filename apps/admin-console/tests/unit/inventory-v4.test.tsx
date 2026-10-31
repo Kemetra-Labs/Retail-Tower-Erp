@@ -226,10 +226,11 @@ describe("product page band and panels (RT-1016)", () => {
     if (name === "failed") {
       expect(await screen.findByText(/The balance is unknown/)).toBeDefined();
       expect(screen.getByTestId("on-hand-quantity").textContent).toMatch(/Unknown/);
+      // The failed read never turns into a number, zero or otherwise.
+      expect(document.body.textContent).not.toMatch(/\b0\.0000\b/);
     }
     expect(screen.queryByLabelText("On-hand summary")).toBeNull();
     expect(screen.queryByTestId("on-hand-sellable")).toBeNull();
-    expect(document.body.textContent).not.toMatch(/\b0\.0000\b/);
   });
 
   test("an owner sees three numbered panels; the move is 02 and tracking 03", async () => {
@@ -260,7 +261,7 @@ describe("product page band and panels (RT-1016)", () => {
     expect(badges()).toEqual(["01", "02"]);
   });
 
-  test("ERP Book still reads «not shown for your role» or the snapshot link, never a number", async () => {
+  test("ERP Book is the snapshot link, never a number", async () => {
     renderAt(PRODUCT_URL);
     const erp = await screen.findByTestId("on-hand-erp-book");
     expect(erp.textContent).not.toMatch(/\d/);

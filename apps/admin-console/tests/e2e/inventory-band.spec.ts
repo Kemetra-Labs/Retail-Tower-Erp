@@ -202,7 +202,7 @@ test("1280: the product's negative balance is a banner under the band, the band 
   expect(before).not.toBe("rgba(0, 0, 0, 0)");
 });
 
-test("1280 forced colours: the band is Canvas/CanvasText with no ornament; focus stays visible", async ({
+test("1280 forced colours: the band is Canvas/CanvasText with no ornament", async ({
   page,
 }, testInfo) => {
   await page.emulateMedia({ forcedColors: "active" });
