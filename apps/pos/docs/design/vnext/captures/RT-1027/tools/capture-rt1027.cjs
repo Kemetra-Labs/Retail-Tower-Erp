@@ -1,8 +1,9 @@
 // RT-1027 — RT-658's capture-rt658.cjs with three changes: ONLY=<State,...> filters the states,
 // CHROME=<path> picks the Chromium binary, and each log row carries `geom` (the open-shift card's
-// offsets inside the screen section and the commit's size).
+// offsets inside the screen section and the commit's size). PHASE=before|after names the output
+// as the evidence folder does: rt1027-<phase>-<State>-<W>x<H>[-forced].png and rt1027-<phase>-log.json.
 // Usage (apps/pos, with Vite running): PLAYWRIGHT_CORE=$PWD/node_modules/playwright-core CHROME=<chrome>
-//   ONLY=Open,OpenInvalid,Closed,ClosedApproved node docs/design/vnext/captures/RT-1027/tools/capture-rt1027.cjs <outDir> <baseUrl>
+//   PHASE=after ONLY=Open,OpenInvalid,Closed,ClosedApproved node docs/design/vnext/captures/RT-1027/tools/capture-rt1027.cjs <outDir> <baseUrl>
 // RT-658 — capture every G-2 shift state from the DEV harness (#/dev/shift-proof) at 1024×768 and
 // 1280×800, light and forced-colors, and run axe plus the fit / target / type checks on each.
 // Interactive states are reached the way an operator reaches them: by the visible controls.
@@ -13,6 +14,7 @@ const fs = require('fs');
 const { chromium } = require(process.env.PLAYWRIGHT_CORE || '/opt/node-tools/node_modules/playwright-core');
 const AXE = require.resolve('axe-core/axe.min.js', { paths: [process.cwd()] });
 const [outDir, base = 'http://localhost:5173'] = process.argv.slice(2);
+const PHASE = process.env.PHASE === 'before' ? 'before' : 'after';
 const SIZES = { 1024: 768, 1280: 800 };
 
 const FLOAT = 'مبلغ الافتتاح في الدرج';
@@ -191,7 +193,7 @@ async function axe(page) {
     for (const w of Object.keys(SIZES)) {
       for (const mode of ['light', 'forced']) {
         const { page, errors } = await open(browser, state, w, mode);
-        const file = `rt658-${state}-${w}x${SIZES[w]}${mode === 'forced' ? '-forced' : ''}.png`;
+        const file = `rt1027-${PHASE}-${state}-${w}x${SIZES[w]}${mode === 'forced' ? '-forced' : ''}.png`;
         await page.screenshot({ path: path.join(outDir, file) });
         const violations = mode === 'light' ? await axe(page) : [];
         const c = await page.evaluate(checks);
@@ -201,7 +203,7 @@ async function axe(page) {
       }
     }
   }
-  fs.writeFileSync(path.join(outDir, 'capture-log.json'), `${JSON.stringify(log, null, 2)}\n`);
+  fs.writeFileSync(path.join(outDir, `rt1027-${PHASE}-log.json`), `${JSON.stringify(log, null, 2)}\n`);
   await browser.close();
 })().catch((e) => {
   console.error(e);
