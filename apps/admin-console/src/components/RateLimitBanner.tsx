@@ -22,18 +22,19 @@ export interface RateLimitBannerProps {
    */
   dismissible?: boolean;
   /**
-   * RT-931: stay hidden for any 429 up to this sequence number, because a surface
-   * already says it (and carries its own retry). A later 429 shows the banner
-   * again, after a short grace (CLAIM_GRACE_MS) that lets a surface claim it
-   * first, so a claimed 429 is never on screen or in the live region, not even
-   * for one frame. The live region stays mounted. Unset: every 429 shows at once.
+   * RT-931: the 429s (by sequence number) a surface already says, with its own
+   * retry; the banner skips exactly these. Any other 429 shows the banner, after a
+   * short grace (CLAIM_GRACE_MS) that lets a surface claim it first, so a claimed
+   * 429 is never on screen or in the live region, not even for one frame. RT-940:
+   * a claim never hides an unclaimed 429, even one that landed just before it.
+   * The live region stays mounted. Unset: every 429 shows at once.
    */
-  hiddenThroughSeq?: number;
+  claimedSeqs?: ReadonlySet<number>;
 }
 
 /**
  * How long a 429 waits before the banner shows it, when the host can claim 429s
- * (`hiddenThroughSeq` set). The banner hears a 429 synchronously from the shared
+ * (`claimedSeqs` set). The banner hears a 429 synchronously from the shared
  * clock; the surface that owns it learns of its failure a few ticks later (the
  * query cache's notify timer, or the drawer's async continuation).
  */
@@ -41,10 +42,10 @@ export const CLAIM_GRACE_MS = 100;
 
 export function RateLimitBanner({
   dismissible = true,
-  hiddenThroughSeq,
+  claimedSeqs,
 }: Readonly<RateLimitBannerProps>): React.JSX.Element {
   const t = useT();
-  const banner = useBannerState(dismissible, hiddenThroughSeq);
+  const banner = useBannerState(dismissible, claimedSeqs);
   const message = (count: number) =>
     banner.active ? t("rateLimit.wait", { count }) : t("rateLimit.ready");
 
@@ -66,7 +67,7 @@ export function RateLimitBanner({
 }
 
 /** The banner's state: visibility per 429, the once-only announcement, retry and dismiss. */
-function useBannerState(dismissible: boolean, hiddenThroughSeq: number | undefined) {
+function useBannerState(dismissible: boolean, claimedSeqs: ReadonlySet<number> | undefined) {
   // Optional: a shell rendered without a query client (tests) still shows the banner.
   const qc = useContext(QueryClientContext);
   const { active, secondsLeft, seq, since } = useRateLimit();
@@ -74,7 +75,7 @@ function useBannerState(dismissible: boolean, hiddenThroughSeq: number | undefin
   // The 429 the banner shows. When claims are on, a new one waits CLAIM_GRACE_MS and
   // the banner keeps showing the one before it, so nothing is announced for a 429 a
   // surface is about to claim, and a banner on screen never blanks between 429s.
-  const shownSeq = useClaimGrace(seq, hiddenThroughSeq !== undefined);
+  const shownSeq = useClaimGrace(seq, claimedSeqs !== undefined);
   // The seconds announced for this 429, fixed so the live region speaks once.
   const announced = useRef({ seq: 0, seconds: 0 });
   if (announced.current.seq !== shownSeq) {
@@ -93,13 +94,25 @@ function useBannerState(dismissible: boolean, hiddenThroughSeq: number | undefin
   };
 
   return {
-    visible: shownSeq > (hiddenThroughSeq ?? 0) && (!dismissible || shownSeq !== dismissedSeq),
+    visible: hasUnclaimedSeq(shownSeq, dismissible ? dismissedSeq : 0, claimedSeqs),
     active,
     secondsLeft,
     announcedSeconds: announced.current.seconds,
     dismiss,
     retry,
   };
+}
+
+/** Whether any 429 after `afterSeq`, up to `throughSeq`, is one no surface claimed. */
+function hasUnclaimedSeq(
+  throughSeq: number,
+  afterSeq: number,
+  claimedSeqs: ReadonlySet<number> | undefined,
+): boolean {
+  for (let s = throughSeq; s > afterSeq; s--) {
+    if (!claimedSeqs?.has(s)) return true;
+  }
+  return false;
 }
 
 /**
