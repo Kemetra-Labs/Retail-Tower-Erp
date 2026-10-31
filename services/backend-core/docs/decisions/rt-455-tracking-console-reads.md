@@ -45,7 +45,7 @@ Taken from `inventory.yaml` 1.8.0-draft as it is on `main`:
 - `cookieAuth`, tenant from the session, nothing tenant-, store- or actor-shaped accepted from the request (§XII, FR-052).
 - A row of another tenant is a non-disclosing 404 (`NotFoundOrCrossTenant`).
 - **Role rule per family, unchanged:**
-  - **Identity reads.** `listTrackingIdentities` (line 394) is owner / tenant_admin, and a caller without the role gets a non-disclosing **404**. II-2 and II-5 follow it, and also document the baseline's `403 Forbidden` response (lines 420–421).
+  - **Identity reads.** `listTrackingIdentities` (line 394) is owner / tenant_admin, and a caller without the role gets a non-disclosing **404**. II-2 and II-5 follow it. A role failure is a 404, never a 403: `TrackingIdentitiesController` declares `@Roles('owner', 'tenant_admin')` with `denyAs 404`. So their fragments declare no `403`. The baseline lists `403 Forbidden` (line 420), but that entry does not describe the role failure and is not copied.
   - **Hold, recall and expiry-correction reads.** `getTrackingHold` (line 824), `getInventoryRecall` (line 934) and the expiry-correction `POST` are owner / tenant_admin, and other roles get **403**. That is `denyAs: 403` in `InventorySafetyController`. TR-3a, TR-3b and II-4 follow them. II-4 sits on the same path as that `POST`, so one path never answers a store_manager both 403 and 404.
   - **Findings.** The findings read keeps its store_manager narrowing (line 758).
 - **Keyset pages** follow the RT-731 wording (`listStockMovements`, line 290):
@@ -564,7 +564,6 @@ paths:
                 $ref: "#/components/schemas/TrackingIdentity"
         "400": { $ref: "#/components/responses/ValidationFailure" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "5XX": { $ref: "#/components/responses/SystemFailure" }
@@ -607,7 +606,6 @@ paths:
                 $ref: "#/components/schemas/TrackingIdentityPositions"
         "400": { $ref: "#/components/responses/ValidationFailure" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "5XX": { $ref: "#/components/responses/SystemFailure" }
