@@ -14,8 +14,14 @@
  * Permission: the page mounts this only for the roles the operation accepts
  * (`canMoveStock`); the API remains the authority (a store_manager outside its
  * store scope is refused by it, and the refusal is shown verbatim).
+ *
+ * RT-1016 (v4.0): restyle only. The section is a numbered panel, and the
+ * outcome (recorded, rejected, no answer) now reads above the submit button,
+ * where the field errors already are; the held key, the command and every
+ * message are untouched.
  */
 import { Banner } from "@/components/Banner";
+import { DetailPanel } from "@/components/DetailPanel";
 import { GatedButton } from "@/components/GatedButton";
 import { InlineError } from "@/components/InlineError";
 import { useT } from "@/i18n";
@@ -48,6 +54,8 @@ interface Props {
   storeId: string;
   productId: string;
   onHand: ReadState<OnHand>;
+  /** The panel's «0N» position on the page. */
+  index?: number;
 }
 
 function activeLocations(locations: readonly StockLocation[] | undefined): StockLocation[] {
@@ -76,7 +84,7 @@ function Rejection({ outcome }: Readonly<{ outcome: Extract<MoveOutcome, { kind:
   );
 }
 
-export function StatusMoveSection({ scope, storeId, productId, onHand }: Readonly<Props>) {
+export function StatusMoveSection({ scope, storeId, productId, onHand, index }: Readonly<Props>) {
   const t = useT();
   const locations = useStockLocations({ scope, storeId });
   const move = useStatusMove(storeId);
@@ -140,142 +148,141 @@ export function StatusMoveSection({ scope, storeId, productId, onHand }: Readonl
   };
 
   return (
-    <section className="inventory__section" aria-labelledby="inventory-move">
-      <h2 id="inventory-move" className="inventory__section-title">
-        {t("inventory.move.title")}
-      </h2>
-      <p className="inventory__note">{t("inventory.move.sub")}</p>
-      {stockingUnit ? null : onHand.data ? (
-        <Banner variant="warning" message={t("inventory.move.error.unit")} />
-      ) : (
-        <p className="inventory__note">
-          {t("inventory.move.unitUnknown")} <Unknown />
-        </p>
-      )}
-      <form className="surface__form" onSubmit={submit} noValidate>
-        <div className="surface__form-grid">
-          <div className="field">
-            <label htmlFor="move-from">{t("inventory.move.from")}</label>
-            <select
-              id="move-from"
-              className="input"
-              value={from}
-              onChange={(e) => changeFrom(e.target.value as DispositionStatus)}
-            >
-              {fromChoices.map((s) => (
-                <option key={s} value={s}>
-                  {t(inventoryStatusKey(s))}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="move-to">{t("inventory.move.to")}</label>
-            <select
-              id="move-to"
-              className="input"
-              value={to}
-              onChange={(e) => changeTo(e.target.value as DispositionStatus)}
-            >
-              {toStatusesFor(from).map((s) => (
-                <option key={s} value={s}>
-                  {t(inventoryStatusKey(s))}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="move-reason">{t("inventory.move.reason")}</label>
-            <select
-              id="move-reason"
-              className="input"
-              value={reason}
-              aria-invalid={errors.reason ? true : undefined}
-              onChange={(e) => setReason(e.target.value as InventoryReasonCode)}
-            >
-              {reasons.map((r) => (
-                <option key={r} value={r}>
-                  {t(reasonKey(r))}
-                </option>
-              ))}
-            </select>
-            <InlineError message={errors.reason ? t(errors.reason) : undefined} />
-          </div>
-          <div className="field">
-            <label htmlFor="move-quantity">
-              {t("inventory.move.quantity")}
-              {stockingUnit ? (
-                <>
-                  {" "}
-                  (<Machine value={stockingUnit} />)
-                </>
-              ) : null}
-            </label>
-            <input
-              id="move-quantity"
-              className="input input--mono"
-              dir="ltr"
-              inputMode="decimal"
-              autoComplete="off"
-              value={quantity}
-              aria-invalid={errors.quantity ? true : undefined}
-              onChange={(e) => setQuantity(e.target.value)}
-            />
-            <InlineError message={errors.quantity ? t(errors.quantity) : undefined} />
-          </div>
-          {showLocation ? (
+    <DetailPanel id="inventory-move" index={index} title={t("inventory.move.title")}>
+      <div className="inventory__panel-body inventory__move">
+        <p className="inventory__note">{t("inventory.move.sub")}</p>
+        {stockingUnit ? null : onHand.data ? (
+          <Banner variant="warning" message={t("inventory.move.error.unit")} />
+        ) : (
+          <p className="inventory__note">
+            {t("inventory.move.unitUnknown")} <Unknown />
+          </p>
+        )}
+        <form className="surface__form" onSubmit={submit} noValidate>
+          <div className="surface__form-grid">
             <div className="field">
-              <label htmlFor="move-location">{t("inventory.move.location")}</label>
+              <label htmlFor="move-from">{t("inventory.move.from")}</label>
               <select
-                id="move-location"
+                id="move-from"
                 className="input"
-                value={locationId}
-                onChange={(e) => setLocationId(e.target.value)}
+                value={from}
+                onChange={(e) => changeFrom(e.target.value as DispositionStatus)}
               >
-                <option value="">{t("inventory.move.location.primary")}</option>
-                {locationChoices
-                  .filter((l) => l.kind !== "primary")
-                  .map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name || l.code} ({t(locationKindKey(l.kind))})
-                    </option>
-                  ))}
+                {fromChoices.map((s) => (
+                  <option key={s} value={s}>
+                    {t(inventoryStatusKey(s))}
+                  </option>
+                ))}
               </select>
             </div>
+            <div className="field">
+              <label htmlFor="move-to">{t("inventory.move.to")}</label>
+              <select
+                id="move-to"
+                className="input"
+                value={to}
+                onChange={(e) => changeTo(e.target.value as DispositionStatus)}
+              >
+                {toStatusesFor(from).map((s) => (
+                  <option key={s} value={s}>
+                    {t(inventoryStatusKey(s))}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="move-reason">{t("inventory.move.reason")}</label>
+              <select
+                id="move-reason"
+                className="input"
+                value={reason}
+                aria-invalid={errors.reason ? true : undefined}
+                onChange={(e) => setReason(e.target.value as InventoryReasonCode)}
+              >
+                {reasons.map((r) => (
+                  <option key={r} value={r}>
+                    {t(reasonKey(r))}
+                  </option>
+                ))}
+              </select>
+              <InlineError message={errors.reason ? t(errors.reason) : undefined} />
+            </div>
+            <div className="field">
+              <label htmlFor="move-quantity">
+                {t("inventory.move.quantity")}
+                {stockingUnit ? (
+                  <>
+                    {" "}
+                    (<Machine value={stockingUnit} />)
+                  </>
+                ) : null}
+              </label>
+              <input
+                id="move-quantity"
+                className="input input--mono"
+                dir="ltr"
+                inputMode="decimal"
+                autoComplete="off"
+                value={quantity}
+                aria-invalid={errors.quantity ? true : undefined}
+                onChange={(e) => setQuantity(e.target.value)}
+              />
+              <InlineError message={errors.quantity ? t(errors.quantity) : undefined} />
+            </div>
+            {showLocation ? (
+              <div className="field">
+                <label htmlFor="move-location">{t("inventory.move.location")}</label>
+                <select
+                  id="move-location"
+                  className="input"
+                  value={locationId}
+                  onChange={(e) => setLocationId(e.target.value)}
+                >
+                  <option value="">{t("inventory.move.location.primary")}</option>
+                  {locationChoices
+                    .filter((l) => l.kind !== "primary")
+                    .map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name || l.code} ({t(locationKindKey(l.kind))})
+                      </option>
+                    ))}
+                </select>
+              </div>
+            ) : null}
+          </div>
+          <div className="field">
+            <label htmlFor="move-note">
+              {t("inventory.move.note")}
+              {noteRequired(reason) ? null : (
+                <span className="field__required"> {t("inventory.move.optional")}</span>
+              )}
+            </label>
+            <textarea
+              id="move-note"
+              className="input"
+              rows={2}
+              maxLength={NOTE_MAX_LENGTH}
+              value={note}
+              aria-invalid={errors.note ? true : undefined}
+              onChange={(e) => setNote(e.target.value)}
+            />
+            <InlineError message={errors.note ? t(errors.note) : undefined} />
+          </div>
+          {outcome?.kind === "recorded" ? (
+            <Banner variant="success" message={t("inventory.move.recorded")} />
           ) : null}
-        </div>
-        <div className="field">
-          <label htmlFor="move-note">
-            {t("inventory.move.note")}
-            {noteRequired(reason) ? null : (
-              <span className="field__required"> {t("inventory.move.optional")}</span>
-            )}
-          </label>
-          <textarea
-            id="move-note"
-            className="input"
-            rows={2}
-            maxLength={NOTE_MAX_LENGTH}
-            value={note}
-            aria-invalid={errors.note ? true : undefined}
-            onChange={(e) => setNote(e.target.value)}
-          />
-          <InlineError message={errors.note ? t(errors.note) : undefined} />
-        </div>
-        <div>
-          <GatedButton type="submit" className="btn-primary" disabled={move.isPending}>
-            {move.isPending ? t("common.loading") : t("inventory.move.submit")}
-          </GatedButton>
-        </div>
-      </form>
-      {outcome?.kind === "recorded" ? (
-        <Banner variant="success" message={t("inventory.move.recorded")} />
-      ) : null}
-      {outcome?.kind === "rejected" ? <Rejection outcome={outcome} /> : null}
-      {outcome?.kind === "failed" ? (
-        <Banner variant="danger" message={t("inventory.move.failed")} />
-      ) : null}
-      <p className="inventory__note">{t("inventory.move.note.physical")}</p>
-    </section>
+          {outcome?.kind === "rejected" ? <Rejection outcome={outcome} /> : null}
+          {outcome?.kind === "failed" ? (
+            <Banner variant="danger" message={t("inventory.move.failed")} />
+          ) : null}
+          <div className="inventory__move-submit">
+            <GatedButton type="submit" className="btn-primary" disabled={move.isPending}>
+              {move.isPending ? t("common.loading") : t("inventory.move.submit")}
+            </GatedButton>
+            <p className="inventory__note">{t("inventory.move.note.physical")}</p>
+          </div>
+        </form>
+      </div>
+    </DetailPanel>
   );
 }

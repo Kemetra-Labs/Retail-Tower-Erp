@@ -38,8 +38,14 @@ export const inventory = {
   "inventory.note.erpBook":
     "الأرصدة هنا محسوبة من حركات Retail Tower. رصيد ERPNext الدفتري يظهر في فروقات المخزون.",
 
+  // --- RT-1016: header band facts (each from a served read) ---------------------
+  "inventory.band.store.label": "ملخص المتجر",
+  "inventory.band.locations": "مواقع تخزين",
+  "inventory.band.activeLocations": "نشطة",
+  "inventory.band.onHand.label": "ملخص الرصيد",
+
   // --- Store picker -------------------------------------------------------------
-  "inventory.stores.sub": "اختر متجرًا لعرض مواقع التخزين وسجل حركات المخزون.",
+  "inventory.stores.subTenant": "متاجر {tenant}. اختر متجرًا لعرض مواقع التخزين وسجل حركات المخزون.",
   "inventory.stores.caption": "المتاجر المتاحة لك",
   "inventory.stores.col.store": "المتجر",
   "inventory.stores.loadingNoun": "المتاجر",

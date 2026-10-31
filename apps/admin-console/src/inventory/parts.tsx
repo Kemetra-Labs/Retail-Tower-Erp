@@ -142,7 +142,7 @@ export function LoadMore({
   const t = useT();
   if (!hasMore) return null;
   return (
-    <div>
+    <div className="inventory__more">
       <GatedButton
         type="button"
         className="btn-secondary"
