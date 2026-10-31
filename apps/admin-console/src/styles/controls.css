@@ -69,7 +69,8 @@
   --btn-bg-press: var(--color-action-fill);
   --btn-weight: var(--weight-strong);
   /* The shared transition plus the hover shadow, so it eases in with the lift. */
-  transition: background-color var(--duration-2) var(--ease-out), border-color var(--duration-2)
+  transition:
+    background-color var(--duration-2) var(--ease-out), border-color var(--duration-2)
     var(--ease-out), color var(--duration-2) var(--ease-out), transform var(--duration-1)
     var(--ease-out), box-shadow var(--duration-2) var(--ease-out);
 }
