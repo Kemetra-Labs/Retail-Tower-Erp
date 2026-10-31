@@ -211,6 +211,27 @@ describe('RT-238 — the action bar is outside the scrolling regions', () => {
     expect(bridge.confirm).not.toHaveBeenCalled();
   });
 
+  it('while the chosen tender is starting, «اختر طريقة الدفع» is no longer said', async () => {
+    const bridge = makeBridge();
+    let finishStart: (v: { kind: 'ok'; payment_attempt_id: string }) => void = () => {};
+    const pendingStart = new Promise<{ kind: 'ok'; payment_attempt_id: string }>((resolve) => {
+      finishStart = resolve;
+    });
+    bridge.start.mockReturnValueOnce(pendingStart);
+    render(<PaymentSurface _testBridge={bridge} />);
+    await act(async () => {
+      screen.getByTestId('tender-cash').click();
+      await Promise.resolve();
+    });
+    expect(bridge.start).toHaveBeenCalled();
+    expect(screen.queryByTestId('payment-surface-commit-unavailable')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('payment-surface-commit-reason')).not.toBeInTheDocument();
+    await act(async () => {
+      finishStart({ kind: 'ok', payment_attempt_id: 'pa-001' });
+      await Promise.resolve();
+    });
+  });
+
   it('a refused start shows its refusal alone: no unavailable commit beside it', async () => {
     const bridge = makeBridge();
     bridge.start.mockResolvedValueOnce({ kind: 'refused', reason: 'x' });

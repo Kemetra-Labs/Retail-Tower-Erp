@@ -1660,9 +1660,11 @@ function PaymentSurfaceBody({
   const entryOwnsPrimary = phase === 'entry' && remainingBalanceMinor > 0 && afterApply === 'idle';
   const showSettle = hasAppliedLine && !entryOwnsPrimary && afterApply === 'idle' && !cancelOpen;
   // RT-1025: no method chosen and nothing recorded yet; at 0 due «إتمام البيع» owns the slot.
-  // Never beside a refusal line or M-P13, which must not suggest completing the payment.
+  // Never beside a refusal line or M-P13, which must not suggest completing the payment,
+  // and not while the chosen tender is starting (a method is already chosen).
   const awaitingTender =
     phase === 'tender_selection' &&
+    !isStarting &&
     !hasAppliedLine &&
     !zeroDue &&
     afterApply === 'idle' &&
