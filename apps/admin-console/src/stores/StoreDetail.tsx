@@ -32,13 +32,25 @@ import { useT } from "@/i18n";
  *
  * RT-961: the v3 detail template: the back link to the list, the page header,
  * then the store's ledger in a section panel.
+ *
+ * RT-1012 (v4.0): the header is the Ink entity band (initials tile, name, state;
+ * «تعديل المتجر» is its one primary) and the sections are numbered in the
+ * board's order: 01 store data, 02 timing, 03 this store's devices, 04 store
+ * status. The time zone change (with its impact review) and suspend / activate
+ * stay on the edit route where their data flow lives (behaviour unchanged);
+ * sections 02 and 04 read the served value and link there. Not drawn, because
+ * nothing serves them: the active-device and open-shift counts, the store
+ * clock and the business-day bar.
  */
 import { Link, useParams } from "react-router";
 import { ScopePrompt } from "./ScopePrompt";
+import { StoreHeroArt } from "./StoreHeroArt";
+import { StoreInitials } from "./StoreInitials";
 import { StoreStateBadge } from "./StoreStateBadge";
 import { ZoneName } from "./ZoneName";
 import { useStoreDetail } from "./useStoreQueries";
 import "../shell/surface.css";
+import "./stores.css";
 
 export function StoreDetail(): React.JSX.Element {
   const t = useT();
@@ -76,41 +88,37 @@ export function StoreDetail(): React.JSX.Element {
     return <div className="surface" />;
   }
 
+  const suspended = store.is_active === false;
   return (
-    <div className="surface">
+    <div className="surface stores-v4">
       <Link to="/stores" className="surface__back">
         <BackArrow /> {t("stores.detail.back")}
       </Link>
-      <PageHeader
-        title={store.name}
-        actions={
-          <div className="surface__actions surface__actions--head">
-            <Link
-              to={{ pathname: "/devices", search: `?store=${encodeURIComponent(store.id)}` }}
-              className="btn-ghost"
-            >
-              {t("stores.detail.devices")}
-            </Link>
-            <Link to={`/stores/${store.id}/edit`} className="btn-secondary">
-              {t("stores.detail.edit")}
-            </Link>
-          </div>
-        }
-      >
-        <HeaderStatus label={t("stores.field.state")}>
-          <StoreStateBadge isActive={store.is_active} />
-        </HeaderStatus>
-      </PageHeader>
+      <div className="store-hero">
+        <StoreHeroArt />
+        <StoreInitials name={store.name} size="lg" />
+        <PageHeader
+          title={store.name}
+          actions={
+            <div className="surface__actions surface__actions--head">
+              <Link to={`/stores/${store.id}/edit`} className="btn-primary">
+                {t("stores.detail.edit")}
+              </Link>
+            </div>
+          }
+        >
+          <HeaderStatus label={t("stores.field.state")}>
+            <StoreStateBadge isActive={store.is_active} />
+          </HeaderStatus>
+        </PageHeader>
+      </div>
 
       <DetailGrid>
-        <DetailPanel>
+        <DetailPanel id="store-data-title" title={t("stores.section.data")} index={1}>
           <PanelBody>
             <dl className="surface__detail">
               <LedgerField label={t("stores.field.code")} mono>
                 <bdi dir="ltr">{store.code}</bdi>
-              </LedgerField>
-              <LedgerField label={t("stores.field.timezone")}>
-                <ZoneName zone={store.timezone} />
               </LedgerField>
               <LedgerField label={t("stores.field.id")} mono>
                 <bdi dir="ltr">{store.id}</bdi>
@@ -118,7 +126,59 @@ export function StoreDetail(): React.JSX.Element {
             </dl>
           </PanelBody>
         </DetailPanel>
+
+        <DetailPanel
+          id="store-timing-title"
+          title={t("stores.form.timingSection")}
+          index={2}
+          aside={<span className="store-panel-note">{t("stores.timing.sub")}</span>}
+        >
+          <PanelBody>
+            <dl className="surface__detail">
+              <LedgerField label={t("stores.field.timezone")}>
+                <ZoneName zone={store.timezone} />
+              </LedgerField>
+            </dl>
+            <p className="store-panel-row">
+              <Link to={`/stores/${store.id}/edit`} className="store-panel-link">
+                {t("stores.detail.changeTimezone")}
+              </Link>
+            </p>
+          </PanelBody>
+        </DetailPanel>
       </DetailGrid>
+
+      <DetailPanel id="store-devices-title" title={t("stores.detail.devicesSection")} index={3}>
+        <PanelBody>
+          <p className="store-panel-note">{t("stores.detail.devicesBody")}</p>
+          <p className="store-panel-row">
+            <Link
+              to={{ pathname: "/devices", search: `?store=${encodeURIComponent(store.id)}` }}
+              className="store-panel-link"
+            >
+              {t("stores.detail.devices")}
+            </Link>
+          </p>
+        </PanelBody>
+      </DetailPanel>
+
+      <DetailPanel
+        id="store-status-title"
+        title={t("stores.status.title")}
+        index={4}
+        className="store-section--status"
+      >
+        <PanelBody>
+          <p className="store-panel-note">
+            {t(suspended ? "stores.detail.statusBodySuspended" : "stores.detail.statusBody")}
+          </p>
+          <p className="store-panel-row">
+            <Link to={`/stores/${store.id}/edit`} className="store-panel-link">
+              {t(suspended ? "stores.detail.activateStatus" : "stores.detail.changeStatus")}
+            </Link>
+          </p>
+        </PanelBody>
+      </DetailPanel>
 
       <StorePolicySection storeId={store.id} timeZone={store.timezone} />
     </div>

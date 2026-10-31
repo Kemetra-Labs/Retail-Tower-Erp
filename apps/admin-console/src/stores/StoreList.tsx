@@ -1,10 +1,10 @@
 import { Banner } from "@/components/Banner";
 import { DataTable } from "@/components/DataTable";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
-import { ListHeaderBand } from "@/components/ListHeaderBand";
+import { type BandFacts, ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
 import { type SortState, type SortValue, sortRows } from "@/components/tableSort";
-import { type T, useT } from "@/i18n";
+import { type T, formatNumber, useT } from "@/i18n";
 import { intlTag } from "@/i18n/locale";
 import type { Rf2ErrorRender } from "@/lib/rf2-queries";
 /**
@@ -19,15 +19,24 @@ import type { Rf2ErrorRender } from "@/lib/rf2-queries";
  * role or state; the server's 403 is the authority. A residual `401` maps to
  * `scope-required` (scope prompt, still never a sign-out). 403 → danger banner;
  * 5xx → warning banner with a reload.
+ *
+ * RT-1012 (v4.0): the band's facts are the counts of the full roster (stores,
+ * active, suspended): `GET /api/v1/stores` is unpaged, so they are whole-set
+ * figures. They appear only once the roster is read, never on a failed or
+ * pending read. The rows lead with the store's initials tile; the table sits
+ * in one v4 panel.
  */
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ScopePrompt } from "./ScopePrompt";
+import { StoreInitials } from "./StoreInitials";
 import { StoreStateBadge } from "./StoreStateBadge";
 import { ZoneName } from "./ZoneName";
+import { storeCounts } from "./storeCounts";
 import { useStoreList } from "./useStoreQueries";
 import { useStoreScope } from "./useStoreScope";
 import "../shell/surface.css";
+import "./stores.css";
 
 type StoreRow = {
   id: string;
@@ -42,7 +51,12 @@ function storeColumns(t: T) {
     {
       key: "name",
       header: t("stores.list.col.store"),
-      cell: (s: StoreRow) => s.name,
+      cell: (s: StoreRow) => (
+        <span className="store-cell">
+          <StoreInitials name={s.name} />
+          <span className="store-cell__name">{s.name}</span>
+        </span>
+      ),
       sortable: true,
     },
     {
@@ -108,6 +122,18 @@ function StoreListError({
   return <Banner variant="danger" message={t(error.messageKey)} requestId={requestId} />;
 }
 
+/** Whole-roster counts for the band; none until the read has returned rows. */
+function bandFacts(t: T, rows: readonly StoreRow[] | undefined): BandFacts | undefined {
+  if (!rows) return undefined;
+  const counts = storeCounts(rows);
+  const figure = (n: number) => <bdi dir="ltr">{formatNumber(n, t.locale)}</bdi>;
+  return [
+    { label: t("stores.band.total"), value: figure(counts.total) },
+    { label: t("stores.band.active"), value: figure(counts.active) },
+    { label: t("stores.band.suspended"), value: figure(counts.suspended) },
+  ];
+}
+
 export function StoreList(): React.JSX.Element {
   const t = useT();
   const { activeTenantId, activeTenantName } = useStoreScope();
@@ -139,13 +165,15 @@ export function StoreList(): React.JSX.Element {
   // Any failure is an error render, never the zero-row empty state.
   const error = result?.kind === "error" ? result.render : undefined;
   const ready = !isLoading && !error;
+  const facts = bandFacts(t, ready && result?.kind === "rows" ? result.rows : undefined);
 
   return (
-    <div className="surface">
+    <div className="surface stores-v4">
       <ListHeaderBand
         group={t("shell.nav.section.management")}
         title={t("stores.list.title")}
         subtitle={t.rich("stores.list.sub", { tenant: <bdi>{activeTenantName}</bdi> })}
+        facts={facts ? { label: t("stores.band.label"), items: facts } : undefined}
         actions={
           <Link to="/stores/new" className="btn-primary">
             {t("stores.list.add")}
@@ -156,11 +184,13 @@ export function StoreList(): React.JSX.Element {
       {error ? <StoreListError error={error} onRetry={refetch} /> : null}
 
       {isLoading ? (
-        <DataTableSkeleton
-          caption={t("stores.list.caption")}
-          columns={storeColumns(t)}
-          label={t("stores.list.loadingNoun")}
-        />
+        <div className="section-panel store-results">
+          <DataTableSkeleton
+            caption={t("stores.list.caption")}
+            columns={storeColumns(t)}
+            label={t("stores.list.loadingNoun")}
+          />
+        </div>
       ) : null}
 
       {ready && rows.length === 0 ? (
@@ -172,15 +202,17 @@ export function StoreList(): React.JSX.Element {
       ) : null}
 
       {ready && rows.length > 0 ? (
-        <DataTable
-          caption={t("stores.list.caption")}
-          columns={storeColumns(t)}
-          rows={rows}
-          rowKey={(s) => s.id}
-          onRowActivate={(s) => navigate(`/stores/${s.id}`)}
-          sort={sort}
-          onSortChange={(next) => setChosen({ tenantId: activeTenantId, sort: next })}
-        />
+        <div className="section-panel store-results">
+          <DataTable
+            caption={t("stores.list.caption")}
+            columns={storeColumns(t)}
+            rows={rows}
+            rowKey={(s) => s.id}
+            onRowActivate={(s) => navigate(`/stores/${s.id}`)}
+            sort={sort}
+            onSortChange={(next) => setChosen({ tenantId: activeTenantId, sort: next })}
+          />
+        </div>
       ) : null}
     </div>
   );
