@@ -642,3 +642,45 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
     await waitFor(() => expect(location()).toBe(`/catalog/products/${PRODUCT_1}`));
   });
 });
+
+describe("CatalogProductList v4.0 (RT-1010)", () => {
+  beforeEach(() => {
+    consoleListCatalogProducts.mockReset();
+    consoleListCatalogCategories.mockReset();
+    activeContext.mockReset();
+    activeContext.mockReturnValue(ctx());
+    consoleListCatalogCategories.mockResolvedValue(categories);
+    consoleListCatalogProducts.mockResolvedValue(page([product()]));
+  });
+
+  test("the band carries no facts: the page serves no scope echo or total", async () => {
+    const { container } = renderList();
+    await tableReady();
+    expect(container.querySelector(".list-band")).not.toBeNull();
+    expect(container.querySelector(".list-band__facts")).toBeNull();
+  });
+
+  test("the table sits in one results panel with the pager", async () => {
+    const { container } = renderList();
+    const table = await tableReady();
+    const panel = table.closest(".catalog-results");
+    expect(panel?.classList.contains("section-panel")).toBe(true);
+    expect(panel?.querySelector(".catalog-pager")).not.toBeNull();
+    expect(container.querySelector(".surface")?.classList.contains("catalog-v4")).toBe(true);
+  });
+
+  test("an empty result and the not-available state sit in the same panel", async () => {
+    consoleListCatalogProducts.mockResolvedValue(page([]));
+    renderList();
+    const empty = await screen.findByText("There are no active items yet.");
+    expect(empty.closest(".catalog-results")).not.toBeNull();
+  });
+
+  test("a refused role gets the not-available state inside the panel, and no request", async () => {
+    activeContext.mockReturnValue(ctx("store_staff"));
+    renderList();
+    const text = await screen.findByText("These items are not available to you.");
+    expect(text.closest(".catalog-results")).not.toBeNull();
+    expect(consoleListCatalogProducts).not.toHaveBeenCalled();
+  });
+});

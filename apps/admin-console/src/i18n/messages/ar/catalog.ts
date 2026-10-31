@@ -232,6 +232,11 @@ export const catalog = {
   "catalog.edit.reload": "إعادة التحميل",
   "catalog.edit.reloaded": "تم تحميل أحدث نسخة. ما كتبته محفوظ في النموذج. راجعه ثم احفظ مرة أخرى.",
   "catalog.edit.reloadFailed": "تعذّرت إعادة تحميل هذا الصنف. ما كتبته محفوظ في النموذج.",
+  // RT-1010: the note beside the edit form. Each step is true of the page today.
+  "catalog.edit.after.title": "ماذا يحدث بعد الحفظ",
+  "catalog.edit.after.changed": "تُحفظ القيم التي غيّرتها فقط، على مستوى المؤسسة كلها.",
+  "catalog.edit.after.stores": "المتاجر التي لها قيم خاصة تحتفظ بها.",
+  "catalog.edit.after.price": "السعر لا يتغيّر من هنا.",
 
   "catalog.form.name": "الاسم",
   "catalog.form.description": "الوصف",

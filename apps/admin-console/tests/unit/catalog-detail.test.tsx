@@ -539,3 +539,43 @@ describe("CatalogProductDetail (RT-766, CAT-C1b)", () => {
     expect(within(section("Tenant values")).queryByText("Status", { selector: "dt" })).toBeNull();
   });
 });
+
+describe("CatalogProductDetail v4.0 (RT-1010)", () => {
+  beforeEach(() => {
+    consoleGetCatalogProduct.mockReset();
+    listStores.mockReset();
+    activeContext.mockReset();
+    activeContext.mockReturnValue(ctx());
+    consoleGetCatalogProduct.mockResolvedValue(one(detail()));
+    listStores.mockResolvedValue({ status: 200, data: [] });
+  });
+
+  test("the sections carry the index badges 01 to 03 in reading order, outside every name", async () => {
+    const { container } = renderDetail();
+    await loaded();
+    const badges = Array.from(container.querySelectorAll(".section-index"));
+    expect(badges.map((b) => b.textContent)).toEqual(["01", "02", "03"]);
+    for (const badge of badges) expect(badge.getAttribute("aria-hidden")).toBe("true");
+    // Each badge sits in its own section's head, beside the heading that names it.
+    const heads = badges.map((b) => b.closest(".section-panel")?.querySelector("h2")?.textContent);
+    expect(heads).toEqual(["Tenant values", "Identifiers", "Store overrides"]);
+    expectPanels(["Tenant values", "Identifiers", "Store overrides"]);
+  });
+
+  test("the contract serves no ERPNext identity, so the page shows none", async () => {
+    const { container } = renderDetail();
+    await loaded();
+    expect(container.textContent).not.toMatch(/ERPNext/i);
+  });
+
+  test("the loaded page opts into the v4 surface and its read-only tables are strips", async () => {
+    consoleGetCatalogProduct.mockResolvedValue(one(detail({ identifiers: [identifier()] })));
+    const { container } = renderDetail();
+    await loaded();
+    const root = container.querySelector(".surface");
+    expect(root?.classList.contains("catalog-v4")).toBe(true);
+    expect(root?.classList.contains("surface--v4")).toBe(true);
+    const identifiers = within(section("Identifiers")).getByRole("table");
+    expect(identifiers.classList.contains("data-table--strips")).toBe(true);
+  });
+});

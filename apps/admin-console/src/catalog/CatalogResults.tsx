@@ -11,6 +11,9 @@
  * category, tracking and updated-at are metadata, dropped first when narrow
  * (`catalog.css`). Every value is the server's: no price or availability is
  * computed here.
+ *
+ * RT-1010 (v4.0): every result state sits in one results panel. The rows open
+ * the item, so they keep the ruled rows of a selectable table (§12.5).
  */
 import { Banner } from "@/components/Banner";
 import { DataTable, type DataTableColumn } from "@/components/DataTable";
@@ -197,7 +200,15 @@ function isEmptyWalk(list: CatalogListState): boolean {
   return list.rows.length === 0 && list.ended;
 }
 
-export function Results({
+export function Results(props: Readonly<CatalogResultsProps>): React.JSX.Element {
+  return (
+    <div className="section-panel catalog-results">
+      <ResultState {...props} />
+    </div>
+  );
+}
+
+function ResultState({
   list,
   storeInScope,
   filtered,

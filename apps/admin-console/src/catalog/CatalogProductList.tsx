@@ -7,6 +7,11 @@
  * Filters live in the URL, and a tenant change resets them. A role the API refuses gets the
  * non-disclosing not-available state and no form. Opening a row goes to the
  * product detail (CAT-C1b).
+ *
+ * RT-1010 (v4.0): the band carries no facts. The list page serves only its rows
+ * and a cursor (no store, period or read time to echo, no total), and the
+ * active store's name comes from the client's scope, so it stays in the note
+ * below the band. Every result state sits in one panel (`catalog-v4`).
  */
 import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { useT } from "@/i18n";
@@ -71,7 +76,7 @@ function Shell({
 }: Readonly<{ scope: CatalogScope; children: React.ReactNode }>): React.JSX.Element {
   const t = useT();
   return (
-    <div className="surface">
+    <div className="surface surface--v4 catalog-v4">
       <ListHeaderBand
         group={t("shell.nav.section.operations")}
         title={t("catalog.list.title")}
@@ -215,7 +220,9 @@ export function CatalogProductList(): React.JSX.Element {
   if (!canReadCatalog(scope.role)) {
     return (
       <Shell scope={scope}>
-        <Unavailable />
+        <div className="section-panel catalog-results">
+          <Unavailable />
+        </div>
       </Shell>
     );
   }

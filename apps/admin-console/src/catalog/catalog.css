@@ -263,3 +263,129 @@
     outline-offset: -2px;
   }
 }
+
+/* ---- RT-1010: v4.0 «Ink & Receipt» on the Catalog surface ------------------
+ * Opt-in by `catalog-v4` (the list and the loaded detail) and `catalog-edit`
+ * (the edit form panel), so no other family's shapes change and this look does
+ * not depend on whether another slice's stylesheet loaded first. Shape only:
+ * existing role tokens, tints by color-mix, so no new colour role or contrast
+ * pair (C5). Dubai stays (C9). */
+
+/* Panels: 20px radius, the one resting elevation (§12.5). */
+.catalog-v4 .section-panel,
+.form-panel.catalog-edit,
+.form-page:has(.catalog-edit) .form-aside {
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-resting);
+}
+
+/* The list's results: one panel holding every state, the rows ruled (the rows
+ * open an item, so a selectable table keeps its ruled rows). */
+.catalog-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+}
+.catalog-results > .catalog-table {
+  margin-inline: calc(var(--space-5) * -1);
+}
+.catalog-results .data-table :is(th, td):first-child {
+  padding-inline-start: var(--space-5);
+}
+.catalog-results .data-table :is(th, td):last-child {
+  padding-inline-end: var(--space-5);
+}
+.catalog-results .data-table thead th {
+  background: var(--color-surface);
+}
+.catalog-results > .catalog-pager {
+  padding-block-start: var(--space-3);
+  border-block-start: 1px dashed var(--color-border);
+}
+
+/* Status and availability pills: text first, colour only reinforces; a small
+ * rotated square leads, drawn in the text colour (no new role). */
+.catalog-v4 .badge {
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-color: transparent;
+  border-radius: 9px;
+  background-color: color-mix(in srgb, currentColor 10%, var(--color-surface));
+}
+.catalog-v4 .badge::before {
+  content: "";
+  flex: none;
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 2px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+
+/* Read-only detail tables as strips (§12.5): 6px gaps, sunken, 12px radius. */
+.catalog-v4 .data-table--strips {
+  border-collapse: separate;
+  border-spacing: 0 6px;
+}
+.catalog-v4 .data-table--strips tbody tr :is(td, th) {
+  background: var(--color-surface-sunken);
+  border-block: 1px solid var(--color-border);
+}
+.catalog-v4 .data-table--strips tbody tr > :first-child {
+  border-inline-start: 1px solid var(--color-border);
+  border-start-start-radius: var(--radius-field-lg);
+  border-end-start-radius: var(--radius-field-lg);
+}
+.catalog-v4 .data-table--strips tbody tr > :last-child {
+  border-inline-end: 1px solid var(--color-border);
+  border-start-end-radius: var(--radius-field-lg);
+  border-end-end-radius: var(--radius-field-lg);
+}
+.catalog-v4 .data-table--strips thead th {
+  border-bottom: 0;
+}
+
+/* A strip table sits inset in its panel, so the strips never touch its edge. */
+.catalog-v4 .section-panel > .data-table__scroll {
+  padding-inline: var(--space-3);
+  padding-block-end: var(--space-2);
+}
+
+/* The retire section: its own panel, edged in a tint of the danger role. */
+.catalog-v4 .catalog-retire {
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, var(--color-border));
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+}
+
+/* The edit form: the "what happens after save" note sits beside the panel. */
+.form-page:has(.catalog-edit) .form-aside {
+  align-self: flex-start;
+}
+
+/* Forced colours: no shadow, tints or strips; system colours carry the split. */
+@media (forced-colors: active) {
+  .catalog-v4 .section-panel,
+  .form-panel.catalog-edit,
+  .form-page:has(.catalog-edit) .form-aside {
+    box-shadow: none;
+  }
+  .catalog-v4 .badge {
+    border-color: CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .catalog-v4 .badge::before {
+    background: CanvasText;
+  }
+  .catalog-v4 .data-table--strips tbody tr :is(td, th) {
+    background: Canvas;
+    border-color: CanvasText;
+  }
+  .catalog-v4 .catalog-retire {
+    border-color: CanvasText;
+  }
+}
