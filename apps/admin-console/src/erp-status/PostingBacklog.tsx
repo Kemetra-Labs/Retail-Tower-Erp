@@ -53,7 +53,7 @@ function BacklogRow({ item }: Readonly<{ item: PostingBacklogItem }>): React.JSX
 export function PostingBacklog({ list }: Readonly<{ list: BacklogList }>): React.JSX.Element {
   const t = useT();
   return (
-    <Panel id="erp-backlog" title={t("erp.backlog.title")}>
+    <Panel id="erp-backlog" title={t("erp.backlog.title")} index={3}>
       <p className="content__sub">{t("erp.backlog.sub")}</p>
       <p className="erp-note">{t("erp.backlog.reasonNote")}</p>
       <StaleError panel={list} />
