@@ -96,6 +96,8 @@ export const erp = {
   "erp.pipeline.server.noCount": "لا يُقرأ هنا عدّ للمبيعات المتزامنة · {link}",
   "erp.pipeline.server.repairLink": "فتح المبيعات التي تحتاج إلى إصلاح",
   "erp.pipeline.erp.loading": "جارٍ قراءة حالة الترحيل",
+  "erp.pipeline.erp.filtered": "حالة الترحيل مرتبطة بالمتجر المحدد · انظر ملخص المزامنة",
+  "erp.pipeline.erp.noConnector": "لا يوجد موصل مسجّل",
   "erp.pipeline.erp.unavailable": "لم تُقرأ حالة الترحيل",
   "erp.pipeline.erp.unreachable": "لا يصل · حسب تقرير الموصل",
   "erp.linkDown.note":

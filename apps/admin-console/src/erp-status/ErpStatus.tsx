@@ -24,7 +24,7 @@ import { ReconciliationRuns } from "./ReconciliationRuns";
 import { SalePipeline } from "./SalePipeline";
 import { type FilterStore, StoreFilter } from "./StoreFilter";
 import { SyncSummary } from "./SyncSummary";
-import { canReadErpStatus, isStoreFilter, oldestRead } from "./erpStatusLogic";
+import { canReadErpStatus, isStoreFilter, pageLastRead } from "./erpStatusLogic";
 import {
   type ErpError,
   type ErpQuery,
@@ -88,8 +88,8 @@ function ErpStatusContent({ scope }: Readonly<{ scope: ErpScope }>): React.JSX.E
     for (const panel of [connections, summary, backlog, runs]) panel.retry();
   };
 
-  // The band's read time: the oldest of the reads on screen, so it never overstates freshness.
-  const lastRead = oldestRead([connections.asOf, summary.asOf, backlog.asOf, runs.asOf]);
+  // The band's read time: the oldest read, once every panel has data (never overstates freshness).
+  const lastRead = pageLastRead([connections.asOf, summary.asOf, backlog.asOf, runs.asOf]);
 
   return (
     <div className="surface erp-surface erp-surface--v4">
@@ -121,7 +121,7 @@ function ErpStatusContent({ scope }: Readonly<{ scope: ErpScope }>): React.JSX.E
         }
       />
 
-      <SalePipeline connections={connections} summary={summary} />
+      <SalePipeline connections={connections} summary={summary} filtered={storeId !== ""} />
       <ConnectionPanel state={connections} />
 
       <StoreFilter

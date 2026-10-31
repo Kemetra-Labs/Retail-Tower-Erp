@@ -22,7 +22,7 @@ const ENV_KEYS: Record<string, MessageKey> = {
   prod: "erp.env.prod",
 };
 
-function envKey(environment: string): MessageKey {
+export function envKey(environment: string): MessageKey {
   return Object.hasOwn(ENV_KEYS, environment) ? ENV_KEYS[environment] : "erp.env.unknown";
 }
 

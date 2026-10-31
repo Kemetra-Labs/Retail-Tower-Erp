@@ -516,6 +516,13 @@ describe("stale state (A-8)", () => {
 });
 
 describe("sale pipeline and sections (RT-1011)", () => {
+  const live = {
+    liveness: "healthy" as const,
+    lastSeenAt: "2026-10-16T09:00:00Z",
+    secondsSinceLastSeen: 30,
+    reportedFieldsAt: "2026-10-16T09:00:00Z",
+  };
+
   test("the full pipeline states each node's fact in words, and invents no count", async () => {
     renderPage();
     const rail = await screen.findByRole("group", { name: "Sale pipeline" });
@@ -529,10 +536,11 @@ describe("sale pipeline and sections (RT-1011)", () => {
         .getAttribute("href"),
     ).toBe("/sales-needing-repair");
     await waitFor(() =>
-      expect(within(nodes[2]).getByText("Nothing needs attention · Count: 0")).toBeDefined(),
+      expect(within(nodes[2]).getByText("Nothing needs attention")).toBeDefined(),
     );
-    // No device fraction and no sale totals: nothing here is served.
+    // No device fraction, no count and no sale totals: nothing here is served.
     expect(rail.textContent ?? "").not.toMatch(/\d+\s*\/\s*\d+/);
+    expect(rail.textContent ?? "").not.toMatch(/Count/);
   });
 
   test("the four sections carry their index badges in reading order", async () => {
@@ -545,18 +553,11 @@ describe("sale pipeline and sections (RT-1011)", () => {
     expect(screen.getByRole("heading", { name: "Connector connection" })).toBeDefined();
   });
 
-  test("link-down: the connector's report turns the ERPNext node to a fault and says sales are saved", async () => {
+  test("link-down: a live connector's report is labelled with its environment, dated, turns the node to a fault and says sales are saved", async () => {
     api.listConnectorHealth.mockResolvedValue(
       ok({
         items: [
-          healthView({
-            connectorId: INSTANCE_A,
-            liveness: "healthy",
-            lastSeenAt: "2026-10-16T09:00:00Z",
-            secondsSinceLastSeen: 30,
-            erpnextReachable: false,
-            reportedFieldsAt: "2026-10-16T09:00:00Z",
-          }),
+          healthView({ connectorId: INSTANCE_A, ...live, erpnextReachable: false }),
           healthView({ connectorId: INSTANCE_B }),
         ],
       }),
@@ -564,9 +565,36 @@ describe("sale pipeline and sections (RT-1011)", () => {
     renderPage();
     const rail = await screen.findByRole("group", { name: "Sale pipeline" });
     await waitFor(() =>
-      expect(within(rail).getByText("Not reachable · as reported by the connector")).toBeDefined(),
+      expect(within(rail).getByText(/Not reachable · as reported by the connector/)).toBeDefined(),
     );
+    const erp = within(rail).getAllByRole("listitem")[2];
+    expect(within(erp).getByText(/Pilot/)).toBeDefined();
+    expect(within(erp).getByText(/Reported/)).toBeDefined();
     expect(screen.getByText(/Selling continues and sales are saved on the server/)).toBeDefined();
+  });
+
+  test("a stale connector's old 'false' shows no fault and no reassurance", async () => {
+    api.listConnectorHealth.mockResolvedValue(
+      ok({
+        items: [
+          healthView({
+            connectorId: INSTANCE_A,
+            liveness: "stale",
+            lastSeenAt: "2026-10-01T09:00:00Z",
+            secondsSinceLastSeen: 900000,
+            erpnextReachable: false,
+            reportedFieldsAt: "2026-10-01T09:00:00Z",
+          }),
+          healthView({ connectorId: INSTANCE_B }),
+        ],
+      }),
+    );
+    renderPage();
+    const rail = await screen.findByRole("group", { name: "Sale pipeline" });
+    await screen.findByText("Cairo ERP");
+    await waitFor(() => expect(within(rail).getByText("Nothing needs attention")).toBeDefined());
+    expect(within(rail).queryByText(/Not reachable/)).toBeNull();
+    expect(screen.queryByText(/Selling continues/)).toBeNull();
   });
 
   test("with no connector report of a fault, no reassurance is shown", async () => {
@@ -576,11 +604,40 @@ describe("sale pipeline and sections (RT-1011)", () => {
     expect(screen.queryByText(/Selling continues/)).toBeNull();
   });
 
-  test("the band names the scope and the last read", async () => {
+  test("no registered connector: the ERPNext node is not a green posting status", async () => {
+    api.tenantAdminListConnectorInstances.mockResolvedValue(ok({ items: [] }));
+    api.listConnectorHealth.mockResolvedValue(ok({ items: [] }));
+    renderPage();
+    const rail = await screen.findByRole("group", { name: "Sale pipeline" });
+    await waitFor(() => expect(within(rail).getByText("No connector registered")).toBeDefined());
+    expect(within(rail).queryByText("Nothing needs attention")).toBeNull();
+  });
+
+  test("a store filter narrows the summary, so the node says it follows that store", async () => {
+    renderPage(`/erp-connection?store=${STORE_A}`);
+    const rail = await screen.findByRole("group", { name: "Sale pipeline" });
+    await waitFor(() =>
+      expect(
+        within(rail).getByText("Posting status follows the selected store · see the sync summary"),
+      ).toBeDefined(),
+    );
+    expect(within(rail).queryByText("Nothing needs attention")).toBeNull();
+  });
+
+  test("the band names the scope and the last read, once every panel has data", async () => {
     renderPage();
     await screen.findByText("Cairo ERP");
     const band = screen.getByRole("heading", { level: 1 }).closest("header") as HTMLElement;
     expect(within(band).getByText(/Northstar Retail/)).toBeDefined();
     await waitFor(() => expect(within(band).getByText(/Last read:/)).toBeDefined());
+  });
+
+  test("a panel with nothing loaded keeps the band from claiming a last read", async () => {
+    api.consoleListPostingBacklog.mockResolvedValue(failure(500));
+    renderPage();
+    await screen.findByText("Cairo ERP");
+    await within(panel(/permanently rejected postings/i)).findByText(/couldn't load/i);
+    const band = screen.getByRole("heading", { level: 1 }).closest("header") as HTMLElement;
+    expect(within(band).queryByText(/Last read:/)).toBeNull();
   });
 });

@@ -88,6 +88,8 @@ export const erp: MessagesOf<typeof ar> = {
   "erp.pipeline.server.noCount": "No count of synced sales is read here · {link}",
   "erp.pipeline.server.repairLink": "Open sales needing repair",
   "erp.pipeline.erp.loading": "Reading the posting status",
+  "erp.pipeline.erp.filtered": "Posting status follows the selected store · see the sync summary",
+  "erp.pipeline.erp.noConnector": "No connector registered",
   "erp.pipeline.erp.unavailable": "The posting status wasn't read",
   "erp.pipeline.erp.unreachable": "Not reachable · as reported by the connector",
   "erp.linkDown.note":

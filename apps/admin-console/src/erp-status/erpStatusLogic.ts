@@ -164,51 +164,74 @@ export function domainStatusView(status: string): StatusView {
 // --- Sale pipeline (RT-1011) ---------------------------------------------------------
 
 /**
- * The connector reports that ERPNext does not answer (A-3): the one served
- * link-down fact. A disabled registration, a missing or failed C2 read, and a
- * `null` report are not link-down: nothing is known, so nothing is claimed.
+ * The registrations whose connector is live right now AND reports ERPNext
+ * unreachable (A-3). A report is the connector's last word, however old: once
+ * the connector has gone stale or was never seen, its "false" is no evidence of
+ * the present, so only a healthy liveness counts. A disabled registration, a
+ * missing or failed C2 read and a `null` report are not link-down: nothing is
+ * known, so nothing is claimed. The page names these registrations, so a
+ * staging connector's report is never read as the production link.
  */
-export function isLinkDown(rows: readonly ConnectionRow[]): boolean {
-  return rows.some((row) => !row.instance.disabled_at && row.health?.erpnextReachable === false);
+export function unreachableRows(rows: readonly ConnectionRow[]): ConnectionRow[] {
+  return rows.filter(
+    (row) =>
+      !row.instance.disabled_at &&
+      row.signal === "healthy" &&
+      row.health?.erpnextReachable === false,
+  );
 }
 
 /** The ERPNext node of the pipeline rail: its dot and its fact, as a catalog key. */
 export interface ErpNodeView {
   status: PipelineRailStatus;
   factKey: MessageKey;
-  /** The posting domain's own count, when the server sent one. */
-  count?: number;
 }
 
-/** What the rail needs from the C3 summary read. */
+/** What the rail needs from the C3 summary read and the connection read. */
 export interface SummaryRead {
   isLoading: boolean;
   failed: boolean;
-  domains: readonly { domain: string; status: string; headlineCount?: number | null }[];
+  /** The summary is narrowed to one store: it is not the tenant's posting status. */
+  filtered: boolean;
+  /** The connection read finished and found no registration. */
+  noConnector: boolean;
+  domains: readonly { domain: string; status: string }[];
 }
 
 /**
  * The ERPNext node comes from the posting domain's own status (A-4: no combined
- * "ERP OK"), unless the connector reports ERPNext unreachable, which wins.
- * Loading, a failed read or a missing domain read as "not read", never as a
- * state. An unknown status is "unknown", never a failure.
+ * "ERP OK"), unless a live connector reports ERPNext unreachable, which wins.
+ * With no registered connector, a store-narrowed summary, loading, a failed read
+ * or a missing domain it reads "not read" or says why, never a state. An unknown
+ * status is "unknown", never a failure. It carries no count: the summary tile
+ * below states it with its scope.
  */
 export function erpNodeView(read: SummaryRead, linkDown: boolean): ErpNodeView {
   if (linkDown) return { status: "failed", factKey: "erp.pipeline.erp.unreachable" };
+  if (read.noConnector) return { status: "unknown", factKey: "erp.pipeline.erp.noConnector" };
+  if (read.filtered) return { status: "unknown", factKey: "erp.pipeline.erp.filtered" };
   if (read.isLoading) return { status: "unknown", factKey: "erp.pipeline.erp.loading" };
   const posting = read.domains.find((d) => d.domain === "posting");
   if (read.failed || !posting)
     return { status: "unknown", factKey: "erp.pipeline.erp.unavailable" };
   const view = domainStatusView(posting.status);
-  const count = posting.headlineCount ?? undefined;
-  if (view.hollow) return { status: "unknown", factKey: view.labelKey, count };
-  return { status: view.tone === "success" ? "ok" : "attention", factKey: view.labelKey, count };
+  if (view.hollow) return { status: "unknown", factKey: view.labelKey };
+  return { status: view.tone === "success" ? "ok" : "attention", factKey: view.labelKey };
 }
 
-/** The oldest of the read times that exist: "last read" never overstates freshness. */
+/** The oldest of the read times that exist (a panel with no data has none). */
 export function oldestRead(times: readonly (number | undefined)[]): number | undefined {
   const known = times.filter((time): time is number => time !== undefined && time > 0);
   return known.length > 0 ? Math.min(...known) : undefined;
+}
+
+/**
+ * The page's "last read": the oldest read, and only once every panel has data,
+ * so a panel still loading (or failed with nothing loaded) is never hidden
+ * behind the others' time.
+ */
+export function pageLastRead(times: readonly (number | undefined)[]): number | undefined {
+  return times.every((time) => time !== undefined && time > 0) ? oldestRead(times) : undefined;
 }
 
 // --- Posting backlog (C3) -----------------------------------------------------------
