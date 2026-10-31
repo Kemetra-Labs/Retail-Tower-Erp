@@ -168,4 +168,23 @@ describe("AuditSearch v4.0 (RT-1019)", () => {
     const drawer = await screen.findByRole("dialog", { name: "Audit event" });
     expect(within(drawer).getByText("Northstar Retail")).toBeDefined();
   });
+
+  test("with a store in scope, the drawer's scope line names tenant and store", async () => {
+    activeContext.mockReturnValue({
+      context: {
+        active_tenant: { id: "t1", name: "Northstar Retail" },
+        active_store: { id: "s1", name: "Maadi Branch" },
+      },
+    });
+    listAuditEvents.mockResolvedValue({
+      status: 200,
+      data: { items: [row("e1", "shift.forced_close")], next_cursor: null },
+    });
+    renderSearch();
+    apply();
+    fireEvent.click(await screen.findByText("shift.forced_close"));
+    const drawer = await screen.findByRole("dialog", { name: "Audit event" });
+    expect(within(drawer).getByText("Northstar Retail")).toBeDefined();
+    expect(within(drawer).getByText("Maadi Branch")).toBeDefined();
+  });
 });
