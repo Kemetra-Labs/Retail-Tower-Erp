@@ -244,3 +244,184 @@
   align-items: flex-end;
   text-align: end;
 }
+
+/* ---- RT-1013: v4.0 «Ink & Receipt» on the Devices surface -----------------
+ * Every rule hangs on `.device-surface` / `.device-flow` so no other screen
+ * changes shape before its own slice. Shape only: existing role tokens, tints
+ * by color-mix, so no new colour role or contrast pair (C5). Dubai stays (C9). */
+
+/* Panels: 20px radius and the one resting elevation (§12.5). */
+.device-surface .section-panel {
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-resting);
+}
+
+/* The list's results: one panel holding every state, the rows ruled (the rows
+ * open a device: a selectable table keeps its ruled rows). */
+.device-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+}
+.device-results > .data-table__scroll {
+  margin-inline: calc(var(--space-5) * -1);
+}
+.device-results .data-table :is(th, td):first-child {
+  padding-inline-start: var(--space-5);
+}
+.device-results .data-table :is(th, td):last-child {
+  padding-inline-end: var(--space-5);
+}
+.device-results .data-table thead th {
+  background: var(--color-surface);
+}
+/* A value never breaks mid-reference: the table scrolls in its own region. */
+.device-results .data-table__row td {
+  white-space: nowrap;
+}
+.device-results > .device-pager {
+  padding-block-start: var(--space-3);
+  border-block-start: 1px dashed var(--color-border);
+}
+
+/* Status pills: text first, colour only reinforces; a small rotated square
+ * leads, drawn in the text colour. The trust badge and the attention flags. */
+.device-surface .badge,
+.device-surface .device-name > span.device-flag {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  block-size: 26px;
+  padding: 0 10px;
+  border-color: transparent;
+  border-radius: 9px;
+  background-color: color-mix(in srgb, currentColor 8%, var(--color-surface));
+  font-size: var(--text-meta);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+}
+.device-surface .badge::before,
+.device-surface .device-name > span.device-flag::before {
+  content: "";
+  flex: none;
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 2px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+
+/* The lifecycle drawer: the Ink head is the shared drawer's (RT-995); the body
+ * stays light. The reason options and the acknowledgement are option cards over
+ * the native radio and checkbox, so the keyboard and the fieldset grouping are
+ * unchanged. Selection is Teal on light surfaces (§12.6), never colour alone: the
+ * control itself is checked. */
+.device-flow .drawer__radio {
+  min-block-size: var(--target-touch);
+  padding-inline: var(--space-3);
+  border: 1px solid var(--color-control-border);
+  border-radius: var(--radius-field-lg);
+  background: var(--color-surface);
+}
+.device-flow .drawer__radio:has(input:checked) {
+  border-color: var(--color-primary);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+  background: var(--color-primary-soft);
+}
+/* The card carries the focus ring only where :has() exists; elsewhere the native
+ * control keeps its own outline, so focus is never lost. */
+@supports selector(:has(*)) {
+  .device-flow .drawer__radio:has(:focus-visible) {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+  .device-flow .drawer__radio input:focus-visible {
+    outline: none;
+  }
+}
+/* The server's impact panel is a bordered object; its facts stay a ruled list. */
+.device-flow .device-impact {
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-object);
+}
+.device-flow .device-impact__fact:last-of-type {
+  border-block-end: 0;
+}
+
+/* Forced colours: no shadow or tints; system colours carry every split. */
+@media (forced-colors: active) {
+  .device-surface .section-panel {
+    box-shadow: none;
+  }
+  .device-surface .badge,
+  .device-surface .device-name > span.device-flag {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .device-surface .badge::before,
+  .device-surface .device-name > span.device-flag::before {
+    background: CanvasText;
+  }
+  .device-flow .drawer__radio {
+    border-color: CanvasText;
+    background: Canvas;
+  }
+  .device-flow .drawer__radio:has(input:checked) {
+    border-color: Highlight;
+    box-shadow: inset 0 0 0 1px Highlight;
+    background: Canvas;
+  }
+  .device-flow .device-impact {
+    border-color: CanvasText;
+  }
+}
+
+/* RT-1013: the lifecycle flow's step indicator, above the form body. */
+.device-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.device-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.device-steps li[aria-current="step"] {
+  color: var(--color-text);
+  font-weight: var(--weight-strong);
+}
+.device-steps__n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 22px;
+  block-size: 22px;
+  border-radius: 7px;
+  background: var(--color-surface-sunken);
+  font-variant-numeric: tabular-nums;
+}
+.device-steps li[aria-current="step"] .device-steps__n {
+  background: var(--color-text);
+  color: var(--color-surface);
+}
+@media (forced-colors: active) {
+  .device-steps__n {
+    border: 1px solid CanvasText;
+    background: Canvas;
+  }
+  .device-steps li[aria-current="step"] .device-steps__n {
+    background: Highlight;
+    color: HighlightText;
+    border-color: Highlight;
+  }
+}

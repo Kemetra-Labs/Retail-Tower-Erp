@@ -52,9 +52,20 @@ function renderDetail(shiftId: string = SHIFT_1, state?: unknown): void {
   );
 }
 
+/** A ledger row's value, by label, in a section panel or the receipt card (not the time bar). */
 function field(label: string): HTMLElement {
-  const dt = screen.getByText(label, { selector: "dt" });
+  const dt = screen
+    .getAllByText(label, { selector: "dt" })
+    .find((el) => el.closest(".detail-panel, .receipt-card"));
+  if (!dt) throw new Error(`no ledger row ${label}`);
   return dt.nextElementSibling as HTMLElement;
+}
+
+/** RT-1015: the variance is the receipt card's figure, with its direction in words. */
+function variance(): HTMLElement {
+  const figure = document.querySelector<HTMLElement>(".receipt-card .shift-receipt__figure");
+  if (!figure) throw new Error("no receipt figure");
+  return figure;
 }
 
 describe("ShiftCloseDetail (RT-18)", () => {
@@ -137,9 +148,9 @@ describe("ShiftCloseDetail (RT-18)", () => {
     expect(within(field("Pay-outs")).getByText("50.00 USD")).toBeDefined();
     expect(within(field("Expected cash")).getByText("2,850.00 USD")).toBeDefined();
     expect(within(field("Counted cash")).getByText("2,875.00 USD")).toBeDefined();
-    const variance = field("Variance (counted − expected)");
-    expect(within(variance).getByText("+25.00 USD")).toBeDefined();
-    expect(within(variance).getByText("Over")).toBeDefined();
+    const figure = variance();
+    expect(within(figure).getByText("+25.00 USD")).toBeDefined();
+    expect(within(figure).getByText("Over")).toBeDefined();
   });
 
   test("a shortage is signed negative and labelled short, with no colour class", async () => {
@@ -149,10 +160,10 @@ describe("ShiftCloseDetail (RT-18)", () => {
     });
     renderDetail();
     await screen.findByText("Cash reconciliation");
-    const variance = field("Variance (counted − expected)");
-    expect(within(variance).getByText("-40.00 EGP")).toBeDefined();
-    expect(within(variance).getByText("Short")).toBeDefined();
-    expect(variance.querySelector("[class*='danger'], [class*='success']")).toBeNull();
+    const figure = variance();
+    expect(within(figure).getByText("-40.00 EGP")).toBeDefined();
+    expect(within(figure).getByText("Short")).toBeDefined();
+    expect(figure.querySelector("[class*='danger'], [class*='success']")).toBeNull();
   });
 
   test("a recorded approver is attribution: shown as recorded, never verified, and the variance is untouched", async () => {
@@ -164,7 +175,7 @@ describe("ShiftCloseDetail (RT-18)", () => {
     await screen.findByText("Variance approval");
     expect(within(field("Recorded approver")).getByText(USER_A)).toBeDefined();
     expect(screen.getByText(/has not been verified/i)).toBeDefined();
-    expect(within(field("Variance (counted − expected)")).getByText("-40.00 EGP")).toBeDefined();
+    expect(within(variance()).getByText("-40.00 EGP")).toBeDefined();
     expect(document.body.textContent).not.toMatch(/\bverified by\b|\bmatched\b|\bresolved\b/i);
   });
 
@@ -255,9 +266,9 @@ describe("ShiftCloseDetail (RT-18)", () => {
     });
     renderDetail();
     await screen.findByText("Cash reconciliation");
-    const variance = field("Variance (counted − expected)");
-    expect(within(variance).getByText("0.00 EGP")).toBeDefined();
-    expect(within(variance).getByText("No variance")).toBeDefined();
+    const figure = variance();
+    expect(within(figure).getByText("0.00 EGP")).toBeDefined();
+    expect(within(figure).getByText("No variance")).toBeDefined();
   });
 
   test("the uniform 404 renders as not available, with a way back", async () => {
@@ -304,7 +315,6 @@ describe("ShiftCloseDetail (RT-18)", () => {
     expectBackLinkFirst();
     expectPanels([
       "Shift summary",
-      "Cash reconciliation",
       "Variance approval",
       "Cash movements",
       "Returns refunded in cash",
@@ -326,9 +336,13 @@ describe("ShiftCloseDetail (RT-18)", () => {
         true,
       );
     }
-    const variance = field("Variance (counted − expected)");
-    expectMoney(variance);
-    expect(variance.closest(".field-row")?.classList.contains("field-row--total")).toBe(true);
+    // RT-1015: the cash reconciliation is the receipt card; the variance is its figure.
+    const receipt = screen.getByRole("region", { name: "Cash reconciliation" });
+    expect(receipt.classList.contains("receipt-card")).toBe(true);
+    expect(within(receipt).getByRole("heading", { level: 2 }).textContent).toBe(
+      "Cash reconciliation",
+    );
+    expect(receipt.contains(variance())).toBe(true);
     const movements = within(screen.getByRole("region", { name: "Cash movements" }));
     expectNumericColumn(movements.getByRole("table"), "Amount");
     // Machine ids stay mono.
@@ -344,5 +358,71 @@ describe("ShiftCloseDetail (RT-18)", () => {
     await screen.findByText("Shift summary");
     expect(headerStatus("Close kind").textContent).toBe("Close kind: Forced close");
     expect(screen.queryByText("Close kind", { selector: "dt" })).toBeNull();
+  });
+
+  test("RT-1015: the five sections carry their index badges in reading order, beside the title", async () => {
+    renderDetail();
+    await screen.findByText("Shift summary");
+    const badges = [...document.querySelectorAll(".section-index")];
+    expect(badges.map((b) => b.textContent)).toEqual(["01", "02", "03", "04", "05"]);
+    for (const badge of badges) expect(badge.getAttribute("aria-hidden")).toBe("true");
+    const order = [
+      "Shift summary",
+      "Cash reconciliation",
+      "Cash movements",
+      "Variance approval",
+      "Returns refunded in cash",
+    ];
+    const titles = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(titles).toEqual(order);
+  });
+
+  test("RT-1015: the receipt card shows the served variance and every ledger figure as served", async () => {
+    consoleGetShiftClose.mockResolvedValue({
+      status: 200,
+      data: detail({ currencyCode: "USD", variance: "-40.0000", countedCash: "2810.0000" }),
+    });
+    renderDetail();
+    await screen.findByText("Cash reconciliation");
+    const receipt = screen.getByRole("region", { name: "Cash reconciliation" });
+    expect(receipt.tagName).toBe("SECTION");
+    expect(within(receipt).getByText("-40.00 USD")).toBeDefined();
+    expect(within(receipt).getByText("Short")).toBeDefined();
+    expect(within(receipt).getByText("Variance (counted − expected)")).toBeDefined();
+    const ledger = [
+      ["Opening float", "500.00 USD"],
+      ["Cash sales", "2,500.00 USD"],
+      ["Cash refunds", "100.00 USD"],
+      ["Pay-ins", "0.00 USD"],
+      ["Pay-outs", "50.00 USD"],
+      ["Expected cash", "2,850.00 USD"],
+      ["Counted cash", "2,810.00 USD"],
+    ];
+    for (const [label, value] of ledger) {
+      expect(within(field(label)).getByText(value)).toBeDefined();
+      expect(receipt.contains(field(label))).toBe(true);
+    }
+    // The perforation and the sign marks are decoration only.
+    expect(receipt.querySelector(".receipt-card__perf")?.getAttribute("aria-hidden")).toBe("true");
+    for (const sign of receipt.querySelectorAll(".shift-sign")) {
+      expect(sign.getAttribute("aria-hidden")).toBe("true");
+    }
+  });
+
+  test("RT-1015: the time bar sits under the header with its text equivalent", async () => {
+    renderDetail();
+    await screen.findByText("Shift summary");
+    await waitFor(() => expect(readStore).toHaveBeenCalled());
+    const bar = screen.getByRole("img", { name: /^Opened .*, closed .*, recorded on the server / });
+    expect(bar.closest(".shift-timebar")).not.toBeNull();
+    expect(screen.getByText("Shift duration")).toBeDefined();
+  });
+
+  test("RT-1015: a missing close is the 404 empty state in a panel, not a banner", async () => {
+    consoleGetShiftClose.mockResolvedValue(failure(404));
+    renderDetail();
+    const message = await screen.findByText("This shift close is not available.");
+    expect(message.closest(".section-panel")).not.toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

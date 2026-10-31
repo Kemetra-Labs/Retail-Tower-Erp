@@ -112,7 +112,8 @@
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  padding-top: var(--space-4);
+  padding-block-start: var(--space-3);
+  border-block-start: 1px dashed var(--color-border);
 }
 .audit-pager__count {
   color: var(--color-text-muted);
@@ -130,14 +131,204 @@
   padding-top: var(--space-5);
   border-top: 1px solid var(--color-border);
 }
+/* RT-1019: the metadata is machine data as recorded: one mono block, always
+ * left to right, its keys in the link emphasis colour. */
 .audit-inspect__kv {
   display: grid;
   gap: var(--space-2);
   margin: var(--space-3) 0 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-field-lg);
+  background: var(--color-surface-sunken);
+  direction: ltr;
+  text-align: start;
 }
 .audit-inspect__kv-row {
   display: grid;
-  grid-template-columns: 140px 1fr;
+  grid-template-columns: minmax(0, 140px) minmax(0, 1fr);
   gap: var(--space-3);
   overflow-wrap: anywhere;
+}
+.audit-inspect__kv dt {
+  color: var(--color-primary-emphasis);
+  font-weight: var(--weight-strong);
+}
+.audit-inspect__kv dd {
+  margin: 0;
+}
+/* Each field: its label above the value, hairline between (the drawer body). */
+.audit-inspect__fields .field-row__value {
+  overflow-wrap: anywhere;
+}
+
+/* ---- RT-1019: v4.0 «Ink & Receipt» on the audit surface ------------------
+ * Every rule is under an audit class, so it never depends on which other
+ * screen's CSS is loaded. Shape and tint only, from the existing role tokens
+ * (no new colour role or contrast pair); Dubai stays. */
+
+/* The band's evidence note. On the plain light header (below 640px) it is a
+ * muted line; on the Ink band it is a quiet outlined pill with a Mint mark. */
+.audit-band-note {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
+  color: var(--color-text-muted);
+}
+.audit-band-note::before {
+  content: "";
+  flex: none;
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 2px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+@media (min-width: 640px) {
+  .audit-band-note {
+    min-block-size: 34px;
+    padding-inline: var(--space-3);
+    border: 1px solid color-mix(in srgb, var(--color-on-ink) 16%, transparent);
+    border-radius: var(--radius-field);
+    background: color-mix(in srgb, var(--color-on-ink) 6%, transparent);
+    color: var(--color-on-ink);
+  }
+  .audit-band-note::before {
+    background: var(--color-mint);
+  }
+}
+
+/* The results panel: one panel for every state; 20px radius, the resting
+ * elevation (§12.5). */
+.audit-results {
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-resting);
+}
+.audit-results__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-4);
+  padding: var(--space-4) var(--space-5) var(--space-2);
+}
+.audit-results__title {
+  margin: 0;
+  font: var(--weight-strong) var(--text-section-title) / var(--leading-title) var(--font-sans);
+}
+.audit-results__hint {
+  margin: 0;
+  margin-inline-start: auto;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.audit-results__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 0 var(--space-5) var(--space-4);
+}
+/* The table runs edge to edge inside the panel; its first and last cells keep
+ * the panel's inline padding. */
+.audit-results__body > .data-table__scroll {
+  margin-inline: calc(var(--space-5) * -1);
+  /* The shared region caps at 100% of the padded body, which would leave the
+   * widened region short of the inline-end edge. */
+  max-inline-size: none;
+}
+.audit-table :is(th, td):first-child {
+  padding-inline-start: var(--space-5);
+}
+.audit-table :is(th, td):last-child {
+  padding-inline-end: var(--space-5);
+}
+.audit-table thead th {
+  background: var(--color-surface);
+}
+/* Evidence never breaks mid-value: the region scrolls (RT-825) instead. */
+.audit-table tbody td:not(:last-child) {
+  white-space: nowrap;
+}
+
+/* The action: label above, the code in a bordered mono chip, as recorded. */
+.audit-table__action {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+.audit-code {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 24px;
+  padding-inline: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+  font-family: var(--font-mono);
+  font-size: var(--text-machine);
+}
+
+/* A refused platform access: a red edge at the inline start, beside its words
+ * (colour never carries the meaning alone). */
+.audit-table__row--refused td:first-child {
+  position: relative;
+}
+.audit-table__row--refused td:first-child::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: 3px;
+  background: var(--color-danger);
+}
+
+/* A failed search or "Load more": the v4 banner shape, a red strip at the
+ * inline start; the copy and its retry are unchanged (RT-269). */
+.audit-banner .rtc-alert {
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  padding-inline-start: calc(var(--space-4) + 4px);
+}
+.audit-banner .rtc-alert::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: 4px;
+  background: var(--color-danger);
+}
+
+/* No scope: the prompt sits in the same panel shape. */
+.audit-prompt {
+  padding: var(--space-4) var(--space-5);
+}
+
+/* Forced colours: no shadow or tints; system colours carry every edge. */
+@media (forced-colors: active) {
+  .audit-band-note {
+    border-color: CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .audit-band-note::before {
+    background: CanvasText;
+  }
+  .audit-results {
+    box-shadow: none;
+  }
+  .audit-code,
+  .audit-inspect__kv {
+    border-color: CanvasText;
+    background: Canvas;
+  }
+  .audit-inspect__kv dt {
+    color: CanvasText;
+  }
+  .audit-table__row--refused td:first-child::before,
+  .audit-banner .rtc-alert::before {
+    background: CanvasText;
+  }
 }

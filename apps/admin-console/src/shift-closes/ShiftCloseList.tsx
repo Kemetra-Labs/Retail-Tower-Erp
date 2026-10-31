@@ -21,6 +21,8 @@ import type { ShiftCloseSummary } from "@/lib/shift-close-queries";
  */
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { ShiftCloseFilterBar } from "./ShiftCloseFilterBar";
+import { KindPill } from "./ShiftKindPill";
+import { FormulaStrip, VarianceMark, useBandFacts } from "./ShiftListParts";
 import { ShiftScopePrompt } from "./ShiftScopePrompt";
 import {
   type ShiftCloseFilters,
@@ -29,7 +31,7 @@ import {
   filtersToSearch,
   validateFilters,
 } from "./shiftCloseFilters";
-import { closeKindKey, varianceDirectionKey } from "./shiftCloseLogic";
+import { varianceDirection, varianceDirectionKey } from "./shiftCloseLogic";
 import {
   type ListGate,
   type ShiftCloseError,
@@ -57,7 +59,7 @@ function shiftColumns(t: T, directory: StoreDirectory): DataTableColumn<ShiftClo
     {
       key: "kind",
       header: t("shift.list.col.kind"),
-      cell: (s) => <span className="badge">{t(closeKindKey(s))}</span>,
+      cell: (s) => <KindPill close={s} />,
     },
     {
       key: "expected",
@@ -73,7 +75,8 @@ function shiftColumns(t: T, directory: StoreDirectory): DataTableColumn<ShiftClo
       key: "variance",
       header: t("shift.list.col.variance"),
       cell: (s) => (
-        <span className="shift-variance">
+        <span className="shift-variance shift-variance--marked">
+          <VarianceMark direction={varianceDirection(s)} />
           <Money signed value={s.variance} currency={s.currencyCode} />
           <small className="shift-variance__label">{t(varianceDirectionKey(s))}</small>
         </span>
@@ -88,13 +91,22 @@ function shiftColumns(t: T, directory: StoreDirectory): DataTableColumn<ShiftClo
   ];
 }
 
+/** RT-1015: every result state that is not a banner sits in one v4 panel. */
+function ResultsPanel({ children }: Readonly<{ children: React.ReactNode }>): React.JSX.Element {
+  return <div className="section-panel shift-results">{children}</div>;
+}
+
 function ErrorView({
   error,
   onRetry,
 }: Readonly<{ error: ShiftCloseError; onRetry: () => void }>): React.JSX.Element {
   const t = useT();
   if (error.kind === "not-found") {
-    return <ListState state="empty" emptyMessage={t("shift.list.unavailable")} />;
+    return (
+      <ResultsPanel>
+        <ListState state="empty" emptyMessage={t("shift.list.unavailable")} />
+      </ResultsPanel>
+    );
   }
   const retry = (
     <button type="button" className="btn-secondary" onClick={onRetry}>
@@ -182,25 +194,29 @@ function Results({ list, directory, filtered, onOpen }: Readonly<ResultsProps>):
   const columns = shiftColumns(t, directory);
   if (list.isLoading) {
     return (
-      <DataTableSkeleton
-        caption={t("shift.list.caption")}
-        columns={columns}
-        label={t("shift.list.loadingNoun")}
-      />
+      <ResultsPanel>
+        <DataTableSkeleton
+          caption={t("shift.list.caption")}
+          columns={columns}
+          label={t("shift.list.loadingNoun")}
+        />
+      </ResultsPanel>
     );
   }
   if (list.error) return <ErrorView error={list.error} onRetry={list.retry} />;
   if (list.rows.length === 0) {
     return (
-      <ListState
-        state="empty"
-        emptyMessage={t(filtered ? "shift.list.emptyFiltered" : "shift.list.empty")}
-        emptyHint={t(filtered ? "shift.list.emptyFilteredHint" : "shift.list.emptyHint")}
-      />
+      <ResultsPanel>
+        <ListState
+          state="empty"
+          emptyMessage={t(filtered ? "shift.list.emptyFiltered" : "shift.list.empty")}
+          emptyHint={t(filtered ? "shift.list.emptyFilteredHint" : "shift.list.emptyHint")}
+        />
+      </ResultsPanel>
     );
   }
   return (
-    <>
+    <ResultsPanel>
       <DataTable
         caption={t("shift.list.caption")}
         columns={columns}
@@ -209,7 +225,7 @@ function Results({ list, directory, filtered, onOpen }: Readonly<ResultsProps>):
         onRowActivate={onOpen}
       />
       <Pager list={list} />
-    </>
+    </ResultsPanel>
   );
 }
 
@@ -235,16 +251,23 @@ export function ShiftCloseList(): React.JSX.Element {
   const gate = listGate(valid, needsZone && !directory.ready);
   const list = useShiftCloseList(scope, buildListQuery({ filters, timeZone: zone }), gate);
 
+  // The dates' zone is a fact only once the store roster has settled (no UTC flash).
+  const bandZone = filters.storeId && !directory.ready ? undefined : zone;
+  const facts = useBandFacts(filters, { zone: bandZone });
+  // Only once a page has loaded: not while waiting, and not after a refusal (404, 400, 401, failure).
+  const showFacts = valid && !list.isLoading && !list.error;
+
   if (!scope.tenantId) return <ShiftScopePrompt />;
 
   return (
-    <div className="surface">
+    <div className="surface surface--shifts">
       <ListHeaderBand
         group={t("shell.nav.section.operations")}
         title={t("shift.list.title")}
         subtitle={t.rich("shift.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
+        facts={showFacts && facts ? { label: t("shift.band.label"), items: facts } : undefined}
       />
-      <p className="content__sub">{t("shift.list.exceptionNote")}</p>
+      <FormulaStrip />
 
       <ShiftCloseFilterBar
         applied={filters}

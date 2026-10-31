@@ -121,6 +121,7 @@ function IdentifierEditor({
   return (
     <>
       <Identifiers
+        index={2}
         identifiers={product.identifiers}
         storeLabel={storeLabel}
         actions={actions}
@@ -158,7 +159,7 @@ export function ProductIdentifiers({
   reload,
 }: Readonly<ProductIdentifiersProps>): React.JSX.Element {
   if (writableTenantId === null) {
-    return <Identifiers identifiers={product.identifiers} storeLabel={storeLabel} />;
+    return <Identifiers index={2} identifiers={product.identifiers} storeLabel={storeLabel} />;
   }
   return (
     <IdentifierEditor

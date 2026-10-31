@@ -85,6 +85,25 @@ export function integrationStateKey(code: StockMovement["integrationState"]): Me
   return keyOf(INTEGRATION_KEYS, code, "inventory.value.unknown");
 }
 
+/** The badge modifier an ERPNext posting state reads in; text always carries the meaning. */
+const INTEGRATION_TONES: Record<string, string> = {
+  confirmed: "badge--success",
+  pending: "badge--pending",
+  rejected: "badge--danger",
+  reconciliation_required: "badge--warning",
+};
+
+/**
+ * RT-1016: the colour that reinforces a posting state's text. A state with no
+ * posting to colour (not posted, from ERPNext, not recorded) stays neutral; a
+ * code this console does not know reads in the danger role, as Unknown does.
+ */
+export function integrationTone(code: StockMovement["integrationState"]): string {
+  if (code === null || code === undefined) return "";
+  if (code === "not_posted" || code === "external") return "";
+  return INTEGRATION_TONES[code] ?? "badge--danger";
+}
+
 const LOCATION_KIND_KEYS: Record<string, MessageKey> = {
   primary: "inventory.locations.kind.primary",
   storage: "inventory.locations.kind.storage",

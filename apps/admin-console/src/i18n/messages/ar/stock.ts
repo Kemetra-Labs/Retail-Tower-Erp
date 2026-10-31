@@ -35,6 +35,11 @@ export const stock = {
   // --- Store summary list -------------------------------------------------
   "stock.stores.sub":
     "الأصناف ذات الرصيد السالب في أحدث لقطة ERPNext مسجّلة لكل متجر. للعرض فقط؛ عالج السبب في واجهة ERPNext.",
+  // RT-1017: سطر النطاق في الشريط، ودليل الحالات فوق الصفوف.
+  "stock.stores.bandSub": "الأصناف دون الصفر في أحدث لقطة ERPNext مسجّلة لكل متجر في {tenant}.",
+  "stock.stores.legendLabel": "حالات اللقطة",
+  "stock.stores.legend":
+    "اللقطة قراءة من ERPNext في وقت محدد، وليست رصيدًا جاريًا. «غير معروف» لا يعني صفرًا.",
   "stock.stores.notFound": "غير موجود. فروقات مخزون ERPNext غير متاحة لك في هذه المؤسسة.",
   "stock.stores.caption": "المتاجر",
   "stock.stores.col.store": "المتجر",
@@ -108,6 +113,9 @@ export const stock = {
   // --- Unknown items review queue (RF-4a) -----------------------------------
   "unknownItems.title": "أصناف غير معروفة",
   "unknownItems.sub": "مراجع أصناف من POS بانتظار المراجعة في هذه المؤسسة.",
+  // RT-1018 (D-V9): the band subtitle and the drawer scope line name the tenant.
+  "unknownItems.band.sub": "مراجع أصناف من POS بانتظار المراجعة في {tenant}.",
+  "unknownItems.drawer.scope": "قائمة المراجعة · {tenant}",
   "unknownItems.filters.legend": "عوامل تصفية القائمة",
   "unknownItems.filters.source": "نظام المصدر",
   "unknownItems.filters.sourcePlaceholder": "كل المصادر",

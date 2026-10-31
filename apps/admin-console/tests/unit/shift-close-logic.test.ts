@@ -4,6 +4,7 @@ import {
   MIN_NONZERO_VARIANCE,
   PAGE_SIZE,
   buildListQuery,
+  chosenMinVariance,
   filtersFromSearch,
   filtersToSearch,
   validateFilters,
@@ -226,6 +227,23 @@ describe("validateFilters", () => {
     expect(validateFilters({ ...NONE, fromDate: "2026-10-07", toDate: "2026-10-06" }).range).toBe(
       "shift.filter.rangeInvalid",
     );
+  });
+});
+
+describe("chosenMinVariance (RT-1015 band fact)", () => {
+  test("a blank or zero minimum is the default floor, not a choice", () => {
+    for (const minVariance of ["", "0", "0.0", "0.0000", ".0"]) {
+      expect(chosenMinVariance({ ...NONE, minVariance }), minVariance).toBeUndefined();
+    }
+  });
+
+  test("a non-zero minimum is the very value the request sends", () => {
+    for (const minVariance of ["10.00", "0.5", "25.50"]) {
+      expect(chosenMinVariance({ ...NONE, minVariance })).toBe(minVariance);
+      expect(buildListQuery({ filters: { ...NONE, minVariance }, timeZone: "UTC" })).toMatchObject({
+        min_abs_variance: minVariance,
+      });
+    }
   });
 });
 

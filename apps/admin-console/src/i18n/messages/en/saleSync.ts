@@ -112,6 +112,7 @@ export const saleSync: MessagesOf<typeof ar> = {
 
   // --- NEEDS_REPAIR list --------------------------------------------------------------
   "saleSync.list.title": "Sales needing repair",
+  "saleSync.list.bandSub": "Sales whose sync was quarantined · {tenant}",
   "saleSync.list.sub":
     "Sales in {tenant} whose sync the server stopped and will not retry on its own, newest first. A repair is requested from each sale's page.",
   "saleSync.list.note":

@@ -22,6 +22,12 @@ export const platform = {
   "platform.session.expiredAt": "انتهت في {time}",
   "platform.session.renew": "تجديد الجلسة",
   "platform.session.end": "إنهاء الجلسة",
+  // RT-1021 (v4.0): the renewal cap and the one-line note under the time, as text.
+  "platform.session.capAt": "حد التجديد: {time}",
+  "platform.session.note.active": "لا تُمدَّد تلقائيًا",
+  "platform.session.note.expiring": "تنتهي قريبًا",
+  "platform.session.note.cap_reached": "بلغت حد التجديد",
+  "platform.session.note.expired": "لم تُجدَّد",
 
   "platform.session.live.active": "جلسة الدعم نشطة.",
   "platform.session.live.expiring": "تنتهي جلسة الدعم قريبًا.",
@@ -64,6 +70,8 @@ export const platform = {
   "platform.tenants.suspendedNote": "المؤسسة الموقوفة تُفتح جلستها للقراءة فقط.",
   "platform.tenants.search.label": "ابحث باسم المؤسسة أو معرّفها",
   "platform.tenants.caption": "قائمة المؤسسات",
+  // RT-1021: the panel's own name, so it and the scrolling table region are not twins.
+  "platform.tenants.panelTitle": "كل المؤسسات",
   "platform.tenants.col.tenant": "المؤسسة",
   "platform.tenants.col.action": "الإجراء",
   "platform.tenants.member": "أنت عضو فيها",
@@ -89,6 +97,7 @@ export const platform = {
     "تعذّر التأكد من فتح المؤسسة لأن قراءة الحالة بعد التبديل لم تكتمل. أعد تحميل الصفحة للتحقق.",
 
   "platform.start.title": "جلسة دعم: {name}",
+  "platform.start.scopeLine": "وصول دعم",
   "platform.start.required": "(إلزامي)",
   "platform.start.optional": "(اختياري)",
   "platform.start.purpose.label": "الغرض",

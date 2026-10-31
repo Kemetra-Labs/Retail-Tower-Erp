@@ -790,3 +790,47 @@ describe("review fixes (RT-372)", () => {
     expect(within(dialog()).queryByRole("button", { name: "Retire device" })).toBeNull();
   });
 });
+
+describe("RT-1013: the drawer's scope line and step indicator", () => {
+  beforeEach(resetMocks);
+
+  test("the Ink head names the device and its store; the dialog keeps its title as its name", async () => {
+    await openRevoke();
+    await within(dialog()).findByText("Dubai Mall");
+    const head = dialog().querySelector(".drawer__scope");
+    expect(head?.textContent).toBe("Till 1 · Dubai Mall");
+    expect(screen.getByRole("dialog", { name: "Revoke device" })).toBeDefined();
+  });
+
+  test("the steps name where the flow is with aria-current, and move with it", async () => {
+    consoleGetDeviceImpact.mockResolvedValue({ status: 200, data: impact() });
+    await openRevoke();
+    const steps = () => within(dialog()).getByRole("list", { name: "Steps" });
+    const current = () =>
+      within(steps())
+        .getAllByRole("listitem")
+        .filter((li) => li.getAttribute("aria-current") === "step")
+        .map((li) => li.textContent);
+    expect(current()).toEqual(["1Details"]);
+    const status = () => dialog().querySelector("output.sr-only") as HTMLElement;
+    expect(status().textContent).toBe("Step 1 of 3: Details");
+    await chooseReason("Lost");
+    await within(dialog()).findByText("Allowed by the server.");
+    expect(current()).toEqual(["2Impact"]);
+    expect(status().textContent).toBe("Step 2 of 3: Impact");
+    consoleRevokeDevice.mockResolvedValue(revoked());
+    click("Revoke device");
+    await within(dialog()).findByText("The device is revoked.");
+    expect(current()).toEqual(["3Outcome"]);
+    expect(status().textContent).toBe("Step 3 of 3: Outcome");
+  });
+
+  test("an unlabelled device is told apart in the scope line by its id", async () => {
+    consoleGetDevice.mockResolvedValue({ status: 200, data: detail({ label: null }) });
+    renderDetail();
+    await screen.findByRole("heading", { level: 1, name: "Unlabelled device" });
+    click("Revoke");
+    await within(dialog()).findByText("Dubai Mall");
+    expect(dialog().querySelector(".drawer__scope")?.textContent).toContain(DEVICE_1);
+  });
+});

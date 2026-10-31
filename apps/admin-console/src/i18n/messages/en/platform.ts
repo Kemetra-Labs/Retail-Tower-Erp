@@ -17,6 +17,12 @@ export const platform: MessagesOf<typeof ar> = {
   "platform.session.expiredAt": "Expired at {time}",
   "platform.session.renew": "Renew session",
   "platform.session.end": "End session",
+  // RT-1021 (v4.0): the renewal cap and the one-line note under the time, as text.
+  "platform.session.capAt": "Renewal limit: {time}",
+  "platform.session.note.active": "Not extended automatically",
+  "platform.session.note.expiring": "Ends soon",
+  "platform.session.note.cap_reached": "Renewal limit reached",
+  "platform.session.note.expired": "Not renewed",
 
   "platform.session.live.active": "Support session active.",
   "platform.session.live.expiring": "Support session ends soon.",
@@ -59,6 +65,8 @@ export const platform: MessagesOf<typeof ar> = {
   "platform.tenants.suspendedNote": "A suspended organization opens in a read-only session.",
   "platform.tenants.search.label": "Search by organization name or slug",
   "platform.tenants.caption": "Organizations list",
+  // RT-1021: the panel's own name, so it and the scrolling table region are not twins.
+  "platform.tenants.panelTitle": "All organizations",
   "platform.tenants.col.tenant": "Organization",
   "platform.tenants.col.action": "Action",
   "platform.tenants.member": "You're a member",
@@ -84,6 +92,7 @@ export const platform: MessagesOf<typeof ar> = {
     "Couldn't confirm the organization opened, because reading the state after the switch didn't finish. Reload the page to check.",
 
   "platform.start.title": "Support session: {name}",
+  "platform.start.scopeLine": "Support access",
   "platform.start.required": "(required)",
   "platform.start.optional": "(optional)",
   "platform.start.purpose.label": "Purpose",

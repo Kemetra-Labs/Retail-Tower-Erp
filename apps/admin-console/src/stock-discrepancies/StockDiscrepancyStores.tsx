@@ -1,7 +1,8 @@
 import { Banner } from "@/components/Banner";
 import { TableScrollRegion } from "@/components/DataTableScroll";
+import { DetailPanel } from "@/components/DetailPanel";
+import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
-import { PageHeader } from "@/components/PageHeader";
 import { DateTime, useT } from "@/i18n";
 import type { StoreNegativeOnHandSummary } from "@/lib/stock-discrepancy-queries";
 /**
@@ -13,20 +14,24 @@ import type { StoreNegativeOnHandSummary } from "@/lib/stock-discrepancy-queries
  * `no_snapshot` / `no_warehouse_mapping` read "Unknown", never "0 issues".
  * A 404 (role not allowed) renders as not-found. Each store's "as of" time is
  * an operational instant (`<DateTime>`, UTC-labelled until RT-401).
+ *
+ * RT-1017 (v4.0): the Ink list band names the tenant and carries no facts, no
+ * action and no count: the list is paged and the API serves no whole-set
+ * figure. The stores sit in one panel under a legend that says a snapshot is a
+ * dated read and "Unknown" is not zero. Errors stay below the band, outside the
+ * panel; the band never changes with state.
  */
 import { Link } from "react-router";
 import { InlineLoadError, LoadMoreButton, TenantScopePrompt, useDiscrepancyScope } from "./shared";
-import { asOfTime, negativeCountLabel, statusView } from "./stockDiscrepancyLogic";
+import { asOfTime, negativeCountLabel, statusView, storeInitials } from "./stockDiscrepancyLogic";
 import { type StockDiscrepancyError, useNegativeOnHandStores } from "./useStockDiscrepancies";
 import "../shell/surface.css";
 import "./stock-discrepancies.css";
 
 type StoresData = ReturnType<typeof useNegativeOnHandStores>;
 
-function StoresHeader(): React.JSX.Element {
-  const t = useT();
-  return <PageHeader title={t("stock.title")} subtitle={t("stock.stores.sub")} />;
-}
+/** The three states a store's snapshot can read, named once above the rows. */
+const LEGEND_STATUSES = ["fresh", "stale", "no_snapshot"] as const;
 
 function StoresErrorBanner({
   error,
@@ -87,7 +92,15 @@ function StoreRow({ row }: Readonly<{ row: StoreNegativeOnHandSummary }>): React
   return (
     <tr className="data-table__row">
       <td>
-        <Link to={`/stock-discrepancies/${row.storeId}`}>{row.storeName}</Link>
+        <span className="stock-store">
+          {/* Decorative: the name beside it is the cell's text. */}
+          <span className="stock-store__tile" aria-hidden="true">
+            {storeInitials(row.storeName)}
+          </span>
+          <Link to={`/stock-discrepancies/${row.storeId}`}>
+            <bdi dir="auto">{row.storeName}</bdi>
+          </Link>
+        </span>
       </td>
       <td className="nowrap">
         <span className={view.badgeClass}>{t(view.labelKey)}</span>
@@ -130,10 +143,34 @@ function StoresTable({
   );
 }
 
-/** Loading, error, empty, or the table — exactly one of them. */
+/**
+ * What a snapshot state means, once, above the rows: the three states by their
+ * own labels, and the two rules the page rests on (a snapshot is a dated read;
+ * "Unknown" is not zero). Static copy, no data.
+ */
+function SnapshotLegend(): React.JSX.Element {
+  const t = useT();
+  return (
+    <div className="stock-legend">
+      <p className="stock-legend__lead">{t("stock.stores.sub")}</p>
+      <ul className="stock-legend__states" aria-label={t("stock.stores.legendLabel")}>
+        {LEGEND_STATUSES.map((status) => {
+          const view = statusView(status);
+          return (
+            <li key={status}>
+              <span className={view.badgeClass}>{t(view.labelKey)}</span>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="stock-legend__note">{t("stock.stores.legend")}</p>
+    </div>
+  );
+}
+
+/** Loading, empty, or the table — exactly one of them (an error is shown outside the panel). */
 function StoresBody({ data }: Readonly<{ data: StoresData }>): React.JSX.Element {
   const t = useT();
-  if (data.error) return <StoresErrorBanner error={data.error} onRetry={data.refetch} />;
   if (data.isLoading) return <ListState state="loading" label={t("stock.stores.loadingNoun")} />;
   if (data.stores.length === 0) {
     return <ListState state="empty" emptyMessage={t("stock.stores.empty")} />;
@@ -141,23 +178,43 @@ function StoresBody({ data }: Readonly<{ data: StoresData }>): React.JSX.Element
   return <StoresTable stores={data.stores} />;
 }
 
+function StoresPanel({ data }: Readonly<{ data: StoresData }>): React.JSX.Element {
+  const t = useT();
+  return (
+    <DetailPanel title={t("stock.stores.caption")} className="stock-results">
+      <SnapshotLegend />
+      <StoresBody data={data} />
+      <div className="stock-results__foot">
+        <InlineLoadError error={data.inlineError} onRetry={data.retryInline} />
+        <LoadMoreButton
+          hasMore={data.hasMore}
+          isFetching={data.isFetchingNextPage}
+          label={t("stock.stores.loadMore")}
+          onLoadMore={data.loadMore}
+        />
+      </div>
+    </DetailPanel>
+  );
+}
+
 export function StockDiscrepancyStores(): React.JSX.Element {
   const t = useT();
-  const { scope } = useDiscrepancyScope();
+  const { scope, tenantName } = useDiscrepancyScope();
   const data = useNegativeOnHandStores(scope);
 
   if (!scope.tenantId) return <TenantScopePrompt />;
   return (
-    <div className="surface">
-      <StoresHeader />
-      <StoresBody data={data} />
-      <InlineLoadError error={data.inlineError} onRetry={data.retryInline} />
-      <LoadMoreButton
-        hasMore={data.hasMore}
-        isFetching={data.isFetchingNextPage}
-        label={t("stock.stores.loadMore")}
-        onLoadMore={data.loadMore}
+    <div className="surface surface--v4">
+      <ListHeaderBand
+        group={t("shell.nav.section.operations")}
+        title={t("stock.title")}
+        subtitle={t.rich("stock.stores.bandSub", { tenant: <bdi>{tenantName ?? ""}</bdi> })}
       />
+      {data.error ? (
+        <StoresErrorBanner error={data.error} onRetry={data.refetch} />
+      ) : (
+        <StoresPanel data={data} />
+      )}
     </div>
   );
 }

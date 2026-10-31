@@ -70,7 +70,7 @@ function StoresTable({ stores }: Readonly<{ stores: PickerStore[] }>): React.JSX
   return (
     <TableScrollRegion>
       {(captionId) => (
-        <table className="data-table">
+        <table className="data-table data-table--strips">
           <caption id={captionId} className="data-table__caption">
             {t("inventory.stores.caption")}
           </caption>
@@ -122,16 +122,26 @@ function StoresBody({ picker }: Readonly<{ picker: PickerState }>): React.JSX.El
 
 function Content({ scope }: Readonly<{ scope: InventoryScope }>): React.JSX.Element {
   const t = useT();
+  const { context } = useActiveContextValue();
   const picker = usePickerStores(scope);
   return (
-    <div className="surface">
+    <div className="surface inventory--v4">
+      {/* RT-1016 (C1): the band names the scope (tenant) and carries no fact. The
+          picker list is filtered on the client (scope menu rule, or the pinned
+          store), so a count of it would not be a figure the server serves. */}
       <ListHeaderBand
         group={t("shell.nav.section.operations")}
         title={t("inventory.title")}
-        subtitle={t("inventory.stores.sub")}
+        subtitle={t.rich("inventory.stores.subTenant", {
+          tenant: <bdi dir="auto">{context?.active_tenant?.name}</bdi>,
+        })}
       />
       <p className="inventory__note">{t("inventory.note.readOnly")}</p>
-      <StoresBody picker={picker} />
+      <div className="section-panel">
+        <div className="inventory__panel-body inventory__panel-body--solo">
+          <StoresBody picker={picker} />
+        </div>
+      </div>
     </div>
   );
 }

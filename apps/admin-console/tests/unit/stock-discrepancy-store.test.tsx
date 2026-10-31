@@ -551,4 +551,74 @@ describe("StockDiscrepancyStore (RT-178)", () => {
     expect(await screen.findByRole("heading", { name: /store not found/i })).toBeDefined();
     expect(listErpnextNegativeOnHand).not.toHaveBeenCalled();
   });
+
+  test("RT-1017: the primary sits in the band; the band shows no store name and no facts", async () => {
+    activeContext.mockReturnValue(ctx("owner"));
+    listErpnextNegativeOnHand.mockResolvedValue(page(snapshot(), [item()]));
+    renderStore();
+    await screen.findByText("ITM-0001");
+
+    const band = document.querySelector("header.list-band") as HTMLElement;
+    expect(band).not.toBeNull();
+    expect(band.querySelector("h1")?.textContent).toBe("ERPNext stock discrepancies");
+    expect(band.querySelector("dl.list-band__facts")).toBeNull();
+    // The one primary is "Request fresh snapshot", inside the band.
+    const primary = band.querySelector("button.btn-primary") as HTMLButtonElement;
+    expect(primary.textContent).toBe("Request fresh snapshot");
+    // The snapshot's own facts stay in the snapshot panel, dated.
+    expect(screen.getByRole("region", { name: "ERPNext snapshot" })).toBeDefined();
+    // The items are the one numbered panel.
+    const panel = screen
+      .getByRole("heading", { level: 2, name: "Items below zero in ERPNext" })
+      .closest("section") as HTMLElement;
+    // One numbered section on a page is a mistake (DESIGN §12.2): none here.
+    expect(panel.querySelector(".section-index")).toBeNull();
+  });
+
+  test("RT-1017: a blocked primary keeps its reason inside the band", async () => {
+    activeContext.mockReturnValue(ctx("owner"));
+    listErpnextNegativeOnHand.mockResolvedValue(
+      page(snapshot({ pendingRequest: { runId: "r2", requestedAt: "2026-10-05T09:15:00.000Z" } }), [
+        item(),
+      ]),
+    );
+    renderStore();
+    await screen.findByText("ITM-0001");
+    const band = document.querySelector("header.list-band") as HTMLElement;
+    expect((band.querySelector("button.btn-primary") as HTMLButtonElement).disabled).toBe(true);
+    expect(band.textContent).toMatch(/a snapshot request is already pending/i);
+  });
+
+  test("RT-1017: with no snapshot there is no items panel, only the unknown notice", async () => {
+    activeContext.mockReturnValue(ctx("owner"));
+    listErpnextNegativeOnHand.mockResolvedValue(
+      page(
+        snapshot({
+          status: "no_snapshot",
+          runId: null,
+          readAt: null,
+          recordedAt: null,
+          reportedEntryCount: null,
+        }),
+      ),
+    );
+    renderStore();
+    expect(await screen.findByText(/its erpnext stock is unknown/i)).toBeDefined();
+    expect(
+      screen.queryByRole("heading", { level: 2, name: "Items below zero in ERPNext" }),
+    ).toBeNull();
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  test("RT-1017: rows the API served are shown even if the status says no snapshot", async () => {
+    activeContext.mockReturnValue(ctx("owner"));
+    listErpnextNegativeOnHand.mockResolvedValue(
+      page(snapshot({ status: "no_snapshot", runId: null, readAt: null, recordedAt: null }), [
+        item(),
+      ]),
+    );
+    renderStore();
+    expect(await screen.findByText("ITM-0001")).toBeDefined();
+    expect(document.body.textContent ?? "").not.toMatch(/no items below zero/i);
+  });
 });

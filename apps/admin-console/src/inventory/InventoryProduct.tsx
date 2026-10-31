@@ -1,6 +1,5 @@
 import { NoAccess } from "@/auth/NoAccess";
 import { Banner } from "@/components/Banner";
-import { ListState } from "@/components/ListState";
 /**
  * RT-728 — one product's on-hand at one store (`getOnHand`), reached from a
  * movement row of the store's ledger; there is no free-text product entry.
@@ -16,8 +15,18 @@ import { ListState } from "@/components/ListState";
  *
  * Tracking identities (`listTrackingIdentities`) are requested only for owner /
  * tenant_admin, the API's roles; a 403 / 404 omits the section. Read-only.
+ *
+ * RT-1016 (v4.0 «Ink & Receipt»): the header is the Ink band, its two facts the
+ * served physical and sellable on-hand (`getOnHand`), and none while that read
+ * is loading or has failed: an unknown balance is never drawn as a number, and
+ * the band never changes colour for a negative one (the warning is a banner in
+ * the on-hand panel). The panels are numbered only when more than one renders
+ * for the role (on-hand, then the status move, then tracking).
  */
-import { PageHeader } from "@/components/PageHeader";
+import { TableScrollRegion } from "@/components/DataTableScroll";
+import { DetailPanel } from "@/components/DetailPanel";
+import { type BandFacts, ListHeaderBand } from "@/components/ListHeaderBand";
+import { ListState } from "@/components/ListState";
 import { useT } from "@/i18n";
 import type { OnHand, TrackingIdentity } from "@/lib/inventory-queries";
 import { ScopeMismatchBanner } from "@/shell/ScopeMismatchBanner";
@@ -53,6 +62,11 @@ interface Target {
 }
 
 // --- On-hand ---------------------------------------------------------------------
+
+/** Anything under a panel header that is not a table: a state, a banner, a note. */
+function Body({ children }: Readonly<{ children: React.ReactNode }>): React.JSX.Element {
+  return <div className="inventory__panel-body">{children}</div>;
+}
 
 function Unit({ unit }: Readonly<{ unit: string | null | undefined }>): React.JSX.Element {
   return unit ? <Machine value={unit} /> : <Unknown />;
@@ -92,48 +106,44 @@ function OnHandFigures({
   return (
     <>
       {onHand.negativeBalance ? (
-        <Banner variant="warning" message={t("inventory.onHand.negative")} />
+        <Body>
+          <Banner variant="warning" message={t("inventory.onHand.negative")} />
+        </Body>
       ) : null}
-      <dl className="inventory__figures">
-        <div>
-          <dt>{t("inventory.onHand.physical")}</dt>
-          <dd data-testid="on-hand-quantity">
-            <Quantity value={onHand.quantity} /> <Unit unit={onHand.stockingUnit} />
-          </dd>
-        </div>
-        <div>
-          <dt>{t("inventory.onHand.sellable")}</dt>
-          <dd data-testid="on-hand-sellable">
-            <Quantity value={onHand.sellableQuantity} /> <Unit unit={onHand.stockingUnit} />
-          </dd>
-        </div>
-        <ErpBookEntry storeId={storeId} role={role} />
-      </dl>
-      <div className="table-scroll">
-        <table className="data-table">
-          <caption className="data-table__caption">{t("inventory.onHand.byStatus")}</caption>
-          <thead>
-            <tr>
-              <th scope="col">{t("inventory.onHand.col.status")}</th>
-              <th scope="col" className="num">
-                {t("inventory.onHand.col.quantity")}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {onHand.statusQuantities.map((row) => (
-              <tr key={row.inventoryStatus} className="data-table__row data-table__row--static">
-                <th scope="row">{t(inventoryStatusKey(row.inventoryStatus))}</th>
-                <td className="num">
-                  <Quantity value={row.quantity} />
-                </td>
+      <TableScrollRegion>
+        {(captionId) => (
+          <table className="data-table data-table--strips">
+            <caption id={captionId} className="data-table__caption">
+              {t("inventory.onHand.byStatus")}
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">{t("inventory.onHand.col.status")}</th>
+                <th scope="col" className="num">
+                  {t("inventory.onHand.col.quantity")}
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="inventory__note">{t("inventory.onHand.note")}</p>
-      <p className="inventory__note">{t("inventory.onHand.erpBookNote")}</p>
+            </thead>
+            <tbody>
+              {onHand.statusQuantities.map((row) => (
+                <tr key={row.inventoryStatus} className="data-table__row data-table__row--static">
+                  <th scope="row">{t(inventoryStatusKey(row.inventoryStatus))}</th>
+                  <td className="num">
+                    <Quantity value={row.quantity} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </TableScrollRegion>
+      <Body>
+        <p className="inventory__note">{t("inventory.onHand.note")}</p>
+        <dl className="inventory__figures">
+          <ErpBookEntry storeId={storeId} role={role} />
+        </dl>
+        <p className="inventory__note">{t("inventory.onHand.erpBookNote")}</p>
+      </Body>
     </>
   );
 }
@@ -142,25 +152,35 @@ function OnHandSection({
   onHand,
   storeId,
   role,
+  index,
 }: Readonly<{
   onHand: ReadState<OnHand>;
   storeId: string;
   role: string | null;
+  index: number | undefined;
 }>): React.JSX.Element {
   const t = useT();
   let body: React.JSX.Element;
   if (onHand.isLoading) {
-    body = <ListState state="loading" label={t("inventory.onHand.loadingNoun")} />;
+    body = (
+      <Body>
+        <ListState state="loading" label={t("inventory.onHand.loadingNoun")} />
+      </Body>
+    );
   } else if (onHand.data) {
     body = (
       <>
         <OnHandFigures onHand={onHand.data} storeId={storeId} role={role} />
-        <StaleError error={onHand.inlineError} onRetry={onHand.retry} />
+        {onHand.inlineError ? (
+          <Body>
+            <StaleError error={onHand.inlineError} onRetry={onHand.retry} />
+          </Body>
+        ) : null}
       </>
     );
   } else {
     body = (
-      <>
+      <Body>
         {/* No answer: the quantity is Unknown, never shown as zero. */}
         <p data-testid="on-hand-quantity">
           {t("inventory.onHand.physical")}: <Unknown />
@@ -173,16 +193,13 @@ function OnHandSection({
             onRetry={onHand.retry}
           />
         ) : null}
-      </>
+      </Body>
     );
   }
   return (
-    <section className="inventory__section" aria-labelledby="inventory-on-hand">
-      <h2 id="inventory-on-hand" className="inventory__section-title">
-        {t("inventory.onHand.title")}
-      </h2>
+    <DetailPanel id="inventory-on-hand" index={index} title={t("inventory.onHand.title")}>
       {body}
-    </section>
+    </DetailPanel>
   );
 }
 
@@ -191,64 +208,82 @@ function OnHandSection({
 function TrackingTable({ items }: Readonly<{ items: TrackingIdentity[] }>): React.JSX.Element {
   const t = useT();
   return (
-    <div className="table-scroll">
-      <table className="data-table">
-        <caption className="data-table__caption">{t("inventory.tracking.caption")}</caption>
-        <thead>
-          <tr>
-            <th scope="col">{t("inventory.tracking.col.kind")}</th>
-            <th scope="col">{t("inventory.tracking.col.code")}</th>
-            <th scope="col">{t("inventory.tracking.col.expiry")}</th>
-            <th scope="col">{t("inventory.tracking.col.manufactured")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((id) => (
-            <tr key={id.id} className="data-table__row data-table__row--static">
-              <td>{t(trackingKindKey(id.kind))}</td>
-              <th scope="row">
-                <Machine value={id.code} />
-              </th>
-              <td>
-                {id.expiryDate ? <Machine value={id.expiryDate} /> : t("inventory.value.none")}
-              </td>
-              <td>
-                {id.manufacturedOn ? (
-                  <Machine value={id.manufacturedOn} />
-                ) : (
-                  t("inventory.value.none")
-                )}
-              </td>
+    <TableScrollRegion>
+      {(captionId) => (
+        <table className="data-table data-table--strips">
+          <caption id={captionId} className="data-table__caption">
+            {t("inventory.tracking.caption")}
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">{t("inventory.tracking.col.kind")}</th>
+              <th scope="col">{t("inventory.tracking.col.code")}</th>
+              <th scope="col">{t("inventory.tracking.col.expiry")}</th>
+              <th scope="col">{t("inventory.tracking.col.manufactured")}</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {items.map((id) => (
+              <tr key={id.id} className="data-table__row data-table__row--static">
+                <td>{t(trackingKindKey(id.kind))}</td>
+                <th scope="row">
+                  <Machine value={id.code} />
+                </th>
+                <td>
+                  {id.expiryDate ? <Machine value={id.expiryDate} /> : t("inventory.value.none")}
+                </td>
+                <td>
+                  {id.manufacturedOn ? (
+                    <Machine value={id.manufacturedOn} />
+                  ) : (
+                    t("inventory.value.none")
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </TableScrollRegion>
   );
 }
 
 function TrackingBody({ list }: Readonly<{ list: PagedState<TrackingIdentity> }>) {
   const t = useT();
   if (list.isLoading) {
-    return <ListState state="loading" label={t("inventory.tracking.loadingNoun")} />;
+    return (
+      <Body>
+        <ListState state="loading" label={t("inventory.tracking.loadingNoun")} />
+      </Body>
+    );
   }
   if (list.error) {
     return (
-      <ReadError
-        error={list.error}
-        failedKey="inventory.tracking.loadFailed"
-        notFoundKey="inventory.product.notFound"
-        onRetry={list.retry}
-      />
+      <Body>
+        <ReadError
+          error={list.error}
+          failedKey="inventory.tracking.loadFailed"
+          notFoundKey="inventory.product.notFound"
+          onRetry={list.retry}
+        />
+      </Body>
     );
   }
   if (list.rows.length === 0 && !list.hasMore) {
-    return <ListState state="empty" emptyMessage={t("inventory.tracking.empty")} />;
+    return (
+      <Body>
+        <ListState state="empty" emptyMessage={t("inventory.tracking.empty")} />
+      </Body>
+    );
   }
   return (
     <>
       <TrackingTable items={list.rows} />
-      <StaleError error={list.inlineError} onRetry={list.retry} />
+      {list.inlineError ? (
+        <Body>
+          <StaleError error={list.inlineError} onRetry={list.retry} />
+        </Body>
+      ) : null}
       <LoadMore
         hasMore={list.hasMore}
         isFetching={list.isFetchingNextPage}
@@ -259,22 +294,51 @@ function TrackingBody({ list }: Readonly<{ list: PagedState<TrackingIdentity> }>
   );
 }
 
-function TrackingSection({ target }: Readonly<{ target: ProductTarget }>) {
+function TrackingSection({
+  target,
+  index,
+}: Readonly<{ target: ProductTarget; index: number | undefined }>) {
   const t = useT();
   const list = useTrackingIdentities(target);
   // The API's refusal (403 / non-disclosing 404) means: not for this caller. Omit.
   if (list.error && isHiddenSection(list.error.kind)) return null;
   return (
-    <section className="inventory__section" aria-labelledby="inventory-tracking">
-      <h2 id="inventory-tracking" className="inventory__section-title">
-        {t("inventory.tracking.title")}
-      </h2>
+    <DetailPanel id="inventory-tracking" index={index} title={t("inventory.tracking.title")}>
       <TrackingBody list={list} />
-    </section>
+    </DetailPanel>
   );
 }
 
 // --- Page ------------------------------------------------------------------------
+
+/**
+ * The served physical and sellable on-hand, as the band's facts; none until it
+ * answers, and none while a re-read has failed (the panel keeps its figures and
+ * says so, so the band never shows a number the page itself calls stale).
+ */
+function useBandFacts(onHand: ReadState<OnHand>): BandFacts | undefined {
+  const t = useT();
+  const data = onHand.data;
+  if (!data || onHand.inlineError) return undefined;
+  return [
+    {
+      label: t("inventory.onHand.physical"),
+      value: (
+        <span data-testid="on-hand-quantity">
+          <Quantity value={data.quantity} /> <Unit unit={data.stockingUnit} />
+        </span>
+      ),
+    },
+    {
+      label: t("inventory.onHand.sellable"),
+      value: (
+        <span data-testid="on-hand-sellable">
+          <Quantity value={data.sellableQuantity} /> <Unit unit={data.stockingUnit} />
+        </span>
+      ),
+    },
+  ];
+}
 
 function ProductView({
   scope,
@@ -282,23 +346,40 @@ function ProductView({
 }: Readonly<{ scope: InventoryScope; target: Target }>): React.JSX.Element {
   const t = useT();
   const onHand = useOnHand({ scope, ...target });
+  const facts = useBandFacts(onHand);
+  // Panels are numbered by what renders for this role; a lone panel carries no badge.
+  const moves = canMoveStock(scope.role);
+  const tracking = canReadTracking(scope.role);
+  const numbered = moves || tracking;
+  const trackingIndex = moves ? 3 : 2;
   return (
-    <div className="surface">
+    <div className="surface inventory--v4">
       <BackLink to={`/inventory/stores/${target.storeId}`} label={t("inventory.product.back")} />
-      <PageHeader
+      <ListHeaderBand
+        group={t("shell.nav.section.operations")}
         title={t("inventory.product.title")}
         subtitle={t.rich("inventory.product.sub", { ref: <Machine value={target.productId} /> })}
+        facts={facts ? { label: t("inventory.band.onHand.label"), items: facts } : undefined}
       />
-      <OnHandSection onHand={onHand} storeId={target.storeId} role={scope.role} />
-      {canMoveStock(scope.role) ? (
+      {/* A deep link to another store's view never switches scope (RT-268); the
+          notice sits under the band, which never carries state. */}
+      <ScopeMismatchBanner storeId={target.storeId} />
+      <OnHandSection
+        onHand={onHand}
+        storeId={target.storeId}
+        role={scope.role}
+        index={numbered ? 1 : undefined}
+      />
+      {moves ? (
         <StatusMoveSection
           scope={scope}
           storeId={target.storeId}
           productId={target.productId}
           onHand={onHand}
+          index={2}
         />
       ) : null}
-      {canReadTracking(scope.role) ? <TrackingSection target={{ scope, ...target }} /> : null}
+      {tracking ? <TrackingSection target={{ scope, ...target }} index={trackingIndex} /> : null}
     </div>
   );
 }
@@ -327,14 +408,14 @@ export function InventoryProduct(): React.JSX.Element {
       </div>
     );
   }
+  if (isUuid(storeId) && isUuid(productId)) {
+    return <ProductView scope={scope} target={{ storeId, productId }} />;
+  }
+  // A deep link to another store's view never switches scope (RT-268).
   return (
     <>
       <ScopeMismatchBanner storeId={storeId} />
-      {isUuid(storeId) && isUuid(productId) ? (
-        <ProductView scope={scope} target={{ storeId, productId }} />
-      ) : (
-        <NotAvailable storeId={storeId} />
-      )}
+      <NotAvailable storeId={storeId} />
     </>
   );
 }

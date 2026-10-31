@@ -10,6 +10,7 @@ import { BusyButton } from "@/components/BusyButton";
 import { TableScrollRegion } from "@/components/DataTableScroll";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
 import { ListState as ListStateView } from "@/components/ListState";
+import { SectionIndex } from "@/components/SectionIndex";
 import { DateTime, useT } from "@/i18n";
 import { Fragment } from "react";
 import type { StatusView } from "./erpStatusLogic";
@@ -25,16 +26,29 @@ export function StatusPill({ view }: Readonly<{ view: StatusView }>): React.JSX.
   );
 }
 
+/**
+ * RT-1011: `index`, where given, is the section's reading position; its badge sits
+ * beside the heading. The other screens that share this frame pass none.
+ */
 export function Panel({
   id,
   title,
+  index,
   children,
-}: Readonly<{ id: string; title: string; children: React.ReactNode }>): React.JSX.Element {
+}: Readonly<{
+  id: string;
+  title: string;
+  index?: number;
+  children: React.ReactNode;
+}>): React.JSX.Element {
   return (
     <section className="erp-panel" aria-labelledby={id}>
-      <h2 className="erp-panel__title" id={id}>
-        {title}
-      </h2>
+      <div className="erp-panel__head">
+        {index === undefined ? null : <SectionIndex position={index} />}
+        <h2 className="erp-panel__title" id={id}>
+          {title}
+        </h2>
+      </div>
       {children}
     </section>
   );
@@ -166,7 +180,7 @@ export function CursorTable<T>({
     <>
       <TableScrollRegion>
         {(captionId) => (
-          <table className="data-table">
+          <table className="data-table data-table--strips">
             <caption id={captionId} className="data-table__caption">
               {caption}
             </caption>

@@ -366,3 +366,37 @@ describe("DeviceList (RT-371)", () => {
     expect(screen.queryByText(DEVICE_2)).toBeNull();
   });
 });
+
+describe("DeviceList v4.0 shape (RT-1013)", () => {
+  beforeEach(() => {
+    consoleListDevices.mockReset();
+    listStores.mockReset();
+    activeContext.mockReset();
+    activeContext.mockReturnValue(ctx());
+    listStores.mockResolvedValue({ status: 200, data: stores });
+  });
+
+  test("guard: the band carries scope only, no facts, because a device page serves no whole-set value", async () => {
+    consoleListDevices.mockResolvedValue(page([summary()], "next-cursor"));
+    renderList();
+    await tableReady();
+    expect(document.querySelector(".list-band__facts")).toBeNull();
+    // "Loaded so far" stays in the pager, never in the band.
+    expect(screen.getByText("Loaded: 1")).toBeDefined();
+    expect(document.querySelector(".list-band")?.textContent).not.toContain("Loaded");
+  });
+
+  test("the loaded table, and a failure state, sit in the one results panel", async () => {
+    consoleListDevices.mockResolvedValue(page([summary()]));
+    renderList();
+    const table = await tableReady();
+    expect(table.closest(".device-results.section-panel")).not.toBeNull();
+  });
+
+  test("a failed read is shown inside the same results panel", async () => {
+    consoleListDevices.mockResolvedValue(failure(500));
+    renderList();
+    const alert = await screen.findByRole("alert");
+    expect(alert.closest(".device-results")).not.toBeNull();
+  });
+});

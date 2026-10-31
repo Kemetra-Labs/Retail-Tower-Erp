@@ -25,8 +25,15 @@ export const inventory: MessagesOf<typeof ar> = {
   "inventory.note.erpBook":
     "Balances here are derived from Retail Tower movements. ERPNext book stock is on Stock discrepancies.",
 
+  // --- RT-1016: header band facts (each from a served read) ---------------------
+  "inventory.band.store.label": "Store summary",
+  "inventory.band.locations": "Stock locations",
+  "inventory.band.activeLocations": "Active",
+  "inventory.band.onHand.label": "On-hand summary",
+
   // --- Store picker -------------------------------------------------------------
-  "inventory.stores.sub": "Choose a store to see its stock locations and movement ledger.",
+  "inventory.stores.subTenant":
+    "Stores of {tenant}. Choose one to see its stock locations and movement ledger.",
   "inventory.stores.caption": "Stores available to you",
   "inventory.stores.col.store": "Store",
   "inventory.stores.loadingNoun": "stores",
