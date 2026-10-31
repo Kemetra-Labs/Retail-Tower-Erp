@@ -54,7 +54,7 @@ Each product keeps its own toolchain, lockfile, version, and release tag. Setup,
 | Ship a product change | The product README above, then [run it](#run-a-product) |
 | Change what clients may call | [`packages/contracts/openapi`](services/backend-core/packages/contracts/openapi) and [contracts-check](tools/contracts-check/README.md) |
 | Change CI, the gate, or a policy path | [tools/project-graph/README.md](tools/project-graph/README.md), then [how a pull request is proved](#how-a-pull-request-is-proved) |
-| Read why the system is shaped this way | [Kemetra/Orchestrator](https://github.com/Kemetra/Orchestrator) — architecture, ADRs, and runbooks |
+| Read why the system is shaped this way | [Confluence RETAIL — Decisions](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/5341185/Decisions) — architecture, accepted ADRs, and runbooks (the former `Kemetra/Orchestrator` handbook is retired, AD-ORCH-003) |
 
 ## Boundaries
 

@@ -2,7 +2,7 @@
 
 Jira RT-236 (Planning). This plan feeds the `[GATED]` contract issue RT-384. `spec.md` and the contract draft are written in RT-384, not here.
 
-**The decision of record is [AD-CASH-001](https://github.com/Kemetra/Orchestrator/blob/main/docs/decisions/AD-CASH-001-shift-variance-approval-policy.md)** in Kemetra/Orchestrator. Its status is **Accepted** on Orchestrator `main` (`420db8b`):
+**The decision of record is [AD-CASH-001](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/37683202)** (Confluence RETAIL copy; originally authored in the now-retired `Kemetra/Orchestrator`, source `main` `420db8b`). Its status was **Accepted** on Orchestrator `main` at that SHA:
 
 - reviewed head `e73362b`, merged through PR #218 as `3218e8b` on 2026-10-11. The PR title still says "(Proposed)", but the merged file's status line reads "Accepted";
 - decisions DR-1 to DR-13 ratified in RT-236 comment 11539, with the owner rulings on DR-4, DR-6 and DR-10 in comment 11543.
@@ -20,7 +20,7 @@ No OpenAPI, migration, package or CI file is changed by this plan.
 | Repo | Ref | Note |
 |---|---|---|
 | Backend-Core | `origin/main` `ddae78a7` | re-verified for this plan |
-| Orchestrator | `origin/main` `420db8b` | AD-CASH-001 read from here |
+| Orchestrator (historical; retired, AD-ORCH-003) | `origin/main` `420db8b` | AD-CASH-001 was originally read from here; the decision of record is now its Confluence copy |
 | POS, Admin-Console | not re-verified | Their facts below come from AD-CASH-001 (POS `543688ff`, Admin-Console `08b67b4`). The POS shift-service line numbers have since moved; the RT-284 comment 11873 cites `shift-cashup-service.ts:293,736-751`. Treat the record's POS line numbers as historical. |
 
 Confluence pages *Shift & Cash Management* (24674305), *Policy, Permissions …* (23134209) and *Organization & Store Management* (23625729) were last modified on 2026-10-07, which is before the record. Nothing new to reconcile.
