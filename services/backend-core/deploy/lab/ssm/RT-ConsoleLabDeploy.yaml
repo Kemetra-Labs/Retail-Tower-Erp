@@ -230,8 +230,8 @@ mainSteps:
             say "RT_SWAP unchanged current=$REL"
           else
             ln -sfn "$PREV" "$CONSOLE_DIR/current.bak-pre-$REL-$RUN_ID"
-            ln -sfn "releases/$REL" "$CONSOLE_DIR/current.next" && mv -Tf "$CONSOLE_DIR/current.next" "$CONSOLE_DIR/current" || stop "swap-failed"
-            SWAPPED=yes
+            # marked before the mv, so a signal during it still reverts (revert to PREV is a no-op if mv never ran)
+            ln -sfn "releases/$REL" "$CONSOLE_DIR/current.next" && SWAPPED=yes && mv -Tf "$CONSOLE_DIR/current.next" "$CONSOLE_DIR/current" || stop "swap-failed"
             say "RT_SWAP from=${PREV#releases/} to=$REL"
           fi
           [ "$(readlink "$CONSOLE_DIR/current")" = "releases/$REL" ] || stop "current-is-not-the-target"

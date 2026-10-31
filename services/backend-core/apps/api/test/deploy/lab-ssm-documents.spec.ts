@@ -539,6 +539,9 @@ describe("RT-ConsoleLabDeploy (lab-01, RT-1007)", () => {
     expect(b).toContain("trap 'exit 1' INT TERM HUP\n");
     // the state the trap reads exists before the trap is set (set -u)
     expectInOrder(b, ['PREV=""', "SWAPPED=no", "SMOKE_OK=no", "trap on_exit EXIT", "GATE=G-Host"]);
+    // the swap is marked before the mv, so a signal between them cannot leave the new release live
+    expect(b).toContain('ln -sfn "releases/$REL" "$CONSOLE_DIR/current.next" && SWAPPED=yes && mv -Tf');
+    expect([...b.matchAll(/SWAPPED=yes/g)]).toHaveLength(1);
     // SMOKE_OK is set only after the last smoke check, immediately before the pass
     expect(b).toContain('|| smoke_fail "console-smoke-failed"\nSMOKE_OK=yes\npass console-smoke\n');
     expect([...b.matchAll(/SMOKE_OK=yes/g)]).toHaveLength(1);
