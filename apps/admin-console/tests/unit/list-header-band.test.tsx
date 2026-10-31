@@ -115,6 +115,27 @@ describe("ListHeaderBand semantics", () => {
     expect(bandCss).toMatch(/\.list-band__facts > div \{[^}]*flex-direction: column-reverse/s);
   });
 
+  test("RT-1009: a fact value is never cut; only a marked name ellipsizes, its title holding it", () => {
+    const dd = bandCss.match(/\.list-band__facts dd \{([^}]*)\}/g) ?? [];
+    expect(dd.length).toBeGreaterThan(0);
+    for (const rule of dd) {
+      expect(rule).not.toMatch(/text-overflow|max-inline-size|overflow:/);
+    }
+    expect(bandCss).toMatch(/\.list-band__trunc \{[^}]*text-overflow: ellipsis/s);
+  });
+
+  test("RT-1009: the one-row band with facts starts at 1200px; narrower it wraps, and a long value wraps", () => {
+    const wide = mediaBlock(bandCss, "(min-width: 1200px)");
+    expect(wide).toMatch(/\.list-band:has\(\.list-band__facts\) \{[^}]*flex-wrap: nowrap/s);
+    expect(wide).toMatch(/\.list-band__facts dd \{[^}]*white-space: nowrap/s);
+    // Between 640px and 1200px nothing forces one row, so the facts and actions wrap instead of clipping.
+    const band = mediaBlock(bandCss, "(min-width: 640px)");
+    expect(band).not.toMatch(/flex-wrap: nowrap/);
+    expect(band).not.toMatch(/\.list-band__facts dd \{[^}]*white-space: nowrap/s);
+    // Below 640px an unbroken value wraps rather than widening the page.
+    expect(bandCss).toMatch(/\.list-band__facts dd \{[^}]*overflow-wrap: anywhere/s);
+  });
+
   test("at most three facts, by type", () => {
     // A fourth fact must not compile: @ts-expect-error fails the typecheck if it does.
     render(
@@ -268,7 +289,7 @@ describe("applied to the existing list pages", () => {
 
   test.each(Object.entries(PAGES))("%s renders the band with its navigation group", (file, key) => {
     const src = read(file);
-    expect(src).toContain('import { ListHeaderBand } from "@/components/ListHeaderBand"');
+    expect(src).toMatch(/import \{[^}]*ListHeaderBand[^}]*\} from "@\/components\/ListHeaderBand"/);
     expect(src).toContain(`group={t("${key}")}`);
     // One header per page, and no plain PageHeader left beside the band.
     expect(src).not.toMatch(/<PageHeader\b/);

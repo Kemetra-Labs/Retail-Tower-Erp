@@ -6,6 +6,9 @@ export const sales: MessagesOf<typeof ar> = {
   "sales.nav.label": "Sales",
 
   // --- List ------------------------------------------------------------------
+  "sales.band.label": "List scope",
+  "sales.band.period": "Period",
+  "sales.band.asOf": "Received up to",
   "sales.list.title": "Sales",
   "sales.list.sub": "Sales the server has received for one store in {tenant}. Read-only.",
   "sales.list.scopePrompt": "Select a tenant to view sales.",

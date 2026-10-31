@@ -200,6 +200,32 @@ describe("SaleList (RT-587, spec 012 J1)", () => {
     ).toBeDefined();
   });
 
+  test("RT-1009: the band shows the served scope, period and read time; no count or net", async () => {
+    consoleListSales.mockResolvedValue(page([item()]));
+    renderList(`/sales?${RANGE}`);
+    await tableReady();
+    const dl = document.querySelector("dl.list-band__facts") as HTMLElement;
+    expect(dl.getAttribute("aria-label")).toBe("List scope");
+    const terms = [...dl.querySelectorAll("dt")].map((dt) => dt.textContent);
+    expect(terms).toEqual(["Store", "Period", "Received up to"]);
+    const values = [...dl.querySelectorAll("dd")].map((dd) => dd.textContent);
+    expect(values[0]).toBe("Cairo Festival");
+    // Only the store name may be cut, and its title keeps it whole (the period never is).
+    const name = dl.querySelector("dd bdi.list-band__trunc") as HTMLElement;
+    expect(name.getAttribute("title")).toBe("Cairo Festival");
+    expect(dl.querySelectorAll(".list-band__trunc")).toHaveLength(1);
+    expect(values[1]).toMatch(/^Oct 1\D+7, 2026$/);
+    expect(values[2]).toBe(asOfText);
+    expect(dl.textContent).not.toMatch(/total|net|count/i);
+  });
+
+  test("RT-1009: no band facts before a page is read", async () => {
+    consoleListSales.mockReturnValue(new Promise(() => {}));
+    renderList(`/sales?${RANGE}`);
+    await screen.findByRole("heading", { level: 1, name: "Sales" });
+    expect(document.querySelector("dl.list-band__facts")).toBeNull();
+  });
+
   test("a range wider than 31 business days is refused before the request (AC-2)", async () => {
     renderList(`/sales?store=${CAIRO_STORE}&from=2026-10-01&to=2026-11-01`);
     expect(await screen.findByText(/at most 31 business days\. narrow/i)).toBeDefined();

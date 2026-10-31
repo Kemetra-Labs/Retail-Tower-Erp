@@ -36,6 +36,37 @@ export function BusinessDate({ value }: Readonly<{ value: string }>): React.JSX.
 }
 
 /**
+ * RT-1009: an inclusive business-date range, compact ("1–7 Oct 2026"). Like
+ * `BusinessDate` it formats calendar days in UTC, so no zone can move them.
+ */
+export function BusinessDateRange({
+  from,
+  to,
+}: Readonly<{ from: string; to: string }>): React.JSX.Element {
+  const locale = useLocale();
+  const day = (value: string) => {
+    const [y, m, d] = value.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d));
+  };
+  const start = day(from);
+  const end = day(to);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return <>{from === to ? from : `${from} – ${to}`}</>;
+  }
+  const format = new Intl.DateTimeFormat(intlTag(locale), {
+    timeZone: "UTC",
+    day: "numeric",
+    month: locale === "ar" ? "long" : "short",
+    year: "numeric",
+  });
+  return (
+    <span>
+      <time dateTime={from}>{format.formatRange(start, end)}</time>
+    </span>
+  );
+}
+
+/**
  * A recorded name or label, by its source. The name is isolated (it may be
  * Latin in Arabic copy, or the reverse), so the "current name" label keeps its
  * place on either side of it.

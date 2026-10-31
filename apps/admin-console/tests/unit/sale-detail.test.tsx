@@ -416,7 +416,6 @@ describe("SaleDetail (RT-587, spec 012 J2)", () => {
       "Sale",
       "Receipt header",
       "Lines",
-      "Payments",
       "Void",
       "Returns",
       "ERPNext posting",
@@ -429,7 +428,9 @@ describe("SaleDetail (RT-587, spec 012 J2)", () => {
     const total = lines.querySelector("tfoot tr.data-table__total");
     expect(total?.querySelector('th[scope="row"]')?.textContent).toBe("Total");
     expect(total?.querySelector("td.data-table__cell--num")?.textContent).toContain("250.00");
+    // RT-1009: the payments are the receipt card, not a section panel.
     const payments = section("Payments");
+    expect(payments.classList.contains("receipt-card")).toBe(true);
     expectNumericColumn(within(payments).getByRole("table"), "Amount");
     expectMoney(ledgerValue("Change given", payments));
     const returns = section("Returns");
@@ -465,6 +466,43 @@ describe("SaleDetail (RT-587, spec 012 J2)", () => {
     expect(
       banner.compareDocumentPosition(section("Sale")) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  test("RT-1009: the sections carry index badges in reading order, hidden from their names", async () => {
+    consoleGetSale.mockResolvedValue({ status: 200, data: detail() });
+    renderDetail();
+    await loaded();
+    const numbered: [string, string][] = [
+      ["Sale", "01"],
+      ["Payments", "02"],
+      ["Lines", "03"],
+      ["Returns", "04"],
+      ["ERPNext posting", "05"],
+      ["Void", "06"],
+      ["Receipt header", "07"],
+      ["Related screens", "08"],
+    ];
+    for (const [name, digits] of numbered) {
+      const region = section(name);
+      const badge = region.querySelector(".section-index") as HTMLElement;
+      expect(badge?.textContent, name).toBe(digits);
+      expect(badge.getAttribute("aria-hidden"), name).toBe("true");
+      expect(within(region).getByRole("heading", { level: 2, name })).toBeDefined();
+    }
+  });
+
+  test("RT-1009: the payment summary is the receipt card, its figure the served total", async () => {
+    consoleGetSale.mockResolvedValue({ status: 200, data: detail() });
+    renderDetail();
+    await loaded();
+    const payments = section("Payments");
+    expect(payments.classList.contains("receipt-card")).toBe(true);
+    expect(payments.querySelector(".receipt-card__figure")?.textContent).toContain("250.00");
+    const perf = payments.querySelector(".receipt-card__perf") as HTMLElement;
+    expect(perf.getAttribute("aria-hidden")).toBe("true");
+    // The tenders and the change still read as plain text below the perforation.
+    expect(within(payments).getByText("Cash")).toBeDefined();
+    expect(within(payments).getByText("Change given")).toBeDefined();
   });
 
   test("RT-974: a failed void reversal says so; a role that cannot open the ERP page gets no link", async () => {

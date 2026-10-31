@@ -6,6 +6,9 @@
  * shows the rows so far (none, if empty) and Load more. A 400 is a validation
  * message, never an empty list, and offers no Retry: the same query would be
  * rejected again.
+ *
+ * RT-1009 (v4.0): every result state sits in one results panel. The list rows
+ * open the sale, so they keep the ruled rows of a selectable table (§12.5).
  */
 import { Banner } from "@/components/Banner";
 import { DataTable, type DataTableColumn } from "@/components/DataTable";
@@ -152,6 +155,17 @@ function Loaded({
 }
 
 export function Results({
+  list,
+  onOpen,
+}: Readonly<{ list: SaleListState; onOpen: (row: SaleItem) => void }>): React.JSX.Element {
+  return (
+    <div className="section-panel sale-results">
+      <ResultState list={list} onOpen={onOpen} />
+    </div>
+  );
+}
+
+function ResultState({
   list,
   onOpen,
 }: Readonly<{ list: SaleListState; onOpen: (row: SaleItem) => void }>): React.JSX.Element {

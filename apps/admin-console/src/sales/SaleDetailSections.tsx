@@ -7,9 +7,14 @@
  * RT-961: each block is a section panel (DESIGN.md §5). A table sits under its
  * panel header; money columns are end-aligned, and the lines are anchored by
  * the sale total exactly as served (not a sum of the lines).
+ *
+ * RT-1009 (v4.0): each section carries its index badge («01»…); the read-only
+ * tables are strips (DESIGN.md §12.5); the payments are the receipt card, its
+ * figure the sale total as served.
  */
 import { DataTableScroll, useCaptionId } from "@/components/DataTableScroll";
 import { DetailPanel, LedgerField, PanelBody } from "@/components/DetailPanel";
+import { ReceiptCard } from "@/components/ReceiptCard";
 import { DateTime, type MessageKey, Money, roleKey, useT } from "@/i18n";
 import type { SaleDetail, SaleLine, SaleReturn } from "@/lib/sale-queries";
 import { BusinessDate, ErpChip } from "./SaleParts";
@@ -26,7 +31,7 @@ function ScrollTable({
   const captionId = useCaptionId();
   return (
     <DataTableScroll captionId={captionId}>
-      <table className="data-table">
+      <table className="data-table data-table--strips">
         <caption id={captionId} className="data-table__caption">
           {caption}
         </caption>
@@ -39,11 +44,17 @@ function ScrollTable({
 export function Section({
   id,
   titleKey,
+  index,
   children,
-}: Readonly<{ id: string; titleKey: MessageKey; children: React.ReactNode }>): React.JSX.Element {
+}: Readonly<{
+  id: string;
+  titleKey: MessageKey;
+  index?: number;
+  children: React.ReactNode;
+}>): React.JSX.Element {
   const t = useT();
   return (
-    <DetailPanel id={id} title={t(titleKey)}>
+    <DetailPanel id={id} title={t(titleKey)} index={index}>
       <PanelBody>{children}</PanelBody>
     </DetailPanel>
   );
@@ -145,12 +156,15 @@ function LinesTotal({ detail }: Readonly<{ detail: SaleDetail }>): React.JSX.Ele
   );
 }
 
-export function LinesSection({ detail }: Readonly<{ detail: SaleDetail }>): React.JSX.Element {
+export function LinesSection({
+  detail,
+  index,
+}: Readonly<{ detail: SaleDetail; index?: number }>): React.JSX.Element {
   const t = useT();
   const empty = detail.lines.length === 0;
   const unordered = detail.lineOrder === "not_recorded";
   return (
-    <DetailPanel id="sale-lines" title={t("sales.section.lines")}>
+    <DetailPanel id="sale-lines" title={t("sales.section.lines")} index={index}>
       {unordered || empty ? (
         <PanelBody>
           {unordered ? <p className="content__sub">{t("sales.lines.orderNotRecorded")}</p> : null}
@@ -178,65 +192,88 @@ const TENDER_COLUMNS: Column[] = [
   { key: "sales.payments.col.reference" },
 ];
 
-export function PaymentsSection({ detail }: Readonly<{ detail: SaleDetail }>): React.JSX.Element {
+/** The tenders as recorded, under the receipt card's total. */
+function TenderTable({ detail }: Readonly<{ detail: SaleDetail }>): React.JSX.Element {
   const t = useT();
   const currency = detail.summary.currencyCode;
-  if (detail.tenderState === "unknown") {
-    return (
-      <Section id="sale-payments" titleKey="sales.section.payments">
-        <p className="content__sub">{t("sales.payments.unknown")}</p>
-      </Section>
-    );
-  }
   return (
-    <DetailPanel id="sale-payments" title={t("sales.section.payments")}>
-      <ScrollTable caption={t("sales.payments.caption")}>
-        <HeadRow columns={TENDER_COLUMNS} />
-        <tbody>
-          {detail.tenders.map((tender, index) => (
-            <tr
-              key={`${tender.sequence ?? "x"}-${index}`}
-              className="data-table__row data-table__row--static"
-            >
-              <td>{t(tenderMethodKey(tender))}</td>
-              <td className="data-table__cell--num">
-                <Money value={tender.amount} currency={currency} />
-              </td>
-              <td>{tender.reference ? <MachineText value={tender.reference} /> : null}</td>
-            </tr>
-          ))}
-        </tbody>
-      </ScrollTable>
-      <PanelBody>
-        {detail.changeGiven === null ? null : (
-          <dl className="surface__detail">
-            <Field label={t("sales.payments.changeGiven")} money>
-              <Money value={detail.changeGiven} currency={currency} />
-            </Field>
-          </dl>
+    <ScrollTable caption={t("sales.payments.caption")}>
+      <HeadRow columns={TENDER_COLUMNS} />
+      <tbody>
+        {detail.tenders.map((tender, index) => (
+          <tr
+            key={`${tender.sequence ?? "x"}-${index}`}
+            className="data-table__row data-table__row--static"
+          >
+            <td>{t(tenderMethodKey(tender))}</td>
+            <td className="data-table__cell--num">
+              <Money value={tender.amount} currency={currency} />
+            </td>
+            <td>{tender.reference ? <MachineText value={tender.reference} /> : null}</td>
+          </tr>
+        ))}
+      </tbody>
+    </ScrollTable>
+  );
+}
+
+/**
+ * The payment summary as the receipt card (RT-1009 AC 3): the sale total as
+ * served is its figure; the recorded tenders, the change and the net note sit
+ * below the perforation. Nothing is summed or derived here.
+ */
+export function PaymentsSection({
+  detail,
+  index,
+}: Readonly<{ detail: SaleDetail; index?: number }>): React.JSX.Element {
+  const t = useT();
+  const currency = detail.summary.currencyCode;
+  const unknown = detail.tenderState === "unknown";
+  return (
+    <ReceiptCard
+      section
+      index={index}
+      label={t("sales.section.payments")}
+      figure={<Money value={detail.summary.posTotal} currency={currency} />}
+    >
+      <div className="sale-payments">
+        {unknown ? (
+          <p className="content__sub">{t("sales.payments.unknown")}</p>
+        ) : (
+          <>
+            <TenderTable detail={detail} />
+            {detail.changeGiven === null ? null : (
+              <dl className="surface__detail">
+                <Field label={t("sales.payments.changeGiven")} money>
+                  <Money value={detail.changeGiven} currency={currency} />
+                </Field>
+              </dl>
+            )}
+            <p className="content__sub">{t("sales.payments.netNote")}</p>
+          </>
         )}
-        <p className="content__sub">{t("sales.payments.netNote")}</p>
-      </PanelBody>
-    </DetailPanel>
+      </div>
+    </ReceiptCard>
   );
 }
 
 export function VoidSection({
   detail,
   timeZone,
-}: Readonly<{ detail: SaleDetail; timeZone: string }>): React.JSX.Element {
+  index,
+}: Readonly<{ detail: SaleDetail; timeZone: string; index?: number }>): React.JSX.Element {
   const t = useT();
   const voidSummary = detail.void;
   if (!voidSummary) {
     return (
-      <Section id="sale-void" titleKey="sales.section.void">
+      <Section id="sale-void" titleKey="sales.section.void" index={index}>
         <p className="content__sub">{t("sales.void.none")}</p>
       </Section>
     );
   }
   const notRecorded = t("sales.value.notRecorded");
   return (
-    <Section id="sale-void" titleKey="sales.section.void">
+    <Section id="sale-void" titleKey="sales.section.void" index={index}>
       <dl className="surface__detail">
         <Field label={t("sales.void.voidedAt")}>
           <DateTime value={voidSummary.voidedAt} timeZone={timeZone} />
@@ -318,11 +355,12 @@ function ReturnBlock({
 export function ReturnsSection({
   detail,
   timeZone,
-}: Readonly<{ detail: SaleDetail; timeZone: string }>): React.JSX.Element {
+  index,
+}: Readonly<{ detail: SaleDetail; timeZone: string; index?: number }>): React.JSX.Element {
   const t = useT();
   const lineNames = new Map(detail.lines.map((line) => [line.lineRef, line.lineName]));
   return (
-    <Section id="sale-returns" titleKey="sales.section.returns">
+    <Section id="sale-returns" titleKey="sales.section.returns" index={index}>
       {detail.returns.length === 0 ? (
         <p className="content__sub">{t("sales.returns.empty")}</p>
       ) : (
@@ -345,7 +383,10 @@ function postedDocument(state: string, ref: string | null): string | null {
   return state === "posted" && ref ? ref : null;
 }
 
-export function ErpSection({ detail }: Readonly<{ detail: SaleDetail }>): React.JSX.Element {
+export function ErpSection({
+  detail,
+  index,
+}: Readonly<{ detail: SaleDetail; index?: number }>): React.JSX.Element {
   const t = useT();
   const erp = detail.erpPosting;
   const saleDocument = postedDocument(erp.sale, erp.saleDocumentRef);
@@ -353,7 +394,7 @@ export function ErpSection({ detail }: Readonly<{ detail: SaleDetail }>): React.
     ? postedDocument(erp.reversal, erp.reversalDocumentRef)
     : null;
   return (
-    <Section id="sale-erp" titleKey="sales.section.erp">
+    <Section id="sale-erp" titleKey="sales.section.erp" index={index}>
       <dl className="surface__detail">
         <Field label={t("sales.erp.sale")}>
           <ErpChip state={erp.sale} />

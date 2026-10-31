@@ -24,6 +24,11 @@ import { useStoreOf } from "@/shift-closes/useShiftCloses";
  * status chips, then the ledger panels two to a row (the sale beside its
  * payments), the lines and returns full width, and the remaining ledgers.
  * RT-974: a failed ERPNext posting adds a state-only banner under the header.
+ *
+ * RT-1009 (v4.0 «Ink & Receipt»): the Sales surface opts into the v4 panel and
+ * pill shapes (`surface--v4`); the sections carry their index badges in reading
+ * order («01» the sale … «08» related screens); the payments are the receipt
+ * card. The role-gated sync sections (another module) stay unnumbered.
  */
 import { Link, useLocation, useParams } from "react-router";
 import { ErpFailureBanner } from "./ErpFailureBanner";
@@ -71,7 +76,7 @@ function SummarySection({ detail }: Readonly<{ detail: Detail }>): React.JSX.Ele
   const zone = detail.storeTimezone;
   const notRecorded = t("sales.value.notRecorded");
   return (
-    <Section id="sale-summary" titleKey="sales.section.summary">
+    <Section id="sale-summary" titleKey="sales.section.summary" index={1}>
       <dl className="surface__detail">
         <Field label={t("sales.field.saleNumber")}>
           <SaleNumber value={sale.saleNumber} />
@@ -112,7 +117,7 @@ function ReceiptHeaderSection({ detail }: Readonly<{ detail: Detail }>): React.J
   const t = useT();
   const header = detail.receiptHeader;
   return (
-    <Section id="sale-receipt-header" titleKey="sales.section.receiptHeader">
+    <Section id="sale-receipt-header" titleKey="sales.section.receiptHeader" index={7}>
       {header ? (
         <dl className="surface__detail">
           <Field label={t("sales.field.branchName")}>
@@ -137,7 +142,7 @@ function RelatedSection({ detail }: Readonly<{ detail: Detail }>): React.JSX.Ele
   const t = useT();
   const { storeRef, businessDate } = detail.summary;
   return (
-    <Section id="sale-related" titleKey="sales.section.related">
+    <Section id="sale-related" titleKey="sales.section.related" index={8}>
       <ul className="sale-related">
         <li>
           <Link to={shiftClosesHref({ storeRef, businessDate })}>
@@ -154,7 +159,7 @@ function Loaded({ detail }: Readonly<{ detail: Detail }>): React.JSX.Element {
   const { role } = useSaleScope();
   const number = detail.summary.saleNumber;
   return (
-    <div className="surface">
+    <div className="surface surface--v4">
       <BackLink />
       <PageHeader
         title={
@@ -173,13 +178,13 @@ function Loaded({ detail }: Readonly<{ detail: Detail }>): React.JSX.Element {
       <ErpFailureBanner detail={detail} role={role} />
       <DetailGrid>
         <SummarySection detail={detail} />
-        <PaymentsSection detail={detail} />
+        <PaymentsSection detail={detail} index={2} />
       </DetailGrid>
-      <LinesSection detail={detail} />
-      <ReturnsSection detail={detail} timeZone={detail.storeTimezone} />
+      <LinesSection detail={detail} index={3} />
+      <ReturnsSection detail={detail} timeZone={detail.storeTimezone} index={4} />
       <DetailGrid>
-        <ErpSection detail={detail} />
-        <VoidSection detail={detail} timeZone={detail.storeTimezone} />
+        <ErpSection detail={detail} index={5} />
+        <VoidSection detail={detail} timeZone={detail.storeTimezone} index={6} />
         <SaleSyncSections saleRef={detail.summary.saleRef} timeZone={detail.storeTimezone} />
         <ReceiptHeaderSection detail={detail} />
         <RelatedSection detail={detail} />

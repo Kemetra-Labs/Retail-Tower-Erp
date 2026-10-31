@@ -39,10 +39,24 @@
   min-inline-size: 0;
 }
 
+.receipt-card__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-inline-size: 0;
+}
+
 .receipt-card__label {
+  margin: 0;
   color: var(--color-text-muted);
   font-size: var(--text-control);
   font-weight: var(--weight-medium);
+}
+
+/* RT-1009: as a page section the label is the section title. */
+section.receipt-card .receipt-card__label {
+  color: var(--color-text);
+  font: var(--weight-strong) var(--text-section-title) / var(--leading-title) var(--font-sans);
 }
 
 .receipt-card__figure {

@@ -95,6 +95,10 @@ export interface SaleListState {
   /** The server time of the latest page read, and the store zone it reports. */
   asOf?: string;
   storeTimezone?: string;
+  /** RT-1009: the listed store and business-date range, as the page echoes them. */
+  storeRef?: string;
+  from?: string;
+  to?: string;
   /** At least one page has been read. */
   hasPages: boolean;
   /** The last loaded page had `nextCursor: null`: the walk is over. */
@@ -117,7 +121,16 @@ export interface SaleListState {
 
 type PagesState = Pick<
   SaleListState,
-  "rows" | "asOf" | "storeTimezone" | "hasPages" | "ended" | "error" | "inlineError"
+  | "rows"
+  | "asOf"
+  | "storeTimezone"
+  | "storeRef"
+  | "from"
+  | "to"
+  | "hasPages"
+  | "ended"
+  | "error"
+  | "inlineError"
 >;
 
 /**
@@ -131,6 +144,9 @@ function pagesState(pages: readonly SalePage[], failure: SaleError | undefined):
     rows: pages.flatMap((p) => p.items),
     asOf: last?.asOf,
     storeTimezone: last?.storeTimezone,
+    storeRef: last?.storeRef,
+    from: last?.from,
+    to: last?.to,
     hasPages: pages.length > 0,
     ended: listEnded(pages),
     ...failureSlot,

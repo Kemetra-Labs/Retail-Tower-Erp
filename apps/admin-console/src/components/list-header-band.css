@@ -38,9 +38,13 @@
   /* The markup is dt then dd (valid dl content); the figure reads first. */
   flex-direction: column-reverse;
   gap: 2px;
+  min-inline-size: 0;
 }
 .list-band__facts dd {
   margin: 0;
+  /* RT-1009: an unbroken value (a long name) wraps rather than widening the
+   * page; only the one-row band from 1200px keeps a value on one line. */
+  overflow-wrap: anywhere;
   font: var(--weight-strong) var(--text-section-title) / var(--leading-tight) var(--font-sans);
   font-variant-numeric: tabular-nums;
 }
@@ -110,6 +114,18 @@
   .list-band__facts > div {
     padding: var(--space-1) var(--space-3);
   }
+  /* RT-1009: a value is never cut, except a name the caller marks with
+   * `list-band__trunc` and a `title` holding it in full. */
+  .list-band__facts dd {
+    font-size: var(--text-body);
+  }
+  .list-band__facts .list-band__trunc {
+    display: inline-block;
+    max-inline-size: 18ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+  }
   .list-band__facts > div + div {
     border-inline-start: 1px solid color-mix(in srgb, var(--color-on-ink) 10%, transparent);
   }
@@ -136,6 +152,34 @@
     --btn-fg-hover: var(--color-on-ink);
     --btn-edge-hover: var(--color-on-ink);
     --btn-bg-press: color-mix(in srgb, var(--color-on-ink) 16%, transparent);
+  }
+}
+
+/* ---- One row with facts, from 1200px --------------------------------------- */
+/* RT-1009: at desktop widths a band with facts stays one row within 132px: the
+ * identity shrinks (its subtitle already ellipsizes), the facts and the
+ * actions keep their content width, and no value wraps. Narrower, the band
+ * wraps its facts and actions onto their own rows instead of clipping them. */
+@media (min-width: 1200px) {
+  .list-band:has(.list-band__facts) {
+    flex-wrap: nowrap;
+  }
+  .list-band:has(.list-band__facts) .list-band__id {
+    flex: 1 1 160px;
+    min-inline-size: 0;
+  }
+  .list-band__facts {
+    flex: none;
+    flex-wrap: nowrap;
+  }
+  .list-band__facts > div {
+    flex: none;
+  }
+  .list-band__facts dd {
+    white-space: nowrap;
+  }
+  .list-band:has(.list-band__facts) .list-band__end {
+    flex: none;
   }
 }
 

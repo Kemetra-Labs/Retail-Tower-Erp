@@ -13,17 +13,21 @@
  *   tabular numerals; `result` and `total` anchor the figures a ledger arrives
  *   at, the total under a strong rule. Status keeps its text label.
  */
+import { SectionIndex } from "@/components/SectionIndex";
 import "@/shell/surface.css";
 
 export function DetailPanel({
   id,
   title,
+  index,
   aside,
   className,
   children,
 }: Readonly<{
   id?: string;
   title?: React.ReactNode;
+  /** RT-1009: the section's 1-based position on a multi-panel page («01»). */
+  index?: number;
   aside?: React.ReactNode;
   className?: string;
   children: React.ReactNode;
@@ -35,6 +39,7 @@ export function DetailPanel({
   return (
     <section className={classes} aria-labelledby={id}>
       <div className="section-panel__head">
+        {index === undefined ? null : <SectionIndex position={index} />}
         <h2 id={id} className="section-panel__title">
           {title}
         </h2>
