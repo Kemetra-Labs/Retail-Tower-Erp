@@ -7,7 +7,8 @@
  *   focus to the page's `<h1>` while a scope change on one path does not.
  * - Names the document again: «<page> – <app>» when a page header is shown, the
  *   app title alone otherwise (sign-out, sign-in, gates), in the active locale.
- *   This runs after the page's own effects, so it reads the page that is shown.
+ *   It reads the committed DOM, so it names the page that is shown; the page
+ *   header also sets the title in its own effect, and both give the same result.
  */
 import { composeDocumentTitle, useT } from "@/i18n";
 import { useEffect, useLayoutEffect } from "react";

@@ -186,8 +186,8 @@ describe("RT-963 and RT-978 focus after navigation", () => {
     const button = screen.getByRole("button", { name: "switch scope" });
     button.focus();
     fireEvent.click(button);
-    // The scope body was replaced; the old button is gone and focus did not go to the title.
-    expect(document.activeElement).not.toBe(screen.getByRole("heading", { level: 1 }));
+    // The scope body was replaced: the old button is gone and focus did not go to the title.
+    expect(document.activeElement).toBe(document.body);
   });
 
   test("a scope change after a navigation does not move focus again", () => {

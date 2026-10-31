@@ -38,55 +38,39 @@ const ROLE: Record<BannerVariant, "alert" | "status"> = {
   info: "status",
 };
 
-export function Banner({
+export function Banner(props: Readonly<BannerProps>): React.JSX.Element {
+  const role = ROLE[props.variant];
+  // RT-978: keyed by the role, so a banner whose severity crosses between alert
+  // and status is a new live-region element (not a role flip on a live one) and
+  // re-runs its empty first commit.
+  return <BannerRegion key={role} role={role} {...props} />;
+}
+
+function BannerRegion({
+  role,
   variant,
   title,
   message,
   requestId,
   action,
-}: Readonly<BannerProps>): React.JSX.Element {
-  const role = ROLE[variant];
+}: Readonly<BannerProps & { role: "alert" | "status" }>): React.JSX.Element {
+  const t = useT();
+  const filled = useFilledAfterMount(role === "alert");
   return (
     <div className={`rtc-alert rtc-alert--${variant}`} role={role}>
-      {/* RT-978: keyed by the role, so a banner whose severity moves between
-          alert and status starts a new body and re-runs its empty first commit. */}
-      <BannerBody
-        key={role}
-        immediately={role === "alert"}
-        title={title}
-        message={message}
-        requestId={requestId}
-        action={action}
-      />
-    </div>
-  );
-}
-
-function BannerBody({
-  immediately,
-  title,
-  message,
-  requestId,
-  action,
-}: Readonly<
-  Pick<BannerProps, "title" | "message" | "requestId" | "action"> & {
-    immediately: boolean;
-  }
->): React.JSX.Element | null {
-  const t = useT();
-  const filled = useFilledAfterMount(immediately);
-  if (!filled) return null;
-  return (
-    <>
-      {title ? <strong className="rtc-alert__title">{title}</strong> : null}
-      <span className={title ? "rtc-alert__body" : "rtc-alert__msg"}>{message}</span>
-      {requestId ? (
-        <span className="rtc-alert__req">
-          {t.rich("components.banner.requestRef", { id: <bdi dir="ltr">{requestId}</bdi> })}
-        </span>
+      {filled ? (
+        <>
+          {title ? <strong className="rtc-alert__title">{title}</strong> : null}
+          <span className={title ? "rtc-alert__body" : "rtc-alert__msg"}>{message}</span>
+          {requestId ? (
+            <span className="rtc-alert__req">
+              {t.rich("components.banner.requestRef", { id: <bdi dir="ltr">{requestId}</bdi> })}
+            </span>
+          ) : null}
+          {action ? <span className="rtc-alert__action">{action}</span> : null}
+        </>
       ) : null}
-      {action ? <span className="rtc-alert__action">{action}</span> : null}
-    </>
+    </div>
   );
 }
 
