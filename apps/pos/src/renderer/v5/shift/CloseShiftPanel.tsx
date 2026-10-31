@@ -64,6 +64,8 @@ export function CloseShiftPanel(props: Props): JSX.Element {
   });
 
   const closed = (answer: Closed): void => {
+    // Before the parent hears of it: the panel may go before the approval clears.
+    abandoned.markCompleted();
     props.onClosed({
       currencyCode: props.currencyCode,
       ...(answer.varianceMinor === undefined ? {} : { varianceMinor: answer.varianceMinor }),

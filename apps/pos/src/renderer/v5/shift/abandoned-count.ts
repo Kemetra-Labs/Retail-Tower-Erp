@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 
 import { isShiftAmountWithinBound } from '../../../shared/shift-cashup/amount-bound';
 import type { ShiftCashupBridgeAPI } from '../../../shared/shift-cashup/types';
@@ -36,20 +36,32 @@ function plausibleCount(input: Pick<Input, 'count' | 'currencyCode'>): number | 
  *     else a valid typed count not sent as typed (`markSent` records what the
  *     close sent). Nothing typed, an invalid or implausible entry, or a count
  *     already sent unchanged reports nothing.
+ *
+ * The unmount reads only committed values (the layout effect), and the flags
+ * are set synchronously by the panel's handlers, so a panel removed before
+ * its clearing render commits neither reports a closed shift
+ * (`markCompleted`) nor reports a dismissed approval twice (PR #169 review).
  */
 export function useAbandonedCount(input: Input): {
   markSent: (count: string) => void;
+  markCompleted: () => void;
   abandonApproval: (countedCashMinor: number) => void;
 } {
   const latest = useRef(input);
-  latest.current = input;
+  useLayoutEffect(() => {
+    latest.current = input;
+  });
   const sent = useRef<string | null>(null);
+  /** The approval opened by the last send was answered (dismissed or approved). */
+  const approvalHandled = useRef(false);
+  const completed = useRef(false);
 
   useEffect(
     () => () => {
+      if (completed.current) return;
       const { bridge, approving } = latest.current;
       if (approving !== null) {
-        report(bridge, approving);
+        if (!approvalHandled.current) report(bridge, approving);
         return;
       }
       if (latest.current.count === sent.current) return;
@@ -62,8 +74,13 @@ export function useAbandonedCount(input: Input): {
   return {
     markSent: (count) => {
       sent.current = count;
+      approvalHandled.current = false;
+    },
+    markCompleted: () => {
+      completed.current = true;
     },
     abandonApproval: (countedCashMinor) => {
+      approvalHandled.current = true;
       report(latest.current.bridge, countedCashMinor);
     },
   };
