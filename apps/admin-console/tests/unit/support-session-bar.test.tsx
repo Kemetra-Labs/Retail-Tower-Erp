@@ -173,6 +173,27 @@ describe("bar states", () => {
     expect(endButton()).toBeDefined();
   });
 
+  // RT-1021 (v4.0): the renewal cap and a one-line note are text in every state,
+  // so the bar reads without its Ink look, its ring or its colour.
+  test.each([
+    ["active", sessionSummary(), "Not extended automatically"],
+    ["expiring", sessionSummary({ left: 5 * MIN }), "Ends soon"],
+    ["cap_reached", sessionSummary({ left: 9 * MIN, capIn: 9 * MIN }), "Renewal limit reached"],
+    ["expired", sessionSummary({ status: "expired", left: -MIN }), "Not renewed"],
+  ])("%s: the renewal limit and the note are text in the bar", async (state, summary, note) => {
+    serve(context(summary));
+    mount("/platform/tenants");
+    const region = await bar();
+    expect(region.getAttribute("data-state")).toBe(state);
+    expect(within(region).getByText(note)).toBeDefined();
+    const cap = region.querySelector(".support-session-bar__cap");
+    expect(cap?.textContent).toMatch(/^Renewal limit: \S/);
+    // Machine time is isolated left-to-right inside the Arabic line.
+    expect(cap?.querySelector("bdi")?.getAttribute("dir")).toBe("ltr");
+    // No progress track or ring: the contract serves no start time.
+    expect(region.querySelector("progress, meter, [role='progressbar']")).toBeNull();
+  });
+
   test("the ticket is omitted when the session has none", async () => {
     serve(context(sessionSummary({ ticket: null })));
     mount("/platform/tenants");

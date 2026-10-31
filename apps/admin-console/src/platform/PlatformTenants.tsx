@@ -1,5 +1,6 @@
 import { Banner } from "@/components/Banner";
 import { DataTableScroll, useCaptionId } from "@/components/DataTableScroll";
+import { DetailPanel } from "@/components/DetailPanel";
 import { GatedButton } from "@/components/GatedButton";
 import { ListState } from "@/components/ListState";
 /**
@@ -30,6 +31,11 @@ import "./platform.css";
 function errorCopy(t: T, error: DirectoryError): { message: string; requestId?: string } {
   if (error.kind === "rate-limited") return { message: t("platform.tenants.error.rateLimited") };
   return { message: t("platform.tenants.error.failed"), requestId: error.requestId };
+}
+
+/** The first letter of the name, for the decorative tile (RT-1021); empty for no name. */
+function initialOf(name: string): string {
+  return Array.from(name.trim())[0] ?? "";
 }
 
 function RowAction({
@@ -79,7 +85,7 @@ function DirectoryTable({
   const captionId = useCaptionId();
   return (
     <DataTableScroll captionId={captionId}>
-      <table className="data-table">
+      <table className="data-table data-table--strips">
         <caption id={captionId} className="data-table__caption">
           {t("platform.tenants.caption")}
         </caption>
@@ -93,17 +99,29 @@ function DirectoryTable({
           {rows.map((row) => (
             <tr key={row.id} className="data-table__row data-table__row--static">
               <td>
-                <span className="platform-directory__name">
-                  <bdi>{row.name}</bdi>
+                <span className="platform-directory__identity">
+                  <span
+                    className={`platform-directory__tile${row.action === "switch" ? " platform-directory__tile--member" : ""}`}
+                    aria-hidden="true"
+                  >
+                    {initialOf(row.name)}
+                  </span>
+                  <span className="platform-directory__who">
+                    <span className="platform-directory__name">
+                      <bdi>{row.name}</bdi>
+                    </span>
+                    {row.slug ? (
+                      <bdi dir="ltr" className="platform-directory__slug">
+                        {row.slug}
+                      </bdi>
+                    ) : null}
+                  </span>
+                  {row.action === "switch" ? (
+                    <span className="platform-directory__member">
+                      {t("platform.tenants.member")}
+                    </span>
+                  ) : null}
                 </span>
-                {row.slug ? (
-                  <bdi dir="ltr" className="platform-directory__slug">
-                    {row.slug}
-                  </bdi>
-                ) : null}
-                {row.action === "switch" ? (
-                  <span className="platform-directory__member">{t("platform.tenants.member")}</span>
-                ) : null}
               </td>
               <td>
                 <RowAction row={row} onStart={onStart} onSwitch={onSwitch} />
@@ -197,31 +215,41 @@ export function PlatformTenants(): React.JSX.Element {
         subtitle={t("platform.tenants.sub")}
       />
       <SessionGoneNotice tenants={directory.tenants ?? []} />
-      <p className="platform-directory__note">{t("platform.tenants.suspendedNote")}</p>
-
-      <div className="field platform-directory__search">
-        <label htmlFor="platform-tenant-search">{t("platform.tenants.search.label")}</label>
-        <input
-          id="platform-tenant-search"
-          className="input"
-          type="search"
-          autoComplete="off"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      </div>
-
       {switchFailure && !starting ? <Banner variant="danger" message={t(switchFailure)} /> : null}
 
-      <DirectoryBody
-        query={query}
-        directory={directory}
-        onStart={(row) => {
-          clearFailure();
-          setStarting({ id: row.id, name: row.name, slug: row.slug });
-        }}
-        onSwitch={(id) => void toTenant(id)}
-      />
+      {/* RT-1021: no Ink band here (owner decision: tenant lists, not Platform); the
+          page h1 stays in the plain header and the list is one numbered panel. */}
+      <DetailPanel
+        id="platform-directory-heading"
+        index={1}
+        title={t("platform.tenants.panelTitle")}
+        aside={<p className="platform-directory__note">{t("platform.tenants.suspendedNote")}</p>}
+        className="platform-directory__panel"
+      >
+        <div className="platform-directory__results">
+          <div className="field platform-directory__search">
+            <label htmlFor="platform-tenant-search">{t("platform.tenants.search.label")}</label>
+            <input
+              id="platform-tenant-search"
+              className="input"
+              type="search"
+              autoComplete="off"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+
+          <DirectoryBody
+            query={query}
+            directory={directory}
+            onStart={(row) => {
+              clearFailure();
+              setStarting({ id: row.id, name: row.name, slug: row.slug });
+            }}
+            onSwitch={(id) => void toTenant(id)}
+          />
+        </div>
+      </DetailPanel>
 
       {starting ? (
         <StartSessionDrawer
