@@ -6,6 +6,8 @@ export const shell = {
   // RT-969: the sidebar landmark (brand, scope switcher, navigation).
   "shell.sidebar.label": "النطاق والتنقل",
   "shell.nav.overview": "نظرة عامة",
+  // RT-995 (D-V9): the label of the first, daily-operations nav group, shown in the list band.
+  "shell.nav.section.operations": "العمليات",
   "shell.nav.section.management": "الإدارة",
   "shell.nav.tenants": "المؤسسات",
   "shell.nav.stores": "المتاجر",

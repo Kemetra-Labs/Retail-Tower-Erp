@@ -1,6 +1,6 @@
 import { Banner } from "@/components/Banner";
+import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
-import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { useT } from "@/i18n";
 /**
@@ -122,7 +122,8 @@ export function AuditSearch(): React.JSX.Element {
 
   return (
     <div className="surface">
-      <PageHeader
+      <ListHeaderBand
+        group={t("erp.nav.section")}
         title={t("audit.title")}
         subtitle={<ScopeLine tenant={activeTenant} store={activeStore} />}
       />

@@ -1,0 +1,177 @@
+/* RT-995 (D-V9, DESIGN.md v4.0 §12.6): the Ink header band of a list page.
+ *
+ * Narrow (below 640px) it is a plain light header: no Ink, no ornament, and the
+ * primary keeps its ordinary look (Mint is 1.6:1 on a light surface, D-V2). From
+ * 640px it is an Ink band: the Tower grid and a soft Mint glow are its only
+ * ornament, drawn as its own background, so there is nothing to hide from
+ * assistive technology. No hex: Ink, Mint and the on-Ink roles come from
+ * tokens.css, tints from color-mix. The band is Ink in both themes and never
+ * changes colour with page state. No animation. */
+
+/* ---- Parts, every width ---------------------------------------------------- */
+.list-band__id {
+  flex: 1 1 260px;
+}
+.list-band__group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
+  color: var(--color-text-muted);
+}
+/* The short Mint rule before the label belongs to the Ink band only. */
+.list-band__rule {
+  display: none;
+}
+.list-band__title {
+  margin: 0;
+}
+.list-band__facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-5);
+  margin: 0;
+}
+.list-band__facts > div {
+  display: flex;
+  /* The markup is dt then dd (valid dl content); the figure reads first. */
+  flex-direction: column-reverse;
+  gap: 2px;
+}
+.list-band__facts dd {
+  margin: 0;
+  font: var(--weight-strong) var(--text-section-title) / var(--leading-tight) var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+.list-band__facts dt {
+  font-size: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+/* ---- The Ink band, from 640px ---------------------------------------------- */
+@media (min-width: 640px) {
+  .list-band {
+    position: relative;
+    overflow: hidden;
+    box-sizing: border-box;
+    min-block-size: 112px;
+    align-items: center;
+    gap: var(--space-3) var(--space-6);
+    padding: var(--space-5) 26px;
+    border: 1px solid var(--color-ink);
+    border-radius: var(--radius-panel);
+    color: var(--color-on-ink);
+    background-color: var(--color-ink);
+    background-image: linear-gradient(
+        color-mix(in srgb, var(--color-mint) 6%, transparent) 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--color-mint) 6%, transparent) 1px,
+        transparent 1px
+      ),
+      radial-gradient(
+        420px 200px at 0% 0%,
+        color-mix(in srgb, var(--color-mint) 26%, transparent),
+        transparent 70%
+      );
+    background-size: 24px 24px, 24px 24px, 100% 100%;
+    box-shadow: var(--shadow-resting);
+    /* The global ring is Tower Teal, 2.7:1 on Ink: Mint reads here. */
+    --color-focus-ring: var(--color-mint);
+  }
+  .list-band__group {
+    color: var(--color-mint);
+  }
+  .list-band__rule {
+    display: block;
+    inline-size: 18px;
+    block-size: 2px;
+    border-radius: 2px;
+    background: var(--color-mint);
+  }
+  /* One line, so the band holds its height with a long Arabic tenant name; the
+   * full scope is always in the sidebar's scope switcher. */
+  .list-band__sub {
+    max-inline-size: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--color-ink-muted);
+  }
+  .list-band__facts {
+    padding: var(--space-2) var(--space-2);
+    border-radius: var(--radius-field-lg);
+    background: color-mix(in srgb, var(--color-on-ink) 5%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-mint) 14%, transparent);
+  }
+  .list-band__facts > div {
+    padding: var(--space-1) var(--space-3);
+  }
+  .list-band__facts > div + div {
+    border-inline-start: 1px solid color-mix(in srgb, var(--color-on-ink) 10%, transparent);
+  }
+  .list-band__facts dt {
+    color: var(--color-ink-muted);
+  }
+
+  /* Buttons on Ink: the primary is a Mint fill with Ink text (D-V3, as in the
+   * dark theme); every other action is an outline in the on-Ink colour. The
+   * shared button system reads these properties, so states stay consistent. */
+  .list-band .btn-primary {
+    --btn-bg: var(--color-mint);
+    --btn-fg: var(--color-ink);
+    --btn-edge: var(--color-mint);
+    --btn-bg-hover: color-mix(in oklab, var(--color-mint), var(--color-on-ink) 18%);
+    --btn-edge-hover: color-mix(in oklab, var(--color-mint), var(--color-on-ink) 18%);
+    --btn-bg-press: color-mix(in oklab, var(--color-mint), var(--color-ink) 18%);
+  }
+  .list-band :is(.btn-secondary, .btn-ghost) {
+    --btn-bg: transparent;
+    --btn-fg: var(--color-on-ink);
+    --btn-edge: color-mix(in srgb, var(--color-on-ink) 55%, transparent);
+    --btn-bg-hover: color-mix(in srgb, var(--color-on-ink) 10%, transparent);
+    --btn-fg-hover: var(--color-on-ink);
+    --btn-edge-hover: var(--color-on-ink);
+    --btn-bg-press: color-mix(in srgb, var(--color-on-ink) 16%, transparent);
+  }
+}
+
+/* ---- Forced colours -------------------------------------------------------- */
+/* The band maps to Canvas/CanvasText with a 1px border and no ornament. Text and
+ * buttons are named as system colours, not left to the browser's override: a
+ * checker that reads the author colours (Ink, on-Ink, Mint) instead of the forced
+ * ones would fail (the same lesson as the Ink sidebar, RT-991). */
+@media (forced-colors: active) {
+  .list-band {
+    background-image: none;
+    border: 1px solid CanvasText;
+    box-shadow: none;
+    color: CanvasText;
+  }
+  .list-band__group,
+  .list-band__sub,
+  .list-band__facts dd,
+  .list-band__facts dt {
+    color: CanvasText;
+  }
+  .list-band__rule {
+    background: CanvasText;
+  }
+  .list-band__facts {
+    background: none;
+    box-shadow: none;
+    border: 1px solid CanvasText;
+  }
+  .list-band :is(.btn-primary, .btn-secondary, .btn-ghost) {
+    --btn-bg: ButtonFace;
+    --btn-fg: ButtonText;
+    --btn-edge: ButtonText;
+    --btn-bg-hover: ButtonFace;
+    --btn-fg-hover: ButtonText;
+    --btn-edge-hover: ButtonText;
+    --btn-bg-press: ButtonFace;
+  }
+}
