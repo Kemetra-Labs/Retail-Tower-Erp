@@ -565,8 +565,10 @@ runs any of it, and none of it is done by merging this workflow:
 
 Residual risks:
 
-- An environment-scoped `sub` lets any workflow on `main` that names
-  `aws-lab` assume the role.
+- The `sub` is scoped to the `aws-lab` environment, not to one workflow. The trust
+  policy also pins `job_workflow_ref` to a list of deploy workflows on `main`, so a
+  workflow that is not on that list cannot assume the role, even when it names
+  `aws-lab`. Each new deploy workflow needs an owner trust-policy change.
 - `main` needs 0 approvals.
 - `aws-lab` has `can_admins_bypass=true` (an owner decision).
 
@@ -625,9 +627,13 @@ lab-01 runs), `jira_key` and `dry_run` (default `true`).
    already holds them for the Backend-Core deploy; check that both the identity policy and
    the boundary allow them, and add them if not. The role still
    never gets `AWS-RunShellScript`, `StartSession` or `CreateDocument` / `UpdateDocument`.
-   The trust policy needs no change, because its `sub` is scoped to the `aws-lab`
-   environment, not to one workflow file (see the residual risks above).
-3. Dry-run first (`dry_run: true`), then a live same-release redeploy (the release
+3. Add `Kemetra-Labs/Retail-Tower-Erp/.github/workflows/deploy-console-lab.yml@refs/heads/main`
+   to the `job_workflow_ref` list in the monorepo statement of the role's trust policy
+   (`aws iam update-assume-role-policy`). Leave every other condition as it is. Without
+   this, the live job fails at "Assume the deploy role" with
+   `Not authorized to perform sts:AssumeRoleWithWebIdentity`, before anything reaches
+   lab-01 (the first live run, 2026-10-31, failed exactly this way).
+4. Dry-run first (`dry_run: true`), then a live same-release redeploy (the release
    directory is reused and `current` does not change).
 
 ## Operations
