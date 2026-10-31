@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>تفاصيل الدفعة — الحالات</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#0f766e}
+.disp{font-family:'Readex Pro',Dubai,'Segoe UI',sans-serif}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.cap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.cap b{font-family:'Readex Pro',sans-serif;font-size:12px;font-weight:600;color:#ffffff;background:#0a2125;border-radius:6px;padding:2px 8px}
+.cap span{font-size:15px;font-weight:700;color:#0a2125}
+.cap i{font-style:normal;font-size:12px;color:#5b6d7c}
+.box{background:#ffffff;border:1px solid #e3e9ec;border-radius:20px;box-shadow:0 1px 2px rgba(10,33,37,.04),0 12px 32px -24px rgba(10,33,37,.25);overflow:hidden}
+.sk{height:10px;border-radius:5px;background:#e9eff1}
+.skd{height:10px;border-radius:5px;background:rgba(169,194,197,.25)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 16px;border-radius:11px;font:inherit;font-size:13px;font-weight:700;white-space:nowrap;border:1px solid transparent;text-decoration:none}
+.ink{color:#ffffff;background:#0a2125;border-color:#0a2125}
+.mint{color:#0a2125;background:#5fe0cf;border-color:#5fe0cf}
+.sec{color:#33454f;background:#ffffff;border-color:#c6d3d8}
+.empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:30px 24px 26px}
+.eico{width:64px;height:64px;border-radius:18px;display:flex;align-items:center;justify-content:center;margin-bottom:4px}
+.ban{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:14px;font-size:13px}
+.ban svg{flex:none;margin-top:2px}
+.b-bad{background:#fdf3f2;border:1px solid #f2d6d3;color:#5c1410}
+.b-warn{background:#fffaf2;border:1px solid #f3dfbd;color:#5a3300}
+.b-ok{background:#effaf3;border:1px solid #c8ead6;color:#0d4f33}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;border-radius:999px;padding:2px 10px;white-space:nowrap;width:fit-content}
+.pill::before{content:"";width:7px;height:7px;transform:rotate(45deg);border-radius:1px;background:currentColor}
+.p-bad{color:#9d1f18;background:#fdeceb}
+.ph{font-size:12px;font-weight:700;color:#5b6d7c;background:#eef2f4;border:1px dashed #9fb0bc;border-radius:6px;padding:1px 8px;width:fit-content}
+.new{font-size:12px;font-weight:700;color:#7a4b00;background:#fff4dc;border:1px solid #f3dfbd;border-radius:6px;padding:1px 8px;width:fit-content}
+.fl{display:flex;flex-direction:column;gap:6px}
+.in{height:40px;border:1px solid #9fb0bc;border-radius:10px;padding:0 12px;font:inherit;font-size:14px;background:#ffffff;box-sizing:border-box;width:100%;display:flex;align-items:center}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.cell{display:flex;flex-direction:column;gap:10px}
+.band{border-radius:20px;padding:16px 18px;color:#ffffff;background:#0a2125;display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+</style>
+</helmet>
+<div style="width: 1440px; min-height: 1760px; box-sizing: border-box; padding: 40px; background: #f2f5f6; color: #0a2125; font-family: Dubai, 'Segoe UI', Tahoma, system-ui, sans-serif; font-size: 14px; line-height: 1.6; display: flex; flex-direction: column; gap: 28px">
+  <div style="display: flex; flex-direction: column; gap: 4px">
+    <h1 class="disp" style="margin: 0; font-size: 26px; font-weight: 600">تفاصيل الدفعة أو الرقم التسلسلي — الحالات</h1>
+    <p style="margin: 0; color: #5b6d7c; max-width: 1100px">صفحة تتفرّع من جدول «الدفعات والأرقام التسلسلية» في رصيد المنتج (<bdi dir="ltr" class="mono">Inventory-product.dc.html</bdi>). الحقول من <bdi dir="ltr" class="mono">TrackingIdentity</bdi> و<bdi dir="ltr" class="mono">TrackingHold</bdi> و<bdi dir="ltr" class="mono">correctTrackingIdentityExpiry</bdi>. لا هوية موجودة قبل استيراد الهويات من ERPNext (RT-453).</p>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px">
+    <div class="cell"><div class="cap"><b>1</b><span>تحميل</span></div>
+      <section class="band" aria-busy="true" style="flex-direction: column; align-items: stretch; gap: 10px"><span class="sr" role="status">جارٍ التحميل</span><div class="skd" style="width: 35%"></div><div class="skd" style="width: 60%; height: 16px"></div><div class="skd" style="width: 45%"></div></section>
+      <section class="box" style="padding: 18px; display: flex; flex-direction: column; gap: 12px"><div class="sk" style="width: 40%"></div><div class="sk" style="width: 70%"></div><div class="sk" style="width: 55%"></div></section>
+    </div>
+    <div class="cell"><div class="cap"><b>2</b><span>فارغ: لا هويات تتبع للمنتج بعد</span><i>نقطة الدخول لا تعرض روابط</i></div>
+      <section class="box empty"><div class="eico" aria-hidden="true" style="background: #e7f6f3; color: #0f766e"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/></svg></div><span style="color: #33454f; max-width: 320px">لا توجد دفعات أو أرقام تسلسلية مسجّلة لهذا المنتج.</span></section>
+    </div>
+    <div class="cell"><div class="cap"><b>3</b><span>فشل التحميل</span></div>
+      <div class="ban b-bad" role="alert"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b3261e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg><div style="display: flex; flex-direction: column; gap: 8px"><strong>تعذّر تحميل هويات التتبع.</strong><span>حالة الحجز غير معروفة حتى يكتمل التحميل.</span><span class="btn sec" style="height: 32px; width: fit-content">إعادة المحاولة</span></div></div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px">
+    <div class="cell"><div class="cap"><b>4</b><span>محظور: مدير متجر أو كاشير</span><i>القراءة لمالك المؤسسة ومسؤولها · 404 لا يكشف</i></div>
+      <section class="box empty"><div class="eico" aria-hidden="true" style="background: #e9eff1; color: #33454f"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11h14v10H5zM8 11V7a4 4 0 018 0v4"/></svg></div><span style="color: #33454f; max-width: 320px">هذا القسم غير متاح لدورك.</span></section>
+    </div>
+    <div class="cell"><div class="cap"><b>5</b><span>عليها حجز جودة نشط (المالك)</span><i>الإجراء الأساسي يصبح رفع الحجز</i></div>
+      <section class="band"><div style="flex: 1 1 180px; display: flex; flex-direction: column; gap: 4px"><bdi dir="ltr" class="mono disp" style="font-size: 18px">LOT-2026-0912</bdi><span class="pill p-bad">حجز جودة نشط</span><span style="font-size: 12px; color: #a9c2c5">لا تُباع في أي متجر منذ 30 أكتوبر.</span></div><span class="btn mint">رفع الحجز</span></section>
+      <span style="font-size: 12px; color: #5b6d7c">«رفع الحجز» يفتح درج الحجز نفسه في لوحة الحجز والاستدعاء.</span>
+    </div>
+    <div class="cell"><div class="cap"><b>6</b><span>محظور: مسؤول المؤسسة والحجز نشط</span></div>
+      <section class="band"><div style="flex: 1 1 180px; display: flex; flex-direction: column; gap: 4px"><bdi dir="ltr" class="mono disp" style="font-size: 18px">LOT-2026-0912</bdi><span class="pill p-bad">حجز جودة نشط</span></div><span class="btn" aria-disabled="true" aria-describedby="b6" style="color: #a9c2c5; border: 1px dashed rgba(169,194,197,.5); background: transparent">رفع الحجز</span></section>
+      <span id="b6" style="font-size: 13px; color: #33454f">رفع الحجز متاح لمالك المؤسسة فقط.</span>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px">
+    <div class="cell"><div class="cap"><b>7</b><span>عليها حجز استدعاء</span><i>لا «وضع حجز جودة» آخر؛ الخروج عبر التصرف (Gate 8)</i></div>
+      <section class="band"><div style="flex: 1 1 180px; display: flex; flex-direction: column; gap: 4px"><bdi dir="ltr" class="mono disp" style="font-size: 18px">B-55120</bdi><span class="pill p-bad">حجز استدعاء</span><span style="font-size: 12px; color: #a9c2c5">المرجع <bdi dir="ltr">EDA-2026-1182</bdi> · رفع حجز الاستدعاء لا يعيد المخزون للبيع.</span></div><a href="Tracking-holds.dc.html" class="btn mint">عرض الاستدعاء</a></section>
+    </div>
+    <div class="cell"><div class="cap"><b>8</b><span>منتهية وما زالت قابلة للبيع</span><i>من نتائج expired_lot_sellable</i></div>
+      <div class="ban b-bad" role="alert"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b3261e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg><div style="display: flex; flex-direction: column; gap: 8px"><strong>انتهت هذه الدفعة في 29 أكتوبر، وما زالت 14 علبة منها «قابلة للبيع» في فرع المعادي.</strong><a href="Inventory-product.dc.html" class="btn sec" style="height: 32px; width: fit-content">نقل إلى «منتهي الصلاحية»</a></div></div>
+    </div>
+    <div class="cell"><div class="cap"><b>9</b><span>رقم تسلسلي بلا تاريخ انتهاء</span></div>
+      <section class="box" style="padding: 16px 18px"><dl style="display: grid; grid-template-columns: 130px 1fr; gap: 8px 14px; margin: 0; font-size: 13px"><dt style="color: #5b6d7c">النوع</dt><dd style="margin: 0">رقم تسلسلي</dd><dt style="color: #5b6d7c">الرمز</dt><dd style="margin: 0"><bdi dir="ltr" class="mono">SN 7Q2K-0042</bdi></dd><dt style="color: #5b6d7c">تاريخ الانتهاء</dt><dd style="margin: 0; color: #5b6d7c">غير مسجّل</dd></dl></section>
+    </div>
+  </div>
+
+  <p style="margin: 4px 0 -10px; font-size: 13px; font-weight: 700; color: #0f766e">تصحيح تاريخ الانتهاء: النتائج</p>
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px">
+    <div class="cell"><div class="cap"><b>10</b><span>نجاح</span></div>
+      <div class="ban b-ok" role="status"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#15774d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg><div style="display: flex; flex-direction: column; gap: 4px"><strong>صُحّح تاريخ الانتهاء إلى 28 مارس 2027.</strong><span>حُفظ التصحيح في السجل مع التاريخ القديم والسبب.</span></div></div>
+    </div>
+    <div class="cell"><div class="cap"><b>11</b><span>409 · التاريخ نفسه</span><i>expiry_unchanged</i></div>
+      <div class="ban b-warn" role="alert"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a35a00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg><strong>هذا هو تاريخ الانتهاء الحالي، فلم يُسجَّل تصحيح.</strong></div>
+    </div>
+    <div class="cell"><div class="cap"><b>12</b><span>400 · تاريخ غير مقبول</span><i>قبل التصنيع، أو مسح تاريخ مطلوب</i></div>
+      <section class="box" style="padding: 16px 18px; display: flex; flex-direction: column; gap: 6px"><span style="font-size: 13px; font-weight: 700">تاريخ الانتهاء الجديد</span><div class="in" dir="ltr" aria-invalid="true" style="border-color: #b3261e; box-shadow: 0 0 0 1px #b3261e">2026-09-01</div><small style="color: #b3261e; font-size: 12px; font-weight: 700">لا يمكن أن يسبق تاريخ الانتهاء تاريخ التصنيع (4 أكتوبر 2026).</small><small style="color: #b3261e; font-size: 12px; font-weight: 700">ملف تتبع هذا الصنف يتطلب تاريخ انتهاء، فلا يمكن مسحه.</small></section>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px">
+    <div class="cell"><div class="cap"><b>13</b><span>لا رد · النتيجة غير معروفة</span></div>
+      <div class="ban b-warn" role="alert"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a35a00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg><div style="display: flex; flex-direction: column; gap: 8px"><strong>لم يصل أي رد، فلا يُعرف إن كان الحجز قد وُضع. إعادة المحاولة بالأمر نفسه آمنة: لن يُسجَّل مرتين.</strong><span class="btn sec" style="height: 32px; width: fit-content">إعادة المحاولة</span></div></div>
+    </div>
+    <div class="cell"><div class="cap"><b>14</b><span>404 · الهوية غير متاحة</span></div>
+      <section class="box empty"><span style="color: #33454f">هذه الدفعة غير متاحة.</span><a href="Inventory-product.dc.html" style="font-size: 13px; font-weight: 700">العودة إلى رصيد المنتج</a><span class="new">نص جديد</span></section>
+    </div>
+    <div class="cell"><div class="cap"><b>15</b><span>429 · طلبات كثيرة</span></div>
+      <div class="ban b-warn" role="status"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a35a00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><strong>يمكنك المحاولة مرة أخرى بعد 12 ثانية.</strong></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1760}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
