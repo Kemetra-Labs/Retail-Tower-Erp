@@ -311,7 +311,7 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
     const defs = b.slice(start, b.indexOf("API_REF=", start));
     const guard = b.slice(b.indexOf('sed -E "s#$CUR_DIR_RE#'), b.indexOf('cp -p "$BACKEND_ENV" "$RUN_DIR/backend.env.next"'));
     expectInOrder(b, ['TGT_SLUG="', "API_REF=", 'sed -E "s#$CUR_DIR_RE#', 'cp -p "$BACKEND_ENV" "$RUN_DIR/backend.env.next"']);
-    const run =(current: string, target: string): { status: number | null; out: string } => {
+    const run = (current: string, target: string, guardBlock = guard): { status: number | null; out: string } => {
       const script = [
         "set -euo pipefail",
         'stop() { echo "STOP:$1"; exit 3; }',
@@ -319,7 +319,7 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
         `printf '%s\\n' 'exec docker compose --env-file /opt/rt-lab/backend/release-${current.replace("/", "-")}/release.env "$@"' > "$DC"`,
         `CURRENT_RELEASE='${current}' RELEASE_TAG='${target}'`,
         defs,
-        guard,
+        guardBlock,
         'cat "$RUN_DIR/dc.next"',
       ].join("\n");
       const r = spawnSync("bash", ["-c", script], { encoding: "utf8" });
@@ -333,6 +333,12 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
     expect(same.out).not.toContain("STOP:");
     expect(same.status).toBe(0);
     expect(same.out).toContain("release-backend-core-v0.3.3/release.env");
+    // the equality check must refuse a same-release wrapper that changed anyway
+    const branch = 'if [ "$CUR_SLUG" = "$TGT_SLUG" ]; then';
+    expect(guard).toContain(branch);
+    const tampered = run("backend-core/v0.3.3", "backend-core/v0.3.3", guard.replace(branch, `printf '%s\\n' tampered >> "$RUN_DIR/dc.next"\n${branch}`));
+    expect(tampered.status).toBe(3);
+    expect(tampered.out).toContain("STOP:same-release-wrapper-changed");
   });
 
   it("fetches the bundle over https only, checks SHA256SUMS before unpacking, and binds release.env to the digests", () => {
