@@ -490,6 +490,11 @@ runs these steps and stops at the first failure:
 8. `/health/ready` and `console-smoke.sh` on the origin.
 9. Cancel the auto-revert.
 
+A same-release redeploy (`current_release` equal to `backend_release`) keeps the
+wrapper and `backend.env` unchanged and still runs every gate, so it proves the
+host without changing a version. Documents older than RT-1032 (#218) refuse it at
+step 4 with `next-wrapper-still-uses-the-current-release`.
+
 G-Host also refuses while any earlier run's `rt-deploy-revert-*` unit is armed,
 or has fired and still shows as elapsed. The owner checks what that revert did,
 from `/var/lib/rt-deploy/<run>/` and `/var/log/rt-deploy/`, and stops the unit
@@ -568,7 +573,9 @@ Residual risks:
 - The `sub` is scoped to the `aws-lab` environment, not to one workflow. The trust
   policy also pins `job_workflow_ref` to a list of deploy workflows on `main`, so a
   workflow that is not on that list cannot assume the role, even when it names
-  `aws-lab`. Each new deploy workflow needs an owner trust-policy change.
+  `aws-lab`. Each new deploy workflow needs an owner trust-policy change. The list
+  holds `deploy-lab.yml`, `deploy-erp-lab.yml`, `deploy-console-lab.yml` and
+  `deploy-system-lab.yml` (2026-11-01).
 - `main` needs 0 approvals.
 - `aws-lab` has `can_admins_bypass=true` (an owner decision).
 
@@ -635,6 +642,13 @@ lab-01 runs), `jira_key` and `dry_run` (default `true`).
    lab-01 (the first live run, 2026-10-31, failed exactly this way).
 4. Dry-run first (`dry_run: true`), then a live same-release redeploy (the release
    directory is reused and `current` does not change).
+
+## System lab deploy workflow (RT-1031)
+
+`.github/workflows/deploy-system-lab.yml` deploys one whole lab system version from its
+manifest. It sends `RT-BackendLabBackup`, `RT-BackendLabDeploy`, `RT-ConsoleLabDeploy` and
+`RT-ErpLabDeploy` in order, with one `aws-lab` approval. Its runbook, including the owner-only
+steps, is in [`system/releases/README.md`](../../../system/releases/README.md).
 
 ## Operations
 
