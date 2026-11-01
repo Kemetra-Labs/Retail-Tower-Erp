@@ -40,11 +40,21 @@ Locally, run `python .github/release/system_gate.py --manifest system/releases/<
 - `jira_key`.
 - `dry_run`: defaults to `true`.
 
-The preflight runs the gate above on both files, plus the online checks of each product, and writes a planned system ledger. It touches no AWS resource. A live run needs one `aws-lab` approval, then sends four SSM documents in order and stops at the first failure. The ledgers are built by `.github/release/system_ledger.py`. First proven live on 2026-11-01: [run 41306750385](https://github.com/Kemetra-Labs/Retail-Tower-Erp/actions/runs/41306750385), RT-1032.
+The preflight runs the gate above on both files, plus the online checks of each product and G8 (the live lab check, step 1), and writes a planned system ledger. It touches no AWS resource. A live run needs one `aws-lab` approval, then sends four SSM documents in order and stops at the first failure. The ledgers are built by `.github/release/system_ledger.py`. First proven live on 2026-11-01: [run 41306750385](https://github.com/Kemetra-Labs/Retail-Tower-Erp/actions/runs/41306750385), RT-1032.
 
 ### 1. Find the version live now
 
 `current_manifest` must describe what each host runs. Any per-product deploy moves the lab and makes the current manifest stale: `deploy-lab.yml` (Backend-Core), `deploy-console-lab.yml` (Console) and `deploy-erp-lab.yml` (ERPNext + Connector).
+
+**The preflight checks this for you (G8, `.github/release/live_check.py`).** With the read-only `actions: read` token it reads the live ledgers of those three workflows and of `deploy-system-lab.yml`, takes for each product the newest deploy that finished (a system run counts for the steps it completed), and compares the Backend-Core release, the Console release and the ERP image digest and commit with `current_manifest`. A mismatch refuses the plan as `G8 FAIL: <product>: the live lab runs <x> (<workflow> run <id>), but the current manifest names <y>`, before the live job and before the lab-02 backup. The new `current_manifest` is the file the refusal points to, or a new file by PR (step 3 below).
+
+G8 also looks at runs newer than the last deploy that did not deploy:
+- It **refuses** when the run's ledger shows its host may have changed: a Backend-Core run that got past its `backup-config` gate (it arms the auto-revert next) or has a revert, a Console run that swapped or reverted, any ERP run that held, or that failed after its `check` gate, and a run whose live job started but left no ledger. The owner reconciles the host (see the notes under step 2 below), then a successful deploy of that product with its per-product workflow clears the refusal. There is no override input.
+- It records a **note** and passes when the ledger shows the run stopped before it reached a host (for example a Backend-Core run refused at `G-Host`, or a live job that never reached SSM).
+
+G8 also fails closed: when a ledger is missing, a run was re-run (its ledger cannot be ordered), a ledger is expired (artifacts are kept 90 days, so after a quiet quarter run any per-product deploy first), unreadable or malformed, when a workflow has no deployed ledger in its newest 100 runs, or when the token cannot read the runs. G8 proves what the ledgers say was deployed, not what the hosts run: `RT-BackendLabDeploy` G-Host and `RT-ErpLabDeploy` still check the hosts.
+
+To do the same by hand, or to find the file after a refusal:
 
 1. Find the latest **live** run of each per-product workflow (dry runs leave no live ledger):
 
@@ -65,7 +75,7 @@ The preflight runs the gate above on both files, plus the online checks of each 
    Likewise, if a `deploy-erp-lab.yml` run newer than that one failed after its `swap` gate, lab-03 may run the newer image with the workers down. Get the owner's confirmation that lab-03 was redeployed or restored (`restore.sh`), and from which image, before using the older digest as current. `RT-ErpLabDeploy` checks the declared current images on lab-03 and refuses on a mismatch.
 3. If no file here matches all three, add one (the next `lab-YYYY.MM.N`) that describes the live lab, by PR. `contracts/check` runs the gate on it.
 
-A stale manifest is refused on lab-01, before any version changes (the lab-02 backup has already been written), with `RT_FAIL gate=G-Host reason=wrapper-does-not-use-the-current-release`. `lab-2026.11.1` was added for exactly this reason, after RT-473 and RT-807 deployed newer releases.
+Before G8, a stale manifest was refused only on lab-01, before any version changed but after the lab-02 backup had been written, with `RT_FAIL gate=G-Host reason=wrapper-does-not-use-the-current-release`. `lab-2026.11.1` was added for exactly this reason, after RT-473 and RT-807 deployed newer releases. G-Host stays as the check on the host itself.
 
 ### 2. Choose the target
 
@@ -87,7 +97,7 @@ gh workflow run deploy-system-lab.yml --ref main -f manifest=system/releases/<ta
 `<target>` and `<live>` are the files from step 2; for a same-version run they are the same file. The artifact `deploy-system-lab-plan-<run id>` holds `ledger.json` and `summary.md`. Go on only when:
 - `outcome` is `planned`;
 - `refusals` is empty;
-- G1–G7 all pass (G1–G5 are the gate above; G6 is the ERP image attestation from `build-erp-image.yml`; G7 is the `aws-lab` required reviewer);
+- G1–G8 all pass (G1–G5 are the gate above; G6 is the ERP image attestation from `build-erp-image.yml`; G7 is the `aws-lab` required reviewer; G8 is the live lab check of step 1);
 - `environmentGate` is `reviewed`.
 
 The `backend-core/` folder in the artifact holds the Backend-Core verifier's own ledger, with its reasons when the plan was refused.
@@ -132,7 +142,8 @@ Refusals seen so far:
 
 | Line | Meaning | Action |
 | --- | --- | --- |
-| `G-Host reason=wrapper-does-not-use-the-current-release` | `current_manifest` is stale | step 1 |
+| `G8 FAIL: <product>: the live lab runs …` (preflight) | `current_manifest` is stale, or a newer run left the host unreconciled | step 1 |
+| `G-Host reason=wrapper-does-not-use-the-current-release` | `current_manifest` is stale and G8 could not see it (G8 reads ledgers, not hosts) | step 1 |
 | `G-Host reason=an-earlier-auto-revert-is-armed-or-elapsed` | an earlier Backend-Core revert unit is still there | the owner checks it (`services/backend-core/deploy/README.md`, Live run) |
 | `backup-config reason=next-wrapper-still-uses-the-current-release` | a same-release redeploy on `RT-BackendLabDeploy` older than #218 | the owner updates the document (step 7) |
 

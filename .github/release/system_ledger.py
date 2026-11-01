@@ -36,9 +36,9 @@ STEPS = (
     ("erp", "RT-ErpLabDeploy", "lab-03"),
 )
 ERP_SERVICES = ("backend", "frontend", "websocket", "scheduler", "queue-short", "queue-long")
-RULES = ("G1", "G2", "G3", "G4", "G5", "G6", "G7")
-GATE_LINE = re.compile(r"^(G[1-7]) (pass|FAIL|unverified): (.*)$")
-GATE_RESULTS = re.compile(r"^(G[1-7]=(pass|FAIL|unverified|not-run))( G[1-7]=(pass|FAIL|unverified|not-run))*$")
+RULES = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8")
+GATE_LINE = re.compile(r"^(G[1-8]) (pass|FAIL|unverified): (.*)$")
+GATE_RESULTS = re.compile(r"^(G[1-8]=(pass|FAIL|unverified|not-run))( G[1-8]=(pass|FAIL|unverified|not-run))*$")
 PLAN_KIND = "rt1031-system-lab-planned-ledger"
 LIVE_KIND = "rt1031-system-lab-live-ledger"
 

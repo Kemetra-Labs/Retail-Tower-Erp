@@ -18,7 +18,7 @@ JIRA = "RT-1031"
 BACKUP_LINE = "RT_BACKUP name=rtlab-v0.3.1-to-v0.3.2-20261101T080000Z.dump sha256=" + "a" * 64
 OLD_IMAGE = "ghcr.io/kemetra-labs/rt-erpnext@sha256:" + "b" * 64
 OLD_SHA = "c" * 40
-GOOD_GATES = "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass"
+GOOD_GATES = "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass G8=pass"
 
 
 def write_current(directory, name="lab-2026.10.0"):
@@ -92,7 +92,7 @@ class GateResults(unittest.TestCase):
 
     def test_the_gate_string_is_strict(self):
         self.assertEqual(system_ledger.parse_gate_string(GOOD_GATES)["G4"], "pass")
-        for bad in ("", "G1=pass; id", "G1=maybe", "G8=pass"):
+        for bad in ("", "G1=pass; id", "G1=maybe", "G9=pass"):
             with self.assertRaises(ValueError, msg=bad):
                 system_ledger.parse_gate_string(bad)
 
