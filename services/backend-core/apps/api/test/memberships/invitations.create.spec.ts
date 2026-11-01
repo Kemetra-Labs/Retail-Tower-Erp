@@ -359,7 +359,9 @@ describe("POST /api/v1/memberships/invite — happy path (specific)", () => {
       .set("Idempotency-Key", idemKey())
       .send({
         email: "specific@example.com",
-        role_code: "owner",
+        // RT-1028 (RT-132 D5a): an owner grant is always 'all', so the
+        // 'specific' happy path invites a tenant_admin.
+        role_code: "tenant_admin",
         store_access_kind: "specific",
         store_ids: [STORE_A1, STORE_A2],
       })
