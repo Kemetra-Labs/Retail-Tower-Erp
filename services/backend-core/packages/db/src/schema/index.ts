@@ -61,3 +61,4 @@ export * from "./device-health";
 export * from "./pos-version-policy";
 export * from "./ai-entitlements";
 export * from "./platform-support-sessions";
+export * from "./tenant-branding";
