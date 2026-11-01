@@ -35,7 +35,7 @@ while the read stays tenant-scoped and safe, and the Console never scans the bac
 | `ErpPostingState` is `posted / pending / failed / unknown`; `failed` = `permanently_rejected`. | `console-sales.openapi.yaml:470-479`; `apps/api/src/catalog/sales/history/sale-history.projections.ts:26-39` |
 | Auth: `cookieAuth` only, `SessionOnlyAdminGuard` → `TenantContextGuard` → `RolesGuard`, roles `owner`, `tenant_admin`, `store_manager`. Every refusal is the same non-disclosing 404; no 403 on this surface. `owner` / `tenant_admin` get their membership store authority (never narrowed by the active store); `store_manager` gets the resolved scope with active-store narrowing. | `console-sales.openapi.yaml:38-67` |
 | The sale is read by one scoped query; the posting state comes from `LEFT JOIN erpnext_posting_status` on `(tenant_id, kind, source_ref_id)`: `source_ref_id = sales.id` for the sale, `source_ref_id = sale_voids.id` for the void's reversal. | `apps/api/src/catalog/sales/history/sale-history.reads.ts:58-59`, `:90-94`; `apps/api/src/console-sales/console-sales.service.ts:157-162` |
-| `erpPosting.reversal` covers **only the void**. Returns, partial refunds and credit-sale reversals each write their own `kind = 'reversal'` row with the same `sale_id` (`source_ref_id` = the return or reversal), and the detail read shows none of them. | `0019_erpnext_posting_status.sql:43-45`; `apps/api/src/catalog/sales/sale-returns.service.ts:25`; `apps/api/src/catalog/sales/credit-sale-reversal.store.ts:139` |
+| `erpPosting.reversal` covers **only the void's reversal** (`source_ref_id` = the `sale_voids` row). That includes a credit-sale **void**: a credit reversal of `kind: "void"` reuses an ordinary `sale_voids` row as its posting's `source_ref_id`. Returns, partial refunds and credit-sale **returns** each write their own `kind = 'reversal'` row with the same `sale_id` and `source_ref_id` = the return, and the detail read shows none of them. | `0019_erpnext_posting_status.sql:43-45`; `apps/api/src/catalog/sales/sale-returns.service.ts:25`; `apps/api/src/catalog/sales/credit-sale-reversal.store.ts:5`, `:87`, `:131` |
 | The SQL, the loader and the projection are **shared with the POS sale history** (`sale-history.yaml`). | `console-sales.service.ts:43` imports `SALE_SELECT_SQL`, `loadDetail` from `catalog/sales/history/sale-history.reads` |
 | `ErpPostingView` is **pinned identical** to `pos-sales/sale-history.yaml`, and `ConsoleSaleDetail` is pinned to "`SaleHistoryDetail` minus `receiptFacts` / `reprint`, plus `storeTimezone`". | `apps/api/test/console-sales/console-sales.contract.spec.ts:50-64`, `:401-404`, `:418-422`; `packages/contracts/openapi/pos-sales/sale-history.yaml:853` |
 | Audit: one `console_sales.detail_read` per authorized open, metadata `sale_ref` + `store_id` only. `Cache-Control: no-store`. | `console-sales.openapi.yaml:141-156`, `:238-281` |
@@ -91,7 +91,7 @@ role-tiered response.
 | Non-disclosure | Unchanged: same 404 cases. A `store_manager` cannot tell "no message" from "withheld" except by the explicit `disclosure` marker, which states its own tier, not the data. | A filter on an out-of-scope sale returns an empty page (no 404), so it does not reveal existence. | Same 404 rules as the detail. |
 | Performance | One extra probe, **only when a side is `failed`**: at most two rows through `UQ_idx_erpnext_posting_status_source_ref (tenant_id, source_ref_id)`, the index the detail's joins already use, keyed exactly as those joins (§5). No migration. | A `permanently_rejected` scan with a `sale_id` predicate; no index on either. Every sale-detail open spends an `expensiveRead` rate-limit unit and writes a `backlog.listed` audit row. Second round trip. | One extra request when the state is `failed`; same probe as (a′). Separate audit event and rate-limit class to decide. |
 | Contract impact | `console-sales` `1.1.0-draft` → **`1.2.0-draft`**, additive: one new required, nullable response property. `sale-history.yaml` unchanged, so no POS snapshot impact. Pin test widened. `reconciliation.yaml` description-only amendment (reader set, §4). Must ship with its runtime (§10). | `reconciliation.yaml` additive optional query parameter. No reader-rule change. | `console-sales` additive new operation; also edits the exact-paths and `OPERATIONS` pins (`console-sales.contract.spec.ts:44-47`, `:206`) and needs a `console-sales.rate-limit.yaml` class. `reconciliation.yaml` description amendment (reader set). |
-| Return / refund / credit reversals | Not covered: the detail shows only the void's reversal (§2.1). | **Covered**: a `saleRef` filter returns every dead-letter with that `sale_id`, of any reversal kind. | Could cover them, at the cost of a list shape. |
+| Return / refund / credit-return reversals | Not covered: the detail shows only the void's reversal, credit-sale voids included (§2.1). | **Covered**: a `saleRef` filter returns every dead-letter with that `sale_id`, of any reversal kind. | Could cover them, at the cost of a list shape. |
 | RT-410 reader rule | **Widened** to a second cookieAuth read model, same two roles. | **Unchanged**: the honest point in (b)'s favour. | Widened, same two roles. |
 | Console | Data arrives with the detail; no new query. | New query keyed by sale; Console calls a 017 surface from the sale page. | New lazy query when the state is `failed`. |
 
@@ -105,31 +105,36 @@ response whose content is tiered by role, is made explicit with a `disclosure` m
 silent nulls. If the owner prefers no role-tiered response anywhere, (c) is the fallback (decision D1).
 (b) is rejected: it gives `store_manager` nothing, costs an `expensiveRead` unit and an audit row per page
 open, and has no index to stand on. Its one real advantage, besides leaving the RT-410 reader rule alone, is
-that it also finds failed return, refund and credit-sale reversals. (a′) leaves those on the 017 / 025
-backlogs, matching what `erpPosting` shows today (decision D9).
+that it also finds failed return, refund and credit-sale return reversals. (a′) leaves those on the
+017 / 025 backlogs, matching what `erpPosting` shows today (decision D9); a failed credit-sale void is
+shown, because it shares the void's `sale_voids` row.
 
 ## 4. Handling the `reason` text
 
 The options are: the closed category only; the stored (already sanitised) reason; or nothing.
 
 **Recommended:** the category for all three roles; the stored reason, unchanged, for `owner` and
-`tenant_admin` only.
+`tenant_admin` only, plus a platform-admin session through the `RolesGuard` bypass, which already reads
+the 017 backlog today (below).
 
 * **Why not category only.** RT-410 stored the message precisely because the category cannot separate an
   RT-378 representation mismatch, an RT-78 settlement drift, a plain `frappe.ValidationError` and an
   unclassified exception (`validation` and `other` cover them all). Category-only would leave the owner
   where RT-974 left them.
 * **Why not to `store_manager`.** RT-410's rule is "only the roles that can read this backlog". Keeping
-  the reader set identical (`owner`, `tenant_admin`) means the only widening is *where* it is read, not
-  *who* reads it. The message can embed ERPNext names (accounts, warehouses) a store manager does not see
+  the reader set identical means the only widening is *where* it is read, not *who* reads it. That set is
+  `owner`, `tenant_admin`, and a human platform-admin session in the tenant's context: `RolesGuard` lets
+  a platform admin through every `@Roles` route without a membership match (`apps/api/src/auth/roles.guard.ts:51-59`,
+  `:166`), `listPostingBacklog` included. Token principals never get the bypass. The message can embed ERPNext names (accounts, warehouses) a store manager does not see
   elsewhere, and a store manager cannot repair anyway.
 * **No second sanitiser at read time.** The text was sanitised on write (`reconciliation.yaml:775-791`); a
   read-time pass would make two copies of one rule drift. The read returns exactly what the backlog returns.
 * **The reader-rule amendment.** `reconciliation.yaml` `reason` "Handling" names the 017 read model as the
   only reader. The contract slice amends that paragraph (description only, 1.6.0-draft) to add
-  `consoleGetSale.erpPostingFailure` with the same two roles. The 0071 header is an applied migration and is
-  not edited; the §XIV re-review is recorded in the contract PR: the classification is unchanged, the
-  reader set gains one surface, the roles are unchanged (decision D3).
+  `consoleGetSale.erpPostingFailure` with the same readers, and names the platform-admin bypass explicitly
+  (today it is implied by "the roles that can read this backlog"). The 0071 header is an applied migration
+  and is not edited; the §XIV re-review is recorded in the contract PR: the classification is unchanged,
+  the reader set gains one surface, the readers are unchanged (decision D3).
 * **Rules carried to both new readers.** Never logged by Backend-Core (length or hash only); never in
   audit metadata (`console_sales.detail_read` keeps `sale_ref` + `store_id` only); never a metric label;
   never sent to Sentry or Datadog. The Console renders it as plain text, never HTML; never puts it in a
@@ -202,8 +207,9 @@ The options are: the closed category only; the stored (already sanitised) reason
             Why a failed ERP posting of this sale failed, and its repair handle.
             Null when neither `erpPosting.sale` nor `erpPosting.reversal` was
             `failed` when the posting rows were read. Covers the same two
-            postings as `erpPosting` (the sale and its void's reversal); a failed
-            return, refund or credit-sale reversal is not shown here. Read by a separate probe
+            postings as `erpPosting` (the sale and its void's reversal, a
+            credit-sale void included); a failed return, refund or credit-sale
+            return reversal is not shown here. Read by a separate probe
             after the sale matched the caller's scope: a concurrent repair can
             leave `erpPosting.sale = failed` with `erpPostingFailure.sale = null`
             (or the reverse); a client treats that as "changed, refresh", never
@@ -304,7 +310,8 @@ The options are: the closed category only; the stored (already sanitised) reason
 
 `reconciliation.yaml` → `1.6.0-draft`, description only: `PostingBacklogItem.reason` "Handling" becomes
 "readable only through this tenant-scoped, cookieAuth read model and through
-`console-sales` `consoleGetSale.erpPostingFailure`, both limited to `owner` and `tenant_admin` …".
+`console-sales` `consoleGetSale.erpPostingFailure`, both limited to `owner` and `tenant_admin`, and to a
+human platform-admin session through the `RolesGuard` bypass (never a token principal) …".
 
 Tests that must change with the fragment (all in the one PR of §10):
 
@@ -409,13 +416,13 @@ The Console slices are independent of RT-973 either way.
 | --- | --- | --- |
 | D1 | Read shape: (a′) console-only `erpPostingFailure` on the detail, (b) `saleRef` filter on the 017 backlog, or (c) a separate per-sale route. | **(a′)**; (c) if the owner rejects a role-tiered response. |
 | D2 | What `store_manager` sees: nothing, or the category and time. | **Category and time** (`disclosure = category_only`). |
-| D3 | Widen RT-410's reader rule from "the 017 read model" to also `consoleGetSale`, keeping the roles `owner` / `tenant_admin`; record the §XIV re-review in the contract PR. | **Yes**, same roles, no store_manager. |
+| D3 | Widen RT-410's reader rule from "the 017 read model" to also `consoleGetSale`, keeping the readers `owner` / `tenant_admin` plus the platform-admin `RolesGuard` bypass (named explicitly); record the §XIV re-review in the contract PR. | **Yes**, same readers, no store_manager. |
 | D4 | Audit the disclosure separately (a flag on `console_sales.detail_read` or a new event)? | **No.** The open is already audited with actor and sale; the reason never enters metadata. |
 | D5 | Offer repair on the sale detail for `owner` / `tenant_admin` via `repairPosting`, with the §5 handle rules and §7 outcomes; no `note` field. | **Yes.** |
 | D6 | `rejectionCategory` on the new field: a documented open string (as 017 and 025) or a closed enum. | **Open string.** An enum would make every new Connector category a contract change, and adding a response enum value needs an `oasdiff` severity check. |
 | D7 | RT-973 coupling: one combined contract PR, or fixed order with `1.3.0-draft` for the second. | **Combined** if both are approved together; otherwise first-merged takes `1.2.0-draft`. |
 | D8 | Decision record home: this file as the record (AC1), with a Confluence Decisions entry linking it. | **This file + a short Confluence Decisions entry** written by the coordinator after approval. |
-| D9 | Failed return, refund and credit-sale reversals: out of scope for the sale detail (they stay on the 017 / 025 backlogs, as `erpPosting` already ignores them), or in scope (a list-shaped field, or option (b)). | **Out of scope for RT-977**, stated in the contract text; revisit with a separate item if pilots show operators need them on the sale page. |
+| D9 | Failed return, refund and credit-sale return reversals (a credit-sale void is already in scope through its `sale_voids` row): out of scope for the sale detail (they stay on the 017 / 025 backlogs, as `erpPosting` already ignores them), or in scope (a list-shaped field, or option (b)). | **Out of scope for RT-977**, stated in the contract text; revisit with a separate item if pilots show operators need them on the sale page. |
 
 ## 10. Implementation slices this would create (listed, not created)
 
@@ -434,19 +441,29 @@ Each is created only after the owner decisions above, linked to RT-977 with `Blo
      helper shared with `RolesGuard` (§5); `repair` from `isStoreWritable`.
    * Tests: the role × store-state × category matrix; no-dead-button and the negative `store_manager` case;
      a platform admin with a `store_manager` membership gets `full`; a sale with only a failed return
-     reversal gets `erpPostingFailure: null`; a stale `failed_transient` handle; tenant and store isolation
+     reversal gets `erpPostingFailure: null`; a failed credit-sale void appears on the reversal side; a stale `failed_transient` handle; tenant and store isolation
      (404 unchanged); pre-0071 and Backend-Core-raised rows give `reason: null`; POS sale-history response
      unchanged; no log line, audit metadata or metric carries the reason (log scan); concurrent-repair
      mismatch tolerated. No migration.
-2. **Admin-Console** — `ErpFailureBanner` gains the cause, reason and action lines (§7); the repair dialog
-   with single-flight, per-confirmation `Idempotency-Key`, 425 handling and every outcome keyed on
-   `outcome`; an `undefined` guard for the field; ar and en keys; reason never in telemetry, error reports,
-   URLs or exports; unit tests per state and outcome; e2e for `full` and `category_only`; axe clean.
+2. **Admin-Console** — scope:
+   * **Client:** repin `apps/admin-console/contracts/backend-core/PIN` (today `3fe42b60`, which has no
+     `erpPostingFailure`) to a commit containing slice 1 with `pnpm generate:client --repin <ref>`, and
+     regenerate `src/generated/schema.d.ts`. The generated schema already has `repairPosting`, so the repair
+     flow adds a typed wrapper for that existing operation, not a new one.
+   * **425:** either the 017 contract declares 425 on `repairPosting` first (the follow-up below), or the
+     wrapper gets a focused test proving it can branch on the undeclared 425 and read `Retry-After`.
+   * **Screen:** `ErpFailureBanner` gains the cause, reason and action lines (§7); the repair dialog with
+     single-flight, per-confirmation `Idempotency-Key`, 425 handling and every outcome keyed on `outcome`;
+     an `undefined` guard for the field; ar and en keys; reason never in telemetry, error reports, URLs or
+     exports.
+   * **Tests:** unit tests per state and outcome; e2e for `full` and `category_only`; axe clean.
+
    Depends on slice 1 being deployed (until then the field is absent and the RT-974 banner shows).
 
 **Follow-ups outside RT-977, for the coordinator (not created here):** `repairPosting` re-offers a
 `failed_transient` row (the contract describes acting on a `permanently_rejected` one); and the 425
-`idempotency_in_progress` response is undeclared in `reconciliation.yaml`.
+`idempotency_in_progress` response is undeclared in `reconciliation.yaml`. Declaring it before slice 2 is
+the cleaner of the two options there.
 
 Out of scope, unchanged: the Connector rejection vocabulary, the ERPNext side, the 025 sync-ops backlog,
 and the RT-974 state-only banner already shipped.
