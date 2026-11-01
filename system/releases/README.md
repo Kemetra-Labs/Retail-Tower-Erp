@@ -55,7 +55,7 @@ The preflight runs the gate above on both files, plus the online checks of each 
    ```
 
    Raise `--limit` until the list reaches a live run whose ledger `outcome` is `deployed`: dry, failed and held runs can fill the most recent entries.
-2. Download its live ledger with `gh run download <run id>`. Use the latest one whose `outcome` is `deployed`: a `failed` run may have reverted, and an ERP `held` run left the old image running. Note what it deployed:
+2. Download its live ledger with `gh run download <run id>`. Use the latest one whose `outcome` is `deployed`: a `failed` run may have reverted, and an ERP `held` run left the target image on lab-03 with the workers down (not a deployed state: resolve it with the owner first). Note what it deployed:
    - `deploy-lab.yml`: `release.tag`.
    - `deploy-console-lab.yml`: `target.release`.
    - `deploy-erp-lab.yml`: `target.digest` and `target.sha`.
@@ -124,7 +124,7 @@ A same-version run is proven when the outcome is `deployed` and each step shows 
 The job stops, and later steps do not run. The failing step behaves as its own document does today:
 - `backend` refuses at a gate before any change, or reverts itself through the auto-revert. That revert is app-only, and only when `rollbackAllowed` is `true`.
 - `console` swaps back on a failed smoke. If its lines show `RT_REVERT failed current=…`, the swap-back itself failed and the Console still serves the new release. Point lab-01's `current` back to the previous release by hand. `manualRollback` does not list the Console then, because the step never finished.
-- `erp` can stop after its swap with the workers down. In that case, read the ERP document's ledger on lab-03. Once the scheduler has resumed, `integrations/erpnext-connector/deploy/lab/restore.sh` refuses, whatever the rollback class: the ledger has `resumedAt`, or the host's resume marker is newer than the run. Only a forward fix is then possible, by redeploying with `deploy-erp-lab.yml`. Run `restore.sh` on lab-03 only before any resume, and only when the rollback class is `restore`.
+- `erp` can stop after its swap with the workers down. In that case, read the ERP document's ledger on lab-03. Once the scheduler has resumed, `integrations/erpnext-connector/deploy/lab/restore.sh` refuses, whatever the rollback class: the ledger has `resumedAt`, or the host's resume marker is newer than the run. Only a forward fix is then possible, by redeploying with `deploy-erp-lab.yml`. Before any resume, follow the Connector deploy README: for `image-only`, redeploy the previous image; otherwise, or if that fails, run `restore.sh <run id>` as root on lab-03. The run ID is the `deploy-system-lab.yml` run's, the folder under `/var/backups/rt-erp/` that holds its backup.
 
 Earlier steps are not reverted automatically, because a Backend-Core rollback can touch the database. `manualRollback` gives the exact workflow inputs for each step that finished, in the order they can run: ERP, then Backend-Core, then Console. The Console comes last because its document checks that lab-01 runs the Backend-Core release it is given.
 
