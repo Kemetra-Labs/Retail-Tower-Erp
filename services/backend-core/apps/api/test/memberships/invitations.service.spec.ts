@@ -54,6 +54,10 @@ import { InvitationsService } from "../../src/memberships/invitations.service";
 import type { InvitationsRepository } from "../../src/memberships/invitations.repository";
 import type { EmailJobEnqueuer } from "../../src/auth/email-job.enqueuer";
 import type { ResolvedContext } from "../../src/context/types";
+import { asHierarchy, makeFakeHierarchy } from "../_helpers/fake-membership-hierarchy";
+
+/** RT-1028: an owner actor in a tenant with two owners. */
+const HIERARCHY = asHierarchy(makeFakeHierarchy());
 
 type TxRunner = NonNullable<ConstructorParameters<typeof InvitationsService>[3]>;
 
@@ -280,6 +284,10 @@ function makeService(
     repo as unknown as InvitationsRepository,
     enqueuer as unknown as EmailJobEnqueuer,
     tx,
+    undefined,
+    undefined,
+    undefined,
+    asHierarchy(makeFakeHierarchy()),
   );
 }
 
@@ -298,7 +306,7 @@ describe("InvitationsService.invite()", () => {
 
   it("throws UnauthorizedException when ctx.userId is null", async () => {
     const tx = makeSimpleTxRunner();
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     const ctx: ResolvedContext = { ...BASE_CTX, userId: null };
     await expect(
       svc.invite(ctx, { email: "x@example.com", role_code: "owner", store_access_kind: "all" }),
@@ -307,7 +315,7 @@ describe("InvitationsService.invite()", () => {
 
   it("throws BadRequestException for role_code 'platform_admin'", async () => {
     const tx = makeSimpleTxRunner();
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     await expect(
       svc.invite(BASE_CTX, { email: "x@example.com", role_code: "platform_admin", store_access_kind: "all" }),
     ).rejects.toThrow(BadRequestException);
@@ -316,7 +324,7 @@ describe("InvitationsService.invite()", () => {
   it("throws BadRequestException when role_code is unknown (findRoleId → null)", async () => {
     repo.findRoleIdResult = null;
     const tx = makeSimpleTxRunner();
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     await expect(
       svc.invite(BASE_CTX, { email: "x@example.com", role_code: "ghost_role", store_access_kind: "all" }),
     ).rejects.toThrow(BadRequestException);
@@ -325,7 +333,7 @@ describe("InvitationsService.invite()", () => {
   it("throws BadRequestException when store_ids contains invalid IDs", async () => {
     repo.findInvalidStoreIdsResult = [STORE_ID_A];
     const tx = makeSimpleTxRunner();
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     await expect(
       svc.invite(BASE_CTX, {
         email: "x@example.com",
@@ -339,7 +347,7 @@ describe("InvitationsService.invite()", () => {
   it("throws ConflictException when a pending invitation already exists", async () => {
     repo.findPendingByEmailResult = true;
     const tx = makeSimpleTxRunner();
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     await expect(
       svc.invite(BASE_CTX, { email: "x@example.com", role_code: "owner", store_access_kind: "all" }),
     ).rejects.toThrow(ConflictException);
@@ -349,7 +357,7 @@ describe("InvitationsService.invite()", () => {
     const expected = makeInvitationRow();
     repo.createResult = expected;
     const tx = makeSimpleTxRunner();
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     const result = await svc.invite(BASE_CTX, {
       email: "  Invitee@Example.COM  ",
       role_code: "owner",
@@ -365,7 +373,7 @@ describe("InvitationsService.invite()", () => {
     const expected = makeInvitationRow({ email: "invitee@example.com" });
     repo.createResult = expected;
     const tx = makeSimpleTxRunner();
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     const result = await svc.invite(BASE_CTX, {
       email: "  INVITEE@EXAMPLE.COM  ",
       role_code: "owner",
@@ -381,23 +389,23 @@ describe("InvitationsService.invite()", () => {
     const expected = makeInvitationRow({ storeAccessKind: "specific", invitedStoreIds: [STORE_ID_A] });
     repo.createResult = expected;
     const tx = makeSimpleTxRunner();
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     // Pass a duplicate store_id — the service must deduplicate
     const result = await svc.invite(BASE_CTX, {
       email: "x@example.com",
-      role_code: "owner",
+      role_code: "store_manager",
       store_access_kind: "specific",
       store_ids: [STORE_ID_A, STORE_ID_A],
     });
     expect(result.row).toBe(expected);
-    expect(result.roleCode).toBe("owner");
+    expect(result.roleCode).toBe("store_manager");
     expect(enqueuer.enqueueInvitationCalled).toBe(true);
   });
 
   it("calls autoExpireStale before the pending check", async () => {
     repo.createResult = makeInvitationRow();
     const tx = makeSimpleTxRunner();
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     await svc.invite(BASE_CTX, { email: "x@example.com", role_code: "owner", store_access_kind: "all" });
     expect(repo.autoExpireStaleCallCount).toBe(1);
   });
@@ -406,7 +414,7 @@ describe("InvitationsService.invite()", () => {
     repo.createResult = makeInvitationRow();
     const findInvalidSpy = jest.spyOn(repo, "findInvalidStoreIds");
     const tx = makeSimpleTxRunner();
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     await svc.invite(BASE_CTX, { email: "x@example.com", role_code: "owner", store_access_kind: "all" });
     expect(findInvalidSpy).not.toHaveBeenCalled();
   });
@@ -428,14 +436,14 @@ describe("InvitationsService.lookupAndValidateAcceptToken()", () => {
   it("throws BadRequestException when token hash is not found", async () => {
     repo.findByTokenHashResult = null;
     const tx = makeSimpleTxRunner();
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     await expect(svc.lookupAndValidateAcceptToken("rawtoken")).rejects.toThrow(BadRequestException);
   });
 
   it("throws BadRequestException when status is not 'pending'", async () => {
     repo.findByTokenHashResult = makeInvitationRow({ status: "accepted" as "pending" });
     const tx = makeSimpleTxRunner();
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     await expect(svc.lookupAndValidateAcceptToken("rawtoken")).rejects.toThrow(BadRequestException);
   });
 
@@ -444,7 +452,7 @@ describe("InvitationsService.lookupAndValidateAcceptToken()", () => {
       expiresAt: new Date(Date.now() - 1000), // past
     });
     const tx = makeSimpleTxRunner();
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     await expect(svc.lookupAndValidateAcceptToken("rawtoken")).rejects.toThrow(BadRequestException);
   });
 
@@ -455,14 +463,14 @@ describe("InvitationsService.lookupAndValidateAcceptToken()", () => {
     });
     repo.findByTokenHashResult = invitation;
     const tx = makeSimpleTxRunner();
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     const result = await svc.lookupAndValidateAcceptToken("rawtoken");
     expect(result).toBe(invitation);
   });
 
   it("uses the same opaque message for all failure cases", async () => {
     const tx = makeSimpleTxRunner();
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
 
     // not found
     repo.findByTokenHashResult = null;
@@ -497,7 +505,7 @@ describe("InvitationsService.acceptInvitationExistingUser()", () => {
   it("propagates BadRequestException from token validation when token not found", async () => {
     repo.findByTokenHashResult = null;
     const tx = makeSimpleTxRunner();
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     await expect(svc.acceptInvitationExistingUser("bad-token")).rejects.toThrow(BadRequestException);
   });
 
@@ -505,7 +513,7 @@ describe("InvitationsService.acceptInvitationExistingUser()", () => {
     repo.findByTokenHashResult = makeInvitationRow();
     repo.findUserByEmailResult = null;
     const tx = makeSimpleTxRunner();
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     await expect(svc.acceptInvitationExistingUser("rawtoken")).rejects.toThrow(NotFoundException);
   });
 
@@ -517,7 +525,7 @@ describe("InvitationsService.acceptInvitationExistingUser()", () => {
     // tx call 2: user lookup (findUserByEmail)
     // tx call 3: mutation (markAccepted + createMembership + getRoleCode)
     const tx = makeSimpleTxRunner(ROLE_CODE);
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     await expect(svc.acceptInvitationExistingUser("rawtoken")).rejects.toThrow(BadRequestException);
   });
 
@@ -529,7 +537,7 @@ describe("InvitationsService.acceptInvitationExistingUser()", () => {
       constraint: "memberships_tenant_user_active_uidx",
     };
     const tx = makeSimpleTxRunner(ROLE_CODE);
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     await expect(svc.acceptInvitationExistingUser("rawtoken")).rejects.toThrow(ConflictException);
   });
 
@@ -539,7 +547,7 @@ describe("InvitationsService.acceptInvitationExistingUser()", () => {
     const otherErr = { code: "23505", constraint: "some_other_constraint" };
     repo.createMembershipError = otherErr;
     const tx = makeSimpleTxRunner(ROLE_CODE);
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     await expect(svc.acceptInvitationExistingUser("rawtoken")).rejects.toMatchObject(otherErr);
   });
 
@@ -549,7 +557,7 @@ describe("InvitationsService.acceptInvitationExistingUser()", () => {
     const otherErr = new Error("unexpected-db-error");
     repo.createMembershipError = otherErr;
     const tx = makeSimpleTxRunner(ROLE_CODE);
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     await expect(svc.acceptInvitationExistingUser("rawtoken")).rejects.toThrow("unexpected-db-error");
   });
 
@@ -557,7 +565,7 @@ describe("InvitationsService.acceptInvitationExistingUser()", () => {
     repo.findByTokenHashResult = makeInvitationRow({ storeAccessKind: "all", invitedStoreIds: [] });
     repo.findUserByEmailResult = makeUserRow();
     const tx = makeSimpleTxRunner(ROLE_CODE);
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     const result = await svc.acceptInvitationExistingUser("rawtoken");
     expect(result.roleCode).toBe(ROLE_CODE);
     expect(result.storeAccessKind).toBe("all");
@@ -573,7 +581,7 @@ describe("InvitationsService.acceptInvitationExistingUser()", () => {
     });
     repo.findUserByEmailResult = makeUserRow();
     const tx = makeSimpleTxRunner(ROLE_CODE);
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     const result = await svc.acceptInvitationExistingUser("rawtoken");
     expect(result.storeAccessKind).toBe("specific");
     expect(result.accessibleStoreIds).toEqual([STORE_ID_A, STORE_ID_B]);
@@ -585,7 +593,7 @@ describe("InvitationsService.acceptInvitationExistingUser()", () => {
     repo.findByTokenHashResult = makeInvitationRow();
     repo.findUserByEmailResult = user;
     const tx = makeSimpleTxRunner(ROLE_CODE);
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     const result = await svc.acceptInvitationExistingUser("rawtoken");
     expect(result.user.id).toBe(USER_ID);
     expect(result.user.email).toBe("invitee@example.com");
@@ -597,7 +605,7 @@ describe("InvitationsService.acceptInvitationExistingUser()", () => {
     repo.findByTokenHashResult = makeInvitationRow();
     repo.findUserByEmailResult = user;
     const tx = makeSimpleTxRunner(ROLE_CODE);
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     const result = await svc.acceptInvitationExistingUser("rawtoken");
     expect(result.user.displayName).toBeNull();
   });
@@ -624,7 +632,7 @@ describe("isUniqueViolation (indirect coverage via acceptInvitationExistingUser)
       message: "duplicate key value violates unique constraint memberships_tenant_user_active_uidx",
     };
     const tx = makeSimpleTxRunner(ROLE_CODE);
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     await expect(svc.acceptInvitationExistingUser("rawtoken")).rejects.toThrow(ConflictException);
   });
 
@@ -637,7 +645,7 @@ describe("isUniqueViolation (indirect coverage via acceptInvitationExistingUser)
       },
     };
     const tx = makeSimpleTxRunner(ROLE_CODE);
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     await expect(svc.acceptInvitationExistingUser("rawtoken")).rejects.toThrow(ConflictException);
   });
 
@@ -646,7 +654,7 @@ describe("isUniqueViolation (indirect coverage via acceptInvitationExistingUser)
     repo.createMembershipError = null;
     // null error gets thrown as null; the service re-throws it
     const tx = makeSimpleTxRunner(ROLE_CODE);
-    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx);
+    const svc = new InvitationsService(FAKE_POOL, repo as unknown as InvitationsRepository, enqueuer as unknown as EmailJobEnqueuer, tx, undefined, undefined, undefined, HIERARCHY);
     // null is re-thrown as-is (not ConflictException or BadRequestException)
     await expect(svc.acceptInvitationExistingUser("rawtoken")).rejects.toBeNull();
   });
