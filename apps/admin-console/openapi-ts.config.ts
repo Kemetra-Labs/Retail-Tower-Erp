@@ -269,6 +269,13 @@ export const PIN_FILE_PATH = "contracts/backend-core/PIN" as const;
  *     route; its body bounds were removed (RT-937 c14722), so `AcceptInvitation`
  *     needed no change. Adapting it is RT-807 item 4, out of this slice.
  * The other 25 sources are byte-identical.
+ *
+ * Re-pin to a release commit (RT-807, 2026-11-01, owner: "let's do it the right
+ * way"): bumped 8b4461d -> 3fe42b6, the commit of Backend-Core release
+ * `backend-core/v0.3.3`, which contains RT-937 (#152) and so serves
+ * `changePassword`. The Console's contract pin names a release again, as RT-717
+ * C3 intended. Done with `pnpm generate:client --repin 3fe42b6...`. All 27
+ * composed sources are byte-identical to 8b4461d; only the commit changed.
  */
 export const BACKEND_CORE_PIN: ContractsPin = parsePin(
   readFileSync(resolve(repoRoot, PIN_FILE_PATH), "utf8"),
