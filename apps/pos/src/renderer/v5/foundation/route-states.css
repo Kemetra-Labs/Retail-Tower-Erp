@@ -29,6 +29,13 @@
   font-size: var(--font-size-sm);
 }
 
+/* RT-475 (RT-832 boot): logo, 24px, status, 24px, powered-by — one centred stack. */
+.v5-route-state__stack {
+  display: grid;
+  justify-items: center;
+  gap: 24px;
+}
+
 .v5-route-state__status {
   display: flex;
   align-items: center;

@@ -14,6 +14,7 @@ import { PinPad, PinPadPreview } from '../ui/operator/PinPad.js';
 import { TakeoverPrompt } from '../ui/operator/TakeoverPrompt.js';
 import { SIGN_IN_REFUSAL_COPY } from '../ui/operator/messages.js';
 import { EntryStrip, useTerminalLabel } from '../v5/entry/EntryStrip.js';
+import { useBranding } from '../branding/branding-store.js';
 import { RefusalNotice } from '../v5/entry/RefusalNotice.js';
 import {
   AuthHeading,
@@ -63,6 +64,8 @@ export function SignInRoute(props: Readonly<SignInRouteProps>): JSX.Element {
   const fsm = useOperatorSessionStore((s) => s.state);
   const navigate = useNavigate();
   const terminalLabel = useTerminalLabel(props.pairing);
+  // RT-475: the tenant logo in the strip (RT-832 sign_in), from the local cache.
+  const branding = useBranding();
 
   // Once the FSM reaches `signedIn` the router is still parked on /sign-in;
   // this effect is the seam that moves a signed-in operator into /app.
@@ -306,7 +309,10 @@ export function SignInRoute(props: Readonly<SignInRouteProps>): JSX.Element {
 
   return (
     <main data-testid="route-sign-in" className="v5-entry" dir="rtl" lang="ar">
-      <EntryStrip {...(terminalLabel !== undefined ? { terminalLabel } : {})} />
+      <EntryStrip
+        {...(terminalLabel !== undefined ? { terminalLabel } : {})}
+        {...(branding !== undefined ? { branding } : {})}
+      />
       <div className="v5-entry__stage">
         <div className="v5-entry__head">
           <h1 className="v5-entry__title">{SIGN_IN_COPY.title}</h1>

@@ -19,6 +19,7 @@
  * here — and once registered, it is checked against the pinned contract.
  */
 import { createBackendClient } from '../../../src/main/operator/backend-client.js';
+import { createBrandingClient } from '../../../src/main/branding/branding-client.js';
 import { createCashierAdmissionClient } from '../../../src/main/operator/cashier-admission-client.js';
 import { createNetwork } from '../../../src/main/pairing/network.js';
 import { createReadDownClient } from '../../../src/main/catalogue/read-down/read-down-client.js';
@@ -187,6 +188,9 @@ async function eachSaleHistoryCredential(
 ): Promise<void> {
   await Promise.all(SALE_HISTORY_CREDENTIALS.map((credential) => call(credential)));
 }
+const brandingClient = (fetch: FetchLike): ReturnType<typeof createBrandingClient> =>
+  createBrandingClient({ baseUrl: BASE_URL, fetch });
+const BRANDING_MODULE = 'src/main/branding/branding-client.ts';
 const readDownClient = (fetch: FetchLike): ReturnType<typeof createReadDownClient> =>
   createReadDownClient({
     baseUrl: BASE_URL,
@@ -254,6 +258,8 @@ export const CLIENT_MODULES: readonly ClientModule[] = [
   { module: 'src/main/sale-void/sale-void-client.ts', fetchCallSites: 1, surface: saleVoidClient },
   // RT-542: the store-wide sales history (envelope or device + cashier admission).
   { module: SALE_HISTORY_MODULE, fetchCallSites: 0, surface: saleHistoryClient },
+  // RT-475: the tenant branding read-down (device token, on the shared transport).
+  { module: BRANDING_MODULE, fetchCallSites: 0, surface: brandingClient },
   { module: SHIFT_SYNC_CLIENT, fetchCallSites: 1, surface: shiftSyncClient },
   { module: `${VOUCHER_DIR}/validate.ts`, fetchCallSites: 1 },
   { module: `${VOUCHER_DIR}/redeem.ts`, fetchCallSites: 1 },
@@ -291,7 +297,7 @@ export const SHARED_TRANSPORTS: ReadonlyArray<{
     module: 'src/main/http/transport.ts',
     fetchCallSites: 1,
     reason:
-      'RT-880 createBackendTransport sends the request a registered client builds (sale history so far): it joins the base URL and the client path, adds Authorization: Bearer <the client credential>, and arms the timeout; it originates no path of its own.',
+      'RT-880 createBackendTransport sends the request a registered client builds: it joins the base URL and the client path, adds Authorization: Bearer <the client credential>, and arms the timeout; it originates no path of its own. Clients on it: sale history, tenant branding (RT-475).',
   },
 ];
 
@@ -496,6 +502,15 @@ export const CLIENT_CALLS: readonly ClientCall[] = [
       ),
   },
   // RT-542: the store-wide sales history, detail and reprint authorization.
+  {
+    id: 'brandingClient.read',
+    module: BRANDING_MODULE,
+    method: 'get',
+    pathTemplate: '/api/pos/v1/tenant/branding',
+    wiring:
+      'bootstrap/branding.ts worker: `readDeviceToken` = createSendableDeviceTokenReader (paired only; never once revoked, RT-215)',
+    invoke: (fetch) => brandingClient(fetch).read(SENTINEL.device, null),
+  },
   {
     id: 'saleHistoryClient.list',
     module: SALE_HISTORY_MODULE,
