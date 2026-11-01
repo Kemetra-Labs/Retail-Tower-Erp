@@ -190,6 +190,9 @@ beforeAll(async () => {
     app.useGlobalPipes(new ZodValidationPipe());
     void ROOT_LOGGER;
     await app.init();
+    // Listen up front: supertest otherwise calls listen(0) per request, and
+    // D5's two concurrent requests would race on the same server.
+    await app.listen(0);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     if (process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1") {
@@ -309,7 +312,7 @@ async function expectRefused(
   const before = (await refusalsFor(targetId)).length;
   const res = await call();
   expect(res.status).toBe(403);
-  expect(res.body.code).toBe("forbidden");
+  expect(res.body.error.code).toBe("forbidden");
   const after = await refusalsFor(targetId);
   expect(after).toHaveLength(before + 1);
   return after[after.length - 1]!;

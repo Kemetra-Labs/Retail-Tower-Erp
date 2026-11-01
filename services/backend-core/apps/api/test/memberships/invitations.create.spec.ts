@@ -360,8 +360,8 @@ describe("POST /api/v1/memberships/invite — happy path (specific)", () => {
       .send({
         email: "specific@example.com",
         // RT-1028 (RT-132 D5a): an owner grant is always 'all', so the
-        // 'specific' happy path invites a store_manager.
-        role_code: "store_manager",
+        // 'specific' happy path invites a tenant_admin.
+        role_code: "tenant_admin",
         store_access_kind: "specific",
         store_ids: [STORE_A1, STORE_A2],
       })
