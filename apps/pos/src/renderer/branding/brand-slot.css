@@ -1,0 +1,102 @@
+/*
+ * RT-475 — the tenant-logo slots (RT-832 §1–§2, spec 039 FR-34).
+ *
+ * The box is the rendition bounds from the approved references, including the
+ * 8% clear space the server already added, so no spacing is added inside it.
+ * The image keeps its own 1x size and is placed in the box: never stretched,
+ * cropped or upscaled. The card padding sits outside the box (RT-832 table).
+ */
+
+.v5-brand-slot {
+  /* FR-11: `low_contrast` is measured against #ffffff, so the card is white in
+     every theme; the only literal colour here, by contract. */
+  --brand-card-bg: #ffffff;
+
+  display: flex;
+  flex: none;
+  box-sizing: content-box;
+  justify-self: start;
+}
+
+.v5-brand-slot__box {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-start;
+  overflow: hidden;
+}
+
+.v5-brand-slot--boot {
+  justify-self: center;
+}
+
+.v5-brand-slot--boot .v5-brand-slot__box {
+  justify-content: center;
+  inline-size: 240px;
+  block-size: 120px;
+}
+
+.v5-brand-slot--pairing .v5-brand-slot__box,
+.v5-brand-slot--lock .v5-brand-slot__box {
+  inline-size: 200px;
+  block-size: 80px;
+}
+
+.v5-brand-slot--sign_in .v5-brand-slot__box {
+  inline-size: 128px;
+  block-size: 32px;
+}
+
+.v5-brand-slot__img {
+  display: block;
+  flex: none;
+  max-inline-size: 100%;
+  max-block-size: 100%;
+  object-fit: contain;
+  user-select: none;
+}
+
+/* `presentation.card` (low_contrast or an opaque background). */
+.v5-brand-slot--card {
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--brand-card-bg);
+}
+
+.v5-brand-slot--card.v5-brand-slot--sign_in {
+  padding: 2px 4px;
+}
+
+/* The powered-by line: 12px muted, the product name isolated LTR. */
+.v5-powered-by {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 16px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.v5-powered-by__name {
+  font-weight: var(--font-weight-semibold);
+}
+
+/*
+ * Forced colours: an image is not recoloured, so its contrast on Canvas is
+ * unknowable. Every logo sits on the un-forced white card with a system-colour
+ * border (RT-832 §2, owner-approved 2026-10-23).
+ */
+@media (forced-colors: active) {
+  .v5-brand-slot {
+    padding: 12px;
+    border: 1px solid CanvasText;
+    border-radius: 8px;
+    background: var(--brand-card-bg);
+    forced-color-adjust: none;
+  }
+
+  .v5-brand-slot--sign_in {
+    padding: 2px 4px;
+  }
+}

@@ -62,4 +62,15 @@ export const KNOWN_VIOLATIONS: readonly KnownViolation[] = [
       'packages/contracts/openapi, so the pinned snapshot cannot hold it. Delete this entry when a ' +
       're-pin brings the health contract in.',
   },
+  {
+    call: 'brandingClient.read',
+    kind: 'endpoint-missing',
+    tickets: ['RT-475', 'RT-1046'],
+    note:
+      'GET /api/pos/v1/tenant/branding is real (RT-473 S2, backend-core/v0.3.3, ' +
+      'tenant-branding.openapi.yaml, device bearer). It is not vendored yet: the file also holds ' +
+      'the Console /api/v1/tenants/{tenant_id}/logo routes, and pinning it regenerates ' +
+      'src/shared/api-types.ts (a forbidden path) and needs codegen to keep only /api/pos/v1/ ' +
+      'paths (RT-869). RT-1046 vendors it under its own exemption and deletes this entry.',
+  },
 ];
