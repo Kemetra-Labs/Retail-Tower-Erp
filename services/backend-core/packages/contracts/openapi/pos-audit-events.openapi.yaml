@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Audit Events API
-  version: "1.1.0-draft"
+  version: "1.2.0-draft"
   description: >
     POS-Pulse 004 Backend Wave 2 audit-event sync surface. One endpoint —
     `POST /api/pos/v1/audit-events` — accepts batches of locally-emitted
@@ -42,6 +42,14 @@ info:
     persist `approving_supervisor_id` for any category (only `payload` is
     stored as metadata), so the backend copy of this event does not yet
     record who approved the discount (a follow-up; the till keeps it).
+
+
+    RT-1051 (1.2.0-draft; [GATED] owner authorization Jira RT-1051 comments 15078 and 15080,
+    2026-11-01; zod GHSA-mrhx-c7xc-m3w5, RT-1050): `PosAuditEventsSyncRequest` `events` gains
+    `maxItems: 100`, the batch size the POS sends (`audit-sync.ts`
+    `DEFAULT_BATCH_LIMIT`). The server refuses a
+    longer array with 400 `validation_error` before validating any element.
+    Narrowing only; no other wire change.
 servers:
   - url: https://api.example.com
 paths:
@@ -167,6 +175,7 @@ components:
         events:
           type: array
           minItems: 1
+          maxItems: 100
           items:
             $ref: "#/components/schemas/AuditEventItem"
           description: >

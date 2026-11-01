@@ -24,6 +24,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const COMPAT = path.resolve(HERE, "..");
 const SEVERITY = path.resolve(COMPAT, "../tools/oasdiff/severity-levels.txt");
 const MATRIX_TEXT = readFileSync(path.join(COMPAT, "pos-supported.yaml"), "utf8");
+const ACCEPTED_TEXT = readFileSync(path.join(COMPAT, "accepted-breaks.txt"), "utf8");
 // The clocks below are derived from the committed matrix, so refreshing fleet_baseline.captured_at
 // (O-3 asks for it every 7 days) does not turn these tests into "future capture" failures.
 const DAY_MS = 86_400_000;
@@ -261,13 +262,15 @@ test("run(): committed matrix passes; VERIFIED is contract-level and release mod
 
 test("run(): a supported snapshot with no replay fixture is NOT_PROVEN, never VERIFIED", needsOasdiff, () => {
   const m = MATRIX_TEXT.split("9dfd7d977267806a907d4c03a566382570cbd0c9").join("b".repeat(40));
-  const r = run({ now: NOW, matrixText: m });
+  // The accepted breaks are keyed by snapshot id, so they follow the renamed build (RT-1051).
+  const accepted = ACCEPTED_TEXT.split("pos-build-9dfd7d977267").join(`pos-build-${"b".repeat(12)}`);
+  const r = run({ now: NOW, matrixText: m, acceptedText: accepted });
   const text = r.lines.join(" | ");
   assert.equal(r.exit, 0, text);
   assert.match(text, /replay +: NOT_PROVEN/);
   assert.match(text, /compatibility verdict: NOT_VERIFIED/);
   assert.doesNotMatch(text, /compatibility verdict: VERIFIED/);
-  assert.equal(run({ now: NOW, matrixText: m, mode: "release" }).exit, 1);
+  assert.equal(run({ now: NOW, matrixText: m, acceptedText: accepted, mode: "release" }).exit, 1);
 });
 
 

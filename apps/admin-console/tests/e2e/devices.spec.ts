@@ -1,4 +1,4 @@
-import { type Page, expect, test } from "./fixtures";
+import { type Page, expect, overviewHeading, test } from "./fixtures";
 
 /**
  * RT-371 device registry E2E against mocked Backend-Core (C-5).
@@ -189,7 +189,7 @@ test("S4: a refused role has no nav entry, and a direct URL reads as unavailable
   });
 
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+  await expect(overviewHeading(page, t)).toBeVisible();
   await expect(page.getByRole("link", { name: t("devices.nav.label") })).toHaveCount(0);
 
   // The nav mirrors the API; the API's non-disclosing 404 is the authority.

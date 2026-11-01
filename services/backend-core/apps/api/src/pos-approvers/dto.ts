@@ -14,6 +14,8 @@
  */
 import { z } from "zod";
 
+import { boundedArray } from "../common/bounded-array";
+
 /** The most ids one request may carry. */
 export const MAX_APPROVER_USER_IDS = 50;
 
@@ -21,20 +23,22 @@ const ApproverUserId = z.string().uuid();
 
 export const ApproverEligibilityRequestSchema = z
   .object({
-    user_ids: z
-      .array(ApproverUserId)
-      .min(1)
-      .max(MAX_APPROVER_USER_IDS)
-      .superRefine((ids, ctx) => {
-        const seen = new Set<string>();
-        ids.forEach((id, index) => {
-          const key = id.toLowerCase();
-          if (seen.has(key)) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index], message: "duplicate user id" });
-          }
-          seen.add(key);
-        });
-      }),
+    user_ids: boundedArray(
+      MAX_APPROVER_USER_IDS,
+      z
+        .array(ApproverUserId)
+        .min(1)
+        .superRefine((ids, ctx) => {
+          const seen = new Set<string>();
+          ids.forEach((id, index) => {
+            const key = id.toLowerCase();
+            if (seen.has(key)) {
+              ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index], message: "duplicate user id" });
+            }
+            seen.add(key);
+          });
+        }),
+    ),
   })
   .strict();
 

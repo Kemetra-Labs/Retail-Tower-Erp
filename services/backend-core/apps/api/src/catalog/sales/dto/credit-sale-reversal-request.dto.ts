@@ -15,7 +15,8 @@
  */
 import { z } from "zod";
 
-import { ReturnLineRequestSchema } from "./record-return-request.dto";
+import { boundedArray } from "../../../common/bounded-array";
+import { MAX_REFUND_TENDERS, MAX_RETURN_LINES, ReturnLineRequestSchema } from "./record-return-request.dto";
 import { VoidApprovalSchema } from "./record-void-request.dto";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -58,15 +59,17 @@ export const CreditSaleReversalRequestSchema = z
     sourceSystem: z.string().min(1).max(100).refine(hasNoNul, NO_NUL),
     externalId: z.string().min(1).max(200).refine(hasNoNul, NO_NUL),
     kind: z.enum(["void", "return"]),
-    lines: z
-      .array(ReturnLineRequestSchema)
-      .min(1)
-      .refine(
-        (lines) => new Set(lines.map((l) => l.lineRef.toLowerCase())).size === lines.length,
-        "each lineRef may appear at most once",
-      )
-      .optional(),
-    refundTenders: z.array(CreditReversalRefundTenderSchema),
+    lines: boundedArray(
+      MAX_RETURN_LINES,
+      z
+        .array(ReturnLineRequestSchema)
+        .min(1)
+        .refine(
+          (lines) => new Set(lines.map((l) => l.lineRef.toLowerCase())).size === lines.length,
+          "each lineRef may appear at most once",
+        ),
+    ).optional(),
+    refundTenders: boundedArray(MAX_REFUND_TENDERS, z.array(CreditReversalRefundTenderSchema)),
     reason: z.string().min(1).max(500).refine(isReason, "must hold a non-whitespace character and no NUL"),
     businessDate: z.string().regex(DATE_RE).refine(isCalendarDay).optional(),
     approval: CreditReversalApprovalSchema.optional(),

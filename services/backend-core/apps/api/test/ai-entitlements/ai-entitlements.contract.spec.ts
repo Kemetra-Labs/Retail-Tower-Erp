@@ -177,9 +177,9 @@ const REASON_CODES = [
 ];
 
 describe("ai-entitlements — document and operation", () => {
-  it("is an OpenAPI 3.1 document at version 1.0.0-draft", () => {
+  it("is an OpenAPI 3.1 document at version 1.1.0-draft (RT-1051 targetStores maxItems)", () => {
     expect(doc.openapi).toBe("3.1.0");
-    expect(doc.info?.version).toBe("1.0.0-draft");
+    expect(doc.info?.version).toBe("1.1.0-draft");
   });
 
   it("declares exactly two operations: the read GET with no body and the opt-out PUT", () => {

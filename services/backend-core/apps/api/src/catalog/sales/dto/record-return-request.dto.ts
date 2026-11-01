@@ -4,7 +4,13 @@
  * actor / timestamps / amounts per line are server-owned and rejected.
  */
 import { z } from "zod";
+import { boundedArray } from "../../../common/bounded-array";
 import { hasNoNul, NO_NUL_MESSAGE } from "../../../common/text-validation";
+
+/** RT-1051: `maxItems` of a return's `lines` (the POS caps a return at 50 lines). */
+export const MAX_RETURN_LINES = 50;
+/** RT-1051: `maxItems` of a return's or reversal's `refundTenders`. */
+export const MAX_REFUND_TENDERS = 16;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -52,20 +58,26 @@ export const RecordReturnRequestSchema = z
   .object({
     sourceSystem: z.string().min(1).max(100).refine(hasNoNul, NO_NUL_MESSAGE),
     externalId: z.string().min(1).max(200).refine(hasNoNul, NO_NUL_MESSAGE),
-    lines: z
-      .array(ReturnLineRequestSchema)
-      .min(1)
-      .refine(
-        (lines) => new Set(lines.map((l) => l.lineRef.toLowerCase())).size === lines.length,
-        "each lineRef may appear at most once",
-      ),
-    refundTenders: z
-      .array(RefundTenderSchema)
-      .min(1)
-      .refine(
-        allocationRefsConsistent,
-        "allocationRef must be on every allocation or none, and unique within the return",
-      ),
+    lines: boundedArray(
+      MAX_RETURN_LINES,
+      z
+        .array(ReturnLineRequestSchema)
+        .min(1)
+        .refine(
+          (lines) => new Set(lines.map((l) => l.lineRef.toLowerCase())).size === lines.length,
+          "each lineRef may appear at most once",
+        ),
+    ),
+    refundTenders: boundedArray(
+      MAX_REFUND_TENDERS,
+      z
+        .array(RefundTenderSchema)
+        .min(1)
+        .refine(
+          allocationRefsConsistent,
+          "allocationRef must be on every allocation or none, and unique within the return",
+        ),
+    ),
     reason: z.string().min(1).max(500).refine(hasNoNul, NO_NUL_MESSAGE).optional(),
   })
   .strict();

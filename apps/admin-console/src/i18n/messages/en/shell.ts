@@ -4,6 +4,8 @@ import type { MessagesOf } from "../types";
 export const shell: MessagesOf<typeof ar> = {
   "shell.nav.label": "Primary",
   "shell.sidebar.label": "Scope and navigation",
+  "shell.status.title": "System status",
+  "shell.status.soon": "Coming soon",
   "shell.nav.overview": "Overview",
   // RT-995 (D-V9): the label of the first, daily-operations nav group, shown in the list band.
   "shell.nav.section.operations": "Operations",

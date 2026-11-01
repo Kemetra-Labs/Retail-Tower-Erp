@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Backend-Core — AI Entitlements API
-  version: "1.0.0-draft"
+  version: "1.1.0-draft"
   description: >
     Jira RT-662 (RT-644 follow-up ENT-BC1, Epic RT-641): the contract for the
     tenant AI entitlement read, the tenant owner's per-feature opt-out write
@@ -167,6 +167,13 @@ info:
     or `idempotency_key_conflict`), 425 (the same key still in flight) and
     422 `not_entitled` (an opt-in beyond the plan). Every 200 is
     `Cache-Control: no-store`.
+
+
+    RT-1051 (1.1.0-draft; [GATED] owner authorization Jira RT-1051 comments 15078 and 15080,
+    2026-11-01; zod GHSA-mrhx-c7xc-m3w5, RT-1050): `AiEntitlementCheckInput` `targetStores` gains
+    `maxItems: 100`. The server refuses a
+    longer array with 400 `validation_error` before validating any element.
+    Narrowing only; no other wire change.
 
 servers:
   - url: https://api.example.com
@@ -836,6 +843,7 @@ components:
         targetStores:
           type: array
           uniqueItems: true
+          maxItems: 100
           description: >
             Every store the request touches; empty for a tenant-only request.
             Any store outside the principal's scope refuses the whole request
