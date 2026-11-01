@@ -385,6 +385,12 @@ export const OPENAPI_SOURCE_SPECS: readonly OpenApiSourceSpec[] = [
     name: "ConsoleSalesSummary",
     path: "services/backend-core/packages/contracts/openapi/console-sales-summary.openapi.yaml",
   },
+  // Console sales by store (RT-1008 contract / RT-1053 runtime #223; RT-1054):
+  // `consoleGetSalesByStore`. Read-only consumption; no YAML authored here.
+  {
+    name: "ConsoleSalesByStore",
+    path: "services/backend-core/packages/contracts/openapi/console-sales-by-store.openapi.yaml",
+  },
   // Shift variance policy (RT-384 contract #778 / RT-387 runtime #797; RT-389):
   // the tenant default and store override reads, revision lists and publishes.
   // The POS device read in the same document is not wrapped here.
