@@ -22,8 +22,14 @@ const TENANT = "0190f000-0000-7000-8000-0000000000a1";
 const CADDY_CSP =
   "default-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 /** The pre-existing, page-wide violation: index.html's inline pre-paint script. */
-const isPrePaintScript = (v: { directive: string; blocked: string }) =>
-  v.directive.startsWith("script-src") && v.blocked === "inline";
+interface Violation {
+  directive: string;
+  blocked: string;
+  source: string;
+}
+/** The pre-existing, page-wide violation: index.html's one inline <script> element. */
+const isPrePaintScript = (v: Violation, documentUrl: string) =>
+  v.directive === "script-src-elem" && v.blocked === "inline" && v.source === documentUrl;
 
 const BOXES = {
   boot: [240, 120],
@@ -135,10 +141,10 @@ test("RT-474: under the production CSP the four slots and the receipt show the s
     });
   });
   await page.addInitScript(() => {
-    const log: { directive: string; blocked: string }[] = [];
+    const log: { directive: string; blocked: string; source: string }[] = [];
     (window as unknown as { __csp: typeof log }).__csp = log;
     document.addEventListener("securitypolicyviolation", (e) => {
-      log.push({ directive: e.violatedDirective, blocked: e.blockedURI });
+      log.push({ directive: e.effectiveDirective, blocked: e.blockedURI, source: e.sourceFile });
     });
   });
 
@@ -167,10 +173,12 @@ test("RT-474: under the production CSP the four slots and the receipt show the s
       ),
     )
     .toEqual([true, true, true, true, true]);
-  const violations = await page.evaluate(
-    () => (window as unknown as { __csp: { directive: string; blocked: string }[] }).__csp,
-  );
-  expect(violations.filter((v) => !isPrePaintScript(v))).toEqual([]);
+  const violations = await page.evaluate(() => (window as unknown as { __csp: Violation[] }).__csp);
+  const documentUrl = page.url();
+  // At most the one pre-paint <script>; a second inline script or any inline
+  // event handler (script-src-attr) fails, as does any blocked image.
+  expect(violations.filter((v) => !isPrePaintScript(v, documentUrl))).toEqual([]);
+  expect(violations.filter((v) => isPrePaintScript(v, documentUrl)).length).toBeLessThanOrEqual(1);
   expect(violations.some((v) => v.directive.startsWith("img-src"))).toBe(false);
 
   // The receipt is laid out at its printed size: 383 dots at 203 dpi = 47.92 mm.
