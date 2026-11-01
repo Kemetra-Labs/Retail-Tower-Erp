@@ -188,6 +188,17 @@ describe("account page", () => {
     expect(await screen.findByText("sign-in page")).toBeDefined();
   });
 
+  test("401 and a refresh that never answers: not changed, no sign-out, never 'not confirmed'", async () => {
+    mockChange.mockResolvedValue(result(401));
+    mockRefresh.mockRejectedValue(new TypeError("Failed to fetch"));
+    renderPage();
+    fill("old-secret", "new-secret", "new-secret");
+    await submit();
+    expect(screen.getByText(/it was not changed/)).toBeDefined();
+    expect(screen.queryByText(/not confirmed/)).toBeNull();
+    expect(mockSignOut).not.toHaveBeenCalled();
+  });
+
   test("editing a field clears its own error and keeps the others", async () => {
     renderPage();
     fireEvent.change(field("New password"), { target: { value: "new-secret-1" } });

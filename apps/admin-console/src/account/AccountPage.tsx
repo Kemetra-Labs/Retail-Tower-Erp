@@ -86,15 +86,24 @@ function summaryEntries(t: T, errors: FieldErrors): SummaryEntry[] {
 
 /** Runs the change through a per-attempt 401 refresh-once; a lost session reads as 401. */
 async function submitChange(fields: PasswordChangeFields): Promise<PasswordChangeOutcome> {
+  // A refresh that never answers proves nothing about the session, so the 401
+  // stays what it was: the change did not run (a plain failure, no sign-out).
+  let refreshUnreachable = false;
   const withAuthRetry = createAuthRetry({
     refreshSession: async () => {
-      const r = await refreshSession();
-      return { ok: r.status >= 200 && r.status < 300, status: r.status };
+      try {
+        const r = await refreshSession();
+        return { ok: r.status >= 200 && r.status < 300, status: r.status };
+      } catch {
+        refreshUnreachable = true;
+        return { ok: false, status: 0 };
+      }
     },
     onSessionLost: () => {},
   });
   try {
     const result = await withAuthRetry(() => changePassword(passwordChangeBody(fields)));
+    if (refreshUnreachable && result.status === 401) return { kind: "failed" };
     return resolvePasswordChange({
       status: result.status,
       error: result.error as { error?: { request_id?: string } } | undefined,
