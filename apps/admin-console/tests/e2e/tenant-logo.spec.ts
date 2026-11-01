@@ -240,7 +240,11 @@ for (const mode of ["light", "dark", "forced"] as const) {
       ),
     );
     await page.locator('input[type="file"]').setInputFiles({ ...FILE, name: "wide.png" });
-    await expect(page.getByText(t("branding.refusal.aspect_ratio_out_of_range"))).toBeVisible();
+    // The refusal is in two places: the visible line on the field and the page's
+    // persistent polite live region (sr-only). Each is checked on its own.
+    const refusalText = t("branding.refusal.aspect_ratio_out_of_range");
+    await expect(page.locator(".logo-upload__error-line", { hasText: refusalText })).toBeVisible();
+    await expect(page.locator('p.sr-only[aria-live="polite"]')).toContainText(refusalText);
     await expectNoAxeViolations(page, `logo refusal (${mode})`);
   });
 }
