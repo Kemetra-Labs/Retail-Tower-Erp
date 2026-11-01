@@ -425,18 +425,23 @@ describe("acceptInvitation — RT-1028 accept-time hierarchy check", () => {
     expect(JSON.stringify(audit)).not.toContain(EMAIL);
   });
 
-  it("A2: the in-transaction check is authoritative: a refusal there writes no grant, no session, one audit row", async () => {
+  it("A2: the in-transaction check is authoritative and runs first: a refusal there writes no user, no grant, no session, one audit row", async () => {
     const hierarchy = makeFakeHierarchy();
     // Pre-check sees the inviter as owner; by the grant it has been demoted.
     hierarchy.actorFor
       .mockImplementationOnce(async (_c, ctx) => ({ userId: ctx.userId, roleCode: "owner", isPlatformAdmin: false }))
       .mockImplementation(async (_c, ctx) => ({ userId: ctx.userId, roleCode: "store_manager", isPlatformAdmin: false }));
-    const { service, repo, sessions } = build({ hierarchy });
+    const { service, repo, port, sessions } = build({ hierarchy });
 
     const error = await service.acceptInvitation(accept).catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(BadRequestException);
     expect((error as BadRequestException).message).toBe(OPAQUE);
+    // The race window: the provider identity was created before the demotion
+    // was seen (a later acceptance adopts it); nothing local is written.
+    expect(port.createUser).toHaveBeenCalledTimes(1);
+    expect(repo.insertUser).not.toHaveBeenCalled();
+    expect(repo.insertExternalIdentityLink).not.toHaveBeenCalled();
     expect(repo.markAccepted).not.toHaveBeenCalled();
     expect(repo.createMembership).not.toHaveBeenCalled();
     expect(sessions.startSession).not.toHaveBeenCalled();
@@ -450,7 +455,7 @@ describe("acceptInvitation — RT-1028 accept-time hierarchy check", () => {
     });
   });
 
-  it("A3: EXISTING user, owner invitation with 'specific' access → opaque 400, no write; audit actor is the invitee", async () => {
+  it("A3: EXISTING user, owner invitation with 'specific' access → opaque 400, no write; no account named as the actor", async () => {
     _roleCodeRows = [{ code: "owner" }];
     const hierarchy = makeFakeHierarchy({ actorRole: "owner" });
     const repo = fakeRepo({ user: existingUser() });
@@ -465,7 +470,7 @@ describe("acceptInvitation — RT-1028 accept-time hierarchy check", () => {
     expect(hierarchy.recordRefusal).toHaveBeenCalledTimes(1);
     const [, auditCtx, audit] = hierarchy.recordRefusal.mock.calls[0]!;
     expect(audit.reason).toBe("owner_requires_all_stores");
-    expect(auditCtx.userId).toBe(EXISTING_USER_ID);
+    expect(auditCtx.userId).toBeNull();
   });
 
   it("A4: no hierarchy wired → 503 before any provider call (fails closed)", async () => {

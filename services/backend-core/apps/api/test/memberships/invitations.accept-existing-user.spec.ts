@@ -405,7 +405,7 @@ describe("acceptInvitationExistingUser — RT-1028 accept-time hierarchy check",
     await expectNothingGranted(id);
     const rows = await refusalRows(id);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ actor_user_id: INVITEE_ID, tenant_id: ALPHA_ID, target_type: "invitation" });
+    expect(rows[0]).toMatchObject({ actor_user_id: null, tenant_id: ALPHA_ID, target_type: "invitation" });
     expect(rows[0]!["metadata"]).toMatchObject({
       outcome: "refused",
       operation: "invitation.accept",

@@ -1188,7 +1188,8 @@ describe("InvitationsService.acceptInvitationExistingUser — accept-time hierar
       requestedRoleCode: "owner",
       requestedStoreAccessKind: "all",
     });
-    expect(auditCtx).toMatchObject({ userId: USER_ID, tenantId: TENANT_ID, isPlatformAdmin: false });
+    // The caller holds only a token: no account is named as the actor.
+    expect(auditCtx).toMatchObject({ userId: null, tenantId: TENANT_ID, isPlatformAdmin: false });
     expect(JSON.stringify(audit)).not.toContain(NORMALIZED_EMAIL);
   });
 

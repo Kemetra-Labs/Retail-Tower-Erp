@@ -325,11 +325,12 @@ export class InvitationsService {
 
     // Step 3: single mutation transaction under the invitation's tenant
     try {
-      return await this.tx(this.pool, grantTxCtx(invitation), (client) =>
-        this.grantMembership(client, invitation, user),
-      );
+      return await this.tx(this.pool, grantTxCtx(invitation), async (client) => {
+        await this.assertGrantAllowed(client, invitation);
+        return this.grantMembership(client, invitation, user);
+      });
     } catch (err: unknown) {
-      if (err instanceof MembershipChangeRefusedError) return this.refuseAccept(invitation, err, user.id);
+      if (err instanceof MembershipChangeRefusedError) return this.refuseAccept(invitation, err);
       throw err;
     }
   }
@@ -381,12 +382,14 @@ export class InvitationsService {
     }
 
     // RT-1028: refuse before the provider call, so a refused invitation
-    // creates no provider identity. `grantMembership` checks again under
-    // the inviter's lock; that one is authoritative.
+    // normally creates no provider identity. The grant transaction checks
+    // again, first, under the inviter's lock; that one is authoritative. An
+    // inviter demoted between the two leaves a provider identity with no
+    // local user, which a later acceptance adopts (as for any partial failure).
     const early = await this.tx(this.pool, grantTxCtx(invitation), (client) =>
       this.acceptRefusal(client, invitation),
     );
-    if (early) return this.refuseAccept(invitation, early, null);
+    if (early) return this.refuseAccept(invitation, early);
 
     const email = invitation.email;
     const name = input.displayName?.trim() || (email.split("@")[0] ?? email);
@@ -397,6 +400,7 @@ export class InvitationsService {
       this.pool,
       grantTxCtx(invitation),
       async (client) => {
+        await this.assertGrantAllowed(client, invitation);
         try {
           await this.invitations.insertUser(client, { id: userId, email, displayName: name });
           await this.invitations.insertExternalIdentityLink(client, {
@@ -414,8 +418,7 @@ export class InvitationsService {
         return this.grantMembership(client, invitation, { id: userId, email, displayName: name });
       },
     ).catch((err: unknown) => {
-      // The user and link inserts rolled back with the refusal.
-      if (err instanceof MembershipChangeRefusedError) return this.refuseAccept(invitation, err, null);
+      if (err instanceof MembershipChangeRefusedError) return this.refuseAccept(invitation, err);
       throw err;
     });
 
@@ -516,20 +519,14 @@ export class InvitationsService {
    * The grant, inside the caller's transaction: mark the invitation accepted
    * (conditional, race-safe), create the invited membership, and its store
    * access rows. Tenant, role and stores come from the invitation row only.
-   * Shared by the existing-user and the new-user paths (RT-937).
-   *
-   * RT-1028: first re-checks the grant against the hierarchy (nothing is
-   * written yet) and throws `MembershipChangeRefusedError`, which rolls the
-   * caller's transaction back; the caller audits it and answers 400.
+   * Shared by the existing-user and the new-user paths (RT-937). Each caller
+   * runs `assertGrantAllowed` first in the same transaction (RT-1028).
    */
   private async grantMembership(
     client: PoolClient,
     invitation: InvitationRow,
     user: { readonly id: string; readonly email: string; readonly displayName: string | null },
   ): Promise<MembershipDetail> {
-    const refusal = await this.acceptRefusal(client, invitation);
-    if (refusal) throw refusal;
-
     // mark invitation accepted (conditional — race-safe)
     const accepted = await this.invitations.markAccepted(client, invitation.id, user.id);
     if (!accepted) {
@@ -634,19 +631,29 @@ export class InvitationsService {
   }
 
   /**
+   * The authoritative accept-time check: the first statement of the grant
+   * transaction, before anything is written. A refusal is thrown, so the
+   * transaction rolls back and the caller passes it to `refuseAccept`.
+   */
+  private async assertGrantAllowed(client: PoolClient, invitation: InvitationRow): Promise<void> {
+    const refusal = await this.acceptRefusal(client, invitation);
+    if (refusal) throw refusal;
+  }
+
+  /**
    * Audit a refused acceptance in its own transaction (the refused one, if
    * any, has rolled back), then answer the opaque invalid-token 400: the
    * accept route documents no other status for an invitation that can no
    * longer be accepted, and the token holder learns nothing about roles.
-   * The row's actor is the invitee when it already has an account, else null.
+   * The row's actor is null: the caller holds only a token, not a session,
+   * so no account is named as having acted.
    */
   private async refuseAccept(
     invitation: InvitationRow,
     refusal: MembershipChangeRefusedError,
-    inviteeUserId: string | null,
   ): Promise<never> {
     const auditCtx: ResolvedContext = {
-      userId: inviteeUserId,
+      userId: null,
       tenantId: invitation.tenantId,
       storeId: null,
       isPlatformAdmin: false,

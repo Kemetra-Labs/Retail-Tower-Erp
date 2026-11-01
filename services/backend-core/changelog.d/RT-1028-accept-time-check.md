@@ -5,10 +5,13 @@
   invitation made by a tenant_admin, or one with 'specific' store access (both
   possible before RT-1028), can no longer be accepted. An invitation is also
   refused when its inviter has since been revoked or demoted below
-  tenant_admin, or its tenant is no longer active; this applies to every role,
-  not only owner. A platform-admin inviter skips the actor check but an owner
-  grant must still be for all stores. A refusal is the existing opaque 400
-  invalid-token response, writes nothing but one `membership.change_refused`
-  audit row (`operation: "invitation.accept"`, the invitation as target, no
-  email), and for a new invitee happens before any identity-provider call. No
-  contract or migration change.
+  tenant_admin, or (unless the inviter is a platform admin) its tenant is no
+  longer active; this applies to every role, not only owner. A platform-admin
+  inviter skips the actor check but an owner grant must still be for all
+  stores. A refusal is the existing opaque 400 invalid-token response, writes
+  nothing but one `membership.change_refused` audit row (`operation:
+  "invitation.accept"`, the invitation as target, no actor, no email), and
+  leaves the invitation pending until it expires. For a new invitee the check
+  also runs before the identity-provider call; only an inviter demoted in the
+  moment between that check and the grant can leave a provider identity, which
+  a later acceptance adopts. No contract or migration change.
