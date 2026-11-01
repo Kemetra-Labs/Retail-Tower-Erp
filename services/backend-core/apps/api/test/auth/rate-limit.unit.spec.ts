@@ -31,6 +31,7 @@ import {
   type RateLimitDecision,
   type WindowHit,
 } from "../../src/auth/rate-limit";
+import { accountKey, clientIpKey, emailIpPairKey } from "../../src/auth/public-auth-keys";
 
 // ---------------------------------------------------------------------------
 // Mock factory
@@ -54,7 +55,7 @@ function makeMockRedis(overrides: Partial<{
 // Helpers
 // ---------------------------------------------------------------------------
 
-const BUCKET_ACCOUNT = RATE_LIMIT_BUCKETS.signInPerAccount; // limit: 5, windowMs: 900_000
+const BUCKET_ACCOUNT = RATE_LIMIT_BUCKETS.signInPerAccount; // limit: 20, windowMs: 900_000
 const BUCKET_IP      = RATE_LIMIT_BUCKETS.signInPerIp;       // limit: 30, windowMs: 3_600_000
 const BUCKET_RESET   = RATE_LIMIT_BUCKETS.passwordResetPerIp; // limit: 100, windowMs: 86_400_000
 
@@ -256,9 +257,13 @@ describe("RateLimiter — resetMs from negative pttl values", () => {
 // ===========================================================================
 
 describe("RATE_LIMIT_BUCKETS constants", () => {
-  it("RL-U16: signInPerAccount has limit=5 and windowMs=15min", () => {
-    expect(BUCKET_ACCOUNT.limit).toBe(5);
+  it("RL-U16 (RT-625 D1): signInPerAccount has limit=20 and windowMs=15min", () => {
+    expect(BUCKET_ACCOUNT.limit).toBe(20);
     expect(BUCKET_ACCOUNT.windowMs).toBe(15 * 60 * 1000);
+  });
+
+  it("RL-U16b (RT-625 D1): signInPerPair has limit=5 and windowMs=15min", () => {
+    expect(RATE_LIMIT_BUCKETS.signInPerPair).toEqual({ limit: 5, windowMs: 15 * 60 * 1000 });
   });
 
   it("RL-U17: signInPerIp has limit=30 and windowMs=1hour", () => {
@@ -271,11 +276,92 @@ describe("RATE_LIMIT_BUCKETS constants", () => {
     expect(BUCKET_RESET.windowMs).toBe(24 * 60 * 60 * 1000);
   });
 
-  it("RL-U19 (RT-626): passwordResetPerEmail has limit=5 and windowMs=1hour", () => {
-    expect(RATE_LIMIT_BUCKETS.passwordResetPerEmail).toEqual({ limit: 5, windowMs: 60 * 60 * 1000 });
+  it("RL-U19 (RT-625 reset two-tier): passwordResetPerEmail has limit=20 and windowMs=1hour", () => {
+    expect(RATE_LIMIT_BUCKETS.passwordResetPerEmail).toEqual({ limit: 20, windowMs: 60 * 60 * 1000 });
+  });
+
+  it("RL-U19b (RT-625 reset two-tier): passwordResetPerPair has limit=5 and windowMs=1hour", () => {
+    expect(RATE_LIMIT_BUCKETS.passwordResetPerPair).toEqual({ limit: 5, windowMs: 60 * 60 * 1000 });
   });
 
   it("RL-U20 (RT-626): emailVerifyConfirmPerIp has limit=20 and windowMs=15min", () => {
     expect(RATE_LIMIT_BUCKETS.emailVerifyConfirmPerIp).toEqual({ limit: 20, windowMs: 15 * 60 * 1000 });
+  });
+});
+
+// ===========================================================================
+// RT-625 D2 — clear drops the whole window
+// ===========================================================================
+
+describe("RateLimiter.clear (RT-625 D2)", () => {
+  it("RL-U21: deletes the bucket key and nothing else", async () => {
+    const redis = makeMockRedis();
+    const limiter = new RateLimiter(redis);
+
+    await limiter.clear("signin_account", "alice@example.com");
+
+    expect(redis.del).toHaveBeenCalledTimes(1);
+    expect(redis.del).toHaveBeenCalledWith("rl:signin_account:alice@example.com");
+    expect(redis.decr).not.toHaveBeenCalled();
+    expect(redis.incrWindow).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// RT-625 P2 — client-IP and (email, IP) identifiers
+// ===========================================================================
+
+describe("RT-625 P2 keying (public-auth-keys)", () => {
+  it("test 12: two IPv6 addresses in one /64 share a key; different /64s do not", () => {
+    const a = clientIpKey("2001:db8:1:2:aaaa::1");
+    const b = clientIpKey("2001:0db8:0001:0002:ffff:ffff:ffff:ffff");
+    const other = clientIpKey("2001:db8:1:3::1");
+    expect(a).toBe("2001:db8:1:2::/64");
+    expect(b).toBe(a);
+    expect(other).not.toBe(a);
+    expect(emailIpPairKey("e@x.test", "2001:db8:1:2::9")).toBe(emailIpPairKey("e@x.test", "2001:db8:1:2::1"));
+    expect(emailIpPairKey("e@x.test", "2001:db8:1:3::1")).not.toBe(emailIpPairKey("e@x.test", "2001:db8:1:2::1"));
+  });
+
+  it.each([
+    ["::1", "0:0:0:0::/64"],
+    ["fe80::1%eth0", "fe80:0:0:0::/64"],
+    ["2001:DB8::", "2001:db8:0:0::/64"],
+    ["64:ff9b::192.0.2.1", "64:ff9b:0:0::/64"],
+  ])("test 12: %p is keyed by its /64 (%p)", (ip, key) => {
+    expect(clientIpKey(ip)).toBe(key);
+  });
+
+  it("test 13: an IPv4-mapped IPv6 address and its IPv4 form share one key", () => {
+    expect(clientIpKey("::ffff:203.0.113.5")).toBe("203.0.113.5");
+    expect(clientIpKey("::ffff:cb00:7105")).toBe("203.0.113.5");
+    expect(clientIpKey("203.0.113.5")).toBe("203.0.113.5");
+    expect(emailIpPairKey("e@x.test", "::ffff:203.0.113.5")).toBe(emailIpPairKey("e@x.test", "203.0.113.5"));
+  });
+
+  it("a value that is not an IP is passed through, never thrown on", () => {
+    expect(clientIpKey("unknown")).toBe("unknown");
+  });
+
+  it("test 14: an email differing only in case or outer whitespace maps to one key", () => {
+    expect(accountKey("  User@Example.COM ")).toBe("user@example.com");
+    expect(emailIpPairKey("  User@Example.COM ", "203.0.113.5")).toBe(emailIpPairKey("user@example.com", "203.0.113.5"));
+  });
+
+  it("test 15: no two (email, IP) pairs share a key, even where a raw `email:ip` join would", () => {
+    // A raw join collides: "a@x:1" + "2::1" and "a@x:1:2" + ":1" (and the like).
+    const pairs: Array<[string, string]> = [
+      ["a@x.test", "2001:db8::1"],
+      ["a@x.test:2001", "db8::1"],
+      ["a@x.test|2001:db8::/64", ""],
+      ["a@x.test", "2001:db8:0:1::1"],
+      ["a@x.testa", "203.0.113.5"],
+      ["a@x.test", "a203.0.113.5"],
+      ["1:a@x.test", "203.0.113.5"],
+    ];
+    const keys = pairs.map(([email, ip]) => emailIpPairKey(email, ip));
+    expect(new Set(keys).size).toBe(keys.length);
+    // The identifier is length-prefixed, never a raw concatenation.
+    expect(emailIpPairKey("a@x.test", "203.0.113.5")).toBe("8:a@x.test|203.0.113.5");
   });
 });

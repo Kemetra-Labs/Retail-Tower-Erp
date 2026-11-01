@@ -47,8 +47,10 @@ import {
   RateLimiter,
   type RateLimitDecision,
 } from "./rate-limit";
+import { accountKey, clientIpKey, emailIpPairKey } from "./public-auth-keys";
 import {
   checkWithin,
+  clearWithin,
   PUBLIC_AUTH_UNAVAILABLE_RETRY_AFTER_SECONDS,
   PublicAuthLimiterUnavailable,
   publicAuthUnavailable,
@@ -86,9 +88,16 @@ import { recordSignInFailure } from "../observability/metrics/auth-signin-failur
  * an authentication attempt and is intentionally excluded.
  */
 const SIGNIN_RATE_LIMIT_BUCKETS = new Set<string>([
+  "signin_pair",
   "signin_account",
   "signin_ip",
 ]);
+
+/** A failure-only reservation this request holds and may have to give back. */
+interface Reservation {
+  readonly bucket: string;
+  readonly identifier: string;
+}
 
 /** Conforms to OpenAPI `SignInResponse`. */
 interface SignInResponseBody {
@@ -138,15 +147,22 @@ export class AuthController {
     // RT-430: refuse login CSRF from a foreign Origin. A missing Origin is
     // admitted: sign-in carries no ambient credential.
     assertTrustedOrigin(req, { allowMissing: true });
-    const ip = readClientIp(req);
-    // RT-136: the per-account budget counts FAILED sign-ins only
-    // (research.md §PQ-4). The hit is reserved atomically up front, so
-    // concurrent guesses cannot overrun the limit, and released again
-    // unless the attempt fails authentication. The per-IP budget still
-    // counts every attempt.
-    await this.guardRateLimit("signin_account", body.email, RATE_LIMIT_BUCKETS.signInPerAccount, res);
+    const ip = clientIpKey(readClientIp(req));
+    // RT-136 / RT-625: the pair (email, IP) and per-account budgets count
+    // FAILED sign-ins only. Each hit is reserved atomically up front, so
+    // concurrent guesses cannot overrun a limit, and given back unless the
+    // attempt fails authentication. The per-IP budget counts every attempt.
+    //
+    // RT-625 P1: reserve in the order pair -> account -> IP. A refusal gives
+    // back every reservation taken before it, so a locked pair never spends
+    // the account budget the owner shares from another IP. The refusing
+    // bucket's own over-limit hit stays counted (it does not extend the
+    // fixed window).
+    const held: Reservation[] = [];
     let result: SignInResult;
     try {
+      await this.reserve(held, "signin_pair", emailIpPairKey(body.email, ip), RATE_LIMIT_BUCKETS.signInPerPair, res);
+      await this.reserve(held, "signin_account", accountKey(body.email), RATE_LIMIT_BUCKETS.signInPerAccount, res);
       await this.guardRateLimit("signin_ip", ip, RATE_LIMIT_BUCKETS.signInPerIp, res);
       result = await this.authService.signIn(body);
     } catch (err) {
@@ -157,11 +173,11 @@ export class AuthController {
         // RT-626: the failed-sign-in alert signal (never enforced).
         recordSignInFailure({ cause: "invalid_credentials" });
       } else {
-        await this.releaseAccountAttempt(body.email);
+        await this.releaseAll(held);
       }
       throw err;
     }
-    await this.releaseAccountAttempt(body.email);
+    await this.releaseAll(held);
 
     setSessionCookie(res, result.sessionCredential, result.absoluteExpiresAt);
 
@@ -279,10 +295,10 @@ export class AuthController {
   ): Promise<void> {
     const ip = readClientIp(req);
     await this.guardRateLimit("pwreset_ip", ip, RATE_LIMIT_BUCKETS.passwordResetPerIp, res);
-    // RT-626: per-email budget. Over it the request is still 202 (contract,
-    // no account-existence signal) but nothing is sent. `body.email` is already
-    // trimmed and lowercased by the shared Email schema.
-    if (!(await this.withinResetEmailBudget(body.email))) return;
+    // RT-626 / RT-625: per-(email, IP) and per-email budgets. Over either the
+    // request is still 202 (contract, no account-existence signal) but nothing
+    // is sent.
+    if (!(await this.withinResetEmailBudget(body.email, clientIpKey(ip)))) return;
     await this.authService.requestPasswordReset({ email: body.email });
     // Body is empty — contract says 202 with no schema.
   }
@@ -302,10 +318,14 @@ export class AuthController {
   ): Promise<void> {
     const ip = readClientIp(req);
     await this.guardRateLimit("pwreset_confirm_ip", ip, RATE_LIMIT_BUCKETS.passwordResetConfirmPerIp, res);
-    await this.authService.confirmPasswordReset({
+    const email = await this.authService.confirmPasswordReset({
       rawToken: body.token,
       newPassword: body.new_password,
     });
+    // RT-625 D2: the reset token proved control of the address, so the real
+    // user's sign-in lockout is lifted: the account budget and this IP's pair.
+    // A failed or expired confirm threw above and clears nothing.
+    if (email) await this.clearSignInLockout(email, clientIpKey(ip));
   }
 
   // ---------------------------------------------------------------------
@@ -362,35 +382,75 @@ export class AuthController {
   // Internals
   // ---------------------------------------------------------------------
 
-  /**
-   * Hand back the per-account hit for a sign-in that did not fail
-   * authentication (RT-136). Best-effort: if the release itself fails, the
-   * hit stays counted — over-counting is the safe direction, and a
-   * successful sign-in must not turn into a 500 after its session exists.
-   * RT-628: bounded like the check, so a Redis outage cannot hang the
-   * response here either.
-   */
-  private async releaseAccountAttempt(email: string): Promise<void> {
-    await releaseWithin(this.rateLimiter, "signin_account", email, this.limiterTimeoutMs);
+  /** `guardRateLimit`, then record the hit as held by this request. */
+  private async reserve(
+    held: Reservation[],
+    bucket: string,
+    identifier: string,
+    policy: { limit: number; windowMs: number },
+    res: Response,
+  ): Promise<void> {
+    await this.guardRateLimit(bucket, identifier, policy, res);
+    held.push({ bucket, identifier });
   }
 
   /**
-   * RT-626: true when this address may get another reset email. A limiter
-   * outage answers false (nothing is sent) instead of a 503: the route's
-   * contract is "always 202", and the per-IP check before it already carries
-   * the O6 fail-closed posture. The log names the bucket only (no email).
+   * Hand back the failure-only hits of a sign-in that did not fail
+   * authentication (RT-136), in parallel (RT-625 P5). Best-effort: if a
+   * release fails, the hit stays counted — over-counting is the safe
+   * direction, and a successful sign-in must not turn into a 500 after its
+   * session exists. RT-628: bounded like the check, so a Redis outage cannot
+   * hang the response here either.
    */
-  private async withinResetEmailBudget(email: string): Promise<boolean> {
+  private async releaseAll(held: readonly Reservation[]): Promise<void> {
+    await Promise.all(
+      held.map(({ bucket, identifier }) =>
+        releaseWithin(this.rateLimiter, bucket, identifier, this.limiterTimeoutMs),
+      ),
+    );
+  }
+
+  /** RT-625 D2: lift the account lockout and this IP's pair lockout, in parallel and best-effort. */
+  private async clearSignInLockout(email: string, ip: string): Promise<void> {
+    await Promise.all([
+      clearWithin(this.rateLimiter, "signin_account", accountKey(email), this.limiterTimeoutMs),
+      clearWithin(this.rateLimiter, "signin_pair", emailIpPairKey(email, ip), this.limiterTimeoutMs),
+    ]);
+  }
+
+  /**
+   * RT-626 / RT-625: true when this address may get another reset email from
+   * this IP. The pair bucket is checked first, and a pair refusal never
+   * touches the per-email budget, so one IP cannot use up the owner's
+   * recovery from another IP. A per-email refusal gives the pair hit back
+   * (nothing was sent). A limiter outage answers false (nothing is sent)
+   * instead of a 503: the route's contract is "always 202", and the per-IP
+   * check before it already carries the O6 fail-closed posture.
+   */
+  private async withinResetEmailBudget(email: string, ip: string): Promise<boolean> {
+    const pair = emailIpPairKey(email, ip);
+    if (!(await this.resetBudgetAllows("pwreset_pair", pair, RATE_LIMIT_BUCKETS.passwordResetPerPair))) {
+      return false;
+    }
+    if (await this.resetBudgetAllows("pwreset_email", accountKey(email), RATE_LIMIT_BUCKETS.passwordResetPerEmail)) {
+      return true;
+    }
+    await releaseWithin(this.rateLimiter, "pwreset_pair", pair, this.limiterTimeoutMs);
+    return false;
+  }
+
+  /** One reset-budget check; an outage is a refusal. The log names the bucket only (no email or IP). */
+  private async resetBudgetAllows(
+    bucketName: string,
+    identifier: string,
+    bucket: { limit: number; windowMs: number },
+  ): Promise<boolean> {
     try {
-      const decision = await checkWithin(
-        this.rateLimiter,
-        { bucketName: "pwreset_email", identifier: email, bucket: RATE_LIMIT_BUCKETS.passwordResetPerEmail },
-        this.limiterTimeoutMs,
-      );
+      const decision = await checkWithin(this.rateLimiter, { bucketName, identifier, bucket }, this.limiterTimeoutMs);
       return decision.allowed;
     } catch (err) {
       log().warn(
-        { bucket: "pwreset_email", reason: err instanceof PublicAuthLimiterUnavailable ? err.reason : "error" },
+        { bucket: bucketName, reason: err instanceof PublicAuthLimiterUnavailable ? err.reason : "error" },
         "password-reset email limiter unavailable; nothing sent (202)",
       );
       return false;
