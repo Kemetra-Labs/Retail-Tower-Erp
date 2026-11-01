@@ -77,6 +77,7 @@ import {
   recordAuthFailure,
   recordSuspiciousLogin,
 } from "../observability/metrics/api.metrics";
+import { recordSignInFailure } from "../observability/metrics/auth-signin-failure.metrics";
 
 /**
  * Rate-limit bucket names that represent failed sign-in attempts. A 429 on
@@ -152,7 +153,10 @@ export class AuthController {
       // Every credential failure (unknown email, wrong password, SSO-only,
       // deleted) is the same UnauthorizedException, so all of them count
       // alike and the lockout does not disclose account existence.
-      if (!(err instanceof UnauthorizedException)) {
+      if (err instanceof UnauthorizedException) {
+        // RT-626: the failed-sign-in alert signal (never enforced).
+        recordSignInFailure({ cause: "invalid_credentials" });
+      } else {
         await this.releaseAccountAttempt(body.email);
       }
       throw err;
@@ -275,6 +279,10 @@ export class AuthController {
   ): Promise<void> {
     const ip = readClientIp(req);
     await this.guardRateLimit("pwreset_ip", ip, RATE_LIMIT_BUCKETS.passwordResetPerIp, res);
+    // RT-626: per-email budget. Over it the request is still 202 (contract,
+    // no account-existence signal) but nothing is sent. `body.email` is already
+    // trimmed and lowercased by the shared Email schema.
+    if (!(await this.withinResetEmailBudget(body.email))) return;
     await this.authService.requestPasswordReset({ email: body.email });
     // Body is empty — contract says 202 with no schema.
   }
@@ -340,7 +348,13 @@ export class AuthController {
   async confirmEmailVerification(
     @Body(new ZodValidationPipe(EmailVerifyConfirmSchema))
     body: EmailVerifyConfirmInput,
+    @Req() req: AuthedRequest,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<void> {
+    // RT-626: public and unauthenticated, so bounded per client IP like the
+    // other public-auth routes (429 / outage 503, both with Retry-After).
+    const ip = readClientIp(req);
+    await this.guardRateLimit("email_verify_confirm_ip", ip, RATE_LIMIT_BUCKETS.emailVerifyConfirmPerIp, res);
     await this.authService.confirmEmailVerification({ rawToken: body.token });
   }
 
@@ -358,6 +372,29 @@ export class AuthController {
    */
   private async releaseAccountAttempt(email: string): Promise<void> {
     await releaseWithin(this.rateLimiter, "signin_account", email, this.limiterTimeoutMs);
+  }
+
+  /**
+   * RT-626: true when this address may get another reset email. A limiter
+   * outage answers false (nothing is sent) instead of a 503: the route's
+   * contract is "always 202", and the per-IP check before it already carries
+   * the O6 fail-closed posture. The log names the bucket only (no email).
+   */
+  private async withinResetEmailBudget(email: string): Promise<boolean> {
+    try {
+      const decision = await checkWithin(
+        this.rateLimiter,
+        { bucketName: "pwreset_email", identifier: email, bucket: RATE_LIMIT_BUCKETS.passwordResetPerEmail },
+        this.limiterTimeoutMs,
+      );
+      return decision.allowed;
+    } catch (err) {
+      log().warn(
+        { bucket: "pwreset_email", reason: err instanceof PublicAuthLimiterUnavailable ? err.reason : "error" },
+        "password-reset email limiter unavailable; nothing sent (202)",
+      );
+      return false;
+    }
   }
 
   private async guardRateLimit(
@@ -400,6 +437,7 @@ export class AuthController {
       if (SIGNIN_RATE_LIMIT_BUCKETS.has(bucket)) {
         recordAuthFailure({ cause: "rate_limited" });
         recordSuspiciousLogin({ reason: "rapid_retry" });
+        recordSignInFailure({ cause: "rate_limited" });
       }
       res.setHeader("Retry-After", String(retryAfterSeconds(decision.resetMs)));
       throw RATE_LIMIT_429;

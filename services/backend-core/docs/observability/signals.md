@@ -148,6 +148,14 @@ REPORT-ONLY. Emitted by `PreAuthRateLimitReporter` (called by `FailClosedAuthGua
 | `preauth_rate_limit_total` | counter | `cause` ∈ {`missing` (no credential), `bad_token` (a session cookie or bearer that did not authenticate)}; `outcome` ∈ {`allowed` (under 50% of the per-IP ceiling), `near_limit` (50% or more), `would_limit` (over the ceiling; still answered 401 as before), `fail_open` (limiter error, timeout or open breaker: not counted)}. One increment per failed-auth request. No IP, user or tenant label | RT-630 |
 | `preauth_rate_limit_utilisation` | histogram | `cause` as above. Value = count / limit of the client IP's window at each counted request (above 1 = over the ceiling); buckets 0.1, 0.25, 0.5, 0.75, 0.9, 1, 2, 5, 10 | RT-630 |
 
+### Failed sign-in signal (RT-626)
+
+ALERT ONLY, never enforced (RT-574 issue 5d: an enforced global cap would itself be a lockout DoS). Emitted by `AuthController.signIn`. Both series are exported at 0 from boot, so the Datadog monitor `p2-api-signin-fail` (`deploy/datadog/monitors.json`, `dp2.auth_signin_failure.count`) reads missing data as a broken scrape (its query has no `default_zero`, which would turn missing data into 0). Unlike `auth_failure_total`, it never counts auth-guard token failures.
+
+| Signal | Type | Labels (low-cardinality only) | Source |
+|---|---|---|---|
+| `auth_signin_failure_total` | counter | `cause` ∈ {`invalid_credentials` (the sign-in reached the credential check and failed it: unknown email, wrong password, SSO-only or deleted, one cause as the response is one 401), `rate_limited` (refused 429 by the per-account or per-IP sign-in bucket)}. A limiter outage (503) and a non-authentication error count nothing. No email, IP, user or tenant label | RT-626 / RT-574 5d |
+
 ## 1.4 AI gateway signals (RT-655)
 
 Emitted by `AiGateway.run` (apps/api/src/ai). No vendor adapter exists yet: with the default wiring the gateway denies before any provider request, so `ai_gateway_provider_call_total` stays at zero until an approved route is allowlisted. Per-tenant cost and usage are NOT metrics; they live in the usage ledger owned by RT-663 (AD-AI-PROV-001 D-6).
