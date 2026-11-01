@@ -17,7 +17,7 @@
 | Is today's lockout exploitable? | **Yes.** One IP sending 5 wrong passwords per 15 minutes (20 per hour) keeps any account locked for as long as it likes. That stays under the per-IP limit of 30 per hour, so the attacker is never throttled (§2.1). |
 | Does the candidate (email, IP) 5/15 + email-only 20/15 fix it? | It fixes the **single-IP** case, provided the check order and release rules in §4.2 are kept. It does **not** fix a distributed lockout: 4 IPs (or 4 IPv6 /64s) lock the owner out everywhere (§3.2). |
 | What does it cost? | The per-account guess budget for a distributed attacker rises 4×, from 480 to 1,920 guesses per day. A single IP's budget is unchanged at 480 per day (§3.2). |
-| Recommendation | **Approve option A (the candidate shape) with pair 5 / 15 min and email-only 20 / 15 min**, plus the five preconditions in §5.2 (check order and release rules, IPv6 /64, an enforced `TRUST_PROXY` hop count, reset clears the counters, the outage posture). Keep option B (trusted-device cookie) as the named next step if a distributed lockout is ever seen (§5.3). |
+| Recommendation | **Approve option A (the candidate shape) with pair 5 / 15 min and email-only 20 / 15 min**, plus the six preconditions in §5.2 (check order and release rules, IPv6 /64, an enforced `TRUST_PROXY` hop count, reset clears the counters, the outage posture, a verified provider password minimum). Keep option B (trusted-device cookie) as the named next step if a distributed lockout is ever seen (§5.3). |
 | Owner decisions needed | D1 the numbers; D2 whether a successful password reset clears the sign-in counters; D3 whether a boot check that requires a `TRUST_PROXY` hop count becomes a precondition for shipping; D4 whether to open the PII-in-keys follow-up (§7). |
 
 ---
@@ -180,7 +180,7 @@ Notes:
 
 1. It closes the cheapest attack there is today: a permanent lockout from one IP at 20 requests per hour.
 2. It keeps every property RT-136 and FR-ISO-4 rely on: failures only, same 401, same 429, no enumeration.
-3. Its cost is 1,920 instead of 480 online guesses per day per account across many IPs. This is a real loosening and the owner should accept it knowingly. The password floor is not uniform: a reset confirm requires at least 12 characters (`dto.ts:63`), but passwords set by change (`dto.ts:80-81`) or at invitation accept (`memberships/invitation.dto.ts:45`) only require 1 character here and follow the identity provider's policy (RT-804), which this review has not verified. The acceptance therefore rests on the provider's minimum. If that is weak, 1,920 guesses per day matters for the weakest accounts, and option B becomes more urgent.
+3. Its cost is 1,920 instead of 480 online guesses per day per account across many IPs. This is a real loosening and the owner should accept it knowingly. The password floor is not uniform: a reset confirm requires at least 12 characters (`dto.ts:63`), but passwords set by change (`dto.ts:80-81`) or at invitation accept (`memberships/invitation.dto.ts:45`) only require 1 character here and follow the identity provider's policy (RT-804), which this review has not verified. The acceptance therefore rests on the provider's minimum, so D1 is **conditional on P6**. If that minimum is weak, 1,920 guesses per day matters for the weakest accounts, and option B becomes more urgent.
 4. It needs no contract change and fits the existing `RateLimiter` primitive.
 
 The recommendation holds **only together with these preconditions**, which belong in the implementation issue's acceptance criteria:
@@ -189,9 +189,10 @@ The recommendation holds **only together with these preconditions**, which belon
 |---|---|---|
 | P1 | Check order and release rules of §4.1-§4.3. | Without them, one IP can still lock the owner out (§4.2). |
 | P2 | IPv6 /64 keying and IPv4-mapped normalization (§4.4) for the pair bucket and `signin_ip`. | Without it, one IPv6 /64 is an unlimited distributed attacker. With it, a /56 or /48 holder is still a cheap distributed attacker, inside the accepted risk (§3.3). |
-| P3 | Deployed `TRUST_PROXY` is a **hop count**, never `true`, and never `false` behind a proxy. Today nothing enforces this: `TRUST_PROXY_REQUIRED=true` only refuses an unset or unrecognized value and accepts `true` and `false` (§2.5). Enforcement needs a new boot check that refuses `true` (and `false` where the deployment declares a proxy) in staging, pilot and prod, or an equivalent deploy-config check. The owner decides (D3) whether that is part of RT-625 or an RT-624 follow-up. | `true` can let the client pick its own IP; `false` or unset behind Caddy makes the redesign a no-op (§3.3). |
+| P3 | Deployed `TRUST_PROXY` is a **hop count**, never `true`, and never `false` behind a proxy. A hop count is only safe when **every** ingress path reaches the API through that exact proxy chain (the API port is not reachable directly). If any path can bypass the chain, trust must be limited to the configured proxy addresses or subnets instead; Express accepts that form, but `resolveTrustProxySetting` (`trust-proxy.ts:28-33`) only accepts a number or a boolean today, so that would be a code change. Today nothing enforces either: `TRUST_PROXY_REQUIRED=true` only refuses an unset or unrecognized value and accepts `true` and `false` (§2.5). Enforcement needs a new boot check that refuses `true` (and `false` where the deployment declares a proxy) in staging, pilot and prod, or an equivalent deploy-config check. The owner decides (D3) whether that is part of RT-625 or an RT-624 follow-up. | `true` can let the client pick its own IP; `false` or unset behind Caddy makes the redesign a no-op (§3.3). |
 | P4 | A successful password-reset confirm clears that email's email-only counter and the pair counter for the IP of the confirm request (owner decision D2). Pair keys for other IPs cannot be enumerated from the email, and they expire within 15 min; if they must be cleared too, include a per-email generation number in the pair identifier and increment it on reset. Either way works with HMAC keys (§7), because the email and IP are known at confirm time. | Gives the real user a recovery path that does not depend on the attacker stopping. The reset token is the proof, so this hands an attacker nothing. |
 | P5 | Redis outage behaviour unchanged: fail closed with 503, releases run in parallel, worst case about 4 s; the `public-auth-limiter.ts` header is updated (§4.5). | RT-628 / O6. |
+| P6 | Before D1 takes effect, the identity provider's effective minimum password policy (length and breached-password check) is verified and recorded, for passwords set at invitation and by change. If it is below 12 characters with no breached-password check, the owner re-decides D1 (keep email-only at 5 / 15 min, or move to option B first). | The 4× guess allowance is accepted for a password population whose floor is unknown today (§5.2 reason 3). |
 
 ### 5.3 Next step if a distributed lockout is ever seen
 
@@ -256,7 +257,7 @@ Today Redis holds `rl:signin_account:<email>` and `rl:signin_ip:<ip>`; the candi
 Proposal (owner decision D4: open it, and whether before or with RT-625): derive every public-auth identifier as an **HMAC-SHA-256 of the normalized email and/or IP prefix under a server secret**. This:
 
 - removes the raw email and IP from Redis;
-- makes the pair identifier unambiguous (fixes §4.4's colon problem);
+- makes the pair identifier unambiguous (fixes §4.4's colon problem), **provided the HMAC input is canonically encoded**: HMAC does not repair an ambiguous concatenation. Use a versioned, length-prefixed message, for example `v1|<len(email)>:<email>|<len(ip)>:<ip-or-prefix>` with normalized fields (lowercased trimmed email; IPv4 or the IPv6 /64 prefix). The sign-in lookup and the reset clear (P4) must build the identifier with the same function;
 - leaves the counters unchanged, so no behaviour changes.
 
 It needs a new secret in the deployment configuration, so it is its own issue. Changing the key derivation resets all counters once at deploy; that is acceptable.
@@ -267,7 +268,7 @@ It needs a new secret in the deployment configuration, so it is its own issue. C
 
 | # | Decision | Recommendation |
 |---|---|---|
-| **D1** | O9 numbers | Option A: pair 5 / 15 min, email-only 20 / 15 min, `signin_ip` unchanged at 30 / h, with preconditions P1-P5. |
+| **D1** | O9 numbers | Option A: pair 5 / 15 min, email-only 20 / 15 min, `signin_ip` unchanged at 30 / h, with preconditions P1-P6. Conditional on P6 (the provider's password minimum is verified). |
 | **D2** | A successful password reset clears that email's email-only counter and the confirming IP's pair counter (P4) | Yes. |
 | **D3** | A boot check that requires a `TRUST_PROXY` hop count (refuses `true`, and `false` behind a proxy) in staging, pilot and prod before RT-625 ships, in RT-625 or an RT-624 follow-up | Yes. `TRUST_PROXY_REQUIRED=true` alone does not do this. Without it, a wrong value silently makes the redesign a no-op or lets clients pick their own IP. |
 | **D4** | Open the HMAC-keys follow-up (§7) | Yes, as its own issue; it can ship before or after RT-625. |
