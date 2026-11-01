@@ -446,8 +446,9 @@ Each is created only after the owner decisions above, linked to RT-977 with `Blo
      unchanged; no log line, audit metadata or metric carries the reason (log scan); concurrent-repair
      mismatch tolerated. No migration.
 2. **Admin-Console** — scope:
-   * **Client:** repin `apps/admin-console/contracts/backend-core/PIN` (today `3fe42b60`, which has no
-     `erpPostingFailure`) to a commit containing slice 1 with `pnpm generate:client --repin <ref>`, and
+   * **Client:** repin `apps/admin-console/contracts/backend-core/PIN` (no pinned commit has
+     `erpPostingFailure` until slice 1 merges) to a commit containing slice 1 with
+     `pnpm generate:client --repin <ref>`, and
      regenerate `src/generated/schema.d.ts`. The generated schema already has `repairPosting`, so the repair
      flow adds a typed wrapper for that existing operation, not a new one.
    * **425:** either the 017 contract declares 425 on `repairPosting` first (the follow-up below), or the
