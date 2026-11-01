@@ -5,7 +5,8 @@
  *   - past LOGO_MAX_PENDING_JOBS running or waiting, a job is refused at once
  *     with `RenderQueueFullError` (→ 429), while a file the byte checks
  *     refuse is still its 422;
- *   - a held queue drains and serves the next job.
+ *   - a held queue drains and serves the next job;
+ *   - a job with no reply in time fails and the next job gets a fresh worker.
  */
 import { monitorEventLoopDelay } from "node:perf_hooks";
 
@@ -57,6 +58,8 @@ describe("the event loop while a 4000 × 4000 PNG is processed", () => {
     delay.disable();
 
     const maxDelayMs = delay.max / 1e6;
+    // eslint-disable-next-line no-console
+    console.info(`RT-1041 event loop: job ${elapsedMs.toFixed(0)} ms, max delay ${maxDelayMs.toFixed(1)} ms`);
     expect(out.master).toMatchObject({ width: 1024 });
     // The job itself took real time, so the probe overlapped real work.
     expect(elapsedMs).toBeGreaterThan(100);
@@ -86,8 +89,31 @@ describe("the per-process logo queue", () => {
     }
   });
 
-  it("runs the jobs it admits one at a time and completes each", async () => {
+  it("runs the jobs it admits one at a time", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const probe = (): Promise<void> =>
+      logoJobs.run(async () => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        active -= 1;
+      });
+    await Promise.all(Array.from({ length: LOGO_MAX_PENDING_JOBS }, probe));
+    expect(maxActive).toBe(1);
+  });
+
+  it("completes every job it admits", async () => {
     const all = await Promise.all(Array.from({ length: LOGO_MAX_PENDING_JOBS }, () => processLogo(SMALL)));
     expect(new Set(all.map((logo) => logo.version)).size).toBe(1);
+  });
+});
+
+describe("a worker that does not reply", () => {
+  it("fails the job (a plain Error, → 500) at the timeout, frees the queue and replaces the worker", async () => {
+    const failed = processLogo(SMALL, 1);
+    await expect(failed).rejects.not.toBeInstanceOf(LogoRejectedError);
+    await expect(failed).rejects.toThrow("logo worker failed");
+    await expect(processLogo(SMALL)).resolves.toMatchObject({ master: { width: 1024 } });
   });
 });

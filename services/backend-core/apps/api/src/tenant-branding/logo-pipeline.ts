@@ -24,7 +24,7 @@ import { Worker } from "node:worker_threads";
 // thread guidance); logo-render.ts, which uses it, runs in the worker.
 import "sharp";
 
-import { LOGO_MAX_PENDING_JOBS } from "./logo-config";
+import { LOGO_JOB_TIMEOUT_MS, LOGO_MAX_PENDING_JOBS } from "./logo-config";
 import { fromReply, type LogoReply, type ProcessedLogo } from "./logo-render";
 import { reject } from "./logo-refusal";
 import { hasPngSignature, inspectPng } from "./png-codec";
@@ -84,12 +84,17 @@ function startWorker(): Worker {
   return started;
 }
 
-/** One job on the (lazily started, long-lived) worker; a worker that fails is replaced on the next job. */
-function renderInWorker(png: Buffer): Promise<ProcessedLogo> {
+/**
+ * One job on the (lazily started, long-lived) worker. A worker that fails,
+ * sends an unreadable reply or none within `timeoutMs` is terminated, the
+ * job fails (→ 500), and the next job starts a fresh worker.
+ */
+function renderInWorker(png: Buffer, timeoutMs: number): Promise<ProcessedLogo> {
   const current = worker ?? (worker = startWorker());
   return new Promise<ProcessedLogo>((resolve, rejectJob) => {
     const settle = (finish: () => void): void => {
-      current.off("message", onMessage).off("error", onError).off("exit", onExit);
+      clearTimeout(timer);
+      current.off("message", onMessage).off("messageerror", onError).off("error", onError).off("exit", onExit);
       current.unref();
       finish();
     };
@@ -109,7 +114,8 @@ function renderInWorker(png: Buffer): Promise<ProcessedLogo> {
     };
     const onError = (err: Error): void => fail(err);
     const onExit = (code: number): void => fail(new Error(`exit code ${code}`));
-    current.on("message", onMessage).on("error", onError).on("exit", onExit);
+    const timer = setTimeout(() => fail(new Error(`no reply within ${timeoutMs} ms`)), timeoutMs);
+    current.on("message", onMessage).on("messageerror", onError).on("error", onError).on("exit", onExit);
     current.ref();
     current.postMessage(png);
   });
@@ -132,9 +138,9 @@ function checkedPng(bytes: Buffer): () => Promise<Buffer> {
  * Validates, normalizes and renders an upload; throws `LogoRejectedError` on
  * a §5 refusal and `RenderQueueFullError` when the logo queue is full.
  */
-export async function processLogo(bytes: Buffer): Promise<ProcessedLogo> {
+export async function processLogo(bytes: Buffer, timeoutMs: number = LOGO_JOB_TIMEOUT_MS): Promise<ProcessedLogo> {
   const png = checkedPng(bytes);
-  return jobs.run(async () => renderInWorker(await png()));
+  return jobs.run(async () => renderInWorker(await png(), timeoutMs));
 }
 
 /** Test seam: the logo queue itself, so a spec can hold its slots and see the 429. */
