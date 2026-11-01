@@ -21,7 +21,11 @@ export interface UpdateParams {
 export interface ExistingMembership {
   readonly id: string;
   readonly tenantId: string;
+  /** The member's user (RT-1028: the self-edit check). */
+  readonly userId: string;
   readonly roleId: string;
+  /** The member's current role code (RT-1028: the rank and last-owner checks). */
+  readonly roleCode: string;
   readonly storeAccessKind: StoreAccessKind;
 }
 
@@ -68,10 +72,13 @@ export class MembershipsRepository {
       .select({
         id: memberships.id,
         tenantId: memberships.tenantId,
+        userId: memberships.userId,
         roleId: memberships.roleId,
+        roleCode: roles.code,
         storeAccessKind: memberships.storeAccessKind,
       })
       .from(memberships)
+      .innerJoin(roles, eq(roles.id, memberships.roleId))
       .where(
         and(
           eq(memberships.id, membershipId),
@@ -86,7 +93,9 @@ export class MembershipsRepository {
     return {
       id: row.id,
       tenantId: row.tenantId,
+      userId: row.userId,
       roleId: row.roleId,
+      roleCode: row.roleCode,
       storeAccessKind: row.storeAccessKind as StoreAccessKind,
     };
   }

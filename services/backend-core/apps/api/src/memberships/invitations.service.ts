@@ -34,6 +34,7 @@ import { roles, type InvitationRow } from "@data-pulse-2/db/schema";
 import type { MembershipDetail } from "../context/membership.repository";
 import type { InvitationCreateDto } from "./invitation.dto";
 import { InvitationsRepository } from "./invitations.repository";
+import { invitationRefusal, MembershipChangeRefusedError, MembershipHierarchy } from "./membership-hierarchy";
 
 export interface InviteResult {
   row: InvitationRow;
@@ -118,6 +119,10 @@ export class InvitationsService {
     @Optional()
     @Inject(AuthService)
     private readonly sessionStarter?: SessionStarter,
+    // RT-1028: the role hierarchy for invite. Optional only so the
+    // pre-existing constructions keep working; invite fails closed (503)
+    // without it.
+    @Optional() private readonly hierarchy?: MembershipHierarchy,
   ) {
     this.tx = tx ?? runWithTenantContext;
   }
@@ -135,6 +140,9 @@ export class InvitationsService {
     const tenantId = ctx.tenantId as string;
     const invitedByUserId = ctx.userId;
     if (!invitedByUserId) throw new UnauthorizedException("Unauthorized");
+
+    const hierarchy = this.hierarchy;
+    if (!hierarchy) throw new ServiceUnavailableException("Service Unavailable");
 
     const normalizedEmail = dto.email.trim().toLowerCase();
 
@@ -161,6 +169,25 @@ export class InvitationsService {
             `store_ids not found in active tenant: ${invalid.join(", ")}`,
           );
         }
+      }
+
+      // Step 2b: role hierarchy (RT-1028): a tenant_admin never invites an
+      // owner, and an owner invitation is always for all stores. Nothing has
+      // been written yet, so the refusal's audit row commits in this
+      // transaction and the refusal is thrown after it.
+      const actor = await hierarchy.actorFor(client, ctx);
+      const reason = invitationRefusal(actor, { roleCode: dto.role_code, storeAccessKind: dto.store_access_kind });
+      if (reason) {
+        const refusal = new MembershipChangeRefusedError({
+          operation: "invitation.create",
+          reason,
+          targetMembershipId: null,
+          targetRoleCode: null,
+          requestedRoleCode: dto.role_code,
+          requestedStoreAccessKind: dto.store_access_kind,
+        });
+        await hierarchy.recordRefusal(client, ctx, refusal.audit);
+        return refusal;
       }
 
       // Step 3: auto-expire stale pending invites for this email
@@ -195,6 +222,8 @@ export class InvitationsService {
         expiresAt: new Date(Date.now() + INVITATION_TTL_MS),
       });
     });
+
+    if (row instanceof MembershipChangeRefusedError) throw row;
 
     // Step 7: enqueue email AFTER the transaction commits
     await this.emailEnqueuer.enqueueInvitation({

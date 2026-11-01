@@ -19,7 +19,7 @@
  */
 
 import "reflect-metadata";
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import type { Pool, PoolClient } from "pg";
 
 import { MembershipsService } from "../../src/memberships/memberships.service";
@@ -30,6 +30,12 @@ import type {
 import type { MembershipDetail } from "../../src/context/membership.repository";
 import type { ResolvedContext } from "../../src/context/types";
 import type { MembershipUpdateDto } from "../../src/memberships/dto";
+import { MembershipChangeRefusedError } from "../../src/memberships/membership-hierarchy";
+import {
+  asHierarchy,
+  makeFakeHierarchy,
+  type FakeMembershipHierarchy,
+} from "../_helpers/fake-membership-hierarchy";
 
 // ---------------------------------------------------------------------------
 // Fixed test constants
@@ -44,6 +50,7 @@ const STORE_ID_1    = "0193c000-0000-7000-8000-0000000000c1";
 const STORE_ID_2    = "0193c000-0000-7000-8000-0000000000c2";
 const STORE_ID_3    = "0193c000-0000-7000-8000-0000000000c3";
 const ROLE_CODE     = "tenant_admin";
+const TARGET_USER_ID = "0193c000-0000-7000-8000-0000000000b6";
 
 // ---------------------------------------------------------------------------
 // Builders
@@ -55,7 +62,9 @@ function makeExistingMembership(
   return {
     id: MEMBERSHIP_ID,
     tenantId: TENANT_ID,
+    userId: TARGET_USER_ID,
     roleId: ROLE_ID,
+    roleCode: ROLE_CODE,
     storeAccessKind: "all",
     ...overrides,
   };
@@ -120,20 +129,25 @@ function makeFakeRepo(): jest.Mocked<MembershipsRepository> {
 interface BuildServiceOpts {
   repo?: jest.Mocked<MembershipsRepository>;
   tx?:   ReturnType<typeof makeFakeTx>;
+  hierarchy?: FakeMembershipHierarchy;
 }
 
 function buildService(opts: BuildServiceOpts = {}) {
   const repo = opts.repo ?? makeFakeRepo();
   const tx   = opts.tx   ?? makeFakeTx();
+  const hierarchy = opts.hierarchy ?? makeFakeHierarchy();
+  // RT-1028: revoke reads the target before revoking it.
+  repo.findActive.mockResolvedValue(makeExistingMembership());
 
-  // MembershipsService(pool, memberships, tx?)
+  // MembershipsService(pool, memberships, hierarchy, tx?)
   const service = new MembershipsService(
     fakePool,
     repo as unknown as MembershipsRepository,
-    tx as unknown as NonNullable<ConstructorParameters<typeof MembershipsService>[2]>,
+    asHierarchy(hierarchy),
+    tx as unknown as NonNullable<ConstructorParameters<typeof MembershipsService>[3]>,
   );
 
-  return { service, repo, tx };
+  return { service, repo, tx, hierarchy };
 }
 
 // ---------------------------------------------------------------------------
@@ -627,5 +641,149 @@ describe("MembershipsService.update — happy paths", () => {
     expect(txCall[0]).toBe(fakePool);
     expect(txCall[1]).toEqual({ tenantId: TENANT_ID, isPlatformAdmin: true });
     expect(typeof txCall[2]).toBe("function");
+  });
+});
+
+// ===========================================================================
+// H. role hierarchy (RT-1028, RT-132 D1–D5a)
+// ===========================================================================
+
+describe("MembershipsService — role hierarchy (RT-1028)", () => {
+  async function refusal(promise: Promise<unknown>): Promise<MembershipChangeRefusedError> {
+    const err = await promise.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(MembershipChangeRefusedError);
+    expect(err).toBeInstanceOf(ForbiddenException);
+    return err as MembershipChangeRefusedError;
+  }
+
+  it("H1: tenant_admin promoting to owner → 403, no update, one audit row in a second tx", async () => {
+    const hierarchy = makeFakeHierarchy({ actorRole: "tenant_admin" });
+    const { service, repo, tx } = buildService({ hierarchy });
+    repo.findRoleId.mockResolvedValue(NEW_ROLE_ID);
+
+    const err = await refusal(service.update(makeCtx(), MEMBERSHIP_ID, { role_code: "owner" } as MembershipUpdateDto));
+
+    expect(err.audit.reason).toBe("owner_managed_by_owner_only");
+    expect(repo.update).not.toHaveBeenCalled();
+    expect(tx).toHaveBeenCalledTimes(2);
+    expect(hierarchy.recordRefusal).toHaveBeenCalledTimes(1);
+    expect(hierarchy.recordRefusal.mock.calls[0]![2]).toEqual({
+      operation: "membership.update",
+      reason: "owner_managed_by_owner_only",
+      targetMembershipId: MEMBERSHIP_ID,
+      targetRoleCode: ROLE_CODE,
+      requestedRoleCode: "owner",
+      requestedStoreAccessKind: null,
+    });
+  });
+
+  it("H2: tenant_admin changing an owner's store access → 403", async () => {
+    const { service, repo } = buildService({ hierarchy: makeFakeHierarchy({ actorRole: "tenant_admin" }) });
+    repo.findActive.mockResolvedValue(makeExistingMembership({ roleCode: "owner" }));
+
+    const err = await refusal(service.update(makeCtx(), MEMBERSHIP_ID, { store_access_kind: "all" } as MembershipUpdateDto));
+    expect(err.audit.reason).toBe("owner_managed_by_owner_only");
+  });
+
+  it("H3: tenant_admin changing a tenant_admin peer → allowed", async () => {
+    const { service, repo } = buildService({ hierarchy: makeFakeHierarchy({ actorRole: "tenant_admin" }) });
+    repo.findRoleId.mockResolvedValue(NEW_ROLE_ID);
+    repo.update.mockResolvedValue(makeMembershipDetail({ roleCode: "store_manager" }));
+
+    await service.update(makeCtx(), MEMBERSHIP_ID, { role_code: "store_manager" } as MembershipUpdateDto);
+    expect(repo.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("H4: self PATCH → 403 self_change", async () => {
+    const { service, repo } = buildService();
+    repo.findActive.mockResolvedValue(makeExistingMembership({ userId: USER_ID }));
+
+    const err = await refusal(service.update(makeCtx(), MEMBERSHIP_ID, { store_access_kind: "all" } as MembershipUpdateDto));
+    expect(err.audit.reason).toBe("self_change");
+  });
+
+  it("H5: demoting the last owner → 403 last_owner", async () => {
+    const { service, repo } = buildService({ hierarchy: makeFakeHierarchy({ activeOwners: 1 }) });
+    repo.findActive.mockResolvedValue(makeExistingMembership({ roleCode: "owner" }));
+    repo.findRoleId.mockResolvedValue(NEW_ROLE_ID);
+
+    const err = await refusal(service.update(makeCtx(), MEMBERSHIP_ID, { role_code: "tenant_admin" } as MembershipUpdateDto));
+    expect(err.audit.reason).toBe("last_owner");
+  });
+
+  it("H6: promoting a 'specific' member to owner without a kind → 403 owner_requires_all_stores", async () => {
+    const { service, repo } = buildService();
+    repo.findActive.mockResolvedValue(makeExistingMembership({ storeAccessKind: "specific" }));
+    repo.findRoleId.mockResolvedValue(NEW_ROLE_ID);
+
+    const err = await refusal(service.update(makeCtx(), MEMBERSHIP_ID, { role_code: "owner" } as MembershipUpdateDto));
+    expect(err.audit.reason).toBe("owner_requires_all_stores");
+  });
+
+  it("H7: a 400 validation error wins over a hierarchy refusal, and is not audited", async () => {
+    const hierarchy = makeFakeHierarchy({ actorRole: "tenant_admin" });
+    const { service, repo } = buildService({ hierarchy });
+    repo.findRoleId.mockResolvedValue(null);
+
+    await expect(
+      service.update(makeCtx(), MEMBERSHIP_ID, { role_code: "nonexistent_role" } as MembershipUpdateDto),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(hierarchy.recordRefusal).not.toHaveBeenCalled();
+  });
+
+  it("H8: the owner-set lock is taken before the target is read", async () => {
+    const hierarchy = makeFakeHierarchy();
+    const { service, repo } = buildService({ hierarchy });
+    repo.revoke.mockResolvedValue(true);
+
+    await service.revoke(makeCtx(), MEMBERSHIP_ID);
+    expect(hierarchy.lockActiveOwnerCount).toHaveBeenCalledWith(fakeClient, TENANT_ID);
+    expect(hierarchy.lockActiveOwnerCount.mock.invocationCallOrder[0]!)
+      .toBeLessThan(repo.findActive.mock.invocationCallOrder[0]!);
+  });
+
+  it("H9: self-revoke by a non-last owner → allowed", async () => {
+    const { service, repo } = buildService();
+    repo.findActive.mockResolvedValue(makeExistingMembership({ userId: USER_ID, roleCode: "owner" }));
+    repo.revoke.mockResolvedValue(true);
+
+    await expect(service.revoke(makeCtx(), MEMBERSHIP_ID)).resolves.toBeUndefined();
+  });
+
+  it("H10: self-revoke by the last owner → 403 last_owner, audited, not revoked", async () => {
+    const hierarchy = makeFakeHierarchy({ activeOwners: 1 });
+    const { service, repo } = buildService({ hierarchy });
+    repo.findActive.mockResolvedValue(makeExistingMembership({ userId: USER_ID, roleCode: "owner" }));
+
+    const err = await refusal(service.revoke(makeCtx(), MEMBERSHIP_ID));
+    expect(err.audit).toEqual({
+      operation: "membership.revoke",
+      reason: "last_owner",
+      targetMembershipId: MEMBERSHIP_ID,
+      targetRoleCode: "owner",
+      requestedRoleCode: null,
+      requestedStoreAccessKind: null,
+    });
+    expect(repo.revoke).not.toHaveBeenCalled();
+    expect(hierarchy.recordRefusal).toHaveBeenCalledTimes(1);
+  });
+
+  it("H11: tenant_admin revoking an owner → 403", async () => {
+    const { service, repo } = buildService({ hierarchy: makeFakeHierarchy({ actorRole: "tenant_admin" }) });
+    repo.findActive.mockResolvedValue(makeExistingMembership({ roleCode: "owner" }));
+
+    const err = await refusal(service.revoke(makeCtx(), MEMBERSHIP_ID));
+    expect(err.audit.reason).toBe("owner_managed_by_owner_only");
+    expect(repo.revoke).not.toHaveBeenCalled();
+  });
+
+  it("H12: revoke of an unknown membership → 404 and no audit", async () => {
+    const hierarchy = makeFakeHierarchy();
+    const { service, repo } = buildService({ hierarchy });
+    repo.findActive.mockResolvedValue(null);
+
+    await expect(service.revoke(makeCtx(), MEMBERSHIP_ID)).rejects.toBeInstanceOf(NotFoundException);
+    expect(repo.revoke).not.toHaveBeenCalled();
+    expect(hierarchy.recordRefusal).not.toHaveBeenCalled();
   });
 });

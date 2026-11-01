@@ -148,7 +148,9 @@ function makeExistingMembership(overrides: Partial<ExistingMembership> = {}): Ex
   return {
     id: MEMBERSHIP_ID,
     tenantId: TENANT_ID,
+    userId: USER_ID,
     roleId: ROLE_ID,
+    roleCode: "tenant_admin",
     storeAccessKind: "all" as StoreAccessKind,
     ...overrides,
   };
@@ -222,7 +224,9 @@ describe("MembershipsRepository.findActive", () => {
       {
         id: MEMBERSHIP_ID,
         tenantId: TENANT_ID,
+        userId: USER_ID,
         roleId: ROLE_ID,
+        roleCode: "owner",
         storeAccessKind: "all",
       },
     ];
@@ -231,6 +235,9 @@ describe("MembershipsRepository.findActive", () => {
     const result = await repo.findActive(fakeClient, MEMBERSHIP_ID, TENANT_ID);
 
     expect(result).not.toBeNull();
+    // RT-1028: the user and role code the hierarchy checks need.
+    expect(result!.userId).toBe(USER_ID);
+    expect(result!.roleCode).toBe("owner");
     expect(result!.id).toBe(MEMBERSHIP_ID);
     expect(result!.tenantId).toBe(TENANT_ID);
     expect(result!.roleId).toBe(ROLE_ID);
