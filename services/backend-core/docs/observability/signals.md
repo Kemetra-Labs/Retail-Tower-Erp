@@ -150,7 +150,7 @@ REPORT-ONLY. Emitted by `PreAuthRateLimitReporter` (called by `FailClosedAuthGua
 
 ### Failed sign-in signal (RT-626)
 
-ALERT ONLY, never enforced (RT-574 issue 5d: an enforced global cap would itself be a lockout DoS). Emitted by `AuthController.signIn`. Both series are exported at 0 from boot, so the Datadog monitor `p2-api-signin-failures` (`deploy/datadog/monitors.json`, `dp2.auth_signin_failure.count`) reads missing data as a broken scrape. Unlike `auth_failure_total`, it never counts auth-guard token failures.
+ALERT ONLY, never enforced (RT-574 issue 5d: an enforced global cap would itself be a lockout DoS). Emitted by `AuthController.signIn`. Both series are exported at 0 from boot, so the Datadog monitor `p2-api-signin-failures` (`deploy/datadog/monitors.json`, `dp2.auth_signin_failure.count`) reads missing data as a broken scrape (its query has no `default_zero`, which would turn missing data into 0). Unlike `auth_failure_total`, it never counts auth-guard token failures.
 
 | Signal | Type | Labels (low-cardinality only) | Source |
 |---|---|---|---|

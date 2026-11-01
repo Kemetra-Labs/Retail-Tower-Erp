@@ -39,7 +39,7 @@ These are the Datadog us5 definitions for the AWS lab (`env:staging`), kept as c
   - The query uses `default_zero` because trace metrics have no points in an empty window. Datadog then evaluates missing data as 0, so missing heartbeats raise the alert itself; that alert also covers a down agent or OTLP receiver. `notify_no_data` (60 min) is kept only as a backstop in case `default_zero` yields no series at all, for example when the metric has never reported. A monitor that has never seen any data may not alert, so create it only after heartbeats are arriving.
 - **p95 comes from 10%-sampled spans.** The OpenMetrics histogram has no percentiles. At lab traffic, the p95 is close to the slowest sampled request.
 - **Trace metrics carry the api container id as `host`, not the lab host name.** Never filter APM widgets or monitors by `host`.
-- **`p2-api-signin-failures` only alerts; it never blocks** (RT-574 issue 5d: an enforced global cap would itself be a lockout DoS). The counter is exported at 0 for both causes from boot, so missing data means a broken scrape, not a quiet period. `apps/api/test/deploy/datadog-signin-failure-monitor.spec.ts` pins the query, the scrape allowlist and the thresholds.
+- **`p2-api-signin-failures` only alerts; it never blocks** (RT-574 issue 5d: an enforced global cap would itself be a lockout DoS). The counter is exported at 0 for both causes from boot, so a quiet API still reports data. The query therefore has no `default_zero`, and missing data really means a broken scrape, not a quiet period. `apps/api/test/deploy/datadog-signin-failure-monitor.spec.ts` pins the query, the scrape allowlist and the thresholds.
 - **The Connector-stale P1 waits on RT-564** (the Connector heartbeat). It is not defined here.
 
 ## Apply

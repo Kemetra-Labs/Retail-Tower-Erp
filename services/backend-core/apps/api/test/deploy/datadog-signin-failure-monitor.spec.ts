@@ -9,7 +9,8 @@
  *     in docker-compose.prod.yml admits it (a rename cannot silently blind the
  *     alert);
  *   - the alert policy of deploy/datadog/README.md holds: email placeholder
- *     only, alert on missing data, only the OBS-1 tags in the query;
+ *     only, alert on missing data (no `default_zero`, which would turn missing
+ *     data into 0 and silence the no-data alert), only the OBS-1 tags in the query;
  *   - counts above the critical threshold alert, counts above the warning
  *     threshold warn, and counts at or under them stay OK.
  */
@@ -52,7 +53,7 @@ function datadogCounterName(namespace: string, promName: string): string {
 }
 
 const QUERY_SHAPE =
-  /^sum\(last_(\d+)m\):default_zero\(sum:([a-z0-9_.]+)\{([^}]*)\}\.as_count\(\)\) > (\d+(?:\.\d+)?)$/;
+  /^sum\(last_(\d+)m\):sum:([a-z0-9_.]+)\{([^}]*)\}\.as_count\(\) > (\d+(?:\.\d+)?)$/;
 
 interface ParsedQuery {
   windowMinutes: number;
@@ -114,6 +115,7 @@ describe("RT-626: p2-api-signin-failures monitor", () => {
     expect(monitor.message).toContain("__ALERT_RECIPIENTS__");
     expect(monitor.message).not.toMatch(/@[\w.-]/);
     expect(monitor.options.notify_no_data).toBe(true);
+    expect(monitor.query).not.toContain("default_zero");
     expect(monitor.options.no_data_timeframe).toBeGreaterThanOrEqual(parsed.windowMinutes);
     for (const tag of Object.keys(parsed.tags)) expect(ALLOWED_QUERY_TAGS.has(tag)).toBe(true);
   });

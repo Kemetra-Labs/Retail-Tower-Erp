@@ -30,11 +30,12 @@ assertMetricLabels(SIGNIN_FAILURE_METRIC_NAME, ["cause"]);
 
 const _signInFailure: Counter = getMeter("api").createCounter(SIGNIN_FAILURE_METRIC_NAME, {
   description:
-    "Sign-ins that failed on credentials or were refused by a sign-in rate-limit bucket (RT-626, RT-574 5d), by cause (invalid_credentials | rate_limited). Alert only, never enforced. No email, IP, user or tenant label.",
+    "POST /auth/signin attempts only: credential failures (401) and sign-in rate-limit refusals (429), by cause (invalid_credentials | rate_limited) (RT-626, RT-574 5d). Unlike auth_failure_total, never counts auth-guard token failures. Alert only, never enforced. No email, IP, user or tenant label.",
 });
 
 // Seed every series at 0, so a quiet API still exports the counter and the
-// monitor's no-data alert means a broken scrape, not a night without failures.
+// monitor's no-data alert means a broken scrape, not a night without failures
+// (the monitor query has no `default_zero`, which would hide missing data).
 for (const cause of SIGNIN_FAILURE_CAUSES) {
   _signInFailure.add(0, { cause });
 }

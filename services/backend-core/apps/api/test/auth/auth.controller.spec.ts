@@ -591,6 +591,15 @@ describe("POST /api/v1/auth/password-reset/request", () => {
     expect(over.body).toEqual({});
     expect(over.headers["retry-after"]).toBeUndefined();
     expect(emailSpy.enqueuePasswordReset).toHaveBeenCalledTimes(5);
+
+    // Rollover: once the hour has passed, the address gets an email again.
+    const realNow = Date.now.bind(Date);
+    jest.spyOn(Date, "now").mockImplementation(() => realNow() + 60 * 60 * 1000 + 1);
+    const next = await http()
+      .post("/api/v1/auth/password-reset/request")
+      .send({ email: ALICE_EMAIL });
+    expect(next.status).toBe(202);
+    expect(emailSpy.enqueuePasswordReset).toHaveBeenCalledTimes(6);
   });
 });
 
@@ -904,6 +913,14 @@ describe("POST /api/v1/auth/email/verify/confirm", () => {
     expect(Number.isInteger(retryAfter)).toBe(true);
     expect(retryAfter).toBeGreaterThanOrEqual(1);
     expect(retryAfter).toBeLessThanOrEqual(15 * 60);
+
+    // Rollover: once the 15-minute window has passed, the IP may confirm again.
+    const realNow = Date.now.bind(Date);
+    jest.spyOn(Date, "now").mockImplementation(() => realNow() + 15 * 60 * 1000 + 1);
+    const after = await http()
+      .post("/api/v1/auth/email/verify/confirm")
+      .send({ token: "ghost-token-21" });
+    expect(after.status).toBe(400);
   });
 
   it("returns 204, sets users.email_verified_at, revokes the token", async () => {

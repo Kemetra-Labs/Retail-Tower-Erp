@@ -365,6 +365,7 @@ None depends on the console limiter (issues 1-4). Each is its own issue with its
   - **Reset per email:** `passwordResetPerEmail`, 5 per hour, key `rl:pwreset_email:<normalized email>`. It is checked after the per-IP bucket. Over the limit, the route answers 202 and sends nothing. A per-email limiter outage also answers 202 and sends nothing, so the route never leaks a signal. The per-IP check keeps the 5e fail-closed 503.
   - **Confirm per IP:** `emailVerifyConfirmPerIp`, 20 per 15 minutes. It answers 429 with `Retry-After` over budget, and 503 with `Retry-After` on an outage (5e posture). The contract documents both responses (owner authorization 2026-11-01).
   - **Alert:** `auth_signin_failure_total{cause}`, where `cause` is `invalid_credentials` or `rate_limited`, plus the Datadog P2 monitor `p2-api-signin-failures`. It warns at 50 and alerts at 100 per 15 minutes; these numbers are starting defaults. The alert only fires and never enforces.
+  - **Trade-off (owner to confirm):** the per-email budget is spent before the account lookup and is keyed on the email alone. Five requests from anyone therefore silently suppress that address's reset emails for the rest of the hour; the person still gets 202 and no email. That follows the 5/h number in this spec. A per-IP-and-email split or a higher limit are the alternatives.
   - **Follow-up:** `pwreset_email` keys the raw email, like `signin_account`. Hashing PII out of Redis keys is a separate issue.
 
 #### Issue 5e: Backend-Core — public-auth limiter posture on a Redis outage (OWNER, O6)
