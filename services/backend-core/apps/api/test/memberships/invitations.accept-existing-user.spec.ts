@@ -20,6 +20,10 @@
  *   9.  Return type is MembershipDetail (not InvitationRow — no tokenHash)
  *   10. invitation.status set to 'accepted', accepted_by_user_id = user.id, accepted_at non-null
  *   11. Second call with same token → BadRequestException (invitation no longer pending)
+ *   R1–R3. RT-1028 accept-time hierarchy check, through the RLS-bound app role:
+ *       an owner invitation by a tenant_admin and an owner invitation with
+ *       'specific' access are refused (opaque 400, one audit row each, nothing
+ *       else written); a valid invitation is still accepted.
  */
 import "reflect-metadata";
 
@@ -69,6 +73,14 @@ const ALPHA_ID    = "b3000000-3000-4000-8000-000000000003";
 const ROLE_ID     = "b4000000-4000-4000-8000-000000000004";
 const MEM_OWNER   = "b5000000-5000-4000-8000-000000000005";
 
+// RT-1028: a tenant_admin inviter, and the non-owner roles the accept-time
+// check allows with 'specific' access (D5a refuses an owner with 'specific').
+const TA_ID         = "b0100000-0100-4000-8000-000000000101";
+const TA_EMAIL      = "tadmin@accept-existing.test";
+const ROLE_TA_ID    = "b0200000-0200-4000-8000-000000000102";
+const ROLE_STAFF_ID = "b0300000-0300-4000-8000-000000000103";
+const MEM_TA        = "b0400000-0400-4000-8000-000000000104";
+
 // Two stores in ALPHA for the specific-access tests
 const STORE_A1    = "b6000000-6000-4000-8000-000000000006";
 const STORE_A2    = "b7000000-7000-4000-8000-000000000007";
@@ -78,6 +90,8 @@ const STORE_A2    = "b7000000-7000-4000-8000-000000000007";
 let env: PgTestEnv | null = null;
 let pool: Pool | null = null;
 let service: InvitationsService | null = null;
+/** RT-1028: the same service over the non-superuser `app_test` pool (RLS applies). */
+let appService: InvitationsService | null = null;
 let authService: AuthService | null = null;
 let dockerSkipped = false;
 
@@ -118,6 +132,22 @@ async function seedBase(): Promise<void> {
      VALUES ($1, $2, $3, $4, 'all')`,
     [MEM_OWNER, ALPHA_ID, OWNER_ID, ROLE_ID],
   );
+  await pg.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)`, [
+    TA_ID,
+    TA_EMAIL,
+    ownerHash,
+  ]);
+  await pg.query(
+    `INSERT INTO roles (id, tenant_id, code, name) VALUES
+       ($1, $3, 'tenant_admin', 'Tenant Admin Alpha'),
+       ($2, $3, 'store_staff', 'Store Staff Alpha')`,
+    [ROLE_TA_ID, ROLE_STAFF_ID, ALPHA_ID],
+  );
+  await pg.query(
+    `INSERT INTO memberships (id, tenant_id, user_id, role_id, store_access_kind)
+     VALUES ($1, $2, $3, $4, 'all')`,
+    [MEM_TA, ALPHA_ID, TA_ID, ROLE_TA_ID],
+  );
   // Seed two stores in ALPHA for 'specific' tests
   await pg.query(
     `INSERT INTO stores (id, tenant_id, code, name) VALUES ($1, $2, 'store-a1', 'Store A1')`,
@@ -146,6 +176,15 @@ beforeAll(async () => {
 
     service = moduleRef.get(InvitationsService);
     authService = moduleRef.get(AuthService);
+
+    const appModuleRef = await Test.createTestingModule({
+      imports: [AuthModule, ContextModule, MembershipsModule],
+    })
+      .overrideProvider(PG_POOL).useValue(env.app)
+      .overrideProvider(REDIS_CLIENT).useValue(new AlwaysAllowRedis())
+      .overrideProvider(EMAIL_JOB_ENQUEUER).useValue(mockEmailEnqueuer)
+      .compile();
+    appService = appModuleRef.get(InvitationsService);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     if (process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1") {
@@ -181,6 +220,8 @@ async function insertInvitation(opts: {
   expiresAt: Date;
   storeAccessKind?: "all" | "specific";
   invitedStoreIds?: string[];
+  roleId?: string;
+  invitedBy?: string;
 }): Promise<void> {
   const tokenHash = hashToken(opts.rawToken);
   const storeAccessKind = opts.storeAccessKind ?? "all";
@@ -199,9 +240,9 @@ async function insertInvitation(opts: {
       opts.id,
       ALPHA_ID,
       opts.email,
-      ROLE_ID,
+      opts.roleId ?? ROLE_ID,
       storeAccessKind,
-      OWNER_ID,
+      opts.invitedBy ?? OWNER_ID,
       tokenHash,
       opts.status,
       opts.expiresAt,
@@ -212,8 +253,8 @@ async function insertInvitation(opts: {
 async function cleanInvitationsAndMemberships(): Promise<void> {
   if (!pool) return;
   await pool.query(
-    `DELETE FROM memberships WHERE tenant_id = $1 AND id != $2`,
-    [ALPHA_ID, MEM_OWNER],
+    `DELETE FROM memberships WHERE tenant_id = $1 AND id NOT IN ($2, $3)`,
+    [ALPHA_ID, MEM_OWNER, MEM_TA],
   );
   await pool.query(`DELETE FROM invitations WHERE tenant_id = $1`, [ALPHA_ID]);
 }
@@ -299,6 +340,7 @@ describe("acceptInvitationExistingUser — specific access happy path", () => {
       expiresAt: FUTURE,
       storeAccessKind: "specific",
       invitedStoreIds: [STORE_A1, STORE_A2],
+      roleId: ROLE_STAFF_ID,
     });
 
     const detail = await service!.acceptInvitationExistingUser(rawToken);
@@ -316,6 +358,117 @@ describe("acceptInvitationExistingUser — specific access happy path", () => {
     );
     const storeIds = sa.rows.map((r: { store_id: string }) => r.store_id).sort();
     expect(storeIds).toEqual([STORE_A1, STORE_A2].sort());
+  });
+});
+
+// ===== R. RT-1028 accept-time hierarchy check (app role, RLS applies) ========
+
+describe("acceptInvitationExistingUser — RT-1028 accept-time hierarchy check", () => {
+  afterEach(cleanInvitationsAndMemberships);
+
+  const OPAQUE = "Invalid or expired invitation token";
+
+  async function refusalRows(invitationId: string): Promise<Array<Record<string, unknown>>> {
+    const r = await pool!.query(
+      `SELECT actor_user_id, tenant_id, target_type, metadata FROM audit_events
+        WHERE action = 'membership.change_refused' AND target_id = $1`,
+      [invitationId],
+    );
+    return r.rows as Array<Record<string, unknown>>;
+  }
+
+  async function expectNothingGranted(invitationId: string): Promise<void> {
+    const inv = await pool!.query(
+      `SELECT status, accepted_by_user_id, accepted_at FROM invitations WHERE id = $1`,
+      [invitationId],
+    );
+    expect(inv.rows[0]).toEqual({ status: "pending", accepted_by_user_id: null, accepted_at: null });
+    const mem = await pool!.query(
+      `SELECT COUNT(*)::int AS n FROM memberships WHERE tenant_id = $1 AND user_id = $2`,
+      [ALPHA_ID, INVITEE_ID],
+    );
+    expect(mem.rows[0]?.n).toBe(0);
+    const sa = await pool!.query(`SELECT COUNT(*)::int AS n FROM store_access WHERE tenant_id = $1`, [ALPHA_ID]);
+    expect(sa.rows[0]?.n).toBe(0);
+  }
+
+  it("R1: a pending owner invitation created by a tenant_admin is refused; exactly one audit row", async () => {
+    if (maybeSkip()) return;
+    const rawToken = generateRawToken();
+    const id = "b0500000-0500-4000-8000-000000000105";
+    await insertInvitation({ id, email: INVITEE_EMAIL, rawToken, status: "pending", expiresAt: FUTURE, invitedBy: TA_ID });
+
+    const err = await appService!.acceptInvitationExistingUser(rawToken).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect((err as BadRequestException).message).toBe(OPAQUE);
+    await expectNothingGranted(id);
+    const rows = await refusalRows(id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ actor_user_id: INVITEE_ID, tenant_id: ALPHA_ID, target_type: "invitation" });
+    expect(rows[0]!["metadata"]).toMatchObject({
+      outcome: "refused",
+      operation: "invitation.accept",
+      reason: "owner_managed_by_owner_only",
+      requested_role_code: "owner",
+      requested_store_access_kind: "all",
+      platform_admin: false,
+    });
+    expect(JSON.stringify(rows[0])).not.toContain(INVITEE_EMAIL);
+    expect(JSON.stringify(rows[0])).not.toContain(TA_EMAIL);
+  });
+
+  it("R2: an owner invitation with 'specific' access is refused, even from an owner; exactly one audit row", async () => {
+    if (maybeSkip()) return;
+    const rawToken = generateRawToken();
+    const id = "b0600000-0600-4000-8000-000000000106";
+    await insertInvitation({
+      id,
+      email: INVITEE_EMAIL,
+      rawToken,
+      status: "pending",
+      expiresAt: FUTURE,
+      storeAccessKind: "specific",
+      invitedStoreIds: [STORE_A1],
+    });
+
+    const err = await appService!.acceptInvitationExistingUser(rawToken).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect((err as BadRequestException).message).toBe(OPAQUE);
+    await expectNothingGranted(id);
+    const rows = await refusalRows(id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!["metadata"]).toMatchObject({
+      operation: "invitation.accept",
+      reason: "owner_requires_all_stores",
+      requested_store_access_kind: "specific",
+    });
+  });
+
+  it("R3: a valid invitation (store_staff, 'specific', by an active tenant_admin) is still accepted; no refusal row", async () => {
+    if (maybeSkip()) return;
+    const rawToken = generateRawToken();
+    const id = "b0700000-0700-4000-8000-000000000107";
+    await insertInvitation({
+      id,
+      email: INVITEE_EMAIL,
+      rawToken,
+      status: "pending",
+      expiresAt: FUTURE,
+      storeAccessKind: "specific",
+      invitedStoreIds: [STORE_A1],
+      roleId: ROLE_STAFF_ID,
+      invitedBy: TA_ID,
+    });
+
+    const detail = await appService!.acceptInvitationExistingUser(rawToken);
+
+    expect(detail.roleCode).toBe("store_staff");
+    expect(detail.accessibleStoreIds).toEqual([STORE_A1]);
+    const inv = await pool!.query(`SELECT status FROM invitations WHERE id = $1`, [id]);
+    expect(inv.rows[0]?.status).toBe("accepted");
+    expect(await refusalRows(id)).toHaveLength(0);
   });
 });
 

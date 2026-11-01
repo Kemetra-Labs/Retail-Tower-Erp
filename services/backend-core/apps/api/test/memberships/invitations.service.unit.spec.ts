@@ -34,7 +34,8 @@ import type { Pool, PoolClient } from "pg";
 // ---------------------------------------------------------------------------
 
 // Seed controls for the getRoleCode Drizzle chain
-let _roleCodeRows: Array<{ code: string }> = [];
+// RT-1028: `isPlatformAdmin` feeds the accept-time inviter lookup (same chain).
+let _roleCodeRows: Array<{ code: string; isPlatformAdmin?: boolean }> = [];
 
 jest.mock("drizzle-orm/node-postgres", () => ({
   drizzle: jest.fn(() => makeGetRoleCodeFakeDb()),
@@ -1133,5 +1134,178 @@ describe("InvitationsService.invite — role hierarchy (RT-1028)", () => {
       .invite(makeCtx(), { email: "x@example.com", role_code: "store_staff", store_access_kind: "all" } as InvitationCreateDto)
       .catch((e: unknown) => e);
     expect((err as { getStatus(): number }).getStatus()).toBe(503);
+  });
+});
+
+// ===========================================================================
+// H2. accept-time hierarchy check (RT-1028, owner decision 2026-11-01)
+// ===========================================================================
+
+describe("InvitationsService.acceptInvitationExistingUser — accept-time hierarchy check (RT-1028)", () => {
+  const OPAQUE = "Invalid or expired invitation token";
+
+  function primeAccept(
+    repo: jest.Mocked<InvitationsRepository>,
+    overrides: Partial<InvitationRow> = {},
+  ): InvitationRow {
+    const invitation = makeInvitationRow({ storeAccessKind: "all", invitedStoreIds: [], ...overrides });
+    repo.findByTokenHash.mockResolvedValue(invitation);
+    repo.findUserByEmail.mockResolvedValue(makeUserRow());
+    repo.markAccepted.mockResolvedValue(true);
+    repo.createMembership.mockResolvedValue({ id: MEMBERSHIP_ID } as never);
+    mockNewId.mockReturnValue(MEMBERSHIP_ID);
+    return invitation;
+  }
+
+  async function refusal(service: InvitationsService): Promise<unknown> {
+    return service.acceptInvitationExistingUser(RAW_TOKEN).catch((e: unknown) => e);
+  }
+
+  it("AC1: owner invitation created by a tenant_admin → opaque 400, nothing written, one audit row", async () => {
+    _roleCodeRows = [{ code: "owner" }];
+    const hierarchy = makeFakeHierarchy({ actorRole: "tenant_admin" });
+    const { service, repo, tx } = buildService({ hierarchy });
+    primeAccept(repo);
+
+    const err = await refusal(service);
+
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect((err as BadRequestException).message).toBe(OPAQUE);
+    expect(err).not.toBeInstanceOf(MembershipChangeRefusedError);
+    expect(repo.markAccepted).not.toHaveBeenCalled();
+    expect(repo.createMembership).not.toHaveBeenCalled();
+    expect(repo.insertStoreAccessRows).not.toHaveBeenCalled();
+    // token lookup, user lookup, the refused grant tx, then the audit tx
+    expect(tx).toHaveBeenCalledTimes(4);
+    expect(hierarchy.recordRefusal).toHaveBeenCalledTimes(1);
+    const [, auditCtx, audit] = hierarchy.recordRefusal.mock.calls[0]!;
+    expect(audit).toEqual({
+      operation: "invitation.accept",
+      reason: "owner_managed_by_owner_only",
+      targetMembershipId: null,
+      targetInvitationId: INVITATION_ID,
+      targetRoleCode: null,
+      requestedRoleCode: "owner",
+      requestedStoreAccessKind: "all",
+    });
+    expect(auditCtx).toMatchObject({ userId: USER_ID, tenantId: TENANT_ID, isPlatformAdmin: false });
+    expect(JSON.stringify(audit)).not.toContain(NORMALIZED_EMAIL);
+  });
+
+  it("AC2: owner invitation with 'specific' access (owner inviter) → 400 owner_requires_all_stores", async () => {
+    _roleCodeRows = [{ code: "owner" }];
+    const hierarchy = makeFakeHierarchy({ actorRole: "owner" });
+    const { service, repo } = buildService({ hierarchy });
+    primeAccept(repo, { storeAccessKind: "specific", invitedStoreIds: [STORE_ID_1] });
+
+    const err = await refusal(service);
+
+    expect((err as BadRequestException).message).toBe(OPAQUE);
+    expect(repo.markAccepted).not.toHaveBeenCalled();
+    expect(hierarchy.recordRefusal).toHaveBeenCalledTimes(1);
+    expect(hierarchy.recordRefusal.mock.calls[0]![2].reason).toBe("owner_requires_all_stores");
+  });
+
+  it.each([
+    ["revoked (no active membership)", null],
+    ["demoted to store_manager", "store_manager"],
+  ])("AC3: inviter %s → 400 actor_not_authorized, even for a store_staff invitation", async (_name, role) => {
+    _roleCodeRows = [{ code: "store_staff" }];
+    const hierarchy = makeFakeHierarchy({ actorRole: role });
+    const { service, repo } = buildService({ hierarchy });
+    primeAccept(repo);
+
+    const err = await refusal(service);
+
+    expect((err as BadRequestException).message).toBe(OPAQUE);
+    expect(repo.markAccepted).not.toHaveBeenCalled();
+    expect(hierarchy.recordRefusal.mock.calls[0]![2].reason).toBe("actor_not_authorized");
+  });
+
+  it("AC4: the inviter (not the invitee) is the actor, and its membership is locked before its role is read", async () => {
+    const INVITER_ID = "0193c000-0000-7000-8000-0000000000ff";
+    const hierarchy = makeFakeHierarchy({ actorRole: "tenant_admin" });
+    const { service, repo } = buildService({ hierarchy });
+    primeAccept(repo, { invitedByUserId: INVITER_ID });
+
+    await service.acceptInvitationExistingUser(RAW_TOKEN);
+
+    expect(hierarchy.actorFor.mock.calls[0]![1]).toMatchObject({
+      userId: INVITER_ID,
+      tenantId: TENANT_ID,
+      isPlatformAdmin: false,
+    });
+    expect(hierarchy.lockActorMembership.mock.calls[0]![1]).toMatchObject({ userId: INVITER_ID });
+    expect(hierarchy.lockActorMembership.mock.invocationCallOrder[0]!)
+      .toBeLessThan(hierarchy.actorFor.mock.invocationCallOrder[0]!);
+    expect(hierarchy.actorFor.mock.invocationCallOrder[0]!)
+      .toBeLessThan(repo.markAccepted.mock.invocationCallOrder[0]!);
+  });
+
+  it("AC5: a platform-admin inviter with no membership skips the actor check (owner, 'all' → accepted)", async () => {
+    _roleCodeRows = [{ code: "owner", isPlatformAdmin: true }];
+    const hierarchy = makeFakeHierarchy({ actorRole: null });
+    const { service, repo } = buildService({ hierarchy });
+    primeAccept(repo);
+
+    const result = await service.acceptInvitationExistingUser(RAW_TOKEN);
+
+    expect(result.roleCode).toBe("owner");
+    expect(repo.createMembership).toHaveBeenCalledTimes(1);
+    expect(hierarchy.recordRefusal).not.toHaveBeenCalled();
+  });
+
+  it("AC6: a platform-admin inviter stays bound by D5a (owner, 'specific' → 400)", async () => {
+    _roleCodeRows = [{ code: "owner", isPlatformAdmin: true }];
+    const hierarchy = makeFakeHierarchy({ actorRole: null });
+    const { service, repo } = buildService({ hierarchy });
+    primeAccept(repo, { storeAccessKind: "specific", invitedStoreIds: [STORE_ID_1] });
+
+    const err = await refusal(service);
+
+    expect((err as BadRequestException).message).toBe(OPAQUE);
+    expect(hierarchy.recordRefusal.mock.calls[0]![2].reason).toBe("owner_requires_all_stores");
+  });
+
+  it("AC7: a valid invitation (tenant_admin peer by an active tenant_admin) is still accepted", async () => {
+    const hierarchy = makeFakeHierarchy({ actorRole: "tenant_admin" });
+    const { service, repo } = buildService({ hierarchy });
+    primeAccept(repo);
+
+    const result = await service.acceptInvitationExistingUser(RAW_TOKEN);
+
+    expect(result.roleCode).toBe(ROLE_CODE);
+    expect(repo.markAccepted).toHaveBeenCalledTimes(1);
+    expect(hierarchy.recordRefusal).not.toHaveBeenCalled();
+  });
+
+  it("AC8: a failed audit write still answers the opaque 400 (the refusal stands)", async () => {
+    _roleCodeRows = [{ code: "owner" }];
+    const hierarchy = makeFakeHierarchy({ actorRole: "tenant_admin" });
+    hierarchy.recordRefusal.mockRejectedValue(new Error("pool exhausted"));
+    const { service, repo } = buildService({ hierarchy });
+    primeAccept(repo);
+
+    const err = await refusal(service);
+
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect((err as BadRequestException).message).toBe(OPAQUE);
+    expect(repo.markAccepted).not.toHaveBeenCalled();
+  });
+
+  it("AC9: no hierarchy wired → 503 (fails closed), nothing written", async () => {
+    const repo = makeFakeRepo();
+    primeAccept(repo);
+    const service = new InvitationsService(
+      fakePool,
+      repo as unknown as InvitationsRepository,
+      makeFakeEnqueuer(),
+      makeFakeTx() as unknown as NonNullable<ConstructorParameters<typeof InvitationsService>[3]>,
+    );
+
+    const err = await refusal(service);
+
+    expect((err as { getStatus(): number }).getStatus()).toBe(503);
+    expect(repo.markAccepted).not.toHaveBeenCalled();
   });
 });

@@ -52,7 +52,11 @@ export type MembershipRefusalReason =
   | "owner_requires_all_stores"
   | "last_owner";
 
-export type MembershipOperation = "membership.update" | "membership.revoke" | "invitation.create";
+export type MembershipOperation =
+  | "membership.update"
+  | "membership.revoke"
+  | "invitation.create"
+  | "invitation.accept";
 
 const REFUSAL_MESSAGES: Readonly<Record<MembershipRefusalReason, string>> = {
   actor_not_authorized: "Insufficient role.",
@@ -136,6 +140,8 @@ export interface MembershipRefusalAudit {
   readonly operation: MembershipOperation;
   readonly reason: MembershipRefusalReason;
   readonly targetMembershipId: string | null;
+  /** The refused invitation (accept only: the RT-1028 accept-time check). */
+  readonly targetInvitationId?: string | null;
   readonly targetRoleCode: string | null;
   readonly requestedRoleCode: string | null;
   readonly requestedStoreAccessKind: string | null;
@@ -258,7 +264,7 @@ export class MembershipHierarchy {
         ctx.tenantId,
         MEMBERSHIP_REFUSED_AUDIT_ACTION,
         event.targetMembershipId ? "membership" : "invitation",
-        event.targetMembershipId,
+        event.targetMembershipId ?? event.targetInvitationId ?? null,
         JSON.stringify(metadata),
       ],
     );
