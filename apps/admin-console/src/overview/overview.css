@@ -168,8 +168,8 @@
 .receipt-card--hero .receipt-card__notch {
   border-color: var(--color-ink);
 }
-.receipt-card--hero .glance-unavailable,
-.receipt-card--hero .glance-delta__icon {
+/* The delta chip has its own fill, so its arrow keeps the chip's ink. */
+.receipt-card--hero .glance-unavailable {
   color: var(--color-on-ink);
 }
 .hero-spark__line {
