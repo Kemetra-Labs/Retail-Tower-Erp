@@ -46,7 +46,7 @@ The preflight runs the gate above on both files, plus the online checks of each 
 
 `current_manifest` must describe what each host runs. Any per-product deploy moves the lab and makes the current manifest stale: `deploy-lab.yml` (Backend-Core), `deploy-console-lab.yml` (Console) and `deploy-erp-lab.yml` (ERPNext + Connector).
 
-1. Read the latest live run of each per-product workflow:
+1. Find the latest **live** run of each per-product workflow (dry runs leave no live ledger):
 
    ```bash
    gh run list --workflow deploy-lab.yml --limit 5
@@ -54,13 +54,13 @@ The preflight runs the gate above on both files, plus the online checks of each 
    gh run list --workflow deploy-erp-lab.yml --limit 5
    ```
 
-2. Download each live ledger with `gh run download <run id>` and note what it deployed:
+2. Download its live ledger with `gh run download <run id>`. Use the latest one whose `outcome` is `deployed`: a `failed` run may have reverted, and an ERP `held` run left the old image running. Note what it deployed:
    - `deploy-lab.yml`: `release.tag`.
    - `deploy-console-lab.yml`: `target.release`.
    - `deploy-erp-lab.yml`: `target.digest` and `target.sha`.
 3. If no file here matches all three, add one (the next `lab-YYYY.MM.N`) that describes the live lab, by PR. `contracts/check` runs the gate on it.
 
-A stale manifest is refused on lab-01, before anything changes, with `RT_FAIL gate=G-Host reason=wrapper-does-not-use-the-current-release`. `lab-2026.11.1` was added for exactly this reason, after RT-473 and RT-807 deployed newer releases.
+A stale manifest is refused on lab-01, before any version changes (the lab-02 backup has already been written), with `RT_FAIL gate=G-Host reason=wrapper-does-not-use-the-current-release`. `lab-2026.11.1` was added for exactly this reason, after RT-473 and RT-807 deployed newer releases.
 
 ### 2. Choose the target
 
@@ -70,8 +70,8 @@ A stale manifest is refused on lab-01, before anything changes, with `RT_FAIL ga
 | Upgrade | a new file | the live file |
 
 The planned ledger reports two rollback rules:
-- `backend.rollbackAllowed`: `false` when the Backend-Core releases differ in migrations. The auto-revert then only records that an owner restore or forward fix is needed.
-- `erp.rollbackClass`: `image-only` or `restore`.
+- `backend.rollbackAllowed` (`rollbackAllowed` in the live ledger): `false` when the Backend-Core releases differ in migrations, or when the verifier could not compare them. The auto-revert then only records that an owner restore or forward fix is needed.
+- `erp.rollbackClass` (`erpRollbackClass` in the live ledger): `image-only` or `restore`.
 
 ### 3. Dry run
 
@@ -82,10 +82,10 @@ gh workflow run deploy-system-lab.yml --ref main -f manifest=system/releases/<fi
 The artifact `deploy-system-lab-plan-<run id>` holds `ledger.json` and `summary.md`. Go on only when:
 - `outcome` is `planned`;
 - `refusals` is empty;
-- G1–G7 all pass;
+- G1–G7 all pass (G1–G5 are the gate above; G6 is the ERP image attestation from `build-erp-image.yml`; G7 is the `aws-lab` required reviewer);
 - `environmentGate` is `reviewed`.
 
-For a refused plan, the `backend-core/` folder in the artifact holds the Backend-Core verifier's own ledger with its reasons.
+The `backend-core/` folder in the artifact holds the Backend-Core verifier's own ledger, with its reasons when the plan was refused.
 
 ### 4. Live run
 
@@ -98,7 +98,7 @@ Dispatch the same inputs with `-f dry_run=false`. The preflight runs again. Then
 | `console` | `RT-ConsoleLabDeploy` | lab-01 | the `current` symlink (`RT_SWAP unchanged` for the same release) | `RT_DONE release=<tag>` |
 | `erp` | `RT-ErpLabDeploy` | lab-03 | an ERP backup, the image, migrate; the workers stop and resume | `RT_OUTCOME=deployed` |
 
-A same-version run took about four minutes on 2026-11-01. Even with no version change, it writes a lab-02 dump and an ERP backup, and stops and resumes the ERP workers once.
+On 2026-11-01 a same-version run took about 2 minutes of preflight and 5 minutes of live job, of which the ERP step took about 4. Even with no version change, it writes a lab-02 dump and an ERP backup, and stops and resumes the ERP workers once.
 
 ### 5. Read the live ledger
 
@@ -109,14 +109,17 @@ The artifact `deploy-system-lab-live-ledger-<run id>` holds:
 - for each step: `state` (`ok`, `failed` or `not-run`), `prior`, `target`, its gates and its strict `RT_*` lines;
 - `manualRollback`.
 
-A same-version run is proven when the outcome is `deployed` and the prior and target versions are equal in every step.
+A same-version run is proven when the outcome is `deployed` and each step shows no version change:
+- `backend`: `prior.sentry_release` equals the target tag without `backend-core/`, and the `RT_PRIOR` and `RT_TARGET` digests are equal;
+- `console`: its lines hold `RT_SWAP unchanged current=…`;
+- `erp`: `RT_DIGEST_AFTER` equals the manifest digest. Its `prior` comes from `current_manifest`, so it is declared, not measured; the document checks it on lab-03.
 
 ### 6. When a step fails
 
 The job stops, and later steps do not run. The failing step behaves as its own document does today:
 - `backend` refuses at a gate before any change, or reverts itself through the auto-revert. That revert is app-only, and only when `rollbackAllowed` is `true`.
 - `console` swaps back on a failed smoke.
-- `erp` can stop after its swap with the workers down. In that case, read the ERP document's ledger on lab-03, then redeploy with `deploy-erp-lab.yml` or run `deploy/lab/restore.sh`, as its rollback class requires.
+- `erp` can stop after its swap with the workers down. In that case, read the ERP document's ledger on lab-03, then redeploy with `deploy-erp-lab.yml` or run `integrations/erpnext-connector/deploy/lab/restore.sh` on lab-03, as its rollback class requires.
 
 Earlier steps are not reverted automatically, because a Backend-Core rollback can touch the database. `manualRollback` gives the exact workflow inputs for each step that finished, in the order they can run: ERP, then Backend-Core, then Console. The Console comes last because its document checks that lab-01 runs the Backend-Core release it is given.
 
@@ -133,10 +136,10 @@ Refusals seen so far:
 - **Trust policy.** The `job_workflow_ref` list in the monorepo statement of the `rt-gha-aws-lab-deploy` trust policy must name `Kemetra-Labs/Retail-Tower-Erp/.github/workflows/deploy-system-lab.yml@refs/heads/main`. It was added on 2026-11-01. Without it, the live job fails at "Assume the deploy role" before anything reaches a host. To read it back:
 
   ```bash
-  aws iam get-role --role-name rt-gha-aws-lab-deploy --query Role.AssumeRolePolicyDocument --region us-east-1 --profile <profile>
+  aws iam get-role --role-name rt-gha-aws-lab-deploy --query Role.AssumeRolePolicyDocument --profile <profile>
   ```
 
-- **SSM documents.** After a merged change to any of the four documents, create a new version from the merged file. The workflow always runs the default version, so make the new version the default. Always name the region and profile.
+- **SSM documents.** After a merged change to any of the four documents, create a new version from the merged file, with the setup identity (never the deploy role, and not root). The workflow always runs the default version, so make the new version the default. Always name the region and profile explicitly. The region is the `AWS_REGION` of the `aws-lab` environment, which is `us-east-1` today.
 
   ```bash
   aws ssm update-document --name <document> --document-format YAML --content file://<path on main> --document-version '$LATEST' --region us-east-1 --profile <profile>
