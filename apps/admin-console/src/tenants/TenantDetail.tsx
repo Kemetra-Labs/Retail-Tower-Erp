@@ -1,4 +1,5 @@
 import { TenantAiPlanSection } from "@/ai-entitlements/TenantAiPlanSection";
+import { TenantBrandingLink } from "@/branding/TenantBrandingLink";
 import { TenantPolicySection } from "@/cash-policy/TenantPolicySection";
 import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
@@ -136,6 +137,7 @@ export function TenantDetail(): React.JSX.Element {
         </div>
       )}
 
+      <TenantBrandingLink tenantId={tenant.id} />
       <TenantPolicySection tenantId={tenant.id} />
       <TenantAiPlanSection tenantId={tenant.id} />
     </div>
