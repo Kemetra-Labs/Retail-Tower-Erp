@@ -32,6 +32,7 @@ import type { MembershipsRepository } from "../../src/memberships/memberships.re
 import type { ExistingMembership, UpdateParams } from "../../src/memberships/memberships.repository";
 import type { MembershipDetail } from "../../src/context/membership.repository";
 import type { ResolvedContext } from "../../src/context/types";
+import { asHierarchy, makeFakeHierarchy } from "../_helpers/fake-membership-hierarchy";
 
 // ---------------------------------------------------------------------------
 // Fixed UUIDs
@@ -43,6 +44,7 @@ const MEMBERSHIP_ID   = "0b000000-0000-7000-8000-000000000003";
 const ROLE_ID         = "0b000000-0000-7000-8000-000000000004";
 const STORE_ID_A      = "0b000000-0000-7000-8000-000000000005";
 const STORE_ID_B      = "0b000000-0000-7000-8000-000000000006";
+const TARGET_USER_ID  = "0b000000-0000-7000-8000-000000000007";
 
 const BASE_CTX: ResolvedContext = {
   userId: USER_ID,
@@ -68,7 +70,9 @@ class FakeMembershipsRepository {
   findActiveResult: ExistingMembership | null = {
     id:              MEMBERSHIP_ID,
     tenantId:        TENANT_ID,
+    userId:          TARGET_USER_ID,
     roleId:          ROLE_ID,
+    roleCode:        "tenant_admin",
     storeAccessKind: "all",
   };
   findRoleIdResult: string | null = ROLE_ID;
@@ -150,7 +154,8 @@ function makeService(
   return new MembershipsService(
     FAKE_POOL,
     repo as unknown as MembershipsRepository,
-    tx as unknown as NonNullable<ConstructorParameters<typeof MembershipsService>[2]>,
+    asHierarchy(makeFakeHierarchy()),
+    tx as unknown as NonNullable<ConstructorParameters<typeof MembershipsService>[3]>,
   );
 }
 

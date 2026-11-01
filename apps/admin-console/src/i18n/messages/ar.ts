@@ -8,6 +8,7 @@
 import { aiPlan } from "./ar/aiPlan";
 import { audit } from "./ar/audit";
 import { auth } from "./ar/auth";
+import { branding } from "./ar/branding";
 import { cashPolicy } from "./ar/cashPolicy";
 import { catalog } from "./ar/catalog";
 import { common } from "./ar/common";
@@ -48,6 +49,7 @@ export const AR_MODULES = {
   cashPolicy,
   inventory,
   aiPlan,
+  branding,
   catalog,
   metrics,
   salesDaily,
@@ -73,6 +75,7 @@ export const ar = {
   ...cashPolicy,
   ...inventory,
   ...aiPlan,
+  ...branding,
   ...catalog,
   ...metrics,
   ...salesDaily,

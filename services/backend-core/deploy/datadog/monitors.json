@@ -105,6 +105,23 @@
     }
   },
   {
+    "key": "p2-api-signin-fail",
+    "name": "backend-api failed sign-ins high (lab)",
+    "type": "query alert",
+    "query": "sum(last_15m):sum:dp2.auth_signin_failure.count{env:staging,service:backend-api}.as_count() > 100",
+    "message": "{{#is_warning}}{{value}} failed sign-ins across all accounts and clients in 15 minutes (warning at 50): wrong credentials plus sign-in rate-limit refusals.{{/is_warning}}\n{{#is_alert}}{{value}} failed sign-ins across all accounts and clients in 15 minutes (alert at 100). Possible credential stuffing or password spraying. Nothing is blocked by this alert: the per-account and per-IP sign-in limits still apply.{{/is_alert}}\n{{#is_no_data}}No failed-sign-in counter from backend-api for 30 minutes. The counter is exported at 0 when nothing fails, so this means the api scrape is broken. No telemetry is not healthy.{{/is_no_data}}\n{{#is_recovery}}Failed sign-ins are back under 50 in 15 minutes.{{/is_recovery}}\n\nTriage: auth.signin.failed audit events and the api logs, then the RT lab dashboard.\nRunbook: deploy/datadog/README.md in Kemetra/Backend-Core (RT-626).\n__ALERT_RECIPIENTS__",
+    "tags": ["env:staging", "service:backend-api", "rt:rt-626", "priority:p2", "managed-by:deploy-datadog"],
+    "priority": 2,
+    "options": {
+      "thresholds": { "critical": 100, "warning": 50 },
+      "notify_no_data": true,
+      "no_data_timeframe": 30,
+      "require_full_window": false,
+      "notify_audit": false,
+      "include_tags": false
+    }
+  },
+  {
     "key": "p2-lab02-postgres",
     "name": "lab-02 Postgres connections high or unreachable",
     "type": "query alert",
