@@ -1,0 +1,824 @@
+# RT-1031 (slice S2 of the RT-1029 plan, Confluence 64389122): manual, approval-gated deploy of one
+# whole lab system version, named by a system release manifest (system/releases/<system>.json,
+# RT-1030), modelled on deploy-lab.yml, deploy-console-lab.yml and deploy-erp-lab.yml.
+#
+# preflight (every run): GitHub only, no AWS. The offline gate of RT-1030 (G1-G5: manifest shape,
+# releases on main, Console pin, consumer contracts under `oasdiff breaking`, POS build) on the
+# manifest being deployed and on the manifest of the system version live now, then the online
+# checks of each product, taken from today's preflights: the Backend-Core release (immutable,
+# attested images, the contracts-compat check run, migration and rollback class), the Console
+# release (immutable, checksum, attestation, version.json, the pin rule), the ERP image
+# (attestation, labels, base, rollback class), and the aws-lab reviewer readback. It uploads a
+# planned system ledger and changes nothing. Any failed rule refuses before a host is touched.
+#
+# live (dry_run=false only): after ONE aws-lab approval the job assumes the deploy role through
+# GitHub OIDC (no stored keys) and runs exactly four owner-created SSM documents, in this order
+# (plan D4, D3): RT-BackendLabBackup on lab-02, RT-BackendLabDeploy on lab-01, RT-ConsoleLabDeploy on
+# lab-01, RT-ErpLabDeploy on lab-03. The documents are the security boundary; each is sent with
+# today's parameters through .github/release/ssm-run.sh, and only strict RT_* lines reach this
+# public log and the ledger. The job stops at the first failing document; that document reverts
+# itself as it does today, earlier documents are NOT reverted (a Backend rollback can touch the
+# database), and the system ledger prints the manual rollback inputs for every step that finished.
+#
+# current_manifest names the system version live now: it supplies CurrentRelease (Backend-Core),
+# the current commit and images (ERP; all six services run one image after any ERP deploy) and the
+# Backend-Core release the rollback inputs return to. For a same-version redeploy it is the same file.
+#
+# Concurrency is shared with deploy-lab.yml, deploy-console-lab.yml and deploy-erp-lab.yml: one lab
+# deploy at a time. It fails closed while AWS_ROLE_ARN / AWS_REGION are unset.
+name: Deploy system lab
+
+"on":
+  workflow_dispatch:
+    inputs:
+      manifest:
+        description: System release manifest on main to deploy, system/releases/lab-YYYY.MM.N.json
+        required: true
+        type: string
+      current_manifest:
+        description: System release manifest of the system version live now (the same file for a same-version redeploy)
+        required: true
+        type: string
+      jira_key:
+        description: Jira issue authorizing this run (RT-<number>)
+        required: true
+        type: string
+      dry_run:
+        description: Preflight only (default). false runs the live deploy after preflight, with aws-lab approval
+        required: true
+        type: boolean
+        default: true
+
+permissions: {}
+
+concurrency:
+  group: deploy-aws-lab
+  cancel-in-progress: false
+
+env:
+  # Must equal the FROM digest in integrations/erpnext-connector/deploy/erp.Dockerfile (a test checks it).
+  BASE_DIGEST: sha256:f2d409c58ed1b688b6f2914d4a7f8b2468ee60bd1a3f1bd82d6fe32071806cb1
+  # Same pin and digest as contracts.yml and bc/oasdiff (.github/workflows/backend-core.yml). Bump all together.
+  OASDIFF_VERSION: "1.32.1"
+  OASDIFF_SHA256: "7c8939fc49b75ee11fec66a5b83b37a2fca6aee109fed85013b1ba2ac2a1ee7f"
+
+jobs:
+  preflight:
+    name: preflight (gate, verify every product, planned system ledger, no deploy)
+    # No job-level `if`: a dispatch from any other ref must FAIL in the first step, not skip green.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read # checkout of main with history, release metadata and assets, compare
+      checks: read # check runs on the Backend-Core release commit
+      packages: read # GHCR reads for labels and attestations
+      attestations: read # gh attestation verify
+      actions: read # read (never create) the aws-lab environment
+    # The verified plan, for the live job only (non-secret digests, commits and rollback classes).
+    outputs:
+      backend_release_sha: ${{ steps.backend_plan.outputs.release_sha }}
+      api_digest: ${{ steps.backend_plan.outputs.api_digest }}
+      worker_digest: ${{ steps.backend_plan.outputs.worker_digest }}
+      migrate_digest: ${{ steps.backend_plan.outputs.migrate_digest }}
+      rollback_allowed: ${{ steps.backend_plan.outputs.rollback_allowed }}
+      console_archive_digest: ${{ steps.console.outputs.digest }}
+      console_release_sha: ${{ steps.console.outputs.sha }}
+      console_contract_pin: ${{ steps.console.outputs.pin }}
+      erp_expected_version: ${{ steps.erp_image.outputs.version }}
+      erp_current_tree: ${{ steps.erp_class.outputs.current_tree }}
+      erp_rollback_class: ${{ steps.erp_class.outputs.class }}
+      environment_gate: ${{ steps.plan.outputs.environment_gate }}
+      gate_results: ${{ steps.plan.outputs.gate_results }}
+    steps:
+      - name: Guard (main only, validated inputs)
+        id: guard
+        env:
+          RUN_REF: ${{ github.ref }}
+          MANIFEST: ${{ inputs.manifest }}
+          CURRENT_MANIFEST: ${{ inputs.current_manifest }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          [ "$RUN_REF" = "refs/heads/main" ] || fail "must be dispatched from refs/heads/main"
+          [[ "$MANIFEST" =~ ^system/releases/lab-[0-9]{4}\.[0-9]{2}\.[0-9]+\.json$ ]] || fail "manifest must be system/releases/lab-YYYY.MM.N.json"
+          [[ "$CURRENT_MANIFEST" =~ ^system/releases/lab-[0-9]{4}\.[0-9]{2}\.[0-9]+\.json$ ]] || fail "current_manifest must be system/releases/lab-YYYY.MM.N.json"
+          [[ "$JIRA_KEY" =~ ^RT-[1-9][0-9]{0,5}$ ]] || fail "jira_key must be RT-<number>"
+          case "$DRY_RUN" in true | false) ;; *) fail "dry_run must be true or false" ;; esac
+
+      # No `ref:` on purpose: the gate and the helpers run from the dispatched main commit. Full
+      # history and tags: the gate reads release commits, contracts and PINs from git objects.
+      - name: Checkout main
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # Both manifests must pass G1 here; every value is pattern-checked, so it is safe as an argument.
+      - name: Read the manifests
+        id: values
+        env:
+          MANIFEST: ${{ inputs.manifest }}
+          CURRENT_MANIFEST: ${{ inputs.current_manifest }}
+        run: |
+          set -euo pipefail
+          python3 .github/release/system_ledger.py values --manifest "$MANIFEST" --prefix target >> "$GITHUB_OUTPUT"
+          python3 .github/release/system_ledger.py values --manifest "$CURRENT_MANIFEST" --prefix current >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+
+      # Hash-locked, wheels only, no transitive resolution (same file as contracts.yml).
+      - name: Install pinned dependencies
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: --no-deps -r tools/project-graph/requirements.txt
+
+      - name: Install oasdiff (pinned, checksum-verified)
+        run: |
+          archive="oasdiff_${OASDIFF_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL --proto '=https' --tlsv1.2 -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/oasdiff/oasdiff/releases/download/v${OASDIFF_VERSION}/$archive"
+          echo "${OASDIFF_SHA256}  $RUNNER_TEMP/$archive" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/oasdiff"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/oasdiff" oasdiff
+          "$RUNNER_TEMP/oasdiff/oasdiff" --version
+
+      # Stage 1 of the plan, the offline part (RT-1030): G1-G3 and G5 from system_gate.py, G4 from
+      # tools/contracts-check against the Backend-Core contract at its release. The manifest live
+      # now must be well formed and on main as well. Every rule line lands in the gate file.
+      - name: System release gate (offline G1-G5)
+        id: gate
+        env:
+          MANIFEST: ${{ inputs.manifest }}
+          CURRENT_MANIFEST: ${{ inputs.current_manifest }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/plan"
+          GATES="$RUNNER_TEMP/plan/gates.txt"
+          : > "$GATES"
+          if [ "$CURRENT_MANIFEST" != "$MANIFEST" ]; then
+            python3 .github/release/system_gate.py --manifest "$CURRENT_MANIFEST" --main origin/main \
+              || { echo "G1 FAIL: the current manifest $CURRENT_MANIFEST does not pass the gate" >> "$GATES"; exit 1; }
+          fi
+          python3 .github/release/system_gate.py --manifest "$MANIFEST" --main origin/main | tee -a "$GATES" \
+            || { echo "::error::the system release gate refused $MANIFEST"; exit 1; }
+          mapfile -t revs < <(python3 .github/release/system_gate.py --manifest "$MANIFEST" --contracts-args)
+          if (cd tools/contracts-check && python -m contracts_check --repo "$GITHUB_WORKSPACE" \
+            --oasdiff "$RUNNER_TEMP/oasdiff/oasdiff" --only pins "${revs[@]}" --summary "$GITHUB_STEP_SUMMARY"); then
+            echo "G4 pass: the Console and Connector PINs are compatible with the Backend-Core release contract (oasdiff breaking)" >> "$GATES"
+          else
+            echo "G4 FAIL: a consumer PIN is incompatible with the Backend-Core release contract" >> "$GATES"
+            exit 1
+          fi
+
+      - name: Log in to GHCR (read-only, for attestations and labels)
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # Backend-Core: the evidence of deploy-lab.yml, for the target release and for the release
+      # the system version live now runs (CurrentRelease). Both are monorepo releases here.
+      - name: Collect the Backend-Core release evidence (read-only GitHub API)
+        id: backend_evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SRC: ${{ github.workspace }}
+          PRODUCT: services/backend-core
+          BACKEND_RELEASE: ${{ steps.values.outputs.target_backend_release }}
+          CURRENT_RELEASE: ${{ steps.values.outputs.current_backend_release }}
+        run: |
+          set -euo pipefail
+          EVIDENCE="$RUNNER_TEMP/evidence"
+          mkdir -p "$EVIDENCE/release" "$EVIDENCE/bundle"
+          # Any early stop is recorded as evidence, so the verifier (which still runs) puts it in
+          # the ledger as the first refusal.
+          fail() { echo "::error::$*"; echo "$*" >> "$EVIDENCE/collect-error.txt"; exit 1; }
+          trap 'echo "stopped at line $LINENO: $BASH_COMMAND" >> "$EVIDENCE/collect-error.txt"' ERR
+
+          gh release view "$BACKEND_RELEASE" --repo "$REPO" \
+            --json tagName,targetCommitish,isDraft,isPrerelease,isImmutable,assets > "$EVIDENCE/release.json"
+          git -C "$SRC" rev-parse --verify --quiet "refs/tags/$BACKEND_RELEASE^{commit}" > "$EVIDENCE/tag-commit.txt" || true
+          SHA="$(tr -d '[:space:]' < "$EVIDENCE/tag-commit.txt")"
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || fail "release tag does not resolve to a commit"
+          TARGET="$(jq -r .targetCommitish "$EVIDENCE/release.json")"
+          [ "$TARGET" = "$SHA" ] || [ "$TARGET" = main ] || fail "release target is neither the tag commit nor main"
+
+          # Verify the asset checksums before unpacking anything. SHA256SUMS must cover both assets,
+          # and the tarball may hold only regular files and directories under its one top-level
+          # directory: no links, devices, absolute paths or `..`.
+          BUNDLE="backend-core-release-${SHA:0:12}"
+          TARBALL="$EVIDENCE/release/$BUNDLE.tar.gz"
+          MAX_ASSET_BYTES=$((16 * 1024 * 1024))
+          jq -e --arg tarball "$BUNDLE.tar.gz" --argjson max "$MAX_ASSET_BYTES" '
+            ([.assets[].name] | sort) == ([$tarball, "release-manifest.json", "SHA256SUMS"] | sort)
+            and all(.assets[]; (.size | type) == "number" and .size <= $max)' "$EVIDENCE/release.json" > /dev/null \
+            || fail "release assets are not exactly $BUNDLE.tar.gz, release-manifest.json and SHA256SUMS, each within $MAX_ASSET_BYTES bytes"
+          gh release download "$BACKEND_RELEASE" --repo "$REPO" --dir "$EVIDENCE/release" \
+            --pattern "$BUNDLE.tar.gz" --pattern release-manifest.json --pattern SHA256SUMS
+          awk -v t="$BUNDLE.tar.gz" '
+            { h = substr($0, 1, 64); n = substr($0, 67) }
+            length($0) < 67 || h !~ /^[0-9a-f]+$/ || substr($0, 65, 2) != "  " { bad = 1 }
+            { seen[n]++; lines++ }
+            END { exit !(!bad && lines == 2 && seen[t] == 1 && seen["release-manifest.json"] == 1) }' \
+            "$EVIDENCE/release/SHA256SUMS" \
+            || fail "SHA256SUMS must list exactly $BUNDLE.tar.gz and release-manifest.json"
+          (cd "$EVIDENCE/release" && sha256sum --check --strict SHA256SUMS) \
+            || fail "release assets do not match SHA256SUMS"
+          # Bound the bundle before any tar call decompresses it (a gzip bomb stops here).
+          MAX_BUNDLE_BYTES=$((16 * 1024 * 1024))
+          MAX_BUNDLE_ENTRIES=500
+          EXPANDED="$(gzip -dc "$TARBALL" | head -c "$((MAX_BUNDLE_BYTES + 1))" | wc -c)" || true
+          [[ "$EXPANDED" =~ ^[0-9]+$ ]] || fail "could not measure the expanded bundle size"
+          [ "$EXPANDED" -le "$MAX_BUNDLE_BYTES" ] || fail "bundle expands beyond $MAX_BUNDLE_BYTES bytes"
+          LISTED="$(tar -tvzf "$TARBALL" --numeric-owner)"
+          TYPES="$(cut -c1 <<<"$LISTED" | sort -u | tr -d '\n')"
+          [[ "$TYPES" =~ ^[-d]+$ ]] || fail "bundle holds an entry that is not a regular file or directory"
+          LOGICAL="$(awk '{ s += $3 } END { printf "%d", s }' <<<"$LISTED")"
+          [ "$LOGICAL" -le "$MAX_BUNDLE_BYTES" ] || fail "bundle members total more than $MAX_BUNDLE_BYTES bytes"
+          ENTRIES="$(tar -tzf "$TARBALL")"
+          [ "$(wc -l <<<"$ENTRIES")" -le "$MAX_BUNDLE_ENTRIES" ] || fail "bundle has more than $MAX_BUNDLE_ENTRIES entries"
+          while IFS= read -r ENTRY; do
+            case "$ENTRY" in "$BUNDLE"/*) ;; *) fail "bundle entry outside $BUNDLE/" ;; esac
+            case "$ENTRY" in /* | *..* | *\\*) fail "unsafe bundle entry path" ;; *) ;; esac
+          done <<<"$ENTRIES"
+          tar -xzf "$TARBALL" -C "$EVIDENCE/bundle" --no-same-owner --no-same-permissions
+
+          gh api "repos/$REPO/compare/$SHA...main" \
+            --jq '{status, ahead_by, behind_by, merge_base: .merge_base_commit.sha}' > "$EVIDENCE/compare.json"
+          gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
+            --jq '.check_runs[] | {name, conclusion, slug: .app.slug, started_at}' | jq -s . > "$EVIDENCE/check-runs.json"
+
+          if git -C "$SRC" cat-file -e "$SHA^{commit}" 2>/dev/null; then
+            git -C "$SRC" ls-tree "$SHA" "$PRODUCT/packages/db/drizzle/" > "$EVIDENCE/migrations-target.txt"
+            # Bundled files must be byte-for-byte the files at the release commit, from this
+            # repository's own git objects, never release content.
+            mkdir -p "$EVIDENCE/source"
+            git -C "$SRC" -c core.autocrlf=false archive --format=tar "$SHA:$PRODUCT" | tar -x -C "$EVIDENCE/source"
+          fi
+
+          # A failed verification leaves no file; the verifier refuses on a missing attestation.
+          for TARGET in api worker migrate; do
+            DIGEST="$(jq -r --arg t "$TARGET" '.images[$t].digest // ""' "$EVIDENCE/release/release-manifest.json")"
+            [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::warning::no valid $TARGET digest in the manifest"; continue; }
+            if ! gh attestation verify "oci://ghcr.io/kemetra-labs/backend-core-$TARGET@$DIGEST" \
+              --repo "$REPO" \
+              --signer-workflow "$REPO/.github/workflows/release-backend-core.yml" \
+              --source-digest "$SHA" \
+              --source-ref "refs/tags/$BACKEND_RELEASE" \
+              --format json > "$EVIDENCE/attest-$TARGET.json"; then
+              rm -f "$EVIDENCE/attest-$TARGET.json"
+              echo "::warning::attestation verification failed for $TARGET"
+            fi
+          done
+
+          # The release lab-01 runs now (the current system version) gets the same tag and ancestry evidence.
+          if gh release view "$CURRENT_RELEASE" --repo "$REPO" \
+            --json tagName,targetCommitish,isDraft,isPrerelease,isImmutable > "$EVIDENCE/current-release.json"; then
+            git -C "$SRC" rev-parse --verify --quiet "refs/tags/$CURRENT_RELEASE^{commit}" > "$EVIDENCE/current-tag-commit.txt" || true
+            CURRENT_SHA="$(tr -d '[:space:]' < "$EVIDENCE/current-tag-commit.txt")"
+            if [[ "$CURRENT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              gh api "repos/$REPO/compare/$CURRENT_SHA...main" \
+                --jq '{status, ahead_by, behind_by, merge_base: .merge_base_commit.sha}' > "$EVIDENCE/compare-current.json" \
+                || rm -f "$EVIDENCE/compare-current.json"
+              if git -C "$SRC" cat-file -e "$CURRENT_SHA^{commit}" 2>/dev/null; then
+                git -C "$SRC" ls-tree "$CURRENT_SHA" "$PRODUCT/packages/db/drizzle/" > "$EVIDENCE/migrations-current.txt"
+              fi
+            fi
+          else
+            rm -f "$EVIDENCE/current-release.json"
+          fi
+
+          # Report the approval gate; never create it. A 404 is "not visible", not proof it is missing.
+          if OUT="$(gh api "repos/$REPO/environments/aws-lab" 2>&1)"; then
+            jq '{status: "present", reviewers: ([.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length)}' \
+              <<<"$OUT" > "$EVIDENCE/environment.json"
+          elif grep -q "Not Found" <<<"$OUT"; then
+            echo '{"status":"not-visible","reviewers":0}' > "$EVIDENCE/environment.json"
+          else
+            echo '{"status":"unknown","reviewers":0}' > "$EVIDENCE/environment.json"
+          fi
+
+      # ERP: the image checks of deploy-erp-lab.yml for the target image of the manifest.
+      - name: Verify the ERP image (attestation, labels, base)
+        id: erp_image
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          IMAGE: ghcr.io/kemetra-labs/rt-erpnext
+          TARGET_DIGEST: ${{ steps.values.outputs.target_erp_digest }}
+          TARGET_SHA: ${{ steps.values.outputs.target_erp_sha }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          # Built and attested by build-erp-image.yml, dispatched from main, in this repository.
+          gh attestation verify "oci://$IMAGE@$TARGET_DIGEST" --repo "$REPO" \
+            --signer-workflow Kemetra-Labs/Retail-Tower-Erp/.github/workflows/build-erp-image.yml \
+            --source-ref refs/heads/main >/dev/null || fail "no valid build-erp-image.yml attestation from refs/heads/main for $TARGET_DIGEST"
+          LABELS="$(skopeo inspect --config "docker://$IMAGE@$TARGET_DIGEST" | jq -c '.config.Labels // {}')" \
+            || fail "cannot read the target image configuration"
+          label() { jq -r --arg k "$1" '.[$k] // ""' <<<"$LABELS"; }
+          TARGET_TREE="$(git rev-parse "$TARGET_SHA:integrations/erpnext-connector")"
+          [ "$(label org.opencontainers.image.revision)" = "$TARGET_SHA" ] || fail "the image revision label is not the manifest commit"
+          [ "$(label rt.connector.tree)" = "$TARGET_TREE" ] || fail "the image Connector tree is not the tree of the manifest commit on main"
+          [ "$(label rt.base.digest)" = "$BASE_DIGEST" ] || fail "the image base is not the pinned ERPNext base"
+          VERSION="$(label rt.connector.version)"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "the image has no Connector version label"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # Drops the registry credential however the registry steps ended, before the verifier
+      # reads any release content.
+      - name: Log out of GHCR
+        id: logout
+        if: always()
+        run: |
+          set -euo pipefail
+          docker logout ghcr.io > /dev/null
+
+      # Runs even when evidence collection stopped early, so every refusal ends up in the ledger.
+      - name: Verify the Backend-Core evidence (no deploy)
+        id: backend_verify
+        if: ${{ !cancelled() && steps.gate.outcome == 'success' && steps.logout.outcome == 'success' }}
+        env:
+          BACKEND_RELEASE: ${{ steps.values.outputs.target_backend_release }}
+          CURRENT_RELEASE: ${{ steps.values.outputs.current_backend_release }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          node services/backend-core/deploy/lab/verify-release.cjs \
+            --evidence "$RUNNER_TEMP/evidence" --out "$RUNNER_TEMP/backend-ledger" \
+            --release "$BACKEND_RELEASE" --jira-key "$JIRA_KEY" --target lab-01 \
+            --current-release "$CURRENT_RELEASE" \
+            --actor "$ACTOR" --run-url "$RUN_URL" \
+            --mode dry-run
+
+      # Only a planned (0-refusal) ledger passes; its non-secret plan feeds the live job.
+      - name: Export the verified Backend-Core plan
+        id: backend_plan
+        run: |
+          set -euo pipefail
+          LEDGER="$RUNNER_TEMP/backend-ledger/ledger.json"
+          jq -e '.outcome == "planned" and (.refusals | length) == 0' "$LEDGER" > /dev/null || { echo "::error::the Backend-Core ledger is not a planned, 0-refusal ledger"; exit 1; }
+          SHA="$(jq -r '.release.sha' "$LEDGER")"
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::ledger release SHA is not 40 hex"; exit 1; }
+          echo "release_sha=$SHA" >> "$GITHUB_OUTPUT"
+          for TARGET in api worker migrate; do
+            DIGEST="$(jq -r --arg t "$TARGET" '.images[$t].digest // ""' "$LEDGER")"
+            [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::ledger has no $TARGET digest"; exit 1; }
+            echo "${TARGET}_digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          done
+          # App-only rollback only when the verifier compared the two releases and found no schema change.
+          ROLLBACK="$(jq -r '(.plan.migrations.added != null and .plan.migrations.rollback.allowed == true) | tostring' "$LEDGER")"
+          echo "rollback_allowed=$ROLLBACK" >> "$GITHUB_OUTPUT"
+
+      # Console: the release checks of deploy-console-lab.yml, then its pin rule (C7-D2) against
+      # the commit of the Backend-Core release of THIS system version.
+      - name: Verify the Console release (immutable, on main, checksum, attestation, version.json)
+        id: console
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CONSOLE_RELEASE: ${{ steps.values.outputs.target_console_release }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          REL="admin-console-${CONSOLE_RELEASE#admin-console/}"
+          jq -e '.isImmutable == true and .isDraft == false' \
+            <<<"$(gh release view "$CONSOLE_RELEASE" --repo "$REPO" --json isImmutable,isDraft)" >/dev/null \
+            || fail "$CONSOLE_RELEASE is not a published, immutable release"
+          SHA="$(gh api "repos/$REPO/commits/refs/tags/$CONSOLE_RELEASE" --jq .sha)" || fail "cannot resolve tag $CONSOLE_RELEASE"
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || fail "tag $CONSOLE_RELEASE does not name a commit"
+          case "$(gh api "repos/$REPO/compare/$SHA...main" --jq .status)" in
+            ahead | identical) ;;
+            *) fail "$CONSOLE_RELEASE ($SHA) is not on main" ;;
+          esac
+          DL="$RUNNER_TEMP/console-release"
+          mkdir -p "$DL"
+          gh release download "$CONSOLE_RELEASE" --repo "$REPO" --dir "$DL" \
+            --pattern "$REL.tar.gz" --pattern "$REL.tar.gz.sha256" || fail "cannot download $REL.tar.gz and its .sha256"
+          [ "$(awk 'END { print NR }' "$DL/$REL.tar.gz.sha256")" = 1 ] || fail "the .sha256 must list exactly one file"
+          (cd "$DL" && sha256sum --check --strict "$REL.tar.gz.sha256") || fail "$REL.tar.gz does not match its .sha256"
+          gh attestation verify "$DL/$REL.tar.gz" --repo "$REPO" \
+            --signer-workflow Kemetra-Labs/Retail-Tower-Erp/.github/workflows/release-admin-console.yml \
+            --source-ref "refs/tags/$CONSOLE_RELEASE" >/dev/null || fail "no valid release-admin-console.yml attestation for $REL.tar.gz from refs/tags/$CONSOLE_RELEASE"
+          DIGEST="sha256:$(sha256sum "$DL/$REL.tar.gz" | cut -d' ' -f1)"
+          VERSION="$(tar -xzOf "$DL/$REL.tar.gz" ./version.json)" || fail "the archive has no version.json"
+          jq -e --arg sha "$SHA" '.app == "retail-tower-console" and .sha == $sha' <<<"$VERSION" >/dev/null \
+            || fail "version.json does not name $SHA"
+          PIN="$(jq -r '.backendContractPin // ""' <<<"$VERSION")"
+          [[ "$PIN" =~ ^[0-9a-f]{40}$ ]] || fail "version.json has no 40-hex backendContractPin"
+          { echo "digest=$DIGEST"; echo "sha=$SHA"; echo "pin=$PIN"; } >> "$GITHUB_OUTPUT"
+
+      - name: Apply the pin rule
+        id: pin_rule
+        env:
+          PIN: ${{ steps.console.outputs.pin }}
+          BACKEND_SHA: ${{ steps.backend_plan.outputs.release_sha }}
+          BACKEND_RELEASE: ${{ steps.values.outputs.target_backend_release }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          [[ "$PIN" =~ ^[0-9a-f]{40}$ ]] || fail "no Console contract pin"
+          [[ "$BACKEND_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "no Backend-Core release commit"
+          [ "$PIN" = "$BACKEND_SHA" ] \
+            || fail "pin rule: the Console pins $PIN, but $BACKEND_RELEASE is $BACKEND_SHA (re-pin the Console to that release and publish a new Console release)"
+          echo "pin rule: the Console pins $BACKEND_RELEASE ($BACKEND_SHA)"
+
+      # ERP: the rollback class between the Connector trees of the commit live now and the target.
+      - name: Rollback class (current -> target Connector trees)
+        id: erp_class
+        env:
+          TARGET_SHA: ${{ steps.values.outputs.target_erp_sha }}
+          CURRENT_SHA: ${{ steps.values.outputs.current_erp_sha }}
+        run: |
+          set -euo pipefail
+          for SHA in "$TARGET_SHA" "$CURRENT_SHA"; do
+            git cat-file -e "$SHA:integrations/erpnext-connector" || { echo "::error::$SHA has no Connector"; exit 1; }
+          done
+          OUT="$(python3 integrations/erpnext-connector/deploy/lab/rollback_class.py --repo . \
+            --current "$CURRENT_SHA" --target "$TARGET_SHA")" || { echo "::error::rollback class could not be computed"; exit 1; }
+          printf '%s\n' "$OUT"
+          KLASS="$(sed -n 's/^RT_ROLLBACK_CLASS=\(image-only\|restore\)$/\1/p' <<<"$OUT")"
+          [ -n "$KLASS" ] || { echo "::error::no rollback class"; exit 1; }
+          { echo "class=$KLASS"; echo "current_tree=$(git rev-parse "$CURRENT_SHA:integrations/erpnext-connector")"; } >> "$GITHUB_OUTPUT"
+
+      # Always runs after the checkout, so a refused plan still leaves a ledger with its reasons.
+      - name: Write the planned system ledger
+        id: plan
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          MANIFEST: ${{ inputs.manifest }}
+          CURRENT_MANIFEST: ${{ inputs.current_manifest }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ROLLBACK_ALLOWED: ${{ steps.backend_plan.outputs.rollback_allowed }}
+          ERP_CLASS: ${{ steps.erp_class.outputs.class }}
+          OUTCOME_VALUES: ${{ steps.values.outcome }}
+          OUTCOME_GATE: ${{ steps.gate.outcome }}
+          OUTCOME_BACKEND: ${{ steps.backend_plan.outcome }}
+          OUTCOME_CONSOLE: ${{ steps.console.outcome }}
+          OUTCOME_PIN: ${{ steps.pin_rule.outcome }}
+          OUTCOME_ERP_IMAGE: ${{ steps.erp_image.outcome }}
+          OUTCOME_ERP_CLASS: ${{ steps.erp_class.outcome }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/plan"
+          GATES="$RUNNER_TEMP/plan/gates.txt"
+          touch "$GATES"
+          # `gate <rule> <step outcome> <what>`: a step that was skipped adds no line (not-run).
+          gate() {
+            case "$2" in
+              success) echo "$1 pass: $3" >> "$GATES" ;;
+              failure) echo "$1 FAIL: $3" >> "$GATES" ;;
+              *) ;;
+            esac
+          }
+          gate G2 "$OUTCOME_BACKEND" "the Backend-Core release is immutable, attested and checked online"
+          gate G2 "$OUTCOME_CONSOLE" "the Console release is immutable, checksummed and attested"
+          gate G3 "$OUTCOME_PIN" "the Console archive pins the Backend-Core release commit"
+          gate G5 "$OUTCOME_BACKEND" "the Backend-Core release passed contracts-compat (check run, release gate)"
+          gate G6 "$OUTCOME_ERP_IMAGE" "the ERP image is attested by build-erp-image.yml at the manifest commit on main"
+          FAILURE=""
+          for NAME in VALUES GATE BACKEND CONSOLE PIN ERP_IMAGE ERP_CLASS; do
+            VAR="OUTCOME_$NAME"
+            if [ "${!VAR}" = failure ]; then FAILURE="preflight step ${NAME,,} failed"; break; fi
+          done
+          # G7: a live run needs aws-lab read back as present with a required reviewer. GitHub would
+          # create a missing environment unprotected, and "not visible" or "unknown" is not proof.
+          GATE="$(jq -r 'if .status == "present" and (.reviewers | type) == "number" and .reviewers >= 1 then "reviewed" else "unverified" end' \
+            "$RUNNER_TEMP/evidence/environment.json" 2>/dev/null || echo unverified)"
+          if [ "$GATE" = reviewed ]; then echo "G7 pass: aws-lab has a required reviewer" >> "$GATES"; else echo "G7 unverified: aws-lab was not read back with a required reviewer" >> "$GATES"; fi
+          LIVE_FLAG=""
+          if [ "$DRY_RUN" = "false" ]; then LIVE_FLAG="--live"; fi
+          STATUS=0
+          python3 .github/release/system_ledger.py plan --manifest "$MANIFEST" --current-manifest "$CURRENT_MANIFEST" \
+            --jira-key "$JIRA_KEY" --actor "$ACTOR" --run-url "$RUN_URL" --gates-file "$GATES" --failure "$FAILURE" \
+            --rollback-allowed "${ROLLBACK_ALLOWED:-false}" --erp-rollback-class "$ERP_CLASS" --environment-gate "$GATE" \
+            --out "$RUNNER_TEMP/plan" $LIVE_FLAG || STATUS=$?
+          cat "$RUNNER_TEMP/plan/summary.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          RESULTS="$(jq -r '.gates | to_entries | map(.key + "=" + .value) | join(" ")' "$RUNNER_TEMP/plan/ledger.json" 2>/dev/null || true)"
+          { echo "environment_gate=$GATE"; echo "gate_results=$RESULTS"; } >> "$GITHUB_OUTPUT"
+          if [ "$STATUS" != 0 ]; then echo "::error::the plan was refused (see the ledger)"; exit 1; fi
+          if [ "$DRY_RUN" = "false" ] && [ "$GATE" != "reviewed" ]; then
+            echo "::error::live run refused: the aws-lab environment was not read back with a required reviewer"
+            exit 1
+          fi
+
+      - name: Upload the planned system ledger
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: deploy-system-lab-plan-${{ github.run_id }}
+          path: ${{ runner.temp }}/plan/
+          if-no-files-found: warn
+          retention-days: 90
+
+  live:
+    name: live deploy (aws-lab, OIDC, four SSM documents in order)
+    needs: preflight
+    if: ${{ inputs.dry_run == false }}
+    runs-on: ubuntu-24.04
+    # The poll windows of the four documents add up to about 6800 s, with a role assumed again before each.
+    timeout-minutes: 140
+    environment: aws-lab
+    permissions:
+      contents: read # checkout of main for the helpers and the compat re-check
+      id-token: write # the OIDC token for the deploy role; nothing else is granted
+    steps:
+      - name: Guard (main only, live run, verified plan)
+        env:
+          RUN_REF: ${{ github.ref }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          MANIFEST: ${{ inputs.manifest }}
+          CURRENT_MANIFEST: ${{ inputs.current_manifest }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+          BACKEND_RELEASE_SHA: ${{ needs.preflight.outputs.backend_release_sha }}
+          API_DIGEST: ${{ needs.preflight.outputs.api_digest }}
+          WORKER_DIGEST: ${{ needs.preflight.outputs.worker_digest }}
+          MIGRATE_DIGEST: ${{ needs.preflight.outputs.migrate_digest }}
+          ROLLBACK_ALLOWED: ${{ needs.preflight.outputs.rollback_allowed }}
+          CONSOLE_ARCHIVE_DIGEST: ${{ needs.preflight.outputs.console_archive_digest }}
+          CONSOLE_RELEASE_SHA: ${{ needs.preflight.outputs.console_release_sha }}
+          CONSOLE_CONTRACT_PIN: ${{ needs.preflight.outputs.console_contract_pin }}
+          ERP_EXPECTED_VERSION: ${{ needs.preflight.outputs.erp_expected_version }}
+          ERP_CURRENT_TREE: ${{ needs.preflight.outputs.erp_current_tree }}
+          ERP_ROLLBACK_CLASS: ${{ needs.preflight.outputs.erp_rollback_class }}
+          ENVIRONMENT_GATE: ${{ needs.preflight.outputs.environment_gate }}
+          GATE_RESULTS: ${{ needs.preflight.outputs.gate_results }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          [ "$RUN_REF" = "refs/heads/main" ] || fail "must be dispatched from refs/heads/main"
+          [ "$DRY_RUN" = "false" ] || fail "the live job runs only when dry_run=false"
+          [ "$ENVIRONMENT_GATE" = "reviewed" ] || fail "preflight did not read back aws-lab with a required reviewer"
+          [[ "$MANIFEST" =~ ^system/releases/lab-[0-9]{4}\.[0-9]{2}\.[0-9]+\.json$ ]] || fail "manifest must be system/releases/lab-YYYY.MM.N.json"
+          [[ "$CURRENT_MANIFEST" =~ ^system/releases/lab-[0-9]{4}\.[0-9]{2}\.[0-9]+\.json$ ]] || fail "current_manifest must be system/releases/lab-YYYY.MM.N.json"
+          [[ "$JIRA_KEY" =~ ^RT-[1-9][0-9]{0,5}$ ]] || fail "jira_key must be RT-<number>"
+          [[ "$BACKEND_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "preflight plan does not name the Backend-Core release commit"
+          for DIGEST in "$API_DIGEST" "$WORKER_DIGEST" "$MIGRATE_DIGEST" "$CONSOLE_ARCHIVE_DIGEST"; do
+            [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "preflight plan lacks a registry or archive digest"
+          done
+          [[ "$ROLLBACK_ALLOWED" =~ ^(true|false)$ ]] || fail "preflight plan lacks the Backend-Core rollback rule"
+          [[ "$CONSOLE_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "preflight plan lacks the Console release commit"
+          [[ "$CONSOLE_CONTRACT_PIN" =~ ^[0-9a-f]{40}$ ]] || fail "preflight plan lacks the Console contract pin"
+          [ "$CONSOLE_CONTRACT_PIN" = "$BACKEND_RELEASE_SHA" ] || fail "pin rule: the Console pin is not the Backend-Core release commit"
+          [[ "$ERP_EXPECTED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "preflight plan lacks the Connector version"
+          [[ "$ERP_CURRENT_TREE" =~ ^[0-9a-f]{40}$ ]] || fail "preflight plan lacks the current Connector tree"
+          [[ "$ERP_ROLLBACK_CLASS" =~ ^(image-only|restore)$ ]] || fail "preflight plan lacks the ERP rollback class"
+          [[ "$GATE_RESULTS" =~ ^G1=pass\ G2=pass\ G3=pass\ G4=pass\ G5=pass\ G6=pass\ G7=pass$ ]] || fail "preflight did not pass every rule G1-G7"
+
+      # Fails closed until the owner sets both non-secret variables on aws-lab. Runs before any token is requested.
+      - name: Check the deploy variables (fail closed when unset)
+        env:
+          AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          [ -n "${AWS_ROLE_ARN:-}" ] || fail "AWS_ROLE_ARN is not set on the aws-lab environment: the live deploy stays off"
+          [ -n "${AWS_REGION:-}" ] || fail "AWS_REGION is not set on the aws-lab environment: the live deploy stays off"
+          [[ "$AWS_ROLE_ARN" =~ ^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,128}$ ]] \
+            || fail "AWS_ROLE_ARN must be an IAM role ARN (never root, a user or an access key)"
+          [[ "$AWS_REGION" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]$ ]] || fail "AWS_REGION must be a region name such as us-east-1"
+
+      # No `ref:` on purpose: the helpers run from the dispatched main commit, the one the preflight checked.
+      # Full history, so the compat re-check can read the release commit (an ancestor of main).
+      - name: Checkout main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Read the manifests
+        id: values
+        env:
+          MANIFEST: ${{ inputs.manifest }}
+          CURRENT_MANIFEST: ${{ inputs.current_manifest }}
+        run: |
+          set -euo pipefail
+          python3 .github/release/system_ledger.py values --manifest "$MANIFEST" --prefix target >> "$GITHUB_OUTPUT"
+          python3 .github/release/system_ledger.py values --manifest "$CURRENT_MANIFEST" --prefix current >> "$GITHUB_OUTPUT"
+
+      # RT-863: the aws-lab approval can come long after the preflight, so the POS compat gate
+      # (fleet freshness, release-mode switch) is judged again here, on the release commit's own
+      # contracts-compat/, before any token or SSM step.
+      - name: Re-check the POS compat gate after approval
+        env:
+          RELEASE_SHA: ${{ needs.preflight.outputs.backend_release_sha }}
+          PRODUCT: services/backend-core
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::preflight plan does not name the release commit"; exit 1; }
+          SRC="$RUNNER_TEMP/release-source"
+          mkdir -p "$SRC"
+          git -C "$GITHUB_WORKSPACE" -c core.autocrlf=false archive --format=tar "$RELEASE_SHA:$PRODUCT" contracts-compat | tar -x -C "$SRC"
+          node services/backend-core/deploy/release-compat-gate.cjs --source "$SRC"
+
+      # Non-secret trust-policy claims before the first assume, so a deny is diagnosed, not guessed.
+      - name: Print the OIDC claims (non-secret, informational)
+        env:
+          JIRA_KEY: ${{ inputs.jira_key }}
+        run: |
+          set -euo pipefail
+          [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ] \
+            || { echo "::error::no OIDC request variables: the job needs id-token: write"; exit 1; }
+          echo "::add-mask::$ACTIONS_ID_TOKEN_REQUEST_TOKEN"
+          RESPONSE="$(curl --silent --show-error --fail --max-time 20 \
+            --header "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com")" || { echo "::error::the OIDC token request failed"; exit 1; }
+          TOKEN="$(jq -er .value <<<"$RESPONSE" 2>/dev/null)" || { echo "::error::the OIDC response held no token"; exit 1; }
+          echo "::add-mask::$TOKEN"
+          printf '%s' "$TOKEN" | node services/backend-core/deploy/lab/oidc-claims-check.cjs \
+            --jira-key "$JIRA_KEY" --workflow-file deploy-system-lab.yml --summary "$GITHUB_STEP_SUMMARY" \
+            || echo "::warning::a claim differs from the trust design; see the step summary (AWS STS still decides)"
+
+      # A role is assumed again before each document (a session lasts 3600 s; the documents may
+      # take longer in total). A step that fails stops every later step: no document after it runs.
+      - name: Assume the deploy role for the backup (GitHub OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: rt-deploy-system-lab-backup-${{ github.run_id }}
+          role-duration-seconds: 3600
+
+      - name: Run RT-BackendLabBackup on lab-02
+        id: backup
+        env:
+          BACKEND_RELEASE: ${{ steps.values.outputs.target_backend_release }}
+          CURRENT_RELEASE: ${{ steps.values.outputs.current_backend_release }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+          RUN_ID: ${{ github.run_id }}
+          LABEL: backup
+          HOST: lab-02
+          DOCUMENT: RT-BackendLabBackup
+          LIMIT: "960"
+          INTERVAL: "15"
+          RESULT_RE: '^RT_(GATE|FAIL|PRIOR|TARGET|BACKUP|REVERT|DONE)( [A-Za-z0-9=:._/-]+)*$'
+          # The backup document completes with the reference of the dump; the deploy step takes it from there.
+          DONE_RE: '^RT_BACKUP name=rtlab-([0-9a-f]{12}|v[0-9]+\.[0-9]+\.[0-9]+)-to-v[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}T[0-9]{6}Z\.dump sha256=[0-9a-f]{64}$'
+        run: |
+          set -euo pipefail
+          export LIVE="$RUNNER_TEMP/live"
+          mkdir -p "$LIVE"
+          jq -n --arg t "$BACKEND_RELEASE" --arg c "$CURRENT_RELEASE" --arg j "$JIRA_KEY" \
+            '{ReleaseTag: [$t], CurrentRelease: [$c], JiraKey: [$j]}' > "$LIVE/backup-params.json"
+          PARAMS="$LIVE/backup-params.json" bash .github/release/ssm-run.sh
+
+      - name: Assume the deploy role for the Backend-Core deploy (GitHub OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: rt-deploy-system-lab-backend-${{ github.run_id }}
+          role-duration-seconds: 3600
+
+      - name: Run RT-BackendLabDeploy on lab-01
+        id: backend
+        env:
+          BACKEND_RELEASE: ${{ steps.values.outputs.target_backend_release }}
+          CURRENT_RELEASE: ${{ steps.values.outputs.current_backend_release }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+          RELEASE_SHA: ${{ needs.preflight.outputs.backend_release_sha }}
+          API_DIGEST: ${{ needs.preflight.outputs.api_digest }}
+          WORKER_DIGEST: ${{ needs.preflight.outputs.worker_digest }}
+          MIGRATE_DIGEST: ${{ needs.preflight.outputs.migrate_digest }}
+          ROLLBACK_ALLOWED: ${{ needs.preflight.outputs.rollback_allowed }}
+          RUN_ID: ${{ github.run_id }}
+          LABEL: backend
+          HOST: lab-01
+          DOCUMENT: RT-BackendLabDeploy
+          LIMIT: "1860"
+          INTERVAL: "15"
+          RESULT_RE: '^RT_(GATE|FAIL|PRIOR|TARGET|BACKUP|REVERT|DONE)( [A-Za-z0-9=:._/-]+)*$'
+        run: |
+          set -euo pipefail
+          export LIVE="$RUNNER_TEMP/live"
+          fail() { echo "::error::backend: $*"; echo "backend: $*" > "$LIVE/failure.txt"; exit 1; }
+          # rtlab-<current id>-to-<target id>-<UTC stamp>.dump; an id is a legacy <sha12> or vX.Y.Z (no `/`).
+          BACKUP_LINE="$(grep -E '^RT_BACKUP name=rtlab-([0-9a-f]{12}|v[0-9]+\.[0-9]+\.[0-9]+)-to-v[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}T[0-9]{6}Z\.dump sha256=[0-9a-f]{64}$' "$LIVE/backup.lines" || true)"
+          [ "$(grep -c . <<<"$BACKUP_LINE" || true)" = 1 ] || fail "no single backup reference reported by the backup document"
+          BACKUP_NAME="$(sed -E 's/^RT_BACKUP name=([^ ]+) sha256=.*$/\1/' <<<"$BACKUP_LINE")"
+          BACKUP_SHA256="$(sed -E 's/^.* sha256=([0-9a-f]{64})$/\1/' <<<"$BACKUP_LINE")"
+          jq -n --arg t "$BACKEND_RELEASE" --arg s "$RELEASE_SHA" --arg c "$CURRENT_RELEASE" --arg j "$JIRA_KEY" \
+            --arg a "$API_DIGEST" --arg w "$WORKER_DIGEST" --arg m "$MIGRATE_DIGEST" \
+            --arg bn "$BACKUP_NAME" --arg bs "$BACKUP_SHA256" --arg r "$ROLLBACK_ALLOWED" \
+            '{ReleaseTag: [$t], ReleaseSha: [$s], CurrentRelease: [$c], JiraKey: [$j], ApiDigest: [$a], WorkerDigest: [$w],
+              MigrateDigest: [$m], BackupName: [$bn], BackupSha256: [$bs], RollbackAllowed: [$r]}' > "$LIVE/deploy-params.json"
+          DONE_LINE="RT_DONE release=$BACKEND_RELEASE" PARAMS="$LIVE/deploy-params.json" bash .github/release/ssm-run.sh
+
+      - name: Assume the deploy role for the Console deploy (GitHub OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: rt-deploy-system-lab-console-${{ github.run_id }}
+          role-duration-seconds: 3600
+
+      - name: Run RT-ConsoleLabDeploy on lab-01
+        id: console
+        env:
+          CONSOLE_RELEASE: ${{ steps.values.outputs.target_console_release }}
+          BACKEND_RELEASE: ${{ steps.values.outputs.target_backend_release }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+          ARCHIVE_DIGEST: ${{ needs.preflight.outputs.console_archive_digest }}
+          RELEASE_SHA: ${{ needs.preflight.outputs.console_release_sha }}
+          CONTRACT_PIN: ${{ needs.preflight.outputs.console_contract_pin }}
+          RUN_ID: ${{ github.run_id }}
+          LABEL: console
+          HOST: lab-01
+          DOCUMENT: RT-ConsoleLabDeploy
+          LIMIT: "660"
+          INTERVAL: "10"
+          RESULT_RE: '^RT_(GATE|FAIL|PRIOR|TARGET|SWAP|REVERT|DONE)( [A-Za-z0-9=:._/-]+)*$'
+        run: |
+          set -euo pipefail
+          export LIVE="$RUNNER_TEMP/live"
+          jq -n --arg t "$CONSOLE_RELEASE" --arg d "$ARCHIVE_DIGEST" --arg s "$RELEASE_SHA" --arg p "$CONTRACT_PIN" \
+            --arg b "$BACKEND_RELEASE" --arg j "$JIRA_KEY" \
+            '{ReleaseTag: [$t], ArchiveDigest: [$d], ExpectedSha: [$s], ExpectedPin: [$p], BackendRelease: [$b], JiraKey: [$j]}' \
+            > "$LIVE/console-params.json"
+          DONE_LINE="RT_DONE release=$CONSOLE_RELEASE" PARAMS="$LIVE/console-params.json" bash .github/release/ssm-run.sh
+
+      - name: Assume the deploy role for the ERP deploy (GitHub OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: rt-deploy-system-lab-erp-${{ github.run_id }}
+          role-duration-seconds: 3600
+
+      - name: Run RT-ErpLabDeploy on lab-03
+        id: erp
+        env:
+          JIRA_KEY: ${{ inputs.jira_key }}
+          TARGET_DIGEST: ${{ steps.values.outputs.target_erp_digest }}
+          CURRENT_IMAGE: ${{ steps.values.outputs.current_erp_image }}
+          CURRENT_TREE: ${{ needs.preflight.outputs.erp_current_tree }}
+          EXPECTED_VERSION: ${{ needs.preflight.outputs.erp_expected_version }}
+          ROLLBACK_CLASS: ${{ needs.preflight.outputs.erp_rollback_class }}
+          MIN_FREE_GIB: "10"
+          RUN_ID: ${{ github.run_id }}
+          LABEL: erp
+          HOST: lab-03
+          DOCUMENT: RT-ErpLabDeploy
+          LIMIT: "3300"
+          INTERVAL: "20"
+          RESULT_RE: '^RT_(GATE [a-z0-9_]+=(pass|workers-restarted|fail(:[A-Za-z0-9._-]+)?)|SITE=[A-Za-z0-9._-]+|BACKUP=/var/backups/rt-erp/[0-9]+ sha256=[0-9a-f]{64}|MIGRATE rc=[0-9]+ seconds=[0-9]+|DIGEST_AFTER=sha256:[0-9a-f]{64}|RESUMED_AT=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z|OUTCOME=(deployed|held|failed))$'
+          DONE_LINE: RT_OUTCOME=deployed
+        run: |
+          set -euo pipefail
+          export LIVE="$RUNNER_TEMP/live"
+          # After any ERP deploy all six services run one image (the document's verify step), so the
+          # image the system version live now runs is the one image of its manifest.
+          IMAGES="$(jq -cn --arg i "$CURRENT_IMAGE" '{backend: $i, frontend: $i, websocket: $i, scheduler: $i, "queue-short": $i, "queue-long": $i}')"
+          jq -n --arg d "$TARGET_DIGEST" --arg i "$IMAGES" --arg t "$CURRENT_TREE" --arg v "$EXPECTED_VERSION" \
+            --arg r "$RUN_ID" --arg m "$MIN_FREE_GIB" --arg j "$JIRA_KEY" --arg k "$ROLLBACK_CLASS" \
+            '{TargetDigest: [$d], CurrentImages: [$i], CurrentTree: [$t], ExpectedVersion: [$v], Hold: ["false"], RunId: [$r],
+              SaveCurrentImage: ["false"], MinFreeGiB: [$m], JiraKey: [$j], RollbackClass: [$k]}' > "$LIVE/erp-params.json"
+          PARAMS="$LIVE/erp-params.json" bash .github/release/ssm-run.sh
+
+      # The system ledger: the manifests, the gate results, each document's prior and target
+      # version, the strict RT_* lines, and the manual rollback inputs of every step that finished.
+      # Built only from the files ssm-run.sh wrote. No secrets.
+      - name: Write the system ledger
+        if: always()
+        env:
+          MANIFEST: ${{ inputs.manifest }}
+          CURRENT_MANIFEST: ${{ inputs.current_manifest }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ROLLBACK_ALLOWED: ${{ needs.preflight.outputs.rollback_allowed }}
+          ERP_ROLLBACK_CLASS: ${{ needs.preflight.outputs.erp_rollback_class }}
+          GATE_RESULTS: ${{ needs.preflight.outputs.gate_results }}
+        run: |
+          set -euo pipefail
+          LIVE="$RUNNER_TEMP/live"
+          mkdir -p "$LIVE"
+          python3 .github/release/system_ledger.py final --manifest "$MANIFEST" --current-manifest "$CURRENT_MANIFEST" \
+            --jira-key "$JIRA_KEY" --actor "$ACTOR" --run-url "$RUN_URL" --live-dir "$LIVE" --gates "$GATE_RESULTS" \
+            --rollback-allowed "$ROLLBACK_ALLOWED" --erp-rollback-class "$ERP_ROLLBACK_CLASS" --out "$RUNNER_TEMP/live-ledger"
+          cat "$RUNNER_TEMP/live-ledger/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the system ledger
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: deploy-system-lab-live-ledger-${{ github.run_id }}
+          path: ${{ runner.temp }}/live-ledger/
+          if-no-files-found: warn
+          retention-days: 90
