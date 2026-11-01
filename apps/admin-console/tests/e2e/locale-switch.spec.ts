@@ -143,5 +143,7 @@ test("one locale at a time: the frame's own copy never mixes in the other script
     .allTextContents();
   expect(chrome.length).toBeGreaterThan(5);
   const foreign = appLocale === "ar" ? /[A-Za-z]{2,}/ : /[؀-ۿ]/;
-  for (const text of chrome) expect(foreign.test(text), text).toBe(false);
+  // RT-993: the Overview title greets the user by name; the name is data, not copy.
+  const name = context.user.display_name;
+  for (const text of chrome) expect(foreign.test(text.replace(name, "")), text).toBe(false);
 });

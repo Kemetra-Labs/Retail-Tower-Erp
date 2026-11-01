@@ -433,9 +433,15 @@ describe("trend against the previous period", () => {
       y: 0,
       toJSON: () => ({}),
     });
-    // Near the newest day: index 13 of 14 (the hover tooltip shows its difference).
-    fireEvent.pointerMove(chart, { clientX: 550, clientY: 100 });
-    expect(trend().querySelector(".trend-chart__tip")).not.toBeNull();
+    // Near the newest day: index 13 of 14. jsdom's PointerEvent drops clientX, so
+    // the move is a MouseEvent of the pointermove type, which keeps it.
+    act(() => {
+      chart.dispatchEvent(
+        new MouseEvent("pointermove", { bubbles: true, clientX: 550, clientY: 100 }),
+      );
+    });
+    const tip = trend().querySelector(".trend-chart__tip") as HTMLElement;
+    expect(tip.querySelector("time")?.getAttribute("dateTime")).toBe(TODAY);
     fireEvent.click(within(trend()).getByRole("button", { name: "7 days" }));
     expect(within(trend()).getByRole("img", { name: /the last 7 business days/ })).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
