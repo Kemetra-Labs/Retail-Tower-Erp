@@ -19,13 +19,18 @@ import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { useT } from "@/i18n";
 import type { TenantBranding } from "@/lib/tenant-branding-queries";
 import { useSignOut } from "@/shell/useSignOut";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { CurrentLogo } from "./CurrentLogo";
 import { PreviewSkeleton, ReceiptPreview, ScreenPreview } from "./LogoPreviews";
 import { LogoUploadField } from "./LogoUploadField";
 import { canManageLogo } from "./brandingAccess";
-import { type EditorNotice, type LogoEditor, useLogoEditor } from "./useLogoEditor";
+import {
+  type EditorFocus,
+  type EditorNotice,
+  type LogoEditor,
+  useLogoEditor,
+} from "./useLogoEditor";
 import { type BrandingRead, useStoreBranding, useTenantBranding } from "./useTenantBranding";
 import "../shell/surface.css";
 import "./branding.css";
@@ -80,7 +85,7 @@ function EditorActions({ editor }: Readonly<{ editor: LogoEditor }>): React.JSX.
       ) : null}
       <GatedButton
         className="btn-primary"
-        disabled={phase.kind !== "preview"}
+        disabled={phase.kind !== "preview" || editor.notice?.kind === "conflict"}
         busy={editor.busy === "save"}
         onClick={() => void editor.save()}
       >
@@ -102,10 +107,19 @@ function BrandingEditor({
   branding: TenantBranding;
   onReload: () => void;
 }>): React.JSX.Element {
+  const t = useT();
   const signOut = useSignOut();
-  const editor = useLogoEditor(tenantId, branding.revision, useStoreBranding(tenantId));
+  const [focusTarget, setFocusTarget] = useState<EditorFocus | null>(null);
+  const editor = useLogoEditor(
+    tenantId,
+    branding.revision,
+    useStoreBranding(tenantId),
+    setFocusTarget,
+  );
   const inputRef = useRef<HTMLInputElement>(null);
   const controlRef = useRef<HTMLButtonElement>(null);
+  const replaceRef = useRef<HTMLButtonElement>(null);
+  const removeRef = useRef<HTMLButtonElement>(null);
   const noticeRef = useRef<HTMLDivElement>(null);
   const { phase, notice } = editor;
   const file = phase.kind === "idle" ? null : phase.file;
@@ -116,6 +130,16 @@ function BrandingEditor({
   useEffect(() => {
     if (notice?.kind === "saved" || notice?.kind === "removed") noticeRef.current?.focus();
   }, [notice]);
+
+  // The focused control left the page (replace hid, actions closed, confirm
+  // closed): focus goes to the control that now owns the flow (UX-11.8).
+  useEffect(() => {
+    if (!focusTarget || editor.busy) return;
+    const entry = replaceRef.current ?? controlRef.current;
+    const target = { control: controlRef.current, entry, remove: removeRef.current }[focusTarget];
+    target?.focus();
+    setFocusTarget(null);
+  }, [focusTarget, editor.busy]);
 
   if (editor.noAccess) return <NoAccess onSignOut={signOut} />;
 
@@ -139,6 +163,8 @@ function BrandingEditor({
         confirmingRemove={editor.confirmingRemove}
         removing={editor.busy === "remove"}
         onReplace={openPicker}
+        replaceRef={replaceRef}
+        removeRef={removeRef}
         onAskRemove={editor.askRemove}
         onRemove={() => void editor.remove()}
       />
@@ -150,13 +176,17 @@ function BrandingEditor({
           accept={ACCEPT}
           tabIndex={-1}
           aria-hidden="true"
-          aria-invalid={refusal ? true : undefined}
           onChange={(e) => {
             const chosen = e.currentTarget.files?.[0];
             if (chosen) editor.choose(chosen);
           }}
         />
       </form>
+
+      {/* Persistent, so a refusal is announced even when the field mounts with it. */}
+      <p className="sr-only" aria-live="polite">
+        {refusal ? `${t(refusal)} ${t("branding.refusal.unchanged")}` : ""}
+      </p>
 
       {!hasLogo || file ? (
         <LogoUploadField
@@ -202,8 +232,10 @@ function BrandingBody({
       return <BrandingEditor tenantId={tenantId} branding={result.data} onReload={refetch} />;
     case "session":
       return <Banner variant="danger" message={t("branding.sessionExpired")} />;
-    case "failed":
     case "rateLimited":
+      // The shell's RateLimitBanner says it and re-reads this query (brief §5.4).
+      return null;
+    case "failed":
     case "refused":
     case "conflict":
       return (

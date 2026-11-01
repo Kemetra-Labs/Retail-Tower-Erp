@@ -18,6 +18,8 @@ export interface CurrentLogoProps {
   confirmingRemove: boolean;
   removing: boolean;
   onReplace: () => void;
+  replaceRef: React.Ref<HTMLButtonElement>;
+  removeRef: React.RefObject<HTMLButtonElement | null>;
   onAskRemove: (open: boolean) => void;
   onRemove: () => void;
 }
@@ -53,11 +55,12 @@ export function CurrentLogo({
   confirmingRemove,
   removing,
   onReplace,
+  replaceRef,
+  removeRef,
   onAskRemove,
   onRemove,
 }: Readonly<CurrentLogoProps>): React.JSX.Element {
   const t = useT();
-  const removeRef = useRef<HTMLButtonElement>(null);
   const thumb = logo ? renditionFor(logo.screen, "pairing", 1) : undefined;
 
   const closeConfirm = () => {
@@ -97,9 +100,9 @@ export function CurrentLogo({
       ) : null}
       {logo && !editing && !confirmingRemove ? (
         <div className="surface__actions">
-          <button type="button" className="btn-secondary" onClick={onReplace}>
+          <GatedButton ref={replaceRef} className="btn-secondary" onClick={onReplace}>
             {t("branding.replace")}
-          </button>
+          </GatedButton>
           <button
             ref={removeRef}
             type="button"

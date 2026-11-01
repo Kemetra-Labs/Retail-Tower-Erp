@@ -95,12 +95,12 @@ describe("tenant branding wrappers", () => {
     expect(res.retryAfter).toBe("7");
   });
 
-  test("an aborted preview rejects instead of resolving a stale answer", async () => {
+  test("the preview carries the caller's abort signal to the request", async () => {
     const controller = new AbortController();
+    const pending = consolePreviewTenantLogo(TENANT_ID, file(), controller.signal);
     controller.abort();
-    net.answer = () => {
-      throw new DOMException("aborted", "AbortError");
-    };
-    await expect(consolePreviewTenantLogo(TENANT_ID, file(), controller.signal)).rejects.toThrow();
+    await pending.catch(() => undefined);
+    const [req] = net.requests;
+    expect(req.signal.aborted).toBe(true);
   });
 });

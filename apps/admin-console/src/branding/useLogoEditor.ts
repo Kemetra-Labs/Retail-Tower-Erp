@@ -14,6 +14,12 @@
  * - `formKey` remounts the hidden file form after a refusal, a cancel, a save or
  *   a removal: the unsaved-work guard (RT-268) drops a form that left the page,
  *   and the same file can be chosen again.
+ * - A choice or a cancel while a save is in flight wins: the late save answer
+ *   does not bring back the old flow (its stored branding is still kept, since
+ *   the server did write it).
+ * - `onFocus` tells the page where focus goes when the focused control leaves:
+ *   the file control after a choice, the entry control after a cancel, the
+ *   remove button when a conflict closes the remove confirm.
  */
 import type { MessageKey } from "@/i18n";
 import {
@@ -33,6 +39,8 @@ export type EditorPhase =
   | { kind: "refused"; file: File; messageKey: MessageKey }
   /** The preview stopped on a 429 or a failure; the file is kept for a re-run. */
   | { kind: "retry"; file: File };
+
+export type EditorFocus = "control" | "entry" | "remove";
 
 export type EditorNotice =
   | { kind: "saved" }
@@ -76,6 +84,7 @@ export function useLogoEditor(
   tenantId: string,
   revision: number,
   storeBranding: (b: TenantBranding) => void,
+  onFocus: (target: EditorFocus) => void,
 ): LogoEditor {
   const [phase, setPhase] = useState<EditorPhase>({ kind: "idle" });
   const [notice, setNotice] = useState<EditorNotice | null>(null);
@@ -84,6 +93,8 @@ export function useLogoEditor(
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [formKey, setFormKey] = useState(0);
   const running = useRef<AbortController | null>(null);
+  // Bumped by every choice and cancel, so a late save answer can tell it is stale.
+  const generation = useRef(0);
 
   useEffect(() => () => running.current?.abort(), []);
 
@@ -123,6 +134,8 @@ export function useLogoEditor(
   };
 
   const choose = (file: File) => {
+    generation.current += 1;
+    onFocus("control");
     setNotice((n) => (n?.kind === "conflict" ? n : null));
     setConfirmingRemove(false);
     const local = precheckLogoFile(file);
@@ -143,6 +156,7 @@ export function useLogoEditor(
   const save = async () => {
     if (phase.kind !== "preview" || busy) return;
     const { file, preview } = phase;
+    const started = generation.current;
     setBusy("save");
     setNotice(null);
     const outcome = await settle(() =>
@@ -152,6 +166,10 @@ export function useLogoEditor(
       }),
     );
     setBusy(null);
+    if (started !== generation.current) {
+      if (outcome.kind === "ok") storeBranding(outcome.data);
+      return;
+    }
     if (outcome.kind === "ok") {
       storeBranding(outcome.data);
       setPhase({ kind: "idle" });
@@ -179,11 +197,16 @@ export function useLogoEditor(
       resetForm();
       return;
     }
-    if (outcome.kind === "conflict") setConfirmingRemove(false);
+    if (outcome.kind === "conflict") {
+      setConfirmingRemove(false);
+      onFocus("remove");
+    }
     common(outcome);
   };
 
   const cancel = () => {
+    generation.current += 1;
+    onFocus("entry");
     running.current?.abort();
     running.current = null;
     setPhase({ kind: "idle" });

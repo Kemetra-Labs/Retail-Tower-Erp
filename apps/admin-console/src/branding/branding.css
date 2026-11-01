@@ -68,7 +68,7 @@
   margin: 0;
 }
 .logo-confirm .surface__actions {
-  margin-top: 0;
+  margin-block-start: 0;
 }
 
 /* --- Section 2: the upload field ------------------------------------------- */
@@ -220,7 +220,7 @@
 
 /* --- Actions --------------------------------------------------------------- */
 .logo-actions {
-  margin-top: 0;
+  margin-block-start: 0;
   padding-block-start: var(--space-5);
   border-block-start: 1px solid var(--color-border);
 }

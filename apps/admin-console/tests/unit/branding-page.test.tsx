@@ -293,10 +293,15 @@ describe("refusals (state G)", () => {
     renderPage();
     await screen.findByRole("button", { name: "استبدال الشعار" });
     choose(pngFile());
-    expect(await screen.findByText(/الصورة صغيرة/)).toBeDefined();
+    expect(
+      await screen.findByText(/الصورة صغيرة/, { selector: ".logo-upload__error-line" }),
+    ).toBeDefined();
     expect(screen.getByText("لم يتغيّر الشعار الحالي.")).toBeDefined();
-    expect(fileInput().getAttribute("aria-invalid")).toBe("true");
+    const live = document.querySelector('p.sr-only[aria-live="polite"]');
+    expect(live?.textContent).toContain("الصورة صغيرة");
+    expect(live?.textContent).toContain("لم يتغيّر الشعار الحالي.");
     const control = screen.getByRole("button", { name: "اختيار ملف آخر" });
+    expect(document.activeElement).toBe(control);
     const described = (control.getAttribute("aria-describedby") ?? "")
       .split(" ")
       .map((id) => document.getElementById(id)?.textContent ?? "")
@@ -365,17 +370,47 @@ describe("save, conflict and remove (states H to J)", () => {
       ),
     ).toBeDefined();
     expect(api.get).toHaveBeenCalledTimes(1);
+    // A save that is sure to 409 again stays unavailable until the page is refreshed.
+    expect((saveButton() as HTMLButtonElement).disabled).toBe(true);
+
+    api.get.mockResolvedValue({ status: 200, data: brandingWithLogo(5) });
+    fireEvent.click(screen.getByRole("button", { name: "تحديث الصفحة" }));
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect((saveButton() as HTMLButtonElement).disabled).toBe(false));
+    api.put.mockResolvedValue({ status: 200, data: brandingWithLogo(6) });
     fireEvent.click(saveButton());
     await waitFor(() => expect(api.put).toHaveBeenCalledTimes(2));
-    expect(api.put.mock.calls[1][2]).toEqual({ previewVersion: VERSION_B, expectedRevision: 3 });
+    expect(api.put.mock.calls[1][2]).toEqual({ previewVersion: VERSION_B, expectedRevision: 5 });
+  });
+
+  test("a cancel while the save is in flight wins: a late refusal does not reopen the editor", async () => {
+    await previewReady();
+    let answer: (v: unknown) => void = () => {};
+    api.put.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          answer = r;
+        }),
+    );
+    fireEvent.click(saveButton());
+    fireEvent.click(screen.getByRole("button", { name: "إلغاء" }));
+    await act(async () => {
+      answer(refusal(409, "logo_preview_mismatch"));
+    });
+    expect(screen.queryByText(/الملف لا يطابق المعاينة المعروضة/)).toBeNull();
+    expect(screen.getByRole("button", { name: "استبدال الشعار" })).toBeDefined();
   });
 
   test("409 logo_preview_mismatch on save is a field refusal", async () => {
     await previewReady();
     api.put.mockResolvedValue(refusal(409, "logo_preview_mismatch"));
     fireEvent.click(saveButton());
-    expect(await screen.findByText(/الملف لا يطابق المعاينة المعروضة/)).toBeDefined();
-    expect(fileInput().getAttribute("aria-invalid")).toBe("true");
+    expect(
+      await screen.findByText(/الملف لا يطابق المعاينة المعروضة/, {
+        selector: ".logo-upload__error-line",
+      }),
+    ).toBeDefined();
+    expect(screen.queryByRole("img", { name: "شاشة التشغيل" })).toBeNull();
   });
 
   test("a 500 on save shows the generic error with the request id; the logo is unchanged", async () => {
@@ -418,11 +453,33 @@ describe("save, conflict and remove (states H to J)", () => {
     expect(screen.getByText(/لا يوجد شعار للمؤسسة/)).toBeDefined();
   });
 
-  test("cancel discards the preview and returns to the current logo", async () => {
+  test("cancel discards the preview and returns focus to «استبدال الشعار»", async () => {
     await previewReady();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "اختيار ملف آخر" }));
     fireEvent.click(screen.getByRole("button", { name: "إلغاء" }));
     expect(screen.queryByText("كما سيظهر على أجهزة الكاشير")).toBeNull();
-    expect(screen.getByRole("button", { name: "استبدال الشعار" })).toBeDefined();
+    const replace = screen.getByRole("button", { name: "استبدال الشعار" });
+    await waitFor(() => expect(document.activeElement).toBe(replace));
+  });
+
+  test("a conflict on remove closes the confirm and returns focus to «إزالة الشعار»", async () => {
+    api.get.mockResolvedValue({ status: 200, data: brandingWithLogo() });
+    api.del.mockResolvedValue(refusal(409, "logo_changed_concurrently"));
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "إزالة الشعار" }));
+    const region = screen.getByText(/إزالة شعار المؤسسة؟/).closest("section") as HTMLElement;
+    fireEvent.click(within(region).getByRole("button", { name: "إزالة الشعار" }));
+    expect(await screen.findByText(/تغيّر شعار المؤسسة بعد فتحك/)).toBeDefined();
+    const remove = screen.getByRole("button", { name: "إزالة الشعار" });
+    await waitFor(() => expect(document.activeElement).toBe(remove));
+  });
+
+  test("a 429 on the first read leaves the message to the shell's banner", async () => {
+    api.get.mockResolvedValue({ ...refusal(429, "rate_limited"), retryAfter: "30" });
+    renderPage();
+    await waitFor(() => expect(api.get).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText("جارٍ التحميل")).toBeNull());
+    expect(screen.queryByText("تعذّر تحميل شعار المؤسسة.")).toBeNull();
   });
 });
 

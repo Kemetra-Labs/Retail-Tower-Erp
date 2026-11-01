@@ -10,7 +10,7 @@
  * resampled, filtered or re-encoded. CSS sets only the display size. Pixels are
  * never read back.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
   const binary = atob(base64);
@@ -42,6 +42,7 @@ export function RenditionCanvas({
   className,
 }: Readonly<RenditionCanvasProps>): React.JSX.Element {
   const ref = useRef<HTMLCanvasElement>(null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -58,9 +59,11 @@ export function RenditionCanvas({
         bitmap = decoded;
         canvas.getContext("2d")?.drawImage(decoded, 0, 0);
       },
-      // An undecodable rendition stays blank; the server produced and validated
-      // it, so there is nothing the admin can do here, and no stale logo is drawn.
-      () => undefined,
+      // An undecodable rendition stays blank and is no longer announced as the
+      // logo; the server produced and validated it, so the admin has no action.
+      () => {
+        if (!cancelled) setFailed(true);
+      },
     );
     return () => {
       cancelled = true;
@@ -71,8 +74,9 @@ export function RenditionCanvas({
   return (
     <canvas
       ref={ref}
-      role="img"
-      aria-label={label}
+      role={failed ? undefined : "img"}
+      aria-label={failed ? undefined : label}
+      aria-hidden={failed || undefined}
       width={widthPx}
       height={heightPx}
       className={className}

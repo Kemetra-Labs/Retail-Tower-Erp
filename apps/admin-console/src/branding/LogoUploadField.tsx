@@ -3,9 +3,12 @@
  * file input is visually hidden, because its own button text comes from the
  * browser's language, not the Console's; the visible button opens it and is the
  * control the admin focuses. A refusal is linked to that button with
- * `aria-describedby` and announced by a persistent polite live region; focus
- * stays where it was (brief §5.1).
+ * `aria-describedby`; the page's persistent polite live region announces it
+ * (this field can mount already refused, so it cannot be that region), and
+ * focus stays on the control (brief §5.1). The control waits out a running
+ * Retry-After like every other request control.
  */
+import { GatedButton } from "@/components/GatedButton";
 import { formatNumber, useT } from "@/i18n";
 import type { MessageKey } from "@/i18n";
 
@@ -40,15 +43,14 @@ export function LogoUploadField({
       <fieldset className="logo-upload">
         <legend className="logo-upload__label">{t("branding.upload.label")}</legend>
         <div className="logo-upload__row">
-          <button
+          <GatedButton
             ref={controlRef}
-            type="button"
             className={primary ? "btn-primary" : "btn-secondary"}
             aria-describedby={`${LOGO_REQUIREMENTS_ID} ${LOGO_ERROR_ID}`}
             onClick={onOpen}
           >
             {t(file || hasLogo ? "branding.upload.chooseAnother" : "branding.upload.choose")}
-          </button>
+          </GatedButton>
           {file ? (
             <span className="logo-upload__file">
               <bdi dir="ltr">{file.name}</bdi>
@@ -64,7 +66,7 @@ export function LogoUploadField({
         <p id={LOGO_REQUIREMENTS_ID} className="logo-upload__hint">
           {t("branding.upload.requirements")}
         </p>
-        <p id={LOGO_ERROR_ID} className="logo-upload__error" aria-live="polite">
+        <p id={LOGO_ERROR_ID} className="logo-upload__error">
           {refusal ? (
             <>
               <span className="logo-upload__error-line">{t(refusal)}</span>
