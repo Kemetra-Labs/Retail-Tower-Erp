@@ -174,13 +174,21 @@ describe("RT-628 — partial outage and errors", () => {
     expect(svc.calls).toEqual([]);
   });
 
-  it("account check passes, IP check hangs: 503 within the bound, and the account hit is given back", async () => {
-    limiter.mode = { signin_ip: "hang" };
+  // RT-625 test 18: a timeout on each of the three sign-in buckets (checked
+  // pair -> account -> IP) answers 503 + Retry-After: 30 and gives back every
+  // reservation taken before it.
+  it.each([
+    ["signin_pair", []],
+    ["signin_account", ["signin_pair"]],
+    ["signin_ip", ["signin_pair", "signin_account"]],
+  ])("RT-625 test 18: %s hangs: 503 + Retry-After within the bound, and %p given back", async (bucket, released) => {
+    limiter.mode = { [bucket]: "hang" };
     const started = Date.now();
     const res = await request(app.getHttpServer()).post(ROUTES[0].path).send(ROUTES[0].body);
     expect(res.status).toBe(503);
+    expect(res.headers["retry-after"]).toBe(String(PUBLIC_AUTH_UNAVAILABLE_RETRY_AFTER_SECONDS));
     expect(Date.now() - started).toBeLessThan(LATENCY_BOUND_MS);
-    expect(limiter.released).toEqual(["signin_account"]);
+    expect(limiter.released).toEqual(released);
     expect(svc.calls).toEqual([]);
   });
 
@@ -210,15 +218,22 @@ describe("RT-628 — partial outage and errors", () => {
     expect(statuses).toEqual([200, 202, 204, 204]);
   });
 
-  it.each(["hang", "throw"] as const)(
-    "RT-626: per-IP reset check passes, per-email check %ss: still 202 within the bound, nothing sent",
-    async (mode) => {
-      limiter.mode = { pwreset_email: mode };
+  // RT-625 test 24: the reset two-tier keeps RT-626's outage posture on both tiers.
+  it.each([
+    ["pwreset_pair", "hang", []],
+    ["pwreset_pair", "throw", []],
+    ["pwreset_email", "hang", ["pwreset_pair"]],
+    ["pwreset_email", "throw", ["pwreset_pair"]],
+  ] as const)(
+    "RT-626 / RT-625 test 24: per-IP reset check passes, %s check %ss: still 202 within the bound, nothing sent, %p given back",
+    async (bucket, mode, released) => {
+      limiter.mode = { [bucket]: mode };
       const started = Date.now();
       const res = await request(app.getHttpServer()).post(ROUTES[1].path).send(ROUTES[1].body);
       expect(res.status).toBe(202);
-      expect(Date.now() - started).toBeLessThan(LATENCY_BOUND_MS);
+      expect(Date.now() - started).toBeLessThan(LATENCY_BOUND_MS + TIMEOUT_MS);
       expect(svc.calls).toEqual([]);
+      expect(limiter.released).toEqual(released);
     },
   );
 });

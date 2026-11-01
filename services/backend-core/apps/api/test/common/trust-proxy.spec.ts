@@ -57,8 +57,16 @@ describe("checkTrustProxyConfig", () => {
       });
     });
 
-    it.each(["false", "1", "2", "true"])("explicit %p is silent", (raw) => {
+    // RT-625 D3: an explicit `true`, or `false` behind a proxy, now refuses
+    // boot (trust-proxy-hop-count.spec.ts); a hop count stays silent.
+    it.each(["1", "2"])("explicit hop count %p is silent", (raw) => {
       expect(checkTrustProxyConfig({ ...base, TRUST_PROXY: raw })).toEqual({ warn: false });
+    });
+
+    it("explicit false is silent for a declared direct deployment", () => {
+      expect(
+        checkTrustProxyConfig({ ...base, TRUST_PROXY: "false", TRUST_PROXY_DIRECT_DEPLOYMENT: "true" }),
+      ).toEqual({ warn: false });
     });
   });
 
@@ -91,11 +99,11 @@ describe("checkTrustProxyConfig", () => {
         }),
       ).toThrow(/TRUST_PROXY/);
     });
-    it("does not throw when TRUST_PROXY is explicit", () => {
+    it("does not throw when TRUST_PROXY is an explicit hop count", () => {
       expect(
         checkTrustProxyConfig({
           NODE_ENV: "production",
-          TRUST_PROXY: "false",
+          TRUST_PROXY: "1",
           TRUST_PROXY_REQUIRED: "true",
         }),
       ).toEqual({ warn: false });

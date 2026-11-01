@@ -197,6 +197,10 @@ beforeAll(async () => {
       .compile();
 
     app = moduleRef.createNestApplication({ bufferLogs: true });
+    // RT-625: one trusted proxy hop, as deployed (TRUST_PROXY=1), so a test can
+    // set the client IP with X-Forwarded-For. A request without the header
+    // keeps the socket address, as before.
+    (app.getHttpAdapter().getInstance() as { set(key: string, value: unknown): void }).set("trust proxy", 1);
     app.use(cookieParser());
     const logger = createLogger({ service: "api-test", level: "silent" });
     app.useGlobalInterceptors(
@@ -444,6 +448,166 @@ describe("RT-136 — per-account sign-in lockout counts failures only", () => {
 // /signout
 // -----------------------------------------------------------------------
 
+// -----------------------------------------------------------------------
+// RT-625 — sign-in lockout redesign and the reset two-tier, end to end:
+// real users, real tokens, real rate-limit decisions (in-memory Redis),
+// client IPs set through one trusted proxy hop.
+// -----------------------------------------------------------------------
+
+describe("RT-625 — (email, IP) lockout and reset two-tier (db integration)", () => {
+  const X = "203.0.113.10";
+  const Y = "198.51.100.20";
+  const OTHERS = ["192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4"];
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  function signInFrom(ip: string, email: string, password: string) {
+    return http().post("/api/v1/auth/signin").set("X-Forwarded-For", ip).send({ email, password });
+  }
+
+  async function failFrom(ip: string, email: string, n: number): Promise<number[]> {
+    const statuses: number[] = [];
+    for (let i = 0; i < n; i++) statuses.push((await signInFrom(ip, email, "wrong-password")).status);
+    return statuses;
+  }
+
+  function resetFrom(ip: string, email: string) {
+    return http().post("/api/v1/auth/password-reset/request").set("X-Forwarded-For", ip).send({ email });
+  }
+
+  async function seedUser(password: string): Promise<{ id: string; email: string }> {
+    const id = newId();
+    const email = `rt625-${id}@example.com`;
+    await pool!.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)`, [
+      id,
+      email,
+      await hashPassword(password),
+    ]);
+    return { id, email };
+  }
+
+  it("test 1 (db): five failures from X lock X only; the correct password from Y signs in", async () => {
+    if (maybeSkip()) return;
+    expect(await failFrom(X, ALICE_EMAIL, 5)).toEqual([401, 401, 401, 401, 401]);
+    expect((await signInFrom(X, ALICE_EMAIL, ALICE_PASSWORD)).status).toBe(429);
+    expect((await signInFrom(Y, ALICE_EMAIL, ALICE_PASSWORD)).status).toBe(200);
+  });
+
+  it("test 4 (db): four IPs x five failures lock the account everywhere (accepted residual risk)", async () => {
+    if (maybeSkip()) return;
+    for (const ip of OTHERS) expect(await failFrom(ip, ALICE_EMAIL, 5)).toEqual([401, 401, 401, 401, 401]);
+    const fifth = await signInFrom("192.0.2.5", ALICE_EMAIL, ALICE_PASSWORD);
+    expect(fifth.status).toBe(429);
+    expectErrorEnvelope(fifth.body, "rate_limited");
+  });
+
+  it("test 10 (db): known and unknown emails get identical 401 bodies, and identical 429 bodies and Retry-After", async () => {
+    if (maybeSkip()) return;
+    const frozen = Date.now();
+    jest.spyOn(Date, "now").mockReturnValue(frozen);
+    const withoutRequestId = (body: { error?: Record<string, unknown> }) => ({
+      ...body,
+      error: { ...body.error, request_id: undefined },
+    });
+    const sequence = async (email: string) => {
+      const failures = [];
+      for (let i = 0; i < 5; i++) {
+        const r = await signInFrom(X, email, "wrong-password");
+        failures.push({ status: r.status, body: withoutRequestId(r.body) });
+      }
+      const blocked = await signInFrom(X, email, "wrong-password");
+      return {
+        failures,
+        blocked: { status: blocked.status, body: withoutRequestId(blocked.body), retryAfter: blocked.headers["retry-after"] },
+      };
+    };
+    const known = await sequence(ALICE_EMAIL);
+    const unknown = await sequence("rt625-ghost@example.com");
+    expect(unknown).toEqual(known);
+    expect(known.blocked.status).toBe(429);
+    expect(known.blocked.retryAfter).toBe("900");
+  });
+
+  it("test 16 (db): a successful reset confirm from Y clears the account (at 20) and Y's pair (at 5)", async () => {
+    if (maybeSkip()) return;
+    const user = await seedUser("old-password-12345");
+    expect(await failFrom(Y, user.email, 5)).toEqual([401, 401, 401, 401, 401]);
+    for (const ip of OTHERS.slice(0, 3)) await failFrom(ip, user.email, 5);
+    expect((await signInFrom(Y, user.email, "old-password-12345")).status).toBe(429);
+    expect((await signInFrom("192.0.2.9", user.email, "old-password-12345")).status).toBe(429);
+
+    expect((await resetFrom(Y, user.email)).status).toBe(202);
+    const rawToken = emailSpy.enqueuePasswordReset.mock.calls.at(-1)![0].rawToken;
+    const confirm = await http()
+      .post("/api/v1/auth/password-reset/confirm")
+      .set("X-Forwarded-For", Y)
+      .send({ token: rawToken, new_password: "brand-new-password-99" });
+    expect(confirm.status).toBe(204);
+
+    expect((await signInFrom(Y, user.email, "brand-new-password-99")).status).toBe(200);
+    // Only the confirming IP's pair is cleared; another IP's pair expires with its window.
+    expect((await signInFrom(OTHERS[0]!, user.email, "brand-new-password-99")).status).toBe(429);
+  });
+
+  it("test 17 (db): an invalid or expired reset confirm clears nothing", async () => {
+    if (maybeSkip()) return;
+    const user = await seedUser("old-password-12345");
+    expect(await failFrom(Y, user.email, 5)).toEqual([401, 401, 401, 401, 401]);
+
+    const invalid = await http()
+      .post("/api/v1/auth/password-reset/confirm")
+      .set("X-Forwarded-For", Y)
+      .send({ token: "definitely-not-a-real-token", new_password: "brand-new-password-99" });
+    expect(invalid.status).toBe(400);
+
+    expect((await resetFrom(Y, user.email)).status).toBe(202);
+    const rawToken = emailSpy.enqueuePasswordReset.mock.calls.at(-1)![0].rawToken;
+    await pool!.query(
+      `UPDATE auth_tokens SET expires_at = now() - interval '1 minute'
+        WHERE user_id = $1 AND scope = 'password_reset'`,
+      [user.id],
+    );
+    const expired = await http()
+      .post("/api/v1/auth/password-reset/confirm")
+      .set("X-Forwarded-For", Y)
+      .send({ token: rawToken, new_password: "brand-new-password-99" });
+    expect(expired.status).toBe(400);
+
+    expect((await signInFrom(Y, user.email, "old-password-12345")).status).toBe(429);
+  });
+
+  // The reset tests use a fresh user: every sent email issues an active reset
+  // token, and the password-reset/request describe counts Alice's tokens.
+  it("test 22 (db): five reset requests from X stop E's emails from X; Y still gets one (202 throughout)", async () => {
+    if (maybeSkip()) return;
+    const user = await seedUser("old-password-12345");
+    for (let i = 0; i < 6; i++) expect((await resetFrom(X, user.email)).status).toBe(202);
+    expect(emailSpy.enqueuePasswordReset).toHaveBeenCalledTimes(5);
+    expect((await resetFrom(Y, user.email)).status).toBe(202);
+    expect(emailSpy.enqueuePasswordReset).toHaveBeenCalledTimes(6);
+  });
+
+  it("test 23 / 24 (db): four IPs x five requests reach the per-email cap; a fifth IP answers the same 202 and sends nothing", async () => {
+    if (maybeSkip()) return;
+    const user = await seedUser("old-password-12345");
+    for (const ip of OTHERS) {
+      for (let i = 0; i < 5; i++) expect((await resetFrom(ip, user.email)).status).toBe(202);
+    }
+    expect(emailSpy.enqueuePasswordReset).toHaveBeenCalledTimes(20);
+
+    const known = await resetFrom("192.0.2.5", user.email);
+    const unknown = await resetFrom("192.0.2.5", "rt625-ghost@example.com");
+    expect(emailSpy.enqueuePasswordReset).toHaveBeenCalledTimes(20);
+    for (const res of [known, unknown]) {
+      expect(res.status).toBe(202);
+      expect(res.body).toEqual({});
+      expect(res.headers["retry-after"]).toBeUndefined();
+    }
+  });
+});
+
 describe("POST /api/v1/auth/signout", () => {
   it("returns 204 and revokes the session for an authenticated caller", async () => {
     if (maybeSkip()) return;
@@ -572,7 +736,7 @@ describe("POST /api/v1/auth/password-reset/request", () => {
     expect(emailSpy.enqueuePasswordReset).not.toHaveBeenCalled();
   });
 
-  it("RT-626: at most 5 reset emails per address per hour; extras are a silent 202", async () => {
+  it("RT-626 / RT-625: at most 5 reset emails per address per hour from one IP; extras are a silent 202", async () => {
     if (maybeSkip()) return;
     for (let i = 0; i < 5; i++) {
       const res = await http()

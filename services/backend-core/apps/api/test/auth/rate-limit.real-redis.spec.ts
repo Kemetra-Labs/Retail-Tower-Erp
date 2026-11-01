@@ -33,7 +33,12 @@ describe("AlwaysAllowRedis — the dev/CI stub never limits (RT-618 port)", () =
     for (let i = 0; i < 10; i++) {
       await expect(
         limiter.check("signin_account", "alice", RATE_LIMIT_BUCKETS.signInPerAccount),
-      ).resolves.toEqual({ allowed: true, count: 1, remaining: 4, resetMs: -1 });
+      ).resolves.toEqual({
+        allowed: true,
+        count: 1,
+        remaining: RATE_LIMIT_BUCKETS.signInPerAccount.limit - 1,
+        resetMs: -1,
+      });
     }
     await expect(limiter.release("signin_account", "alice")).resolves.toBeUndefined();
   });

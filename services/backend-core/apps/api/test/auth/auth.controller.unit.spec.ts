@@ -30,6 +30,18 @@
  */
 import "reflect-metadata";
 
+// RT-625 test 21: every line the controller and the public-auth limiter log is
+// recorded, so a test can prove no email or IP reaches a log line.
+const mockLogLines: unknown[][] = [];
+jest.mock("@data-pulse-2/shared", () => {
+  const actual = jest.requireActual("@data-pulse-2/shared");
+  const record = (...args: unknown[]): void => {
+    mockLogLines.push(args);
+  };
+  const logger = { trace: record, debug: record, info: record, warn: record, error: record, fatal: record };
+  return { ...actual, createLogger: () => ({ ...logger, child: () => logger }) };
+});
+
 import {
   BadRequestException,
   type CanActivate,
@@ -47,7 +59,9 @@ import type { AuthedRequest } from "../../src/auth/auth.guard";
 import type { Principal } from "../../src/auth/auth.guard";
 import { AuthService } from "../../src/auth/auth.service";
 import { RateLimiter } from "../../src/auth/rate-limit";
-import type { RateLimitDecision } from "../../src/auth/rate-limit";
+import type { RateLimitDecision, RedisLike, WindowHit } from "../../src/auth/rate-limit";
+import { emailIpPairKey } from "../../src/auth/public-auth-keys";
+import { fixedWindowHit, type FixedWindowEntry } from "../_helpers/fixed-window-hit";
 import { AuthController } from "../../src/auth/auth.controller";
 import { ZodValidationPipe } from "../../src/common/zod-validation.pipe";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
@@ -119,8 +133,12 @@ class FakeAuthService {
     this.lastRequestPasswordResetArgs = input;
   }
 
-  async confirmPasswordReset(input: { rawToken: string; newPassword: string }): Promise<void> {
+  /** RT-625 D2: the address the service reports for a successful confirm. */
+  confirmResetEmail: string | null = "user@example.com";
+
+  async confirmPasswordReset(input: { rawToken: string; newPassword: string }): Promise<string | null> {
     this.lastConfirmPasswordResetArgs = input;
+    return this.confirmResetEmail;
   }
 
   async requestEmailVerification(input: { userId: string }): Promise<void> {
@@ -169,12 +187,16 @@ class FakeRateLimiter {
     this.failingBuckets.clear();
   }
 
+  /** RT-625: every (bucket, identifier) check() was called with, in order. */
+  checks: Array<[string, string]> = [];
+
   async check(
     bucketName: string,
-    _identifier: string,
+    identifier: string,
     _policy: { limit: number; windowMs: number },
   ): Promise<RateLimitDecision> {
     this.calledBuckets.push(bucketName);
+    this.checks.push([bucketName, identifier]);
     if (this.failingBuckets.has(bucketName)) throw new Error("redis down");
     const allowed = !this.blockedBuckets.has(bucketName);
     return {
@@ -190,6 +212,13 @@ class FakeRateLimiter {
 
   async release(bucketName: string, _identifier: string): Promise<void> {
     this.releasedBuckets.push(bucketName);
+  }
+
+  /** RT-625 D2: every (bucket, identifier) clear() was called with. */
+  cleared: Array<[string, string]> = [];
+
+  async clear(bucketName: string, identifier: string): Promise<void> {
+    this.cleared.push([bucketName, identifier]);
   }
 }
 
@@ -266,6 +295,9 @@ beforeEach(() => {
   rl.allowAll();
   rl.calledBuckets = [];
   rl.releasedBuckets = [];
+  rl.checks = [];
+  rl.cleared = [];
+  svc.confirmResetEmail = "user@example.com";
 
   svc.lastSignInArgs                   = null;
   svc.lastSignOutArgs                  = null;
@@ -383,13 +415,25 @@ describe("POST /api/v1/auth/signin", () => {
     expect(svc.lastSignInArgs).not.toBeNull();
   });
 
-  it("checks per-account rate limit before per-IP", async () => {
+  it("RT-625 test 3: checks the pair, then the account, then the IP bucket", async () => {
     await http()
       .post("/api/v1/auth/signin")
       .send({ email: "user@example.com", password: "p" });
 
-    expect(rl.calledBuckets[0]).toBe("signin_account");
-    expect(rl.calledBuckets[1]).toBe("signin_ip");
+    expect(rl.calledBuckets).toEqual(["signin_pair", "signin_account", "signin_ip"]);
+  });
+
+  it("RT-625 test 3: a locked pair stops at [signin_pair] and gives nothing back", async () => {
+    rl.blockBucket("signin_pair");
+    const res = await http()
+      .post("/api/v1/auth/signin")
+      .send({ email: "user@example.com", password: "p" });
+
+    expect(res.status).toBe(429);
+    expectErrorEnvelope(res.body, "rate_limited");
+    expect(rl.calledBuckets).toEqual(["signin_pair"]);
+    expect(rl.releasedBuckets).toEqual([]);
+    expect(svc.lastSignInArgs).toBeNull();
   });
 
   it("returns 429 when per-account bucket is exhausted — per-IP not checked", async () => {
@@ -401,7 +445,7 @@ describe("POST /api/v1/auth/signin", () => {
     expect(res.status).toBe(429);
     expectErrorEnvelope(res.body, "rate_limited");
     // Per-IP must not have been called (short-circuit)
-    expect(rl.calledBuckets).toEqual(["signin_account"]);
+    expect(rl.calledBuckets).toEqual(["signin_pair", "signin_account"]);
     expect(svc.lastSignInArgs).toBeNull();
   });
 
@@ -428,17 +472,17 @@ describe("POST /api/v1/auth/signin", () => {
     svc.signIn = async (input) => { svc.lastSignInArgs = input; return svc.signInResult; };
   });
 
-  // RT-136: only a failed authentication keeps its per-account hit.
-  it("releases the per-account hit after a successful sign-in", async () => {
+  // RT-136 / RT-625: only a failed authentication keeps its failure-only hits.
+  it("RT-625 test 6: a success releases the pair and account hits; signin_ip is never released", async () => {
     const res = await http()
       .post("/api/v1/auth/signin")
       .send({ email: "user@example.com", password: "secret123" });
 
     expect(res.status).toBe(200);
-    expect(rl.releasedBuckets).toEqual(["signin_account"]);
+    expect(rl.releasedBuckets).toEqual(["signin_pair", "signin_account"]);
   });
 
-  it("keeps the per-account hit when authentication fails (401)", async () => {
+  it("RT-625 test 7: a 401 keeps both failure-only hits", async () => {
     svc.signIn = async () => { throw new UnauthorizedException("Invalid credentials"); };
 
     const res = await http()
@@ -450,17 +494,17 @@ describe("POST /api/v1/auth/signin", () => {
     svc.signIn = async (input) => { svc.lastSignInArgs = input; return svc.signInResult; };
   });
 
-  it("releases the per-account hit when the per-IP bucket refuses the attempt", async () => {
+  it("RT-625 test 8: a signin_ip refusal releases both the pair and the account hits", async () => {
     rl.blockBucket("signin_ip");
     const res = await http()
       .post("/api/v1/auth/signin")
       .send({ email: "user@example.com", password: "p" });
 
     expect(res.status).toBe(429);
-    expect(rl.releasedBuckets).toEqual(["signin_account"]);
+    expect(rl.releasedBuckets).toEqual(["signin_pair", "signin_account"]);
   });
 
-  it("releases the per-account hit when sign-in fails for a non-authentication reason", async () => {
+  it("RT-625 test 8: a 500 (non-authentication failure) releases both", async () => {
     svc.signIn = async () => { throw new Error("database unavailable"); };
 
     const res = await http()
@@ -468,18 +512,46 @@ describe("POST /api/v1/auth/signin", () => {
       .send({ email: "user@example.com", password: "secret123" });
 
     expect(res.status).toBe(500);
-    expect(rl.releasedBuckets).toEqual(["signin_account"]);
+    expect(rl.releasedBuckets).toEqual(["signin_pair", "signin_account"]);
     svc.signIn = async (input) => { svc.lastSignInArgs = input; return svc.signInResult; };
   });
 
-  it("does not release anything when the per-account bucket itself is exhausted", async () => {
+  it("RT-625 test 8: a provider 503 releases both", async () => {
+    svc.signIn = async () => { throw new ServiceUnavailableException("identity provider unavailable"); };
+
+    const res = await http()
+      .post("/api/v1/auth/signin")
+      .send({ email: "user@example.com", password: "secret123" });
+
+    expect(res.status).toBe(503);
+    expect(rl.releasedBuckets).toEqual(["signin_pair", "signin_account"]);
+    svc.signIn = async (input) => { svc.lastSignInArgs = input; return svc.signInResult; };
+  });
+
+  it("RT-625 test 8: an account refusal releases the pair hit only", async () => {
     rl.blockBucket("signin_account");
     const res = await http()
       .post("/api/v1/auth/signin")
       .send({ email: "user@example.com", password: "p" });
 
     expect(res.status).toBe(429);
-    expect(rl.releasedBuckets).toEqual([]);
+    expect(rl.releasedBuckets).toEqual(["signin_pair"]);
+  });
+
+  it.each([
+    ["signin_pair", []],
+    ["signin_account", ["signin_pair"]],
+    ["signin_ip", ["signin_pair", "signin_account"]],
+  ])("RT-625 test 8: a limiter 503 on %s releases %p", async (bucket, released) => {
+    rl.failBucket(bucket);
+    const res = await http()
+      .post("/api/v1/auth/signin")
+      .send({ email: "user@example.com", password: "p" });
+
+    expect(res.status).toBe(503);
+    expect(res.headers["retry-after"]).toBe("30");
+    expect(rl.releasedBuckets).toEqual(released);
+    expect(svc.lastSignInArgs).toBeNull();
   });
 
   it("a failed release does not turn a successful sign-in into an error", async () => {
@@ -734,7 +806,7 @@ describe("POST /api/v1/auth/password-reset/confirm", () => {
 
     expect(res.status).toBe(400);
     expectErrorEnvelope(res.body, "validation_error");
-    svc.confirmPasswordReset = async (input) => { svc.lastConfirmPasswordResetArgs = input; };
+    svc.confirmPasswordReset = FakeAuthService.prototype.confirmPasswordReset;
   });
 
   it("returns 400 (validation_error) for too-short new_password (<12 chars)", async () => {
@@ -1089,21 +1161,43 @@ describe("RT-626: password-reset/request per-email budget", () => {
   const send = (): Promise<request.Response> =>
     http().post("/api/v1/auth/password-reset/request").send({ email: "user@example.com" });
 
-  it("checks the per-IP bucket, then the per-email bucket, then sends", async () => {
+  it("RT-625: checks the per-IP bucket, then the (email, IP) pair, then the per-email bucket, then sends", async () => {
     const res = await send();
 
     expect(res.status).toBe(202);
-    expect(rl.calledBuckets).toEqual(["pwreset_ip", "pwreset_email"]);
+    expect(rl.calledBuckets).toEqual(["pwreset_ip", "pwreset_pair", "pwreset_email"]);
+    expect(rl.releasedBuckets).toEqual([]);
     expect(svc.lastRequestPasswordResetArgs).toEqual({ email: "user@example.com" });
   });
 
-  it("over the per-email limit: still 202 with no body and no Retry-After, nothing sent", async () => {
+  it("RT-625 test 24: over the per-email limit: still 202 with no body and no Retry-After, nothing sent, the pair hit given back", async () => {
     rl.blockBucket("pwreset_email");
     const res = await send();
 
     expect(res.status).toBe(202);
     expect(res.body).toEqual({});
     expect(res.headers["retry-after"]).toBeUndefined();
+    expect(svc.lastRequestPasswordResetArgs).toBeNull();
+    expect(rl.releasedBuckets).toEqual(["pwreset_pair"]);
+  });
+
+  it("RT-625 test 24: over the pair limit: 202, nothing sent, and the per-email budget is never touched", async () => {
+    rl.blockBucket("pwreset_pair");
+    const res = await send();
+
+    expect(res.status).toBe(202);
+    expect(res.body).toEqual({});
+    expect(res.headers["retry-after"]).toBeUndefined();
+    expect(rl.calledBuckets).toEqual(["pwreset_ip", "pwreset_pair"]);
+    expect(svc.lastRequestPasswordResetArgs).toBeNull();
+  });
+
+  it("RT-625 test 24: a pair limiter outage still answers 202 and sends nothing", async () => {
+    rl.failBucket("pwreset_pair");
+    const res = await send();
+
+    expect(res.status).toBe(202);
+    expect(rl.calledBuckets).toEqual(["pwreset_ip", "pwreset_pair"]);
     expect(svc.lastRequestPasswordResetArgs).toBeNull();
   });
 
@@ -1188,7 +1282,7 @@ describe("RT-626: auth_signin_failure_total emission", () => {
     expect(spy.mock.calls).toEqual([[{ cause: "invalid_credentials" }]]);
   });
 
-  it.each(["signin_account", "signin_ip"])("a %s 429 counts once as rate_limited", async (bucket) => {
+  it.each(["signin_pair", "signin_account", "signin_ip"])("RT-625 test 21: a %s 429 counts once as rate_limited", async (bucket) => {
     rl.blockBucket(bucket);
 
     expect((await signIn()).status).toBe(429);
@@ -1216,5 +1310,312 @@ describe("RT-626: auth_signin_failure_total emission", () => {
     await http().post("/api/v1/auth/email/verify/confirm").send({ token: "t" });
 
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RT-625 D2 / P4 — a successful reset confirm clears the sign-in lockout
+// ---------------------------------------------------------------------------
+
+describe("RT-625 D2: password-reset/confirm clears the sign-in lockout", () => {
+  const confirm = (): Promise<request.Response> =>
+    http().post("/api/v1/auth/password-reset/confirm").send({ token: "tok", new_password: "newpassword12345" });
+
+  beforeEach(() => {
+    svc.confirmPasswordReset = FakeAuthService.prototype.confirmPasswordReset;
+  });
+
+  afterEach(() => {
+    svc.confirmPasswordReset = FakeAuthService.prototype.confirmPasswordReset;
+  });
+
+  it("test 16 (unit): a successful confirm clears the account bucket and the confirming IP pair, keyed like sign-in", async () => {
+    svc.confirmResetEmail = "  User@Example.COM ";
+    expect((await confirm()).status).toBe(204);
+    await http().post("/api/v1/auth/signin").send({ email: "user@example.com", password: "p" });
+
+    const signInKeys = rl.checks.filter(([bucket]) => bucket === "signin_pair" || bucket === "signin_account");
+    expect(rl.cleared).toEqual(expect.arrayContaining(signInKeys));
+    expect(rl.cleared).toHaveLength(2);
+  });
+
+  it("test 17 (unit): a failed or expired confirm clears nothing", async () => {
+    svc.confirmPasswordReset = async () => {
+      throw new BadRequestException("Invalid or expired token");
+    };
+    expect((await confirm()).status).toBe(400);
+    expect(rl.cleared).toEqual([]);
+  });
+
+  it("test 17 (unit): a confirm that changed no live user clears nothing", async () => {
+    svc.confirmResetEmail = null;
+    expect((await confirm()).status).toBe(204);
+    expect(rl.cleared).toEqual([]);
+  });
+
+  it("a failing clear does not turn the 204 into an error", async () => {
+    rl.clear = async () => {
+      throw new Error("redis down");
+    };
+    expect((await confirm()).status).toBe(204);
+    rl.clear = FakeRateLimiter.prototype.clear;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RT-625 test 21 — no log line holds an email or an IP
+// ---------------------------------------------------------------------------
+
+describe("RT-625 test 21: sign-in and reset refusals log no email or IP", () => {
+  const EMAIL = "pii-probe@example.com";
+  const IP = "198.51.100.77";
+
+  it.each(["signin_pair", "signin_account", "signin_ip"])("a %s 429 and outage 503 log the bucket only", async (bucket) => {
+    mockLogLines.length = 0;
+    rl.blockBucket(bucket);
+    await http().post("/api/v1/auth/signin").set("X-Forwarded-For", IP).send({ email: EMAIL, password: "p" });
+    rl.allowAll();
+    rl.failBucket(bucket);
+    await http().post("/api/v1/auth/signin").set("X-Forwarded-For", IP).send({ email: EMAIL, password: "p" });
+    rl.failBucket("pwreset_pair");
+    await http().post("/api/v1/auth/password-reset/request").set("X-Forwarded-For", IP).send({ email: EMAIL });
+
+    expect(mockLogLines.length).toBeGreaterThan(0);
+    const text = JSON.stringify(mockLogLines);
+    expect(text).not.toContain(EMAIL);
+    expect(text).not.toContain(IP);
+    expect(text).not.toContain("127.0.0.1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RT-625 — real counters: the real RateLimiter over an in-memory Redis twin,
+// behind one trusted proxy hop (TRUST_PROXY=1), so X-Forwarded-For sets the
+// client IP. Tests 1, 2, 4, 5, 12, 13, 16, 17, 19, 22, 23.
+// ---------------------------------------------------------------------------
+
+class MemoryRedis implements RedisLike {
+  readonly store = new Map<string, FixedWindowEntry>();
+  now = 1_000_000;
+
+  async incrWindow(key: string, ttlMs: number): Promise<WindowHit> {
+    return fixedWindowHit(this.store, key, ttlMs, this.now);
+  }
+  async pttl(key: string): Promise<number> {
+    const entry = this.live(key);
+    if (!entry) return -2;
+    return entry.expiresAt === null ? -1 : entry.expiresAt - this.now;
+  }
+  async decr(key: string): Promise<number> {
+    const entry = this.live(key) ?? { value: 0, expiresAt: null };
+    this.store.set(key, entry);
+    entry.value -= 1;
+    return entry.value;
+  }
+  async del(key: string): Promise<number> {
+    return this.store.delete(key) ? 1 : 0;
+  }
+  count(key: string): number {
+    return this.live(key)?.value ?? 0;
+  }
+  private live(key: string): FixedWindowEntry | undefined {
+    const entry = this.store.get(key);
+    return entry && (entry.expiresAt === null || this.now < entry.expiresAt) ? entry : undefined;
+  }
+}
+
+describe("RT-625 real counters behind one trusted proxy hop", () => {
+  const E = "owner@example.com";
+  const RIGHT = "right-password";
+  const X = "203.0.113.10";
+  const Y = "198.51.100.20";
+  const FIFTEEN_MINUTES = 15 * 60 * 1000;
+
+  let realApp: INestApplication;
+  let redis: MemoryRedis;
+  const auth = new FakeAuthService();
+  const sentResets: string[] = [];
+
+  beforeAll(async () => {
+    redis = new MemoryRedis();
+    auth.signIn = async (input) => {
+      if (input.password !== RIGHT) throw new UnauthorizedException("Invalid credentials");
+      return auth.signInResult;
+    };
+    auth.requestPasswordReset = async (input) => {
+      sentResets.push(input.email);
+    };
+    const moduleRef = await Test.createTestingModule({
+      controllers: [AuthController],
+      providers: [
+        { provide: AuthService, useValue: auth },
+        { provide: RateLimiter, useValue: new RateLimiter(redis) },
+      ],
+    })
+      .overrideGuard(AuthGuard).useValue(new ScriptedAuthGuard())
+      .overrideGuard(DashboardAuthGuard).useValue(new ScriptedAuthGuard())
+      .compile();
+    realApp = moduleRef.createNestApplication({ bufferLogs: true });
+    (realApp.getHttpAdapter().getInstance() as { set(k: string, v: unknown): void }).set("trust proxy", 1);
+    realApp.useGlobalPipes(new ZodValidationPipe());
+    realApp.useGlobalFilters(new GlobalExceptionFilter());
+    await realApp.init();
+  });
+
+  afterAll(async () => {
+    if (realApp) await realApp.close();
+  });
+
+  beforeEach(() => {
+    redis.store.clear();
+    sentResets.length = 0;
+    auth.confirmResetEmail = E;
+  });
+
+  const signIn = (from: string, password: string, email = E): Promise<request.Response> =>
+    request(realApp.getHttpServer()).post("/api/v1/auth/signin").set("X-Forwarded-For", from).send({ email, password });
+
+  const resetRequest = (from: string, email = E): Promise<request.Response> =>
+    request(realApp.getHttpServer()).post("/api/v1/auth/password-reset/request").set("X-Forwarded-For", from).send({ email });
+
+  async function fail(from: string, times: number, email = E): Promise<number[]> {
+    const statuses: number[] = [];
+    for (let i = 0; i < times; i++) statuses.push((await signIn(from, "wrong", email)).status);
+    return statuses;
+  }
+
+  const accountCount = (email = E): number => redis.count(`rl:signin_account:${email}`);
+
+  it("test 1: five failures from X lock X; a correct sign-in for E from Y still succeeds", async () => {
+    expect(await fail(X, 5)).toEqual([401, 401, 401, 401, 401]);
+    expect((await signIn(X, RIGHT)).status).toBe(429);
+    expect((await signIn(Y, RIGHT)).status).toBe(200);
+  });
+
+  it("test 2: twenty more requests from a locked X leave the account count unchanged; Y still signs in", async () => {
+    await fail(X, 5);
+    const before = accountCount();
+    expect(before).toBe(5);
+    const statuses = await fail(X, 20);
+    expect(new Set(statuses)).toEqual(new Set([429]));
+    expect(accountCount()).toBe(before);
+    expect((await signIn(Y, RIGHT)).status).toBe(200);
+  });
+
+  it("test 4: four IPs x five failures lock E everywhere, a fifth IP with the correct password included (accepted risk)", async () => {
+    for (const ip of ["192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4"]) {
+      expect(await fail(ip, 5)).toEqual([401, 401, 401, 401, 401]);
+    }
+    expect(accountCount()).toBe(20);
+    expect((await signIn("192.0.2.5", RIGHT)).status).toBe(429);
+  });
+
+  it("test 5: the pair window is fixed: over-limit hits do not extend it, and a correct sign-in succeeds after it", async () => {
+    // Open the account window 5 minutes before X's pair window, so the two
+    // windows end apart and the test proves the pair window on its own.
+    await fail(Y, 1);
+    redis.now += 5 * 60_000;
+    await fail(X, 5);
+    redis.now += FIFTEEN_MINUTES - 5 * 60_000 + 1; // the account window has ended; X's pair has not
+    expect((await signIn(X, RIGHT)).status).toBe(429);
+    redis.now += 4 * 60_000;
+    expect((await signIn(X, RIGHT)).status).toBe(429);
+    redis.now += 60_000; // X's pair window ends 15 minutes after its first hit, not later
+    expect((await signIn(X, RIGHT)).status).toBe(200);
+  });
+
+  it("test 12: addresses in one IPv6 /64 share the pair; another /64 does not", async () => {
+    await fail("2001:db8:1:2::1", 5);
+    expect((await signIn("2001:db8:1:2:ffff:ffff:ffff:ffff", RIGHT)).status).toBe(429);
+    expect((await signIn("2001:db8:1:3::1", RIGHT)).status).toBe(200);
+  });
+
+  it("test 12: addresses in one IPv6 /64 share one signin_ip budget", async () => {
+    for (let i = 1; i <= 30; i++) {
+      expect((await signIn(`2001:db8:9:9::${i.toString(16)}`, RIGHT, `user${i}@example.com`)).status).toBe(200);
+    }
+    expect((await signIn("2001:db8:9:9::ffff", RIGHT, "fresh@example.com")).status).toBe(429);
+    expect((await signIn("2001:db8:9:a::1", RIGHT, "fresh@example.com")).status).toBe(200);
+  });
+
+  it("test 13: an IPv4-mapped address and its IPv4 form share the pair", async () => {
+    await fail("::ffff:203.0.113.5", 5);
+    expect((await signIn("203.0.113.5", RIGHT)).status).toBe(429);
+  });
+
+  it("test 14: E in another case and padded shares the pair and the account bucket", async () => {
+    await fail(X, 5, "  OWNER@Example.com ");
+    expect((await signIn(X, RIGHT)).status).toBe(429);
+    expect(accountCount()).toBe(5);
+  });
+
+  it("test 19: a client-supplied extra X-Forwarded-For hop does not change the pair key", async () => {
+    await fail(X, 5);
+    const spoofed = await request(realApp.getHttpServer())
+      .post("/api/v1/auth/signin")
+      .set("X-Forwarded-For", `192.0.2.99, ${X}`)
+      .send({ email: E, password: RIGHT });
+    expect(spoofed.status).toBe(429);
+  });
+
+  it("test 16: with the account at 20 and the pair for Y at 5, a successful confirm from Y clears both", async () => {
+    await fail(Y, 5);
+    for (const ip of ["192.0.2.1", "192.0.2.2", "192.0.2.3"]) await fail(ip, 5);
+    expect(accountCount()).toBe(20);
+    expect((await signIn(Y, RIGHT)).status).toBe(429);
+
+    const confirm = await request(realApp.getHttpServer())
+      .post("/api/v1/auth/password-reset/confirm")
+      .set("X-Forwarded-For", Y)
+      .send({ token: "tok", new_password: "newpassword12345" });
+    expect(confirm.status).toBe(204);
+    expect(accountCount()).toBe(0);
+    expect((await signIn(Y, RIGHT)).status).toBe(200);
+    // Another IP pair is not cleared (it expires with its own window).
+    expect((await signIn("192.0.2.1", RIGHT)).status).toBe(429);
+  });
+
+  it("test 17: a failed or expired confirm clears nothing", async () => {
+    await fail(Y, 5);
+    auth.confirmPasswordReset = async () => {
+      throw new BadRequestException("Invalid or expired token");
+    };
+    let confirm: request.Response;
+    try {
+      confirm = await request(realApp.getHttpServer())
+        .post("/api/v1/auth/password-reset/confirm")
+        .set("X-Forwarded-For", Y)
+        .send({ token: "expired", new_password: "newpassword12345" });
+    } finally {
+      auth.confirmPasswordReset = FakeAuthService.prototype.confirmPasswordReset;
+    }
+    expect(confirm.status).toBe(400);
+    expect(accountCount()).toBe(5);
+    expect((await signIn(Y, RIGHT)).status).toBe(429);
+  });
+
+  it("test 22: five reset requests for E from X stop further emails from X; Y still gets one (202 throughout)", async () => {
+    for (let i = 0; i < 6; i++) expect((await resetRequest(X)).status).toBe(202);
+    expect(sentResets).toHaveLength(5);
+    expect((await resetRequest(Y)).status).toBe(202);
+    expect(sentResets).toHaveLength(6);
+  });
+
+  it("test 22: the over-limit requests from X do not spend the per-email budget", async () => {
+    for (let i = 0; i < 30; i++) await resetRequest(X);
+    expect(redis.count(`rl:pwreset_email:${E}`)).toBe(5);
+  });
+
+  it("test 23: four IPs x five requests use the per-email cap; a fifth IP answers 202 and sends nothing", async () => {
+    for (const ip of ["192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4"]) {
+      for (let i = 0; i < 5; i++) expect((await resetRequest(ip)).status).toBe(202);
+    }
+    expect(sentResets).toHaveLength(20);
+    const fifth = await resetRequest("192.0.2.5");
+    expect(fifth.status).toBe(202);
+    expect(fifth.body).toEqual({});
+    expect(sentResets).toHaveLength(20);
+    // The refused request gave its pair hit back: nothing was sent.
+    expect(redis.count(`rl:pwreset_pair:${emailIpPairKey(E, "192.0.2.5")}`)).toBe(0);
   });
 });
