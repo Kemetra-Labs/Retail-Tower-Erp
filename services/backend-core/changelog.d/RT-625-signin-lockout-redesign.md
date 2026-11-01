@@ -7,8 +7,10 @@
     `signin_ip` is unchanged at 30 per hour. The buckets are checked pair, then
     account, then IP. A refusal gives back every reservation taken before it.
     A success, or any error other than a credential failure, gives back both
-    failure-only hits. Accepted knowingly: 4 or more IPs can still lock an
-    account, and the distributed guess budget rises from 480 to 1,920 per day.
+    failure-only hits. Accepted knowingly: a few IPs can still lock an account
+    (4, or 3 that time their bursts around the fixed pair windows; one IP adds
+    at most 9 per account window), and the distributed guess budget rises from
+    480 to 1,920 per day.
   - `password-reset/request` limits reset emails per (email, client IP) at 5
     per hour and per email at 20 per hour. This replaces RT-626's 5 per hour per
     email. An over-limit request still answers 202 and sends nothing.
@@ -18,9 +20,10 @@
   - IP keys use the IPv6 /64 prefix and turn IPv4-mapped addresses into IPv4.
     Pair keys are length-prefixed, so two different pairs never share a key.
   - Boot refuses `TRUST_PROXY=true` in a deployed environment. It also refuses
-    `TRUST_PROXY=false` unless `TRUST_PROXY_DIRECT_DEPLOYMENT=true` declares a
+    `TRUST_PROXY=false` (and a hop count of `0`) unless `TRUST_PROXY_DIRECT_DEPLOYMENT=true` declares a
     deployment with no proxy. A hop count, and the RT-624 handling of an unset
-    value, are unchanged.
+    value, are unchanged. This changes RT-624's rule that an explicit `false` is
+    silent (owner approval, RT-625 comment 15095).
   - The Redis outage posture is unchanged: sign-in fails closed with 503 and
     `Retry-After: 30`. Releases now run in parallel; the worst case is about
     4 s at the default 1 s limiter timeout.

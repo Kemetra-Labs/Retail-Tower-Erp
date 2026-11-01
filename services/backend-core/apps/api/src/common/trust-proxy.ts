@@ -18,9 +18,10 @@ import { resolveDeploymentEnvironment } from "../connector/deployment-environmen
  *
  *   - `true` trusts every `X-Forwarded-For` hop, so a client that can set the
  *     header picks its own IP and a fresh rate-limit bucket per request;
- *   - `false` behind a proxy gives every client the proxy's IP. The shipped
- *     topology is behind Caddy, so `false` is refused unless the deployment
- *     declares itself direct with `TRUST_PROXY_DIRECT_DEPLOYMENT=true`.
+ *   - `false` (or a hop count of `0`) behind a proxy gives every client the
+ *     proxy's IP. The shipped topology is behind Caddy, so it is refused
+ *     unless the deployment declares itself direct with
+ *     `TRUST_PROXY_DIRECT_DEPLOYMENT=true`.
  */
 export const TRUST_PROXY_UNSET_WARNING =
   "TRUST_PROXY is unset in a deployed environment: forwarded headers are not trusted, so behind a " +
@@ -75,7 +76,9 @@ export function checkTrustProxyConfig(
   if (!isDeployed(env)) return { warn: false };
   const raw = env["TRUST_PROXY"] ?? "";
   if (raw === "true") throw new Error(TRUST_PROXY_TRUE_REFUSED);
-  if (raw === "false" && env["TRUST_PROXY_DIRECT_DEPLOYMENT"] !== "true") {
+  // A hop count of 0 trusts no hop: the same as `false` behind a proxy.
+  const trustsNoHop = raw === "false" || /^0+$/.test(raw);
+  if (trustsNoHop && env["TRUST_PROXY_DIRECT_DEPLOYMENT"] !== "true") {
     throw new Error(TRUST_PROXY_FALSE_REFUSED);
   }
   if (isRecognizedTrustProxy(raw)) return { warn: false };

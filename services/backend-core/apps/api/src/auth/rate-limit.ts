@@ -75,7 +75,9 @@ export const RATE_LIMIT_BUCKETS = {
   // locks only its own pair, never the owner signing in from elsewhere.
   signInPerPair: { limit: 5, windowMs: 15 * 60 * 1000 },
   // RT-625 D1: failures per email from every IP. Caps distributed guessing
-  // at 20 per 15 min (accepted: 4 or more IPs can still lock the account).
+  // at 20 per 15 min. Accepted: several IPs can still lock the account (4, or
+  // 3 that time their bursts around the fixed pair windows; one IP adds at
+  // most 9 per account window, never 20).
   signInPerAccount: { limit: 20, windowMs: 15 * 60 * 1000 },
   signInPerIp: { limit: 30, windowMs: 60 * 60 * 1000 },
   passwordResetPerIp: { limit: 100, windowMs: 24 * 60 * 60 * 1000 },

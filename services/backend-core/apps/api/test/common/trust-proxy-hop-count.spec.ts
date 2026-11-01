@@ -48,9 +48,13 @@ describe.each(deployed)("RT-625 test 20: deployed (%s)", (_label, base) => {
     },
   );
 
-  it("accepts TRUST_PROXY=false for a declared direct deployment", () => {
+  it.each(["0", "00"])("refuses a hop count of %p behind a proxy: it trusts no hop, like false", (zero) => {
+    expect(() => checkTrustProxyConfig({ ...base, TRUST_PROXY: zero })).toThrow(TRUST_PROXY_FALSE_REFUSED);
+  });
+
+  it.each(["false", "0"])("accepts TRUST_PROXY=%p for a declared direct deployment", (raw) => {
     expect(
-      checkTrustProxyConfig({ ...base, TRUST_PROXY: "false", TRUST_PROXY_DIRECT_DEPLOYMENT: "true" }),
+      checkTrustProxyConfig({ ...base, TRUST_PROXY: raw, TRUST_PROXY_DIRECT_DEPLOYMENT: "true" }),
     ).toEqual({ warn: false });
   });
 

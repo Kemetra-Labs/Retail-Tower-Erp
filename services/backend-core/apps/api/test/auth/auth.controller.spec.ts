@@ -578,22 +578,26 @@ describe("RT-625 — (email, IP) lockout and reset two-tier (db integration)", (
     expect((await signInFrom(Y, user.email, "old-password-12345")).status).toBe(429);
   });
 
+  // The reset tests use a fresh user: every sent email issues an active reset
+  // token, and the password-reset/request describe counts Alice's tokens.
   it("test 22 (db): five reset requests from X stop E's emails from X; Y still gets one (202 throughout)", async () => {
     if (maybeSkip()) return;
-    for (let i = 0; i < 6; i++) expect((await resetFrom(X, ALICE_EMAIL)).status).toBe(202);
+    const user = await seedUser("old-password-12345");
+    for (let i = 0; i < 6; i++) expect((await resetFrom(X, user.email)).status).toBe(202);
     expect(emailSpy.enqueuePasswordReset).toHaveBeenCalledTimes(5);
-    expect((await resetFrom(Y, ALICE_EMAIL)).status).toBe(202);
+    expect((await resetFrom(Y, user.email)).status).toBe(202);
     expect(emailSpy.enqueuePasswordReset).toHaveBeenCalledTimes(6);
   });
 
   it("test 23 / 24 (db): four IPs x five requests reach the per-email cap; a fifth IP answers the same 202 and sends nothing", async () => {
     if (maybeSkip()) return;
+    const user = await seedUser("old-password-12345");
     for (const ip of OTHERS) {
-      for (let i = 0; i < 5; i++) expect((await resetFrom(ip, ALICE_EMAIL)).status).toBe(202);
+      for (let i = 0; i < 5; i++) expect((await resetFrom(ip, user.email)).status).toBe(202);
     }
     expect(emailSpy.enqueuePasswordReset).toHaveBeenCalledTimes(20);
 
-    const known = await resetFrom("192.0.2.5", ALICE_EMAIL);
+    const known = await resetFrom("192.0.2.5", user.email);
     const unknown = await resetFrom("192.0.2.5", "rt625-ghost@example.com");
     expect(emailSpy.enqueuePasswordReset).toHaveBeenCalledTimes(20);
     for (const res of [known, unknown]) {

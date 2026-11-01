@@ -1510,12 +1510,17 @@ describe("RT-625 real counters behind one trusted proxy hop", () => {
     expect((await signIn("192.0.2.5", RIGHT)).status).toBe(429);
   });
 
-  it("test 5: the window is fixed: over-limit hits do not extend it, and a correct sign-in succeeds after it", async () => {
+  it("test 5: the pair window is fixed: over-limit hits do not extend it, and a correct sign-in succeeds after it", async () => {
+    // Open the account window 5 minutes before X's pair window, so the two
+    // windows end apart and the test proves the pair window on its own.
+    await fail(Y, 1);
+    redis.now += 5 * 60_000;
     await fail(X, 5);
-    redis.now += FIFTEEN_MINUTES - 60_000;
+    redis.now += FIFTEEN_MINUTES - 5 * 60_000 + 1; // the account window has ended; X's pair has not
     expect((await signIn(X, RIGHT)).status).toBe(429);
+    redis.now += 4 * 60_000;
     expect((await signIn(X, RIGHT)).status).toBe(429);
-    redis.now += 60_001;
+    redis.now += 60_000; // X's pair window ends 15 minutes after its first hit, not later
     expect((await signIn(X, RIGHT)).status).toBe(200);
   });
 
@@ -1575,11 +1580,15 @@ describe("RT-625 real counters behind one trusted proxy hop", () => {
     auth.confirmPasswordReset = async () => {
       throw new BadRequestException("Invalid or expired token");
     };
-    const confirm = await request(realApp.getHttpServer())
-      .post("/api/v1/auth/password-reset/confirm")
-      .set("X-Forwarded-For", Y)
-      .send({ token: "expired", new_password: "newpassword12345" });
-    auth.confirmPasswordReset = FakeAuthService.prototype.confirmPasswordReset;
+    let confirm: request.Response;
+    try {
+      confirm = await request(realApp.getHttpServer())
+        .post("/api/v1/auth/password-reset/confirm")
+        .set("X-Forwarded-For", Y)
+        .send({ token: "expired", new_password: "newpassword12345" });
+    } finally {
+      auth.confirmPasswordReset = FakeAuthService.prototype.confirmPasswordReset;
+    }
     expect(confirm.status).toBe(400);
     expect(accountCount()).toBe(5);
     expect((await signIn(Y, RIGHT)).status).toBe(429);
