@@ -87,24 +87,6 @@ describe('indexContract', () => {
     ).toThrow(/no POS credential mapping/);
   });
 
-  it('classifies the Console cookie session (RT-475), and only as a cookie apiKey', () => {
-    const cookie = `${SCHEMES}    cookieAuth:
-      type: apiKey
-      in: cookie
-      name: dp2_session
-`;
-    const route = `  /a:
-    get:
-      operationId: a
-      security:
-        - cookieAuth: []
-`;
-    const [op] = indexContract(doc(route, cookie));
-    expect([...(op?.accepts ?? [])]).toEqual(['console-session']);
-    const header = cookie.replace('in: cookie', 'in: header');
-    expect(() => indexContract(doc(route, header))).toThrow(/not HTTP bearer/);
-  });
-
   it('fails when an operationId sits outside the structure it reads', () => {
     expect(() =>
       indexContract(

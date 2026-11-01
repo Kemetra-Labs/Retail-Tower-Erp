@@ -12,4 +12,3 @@ file: pos-sales/sale-history.yaml 07f4a633e7c7ea0ac272700977646ca6b617b9d3
 file: pos-sales/sales.yaml a281f4f660696124b8be7109c40a0db83f92eda0
 file: pos-shifts.openapi.yaml 05692f4de1f6aa6dce5b440812f9f10bf35f0904
 file: pos-terminal-pairing.openapi.yaml c9966b9baa27e291097fadf720762d47d25db8dd
-file: tenant-branding.openapi.yaml 51f26b4491c9d3a6ee0cc92dd85782ee0ca11f3a
