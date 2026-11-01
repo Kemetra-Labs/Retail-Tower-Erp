@@ -22,6 +22,7 @@ export interface FakeHierarchyOptions {
 export interface FakeMembershipHierarchy {
   readonly actorFor: jest.Mock<Promise<MembershipActor>, [PoolClient, ResolvedContext]>;
   readonly lockActiveOwnerCount: jest.Mock<Promise<number>, [PoolClient, string]>;
+  readonly lockActorMembership: jest.Mock<Promise<void>, [PoolClient, ResolvedContext]>;
   readonly recordRefusal: jest.Mock<Promise<void>, [PoolClient, ResolvedContext, MembershipRefusalAudit]>;
 }
 
@@ -34,6 +35,7 @@ export function makeFakeHierarchy(opts: FakeHierarchyOptions = {}): FakeMembersh
       isPlatformAdmin: ctx.isPlatformAdmin,
     })),
     lockActiveOwnerCount: jest.fn(async (_client: PoolClient, _tenantId: string) => opts.activeOwners ?? 2),
+    lockActorMembership: jest.fn(async (_client: PoolClient, _ctx: ResolvedContext): Promise<void> => undefined),
     recordRefusal: jest.fn(
       async (_client: PoolClient, _ctx: ResolvedContext, _event: MembershipRefusalAudit): Promise<void> => undefined,
     ),

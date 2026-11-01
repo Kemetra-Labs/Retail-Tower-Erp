@@ -191,6 +191,28 @@ export class MembershipHierarchy {
   }
 
   /**
+   * Lock the actor's own active membership `FOR SHARE` (invite only). A
+   * concurrent PATCH or DELETE of that row holds it `FOR UPDATE`, so the
+   * invite waits for it to commit and `actorFor` then reads the committed
+   * role: a tenant_admin demoted or revoked at that instant cannot still
+   * invite. Invite takes no other membership lock, so this cannot deadlock.
+   * PATCH and DELETE do not take it (they serialize on the owner set).
+   */
+  async lockActorMembership(client: PoolClient, ctx: ResolvedContext): Promise<void> {
+    if (!ctx.userId || !ctx.tenantId) return;
+    await client.query(
+      `SELECT m.id
+         FROM memberships m
+        WHERE m.tenant_id = $1
+          AND m.user_id = $2
+          AND m.revoked_at IS NULL
+          AND m.deleted_at IS NULL
+          FOR SHARE OF m`,
+      [ctx.tenantId, ctx.userId],
+    );
+  }
+
+  /**
    * Lock the tenant's active owner memberships `FOR UPDATE` and return how
    * many there are. Every membership writer (PATCH, DELETE) takes this lock
    * first, in id order, and only then locks its target row, so two writers

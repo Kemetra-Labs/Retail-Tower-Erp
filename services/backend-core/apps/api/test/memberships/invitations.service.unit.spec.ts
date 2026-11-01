@@ -1094,6 +1094,21 @@ describe("InvitationsService.invite — role hierarchy (RT-1028)", () => {
     expect(repo.create).toHaveBeenCalledTimes(1);
   });
 
+  it("H3a: the actor's membership is locked before its role is read", async () => {
+    const hierarchy = makeFakeHierarchy({ actorRole: "tenant_admin" });
+    const { service, repo } = buildService({ hierarchy });
+    primeValidRole(repo);
+
+    await service.invite(makeCtx(), {
+      email: "x@example.com",
+      role_code: "store_staff",
+      store_access_kind: "all",
+    } as InvitationCreateDto);
+    expect(hierarchy.lockActorMembership).toHaveBeenCalledTimes(1);
+    expect(hierarchy.lockActorMembership.mock.invocationCallOrder[0]!)
+      .toBeLessThan(hierarchy.actorFor.mock.invocationCallOrder[0]!);
+  });
+
   it("H3b: a failed audit write still answers 403 (the refusal stands)", async () => {
     const hierarchy = makeFakeHierarchy({ actorRole: "tenant_admin" });
     hierarchy.recordRefusal.mockRejectedValue(new Error("pool exhausted"));

@@ -180,6 +180,7 @@ export class InvitationsService {
       // owner, and an owner invitation is always for all stores. Nothing has
       // been written yet; the refusal is returned (this transaction commits
       // no change), then audited in its own transaction and thrown.
+      await hierarchy.lockActorMembership(client, ctx);
       const actor = await hierarchy.actorFor(client, ctx);
       const reason = invitationRefusal(actor, { roleCode: dto.role_code, storeAccessKind: dto.store_access_kind });
       if (reason) {
