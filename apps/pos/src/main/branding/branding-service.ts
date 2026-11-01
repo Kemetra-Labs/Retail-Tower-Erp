@@ -92,8 +92,10 @@ function slotImages(
  */
 export function snapshotFromCache(read: BrandingCacheRead): BrandingSnapshot {
   const { name, logo } = read;
-  const slots = logo === null ? null : slotImages(logo.screen);
-  if (name === null || logo === null || slots === null) return BRANDING_NONE;
+  // A valid logo record implies a valid name record (the cache checks both).
+  if (name === null || logo === null) return BRANDING_NONE;
+  const slots = slotImages(logo.screen);
+  if (slots === null) return BRANDING_NONE;
   const displayName = boundedDisplayName(name.display_name);
   return { v: 1, kind: 'logo', displayName, card: logo.card, slots };
 }
