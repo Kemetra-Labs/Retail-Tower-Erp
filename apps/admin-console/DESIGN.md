@@ -664,7 +664,7 @@ hex.
 
 | Target role | Light | Use |
 | --- | --- | --- |
-| `--color-ink` | `#0a2125` | Sidebar surface; the hero receipt card; the one "ink" button style; the selected segment on light surfaces (D-V3); tooltip fill; list header bands and drawer headers (D-V9). |
+| `--color-ink` | `#0a2125` | Sidebar surface; the hero receipt card; the one "ink" button style; the selected segment on light surfaces (D-V3); tooltip fill; list header bands and drawer headers (D-V9); the brand panel of the public screens (sign-in, accept invitation), flat (PW-5). |
 | `--color-mint` | `#5fe0cf` | Highlight **on Ink only** (D-V2): the active nav signal line and icon, hero figures' accent, chart focus point, the selected segment on Ink, the `Ctrl K` key, and the primary fill on Ink (bands, drawer headers, dark theme). Never text **or fill** on a light surface (it measures 1.6:1 on white). In the dark theme it is also the primary fill and the selected segment, with Ink text, never text or a link colour (D-V10). |
 | `--color-ink-muted` | `#a9c2c5` | Secondary text on Ink (≥ 4.5:1 on `--color-ink`). |
 | `--color-canvas` | `#f2f5f6` | Page background (replaces `--color-background` as the work surface value). |
@@ -674,6 +674,12 @@ hex.
   the "no secondary accent" rule holds.
 - **The sidebar is Ink in both themes.** It is the one sanctioned dark surface; content
   surfaces stay light-first, and the dark theme remaps them as before.
+- **The public brand panel is flat Ink in both themes** (owner decision PW-5, RT-972
+  comment 14943; RT-807). It is the decorative panel beside the sign-in and
+  accept-invitation forms, `aria-hidden` and hidden below 900px. It is an Ink surface but
+  **not** an expressive one: no Tower grid, glow, gradient or watermark mark. Its text is
+  `--color-on-ink` and `--color-ink-muted`, and its flow card and chips are translucent
+  on-ink fills. The form side stays light, like every form aside (PC-5).
 - **Expressive surfaces (D-V4 + D-V9).** Gradients, glows, textures and illustration appear
   **only** on: the hero receipt card, the Ink sidebar (Tower grid), the brand mark, chart area
   fills, hero bands on detail pages, the top band of entity cards (the store skyline), list
