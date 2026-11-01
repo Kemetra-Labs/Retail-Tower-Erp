@@ -254,7 +254,7 @@ describe("a busy logo renderer (RT-1041)", () => {
   }
 
   function expectRendererBusy(res: request.Response): void {
-    expectError(res, 429, "rate_limited");
+    expectError(res, 429, "rate_limited", "RateLimitedError");
     // The renderer's own 429, not the jobOrPreview rate limit's.
     expect((res.body as { error: { message: string } }).error.message).toBe("The image renderer is busy. Retry shortly.");
     expect(res.headers["retry-after"]).toBe("8");
