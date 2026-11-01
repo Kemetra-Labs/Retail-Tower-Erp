@@ -36,6 +36,8 @@ export interface ScopedHttpHarnessOptions {
   readonly seed: (env: PgTestEnv) => Promise<void>;
   /** Test-only providers, such as an idempotency interceptor over a fake Redis (RT-387). */
   readonly providers?: Provider[];
+  /** Runs before the app's `init()` (RT-473: middleware that must precede the body parsers). */
+  readonly beforeInit?: (app: INestApplication) => void;
 }
 
 interface HarnessState {
@@ -62,6 +64,7 @@ async function setUp(state: HarnessState, options: ScopedHttpHarnessOptions): Pr
   state.app = await bootScopedApp(state.env, options.module, undefined, {
     authLookupPool: state.env.admin,
     ...(options.providers !== undefined ? { providers: options.providers } : {}),
+    ...(options.beforeInit !== undefined ? { beforeInit: options.beforeInit } : {}),
   });
 }
 

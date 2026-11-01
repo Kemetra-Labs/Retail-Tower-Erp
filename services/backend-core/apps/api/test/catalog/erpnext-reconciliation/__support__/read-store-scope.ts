@@ -260,7 +260,12 @@ export async function bootScopedApp(
   env: PgTestEnv,
   module: Type<unknown> | DynamicModule,
   auditEnqueuer: AuditJobEnqueuer = NOOP_AUDIT_ENQUEUER,
-  options: { readonly authLookupPool?: Pool; readonly providers?: Provider[] } = {},
+  options: {
+    readonly authLookupPool?: Pool;
+    readonly providers?: Provider[];
+    /** Runs before `init()`, as `main.ts` registers middleware before Nest's body parsers (RT-473). */
+    readonly beforeInit?: (app: INestApplication) => void;
+  } = {},
 ): Promise<INestApplication> {
   const appPool = env.app;
   const lookupPool = options.authLookupPool ?? appPool;
@@ -279,6 +284,7 @@ export async function bootScopedApp(
     .useValue(new HeaderSessionAuthGuard(new SessionOnlyAdminGuard(sessions, authTokens)))
     .compile();
   const app = moduleRef.createNestApplication({ bufferLogs: true });
+  options.beforeInit?.(app);
   app.useGlobalFilters(new GlobalExceptionFilter());
   await app.init();
   return app;

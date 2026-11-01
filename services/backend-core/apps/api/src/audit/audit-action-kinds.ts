@@ -71,6 +71,9 @@ const LIVE_READ_CODES = [
   "settlement.receivable.read",
   "shift_closes.listed",
   "shift_closes.read",
+  // RT-473 S2: the tenant logo reads (Console and POS).
+  "tenant.branding.device_read",
+  "tenant.logo.read",
 ] as const;
 
 /**

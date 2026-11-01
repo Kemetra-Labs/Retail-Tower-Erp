@@ -3,12 +3,12 @@
  *
  * RT-473 S1 (spec 039, planning RT-472): the tenant-branding contract.
  * `[GATED]` contract; the owner approved the spec 039 decisions on 2026-10-13.
- * The runtime ships in RT-473 S2 after its migration and dependency gates.
+ * RT-473 S2 ships the runtime (tenant-branding.http.integration.spec.ts).
  *
  * Structural / load-only, plus AJV fixtures against the contract schemas. No
- * app boot and no HTTP (every operation is contract-only). What this pins:
+ * app boot and no HTTP. What this pins:
  *
- *   1. Five operations, all contract-only, colliding with no other contract.
+ *   1. Five routed operations, colliding with no other contract.
  *   2. POS read: `device` bearer only, no tenant parameter, ETag / 304, and
  *      "no logo" is `200` with `logo: null` (no 404).
  *   3. Console: `cookieAuth` only; tenant from the path; preview stores
@@ -186,9 +186,9 @@ describe("tenant-branding — document and operations", () => {
     expect(declared.sort()).toEqual(OPERATIONS.map(([p, m, id]) => `${m} ${p} ${id}`).sort());
   });
 
-  it("marks every operation contract-only until RT-473 S2 ships", () => {
+  it("carries no contract-only marker: RT-473 S2 ships every operation", () => {
     for (const [path, method] of OPERATIONS) {
-      expect(op(path, method)["x-runtime-status"]).toBe("contract-only");
+      expect(op(path, method)["x-runtime-status"]).toBeUndefined();
     }
   });
 
