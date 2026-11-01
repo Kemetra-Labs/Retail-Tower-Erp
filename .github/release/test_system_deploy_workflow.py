@@ -171,6 +171,23 @@ class DeploySystemLab(unittest.TestCase):
         self.assertIn("integrations/erpnext-connector/deploy/lab/rollback_class.py", pre)
         self.assertIn("repos/$REPO/environments/aws-lab", pre)
 
+    def test_g8_checks_the_live_lab_after_the_gate_and_before_any_online_evidence(self):
+        pre = job(self.text, "preflight")
+        script = step_script(self.text, "Live lab check (G8")
+        self.assertIn('python3 .github/release/live_check.py --repo "$REPO" --current-manifest "$CURRENT_MANIFEST"', script)
+        self.assertIn('--gates-file "$RUNNER_TEMP/plan/gates.txt"', script)
+        self.assertEqual(step_env(self.text, "Live lab check (G8", "GH_TOKEN"), "${{ github.token }}")
+        self.assertLess(pre.index("- name: System release gate"), pre.index("- name: Live lab check (G8"))
+        self.assertLess(pre.index("- name: Live lab check (G8"), pre.index("- name: Log in to GHCR"))
+        self.assertIn("actions: read", pre)
+        self.assertNotIn("actions: write", self.text)
+
+    def test_a_g8_refusal_stops_the_live_job_through_the_guard_and_the_plan(self):
+        plan = step(self.text, "Write the planned system ledger")
+        self.assertIn("OUTCOME_LIVE_LAB: ${{ steps.live_lab.outcome }}", plan)
+        self.assertIn(" LIVE_LAB ", re.search(r"for NAME in ([A-Z_ ]+); do", plan).group(1))
+        self.assertIn("G8=pass", step_script(self.text, "Guard (main only, live run, verified plan)"))
+
     def test_pins_shared_with_the_other_workflows(self):
         base = re.search(r"BASE_DIGEST: (sha256:[0-9a-f]{64})", self.text).group(1)
         self.assertIn(f"BASE_DIGEST: {base}", read(WORKFLOWS / "deploy-erp-lab.yml"))
@@ -279,13 +296,16 @@ class DeploySystemLab(unittest.TestCase):
                 "ROLLBACK_ALLOWED": "true", "CONSOLE_ARCHIVE_DIGEST": DIGEST, "CONSOLE_RELEASE_SHA": SHA,
                 "CONSOLE_CONTRACT_PIN": SHA, "ERP_EXPECTED_VERSION": "0.1.0", "ERP_CURRENT_TREE": SHA,
                 "ERP_ROLLBACK_CLASS": "image-only", "ENVIRONMENT_GATE": "reviewed",
-                "GATE_RESULTS": "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass"}
+                "GATE_RESULTS": "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass G8=pass"}
         result = run_step(guard, good)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         for key, bad in (("DRY_RUN", "true"), ("ENVIRONMENT_GATE", "unverified"), ("API_DIGEST", ""),
                          ("CONSOLE_CONTRACT_PIN", "35114fd49d7765dccf4e4c9f3b5c3a6e2d6dd828"), ("ROLLBACK_ALLOWED", ""),
-                         ("ERP_ROLLBACK_CLASS", "maybe"), ("GATE_RESULTS", "G1=pass G2=pass G3=pass G4=FAIL G5=pass G6=pass G7=pass"),
-                         ("GATE_RESULTS", "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=unverified")):
+                         ("ERP_ROLLBACK_CLASS", "maybe"), ("GATE_RESULTS", "G1=pass G2=pass G3=pass G4=FAIL G5=pass G6=pass G7=pass G8=pass"),
+                         ("GATE_RESULTS", "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=unverified G8=pass"),
+                         ("GATE_RESULTS", "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass G8=FAIL"),
+                         ("GATE_RESULTS", "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass"),
+                         ("GATE_RESULTS", "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass G8=not-run")):
             self.assertNotEqual(run_step(guard, {**good, key: bad}).returncode, 0, f"{key}={bad} passed the live guard")
 
 
