@@ -25,6 +25,7 @@ import { spawn } from "node:child_process";
 
 import { MAX_SIDE_PX, SVG_MAX_PENDING_RENDERS, SVG_RASTER_HEIGHT_PX, SVG_RENDER_TIMEOUT_MS } from "./logo-config";
 import { reject } from "./logo-refusal";
+import { RenderQueueFullError, renderQueue } from "./render-queue";
 
 /** The PNG a 4000 × 960 RGBA render can encode to, with headroom. */
 const MAX_CHILD_OUTPUT_BYTES = 64 * 1024 * 1024;
@@ -52,13 +53,7 @@ process.stdin.on("end", () => {
 });
 `;
 
-/** The renderer is at capacity: retry later. Not a refusal of the file. */
-export class RenderQueueFullError extends Error {
-  constructor() {
-    super("svg render queue full");
-    this.name = "RenderQueueFullError";
-  }
-}
+export { RenderQueueFullError };
 
 /** The child could not be started (a host fault, never the file's): a 500, not `svg_unsupported`. */
 export class RenderHostError extends Error {
@@ -68,19 +63,7 @@ export class RenderHostError extends Error {
   }
 }
 
-let queue: Promise<unknown> = Promise.resolve();
-let pending = 0;
-
-/** Runs `work` after every earlier render has settled (one at a time); refuses past the pending cap. */
-function serialized<T>(work: () => Promise<T>): Promise<T> {
-  if (pending >= SVG_MAX_PENDING_RENDERS) return Promise.reject(new RenderQueueFullError());
-  pending += 1;
-  const run = queue.then(work, work).finally(() => {
-    pending -= 1;
-  });
-  queue = run.catch(() => undefined);
-  return run;
-}
+const renders = renderQueue(SVG_MAX_PENDING_RENDERS);
 
 function renderInChild(svg: string, timeoutMs: number): Promise<Buffer> {
   return new Promise<Buffer>((resolve, rejectRender) => {
@@ -124,7 +107,7 @@ function renderInChild(svg: string, timeoutMs: number): Promise<Buffer> {
  * child that cannot start is `RenderHostError` (→ 500).
  */
 export function rasterizeCheckedSvg(svg: string, timeoutMs: number = SVG_RENDER_TIMEOUT_MS): Promise<Buffer> {
-  return serialized(() => renderInChild(svg, timeoutMs)).catch((err: unknown) => {
+  return renders.run(() => renderInChild(svg, timeoutMs)).catch((err: unknown) => {
     if (err instanceof RenderQueueFullError || err instanceof RenderHostError) throw err;
     return reject("svg_unsupported");
   });
