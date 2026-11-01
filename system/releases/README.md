@@ -31,6 +31,117 @@ The `contracts/check` CI job checks every file here:
 
 Locally, run `python .github/release/system_gate.py --manifest system/releases/<file>.json`. The checks that need the GitHub API (release immutability, attestations, the compat check run, the ERP image attestation and the `aws-lab` reviewer) run in the deploy workflow's preflight (RT-1031).
 
-## Deploying a system version
+## Deploying a system version (runbook)
 
-`.github/workflows/deploy-system-lab.yml` (RT-1031) takes `manifest` (the version to deploy), `current_manifest` (the version live now; the same file for a same-version redeploy), `jira_key` and `dry_run` (default `true`). Its preflight runs the gate above on both files plus the online checks, and uploads a planned system ledger. A live run (one `aws-lab` approval) sends four SSM documents in order: `RT-BackendLabBackup` on lab-02, `RT-BackendLabDeploy` on lab-01, `RT-ConsoleLabDeploy` on lab-01, `RT-ErpLabDeploy` on lab-03. It stops at the first failure; the system ledger then lists the manual rollback inputs of each step that finished (`.github/release/system_ledger.py`).
+`.github/workflows/deploy-system-lab.yml` (RT-1031) deploys one system version to the lab. Its inputs:
+
+- `manifest`: the version to deploy.
+- `current_manifest`: the version live now. For a same-version redeploy it is the same file.
+- `jira_key`.
+- `dry_run`: defaults to `true`.
+
+The preflight runs the gate above on both files, plus the online checks of each product, and writes a planned system ledger. It touches no AWS resource. A live run needs one `aws-lab` approval, then sends four SSM documents in order and stops at the first failure. The ledgers are built by `.github/release/system_ledger.py`. First proven live on 2026-11-01: [run 41306750385](https://github.com/Kemetra-Labs/Retail-Tower-Erp/actions/runs/41306750385), RT-1032.
+
+### 1. Find the version live now
+
+`current_manifest` must describe what each host runs. Any per-product deploy moves the lab and makes the current manifest stale: `deploy-lab.yml` (Backend-Core), `deploy-console-lab.yml` (Console) and `deploy-erp-lab.yml` (ERPNext + Connector).
+
+1. Read the latest live run of each per-product workflow:
+
+   ```bash
+   gh run list --workflow deploy-lab.yml --limit 5
+   gh run list --workflow deploy-console-lab.yml --limit 5
+   gh run list --workflow deploy-erp-lab.yml --limit 5
+   ```
+
+2. Download each live ledger with `gh run download <run id>` and note what it deployed:
+   - `deploy-lab.yml`: `release.tag`.
+   - `deploy-console-lab.yml`: `target.release`.
+   - `deploy-erp-lab.yml`: `target.digest` and `target.sha`.
+3. If no file here matches all three, add one (the next `lab-YYYY.MM.N`) that describes the live lab, by PR. `contracts/check` runs the gate on it.
+
+A stale manifest is refused on lab-01, before anything changes, with `RT_FAIL gate=G-Host reason=wrapper-does-not-use-the-current-release`. `lab-2026.11.1` was added for exactly this reason, after RT-473 and RT-807 deployed newer releases.
+
+### 2. Choose the target
+
+| Goal | `manifest` | `current_manifest` |
+| --- | --- | --- |
+| Prove the path, change no version | the live file | the same file |
+| Upgrade | a new file | the live file |
+
+The planned ledger reports two rollback rules:
+- `backend.rollbackAllowed`: `false` when the Backend-Core releases differ in migrations. The auto-revert then only records that an owner restore or forward fix is needed.
+- `erp.rollbackClass`: `image-only` or `restore`.
+
+### 3. Dry run
+
+```bash
+gh workflow run deploy-system-lab.yml --ref main -f manifest=system/releases/<file>.json -f current_manifest=system/releases/<file>.json -f jira_key=RT-<n> -f dry_run=true
+```
+
+The artifact `deploy-system-lab-plan-<run id>` holds `ledger.json` and `summary.md`. Go on only when:
+- `outcome` is `planned`;
+- `refusals` is empty;
+- G1–G7 all pass;
+- `environmentGate` is `reviewed`.
+
+For a refused plan, the `backend-core/` folder in the artifact holds the Backend-Core verifier's own ledger with its reasons.
+
+### 4. Live run
+
+Dispatch the same inputs with `-f dry_run=false`. The preflight runs again. Then the live job waits for the `aws-lab` reviewer: open the run, choose **Review deployments**, then **Approve and deploy**. The job then sends:
+
+| Step | Document | Host | What changes | Completion line |
+| --- | --- | --- | --- | --- |
+| `backup` | `RT-BackendLabBackup` | lab-02 | a new dump under `/var/backups/rt-lab`, restore-rehearsed | `RT_BACKUP name=… sha256=…` |
+| `backend` | `RT-BackendLabDeploy` | lab-01 | wrapper and env, migrate, `api` and `worker`, under a 15-minute auto-revert | `RT_DONE release=<tag>` |
+| `console` | `RT-ConsoleLabDeploy` | lab-01 | the `current` symlink (`RT_SWAP unchanged` for the same release) | `RT_DONE release=<tag>` |
+| `erp` | `RT-ErpLabDeploy` | lab-03 | an ERP backup, the image, migrate; the workers stop and resume | `RT_OUTCOME=deployed` |
+
+A same-version run took about four minutes on 2026-11-01. Even with no version change, it writes a lab-02 dump and an ERP backup, and stops and resumes the ERP workers once.
+
+### 5. Read the live ledger
+
+The artifact `deploy-system-lab-live-ledger-<run id>` holds:
+- `outcome`: `deployed` or `failed-at:<step>`;
+- `failure`;
+- the gate results;
+- for each step: `state` (`ok`, `failed` or `not-run`), `prior`, `target`, its gates and its strict `RT_*` lines;
+- `manualRollback`.
+
+A same-version run is proven when the outcome is `deployed` and the prior and target versions are equal in every step.
+
+### 6. When a step fails
+
+The job stops, and later steps do not run. The failing step behaves as its own document does today:
+- `backend` refuses at a gate before any change, or reverts itself through the auto-revert. That revert is app-only, and only when `rollbackAllowed` is `true`.
+- `console` swaps back on a failed smoke.
+- `erp` can stop after its swap with the workers down. In that case, read the ERP document's ledger on lab-03, then redeploy with `deploy-erp-lab.yml` or run `deploy/lab/restore.sh`, as its rollback class requires.
+
+Earlier steps are not reverted automatically, because a Backend-Core rollback can touch the database. `manualRollback` gives the exact workflow inputs for each step that finished, in the order they can run: ERP, then Backend-Core, then Console. The Console comes last because its document checks that lab-01 runs the Backend-Core release it is given.
+
+Refusals seen so far:
+
+| Line | Meaning | Action |
+| --- | --- | --- |
+| `G-Host reason=wrapper-does-not-use-the-current-release` | `current_manifest` is stale | step 1 |
+| `G-Host reason=an-earlier-auto-revert-is-armed-or-elapsed` | an earlier Backend-Core revert unit is still there | the owner checks it (`services/backend-core/deploy/README.md`, Live run) |
+| `backup-config reason=next-wrapper-still-uses-the-current-release` | a same-release redeploy on `RT-BackendLabDeploy` older than #218 | the owner updates the document (step 7) |
+
+### 7. Owner-only steps (no agent or CI job does these)
+
+- **Trust policy.** The `job_workflow_ref` list in the monorepo statement of the `rt-gha-aws-lab-deploy` trust policy must name `Kemetra-Labs/Retail-Tower-Erp/.github/workflows/deploy-system-lab.yml@refs/heads/main`. It was added on 2026-11-01. Without it, the live job fails at "Assume the deploy role" before anything reaches a host. To read it back:
+
+  ```bash
+  aws iam get-role --role-name rt-gha-aws-lab-deploy --query Role.AssumeRolePolicyDocument --region us-east-1 --profile <profile>
+  ```
+
+- **SSM documents.** After a merged change to any of the four documents, create a new version from the merged file. The workflow always runs the default version, so make the new version the default. Always name the region and profile.
+
+  ```bash
+  aws ssm update-document --name <document> --document-format YAML --content file://<path on main> --document-version '$LATEST' --region us-east-1 --profile <profile>
+  aws ssm update-document-default-version --name <document> --document-version <new version> --region us-east-1 --profile <profile>
+  ```
+
+  `RT-ErpLabDeploy` is JSON: use `--document-format JSON`. Then check that `DefaultVersion` equals `LatestVersion` (`aws ssm describe-document --name <document>`).
+- **Approval.** The `aws-lab` approval is the human gate of every live run.
