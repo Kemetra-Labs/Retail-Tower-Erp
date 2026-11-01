@@ -13,6 +13,7 @@ import { type MessageKey, type T, useT } from "@/i18n";
 import { createAuthRetry } from "@/lib/auth-interceptor";
 import { changePassword, refreshSession } from "@/lib/client";
 import { useSignOut } from "@/shell/useSignOut";
+import { useQueryClient } from "@tanstack/react-query";
 /**
  * RT-807 (owner decisions PW-1, PW-4; boards Password-change and
  * Password-states 3-9): the «حسابي» page, reached from the user menu. Its one
@@ -30,6 +31,7 @@ import { useSignOut } from "@/shell/useSignOut";
  * The aside is a light panel (PC-5).
  */
 import { type FormEvent, useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 import {
   type PasswordChangeFields,
   type PasswordChangeOutcome,
@@ -209,6 +211,21 @@ function PasswordField({
 export function AccountPage(): React.JSX.Element {
   const t = useT();
   const signOut = useSignOut();
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  /**
+   * After a 401 that the refresh could not renew, the server session is already
+   * gone, so a sign-out request that gets no answer still ends here locally.
+   * The shared sign-out stays as it is: there a failed request may leave the
+   * cookie live, so it must not pretend the user signed out.
+   */
+  function leaveExpiredSession(): void {
+    signOut().catch(() => {
+      queryClient.clear();
+      navigate("/signin", { replace: true });
+    });
+  }
   const { context } = useActiveContextValue();
   const summary = useSummaryFocus();
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -237,7 +254,7 @@ export function AccountPage(): React.JSX.Element {
     setPending(false);
     setOutcome(next);
     if (next.kind === "changed" || next.kind === "refused") form.reset();
-    if (next.kind === "session-expired") void signOut();
+    if (next.kind === "session-expired") leaveExpiredSession();
   }
 
   const email = context?.user?.email;
