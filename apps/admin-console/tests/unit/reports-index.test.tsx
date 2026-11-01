@@ -17,7 +17,6 @@ import { ReportsIndex } from "@/reports/ReportsIndex";
  */
 
 const PROPOSED = [
-  "Sales by store",
   "Sales by hour",
   "Shortage and overage trend",
   "Stock movement by type",
@@ -47,6 +46,7 @@ describe("ReportsIndex (RT-1020)", () => {
     renderIndex();
     expect(screen.getByRole("heading", { level: 1, name: "Reports" })).toBeDefined();
     expect(hrefOf("Daily received sales")).toBe("/sales-daily");
+    expect(hrefOf("Sales by store")).toBe("/sales-by-store");
     expect(hrefOf("Cash variance in shifts")).toBe("/shift-closes");
     expect(hrefOf("ERPNext stock discrepancies")).toBe("/stock-discrepancies");
     expect(hrefOf("Sales needing repair")).toBe("/sales-needing-repair");
@@ -88,6 +88,7 @@ describe("ReportsIndex (RT-1020)", () => {
     activeContext.mockReturnValue(ctx("store_manager", "t1"));
     renderIndex();
     expect(hrefOf("Daily received sales")).toBe("/sales-daily");
+    expect(hrefOf("Sales by store")).toBe("/sales-by-store");
     expect(hrefOf("Cash variance in shifts")).toBe("/shift-closes");
     expect(screen.queryByRole("link", { name: "Sales needing repair" })).toBeNull();
     // Its proposed sibling is still listed, as not available.

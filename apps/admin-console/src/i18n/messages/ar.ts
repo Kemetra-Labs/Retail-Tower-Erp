@@ -23,6 +23,7 @@ import { platform } from "./ar/platform";
 import { productRecon } from "./ar/productRecon";
 import { saleSync } from "./ar/saleSync";
 import { sales } from "./ar/sales";
+import { salesByStore } from "./ar/salesByStore";
 import { salesDaily } from "./ar/salesDaily";
 import { shell } from "./ar/shell";
 import { shift } from "./ar/shift";
@@ -53,6 +54,7 @@ export const AR_MODULES = {
   catalog,
   metrics,
   salesDaily,
+  salesByStore,
 };
 
 export const ar = {
@@ -79,4 +81,5 @@ export const ar = {
   ...catalog,
   ...metrics,
   ...salesDaily,
+  ...salesByStore,
 };

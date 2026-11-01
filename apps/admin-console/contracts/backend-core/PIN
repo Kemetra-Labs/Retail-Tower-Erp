@@ -2,7 +2,7 @@
 # (src/generated/schema.d.ts, RT-677). Rewritten by `pnpm generate:client --repin <ref>`.
 # Do not hand-edit: the generator checks every file below against its git blob SHA.
 repo: Kemetra-Labs/Retail-Tower-Erp
-commit: 3b3909e1cc3ca8ba918c80836b54453e3cd8805e
+commit: c8a1a84712be518c19ad11e7241e36027639913f
 source: services/backend-core/packages/contracts/openapi
 file: ai-entitlements.openapi.yaml e099a32ca5b928339bface70d76b64aa0acee786
 file: audit.openapi.yaml bc821ee22f732a7f293b2002c4d96a2adbf5faaf
@@ -15,6 +15,7 @@ file: catalog/product-reconciliation.yaml c66f63f605930e33aa33fe0e259581ae3c92d3
 file: catalog/tracking-profile.yaml f8d9dc228be581bbede72df7ade9289afc5a9504
 file: catalog/unknown-items.yaml 7656b15a44cc2ac670246fcf96ec871442b9a295
 file: connector/connector-admin.yaml 39496d0b0c6fcde87870d057cbe1d2837bb581f0
+file: console-sales-by-store.openapi.yaml 7553f5919e4172c96aac0105cbb96f8bd57c39d6
 file: console-sales-summary.openapi.yaml 97999c8a5412144dd83034865e2841843bd3fd73
 file: console-sales.openapi.yaml 326861363baa9907a970bb9eec42a9ed5980f297
 file: console-telemetry.openapi.yaml 3c28599418ec7a749641b214886c08c2cc49a1ba

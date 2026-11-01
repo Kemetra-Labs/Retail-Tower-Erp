@@ -2,7 +2,7 @@
  * RT-1020 (v4.0) the reports index catalogue: what the Console can open today
  * and what is only proposed. Pure data and role gates, no React.
  *
- * - `available`: the built report (daily received sales);
+ * - `available`: the built reports (daily received sales, sales by store);
  * - `review`: existing review screens, linked as they are;
  * - `proposed`: a report that has no screen and no served figure yet. It is
  *   listed so the owner can see the map, never linked and never given a number.
@@ -52,9 +52,11 @@ const GROUPS: readonly ReportGroup[] = [
       },
       {
         id: "sales-by-store",
-        kind: "proposed",
+        kind: "available",
         title: "reports.item.byStore.title",
         question: "reports.item.byStore.q",
+        to: "/sales-by-store",
+        canOpen: canReadSales,
       },
       {
         id: "sales-by-hour",

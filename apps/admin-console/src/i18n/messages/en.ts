@@ -22,6 +22,7 @@ import { platform } from "./en/platform";
 import { productRecon } from "./en/productRecon";
 import { saleSync } from "./en/saleSync";
 import { sales } from "./en/sales";
+import { salesByStore } from "./en/salesByStore";
 import { salesDaily } from "./en/salesDaily";
 import { shell } from "./en/shell";
 import { shift } from "./en/shift";
@@ -53,6 +54,7 @@ export const EN_MODULES = {
   catalog,
   metrics,
   salesDaily,
+  salesByStore,
 };
 
 export const en: MessagesOf<typeof ar> = {
@@ -79,4 +81,5 @@ export const en: MessagesOf<typeof ar> = {
   ...catalog,
   ...metrics,
   ...salesDaily,
+  ...salesByStore,
 };

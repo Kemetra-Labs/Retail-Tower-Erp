@@ -1,0 +1,559 @@
+/* RT-1054 «Sales by store» report (Report-stores board, DESIGN.md v4.0 §12).
+ * Role tokens only; no new colour, font or dependency. Logical properties
+ * throughout (RTL by structure). Ink marks the one leader row and the panel
+ * head (D-V2: Mint is a highlight on Ink only). Direction colours follow D-11
+ * (received up is green, down is red) and never stand alone: the sign is text.
+ * No motion. */
+
+.sbs-surface {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.sbs-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+/* --- Controls ------------------------------------------------------------- */
+.sbs-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+}
+.sbs-presets {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.sbs-preset {
+  min-block-size: 34px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-control-border);
+  border-radius: var(--radius-field);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: var(--weight-strong) var(--text-meta) / 1 var(--font-sans);
+  cursor: pointer;
+}
+.sbs-preset--on {
+  background: var(--color-action-fill);
+  border-color: var(--color-action-fill);
+  color: var(--color-on-action-fill);
+}
+.sbs-preset:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.sbs-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-block-size: 34px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-control-border);
+  border-radius: var(--radius-field);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: var(--weight-strong) var(--text-meta) / 1 var(--font-sans);
+  cursor: pointer;
+}
+.sbs-switch__track {
+  position: relative;
+  inline-size: 32px;
+  block-size: 18px;
+  border-radius: 9px;
+  background: var(--color-text-muted);
+}
+.sbs-switch__track::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 2px;
+  inset-inline-start: 2px;
+  inline-size: 14px;
+  block-size: 14px;
+  border-radius: 50%;
+  background: var(--color-surface);
+}
+.sbs-switch--on .sbs-switch__track {
+  background: var(--color-ink);
+}
+.sbs-switch--on .sbs-switch__track::after {
+  inset-inline-start: 16px;
+  background: var(--color-mint);
+}
+.sbs-currency {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-inline-start: auto;
+  font: var(--weight-strong) var(--text-meta) / 1 var(--font-sans);
+}
+.sbs-currency .input {
+  inline-size: auto;
+  min-inline-size: 5.5rem;
+  min-block-size: 34px;
+}
+
+/* --- Context -------------------------------------------------------------- */
+.sbs-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  color: var(--color-text);
+  font-size: var(--text-meta);
+}
+.sbs-chip {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 26px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+}
+.sbs-chip__so-far {
+  background: repeating-linear-gradient(
+    135deg,
+    transparent 0 5px,
+    var(--color-primary-soft) 5px 9px
+  );
+}
+.sbs-context__note {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--color-text-muted);
+}
+.sbs-note {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-object);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-control);
+}
+.sbs-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+/* --- Board: ranking and matrix beside the panel --------------------------- */
+.sbs-report {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.sbs-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 23rem);
+  gap: var(--space-4);
+  align-items: start;
+}
+.sbs-board__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-inline-size: 0;
+}
+@media (max-width: 64rem) {
+  .sbs-board {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.sbs-hint {
+  margin: 0 0 var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.sbs-hint--panel {
+  padding-inline: var(--space-5);
+  margin-block-end: var(--space-2);
+}
+.sbs-subhead {
+  margin: var(--space-4) 0 var(--space-1);
+  font: var(--weight-strong) var(--text-control) / var(--leading-title) var(--font-sans);
+  color: var(--color-text-muted);
+}
+
+/* --- Ranking -------------------------------------------------------------- */
+.sbs-rank {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sbs-row {
+  display: grid;
+  grid-template-columns: 30px minmax(8rem, 13rem) minmax(4rem, 1fr) minmax(6rem, 8rem) 5.75rem;
+  gap: var(--space-3);
+  align-items: center;
+  inline-size: 100%;
+  padding: var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-field-lg);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.sbs-row:hover {
+  background: var(--color-surface-sunken);
+  border-color: var(--color-border);
+}
+.sbs-row--on {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary-emphasis);
+}
+.sbs-row--leader {
+  background: var(--color-ink);
+  border-color: var(--color-ink);
+  color: var(--color-on-ink);
+}
+.sbs-row--leader:hover {
+  background: var(--color-ink);
+}
+.sbs-row--leader.sbs-row--on {
+  box-shadow: 0 0 0 2px var(--color-mint);
+}
+.sbs-row__pos {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 28px;
+  block-size: 28px;
+  border-radius: 9px;
+  background: var(--color-surface-sunken);
+  font-weight: var(--weight-strong);
+  font-variant-numeric: tabular-nums;
+}
+.sbs-row--leader .sbs-row__pos {
+  background: var(--color-mint);
+  color: var(--color-ink);
+}
+.sbs-row__name {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  line-height: 1.35;
+}
+.sbs-row__sub {
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.sbs-row--leader .sbs-row__sub,
+.sbs-row--leader .sbs-row__amount small {
+  color: var(--color-ink-muted);
+}
+.sbs-track {
+  position: relative;
+  block-size: 26px;
+  border-radius: 8px;
+  background: var(--color-surface-sunken);
+  overflow: hidden;
+}
+.sbs-track i {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  border-radius: 8px;
+  background: var(--color-primary-emphasis);
+}
+.sbs-row--leader .sbs-track {
+  background: color-mix(in srgb, var(--color-on-ink) 10%, transparent);
+}
+.sbs-row--leader .sbs-track i {
+  background: var(--color-mint);
+}
+.sbs-track__share {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: var(--space-2);
+  display: flex;
+  align-items: center;
+  font-size: var(--text-meta);
+  font-weight: var(--weight-strong);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+  /* The share sits on the bar's own track end; a chip keeps it readable on any fill. */
+}
+.sbs-track__share bdi {
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+.sbs-row__amount {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-weight: var(--weight-strong);
+  font-variant-numeric: tabular-nums;
+}
+.sbs-row__amount small {
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+  font-weight: var(--weight-regular, 400);
+}
+.sbs-status {
+  display: inline-flex;
+  padding: 0 var(--space-2);
+  border: 1px solid currentcolor;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-meta);
+  font-weight: var(--weight-strong);
+}
+@media (max-width: 40rem) {
+  .sbs-row {
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+  }
+  .sbs-track {
+    display: none;
+  }
+  .sbs-row > :last-child {
+    grid-column: 2 / -1;
+  }
+}
+
+/* --- Change badge (D-11: up is good, down is bad; the sign is the text) --- */
+.sbs-delta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: 24px;
+  padding: 0 var(--space-2);
+  border-radius: 8px;
+  font-size: var(--text-meta);
+  font-weight: var(--weight-strong);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  border: 1px solid currentcolor;
+  color: var(--color-text-muted);
+}
+.sbs-delta--up {
+  color: var(--color-success);
+}
+.sbs-delta--down {
+  color: var(--color-danger);
+}
+.sbs-row--leader .sbs-delta {
+  background: var(--color-surface);
+}
+
+/* --- Store × day matrix ---------------------------------------------------- */
+.sbs-matrix {
+  inline-size: 100%;
+  border-collapse: separate;
+  border-spacing: 3px;
+  font-size: var(--text-meta);
+}
+.sbs-matrix th {
+  padding: var(--space-1);
+  font-weight: var(--weight-strong);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  text-align: center;
+}
+.sbs-matrix th[scope="row"] {
+  text-align: start;
+  color: var(--color-text);
+  position: sticky;
+  inset-inline-start: 0;
+  background: var(--color-surface);
+}
+.sbs-matrix__row--on th[scope="row"] {
+  color: var(--color-primary-emphasis);
+}
+.sbs-cell {
+  position: relative;
+  min-inline-size: 3.25rem;
+  padding: var(--space-2) var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.sbs-cell--zero,
+.sbs-cell--not-begun {
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+}
+.sbs-cell--so-far {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-surface) 0 4px,
+    var(--color-primary-soft) 4px 8px
+  );
+}
+.sbs-cell--on {
+  border-color: var(--color-ink);
+}
+.sbs-cell__best {
+  position: absolute;
+  inset-block-start: 1px;
+  inset-inline-end: 3px;
+  font-size: var(--text-meta);
+  line-height: 1;
+  color: var(--color-warning);
+}
+
+/* --- Selected store panel -------------------------------------------------- */
+.sbs-panel {
+  position: sticky;
+  inset-block-start: var(--space-3);
+  min-inline-size: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+}
+@media (max-width: 64rem) {
+  .sbs-panel {
+    position: static;
+  }
+}
+.sbs-panel__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-ink);
+  color: var(--color-on-ink);
+}
+.sbs-panel__eyebrow {
+  color: var(--color-ink-muted);
+  font-size: var(--text-meta);
+}
+.sbs-panel__name {
+  margin: 0;
+  font: var(--weight-strong) var(--text-section-title) / var(--leading-title) var(--font-sans);
+}
+.sbs-panel__total {
+  margin-block-start: var(--space-2);
+  font: var(--weight-strong) var(--text-money-total) / 1.1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-mint);
+}
+.sbs-panel__lines {
+  margin: 0;
+}
+.sbs-panel__line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-5);
+  border-block-end: 1px solid var(--color-border);
+  font-size: var(--text-control);
+}
+.sbs-panel__line dt {
+  color: var(--color-text-muted);
+}
+.sbs-panel__line dd {
+  margin: 0;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+.sbs-panel__line small {
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.sbs-subhead--panel {
+  margin-inline: var(--space-5);
+}
+.sbs-days {
+  margin: 0;
+  padding: 0 var(--space-5) var(--space-3);
+  list-style: none;
+  font-size: var(--text-meta);
+}
+.sbs-days li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-1) 0;
+  border-block-end: 1px dashed var(--color-border);
+  font-variant-numeric: tabular-nums;
+}
+.sbs-days__mark {
+  color: var(--color-text-muted);
+}
+.sbs-panel__link {
+  display: block;
+  padding: var(--space-3) var(--space-5);
+  border-block-start: 1px solid var(--color-border);
+  color: var(--color-primary-emphasis);
+  font-weight: var(--weight-strong);
+  text-decoration: none;
+}
+.sbs-panel__link:hover {
+  background: var(--color-surface-sunken);
+}
+
+/* --- Exact figures --------------------------------------------------------- */
+.sbs-table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-control);
+}
+.sbs-table th,
+.sbs-table td {
+  padding: var(--space-2) var(--space-3);
+  border-block-end: 1px solid var(--color-border);
+  text-align: start;
+  vertical-align: top;
+  white-space: nowrap;
+}
+.sbs-table thead th {
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.sbs-table tbody th {
+  font-weight: var(--weight-strong);
+}
+.sbs-table tfoot th,
+.sbs-table tfoot td {
+  background: var(--color-ink);
+  color: var(--color-on-ink);
+  border: 0;
+  font-weight: var(--weight-strong);
+}
+.sbs-count {
+  display: block;
+  font-variant-numeric: tabular-nums;
+}
+.sbs-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+.sbs-table tfoot .sbs-lines {
+  color: var(--color-ink-muted);
+}
+@media (forced-colors: active) {
+  .sbs-row--leader,
+  .sbs-panel__head,
+  .sbs-table tfoot th,
+  .sbs-table tfoot td {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+}

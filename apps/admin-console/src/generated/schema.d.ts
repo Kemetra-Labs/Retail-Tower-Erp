@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 3b3909e1cc3ca8ba918c80836b54453e3cd8805e
+// Source: Kemetra-Labs/Retail-Tower-Erp @ c8a1a84712be518c19ad11e7241e36027639913f
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -21,6 +21,7 @@
 // - services/backend-core/packages/contracts/openapi/devices.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/console-sales.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/console-sales-summary.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/console-sales-by-store.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/cash-variance-policy.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/console-telemetry.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/catalog/erpnext-item-map.yaml
@@ -8035,6 +8036,285 @@ export namespace ConsoleSalesSummarySchema {
     }
 }
 
+export namespace ConsoleSalesByStoreSchema {
+    export interface paths {
+        "/api/v1/sales-by-store": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Received sales per store, ranked in one currency, with the previous equal-length period.
+             * @description Every store of the caller's scope (at most 500) over an inclusive range of at most 31 business days, ranked by received sales in `currency`, with per-currency facts, ratios, best day, dense per-day figures and the baseline period. Read only; computed by the server over the facts it had received by `asOf` (see the API description for every rule).
+             *     Audit: one `console_sales.by_store_read` event per 200, with `from`, `to`, `currency`, `compare` and the store count; no figure.
+             */
+            get: operations["consoleGetSalesByStore"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            /** @description Exact-decimal non-negative sum as a string (never a float) at the stored scale of four fractional digits, for example `"150.0000"`. */
+            DecimalTotal: string;
+            /** @description ISO-4217 alphabetic currency code. */
+            CurrencyCode: string;
+            /**
+             * Format: date
+             * @description A store business date, `YYYY-MM-DD` in the store's timezone.
+             */
+            BusinessDate: string;
+            /** @description An exact count over received facts. Zero is a real zero, never an unknown. */
+            Count: number;
+            CurrencyTotal: {
+                currencyCode: components["schemas"]["CurrencyCode"];
+                /** @description The facts in this currency (at least one, or the currency is absent). */
+                count: number;
+                total: components["schemas"]["DecimalTotal"];
+            };
+            /** @description A counted money fact. `count` is the sum of `byCurrency[].count`; `byCurrency` is ordered by `currencyCode` and empty when `count` is 0. Totals are never added across currencies. */
+            MoneyFacts: {
+                count: components["schemas"]["Count"];
+                byCurrency: components["schemas"]["CurrencyTotal"][];
+            };
+            /** @description A share between `"0.0000"` and `"1.0000"`, four fractional digits, rounded half-even; null when the divisor is zero. */
+            ShareRatio: string | null;
+            /** @description A signed ratio, four fractional digits, rounded half-even (`"-0.2500"` is a 25 % fall); null when the divisor is zero or the baseline was not read. Never `"-0.0000"`. */
+            SignedRatio: string | null;
+            /** @description A non-negative money quotient in the ranking currency, four fractional digits, rounded half-even; null when the divisor is zero. */
+            DecimalQuotient: string | null;
+            /** @description Received facts over the whole range, per currency, with the summary's meaning (RT-649). Each fact on its own business date; nothing netted. */
+            StoreFacts: {
+                receivedSales: components["schemas"]["MoneyFacts"];
+                returns: components["schemas"]["MoneyFacts"];
+                voids: components["schemas"]["MoneyFacts"];
+                legacyRefunds: components["schemas"]["MoneyFacts"];
+            };
+            /** @description One business date of a store, received sales in the ranking currency. */
+            StoreDay: {
+                businessDate: components["schemas"]["BusinessDate"];
+                /**
+                 * @description Relative to the store's `currentBusinessDate` at `asOf`: an earlier date is `complete`, that date is `so_far`, a later date is `not_begun` (zero figures).
+                 * @enum {string}
+                 */
+                state: "complete" | "so_far" | "not_begun";
+                count: components["schemas"]["Count"];
+                total: components["schemas"]["DecimalTotal"];
+            };
+            /** @description The range date with the highest received total in the ranking currency (earliest date on a tie); null when the store has no received sale in that currency in the range. */
+            BestDay: {
+                businessDate: components["schemas"]["BusinessDate"];
+                total: components["schemas"]["DecimalTotal"];
+            } | null;
+            /** @description The store's received sales in the ranking currency. */
+            StoreRanking: {
+                total: components["schemas"]["DecimalTotal"];
+                count: components["schemas"]["Count"];
+                share: components["schemas"]["ShareRatio"];
+                averageSale: components["schemas"]["DecimalQuotient"];
+                /** @description Received total in the ranking currency over the baseline period; null with `compare=none`. `"0.0000"` is a real zero. */
+                baselineTotal: string | null;
+                deltaRatio: components["schemas"]["SignedRatio"];
+                bestDay: components["schemas"]["BestDay"];
+                /** @description One entry per business date from `from` to `to`, ascending, zero-filled. */
+                days: components["schemas"]["StoreDay"][];
+            };
+            StoreSalesByStore: {
+                /** Format: uuid */
+                storeRef: string;
+                /** @description The store's current name (D-8), also for an inactive or deleted store. */
+                storeName: string;
+                /**
+                 * @description `deleted` (soft-deleted) takes precedence over `inactive`.
+                 * @enum {string}
+                 */
+                storeStatus: "active" | "inactive" | "deleted";
+                /** @description The store's current IANA timezone (`stores.timezone`, `UTC` until configured): the zone of `currentBusinessDate` and of the legacy refund buckets. */
+                storeTimezone: string;
+                currentBusinessDate: components["schemas"]["BusinessDate"];
+                /** @description Position 1..n in the ranking currency; null when unranked or not `rankable`. */
+                rank: number | null;
+                /** @description The same rule over the baseline period; null when unranked there, with `compare=none`, or when not `rankable`. */
+                baselineRank: number | null;
+                facts: components["schemas"]["StoreFacts"];
+                ranking: components["schemas"]["StoreRanking"];
+            };
+            /** @description The equal-length period immediately before the range (D-2); always present. */
+            Baseline: {
+                /** @constant */
+                rule: "previous_equal_length";
+                from: components["schemas"]["BusinessDate"];
+                to: components["schemas"]["BusinessDate"];
+                dayCount: number;
+            };
+            /** @description One business date over every store of the scope: each store's facts of that store-local business date, added by the server per currency. */
+            ScopeDay: {
+                businessDate: components["schemas"]["BusinessDate"];
+                facts: components["schemas"]["StoreFacts"];
+            };
+            ConsoleSalesByStore: {
+                from: components["schemas"]["BusinessDate"];
+                to: components["schemas"]["BusinessDate"];
+                currency: components["schemas"]["CurrencyCode"];
+                /** @enum {string} */
+                compare: "previous_period" | "none";
+                /**
+                 * Format: date-time
+                 * @description Server time after the read's snapshot: every figure covers the facts received and committed by then, and no fact still queued on a terminal.
+                 */
+                asOf: string;
+                /**
+                 * @description Always `received_only`: the figures exclude everything still queued on a terminal, so they are never presented as complete.
+                 * @constant
+                 */
+                completeness: "received_only";
+                baseline: components["schemas"]["Baseline"];
+                /** @description False when the scope holds fewer than two stores (D-6b); every rank is then null. */
+                rankable: boolean;
+                /** @description Every store of the scope, including inactive and deleted ones; equals `stores` length. */
+                storeCount: number;
+                /** @description Stores with no received sale in the ranking currency in the range (the unranked stores). */
+                storesWithoutSales: number;
+                rangeTotals: components["schemas"]["StoreFacts"];
+                /** @description Scope totals per business date from `from` to `to`, ascending, zero-filled (also when `storeCount` is 0). */
+                days: components["schemas"]["ScopeDay"][];
+                /** @description Every store of the scope: ranked stores by `rank` ascending, then the unranked stores by `storeRef` ascending. */
+                stores: components["schemas"]["StoreSalesByStore"][];
+            };
+            /** @description Canonical error envelope. Out-of-scope and cross-tenant refusals are non-disclosing (§II, §XII): they never name the cause. */
+            Error: {
+                error: {
+                    /** @description Stable machine-readable error code. */
+                    code: string;
+                    /** @description Human-readable summary. No sensitive data, no cause enumeration. */
+                    message: string;
+                    /**
+                     * Format: uuid
+                     * @description Server-side correlation id; the cause is recorded server-side.
+                     */
+                    request_id?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description validation_error (400): a malformed query value, an unknown query key (including `store_id`, `cursor` and `page_size`), a query key given more than once, a missing `from`, `to` or `currency`, a date that is not a calendar date (`2026-02-30`), `to` before `from`, a range wider than 31 business days, or a `compare` outside its values. Or scope_too_large (400): the caller's scope holds more than 500 stores; nothing is truncated. Checked after the guards and before any figure is read. */
+            ValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated (401): a missing or invalid session cookie, or a non-cookie credential without a valid session cookie. Non-disclosing. Owned by 028 (G10). */
+            Unauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description not_found (404), non-disclosing: a role outside `owner` / `tenant_admin` / `store_manager`. */
+            NotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description system_failure (500): unexpected server error; the cause is recorded server-side under `request_id`. */
+            SystemFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. The body is the canonical error envelope with a non-disclosing message (no budget, class or window); its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`. A 429 is not a 401: it never means the session ended. The console limit is server-configured and may not be enforced, so a client must handle a 429 but must not expect one. */
+            TooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    /** @description The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a well-formed UUID, otherwise a server-minted one. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+        parameters: {
+            /** @description First business date of the range, inclusive, in each store's timezone. */
+            BusinessDateFrom: string;
+            /** @description Last business date of the range, inclusive. `to >= from` and `to - from <= 30` (31 business days), else 400 `validation_error`. Never truncated. */
+            BusinessDateTo: string;
+            /** @description The ranking currency (ISO-4217, upper case). Ranks, `share`, `averageSale`, the baseline figures, `bestDay` and the per-store `days[]` are in this currency only; the per-currency facts still list every currency. A currency with no fact in scope is valid: every store is then unranked. */
+            RankingCurrency: string;
+            /** @description `previous_period` (default) reads the baseline period and fills the baseline figures; `none` leaves them null. The baseline bounds are returned either way. */
+            Compare: "previous_period" | "none";
+        };
+        requestBodies: never;
+        headers: {
+            /** @description `no-store` on every 200: the body carries the tenant's commercial figures, so no shared or browser cache keeps them. */
+            CacheControlNoStore: "no-store";
+            /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600. */
+            ConsoleRetryAfter: number;
+        };
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        consoleGetSalesByStore: {
+            parameters: {
+                query: {
+                    /** @description First business date of the range, inclusive, in each store's timezone. */
+                    from: components["parameters"]["BusinessDateFrom"];
+                    /** @description Last business date of the range, inclusive. `to >= from` and `to - from <= 30` (31 business days), else 400 `validation_error`. Never truncated. */
+                    to: components["parameters"]["BusinessDateTo"];
+                    /** @description The ranking currency (ISO-4217, upper case). Ranks, `share`, `averageSale`, the baseline figures, `bestDay` and the per-store `days[]` are in this currency only; the per-currency facts still list every currency. A currency with no fact in scope is valid: every store is then unranked. */
+                    currency: components["parameters"]["RankingCurrency"];
+                    /** @description `previous_period` (default) reads the baseline period and fills the baseline figures; `none` leaves them null. The baseline bounds are returned either way. */
+                    compare?: components["parameters"]["Compare"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The sales-by-store report of the caller's scope and range. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConsoleSalesByStore"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+    }
+}
+
 export namespace CashVariancePolicySchema {
     export interface paths {
         "/api/pos/v1/store/cash-variance-policy": {
@@ -15136,6 +15416,6 @@ export namespace TenantBrandingSchema {
     }
 }
 
-export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths;
-export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components;
-export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations;
+export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & ConsoleSalesByStoreSchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths;
+export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & ConsoleSalesByStoreSchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components;
+export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & ConsoleSalesByStoreSchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations;
