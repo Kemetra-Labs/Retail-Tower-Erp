@@ -7,6 +7,8 @@
  */
 import { z } from "zod";
 
+import { boundedArray } from "../../common/bounded-array";
+
 const MoneyString = z
   .string()
   .regex(/^\d{1,15}(\.\d{1,4})?$/, "amount must be an exact-decimal money string");
@@ -14,7 +16,7 @@ const MoneyString = z
 export const ClaimCreateSchema = z
   .object({
     payerRef: z.string().uuid(),
-    receivableRefs: z.array(z.string().uuid()).min(1).max(500),
+    receivableRefs: boundedArray(500, z.array(z.string().uuid()).min(1)),
   })
   .strict();
 

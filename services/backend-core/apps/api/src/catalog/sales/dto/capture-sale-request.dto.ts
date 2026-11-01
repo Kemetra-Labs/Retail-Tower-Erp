@@ -25,6 +25,7 @@
  * via `NonNegativeDecimalAmount`.
  */
 import { z } from "zod";
+import { boundedArray } from "../../../common/bounded-array";
 import { hasNoNul, NO_NUL_MESSAGE } from "../../../common/text-validation";
 
 /**
@@ -213,18 +214,20 @@ export const SaleResponsibilitySchema = z
  * contract rule). The coverage rule and payer eligibility need the database
  * and run in the service (422).
  */
-const responsibilityList = z
-  .array(SaleResponsibilitySchema)
-  .min(1)
-  .max(1)
-  .superRefine((rs, ctx) => {
-    if (hasRepeat(rs.map((r) => r.payerRef))) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "payerRef must be unique within the sale" });
-    }
-    if (hasRepeat(rs.map((r) => r.sequence))) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "sequence must be unique within the sale" });
-    }
-  });
+const responsibilityList = boundedArray(
+  1,
+  z
+    .array(SaleResponsibilitySchema)
+    .min(1)
+    .superRefine((rs, ctx) => {
+      if (hasRepeat(rs.map((r) => r.payerRef))) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "payerRef must be unique within the sale" });
+      }
+      if (hasRepeat(rs.map((r) => r.sequence))) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "sequence must be unique within the sale" });
+      }
+    }),
+);
 
 /**
  * The capture body's object shape (strict). The exported schemas below add

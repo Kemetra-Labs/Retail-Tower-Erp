@@ -10,4 +10,8 @@
   Contracts: `pos-sales/sales.yaml` 1.16.0-draft, `memberships.openapi.yaml`
   2.2.0-draft, `pos-audit-events.openapi.yaml` 1.2.0-draft,
   `ai-entitlements.openapi.yaml` 1.1.0-draft. Capture-sale `lines` and `tenders`
-  stay unbounded until the POS enforces the same caps (RT-1052).
+  stay unbounded until the POS enforces the same caps (RT-1052). The request
+  arrays that already had a `.max()` (settlement `receivableRefs` and `payers`,
+  unknown-item `ids`, recall `trackingIdentityIds`, approver `user_ids`, close-shift
+  `cashRefundReturnRefs`, capture `responsibilities`) keep their limits and now
+  use the same length-first check.

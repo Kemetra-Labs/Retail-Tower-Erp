@@ -45,7 +45,7 @@ import { UsageRepository, type CounterRef, type CounterState, type ReservedEntry
 /** RT-1051: `maxItems` of `targetStores`. */
 export const MAX_TARGET_STORES = 100;
 
-export const AI_FEATURE_ID_PATTERN =/^ai\.[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/;
+export const AI_FEATURE_ID_PATTERN = /^ai\.[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/;
 
 /** `AiEntitlementCheckInput` (x-internal). No tenant or principal: they come from the context. */
 export const AiEntitlementCheckInputSchema = z
