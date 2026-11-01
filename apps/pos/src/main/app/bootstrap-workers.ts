@@ -43,6 +43,9 @@
 const STOP_ORDER = [
   'finalize listener',
   'read-down driver',
+  // RT-475 — the tenant branding read-down (startup + hourly). It writes the
+  // branding cache, so it stops with the catalogue read-down, before the DB closes.
+  'branding read-down',
   'sale-sync interval',
   // RT-603 — the terminal status push (1 s refresh). Its sync read uses the DB,
   // so it stops with the sale-sync drain it reads, before the DB closes.
