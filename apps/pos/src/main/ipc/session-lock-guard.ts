@@ -27,7 +27,8 @@ import { PAIRING_IPC_CHANNELS } from '../../shared/pairing-types.js';
  *
  * RT-475: the tenant branding read is served too. The lock screen shows the
  * tenant logo (RT-832 slot `lock`); the read returns only what the signed-out
- * screens show, from the local cache, and writes nothing.
+ * screens show, from the local cache. Its only write is deleting cache rows
+ * that fail validation or belong to another pairing (FR-35a, FR-32).
  */
 
 export const LOCKED_ALLOWED_CHANNELS: ReadonlySet<string> = new Set<string>([

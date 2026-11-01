@@ -132,6 +132,6 @@ function isKind(value: unknown): value is BrandingSnapshot['kind'] {
  * unchecked value (a non-PNG URI, an oversized box, an unknown kind).
  */
 export function parseBrandingSnapshot(payload: unknown): BrandingSnapshot | null {
-  if (!isRecord(payload) || payload.v !== 1 || !isKind(payload.kind)) return null;
-  return PARSERS[payload.kind](payload);
+  if (!isRecord(payload) || payload.v !== 1) return null;
+  return isKind(payload.kind) ? PARSERS[payload.kind](payload) : null;
 }

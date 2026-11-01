@@ -190,3 +190,37 @@ describe('RT-475 — renderer feed', () => {
     expect(screen.getByTestId('probe')).toHaveTextContent('unknown');
   });
 });
+
+describe('RT-475 — renderer feed after a pairing change', () => {
+  it('ignores a push that arrives before the re-read answers', async () => {
+    const fake = fakeBranding(LOGO);
+    let onPairing: ((e: PairingStatusChangedEvent) => void) | undefined;
+    const pairing = {
+      onStatusChanged: (cb: (e: PairingStatusChangedEvent) => void) => {
+        onPairing = cb;
+        return () => undefined;
+      },
+    };
+    render(<Probe />);
+    const stop = startBrandingFeed(fake.bridge, pairing);
+    expect(await screen.findByText('logo')).toBeInTheDocument();
+
+    let resolveNext: (s: BrandingSnapshot) => void = () => undefined;
+    fake.get.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveNext = resolve;
+      }),
+    );
+    act(() => {
+      onPairing?.({ kind: 'paired' });
+      fake.push(LOGO);
+    });
+    expect(screen.getByTestId('probe')).toHaveTextContent('unknown');
+    await act(async () => {
+      resolveNext(NAME);
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('probe')).toHaveTextContent('name');
+    stop();
+  });
+});

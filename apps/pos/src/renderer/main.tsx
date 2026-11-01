@@ -178,8 +178,9 @@ if (
 
   installErrorReporter(window, (report) => bridge.reportError(report));
 
-  // RT-475 — read the tenant branding (local cache) before the first paint, so
-  // the boot screen can show the logo during the existing load. Nothing waits on it.
+  // RT-475 — start reading the tenant branding (local cache) as early as
+  // possible, so the boot screen can show the logo during the existing load.
+  // Nothing waits on it.
   startBrandingFeed(bridge.branding, bridge.pairing);
 
   // Existing production boot: hydrate flags and install sign-out cleanup.

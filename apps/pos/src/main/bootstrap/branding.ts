@@ -52,6 +52,9 @@ export function registerBranding(deps: BrandingDeps): void {
     },
   });
   registerBrandingHandlers(guardedIpcMain, { snapshot: () => service.snapshot() });
+  // Warm the memoized snapshot now, before the window asks for it, so the boot
+  // screen's first read answers from memory (FR-36: local only, no wait).
+  void service.snapshot();
 
   const baseUrl = resolveApiBaseUrl();
   deps.pairedWorkersLatch.register('branding read-down', (terminal) => {
@@ -63,10 +66,17 @@ export function registerBranding(deps: BrandingDeps): void {
       tenantId: terminal.tenant_id,
       now: () => new Date().toISOString(),
       onChanged: () => {
+        service.invalidate();
         void pushBrandingSnapshot({
           snapshot: () => service.snapshot(),
           send: (snapshot) => {
             broadcastToWindows(BRANDING_IPC_CHANNELS.CHANGED, snapshot);
+          },
+          onError: (err) => {
+            mainLogger.warn(
+              { error: err instanceof Error ? err.name : 'unknown' },
+              'branding:push_failed',
+            );
           },
         });
       },

@@ -59,9 +59,12 @@ const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0
 
 /** A plain object holding no key outside `keys`; null otherwise. */
 function recordOf(value: unknown, keys: readonly string[]): Record<string, unknown> | null {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  return Object.keys(record).every((key) => keys.includes(key)) ? record : null;
+  if (!isPlainObject(value)) return null;
+  return Object.keys(value).every((key) => keys.includes(key)) ? value : null;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isInt(value: unknown, min: number, max: number): value is number {
@@ -112,11 +115,16 @@ export function brandingEtag(name: string, revision: number): string {
  * this width and height. A truncated, re-typed or mis-sized rendition fails.
  */
 export function isPngOfSize(base64: string, width: number, height: number): boolean {
-  if (!BASE64.test(base64)) return false;
-  const bytes = Buffer.from(base64, 'base64');
-  if (bytes.length < 33 || !bytes.subarray(0, 8).equals(PNG_SIGNATURE)) return false;
-  if (bytes.readUInt32BE(8) !== 13 || bytes.toString('ascii', 12, 16) !== 'IHDR') return false;
-  return bytes.readUInt32BE(16) === width && bytes.readUInt32BE(20) === height;
+  const size = BASE64.test(base64) ? pngSize(Buffer.from(base64, 'base64')) : null;
+  return size !== null && size.width_px === width && size.height_px === height;
+}
+
+/** The IHDR size of a PNG (signature, then a 13-byte IHDR first); null otherwise. */
+function pngSize(bytes: Buffer): Size | null {
+  if (bytes.length < 33 || !bytes.subarray(0, 8).equals(PNG_SIGNATURE)) return null;
+  if (bytes.readUInt32BE(8) !== 13) return null;
+  if (bytes.toString('ascii', 12, 16) !== 'IHDR') return null;
+  return { width_px: bytes.readUInt32BE(16), height_px: bytes.readUInt32BE(20) };
 }
 
 const SCREEN_KEYS = ['slot', 'scale', 'width_px', 'height_px', 'png_base64'];
@@ -202,12 +210,16 @@ function readLogo(value: unknown): WireLogo | null {
 /** The 200 body, or null when it is off-contract in any way. */
 export function readBrandingBody(value: unknown): WireBranding | null {
   const record = recordOf(value, BODY_KEYS);
-  if (record === null) return null;
+  const head = record === null ? null : readBodyHead(record);
+  if (record === null || head === null) return null;
+  if (record.logo === null) return { ...head, logo: null };
+  // A stored logo means at least one write happened.
+  const logo = head.revision < 1 ? null : readLogo(record.logo);
+  return logo === null ? null : { ...head, logo };
+}
+
+function readBodyHead(record: Record<string, unknown>): Omit<WireBranding, 'logo'> | null {
   const { tenant_display_name, revision } = record;
   if (typeof tenant_display_name !== 'string' || tenant_display_name.length === 0) return null;
-  if (!isInt(revision, 0, Number.MAX_SAFE_INTEGER)) return null;
-  if (record.logo === null) return { tenant_display_name, revision, logo: null };
-  // A stored logo means at least one write happened.
-  const logo = revision < 1 ? null : readLogo(record.logo);
-  return logo === null ? null : { tenant_display_name, revision, logo };
+  return isInt(revision, 0, Number.MAX_SAFE_INTEGER) ? { tenant_display_name, revision } : null;
 }

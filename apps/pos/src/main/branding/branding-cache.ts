@@ -238,13 +238,21 @@ export function createBrandingCache(db: DatabaseHandle): BrandingCache {
       purge();
       return EMPTY;
     }
+    return loadLogo(name);
+  }
+
+  /** The logo record checked against a valid name record (FR-35a). */
+  function loadLogo(name: CachedName): BrandingCacheRead {
     const logoRow = readLogoRow();
-    const logo =
-      name.logo_state === 'present' && logoRow !== undefined ? validLogo(logoRow, name) : null;
-    if (logoRow !== undefined && logo === null) deleteLogo();
-    // Conditional polling only while both records agree (FR-35a).
-    const consistent = name.logo_state === 'none' ? logoRow === undefined : logo !== null;
-    return { name, logo, conditionalEtag: consistent ? name.etag : null };
+    if (logoRow === undefined) {
+      // `present` with no logo record: unusable, so the next read is unconditional.
+      const conditionalEtag = name.logo_state === 'none' ? name.etag : null;
+      return { name, logo: null, conditionalEtag };
+    }
+    const logo = name.logo_state === 'present' ? validLogo(logoRow, name) : null;
+    if (logo === null) deleteLogo();
+    // Conditional polling only while both records agree.
+    return { name, logo, conditionalEtag: logo === null ? null : name.etag };
   }
 
   const replace = db.transaction(

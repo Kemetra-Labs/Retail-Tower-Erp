@@ -105,6 +105,8 @@ export function snapshotFromCache(read: BrandingCacheRead): BrandingSnapshot {
 export interface BrandingService {
   /** The current snapshot for the screens. Never throws: any fault → `none`. */
   snapshot(): Promise<BrandingSnapshot>;
+  /** Forget the memoized snapshot (the worker replaced the cache). */
+  invalidate(): void;
 }
 
 export interface BrandingServiceDeps {
@@ -113,21 +115,46 @@ export interface BrandingServiceDeps {
   readonly onError?: (err: unknown) => void;
 }
 
+function scopeKey(scope: BrandingScope): string {
+  return `${scope.tenant_id ?? '-'}|${String(scope.paired_at)}`;
+}
+
+/**
+ * The snapshot is memoized per pairing scope, so the screens get it without
+ * re-validating ~2 MB of renditions on every read: the cache changes only
+ * through this process (the worker calls `invalidate` after a write), and a
+ * different scope always reloads (and purges) through `load`.
+ */
 export function createBrandingService(deps: BrandingServiceDeps): BrandingService {
+  let memo: { key: string; snapshot: BrandingSnapshot } | null = null;
+
+  async function compute(): Promise<BrandingSnapshot> {
+    const resolution = await resolveBrandingScope(deps.pairing);
+    if (resolution.kind === 'unpaired') {
+      memo = null;
+      deps.cache.purge();
+      return BRANDING_NONE;
+    }
+    if (resolution.kind === 'hidden') return BRANDING_NONE;
+    const key = scopeKey(resolution.scope);
+    if (memo?.key === key) return memo.snapshot;
+    const snapshot = snapshotFromCache(deps.cache.load(resolution.scope));
+    memo = { key, snapshot };
+    return snapshot;
+  }
+
   return {
     async snapshot() {
       try {
-        const resolution = await resolveBrandingScope(deps.pairing);
-        if (resolution.kind === 'unpaired') {
-          deps.cache.purge();
-          return BRANDING_NONE;
-        }
-        if (resolution.kind === 'hidden') return BRANDING_NONE;
-        return snapshotFromCache(deps.cache.load(resolution.scope));
+        return await compute();
       } catch (err) {
+        memo = null;
         deps.onError?.(err);
         return BRANDING_NONE;
       }
+    },
+    invalidate() {
+      memo = null;
     },
   };
 }

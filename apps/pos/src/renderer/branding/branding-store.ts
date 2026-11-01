@@ -6,10 +6,11 @@ import type { BrandingSnapshot } from '../../shared/branding/types';
 /**
  * RT-475 — the renderer's copy of the tenant branding (spec 039 FR-33/FR-36).
  *
- * Started once before React mounts, so the boot screen usually has the
- * snapshot for its first paint; the read is the local cache in main and never
- * waits on the network. Nothing ever waits on it: routing does not read it,
- * and a screen with no snapshot yet renders exactly today's screen.
+ * Started once just before React mounts. The read is answered from main's
+ * memoized copy of the local cache and never waits on the network. Nothing
+ * ever waits on it: routing does not read it, and a screen with no snapshot
+ * yet renders exactly today's screen. If it answers after the boot screen's
+ * first paint, the boot logo appears then (a known residual, see the PR).
  *
  * Kept current by the `branding:changed` push (the worker replaced the cache)
  * and re-read on every pairing change. A pairing change clears it first, so a
@@ -20,6 +21,8 @@ type Listener = () => void;
 
 let current: BrandingSnapshot | undefined;
 let generation = 0;
+/** True between a pairing change and the re-read's answer: pushes are ignored. */
+let rescoping = false;
 const listeners = new Set<Listener>();
 
 function set(next: BrandingSnapshot | undefined): void {
@@ -49,11 +52,15 @@ function refresh(branding: BrandingBridgeAPI): void {
   branding
     .get()
     .then((snapshot) => {
-      if (mine === generation) set(snapshot);
+      if (mine !== generation) return;
+      rescoping = false;
+      set(snapshot);
     })
     .catch(() => {
       // Decorative: a failed read leaves today's screens.
-      if (mine === generation) set(undefined);
+      if (mine !== generation) return;
+      rescoping = false;
+      set(undefined);
     });
 }
 
@@ -68,10 +75,13 @@ export function startBrandingFeed(
   if (branding === undefined) return () => undefined;
   refresh(branding);
   const offChanged = branding.onChanged((snapshot) => {
+    // A push built before a pairing change may carry the previous scope.
+    if (rescoping) return;
     generation += 1;
     set(snapshot);
   });
   const offPairing = pairing?.onStatusChanged?.(() => {
+    rescoping = true;
     set(undefined);
     refresh(branding);
   });
@@ -84,5 +94,6 @@ export function startBrandingFeed(
 /** Test-only: drop the snapshot and pending reads. */
 export function resetBrandingForTests(snapshot?: BrandingSnapshot): void {
   generation += 1;
+  rescoping = false;
   set(snapshot);
 }
