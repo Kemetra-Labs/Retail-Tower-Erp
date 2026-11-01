@@ -69,6 +69,9 @@ const ADDED_SINCE_IC3: readonly IconName[] = [
   // RT-970: the Overview's comparison with the previous business day.
   "increase",
   "decrease",
+  // RT-474: the logo page's warnings and refusals (POS names, D-263-9).
+  "status.warning",
+  "status.danger",
 ];
 
 function draw(props: { name: IconName; size?: "sm" | "md" | "lg" }): SVGSVGElement {
