@@ -3,7 +3,7 @@ import { type Page, expect, test } from "./fixtures";
 
 /**
  * RT-559 Overview (spec 009) on the built SPA, in both locales, as rebuilt by
- * RT-970 (Overview v2). AC-12: changing
+ * RT-970 (Overview v2) and RT-993 (Overview v4). AC-12: changing
  * the store re-reads every panel and no row from the old scope stays visible.
  * AC-10 (OD-009-3): a plain /audit link, and no audit read at all.
  * AC-13: the page renders in light, dark and forced-colors (captures attached)
@@ -260,10 +260,15 @@ test("AC-13: light, dark and forced-colors render; every control is keyboard-rea
   // Stores on different business days: no made-up scope "today" (RT-970).
   const kpis = page.getByRole("region", { name: t("overview.kpi.label") });
   await expect(kpis.getByText(t("overview.kpi.mixed"), { exact: false })).toBeVisible();
-  const pipeline = page.getByRole("region", { name: t("overview.pipeline.label") });
-  await expect(pipeline.getByText(t("overview.pipeline.devices", { count: 3 }))).toBeVisible();
+  // RT-993: the greeting's pipeline rail, the trend against the previous period,
+  // and the «قريبًا» frames of the widgets that have no read yet.
+  const rail = page.getByRole("group", { name: t("pipelineRail.label") });
+  await expect(rail.getByText(t("overview.pipeline.devices", { count: 3 }))).toBeVisible();
   await expect(
-    page.getByRole("img", { name: t("overview.trend.summary", { currency: "EGP" }) }),
+    page.getByRole("img", { name: t("overview.trend.summary", { currency: "EGP", days: 14 }) }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: t("overview.lowStock.title") }).getByText(t("overview.soon")),
   ).toBeVisible();
   await expectNoAxeViolations(page, `overview ${appLocale} light`);
   await capture("light");

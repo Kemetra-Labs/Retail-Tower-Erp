@@ -4,9 +4,12 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 /**
- * RT-970 Overview v2: the KPI ledger strip, the pipeline strip, the 14-day
- * trend and the latest sales. Every number is an existing read (mocked here
- * at its typed wrapper); a missing source is «غير متاح», never 0.
+ * RT-993 Overview v4 (DESIGN.md §12.4, D-V7; owner decisions RT-993 comment
+ * 15088): greeting and pipeline rail, one receipt row (a hero and three
+ * cards), the trend against the previous period, today's ERPNext posting as a
+ * part-to-whole ring, the latest sales, and the side column. Every number is
+ * an existing read (mocked here at its typed wrapper); a missing source is
+ * «غير متاح» or «قريبًا», never 0.
  */
 const consoleGetSalesSummary = vi.fn();
 vi.mock("@/lib/sales-summary-queries", () => ({
@@ -38,15 +41,14 @@ vi.mock("@/context/ActiveContextProvider", () => ({
 
 import { setLocale } from "@/i18n/locale";
 import { createQueryClient } from "@/lib/query";
-import { TREND_DAYS } from "@/overview/glanceLogic";
 import { Overview } from "@/shell/Overview";
 import { ZERO_KPIS } from "./metric-claim-fixtures";
-import { CAIRO, NEW_YORK, dates, scopeSummary, storeSummary } from "./sales-daily-fixtures";
+import { CAIRO, NEW_YORK, scopeSummary, storeSummary } from "./sales-daily-fixtures";
 
 const NOW = "2026-10-23T10:00:00Z";
 const TODAY = "2026-10-23";
 const YESTERDAY = "2026-10-22";
-const RANGE = { from: "2026-10-09", to: "2026-10-24" };
+const RANGE = { from: "2026-09-25", to: "2026-10-24" };
 
 function day(count: number, egp: string, over: Partial<typeof ZERO_KPIS> = {}) {
   return {
@@ -58,19 +60,21 @@ function day(count: number, egp: string, over: Partial<typeof ZERO_KPIS> = {}) {
 
 const TODAY_KPIS = day(338, "52318.5000", {
   returns: { count: 4, byCurrency: [{ currencyCode: "EGP", count: 4, total: "486.0000" }] },
-  voids: { count: 1, byCurrency: [{ currencyCode: "EGP", count: 1, total: "57.2500" }] },
+  voids: { count: 2, byCurrency: [{ currencyCode: "EGP", count: 2, total: "57.2500" }] },
   erpPosting: { posted: 329, pending: 4, failed: 3, unknown: 2 },
+  syncStatus: { captured: 0, synced: 336, failedRetryable: 0, failedNeedsRepair: 2 },
 });
 const YESTERDAY_KPIS = day(310, "45000.0000", {
   returns: { count: 6, byCurrency: [{ currencyCode: "EGP", count: 6, total: "500.0000" }] },
   voids: { count: 1, byCurrency: [{ currencyCode: "EGP", count: 1, total: "10.0000" }] },
 });
+const SAME_DAY_LAST_WEEK = day(300, "40000.0000");
 
 function storeRead() {
   return storeSummary(
     { ref: CAIRO, timeZone: "Africa/Cairo", currentBusinessDate: TODAY },
     { from: RANGE.from, to: TODAY },
-    { [TODAY]: TODAY_KPIS, [YESTERDAY]: YESTERDAY_KPIS },
+    { [TODAY]: TODAY_KPIS, [YESTERDAY]: YESTERDAY_KPIS, "2026-10-16": SAME_DAY_LAST_WEEK },
   );
 }
 
@@ -95,9 +99,14 @@ const SALE = {
   erpPostingState: "unknown",
 };
 
-function ctx(role: string, store: { id: string; name: string } | null = null) {
+function ctx(
+  role: string,
+  store: { id: string; name: string } | null = null,
+  user: { display_name?: string | null } = { display_name: "Amal Saleh" },
+) {
   return {
     context: {
+      user: { id: "u1", email: "amal@northstar.eg", ...user },
       active_tenant: { id: "t1", name: "Northstar Retail" },
       active_store: store,
       active_role_code: role,
@@ -116,10 +125,13 @@ function renderOverview(): void {
 }
 
 const kpis = () => screen.getByRole("region", { name: "Today so far" });
-const pipeline = () =>
-  screen.getByRole("region", { name: "A sale's path from the till to ERPNext" });
-const cell = (label: string) =>
-  within(kpis()).getByText(label, { selector: "dt" }).parentElement as HTMLElement;
+const card = (label: string) => within(kpis()).getByRole("article", { name: label });
+const rail = () => screen.getByRole("group", { name: "Sale pipeline" });
+const node = (name: string) =>
+  within(rail()).getByText(name, { selector: ".pipeline-rail__name" }).closest("li") as HTMLElement;
+const trend = () =>
+  screen.getByRole("region", { name: "Received sales: this period against the previous one" });
+const posting = () => screen.getByRole("region", { name: "Today's sales in ERPNext" });
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -140,10 +152,10 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("one summary read feeds the strips and the trend", () => {
-  test("reads once, over the 16-day window, narrowed to the active store", async () => {
+describe("one summary read feeds the row, the rail and both charts", () => {
+  test("reads once, over the 30-day window, narrowed to the active store", async () => {
     renderOverview();
-    await screen.findByText("52,318.50 EGP");
+    await within(kpis()).findByText("52,318.50 EGP");
     expect(consoleGetSalesSummary).toHaveBeenCalledTimes(1);
     expect(consoleGetSalesSummary).toHaveBeenCalledWith({
       store_id: CAIRO,
@@ -153,35 +165,88 @@ describe("one summary read feeds the strips and the trend", () => {
   });
 });
 
-describe("KPI ledger strip", () => {
-  test("four contract figures, today so far, each against the previous business day", async () => {
+describe("greeting", () => {
+  test("the page's one h1 greets the user; the scope line stays the first fact", () => {
     renderOverview();
-    await screen.findByText("52,318.50 EGP");
+    const h1 = screen.getByRole("heading", { level: 1, name: "Welcome, Amal Saleh" });
+    expect((h1.parentElement as HTMLElement).textContent).toContain("Northstar Retail");
+  });
+
+  test("no display name: the title is the page's name", () => {
+    activeContext.mockReturnValue(
+      ctx("owner", { id: CAIRO, name: "Cairo Festival City" }, { display_name: null }),
+    );
+    renderOverview();
+    expect(screen.getByRole("heading", { level: 1, name: "Overview" })).toBeTruthy();
+  });
+});
+
+describe("receipt row", () => {
+  test("one hero and three cards, each a contract figure; nothing the contract lacks", async () => {
+    renderOverview();
+    await within(kpis()).findByText("52,318.50 EGP");
     expect(
       within(kpis())
-        .getAllByRole("term")
-        .map((dt) => dt.textContent),
+        .getAllByRole("article")
+        .map(
+          (a) =>
+            a.getAttribute("aria-label") ?? a.querySelector(".receipt-card__label")?.textContent,
+        ),
     ).toEqual(["Received sales", "Transactions", "Returns", "Voids"]);
-    // No figure the contract does not define (RT-751 AC 1).
-    expect(within(kpis()).queryByText(/net|average|%/i)).toBeNull();
-    const received = cell("Received sales");
+    expect(card("Received sales").classList.contains("receipt-card--hero")).toBe(true);
+    expect(kpis().querySelectorAll(".receipt-card--hero")).toHaveLength(1);
+    // RT-751 AC 1 / RT-975: no net sales and no average basket.
+    expect(within(kpis()).queryByText(/net|average|basket/i)).toBeNull();
+  });
+
+  test("each card names its scope, period, baseline and freshness", async () => {
+    renderOverview();
+    await within(kpis()).findByText("52,318.50 EGP");
+    const context = kpis().querySelector(".receipt-row__context") as HTMLElement;
+    expect(context.textContent).toContain("Cairo Festival City · Today so far · ");
+    expect(context.textContent).toContain("As of");
+    for (const label of ["Received sales", "Transactions", "Returns", "Voids"]) {
+      expect(card(label).getAttribute("aria-describedby")).toBe(context.id);
+      expect(card(label).textContent).toMatch(/previous business day in full/);
+    }
+  });
+
+  test("a delta shows the arrow, the signed value and the named baseline, coloured by good direction", async () => {
+    renderOverview();
+    await within(kpis()).findByText("52,318.50 EGP");
+    const received = card("Received sales").querySelector(".glance-delta") as HTMLElement;
+    expect(received.textContent).toContain("+7,318.50 EGP");
     expect(received.textContent).toContain(
       "Higher than the previous business day in full (45,000.00 EGP)",
     );
-    // An arrow reinforces the words; colour is never the only cue.
     expect(received.querySelector("svg[data-icon='increase']")).not.toBeNull();
-    expect(cell("Transactions").textContent).toContain("338");
-    expect(cell("Transactions").textContent).toContain(
-      "Higher than the previous business day in full (310)",
-    );
-    expect(cell("Returns").textContent).toContain(
-      "Lower than the previous business day in full (500.00 EGP)",
-    );
-    expect(cell("Returns").querySelector("svg[data-icon='decrease']")).not.toBeNull();
-    expect(cell("Voids").textContent).toContain("Same as the previous business day in full (1)");
-    expect(
-      within(kpis()).getByText(/compared with the previous business day in full/),
-    ).toBeTruthy();
+    expect(received.dataset.tone).toBe("good");
+
+    const count = card("Transactions").querySelector(".glance-delta") as HTMLElement;
+    expect(count.textContent).toContain("+28");
+    expect(count.dataset.tone).toBe("good");
+
+    // Returns fell: good. Voids rose: bad (owner decision, §12.8.2).
+    const returns = card("Returns").querySelector(".glance-delta") as HTMLElement;
+    expect(returns.textContent).toContain("-14.00 EGP");
+    expect(returns.querySelector("svg[data-icon='decrease']")).not.toBeNull();
+    expect(returns.dataset.tone).toBe("good");
+    const voids = card("Voids").querySelector(".glance-delta") as HTMLElement;
+    expect(voids.textContent).toContain("+1");
+    expect(voids.dataset.tone).toBe("bad");
+  });
+
+  test("the hero sparkline states its period and keeps gaps", async () => {
+    const read = storeRead();
+    read.stores[0].days = read.stores[0].days.filter((d) => d.businessDate !== "2026-10-20");
+    consoleGetSalesSummary.mockImplementation(() => ok(read));
+    renderOverview();
+    await within(kpis()).findByText("52,318.50 EGP");
+    const spark = await within(card("Received sales")).findByRole("img", {
+      name: /Received sales in EGP over the last 14 business days/,
+    });
+    expect(within(card("Received sales")).getByText("Last 14 business days")).toBeTruthy();
+    expect(spark.querySelectorAll("polyline").length).toBe(2);
   });
 
   test("a date the read lacks is «غير متاح» (Not available), never 0", async () => {
@@ -189,12 +254,13 @@ describe("KPI ledger strip", () => {
     read.stores[0].days = read.stores[0].days.filter((d) => d.businessDate !== TODAY);
     consoleGetSalesSummary.mockImplementation(() => ok(read));
     renderOverview();
-    await screen.findAllByText("Not available");
-    expect(within(cell("Received sales")).getByText("Not available")).toBeTruthy();
-    expect(within(cell("Transactions")).getByText("Not available")).toBeTruthy();
-    expect(within(cell("Transactions")).queryByText("0")).toBeNull();
-    // The pipeline has no today either: no made-up counts.
-    expect(within(pipeline()).getAllByText("Not available")).toHaveLength(2);
+    await within(kpis()).findAllByText("Not available");
+    expect(within(card("Received sales")).getByText("Not available")).toBeTruthy();
+    expect(within(card("Transactions")).getByText("Not available")).toBeTruthy();
+    expect(within(card("Transactions")).queryByText("0")).toBeNull();
+    // The rail has no today either: no made-up counts.
+    expect(within(node("Server")).getByText("Not available")).toBeTruthy();
+    expect(within(node("ERPNext")).getByText("Not available")).toBeTruthy();
   });
 
   test("a missing previous day says so instead of comparing", async () => {
@@ -202,8 +268,10 @@ describe("KPI ledger strip", () => {
     read.stores[0].days = read.stores[0].days.filter((d) => d.businessDate !== YESTERDAY);
     consoleGetSalesSummary.mockImplementation(() => ok(read));
     renderOverview();
-    await screen.findByText("52,318.50 EGP");
-    expect(cell("Transactions").textContent).toContain("Previous business day: not available");
+    await within(kpis()).findByText("52,318.50 EGP");
+    const delta = card("Transactions").querySelector(".glance-delta") as HTMLElement;
+    expect(delta.textContent).toContain("Previous business day: not available");
+    expect(delta.dataset.tone).toBe("neutral");
   });
 
   test("stores on different business days: no single today, a pointer to daily sales", async () => {
@@ -236,8 +304,8 @@ describe("KPI ledger strip", () => {
     await act(async () => {
       fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
     });
-    expect(await screen.findByText("52,318.50 EGP")).toBeTruthy();
-    // The trend reads the same summary: one announcement, not two.
+    expect(await within(kpis()).findByText("52,318.50 EGP")).toBeTruthy();
+    // The charts read the same summary: one announcement, not three.
     expect(screen.queryAllByRole("alert")).toHaveLength(0);
   });
 
@@ -247,108 +315,218 @@ describe("KPI ledger strip", () => {
     expect(kpis().querySelector("[aria-busy='true']")).not.toBeNull();
   });
 
-  test("a role the summary refuses: no strip, no trend; the pipeline says Not available", async () => {
+  test("a role the summary refuses: no row, no charts; the rail says Not available", async () => {
     consoleGetSalesSummary.mockImplementation(() => fail(403));
     renderOverview();
-    await within(pipeline()).findAllByText("Not available");
+    await within(rail()).findAllByText("Not available");
     expect(screen.queryByRole("region", { name: "Today so far" })).toBeNull();
-    expect(screen.queryByText("Received sales, last 14 business days")).toBeNull();
+    expect(
+      screen.queryByRole("region", {
+        name: "Received sales: this period against the previous one",
+      }),
+    ).toBeNull();
+    expect(screen.queryByRole("region", { name: "Today's sales in ERPNext" })).toBeNull();
   });
 });
 
-describe("pipeline strip", () => {
-  test("active-trust devices, today's received count and the four posting buckets", async () => {
+describe("pipeline rail", () => {
+  test("three nodes, each a fact in words: devices, today's received count, posting", async () => {
     renderOverview();
-    expect(await within(pipeline()).findByText("Trusted devices: 3")).toBeTruthy();
+    expect(await within(node("POS")).findByText("Trusted devices: 3")).toBeTruthy();
     expect(consoleListDevices).toHaveBeenCalledWith({
       trust_state: "active",
       page_size: 50,
       store_id: CAIRO,
     });
     // Nothing claims connectivity the contract does not record.
-    expect(within(pipeline()).queryByText(/online|offline|connected/i)).toBeNull();
-    expect(within(pipeline()).getByText("Today's sales: 338")).toBeTruthy();
-    expect(within(pipeline()).getByText("Posted: 329 of 338")).toBeTruthy();
-    for (const part of ["Pending: 4", "Failed: 3", "Unknown: 2"]) {
-      expect(within(pipeline()).getByText(part)).toBeTruthy();
+    expect(within(rail()).queryByText(/online|offline|connected/i)).toBeNull();
+    expect(node("POS").querySelector("[data-status='unknown']")).not.toBeNull();
+    expect(node("Server").textContent).toContain("Today's sales: 338");
+    expect(node("Server").textContent).toContain("Failed, needs repair: 2");
+    expect(node("Server").querySelector("[data-status='failed']")).not.toBeNull();
+    const erp = node("ERPNext").textContent ?? "";
+    for (const part of ["Posted: 329 of 338", "Pending: 4", "Failed: 3", "Unknown: 2"]) {
+      expect(erp).toContain(part);
     }
+    expect(node("ERPNext").querySelector("[data-status='failed']")).not.toBeNull();
   });
 
   test("a further page of devices is 'or more'", async () => {
     consoleListDevices.mockImplementation(() => ok({ items: [{}, {}], nextCursor: "c2" }));
     renderOverview();
-    expect(await within(pipeline()).findByText("Trusted devices: 2 or more")).toBeTruthy();
+    expect(await within(node("POS")).findByText("Trusted devices: 2 or more")).toBeTruthy();
   });
 
-  test("each step links to its screen, only where the role may go", async () => {
+  test("the rail's screens are linked beside it, only where the role may go", async () => {
     renderOverview();
-    await within(pipeline()).findByText("Posted: 329 of 338");
-    expect(
-      within(pipeline()).getByRole("link", { name: "View devices" }).getAttribute("href"),
-    ).toBe("/devices");
-    expect(within(pipeline()).getByRole("link", { name: "View sales" }).getAttribute("href")).toBe(
+    await within(node("ERPNext")).findByText(/Posted: 329 of 338/);
+    const links = screen.getByRole("navigation", { name: "Sale pipeline screens" });
+    expect(within(links).getByRole("link", { name: "View devices" }).getAttribute("href")).toBe(
+      "/devices",
+    );
+    expect(within(links).getByRole("link", { name: "View sales" }).getAttribute("href")).toBe(
       `/sales?store=${CAIRO}&from=${TODAY}&to=${TODAY}`,
     );
-    expect(
-      within(pipeline()).getByRole("link", { name: "Repair sales" }).getAttribute("href"),
-    ).toBe("/sales-needing-repair");
+    expect(within(links).getByRole("link", { name: "Repair sales" }).getAttribute("href")).toBe(
+      "/sales-needing-repair",
+    );
     cleanup();
     activeContext.mockReturnValue(ctx("store_manager", { id: CAIRO, name: "Cairo Festival City" }));
     renderOverview();
-    await within(pipeline()).findByText("Posted: 329 of 338");
-    expect(within(pipeline()).queryByRole("link", { name: "Repair sales" })).toBeNull();
-    expect(within(pipeline()).queryByRole("link", { name: "Connection status" })).toBeNull();
+    await within(node("ERPNext")).findByText(/Posted: 329 of 338/);
+    expect(screen.queryByRole("link", { name: "Repair sales" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Connection status" })).toBeNull();
   });
 
-  test("a role that cannot read devices: the step is Not available, nothing is read", async () => {
+  test("a role that cannot read devices: the node is Not available, nothing is read", async () => {
     activeContext.mockReturnValue(ctx("store_staff", { id: CAIRO, name: "Cairo Festival City" }));
     renderOverview();
-    const step = (await within(pipeline()).findByText("Points of sale")).closest(
-      "li",
-    ) as HTMLElement;
-    expect(within(step).getByText("Not available")).toBeTruthy();
+    expect(await within(node("POS")).findByText("Not available")).toBeTruthy();
     expect(consoleListDevices).not.toHaveBeenCalled();
   });
 });
 
-describe("14-day trend", () => {
-  test("a picture with a summary, and the same figures as a table on request", async () => {
+describe("trend against the previous period", () => {
+  test("states its question; a picture with a summary, two lines, and a legend", async () => {
     renderOverview();
-    const chart = await screen.findByRole("img", { name: /Bars of received sales in EGP/ });
-    // Data colour, never a status colour: the bars are the viz series.
-    expect(chart.querySelectorAll(".daily-chart__bar").length).toBeGreaterThan(0);
+    const chart = await within(trend()).findByRole("img", {
+      name: /Lines of received sales in EGP: the last 14 business days/,
+    });
     expect(
-      chart.querySelector("[class*='badge'], [class*='danger'], [class*='success']"),
-    ).toBeNull();
-    const chartBtn = screen.getByRole("button", { name: "Chart" });
-    expect(chartBtn.getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: "Table" }));
-    expect(screen.getByRole("button", { name: "Table" }).getAttribute("aria-pressed")).toBe("true");
-    expect(screen.queryByRole("img", { name: /Bars of received sales/ })).toBeNull();
-    const table = screen.getByRole("table", { name: "Received sales, last 14 business days" });
+      within(trend()).getByText(
+        "Are this period's daily sales above or below the same days of the period before?",
+      ),
+    ).toBeTruthy();
+    expect(chart.querySelectorAll(".trend-chart__line--current").length).toBeGreaterThan(0);
+    expect(chart.querySelectorAll(".trend-chart__line--previous").length).toBeGreaterThan(0);
+    // Identity never by colour alone: a legend names both lines.
+    expect(within(trend()).getByText("This period")).toBeTruthy();
+    expect(within(trend()).getByText("Previous period")).toBeTruthy();
+    // Data colour, never a status colour.
+    expect(chart.querySelector("[class*='danger'], [class*='success']")).toBeNull();
+  });
+
+  test("the period is a segmented control: 7 or 14 days", async () => {
+    renderOverview();
+    await within(trend()).findByRole("img");
+    const seven = within(trend()).getByRole("button", { name: "7 days" });
+    expect(
+      within(trend()).getByRole("button", { name: "14 days" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+    fireEvent.click(seven);
+    expect(seven.getAttribute("aria-pressed")).toBe("true");
+    expect(within(trend()).getByRole("img", { name: /the last 7 business days/ })).toBeTruthy();
+    expect(consoleGetSalesSummary).toHaveBeenCalledTimes(1);
+  });
+
+  test("the same figures as a table: each day beside the same day of the previous period", async () => {
+    renderOverview();
+    await within(trend()).findByRole("img");
+    fireEvent.click(within(trend()).getByRole("button", { name: "7 days" }));
+    fireEvent.click(within(trend()).getByRole("button", { name: "Table" }));
+    expect(within(trend()).queryByRole("img")).toBeNull();
+    const table = within(trend()).getByRole("table");
     const rows = within(table).getAllByRole("row").slice(1);
-    expect(rows).toHaveLength(TREND_DAYS);
-    // Newest first; today is "So far".
+    expect(rows).toHaveLength(7);
+    // Newest first; today is "So far" and compared with 2026-10-16.
     expect(rows[0].textContent).toContain("52,318.50 EGP");
+    expect(rows[0].textContent).toContain("40,000.00 EGP");
+    expect(rows[0].textContent).toContain("+12,318.50 EGP");
     expect(rows[0].textContent).toContain("So far");
   });
 
-  test("a date the read lacks is Unknown in the table, never 0", async () => {
+  test("a date the read lacks is Unknown in the table and a gap in the chart, never 0", async () => {
     const read = storeRead();
     read.stores[0].days = read.stores[0].days.filter((d) => d.businessDate !== "2026-10-20");
     consoleGetSalesSummary.mockImplementation(() => ok(read));
     renderOverview();
-    await screen.findByRole("img", { name: /Bars of received sales/ });
-    fireEvent.click(screen.getByRole("button", { name: "Table" }));
-    const row = screen
+    const chart = await within(trend()).findByRole("img");
+    expect(chart.querySelectorAll(".trend-chart__line--current")).toHaveLength(2);
+    fireEvent.click(within(trend()).getByRole("button", { name: "Table" }));
+    const row = within(trend())
       .getAllByRole("row")
       .find((r) => r.querySelector("time")?.getAttribute("dateTime") === "2026-10-20");
     expect(row?.textContent).toContain("Unknown");
     expect(row?.textContent).toContain("—");
   });
+});
 
-  test("covers the last 14 business days of the read", () => {
-    expect(dates("2026-10-10", TODAY)).toHaveLength(TREND_DAYS);
+describe("today's posting, part to whole", () => {
+  test("states its question; a ring of the four posting buckets and a real table", async () => {
+    renderOverview();
+    const ring = await within(posting()).findByRole("img", {
+      name: /Ring of today's 338 received sales by ERPNext posting state/,
+    });
+    expect(
+      within(posting()).getByText("Of today's received sales, how many has ERPNext posted?"),
+    ).toBeTruthy();
+    // At most five parts, in the viz palette, never status colours.
+    const arcs = ring.querySelectorAll(".posting-ring__arc");
+    expect(arcs.length).toBeLessThanOrEqual(5);
+    expect(arcs.length).toBe(4);
+    const table = within(posting()).getByRole("table", {
+      name: "Share of today's 338 received sales",
+    });
+    const rows = within(table)
+      .getAllByRole("row")
+      .slice(1)
+      .map((r) => r.textContent);
+    expect(rows[0]).toContain("Posted");
+    expect(rows[0]).toContain("329");
+    expect(rows[0]).toContain("97.3%");
+    expect(rows[3]).toContain("Unknown");
+    // Unknown is never "not posted" (RT-956).
+    expect(within(posting()).getByText(/never means not posted/i)).toBeTruthy();
+  });
+
+  test("no sale received today: says so, no 0/0 ring", async () => {
+    const read = storeRead();
+    read.stores[0].days = read.stores[0].days.map((d) =>
+      d.businessDate === TODAY ? { ...d, kpis: ZERO_KPIS } : d,
+    );
+    consoleGetSalesSummary.mockImplementation(() => ok(read));
+    renderOverview();
+    expect(await within(posting()).findByText("No sales received today yet.")).toBeTruthy();
+    expect(within(posting()).queryByRole("img")).toBeNull();
+    expect(within(posting()).queryByText(/%/)).toBeNull();
+  });
+});
+
+describe("side column", () => {
+  test("at most four quick actions, each a destination the role may open, with a description", async () => {
+    renderOverview();
+    const quick = screen.getByRole("navigation", { name: "Quick actions" });
+    const links = within(quick).getAllByRole("link");
+    expect(links.length).toBeLessThanOrEqual(4);
+    expect(links.map((a) => a.getAttribute("href"))).toEqual([
+      "/sales-daily",
+      "/sales-needing-repair",
+      "/catalog/products",
+      "/operators",
+    ]);
+    for (const link of links) expect(link.getAttribute("aria-describedby")).toBeTruthy();
+    cleanup();
+    activeContext.mockReturnValue(ctx("store_manager", { id: CAIRO, name: "Cairo Festival City" }));
+    renderOverview();
+    const managerLinks = within(
+      screen.getByRole("navigation", { name: "Quick actions" }),
+    ).getAllByRole("link");
+    expect(managerLinks.map((a) => a.getAttribute("href"))).not.toContain("/sales-needing-repair");
+  });
+
+  test("stores today and low stock: a clear «قريبًا» frame and no invented numbers", async () => {
+    renderOverview();
+    for (const name of ["Stores today", "Low stock"]) {
+      const region = screen.getByRole("region", { name });
+      expect(within(region).getByText("Coming soon")).toBeTruthy();
+      expect(region.textContent).not.toMatch(/\d/);
+    }
+  });
+
+  test("the attention list keeps its place in the side column", async () => {
+    renderOverview();
+    const side = screen.getByRole("region", { name: "Overview side column" });
+    expect(within(side).getByRole("region", { name: "Needs your attention" })).toBeTruthy();
   });
 });
 
@@ -383,7 +561,7 @@ describe("latest sales", () => {
 });
 
 describe("Arabic", () => {
-  test("the same strip in Arabic, with «غير متاح» for a missing figure", async () => {
+  test("the same row in Arabic, «غير متاح» for a missing figure, «قريبًا» for a missing read", async () => {
     setLocale("ar");
     const read = storeRead();
     read.stores[0].days = read.stores[0].days.filter((d) => d.businessDate !== TODAY);
@@ -391,5 +569,6 @@ describe("Arabic", () => {
     renderOverview();
     expect((await screen.findAllByText("غير متاح")).length).toBeGreaterThan(0);
     expect(screen.getByRole("region", { name: "مؤشرات اليوم حتى الآن" })).toBeTruthy();
+    expect(screen.getAllByText("قريبًا").length).toBeGreaterThanOrEqual(2);
   });
 });

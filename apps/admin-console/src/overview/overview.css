@@ -1,28 +1,14 @@
-/* RT-970 Overview v2 (canvas «المختار · A + مسار C»; DESIGN.md §2 and §5 v3.0):
- * section panels for the data regions; one KPI ledger strip and one pipeline
- * strip, never a stat-card grid. Role tokens only, logical properties only
- * (RTL-first), numbers tabular. No colour carries meaning alone: states are
- * words, the dots and arrows only reinforce them. */
+/* RT-993 Overview v4 (DESIGN.md §12.4, D-V7): a main column (receipt row, the two
+ * charts, the latest sales) beside a side column (quick actions, attention list and
+ * the «قريبًا» frames). Built on RT-970's section panels and states. Role tokens
+ * only, logical properties only (RTL-first), numbers tabular. No colour carries
+ * meaning alone: states are words; dots, arrows and chip tones only reinforce them. */
 
 .overview {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+  align-items: start;
   gap: var(--space-5);
-}
-
-/* The trend beside the attention list; they stack when there is no room. */
-.overview__row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-5);
-}
-.overview__row > .glance-trend {
-  flex: 2 1 520px;
-  min-width: 0;
-}
-.overview__row > .overview__attention {
-  flex: 1 1 320px;
-  min-width: 0;
 }
 
 .overview__related {
@@ -74,178 +60,448 @@
   margin-inline-start: auto;
 }
 
-/* ---- KPI ledger strip --------------------------------------------------------- */
-.glance-kpis > .glance-quiet {
+/* ---- Receipt row (RT-993; DESIGN.md §12.2, §12.4) -------------------------------- */
+.glance-kpis > .glance-quiet,
+.glance-kpis > .glance-skeleton,
+.glance-kpis > .glance-error {
   padding: var(--space-4) var(--space-5);
 }
-.kpi-strip {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+.receipt-row__context,
+.receipt-row__note {
   margin: 0;
-}
-.kpi-strip__cell {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  min-width: 0;
-  padding: var(--space-5);
-  border-inline-start: 1px solid var(--color-border);
-}
-.kpi-strip__cell:first-child {
-  border-inline-start: 0;
-}
-.kpi-strip__label {
   color: var(--color-text-muted);
   font-size: var(--text-control);
 }
-.kpi-strip__money {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  margin: 0;
+.receipt-row__context {
+  margin-block-end: var(--space-3);
 }
-.kpi-strip__value {
-  color: var(--color-text);
-  font: var(--weight-strong) var(--text-money-total) / var(--leading-tight) var(--font-sans);
-  font-variant-numeric: tabular-nums lining-nums;
-}
-.kpi-strip__value--quiet {
-  margin: 0;
-  color: var(--color-text-muted);
-  font: var(--weight-regular) var(--text-body) / var(--leading-tight) var(--font-sans);
-}
-.kpi-strip__num {
-  font-variant-numeric: tabular-nums;
-}
-.kpi-strip__note {
-  margin: 0;
-  padding: var(--space-3) var(--space-5);
-  border-block-start: 1px solid var(--color-border);
-  color: var(--color-text-muted);
+.receipt-row__note {
+  margin-block-start: var(--space-3);
   font-size: var(--text-meta);
 }
-.glance-delta {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  color: var(--color-text-muted);
-  font-size: var(--text-meta);
-}
-/* A money figure never breaks between its amount and its currency. */
-.glance-delta bdi,
-.kpi-strip__money bdi {
-  white-space: nowrap;
-}
-.glance-delta__icon {
-  flex-shrink: 0;
-  color: var(--color-text);
-}
-
-/* Four across, then two by two, then one: no divider at a row's start. */
-@media (max-width: 1100px) {
-  .kpi-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .kpi-strip__cell:nth-child(odd) {
-    border-inline-start: 0;
-  }
-  .kpi-strip__cell:nth-child(n + 3) {
-    border-block-start: 1px solid var(--color-border);
-  }
-}
-@media (max-width: 600px) {
-  .kpi-strip {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .kpi-strip__cell {
-    border-inline-start: 0;
-    padding: var(--space-4);
-  }
-  .kpi-strip__cell + .kpi-strip__cell {
-    border-block-start: 1px solid var(--color-border);
-  }
-}
-
-/* ---- Pipeline strip ------------------------------------------------------------ */
-.pipeline {
-  display: flex;
-  flex-wrap: wrap;
+/* Hero on its own row, three cards under it; hero beside them when there is room. */
+.receipt-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.pipeline__step {
-  flex: 1 1 220px;
+.receipt-row > li {
+  display: flex;
+  min-inline-size: 0;
+}
+.receipt-row > li > .receipt-card {
+  flex: 1;
+}
+.receipt-row > li:first-child {
+  grid-column: 1 / -1;
+}
+@container overview-main (min-width: 1000px) {
+  .receipt-row {
+    grid-template-columns: minmax(0, 1.5fr) repeat(3, minmax(0, 1fr));
+  }
+  .receipt-row > li:first-child {
+    grid-column: auto;
+  }
+}
+@container overview-main (max-width: 560px) {
+  .receipt-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.receipt-row__amounts {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  min-width: 0;
-  padding: var(--space-4) var(--space-5);
-  border-inline-start: 1px solid var(--color-border);
 }
-.pipeline__step:first-child {
-  border-inline-start: 0;
+.receipt-row__amounts bdi {
+  white-space: nowrap;
 }
-.pipeline__title {
+.receipt-row__deltas {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: var(--space-2);
+  min-inline-size: 0;
+}
+.receipt-row__spark {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-inline-start: auto;
+}
+.receipt-row__spark-period {
+  font-size: var(--text-meta);
+}
+
+/* The hero receipt (§12.1-§12.2): an expressive Ink surface with a Mint glow and the
+ * Tower grid; its figure is on-ink, its secondary text ink-muted. */
+.receipt-card--hero {
+  --receipt-notch-fill: var(--color-background);
+  border-color: var(--color-ink);
+  background-color: var(--color-ink);
+  background-image: radial-gradient(
+      circle at 100% 0%,
+      color-mix(in srgb, var(--color-mint) 24%, transparent),
+      transparent 58%
+    ), linear-gradient(color-mix(in srgb, var(--color-mint) 6%, transparent) 1px, transparent 1px),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--color-mint) 6%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: auto, 24px 24px, 24px 24px;
+  color: var(--color-on-ink);
+}
+.receipt-card--hero .receipt-card__label,
+.receipt-card--hero .receipt-card__bottom {
+  color: var(--color-ink-muted);
+}
+.receipt-card--hero .receipt-card__figure {
+  color: var(--color-on-ink);
+  font-size: 2.125rem; /* 34px, the hero figure (§12.3) */
+}
+.receipt-card--hero .receipt-card__rule {
+  border-color: color-mix(in srgb, var(--color-on-ink) 22%, transparent);
+}
+.receipt-card--hero .receipt-card__notch {
+  border-color: var(--color-ink);
+}
+.receipt-card--hero .glance-unavailable,
+.receipt-card--hero .glance-delta__icon {
+  color: var(--color-on-ink);
+}
+.hero-spark__line {
+  fill: none;
+  stroke: var(--color-mint);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.hero-spark__dot {
+  fill: var(--color-mint);
+}
+.hero-spark__base {
+  stroke: color-mix(in srgb, var(--color-on-ink) 22%, transparent);
+  stroke-width: 1;
+}
+
+/* A delta: arrow, signed value and the named baseline, as words. The chip's tone
+ * follows the metric's good direction (§12.8.2), never the arrow; it carries its
+ * own fill, so it reads the same on a light card and on the Ink hero. */
+.glance-delta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  color: inherit;
+  font-size: var(--text-meta);
+}
+.glance-delta__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+.glance-delta[data-tone="good"] .glance-delta__chip {
+  background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface));
+  color: var(--color-success);
+}
+.glance-delta[data-tone="bad"] .glance-delta__chip {
+  background: color-mix(in srgb, var(--color-danger) 12%, var(--color-surface));
+  color: var(--color-danger);
+}
+.glance-delta bdi {
+  white-space: nowrap;
+}
+.glance-delta__icon {
+  flex-shrink: 0;
+}
+
+/* ---- Greeting and pipeline rail (§12.2, §12.4) --------------------------------------- */
+.overview-rail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  margin-block-start: var(--space-3);
+}
+.overview-rail__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-control);
+}
+.overview-rail__note {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+
+/* ---- Main and side columns ----------------------------------------------------------- */
+.overview__main {
+  container: overview-main / inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-inline-size: 0;
+}
+.overview__side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-inline-size: 0;
+}
+.overview__charts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+}
+@container overview-main (min-width: 820px) {
+  .overview__charts {
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  }
+}
+.section-panel__question {
+  margin: 0 0 var(--space-3);
   color: var(--color-text-muted);
   font-size: var(--text-control);
 }
-.pipeline__index {
-  display: grid;
-  place-items: center;
-  inline-size: 22px;
-  block-size: 22px;
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-sunken);
-  color: var(--color-text);
-  font: var(--weight-strong) var(--text-meta) / 1 var(--font-sans);
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-inline-size: 0;
 }
-.pipeline__value {
-  color: var(--color-text);
-  font: var(--weight-strong) var(--text-section-title) / var(--leading-title) var(--font-sans);
+
+/* ---- Trend chart (current solid, previous dashed; gaps kept) --------------------------- */
+.trend-chart {
+  position: relative;
+}
+.trend-chart__svg {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  overflow: visible;
+}
+.trend-chart__grid {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+.trend-chart__grid--base {
+  stroke: var(--color-text-muted);
+}
+.trend-chart__tick,
+.trend-chart__day {
+  fill: var(--color-text-muted);
+  font-size: var(--text-meta);
   font-variant-numeric: tabular-nums;
 }
-.pipeline__value.glance-skeleton__bar {
-  block-size: 20px;
+.trend-chart__line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
-.pipeline__note {
-  color: var(--color-text-muted);
+.trend-chart__line--current {
+  stroke: var(--color-viz-cat-1);
+}
+.trend-chart__line--previous {
+  stroke: var(--color-text-muted);
+  stroke-dasharray: 5 4;
+}
+/* A day between two gaps: a dot, so it is not lost. */
+.trend-chart__line--point {
+  stroke-width: 5;
+  stroke-dasharray: none;
+}
+.trend-chart__dot {
+  fill: var(--color-viz-cat-1);
+  stroke: var(--color-surface);
+  stroke-width: 2;
+}
+.trend-chart__dot--so-far {
+  fill: var(--color-surface);
+  stroke: var(--color-viz-cat-1);
+}
+.trend-chart__cross {
+  stroke: var(--color-text-muted);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+.trend-chart__tip {
+  position: absolute;
+  inset-block-start: 0;
+  z-index: 1;
+  display: grid;
+  gap: 2px;
+  min-inline-size: 168px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-field);
+  background: var(--color-ink);
+  color: var(--color-on-ink);
   font-size: var(--text-meta);
+  pointer-events: none;
 }
-.pipeline__parts {
+.trend-chart__tip-muted {
+  color: var(--color-ink-muted);
+}
+.trend-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1) var(--space-3);
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
   color: var(--color-text-muted);
   font-size: var(--text-meta);
+}
+.trend-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.trend-legend__swatch {
+  inline-size: 20px;
+  block-size: 0;
+  border-block-start: 2px solid var(--color-viz-cat-1);
+}
+.trend-legend__swatch--previous {
+  border-block-start: 2px dashed var(--color-text-muted);
+}
+
+/* ---- Posting ring (part to whole) -------------------------------------------------- */
+.posting-ring {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+.posting-ring__figure {
+  position: relative;
+  flex: none;
+  inline-size: 132px;
+  block-size: 132px;
+}
+.posting-ring__svg {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  transform: rotate(-90deg);
+}
+.posting-ring__track {
+  fill: none;
+  stroke: var(--color-surface-sunken);
+}
+.posting-ring__arc {
+  fill: none;
+}
+.posting-ring__arc--posted,
+.posting-ring__swatch--posted {
+  stroke: var(--color-viz-cat-1);
+  background: var(--color-viz-cat-1);
+}
+.posting-ring__arc--pending,
+.posting-ring__swatch--pending {
+  stroke: var(--color-viz-cat-2);
+  background: var(--color-viz-cat-2);
+}
+.posting-ring__arc--failed,
+.posting-ring__swatch--failed {
+  stroke: var(--color-viz-cat-3);
+  background: var(--color-viz-cat-3);
+}
+.posting-ring__arc--unknown,
+.posting-ring__swatch--unknown {
+  stroke: var(--color-viz-cat-4);
+  background: var(--color-viz-cat-4);
+}
+.posting-ring__center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.posting-ring__total {
+  color: var(--color-text);
+  font-size: var(--text-money-total);
+  font-weight: var(--weight-strong);
   font-variant-numeric: tabular-nums;
 }
-.pipeline__part--info {
-  color: var(--color-info);
-  font-weight: var(--weight-strong);
+.posting-ring__total-label {
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
 }
-.pipeline__part--danger {
-  color: var(--color-danger);
-  font-weight: var(--weight-strong);
+.posting-ring__table {
+  flex: 1 1 200px;
+  min-inline-size: 0;
 }
-.pipeline__link {
-  margin-block-start: auto;
-  padding-block-start: var(--space-1);
+.posting-ring__swatch {
+  display: inline-block;
+  inline-size: 10px;
+  block-size: 10px;
+  margin-inline-end: var(--space-2);
+  border-radius: 2px;
 }
-.pipeline__step > .glance-error {
+.posting-ring__note {
+  margin: var(--space-3) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+
+/* ---- Side column: quick actions and «قريبًا» frames ----------------------------------- */
+.quick-actions {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
   padding: 0;
+  list-style: none;
 }
-/* Stacked on a narrow screen: the steps are divided by rules across, not down. */
-@media (max-width: 768px) {
-  .pipeline__step {
-    flex-basis: 100%;
-    border-inline-start: 0;
-  }
-  .pipeline__step + .pipeline__step {
-    border-block-start: 1px solid var(--color-border);
+.quick-actions__item {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-3);
+  border-radius: var(--radius-field-lg);
+  background: var(--color-surface-sunken);
+}
+.quick-actions__note {
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.soon-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border: 1px dashed var(--color-text-muted);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+.soon-panel__note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-control);
+}
+
+/* Side column under the main column when there is no room beside it. */
+@media (max-width: 1200px) {
+  .overview {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -451,12 +707,63 @@
 
 @media (forced-colors: active) {
   .ledger__row,
-  .kpi-strip__cell,
-  .kpi-strip__note,
-  .pipeline__step,
   .glance-table th,
   .glance-table td {
     border-color: CanvasText;
+  }
+  /* The hero's Ink, glow and grid map to the system canvas (§12.8.5). */
+  .receipt-card--hero {
+    background: Canvas;
+    background-image: none;
+    border-color: CanvasText;
+    color: CanvasText;
+  }
+  .receipt-card--hero .receipt-card__label,
+  .receipt-card--hero .receipt-card__bottom,
+  .receipt-card--hero .receipt-card__figure {
+    color: CanvasText;
+  }
+  .hero-spark__line,
+  .trend-chart__line--current,
+  .trend-chart__line--previous,
+  .trend-chart__grid--base {
+    stroke: CanvasText;
+  }
+  .trend-chart__grid {
+    stroke: GrayText;
+  }
+  .hero-spark__dot,
+  .trend-chart__dot,
+  .trend-chart__tick,
+  .trend-chart__day {
+    fill: CanvasText;
+  }
+  .trend-chart__dot--so-far {
+    fill: Canvas;
+    stroke: CanvasText;
+  }
+  .trend-legend__swatch {
+    border-color: CanvasText;
+  }
+  /* Ring segments keep identity by the table beside them, not by colour; each
+   * arc stays visible as a system-colour stroke. */
+  .posting-ring__arc {
+    stroke: CanvasText;
+  }
+  .posting-ring__swatch {
+    forced-color-adjust: none;
+    background: Canvas;
+    border: 1px solid CanvasText;
+  }
+  .glance-delta__chip,
+  .soon-chip {
+    border-color: CanvasText;
+    color: CanvasText;
+  }
+  .trend-chart__tip {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
   }
   .ledger__error,
   .glance-error {

@@ -64,6 +64,14 @@ describe("RT-991 sidebar semantics", () => {
     renderSidebar();
     expect(screen.getByText("Retail Tower OS")).toBeDefined();
   });
+
+  test("RT-993: the system-status block is a «قريبًا» frame with no invented state", () => {
+    renderSidebar();
+    const block = screen.getByRole("group", { name: "System status" });
+    expect(block.textContent).toContain("Coming soon");
+    expect(block.textContent).not.toMatch(/operational|online|healthy|\d/i);
+    expect(block.querySelector("a")).toBeNull();
+  });
 });
 
 describe("RT-991 Ink sidebar stylesheet", () => {

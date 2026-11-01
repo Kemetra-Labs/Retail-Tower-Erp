@@ -5,13 +5,13 @@ import {
   compareDecimal,
   countTrend,
   dayCurrencies,
+  differenceOf,
   glanceDay,
   glanceWindow,
   moneyTrend,
   postingSplit,
-  trendModel,
+  shareOf,
 } from "@/overview/glanceLogic";
-import { reportModel } from "@/sales-daily/dailyLogic";
 import { ZERO_KPIS } from "./metric-claim-fixtures";
 import { CAIRO, EGP_USD_DAY, NEW_YORK, scopeSummary, storeSummary } from "./sales-daily-fixtures";
 
@@ -29,16 +29,16 @@ const DAY = (count: number, egp: string) => ({
 });
 
 describe("glanceWindow", () => {
-  test("16 business days ending a UTC day ahead: today, yesterday and the 14-day trend in one read", () => {
+  test("30 business days ending a UTC day ahead: today, yesterday and two 14-day periods in one read", () => {
     const now = Date.parse("2026-10-23T22:30:00Z");
-    expect(glanceWindow(now)).toEqual({ from: "2026-10-09", to: "2026-10-24" });
+    expect(glanceWindow(now)).toEqual({ from: "2026-09-25", to: "2026-10-24" });
   });
 
-  test("stays inside the contract's 31-day bound", () => {
+  test("stays inside the contract's 31-day bound and covers the trend and its previous period", () => {
     const { from, to } = glanceWindow(Date.parse("2026-01-01T00:00:00Z"));
     const span = (Date.parse(to) - Date.parse(from)) / 86_400_000;
     expect(span).toBeLessThanOrEqual(30);
-    expect(span + 1).toBeGreaterThanOrEqual(TREND_DAYS + 1);
+    expect(span + 1).toBeGreaterThanOrEqual(2 * TREND_DAYS + 1);
   });
 });
 
@@ -117,6 +117,24 @@ describe("compareDecimal", () => {
   });
 });
 
+describe("differenceOf (RT-993: the signed value of a delta)", () => {
+  test("exact, within one currency, at the larger scale", () => {
+    expect(differenceOf("52318.5000", "45000.0000")).toBe("7318.5000");
+    expect(differenceOf("486.0000", "500.0000")).toBe("-14.0000");
+    expect(differenceOf("1", "1.0000")).toBe("0.0000");
+    expect(differenceOf("0.0001", "0")).toBe("0.0001");
+    expect(differenceOf("99999999999.9999", "-0.0001")).toBe("100000000000.0000");
+  });
+});
+
+describe("shareOf", () => {
+  test("a part of a named whole; no whole, no share (never 0/0)", () => {
+    expect(shareOf(329, 338)).toBeCloseTo(0.9734, 4);
+    expect(shareOf(0, 5)).toBe(0);
+    expect(shareOf(0, 0)).toBeNull();
+  });
+});
+
 describe("trends against the previous business day", () => {
   test("counts: up, down, same; unknown when either side is unknown", () => {
     expect(countTrend(5, 3)).toBe("up");
@@ -154,21 +172,5 @@ describe("postingSplit", () => {
       failed: 0,
       unknown: 2,
     });
-  });
-});
-
-describe("trendModel", () => {
-  test("the last 14 business days ending at today", () => {
-    const summary = storeSummary(
-      { ref: CAIRO, timeZone: "Africa/Cairo", currentBusinessDate: "2026-10-23" },
-      RANGE,
-    );
-    const model = trendModel(reportModel(summary, "2026-10-23"), "2026-10-23");
-    expect(model.rows).toHaveLength(TREND_DAYS);
-    expect(model.rows[0].date).toBe("2026-10-10");
-    expect(model.rows.at(-1)?.date).toBe("2026-10-23");
-    // Today is still running: the chart hatches it and says so.
-    expect(model.rows.at(-1)?.state).toBe("so-far");
-    expect(model.partial).toBe(true);
   });
 });

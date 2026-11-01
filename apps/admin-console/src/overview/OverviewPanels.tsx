@@ -1,4 +1,10 @@
 /**
+ * RT-993 Overview v4 (DESIGN.md §12.4, D-V7; board «✓ المعتمد · نظرة عامة v9»):
+ * the greeting header with Refresh and the pipeline rail under it; a main
+ * column with the receipt row, the trend beside today's posting ring, and the
+ * latest sales; a side column with quick actions, the attention list and the
+ * «قريبًا» frames. The reads are RT-970's, unchanged in kind.
+ *
  * RT-970 Overview v2 (owner-approved canvas «المختار · A + مسار C», 2026-10-30):
  * the page header with Refresh, then the KPI ledger strip, the pipeline strip,
  * the 14-day trend beside the attention list, and the latest sales. Every
@@ -21,9 +27,11 @@ import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { AttentionLedger } from "./AttentionLedger";
-import { KpiStrip } from "./KpiStrip";
-import { PipelineStrip } from "./PipelineStrip";
+import { PostingPanel } from "./PostingPanel";
+import { ReceiptRow } from "./ReceiptRow";
 import { RecentSales } from "./RecentSales";
+import { SaleRail } from "./SaleRail";
+import { SideColumn } from "./SideColumn";
 import { TrendPanel } from "./TrendPanel";
 import { canOpenAudit } from "./overviewLogic";
 import { useActiveDevices, useGlanceSummary, useRecentSales } from "./useGlancePanels";
@@ -77,52 +85,79 @@ function useRefresh(): { value: number; refresh: () => void } {
 function Panels({
   session,
   nowMs,
-}: Readonly<{ session: OverviewSession; nowMs: number }>): React.JSX.Element {
+  scope,
+  header,
+}: Readonly<{
+  session: OverviewSession;
+  nowMs: number;
+  scope: React.ReactNode;
+  header: (rail: React.ReactNode) => React.ReactNode;
+}>): React.JSX.Element {
   const t = useT();
   const summary = useGlanceSummary(session, nowMs);
   const devices = useActiveDevices(session);
   const recent = useRecentSales(session, nowMs);
   return (
-    <div className="overview">
-      <KpiStrip state={summary} />
-      <PipelineStrip session={session} summary={summary} devices={devices} />
-      <div className="overview__row">
-        <TrendPanel state={summary} />
-        <AttentionLedger session={session} nowMs={nowMs} />
+    <>
+      {header(<SaleRail session={session} summary={summary} devices={devices} />)}
+      <div className="overview">
+        <div className="overview__main">
+          <ReceiptRow state={summary} scope={scope} />
+          <div className="overview__charts">
+            <TrendPanel state={summary} />
+            <PostingPanel state={summary} />
+          </div>
+          <RecentSales state={recent} />
+          {canOpenAudit(session.role) ? (
+            <p className="overview__related">
+              <Link className="ledger__link" to="/audit">
+                {t("shell.nav.audit")}
+              </Link>
+            </p>
+          ) : null}
+        </div>
+        <SideColumn
+          role={session.role}
+          attention={<AttentionLedger session={session} nowMs={nowMs} />}
+        />
       </div>
-      <RecentSales state={recent} />
-      {canOpenAudit(session.role) ? (
-        <p className="overview__related">
-          <Link className="ledger__link" to="/audit">
-            {t("shell.nav.audit")}
-          </Link>
-        </p>
-      ) : null}
-    </div>
+    </>
   );
 }
 
 export interface OverviewPanelsProps {
+  /** The greeting `<h1>` (DESIGN.md §12.3), or the page name without a user name. */
   title: React.ReactNode;
   subtitle: React.ReactNode;
+  /** The scope the figures cover: the active store's name, or all stores. */
+  scope: React.ReactNode;
 }
 
 /** The page: header first; the panels only once a tenant is active (AC-2). */
 export function OverviewPanels({
   title,
   subtitle,
+  scope,
 }: Readonly<OverviewPanelsProps>): React.JSX.Element {
   const session = useOverviewSession();
   const clock = useRefresh();
   const active = session.tenantId !== null;
+  const header = (rail: React.ReactNode) => (
+    <PageHeader
+      title={title}
+      subtitle={subtitle}
+      actions={active ? <RefreshButton onRefresh={clock.refresh} /> : null}
+    >
+      {rail}
+    </PageHeader>
+  );
   return (
     <div className="surface">
-      <PageHeader
-        title={title}
-        subtitle={subtitle}
-        actions={active ? <RefreshButton onRefresh={clock.refresh} /> : null}
-      />
-      {active ? <Panels session={session} nowMs={clock.value} /> : null}
+      {active ? (
+        <Panels session={session} nowMs={clock.value} scope={scope} header={header} />
+      ) : (
+        header(null)
+      )}
     </div>
   );
 }

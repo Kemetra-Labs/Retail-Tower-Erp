@@ -9,6 +9,11 @@
  * AC 3) and unknown semantics (AC 4). Only the `SalesKpis` figures exist here;
  * net sales, return rate, margin and average order value have no contract and
  * are never added (RT-751 AC 1).
+ *
+ * RT-993: each figure also records its good direction (owner decision
+ * 2026-11-01, RT-993 comment 15088; DESIGN.md §12.8.2), and only for the
+ * buckets that judgement covers. A delta is coloured by it, never by its arrow
+ * (UX-13: direction is mathematics, judgement is domain meaning).
  */
 import type { MessageKey } from "@/i18n";
 import type { SalesSummary } from "@/lib/sales-summary-queries";
@@ -36,6 +41,16 @@ export type ZoneRule = "fixed-at-capture" | "fixed-at-record" | "store-current-z
 /** How a claim draws the figure; money is per currency and never summed. */
 export type MetricShape = "money-facts" | "sync-status" | "erp-posting" | "shift-closes";
 
+/** The way the business wants a figure to move. */
+export type GoodDirection = "up" | "down";
+
+/** `total` is a money fact's amount and count; the other names are contract buckets. */
+export type JudgedBucket =
+  | "total"
+  | keyof SalesKpis["syncStatus"]
+  | keyof SalesKpis["erpPosting"]
+  | keyof SalesKpis["shiftCloses"];
+
 export interface MetricDefinition {
   id: MetricId;
   labelKey: MessageKey;
@@ -51,6 +66,8 @@ export interface MetricDefinition {
     bucket: "unknown" | "approvalMissing.unknown" | null;
     meaningKey: MessageKey;
   };
+  /** The good direction and the buckets it judges; any other bucket stays neutral. */
+  goodDirection: { direction: GoodDirection; buckets: readonly JudgedBucket[] };
 }
 
 const ZONE_RULE_KEY = {
@@ -63,6 +80,7 @@ function define(
   id: MetricId,
   zoneRule: ZoneRule,
   shape: MetricShape,
+  goodDirection: MetricDefinition["goodDirection"],
   unknownBucket: MetricDefinition["unknown"]["bucket"] = null,
 ): MetricDefinition {
   return {
@@ -78,20 +96,37 @@ function define(
       bucket: unknownBucket,
       meaningKey: `metrics.${id}.unknown` as const,
     },
+    goodDirection,
   };
 }
 
+const MORE = { direction: "up", buckets: ["total"] } as const;
+const FEWER = { direction: "down", buckets: ["total"] } as const;
+
 export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
-  receivedSales: define("receivedSales", "fixed-at-capture", "money-facts"),
-  voids: define("voids", "fixed-at-record", "money-facts"),
-  returns: define("returns", "fixed-at-record", "money-facts"),
-  legacyRefunds: define("legacyRefunds", "store-current-zone", "money-facts"),
-  syncStatus: define("syncStatus", "fixed-at-capture", "sync-status"),
-  erpPosting: define("erpPosting", "fixed-at-capture", "erp-posting", "unknown"),
+  receivedSales: define("receivedSales", "fixed-at-capture", "money-facts", MORE),
+  voids: define("voids", "fixed-at-record", "money-facts", FEWER),
+  returns: define("returns", "fixed-at-record", "money-facts", FEWER),
+  legacyRefunds: define("legacyRefunds", "store-current-zone", "money-facts", FEWER),
+  // Pending (captured) or failed sales; `synced` is not judged.
+  syncStatus: define("syncStatus", "fixed-at-capture", "sync-status", {
+    direction: "down",
+    buckets: ["captured", "failedRetryable", "failedNeedsRepair"],
+  }),
+  // Stuck (pending) or failed postings; `posted` and `unknown` are not judged.
+  erpPosting: define(
+    "erpPosting",
+    "fixed-at-capture",
+    "erp-posting",
+    { direction: "down", buckets: ["pending", "failed"] },
+    "unknown",
+  ),
+  // Closes with a cash variance; the other outcomes are not judged.
   shiftCloses: define(
     "shiftCloses",
     "store-current-zone",
     "shift-closes",
+    { direction: "down", buckets: ["withVariance"] },
     "approvalMissing.unknown",
   ),
 };
@@ -105,4 +140,21 @@ export function metricDefinition(id: MetricId): MetricDefinition {
 /** The cited field of one bucket, as returned (no arithmetic). */
 export function selectMetric<K extends MetricId>(id: K, kpis: SalesKpis): SalesKpis[K] {
   return kpis[id];
+}
+
+/** Good when it moved the way the business wants, bad against it, neutral otherwise. */
+export type DeltaTone = "good" | "bad" | "neutral";
+
+/**
+ * The colour judgement of one bucket's movement. Neutral when the bucket is
+ * outside the metric's judgement, when nothing moved, or when a side is unknown.
+ */
+export function deltaTone(
+  id: MetricId,
+  bucket: JudgedBucket,
+  trend: "up" | "down" | "same" | "unknown",
+): DeltaTone {
+  const { direction, buckets } = METRICS[id].goodDirection;
+  if (!buckets.includes(bucket) || (trend !== "up" && trend !== "down")) return "neutral";
+  return trend === direction ? "good" : "bad";
 }

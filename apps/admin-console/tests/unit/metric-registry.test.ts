@@ -9,6 +9,7 @@ import {
   METRICS,
   METRIC_IDS,
   SALES_SUMMARY_SOURCE,
+  deltaTone,
   metricDefinition,
   selectMetric,
 } from "@/metrics/metricRegistry";
@@ -106,5 +107,72 @@ describe("RT-819 metric registry", () => {
 
   test("states of sync status are the contract's own, and 'synced' is not 'posted'", () => {
     expect(en[METRICS.syncStatus.definitionKey]).toMatch(/not .*posted to ERPNext/i);
+  });
+});
+
+/**
+ * RT-993 (owner decision 2026-11-01, RT-993 comment 15088; DESIGN.md §12.8.2):
+ * each figure records the way the business wants it to move, and only for the
+ * buckets that judgement covers. A delta is coloured by it, never by its arrow.
+ */
+describe("RT-993 good direction", () => {
+  test("every metric records its owner-approved good direction", () => {
+    expect(METRICS.receivedSales.goodDirection).toEqual({ direction: "up", buckets: ["total"] });
+    for (const id of ["voids", "returns", "legacyRefunds"] as const) {
+      expect(METRICS[id].goodDirection).toEqual({ direction: "down", buckets: ["total"] });
+    }
+    expect(METRICS.syncStatus.goodDirection).toEqual({
+      direction: "down",
+      buckets: ["captured", "failedRetryable", "failedNeedsRepair"],
+    });
+    expect(METRICS.erpPosting.goodDirection).toEqual({
+      direction: "down",
+      buckets: ["pending", "failed"],
+    });
+    expect(METRICS.shiftCloses.goodDirection).toEqual({
+      direction: "down",
+      buckets: ["withVariance"],
+    });
+  });
+
+  test("judged buckets are real fields of the contract bucket", () => {
+    const fields: Record<string, readonly string[]> = {
+      syncStatus: Object.keys(KPIS.syncStatus),
+      erpPosting: Object.keys(KPIS.erpPosting),
+      shiftCloses: Object.keys(KPIS.shiftCloses),
+    };
+    for (const id of METRIC_IDS) {
+      for (const bucket of METRICS[id].goodDirection.buckets) {
+        if (bucket === "total") expect(METRICS[id].shape).toBe("money-facts");
+        else expect(fields[id]).toContain(bucket);
+      }
+    }
+  });
+
+  test.each([
+    ["receivedSales", "total", "up", "good"],
+    ["receivedSales", "total", "down", "bad"],
+    ["returns", "total", "up", "bad"],
+    ["voids", "total", "up", "bad"],
+    ["voids", "total", "down", "good"],
+    ["legacyRefunds", "total", "up", "bad"],
+    ["syncStatus", "failedNeedsRepair", "up", "bad"],
+    ["erpPosting", "failed", "up", "bad"],
+    ["erpPosting", "pending", "down", "good"],
+    ["shiftCloses", "withVariance", "up", "bad"],
+  ] as const)("%s.%s moving %s reads %s", (id, bucket, trend, tone) => {
+    expect(deltaTone(id, bucket, trend)).toBe(tone);
+  });
+
+  test("a bucket outside the judgement stays neutral: posted rising is never red", () => {
+    expect(deltaTone("erpPosting", "posted", "up")).toBe("neutral");
+    expect(deltaTone("erpPosting", "unknown", "up")).toBe("neutral");
+    expect(deltaTone("syncStatus", "synced", "down")).toBe("neutral");
+    expect(deltaTone("shiftCloses", "count", "up")).toBe("neutral");
+  });
+
+  test("no movement, or an unknown side, has no judgement", () => {
+    expect(deltaTone("returns", "total", "same")).toBe("neutral");
+    expect(deltaTone("returns", "total", "unknown")).toBe("neutral");
   });
 });
