@@ -1,7 +1,9 @@
 ### Security
 - RT-625, owner decisions D1–D3 (2026-11-01, review
-  `docs/decisions/rt-625-signin-lockout-review.md`): one IP can no longer lock
-  an account out, or block its password reset, from another IP.
+  `docs/decisions/rt-625-signin-lockout-review.md`): one client IP key can no
+  longer lock an account out, or block its password reset, from another IP key.
+  An IP key is an IPv4 address or an IPv6 /64, so addresses in the same /64
+  share one.
   - Sign-in adds a failure-only bucket per (email, client IP), `signin_pair`,
     at 5 per 15 minutes. The per-account bucket is raised to 20 per 15 minutes.
     `signin_ip` is unchanged at 30 per hour. The buckets are checked pair, then
@@ -15,8 +17,9 @@
     per hour and per email at 20 per hour. This replaces RT-626's 5 per hour per
     email. An over-limit request still answers 202 and sends nothing.
   - A successful `password-reset/confirm` clears that email's account bucket
-    and the confirming IP's pair bucket. A failed or expired confirm clears
-    nothing.
+    and the confirming IP's pair bucket. The clear is best-effort: if Redis
+    fails or times out, the confirm still succeeds and the lockout lasts until
+    its window ends. A failed or expired confirm clears nothing.
   - IP keys use the IPv6 /64 prefix and turn IPv4-mapped addresses into IPv4.
     Pair keys are length-prefixed, so two different pairs never share a key.
   - Boot refuses `TRUST_PROXY=true` in a deployed environment. It also refuses
