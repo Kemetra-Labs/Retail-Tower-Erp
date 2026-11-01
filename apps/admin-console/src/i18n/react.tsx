@@ -75,10 +75,12 @@ const PAGE_TITLE = "h1[data-page-title]";
 /**
  * RT-963 (WCAG 2.4.2): «<page> – <app>» when a page header is shown, else the
  * app title alone. Read from the rendered `<h1>`, so it follows the locale and
- * any name in the title.
+ * any name in the title. RT-993: a non-empty `data-page-title` names the page
+ * instead, for a header whose `<h1>` is a greeting.
  */
 export function composeDocumentTitle(appTitle: string): string {
-  const page = document.querySelector(PAGE_TITLE)?.textContent?.trim();
+  const h1 = document.querySelector(PAGE_TITLE);
+  const page = (h1?.getAttribute("data-page-title") || h1?.textContent)?.trim();
   return page ? `${page} – ${appTitle}` : appTitle;
 }
 

@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { type Page, expect, test } from "./fixtures";
+import { type Page, expect, overviewHeading, test } from "./fixtures";
 
 /**
  * RT-727 ERPNext product-master reconciliation E2E against mocked Backend-Core,
@@ -211,7 +211,7 @@ test("S2: store_manager has no entry, and the direct URL is NoAccess with no req
   const calls = recordRequests(page);
   await mockBase(page, "store_manager");
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+  await expect(overviewHeading(page, t)).toBeVisible();
   await expect(page.getByRole("link", { name: t("productRecon.nav.label") })).toHaveCount(0);
 
   await page.goto("/product-reconciliation");

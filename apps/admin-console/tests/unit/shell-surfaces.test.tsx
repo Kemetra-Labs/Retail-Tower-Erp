@@ -18,6 +18,9 @@ vi.mock("@/lib/client", () => ({
 import { ActiveContextProvider } from "@/context/ActiveContextProvider";
 import { createQueryClient } from "@/lib/query";
 import { Overview } from "@/shell/Overview";
+
+/** RT-993: the Overview h1 is the greeting for a named user, else the page name. */
+const OVERVIEW_H1 = /^(Overview|Welcome, .+)$/;
 import { ProtectedArea } from "@/shell/ProtectedArea";
 
 // ProtectedArea is now the protected LAYOUT route element (RF-2 T009): on the
@@ -69,7 +72,7 @@ describe("ProtectedArea surface selection (rendering backend truth)", () => {
       active_role_code: "tenant_admin",
       memberships: [{ tenant_id: "t1", tenant_name: "Northstar Retail" }],
     });
-    expect(await screen.findByRole("heading", { name: "Overview" })).toBeDefined();
+    expect(await screen.findByRole("heading", { level: 1, name: OVERVIEW_H1 })).toBeDefined();
     // The scope header names tenant and store (the Overview subtitle repeats them).
     const scope = screen.getByRole("button", { name: /Northstar Retail/ });
     expect(scope.getAttribute("aria-haspopup")).toBe("menu");

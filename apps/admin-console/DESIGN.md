@@ -740,6 +740,27 @@ Binding (D-V7, UX-13): each KPI names its scope, period, baseline and freshness;
 keeps gaps for missing buckets; the hero sparkline states its period (for example «آخر 14
 يومًا»); the donut has at most five categories, in the `--color-viz-*` palette.
 
+**Shipped on existing contracts (RT-993).** Each item uses only reads that already exist:
+
+- **Greeting and rail.** The greeting is the page's `<h1>`, «مرحبًا، {name}», or «نظرة عامة»
+  when the user has no display name. The pipeline rail sits under it. The POS node's status is
+  `unknown`, because the contract records no connectivity. The screens behind the rail are
+  links beside it.
+- **Receipt row.** The hero is **received sales today so far**, not net sales; net sales and
+  average basket need a contract (RT-975). Transactions, returns and voids follow. One shared
+  line names the scope, the period, the date and the `asOf` time, and every card points to it.
+  Each delta names its baseline, the previous business day in full.
+- **Trend chart.** The question it answers is printed under its title. It shows the last 7 or
+  14 business days, chosen with a segmented control, against the same days of the period
+  before. Both periods come from one 30-day summary read.
+- **Part-to-whole chart.** The board's category donut has no read, so the ring shows today's
+  `erpPosting` buckets: posted, pending, failed and unknown. Together they make up today's
+  received count. The legend is a real `<table>` with state, count and share.
+- **Side column.** It holds quick actions, the attention list (RT-559), and «قريبًا» frames
+  for stores today and low stock (§12.8.6).
+- **Not shipped:** the alert banner (it needs a decided alert source) and the Readex Pro face
+  (§12.8.3).
+
 ### 12.5 Surfaces, shape and elevation
 
 - Section panels and receipt cards: `--color-surface`, 1px border, **20px radius**, one
@@ -798,7 +819,8 @@ keeps gaps for missing buckets; the hero sparkline states its period (for exampl
 ### 12.8 Decisions and open items before implementation
 
 Items 1–3 and 7 are owner decisions of 2026-10-30 (1–3 each with a remaining step); item 4 is
-an owner decision of 2026-10-31 (D-V10); items 5–6 are open.
+an owner decision of 2026-10-31 (D-V10); items 5–6 are open. Item 2's good directions were
+recorded and item 6 was amended for three widgets by owner decision on 2026-11-01 (RT-993).
 
 1. **Constitution amendments — decided: amend the Constitution.** §1 puts the UX
    Constitution above this file, so the rows of §12.7 that touch UX-02 (dark surface,
@@ -815,6 +837,25 @@ an owner decision of 2026-10-31 (D-V10); items 5–6 are open.
    **red**. A metric with no agreed good direction stays neutral. This **complies** with
    UX-13 ("Direction Is Mathematics. Judgment Is Domain Meaning") and needs no amendment;
    it does need each KPI's good direction recorded in its metric contract.
+   **Recorded 2026-11-01** (owner decision, RT-993 comment 15088). Each entry in
+   `src/metrics/metricRegistry.ts` has a `goodDirection` and names the buckets it judges.
+   `deltaTone()` turns a movement into good, bad or neutral. A bucket outside the judged
+   list stays neutral; for example, more posted sales never reads red.
+
+   | Metric | Good direction | Buckets judged | Colour when they rise |
+   | --- | --- | --- | --- |
+   | `receivedSales` | up | amount and count | green |
+   | `voids` | down | amount and count | red |
+   | `returns` | down | amount and count | red |
+   | `legacyRefunds` | down | amount and count | red |
+   | `syncStatus` | down | `captured` (pending), `failedRetryable`, `failedNeedsRepair` | red |
+   | `erpPosting` | down | `pending` (stuck), `failed`; not `posted` or `unknown` | red |
+   | `shiftCloses` | down | `withVariance` | red |
+
+   The signed value is the exact difference within one currency, or between two counts.
+   Today so far is compared with the previous business day in full, so received sales can
+   read red early in the day. Whether to keep it neutral while today is still "so far" is
+   **open** and has been asked on RT-993.
 3. **Display face — decided: Readex Pro, self-hosted.** No Google Fonts at runtime (the CSP
    allows `'self'` only). Adoption needs (a) a license-checked (OFL) Arabic + Latin subset
    served from the Console, and (b) same-screen A/B evidence against Dubai (§4). Dubai stays
@@ -872,6 +913,17 @@ an owner decision of 2026-10-31 (D-V10); items 5–6 are open.
 6. **Data sources:** the sidebar system-status block, the support card, store "share of
    today", low-stock severity, the credential-life ring and the business-day bar each need a
    backing read; render none of them without it.
+   **Amended 2026-11-01 for three widgets** (owner decision, RT-993 comment 15088): store
+   "share of today", low-stock severity and the sidebar system status each render their frame
+   with a clear «قريبًا» state (`overview.soon`, `shell.status.soon`; UX-12 message keys).
+   They show no invented number or state, no link and no status colour. Each waits on a
+   Backend-Core read:
+   - store share: RT-1053, the runtime of the `consoleGetSalesByStore` contract, which
+     serves a server-computed `share`;
+   - low-stock severity: RT-1055 (contract first, because no reorder level exists yet);
+   - system status: RT-1056 (contract first).
+
+   The support card, the credential-life ring and the business-day bar still render nothing.
 7. **Selected segment on light surfaces — decided: Ink.** D-V3 was amended in Confluence
    62816260 (version 3): Ink with white text on light surfaces, Mint on Ink; every other
    selection on light surfaces stays Teal (§12.6).

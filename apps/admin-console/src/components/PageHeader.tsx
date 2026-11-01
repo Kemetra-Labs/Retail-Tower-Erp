@@ -76,6 +76,11 @@ export interface PageHeaderProps {
   titleId?: string;
   /** The Ink list band variant (RT-995); use `ListHeaderBand`, not this prop. */
   band?: PageHeaderBand;
+  /**
+   * RT-993: the page's name for the document title when the `<h1>` is not it
+   * (the Overview greets the user by name; the tab still says which page).
+   */
+  documentTitle?: string;
   children?: React.ReactNode;
 }
 
@@ -87,6 +92,7 @@ export function PageHeader({
   titleRef,
   titleId,
   band,
+  documentTitle,
   children,
 }: Readonly<PageHeaderProps>): React.JSX.Element {
   const hasEnd = Boolean(actions) || Boolean(segmented);
@@ -112,7 +118,7 @@ export function PageHeader({
           id={titleId}
           // A focus target after navigation (never a Tab stop).
           tabIndex={-1}
-          data-page-title=""
+          data-page-title={documentTitle ?? ""}
           className={`content__title page-header__title${band ? " list-band__title" : ""}`}
         >
           {title}

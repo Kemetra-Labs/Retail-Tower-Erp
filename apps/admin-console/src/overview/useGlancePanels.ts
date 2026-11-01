@@ -4,7 +4,8 @@
  * active store, read on load, scope change and Refresh only (NG-7).
  *
  * - `useGlanceSummary`: ONE `consoleGetSalesSummary` read over `glanceWindow`;
- *   the KPI strip, pipeline steps ② and ③ and the trend chart all use it.
+ *   the receipt row, the rail's server and ERPNext nodes, the trend and the
+ *   posting ring all use it (RT-993).
  * - `useActiveDevices`: one page of `consoleListDevices` (`trust_state=active`):
  *   the credentials the console knows to be active. The contract records no
  *   last activity, so nothing here claims a device is online.

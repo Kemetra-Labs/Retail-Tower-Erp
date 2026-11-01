@@ -64,3 +64,21 @@ export const test = base.extend<LocaleFixtures>({
 
 export { expect } from "@playwright/test";
 export type { Page } from "@playwright/test";
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * RT-993: the Overview's `<h1>` greets the user by name («مرحبًا، {name}») and
+ * is the page name («نظرة عامة») only when the context has no display name.
+ * Specs find the Overview by either, in the locale `t` speaks.
+ */
+export function overviewHeading(
+  page: import("@playwright/test").Page,
+  t: (key: MessageKey, params?: Params) => string,
+) {
+  const [before, after] = t("overview.greeting", { name: "\u0000" }).split("\u0000");
+  const name = new RegExp(
+    `^(${escapeRegExp(t("shell.overview.title"))}|${escapeRegExp(before)}.+${escapeRegExp(after)})$`,
+  );
+  return page.getByRole("heading", { level: 1, name });
+}
