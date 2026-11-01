@@ -49,7 +49,15 @@ export function RenditionCanvas({
     if (!canvas) return undefined;
     let cancelled = false;
     let bitmap: ImageBitmap | undefined;
-    const blob = new Blob([base64ToBytes(pngBase64)], { type: "image/png" });
+    // An undecodable rendition (bad base64 here, or bad PNG bytes below) stays
+    // blank and is no longer announced as the logo; it never breaks the page.
+    let blob: Blob;
+    try {
+      blob = new Blob([base64ToBytes(pngBase64)], { type: "image/png" });
+    } catch {
+      setFailed(true);
+      return undefined;
+    }
     createImageBitmap(blob).then(
       (decoded) => {
         if (cancelled) {
@@ -59,8 +67,7 @@ export function RenditionCanvas({
         bitmap = decoded;
         canvas.getContext("2d")?.drawImage(decoded, 0, 0);
       },
-      // An undecodable rendition stays blank and is no longer announced as the
-      // logo; the server produced and validated it, so the admin has no action.
+      // The server produced and validated it, so the admin has no action.
       () => {
         if (!cancelled) setFailed(true);
       },

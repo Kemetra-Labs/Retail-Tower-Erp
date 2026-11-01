@@ -180,6 +180,21 @@ describe("preview (states C to F)", () => {
     expect((saveButton() as HTMLButtonElement).disabled).toBe(false);
   });
 
+  test("a rendition that is not valid base64 stays blank, unannounced, and the page keeps working", async () => {
+    api.get.mockResolvedValue({ status: 200, data: brandingEmpty() });
+    const broken = preview();
+    broken.screen = broken.screen.map((r) =>
+      r.slot === "boot" ? { ...r, png_base64: "%%% not base64 %%%" } : r,
+    );
+    api.preview.mockResolvedValue({ status: 200, data: broken });
+    renderPage();
+    await screen.findByRole("button", { name: "رفع شعار" });
+    choose(pngFile());
+    expect(await screen.findByRole("img", { name: "شاشة ربط الجهاز" })).toBeDefined();
+    await waitFor(() => expect(screen.queryByRole("img", { name: "شاشة التشغيل" })).toBeNull());
+    expect((saveButton() as HTMLButtonElement).disabled).toBe(false);
+  });
+
   test("each canvas is drawn at its rendition's own pixel size", async () => {
     api.get.mockResolvedValue({ status: 200, data: brandingEmpty() });
     api.preview.mockResolvedValue({ status: 200, data: preview() });
