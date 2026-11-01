@@ -64,11 +64,11 @@ function recordOf(value: unknown, keys: readonly string[]): Record<string, unkno
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  return Object.prototype.toString.call(value) === '[object Object]';
 }
 
 function isInt(value: unknown, min: number, max: number): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;
+  return Number.isSafeInteger(value) && (value as number) >= min && (value as number) <= max;
 }
 
 function isSlot(value: unknown): value is BrandingSlot {

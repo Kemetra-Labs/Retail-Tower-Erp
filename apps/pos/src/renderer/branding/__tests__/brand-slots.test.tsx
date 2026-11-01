@@ -140,6 +140,38 @@ function fakeBranding(first: BrandingSnapshot) {
   return { bridge, get, push: (s: BrandingSnapshot) => push?.(s) };
 }
 
+/** A started feed with a controllable pairing push and a held next read. */
+async function startedFeed() {
+  const fake = fakeBranding(LOGO);
+  let onPairing: ((e: PairingStatusChangedEvent) => void) | undefined;
+  const pairing = {
+    onStatusChanged: (cb: (e: PairingStatusChangedEvent) => void) => {
+      onPairing = cb;
+      return () => undefined;
+    },
+  };
+  render(<Probe />);
+  const stop = startBrandingFeed(fake.bridge, pairing);
+  expect(await screen.findByText('logo')).toBeInTheDocument();
+  let resolveNext: (s: BrandingSnapshot) => void = () => undefined;
+  fake.get.mockReturnValueOnce(
+    new Promise((resolve) => {
+      resolveNext = resolve;
+    }),
+  );
+  return {
+    stop,
+    push: fake.push,
+    pairingChanged: () => onPairing?.({ kind: 'paired' }),
+    answer: async (s: BrandingSnapshot) => {
+      await act(async () => {
+        resolveNext(s);
+        await Promise.resolve();
+      });
+    },
+  };
+}
+
 describe('RT-475 — renderer feed', () => {
   it('reads once at start and follows the change push', async () => {
     const fake = fakeBranding(NAME);
@@ -154,73 +186,31 @@ describe('RT-475 — renderer feed', () => {
   });
 
   it('a pairing change clears the snapshot at once, then re-reads it', async () => {
-    const fake = fakeBranding(LOGO);
-    let onPairing: ((e: PairingStatusChangedEvent) => void) | undefined;
-    const pairing = {
-      onStatusChanged: (cb: (e: PairingStatusChangedEvent) => void) => {
-        onPairing = cb;
-        return () => undefined;
-      },
-    };
-    render(<Probe />);
-    const stop = startBrandingFeed(fake.bridge, pairing);
-    expect(await screen.findByText('logo')).toBeInTheDocument();
-
-    let resolveNext: (s: BrandingSnapshot) => void = () => undefined;
-    fake.get.mockReturnValueOnce(
-      new Promise((resolve) => {
-        resolveNext = resolve;
-      }),
-    );
+    const feed = await startedFeed();
     act(() => {
-      onPairing?.({ kind: 'paired' });
+      feed.pairingChanged();
     });
     expect(screen.getByTestId('probe')).toHaveTextContent('unknown');
-    await act(async () => {
-      resolveNext(NONE);
-      await Promise.resolve();
-    });
+    await feed.answer(NONE);
     expect(screen.getByTestId('probe')).toHaveTextContent('none');
-    stop();
+    feed.stop();
+  });
+
+  it('ignores a push that arrives before the re-read answers', async () => {
+    const feed = await startedFeed();
+    act(() => {
+      feed.pairingChanged();
+      feed.push(LOGO);
+    });
+    expect(screen.getByTestId('probe')).toHaveTextContent('unknown');
+    await feed.answer(NAME);
+    expect(screen.getByTestId('probe')).toHaveTextContent('name');
+    feed.stop();
   });
 
   it('a missing bridge leaves every screen as today', () => {
     render(<Probe />);
     startBrandingFeed(undefined);
     expect(screen.getByTestId('probe')).toHaveTextContent('unknown');
-  });
-});
-
-describe('RT-475 — renderer feed after a pairing change', () => {
-  it('ignores a push that arrives before the re-read answers', async () => {
-    const fake = fakeBranding(LOGO);
-    let onPairing: ((e: PairingStatusChangedEvent) => void) | undefined;
-    const pairing = {
-      onStatusChanged: (cb: (e: PairingStatusChangedEvent) => void) => {
-        onPairing = cb;
-        return () => undefined;
-      },
-    };
-    render(<Probe />);
-    const stop = startBrandingFeed(fake.bridge, pairing);
-    expect(await screen.findByText('logo')).toBeInTheDocument();
-
-    let resolveNext: (s: BrandingSnapshot) => void = () => undefined;
-    fake.get.mockReturnValueOnce(
-      new Promise((resolve) => {
-        resolveNext = resolve;
-      }),
-    );
-    act(() => {
-      onPairing?.({ kind: 'paired' });
-      fake.push(LOGO);
-    });
-    expect(screen.getByTestId('probe')).toHaveTextContent('unknown');
-    await act(async () => {
-      resolveNext(NAME);
-      await Promise.resolve();
-    });
-    expect(screen.getByTestId('probe')).toHaveTextContent('name');
-    stop();
   });
 });
