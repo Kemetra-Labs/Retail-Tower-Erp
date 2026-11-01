@@ -15,6 +15,10 @@ import { Route } from "react-router";
 const StoreDetail = lazyPage(() => import("@/stores/StoreDetail"), "StoreDetail");
 const StoreFormRoute = lazyPage(() => import("@/stores/StoreFormRoute"), "StoreFormRoute");
 const StoreList = lazyPage(() => import("@/stores/StoreList"), "StoreList");
+const TenantBrandingPage = lazyPage(
+  () => import("@/branding/TenantBrandingPage"),
+  "TenantBrandingPage",
+);
 const TenantDetail = lazyPage(() => import("@/tenants/TenantDetail"), "TenantDetail");
 const TenantFormRoute = lazyPage(() => import("@/tenants/TenantFormRoute"), "TenantFormRoute");
 const TenantList = lazyPage(() => import("@/tenants/TenantList"), "TenantList");
@@ -25,6 +29,8 @@ export const rf2Routes = (
     <Route path="tenants/new" element={<TenantFormRoute mode="create" />} />
     <Route path="tenants/:tenantId" element={<TenantDetail />} />
     <Route path="tenants/:tenantId/edit" element={<TenantFormRoute mode="edit" />} />
+    {/* RT-474: the tenant logo page (owner / tenant_admin of the active tenant). */}
+    <Route path="tenants/:tenantId/branding" element={<TenantBrandingPage />} />
     <Route path="stores" element={<StoreList />} />
     <Route path="stores/new" element={<StoreFormRoute mode="create" />} />
     <Route path="stores/:storeId" element={<StoreDetail />} />
