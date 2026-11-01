@@ -62,6 +62,8 @@ jest.mock("@data-pulse-2/shared", () => ({
   QUEUE_NAMES: jest.requireActual("@data-pulse-2/shared").QUEUE_NAMES,
   // RT-812: the boot grant check loads its fragments at import (auth.module).
   loadFragmentDir: jest.requireActual("@data-pulse-2/shared").loadFragmentDir,
+  // RT-1028: a failed refusal-audit write is logged.
+  createLogger: jest.requireActual("@data-pulse-2/shared").createLogger,
   newId: jest.fn(),
   assertMetricLabels: jest.fn(),
   getMeter: jest.fn(() => ({
@@ -76,6 +78,13 @@ jest.mock("@data-pulse-2/shared", () => ({
 // ---------------------------------------------------------------------------
 
 import { InvitationsService } from "../../src/memberships/invitations.service";
+import type { InvitationCreateDto } from "../../src/memberships/invitation.dto";
+import { MembershipChangeRefusedError } from "../../src/memberships/membership-hierarchy";
+import {
+  asHierarchy,
+  makeFakeHierarchy,
+  type FakeMembershipHierarchy,
+} from "../_helpers/fake-membership-hierarchy";
 import type { InvitationsRepository } from "../../src/memberships/invitations.repository";
 import type { EmailJobEnqueuer } from "../../src/auth/email-job.enqueuer";
 import type { InvitationRow, UserRow } from "@data-pulse-2/db/schema";
@@ -204,22 +213,28 @@ interface BuildServiceOpts {
   repo?:     jest.Mocked<InvitationsRepository>;
   enqueuer?: jest.Mocked<EmailJobEnqueuer>;
   tx?:       ReturnType<typeof makeFakeTx>;
+  hierarchy?: FakeMembershipHierarchy;
 }
 
 function buildService(opts: BuildServiceOpts = {}) {
   const repo     = opts.repo     ?? makeFakeRepo();
   const enqueuer = opts.enqueuer ?? makeFakeEnqueuer();
   const tx       = opts.tx       ?? makeFakeTx();
+  const hierarchy = opts.hierarchy ?? makeFakeHierarchy();
 
-  // InvitationsService(pool, invitations, emailEnqueuer, tx?)
+  // InvitationsService(pool, invitations, emailEnqueuer, tx?, external?, verifier?, sessionStarter?, hierarchy?)
   const service = new InvitationsService(
     fakePool,
     repo as unknown as InvitationsRepository,
     enqueuer,
     tx as unknown as NonNullable<ConstructorParameters<typeof InvitationsService>[3]>,
+    undefined,
+    undefined,
+    undefined,
+    asHierarchy(hierarchy),
   );
 
-  return { service, repo, enqueuer, tx };
+  return { service, repo, enqueuer, tx, hierarchy };
 }
 
 // ---------------------------------------------------------------------------
@@ -1007,5 +1022,116 @@ describe("InvitationsService.acceptInvitationExistingUser — result shape", () 
     await expect(
       service.acceptInvitationExistingUser(RAW_TOKEN),
     ).rejects.toThrow(/getRoleCode: role .* not found/);
+  });
+});
+
+// ===========================================================================
+// H. role hierarchy (RT-1028, RT-132 D2 / D5a)
+// ===========================================================================
+
+describe("InvitationsService.invite — role hierarchy (RT-1028)", () => {
+  function primeValidRole(repo: jest.Mocked<InvitationsRepository>): void {
+    repo.findRoleId.mockResolvedValue(ROLE_ID);
+    repo.findInvalidStoreIds.mockResolvedValue([]);
+    repo.findPendingByEmail.mockResolvedValue(false);
+    repo.create.mockResolvedValue(makeInvitationRow());
+  }
+
+  it("H1: tenant_admin inviting an owner → 403, audited in a second tx, nothing created or enqueued", async () => {
+    const hierarchy = makeFakeHierarchy({ actorRole: "tenant_admin" });
+    const { service, repo, enqueuer, tx } = buildService({ hierarchy });
+    primeValidRole(repo);
+
+    const err = await service
+      .invite(makeCtx(), { email: "Owner@Example.com", role_code: "owner", store_access_kind: "all" } as InvitationCreateDto)
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(MembershipChangeRefusedError);
+    expect((err as MembershipChangeRefusedError).getStatus()).toBe(403);
+    expect(repo.autoExpireStale).not.toHaveBeenCalled();
+    expect(repo.create).not.toHaveBeenCalled();
+    expect(enqueuer.enqueueInvitation).not.toHaveBeenCalled();
+    expect(tx).toHaveBeenCalledTimes(2);
+    expect(hierarchy.recordRefusal).toHaveBeenCalledTimes(1);
+    const audit = hierarchy.recordRefusal.mock.calls[0]![2];
+    expect(audit).toEqual({
+      operation: "invitation.create",
+      reason: "owner_managed_by_owner_only",
+      targetMembershipId: null,
+      targetRoleCode: null,
+      requestedRoleCode: "owner",
+      requestedStoreAccessKind: "all",
+    });
+    expect(JSON.stringify(audit)).not.toMatch(/example\.com/i);
+  });
+
+  it("H2: owner inviting an owner with 'specific' access → 403 owner_requires_all_stores", async () => {
+    const { service, repo } = buildService();
+    primeValidRole(repo);
+
+    const err = await service
+      .invite(makeCtx(), {
+        email: "x@example.com",
+        role_code: "owner",
+        store_access_kind: "specific",
+        store_ids: [STORE_ID_1],
+      } as InvitationCreateDto)
+      .catch((e: unknown) => e);
+
+    expect((err as MembershipChangeRefusedError).audit.reason).toBe("owner_requires_all_stores");
+    expect(repo.create).not.toHaveBeenCalled();
+  });
+
+  it("H3: tenant_admin inviting a tenant_admin peer → allowed", async () => {
+    const { service, repo } = buildService({ hierarchy: makeFakeHierarchy({ actorRole: "tenant_admin" }) });
+    primeValidRole(repo);
+
+    await service.invite(makeCtx(), {
+      email: "x@example.com",
+      role_code: "tenant_admin",
+      store_access_kind: "all",
+    } as InvitationCreateDto);
+    expect(repo.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("H3a: the actor's membership is locked before its role is read", async () => {
+    const hierarchy = makeFakeHierarchy({ actorRole: "tenant_admin" });
+    const { service, repo } = buildService({ hierarchy });
+    primeValidRole(repo);
+
+    await service.invite(makeCtx(), {
+      email: "x@example.com",
+      role_code: "store_staff",
+      store_access_kind: "all",
+    } as InvitationCreateDto);
+    expect(hierarchy.lockActorMembership).toHaveBeenCalledTimes(1);
+    expect(hierarchy.lockActorMembership.mock.invocationCallOrder[0]!)
+      .toBeLessThan(hierarchy.actorFor.mock.invocationCallOrder[0]!);
+  });
+
+  it("H3b: a failed audit write still answers 403 (the refusal stands)", async () => {
+    const hierarchy = makeFakeHierarchy({ actorRole: "tenant_admin" });
+    hierarchy.recordRefusal.mockRejectedValue(new Error("pool exhausted"));
+    const { service, repo } = buildService({ hierarchy });
+    primeValidRole(repo);
+
+    const err = await service
+      .invite(makeCtx(), { email: "x@example.com", role_code: "owner", store_access_kind: "all" } as InvitationCreateDto)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(MembershipChangeRefusedError);
+    expect(repo.create).not.toHaveBeenCalled();
+  });
+
+  it("H4: no hierarchy wired → 503 (fails closed)", async () => {
+    const service = new InvitationsService(
+      fakePool,
+      makeFakeRepo() as unknown as InvitationsRepository,
+      makeFakeEnqueuer(),
+      makeFakeTx() as unknown as NonNullable<ConstructorParameters<typeof InvitationsService>[3]>,
+    );
+    const err = await service
+      .invite(makeCtx(), { email: "x@example.com", role_code: "store_staff", store_access_kind: "all" } as InvitationCreateDto)
+      .catch((e: unknown) => e);
+    expect((err as { getStatus(): number }).getStatus()).toBe(503);
   });
 });

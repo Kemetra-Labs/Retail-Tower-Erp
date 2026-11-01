@@ -7,6 +7,7 @@ import type { ar } from "./ar";
 import { aiPlan } from "./en/aiPlan";
 import { audit } from "./en/audit";
 import { auth } from "./en/auth";
+import { branding } from "./en/branding";
 import { cashPolicy } from "./en/cashPolicy";
 import { catalog } from "./en/catalog";
 import { common } from "./en/common";
@@ -48,6 +49,7 @@ export const EN_MODULES = {
   cashPolicy,
   inventory,
   aiPlan,
+  branding,
   catalog,
   metrics,
   salesDaily,
@@ -73,6 +75,7 @@ export const en: MessagesOf<typeof ar> = {
   ...cashPolicy,
   ...inventory,
   ...aiPlan,
+  ...branding,
   ...catalog,
   ...metrics,
   ...salesDaily,

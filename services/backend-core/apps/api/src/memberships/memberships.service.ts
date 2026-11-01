@@ -21,6 +21,13 @@
  *   - 403 (insufficient role)    → RolesGuard (denyAs: 403)
  *   - 404 (not found / already revoked / cross-tenant) → this service
  *   - 400 (invalid role_code / invalid store_ids / logic conflict) → this service
+ *   - 403 (role hierarchy, RT-1028)  → this service, via `MembershipHierarchy`
+ *
+ * Role hierarchy (RT-1028, RT-132 D1–D5a)
+ * ---------------------------------------
+ * Both mutations lock the tenant's active owner rows first, then read the
+ * target, then validate (404, then 400), then apply the hierarchy (403). A
+ * refusal rolls the transaction back and is audited in a fresh one.
  */
 import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import type { Pool, PoolClient } from "pg";
@@ -33,6 +40,13 @@ import { PG_POOL } from "../auth/auth.module";
 import type { ResolvedContext } from "../context/types";
 import type { MembershipDetail } from "../context/membership.repository";
 import type { MembershipUpdateDto } from "./dto";
+import {
+  auditRefusal,
+  MembershipChangeRefusedError,
+  MembershipHierarchy,
+  membershipRevokeRefusal,
+  membershipUpdateRefusal,
+} from "./membership-hierarchy";
 import { MembershipsRepository } from "./memberships.repository";
 
 type TenantTxRunner = <T>(
@@ -58,6 +72,7 @@ export class MembershipsService {
     @Inject(PG_POOL)
     private readonly pool: Pool,
     private readonly memberships: MembershipsRepository,
+    private readonly hierarchy: MembershipHierarchy,
     @Optional() tx?: TenantTxRunner,
   ) {
     this.tx = tx ?? runWithTenantContext;
@@ -68,15 +83,30 @@ export class MembershipsService {
    *
    * Returns `void` on success; throws `NotFoundException` (→ 404) when the
    * membership is not found, belongs to a different tenant, is already revoked,
-   * or is soft-deleted.
+   * or is soft-deleted; `MembershipChangeRefusedError` (→ 403) on a hierarchy
+   * refusal (RT-1028).
    */
   async revoke(ctx: ResolvedContext, membershipId: string): Promise<void> {
-    await this.tx(this.pool, txCtx(ctx), async (client) => {
-      const updated = await this.memberships.revoke(
-        client,
-        membershipId,
-        ctx.tenantId as string,
-      );
+    await this.refusalAudited(ctx, async (client) => {
+      const tenantId = ctx.tenantId as string;
+      const activeOwners = await this.hierarchy.lockActiveOwnerCount(client, tenantId);
+      const existing = await this.memberships.findActive(client, membershipId, tenantId);
+      if (!existing) throw new NotFoundException("Not Found");
+
+      const actor = await this.hierarchy.actorFor(client, ctx);
+      const reason = membershipRevokeRefusal(actor, existing, activeOwners);
+      if (reason) {
+        throw new MembershipChangeRefusedError({
+          operation: "membership.revoke",
+          reason,
+          targetMembershipId: existing.id,
+          targetRoleCode: existing.roleCode,
+          requestedRoleCode: null,
+          requestedStoreAccessKind: null,
+        });
+      }
+
+      const updated = await this.memberships.revoke(client, membershipId, tenantId);
       if (!updated) throw new NotFoundException("Not Found");
     });
   }
@@ -86,6 +116,7 @@ export class MembershipsService {
    *
    * Validates the requested changes, then applies them atomically within a
    * single `runWithTenantContext` transaction:
+   *   0. Lock the tenant's active owner rows (RT-1028 last-owner rule).
    *   1. Load existing membership (404 if not found/revoked/cross-tenant).
    *   2. If `role_code` provided: look up role_id in tenant; reject
    *      `platform_admin`; unknown code → 400.
@@ -94,12 +125,16 @@ export class MembershipsService {
    *      belong to active tenant.
    *   5. If `store_ids` provided without `store_access_kind`: only valid when
    *      existing kind is already "specific" (otherwise 400 — ambiguous intent).
+   *   5b. Role hierarchy on the post-change grant (403, RT-1028).
    *   6. Apply UPDATE memberships + DELETE/INSERT store_access.
    *   7. Return the updated `MembershipDetail`.
    */
   async update(ctx: ResolvedContext, membershipId: string, dto: MembershipUpdateDto): Promise<MembershipDetail> {
-    return await this.tx(this.pool, txCtx(ctx), async (client) => {
+    return await this.refusalAudited(ctx, async (client) => {
       const tenantId = ctx.tenantId as string;
+
+      // Step 0: owner-set lock, before the target is read
+      const activeOwners = await this.hierarchy.lockActiveOwnerCount(client, tenantId);
 
       // Step 1: load existing row (404 gate)
       const existing = await this.memberships.findActive(client, membershipId, tenantId);
@@ -112,6 +147,24 @@ export class MembershipsService {
       const storeIds = dto.store_ids;
       await this.validateStoreAccess(client, tenantId, dto, existing.storeAccessKind);
 
+      // Step 5b: role hierarchy on the post-change grant
+      const actor = await this.hierarchy.actorFor(client, ctx);
+      const next = {
+        roleCode: dto.role_code ?? existing.roleCode,
+        storeAccessKind: dto.store_access_kind ?? existing.storeAccessKind,
+      };
+      const reason = membershipUpdateRefusal(actor, existing, next, activeOwners);
+      if (reason) {
+        throw new MembershipChangeRefusedError({
+          operation: "membership.update",
+          reason,
+          targetMembershipId: existing.id,
+          targetRoleCode: existing.roleCode,
+          requestedRoleCode: dto.role_code ?? null,
+          requestedStoreAccessKind: dto.store_access_kind ?? null,
+        });
+      }
+
       // Step 6/7: apply and return
       return this.memberships.update(client, existing, {
         roleId,
@@ -119,6 +172,22 @@ export class MembershipsService {
         storeIds: storeIds && storeIds.length > 0 ? [...new Set(storeIds)] : storeIds,
       });
     });
+  }
+
+  /**
+   * Run `work` in a tenant transaction. On a hierarchy refusal the
+   * transaction has rolled back by the time this catches it, so the
+   * refusal's audit row is written in a fresh one.
+   */
+  private async refusalAudited<T>(ctx: ResolvedContext, work: (client: PoolClient) => Promise<T>): Promise<T> {
+    try {
+      return await this.tx(this.pool, txCtx(ctx), work);
+    } catch (err) {
+      if (err instanceof MembershipChangeRefusedError) {
+        await auditRefusal((audit) => this.tx(this.pool, txCtx(ctx), audit), this.hierarchy, ctx, err);
+      }
+      throw err;
+    }
   }
 
   /** Step 2: resolve `role_code` to a role id in the tenant; undefined when not changing the role. */

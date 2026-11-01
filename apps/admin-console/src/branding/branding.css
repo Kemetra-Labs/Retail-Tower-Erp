@@ -1,0 +1,233 @@
+/* RT-474 tenant logo page (brief docs/design/rt474-tenant-logo §3; DESIGN.md §5
+ * surface grammar: sections are headings with spacing, not cards).
+ *
+ * The screen preview samples the POS LIGHT surface (RT-832), not Admin chrome,
+ * so it stays white in the dark theme: `--color-on-ink` is white in every theme
+ * and `--color-ink` is dark in every theme (tokens.css, RT-991). `low_contrast`
+ * is computed against #ffffff, so a darker sample would mislead. The receipt
+ * strip is paper: white, with the 1-bit rendition drawn unsmoothed. */
+
+.logo-page {
+  display: grid;
+  gap: var(--space-6);
+  align-content: start;
+}
+
+.logo-notices:focus {
+  outline: none;
+}
+.logo-notices:empty {
+  display: none;
+}
+
+.logo-section {
+  display: grid;
+  gap: var(--space-3);
+  max-inline-size: 65ch;
+}
+.logo-section:has(.logo-preview__pos) {
+  max-inline-size: none;
+}
+
+.logo-entry {
+  margin: var(--space-5) 0 0;
+}
+
+/* --- Section 1: current logo ------------------------------------------------ */
+.logo-current {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-5);
+}
+.logo-current__thumb {
+  display: grid;
+  place-items: center;
+  padding: var(--space-3);
+  background: var(--color-on-ink);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-object);
+  forced-color-adjust: none;
+}
+.logo-current__meta {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+}
+.logo-current__meta dd {
+  margin: 0;
+}
+
+.logo-confirm {
+  display: grid;
+  gap: var(--space-2);
+  padding-block: var(--space-3);
+  animation: rtc-settle var(--duration-2) var(--ease-out);
+}
+.logo-confirm__text {
+  margin: 0;
+}
+.logo-confirm .surface__actions {
+  margin-block-start: 0;
+}
+
+/* --- Section 2: the upload field ------------------------------------------- */
+.logo-upload {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+.logo-upload__label {
+  padding: 0;
+  font-weight: var(--weight-strong);
+  font-size: var(--text-control);
+}
+.logo-upload__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+.logo-upload__file {
+  font-family: var(--font-mono);
+  font-size: var(--text-machine);
+  color: var(--color-text);
+}
+.logo-upload__hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.logo-upload__error {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--text-meta);
+  font-weight: var(--weight-medium);
+}
+.logo-upload__error:empty {
+  display: none;
+}
+.logo-upload__error-line {
+  animation: rtc-settle var(--duration-2) var(--ease-out);
+}
+
+/* --- Warnings: icon and text, never colour alone --------------------------- */
+.logo-warnings {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.logo-warning__text {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.logo-warning__icon {
+  flex: none;
+  margin-block-start: 2px; /* optical: centre the 16px glyph on the first text line */
+}
+
+/* --- Section 3: the screen preview ----------------------------------------- */
+.logo-preview__pos {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-5);
+  padding: var(--space-5);
+  background: var(--color-surface-sunken);
+  border-radius: var(--radius-object);
+}
+.logo-slot {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+.logo-slot__label {
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+/* The POS light surface sample: white and dark ink in every theme, un-forced so
+ * forced colours cannot repaint a logo's background (RT-832 approved). */
+.logo-slot__surface {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  background: var(--color-on-ink);
+  color: var(--color-ink);
+  border-radius: var(--radius-object);
+  forced-color-adjust: none;
+}
+.logo-slot--sign_in .logo-slot__surface {
+  grid-auto-flow: column;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-2) var(--space-5);
+}
+.logo-slot__box {
+  box-sizing: content-box;
+  display: grid;
+  place-items: center;
+}
+/* `presentation.card`: white, 1px border, 8px radius, padding outside the box
+ * (RT-832: 12px; the sign-in strip 2px / 4px so it does not grow). */
+.logo-slot__box--card {
+  padding: var(--space-3);
+  background: var(--color-on-ink);
+  border: 1px solid color-mix(in srgb, var(--color-ink) 24%, var(--color-on-ink));
+  border-radius: var(--radius-control);
+}
+.logo-slot--sign_in .logo-slot__box--card {
+  padding: 2px var(--space-1);
+}
+.logo-slot__box--skeleton {
+  background: color-mix(in srgb, var(--color-ink) 8%, var(--color-on-ink));
+  border-radius: var(--radius-control);
+}
+/* 12px muted «بدعم من Retail Tower», on the light sample in every theme. */
+.logo-slot__powered {
+  margin: 0;
+  font-size: var(--text-meta);
+  color: color-mix(in srgb, var(--color-ink) 72%, var(--color-on-ink));
+}
+
+/* --- Section 4: the receipt preview --------------------------------------- */
+.logo-receipt__paper {
+  display: grid;
+  justify-items: center;
+  inline-size: 80mm;
+  max-inline-size: 100%;
+  padding-block: var(--space-5);
+  background: var(--color-on-ink);
+  border: 1px solid var(--color-border);
+  forced-color-adjust: none;
+}
+.logo-receipt__logo {
+  image-rendering: pixelated;
+}
+.logo-receipt__caption {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+
+/* --- Actions --------------------------------------------------------------- */
+.logo-actions {
+  margin-block-start: 0;
+  padding-block-start: var(--space-5);
+  border-block-start: 1px solid var(--color-border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logo-confirm,
+  .logo-upload__error-line {
+    animation: none;
+  }
+}

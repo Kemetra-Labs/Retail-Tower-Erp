@@ -30,4 +30,5 @@ file: sale-sync-ops/sale-sync-ops.yaml 83a995ff987c769dc2416034fbb3ee57b5e6d8eb
 file: settlement/settlement.yaml 5a6e568f0e087652c4d5d5d2d75c386d6e6f37bc
 file: shift-closes.openapi.yaml 4fe610244c7146936f635e8266d6f245149201d7
 file: stores.openapi.yaml dc4c4664f7757dd100ba63c1d841b14172bdb38d
+file: tenant-branding.openapi.yaml 70e354bc2188882a433c67d557fac54cb8ccae1b
 file: tenants.openapi.yaml ab1abfc9ce8835f22fd47fb180d1d1a18ad08649

@@ -53,6 +53,7 @@ import { ZodValidationPipe } from "../../src/common/zod-validation.pipe";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import type { SignInResult } from "../../src/auth/dto";
 import type { RefreshResult } from "../../src/auth/auth.service";
+import * as signInFailureMetrics from "../../src/observability/metrics/auth-signin-failure.metrics";
 
 // ---------------------------------------------------------------------------
 // Fixed IDs
@@ -152,12 +153,20 @@ class FakeRateLimiter {
   /** `resetMs` reported by a blocked bucket (RT-623: drives `Retry-After`). */
   blockedResetMs = 60_000;
 
+  /** RT-626: buckets whose check() rejects, as a limiter outage would. */
+  private failingBuckets = new Set<string>();
+
   blockBucket(bucketName: string): void {
     this.blockedBuckets.add(bucketName);
   }
 
+  failBucket(bucketName: string): void {
+    this.failingBuckets.add(bucketName);
+  }
+
   allowAll(): void {
     this.blockedBuckets.clear();
+    this.failingBuckets.clear();
   }
 
   async check(
@@ -166,6 +175,7 @@ class FakeRateLimiter {
     _policy: { limit: number; windowMs: number },
   ): Promise<RateLimitDecision> {
     this.calledBuckets.push(bucketName);
+    if (this.failingBuckets.has(bucketName)) throw new Error("redis down");
     const allowed = !this.blockedBuckets.has(bucketName);
     return {
       allowed,
@@ -1068,5 +1078,143 @@ describe("POST /api/v1/auth/password/change", () => {
 
     expect(JSON.stringify(res.body)).not.toContain("Old-Password-1!");
     expect(JSON.stringify(res.body)).not.toContain("New-Password-2!");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RT-626 (RT-574 issue 5d) — new public-auth buckets and the failed-sign-in signal
+// ---------------------------------------------------------------------------
+
+describe("RT-626: password-reset/request per-email budget", () => {
+  const send = (): Promise<request.Response> =>
+    http().post("/api/v1/auth/password-reset/request").send({ email: "user@example.com" });
+
+  it("checks the per-IP bucket, then the per-email bucket, then sends", async () => {
+    const res = await send();
+
+    expect(res.status).toBe(202);
+    expect(rl.calledBuckets).toEqual(["pwreset_ip", "pwreset_email"]);
+    expect(svc.lastRequestPasswordResetArgs).toEqual({ email: "user@example.com" });
+  });
+
+  it("over the per-email limit: still 202 with no body and no Retry-After, nothing sent", async () => {
+    rl.blockBucket("pwreset_email");
+    const res = await send();
+
+    expect(res.status).toBe(202);
+    expect(res.body).toEqual({});
+    expect(res.headers["retry-after"]).toBeUndefined();
+    expect(svc.lastRequestPasswordResetArgs).toBeNull();
+  });
+
+  it("a per-email limiter outage still answers 202 and sends nothing", async () => {
+    rl.failBucket("pwreset_email");
+    const res = await send();
+
+    expect(res.status).toBe(202);
+    expect(svc.lastRequestPasswordResetArgs).toBeNull();
+  });
+
+  it("a per-IP refusal is still a 429 and never reaches the per-email bucket", async () => {
+    rl.blockBucket("pwreset_ip");
+    const res = await send();
+
+    expect(res.status).toBe(429);
+    expect(rl.calledBuckets).toEqual(["pwreset_ip"]);
+  });
+});
+
+describe("RT-626: email/verify/confirm per-IP limit", () => {
+  const send = (): Promise<request.Response> =>
+    http().post("/api/v1/auth/email/verify/confirm").send({ token: "verify-token" });
+
+  afterEach(() => {
+    rl.blockedResetMs = 60_000;
+  });
+
+  it("checks the per-IP bucket before confirming", async () => {
+    const res = await send();
+
+    expect(res.status).toBe(204);
+    expect(rl.calledBuckets).toEqual(["email_verify_confirm_ip"]);
+  });
+
+  it("over the limit: 429 rate_limited with Retry-After, service not called", async () => {
+    rl.blockBucket("email_verify_confirm_ip");
+    rl.blockedResetMs = 600_000;
+    const res = await send();
+
+    expect(res.status).toBe(429);
+    expect(res.headers["retry-after"]).toBe("600");
+    expectErrorEnvelope(res.body, "rate_limited");
+    expect(svc.lastConfirmEmailVerificationArgs).toBeNull();
+  });
+
+  it("a limiter outage fails closed: 503 service_unavailable with Retry-After: 30", async () => {
+    rl.failBucket("email_verify_confirm_ip");
+    const res = await send();
+
+    expect(res.status).toBe(503);
+    expect(res.headers["retry-after"]).toBe("30");
+    expectErrorEnvelope(res.body, "service_unavailable");
+    expect(svc.lastConfirmEmailVerificationArgs).toBeNull();
+  });
+
+  it("validates the body before spending the budget", async () => {
+    const res = await http().post("/api/v1/auth/email/verify/confirm").send({});
+
+    expect(res.status).toBe(400);
+    expect(rl.calledBuckets).toEqual([]);
+  });
+});
+
+describe("RT-626: auth_signin_failure_total emission", () => {
+  const signIn = (): Promise<request.Response> =>
+    http().post("/api/v1/auth/signin").send({ email: "user@example.com", password: "p" });
+
+  let spy: jest.SpyInstance;
+  beforeEach(() => {
+    spy = jest.spyOn(signInFailureMetrics, "recordSignInFailure");
+  });
+
+  afterEach(() => {
+    svc.signIn = async (input) => { svc.lastSignInArgs = input; return svc.signInResult; };
+  });
+
+  it("a credential failure (401) counts once as invalid_credentials", async () => {
+    svc.signIn = async () => { throw new UnauthorizedException("Invalid credentials"); };
+
+    expect((await signIn()).status).toBe(401);
+    expect(spy.mock.calls).toEqual([[{ cause: "invalid_credentials" }]]);
+  });
+
+  it.each(["signin_account", "signin_ip"])("a %s 429 counts once as rate_limited", async (bucket) => {
+    rl.blockBucket(bucket);
+
+    expect((await signIn()).status).toBe(429);
+    expect(spy.mock.calls).toEqual([[{ cause: "rate_limited" }]]);
+  });
+
+  it("a successful sign-in counts nothing", async () => {
+    expect((await signIn()).status).toBe(200);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("a limiter outage (503) and a non-authentication error (500) count nothing", async () => {
+    rl.failBucket("signin_account");
+    expect((await signIn()).status).toBe(503);
+    rl.allowAll();
+
+    svc.signIn = async () => { throw new Error("database unavailable"); };
+    expect((await signIn()).status).toBe(500);
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("a 429 on a non-sign-in bucket counts nothing", async () => {
+    rl.blockBucket("email_verify_confirm_ip");
+    await http().post("/api/v1/auth/email/verify/confirm").send({ token: "t" });
+
+    expect(spy).not.toHaveBeenCalled();
   });
 });

@@ -295,6 +295,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "429":
+          description: >
+            Rate-limited per client IP (RT-626). `Retry-After` gives the whole
+            seconds until the bucket resets, 1 to 3600.
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/PublicAuthRetryAfter"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: >
+            The public-auth rate limiter is unavailable (RT-628 posture, code
+            `service_unavailable`). `Retry-After` gives the whole seconds to
+            wait before retrying.
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/PublicAuthRetryAfter"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   headers:
     PublicAuthRetryAfter:

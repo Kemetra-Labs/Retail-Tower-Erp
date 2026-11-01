@@ -74,6 +74,12 @@ export const RATE_LIMIT_BUCKETS = {
   signInPerIp: { limit: 30, windowMs: 60 * 60 * 1000 },
   passwordResetPerIp: { limit: 100, windowMs: 24 * 60 * 60 * 1000 },
   passwordResetConfirmPerIp: { limit: 10, windowMs: 15 * 60 * 1000 },
+  // RT-626 (RT-574 issue 5d): reset emails per address, so one inbox cannot be
+  // flooded within the per-IP budget. Over the limit the request is still
+  // answered 202 (contract) but nothing is sent.
+  passwordResetPerEmail: { limit: 5, windowMs: 60 * 60 * 1000 },
+  // RT-626: the public email-verification confirm route, per client IP.
+  emailVerifyConfirmPerIp: { limit: 20, windowMs: 15 * 60 * 1000 },
   pairingPerIp: { limit: 30, windowMs: 60 * 60 * 1000 },
   // RT-937: invitation acceptance per IP. The route is public (the single-use token
   // is the credential) and can create a user, so it is bounded like sign-in.
