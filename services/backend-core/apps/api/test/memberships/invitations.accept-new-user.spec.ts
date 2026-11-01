@@ -63,6 +63,9 @@ const EXISTING_ID = "c2000000-2000-4000-8000-000000000002";
 const OTHER_ID = "c9000000-9000-4000-8000-000000000009";
 const ALPHA_ID = "c3000000-3000-4000-8000-000000000003";
 const ROLE_ID = "c4000000-4000-4000-8000-000000000004";
+// RT-1028: acceptance re-checks the inviter, so the inviter is an active owner.
+const OWNER_ROLE_ID = "c5000000-5000-4000-8000-000000000005";
+const OWNER_MEMBERSHIP_ID = "c8000000-8000-4000-8000-000000000008";
 const STORE_A1 = "c6000000-6000-4000-8000-000000000006";
 const STORE_A2 = "c7000000-7000-4000-8000-000000000007";
 const NEW_EMAIL = "newhire@accept-new.test";
@@ -102,6 +105,11 @@ beforeAll(async () => {
     await pool.query(`INSERT INTO tenants (id, slug, name) VALUES ($1, 'alpha-new', 'Alpha New')`, [ALPHA_ID]);
     await pool.query(`INSERT INTO roles (id, tenant_id, code, name) VALUES ($1, $2, 'store_manager', 'Store Manager')`, [ROLE_ID, ALPHA_ID]);
     await pool.query(`INSERT INTO stores (id, tenant_id, code, name) VALUES ($1, $2, 'a1', 'A1'), ($3, $2, 'a2', 'A2')`, [STORE_A1, ALPHA_ID, STORE_A2]);
+    await pool.query(`INSERT INTO roles (id, tenant_id, code, name) VALUES ($1, $2, 'owner', 'Owner')`, [OWNER_ROLE_ID, ALPHA_ID]);
+    await pool.query(
+      `INSERT INTO memberships (id, tenant_id, user_id, role_id, store_access_kind) VALUES ($1, $2, $3, $4, 'all')`,
+      [OWNER_MEMBERSHIP_ID, ALPHA_ID, OWNER_ID, OWNER_ROLE_ID],
+    );
 
     const moduleRef = await Test.createTestingModule({
       imports: [AuthModule, ContextModule, MembershipsModule],
@@ -142,14 +150,14 @@ beforeEach(() => {
   provider.passwordSignIn.mockReset();
 });
 
-async function insertInvitation(email: string, rawToken: string, specific: boolean): Promise<string> {
+async function insertInvitation(email: string, rawToken: string, specific: boolean, invitedBy = OWNER_ID): Promise<string> {
   const id = randomUUID();
   await pool!.query(
     `INSERT INTO invitations
        (id, tenant_id, email, role_id, store_access_kind, invited_store_ids,
         invited_by_user_id, token_hash, status, expires_at)
      VALUES ($1, $2, $3, $4, $5, $6::uuid[], $7, $8, 'pending', $9)`,
-    [id, ALPHA_ID, email, ROLE_ID, specific ? "specific" : "all", specific ? [STORE_A1, STORE_A2] : [], OWNER_ID, hashToken(rawToken), FUTURE],
+    [id, ALPHA_ID, email, ROLE_ID, specific ? "specific" : "all", specific ? [STORE_A1, STORE_A2] : [], invitedBy, hashToken(rawToken), FUTURE],
   );
   return id;
 }
@@ -235,6 +243,39 @@ describe("acceptInvitation — NEW user, real schema", () => {
     expect(await count("sessions")).toBe(sessionsBefore);
     const inv = (await pool!.query(`SELECT status, accepted_by_user_id FROM invitations WHERE id = $1`, [invitationId])).rows[0];
     expect(inv).toEqual({ status: "pending", accepted_by_user_id: null });
+  });
+});
+
+describe("acceptInvitation — RT-1028 accept-time hierarchy check, NEW user", () => {
+  afterEach(cleanup);
+
+  it("an inviter with no active membership: opaque 400 before any provider call; no user, no membership; one audit row", async () => {
+    if (dockerSkipped) return;
+    const rawToken = generateRawToken();
+    const invitationId = await insertInvitation(NEW_EMAIL, rawToken, false, OTHER_ID);
+    const before = { users: await count("users"), links: await count("external_identity_links"), memberships: await count("memberships"), sessions: await count("sessions") };
+
+    const err = await service!.acceptInvitation({ token: rawToken, password: PASSWORD }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect((err as BadRequestException).message).toBe("Invalid or expired invitation token");
+    expect(provider.createUser).not.toHaveBeenCalled();
+    expect(provider.loadUser).not.toHaveBeenCalled();
+    expect({ users: await count("users"), links: await count("external_identity_links"), memberships: await count("memberships"), sessions: await count("sessions") }).toEqual(before);
+    const inv = (await pool!.query(`SELECT status, accepted_by_user_id FROM invitations WHERE id = $1`, [invitationId])).rows[0];
+    expect(inv).toEqual({ status: "pending", accepted_by_user_id: null });
+
+    const audit = (
+      await pool!.query(
+        `SELECT actor_user_id, tenant_id, target_type, metadata FROM audit_events
+          WHERE action = 'membership.change_refused' AND target_id = $1`,
+        [invitationId],
+      )
+    ).rows;
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({ actor_user_id: null, tenant_id: ALPHA_ID, target_type: "invitation" });
+    expect(audit[0].metadata).toMatchObject({ outcome: "refused", operation: "invitation.accept", reason: "actor_not_authorized" });
+    expect(JSON.stringify(audit[0])).not.toContain(NEW_EMAIL);
   });
 });
 

@@ -182,13 +182,17 @@ test("unknown items: a non-default filter is a chip; removing it restores the de
   await page.setViewportSize({ width: 1440, height: 900 });
   await mockRealisticApi(page);
   await page.goto("/unknown-items");
-  await page.getByLabel(t("unknownItems.filters.status")).selectOption("dismissed");
+  await page
+    .getByLabel(t("unknownItems.filters.status"), { exact: true })
+    .selectOption("dismissed");
   await page.getByRole("button", { name: t("filter.apply"), exact: true }).click();
   const chips = page.getByRole("list", { name: t("filter.applied") });
   await expect(chips).toContainText(t("unknownItems.status.dismissed"));
   await chips.getByRole("button").first().click();
   await expect(chips).toHaveCount(0);
-  await expect(page.getByLabel(t("unknownItems.filters.status"))).toHaveValue("pending");
+  await expect(page.getByLabel(t("unknownItems.filters.status"), { exact: true })).toHaveValue(
+    "pending",
+  );
 });
 
 test("audit: an applied filter is a chip; removing it clears the field and applies", async ({

@@ -22,6 +22,9 @@
  * transaction, after the refused one has ended (`auditRefusal`). A failed
  * audit write is logged and the 403 still stands. `@Auditable` runs only on
  * success, so the sale-history `outcome: "refused"` precedent is followed.
+ * Exception: a refused invitation acceptance (`invitation.accept`, the public
+ * accept route) answers that route's documented opaque 400 instead; see
+ * `InvitationsService.refuseAccept`.
  */
 import { ForbiddenException, Injectable } from "@nestjs/common";
 import { newId } from "@data-pulse-2/shared";
@@ -52,7 +55,11 @@ export type MembershipRefusalReason =
   | "owner_requires_all_stores"
   | "last_owner";
 
-export type MembershipOperation = "membership.update" | "membership.revoke" | "invitation.create";
+export type MembershipOperation =
+  | "membership.update"
+  | "membership.revoke"
+  | "invitation.create"
+  | "invitation.accept";
 
 const REFUSAL_MESSAGES: Readonly<Record<MembershipRefusalReason, string>> = {
   actor_not_authorized: "Insufficient role.",
@@ -136,6 +143,8 @@ export interface MembershipRefusalAudit {
   readonly operation: MembershipOperation;
   readonly reason: MembershipRefusalReason;
   readonly targetMembershipId: string | null;
+  /** The refused invitation (accept only: the RT-1028 accept-time check). */
+  readonly targetInvitationId?: string | null;
   readonly targetRoleCode: string | null;
   readonly requestedRoleCode: string | null;
   readonly requestedStoreAccessKind: string | null;
@@ -191,11 +200,15 @@ export class MembershipHierarchy {
   }
 
   /**
-   * Lock the actor's own active membership `FOR SHARE` (invite only). A
+   * Lock the actor's own active membership `FOR SHARE` (invite, and accept
+   * with the inviter as the actor). A
    * concurrent PATCH or DELETE of that row holds it `FOR UPDATE`, so the
    * invite waits for it to commit and `actorFor` then reads the committed
    * role: a tenant_admin demoted or revoked at that instant cannot still
    * invite. Invite takes no other membership lock, so this cannot deadlock.
+   * Accept also inserts the invitee's membership; a PATCH or DELETE that
+   * could make that insert wait must first pass this row's lock, so there
+   * is no cycle there either.
    * PATCH and DELETE do not take it (they serialize on the owner set).
    */
   async lockActorMembership(client: PoolClient, ctx: ResolvedContext): Promise<void> {
@@ -258,7 +271,7 @@ export class MembershipHierarchy {
         ctx.tenantId,
         MEMBERSHIP_REFUSED_AUDIT_ACTION,
         event.targetMembershipId ? "membership" : "invitation",
-        event.targetMembershipId,
+        event.targetMembershipId ?? event.targetInvitationId ?? null,
         JSON.stringify(metadata),
       ],
     );
