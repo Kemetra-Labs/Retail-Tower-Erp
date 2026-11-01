@@ -123,8 +123,8 @@ A same-version run is proven when the outcome is `deployed` and each step shows 
 
 The job stops, and later steps do not run. The failing step behaves as its own document does today:
 - `backend` refuses at a gate before any change, or reverts itself through the auto-revert. That revert is app-only, and only when `rollbackAllowed` is `true`.
-- `console` swaps back on a failed smoke.
-- `erp` can stop after its swap with the workers down. In that case, read the ERP document's ledger on lab-03, then redeploy with `deploy-erp-lab.yml` or run `integrations/erpnext-connector/deploy/lab/restore.sh` on lab-03, as its rollback class requires.
+- `console` swaps back on a failed smoke. If its lines show `RT_REVERT failed current=…`, the swap-back itself failed and the Console still serves the new release. Point lab-01's `current` back to the previous release by hand. `manualRollback` does not list the Console then, because the step never finished.
+- `erp` can stop after its swap with the workers down. In that case, read the ERP document's ledger on lab-03. Once the scheduler has resumed, `integrations/erpnext-connector/deploy/lab/restore.sh` refuses, whatever the rollback class: the ledger has `resumedAt`, or the host's resume marker is newer than the run. Only a forward fix is then possible, by redeploying with `deploy-erp-lab.yml`. Run `restore.sh` on lab-03 only before any resume, and only when the rollback class is `restore`.
 
 Earlier steps are not reverted automatically, because a Backend-Core rollback can touch the database. `manualRollback` gives the exact workflow inputs for each step that finished, in the order they can run: ERP, then Backend-Core, then Console. The Console comes last because its document checks that lab-01 runs the Backend-Core release it is given.
 
