@@ -46,6 +46,8 @@ options:
     - services/backend-core/pnpm-workspace.yaml
     - services/backend-core/tsconfig*.json
     - services/backend-core/apps/api/jest.config.cjs
+    # RT-1045 experiment (never merged): the same file relative to apps/api, the CLI's cwd.
+    - jest.config.cjs
     - services/backend-core/apps/api/tsconfig*.json
     - services/backend-core/apps/api/test/_helpers/**
     - services/backend-core/packages/**
