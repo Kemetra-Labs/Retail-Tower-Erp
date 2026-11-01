@@ -43,6 +43,7 @@ export const shell = {
   "shell.navigator.empty": "لا توجد صفحة أو متجر يطابق «{query}».",
   // RT-969: the user menu holds the language and theme switches.
   "shell.userMenu.prefs": "التفضيلات",
+  "shell.userMenu.account": "حسابي",
 
   "shell.gate.title": "اختر نطاق العمل",
   "shell.gate.sub": "اختر مؤسسة للمتابعة.",

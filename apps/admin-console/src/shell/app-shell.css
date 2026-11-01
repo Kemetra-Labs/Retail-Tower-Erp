@@ -160,9 +160,24 @@
   font: var(--weight-strong) var(--text-meta) / var(--leading-tight) var(--font-sans);
   color: var(--color-text-muted);
 }
-.user-menu__panel > button {
+.user-menu__prefs {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.user-menu__prefs > button,
+.user-menu__link {
   justify-content: flex-start;
   width: 100%;
+}
+/* RT-807: the «حسابي» link sits under the preferences, past a hairline. */
+.user-menu__link {
+  border-block-start: 1px solid var(--color-border);
+  border-start-start-radius: 0;
+  border-start-end-radius: 0;
 }
 @media (prefers-reduced-motion: reduce) {
   .user-menu__panel {

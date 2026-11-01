@@ -60,6 +60,39 @@ export const auth = {
   "auth.acceptInvitation.haveAccess": "لديك صلاحية وصول بالفعل؟ {signIn}",
   "auth.acceptInvitation.signInLink": "تسجيل الدخول",
 
+  // RT-807 (PW-1, PW-4): the «حسابي» page and its change-password form.
+  "auth.account.title": "حسابي",
+  // {email} is the signed-in address, isolated LTR.
+  "auth.account.subtitle": "للحساب {email}.",
+  "auth.account.password.title": "تغيير كلمة المرور",
+  "auth.account.current.label": "كلمة المرور الحالية",
+  "auth.account.new.label": "كلمة المرور الجديدة",
+  "auth.account.new.hint": "يحدد مزود الهوية شروط كلمة المرور.",
+  "auth.account.confirm.label": "تأكيد كلمة المرور الجديدة",
+  "auth.account.submit": "تغيير كلمة المرور",
+  "auth.account.cancel": "إلغاء",
+  "auth.account.errors.currentRequired": "أدخل كلمة المرور الحالية.",
+  "auth.account.errors.newRequired": "أدخل كلمة المرور الجديدة.",
+  "auth.account.errors.confirmRequired": "أعد إدخال كلمة المرور الجديدة.",
+  "auth.account.errors.mismatch": "كلمتا المرور الجديدتان غير متطابقتين.",
+  "auth.account.changed.title": "تغيّرت كلمة المرور.",
+  "auth.account.changed.body": "سُجّل خروجك من جلساتك الأخرى. هذه الجلسة تبقى مفتوحة.",
+  // 400 is one refusal: it must not say which password was wrong (RT-937).
+  "auth.account.errors.refused.title": "تعذّر تغيير كلمة المرور.",
+  "auth.account.errors.refused.body":
+    "تحقّق من كلمة المرور الحالية، واختر كلمة جديدة تقبلها شروط مزود الهوية، ثم حاول مرة أخرى.",
+  "auth.account.errors.noLink":
+    "لا يمكن تغيير كلمة المرور من هنا. حسابك غير مرتبط بمزود الهوية بعد. اطلب المساعدة من مسؤول المؤسسة.",
+  // 503 / 5xx: the provider may already have replaced it (UX-12.15).
+  "auth.account.errors.notConfirmed":
+    "تعذّر إكمال الطلب الآن، ولم يتأكد تغيير كلمة المرور. حاول بعد قليل.",
+  "auth.account.errors.sessionExpired": "انتهت جلستك. سجّل الدخول مرة أخرى.",
+  "auth.account.errors.failed":
+    "تعذّر تغيير كلمة المرور، ولم تتغيّر. أعد تحميل الصفحة ثم حاول مرة أخرى.",
+  "auth.account.aside.title": "ماذا يحدث بعد التغيير",
+  "auth.account.aside.provider": "تُستبدل كلمة المرور لدى مزود الهوية، لا في لوحة التحكم.",
+  "auth.account.aside.sessions": "يُسجَّل خروجك من جلساتك الأخرى. هذه الجلسة تبقى مفتوحة.",
+
   "auth.noAccess.title": "لا توجد صلاحية وصول مُسندة إليك",
   "auth.noAccess.body":
     "لقد سجّلت الدخول، لكن حسابك لا يملك بعدُ صلاحية وصول إلى أي مؤسسة أو متجر. تواصل مع المسؤول لديك لمنحك عضوية.",
