@@ -55,6 +55,8 @@ describe("the event loop while a 4000 × 4000 PNG is processed", () => {
   async function measured<T>(work: () => Promise<T>): Promise<{ result: T; elapsedMs: number; maxDelayMs: number }> {
     const delay = monitorEventLoopDelay({ resolution: 10 });
     delay.enable();
+    // The probe's first sample only sets its baseline: take it before the work starts.
+    await new Promise((resolve) => setTimeout(resolve, 20));
     const started = performance.now();
     const result = await work();
     const elapsedMs = performance.now() - started;
