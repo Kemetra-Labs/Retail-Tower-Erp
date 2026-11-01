@@ -25,7 +25,8 @@ import type request from "supertest";
 
 import { brandingEtag } from "../../src/tenant-branding/branding.projections";
 import { logoUploadPassthrough } from "../../src/tenant-branding/logo-body";
-import { processLogo } from "../../src/tenant-branding/logo-pipeline";
+import { LOGO_MAX_PENDING_JOBS } from "../../src/tenant-branding/logo-config";
+import { logoJobs, processLogo } from "../../src/tenant-branding/logo-pipeline";
 import { TenantBrandingModule } from "../../src/tenant-branding/tenant-branding.module";
 import { scopedHttpHarness } from "../_helpers/scoped-http-harness";
 import { TENANT_A, TENANT_B } from "../catalog/__support__/isolation-harness";
@@ -233,6 +234,45 @@ describe("preview", () => {
     if (skip()) return;
     expect(await storedCounts(h.env().admin, TENANT_A)).toEqual({ logos: 0, renditions: 0 });
     expect(await logoAudits(h.env().admin, TENANT_A, REPLACED)).toEqual([]);
+  });
+});
+
+describe("a busy logo renderer (RT-1041)", () => {
+  /** Holds every slot of the per-process logo queue until `release()`. */
+  function holdQueue(): { release: () => Promise<void> } {
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const held = Array.from({ length: LOGO_MAX_PENDING_JOBS }, () => logoJobs.run(() => gate));
+    return {
+      release: async () => {
+        open();
+        await Promise.all(held);
+      },
+    };
+  }
+
+  function expectRendererBusy(res: request.Response): void {
+    expectError(res, 429, "rate_limited", "RateLimitedError");
+    // The renderer's own 429, not the jobOrPreview rate limit's.
+    expect((res.body as { error: { message: string } }).error.message).toBe("The image renderer is busy. Retry shortly.");
+    expect(res.headers["retry-after"]).toBe("8");
+    expect(res.headers["cache-control"]).toBe("no-store");
+  }
+
+  it("answers preview and save with 429 rate_limited and Retry-After, storing nothing, then serves again", async () => {
+    if (skip()) return;
+    const queue = holdQueue();
+    try {
+      expectRendererBusy(await preview(SES_OWNER_ALL, LOGO_1));
+      expectRendererBusy(await save(SES_OWNER_ALL, LOGO_1, { preview_version: version1, expected_revision: 0 }));
+    } finally {
+      await queue.release();
+    }
+    expect(await storedCounts(h.env().admin, TENANT_A)).toEqual({ logos: 0, renditions: 0 });
+    expect(await logoAudits(h.env().admin, TENANT_A, REPLACED)).toEqual([]);
+    await preview(SES_OWNER_ALL, LOGO_1).expect(200);
   });
 });
 

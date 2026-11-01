@@ -70,6 +70,15 @@ export const SVG_MAX_TURBULENCE_OCTAVES = 10;
 export const SVG_RENDER_TIMEOUT_MS = 8_000;
 /** Renders running or waiting per API process; one more gets a retryable 429, so a wait is at most this × the timeout. */
 export const SVG_MAX_PENDING_RENDERS = 4;
+/**
+ * RT-1041: logo jobs (decode and render in the logo worker) running or
+ * waiting per API process; one more gets the same retryable 429. Only the
+ * running job holds pixels: the decoded raster, its padded copy and the
+ * master, about 150 MB at MAX_PIXELS.
+ */
+export const LOGO_MAX_PENDING_JOBS = 4;
+/** A worker job with no reply by then is failed (→ 500) and its worker replaced, so a lost reply cannot hold the queue. */
+export const LOGO_JOB_TIMEOUT_MS = 30_000;
 
 export const SLOTS = ["boot", "pairing", "sign_in", "lock"] as const;
 export type Slot = (typeof SLOTS)[number];
