@@ -61,6 +61,8 @@ The preflight runs the gate above on both files, plus the online checks of each 
    - `deploy-erp-lab.yml`: `target.digest` and `target.sha`.
 
    If a `deploy-lab.yml` run newer than that one failed after its `migrate` gate, the database may be ahead of the application. There is no automatic database downgrade, and when `rollbackAllowed` was `false` the auto-revert only records that a decision is needed. Get the owner's confirmation that the application and database are recovered before using the older release as current. G-Host checks the application release, not the database.
+
+   Likewise, if a `deploy-erp-lab.yml` run newer than that one failed after its `swap` gate, lab-03 may run the newer image with the workers down. Get the owner's confirmation that lab-03 was redeployed or restored (`restore.sh`), and from which image, before using the older digest as current. `RT-ErpLabDeploy` checks the declared current images on lab-03 and refuses on a mismatch.
 3. If no file here matches all three, add one (the next `lab-YYYY.MM.N`) that describes the live lab, by PR. `contracts/check` runs the gate on it.
 
 A stale manifest is refused on lab-01, before any version changes (the lab-02 backup has already been written), with `RT_FAIL gate=G-Host reason=wrapper-does-not-use-the-current-release`. `lab-2026.11.1` was added for exactly this reason, after RT-473 and RT-807 deployed newer releases.
