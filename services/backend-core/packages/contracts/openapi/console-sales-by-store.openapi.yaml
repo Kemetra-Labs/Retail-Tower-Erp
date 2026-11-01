@@ -148,12 +148,6 @@ paths:
       summary: Received sales per store, ranked in one currency, with the previous equal-length period.
       operationId: consoleGetSalesByStore
       x-audit-action: console_sales.by_store_read
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        Contract approved as a design boundary only (RT-996 D-1, RT-1008).
-        Backend-Core has no controller, service or query for this route yet;
-        the runtime issue removes this marker and adds
-        `console_sales.by_store_read` to the read action-kind registry.
       tags: [console-sales]
       description: >
         Every store of the caller's scope (at most 500) over an inclusive

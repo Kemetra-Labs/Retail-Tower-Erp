@@ -37,6 +37,8 @@ const LIVE_READ_CODES = [
   "cash_variance_policy.tenant_revisions_listed",
   "catalog.deltas.read",
   "catalog.snapshot.read",
+  // RT-1053: the console sales by store.
+  "console_sales.by_store_read",
   "console_sales.detail_read",
   "console_sales.listed",
   // RT-649: the console sales summary.
