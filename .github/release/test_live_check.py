@@ -398,6 +398,16 @@ class FailClosed(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("G8 FAIL: the live lab could not be read", gates_file.read_text(encoding="utf-8"))
 
+    def test_a_malformed_system_ledger_is_a_g8_failure_not_a_traceback(self):
+        for steps in (["backend"], [{"step": "backend", "state": "ok", "target": ["x"]}]):
+            fake = live_lab()
+            fake.add("deploy-system-lab.yml", 41306750999, 800, system(41306750999, steps=steps))
+            with tempfile.TemporaryDirectory() as tmp:
+                gates_file = pathlib.Path(tmp) / "gates.txt"
+                code = live_check.main(["--repo", "o/r", "--current-manifest", str(LIVE), "--gates-file", str(gates_file)], api=fake)
+                self.assertEqual(code, 1)
+                self.assertIn("G8 FAIL: the live lab could not be read", gates_file.read_text(encoding="utf-8"))
+
     def test_the_repository_name_is_checked(self):
         for bad in ("", "owner", "a/b; id", "../x"):
             with self.assertRaises(live_check.LiveError, msg=bad):

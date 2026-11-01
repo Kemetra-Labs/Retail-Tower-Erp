@@ -329,7 +329,7 @@ def main(argv=None, api=None):
     args = parser.parse_args(argv)
     try:
         lines = check(api or GhApi(args.repo), args.current_manifest, args.scan_limit)
-    except (LiveError, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
+    except (LiveError, OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as exc:
         lines = [(False, f"the live lab could not be read: {exc}")]
     # One line per result: a detail (an API error text, say) can never start a second `G8 pass:` line.
     text = "".join(f"G8 {'pass' if ok else 'FAIL'}: {' '.join(detail.split())}\n" for ok, detail in lines)
