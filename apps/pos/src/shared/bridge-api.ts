@@ -20,6 +20,7 @@ import type { SaleVoidBridgeAPI } from './sale-void/types.js';
 import type { SaleHistoryBridgeAPI } from './sale-history/types.js';
 import type { TerminalStatusSnapshot } from './terminal-status/types.js';
 import type { UpdateStatusSnapshot } from './update-status/types.js';
+import type { BrandingSnapshot } from './branding/types.js';
 import type { PrinterBridgeAPI } from './printer/types.js';
 
 export type {
@@ -918,6 +919,25 @@ export interface PreloadBridgeAPI {
    * Printer names and closed codes only.
    */
   printer?: PrinterBridgeAPI;
+
+  /**
+   * RT-475: the tenant branding for the boot, pairing, sign-in and lock slots
+   * (`branding:get` + the `branding:changed` push). Read-only; from the local
+   * cache; PNG data URIs, a bounded name and sizes only. Answered with no
+   * session and while locked.
+   */
+  branding?: BrandingBridgeAPI;
+}
+
+/**
+ * RT-475: typed read-only `branding.*` namespace. No write channel exists.
+ * Both members deliver only a preload-validated snapshot.
+ */
+export interface BrandingBridgeAPI {
+  /** Rejects (`branding_unavailable`) on a refusal or malformed answer. */
+  get(): Promise<BrandingSnapshot>;
+  /** Subscribe to the push; returns the unsubscribe. */
+  onChanged(cb: (snapshot: BrandingSnapshot) => void): () => void;
 }
 
 /**
