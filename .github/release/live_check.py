@@ -250,6 +250,8 @@ def system_facts(ledger, when, label, events, incidents):
             raise LiveError(f"{label}: unknown step")
         if name == "backup":
             continue
+        if state not in ("ok", "failed", "not-run"):
+            raise LiveError(f"{label}: the {name} step has an unknown state")
         lines = step.get("lines") or []
         if state == "ok":
             target = step.get("target") or {}

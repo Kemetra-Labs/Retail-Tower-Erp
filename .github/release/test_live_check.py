@@ -398,6 +398,13 @@ class FailClosed(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("G8 FAIL: the live lab could not be read", gates_file.read_text(encoding="utf-8"))
 
+    def test_an_unknown_system_step_state_refuses(self):
+        for state in ("running", None):
+            fake = live_lab()
+            steps = [{"step": "backend", "state": state, "lines": [], "gates": [], "ssmStatus": None, "target": {}}]
+            fake.add("deploy-system-lab.yml", 41306750999, 800, system(41306750999, steps=steps))
+            self.assertRefused(fake, "the backend step has an unknown state")
+
     def test_a_malformed_system_ledger_is_a_g8_failure_not_a_traceback(self):
         for steps in (["backend"], [{"step": "backend", "state": "ok", "target": ["x"]}]):
             fake = live_lab()
