@@ -8,8 +8,10 @@
 # checks of each product, taken from today's preflights: the Backend-Core release (immutable,
 # attested images, the contracts-compat check run, migration and rollback class), the Console
 # release (immutable, checksum, attestation, version.json, the pin rule), the ERP image
-# (attestation, labels, base, rollback class), and the aws-lab reviewer readback. It uploads a
-# planned system ledger and changes nothing. Any failed rule refuses before a host is touched.
+# (attestation, labels, base, rollback class), and the aws-lab reviewer readback. G8 reads the live
+# ledgers of the per-product and system deploys (actions: read, no AWS) and refuses a current_manifest
+# that no longer matches what the lab runs. It uploads a planned system ledger and changes nothing.
+# Any failed rule refuses before a host is touched.
 #
 # live (dry_run=false only): after ONE aws-lab approval the job assumes the deploy role through
 # GitHub OIDC (no stored keys) and runs exactly four owner-created SSM documents, in this order
@@ -25,6 +27,8 @@
 # current_manifest names the system version live now: it supplies CurrentRelease (Backend-Core),
 # the current commit and images (ERP; all six services run one image after any ERP deploy) and the
 # Backend-Core release the rollback inputs return to. For a same-version redeploy it is the same file.
+# G8 (live_check.py) refuses it in the preflight when a newer deploy moved the lab, so the stale
+# manifest no longer reaches RT-BackendLabDeploy G-Host after the lab-02 backup has run.
 #
 # Concurrency is shared with deploy-lab.yml, deploy-console-lab.yml and deploy-erp-lab.yml: one lab
 # deploy at a time. It fails closed while AWS_ROLE_ARN / AWS_REGION are unset.
@@ -75,7 +79,7 @@ jobs:
       checks: read # check runs on the Backend-Core release commit
       packages: read # GHCR reads for labels and attestations
       attestations: read # gh attestation verify
-      actions: read # read (never create) the aws-lab environment
+      actions: read # read (never create) the aws-lab environment; read the live ledger artifacts of past lab deploys (G8)
     # The verified plan, for the live job only (non-secret digests, commits and rollback classes).
     outputs:
       backend_release_sha: ${{ steps.backend_plan.outputs.release_sha }}
@@ -179,6 +183,20 @@ jobs:
             echo "G4 FAIL: a consumer PIN is incompatible with the Backend-Core release contract" >> "$GATES"
             exit 1
           fi
+
+      # G8: what the lab runs now, from the live ledgers of deploy-lab.yml, deploy-console-lab.yml,
+      # deploy-erp-lab.yml and deploy-system-lab.yml. Appends its `G8 pass|FAIL:` lines to the gate file
+      # and fails on any FAIL (a stale manifest, an unreconciled newer failed run, an unreadable ledger).
+      - name: Live lab check (G8, current_manifest matches the live ledgers)
+        id: live_lab
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CURRENT_MANIFEST: ${{ inputs.current_manifest }}
+        run: |
+          set -euo pipefail
+          python3 .github/release/live_check.py --repo "$REPO" --current-manifest "$CURRENT_MANIFEST" \
+            --gates-file "$RUNNER_TEMP/plan/gates.txt"
 
       - name: Log in to GHCR (read-only, for attestations and labels)
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
@@ -471,6 +489,7 @@ jobs:
           ERP_CLASS: ${{ steps.erp_class.outputs.class }}
           OUTCOME_VALUES: ${{ steps.values.outcome }}
           OUTCOME_GATE: ${{ steps.gate.outcome }}
+          OUTCOME_LIVE_LAB: ${{ steps.live_lab.outcome }}
           OUTCOME_BACKEND_EVIDENCE: ${{ steps.backend_evidence.outcome }}
           OUTCOME_BACKEND_VERIFY: ${{ steps.backend_verify.outcome }}
           OUTCOME_BACKEND: ${{ steps.backend_plan.outcome }}
@@ -499,7 +518,7 @@ jobs:
           # Every one of these steps must have succeeded for a planned ledger: a step skipped after
           # an earlier failure refuses as well (the first one not succeeded is the reason).
           FAILURE=""
-          for NAME in VALUES GATE BACKEND_EVIDENCE ERP_IMAGE BACKEND_VERIFY BACKEND CONSOLE PIN ERP_CLASS; do
+          for NAME in VALUES GATE LIVE_LAB BACKEND_EVIDENCE ERP_IMAGE BACKEND_VERIFY BACKEND CONSOLE PIN ERP_CLASS; do
             VAR="OUTCOME_$NAME"
             if [ "${!VAR}" != success ]; then FAILURE="preflight step ${NAME,,} ended ${!VAR:-not-run}"; break; fi
           done
@@ -587,7 +606,7 @@ jobs:
           [[ "$ERP_EXPECTED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "preflight plan lacks the Connector version"
           [[ "$ERP_CURRENT_TREE" =~ ^[0-9a-f]{40}$ ]] || fail "preflight plan lacks the current Connector tree"
           [[ "$ERP_ROLLBACK_CLASS" =~ ^(image-only|restore)$ ]] || fail "preflight plan lacks the ERP rollback class"
-          [[ "$GATE_RESULTS" =~ ^G1=pass\ G2=pass\ G3=pass\ G4=pass\ G5=pass\ G6=pass\ G7=pass$ ]] || fail "preflight did not pass every rule G1-G7"
+          [[ "$GATE_RESULTS" =~ ^G1=pass\ G2=pass\ G3=pass\ G4=pass\ G5=pass\ G6=pass\ G7=pass\ G8=pass$ ]] || fail "preflight did not pass every rule G1-G8"
 
       # Fails closed until the owner sets both non-secret variables on aws-lab. Runs before any token is requested.
       - name: Check the deploy variables (fail closed when unset)

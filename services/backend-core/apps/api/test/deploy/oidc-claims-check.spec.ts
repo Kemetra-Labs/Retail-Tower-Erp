@@ -153,7 +153,7 @@ describe("oidc-claims-check helper", () => {
     expect(told.code).toBe(0);
   });
 
-  it.each(["deploy-erp-lab.yml", "deploy-console-lab.yml"])("names %s itself as the value to pin when that deploy workflow runs the check", (file) => {
+  it.each(["deploy-erp-lab.yml", "deploy-console-lab.yml", "deploy-system-lab.yml"])("names %s itself as the value to pin when that deploy workflow runs the check", (file) => {
     const ref = `Kemetra-Labs/Retail-Tower-Erp/.github/workflows/${file}@refs/heads/main`;
     const { code, out } = run(jwt({ ...GOOD, job_workflow_ref: ref }), ["--jira-key", "RT-1007", "--workflow-file", file]);
     expect(code).toBe(0);

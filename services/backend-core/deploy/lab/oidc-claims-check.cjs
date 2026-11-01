@@ -37,7 +37,7 @@ const AUDIENCE = "sts.amazonaws.com";
 const ISSUER = "https://token.actions.githubusercontent.com";
 // The deploy workflows the trust policy pins as job_workflow_ref. The first is the
 // value suggested when the check runs from a workflow that is not one of them.
-const TRUSTED_WORKFLOW_FILES = ["deploy-lab.yml", "deploy-erp-lab.yml", "deploy-console-lab.yml"];
+const TRUSTED_WORKFLOW_FILES = ["deploy-lab.yml", "deploy-erp-lab.yml", "deploy-console-lab.yml", "deploy-system-lab.yml"];
 const DEFAULT_WORKFLOW_FILE = "oidc-claims-check.yml";
 const JIRA_RE = /^RT-[1-9]\d*$/;
 const WORKFLOW_FILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml$/;
