@@ -6,7 +6,7 @@
 | **Work Mode** | Docs/Planning (owner decision in chat, 2026-11-01: RT-625 is review only). The Jira field still reads Implementation. No runtime code, contract, config or test changes. |
 | **Status** | **Proposed.** The numbers and the shape below need the owner's sign-off. Opening the implementation issue is the owner's call after that. |
 | **Baseline** | `Kemetra-Labs/Retail-Tower-Erp` `origin/main` = `3fe42b60` (#204). Every line reference below is to that commit. RT-626 is changing `auth.controller.ts` and `rate-limit.ts` in parallel, so the line numbers may move; the behaviour described here is what the implementation must start from. |
-| **Inputs** | `docs/decisions/rt-574-console-rate-limiting.md` §5 issue 5c and O9 (`:351-354`, `:433`); RT-136 (failure-only account bucket); RT-628 (fail closed, O6); RT-624 (`TRUST_PROXY`). |
+| **Inputs** | `docs/decisions/rt-574-console-rate-limiting.md` §5 issue 5c and O9 (`:351-355`, `:433`); RT-136 (failure-only account bucket); RT-628 (fail closed, O6); RT-624 (`TRUST_PROXY`). |
 
 ---
 
@@ -17,8 +17,8 @@
 | Is today's lockout exploitable? | **Yes.** One IP sending 5 wrong passwords per 15 minutes (20 per hour) keeps any account locked for as long as it likes. That stays under the per-IP limit of 30 per hour, so the attacker is never throttled (§2.1). |
 | Does the candidate (email, IP) 5/15 + email-only 20/15 fix it? | It fixes the **single-IP** case, provided the check order and release rules in §4.2 are kept. It does **not** fix a distributed lockout: 4 IPs (or 4 IPv6 /64s) lock the owner out everywhere (§3.2). |
 | What does it cost? | The per-account guess budget for a distributed attacker rises 4×, from 480 to 1,920 guesses per day. A single IP's budget is unchanged at 480 per day (§3.2). |
-| Recommendation | **Approve option A (the candidate shape) with pair 5 / 15 min and email-only 20 / 15 min**, plus the five preconditions in §5.2 (check order, release rules, `TRUST_PROXY` hop count, IPv6 /64, reset clears the counters). Keep option B (trusted-device cookie) as the named next step if a distributed lockout is ever seen (§5.3). |
-| Owner decisions needed | D1 the numbers; D2 whether a successful password reset clears the sign-in counters; D3 whether `TRUST_PROXY_REQUIRED=true` becomes a precondition for shipping; D4 whether to open the PII-in-keys follow-up (§7). |
+| Recommendation | **Approve option A (the candidate shape) with pair 5 / 15 min and email-only 20 / 15 min**, plus the five preconditions in §5.2 (check order and release rules, IPv6 /64, an enforced `TRUST_PROXY` hop count, reset clears the counters, the outage posture). Keep option B (trusted-device cookie) as the named next step if a distributed lockout is ever seen (§5.3). |
+| Owner decisions needed | D1 the numbers; D2 whether a successful password reset clears the sign-in counters; D3 whether a boot check that requires a `TRUST_PROXY` hop count becomes a precondition for shipping; D4 whether to open the PII-in-keys follow-up (§7). |
 
 ---
 
@@ -30,7 +30,7 @@
 
 1. `assertTrustedOrigin` (`:139`), then `ip = readClientIp(req)` (`:140`). `readClientIp` (`:410-416`) returns Express `req.ip`, which honours `trust proxy`, falling back to the socket address.
 2. **`signin_account`** is reserved first, keyed by `body.email` (`:146`), policy `signInPerAccount` = **5 per 15 min** (`rate-limit.ts:73`). The email has been trimmed and lowercased by the shared `Email` schema (`packages/shared/src/zod/base.ts:15-21`), so case variants share one bucket.
-3. **`signin_ip`** is reserved next, keyed by the IP (`:149`), policy `signInPerIp` = **30 per hour** (`rate-limit.ts:74`). It counts **every** attempt, successful or not; it is never released.
+3. **`signin_ip`** is reserved next, keyed by the IP (`:149`), policy `signInPerIp` = **30 per hour** (`rate-limit.ts:74`). It counts every attempt the account bucket admits, successful or not; it is never released. A request refused at step 2 never reaches it.
 4. `authService.signIn` runs (`:150`).
 5. RT-136 release rules (`:151-160`): the `signin_account` hit is released on success (`:160`) and on any error that is **not** an `UnauthorizedException` (`:155-157`). That covers a `signin_ip` 429, a 503 from the limiter, a 503 from the identity provider and any 500. Only credential failures stay counted.
 
@@ -55,7 +55,7 @@ The key is `rl:<bucket>:<identifier>` (`:150-152`), so today Redis holds `rl:sig
 
 ### 1.4 Redis outage (RT-628)
 
-`checkWithin` (`public-auth-limiter.ts:89-111`) bounds each limiter call with `PUBLIC_AUTH_LIMITER_TIMEOUT_MS` (default 1 s). A timeout or error answers **503 + `Retry-After: 30`**, never fail-open. A timed-out hit that lands later is given back. `releaseWithin` (`:120-131`) is best-effort: a slow or failed release leaves the hit counted (the safe direction). Sign-in makes two sequential checks, so its worst case is about 2 s (`:25`).
+`checkWithin` (`public-auth-limiter.ts:89-111`) bounds each limiter call with `PUBLIC_AUTH_LIMITER_TIMEOUT_MS` (default 1 s). A timeout or error answers **503 + `Retry-After: 30`**, never fail-open. A timed-out hit that lands later is given back. `releaseWithin` (`:120-131`) is best-effort and bounded by the same timeout: a slow or failed release leaves the hit counted (the safe direction). The header note says sign-in's worst case is about 2 s (`:25`, two sequential checks). Counting the bounded release it is about **3 s**: the account check just under 1 s, the IP check timing out at 1 s, then the account release taking up to 1 s.
 
 ### 1.5 Recovery today
 
@@ -86,7 +86,7 @@ Correct: a success never counts, and neither does any non-credential error.
 
 ### 2.5 `TRUST_PROXY` (RT-624)
 
-`resolveTrustProxySetting` (`common/trust-proxy.ts`) maps an unset value to `false`. Behind Caddy every client then has the proxy's IP, so `signin_ip` becomes **one global 30-per-hour budget for every user**. RT-624 only logs a warning at boot unless `TRUST_PROXY_REQUIRED=true`. This does not affect today's account lockout, but it decides whether any IP-keyed redesign works at all (§3.3).
+`resolveTrustProxySetting` (`common/trust-proxy.ts:28-33`) maps an unset value to `false`. Behind Caddy every client then has the proxy's IP, so `signin_ip` becomes **one global 30-per-hour budget for every user**. RT-624 only logs a warning at boot for an unset or unrecognized value. `TRUST_PROXY_REQUIRED=true` turns that warning into a boot failure, but it accepts `true` and `false` as valid (`:35-38`, `:53-60`). `deploy/prod.env.example:35` ships `TRUST_PROXY="1"`. This does not affect today's account lockout, but it decides whether any IP-keyed redesign works at all (§3.3).
 
 ---
 
@@ -102,7 +102,7 @@ Correct: a success never counts, and neither does any non-credential error.
 
 | Question | Result |
 |---|---|
-| Single-IP attacker locks out the owner on another IP | **Fixed**, if §4.2 holds. The attacker exhausts only its own pair bucket, so the email-only bucket rises by 5 per window, which is below 20. |
+| Single-IP attacker locks out the owner on another IP | **Fixed**, if §4.2 holds. The attacker exhausts only its own pair bucket, so it adds at most 10 to one email-only window (5 per pair window, and two pair windows can overlap one email-only window). That is below 20. |
 | Distributed lockout | **Not fixed.** 4 IPs × 5 failures = 20 lock the email out on **every** IP, including the owner's. 4 IPs is cheap (a phone plus three VPN exits, or one IPv6 host unless §4.4 applies). The lockout lever moves from 1 IP to 4. |
 | Distributed guessing | Still capped, but **4× looser**: 20 per 15 min = **1,920 per day** per account, against 480 today. A single IP stays at 5 per 15 min = 480 per day. |
 | Non-disclosure | Preserved. Neither key depends on whether the account exists, and every refusal is the same 429. |
@@ -116,8 +116,8 @@ Correct: a success never counts, and neither does any non-credential error.
 |---|---|
 | `TRUST_PROXY` = correct hop count (1 behind one Caddy) | Works as designed. |
 | `TRUST_PROXY` unset or `false` behind a proxy | Every client has the proxy IP, so the pair key is the email key: **the same as today**. Also `signin_ip` is global (§2.5). No regression, no benefit. |
-| `TRUST_PROXY=true` | Express trusts the left-most `X-Forwarded-For`, which the client chooses. An attacker rotates it per request and gets a **fresh pair bucket every time**. Only the email-only cap of 20 binds, and `signin_ip` is bypassed too. |
-| IPv6 | One host normally holds a whole /64 (2^64 addresses). Without prefix keying a single IPv6 host is an unlimited distributed attacker: it locks the account in 4 requests from 4 addresses and bypasses `signin_ip`. |
+| `TRUST_PROXY=true` | Express takes the left-most `X-Forwarded-For` entry. That entry is client-controlled whenever the API can be reached without the Caddy edge, or behind a proxy that passes the client's header through. The shipped `Caddyfile` (`reverse_proxy api:3000`, no `trusted_proxies`) should overwrite a client-supplied header today (Caddy's documented default, not tested here), but the limiter must not depend on that. Where the header is client-controlled, an attacker rotates it per request and gets a **fresh pair bucket every time**. Only the email-only cap of 20 binds, and `signin_ip` is bypassed too. |
+| IPv6 | One host normally holds a whole /64 (2^64 addresses). Without prefix keying, a single IPv6 host is an unlimited distributed attacker: it locks the account with 20 requests (5 from each of 4 addresses) and bypasses `signin_ip`. /64 keying stops one /64 from posing as many clients. It does not stop a holder of a /56 (256 /64s) or a /48 (65,536 /64s), which a VPS or home line often gets; that attacker stays inside the accepted distributed-lockout risk of §3.2. |
 | IPv4-mapped IPv6 (`::ffff:a.b.c.d`) | Must be normalized to the IPv4 form, or one client gets two keys. |
 | Shared IP (office NAT, carrier-grade NAT, the shop's own uplink) | An attacker behind the owner's IP shares the owner's pair bucket. No worse than today. |
 
@@ -150,7 +150,7 @@ A 503 from the limiter, a 503 from the identity provider, or a 500 releases both
 
 ### 4.5 Redis outage
 
-A third sequential limiter call raises the worst-case 503 latency from about 2 s to about **3 s** at the default 1 s timeout. That is acceptable for a fail-closed route; the implementation must update the "two sequential checks" note at `public-auth-limiter.ts:25`. A timed-out reservation must be given back the same way `checkWithin` does today, for each of the three buckets.
+A third sequential limiter check raises the worst-case 503 latency at the default 1 s timeout from about 3 s today (§1.4) to about **5 s**: three checks, then two releases run one after the other. If the implementation runs the releases in parallel, it is about **4 s**. Either is acceptable for a fail-closed route, but the implementation must run the releases in parallel and update the "two sequential checks" note at `public-auth-limiter.ts:25` to state the real figure. The success path also pays the release latency after `authService.signIn`. A timed-out reservation must be given back the same way `checkWithin` does today, for each of the three buckets.
 
 ---
 
@@ -170,7 +170,7 @@ A third sequential limiter call raises the worst-case 503 latency from about 2 s
 Notes:
 
 - **A′** buys a higher lockout cost (10 IPs) with a 2.5× larger guess budget than A. With IPv6 /64 keying in place, 4 and 10 IPs are both cheap for a determined attacker, so A′ does not change the class of attacker that can lock the owner out; it mostly gives away guesses.
-- **C** has the lowest guess budget (it meets the NIST SP 800-63B §5.2.2 ceiling of 100 consecutive failures per account), but a successful distributed attack locks the owner out for up to a day. For a pilot with a handful of owners, a day-long lockout is a worse failure than 1,920 online guesses against a password that must be at least 12 characters (`dto.ts:63`).
+- **C** has the lowest guess budget. It is closest to NIST SP 800-63B (rev 3 §5.2.2, rev 4 §3.2.2), which allows at most 100 consecutive failed attempts on an account. A per-day window does not strictly meet that, because it allows 100 more every day; neither does today's design nor option A. Its cost: a successful distributed attack locks the owner out for up to a day. For a pilot with a handful of owners, a day-long lockout is a worse failure than 1,920 online guesses per day.
 - **B** is the only option that breaks the distributed lockout for a returning user. It needs a new cookie and contract text, so it is not a drop-in change and is out of scope for O9.
 - **D** is rejected.
 
@@ -180,7 +180,7 @@ Notes:
 
 1. It closes the cheapest attack there is today: a permanent lockout from one IP at 20 requests per hour.
 2. It keeps every property RT-136 and FR-ISO-4 rely on: failures only, same 401, same 429, no enumeration.
-3. Its cost, 1,920 instead of 480 guesses per day across many IPs, is acceptable for 12-character minimum passwords. It is a real loosening and the owner should accept it knowingly.
+3. Its cost is 1,920 instead of 480 online guesses per day per account across many IPs. This is a real loosening and the owner should accept it knowingly. The password floor is not uniform: a reset confirm requires at least 12 characters (`dto.ts:63`), but passwords set by change (`dto.ts:80-81`) or at invitation accept (`memberships/invitation.dto.ts:45`) only require 1 character here and follow the identity provider's policy (RT-804), which this review has not verified. The acceptance therefore rests on the provider's minimum. If that is weak, 1,920 guesses per day matters for the weakest accounts, and option B becomes more urgent.
 4. It needs no contract change and fits the existing `RateLimiter` primitive.
 
 The recommendation holds **only together with these preconditions**, which belong in the implementation issue's acceptance criteria:
@@ -188,10 +188,10 @@ The recommendation holds **only together with these preconditions**, which belon
 | # | Precondition | Why |
 |---|---|---|
 | P1 | Check order and release rules of §4.1-§4.3. | Without them, one IP can still lock the owner out (§4.2). |
-| P2 | IPv6 /64 keying and IPv4-mapped normalization (§4.4) for the pair bucket and `signin_ip`. | Without it, one IPv6 host is an unlimited distributed attacker. |
-| P3 | Deployed `TRUST_PROXY` is a **hop count**, never `true`; the owner decides (D3) whether `TRUST_PROXY_REQUIRED=true` is set in staging, pilot and prod so a misconfiguration fails at boot. | `true` lets the client pick its own IP (§3.3). Unset makes the redesign a no-op. |
-| P4 | A successful password-reset confirm clears that email's pair and email-only sign-in counters (owner decision D2). | Gives the real user a recovery path that does not depend on the attacker stopping. The reset token is the proof, so this hands an attacker nothing. |
-| P5 | Redis outage behaviour unchanged (fail closed, 503, about 3 s worst case); the `public-auth-limiter.ts` header is updated. | RT-628 / O6. |
+| P2 | IPv6 /64 keying and IPv4-mapped normalization (§4.4) for the pair bucket and `signin_ip`. | Without it, one IPv6 /64 is an unlimited distributed attacker. With it, a /56 or /48 holder is still a cheap distributed attacker, inside the accepted risk (§3.3). |
+| P3 | Deployed `TRUST_PROXY` is a **hop count**, never `true`, and never `false` behind a proxy. Today nothing enforces this: `TRUST_PROXY_REQUIRED=true` only refuses an unset or unrecognized value and accepts `true` and `false` (§2.5). Enforcement needs a new boot check that refuses `true` (and `false` where the deployment declares a proxy) in staging, pilot and prod, or an equivalent deploy-config check. The owner decides (D3) whether that is part of RT-625 or an RT-624 follow-up. | `true` can let the client pick its own IP; `false` or unset behind Caddy makes the redesign a no-op (§3.3). |
+| P4 | A successful password-reset confirm clears that email's email-only counter and the pair counter for the IP of the confirm request (owner decision D2). Pair keys for other IPs cannot be enumerated from the email, and they expire within 15 min; if they must be cleared too, include a per-email generation number in the pair identifier and increment it on reset. Either way works with HMAC keys (§7), because the email and IP are known at confirm time. | Gives the real user a recovery path that does not depend on the attacker stopping. The reset token is the proof, so this hands an attacker nothing. |
+| P5 | Redis outage behaviour unchanged: fail closed with 503, releases run in parallel, worst case about 4 s; the `public-auth-limiter.ts` header is updated (§4.5). | RT-628 / O6. |
 
 ### 5.3 Next step if a distributed lockout is ever seen
 
@@ -221,7 +221,7 @@ Unit tests extend `apps/api/test/auth/auth.controller.unit.spec.ts` (the `Record
 6. Success releases both failure-only reservations; `signin_ip` is not released.
 7. A 401 keeps both failure-only reservations.
 8. An email-only refusal releases the pair reservation. A `signin_ip` refusal releases both. A provider 503, a limiter 503 and a 500 release both.
-9. The existing RT-136 tests (`auth.controller.unit.spec.ts:421-450`) keep passing with the bucket names updated.
+9. The existing RT-136 tests (`auth.controller.unit.spec.ts:421-475`) keep passing with the bucket names updated.
 
 **Non-disclosure**
 10. For an unknown email and a known email, the 401 bodies are identical, and the 429 bodies and `Retry-After` behaviour are identical at the same counts.
@@ -234,7 +234,7 @@ Unit tests extend `apps/api/test/auth/auth.controller.unit.spec.ts` (the `Record
 15. No two (email, IP) pairs can produce the same key (the IPv6 colon ambiguity, §4.4).
 
 **Recovery (if D2 is approved)**
-16. With E locked on both buckets, a successful reset confirm for E clears them; the next correct sign-in from the locked IP succeeds.
+16. With E's email-only bucket at 20 and E's pair bucket for IP Y at 5, a successful reset confirm for E sent from IP Y clears both. The next correct sign-in for E from IP Y succeeds.
 17. A failed or expired reset confirm clears nothing.
 
 **Redis outage (RT-628)**
@@ -242,6 +242,7 @@ Unit tests extend `apps/api/test/auth/auth.controller.unit.spec.ts` (the `Record
 
 **`TRUST_PROXY`**
 19. Behind one proxy with `TRUST_PROXY=1`, a client-supplied extra `X-Forwarded-For` hop does not change the pair key.
+19a. If P3's boot check is in RT-625: in a deployed environment, boot refuses `TRUST_PROXY=true`.
 
 **Observability**
 20. A 429 on the pair bucket emits `auth_failure_total{cause="rate_limited"}` and `suspicious_login_total{reason="rapid_retry"}`, like the two existing sign-in buckets (`SIGNIN_RATE_LIMIT_BUCKETS`, `auth.controller.ts:87-90`), and no log line holds an email or IP.
@@ -267,6 +268,6 @@ It needs a new secret in the deployment configuration, so it is its own issue. C
 | # | Decision | Recommendation |
 |---|---|---|
 | **D1** | O9 numbers | Option A: pair 5 / 15 min, email-only 20 / 15 min, `signin_ip` unchanged at 30 / h, with preconditions P1-P5. |
-| **D2** | A successful password reset clears the sign-in counters for that email | Yes. |
-| **D3** | `TRUST_PROXY_REQUIRED=true` in staging, pilot and prod before RT-625 ships | Yes. Otherwise the redesign silently does nothing behind Caddy. |
+| **D2** | A successful password reset clears that email's email-only counter and the confirming IP's pair counter (P4) | Yes. |
+| **D3** | A boot check that requires a `TRUST_PROXY` hop count (refuses `true`, and `false` behind a proxy) in staging, pilot and prod before RT-625 ships, in RT-625 or an RT-624 follow-up | Yes. `TRUST_PROXY_REQUIRED=true` alone does not do this. Without it, a wrong value silently makes the redesign a no-op or lets clients pick their own IP. |
 | **D4** | Open the HMAC-keys follow-up (§7) | Yes, as its own issue; it can ship before or after RT-625. |
