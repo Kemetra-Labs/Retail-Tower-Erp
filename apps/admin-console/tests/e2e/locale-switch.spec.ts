@@ -1,6 +1,6 @@
 import type { Locale } from "../../src/i18n/locale";
 import { translate } from "../../src/i18n/translate";
-import { type Page, expect, test } from "./fixtures";
+import { type Page, expect, overviewHeading, test } from "./fixtures";
 import { openUserMenu } from "./user-menu";
 
 /**
@@ -43,7 +43,7 @@ test("renders the project locale, whatever the browser's own language", async ({
 }) => {
   await mockApi(page);
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+  await expect(overviewHeading(page, t)).toBeVisible();
   expect(await docLocale(page)).toEqual({ lang: TAG[appLocale], dir: DIR[appLocale] });
   // RT-963: «<page> – <app>».
   expect(await page.title()).toBe(`${t("shell.overview.title")} – ${t("app.title")}`);
@@ -73,9 +73,7 @@ test("the switch flips the frame and the choice survives a reload, before the bu
   await expect(page.getByText(translate(next, "theme.darkMode"))).toBeVisible();
 
   await page.reload();
-  await expect(
-    page.getByRole("heading", { name: translate(next, "shell.overview.title") }),
-  ).toBeVisible();
+  await expect(overviewHeading(page, (k, p) => translate(next, k, p))).toBeVisible();
   expect(await docLocale(page)).toEqual({ lang: TAG[next], dir: DIR[next] });
 
   // With every script bundle blocked, only the inline pre-paint script runs.
@@ -109,7 +107,7 @@ test("RT-962: a catalog that can't be fetched shows a retry in the painted langu
   expect(await docLocale(page)).toEqual({ lang: TAG[appLocale], dir: DIR[appLocale] });
   await page.unroute(catalog);
   await retry.click();
-  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+  await expect(overviewHeading(page, t)).toBeVisible();
 });
 
 test("logical CSS mirrors the layout: sidebar on the inline start", async ({ page, appLocale }) => {
@@ -145,5 +143,7 @@ test("one locale at a time: the frame's own copy never mixes in the other script
     .allTextContents();
   expect(chrome.length).toBeGreaterThan(5);
   const foreign = appLocale === "ar" ? /[A-Za-z]{2,}/ : /[؀-ۿ]/;
-  for (const text of chrome) expect(foreign.test(text), text).toBe(false);
+  // RT-993: the Overview title greets the user by name; the name is data, not copy.
+  const name = context.user.display_name;
+  for (const text of chrome) expect(foreign.test(text.replace(name, "")), text).toBe(false);
 });

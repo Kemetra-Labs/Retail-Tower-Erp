@@ -1,4 +1,4 @@
-import { type Page, expect, test } from "./fixtures";
+import { type Page, expect, overviewHeading, test } from "./fixtures";
 
 /**
  * RF-1 E2E journeys (VG-2). Drives the built SPA with mocked DP2 responses
@@ -48,7 +48,7 @@ test("resolved context renders the app shell with the scope switcher", async ({ 
     memberships: [{ tenant_id: "t1", tenant_name: "Northstar Retail" }],
   });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+  await expect(overviewHeading(page, t)).toBeVisible();
   // The scope switcher (RT-969: in the sidebar) names the store, then its tenant.
   await expect(
     page.getByRole("button", { name: /Cairo Festival City.*Northstar Retail/s }),

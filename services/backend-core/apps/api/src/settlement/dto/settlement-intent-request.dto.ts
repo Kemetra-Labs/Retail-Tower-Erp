@@ -18,6 +18,8 @@
  */
 import { z } from "zod";
 
+import { boundedArray } from "../../common/bounded-array";
+
 /**
  * Exact-decimal money string: a non-negative decimal with up to 4 fractional
  * digits (the column scale). No sign, no exponent, no thousands separators.
@@ -49,7 +51,7 @@ export const SettlementIntentCreateSchema = z
       .string()
       .regex(MONEY_RE, "cashTendered must be an exact-decimal money string")
       .nullish(),
-    payers: z.array(SettlementIntentPayerSchema).min(1).max(16),
+    payers: boundedArray(16, z.array(SettlementIntentPayerSchema).min(1)),
   })
   .strict();
 

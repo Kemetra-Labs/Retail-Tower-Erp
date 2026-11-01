@@ -1,5 +1,5 @@
 import { formatDateTime } from "../../src/i18n/format";
-import { type Page, expect, test } from "./fixtures";
+import { type Page, expect, overviewHeading, test } from "./fixtures";
 
 /**
  * RT-178 ERPNext stock discrepancies E2E against mocked Backend-Core (C-5).
@@ -162,7 +162,7 @@ test("S2: store_manager sees the nav entry but no refresh button", async ({ page
 test("S3: cashier has no nav entry", async ({ page, t }) => {
   await mockBase(page, "cashier");
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+  await expect(overviewHeading(page, t)).toBeVisible();
   await expect(page.getByRole("link", { name: t("shell.nav.stockDiscrepancies") })).toHaveCount(0);
 });
 

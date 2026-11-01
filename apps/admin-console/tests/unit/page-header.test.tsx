@@ -71,6 +71,11 @@ describe("RT-963 page title", () => {
     render(<PageHeader title="Stores" />);
     expect(document.title).toBe("Stores – Retail Tower Console");
   });
+
+  test("RT-993: a greeting h1 still names the document after the page", () => {
+    render(<PageHeader title="Welcome, Amal" documentTitle="Overview" />);
+    expect(document.title).toBe("Overview – Retail Tower Console");
+  });
 });
 
 /**

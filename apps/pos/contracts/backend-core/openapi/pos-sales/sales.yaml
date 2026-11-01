@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Sales — Transaction Capture API
-  version: "1.15.0-draft"
+  version: "1.16.0-draft"
   description: >
     Spec 008 Sales / Transaction Capture contract surface. Defines the first
     sale fact the SaaS owns: an immutable `sales` header + frozen `sale_lines`
@@ -483,6 +483,14 @@ info:
     it with an explicit `dir` because the production `loadOpenApiContracts`
     helper is non-recursive (`apps/api/src/openapi/loader.ts` — `readdirSync`
     with no recursive flag), exactly as `catalog/unknown-items.yaml` is loaded.
+
+    RT-1051 (1.16.0-draft; [GATED] owner authorization Jira RT-1051 comments 15078 and 15080,
+    2026-11-01; zod GHSA-mrhx-c7xc-m3w5, RT-1050): `RecordReturnRequest` and `CreditSaleReversalRequest`
+    gain `maxItems`: `lines` 50 (the POS caps a return at 50 lines) and
+    `refundTenders` 16. `CaptureSaleRequest` `lines` and `tenders` stay
+    unbounded until the POS enforces the same caps (RT-1052). The server refuses a
+    longer array with 400 `validation_error` before validating any element.
+    Narrowing only; no other wire change.
 
 servers:
   - url: https://api.example.com
@@ -2626,12 +2634,14 @@ components:
         lines:
           type: array
           minItems: 1
+          maxItems: 50
           items:
             $ref: "#/components/schemas/ReturnLineRequest"
           description: The lines returned. Each `lineRef` at most once per request.
         refundTenders:
           type: array
           minItems: 1
+          maxItems: 16
           items:
             $ref: "#/components/schemas/RefundTender"
           description: >
@@ -2825,6 +2835,7 @@ components:
         lines:
           type: array
           minItems: 1
+          maxItems: 50
           items:
             $ref: "#/components/schemas/ReturnLineRequest"
           description: >
@@ -2835,6 +2846,7 @@ components:
         refundTenders:
           type: array
           minItems: 0
+          maxItems: 16
           items:
             $ref: "#/components/schemas/CreditReversalRefundTender"
           description: >

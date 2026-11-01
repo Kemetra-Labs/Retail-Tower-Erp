@@ -11,6 +11,10 @@
  *
  * RT-1009: as a page section (the sale's payment summary) it is a `<section>`
  * named by an `h2` label, with an optional section index beside the heading.
+ *
+ * RT-993: `hero` is the one Ink receipt of a screen (§12.2: at most one), and
+ * `describedBy` points the card at the shared line that names its scope,
+ * period and freshness.
  */
 import { SectionIndex } from "@/components/SectionIndex";
 import { useId } from "react";
@@ -23,6 +27,8 @@ export function ReceiptCard({
   icon,
   section,
   index,
+  hero,
+  describedBy,
   children,
 }: Readonly<{
   /** The card's name: what the figure is. */
@@ -35,6 +41,10 @@ export function ReceiptCard({
   section?: boolean;
   /** With `section`: the section's 1-based position on a multi-panel page. */
   index?: number;
+  /** The hero receipt: Ink surface, Mint glow, Tower grid. At most one per screen. */
+  hero?: boolean;
+  /** The id of text that describes the card (scope, period, freshness). */
+  describedBy?: string;
   /** The bottom part: delta chip and comparison text. */
   children: ReactNode;
 }>): React.JSX.Element {
@@ -42,7 +52,11 @@ export function ReceiptCard({
   const Root = section ? "section" : "article";
   const Label = section ? "h2" : "span";
   return (
-    <Root className="receipt-card" aria-labelledby={labelId}>
+    <Root
+      className={hero ? "receipt-card receipt-card--hero" : "receipt-card"}
+      aria-labelledby={labelId}
+      aria-describedby={describedBy}
+    >
       <div className="receipt-card__top">
         <div className="receipt-card__body">
           <div className="receipt-card__title">

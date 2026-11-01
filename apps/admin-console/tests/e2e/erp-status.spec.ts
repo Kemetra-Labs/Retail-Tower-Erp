@@ -1,4 +1,4 @@
-import { type Page, expect, test } from "./fixtures";
+import { type Page, expect, overviewHeading, test } from "./fixtures";
 
 /**
  * RT-560 ERP connection & sync status (spec 016 Phase A) E2E against mocked
@@ -186,7 +186,7 @@ test("S3: store_manager has no entry, and the direct URL is NoAccess with no ERP
   const urls = recordRequests(page);
   await mockBase(page, "store_manager");
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+  await expect(overviewHeading(page, t)).toBeVisible();
   await expect(page.getByRole("link", { name: t("erp.nav.label") })).toHaveCount(0);
 
   await page.goto("/erp-connection");

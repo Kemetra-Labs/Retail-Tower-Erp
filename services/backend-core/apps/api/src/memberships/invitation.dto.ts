@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 import { passwordString } from "../auth/dto";
+import { boundedArray } from "../common/bounded-array";
+import { MAX_STORE_IDS } from "./dto";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -9,9 +11,10 @@ export const InvitationCreateSchema = z
     email: z.string().trim().toLowerCase().email().min(1),
     role_code: z.string().min(1),
     store_access_kind: z.enum(["all", "specific"]),
-    store_ids: z
-      .array(z.string().regex(UUID_RE, "each store_id must be a UUID"))
-      .optional(),
+    store_ids: boundedArray(
+      MAX_STORE_IDS,
+      z.array(z.string().regex(UUID_RE, "each store_id must be a UUID")),
+    ).optional(),
   })
   .strict()
   .superRefine((v, ctx) => {

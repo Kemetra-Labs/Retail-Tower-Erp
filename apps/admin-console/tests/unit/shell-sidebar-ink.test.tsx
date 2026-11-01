@@ -24,10 +24,16 @@ const groups: readonly NavGroup[] = [
   },
 ];
 
-function renderSidebar(path = "/stores"): void {
+function renderSidebar(path = "/stores", systemStatus = false): void {
   render(
     <MemoryRouter initialEntries={[path]}>
-      <ShellSidebar navLabel="Main" tag="Console" groups={groups} onSignOut={vi.fn()} />
+      <ShellSidebar
+        navLabel="Main"
+        tag="Console"
+        groups={groups}
+        systemStatus={systemStatus}
+        onSignOut={vi.fn()}
+      />
     </MemoryRouter>,
   );
 }
@@ -63,6 +69,19 @@ describe("RT-991 sidebar semantics", () => {
   test("the product word still names the lockup", () => {
     renderSidebar();
     expect(screen.getByText("Retail Tower OS")).toBeDefined();
+  });
+
+  test("RT-993: the system-status block is a «قريبًا» frame with no invented state", () => {
+    renderSidebar("/stores", true);
+    const block = screen.getByRole("group", { name: "System status" });
+    expect(block.textContent).toContain("Coming soon");
+    expect(block.textContent).not.toMatch(/operational|online|healthy|\d/i);
+    expect(block.querySelector("a")).toBeNull();
+  });
+
+  test("RT-993: the Platform shell has no system-status block (no /platform UI before RT-777)", () => {
+    renderSidebar();
+    expect(screen.queryByRole("group", { name: "System status" })).toBeNull();
   });
 });
 

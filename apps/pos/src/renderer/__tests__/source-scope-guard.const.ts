@@ -366,3 +366,26 @@ export function isRt889ExemptFile(branch: string, file: string): boolean {
     (RT_889_IN_TREE_CONTRACTS_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * `fix/rt-1051-bound-request-arrays` implements Jira RT-1051: Backend-Core adds
+ * `maxItems` to request arrays (zod GHSA-mrhx-c7xc-m3w5), and `contracts/check`
+ * accepts that only with the POS repinned in the same PR (`npm run
+ * contracts:repin`), which regenerates `src/shared/api-types.ts`.
+ *
+ * Authority: owner decision 2026-11-01 ("Repin in this PR", RT-1051), following
+ * the RT-889 pattern: exactly ONE file on exactly ONE branch (exact name, no
+ * `startsWith`). Narrowness is asserted by `source-scope-guard-rt1051.test.ts`.
+ */
+export const RT_1051_BOUND_ARRAYS_BRANCH = 'fix/rt-1051-bound-request-arrays' as const;
+export const RT_1051_BOUND_ARRAYS_EXEMPT_FILES = [
+  'src/shared/api-types.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is one of the files the RT-1051 exemption allows on `branch`. */
+export function isRt1051ExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1051_BOUND_ARRAYS_BRANCH &&
+    (RT_1051_BOUND_ARRAYS_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}
