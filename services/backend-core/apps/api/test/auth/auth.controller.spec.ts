@@ -571,6 +571,27 @@ describe("POST /api/v1/auth/password-reset/request", () => {
     expect(res.status).toBe(202);
     expect(emailSpy.enqueuePasswordReset).not.toHaveBeenCalled();
   });
+
+  it("RT-626: at most 5 reset emails per address per hour; extras are a silent 202", async () => {
+    if (maybeSkip()) return;
+    for (let i = 0; i < 5; i++) {
+      const res = await http()
+        .post("/api/v1/auth/password-reset/request")
+        .send({ email: ALICE_EMAIL });
+      expect(res.status).toBe(202);
+    }
+    expect(emailSpy.enqueuePasswordReset).toHaveBeenCalledTimes(5);
+
+    // Same address in another case and padded: the shared Email schema
+    // normalizes it, so it is the same budget.
+    const over = await http()
+      .post("/api/v1/auth/password-reset/request")
+      .send({ email: `  ${ALICE_EMAIL.toUpperCase()} ` });
+    expect(over.status).toBe(202);
+    expect(over.body).toEqual({});
+    expect(over.headers["retry-after"]).toBeUndefined();
+    expect(emailSpy.enqueuePasswordReset).toHaveBeenCalledTimes(5);
+  });
 });
 
 // -----------------------------------------------------------------------
@@ -866,6 +887,25 @@ describe("POST /api/v1/auth/email/verify/request", () => {
 });
 
 describe("POST /api/v1/auth/email/verify/confirm", () => {
+  it("RT-626: answers 429 with Retry-After on the 21st attempt from one IP in 15 minutes", async () => {
+    if (maybeSkip()) return;
+    for (let i = 0; i < 20; i++) {
+      const res = await http()
+        .post("/api/v1/auth/email/verify/confirm")
+        .send({ token: `ghost-token-${i}` });
+      expect(res.status).toBe(400);
+    }
+    const blocked = await http()
+      .post("/api/v1/auth/email/verify/confirm")
+      .send({ token: "ghost-token-20" });
+    expect(blocked.status).toBe(429);
+    expectErrorEnvelope(blocked.body, "rate_limited");
+    const retryAfter = Number(blocked.headers["retry-after"]);
+    expect(Number.isInteger(retryAfter)).toBe(true);
+    expect(retryAfter).toBeGreaterThanOrEqual(1);
+    expect(retryAfter).toBeLessThanOrEqual(15 * 60);
+  });
+
   it("returns 204, sets users.email_verified_at, revokes the token", async () => {
     if (maybeSkip()) return;
 
