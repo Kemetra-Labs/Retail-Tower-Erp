@@ -286,7 +286,8 @@ describe("pos-sales/sales.yaml — RT-450 tracked capture (1.15.0-draft)", () =>
   const withTracking = (value: unknown) => ({ ...line, tracking: value });
 
   it("bumps the version and the note cites the owner authorization and the rollout order", () => {
-    expect(doc.info.version).toBe("1.15.0-draft");
+    // RT-1051 bumped the document to 1.16.0-draft; the RT-450 note still stands.
+    expect(doc.info.version).toBe("1.16.0-draft");
     const info = infoOf(doc);
     expect(info).toContain("RT-450 (1.15.0-draft; [GATED] owner authorization Jira RT-450 comment 13212, 2026-10-21");
     expect(info).toContain("the POS MUST NOT send them before RT-451 is deployed and tracked selling is activated for the tenant");

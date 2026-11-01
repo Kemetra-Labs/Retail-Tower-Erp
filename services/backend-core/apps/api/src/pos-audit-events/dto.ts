@@ -14,6 +14,11 @@
  */
 import { z } from "zod";
 
+import { boundedArray } from "../common/bounded-array";
+
+/** RT-1051: `maxItems` of `events` (the POS sends batches of 100, `audit-sync.ts`). */
+export const MAX_AUDIT_EVENTS_PER_BATCH = 100;
+
 export const POS_AUDIT_ACTION_CATEGORIES = [
   "shift.open",
   "shift.close",
@@ -83,7 +88,7 @@ export type AuditEventItemInput = z.infer<typeof AuditEventItemSchema>;
 export const PosAuditEventsSyncSchema = z
   .object({
     device_token_attestation: z.string().min(1),
-    events: z.array(AuditEventItemSchema).min(1),
+    events: boundedArray(MAX_AUDIT_EVENTS_PER_BATCH, z.array(AuditEventItemSchema).min(1)),
   })
   .strict();
 

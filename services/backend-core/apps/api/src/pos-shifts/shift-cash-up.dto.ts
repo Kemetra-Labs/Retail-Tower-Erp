@@ -14,6 +14,7 @@
 import { z } from "zod";
 
 import { minorUnitExponent } from "../catalog/sales/iso4217-minor-units";
+import { boundedArray } from "../common/bounded-array";
 import { FrozenPolicySchema } from "./shift-frozen-policy";
 import { fitsCurrencyPrecision } from "./shift-money";
 
@@ -144,10 +145,10 @@ export const CloseShiftRequestSchema = z
     countedCash: nonNegativeAmount,
     variance: signedAmount,
     saleCount: z.number().int().min(0).max(MAX_SALE_COUNT),
-    cashRefundReturnRefs: z
-      .array(uuid)
-      .max(MAX_REFUND_REFS)
-      .refine((refs) => new Set(refs).size === refs.length, "must not repeat a return"),
+    cashRefundReturnRefs: boundedArray(
+      MAX_REFUND_REFS,
+      z.array(uuid).refine((refs) => new Set(refs).size === refs.length, "must not repeat a return"),
+    ),
     varianceApprovedByUserId: uuid.optional(),
     operatorUserId,
   })

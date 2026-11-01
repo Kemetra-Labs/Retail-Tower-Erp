@@ -104,8 +104,9 @@ const SHIFT = '0192F5A2-3B4C-7D8E-9F01-23456789AB01';
 const USER = '0190F5A2-3B4C-7D8E-9F01-23456789ABCD';
 
 describe('stored shift bodies conform to the pinned pos-shifts contract', () => {
-  it('pins pos-shifts 1.4.0-draft', () => {
-    expect(at(at(ROOT, 'info'), 'version').value).toBe('1.4.0-draft');
+  // RT-1051 repin pulled 1.5.0-draft (RT-811, descriptions only; request bodies unchanged).
+  it('pins pos-shifts 1.5.0-draft', () => {
+    expect(at(at(ROOT, 'info'), 'version').value).toBe('1.5.0-draft');
   });
 
   it('openShift body → OpenShiftRequest', () => {

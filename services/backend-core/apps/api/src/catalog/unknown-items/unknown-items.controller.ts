@@ -80,6 +80,8 @@ import type { Response } from "express";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
+import { boundedArray } from "../../common/bounded-array";
+
 import { Auditable } from "../../audit/auditable.decorator";
 import { DashboardAuthGuard } from "../../auth/dashboard-auth.guard";
 import { PosOperatorAuthGuard } from "../../auth/pos-operator-auth.guard";
@@ -120,18 +122,20 @@ import { ConsoleRateLimit } from "../../console-rate-limit/console-rate-limit.de
  */
 const BulkDismissUnknownItemsRequestSchema = z
   .object({
-    ids: z
-      .array(z.string().uuid())
-      .min(1)
-      .max(200)
-      // Canonicalize hex casing before the uniqueness check (CodeRabbit #409
-      // F3): Postgres treats UUIDs case-insensitively, so two ids differing
-      // only in casing are the same logical row — they must not both slip
-      // through the whole-batch uniqueness guard.
-      .refine(
-        (arr) => new Set(arr.map((id) => id.toLowerCase())).size === arr.length,
-        { message: "ids must be unique" },
-      ),
+    ids: boundedArray(
+      200,
+      z
+        .array(z.string().uuid())
+        .min(1)
+        // Canonicalize hex casing before the uniqueness check (CodeRabbit #409
+        // F3): Postgres treats UUIDs case-insensitively, so two ids differing
+        // only in casing are the same logical row — they must not both slip
+        // through the whole-batch uniqueness guard.
+        .refine(
+          (arr) => new Set(arr.map((id) => id.toLowerCase())).size === arr.length,
+          { message: "ids must be unique" },
+        ),
+    ),
   })
   .strict();
 

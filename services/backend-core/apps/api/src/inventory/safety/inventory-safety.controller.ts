@@ -57,6 +57,7 @@ import { SAFETY_REASON_CODE_PATTERN } from '@data-pulse-2/db';
 import { z } from 'zod';
 
 import { DashboardAuthGuard } from '../../auth/dashboard-auth.guard';
+import { boundedArray } from '../../common/bounded-array';
 import { Roles } from '../../auth/roles.decorator';
 import { RolesGuard } from '../../auth/roles.guard';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
@@ -98,13 +99,15 @@ type ReleaseTrackingHoldDto = z.infer<typeof ReleaseTrackingHoldSchema>;
 const CreateInventoryRecallSchema = z
   .object({
     tenantProductRef: UuidSchema,
-    trackingIdentityIds: z
-      .array(UuidSchema)
-      .min(1)
-      .max(100)
-      .refine((ids) => new Set(ids.map((id) => id.toLowerCase())).size === ids.length, {
-        message: 'trackingIdentityIds must not repeat an identity',
-      }),
+    trackingIdentityIds: boundedArray(
+      100,
+      z
+        .array(UuidSchema)
+        .min(1)
+        .refine((ids) => new Set(ids.map((id) => id.toLowerCase())).size === ids.length, {
+          message: 'trackingIdentityIds must not repeat an identity',
+        }),
+    ),
     reasonCode: ReasonCodeSchema,
     reference: z.string().trim().min(1).max(200),
     note: NoteSchema,
