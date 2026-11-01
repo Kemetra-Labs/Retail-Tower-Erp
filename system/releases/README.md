@@ -30,3 +30,7 @@ The `contracts/check` CI job checks every file here:
 | G5 | the POS build is in `supported:` of `pos-supported.yaml` at the Backend-Core release | `system_gate.py` |
 
 Locally, run `python .github/release/system_gate.py --manifest system/releases/<file>.json`. The checks that need the GitHub API (release immutability, attestations, the compat check run, the ERP image attestation and the `aws-lab` reviewer) run in the deploy workflow's preflight (RT-1031).
+
+## Deploying a system version
+
+`.github/workflows/deploy-system-lab.yml` (RT-1031) takes `manifest` (the version to deploy), `current_manifest` (the version live now; the same file for a same-version redeploy), `jira_key` and `dry_run` (default `true`). Its preflight runs the gate above on both files plus the online checks, and uploads a planned system ledger. A live run (one `aws-lab` approval) sends four SSM documents in order: `RT-BackendLabBackup` on lab-02, `RT-BackendLabDeploy` on lab-01, `RT-ConsoleLabDeploy` on lab-01, `RT-ErpLabDeploy` on lab-03. It stops at the first failure; the system ledger then lists the manual rollback inputs of each step that finished (`.github/release/system_ledger.py`).
