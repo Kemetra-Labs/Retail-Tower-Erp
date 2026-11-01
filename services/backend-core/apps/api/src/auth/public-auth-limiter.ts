@@ -22,8 +22,10 @@
  * The default is wider than the fail-open limiters' 250 ms because here a
  * false timeout refuses a real user: one Redis round trip (RT-618) normally
  * takes about a millisecond, so 1 s only trips on a real stall. Sign-in makes
- * two sequential checks, so its worst case is about 2 s. An unset,
- * non-integer or out-of-range value falls back to the default.
+ * three sequential checks (RT-625: pair, account, IP), then gives back the
+ * reservations it holds in parallel, each bounded by the same timeout, so its
+ * worst case is about 4 s (three checks, then one round of releases). An
+ * unset, non-integer or out-of-range value falls back to the default.
  */
 import { HttpException, HttpStatus } from "@nestjs/common";
 import { createLogger, type Logger } from "@data-pulse-2/shared";
@@ -123,9 +125,27 @@ export async function releaseWithin(
   identifier: string,
   timeoutMs: number,
 ): Promise<void> {
+  await bestEffortWithin(() => limiter.release(bucketName, identifier), timeoutMs);
+}
+
+/**
+ * RT-625 D2: `limiter.clear` bounded by `timeoutMs`, best-effort like
+ * {@link releaseWithin}: a slow or failing clear leaves the lockout to expire
+ * with its window, and never fails or stalls the response.
+ */
+export async function clearWithin(
+  limiter: RateLimiter,
+  bucketName: string,
+  identifier: string,
+  timeoutMs: number,
+): Promise<void> {
+  await bestEffortWithin(() => limiter.clear(bucketName, identifier), timeoutMs);
+}
+
+async function bestEffortWithin(call: () => Promise<void>, timeoutMs: number): Promise<void> {
   const t = timer(timeoutMs);
   try {
-    await Promise.race([limiter.release(bucketName, identifier).catch(() => undefined), t.done]);
+    await Promise.race([Promise.resolve().then(call).catch(() => undefined), t.done]);
   } finally {
     t.cancel();
   }

@@ -565,7 +565,7 @@ export class AuthService {
   async confirmPasswordReset(input: {
     rawToken: string;
     newPassword: string;
-  }): Promise<void> {
+  }): Promise<string | null> {
     const repo = this.requireAuthTokens();
     const tokenRow = await repo.consumeActiveByRawToken(
       input.rawToken,
@@ -577,13 +577,17 @@ export class AuthService {
     const userId = tokenRow.userId;
 
     const newHash = await hashPassword(input.newPassword);
-    await this.db
+    const updated = await this.db
       .update(users)
       .set({ passwordHash: newHash, updatedAt: sql`now()` })
-      .where(and(eq(users.id, userId), isNull(users.deletedAt)));
+      .where(and(eq(users.id, userId), isNull(users.deletedAt)))
+      .returning({ email: users.email });
 
     await this.revokeAllSessionsForUser(userId);
     await this.endSupportSessions({ userId }, null);
+    // RT-625 D2: the address whose sign-in lockout the controller lifts. Null
+    // when no live user took the new password (nothing to clear).
+    return updated[0]?.email ?? null;
   }
 
   // ---------------------------------------------------------------------

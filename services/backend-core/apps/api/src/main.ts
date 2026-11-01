@@ -54,6 +54,7 @@ async function bootstrap(): Promise<void> {
   // rate-limit bucket with X-Forwarded-For.
   // RT-624: warn at boot when a deployed environment leaves TRUST_PROXY unset
   // (fail-fast only with the explicit TRUST_PROXY_REQUIRED=true opt-in).
+  // RT-625: refuse boot for TRUST_PROXY=true, and for false behind a proxy.
   const trustProxyCheck = checkTrustProxyConfig();
   if (trustProxyCheck.warn) rootLogger.warn(trustProxyCheck.message);
   const expressApp = app.getHttpAdapter().getInstance() as { set(key: string, value: unknown): void };

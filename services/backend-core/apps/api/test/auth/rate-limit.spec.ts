@@ -16,7 +16,7 @@
  *     clock the test controls.
  *
  * Coverage:
- *   - per-account 5 / 15 min: 5 allowed, 6th blocked, allowed again
+ *   - a 5 / 15 min policy (RT-625 signInPerPair): 5 allowed, 6th blocked, allowed again
  *     after the window
  *   - per-IP 30 / hr: 30 allowed, 31st blocked, distinct IPs do not
  *     share counters
@@ -122,8 +122,8 @@ beforeEach(() => {
   limiter = new RateLimiter(redis);
 });
 
-describe("RateLimiter — per-account sign-in (5 / 15 min)", () => {
-  const bucket = RATE_LIMIT_BUCKETS.signInPerAccount;
+describe("RateLimiter — a 5 / 15 min sign-in policy (signInPerPair)", () => {
+  const bucket = RATE_LIMIT_BUCKETS.signInPerPair;
   const account = "user-alice";
 
   it("allows the first 5 hits and blocks the 6th in the same window", async () => {
@@ -212,7 +212,7 @@ describe("RateLimiter — per-IP sign-in (30 / hour)", () => {
 
   it("uses different namespaces from per-account so the same identifier is independent", async () => {
     for (let i = 0; i < 5; i++) {
-      await limiter.check("signin_account", "203.0.113.7", RATE_LIMIT_BUCKETS.signInPerAccount);
+      await limiter.check("signin_account", "203.0.113.7", RATE_LIMIT_BUCKETS.signInPerPair);
     }
     // Account bucket is exhausted, but the IP bucket for the same string
     // value should still be untouched.
@@ -238,7 +238,7 @@ describe("RateLimiter — per-IP password reset (100 / day)", () => {
 });
 
 describe("RateLimiter — release (RT-136)", () => {
-  const bucket = RATE_LIMIT_BUCKETS.signInPerAccount;
+  const bucket = RATE_LIMIT_BUCKETS.signInPerPair;
   const account = "user-alice";
 
   it("a released hit no longer counts toward the limit", async () => {
@@ -275,7 +275,7 @@ describe("RateLimiter — release (RT-136)", () => {
 });
 
 describe("RateLimiter — TTL self-heal (RT-618)", () => {
-  const bucket = RATE_LIMIT_BUCKETS.signInPerAccount;
+  const bucket = RATE_LIMIT_BUCKETS.signInPerPair;
   const key = "rl:signin_account:user-alice";
 
   it("gives a TTL-less counter a TTL on the next check instead of locking it forever", async () => {

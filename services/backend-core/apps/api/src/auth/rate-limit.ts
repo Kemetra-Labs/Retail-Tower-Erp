@@ -4,9 +4,10 @@
  * Generic fixed-window counter backed by Redis. The same primitive serves
  * the three buckets defined in research.md §PQ-4:
  *
- *   - per-account failed sign-ins: 5 / 15 minutes (a hit is released
- *     again unless the sign-in fails authentication — RT-136)
- *   - per-IP failed sign-ins:      30 / hour
+ *   - per-(email, IP) failed sign-ins: 5 / 15 minutes, and per-account
+ *     failed sign-ins: 20 / 15 minutes (RT-625 D1; a hit is released again
+ *     unless the sign-in fails authentication — RT-136)
+ *   - per-IP sign-in attempts:     30 / hour
  *   - per-IP password-reset:       100 / day  (wired by slice 3c)
  *
  * Each bucket is one Redis key. RT-618: every hit is ONE atomic round
@@ -70,14 +71,23 @@ export interface WindowHit {
  * place.
  */
 export const RATE_LIMIT_BUCKETS = {
-  signInPerAccount: { limit: 5, windowMs: 15 * 60 * 1000 },
+  // RT-625 D1 (owner, 2026-11-01): failures per (email, client IP). One IP
+  // locks only its own pair, never the owner signing in from elsewhere.
+  signInPerPair: { limit: 5, windowMs: 15 * 60 * 1000 },
+  // RT-625 D1: failures per email from every IP. Caps distributed guessing
+  // at 20 per 15 min. Accepted: several IPs can still lock the account (4, or
+  // 3 that time their bursts around the fixed pair windows; one IP adds at
+  // most 9 per account window, never 20).
+  signInPerAccount: { limit: 20, windowMs: 15 * 60 * 1000 },
   signInPerIp: { limit: 30, windowMs: 60 * 60 * 1000 },
   passwordResetPerIp: { limit: 100, windowMs: 24 * 60 * 60 * 1000 },
   passwordResetConfirmPerIp: { limit: 10, windowMs: 15 * 60 * 1000 },
-  // RT-626 (RT-574 issue 5d): reset emails per address, so one inbox cannot be
-  // flooded within the per-IP budget. Over the limit the request is still
-  // answered 202 (contract) but nothing is sent.
-  passwordResetPerEmail: { limit: 5, windowMs: 60 * 60 * 1000 },
+  // RT-626 (RT-574 issue 5d) reset emails per address, two-tier since RT-625:
+  // per (email, client IP), so one IP cannot block the owner's recovery, and
+  // per address from every IP, so one inbox cannot be flooded. Over either
+  // limit the request is still answered 202 (contract) but nothing is sent.
+  passwordResetPerPair: { limit: 5, windowMs: 60 * 60 * 1000 },
+  passwordResetPerEmail: { limit: 20, windowMs: 60 * 60 * 1000 },
   // RT-626: the public email-verification confirm route, per client IP.
   emailVerifyConfirmPerIp: { limit: 20, windowMs: 15 * 60 * 1000 },
   pairingPerIp: { limit: 30, windowMs: 60 * 60 * 1000 },
@@ -199,5 +209,14 @@ export class RateLimiter {
     const key = buildKey(bucketName, identifier);
     const count = await this.redis.decr(key);
     if (count < 0) await this.redis.del(key);
+  }
+
+  /**
+   * Drop a bucket's window entirely, so the next hit starts a fresh one.
+   * RT-625 D2: a successful password-reset confirm clears that email's
+   * sign-in lockout.
+   */
+  async clear(bucketName: string, identifier: string): Promise<void> {
+    await this.redis.del(buildKey(bucketName, identifier));
   }
 }
