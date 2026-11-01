@@ -69,6 +69,8 @@ export interface ShellSidebarProps {
   groups: readonly NavGroup[];
   /** The scope switcher, in the tenant shell. */
   scope?: React.ReactNode;
+  /** RT-993: the system-status block, in the tenant shell only (§12.6). */
+  systemStatus?: boolean;
   onSignOut: () => void | Promise<void>;
 }
 
@@ -97,6 +99,7 @@ export function ShellSidebar({
   tag,
   groups,
   scope,
+  systemStatus = false,
   onSignOut,
 }: Readonly<ShellSidebarProps>): React.JSX.Element {
   const t = useT();
@@ -115,7 +118,7 @@ export function ShellSidebar({
         <nav className="sidebar__nav" aria-label={navLabel}>
           <NavEntries groups={groups} />
           <div className="sidebar__spacer" />
-          <SystemStatus />
+          {systemStatus ? <SystemStatus /> : null}
           <button type="button" className="nav-entry nav-signout" onClick={() => void onSignOut()}>
             <Icon name="signOut" className="nav-entry__icon" />
             <span className="nav-entry__label">{t("shell.signOut")}</span>

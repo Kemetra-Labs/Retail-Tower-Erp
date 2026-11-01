@@ -1,4 +1,4 @@
-import { type LocaleFixtures, type Page, expect, test } from "./fixtures";
+import { type LocaleFixtures, type Page, expect, overviewHeading, test } from "./fixtures";
 
 /**
  * RT-355 against the BUILT SPA (C-5 mocked Backend-Core). A signed-out user who
@@ -70,6 +70,6 @@ test("S3: opening /signin directly lands on Overview", async ({ page, t }) => {
 
   await signIn(page, t);
 
-  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+  await expect(overviewHeading(page, t)).toBeVisible();
   await expect(page).toHaveURL(/:\d+\/$/);
 });

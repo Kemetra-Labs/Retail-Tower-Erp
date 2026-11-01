@@ -94,7 +94,9 @@ export function TrendChart({
   const direction = DIRECTION[locale];
   const rtl = direction === "rtl";
   const g = lineGeometry(points, direction);
-  const [hover, setHover] = useState<number | null>(null);
+  const [hovered, setHover] = useState<number | null>(null);
+  // A hover taken on a longer period never indexes past this one (RT-993 review).
+  const hover = hovered !== null && hovered < points.length ? hovered : null;
   const days = labelled(points.length);
   const far = rtl ? 8 : g.width - 8;
   const last = points.length - 1;

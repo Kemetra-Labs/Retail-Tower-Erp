@@ -139,12 +139,14 @@ export function OverviewPanels({
   subtitle,
   scope,
 }: Readonly<OverviewPanelsProps>): React.JSX.Element {
+  const t = useT();
   const session = useOverviewSession();
   const clock = useRefresh();
   const active = session.tenantId !== null;
   const header = (rail: React.ReactNode) => (
     <PageHeader
       title={title}
+      documentTitle={t("shell.overview.title")}
       subtitle={subtitle}
       actions={active ? <RefreshButton onRefresh={clock.refresh} /> : null}
     >

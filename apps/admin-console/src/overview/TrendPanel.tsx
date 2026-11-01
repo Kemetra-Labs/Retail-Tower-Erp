@@ -19,7 +19,7 @@ import { SectionIndex } from "@/components/SectionIndex";
 import { type MessageKey, Money, useT } from "@/i18n";
 import type { SalesSummary } from "@/lib/sales-summary-queries";
 import { currenciesOf } from "@/sales-daily/chartModel";
-import { type DayState, reportModel } from "@/sales-daily/dailyLogic";
+import { reportModel } from "@/sales-daily/dailyLogic";
 import { BusinessDate } from "@/sales/SaleParts";
 import { useId, useState } from "react";
 import { PanelError, PanelSkeleton } from "./PanelParts";
@@ -40,12 +40,7 @@ const PERIOD_KEY = {
 
 function stateText(point: ComparisonPoint, t: ReturnType<typeof useT>): string {
   if (point.current === null) return t("salesDaily.chart.unknown");
-  const states: Partial<Record<DayState, MessageKey>> = {
-    "so-far": "salesDaily.chart.soFar",
-    "not-begun": "salesDaily.chart.notBegun",
-  };
-  const key = states[point.state];
-  return key ? t(key) : "";
+  return point.state === "so-far" ? t("salesDaily.chart.soFar") : "";
 }
 
 function Amount({
@@ -225,6 +220,7 @@ function Body({ summary, titleId }: Readonly<{ summary: SalesSummary; titleId: s
         ) : view === "chart" ? (
           <>
             <TrendChart
+              key={period}
               points={points}
               currency={currency}
               label={t("overview.trend.summary", { currency, days: period })}

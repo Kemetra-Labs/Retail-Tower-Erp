@@ -1,5 +1,5 @@
 import { expectNoAxeViolations } from "./axe";
-import { type Page, expect, test } from "./fixtures";
+import { type Page, expect, overviewHeading, test } from "./fixtures";
 
 /**
  * RT-781 (RT-777 S2): the support-session bar and lifecycle against the built
@@ -105,7 +105,7 @@ async function darkTheme(page: Page): Promise<void> {
 test("no bar for a member-entered tenant (support_session null)", async ({ page, t }) => {
   await mock(page, sessionContext(null));
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+  await expect(overviewHeading(page, t)).toBeVisible();
   await expect(page.getByRole("region", { name: t("platform.session.region") })).toHaveCount(0);
 });
 
@@ -323,7 +323,7 @@ test("expired in the tenant shell replaces the surface with the calm state; axe 
   await expect(
     page.getByRole("heading", { name: t("platform.session.expiredBody.title"), level: 1 }),
   ).toBeVisible();
-  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toHaveCount(0);
+  await expect(overviewHeading(page, t)).toHaveCount(0);
   await expect(
     page.getByRole("link", { name: t("platform.session.expiredBody.action") }),
   ).toHaveAttribute("href", "/platform/tenants");
@@ -339,7 +339,7 @@ test("mid-page: a refused tenant call after the page rendered re-reads the conte
   // The page renders as a member-entered tenant; the session was opened and lapsed elsewhere.
   const server = await mock(page, sessionContext(null));
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+  await expect(overviewHeading(page, t)).toBeVisible();
   const readsBefore = server.contextCalls;
 
   // The next tenant read is refused (403 support_session_expired); the re-read learns why.
@@ -350,7 +350,7 @@ test("mid-page: a refused tenant call after the page rendered re-reads the conte
   await expect(
     page.getByRole("heading", { name: t("platform.session.expiredBody.title"), level: 1 }),
   ).toBeVisible();
-  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toHaveCount(0);
+  await expect(overviewHeading(page, t)).toHaveCount(0);
   await expect(page.getByRole("region", { name: t("platform.session.region") })).toHaveAttribute(
     "data-state",
     "expired",

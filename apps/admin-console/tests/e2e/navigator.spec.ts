@@ -1,5 +1,5 @@
 import { expectNoAxeViolations } from "./axe";
-import { type Page, expect, test } from "./fixtures";
+import { type Page, expect, overviewHeading, test } from "./fixtures";
 
 /**
  * RT-969 AC 3 — the Ctrl K navigator, on the built SPA in both locales. It
@@ -64,7 +64,7 @@ test("Ctrl+K opens it, typing filters, Enter goes there, Escape returns focus", 
   t,
 }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+  await expect(overviewHeading(page, t)).toBeVisible();
   const trigger = page.getByRole("button", { name: new RegExp(t("shell.navigator.open")) });
 
   // Keyboard only: focus the trigger, then the shortcut opens the dialog.
@@ -91,7 +91,7 @@ test("Ctrl+K opens it, typing filters, Enter goes there, Escape returns focus", 
 
 test("the visible button opens it; arrows move the active option", async ({ page, t }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+  await expect(overviewHeading(page, t)).toBeVisible();
   await page.getByRole("button", { name: new RegExp(t("shell.navigator.open")) }).click();
   const dialog = page.getByRole("dialog", { name: t("shell.navigator.title") });
   const combobox = dialog.getByRole("combobox");
@@ -112,7 +112,7 @@ test("the visible button opens it; arrows move the active option", async ({ page
 
 test("it lists the stores in scope and switches to one through the server", async ({ page, t }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+  await expect(overviewHeading(page, t)).toBeVisible();
   await page.keyboard.press("Control+K");
   const dialog = page.getByRole("dialog", { name: t("shell.navigator.title") });
   await page.keyboard.type("New Cairo");
@@ -125,7 +125,7 @@ test("it lists the stores in scope and switches to one through the server", asyn
 
 test("nothing matches: it says so", async ({ page, t }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+  await expect(overviewHeading(page, t)).toBeVisible();
   await page.keyboard.press("Control+K");
   await page.keyboard.type("zzzz");
   const dialog = page.getByRole("dialog", { name: t("shell.navigator.title") });
@@ -142,7 +142,7 @@ for (const theme of ["light", "dark"] as const) {
       });
     }
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+    await expect(overviewHeading(page, t)).toBeVisible();
     await page.keyboard.press("Control+K");
     const dialog = page.getByRole("dialog", { name: t("shell.navigator.title") });
     await expect(dialog.getByRole("option", { name: "New Cairo Mall" })).toBeVisible();
@@ -158,7 +158,7 @@ test("a failed store list says so, offers a retry, and stays accessible", async 
       : r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(stores) }),
   );
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+  await expect(overviewHeading(page, t)).toBeVisible();
   await page.keyboard.press("Control+K");
   const dialog = page.getByRole("dialog", { name: t("shell.navigator.title") });
   await expect(dialog.getByText(t("shell.scope.loadFailed"))).toBeVisible();

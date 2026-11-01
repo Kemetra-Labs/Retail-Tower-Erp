@@ -1,5 +1,5 @@
 import { expectNoAxeViolations } from "./axe";
-import { type Page, expect, test } from "./fixtures";
+import { type Page, expect, overviewHeading, test } from "./fixtures";
 
 /**
  * RT-780 (RT-777 S1): the `/platform` entry gate against the built SPA with a
@@ -164,7 +164,7 @@ test("the tenant console is unchanged: a member still lands on the Overview", as
 }) => {
   await mockContext(page, 200, tenantContext(admin));
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+  await expect(overviewHeading(page, t)).toBeVisible();
   await expect(page.getByRole("navigation", { name: t("shell.nav.label") })).toBeVisible();
 });
 

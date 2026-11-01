@@ -1,4 +1,4 @@
-import { type Page, expect, test } from "./fixtures";
+import { type Page, expect, overviewHeading, test } from "./fixtures";
 
 /**
  * RT-587 sales search and sale detail E2E against mocked Backend-Core (C-5).
@@ -247,7 +247,7 @@ test("S3: store_staff has no Sales entry; direct URLs read as not found", async 
   await p.route(`**/api/v1/sales/${SALE}`, (r) => r.fulfill(NOT_FOUND));
 
   await p.goto("/");
-  await expect(p.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+  await expect(overviewHeading(p, t)).toBeVisible();
   await expect(p.getByRole("link", { name: t("sales.nav.label") })).toHaveCount(0);
 
   await p.goto(`/sales?${RANGE}`);
