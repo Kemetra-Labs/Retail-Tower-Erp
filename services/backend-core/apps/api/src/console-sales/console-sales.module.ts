@@ -2,7 +2,9 @@
  * ConsoleSalesModule — RT-562 (RT-556 F2): the console read of received sales
  * (`console-sales.openapi.yaml`) for Admin-Console spec 012, and RT-649: their
  * deterministic summary (`console-sales-summary.openapi.yaml`) for
- * Admin-Console spec 009 P-6. Read only.
+ * Admin-Console spec 009 P-6, and RT-1053: the sales by store
+ * (`console-sales-by-store.openapi.yaml`) for the «Sales by store» report.
+ * Read only.
  *
  * Imports:
  *   - `AuthModule`    — `PG_POOL` + the session/token repositories the
@@ -17,6 +19,8 @@ import { Module } from "@nestjs/common";
 import { AuditModule } from "../audit/audit.module";
 import { AuthModule } from "../auth/auth.module";
 import { ContextModule } from "../context/context.module";
+import { ConsoleSalesByStoreController } from "./console-sales-by-store.controller";
+import { ConsoleSalesByStoreService } from "./console-sales-by-store.service";
 import { ConsoleSalesSummaryController } from "./console-sales-summary.controller";
 import { ConsoleSalesSummaryService } from "./console-sales-summary.service";
 import { ConsoleSalesController } from "./console-sales.controller";
@@ -25,7 +29,12 @@ import { CONSOLE_SALES_SCAN_LIMIT, ConsoleSalesReadService } from "./console-sal
 
 @Module({
   imports: [AuthModule, AuditModule, ContextModule],
-  controllers: [ConsoleSalesController, ConsoleSalesSummaryController],
-  providers: [ConsoleSalesReadService, ConsoleSalesSummaryService, { provide: CONSOLE_SALES_SCAN_LIMIT, useValue: SCAN_LIMIT_DEFAULT }],
+  controllers: [ConsoleSalesController, ConsoleSalesSummaryController, ConsoleSalesByStoreController],
+  providers: [
+    ConsoleSalesReadService,
+    ConsoleSalesSummaryService,
+    ConsoleSalesByStoreService,
+    { provide: CONSOLE_SALES_SCAN_LIMIT, useValue: SCAN_LIMIT_DEFAULT },
+  ],
 })
 export class ConsoleSalesModule {}
