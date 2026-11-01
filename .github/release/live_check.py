@@ -244,6 +244,10 @@ def system_facts(ledger, when, label, events, incidents):
         raise LiveError(f"{label}: the system ledger has no steps")
     system = ledger.get("system")
     label = f"{label} ({system})" if isinstance(system, str) and NAME.match(system) else label
+    # system_ledger.py writes one record per product: one missing would let an older deploy stand for it.
+    named = sorted(step.get("step") for step in steps if isinstance(step, dict) and step.get("step") in PRODUCTS)
+    if named != sorted(PRODUCTS):
+        raise LiveError(f"{label}: the system ledger does not have exactly one step per product")
     for step in steps:
         name, state = step.get("step"), step.get("state")
         if name not in PRODUCTS and name != "backup":

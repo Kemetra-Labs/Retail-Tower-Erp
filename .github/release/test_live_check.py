@@ -401,9 +401,16 @@ class FailClosed(unittest.TestCase):
     def test_an_unknown_system_step_state_refuses(self):
         for state in ("running", None):
             fake = live_lab()
-            steps = [{"step": "backend", "state": state, "lines": [], "gates": [], "ssmStatus": None, "target": {}}]
+            steps = [{**step, "state": state} if step["step"] == "backend" else step for step in system(0)["steps"]]
             fake.add("deploy-system-lab.yml", 41306750999, 800, system(41306750999, steps=steps))
             self.assertRefused(fake, "the backend step has an unknown state")
+
+    def test_a_system_ledger_without_exactly_one_step_per_product_refuses(self):
+        good = system(0)["steps"]
+        for steps in ([step for step in good if step["step"] != "erp"], good + [good[1]]):
+            fake = live_lab()
+            fake.add("deploy-system-lab.yml", 41306750999, 800, system(41306750999, steps=steps))
+            self.assertRefused(fake, "does not have exactly one step per product")
 
     def test_a_malformed_system_ledger_is_a_g8_failure_not_a_traceback(self):
         for steps in (["backend"], [{"step": "backend", "state": "ok", "target": ["x"]}]):
