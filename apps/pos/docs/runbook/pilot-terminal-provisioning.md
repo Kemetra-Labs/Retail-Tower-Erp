@@ -430,10 +430,13 @@ answers wins.
 code, never "restoring" the device.** The old device keeps its sales, shifts and cash facts
 under its old identity.
 
-**Before you revoke, replace, move or retire a terminal (RT-17 shift cash-up):** unless the
-terminal is lost, stolen or compromised (a security revoke, below), close the
-open shift first, then wait until **Pending** (قيد الانتظار, "waiting to send") on the
-manager's shift status screen reaches **0** and nothing is stuck. Shift facts (open, pay-in,
+**Before you revoke, replace, move or retire an active terminal (RT-17 shift cash-up):**
+unless the terminal is lost, stolen or compromised (a security revoke) or the revoke is a
+`hardware_failure` recovery revoke, or you are replacing or moving a device that is
+already revoked (all in the table below, each leaves a custody exception on the old
+shift), close the open shift first, then wait until **Pending** (قيد الانتظار,
+"waiting to send") on the manager's shift status screen reaches **0** and nothing is
+stuck. Shift facts (open, pay-in,
 pay-out, close) that were made under the old pairing stay on the terminal and are never
 sent after it is revoked or re-paired, so the shift would stay open in Backend-Core.
 Cashiers close their own shift: a count variance of any size is recorded against the
@@ -453,9 +456,10 @@ is RT-236).
 | Replace or move a **retired** device | Refused (409 `device_retired`). |
 | Retire | Refused while the device has an open shift (409 `unresolved_cash_session`) or is revoked with a custody exception (409 `unresolved_custody_exception`). |
 
-**Before retiring a revoked device**, pair any pending replacement or move code first.
-Retiring cancels those codes, and the device can then never be replaced or moved
-(`device_retired`).
+**Before retiring a revoked device**, decide whether a replacement or move is still
+wanted. If it is, pair the pending code first. If not, confirm the retirement: it cancels
+any pending replacement or move code. Either way, a retired device can never be replaced
+or moved afterwards (`device_retired`).
 
 A custody exception stays visible on the old device until a later force-seal or custody
 reconciliation slice exists; do not try to close it from the terminal or edit the database.
