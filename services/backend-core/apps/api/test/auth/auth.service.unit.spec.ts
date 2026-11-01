@@ -34,6 +34,8 @@ import type { AuthTokenRow } from "@data-pulse-2/db/schema";
 let selectRows: unknown[] = [];
 // Controls rowCount returned by .update().set().where()
 let updateRowCount = 1;
+// RT-625: rows returned by .update().set().where().returning()
+let updateReturningRows: unknown[] = [];
 
 jest.mock("drizzle-orm/node-postgres", () => ({
   drizzle: jest.fn(() => makeFakeDb()),
@@ -52,6 +54,7 @@ function makeFakeDb() {
   // Override .where to handle both select and update chains
   chain.where = (() => ({
     limit: () => Promise.resolve(selectRows),
+    returning: () => Promise.resolve(updateReturningRows),
     // for update chain that ends at .where()
     then: (resolve: (v: unknown) => void) =>
       resolve({ rowCount: updateRowCount }),
@@ -274,6 +277,21 @@ describe("AuthService.signIn — failure paths", () => {
     expect(auditEnqueuer.enqueue).toHaveBeenCalledWith(
       expect.objectContaining({ action: "auth.signin.failed" }),
     );
+  });
+
+  it("RT-625 test 11: an unknown email still runs verifyPassword against the dummy argon2id hash", async () => {
+    selectRows = [];
+    mockVerifyPassword.mockResolvedValue(false);
+
+    const { service, sessions } = buildService();
+    await expect(
+      service.signIn({ email: "nobody@example.com", password: "guess" }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(mockVerifyPassword).toHaveBeenCalledTimes(1);
+    expect(mockVerifyPassword.mock.calls[0]![0]).toMatch(/^\$argon2id\$/);
+    expect(mockVerifyPassword.mock.calls[0]![1]).toBe("guess");
+    expect(sessions.create).not.toHaveBeenCalled();
   });
 
   it("UnauthorizedException carries 'Invalid credentials' message on all failure paths", async () => {
@@ -590,8 +608,12 @@ describe("AuthService.confirmPasswordReset", () => {
     const { service, authTokens } = buildService();
     authTokens.consumeActiveByRawToken.mockResolvedValue(tokenRow);
     mockHashPassword.mockResolvedValue("$argon2id$v=19$newhash");
+    updateReturningRows = [{ email: "reset-user@example.com" }];
 
-    await service.confirmPasswordReset({ rawToken: "valid-token", newPassword: "new-password-long" });
+    // RT-625 D2: the updated user's address comes back for the lockout clear.
+    await expect(
+      service.confirmPasswordReset({ rawToken: "valid-token", newPassword: "new-password-long" }),
+    ).resolves.toBe("reset-user@example.com");
 
     // RT-146: one conditional consume is the gate; no separate read-then-revoke.
     expect(authTokens.consumeActiveByRawToken).toHaveBeenCalledWith(
