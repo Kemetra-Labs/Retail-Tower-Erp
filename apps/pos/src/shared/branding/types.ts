@@ -101,27 +101,37 @@ function parseSlots(value: unknown): Record<BrandingSlot, BrandingSlotImage> | n
   return slots as Record<BrandingSlot, BrandingSlotImage>;
 }
 
+function parseName(payload: Record<string, unknown>): BrandingSnapshot | null {
+  return isDisplayName(payload.displayName)
+    ? { v: 1, kind: 'name', displayName: payload.displayName }
+    : null;
+}
+
+function parseLogo(payload: Record<string, unknown>): BrandingSnapshot | null {
+  const { displayName, card } = payload;
+  if (!isDisplayName(displayName) || typeof card !== 'boolean') return null;
+  const slots = parseSlots(payload.slots);
+  return slots === null ? null : { v: 1, kind: 'logo', displayName, card, slots };
+}
+
+const PARSERS: Readonly<
+  Record<BrandingSnapshot['kind'], (payload: Record<string, unknown>) => BrandingSnapshot | null>
+> = {
+  none: () => BRANDING_NONE,
+  name: parseName,
+  logo: parseLogo,
+};
+
+function isKind(value: unknown): value is BrandingSnapshot['kind'] {
+  return value === 'none' || value === 'name' || value === 'logo';
+}
+
 /**
  * The snapshot rebuilt from known fields only; null when anything fails.
  * Used by the preload on every answer and push, so the renderer never sees an
  * unchecked value (a non-PNG URI, an oversized box, an unknown kind).
  */
 export function parseBrandingSnapshot(payload: unknown): BrandingSnapshot | null {
-  if (!isRecord(payload) || payload.v !== 1) return null;
-  switch (payload.kind) {
-    case 'none':
-      return BRANDING_NONE;
-    case 'name':
-      return isDisplayName(payload.displayName)
-        ? { v: 1, kind: 'name', displayName: payload.displayName }
-        : null;
-    case 'logo': {
-      const slots = parseSlots(payload.slots);
-      if (!isDisplayName(payload.displayName) || typeof payload.card !== 'boolean') return null;
-      if (slots === null) return null;
-      return { v: 1, kind: 'logo', displayName: payload.displayName, card: payload.card, slots };
-    }
-    default:
-      return null;
-  }
+  if (!isRecord(payload) || payload.v !== 1 || !isKind(payload.kind)) return null;
+  return PARSERS[payload.kind](payload);
 }

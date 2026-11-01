@@ -163,28 +163,42 @@ function validName(row: NameRow): CachedName | null {
   };
 }
 
-function validLogo(row: LogoRow, name: CachedName): CachedLogo | null {
-  if (row.tenant_id !== name.tenant_id || row.revision !== name.revision) return null;
-  if (row.card !== 0 && row.card !== 1) return null;
+/** The cached warnings and renditions, re-read with the wire rules; null when any fails. */
+function readCachedAssets(
+  row: LogoRow,
+): Pick<CachedLogo, 'warnings' | 'screen' | 'receipt'> | null {
   const warnings = readWarnings(parseJson(row.warnings_json));
   const renditions = parseJson(row.renditions_json);
-  if (warnings === null || typeof renditions !== 'object' || renditions === null) return null;
-  const { screen: rawScreen, receipt: rawReceipt } = renditions as Record<string, unknown>;
+  if (warnings === null || !isObject(renditions)) return null;
+  const { screen: rawScreen, receipt: rawReceipt } = renditions;
   const screen = readScreenSet(rawScreen);
   const receipt = readReceiptRendition(rawReceipt);
-  if (screen === null || receipt === null) return null;
-  const card = row.card === 1;
-  const digest = logoPayloadDigest({
-    revision: row.revision,
+  return screen === null || receipt === null ? null : { warnings, screen, receipt };
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isFlag(value: number): value is 0 | 1 {
+  return value === 0 || value === 1;
+}
+
+function belongsTo(row: LogoRow, name: CachedName): boolean {
+  return row.tenant_id === name.tenant_id && row.revision === name.revision;
+}
+
+function validLogo(row: LogoRow, name: CachedName): CachedLogo | null {
+  const assets = belongsTo(row, name) ? readCachedAssets(row) : null;
+  if (assets === null || !isFlag(row.card)) return null;
+  const logo: CachedLogo = {
     version: row.version,
-    updated_at: row.updated_at,
-    card,
-    warnings,
-    screen,
-    receipt,
-  });
-  if (digest !== row.payload_sha256) return null;
-  return { version: row.version, revision: row.revision, card, warnings, screen, receipt };
+    revision: row.revision,
+    card: row.card === 1,
+    ...assets,
+  };
+  const digest = logoPayloadDigest({ ...logo, updated_at: row.updated_at });
+  return digest === row.payload_sha256 ? logo : null;
 }
 
 export function createBrandingCache(db: DatabaseHandle): BrandingCache {
@@ -218,32 +232,19 @@ export function createBrandingCache(db: DatabaseHandle): BrandingCache {
 
   function load(scope: BrandingScope): BrandingCacheRead {
     const nameRow = readNameRow();
-    const logoRow = readLogoRow();
-    if (nameRow === undefined) {
-      // A logo record with no name record cannot be attributed: discard it.
-      if (logoRow !== undefined) deleteLogo();
-      return EMPTY;
-    }
-    if (!inScope(nameRow, scope)) {
-      purge();
-      return EMPTY;
-    }
-    const name = validName(nameRow);
+    const name = nameRow !== undefined && inScope(nameRow, scope) ? validName(nameRow) : null;
     if (name === null) {
+      // Missing, from another pairing, or corrupt: nothing can be attributed.
       purge();
       return EMPTY;
     }
-    if (name.logo_state === 'none') {
-      if (logoRow === undefined) return { name, logo: null, conditionalEtag: name.etag };
-      deleteLogo();
-      return { name, logo: null, conditionalEtag: null };
-    }
-    const logo = logoRow === undefined ? null : validLogo(logoRow, name);
-    if (logo === null) {
-      if (logoRow !== undefined) deleteLogo();
-      return { name, logo: null, conditionalEtag: null };
-    }
-    return { name, logo, conditionalEtag: name.etag };
+    const logoRow = readLogoRow();
+    const logo =
+      name.logo_state === 'present' && logoRow !== undefined ? validLogo(logoRow, name) : null;
+    if (logoRow !== undefined && logo === null) deleteLogo();
+    // Conditional polling only while both records agree (FR-35a).
+    const consistent = name.logo_state === 'none' ? logoRow === undefined : logo !== null;
+    return { name, logo, conditionalEtag: consistent ? name.etag : null };
   }
 
   const replace = db.transaction(
