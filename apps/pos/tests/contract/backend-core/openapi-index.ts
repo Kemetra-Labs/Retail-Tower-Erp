@@ -16,24 +16,43 @@ import path from 'node:path';
 import { buildTree, child, toLines, type SourceText, type YamlNode } from './yaml-tree.js';
 
 /** The credentials a POS backend client can attach. */
-export type CredentialKind = 'device' | 'operator-jwt' | 'operator-envelope' | 'none';
+export type CredentialKind =
+  | 'device'
+  | 'operator-jwt'
+  | 'operator-envelope'
+  | 'console-session'
+  | 'none';
 
 /**
  * Backend-Core security-scheme NAME → the POS credential that satisfies it. Every
- * scheme here is HTTP bearer (`Authorization: Bearer <token>`); the index checks
- * that too. A scheme missing from this map fails the suite: classify it here.
+ * scheme here is HTTP bearer (`Authorization: Bearer <token>`), except the Console
+ * cookie session; the index checks that too. A scheme missing from this map fails
+ * the suite: classify it here.
  *
  *   device                → the paired terminal's device token (read-down, cashier admissions)
  *   operator-identity     → the operator's provider-identity JWT (Clerk today)
  *   clerkJwt              → the legacy name of operator-identity
  *   operatorAuthorization → the opaque pos_operator envelope from sign-in / takeover
+ *   cookieAuth            → the Admin-Console `dp2_session` cookie (RT-475: the Console
+ *                           logo routes share `tenant-branding.openapi.yaml` with the POS
+ *                           read). No POS client holds it, so any POS call to such a route
+ *                           fails conformance.
  */
 export const SCHEME_CREDENTIAL: Readonly<Record<string, CredentialKind>> = {
   device: 'device',
   'operator-identity': 'operator-jwt',
   clerkJwt: 'operator-jwt',
   operatorAuthorization: 'operator-envelope',
+  cookieAuth: 'console-session',
 };
+
+/** The one non-bearer scheme shape accepted: an API key in a cookie, for `console-session`. */
+function isCookieSession(name: string, scheme: Scheme): boolean {
+  return (
+    SCHEME_CREDENTIAL[name] === 'console-session' &&
+    `${scheme.type}/${scheme.in}` === 'apiKey/cookie'
+  );
+}
 
 export const HTTP_METHODS = [
   'get',
@@ -69,6 +88,8 @@ type SecurityRequirements = readonly (readonly string[])[];
 interface Scheme {
   readonly type: string;
   readonly scheme: string;
+  /** `in` of an `apiKey` scheme (`header`, `query`, `cookie`); empty otherwise. */
+  readonly in: string;
 }
 
 interface Document {
@@ -126,7 +147,8 @@ function readSecurityAt(node: YamlNode | undefined, ctx: Context): SecurityRequi
 function toScheme(node: YamlNode): [string, Scheme] {
   const type = child(node, 'type')?.value ?? '';
   const scheme = (child(node, 'scheme')?.value ?? '').toLowerCase();
-  return [node.key ?? '', { type, scheme }];
+  const location = child(node, 'in')?.value ?? '';
+  return [node.key ?? '', { type, scheme, in: location }];
 }
 
 function readSchemes(root: YamlNode): Map<string, Scheme> {
@@ -165,7 +187,7 @@ function rawOperations(doc: Document): RawOperation[] {
 function declaredScheme(op: RawOperation, name: string): Scheme {
   const declared = op.doc.schemes.get(name);
   if (declared === undefined) fail(op, `undeclared security scheme "${name}"`);
-  if (`${declared.type}/${declared.scheme}` !== 'http/bearer') {
+  if (`${declared.type}/${declared.scheme}` !== 'http/bearer' && !isCookieSession(name, declared)) {
     fail(op, `scheme "${name}" is not HTTP bearer; extend the classifier`);
   }
   return declared;

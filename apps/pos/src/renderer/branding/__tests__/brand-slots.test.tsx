@@ -3,7 +3,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 
 import { BrandSlot, PoweredBy } from '../BrandSlot';
-import { resetBrandingForTests, startBrandingFeed, useBranding } from '../branding-store';
+import {
+  dropUndecodableBranding,
+  resetBrandingForTests,
+  startBrandingFeed,
+  useBranding,
+} from '../branding-store';
 import { EntryStrip } from '../../v5/entry/EntryStrip';
 import { RouteLoading } from '../../v5/foundation/RouteLoading';
 import type { BrandingBridgeAPI } from '../../../shared/bridge-api';
@@ -205,5 +210,47 @@ describe('RT-475 — renderer feed', () => {
     render(<Probe />);
     startBrandingFeed(undefined);
     expect(screen.getByTestId('probe')).toHaveTextContent('unknown');
+  });
+});
+
+describe('RT-475 — renderer feed failures', () => {
+  it('a failed read leaves today’s screens', async () => {
+    const fake = fakeBranding(LOGO);
+    fake.get.mockReturnValueOnce(Promise.reject(new Error('branding_unavailable')));
+    render(<Probe />);
+    const stop = startBrandingFeed(fake.bridge);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('probe')).toHaveTextContent('unknown');
+    stop();
+  });
+
+  it('a read superseded by a push is dropped, whether it answers or fails', async () => {
+    const fake = fakeBranding(LOGO);
+    let rejectFirst: (e: Error) => void = () => undefined;
+    fake.get.mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        rejectFirst = reject;
+      }),
+    );
+    render(<Probe />);
+    const stop = startBrandingFeed(fake.bridge);
+    act(() => {
+      fake.push(LOGO);
+    });
+    await act(async () => {
+      rejectFirst(new Error('late'));
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('probe')).toHaveTextContent('logo');
+    stop();
+  });
+
+  it('a decode failure of a snapshot already replaced changes nothing', () => {
+    resetBrandingForTests(LOGO);
+    render(<Probe />);
+    dropUndecodableBranding({ ...LOGO });
+    expect(screen.getByTestId('probe')).toHaveTextContent('logo');
   });
 });
