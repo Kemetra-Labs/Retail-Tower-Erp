@@ -178,7 +178,9 @@ test("S6: reopen a dismissed item", async ({ page, t }) => {
   });
 
   await page.goto("/unknown-items");
-  await page.getByLabel(t("unknownItems.filters.status")).selectOption("dismissed");
+  await page
+    .getByLabel(t("unknownItems.filters.status"), { exact: true })
+    .selectOption("dismissed");
   // RT-960: the queue filters apply on Apply, not on change.
   await page.getByRole("button", { name: t("filter.apply"), exact: true }).click();
   await page.getByText("6221234567890").click();
