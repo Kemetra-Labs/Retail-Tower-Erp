@@ -49,15 +49,18 @@ The preflight runs the gate above on both files, plus the online checks of each 
 1. Find the latest **live** run of each per-product workflow (dry runs leave no live ledger):
 
    ```bash
-   gh run list --workflow deploy-lab.yml --limit 5
-   gh run list --workflow deploy-console-lab.yml --limit 5
-   gh run list --workflow deploy-erp-lab.yml --limit 5
+   gh run list --workflow deploy-lab.yml --limit 30
+   gh run list --workflow deploy-console-lab.yml --limit 30
+   gh run list --workflow deploy-erp-lab.yml --limit 30
    ```
 
+   Raise `--limit` until the list reaches a live run whose ledger `outcome` is `deployed`: dry, failed and held runs can fill the most recent entries.
 2. Download its live ledger with `gh run download <run id>`. Use the latest one whose `outcome` is `deployed`: a `failed` run may have reverted, and an ERP `held` run left the old image running. Note what it deployed:
    - `deploy-lab.yml`: `release.tag`.
    - `deploy-console-lab.yml`: `target.release`.
    - `deploy-erp-lab.yml`: `target.digest` and `target.sha`.
+
+   If a `deploy-lab.yml` run newer than that one failed after its `migrate` gate, the database may be ahead of the application. There is no automatic database downgrade, and when `rollbackAllowed` was `false` the auto-revert only records that a decision is needed. Get the owner's confirmation that the application and database are recovered before using the older release as current. G-Host checks the application release, not the database.
 3. If no file here matches all three, add one (the next `lab-YYYY.MM.N`) that describes the live lab, by PR. `contracts/check` runs the gate on it.
 
 A stale manifest is refused on lab-01, before any version changes (the lab-02 backup has already been written), with `RT_FAIL gate=G-Host reason=wrapper-does-not-use-the-current-release`. `lab-2026.11.1` was added for exactly this reason, after RT-473 and RT-807 deployed newer releases.
@@ -146,5 +149,5 @@ Refusals seen so far:
   aws ssm update-document-default-version --name <document> --document-version <new version> --region us-east-1 --profile <profile>
   ```
 
-  `RT-ErpLabDeploy` is JSON: use `--document-format JSON`. Then check that `DefaultVersion` equals `LatestVersion` (`aws ssm describe-document --name <document>`).
+  `RT-ErpLabDeploy` is JSON: use `--document-format JSON`. Then check that `DefaultVersion` equals `LatestVersion`: `aws ssm describe-document --name <document> --region us-east-1 --profile <profile>`.
 - **Approval.** The `aws-lab` approval is the human gate of every live run.
