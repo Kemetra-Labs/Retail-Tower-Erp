@@ -22,8 +22,11 @@
  *   I2  owner invites an owner with 'specific' access → 403
  *   I3  tenant_admin invites a tenant_admin → 201
  *
- * Audit rows are append-only (0034), so each refusal is checked as a delta of
- * `membership.change_refused` rows for its target.
+ * The app runs as the non-superuser app role (`env.app`), so RLS applies to
+ * the owner lock, the target lock and the refusal audit INSERT; the admin
+ * pool only seeds and asserts. Audit rows are append-only (0034), so each
+ * refusal is checked as a delta of `membership.change_refused` rows for its
+ * target.
  */
 import "reflect-metadata";
 
@@ -174,7 +177,7 @@ beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AuthModule, ContextModule, MembershipsModule],
     })
-      .overrideProvider(PG_POOL).useValue(pool)
+      .overrideProvider(PG_POOL).useValue(env.app)
       .overrideProvider(REDIS_CLIENT).useValue(new AlwaysAllowRedis())
       .overrideProvider(EMAIL_JOB_ENQUEUER).useValue(new NoOpEmailJobEnqueuer())
       .compile();

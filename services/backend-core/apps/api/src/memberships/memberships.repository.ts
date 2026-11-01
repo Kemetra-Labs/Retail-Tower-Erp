@@ -58,7 +58,9 @@ export class MembershipsRepository {
   }
 
   /**
-   * Load the current membership row for mutation. Returns `null` when the
+   * Load the current membership row for mutation, locked `FOR UPDATE` until
+   * the transaction ends (RT-1028: the role read here is the one the write
+   * acts on). Callers take the owner-set lock first. Returns `null` when the
    * membership is not found, already revoked, soft-deleted, or belongs to
    * a different tenant (RLS filters it out).
    */
@@ -87,7 +89,8 @@ export class MembershipsRepository {
           isNull(memberships.deletedAt),
         ),
       )
-      .limit(1);
+      .limit(1)
+      .for("update", { of: memberships });
     const row = rows[0];
     if (!row) return null;
     return {

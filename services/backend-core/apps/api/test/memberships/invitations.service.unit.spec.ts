@@ -62,6 +62,8 @@ jest.mock("@data-pulse-2/shared", () => ({
   QUEUE_NAMES: jest.requireActual("@data-pulse-2/shared").QUEUE_NAMES,
   // RT-812: the boot grant check loads its fragments at import (auth.module).
   loadFragmentDir: jest.requireActual("@data-pulse-2/shared").loadFragmentDir,
+  // RT-1028: a failed refusal-audit write is logged.
+  createLogger: jest.requireActual("@data-pulse-2/shared").createLogger,
   newId: jest.fn(),
   assertMetricLabels: jest.fn(),
   getMeter: jest.fn(() => ({
@@ -1035,7 +1037,7 @@ describe("InvitationsService.invite — role hierarchy (RT-1028)", () => {
     repo.create.mockResolvedValue(makeInvitationRow());
   }
 
-  it("H1: tenant_admin inviting an owner → 403, audited in the same tx, nothing created or enqueued", async () => {
+  it("H1: tenant_admin inviting an owner → 403, audited in a second tx, nothing created or enqueued", async () => {
     const hierarchy = makeFakeHierarchy({ actorRole: "tenant_admin" });
     const { service, repo, enqueuer, tx } = buildService({ hierarchy });
     primeValidRole(repo);
@@ -1049,7 +1051,7 @@ describe("InvitationsService.invite — role hierarchy (RT-1028)", () => {
     expect(repo.autoExpireStale).not.toHaveBeenCalled();
     expect(repo.create).not.toHaveBeenCalled();
     expect(enqueuer.enqueueInvitation).not.toHaveBeenCalled();
-    expect(tx).toHaveBeenCalledTimes(1);
+    expect(tx).toHaveBeenCalledTimes(2);
     expect(hierarchy.recordRefusal).toHaveBeenCalledTimes(1);
     const audit = hierarchy.recordRefusal.mock.calls[0]![2];
     expect(audit).toEqual({
@@ -1090,6 +1092,19 @@ describe("InvitationsService.invite — role hierarchy (RT-1028)", () => {
       store_access_kind: "all",
     } as InvitationCreateDto);
     expect(repo.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("H3b: a failed audit write still answers 403 (the refusal stands)", async () => {
+    const hierarchy = makeFakeHierarchy({ actorRole: "tenant_admin" });
+    hierarchy.recordRefusal.mockRejectedValue(new Error("pool exhausted"));
+    const { service, repo } = buildService({ hierarchy });
+    primeValidRole(repo);
+
+    const err = await service
+      .invite(makeCtx(), { email: "x@example.com", role_code: "owner", store_access_kind: "all" } as InvitationCreateDto)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(MembershipChangeRefusedError);
+    expect(repo.create).not.toHaveBeenCalled();
   });
 
   it("H4: no hierarchy wired → 503 (fails closed)", async () => {

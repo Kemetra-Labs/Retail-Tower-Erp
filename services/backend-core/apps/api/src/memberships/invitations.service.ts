@@ -34,7 +34,12 @@ import { roles, type InvitationRow } from "@data-pulse-2/db/schema";
 import type { MembershipDetail } from "../context/membership.repository";
 import type { InvitationCreateDto } from "./invitation.dto";
 import { InvitationsRepository } from "./invitations.repository";
-import { invitationRefusal, MembershipChangeRefusedError, MembershipHierarchy } from "./membership-hierarchy";
+import {
+  auditRefusal,
+  invitationRefusal,
+  MembershipChangeRefusedError,
+  MembershipHierarchy,
+} from "./membership-hierarchy";
 
 export interface InviteResult {
   row: InvitationRow;
@@ -173,8 +178,8 @@ export class InvitationsService {
 
       // Step 2b: role hierarchy (RT-1028): a tenant_admin never invites an
       // owner, and an owner invitation is always for all stores. Nothing has
-      // been written yet, so the refusal's audit row commits in this
-      // transaction and the refusal is thrown after it.
+      // been written yet; the refusal is returned (this transaction commits
+      // no change), then audited in its own transaction and thrown.
       const actor = await hierarchy.actorFor(client, ctx);
       const reason = invitationRefusal(actor, { roleCode: dto.role_code, storeAccessKind: dto.store_access_kind });
       if (reason) {
@@ -186,7 +191,6 @@ export class InvitationsService {
           requestedRoleCode: dto.role_code,
           requestedStoreAccessKind: dto.store_access_kind,
         });
-        await hierarchy.recordRefusal(client, ctx, refusal.audit);
         return refusal;
       }
 
@@ -223,7 +227,10 @@ export class InvitationsService {
       });
     });
 
-    if (row instanceof MembershipChangeRefusedError) throw row;
+    if (row instanceof MembershipChangeRefusedError) {
+      await auditRefusal((audit) => this.tx(this.pool, txCtx(ctx), audit), hierarchy, ctx, row);
+      throw row;
+    }
 
     // Step 7: enqueue email AFTER the transaction commits
     await this.emailEnqueuer.enqueueInvitation({

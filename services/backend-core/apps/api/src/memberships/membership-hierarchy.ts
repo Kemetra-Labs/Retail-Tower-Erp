@@ -19,13 +19,16 @@
  *
  * Every refusal is a 403 (`forbidden` envelope, the status the contract
  * already declares) and writes ONE `audit_events` row in its own
- * transaction, after the refused one has rolled back. `@Auditable` runs only
- * on success, so the sale-history `outcome: "refused"` precedent is followed.
+ * transaction, after the refused one has ended (`auditRefusal`). A failed
+ * audit write is logged and the 403 still stands. `@Auditable` runs only on
+ * success, so the sale-history `outcome: "refused"` precedent is followed.
  */
 import { ForbiddenException, Injectable } from "@nestjs/common";
 import { newId } from "@data-pulse-2/shared";
+import type { Logger } from "@data-pulse-2/shared";
 import type { PoolClient } from "pg";
 
+import { createApiLogger } from "../common/api-logger";
 import { MembershipRepository } from "../context/membership.repository";
 import type { ResolvedContext } from "../context/types";
 
@@ -138,6 +141,34 @@ export interface MembershipRefusalAudit {
   readonly requestedStoreAccessKind: string | null;
 }
 
+let logger: Logger | null = null;
+function log(): Logger {
+  logger ??= createApiLogger("memberships");
+  return logger;
+}
+
+/**
+ * Write a refusal's audit row through `run` (a fresh tenant transaction).
+ * A failed write is logged with categories only and swallowed: the caller
+ * rethrows the refusal, so the client still gets the 403 and nothing changed.
+ */
+export async function auditRefusal(
+  run: (work: (client: PoolClient) => Promise<void>) => Promise<void>,
+  hierarchy: MembershipHierarchy,
+  ctx: ResolvedContext,
+  refusal: MembershipChangeRefusedError,
+): Promise<void> {
+  try {
+    await run((client) => hierarchy.recordRefusal(client, ctx, refusal.audit));
+  } catch (err: unknown) {
+    const code = typeof err === "object" && err !== null ? (err as { code?: unknown }).code : undefined;
+    log().error(
+      { operation: refusal.audit.operation, reason: refusal.audit.reason, tenant_id: ctx.tenantId, code },
+      "membership.refusal_audit_failed",
+    );
+  }
+}
+
 /** A 403 carrying its audit payload, so the caller can audit it after the rollback. */
 export class MembershipChangeRefusedError extends ForbiddenException {
   constructor(readonly audit: MembershipRefusalAudit) {
@@ -160,12 +191,13 @@ export class MembershipHierarchy {
   }
 
   /**
-   * Lock the tenant's active owner memberships `FOR UPDATE` (in id order, so
-   * two callers never deadlock) and return how many there are. Callers take
-   * this lock first in the transaction, before reading the target: a
-   * concurrent revoke or demotion of another owner waits here, and Postgres
-   * re-checks the row against the WHERE once it is released, so the second
-   * caller counts the first one's result (READ COMMITTED).
+   * Lock the tenant's active owner memberships `FOR UPDATE` and return how
+   * many there are. Every membership writer (PATCH, DELETE) takes this lock
+   * first, in id order, and only then locks its target row, so two writers
+   * never deadlock. A concurrent revoke or demotion of another owner waits
+   * here, and Postgres re-checks the row against the WHERE once it is
+   * released, so the second caller counts the first one's result (READ
+   * COMMITTED, the server default).
    */
   async lockActiveOwnerCount(client: PoolClient, tenantId: string): Promise<number> {
     const res = await client.query<{ id: string }>(

@@ -777,6 +777,17 @@ describe("MembershipsService — role hierarchy (RT-1028)", () => {
     expect(repo.revoke).not.toHaveBeenCalled();
   });
 
+  it("H11b: a failed audit write still answers 403 (the refusal stands)", async () => {
+    const hierarchy = makeFakeHierarchy({ actorRole: "tenant_admin" });
+    hierarchy.recordRefusal.mockRejectedValue(new Error("pool exhausted"));
+    const { service, repo } = buildService({ hierarchy });
+    repo.findActive.mockResolvedValue(makeExistingMembership({ roleCode: "owner" }));
+
+    const err = await refusal(service.revoke(makeCtx(), MEMBERSHIP_ID));
+    expect(err.audit.reason).toBe("owner_managed_by_owner_only");
+    expect(repo.revoke).not.toHaveBeenCalled();
+  });
+
   it("H12: revoke of an unknown membership → 404 and no audit", async () => {
     const hierarchy = makeFakeHierarchy();
     const { service, repo } = buildService({ hierarchy });

@@ -101,10 +101,11 @@ function makeFakeDb() {
       return Promise.resolve(rows).then(resolve, _reject);
     },
     // Shape 1: select with .limit(1) — pop from queue
+    // `.for("update")` may follow (findActive, RT-1028).
     limit: (_n: number) => {
       const rows =
         _selectRowsQueue.length > 0 ? _selectRowsQueue.shift()! : _selectRows;
-      return Promise.resolve(rows);
+      return Object.assign(Promise.resolve(rows), { for: () => Promise.resolve(rows) });
     },
   };
 

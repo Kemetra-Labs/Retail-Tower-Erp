@@ -41,6 +41,7 @@ import type { ResolvedContext } from "../context/types";
 import type { MembershipDetail } from "../context/membership.repository";
 import type { MembershipUpdateDto } from "./dto";
 import {
+  auditRefusal,
   MembershipChangeRefusedError,
   MembershipHierarchy,
   membershipRevokeRefusal,
@@ -183,7 +184,7 @@ export class MembershipsService {
       return await this.tx(this.pool, txCtx(ctx), work);
     } catch (err) {
       if (err instanceof MembershipChangeRefusedError) {
-        await this.tx(this.pool, txCtx(ctx), (client) => this.hierarchy.recordRefusal(client, ctx, err.audit));
+        await auditRefusal((audit) => this.tx(this.pool, txCtx(ctx), audit), this.hierarchy, ctx, err);
       }
       throw err;
     }
