@@ -270,4 +270,12 @@ describe("RATE_LIMIT_BUCKETS constants", () => {
     expect(BUCKET_RESET.limit).toBe(100);
     expect(BUCKET_RESET.windowMs).toBe(24 * 60 * 60 * 1000);
   });
+
+  it("RL-U19 (RT-626): passwordResetPerEmail has limit=5 and windowMs=1hour", () => {
+    expect(RATE_LIMIT_BUCKETS.passwordResetPerEmail).toEqual({ limit: 5, windowMs: 60 * 60 * 1000 });
+  });
+
+  it("RL-U20 (RT-626): emailVerifyConfirmPerIp has limit=20 and windowMs=15min", () => {
+    expect(RATE_LIMIT_BUCKETS.emailVerifyConfirmPerIp).toEqual({ limit: 20, windowMs: 15 * 60 * 1000 });
+  });
 });

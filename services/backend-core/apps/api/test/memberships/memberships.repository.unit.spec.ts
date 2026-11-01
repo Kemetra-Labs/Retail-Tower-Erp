@@ -101,10 +101,11 @@ function makeFakeDb() {
       return Promise.resolve(rows).then(resolve, _reject);
     },
     // Shape 1: select with .limit(1) — pop from queue
+    // `.for("update")` may follow (findActive, RT-1028).
     limit: (_n: number) => {
       const rows =
         _selectRowsQueue.length > 0 ? _selectRowsQueue.shift()! : _selectRows;
-      return Promise.resolve(rows);
+      return Object.assign(Promise.resolve(rows), { for: () => Promise.resolve(rows) });
     },
   };
 
@@ -148,7 +149,9 @@ function makeExistingMembership(overrides: Partial<ExistingMembership> = {}): Ex
   return {
     id: MEMBERSHIP_ID,
     tenantId: TENANT_ID,
+    userId: USER_ID,
     roleId: ROLE_ID,
+    roleCode: "tenant_admin",
     storeAccessKind: "all" as StoreAccessKind,
     ...overrides,
   };
@@ -222,7 +225,9 @@ describe("MembershipsRepository.findActive", () => {
       {
         id: MEMBERSHIP_ID,
         tenantId: TENANT_ID,
+        userId: USER_ID,
         roleId: ROLE_ID,
+        roleCode: "owner",
         storeAccessKind: "all",
       },
     ];
@@ -231,6 +236,9 @@ describe("MembershipsRepository.findActive", () => {
     const result = await repo.findActive(fakeClient, MEMBERSHIP_ID, TENANT_ID);
 
     expect(result).not.toBeNull();
+    // RT-1028: the user and role code the hierarchy checks need.
+    expect(result!.userId).toBe(USER_ID);
+    expect(result!.roleCode).toBe("owner");
     expect(result!.id).toBe(MEMBERSHIP_ID);
     expect(result!.tenantId).toBe(TENANT_ID);
     expect(result!.roleId).toBe(ROLE_ID);

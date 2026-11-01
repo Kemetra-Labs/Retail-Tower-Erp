@@ -6,6 +6,7 @@ import { RolesGuard } from "../auth/roles.guard";
 import { MembershipsController } from "./memberships.controller";
 import { MembershipsRepository } from "./memberships.repository";
 import { MembershipsService } from "./memberships.service";
+import { MembershipHierarchy } from "./membership-hierarchy";
 import { InvitationAcceptController } from "./invitation-accept.controller";
 import { InvitationsController } from "./invitations.controller";
 import { InvitationsRepository } from "./invitations.repository";
@@ -24,6 +25,8 @@ import { OPERATOR_TOKEN_VERIFIER } from "../auth/operator-token-verifier";
     { provide: OPERATOR_TOKEN_VERIFIER, useFactory: operatorTokenVerifierFactory },
     MembershipsRepository,
     MembershipsService,
+    // RT-1028: the role hierarchy shared by PATCH, DELETE and invite.
+    MembershipHierarchy,
     InvitationsRepository,
     InvitationsService,
     RolesGuard,
