@@ -4,16 +4,21 @@
  * no fetch.
  *
  * Every figure is the contract's own (`consoleGetSalesSummary`), selected and
- * compared, never derived: no net sales, no averages, no percentages (RT-751
- * AC 1, `metricRegistry.ts`). A date the read lacks is unknown (null), never a
+ * compared, never derived: no net sales, no averages (RT-751 AC 1,
+ * `metricRegistry.ts`). A date the read lacks is unknown (null), never a
  * zero; a currency absent from a present day is that day's zero in it (the
  * contract lists a currency only when it has a fact).
+ *
+ * RT-993 adds two derived figures, both named: a delta's signed value (owner
+ * decision, RT-993 comment 15088), the exact difference of two totals in ONE
+ * currency or of two counts; and a posting bucket's share of the same day's
+ * received count, its named whole.
  */
 import type { SalesSummary } from "@/lib/sales-summary-queries";
 import type { SalesKpis } from "@/metrics/metricRegistry";
-import { type ReportModel, addDays } from "@/sales-daily/dailyLogic";
+import { addDays } from "@/sales-daily/dailyLogic";
 
-/** Business days the trend chart shows, ending at today. */
+/** Business days of the trend's longest period, ending at today. */
 export const TREND_DAYS = 14;
 
 const DAY_MS = 86_400_000;
@@ -23,14 +28,14 @@ function utcDay(ms: number): string {
 }
 
 /**
- * The one read the KPI strip, the pipeline strip and the chart share: 16
+ * The one read the receipt row, the pipeline rail and both charts share: 30
  * business days ending a UTC day ahead. Every store's "today" (any IANA
- * offset), its previous day and the 14-day trend fall inside it, within the
- * contract's 31-day bound.
+ * offset), its previous day, the trend's 14 days and the 14 before them fall
+ * inside it, within the contract's 31-day bound.
  */
 export function glanceWindow(nowMs: number): { from: string; to: string } {
   const to = addDays(utcDay(nowMs), 1);
-  return { from: addDays(to, -(TREND_DAYS + 1)), to };
+  return { from: addDays(to, -(2 * TREND_DAYS + 1)), to };
 }
 
 export type GlanceDay =
@@ -97,6 +102,22 @@ export function compareDecimal(a: string, b: string): -1 | 0 | 1 {
   return x > y ? 1 : -1;
 }
 
+/** `a - b` exactly, as a decimal string at the larger scale (one currency only). */
+export function differenceOf(a: string, b: string): string {
+  const scale = Math.max(a.split(".")[1]?.length ?? 0, b.split(".")[1]?.length ?? 0);
+  const diff = scaled(a, scale) - scaled(b, scale);
+  const negative = diff < 0n;
+  const digits = (negative ? -diff : diff).toString().padStart(scale + 1, "0");
+  const whole = digits.slice(0, digits.length - scale);
+  const fraction = scale > 0 ? `.${digits.slice(digits.length - scale)}` : "";
+  return `${negative ? "-" : ""}${whole}${fraction}`;
+}
+
+/** A part's share of its named whole; null when there is no whole (never 0/0). */
+export function shareOf(part: number, whole: number): number | null {
+  return whole > 0 ? part / whole : null;
+}
+
 export type Trend = "up" | "down" | "same" | "unknown";
 
 function trendOf(order: -1 | 0 | 1): Trend {
@@ -157,8 +178,8 @@ export function postingSplit(kpis: SalesKpis): PostingSplit {
 
 // --- Trend chart -----------------------------------------------------------------
 
-/** The report's last `TREND_DAYS` business days ending at `endDate`, for the chart. */
-export function trendModel(model: ReportModel, endDate: string): ReportModel {
-  const rows = model.rows.filter((r) => r.date <= endDate).slice(-TREND_DAYS);
-  return { ...model, rows, partial: rows.some((r) => r.state !== "complete") };
+/** The latest store "today": the trend ends there. */
+export function endDateOf(summary: SalesSummary): string {
+  const days = summary.stores.map((s) => s.currentBusinessDate);
+  return days.length > 0 ? days.reduce((a, b) => (b > a ? b : a)) : summary.to;
 }

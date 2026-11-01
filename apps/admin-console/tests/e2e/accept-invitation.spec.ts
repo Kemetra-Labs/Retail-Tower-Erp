@@ -1,4 +1,4 @@
-import { type Page, expect, test } from "./fixtures";
+import { type Page, expect, overviewHeading, test } from "./fixtures";
 
 /**
  * RF-5 accept-invitation E2E (VG-2, S7). Public route. Valid token → session
@@ -53,7 +53,7 @@ test("S7: valid token → accept → session established → land in the shell",
   await page.getByRole("button", { name: t("auth.acceptInvitation.submit") }).click();
 
   // routed into the shell (Overview), context now resolves
-  await expect(page.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+  await expect(overviewHeading(page, t)).toBeVisible();
 });
 
 test("S7: invalid/expired token → generic error, no navigation", async ({ page, t }) => {

@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 3fe42b6020016ece1852553a9d63f63007bcba69
+// Source: Kemetra-Labs/Retail-Tower-Erp @ c2aed6ab30d7259b3eafdd640a44fbf11e7aa4ed
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -599,6 +599,26 @@ export namespace AuthSchema {
                 /** @description Invalid or expired token. */
                 400: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Rate-limited per client IP (RT-626). `Retry-After` gives the whole seconds until the bucket resets, 1 to 3600. */
+                429: {
+                    headers: {
+                        "Retry-After": components["headers"]["PublicAuthRetryAfter"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The public-auth rate limiter is unavailable (RT-628 posture, code `service_unavailable`). `Retry-After` gives the whole seconds to wait before retrying. */
+                503: {
+                    headers: {
+                        "Retry-After": components["headers"]["PublicAuthRetryAfter"];
                         [name: string]: unknown;
                     };
                     content: {

@@ -5,6 +5,7 @@
  */
 import { Icon } from "@/components/icons/Icon";
 import { useT } from "@/i18n";
+import type { DeltaTone } from "@/metrics/metricRegistry";
 import type { Trend } from "./glanceLogic";
 
 /** Placeholder bars while a read is in flight; announced once, politely. */
@@ -60,27 +61,44 @@ const TREND_KEY = {
 } as const;
 
 /**
- * Today against the previous business day: an arrow and words, never colour
- * alone (UX-13), with the previous day's own figure. No percentage: that would
- * be arithmetic on money the contract does not define (RT-751 AC 1).
+ * Today against the previous business day: the arrow, the signed value and the
+ * named baseline in words (owner decision, RT-993 comment 15088), never colour
+ * alone (UX-13). `tone` is the metric's good-direction judgement
+ * (`metricRegistry.ts`, DESIGN.md §12.8.2), not the arrow; it only tints the
+ * chip that already says the same thing.
  */
 export function Delta({
   trend,
   previous,
-}: Readonly<{ trend: Trend; previous: React.ReactNode }>): React.JSX.Element {
+  signed,
+  tone,
+}: Readonly<{
+  trend: Trend;
+  previous: React.ReactNode;
+  /** The signed difference, formatted (`+7,318.50 EGP`, `-2`). */
+  signed?: React.ReactNode;
+  tone: DeltaTone;
+}>): React.JSX.Element {
   const t = useT();
   if (trend === "unknown") {
-    return <span className="glance-delta">{t("overview.kpi.previousUnknown")}</span>;
+    return (
+      <span className="glance-delta" data-tone="neutral">
+        {t("overview.kpi.previousUnknown")}
+      </span>
+    );
   }
   return (
-    <span className="glance-delta">
-      {trend === "same" ? null : (
-        <Icon
-          name={trend === "up" ? "increase" : "decrease"}
-          size="sm"
-          className="glance-delta__icon"
-        />
-      )}
+    <span className="glance-delta" data-tone={tone}>
+      <span className="glance-delta__chip">
+        {trend === "same" ? null : (
+          <Icon
+            name={trend === "up" ? "increase" : "decrease"}
+            size="sm"
+            className="glance-delta__icon"
+          />
+        )}
+        {signed}
+      </span>
       <span>{t.rich(TREND_KEY[trend], { value: previous })}</span>
     </span>
   );

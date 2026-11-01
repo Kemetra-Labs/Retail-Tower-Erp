@@ -289,6 +289,29 @@
 .sidebar__spacer {
   flex: 1;
 }
+/* RT-993: the system-status frame, «قريبًا» until a read serves it (RT-1056). */
+.sidebar__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-block-end: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--color-on-ink) 14%, transparent);
+  border-radius: var(--radius-field-lg);
+  color: var(--color-ink-muted);
+  font-size: var(--text-meta);
+}
+.sidebar__status-title {
+  color: var(--color-on-ink);
+  font-weight: var(--weight-medium);
+}
+.sidebar__status-soon {
+  padding: 2px var(--space-2);
+  border: 1px dashed color-mix(in srgb, var(--color-on-ink) 40%, transparent);
+  border-radius: var(--radius-pill);
+}
 .nav-group {
   display: flex;
   flex-direction: column;
@@ -456,6 +479,14 @@
   .sidebar {
     background-image: none;
     border-inline-end: 1px solid CanvasText;
+  }
+  .sidebar__status,
+  .sidebar__status-soon {
+    border-color: CanvasText;
+  }
+  .sidebar__status,
+  .sidebar__status-title {
+    color: CanvasText;
   }
   /* The sidebar's text is named as a system colour, not left to the browser's
    * override. Its author colours are for Ink (ink-muted is 1.87:1 on the white

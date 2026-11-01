@@ -1,5 +1,5 @@
 import { expectNoAxeViolations } from "./axe";
-import { type Page, expect, test } from "./fixtures";
+import { type Page, expect, overviewHeading, test } from "./fixtures";
 
 /**
  * RT-726 sale sync-ops E2E against mocked Backend-Core (C-5).
@@ -211,7 +211,7 @@ test("S2: store_manager sees the sale without sync-ops; the list is no access", 
   });
 
   await p.goto("/");
-  await expect(p.getByRole("heading", { name: t("shell.overview.title") })).toBeVisible();
+  await expect(overviewHeading(p, t)).toBeVisible();
   await expect(p.getByRole("link", { name: t("saleSync.nav.label") })).toHaveCount(0);
 
   await p.goto(`/sales/${SALE}`);

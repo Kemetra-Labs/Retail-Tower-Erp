@@ -25,6 +25,9 @@ import { ActiveContextProvider } from "@/context/ActiveContextProvider";
 import { createQueryClient } from "@/lib/query";
 import { Overview } from "@/shell/Overview";
 import { ProtectedArea } from "@/shell/ProtectedArea";
+
+/** RT-993: the Overview h1 is the greeting for a named user, else the page name. */
+const OVERVIEW_H1 = /^(Overview|Welcome, .+)$/;
 import { SignInRoute } from "@/shell/SignInRoute";
 
 const signedOut = { status: 401, error: { error: { code: "unauthorized" } } };
@@ -110,7 +113,7 @@ describe("sign-in route enters the console with a fresh context (RT-343)", () =>
     await signedOutContextSettled();
     submitCredentials();
 
-    expect(await screen.findByRole("heading", { name: "Overview" })).toBeDefined();
+    expect(await screen.findByRole("heading", { level: 1, name: OVERVIEW_H1 })).toBeDefined();
   });
 
   /**
@@ -143,14 +146,14 @@ describe("sign-in route enters the console with a fresh context (RT-343)", () =>
   test("a sign-in submitted while the signed-out fetch is still running still enters the shell", async () => {
     await signInWhileSignedOutFetchRuns([]);
 
-    expect(await screen.findByRole("heading", { name: "Overview" })).toBeDefined();
+    expect(await screen.findByRole("heading", { level: 1, name: OVERVIEW_H1 })).toBeDefined();
   });
 
   test("a single-tenant sign-in during the signed-out fetch selects the tenant and enters the shell", async () => {
     await signInWhileSignedOutFetchRuns([{ tenant_id: "t1", tenant_name: "Northstar Retail" }]);
 
     expect(switchActiveTenant).toHaveBeenCalledWith("t1");
-    expect(await screen.findByRole("heading", { name: "Overview" })).toBeDefined();
+    expect(await screen.findByRole("heading", { level: 1, name: OVERVIEW_H1 })).toBeDefined();
   });
 
   test("several memberships land on the scope chooser, not back on sign-in", async () => {
@@ -246,7 +249,7 @@ describe("sign-in returns to the requested page (RT-355)", () => {
     await signedOutContextSettled();
     submitCredentials();
 
-    expect(await screen.findByRole("heading", { name: "Overview" })).toBeDefined();
+    expect(await screen.findByRole("heading", { level: 1, name: OVERVIEW_H1 })).toBeDefined();
     expect(landedAt()).toBe("/");
   });
 });

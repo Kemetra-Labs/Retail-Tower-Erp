@@ -1,16 +1,17 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Shifts API
-  version: "1.4.0-draft"
+  version: "1.5.0-draft"
   description: >
     POS-Pulse 004 Backend shift-lifecycle surface. Wave 4.1b (stuck-shift
     discovery).
 
 
     The endpoint returns shifts that are open past a configurable staleness
-    threshold and whose opening cashier has no active pos_operator session
-    on the same branch. No internal identifiers (users.id, devices.id,
-    Clerk subject, auth-token IDs) are present in any response.
+    threshold, whose opening cashier has no active pos_operator session on the
+    same branch, and whose opening terminal holds no live cashier admission
+    (RT-811). No internal identifiers (users.id, devices.id, Clerk subject,
+    auth-token IDs) are present in any response.
 
 
     Authentication: the role-named `operator-identity` scheme — a
@@ -185,6 +186,24 @@ info:
     read side (`shift-closes.openapi.yaml`) lists recorded cash-ups only, so
     a force-closed shift is not listed there; surfacing it is a separate
     ticket.
+
+
+    RT-811 (1.5.0-draft; [GATED] owner decision 2026-10-29, Jira RT-811
+    comment 14372; RT-742 follow-up): description text only. A cashier sells
+    on the device path with a cashier admission
+    (`pos-cashier-admissions.openapi.yaml`) and never holds a `pos_operator`
+    session, so the RT-742 rule alone let a manager on another terminal
+    force-close a drawer its cashier was still selling on. A drawer is now
+    also live while its opening terminal holds a live cashier admission: any
+    admission of the shift's tenant on that terminal, for any user, that has
+    not ended for any reason (such as an `end` or a takeover) and has not
+    expired, judged by the server clock at the call. Both `GET /shifts/stuck`
+    and the `forceCloseShift` Eligibility apply it. The refusal reuses 409
+    `shift_not_stuck` at the same place in the order, and a replay of a
+    recorded force close is still answered first. No operation, status,
+    `error.code`, parameter or schema changes; the POS needs no change.
+    **Runtime status:** the admission rule shipped in the RT-811 runtime
+    change.
 servers:
   - url: https://api.example.com
 tags:
@@ -199,8 +218,17 @@ paths:
       description: >
         Returns all shifts on the requested branch whose `lifecycle_state`
         is `'open'`, whose `opened_at` is older than the server-configured
-        staleness threshold (default 15 minutes), and whose opening cashier
-        has no active `pos_operator` auth-token row on that branch.
+        staleness threshold (default 15 minutes), whose opening cashier
+        has no active `pos_operator` auth-token row on that branch, and
+        whose opening terminal holds no live cashier admission.
+
+
+        RT-811: a live cashier admission is one of the shift's tenant on the
+        shift's opening terminal, for any user, that has not ended for any
+        reason (such as an `end` or a takeover) and has not expired at the
+        server clock. While one exists a cashier may still be selling on
+        that drawer, so the shift is not listed. An admission that ended or
+        expired does not count.
 
 
         Only managers and admins may call this endpoint; store_staff
@@ -794,15 +822,20 @@ paths:
         **Eligibility** (its own predicate, evaluated at the call). The shift
         is open, was opened longer ago than the staleness threshold, and its
         opening cashier has no active `pos_operator` session on the store
-        other than the caller's own envelope session. Otherwise 409
+        other than the caller's own envelope session. RT-811: and its opening
+        terminal holds no live cashier admission (any admission of the shift's
+        tenant on that terminal, for any user, that has not ended for any
+        reason (such as an `end` or a takeover) and has not expired at the
+        server clock; the caller's envelope makes no exception to it). It is
+        checked in the same transaction that records the close. Otherwise 409
         `shift_not_stuck`: a manager cannot close a live drawer from another
         terminal. This is the `GET /shifts/stuck` predicate with ONE
         difference: that list counts every active session, the caller's
-        included, so it hides a shift whose opening cashier is the manager
-        now signed in on another terminal (their fresh session makes the
-        drawer look live), while this operation does not. That shift is
-        eligible here but not listed: `GET /shifts/stuck` is unchanged and
-        does not surface it, so the manager supplies its `shift_id` (their
+        included, so it hides a shift whose opening cashier is the manager now
+        signed in on another terminal (their fresh session makes the drawer
+        look live), while this operation does not. That shift is eligible here
+        but not listed: `GET /shifts/stuck` still counts the caller's session
+        and does not surface it, so the manager supplies its `shift_id` (their
         own shift). Widening the list is a separate owner decision. A shift
         already closed with a cash-up is 409 `shift_closed`.
 
@@ -869,10 +902,12 @@ paths:
 
 
         **Order.** Authentication, including the live manager/admin check
-        (401), then scope (404 `shift_not_found`), then the
-        natural-key replay (`200`) or, for a different `forcedReason`, 409
-        `shift_force_closed`, then 409 `shift_closed`, then the stuck rule
-        (409 `shift_not_stuck`). A same-key replay is answered by the shared
+        (401), then scope (404 `shift_not_found`), then the natural-key replay
+        (`200`) or, for a different `forcedReason`, 409 `shift_force_closed`,
+        then 409 `shift_closed`, then the stuck rule (409 `shift_not_stuck`),
+        which includes the RT-811 cashier admission check: a live admission
+        on the opening terminal never outranks the replay, the scope 404 or
+        `shift_closed`. A same-key replay is answered by the shared
         `IdempotencyInterceptor` before the handler, so before this order and
         its scope check. The interceptor partitions a replay by tenant, route,
         `shift_id`, actor and key, NOT by store: the same actor repeating the
@@ -2316,10 +2351,10 @@ components:
         different payload); `shift_not_stuck` (the shift is open but is not
         stuck now: it is younger than the staleness threshold, or its opening
         cashier has an active `pos_operator` session on the store other than
-        the caller's own);
-        `shift_closed` (the shift is already closed with a cash-up);
-        `shift_force_closed` (the shift is already force-closed with a
-        different `forcedReason`). Deterministic; nothing is recorded.
+        the caller's own, or its opening terminal holds a live cashier
+        admission, RT-811); `shift_closed` (the shift is already closed with a
+        cash-up); `shift_force_closed` (the shift is already force-closed with
+        a different `forcedReason`). Deterministic; nothing is recorded.
       content:
         application/json:
           schema:

@@ -289,8 +289,10 @@ describe("one icon grammar in product code", () => {
       .filter(({ file }) => !file.endsWith("/src/components/TowerMark.tsx"))
       // RT-823: the daily-sales bar chart draws data marks, not icons.
       .filter(({ file }) => !file.endsWith("/src/sales-daily/DailyChart.tsx"))
-      // RT-970: the Overview's 14-day trend draws the same data marks.
-      .filter(({ file }) => !file.endsWith("/src/overview/TrendPanel.tsx"))
+      // RT-993: the Overview's trend, hero sparkline and posting ring draw data marks.
+      .filter(({ file }) => !file.endsWith("/src/overview/TrendChart.tsx"))
+      .filter(({ file }) => !file.endsWith("/src/overview/ReceiptRow.tsx"))
+      .filter(({ file }) => !file.endsWith("/src/overview/PostingPanel.tsx"))
       .filter(({ file }) => !file.includes("/src/generated/"))
       .filter(({ src }) => /<svg\b/.test(src))
       .map(({ file }) => file);

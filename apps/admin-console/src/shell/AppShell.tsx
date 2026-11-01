@@ -65,6 +65,7 @@ export function AppShell({ onSignOut, children }: Readonly<AppShellProps>): Reac
         tag={t("app.productTag")}
         groups={groups}
         scope={inSession ? null : <ScopeHeader />}
+        systemStatus
         onSignOut={onSignOut}
       />
 

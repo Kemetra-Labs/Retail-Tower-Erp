@@ -28,7 +28,9 @@ test("AC 1: each Tier 1 route sets its own document title", async ({ page, t }) 
     await expect
       .poll(
         async () => {
-          const heading = (await h1.textContent())?.trim() ?? "";
+          // RT-993: a greeting h1 names the page through data-page-title.
+          const named = (await h1.getAttribute("data-page-title"))?.trim();
+          const heading = named || ((await h1.textContent())?.trim() ?? "");
           return (await page.title()) === `${heading} – ${t("app.title")}`;
         },
         { message: `${path}: title follows the h1` },
