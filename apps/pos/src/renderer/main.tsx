@@ -12,6 +12,7 @@ import { installCartStoreSignOutHook } from './stores/cart-signout-hook';
 import { installDrawerNoticeSignOutHook } from './ui/receipts/drawer-notice-store';
 import { initTheme } from './stores/theme-store';
 import { installActivityReporter } from './session/activity-reporter';
+import { startBrandingFeed } from './branding/branding-store';
 
 /**
  * T068 / RT-634 (OBS-5) — renderer crash reporting is installed BEFORE React
@@ -176,6 +177,10 @@ if (
   const bridge = (window as unknown as { api: PreloadBridgeAPI }).api;
 
   installErrorReporter(window, (report) => bridge.reportError(report));
+
+  // RT-475 — read the tenant branding (local cache) before the first paint, so
+  // the boot screen can show the logo during the existing load. Nothing waits on it.
+  startBrandingFeed(bridge.branding, bridge.pairing);
 
   // Existing production boot: hydrate flags and install sign-out cleanup.
   void bridge

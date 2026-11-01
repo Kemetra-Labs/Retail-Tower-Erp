@@ -117,6 +117,24 @@
   font-weight: var(--font-weight-semibold);
 }
 
+/* RT-475 (RT-832 sign_in): the strip never grows or wraps. With the logo and
+   the powered-by line, the admin free-text terminal label truncates. */
+.v5-entry__bar--branded .v5-entry__sep {
+  flex: none;
+}
+
+.v5-entry__bar--branded .v5-entry__context {
+  flex: 0 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.v5-entry__powered-by {
+  flex: none;
+  margin-inline-start: auto;
+}
+
 /* ── sign-in stage: who (inline start) | prove it (inline end) ─── */
 .v5-entry__stage {
   display: grid;

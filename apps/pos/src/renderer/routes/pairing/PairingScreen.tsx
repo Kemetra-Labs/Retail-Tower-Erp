@@ -3,6 +3,8 @@ import type { JSX } from 'react';
 import { PairingForm } from './PairingForm';
 import { InvalidStateBanner } from './InvalidStateBanner';
 import { RevocationRecheck } from './RevocationRecheck';
+import { BrandSlot, PoweredBy } from '../../branding/BrandSlot';
+import { useBranding } from '../../branding/branding-store';
 import { EntryCardIcon, EntryCardScreen } from '../../v5/entry/EntryCard';
 import { PAIRING_COPY } from '../../v5/entry/entry-copy';
 import type { PairingBridgeAPI, PreloadBridgeAPI } from '../../../shared/bridge-api';
@@ -53,12 +55,17 @@ export function PairingScreen(props: Readonly<PairingScreenProps>): JSX.Element 
   // RT-215 10897-A — "Check again" only while the terminal is device-revoked.
   const recheckVia =
     props.invalidReason === 'device_revoked' ? recheckBridge(props.pairing) : undefined;
+  // RT-475 (RT-832 pairing): main answers a logo only for the pairing the
+  // terminal still holds (a device-revoked terminal keeps its cache, FR-32).
+  // Before the first pairing there is no tenant to show (OD-9).
+  const branding = useBranding();
   // RT-244 PR2 (G-1 «Pairing»): one centred card — the heading and hint, the
   // invalid-state notice when the router names a reason, the form, and the
   // "Check again" while device-revoked.
   return (
     <EntryCardScreen rootProps={{ 'data-testid': 'route-pairing', ...reasonAttr }}>
       <div className="v5-entry__card">
+        <BrandSlot slot="pairing" snapshot={branding} />
         <EntryCardIcon name="pair" />
         <div className="v5-entry__card-head">
           <h1 id="pairing-title" className="v5-entry__card-title">
@@ -71,6 +78,7 @@ export function PairingScreen(props: Readonly<PairingScreenProps>): JSX.Element 
         {props.invalidReason !== undefined && <InvalidStateBanner reason={props.invalidReason} />}
         <PairingForm {...formProps} labelledBy="pairing-title" hintId="pairing-hint" />
         {recheckVia !== undefined && <RevocationRecheck pairing={recheckVia} />}
+        <PoweredBy snapshot={branding} />
       </div>
     </EntryCardScreen>
   );
