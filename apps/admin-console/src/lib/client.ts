@@ -35,6 +35,27 @@ export async function signOut() {
   return { status: response.status, data, error };
 }
 
+export interface PasswordChangeBody {
+  current_password: string;
+  new_password: string;
+}
+
+/**
+ * POST /api/v1/auth/password/change (RT-937; RT-807). Cookie session only.
+ * Surfaces `Retry-After` because the per-user 429 carries only the header.
+ */
+export async function changePassword(body: PasswordChangeBody) {
+  const { data, error, response } = await apiClient.POST("/api/v1/auth/password/change", {
+    body,
+  });
+  return {
+    status: response.status,
+    data,
+    error,
+    retryAfter: response.headers.get("retry-after"),
+  };
+}
+
 /** POST /api/v1/auth/refresh */
 export async function refreshSession() {
   const { data, error, response } = await apiClient.POST("/api/v1/auth/refresh", {});

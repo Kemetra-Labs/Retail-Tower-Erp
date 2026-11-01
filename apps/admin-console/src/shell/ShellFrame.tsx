@@ -112,6 +112,8 @@ export interface ShellTopBarProps {
   withStores: boolean;
   user: UserMenuProps["user"] | undefined;
   roleLabel?: string;
+  /** RT-807: the user menu's «حسابي» link (tenant shell only). */
+  accountLink?: boolean;
 }
 
 export function ShellTopBar({
@@ -122,6 +124,7 @@ export function ShellTopBar({
   withStores,
   user,
   roleLabel,
+  accountLink,
 }: Readonly<ShellTopBarProps>): React.JSX.Element {
   return (
     <header className="topbar">
@@ -132,7 +135,7 @@ export function ShellTopBar({
       </span>
       <ShellNavigatorControl navigator={navigator} groups={groups} withStores={withStores} />
       <div className="topbar__spacer" />
-      {user ? <UserMenu user={user} roleLabel={roleLabel} /> : null}
+      {user ? <UserMenu user={user} roleLabel={roleLabel} accountLink={accountLink} /> : null}
     </header>
   );
 }
