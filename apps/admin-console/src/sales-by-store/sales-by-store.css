@@ -112,10 +112,8 @@
   font-size: var(--text-meta);
 }
 .sbs-chip {
-  display: inline-flex;
-  align-items: center;
-  min-block-size: 26px;
-  padding: 0 var(--space-3);
+  display: inline-block;
+  padding: var(--space-1) var(--space-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
   background: var(--color-surface);
@@ -197,8 +195,12 @@
 }
 .sbs-row {
   display: grid;
-  grid-template-columns: 30px minmax(8rem, 13rem) minmax(4rem, 1fr) minmax(6rem, 8rem) 5.75rem;
-  gap: var(--space-3);
+  /* The bar gets its own full-width line, so the served share reads at any panel width. */
+  grid-template-columns: 30px minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    "pos name amount delta"
+    ". track track track";
+  gap: var(--space-2) var(--space-3);
   align-items: center;
   inline-size: 100%;
   padding: var(--space-3);
@@ -318,13 +320,27 @@
 @media (max-width: 40rem) {
   .sbs-row {
     grid-template-columns: 28px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "pos name amount"
+      ". track track"
+      ". delta delta";
   }
-  .sbs-track {
-    display: none;
-  }
-  .sbs-row > :last-child {
-    grid-column: 2 / -1;
-  }
+}
+.sbs-row__pos {
+  grid-area: pos;
+}
+.sbs-row__name {
+  grid-area: name;
+}
+.sbs-track {
+  grid-area: track;
+}
+.sbs-row__amount {
+  grid-area: amount;
+}
+.sbs-row > :last-child {
+  grid-area: delta;
+  justify-self: start;
 }
 
 /* --- Change badge (D-11: up is good, down is bad; the sign is the text) --- */
@@ -360,6 +376,7 @@
   font-size: var(--text-meta);
 }
 .sbs-matrix th {
+  position: relative;
   padding: var(--space-1);
   font-weight: var(--weight-strong);
   color: var(--color-text-muted);
@@ -510,8 +527,11 @@
   border-collapse: collapse;
   font-size: var(--text-control);
 }
+/* A cell is the containing block of its screen-reader-only text: an absolutely
+ * positioned child would otherwise escape the scroll region and widen the page. */
 .sbs-table th,
 .sbs-table td {
+  position: relative;
   padding: var(--space-2) var(--space-3);
   border-block-end: 1px solid var(--color-border);
   text-align: start;

@@ -69,12 +69,14 @@ function StoreRowButton({ row, report, comparing, picked, onPick }: Readonly<Row
         </b>
         <Move row={row} comparing={comparing} />
       </span>
-      <span className="sbs-track" aria-hidden="true">
-        <i style={{ inlineSize: barWidth(row.ranked ? store.ranking.share : null) }} />
-        <span className="sbs-track__share">
-          {row.ranked ? <SharePercent ratio={store.ranking.share} /> : null}
+      {row.ranked ? (
+        <span className="sbs-track" aria-hidden="true">
+          <i style={{ inlineSize: barWidth(row.ranked ? store.ranking.share : null) }} />
+          <span className="sbs-track__share">
+            {row.ranked ? <SharePercent ratio={store.ranking.share} /> : null}
+          </span>
         </span>
-      </span>
+      ) : null}
       <span className="sbs-row__amount">
         {row.ranked ? amount : <span className="sbs-row__sub">—</span>}
         {row.ranked ? (

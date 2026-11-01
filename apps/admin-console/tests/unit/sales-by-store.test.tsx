@@ -274,7 +274,7 @@ describe("SalesByStore (RT-1054)", () => {
       const z = row(/Unranked, Zamalek/);
       expect(z.querySelector(".sbs-row__pos")?.textContent).toBe("—");
       expect(within(z).getByText("No received sales in this currency in the range")).toBeDefined();
-      expect(z.querySelector(".sbs-track__share")?.textContent).toBe("");
+      expect(z.querySelector(".sbs-track")).toBeNull();
       expect(z.querySelector(".sbs-delta")).toBeNull();
     });
 

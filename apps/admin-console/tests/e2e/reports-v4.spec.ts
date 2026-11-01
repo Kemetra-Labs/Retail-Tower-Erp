@@ -47,7 +47,8 @@ test("reports index: a proposed report is a plain card, never a link", async ({ 
   await mockRealisticApi(page);
   await page.goto("/reports");
   const proposed = page.locator(".reports-card--proposed");
-  await expect(proposed).toHaveCount(5);
+  // RT-1054: «Sales by store» is built, so four reports stay proposed.
+  await expect(proposed).toHaveCount(4);
   expect(await proposed.locator("a, button, [tabindex]").count()).toBe(0);
   // Every card names its state in text.
   for (const card of await proposed.all()) {
