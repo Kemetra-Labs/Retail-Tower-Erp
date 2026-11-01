@@ -148,7 +148,10 @@ test("S1: owner → queue → sale → confirmed repair → the server's status"
   const requested: URL[] = [];
   p.on("request", (r) => requested.push(new URL(r.url())));
 
-  await p.getByRole("link", { name: t("saleSync.nav.label") }).click();
+  await p
+    .getByRole("navigation", { name: t("shell.nav.label") })
+    .getByRole("link", { name: t("saleSync.nav.label") })
+    .click();
   await expect(p.getByRole("heading", { level: 1, name: t("saleSync.list.title") })).toBeVisible();
   await expect(p.getByText(t("saleSync.list.note"))).toBeVisible();
   const row = p.getByRole("row").filter({ hasText: "POS-CAI-0042" });
