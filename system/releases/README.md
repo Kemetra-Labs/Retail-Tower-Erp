@@ -52,7 +52,7 @@ G8 also looks at runs newer than the last deploy that did not deploy:
 - It **refuses** when the run's ledger shows its host may have changed: a Backend-Core run that got past its `backup-config` gate (it arms the auto-revert next) or has a revert, a Console run that swapped or reverted, any ERP run that held, or that failed after its `check` gate, and a run whose live job started but left no ledger. The owner reconciles the host (see the notes under step 2 below), then a successful deploy of that product with its per-product workflow clears the refusal. There is no override input.
 - It records a **note** and passes when the ledger shows the run stopped before it reached a host (for example a Backend-Core run refused at `G-Host`, or a live job that never reached SSM).
 
-G8 also fails closed: when a ledger is missing, expired (artifacts are kept 90 days, so after a quiet quarter run any per-product deploy first), unreadable or malformed, when a workflow has no deployed ledger in its newest 100 runs, or when the token cannot read the runs. G8 proves what the ledgers say was deployed, not what the hosts run: `RT-BackendLabDeploy` G-Host and `RT-ErpLabDeploy` still check the hosts.
+G8 also fails closed: when a ledger is missing, a run was re-run (its ledger cannot be ordered), a ledger is expired (artifacts are kept 90 days, so after a quiet quarter run any per-product deploy first), unreadable or malformed, when a workflow has no deployed ledger in its newest 100 runs, or when the token cannot read the runs. G8 proves what the ledgers say was deployed, not what the hosts run: `RT-BackendLabDeploy` G-Host and `RT-ErpLabDeploy` still check the hosts.
 
 To do the same by hand, or to find the file after a refusal:
 

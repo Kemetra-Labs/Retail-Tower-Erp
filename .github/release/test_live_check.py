@@ -7,6 +7,7 @@ decider is checked without the GitHub API.
 import io
 import json
 import pathlib
+import re
 import tempfile
 import unittest
 import zipfile
@@ -205,6 +206,46 @@ class Decide(unittest.TestCase):
         fake.add("deploy-system-lab.yml", 41500000001, 951, never)
         self.assertEqual(failures(run_check(fake)), [])
 
+    def failed_system_step(self, name, step, reason=None, outcome="failed"):
+        fake = live_lab()
+        run = system(41510000000, outcome=outcome)
+        run["failure"] = {"step": name, "reason": reason} if reason else None
+        index = {"backend": 1, "console": 2, "erp": 3}[name]
+        run["steps"][index] = {"step": name, "state": "failed", "target": {}, **step}
+        for later in range(index + 1, 4):
+            run["steps"][later] = {"step": run["steps"][later]["step"], "state": "not-run", "lines": [], "gates": [], "ssmStatus": None, "target": {}}
+        fake.add("deploy-system-lab.yml", 41510000000, 952, run)
+        return run_check(fake)
+
+    def test_a_system_step_cancelled_mid_poll_may_have_changed_the_host(self):
+        # ssm-run.sh writes .status and .lines only after the poll, so a cancel leaves both empty
+        for reason in ("live job stopped before or during RT-BackendLabDeploy", None, "backend: the document ended TimedOut"):
+            lines = self.failed_system_step("backend", {"lines": [], "gates": [], "ssmStatus": None}, reason)
+            found = failures(lines)
+            self.assertEqual(len(found), 1, (reason, found))
+            self.assertIn("may have changed the host", found[0])
+
+    def test_a_system_step_that_stopped_before_the_document_was_sent_is_a_note(self):
+        for reason in ("backend: send-command was refused", "backend: no single Online SSM node tagged Environment=lab, Host=lab-01",
+                       "backend: no parameters file"):
+            lines = self.failed_system_step("backend", {"lines": [], "gates": [], "ssmStatus": None}, reason)
+            self.assertEqual(failures(lines), [], reason)
+            self.assertTrue(any("note" in text for _, text in lines), reason)
+        # a pre-send reason names its own step: the backend's reason does not clear a console step
+        self.assertEqual(len(failures(self.failed_system_step("console", {"lines": [], "gates": [], "ssmStatus": None}, "backend: send-command was refused"))), 1)
+
+    def test_an_erp_stop_in_a_system_run_before_its_stop_gate_is_a_note_and_after_it_is_not(self):
+        for gate_lines in (["RT_GATE inputs=fail", "RT_OUTCOME=failed"], ["RT_GATE lock=fail", "RT_OUTCOME=failed"],
+                           ["RT_GATE check=pass", "RT_GATE check=fail", "RT_OUTCOME=failed"]):
+            step = {"lines": gate_lines, "gates": [{"gate": line.split(" ")[1].split("=")[0], "result": line.split("=")[1]} for line in gate_lines if line.startswith("RT_GATE")],
+                    "ssmStatus": "Failed"}
+            self.assertEqual(failures(self.failed_system_step("erp", step, "erp: the document ended Failed")), [], gate_lines)
+        for gate_lines in (["RT_GATE check=pass", "RT_GATE stop=pass", "RT_GATE backup=fail", "RT_OUTCOME=failed"],
+                           ["RT_GATE check=pass", "RT_GATE stop=pass", "RT_GATE swap=pass", "RT_OUTCOME=held"]):
+            step = {"lines": gate_lines, "gates": [{"gate": line.split(" ")[1].split("=")[0], "result": line.split("=")[1]} for line in gate_lines if line.startswith("RT_GATE")],
+                    "ssmStatus": "Failed"}
+            self.assertEqual(len(failures(self.failed_system_step("erp", step, "erp: the document ended Failed"))), 1, gate_lines)
+
     def test_a_product_with_no_deployed_ledger_is_unknown_and_refused(self):
         fake = live_lab()
         fake.listing["deploy-erp-lab.yml"] = []
@@ -303,6 +344,15 @@ class FailClosed(unittest.TestCase):
         fake.add("deploy-lab.yml", 1, 1, b"not a zip")
         self.assertRefused(fake, "unreadable")
 
+    def test_a_rerun_refuses_because_its_ledger_cannot_be_ordered(self):
+        fake = live_lab()
+        fake.listing["deploy-lab.yml"][0]["run_attempt"] = 2
+        self.assertRefused(fake, "is a re-run")
+        fake = live_lab()
+        fake.add("deploy-lab.yml", 41800000000, 990, None, conclusion="failure", jobs=[{"name": "live deploy", "started_at": at(990), "conclusion": "failure"}])
+        fake.listing["deploy-lab.yml"][-1]["run_attempt"] = 3
+        self.assertRefused(fake, "is a re-run")
+
     def test_a_ledger_of_another_run_or_kind_refuses(self):
         fake = Fake()
         fake.add("deploy-lab.yml", 1, 1, backend(999))
@@ -352,6 +402,40 @@ class FailClosed(unittest.TestCase):
         for bad in ("", "owner", "a/b; id", "../x"):
             with self.assertRaises(live_check.LiveError, msg=bad):
                 live_check.GhApi(bad)
+
+
+SSM = ROOT / "services" / "backend-core" / "deploy" / "lab" / "ssm"
+ERP_DOCUMENT = ROOT / "integrations" / "erpnext-connector" / "deploy" / "lab" / "ssm" / "RT-ErpLabDeploy.json"
+
+
+def document_gates(path):
+    """The GATE=<name> names of an SSM document in the order the document runs them, once each."""
+    names = re.findall(r"(?<![$\w])GATE=([A-Za-z0-9_.-]+)", path.read_text(encoding="utf-8"))
+    return list(dict.fromkeys(names))
+
+
+class SafeGatesFollowTheDocuments(unittest.TestCase):
+    """SAFE_GATES must be exactly the gates a document runs before its first change to the host."""
+
+    def check(self, product, document, first_change):
+        names = document_gates(document)
+        self.assertIn(first_change, names)
+        before, after = names[: names.index(first_change)], names[names.index(first_change):]
+        self.assertTrue(set(before) <= live_check.SAFE_GATES[product], (product, set(before) - live_check.SAFE_GATES[product]))
+        self.assertFalse(set(after) & live_check.SAFE_GATES[product], (product, set(after) & live_check.SAFE_GATES[product]))
+
+    def test_backend_deploy_document(self):
+        self.check("backend", SSM / "RT-BackendLabDeploy.yaml", "arm-revert")
+
+    def test_backend_backup_document_only_writes_a_dump(self):
+        names = document_gates(SSM / "RT-BackendLabBackup.yaml")
+        self.assertTrue(set(names) <= live_check.SAFE_GATES["backend"], set(names) - live_check.SAFE_GATES["backend"])
+
+    def test_console_document(self):
+        self.check("console", SSM / "RT-ConsoleLabDeploy.yaml", "swap")
+
+    def test_erp_document(self):
+        self.check("erp", ERP_DOCUMENT, "stop")
 
 
 class Cli(unittest.TestCase):

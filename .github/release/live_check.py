@@ -49,8 +49,12 @@ SAFE_GATES = {
     "backend": {"inputs", "lock", "G-Host", "G-Backup", "fetch", "backup-config",
                 "backup-preconditions", "backup-dump", "backup-restore-rehearsal", "preconditions", "dump", "restore-rehearsal"},
     "console": {"inputs", "lock", "G-Host", "fetch", "check"},
-    "erp": {"inputs", "check"},
+    "erp": {"inputs", "lock", "check"},
 }
+# What ssm-run.sh writes to failure.txt when it stops before the document is sent. Any other reason
+# (a cancel or timeout during the poll, "live job stopped before or during ...") can leave the document
+# running on the host, so it is never read as "not sent".
+PRE_SEND = ("no single Online SSM node", "describe-instance-information failed", "send-command was refused", "no parameters file")
 NAME = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 SKIPPED = re.compile(r"\(outcome: (skipped|not-run)\)$")
 ERP_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -119,6 +123,12 @@ def live_job_started(api, run_id):
                for job in api.jobs(run_id))
 
 
+def reject_rerun(run, workflow):
+    """A re-run keeps the id and the created_at of its first attempt, so its ledger cannot be ordered or trusted."""
+    if run.get("run_attempt", 1) != 1:
+        raise LiveError(f"{workflow} run {run.get('id')} is a re-run (attempt {run.get('run_attempt')}); read its ledger by hand")
+
+
 def scan(api, key, limit):
     """Newest-first records [(run, ledger or None)] of one workflow, up to and including its newest
     run that deployed. Dry runs leave no live ledger and are skipped."""
@@ -134,8 +144,10 @@ def scan(api, key, limit):
         found = [art for art in api.artifacts(run_id) if art.get("name") == f"{prefix}-{run_id}"]
         if not found:
             if run.get("conclusion") in ("failure", "cancelled", "timed_out") and live_job_started(api, run_id):
+                reject_rerun(run, workflow)
                 records.append((run, None))
             continue
+        reject_rerun(run, workflow)
         art = found[0]
         if art.get("expired") or art.get("size_in_bytes", 0) > MAX_ARTIFACT_BYTES:
             raise LiveError(f"{workflow} run {run_id}: its live ledger is expired or too large to read")
@@ -258,10 +270,13 @@ def system_facts(ledger, when, label, events, incidents):
             events.append((when, name, value, label))
         elif state == "failed":
             fail_gate = fail_gate_of(lines)
-            changed = any(isinstance(line, str) and line.startswith(("RT_SWAP", "RT_REVERT", "RT_OUTCOME=")) for line in lines)
+            # RT_OUTCOME=failed is what the ERP document prints on every stop(), also at its inputs and check
+            # gates, so only held and deployed count as a change here.
+            changed = any(isinstance(line, str) and line.startswith(("RT_SWAP", "RT_REVERT", "RT_OUTCOME=held", "RT_OUTCOME=deployed")) for line in lines)
             gates = gate_names(step.get("gates") or [])
-            if not lines and step.get("ssmStatus") is None:
-                safe = True  # the document was never sent
+            reason = (ledger.get("failure") or {}).get("reason")
+            if not lines and step.get("ssmStatus") is None and isinstance(reason, str) and any(reason.startswith(f"{name}: {text}") for text in PRE_SEND):
+                safe = True  # ssm-run.sh stopped before it sent the document
             else:
                 safe = untouched(name, gates, changed, {"gate": fail_gate} if fail_gate else None)
             incidents.append((when, (name,), label, not safe, f"failed at its {name} step"))
