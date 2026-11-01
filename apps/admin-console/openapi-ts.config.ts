@@ -427,6 +427,17 @@ export const OPENAPI_SOURCE_SPECS: readonly OpenApiSourceSpec[] = [
     name: "PlatformSupportSessions",
     path: "services/backend-core/packages/contracts/openapi/platform-support-sessions.openapi.yaml",
   },
+  // Tenant branding (RT-473 S1 contract #761, S2 runtime #204; RT-474): the
+  // Console logo read, preview, save and remove. The POS read in the same
+  // document (`posGetTenantBranding`) is not wrapped here. Consume-only; no
+  // YAML authored here. NEW SOURCE at the release pin (2026-11-01): composed at
+  // 3fe42b6, the commit of `backend-core/v0.3.3`, the same commit RT-807 (#205)
+  // re-pins to with `pnpm generate:client --repin 3fe42b6...`. The other 27
+  // sources match that re-pin.
+  {
+    name: "TenantBranding",
+    path: "services/backend-core/packages/contracts/openapi/tenant-branding.openapi.yaml",
+  },
 ];
 
 /** Upstream source paths (kept for back-compat / documentation references). */

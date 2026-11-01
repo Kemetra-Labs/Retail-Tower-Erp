@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 6e41450553c87ac44884bb0c6d189fd54599020e
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 3fe42b6020016ece1852553a9d63f63007bcba69
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -32,6 +32,7 @@
 // - services/backend-core/packages/contracts/openapi/catalog/console-catalog.yaml
 // - services/backend-core/packages/contracts/openapi/ai-entitlements.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/platform-support-sessions.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/tenant-branding.openapi.yaml
 //
 // The upstream OpenAPI files are separate documents with overlapping component
 // names, so this file namespaces each generated source and composes their path
@@ -48,7 +49,10 @@ export namespace AuthSchema {
             };
             get?: never;
             put?: never;
-            /** Sign in with email and password. */
+            /**
+             * Sign in with email and password.
+             * @description RT-937 (owner decision D-A). A user with an ACTIVE external identity link signs in with the password held by the identity provider, verified on the server; the request and response shapes and the session cookie are unchanged. The local password of such a user never signs in, and the refusal is the same generic 401 as a wrong password. A user with no active link keeps native sign-in until migrated.
+             */
             post: operations["signIn"];
             delete?: never;
             options?: never;
@@ -67,6 +71,26 @@ export namespace AuthSchema {
             put?: never;
             /** Sign out the current session. */
             post: operations["signOut"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/auth/password/change": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Change the signed-in user's password (knows the current one).
+             * @description RT-937 (owner decision D-A, D-C). Cookie session only. Replaces the password at the identity provider (current + new), then revokes the user's OTHER sessions; the calling session stays signed in. Only a user with an ACTIVE external identity link can change a password here (409 otherwise). The provider defines the password policy. A wrong current password, a rejected new password and an unverifiable provider answer are ONE generic 400 and cannot be told apart. Failed attempts are counted per user (5 per 15 minutes); a success does not count. That per-user budget answers 429 with a `Retry-After` header only; the console rate limit answers the full `TooManyRequests` response below.
+             */
+            post: operations["changePassword"];
             delete?: never;
             options?: never;
             head?: never;
@@ -168,6 +192,12 @@ export namespace AuthSchema {
                 /** @description At most 1024 Unicode code points (RT-153), the same maximum as `new_password`. Verified as sent: no trimming and no Unicode normalization. */
                 password: string;
             };
+            PasswordChangeRequest: {
+                /** @description Verified as sent, with no trimming and no Unicode normalization. */
+                current_password: string;
+                /** @description At most 1024 Unicode code points (RT-153). The identity provider defines the password policy; a rejected value is the generic 400. */
+                new_password: string;
+            };
             SignInResponse: {
                 user?: components["schemas"]["UserSummary"];
                 /** @description Memberships available to this user. The dashboard uses this list to drive the active-tenant chooser when the user has more than one. */
@@ -197,12 +227,29 @@ export namespace AuthSchema {
                 };
             };
         };
-        responses: never;
+        responses: {
+            /** @description 429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. The body is the canonical error envelope with a non-disclosing message (no budget, class or window); its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`; never auto-retry a mutation. A 429 is not a 401: it never means the session ended. The console limit is server-configured and may not be enforced, so a client must handle a 429 but must not expect one. */
+            TooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    /** @description The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a well-formed UUID, otherwise a server-minted one. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
         parameters: never;
         requestBodies: never;
         headers: {
             /** @description Whole seconds the caller should wait before retrying, sent on every public-auth 429 (RT-623). Rounded up from the bucket's remaining window and clamped to 1 to 3600. */
             PublicAuthRetryAfter: number;
+            /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600. */
+            ConsoleRetryAfter: number;
         };
         pathItems: never;
     }
@@ -260,6 +307,15 @@ export namespace AuthSchema {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
+                /** @description The identity provider (or the public-auth rate limiter) is unavailable. An outage is never reported as a wrong password. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
             };
         };
         signOut: {
@@ -289,6 +345,74 @@ export namespace AuthSchema {
                 };
                 /** @description `origin_rejected` (RT-430): the request is authenticated by the `dp2_session` cookie and its `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`. */
                 403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        changePassword: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PasswordChangeRequest"];
+                };
+            };
+            responses: {
+                /** @description Password changed; the user's other sessions are revoked. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description `validation_error` (malformed body), or the generic refusal (wrong current password, rejected new password). */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not authenticated, or a non-session credential. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description `origin_rejected` (RT-430): the request is authenticated by the `dp2_session` cookie and its `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The account has no active external identity link, so it has no password to change here. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                429: components["responses"]["TooManyRequests"];
+                /** @description The identity provider (or the rate limiter) is unavailable. */
+                503: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -1615,7 +1739,18 @@ export namespace MembershipsSchema {
             };
             get?: never;
             put?: never;
-            /** Accept a pending invitation. Public — accept token authenticates the request. */
+            /**
+             * Accept a pending invitation (public; the accept token authenticates the request).
+             * @description RT-937 (owner decisions D-D and D-B). The single-use token sent to the invitee by email is the credential. Tenant, role and stores come from the invitation, never from the request.
+             *
+             *     An EXISTING user gains the membership only: no session is created and no cookie is set, so an invite token alone never signs anyone in to an existing account.
+             *
+             *     A NEW user (`password` required) is created at the identity provider with a verified email and an ACTIVE password, then the user, its identity link and the membership are written together, and a session cookie is set for that new user only. There is no local password. The identity provider defines the password policy.
+             *
+             *     A used, expired, revoked or unknown token is the same opaque 400, with no side effect. A retry after a partial failure converges on one identity.
+             *
+             *     The request bounds (token, password and display name lengths) are enforced by the server and are deliberately not declared as schema bounds: setting a bound is a breaking change for consumers that pin this contract, and this operation was contract-only until RT-937.
+             */
             post: operations["acceptInvitation"];
             delete?: never;
             options?: never;
@@ -1700,6 +1835,8 @@ export namespace MembershipsSchema {
         parameters: never;
         requestBodies: never;
         headers: {
+            /** @description Whole seconds the caller should wait before retrying, sent on every public-route 429 (RT-623). Rounded up from the bucket's remaining window and clamped to 1 to 3600. */
+            PublicAuthRetryAfter: number;
             /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600; it is not the POS `RetryAfter` header. */
             ConsoleRetryAfter: number;
         };
@@ -1863,30 +2000,72 @@ export namespace MembershipsSchema {
             requestBody: {
                 content: {
                     "application/json": {
-                        /** @description Single-use token sent to the invitee by email. */
+                        /** @description Single-use token sent to the invitee by email. The server refuses an empty value and one over 1024 characters. */
                         token: string;
-                        /** @description Required if the invitee is not yet a registered user. */
+                        /** @description Required if the invitee has no account yet; ignored for an existing user. The server refuses an empty value and one over 1024 Unicode code points (RT-153). The identity provider defines the rest of the password policy. */
                         password?: string;
+                        /** @description Optional. The server refuses a blank value and one over 200 characters. */
                         display_name?: string;
                     };
                 };
             };
             responses: {
-                /** @description Membership created and a session is established for the user. */
+                /** @description Membership created. For a NEW user the response sets the HttpOnly session cookie; for an existing user it sets none. */
                 200: {
                     headers: {
+                        /** @description HttpOnly; Secure; SameSite=Lax session cookie, NEW users only. */
+                        "Set-Cookie"?: string;
                         [name: string]: unknown;
                     };
                     content: {
                         "application/json": components["schemas"]["Membership"];
                     };
                 };
-                /** @description Invalid or expired token. */
+                /** @description `validation_error` (malformed body, or a missing password for a new user), the opaque invalid or expired token, or a password the identity provider does not accept. */
                 400: {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description `origin_rejected` (RT-430): the `Origin` header is present and is neither the API's own origin nor listed in `ALLOWED_ORIGINS`. A request with no `Origin` is admitted. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description An account already exists that the invitee cannot prove they own (the email, or the identity link, is taken). Nothing is written. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Rate-limited per IP. `Retry-After` gives the whole seconds until the limiting bucket resets, 1 to 3600. */
+                429: {
+                    headers: {
+                        "Retry-After": components["headers"]["PublicAuthRetryAfter"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The identity provider, or the rate limiter, is unavailable, or account provisioning is not configured. Nothing is written. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
                 };
             };
         };
@@ -14389,6 +14568,554 @@ export namespace PlatformSupportSessionsSchema {
     }
 }
 
-export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & PlatformSupportSessionsSchema.paths;
-export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & PlatformSupportSessionsSchema.components;
-export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & PlatformSupportSessionsSchema.operations;
+export namespace TenantBrandingSchema {
+    export interface paths {
+        "/api/pos/v1/tenant/branding": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Read the paired terminal's tenant branding.
+             * @description Returns the tenant display name and, when a logo is stored, its version, presentation, warnings, 8 screen renditions and the receipt rendition. "No logo" is `200` with `logo: null`, never `404`. Send `If-None-Match` with the last `ETag`; an unchanged branding returns `304` with no body. A POS whose cache failed validation MUST omit `If-None-Match` (spec 039 FR-35a). No query parameters are accepted.
+             */
+            get: operations["posGetTenantBranding"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/tenants/{tenant_id}/logo": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The tenant whose logo is addressed. Checked against the session's membership and role; a wrong role or another tenant gets `404`. */
+                    tenant_id: components["parameters"]["TenantId"];
+                };
+                cookie?: never;
+            };
+            /**
+             * Read the tenant's current logo.
+             * @description Same shape as the POS read, so the Console preview is the POS truth. Roles `owner` / `tenant_admin`.
+             */
+            get: operations["consoleGetTenantLogo"];
+            /**
+             * Save or replace the tenant logo.
+             * @description Runs under a per-tenant transaction lock (a `pg_advisory_xact_lock` that every logo write takes; RT-473 S2), so two first uploads at revision `0` cannot both pass. Order of checks, each stopping the call: (1) re-run the full pipeline on the body (`422` on failure); (2) the computed version must equal `preview_version` (`409 logo_preview_mismatch`); (3) idempotent replay — the stored version already equals the computed version → `200`, no audit; (4) `expected_revision` mismatch → `409 logo_changed_concurrently`; (5) upsert master and renditions, increment `revision` and write `tenant.logo.replaced`, in one transaction. A replay never skips body validation.
+             */
+            put: operations["consolePutTenantLogo"];
+            post?: never;
+            /**
+             * Remove the tenant logo.
+             * @description Runs under the same per-tenant transaction lock. Order of checks: (1) no logo stored → `200` with the current branding, no audit; (2) `expected_revision` mismatch → `409 logo_changed_concurrently`; (3) delete the record and its renditions, increment `revision`, write `tenant.logo.removed` and return the branding with `logo: null` and the new `revision`, so the Console can chain its next write. The POS then falls back to the tenant name.
+             */
+            delete: operations["consoleDeleteTenantLogo"];
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/tenants/{tenant_id}/logo/preview": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The tenant whose logo is addressed. Checked against the session's membership and role; a wrong role or another tenant gets `404`. */
+                    tenant_id: components["parameters"]["TenantId"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Validate and render a logo without storing it.
+             * @description Validates, normalizes and renders the upload. Stores nothing and writes no audit event. The returned `version` is what `consolePutTenantLogo` must echo as `preview_version`.
+             */
+            post: operations["consolePreviewTenantLogo"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            /** @description Lowercase hex SHA-256 over the master PNG, the pipeline version and the canonical rendition configuration (spec 039 FR-13). The client cache key. */
+            LogoVersion: string;
+            /**
+             * @description Closed set; never blocks saving (spec 039 contracts §6). `low_contrast`: fewer than 50% of ink pixels reach 3:1 against `#ffffff` (also forces `presentation.card`). `receipt_high_black_coverage`: more than 35% black on the receipt rendition. `receipt_thin_strokes`: more than 10% of black pixels belong to no fully black 2 × 2 block.
+             * @enum {string}
+             */
+            LogoWarning: "low_contrast" | "receipt_high_black_coverage" | "receipt_thin_strokes";
+            Presentation: {
+                /** @description `true` → show the logo on a white rounded card (opaque background or `low_contrast`). */
+                card: boolean;
+            };
+            /** @description Base64 of a server re-encoded PNG with no metadata chunks. */
+            PngBase64: string;
+            /** @description One screen rendition: 8-bit RGBA, sRGB, `contain`-fitted inside the slot box × scale (the boxes are server configuration from the approved references, OD-7) and never upscaled beyond the master. */
+            ScreenRendition: {
+                /** @enum {string} */
+                slot: "boot" | "pairing" | "sign_in" | "lock";
+                /** @enum {integer} */
+                scale: 1 | 2;
+                width_px: number;
+                height_px: number;
+                png_base64: components["schemas"]["PngBase64"];
+            };
+            /** @description The 1-bit grayscale receipt PNG (black on white, no alpha), at most 48 × 15 mm at `dpi`. The POS prints it at `width_px / dpi × 25.4` mm so the driver does not rescale it. The bounds below are 48 × 15 mm at the 600 dpi ceiling; the per-dpi bound, `width_px ≤ floor(48 / 25.4 × dpi)` and `height_px ≤ floor(15 / 25.4 × dpi)`, is cross-field arithmetic JSON Schema cannot express, so it is a server invariant asserted by the RT-473 S2 runtime tests. */
+            ReceiptRendition: {
+                width_px: number;
+                height_px: number;
+                /** @description The bench-measured printer dpi (OD-8), server configuration. */
+                dpi: number;
+                png_base64: components["schemas"]["PngBase64"];
+            };
+            /** @description Exactly one rendition per (`slot`, `scale`) pair. Each of the 8 pairs must be present (`contains`), and with at most 8 items no pair can repeat. */
+            ScreenRenditionSet: components["schemas"]["ScreenRendition"][] & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
+            LogoPreview: {
+                version: components["schemas"]["LogoVersion"];
+                presentation: components["schemas"]["Presentation"];
+                warnings: components["schemas"]["LogoWarning"][];
+                screen: components["schemas"]["ScreenRenditionSet"];
+                receipt: components["schemas"]["ReceiptRendition"];
+            };
+            TenantLogo: {
+                version: components["schemas"]["LogoVersion"];
+                presentation: components["schemas"]["Presentation"];
+                warnings: components["schemas"]["LogoWarning"][];
+                screen: components["schemas"]["ScreenRenditionSet"];
+                receipt: components["schemas"]["ReceiptRendition"];
+                /**
+                 * Format: date-time
+                 * @description When this version was saved.
+                 */
+                updated_at: string;
+            };
+            TenantBranding: {
+                /** @description Per-tenant monotonic write counter (spec 039 FR-14a). `0` = never written. Never repeats, including across removal. The Console echoes it as `expected_revision`. */
+                revision: number;
+                /** @description `tenants.name` (OD-10). Always present, so the POS fallback text always exists. */
+                tenant_display_name: string;
+                /** @description `null` = no logo stored; a normal state, not an error. */
+                logo: components["schemas"]["TenantLogo"] | null;
+            };
+            /** @description The save result. A save always leaves a logo stored. */
+            TenantBrandingSaved: components["schemas"]["TenantBranding"] & {
+                logo?: components["schemas"]["TenantLogo"];
+            };
+            /** @description The removal result. A removal always leaves no logo. */
+            TenantBrandingRemoved: components["schemas"]["TenantBranding"] & {
+                logo?: null;
+            };
+            /**
+             * @description The closed `422` set (spec 039 contracts §5).
+             * @enum {string}
+             */
+            LogoRejectionCode: "file_type_not_allowed" | "image_malformed" | "image_dimensions_too_large" | "image_too_small" | "aspect_ratio_out_of_range" | "image_empty" | "svg_unsafe_content" | "svg_unsupported";
+            /**
+             * @description The category of the refused SVG construct (FR-07). `embedded_content` covers `<iframe>`, `<embed>` and `<object>`. No excerpt of the file is echoed back.
+             * @enum {string}
+             */
+            SvgUnsafeConstruct: "script" | "event_handler" | "external_reference" | "foreign_object" | "embedded_content" | "entity" | "image_element" | "css_import";
+            /** @description Canonical error envelope. Refusals are non-disclosing across tenants (§II/§XII). */
+            Error: {
+                error: {
+                    /**
+                     * @description Stable machine-readable code, closed on this surface. The `422` codes use `LogoRejectedError`. `unauthorized` and `internal_error` are the global exception filter's generic 401 and 500 codes.
+                     * @enum {string}
+                     */
+                    code: "validation_error" | "unauthorized" | "origin_rejected" | "not_found" | "logo_preview_mismatch" | "logo_changed_concurrently" | "file_too_large" | "internal_error";
+                    /** @description Human-readable summary. Never echoes file content. */
+                    message: string;
+                    /** Format: uuid */
+                    request_id: string;
+                    /** @description Present only with `validation_error`: the validation issues the global exception filter serialises (one object per issue). */
+                    details?: Record<string, never>[];
+                };
+            };
+            /** @description The console 429 envelope (RT-620). Same shape as `Error`, whose closed code set does not include the console rate limit's `rate_limited`. */
+            RateLimitedError: {
+                error: {
+                    /** @enum {string} */
+                    code: "rate_limited";
+                    /** @description Non-disclosing summary (no budget, class or window). */
+                    message: string;
+                    /** Format: uuid */
+                    request_id: string;
+                };
+            };
+            LogoRejectedError: {
+                error: {
+                    code: components["schemas"]["LogoRejectionCode"];
+                    message: string;
+                    /** Format: uuid */
+                    request_id: string;
+                    /** @description Present only for `svg_unsafe_content`. */
+                    details?: {
+                        construct: components["schemas"]["SvgUnsafeConstruct"];
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description `validation_error` — a malformed `tenant_id`, a missing, malformed or unknown query parameter, a bad `If-None-Match`, or an empty body. */
+            ValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"] & {
+                        error?: {
+                            /** @constant */
+                            code?: "validation_error";
+                        };
+                    };
+                };
+            };
+            /** @description Generic, non-disclosing refusal for a missing / invalid / revoked device token or a non-device credential. */
+            DeviceUnauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"] & {
+                        error?: {
+                            /** @constant */
+                            code?: "unauthorized";
+                        };
+                    };
+                };
+            };
+            /** @description No human dashboard session: a bearer-only request (`dashboard_api` included) is refused here (`SessionOnlyAdminGuard`). With a valid session cookie, an extra `Authorization` header changes nothing. */
+            Unauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"] & {
+                        error?: {
+                            /** @constant */
+                            code?: "unauthorized";
+                        };
+                    };
+                };
+            };
+            /** @description `origin_rejected` (RT-430): the request is authenticated by the `dp2_session` cookie and its `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`. */
+            OriginRejected: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"] & {
+                        error?: {
+                            /** @constant */
+                            code?: "origin_rejected";
+                        };
+                    };
+                };
+            };
+            /** @description `not_found` — unknown tenant, another tenant, or a role other than `owner` / `tenant_admin`. Identical in all cases (§II/§XII). */
+            NotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"] & {
+                        error?: {
+                            /** @constant */
+                            code?: "not_found";
+                        };
+                    };
+                };
+            };
+            /** @description `logo_preview_mismatch` — the body no longer produces `preview_version`. `logo_changed_concurrently` — the tenant `revision` no longer matches `expected_revision` (OD-15). Nothing is changed. */
+            Conflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"] & {
+                        error?: {
+                            /** @enum {unknown} */
+                            code?: "logo_preview_mismatch" | "logo_changed_concurrently";
+                        };
+                    };
+                };
+            };
+            /** @description `logo_changed_concurrently` — the tenant `revision` no longer matches `expected_revision` (OD-15). Nothing is changed. The removal's only 409. */
+            RevisionConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"] & {
+                        error?: {
+                            /** @constant */
+                            code?: "logo_changed_concurrently";
+                        };
+                    };
+                };
+            };
+            /** @description `file_too_large` — the body is over 1 MiB; refused before parsing. */
+            FileTooLarge: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"] & {
+                        error?: {
+                            /** @constant */
+                            code?: "file_too_large";
+                        };
+                    };
+                };
+            };
+            /** @description The upload failed image or content validation. `error.code` is one `LogoRejectionCode`; `details.construct` is present only for `svg_unsafe_content`. */
+            LogoRejected: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LogoRejectedError"];
+                };
+            };
+            /** @description `internal_error` — an unexpected server error, recorded server-side by `request_id` and never returned. */
+            SystemFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"] & {
+                        error?: {
+                            /** @constant */
+                            code?: "internal_error";
+                        };
+                    };
+                };
+            };
+            /** @description 429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. The body is the canonical error envelope with a non-disclosing message (no budget, class or window); its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`; never auto-retry a mutation. A 429 is not a 401: it never means the session ended. The console limit is server-configured and may not be enforced, so a client must handle a 429 but must not expect one. On `consolePreviewTenantLogo` and `consolePutTenantLogo` the same 429 also means the server's SVG renderer is at capacity (RT-473 S2); retry after `Retry-After`. */
+            TooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    /** @description The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a well-formed UUID, otherwise a server-minted one. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RateLimitedError"];
+                };
+            };
+        };
+        parameters: {
+            /** @description The tenant whose logo is addressed. Checked against the session's membership and role; a wrong role or another tenant gets `404`. */
+            TenantId: string;
+            /** @description The last `ETag` received. Omitted after a cache-validation failure. */
+            IfNoneMatch: string;
+            /** @description The `version` returned by `consolePreviewTenantLogo` for these bytes. */
+            PreviewVersion: components["schemas"]["LogoVersion"];
+            /** @description The tenant branding `revision` the admin saw (OD-15, FR-14a). Checked after the idempotent replay. */
+            ExpectedRevision: number;
+        };
+        requestBodies: {
+            /** @description The raw file bytes, at most 1 MiB, under any `Content-Type` (read as bytes). PNG or SVG, decided by magic bytes only; the declared content type and any file name are ignored. */
+            LogoFile: {
+                content: {
+                    "*/*": unknown;
+                };
+            };
+        };
+        headers: {
+            /** @description Strong ETag: the quoted lowercase hex SHA-256 of `UTF8(tenant_display_name) 0x00 ASCII(decimal revision)` (spec 039 FR-18). The revision changes on every write and re-render, so this covers the whole representation. The POS recomputes it to validate its cached name record (FR-35a). */
+            ETag: string;
+            /** @description Always `no-cache, private`; the POS revalidates every read. */
+            CacheControl: "no-cache, private";
+            /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600; it is not the POS `RetryAfter` header. */
+            ConsoleRetryAfter: number;
+        };
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        posGetTenantBranding: {
+            parameters: {
+                query?: never;
+                header?: {
+                    /** @description The last `ETag` received. Omitted after a cache-validation failure. */
+                    "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The tenant branding. */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        "Cache-Control": components["headers"]["CacheControl"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TenantBranding"];
+                    };
+                };
+                /** @description Unchanged since the `If-None-Match` ETag. No body. */
+                304: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        "Cache-Control": components["headers"]["CacheControl"];
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["DeviceUnauthorized"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleGetTenantLogo: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The tenant whose logo is addressed. Checked against the session's membership and role; a wrong role or another tenant gets `404`. */
+                    tenant_id: components["parameters"]["TenantId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The tenant branding. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TenantBranding"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consolePutTenantLogo: {
+            parameters: {
+                query: {
+                    /** @description The `version` returned by `consolePreviewTenantLogo` for these bytes. */
+                    preview_version: components["parameters"]["PreviewVersion"];
+                    /** @description The tenant branding `revision` the admin saw (OD-15, FR-14a). Checked after the idempotent replay. */
+                    expected_revision: components["parameters"]["ExpectedRevision"];
+                };
+                header?: never;
+                path: {
+                    /** @description The tenant whose logo is addressed. Checked against the session's membership and role; a wrong role or another tenant gets `404`. */
+                    tenant_id: components["parameters"]["TenantId"];
+                };
+                cookie?: never;
+            };
+            requestBody: components["requestBodies"]["LogoFile"];
+            responses: {
+                /** @description Saved (or an idempotent replay of the stored version). */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TenantBrandingSaved"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["FileTooLarge"];
+                422: components["responses"]["LogoRejected"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleDeleteTenantLogo: {
+            parameters: {
+                query: {
+                    /** @description The tenant branding `revision` the admin saw (OD-15, FR-14a). Checked after the idempotent replay. */
+                    expected_revision: components["parameters"]["ExpectedRevision"];
+                };
+                header?: never;
+                path: {
+                    /** @description The tenant whose logo is addressed. Checked against the session's membership and role; a wrong role or another tenant gets `404`. */
+                    tenant_id: components["parameters"]["TenantId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Removed (or no logo was stored); the updated branding. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TenantBrandingRemoved"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["RevisionConflict"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consolePreviewTenantLogo: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The tenant whose logo is addressed. Checked against the session's membership and role; a wrong role or another tenant gets `404`. */
+                    tenant_id: components["parameters"]["TenantId"];
+                };
+                cookie?: never;
+            };
+            requestBody: components["requestBodies"]["LogoFile"];
+            responses: {
+                /** @description The rendered preview. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LogoPreview"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["NotFound"];
+                413: components["responses"]["FileTooLarge"];
+                422: components["responses"]["LogoRejected"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+    }
+}
+
+export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths;
+export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components;
+export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations;
