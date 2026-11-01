@@ -59,7 +59,7 @@ import { LogoConflictError, TenantBrandingService, type WriteInput } from "./bra
 import { readLogoBody } from "./logo-body";
 import { SVG_RENDER_TIMEOUT_MS } from "./logo-config";
 import { LogoRejectedError, REJECTION_MESSAGES } from "./logo-refusal";
-import { RenderQueueFullError } from "./svg-rasterize";
+import { RenderQueueFullError } from "./render-queue";
 
 const NOT_FOUND = { code: "not_found", message: "Not Found" } as const;
 
@@ -145,7 +145,8 @@ function writer(request: TenantContextRequest, tenantId: string, expectedRevisio
 }
 
 /**
- * The SVG renderer is at capacity: the contract's retryable `429 rate_limited`
+ * The logo queue or the SVG renderer is at capacity (render-queue.ts): the
+ * contract's retryable `429 rate_limited`
  * (declared on every cookieAuth operation), with `Retry-After` and
  * `Cache-Control: no-store`; `X-Request-Id` is set for every request.
  */
