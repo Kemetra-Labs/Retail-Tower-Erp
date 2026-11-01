@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Memberships & Invitations API
-  version: "2.1.0-draft"
+  version: "2.2.0-draft"
   description: >
     Invite users into the active tenant; manage their role and store-access
     policy. Acceptance flow lives at /invitations/accept.
@@ -10,6 +10,13 @@ info:
     **2.1.0-draft (RT-620, additive).** Every cookieAuth operation may
     return 429 `rate_limited` (`TooManyRequests`, with `Retry-After`)
     from the console rate limit (RT-574, RT-619). No other wire change.
+
+
+    **2.2.0-draft (RT-1051, narrowing).** [GATED] owner authorization Jira
+    RT-1051 comments 15078 and 15080, 2026-11-01; zod GHSA-mrhx-c7xc-m3w5,
+    RT-1050. The invitation and `MembershipUpdate` `store_ids` gain
+    `maxItems: 100`. The server refuses a longer array with 400
+    `validation_error` before validating any element. No other wire change.
 servers:
   - url: https://api.example.com
 paths:
@@ -263,6 +270,7 @@ components:
           enum: [all, specific]
         store_ids:
           type: array
+          maxItems: 100
           description: Required when store_access_kind = 'specific'.
           items:
             type: string
@@ -287,6 +295,7 @@ components:
         store_access_kind: { type: string, enum: [all, specific] }
         store_ids:
           type: array
+          maxItems: 100
           items: { type: string, format: uuid }
     Membership:
       type: object

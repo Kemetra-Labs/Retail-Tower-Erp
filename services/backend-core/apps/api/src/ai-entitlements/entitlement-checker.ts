@@ -34,6 +34,7 @@ import { runWithTenantContext, settleAiReservation, type AiUsageTelemetry, type 
 import type { Pool, PoolClient } from "pg";
 import { z } from "zod";
 
+import { boundedArray } from "../common/bounded-array";
 import { resolveStoreScope } from "../context/store-scope";
 import type { ResolvedContext } from "../context/types";
 import { resolveFeature, type CatalogMeter, type FeatureResolution } from "./entitlement-resolution";
@@ -41,13 +42,19 @@ import { EntitlementRepository, NO_OPT_OUT } from "./entitlement.repository";
 import type { AiCheckDenyReason } from "./entitlement.types";
 import { UsageRepository, type CounterRef, type CounterState, type ReservedEntry } from "./usage.repository";
 
-export const AI_FEATURE_ID_PATTERN = /^ai\.[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/;
+/** RT-1051: `maxItems` of `targetStores`. */
+export const MAX_TARGET_STORES = 100;
+
+export const AI_FEATURE_ID_PATTERN =/^ai\.[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/;
 
 /** `AiEntitlementCheckInput` (x-internal). No tenant or principal: they come from the context. */
 export const AiEntitlementCheckInputSchema = z
   .object({
     featureId: z.string().min(4).max(64).regex(AI_FEATURE_ID_PATTERN),
-    targetStores: z.array(z.string().uuid()).refine((ids) => new Set(ids).size === ids.length, "unique"),
+    targetStores: boundedArray(
+      MAX_TARGET_STORES,
+      z.array(z.string().uuid()).refine((ids) => new Set(ids).size === ids.length, "unique"),
+    ),
     unitsEstimate: z.number().int().min(1).max(2_147_483_647),
     idempotencyKey: z.string().regex(/^[\x21-\x7E]{16,128}$/),
   })
