@@ -310,7 +310,8 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
     const start = b.indexOf('TGT_SLUG="');
     const defs = b.slice(start, b.indexOf("API_REF=", start));
     const guard = b.slice(b.indexOf('sed -E "s#$CUR_DIR_RE#'), b.indexOf('cp -p "$BACKEND_ENV" "$RUN_DIR/backend.env.next"'));
-    const run = (current: string, target: string): { status: number | null; out: string } => {
+    expectInOrder(b, ['TGT_SLUG="', "API_REF=", 'sed -E "s#$CUR_DIR_RE#', 'cp -p "$BACKEND_ENV" "$RUN_DIR/backend.env.next"']);
+    const run =(current: string, target: string): { status: number | null; out: string } => {
       const script = [
         "set -euo pipefail",
         'stop() { echo "STOP:$1"; exit 3; }',

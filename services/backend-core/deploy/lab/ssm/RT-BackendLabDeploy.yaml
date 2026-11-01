@@ -341,7 +341,8 @@ mainSteps:
           # The next wrapper and env differ only in the release directory, SENTRY_RELEASE and any image keys.
           sed -E "s#$CUR_DIR_RE#release-$TGT_SLUG\1#g" "$DC" > "$RUN_DIR/dc.next"
           grep -qE "$TGT_DIR_RE" "$RUN_DIR/dc.next" || stop "next-wrapper-not-built"
-          # A same-release redeploy (RT-1032) rewrites the directory to itself: the wrapper must then be unchanged.
+          # A same-release redeploy (RT-1032) rewrites the directory to itself, so the old-directory check
+          # cannot apply; the line above already requires the target directory. The cmp is a sanity check.
           if [ "$CUR_SLUG" = "$TGT_SLUG" ]; then
             cmp -s "$DC" "$RUN_DIR/dc.next" || stop "same-release-wrapper-changed"
           else
