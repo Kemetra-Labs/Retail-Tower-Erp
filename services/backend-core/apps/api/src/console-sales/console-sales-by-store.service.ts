@@ -167,6 +167,8 @@ export class ConsoleSalesByStoreService {
           compared ? baseline.to : null,
         ]);
         const storeRows = raw.rows.filter((r) => r.kind === "store");
+        // READ COMMITTED: a store created after the count is in this snapshot; never truncate it.
+        if (storeRows.length > BY_STORE_MAX_STORES) throw new ScopeTooLargeError();
         const facts = raw.rows.filter((r) => r.kind !== "store") as unknown as ByStoreFactRow[];
 
         const asOf = await this.readClock(client);
