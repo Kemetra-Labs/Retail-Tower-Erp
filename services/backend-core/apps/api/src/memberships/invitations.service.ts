@@ -12,7 +12,7 @@ import type { Pool, PoolClient } from "pg";
 import { generateRawToken, hashToken } from "@data-pulse-2/auth";
 import { newId } from "@data-pulse-2/shared";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { runWithTenantContext, type TenantContext } from "@data-pulse-2/db";
 
 import { PG_POOL } from "../auth/auth.module";
@@ -30,7 +30,7 @@ import {
   type EmailJobEnqueuer,
 } from "../auth/email-job.enqueuer";
 import type { ResolvedContext } from "../context/types";
-import { roles, type InvitationRow } from "@data-pulse-2/db/schema";
+import { roles, users, type InvitationRow } from "@data-pulse-2/db/schema";
 import type { MembershipDetail } from "../context/membership.repository";
 import type { InvitationCreateDto } from "./invitation.dto";
 import { InvitationsRepository } from "./invitations.repository";
@@ -124,8 +124,8 @@ export class InvitationsService {
     @Optional()
     @Inject(AuthService)
     private readonly sessionStarter?: SessionStarter,
-    // RT-1028: the role hierarchy for invite. Optional only so the
-    // pre-existing constructions keep working; invite fails closed (503)
+    // RT-1028: the role hierarchy for invite and accept. Optional only so
+    // the pre-existing constructions keep working; both fail closed (503)
     // without it.
     @Optional() private readonly hierarchy?: MembershipHierarchy,
   ) {
@@ -324,14 +324,15 @@ export class InvitationsService {
     }
 
     // Step 3: single mutation transaction under the invitation's tenant
-    const txContext: TenantContext = {
-      tenantId: invitation.tenantId,
-      isPlatformAdmin: true,
-    };
-
-    return this.tx(this.pool, txContext, (client) =>
-      this.grantMembership(client, invitation, user),
-    );
+    try {
+      return await this.tx(this.pool, grantTxCtx(invitation), async (client) => {
+        await this.assertGrantAllowed(client, invitation);
+        return this.grantMembership(client, invitation, user);
+      });
+    } catch (err: unknown) {
+      if (err instanceof MembershipChangeRefusedError) return this.refuseAccept(invitation, err);
+      throw err;
+    }
   }
 
   /**
@@ -350,6 +351,10 @@ export class InvitationsService {
    * from the invitation row, never from the request. A retry after a partial
    * failure (the provider user exists, the database write did not happen)
    * converges on the one identity.
+   *
+   * RT-1028 accept-time check: an invitation whose grant the hierarchy no
+   * longer allows (see `acceptRefusal`) is the same opaque 400 and writes one
+   * refusal audit row; nothing else is written.
    */
   async acceptInvitation(input: AcceptInvitationInput): Promise<AcceptInvitationResult> {
     const invitation = await this.lookupAndValidateAcceptToken(input.token);
@@ -376,6 +381,16 @@ export class InvitationsService {
       throw new BadRequestException(PASSWORD_REQUIRED);
     }
 
+    // RT-1028: refuse before the provider call, so a refused invitation
+    // normally creates no provider identity. The grant transaction checks
+    // again, first, under the inviter's lock; that one is authoritative. An
+    // inviter demoted between the two leaves a provider identity with no
+    // local user, which a later acceptance adopts (as for any partial failure).
+    const early = await this.tx(this.pool, grantTxCtx(invitation), (client) =>
+      this.acceptRefusal(client, invitation),
+    );
+    if (early) return this.refuseAccept(invitation, early);
+
     const email = invitation.email;
     const name = input.displayName?.trim() || (email.split("@")[0] ?? email);
     const subject = await this.provisionExternalIdentity(external, email, name, password);
@@ -383,8 +398,9 @@ export class InvitationsService {
     const userId = newId();
     const membership = await this.tx(
       this.pool,
-      { tenantId: invitation.tenantId, isPlatformAdmin: true },
+      grantTxCtx(invitation),
       async (client) => {
+        await this.assertGrantAllowed(client, invitation);
         try {
           await this.invitations.insertUser(client, { id: userId, email, displayName: name });
           await this.invitations.insertExternalIdentityLink(client, {
@@ -401,7 +417,10 @@ export class InvitationsService {
         }
         return this.grantMembership(client, invitation, { id: userId, email, displayName: name });
       },
-    );
+    ).catch((err: unknown) => {
+      if (err instanceof MembershipChangeRefusedError) return this.refuseAccept(invitation, err);
+      throw err;
+    });
 
     // After the commit: a session exists only for a user that now exists.
     const session = await sessionStarter.startSession(userId);
@@ -500,7 +519,8 @@ export class InvitationsService {
    * The grant, inside the caller's transaction: mark the invitation accepted
    * (conditional, race-safe), create the invited membership, and its store
    * access rows. Tenant, role and stores come from the invitation row only.
-   * Shared by the existing-user and the new-user paths (RT-937).
+   * Shared by the existing-user and the new-user paths (RT-937). Each caller
+   * runs `assertGrantAllowed` first in the same transaction (RT-1028).
    */
   private async grantMembership(
     client: PoolClient,
@@ -568,6 +588,105 @@ export class InvitationsService {
     };
   }
 
+  /**
+   * RT-1028 accept-time check (owner decision 2026-11-01, "Accept-time
+   * check"): the stored invitation's grant must still pass the invite rule
+   * (`invitationRefusal`) with the inviter as the actor, as the inviter is
+   * TODAY. So an owner invitation made by a tenant_admin, or one with
+   * 'specific' access (both possible before RT-1028 shipped), is refused.
+   * Per D2 only an active owner or tenant_admin manages memberships, so an
+   * inviter since revoked or demoted below tenant_admin, or a tenant that is
+   * no longer active, refuses every invitation of that inviter. A platform
+   * admin inviter (`users.is_platform_admin`, as at invite time) skips the
+   * actor check but not D5a. The inviter's membership is locked `FOR SHARE`
+   * first, so a concurrent demotion or revocation is read once committed.
+   */
+  private async acceptRefusal(
+    client: PoolClient,
+    invitation: InvitationRow,
+  ): Promise<MembershipChangeRefusedError | null> {
+    const hierarchy = this.requireHierarchy();
+    const inviterCtx: ResolvedContext = {
+      userId: invitation.invitedByUserId,
+      tenantId: invitation.tenantId,
+      storeId: null,
+      isPlatformAdmin: await isActivePlatformAdmin(client, invitation.invitedByUserId),
+      source: "session",
+    };
+    await hierarchy.lockActorMembership(client, inviterCtx);
+    const inviter = await hierarchy.actorFor(client, inviterCtx);
+    const roleCode = await getRoleCode(client, invitation.roleId, invitation.tenantId);
+    const grant = { roleCode, storeAccessKind: invitation.storeAccessKind };
+    const reason = invitationRefusal(inviter, grant);
+    if (!reason) return null;
+    return new MembershipChangeRefusedError({
+      operation: "invitation.accept",
+      reason,
+      targetMembershipId: null,
+      targetInvitationId: invitation.id,
+      targetRoleCode: null,
+      requestedRoleCode: roleCode,
+      requestedStoreAccessKind: invitation.storeAccessKind,
+    });
+  }
+
+  /**
+   * The authoritative accept-time check: the first statement of the grant
+   * transaction, before anything is written. A refusal is thrown, so the
+   * transaction rolls back and the caller passes it to `refuseAccept`.
+   */
+  private async assertGrantAllowed(client: PoolClient, invitation: InvitationRow): Promise<void> {
+    const refusal = await this.acceptRefusal(client, invitation);
+    if (refusal) throw refusal;
+  }
+
+  /**
+   * Audit a refused acceptance in its own transaction (the refused one, if
+   * any, has rolled back), then answer the opaque invalid-token 400: the
+   * accept route documents no other status for an invitation that can no
+   * longer be accepted, and the token holder learns nothing about roles.
+   * The row's actor is null: the caller holds only a token, not a session,
+   * so no account is named as having acted.
+   */
+  private async refuseAccept(
+    invitation: InvitationRow,
+    refusal: MembershipChangeRefusedError,
+  ): Promise<never> {
+    const auditCtx: ResolvedContext = {
+      userId: null,
+      tenantId: invitation.tenantId,
+      storeId: null,
+      isPlatformAdmin: false,
+      source: "token",
+    };
+    await auditRefusal(
+      (work) => this.tx(this.pool, grantTxCtx(invitation), work),
+      this.requireHierarchy(),
+      auditCtx,
+      refusal,
+    );
+    throw new BadRequestException(INVALID_INVITATION_ERROR);
+  }
+
+  private requireHierarchy(): MembershipHierarchy {
+    if (!this.hierarchy) throw new ServiceUnavailableException("Service Unavailable");
+    return this.hierarchy;
+  }
+}
+
+/** Accept writes run under the invitation's tenant (the invitee has no session). */
+function grantTxCtx(invitation: InvitationRow): TenantContext {
+  return { tenantId: invitation.tenantId, isPlatformAdmin: true };
+}
+
+/** `users.is_platform_admin` for a live user: the flag a session's context carries. */
+async function isActivePlatformAdmin(client: PoolClient, userId: string): Promise<boolean> {
+  const rows = await drizzle(client)
+    .select({ isPlatformAdmin: users.isPlatformAdmin })
+    .from(users)
+    .where(and(eq(users.id, userId), isNull(users.deletedAt)))
+    .limit(1);
+  return rows[0]?.isPlatformAdmin === true;
 }
 
 /**

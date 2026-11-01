@@ -63,6 +63,11 @@ import type { EmailJobEnqueuer } from "../../src/auth/email-job.enqueuer";
 import type { ExternalCredentialPort } from "../../src/auth/external-credential.port";
 import type { OperatorTokenVerifier } from "../../src/auth/operator-token-verifier";
 import type { InvitationRow, UserRow } from "@data-pulse-2/db/schema";
+import {
+  asHierarchy,
+  makeFakeHierarchy,
+  type FakeMembershipHierarchy,
+} from "../_helpers/fake-membership-hierarchy";
 import { newId } from "@data-pulse-2/shared";
 
 const mockNewId = newId as jest.MockedFunction<typeof newId>;
@@ -143,8 +148,10 @@ function build(opts: {
   repo?: ReturnType<typeof fakeRepo>;
   port?: ReturnType<typeof fakePort>;
   verifiedSub?: string | Error;
+  hierarchy?: FakeMembershipHierarchy;
 }) {
   const repo = opts.repo ?? fakeRepo({ user: null });
+  const hierarchy = opts.hierarchy ?? makeFakeHierarchy();
   const port = opts.port ?? fakePort();
   const verifier: OperatorTokenVerifier = {
     verify: jest.fn().mockImplementation(() =>
@@ -172,8 +179,9 @@ function build(opts: {
     port,
     verifier,
     sessions,
+    asHierarchy(hierarchy),
   );
-  return { service, repo, port, verifier, sessions, tx };
+  return { service, repo, port, verifier, sessions, tx, hierarchy };
 }
 
 beforeEach(() => {
@@ -380,5 +388,121 @@ describe("acceptInvitation — EXISTING user", () => {
     expect(repo.insertUser).not.toHaveBeenCalled();
     expect(repo.insertExternalIdentityLink).not.toHaveBeenCalled();
     expect(writes).toEqual(["markAccepted", "createMembership", "insertStoreAccessRows"]);
+  });
+});
+
+// RT-1028 accept-time check: the stored grant is re-checked against the
+// hierarchy with the inviter, as it is today, as the actor.
+describe("acceptInvitation — RT-1028 accept-time hierarchy check", () => {
+  const OPAQUE = "Invalid or expired invitation token";
+
+  it("A1: NEW user, owner invitation by a (now) tenant_admin → opaque 400 before any provider call or write; one audit row", async () => {
+    _roleCodeRows = [{ code: "owner" }];
+    const hierarchy = makeFakeHierarchy({ actorRole: "tenant_admin" });
+    const repo = fakeRepo({ user: null, invitation: invitation({ storeAccessKind: "all", invitedStoreIds: [] }) });
+    const { service, port, sessions } = build({ repo, hierarchy });
+
+    const error = await service.acceptInvitation(accept).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(BadRequestException);
+    expect((error as BadRequestException).message).toBe(OPAQUE);
+    expect(port.createUser).not.toHaveBeenCalled();
+    expect(port.loadUser).not.toHaveBeenCalled();
+    expect(sessions.startSession).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
+    expect(hierarchy.recordRefusal).toHaveBeenCalledTimes(1);
+    const [, auditCtx, audit] = hierarchy.recordRefusal.mock.calls[0]!;
+    expect(audit).toEqual({
+      operation: "invitation.accept",
+      reason: "owner_managed_by_owner_only",
+      targetMembershipId: null,
+      targetInvitationId: INVITATION_ID,
+      targetRoleCode: null,
+      requestedRoleCode: "owner",
+      requestedStoreAccessKind: "all",
+    });
+    expect(auditCtx).toMatchObject({ userId: null, tenantId: TENANT_ID, isPlatformAdmin: false });
+    expect(JSON.stringify(audit)).not.toContain(EMAIL);
+  });
+
+  it("A2: the in-transaction check is authoritative and runs first: a refusal there writes no user, no grant, no session, one audit row", async () => {
+    const hierarchy = makeFakeHierarchy();
+    // Pre-check sees the inviter as owner; by the grant it has been demoted.
+    hierarchy.actorFor
+      .mockImplementationOnce(async (_c, ctx) => ({ userId: ctx.userId, roleCode: "owner", isPlatformAdmin: false }))
+      .mockImplementation(async (_c, ctx) => ({ userId: ctx.userId, roleCode: "store_manager", isPlatformAdmin: false }));
+    const { service, repo, port, sessions } = build({ hierarchy });
+
+    const error = await service.acceptInvitation(accept).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(BadRequestException);
+    expect((error as BadRequestException).message).toBe(OPAQUE);
+    // The race window: the provider identity was created before the demotion
+    // was seen (a later acceptance adopts it); nothing local is written.
+    expect(port.createUser).toHaveBeenCalledTimes(1);
+    expect(repo.insertUser).not.toHaveBeenCalled();
+    expect(repo.insertExternalIdentityLink).not.toHaveBeenCalled();
+    expect(repo.markAccepted).not.toHaveBeenCalled();
+    expect(repo.createMembership).not.toHaveBeenCalled();
+    expect(sessions.startSession).not.toHaveBeenCalled();
+    expect(hierarchy.recordRefusal).toHaveBeenCalledTimes(1);
+    expect(hierarchy.recordRefusal.mock.calls[0]![2].reason).toBe("actor_not_authorized");
+    // The inviter's membership is locked before its role is read, in both checks.
+    expect(hierarchy.lockActorMembership).toHaveBeenCalledTimes(2);
+    expect(hierarchy.lockActorMembership.mock.calls[1]![1]).toMatchObject({
+      userId: invitation().invitedByUserId,
+      tenantId: TENANT_ID,
+    });
+  });
+
+  it("A3: EXISTING user, owner invitation with 'specific' access → opaque 400, no write; no account named as the actor", async () => {
+    _roleCodeRows = [{ code: "owner" }];
+    const hierarchy = makeFakeHierarchy({ actorRole: "owner" });
+    const repo = fakeRepo({ user: existingUser() });
+    const { service, port } = build({ repo, hierarchy });
+
+    const error = await service.acceptInvitation(accept).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(BadRequestException);
+    expect((error as BadRequestException).message).toBe(OPAQUE);
+    expect(port.createUser).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
+    expect(hierarchy.recordRefusal).toHaveBeenCalledTimes(1);
+    const [, auditCtx, audit] = hierarchy.recordRefusal.mock.calls[0]!;
+    expect(audit.reason).toBe("owner_requires_all_stores");
+    expect(auditCtx.userId).toBeNull();
+  });
+
+  it("A4: no hierarchy wired → 503 before any provider call (fails closed)", async () => {
+    const repo = fakeRepo({ user: null });
+    const port = fakePort();
+    const tx = jest.fn(
+      async (_pool: Pool, _ctx: unknown, work: (c: PoolClient) => Promise<unknown>): Promise<never> =>
+        (await work({} as PoolClient)) as never,
+    );
+    const service = new InvitationsService(
+      {} as Pool,
+      repo as unknown as InvitationsRepository,
+      { enqueueInvitation: jest.fn() } as unknown as EmailJobEnqueuer,
+      tx as never,
+      port,
+      { verify: jest.fn() } as unknown as OperatorTokenVerifier,
+      { startSession: jest.fn() },
+    );
+
+    await expect(service.acceptInvitation(accept)).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(port.createUser).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
+  });
+
+  it("A5: a valid invitation still passes both checks (store_manager by an active tenant_admin)", async () => {
+    const hierarchy = makeFakeHierarchy({ actorRole: "tenant_admin" });
+    const { service, sessions } = build({ hierarchy });
+
+    const result = await service.acceptInvitation(accept);
+
+    expect(result.session).not.toBeNull();
+    expect(sessions.startSession).toHaveBeenCalledTimes(1);
+    expect(hierarchy.recordRefusal).not.toHaveBeenCalled();
   });
 });
