@@ -10,6 +10,7 @@ import {
   OPERATOR_IPC_CHANNELS,
   SESSION_LOCK_IPC_CHANNELS,
 } from '../../../shared/operator/channels.js';
+import { BRANDING_IPC_CHANNELS } from '../../../shared/branding/types.js';
 import { PAIRING_IPC_CHANNELS } from '../../../shared/pairing-types.js';
 import { RETURNS_IPC_CHANNELS } from '../../../shared/returns/channels.js';
 
@@ -108,6 +109,8 @@ describe('RT-117 createSessionLockGuardedIpcMain', () => {
     OPERATOR_IPC_CHANNELS.TAKEOVER_CONFIRM,
     OPERATOR_IPC_CHANNELS.TAKEOVER_CANCEL,
     OPERATOR_IPC_CHANNELS.LIST_BRANCH_ROSTER,
+    // RT-475 — the lock screen shows the tenant logo.
+    BRANDING_IPC_CHANNELS.GET,
   ])('serves allowlisted %s while locked', async (channel) => {
     const fake = fakeIpcMain();
     const guarded = createSessionLockGuardedIpcMain(fake.ipcMain, () => true);
@@ -134,6 +137,8 @@ describe('RT-117 createSessionLockGuardedIpcMain', () => {
         OPERATOR_IPC_CHANNELS.TAKEOVER_CONFIRM,
         OPERATOR_IPC_CHANNELS.TAKEOVER_CANCEL,
         OPERATOR_IPC_CHANNELS.LIST_BRANCH_ROSTER,
+        // RT-475 — the tenant branding read (lock screen logo).
+        BRANDING_IPC_CHANNELS.GET,
       ].sort(),
     );
   });

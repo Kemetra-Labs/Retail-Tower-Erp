@@ -82,3 +82,8 @@
     color: CanvasText;
   }
 }
+
+/* RT-475 (RT-832 lock): the powered-by line, centred at the foot of the dialog. */
+.session-lock__powered-by {
+  padding-block: 12px;
+}

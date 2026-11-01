@@ -129,6 +129,7 @@ import { createWorkerRegistry } from './app/bootstrap-workers.js';
 import { createWindowFactory } from './app/bootstrap-window.js';
 import { createDatabaseHolder } from './app/bootstrap-db.js';
 import { resolveApiBaseUrl, resolveAuthExchanger, resolveMigrationsDir } from './bootstrap/env.js';
+import { registerBranding } from './bootstrap/branding.js';
 import { registerCatalogue } from './bootstrap/catalogue.js';
 import { registerReturns } from './bootstrap/returns.js';
 import { registerSaleVoid } from './bootstrap/sale-void.js';
@@ -1460,10 +1461,7 @@ singleInstanceReady
       }),
     });
 
-    // RT-893 extraction 3 — the `catalogue.*` IPC surface, the boot-pairing notification and the
-    // read-down driver's paired-only starter live in `bootstrap/catalogue.ts`, called at the same
-    // boot position. `bootPairing` is read again by the finalize listener's skipped-unpaired log.
-    const { bootPairing } = await registerCatalogue({
+    const deviceReadDownDeps = {
       guardedIpcMain,
       db,
       pairingStore,
@@ -1474,7 +1472,9 @@ singleInstanceReady
       backendFetch,
       deviceAuthDetector,
       readSendableDeviceToken,
-    });
+    };
+    const { bootPairing } = await registerCatalogue(deviceReadDownDeps);
+    registerBranding(deviceReadDownDeps);
 
     const paymentsSessionAdapter = (): OperatorSessionForPayments | null =>
       // #380 (F-007 FIXED) — stamp the REAL terminal_id from the pairing store,

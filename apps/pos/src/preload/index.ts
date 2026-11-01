@@ -13,6 +13,7 @@ import { saleVoid } from './sale-void.js';
 import { saleHistory } from './sale-history.js';
 import { createTerminalStatusBridge } from './terminal-status.js';
 import { createUpdateStatusBridge } from './update-status.js';
+import { createBrandingBridge } from './branding.js';
 import type {
   CancelTakeoverRequest,
   CancelTakeoverResponse,
@@ -233,6 +234,9 @@ const api: PreloadBridgeAPI = {
   // RT-886 — printer.* (list / get / set / testPrint): the receipt printer
   // choice. Main checks for a live session (any role) on every call.
   printer,
+  // RT-475 — branding.* (get + the push). Read-only; every payload is validated
+  // here (PNG data URIs only, no path or URL).
+  branding: createBrandingBridge(ipcRenderer),
 };
 
 contextBridge.exposeInMainWorld('api', api);
