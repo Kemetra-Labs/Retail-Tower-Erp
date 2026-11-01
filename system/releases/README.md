@@ -81,10 +81,10 @@ The planned ledger reports two rollback rules:
 ### 3. Dry run
 
 ```bash
-gh workflow run deploy-system-lab.yml --ref main -f manifest=system/releases/<file>.json -f current_manifest=system/releases/<file>.json -f jira_key=RT-<n> -f dry_run=true
+gh workflow run deploy-system-lab.yml --ref main -f manifest=system/releases/<target>.json -f current_manifest=system/releases/<live>.json -f jira_key=RT-<n> -f dry_run=true
 ```
 
-The artifact `deploy-system-lab-plan-<run id>` holds `ledger.json` and `summary.md`. Go on only when:
+`<target>` and `<live>` are the files from step 2; for a same-version run they are the same file. The artifact `deploy-system-lab-plan-<run id>` holds `ledger.json` and `summary.md`. Go on only when:
 - `outcome` is `planned`;
 - `refusals` is empty;
 - G1–G7 all pass (G1–G5 are the gate above; G6 is the ERP image attestation from `build-erp-image.yml`; G7 is the `aws-lab` required reviewer);
