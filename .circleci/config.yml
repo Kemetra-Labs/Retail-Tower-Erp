@@ -1,4 +1,5 @@
 # RT-920 (CI Modernization Execution Plan v2, Phase 3): advisory CircleCI lane.
+# RT-1059: the automatic advisory workflow is TEMPORARILY PAUSED (advisory_enabled=false below).
 #
 # NOT a gate. GitHub Actions and gate.yml stay the only CI of record: the gate trusts only
 # the GitHub Actions app (graph.yaml trusted_check_producer), so nothing here can make
@@ -35,17 +36,31 @@
 version: 2.1
 
 parameters:
+  # RT-1059: TEMPORARY PAUSE of the automatic advisory workflow (backend-api-jest and
+  # backend-api-jest-analysis) while CircleCI support case #151821496 investigates a
+  # false-negative in Smarter Testing TIA full-test-run-paths seen across PR #221 (RT-1047).
+  # Default false: ordinary push and PR pipelines schedule no advisory job. GitHub Actions stays
+  # the only gate, and the manual remote_suite, tia_probe and full_tia_analysis workflows are
+  # unchanged. To run advisory deliberately, set this true on a manual pipeline (on main this
+  # also schedules backend-api-jest-analysis, which spends credits).
+  # Re-enable (rollback): set the default to true, or revert the RT-1059 commit. A vendor reply
+  # is a review trigger only: resume after the owner approves, once the root cause and the
+  # selection safety are independently verified.
+  advisory_enabled:
+    type: boolean
+    default: false
   # RT-920 comment 14318 option 1: set true only on a manual pipeline on main (web app,
   # Trigger Pipeline, Add parameter) to finish the first impact analysis in one go. It runs
   # the tia-full-analysis workflow INSTEAD of advisory. false (every push and PR) leaves the
-  # lane exactly as it was.
+  # advisory workflow to its own advisory_enabled gate (RT-1059: paused by default).
   full_tia_analysis:
     type: boolean
     default: false
   # RT-920: set true only on a manual pipeline on main to run the tia-probe workflow INSTEAD of
   # advisory. It analyzes nothing: it prints which impact data the CLI finds and how many test
   # atoms are still new, so the data saved by an earlier analysis can be checked before any
-  # more credits go into analysis. false (every push and PR) leaves the lane as it was.
+  # more credits go into analysis. false (every push and PR) leaves advisory to its own
+  # advisory_enabled gate (RT-1059: paused by default).
   tia_probe:
     type: boolean
     default: false
@@ -55,7 +70,7 @@ parameters:
   # Backend-Core build, static checks and Docker-free tests (as bc/fast), admin the Admin Console
   # checks and unit tests (as admin/build-test), admin-e2e its Playwright suite (as admin/e2e),
   # pos the POS static checks and vitest suite (as pos/static and pos/test). none (every push and
-  # PR) leaves the lane as it was.
+  # PR) leaves advisory to its own advisory_enabled gate (RT-1059: paused by default).
   remote_suite:
     type: enum
     enum: [none, api, db-package, backend-fast, admin, admin-e2e, pos]
@@ -636,14 +651,17 @@ jobs:
           path: /tmp/test-reports
 
 workflows:
+  # RT-1059: paused by default, see the advisory_enabled parameter above.
   advisory:
     when:
-      not:
-        or:
-          - << pipeline.parameters.full_tia_analysis >>
-          - << pipeline.parameters.tia_probe >>
-          - not:
-              equal: [none, << pipeline.parameters.remote_suite >>]
+      and:
+        - << pipeline.parameters.advisory_enabled >>
+        - not:
+            or:
+              - << pipeline.parameters.full_tia_analysis >>
+              - << pipeline.parameters.tia_probe >>
+              - not:
+                  equal: [none, << pipeline.parameters.remote_suite >>]
     jobs:
       - backend-api-jest
       - backend-api-jest-analysis:
