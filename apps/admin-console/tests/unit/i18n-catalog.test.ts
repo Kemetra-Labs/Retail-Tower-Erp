@@ -18,9 +18,11 @@ const PLACEHOLDER = /\{(\w+)\}/g;
 /**
  * Latin terms that may stand inside Arabic copy: proper and machine terms
  * UX-12 keeps as-is (ERPNext, EGP, SKU, API, UTC, IDs) and the product name.
+ * RT-474: the file formats PNG and SVG and the size unit KB, as the owner-approved
+ * logo copy writes them.
  */
 const MACHINE_TERMS =
-  /\b(Retail Tower|ERPNext|Frappe|EGP|SKU|API|UTC|ID|IDs|request_id|Idempotency-Key|Connector|POS|Clerk)\b/g;
+  /\b(Retail Tower|ERPNext|Frappe|EGP|SKU|API|UTC|ID|IDs|request_id|Idempotency-Key|Connector|POS|Clerk|PNG|SVG|KB)\b/g;
 
 function branches(m: Message): string[] {
   return typeof m === "string" ? [m] : Object.values(m).filter((v): v is string => !!v);

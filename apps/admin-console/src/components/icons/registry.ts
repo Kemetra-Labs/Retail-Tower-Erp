@@ -49,6 +49,10 @@ export const ICON_REGISTRY = {
   sortAscending: { asset: "arrow_sort_up", mirror: "never", regular: [16] },
   sortDescending: { asset: "arrow_sort_down", mirror: "never", regular: [16] },
   sortable: { asset: "arrow_sort", mirror: "never", regular: [16] },
+  // RT-474: the logo page's warnings and refusals carry a shape, never colour
+  // alone. Same names and glyphs as the POS registry (D-263-9).
+  "status.warning": { asset: "warning", mirror: "never", regular: [16] },
+  "status.danger": { asset: "dismiss_circle", mirror: "never", regular: [16] },
   // Domain
   dashboard: { asset: "grid", mirror: "never", regular: [20] },
   sale: { asset: "receipt", mirror: "never", regular: [20] },
