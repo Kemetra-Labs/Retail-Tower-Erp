@@ -39,22 +39,49 @@ options:
   # there that breaks such a spec shows up as a miss in the shadow report.
   # RT-1047: the CLI expands each pattern from its working directory, apps/api, so ../../ is
   # services/backend-core and ../../../../ is the repo root; a pattern that matches no file is
-  # dropped (RT-1045). `testsuite run` prints the expanded file list. .circleci/ is *.yml plus
-  # scripts/, not **: the PR job's doctor leaves an untracked impact-doctor-*.json there while
+  # dropped (RT-1045). `testsuite run` prints the expanded file list. The CLI does not recurse:
+  # `**` matches only the files directly in its folder (CI job 4fe8a3d8), so each tree with
+  # subfolders is one `*` per level, one level deeper than its tracked files go today (flat
+  # folders and a package's own top-level files get one level); a file deeper than that, or
+  # in a new top-level folder of a package, is not covered until a level is added here.
+  # packages/ lists its tracked subtrees, never `packages/*/*/*`, which would also match the
+  # gitignored dist/ and node_modules/ the build leaves there. .circleci/ is *.yml plus
+  # scripts/: the PR job's doctor leaves an untracked impact-doctor-*.json there while
   # list-tests runs, and main's analysis never records it. Selection compares file hashes with
   # the impact data, and a full-run file with no stored hash counts as new and selects every
   # spec, so PRs select everything until a main analysis records these files' hashes.
   full-test-run-paths:
     - ../../../../.nvmrc
     - ../../../../.circleci/*.yml
-    - ../../../../.circleci/scripts/**
+    - ../../../../.circleci/scripts/*
     - ../../package.json
     - ../../pnpm-lock.yaml
     - ../../pnpm-workspace.yaml
     - ../../tsconfig*.json
     - jest.config.cjs
     - tsconfig*.json
-    - test/_helpers/**
-    - ../../packages/**
-    - ../../deploy/**
-    - ../../docs/**
+    - test/_helpers/*
+    - test/_helpers/*/*
+    - ../../packages/*/*
+    - ../../packages/*/src/*
+    - ../../packages/*/src/*/*
+    - ../../packages/*/src/*/*/*
+    - ../../packages/*/src/*/*/*/*
+    - ../../packages/*/__tests__/*
+    - ../../packages/*/__tests__/*/*
+    - ../../packages/*/__tests__/*/*/*
+    - ../../packages/*/__tests__/*/*/*/*
+    - ../../packages/contracts/openapi/*
+    - ../../packages/contracts/openapi/*/*
+    - ../../packages/contracts/openapi/*/*/*
+    - ../../packages/db/drizzle/*
+    - ../../packages/db/drizzle/*/*
+    - ../../deploy/*
+    - ../../deploy/*/*
+    - ../../deploy/*/*/*
+    - ../../deploy/*/*/*/*
+    - ../../docs/*
+    - ../../docs/*/*
+    - ../../docs/*/*/*
+    - ../../docs/*/*/*/*
+    - ../../docs/*/*/*/*/*
