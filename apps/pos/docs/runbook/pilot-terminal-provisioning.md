@@ -418,7 +418,62 @@ Never do these:
   forward (T525 (b)).
 - Hand-edit a User-scope variable to "quickly" re-enable a terminal.
 
-**Before you revoke, re-pair or move a terminal (RT-17 shift cash-up):** close the open shift first, then wait until **Pending** (قيد الانتظار, "waiting to send") on the manager's shift status screen reaches **0** and nothing is stuck. Shift facts (open, pay-in, pay-out, close) that were made under the old pairing stay on the terminal and are never sent after it is revoked or re-paired, so the shift would stay open in Backend-Core. Cashiers close their own shift: a count variance of any size is recorded against the closing cashier and does not need a manager (RT-17 decision 2026-10-07; a per-tenant limit is RT-236). If a terminal was revoked with a shift still open and the revocation was a mistake, restore the device in Backend-Core and press *تحقق مرة أخرى* ("Check again"): the same pairing resumes and the queue drains. After a real re-pair the old shift's facts cannot be sent.
+**Device lifecycle: revoke, replace, move, retire (RT-287, RT-374).** Backend-Core enforces
+the rules below; the Admin-Console Devices destination (RT-371, RT-372) shows what each
+action would do before you confirm it. The authority is the
+[devices contract](../../../../services/backend-core/packages/contracts/openapi/devices.openapi.yaml).
+Read the impact preview first: the server decides again when you confirm, and what it
+answers wins.
+
+**A revoke is never undone.** There is no un-revoke, no un-retire and no delete of a device
+(RT-287 D-Q5, D-Q2). **A mistaken revoke means re-pairing the terminal with a new pairing
+code, never "restoring" the device.** The old device keeps its sales, shifts and cash facts
+under its old identity.
+
+**Before you revoke, replace, move or retire an active terminal (RT-17 shift cash-up):**
+unless the terminal is lost, stolen or compromised (a security revoke) or the revoke is a
+`hardware_failure` recovery revoke, or you are replacing or moving a device that is
+already revoked (all in the table below, each leaves a custody exception on the old
+shift), close the open shift first, then wait until **Pending** (قيد الانتظار,
+"waiting to send") on the manager's shift status screen reaches **0** and nothing is
+stuck. Shift facts (open, pay-in,
+pay-out, close) that were made under the old pairing stay on the terminal and are never
+sent after it is revoked or re-paired, so the shift would stay open in Backend-Core.
+Cashiers close their own shift: a count variance of any size is recorded against the
+closing cashier and does not need a manager (RT-17 decision 2026-10-07; a per-tenant limit
+is RT-236).
+
+**What the server does when a shift is still open on the device:**
+
+| Action and reason | Result |
+| --- | --- |
+| Revoke, no open shift (any reason) | Allowed. |
+| Revoke, security reason (`lost`, `stolen`, `suspected_compromise`) | Allowed at once. The open shift becomes a **custody exception** on the old device. No count is invented. |
+| Revoke, `hardware_failure` | A recovery revoke: **owner or tenant admin only**, with a note saying what happened and where the drawer cash is, and an explicit acknowledgement of the custody exception. A store manager is refused (403); a missing note or acknowledgement is refused (422). Then allowed, with a custody exception. |
+| Revoke, any other reason (`replaced`, `moved`, `retired`, `admin_error`, `other`) | Refused (409 `unresolved_cash_session`). Close the shift first. A revoke with reason `other` also needs a note, or it is refused (400). For a lost till, make a security revoke instead. |
+| Replace or move an **active** device | Refused (409 `unresolved_cash_session`) while it has an open shift. |
+| Replace or move a **revoked** device | Allowed, including one with a custody exception. The exception stays on the old device and its shift; it is never transferred to the new terminal. |
+| Replace or move a **retired** device | Refused (409 `device_retired`). |
+| Retire | Refused while the device has an open shift (409 `unresolved_cash_session`) or is revoked with a custody exception (409 `unresolved_custody_exception`). |
+
+**Before retiring a revoked device**, decide whether a replacement or move is still
+wanted. If it is, pair the pending code first. If not, confirm the retirement: it cancels
+any pending replacement or move code. Either way, a retired device can never be replaced
+or moved afterwards (`device_retired`).
+
+A custody exception stays visible on the old device until a later force-seal or custody
+reconciliation slice exists; do not try to close it from the terminal or edit the database.
+
+**Replace or move a terminal:** issue a one-time **pairing code** in the Admin-Console for
+the store the new terminal belongs to, naming the device it replaces. The server derives the
+kind: the same store is a **replace** (reason `replaced`), another store of the same tenant
+is a **move** (reason `moved`). The code is shown **once**; it is valid for 60 minutes by
+default and at most 24 hours. A device can be replaced only once: cancel a pending code or
+let it expire before issuing another (`replacement_already_pending`; a used code gives
+`device_already_replaced`). Pairing the new terminal with the code creates a **new** device
+identity and revokes the replaced one if it is still active. A revoke also cancels any
+pairing code still pending for that device. Never write the code in a ticket, a chat or a
+screenshot.
 
 **Recovery from a bad profile found by the readiness check:** do not open the
 till. Correct the Machine values (§5), reboot, and run §6 again from the top. If
