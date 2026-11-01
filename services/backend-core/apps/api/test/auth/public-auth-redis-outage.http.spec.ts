@@ -51,6 +51,9 @@ class SpyAuthService {
   async confirmPasswordReset(): Promise<void> {
     this.calls.push("confirmPasswordReset");
   }
+  async confirmEmailVerification(): Promise<void> {
+    this.calls.push("confirmEmailVerification");
+  }
 }
 
 const allowGuard: CanActivate = { canActivate: () => true };
@@ -82,6 +85,8 @@ const ROUTES = [
     path: "/api/v1/auth/password-reset/confirm",
     body: { token: "a".repeat(43), new_password: "a-long-enough-password" },
   },
+  // RT-626: the confirm route joined the public-auth buckets.
+  { path: "/api/v1/auth/email/verify/confirm", body: { token: "a".repeat(43) } },
 ] as const;
 
 let savedTimeout: string | undefined;
@@ -202,6 +207,18 @@ describe("RT-628 — partial outage and errors", () => {
     for (const { path, body } of ROUTES) {
       statuses.push((await request(app.getHttpServer()).post(path).send(body)).status);
     }
-    expect(statuses).toEqual([200, 202, 204]);
+    expect(statuses).toEqual([200, 202, 204, 204]);
   });
+
+  it.each(["hang", "throw"] as const)(
+    "RT-626: per-IP reset check passes, per-email check %ss: still 202 within the bound, nothing sent",
+    async (mode) => {
+      limiter.mode = { pwreset_email: mode };
+      const started = Date.now();
+      const res = await request(app.getHttpServer()).post(ROUTES[1].path).send(ROUTES[1].body);
+      expect(res.status).toBe(202);
+      expect(Date.now() - started).toBeLessThan(LATENCY_BOUND_MS);
+      expect(svc.calls).toEqual([]);
+    },
+  );
 });
