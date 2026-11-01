@@ -85,21 +85,17 @@ function slotImages(
 }
 
 /**
- * The fallback order (RT-832 §2 over FR-35, see the RT-475 PR):
- *  - a valid logo → `logo`;
- *  - the server said `logo: null` → `none` (the slot collapses, today's screen);
- *  - a logo was stored but its record failed validation → `name`;
- *  - nothing valid cached → `none`.
+ * A valid logo → `logo`; anything else → `none`. Owner decision 2026-11-01
+ * (over the RT-475 AC name-text fallback and spec 039 FR-35 steps 2–3): with
+ * no usable logo (`logo: null`, a missing or corrupt cache, first boot) the
+ * slot collapses and every screen is exactly today's, as the RT-832 frames show.
  */
 export function snapshotFromCache(read: BrandingCacheRead): BrandingSnapshot {
   const { name, logo } = read;
-  if (name === null) return BRANDING_NONE;
+  const slots = logo === null ? null : slotImages(logo.screen);
+  if (name === null || logo === null || slots === null) return BRANDING_NONE;
   const displayName = boundedDisplayName(name.display_name);
-  if (logo !== null) {
-    const slots = slotImages(logo.screen);
-    if (slots !== null) return { v: 1, kind: 'logo', displayName, card: logo.card, slots };
-  }
-  return name.logo_state === 'present' ? { v: 1, kind: 'name', displayName } : BRANDING_NONE;
+  return { v: 1, kind: 'logo', displayName, card: logo.card, slots };
 }
 
 export interface BrandingService {

@@ -36,7 +36,6 @@ const LOGO: BrandingSnapshot = {
     lock: image,
   },
 };
-const NAME: BrandingSnapshot = { v: 1, kind: 'name', displayName: 'صيدلية النور' };
 const NONE: BrandingSnapshot = { v: 1, kind: 'none' };
 
 describe('RT-475 — BrandSlot', () => {
@@ -53,7 +52,6 @@ describe('RT-475 — BrandSlot', () => {
     expect(img).toHaveAttribute('width', '100');
     expect(img).toHaveAttribute('height', '25');
     expect(img).toHaveAttribute('srcset', `${PNG_A} 1x, ${PNG_B} 2x`);
-    expect(screen.getByTestId('brand-slot-pairing')).toHaveAttribute('data-brand-kind', 'logo');
   });
 
   it('puts the logo on the white card when presentation.card is set', () => {
@@ -61,27 +59,30 @@ describe('RT-475 — BrandSlot', () => {
     expect(screen.getByTestId('brand-slot-lock')).toHaveClass('v5-brand-slot--card');
   });
 
-  it('shows the tenant name as text when the logo record is unusable', () => {
-    render(<BrandSlot slot="boot" snapshot={NAME} />);
-    expect(screen.getByTestId('brand-slot-boot')).toHaveAttribute('data-brand-kind', 'name');
-    expect(screen.getByText('صيدلية النور')).toBeInTheDocument();
-    expect(screen.queryByRole('img')).not.toBeInTheDocument();
-  });
-
-  it('falls back to the name, never a broken image, when the rendition fails to decode', () => {
-    render(<BrandSlot slot="lock" snapshot={LOGO} />);
+  it('a rendition that fails to decode collapses the slot and the powered-by line', () => {
+    resetBrandingForTests(LOGO);
+    render(<Branded />);
     fireEvent.error(screen.getByRole('img'));
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
-    expect(screen.getByText('صيدلية النور')).toBeInTheDocument();
+    expect(screen.queryByTestId('brand-slot-lock')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('powered-by')).not.toBeInTheDocument();
   });
 });
+
+function Branded() {
+  const branding = useBranding();
+  return (
+    <>
+      <BrandSlot slot="lock" snapshot={branding} />
+      <PoweredBy snapshot={branding} />
+    </>
+  );
+}
 
 describe('RT-475 — powered-by line', () => {
   it('shows «بدعم من Retail Tower» only with a logo', () => {
     const { rerender } = render(<PoweredBy snapshot={LOGO} />);
     expect(screen.getByTestId('powered-by')).toHaveTextContent('بدعم من Retail Tower');
-    rerender(<PoweredBy snapshot={NAME} />);
-    expect(screen.queryByTestId('powered-by')).not.toBeInTheDocument();
     rerender(<PoweredBy snapshot={NONE} />);
     expect(screen.queryByTestId('powered-by')).not.toBeInTheDocument();
   });
@@ -174,10 +175,10 @@ async function startedFeed() {
 
 describe('RT-475 — renderer feed', () => {
   it('reads once at start and follows the change push', async () => {
-    const fake = fakeBranding(NAME);
+    const fake = fakeBranding(NONE);
     render(<Probe />);
     const stop = startBrandingFeed(fake.bridge);
-    expect(await screen.findByText('name')).toBeInTheDocument();
+    expect(await screen.findByText('none')).toBeInTheDocument();
     act(() => {
       fake.push(LOGO);
     });
@@ -187,7 +188,7 @@ describe('RT-475 — renderer feed', () => {
 
   it.each([
     ['clears the snapshot at once, then shows the re-read', false, NONE, 'none'],
-    ['ignores a push that arrives before the re-read answers', true, NAME, 'name'],
+    ['ignores a push that arrives before the re-read answers', true, NONE, 'none'],
   ] as const)('a pairing change %s', async (_label, pushMeanwhile, reread, expected) => {
     const feed = await startedFeed();
     act(() => {

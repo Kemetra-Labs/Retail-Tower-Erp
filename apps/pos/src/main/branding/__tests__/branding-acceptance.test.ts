@@ -163,7 +163,7 @@ describe('RT-475 AC — fallback', () => {
     expect((await run.service.snapshot()).kind).toBe('none');
   });
 
-  it('a corrupt logo record shows the tenant name and the next read is unconditional', async () => {
+  it('a corrupt logo record shows today’s screen and the next read is unconditional', async () => {
     const db = freshDb();
     const run = terminal(db, fakePairing(paired(TENANT_A, 100)), [
       { status: 200, body: logoBody() },
@@ -174,24 +174,21 @@ describe('RT-475 AC — fallback', () => {
       `UPDATE tenant_branding_logo SET renditions_json = replace(renditions_json, 'iVBOR', 'iVBOQ')`,
     );
 
-    expect(await run.service.snapshot()).toEqual({
-      v: 1,
-      kind: 'name',
-      displayName: 'صيدلية النور',
-    });
+    // Owner decision 2026-11-01: no name-as-text state; the slot collapses.
+    expect(await run.service.snapshot()).toEqual({ v: 1, kind: 'none' });
     expect(count(db, 'tenant_branding_logo')).toBe(0);
     await run.worker.runTickOnce();
     expect(run.sent[1]).toBeNull();
   });
 
-  it('a tampered digest also falls back to the name', async () => {
+  it('a tampered digest also falls back to today’s screen', async () => {
     const db = freshDb();
     const run = terminal(db, fakePairing(paired(TENANT_A, 100)), [
       { status: 200, body: logoBody() },
     ]);
     await run.worker.runTickOnce();
     db.run(`UPDATE tenant_branding_logo SET payload_sha256 = '${'0'.repeat(64)}'`);
-    expect((await run.service.snapshot()).kind).toBe('name');
+    expect((await run.service.snapshot()).kind).toBe('none');
   });
 
   it('a corrupt name record purges both records and shows today’s screen', async () => {

@@ -56,25 +56,6 @@
   user-select: none;
 }
 
-.v5-brand-slot__name {
-  min-inline-size: 0;
-  overflow: hidden;
-  color: var(--color-text);
-  font-weight: var(--font-weight-bold);
-  font-size: var(--font-size-lg);
-  line-height: var(--line-height-snug);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.v5-brand-slot--boot .v5-brand-slot__name {
-  font-size: var(--font-size-xl);
-}
-
-.v5-brand-slot--sign_in .v5-brand-slot__name {
-  font-size: var(--font-size-md);
-}
-
 /* `presentation.card` (low_contrast or an opaque background). */
 .v5-brand-slot--card {
   padding: 12px;
@@ -104,11 +85,10 @@
 /*
  * Forced colours: an image is not recoloured, so its contrast on Canvas is
  * unknowable. Every logo sits on the un-forced white card with a system-colour
- * border (RT-832 §2, owner-approved 2026-10-23). The name fallback is text and
- * follows the system colours like any other text.
+ * border (RT-832 §2, owner-approved 2026-10-23).
  */
 @media (forced-colors: active) {
-  .v5-brand-slot[data-brand-kind='logo'] {
+  .v5-brand-slot {
     padding: 12px;
     border: 1px solid CanvasText;
     border-radius: 8px;
@@ -116,12 +96,7 @@
     forced-color-adjust: none;
   }
 
-  .v5-brand-slot--sign_in[data-brand-kind='logo'] {
+  .v5-brand-slot--sign_in {
     padding: 2px 4px;
-  }
-
-  .v5-brand-slot--card[data-brand-kind='name'] {
-    border-color: CanvasText;
-    background: Canvas;
   }
 }

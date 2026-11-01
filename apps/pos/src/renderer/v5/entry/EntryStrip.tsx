@@ -24,7 +24,7 @@ export function EntryStrip({
   terminalLabel,
   branding,
 }: Readonly<{ terminalLabel?: string; branding?: BrandingSnapshot }>): JSX.Element {
-  const branded = branding !== undefined && branding.kind !== 'none';
+  const branded = branding?.kind === 'logo';
   return (
     <header
       className={`v5-entry__bar${branded ? ' v5-entry__bar--branded' : ''}`}

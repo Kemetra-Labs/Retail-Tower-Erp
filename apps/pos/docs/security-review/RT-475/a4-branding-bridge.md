@@ -25,9 +25,8 @@ RT-475 — §A4 P8 bridge-security record for the tenant branding channels
 
 `BrandingSnapshot` (`src/shared/branding/types.ts`) is one of:
 
-- `{ v: 1, kind: 'none' }`;
-- `{ v: 1, kind: 'name', displayName }`;
-- `{ v: 1, kind: 'logo', displayName, card, slots }`, where `slots` maps the four slots to `{ width, height, src1x, src2x }`.
+- `{ v: 1, kind: 'none' }`: no usable logo, or the terminal is not paired. The screens are exactly today's. Owner decision 2026-11-01: there is no name-as-text state.
+- `{ v: 1, kind: 'logo', displayName, card, slots }`, where `slots` maps the four slots to `{ width, height, src1x, src2x }`. `displayName` is used only as the image's alt text.
 
 ## 3. Controls
 
@@ -49,5 +48,4 @@ RT-475 — §A4 P8 bridge-security record for the tenant branding channels
 
 ## 4. Residuals for the owner
 
-- **R-1, the name-text state has no approved frame.** RT-832 draws "logo" and "no logo" only. The `name` state, shown when a stored logo's record fails validation, follows spec 039 FR-35 step 2. It uses the same box, with the name ellipsised. It needs an owner look in the RT-952 captures.
-- **R-2, decoding.** Main has no image decoder. It checks the PNG signature and the IHDR size, and the local digest. A PNG that passes those checks but does not decode falls back to the name in that slot through `<img onError>`. The powered-by line can then still show beside the name on that screen.
+- **R-1, decoding.** Main has no image decoder. It checks the PNG signature, the IHDR size and the local digest. A PNG that passes those checks but does not decode fires `<img onError>`. The renderer then drops the snapshot to `none` for every screen, so no broken image and no stray powered-by line is shown, until the next push or pairing change.

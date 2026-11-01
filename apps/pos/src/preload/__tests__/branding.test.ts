@@ -28,13 +28,8 @@ function fakeRenderer(answer: unknown) {
 }
 
 describe('RT-475 — parseBrandingSnapshot', () => {
-  it('accepts the three kinds', () => {
+  it('accepts the two kinds', () => {
     expect(parseBrandingSnapshot({ v: 1, kind: 'none' })).toEqual({ v: 1, kind: 'none' });
-    expect(parseBrandingSnapshot({ v: 1, kind: 'name', displayName: 'X' })).toEqual({
-      v: 1,
-      kind: 'name',
-      displayName: 'X',
-    });
     expect(parseBrandingSnapshot(logo)).toEqual(logo);
   });
 
@@ -50,11 +45,12 @@ describe('RT-475 — parseBrandingSnapshot', () => {
     );
   });
 
-  it('refuses an unknown kind, a missing slot, an empty or over-long name', () => {
+  it('refuses an unknown kind (no name-as-text state), a missing slot, an empty or over-long name', () => {
     expect(parseBrandingSnapshot({ v: 1, kind: 'splash' })).toBeNull();
+    expect(parseBrandingSnapshot({ v: 1, kind: 'name', displayName: 'X' })).toBeNull();
     expect(parseBrandingSnapshot({ ...logo, slots: { boot: image } })).toBeNull();
-    expect(parseBrandingSnapshot({ v: 1, kind: 'name', displayName: '' })).toBeNull();
-    expect(parseBrandingSnapshot({ v: 1, kind: 'name', displayName: 'x'.repeat(81) })).toBeNull();
+    expect(parseBrandingSnapshot({ ...logo, displayName: '' })).toBeNull();
+    expect(parseBrandingSnapshot({ ...logo, displayName: 'x'.repeat(81) })).toBeNull();
     expect(parseBrandingSnapshot({ v: 2, kind: 'none' })).toBeNull();
   });
 });

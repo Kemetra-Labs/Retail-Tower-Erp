@@ -7,12 +7,11 @@
  * URIs of the server-encoded renditions: never a file path, never a network
  * URL, never the receipt rendition, never an identifier.
  *
- * Kinds (RT-832 §2 and FR-35):
+ * Kinds (RT-832 §2; owner decision 2026-11-01: no name-as-text state):
  *  - `logo`: a valid cached logo. The screens show it, and the powered-by line.
- *  - `name`: the logo record failed validation but the name record is valid.
- *    The slot shows the tenant name as text; no powered-by line.
- *  - `none`: the tenant has no logo (`logo: null`), nothing is cached, or the
- *    terminal is not paired. Every screen is exactly today's screen.
+ *    `displayName` is the image's alt text only.
+ *  - `none`: no usable logo (`logo: null`, a missing or corrupt cache, first
+ *    boot) or the terminal is not paired. Every screen is exactly today's.
  */
 
 export const BRANDING_IPC_CHANNELS = {
@@ -44,7 +43,6 @@ export interface BrandingSlotImage {
 
 export type BrandingSnapshot =
   | { readonly v: 1; readonly kind: 'none' }
-  | { readonly v: 1; readonly kind: 'name'; readonly displayName: string }
   | {
       readonly v: 1;
       readonly kind: 'logo';
@@ -101,12 +99,6 @@ function parseSlots(value: unknown): Record<BrandingSlot, BrandingSlotImage> | n
   return slots as Record<BrandingSlot, BrandingSlotImage>;
 }
 
-function parseName(payload: Record<string, unknown>): BrandingSnapshot | null {
-  return isDisplayName(payload.displayName)
-    ? { v: 1, kind: 'name', displayName: payload.displayName }
-    : null;
-}
-
 function parseLogo(payload: Record<string, unknown>): BrandingSnapshot | null {
   const { displayName, card } = payload;
   if (!isDisplayName(displayName) || typeof card !== 'boolean') return null;
@@ -118,12 +110,11 @@ const PARSERS: Readonly<
   Record<BrandingSnapshot['kind'], (payload: Record<string, unknown>) => BrandingSnapshot | null>
 > = {
   none: () => BRANDING_NONE,
-  name: parseName,
   logo: parseLogo,
 };
 
 function isKind(value: unknown): value is BrandingSnapshot['kind'] {
-  return value === 'none' || value === 'name' || value === 'logo';
+  return value === 'none' || value === 'logo';
 }
 
 /**

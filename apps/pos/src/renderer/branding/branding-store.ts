@@ -91,6 +91,14 @@ export function startBrandingFeed(
   };
 }
 
+/**
+ * A rendition of `snapshot` failed to decode: show today's screens until the
+ * next push or pairing change. Ignored when the snapshot was already replaced.
+ */
+export function dropUndecodableBranding(snapshot: BrandingSnapshot): void {
+  if (current === snapshot) set({ v: 1, kind: 'none' });
+}
+
 /** Test-only: drop the snapshot and pending reads. */
 export function resetBrandingForTests(snapshot?: BrandingSnapshot): void {
   generation += 1;
