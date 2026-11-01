@@ -137,11 +137,13 @@ describe("RT-437 — main's refusal holds until the amount is edited (Codex P2 #
     fireEvent.change(input, { target: { value: '150000' } });
     expect(confirm).toBeEnabled();
     fireEvent.click(confirm);
+    // The ledger preview is reported from a passive effect, which can run
+    // after the notice is in the DOM, so wait for both (RT-1049).
     await waitFor(() => {
       expect(screen.getByTestId('cash-entry-out-of-range')).toBeInTheDocument();
+      expect(onDraftChange).toHaveBeenLastCalledWith(null);
     });
     expect(confirm).toBeDisabled();
-    expect(onDraftChange).toHaveBeenLastCalledWith(null);
     fireEvent.click(confirm);
     expect(tenderApply).toHaveBeenCalledTimes(1);
 

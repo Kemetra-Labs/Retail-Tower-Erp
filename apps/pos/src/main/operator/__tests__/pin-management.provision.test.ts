@@ -386,7 +386,10 @@ describe('019 — PinManagementHandler.provisionCashierPin', () => {
     const captured: CapturedEvent[] = [];
     const handler = makeHandler({ db, session: makeSession({ role: 'manager' }), captured });
 
-    const eventId = randomUUID();
+    // A fixed id without the PIN digits: a random UUID is hex, so it can
+    // contain '4729' and fail the no-secret check below (RT-1049).
+    const eventId = '00000000-0000-4000-8000-000000000014';
+    expect(eventId).not.toContain('4729');
     await handler.provisionCashierPin({
       event_id: eventId,
       target_cashier_id: CASHIER_CLERK_ID,
@@ -631,12 +634,15 @@ describe('019 — PinManagementHandler.provisionCashierPin', () => {
 
 describe('RT-214 — provisionCashierPin authenticates the manager roster call', () => {
   const PIN = '4729';
+  // A fixed id without the PIN digits: the success result echoes it as
+  // audit_event_id, and a random hex UUID can contain '4729' (RT-1049).
+  const EVENT_ID = '00000000-0000-4000-8000-000000000214';
 
   function provision(
     handler: PinManagementHandler,
   ): ReturnType<PinManagementHandler['provisionCashierPin']> {
     return handler.provisionCashierPin({
-      event_id: randomUUID(),
+      event_id: EVENT_ID,
       target_cashier_id: CASHIER_CLERK_ID,
       initial_pin: PIN,
     });
