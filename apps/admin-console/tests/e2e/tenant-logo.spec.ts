@@ -8,10 +8,11 @@ import { type Page, expect, test } from "./fixtures";
  * - The renditions really show under the production CSP. The Console's CSP
  *   (services/backend-core/Caddyfile:46) has no `img-src`, so `data:` and `blob:`
  *   images are refused; the page decodes the server PNG with createImageBitmap
- *   and draws it on a canvas. The page is served with that exact header, plus
- *   the `script-src 'unsafe-inline'` the pre-paint script of index.html needs
- *   (the same allowance as the RT-824 spec), and must raise no CSP violation
- *   while every canvas holds the server's pixels.
+ *   and draws it on a canvas. The page is served with that exact header, with
+ *   no extra allowance, and must raise no CSP violation while every canvas holds
+ *   the server's pixels. The one violation tolerated is the inline pre-paint
+ *   script of index.html, which that header already blocks for every Console
+ *   page today (not this feature's; the app boots from its 'self' bundle).
  * - The upload is the raw file under application/octet-stream.
  * - A keyboard-only walk: the file control opens the picker, save is reachable.
  * - No WCAG 2.1 A/AA axe violation with every warning shown and with a refusal
@@ -20,10 +21,9 @@ import { type Page, expect, test } from "./fixtures";
 const TENANT = "0190f000-0000-7000-8000-0000000000a1";
 const CADDY_CSP =
   "default-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
-const TEST_CSP = CADDY_CSP.replace(
-  "default-src 'self';",
-  "default-src 'self'; script-src 'self' 'unsafe-inline';",
-);
+/** The pre-existing, page-wide violation: index.html's inline pre-paint script. */
+const isPrePaintScript = (v: { directive: string; blocked: string }) =>
+  v.directive.startsWith("script-src") && v.blocked === "inline";
 
 const BOXES = {
   boot: [240, 120],
@@ -131,20 +131,19 @@ test("RT-474: under the production CSP the four slots and the receipt show the s
     const response = await route.fetch();
     await route.fulfill({
       response,
-      headers: { ...response.headers(), "content-security-policy": TEST_CSP },
+      headers: { ...response.headers(), "content-security-policy": CADDY_CSP },
     });
   });
   await page.addInitScript(() => {
-    (window as unknown as { __csp: string[] }).__csp = [];
+    const log: { directive: string; blocked: string }[] = [];
+    (window as unknown as { __csp: typeof log }).__csp = log;
     document.addEventListener("securitypolicyviolation", (e) => {
-      (window as unknown as { __csp: string[] }).__csp.push(
-        `${e.violatedDirective} ${e.blockedURI}`,
-      );
+      log.push({ directive: e.violatedDirective, blocked: e.blockedURI });
     });
   });
 
   const navigation = await page.goto(`/tenants/${TENANT}/branding`);
-  expect(navigation?.headers()["content-security-policy"]).toBe(TEST_CSP);
+  expect(navigation?.headers()["content-security-policy"]).toBe(CADDY_CSP);
   await expect(page.getByRole("heading", { name: t("branding.title") })).toBeVisible();
   await page.locator('input[type="file"]').setInputFiles(FILE);
 
@@ -168,7 +167,11 @@ test("RT-474: under the production CSP the four slots and the receipt show the s
       ),
     )
     .toEqual([true, true, true, true, true]);
-  expect(await page.evaluate(() => (window as unknown as { __csp: string[] }).__csp)).toEqual([]);
+  const violations = await page.evaluate(
+    () => (window as unknown as { __csp: { directive: string; blocked: string }[] }).__csp,
+  );
+  expect(violations.filter((v) => !isPrePaintScript(v))).toEqual([]);
+  expect(violations.some((v) => v.directive.startsWith("img-src"))).toBe(false);
 
   // The receipt is laid out at its printed size: 383 dots at 203 dpi = 47.92 mm.
   const receiptWidth = await page
