@@ -188,6 +188,7 @@ class Final(unittest.TestCase):
         self.assertEqual(ledger["outcome"], "failed-at:backend")
         self.assertEqual([s["state"] for s in ledger["steps"]], ["ok", "failed", "not-run", "not-run"])
         self.assertEqual(ledger["failure"], {"step": "backend", "reason": "backend: the document ended Failed"})
+        self.assertNotIn("note", ledger["failure"])
         self.assertIn("Failure boundary: backend: the document ended Failed", summary)
 
     def test_a_failed_backend_step_leaves_nothing_to_roll_back(self):
@@ -210,19 +211,23 @@ class Final(unittest.TestCase):
                                failure="console: x", rollback_allowed="true")
         self.assertIn("app-only rollback is allowed", ledger["manualRollback"][0]["note"])
 
-    def test_a_failed_erp_step_rolls_back_the_console_then_the_backend(self):
-        ledger, _ = self.final(["backup", "backend", "console"], {k: v for k, v in self.LINES.items() if k != "erp"},
-                               failure="erp: the document ended Failed")
+    def test_a_failed_erp_step_rolls_back_the_backend_then_the_console(self):
+        ledger, summary = self.final(["backup", "backend", "console"], {k: v for k, v in self.LINES.items() if k != "erp"},
+                                     failure="erp: the document ended Failed")
         self.assertEqual(ledger["outcome"], "failed-at:erp")
-        self.assertEqual([item["step"] for item in ledger["manualRollback"]], ["console", "backend"])
-        console = ledger["manualRollback"][0]
+        # RT-ConsoleLabDeploy refuses until lab-01 runs the Backend-Core release it is given.
+        self.assertEqual([(item["order"], item["step"]) for item in ledger["manualRollback"]], [(1, "backend"), (2, "console")])
+        self.assertIn("restore.sh", ledger["failure"]["note"])
+        self.assertIn("workers down", summary)
+        console = ledger["manualRollback"][1]
         self.assertEqual(console["workflow"], "deploy-console-lab.yml")
         self.assertEqual(console["inputs"]["console_release"], "admin-console/v0.0.9")
         self.assertEqual(console["inputs"]["backend_release"], "backend-core/v0.3.1")
 
-    def test_a_deployed_system_names_the_erp_rollback_inputs_last_deployed_first(self):
+    def test_a_deployed_system_names_every_rollback_in_a_runnable_order(self):
         ledger, _ = self.final(["backup", "backend", "console", "erp"], self.LINES, erp_class="image-only")
-        self.assertEqual([item["step"] for item in ledger["manualRollback"]], ["erp", "console", "backend"])
+        self.assertEqual([item["step"] for item in ledger["manualRollback"]], ["erp", "backend", "console"])
+        self.assertEqual([item["order"] for item in ledger["manualRollback"]], [1, 2, 3])
         erp = ledger["manualRollback"][0]
         target = json.loads(MANIFEST.read_text(encoding="utf-8"))["erpnext"]
         self.assertEqual(erp["workflow"], "deploy-erp-lab.yml")

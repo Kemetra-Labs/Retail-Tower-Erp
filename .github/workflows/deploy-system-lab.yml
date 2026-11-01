@@ -16,9 +16,11 @@
 # (plan D4, D3): RT-BackendLabBackup on lab-02, RT-BackendLabDeploy on lab-01, RT-ConsoleLabDeploy on
 # lab-01, RT-ErpLabDeploy on lab-03. The documents are the security boundary; each is sent with
 # today's parameters through .github/release/ssm-run.sh, and only strict RT_* lines reach this
-# public log and the ledger. The job stops at the first failing document; that document reverts
-# itself as it does today, earlier documents are NOT reverted (a Backend rollback can touch the
-# database), and the system ledger prints the manual rollback inputs for every step that finished.
+# public log and the ledger. The job stops at the first failing document, which behaves as it does
+# today: the Backend-Core and Console documents revert themselves, while RT-ErpLabDeploy can stop
+# after its swap with the workers down (the owner then redeploys or runs restore.sh on lab-03).
+# Earlier documents are NOT reverted (a Backend rollback can touch the database); the system ledger
+# prints the manual rollback inputs for every step that finished, in the order they can be run.
 #
 # current_manifest names the system version live now: it supplies CurrentRelease (Backend-Core),
 # the current commit and images (ERP; all six services run one image after any ERP deploy) and the
@@ -453,7 +455,8 @@ jobs:
           [ -n "$KLASS" ] || { echo "::error::no rollback class"; exit 1; }
           { echo "class=$KLASS"; echo "current_tree=$(git rev-parse "$CURRENT_SHA:integrations/erpnext-connector")"; } >> "$GITHUB_OUTPUT"
 
-      # Always runs after the checkout, so a refused plan still leaves a ledger with its reasons.
+      # Always runs after the checkout, so a refused plan still leaves a ledger with its reasons
+      # (a manifest that fails G1 leaves only the log line, since no ledger can name its system).
       - name: Write the planned system ledger
         id: plan
         if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
@@ -468,6 +471,8 @@ jobs:
           ERP_CLASS: ${{ steps.erp_class.outputs.class }}
           OUTCOME_VALUES: ${{ steps.values.outcome }}
           OUTCOME_GATE: ${{ steps.gate.outcome }}
+          OUTCOME_BACKEND_EVIDENCE: ${{ steps.backend_evidence.outcome }}
+          OUTCOME_BACKEND_VERIFY: ${{ steps.backend_verify.outcome }}
           OUTCOME_BACKEND: ${{ steps.backend_plan.outcome }}
           OUTCOME_CONSOLE: ${{ steps.console.outcome }}
           OUTCOME_PIN: ${{ steps.pin_rule.outcome }}
@@ -491,11 +496,15 @@ jobs:
           gate G3 "$OUTCOME_PIN" "the Console archive pins the Backend-Core release commit"
           gate G5 "$OUTCOME_BACKEND" "the Backend-Core release passed contracts-compat (check run, release gate)"
           gate G6 "$OUTCOME_ERP_IMAGE" "the ERP image is attested by build-erp-image.yml at the manifest commit on main"
+          # Every one of these steps must have succeeded for a planned ledger: a step skipped after
+          # an earlier failure refuses as well (the first one not succeeded is the reason).
           FAILURE=""
-          for NAME in VALUES GATE BACKEND CONSOLE PIN ERP_IMAGE ERP_CLASS; do
+          for NAME in VALUES GATE BACKEND_EVIDENCE ERP_IMAGE BACKEND_VERIFY BACKEND CONSOLE PIN ERP_CLASS; do
             VAR="OUTCOME_$NAME"
-            if [ "${!VAR}" = failure ]; then FAILURE="preflight step ${NAME,,} failed"; break; fi
+            if [ "${!VAR}" != success ]; then FAILURE="preflight step ${NAME,,} ended ${!VAR:-not-run}"; break; fi
           done
+          # The Backend-Core verifier's own ledger holds its refusal reasons; keep it with the plan.
+          if [ -d "$RUNNER_TEMP/backend-ledger" ]; then cp -R "$RUNNER_TEMP/backend-ledger" "$RUNNER_TEMP/plan/backend-core"; fi
           # G7: a live run needs aws-lab read back as present with a required reviewer. GitHub would
           # create a missing environment unprotected, and "not visible" or "unknown" is not proof.
           GATE="$(jq -r 'if .status == "present" and (.reviewers | type) == "number" and .reviewers >= 1 then "reviewed" else "unverified" end' \

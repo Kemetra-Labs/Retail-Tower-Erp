@@ -186,6 +186,20 @@ class DeploySystemLab(unittest.TestCase):
         self.assertLess(pre.index("- name: Apply the pin rule"), pre.index("- name: Write the planned system ledger"))
         self.assertIn('[ "$DRY_RUN" = "false" ] && [ "$GATE" != "reviewed" ]', step_script(self.text, "Write the planned system ledger"))
 
+    def test_every_preflight_check_step_must_succeed_for_a_planned_ledger(self):
+        plan = step(self.text, "Write the planned system ledger")
+        loop = re.search(r"for NAME in ([A-Z_ ]+); do", plan).group(1).split()
+        self.assertIn('if [ "${!VAR}" != success ]', plan)
+        ids = re.findall(r"^        id: ([a-z_]+)$", job(self.text, "preflight"), re.M)
+        exempt = {"guard", "checkout", "logout", "plan"}
+        for step_id in ids:
+            if step_id in exempt:
+                continue
+            name = {"backend_plan": "BACKEND", "pin_rule": "PIN"}.get(step_id, step_id.upper())
+            self.assertIn(name, loop, step_id)
+            self.assertIn(f"OUTCOME_{name}: ${{{{ steps.{step_id}.outcome }}}}", plan)
+        self.assertIn('cp -R "$RUNNER_TEMP/backend-ledger" "$RUNNER_TEMP/plan/backend-core"', plan)
+
     def test_documents_run_in_the_plan_order_on_their_hosts(self):
         live = job(self.text, "live")
         positions = [live.index(f"- name: {name}") for name, *_ in ORDER]

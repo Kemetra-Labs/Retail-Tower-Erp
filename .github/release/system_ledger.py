@@ -162,7 +162,9 @@ def gate_of(line):
 
 
 def manual_rollback(records, target, current, jira_key, rollback_allowed, erp_class):
-    """The exact inputs to undo each completed step by hand, last deployed first (D3)."""
+    """The exact inputs to undo each completed step by hand (D3), in the order they can run:
+    ERP, then Backend-Core, then the Console. The Console comes last because RT-ConsoleLabDeploy's
+    G-Host refuses until lab-01 runs the BackendRelease it is given (the current one)."""
     done = {record["step"]: record for record in records if record["state"] == "ok"}
     out = []
     if "erp" in done:
@@ -174,13 +176,6 @@ def manual_rollback(records, target, current, jira_key, rollback_allowed, erp_cl
                 "jira_key": jira_key, "hold": False, "save_current_image": False, "dry_run": False},
             "note": f"the forward deploy's rollback class was {erp_class or 'unknown'}; restore.sh on lab-03 is owner-run when it was `restore`",
         })
-    if "console" in done:
-        out.append({
-            "step": "console", "workflow": "deploy-console-lab.yml",
-            "inputs": {"console_release": current["console_release"], "backend_release": current["backend_release"],
-                       "jira_key": jira_key, "dry_run": False},
-            "note": "the pin rule needs the Backend-Core release the host runs once the Backend step is rolled back",
-        })
     if "backend" in done:
         backup = next((r["target"] for r in records if r["step"] == "backup"), None)
         out.append({
@@ -191,6 +186,27 @@ def manual_rollback(records, target, current, jira_key, rollback_allowed, erp_cl
                      else "the forward deploy migrated the database: an app-only rollback is NOT allowed, restore from the backup first"),
             "backup": backup,
         })
+    if "console" in done:
+        out.append({
+            "step": "console", "workflow": "deploy-console-lab.yml",
+            "inputs": {"console_release": current["console_release"], "backend_release": current["backend_release"],
+                       "jira_key": jira_key, "dry_run": False},
+            "note": "run after the Backend-Core rollback: the document checks that lab-01 runs backend_release",
+        })
+    for order, item in enumerate(out, 1):
+        item["order"] = order
+    return out
+
+
+def failure_of(failed, reason):
+    """The failure boundary. The Backend-Core and Console documents revert themselves; the ERP
+    document can stop after its swap with the workers down, so its failure says where to look."""
+    if not failed:
+        return None
+    out = {"step": failed["step"], "reason": reason}
+    if failed["step"] == "erp":
+        out["note"] = ("lab-03 may be left with the workers down: read RT-ErpLabDeploy's ledger on lab-03, then "
+                       "redeploy (deploy-erp-lab.yml) or run deploy/lab/restore.sh as its rollback class requires")
     return out
 
 
@@ -203,10 +219,12 @@ def render_summary(ledger):
         lines += ["", f"### {record['step']} ({record['document']} on {record['host']}): {record['state']}", "```", *record["lines"], "```"]
     if ledger.get("failure"):
         lines += ["", f"Failure boundary: {ledger['failure']['reason']}"]
+        if ledger["failure"].get("note"):
+            lines.append(ledger["failure"]["note"])
     for refusal in ledger.get("refusals", []):
         lines.append(f"- refused: {refusal}")
     for item in ledger.get("manualRollback", []):
-        lines += ["", f"Manual rollback, {item['step']}: run `{item['workflow']}` with `{json.dumps(item['inputs'])}`. {item['note']}"]
+        lines += ["", f"Manual rollback {item['order']}, {item['step']}: run `{item['workflow']}` with `{json.dumps(item['inputs'])}`. {item['note']}"]
     return "\n".join(lines) + "\n"
 
 
@@ -260,7 +278,7 @@ def final(args):
         "mode": "live",
         "outcome": f"failed-at:{failed['step']}" if failed else "deployed",
         "gates": parse_gate_string(args.gates), "rollbackAllowed": rollback_allowed, "erpRollbackClass": args.erp_rollback_class or None,
-        "failure": {"step": failed["step"], "reason": reason} if failed else None,
+        "failure": failure_of(failed, reason),
         "steps": records,
         "manualRollback": manual_rollback(records, target, current, args.jira_key, rollback_allowed, args.erp_rollback_class),
     })
