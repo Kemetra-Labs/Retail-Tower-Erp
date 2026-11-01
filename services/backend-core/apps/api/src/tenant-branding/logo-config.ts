@@ -1,8 +1,11 @@
 /**
  * The tenant logo pipeline configuration (RT-473 S2, spec 039).
  *
- * Every value here feeds the content `version` (FR-13) through
- * `CANONICAL_RENDITION_CONFIG`, so changing one changes every new version.
+ * The content `version` (FR-13) is SHA-256 over the master PNG,
+ * `PIPELINE_VERSION` and `CANONICAL_RENDITION_CONFIG`. The values that shape
+ * the output are in that config, so changing one changes every new version;
+ * bump `PIPELINE_VERSION` for any other pipeline change that can alter the
+ * output (the request limits below do not).
  * Logos stored before such a change keep their old renditions and version;
  * re-rendering them is the OD-8 re-render job (not shipped in S2).
  *

@@ -60,6 +60,14 @@ export class RenderQueueFullError extends Error {
   }
 }
 
+/** The child could not be started (a host fault, never the file's): a 500, not `svg_unsupported`. */
+export class RenderHostError extends Error {
+  constructor(cause: unknown) {
+    super("svg rasterizer child could not start", { cause });
+    this.name = "RenderHostError";
+  }
+}
+
 let queue: Promise<unknown> = Promise.resolve();
 let pending = 0;
 
@@ -80,21 +88,24 @@ function renderInChild(svg: string, timeoutMs: number): Promise<Buffer> {
     const chunks: Buffer[] = [];
     let total = 0;
     let settled = false;
-    const fail = (): void => {
+    const fail = (error: Error = new Error("svg render failed")): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       child.kill("SIGKILL");
-      rejectRender(new Error("svg render failed"));
+      rejectRender(error);
     };
-    const timer = setTimeout(fail, timeoutMs);
+    const timer = setTimeout(() => fail(), timeoutMs);
     child.stdout.on("data", (chunk: Buffer) => {
       total += chunk.length;
-      if (total > MAX_CHILD_OUTPUT_BYTES) return fail();
+      if (total > MAX_CHILD_OUTPUT_BYTES) {
+        fail();
+        return;
+      }
       chunks.push(chunk);
     });
-    child.on("error", fail);
-    child.stdin.on("error", fail);
+    child.on("error", (err) => fail(new RenderHostError(err)));
+    child.stdin.on("error", () => fail());
     child.on("close", (code) => {
       if (settled) return;
       if (code !== 0) return fail();
@@ -108,12 +119,13 @@ function renderInChild(svg: string, timeoutMs: number): Promise<Buffer> {
 
 /**
  * The PNG of a checked SVG at the FR-09 fixed size (height SVG_RASTER_HEIGHT_PX,
- * width capped at MAX_SIDE_PX). Any render failure or timeout is `svg_unsupported`;
- * a full queue is `RenderQueueFullError`.
+ * width capped at MAX_SIDE_PX). A timeout, a non-zero exit or oversize output
+ * is `svg_unsupported`; a full queue is `RenderQueueFullError` (→ 429) and a
+ * child that cannot start is `RenderHostError` (→ 500).
  */
 export function rasterizeCheckedSvg(svg: string, timeoutMs: number = SVG_RENDER_TIMEOUT_MS): Promise<Buffer> {
   return serialized(() => renderInChild(svg, timeoutMs)).catch((err: unknown) => {
-    if (err instanceof RenderQueueFullError) throw err;
+    if (err instanceof RenderQueueFullError || err instanceof RenderHostError) throw err;
     return reject("svg_unsupported");
   });
 }
