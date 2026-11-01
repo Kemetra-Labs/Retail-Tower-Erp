@@ -185,26 +185,18 @@ describe('RT-475 — renderer feed', () => {
     stop();
   });
 
-  it('a pairing change clears the snapshot at once, then re-reads it', async () => {
+  it.each([
+    ['clears the snapshot at once, then shows the re-read', false, NONE, 'none'],
+    ['ignores a push that arrives before the re-read answers', true, NAME, 'name'],
+  ] as const)('a pairing change %s', async (_label, pushMeanwhile, reread, expected) => {
     const feed = await startedFeed();
     act(() => {
       feed.pairingChanged();
+      if (pushMeanwhile) feed.push(LOGO);
     });
     expect(screen.getByTestId('probe')).toHaveTextContent('unknown');
-    await feed.answer(NONE);
-    expect(screen.getByTestId('probe')).toHaveTextContent('none');
-    feed.stop();
-  });
-
-  it('ignores a push that arrives before the re-read answers', async () => {
-    const feed = await startedFeed();
-    act(() => {
-      feed.pairingChanged();
-      feed.push(LOGO);
-    });
-    expect(screen.getByTestId('probe')).toHaveTextContent('unknown');
-    await feed.answer(NAME);
-    expect(screen.getByTestId('probe')).toHaveTextContent('name');
+    await feed.answer(reread);
+    expect(screen.getByTestId('probe')).toHaveTextContent(expected);
     feed.stop();
   });
 
