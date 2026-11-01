@@ -53,6 +53,7 @@ export function AppShell({ onSignOut, children }: Readonly<AppShellProps>): Reac
         withStores={!inSession}
         user={user}
         roleLabel={roleLabel}
+        accountLink={!inSession}
       />
 
       {/* RT-781: the support-session bar, only for a session-entered tenant. */}

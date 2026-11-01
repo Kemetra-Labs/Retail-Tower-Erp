@@ -40,6 +40,38 @@ export const auth: MessagesOf<typeof ar> = {
   "auth.acceptInvitation.haveAccess": "Already have access? {signIn}",
   "auth.acceptInvitation.signInLink": "Sign in",
 
+  "auth.account.title": "My account",
+  "auth.account.subtitle": "For the account {email}.",
+  "auth.account.password.title": "Change password",
+  "auth.account.current.label": "Current password",
+  "auth.account.new.label": "New password",
+  "auth.account.new.hint": "Your identity provider sets the password rules.",
+  "auth.account.confirm.label": "Confirm new password",
+  "auth.account.submit": "Change password",
+  "auth.account.cancel": "Cancel",
+  "auth.account.errors.currentRequired": "Enter your current password.",
+  "auth.account.errors.newRequired": "Enter a new password.",
+  "auth.account.errors.confirmRequired": "Enter the new password again.",
+  "auth.account.errors.mismatch": "The new passwords do not match.",
+  "auth.account.changed.title": "Password changed.",
+  "auth.account.changed.body":
+    "You were signed out of your other sessions. This session stays open.",
+  "auth.account.errors.refused.title": "Could not change the password.",
+  "auth.account.errors.refused.body":
+    "Check your current password, choose a new one your identity provider's rules accept, then try again.",
+  "auth.account.errors.noLink":
+    "The password cannot be changed here. Your account is not linked to the identity provider yet. Ask your organization's admin for help.",
+  "auth.account.errors.notConfirmed":
+    "The request could not be completed right now, and the password change is not confirmed. Try again shortly.",
+  "auth.account.errors.sessionExpired": "Your session ended. Sign in again.",
+  "auth.account.errors.failed":
+    "Could not change the password, and it was not changed. Reload the page, then try again.",
+  "auth.account.aside.title": "What happens after the change",
+  "auth.account.aside.provider":
+    "The password is replaced at your identity provider, not in the Console.",
+  "auth.account.aside.sessions":
+    "You are signed out of your other sessions. This session stays open.",
+
   "auth.noAccess.title": "No assigned access",
   "auth.noAccess.body":
     "You're signed in, but your account has no tenant or store access yet. Contact your administrator to be granted a membership.",
