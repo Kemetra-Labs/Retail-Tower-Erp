@@ -285,6 +285,7 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
     expect(b).toContain('grep -qE "$CUR_DIR_RE" "$DC" || stop "wrapper-does-not-use-the-current-release"');
     expect(b).toContain('sed -E "s#$CUR_DIR_RE#release-$TGT_SLUG\\1#g" "$DC" > "$RUN_DIR/dc.next"');
     expect(b).toContain('! grep -qE "$CUR_DIR_RE" "$RUN_DIR/dc.next" || stop "next-wrapper-still-uses-the-current-release"');
+    expect(b).toContain('cmp -s "$DC" "$RUN_DIR/dc.next" || stop "same-release-wrapper-changed"');
     expect(b).toContain('sed -i "s|^SENTRY_RELEASE=.*|SENTRY_RELEASE=$TGT_ID|" "$RUN_DIR/backend.env.next"');
   });
 
@@ -301,6 +302,36 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
     expect(run("backend-core/v0.1.1", "backend-core/v0.2.0", "a release-backend-core-v0.1.10/x b release-backend-core-v0x1x1/y c release-backend-core-v0.1.1")).toBe(
       "a release-backend-core-v0.1.10/x b release-backend-core-v0x1x1/y c release-backend-core-v0.2.0|v0.2.0|v0.1.1",
     );
+  });
+
+  // RT-1032: a same-release redeploy (CurrentRelease == ReleaseTag) must pass the next-wrapper
+  // guard with an unchanged wrapper; another release must leave no trace of the current one.
+  itBash("builds the next wrapper for another release and keeps it unchanged for the same release", () => {
+    const start = b.indexOf('TGT_SLUG="');
+    const defs = b.slice(start, b.indexOf("API_REF=", start));
+    const guard = b.slice(b.indexOf('sed -E "s#$CUR_DIR_RE#'), b.indexOf('cp -p "$BACKEND_ENV" "$RUN_DIR/backend.env.next"'));
+    const run = (current: string, target: string): { status: number | null; out: string } => {
+      const script = [
+        "set -euo pipefail",
+        'stop() { echo "STOP:$1"; exit 3; }',
+        'RUN_DIR="$(mktemp -d)"; DC="$RUN_DIR/dc.wrapper"',
+        `printf '%s\\n' 'exec docker compose --env-file /opt/rt-lab/backend/release-${current.replace("/", "-")}/release.env "$@"' > "$DC"`,
+        `CURRENT_RELEASE='${current}' RELEASE_TAG='${target}'`,
+        defs,
+        guard,
+        'cat "$RUN_DIR/dc.next"',
+      ].join("\n");
+      const r = spawnSync("bash", ["-c", script], { encoding: "utf8" });
+      return { status: r.status, out: r.stdout };
+    };
+    const other = run("backend-core/v0.3.2", "backend-core/v0.3.3");
+    expect(other.status).toBe(0);
+    expect(other.out).toContain("release-backend-core-v0.3.3/release.env");
+    expect(other.out).not.toContain("release-backend-core-v0.3.2");
+    const same = run("backend-core/v0.3.3", "backend-core/v0.3.3");
+    expect(same.out).not.toContain("STOP:");
+    expect(same.status).toBe(0);
+    expect(same.out).toContain("release-backend-core-v0.3.3/release.env");
   });
 
   it("fetches the bundle over https only, checks SHA256SUMS before unpacking, and binds release.env to the digests", () => {

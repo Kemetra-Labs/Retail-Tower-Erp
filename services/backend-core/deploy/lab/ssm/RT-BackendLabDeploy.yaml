@@ -341,7 +341,12 @@ mainSteps:
           # The next wrapper and env differ only in the release directory, SENTRY_RELEASE and any image keys.
           sed -E "s#$CUR_DIR_RE#release-$TGT_SLUG\1#g" "$DC" > "$RUN_DIR/dc.next"
           grep -qE "$TGT_DIR_RE" "$RUN_DIR/dc.next" || stop "next-wrapper-not-built"
-          ! grep -qE "$CUR_DIR_RE" "$RUN_DIR/dc.next" || stop "next-wrapper-still-uses-the-current-release"
+          # A same-release redeploy (RT-1032) rewrites the directory to itself: the wrapper must then be unchanged.
+          if [ "$CUR_SLUG" = "$TGT_SLUG" ]; then
+            cmp -s "$DC" "$RUN_DIR/dc.next" || stop "same-release-wrapper-changed"
+          else
+            ! grep -qE "$CUR_DIR_RE" "$RUN_DIR/dc.next" || stop "next-wrapper-still-uses-the-current-release"
+          fi
           cp -p "$BACKEND_ENV" "$RUN_DIR/backend.env.next"
           sed -i "s|^SENTRY_RELEASE=.*|SENTRY_RELEASE=$TGT_ID|" "$RUN_DIR/backend.env.next"
           for PAIR in "DP2_API_IMAGE=$API_REF" "DP2_WORKER_IMAGE=$WORKER_REF" "DP2_MIGRATE_IMAGE=$MIGRATE_REF"; do
