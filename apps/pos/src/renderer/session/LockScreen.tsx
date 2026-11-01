@@ -16,6 +16,8 @@ import type { RefusalCategory } from '../../shared/audit/event-shape';
 import { PIN_MAX_LENGTH, PIN_MIN_LENGTH } from '../ui/operator/PinPad';
 import { Dialog, DialogHost } from '../v5/foundation/Dialog';
 import { Icon } from '../icons/Icon';
+import { BrandSlot, PoweredBy } from '../branding/BrandSlot';
+import { useBranding } from '../branding/branding-store';
 import '../v5/sale/live-sale.css';
 import '../v5/shift/shift.css';
 import './lock-screen.css';
@@ -85,6 +87,8 @@ export function LockScreen({
   }, []);
 
   const rootRef = useRef<HTMLDivElement>(null);
+  // RT-475 (RT-832 lock): the tenant logo above the lock head, from the local cache.
+  const branding = useBranding();
 
   // While locked, no key may reach the sale behind the lock: `inert` stops
   // focus and clicks, but not document/window key listeners (Dialog Escape,
@@ -164,6 +168,7 @@ export function LockScreen({
           initialFocusRef={firstFieldRef}
           restoreFocus={false}
         >
+          <BrandSlot slot="lock" snapshot={branding} />
           <div className="session-lock__head">
             <span className="session-lock__mark" aria-hidden="true">
               <Icon name="lock" size="lg" />
@@ -267,6 +272,7 @@ export function LockScreen({
               )}
             </div>
           </form>
+          <PoweredBy snapshot={branding} className="session-lock__powered-by" />
         </Dialog>
       </DialogHost>
     </div>

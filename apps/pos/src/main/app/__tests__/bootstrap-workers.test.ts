@@ -296,3 +296,17 @@ describe('RT-603 — worker registry: the terminal status push', () => {
     expect(order).toEqual(['sale-sync interval', 'terminal status push', 'shift-sync interval']);
   });
 });
+
+describe('RT-475 — worker registry: the branding read-down', () => {
+  it('stops the branding read-down after the catalogue read-down, before the sale-sync drain', () => {
+    const order: string[] = [];
+    const registry = createWorkerRegistry({ logger: createRecordingLogger() });
+    registry.register('sale-sync interval', () => order.push('sale-sync interval'));
+    registry.register('branding read-down', () => order.push('branding read-down'));
+    registry.register('read-down driver', () => order.push('read-down driver'));
+
+    registry.stopAll();
+
+    expect(order).toEqual(['read-down driver', 'branding read-down', 'sale-sync interval']);
+  });
+});

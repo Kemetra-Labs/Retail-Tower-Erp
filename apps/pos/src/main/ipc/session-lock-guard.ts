@@ -4,6 +4,7 @@ import {
   OPERATOR_IPC_CHANNELS,
   SESSION_LOCK_IPC_CHANNELS,
 } from '../../shared/operator/channels.js';
+import { BRANDING_IPC_CHANNELS } from '../../shared/branding/types.js';
 import { PAIRING_IPC_CHANNELS } from '../../shared/pairing-types.js';
 
 /**
@@ -23,6 +24,11 @@ import { PAIRING_IPC_CHANNELS } from '../../shared/pairing-types.js';
  * served too: the cashier sign-in picks from it, and it shows only what the
  * signed-out sign-in screen shows. Sign-out stays refused (§2.2): ending a
  * locked session takes a credential.
+ *
+ * RT-475: the tenant branding read is served too. The lock screen shows the
+ * tenant logo (RT-832 slot `lock`); the read returns only what the signed-out
+ * screens show, from the local cache. Its only write is deleting cache rows
+ * that fail validation or belong to another pairing (FR-35a, FR-32).
  */
 
 export const LOCKED_ALLOWED_CHANNELS: ReadonlySet<string> = new Set<string>([
@@ -37,6 +43,8 @@ export const LOCKED_ALLOWED_CHANNELS: ReadonlySet<string> = new Set<string>([
   OPERATOR_IPC_CHANNELS.TAKEOVER_CANCEL,
   OPERATOR_IPC_CHANNELS.LIST_BRANCH_ROSTER,
   PAIRING_IPC_CHANNELS.GET_STATUS,
+  // RT-475 — read-only, the same snapshot the signed-out screens get.
+  BRANDING_IPC_CHANNELS.GET,
   'app:ping',
   'app:version',
   'app:log',
