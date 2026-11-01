@@ -233,8 +233,15 @@ function BrandingBody({
     case "session":
       return <Banner variant="danger" message={t("branding.sessionExpired")} />;
     case "rateLimited":
-      // The shell's RateLimitBanner says it and re-reads this query (brief §5.4).
-      return null;
+      // The shell's RateLimitBanner carries the message (brief §5.4); the page
+      // keeps its own gated retry, so a dismissed banner never leaves it stuck.
+      return (
+        <div className="surface__actions">
+          <GatedButton className="btn-secondary" onClick={refetch}>
+            {t("branding.retry")}
+          </GatedButton>
+        </div>
+      );
     case "failed":
     case "refused":
     case "conflict":

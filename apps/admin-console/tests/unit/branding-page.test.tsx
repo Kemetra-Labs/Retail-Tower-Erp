@@ -489,12 +489,22 @@ describe("save, conflict and remove (states H to J)", () => {
     await waitFor(() => expect(document.activeElement).toBe(remove));
   });
 
-  test("a 429 on the first read leaves the message to the shell's banner", async () => {
-    api.get.mockResolvedValue({ ...refusal(429, "rate_limited"), retryAfter: "30" });
+  test("a 429 on the first read: the shell banner has the message, the page keeps a gated retry", async () => {
+    api.get.mockImplementationOnce(async () => {
+      reportRateLimited(30);
+      return { ...refusal(429, "rate_limited"), retryAfter: "30" };
+    });
     renderPage();
-    await waitFor(() => expect(api.get).toHaveBeenCalled());
-    await waitFor(() => expect(screen.queryByText("جارٍ التحميل")).toBeNull());
+    const retry = await screen.findByRole("button", { name: /إعادة المحاولة/ });
     expect(screen.queryByText("تعذّر تحميل شعار المؤسسة.")).toBeNull();
+    expect((retry as HTMLButtonElement).disabled).toBe(true);
+
+    act(() => resetRateLimit());
+    api.get.mockResolvedValueOnce({ status: 200, data: brandingEmpty() });
+    await waitFor(() => expect((retry as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(retry);
+    expect(await screen.findByRole("button", { name: "رفع شعار" })).toBeDefined();
+    expect(api.get).toHaveBeenCalledTimes(2);
   });
 });
 
