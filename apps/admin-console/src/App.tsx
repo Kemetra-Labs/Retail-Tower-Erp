@@ -25,6 +25,7 @@ import { SignInRoute } from "@/shell/SignInRoute";
  * block navigation (useBlocker). The route tree is unchanged; the root layout
  * hosts the providers the routes read.
  */
+import { accountRoutes } from "@/shell/accountRoutes";
 import { catalogRoutes } from "@/shell/catalogRoutes";
 import { deviceRoutes } from "@/shell/deviceRoutes";
 import { DirtyGuardProvider } from "@/shell/dirty-guard";
@@ -100,6 +101,7 @@ const router = createBrowserRouter(
           {deviceRoutes}
           {saleRoutes}
           {saleSyncRoutes}
+          {accountRoutes}
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

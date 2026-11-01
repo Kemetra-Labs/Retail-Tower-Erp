@@ -38,6 +38,7 @@ export const shell: MessagesOf<typeof ar> = {
   "shell.navigator.current": "(current)",
   "shell.navigator.empty": "No page or store matches “{query}”.",
   "shell.userMenu.prefs": "Preferences",
+  "shell.userMenu.account": "My account",
 
   "shell.gate.title": "Select your context",
   "shell.gate.sub": "Choose a tenant to continue.",

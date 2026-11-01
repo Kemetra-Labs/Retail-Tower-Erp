@@ -81,6 +81,18 @@ describe("sign-in screen", () => {
     expect(screen.getByText(/There is no self sign-up/)).toBeDefined();
   });
 
+  test("RT-807 (PW-5): the brand panel is flat Ink in both themes, with no mark, grid or glow", () => {
+    const { container } = render(<SignIn onResolved={vi.fn()} />);
+    const brand = container.querySelector(".auth-brand-panel") as HTMLElement;
+    expect(brand.querySelector("svg")).toBeNull();
+    const css = readSource("src/auth/signin.css");
+    const panel = css.match(/\.auth-brand-panel \{[^}]*\}/)?.[0] ?? "";
+    expect(panel).toMatch(/--brand-bg: var\(--color-ink\)/);
+    expect(panel).toMatch(/--brand-fg: var\(--color-on-ink\)/);
+    expect(css).not.toMatch(/\[data-theme="dark"\] \.auth-brand-panel/);
+    expect(css).not.toMatch(/gradient|auth-brand-panel__mark/);
+  });
+
   test("the stylesheet keeps the canvas grammar: no card shadow, no spelled control sizes", () => {
     const css = readSource("src/auth/signin.css");
     expect(css).not.toMatch(/box-shadow/);
