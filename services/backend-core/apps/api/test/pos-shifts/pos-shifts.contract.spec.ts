@@ -481,7 +481,7 @@ describe("pos-shifts — document and version", () => {
           properties: {
             code: { type: "string" },
             message: { type: "string" },
-            request_id: { type: "string", nullable: true },
+            request_id: { type: ["string", "null"] }, // RT-913: OpenAPI 3.1 null type
           },
         },
       },

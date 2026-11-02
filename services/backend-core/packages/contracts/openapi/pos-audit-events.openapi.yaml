@@ -236,17 +236,15 @@ components:
             FK on the audit_events table. MUST NOT be a PIN, password,
             or any credential value.
         session_id:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: >
             Backend operator session id active when the event was emitted.
             NULL for events emitted before a session was established or
             after it ended.
         shift_id:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: >
             Shift id the event is associated with. NULL for events not
             tied to a shift (e.g. `operator.session.takeover`).
@@ -274,9 +272,8 @@ components:
             terminal. Not the backend ingestion time — the backend
             records its own `ingested_at` separately.
         approving_supervisor_id:
-          type: string
+          type: [string, "null"]
           minLength: 1
-          nullable: true
           description: >
             Clerk subject of the supervisor who approved a §A1-gated
             action (e.g. `cashier.pin.reset`). NULL when not applicable.

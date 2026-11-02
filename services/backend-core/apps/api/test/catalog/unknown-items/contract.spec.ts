@@ -336,15 +336,18 @@ describe("catalog/unknown-items.yaml — schema closedness", () => {
     ]);
   });
 
-  it("UnknownItem.resolution_action is the closed enum {linked, created, dismissed}", () => {
+  it("UnknownItem.resolution_action is the closed enum {linked, created, dismissed} or null", () => {
+    // RT-913: the field is required and null while pending, so the OpenAPI 3.1
+    // form lists `null` in the enum (a 3.1 `type` list alone would still reject it).
     const schema = catalogDoc.components?.schemas?.["UnknownItem"];
     const props = schema?.["properties"] as
-      | Record<string, { enum?: string[] }>
+      | Record<string, { enum?: Array<string | null> }>
       | undefined;
     expect(props?.["resolution_action"]?.enum).toEqual([
       "linked",
       "created",
       "dismissed",
+      null,
     ]);
   });
 

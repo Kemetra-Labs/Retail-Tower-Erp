@@ -308,7 +308,7 @@ components:
         accessible_store_ids:
           type: array
           items: { type: string, format: uuid }
-        revoked_at: { type: string, format: date-time, nullable: true }
+        revoked_at: { type: [string, "null"], format: date-time }
     Error:
       description: The canonical error envelope (code, message, request_id).
       type: object

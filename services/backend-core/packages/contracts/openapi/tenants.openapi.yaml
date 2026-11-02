@@ -161,7 +161,7 @@ components:
             status: { type: string, enum: [active, suspended, pending] }
             created_at: { type: string, format: date-time }
             updated_at: { type: string, format: date-time }
-            deleted_at: { type: string, format: date-time, nullable: true }
+            deleted_at: { type: [string, "null"], format: date-time }
     TenantCreate:
       type: object
       additionalProperties: false
@@ -183,13 +183,13 @@ components:
           properties:
             id: { type: string, format: uuid }
             email: { type: string }
-            display_name: { type: string, nullable: true }
+            display_name: { type: [string, "null"] }
         role_code: { type: string }
         store_access_kind: { type: string, enum: [all, specific] }
         accessible_store_ids:
           type: array
           items: { type: string, format: uuid }
-        revoked_at: { type: string, format: date-time, nullable: true }
+        revoked_at: { type: [string, "null"], format: date-time }
     Error:
       description: The canonical error envelope (code, message, request_id).
       type: object
