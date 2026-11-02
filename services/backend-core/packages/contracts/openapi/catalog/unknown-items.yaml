@@ -947,18 +947,16 @@ components:
             003's `unknown_items_value_length` CHECK. Catalog reference
             data per Constitution §XIV — not PII.
         source_system:
-          type: string
+          type: [string, "null"]
           minLength: 1
           maxLength: 64
-          nullable: true
           description: >
             Required when `identifier_type = external_pos_id`; MUST be
             null/absent otherwise. Mirrors 003's
             `unknown_items_source_system_required` CHECK.
         sale_context:
-          type: object
+          type: [object, "null"]
           additionalProperties: true
-          nullable: true
           description: >
             Opaque advisory metadata (POS cashier label, vendor hint,
             etc.) flowed into the existing 003
@@ -1046,10 +1044,9 @@ components:
           minLength: 1
           maxLength: 200
         source_system:
-          type: string
+          type: [string, "null"]
           minLength: 1
           maxLength: 64
-          nullable: true
           description: >
             Non-null when `identifier_type = external_pos_id`; null
             otherwise. Matches 003 CHECK
@@ -1059,26 +1056,22 @@ components:
           enum: [pending, resolved, dismissed]
           description: Lifecycle state per FR-001 / FR-004.
         resolution_action:
-          type: string
-          enum: [linked, created, dismissed]
-          nullable: true
+          type: [string, "null"]
+          enum: [linked, created, dismissed, null]
           description: >
             Populated only when `resolution_status != 'pending'`.
             Wave 1 only emits `dismissed`; `linked` and `created` are
             reserved for Wave 2 reconciliation.
         resolved_at:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
         resolved_by:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: Acting principal's id when not pending.
         resolved_product_id:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: >
             Set only when `resolution_action = linked` or `created`
             (Wave 2). Always null for Wave 1 dismiss outcomes.
@@ -1087,9 +1080,8 @@ components:
           format: date-time
           description: When the capture first happened.
         sale_context:
-          type: object
+          type: [object, "null"]
           additionalProperties: true
-          nullable: true
           description: >
             Opaque advisory metadata per FR-006 / FR-006a. Carries
             POS-supplied hints inside the existing 003 `sale_context
@@ -1112,8 +1104,7 @@ components:
             # retained unchanged for the POS capture round-trip (R7.3).
             $ref: "#/components/schemas/ReviewQueueItem"
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: >
             Opaque cursor for the next page; null on the last page.
             Clients MUST treat as opaque.
@@ -1169,9 +1160,8 @@ components:
             after trim. Mirrors `tenant_products.tax_category` in
             003 §5.
         category_id:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: >
             Optional tenant-product category UUID. Null if the product
             is uncategorized. Mirrors `tenant_products.category_id`
@@ -1220,33 +1210,28 @@ components:
           minLength: 1
           maxLength: 200
         source_system:
-          type: string
+          type: [string, "null"]
           minLength: 1
           maxLength: 64
-          nullable: true
           description: Non-null when `identifier_type = external_pos_id`; null otherwise.
         resolution_status:
           type: string
           enum: [pending, resolved, dismissed]
           description: Lifecycle state per FR-001 / FR-004.
         resolution_action:
-          type: string
-          enum: [linked, created, dismissed]
-          nullable: true
+          type: [string, "null"]
+          enum: [linked, created, dismissed, null]
           description: Populated only when `resolution_status != 'pending'`.
         resolved_at:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
         resolved_by:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: Acting principal's id when not pending.
         resolved_product_id:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: >
             FR-001a conditional: present only when the caller has authority
             to see the linked/created product; OMITTED otherwise while the
@@ -1326,9 +1311,8 @@ components:
             accompany it); `not_found` when out-of-scope / absent
             (non-disclosing, SI-004).
         details:
-          type: object
+          type: [object, "null"]
           additionalProperties: true
-          nullable: true
           description: >
             Optional per-item detail (e.g. `prior_state` for
             `already_reconciled`). Null for plain `dismissed`.
@@ -1372,9 +1356,8 @@ components:
               type: string
               description: Human-readable summary; no sensitive data.
             request_id:
-              type: string
+              type: [string, "null"]
               format: uuid
-              nullable: true
               description: Server-assigned correlation id.
   headers:
     ConsoleRetryAfter:

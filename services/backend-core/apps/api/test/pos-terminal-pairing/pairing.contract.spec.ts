@@ -499,10 +499,12 @@ describe("pos-terminal-pairing.yaml — TerminalPairResponse shape", () => {
     expect(required).not.toContain("expires_at");
 
     const props = schema?.["properties"] as
-      | Record<string, { type?: string; format?: string; nullable?: boolean }>
+      | Record<string, { type?: string | string[]; format?: string; nullable?: boolean }>
       | undefined;
     expect(props?.["expires_at"]?.format).toBe("date-time");
-    expect(props?.["expires_at"]?.nullable).toBe(true);
+    // RT-913: OpenAPI 3.1 null type, not the 3.0 `nullable` keyword.
+    expect(props?.["expires_at"]?.type).toEqual(["string", "null"]);
+    expect(props?.["expires_at"]?.nullable).toBeUndefined();
   });
 });
 
@@ -564,10 +566,11 @@ describe("pos-terminal-pairing.yaml — Slice 3 prep audit fields (printer confi
     expect(required).toContain("printer_com_port");
 
     const props = schema?.["properties"] as
-      | Record<string, { type?: string; nullable?: boolean }>
+      | Record<string, { type?: string | string[]; nullable?: boolean }>
       | undefined;
-    expect(props?.["printer_com_port"]?.type).toBe("string");
-    expect(props?.["printer_com_port"]?.nullable).toBe(true);
+    // RT-913: OpenAPI 3.1 null type, not the 3.0 `nullable` keyword.
+    expect(props?.["printer_com_port"]?.type).toEqual(["string", "null"]);
+    expect(props?.["printer_com_port"]?.nullable).toBeUndefined();
   });
 });
 

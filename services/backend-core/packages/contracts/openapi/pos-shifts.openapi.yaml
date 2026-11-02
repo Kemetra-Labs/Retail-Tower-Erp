@@ -1098,8 +1098,7 @@ components:
               type: string
               example: Unauthorized
             request_id:
-              type: string
-              nullable: true
+              type: [string, "null"]
               example: "018f1234-0000-7000-8000-000000000099"
 
     # -----------------------------------------------------------------------

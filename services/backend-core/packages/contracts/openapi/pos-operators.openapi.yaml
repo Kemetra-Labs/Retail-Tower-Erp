@@ -525,8 +525,7 @@ components:
           type: string
           format: date-time
         envelope:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: >
             The client-presentable operator-authorization envelope (031 D1):
             an opaque `pos_operator` bearer presented as
