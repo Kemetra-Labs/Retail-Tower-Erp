@@ -26,7 +26,7 @@ function line(n: number, name: string, qty: string, unit: string, amount: string
   };
 }
 
-const saleDetail = {
+export const saleDetail = {
   summary: {
     saleRef: SALE,
     storeRef: STORE,

@@ -174,19 +174,35 @@
 
 /* The ERP posting failure: the v4 banner shape, a red strip at the inline
  * start; the copy and its order are unchanged (RT-974, state only). */
-.sale-erp-failure .rtc-alert {
+.sale-erp-failure > .rtc-alert {
   position: relative;
   overflow: hidden;
   border-radius: 18px;
   padding-inline-start: calc(var(--space-4) + 4px);
 }
-.sale-erp-failure .rtc-alert::before {
+.sale-erp-failure > .rtc-alert::before {
   content: "";
   position: absolute;
   inset-block: 0;
   inset-inline-start: 0;
   inline-size: 4px;
   background: var(--color-danger);
+}
+
+/* RT-1072: the posting failure's evidence and repair outcome, under its banner. */
+.sale-erp-failure {
+  display: grid;
+  gap: var(--space-2);
+}
+.sale-erp-failure__evidence {
+  display: grid;
+  gap: var(--space-1);
+  padding-inline: var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--text-body);
+}
+.sale-erp-failure__evidence p {
+  margin: 0;
 }
 
 /* Forced colours: no shadow, tints or strips; system colours carry the split. */
@@ -206,7 +222,7 @@
     background: Canvas;
     border-color: CanvasText;
   }
-  .sale-erp-failure .rtc-alert::before {
+  .sale-erp-failure > .rtc-alert::before {
     background: CanvasText;
   }
 }
