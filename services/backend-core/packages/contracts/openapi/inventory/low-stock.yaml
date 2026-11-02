@@ -23,22 +23,24 @@ info:
     contract, decisions selected under the owner delegation of 2026-11-02
     (captain session; recommended options; the owner may revisit). No
     controller, guard wiring, service or query serves this path yet. The
-    runtime needs the threshold persistence first (LS-1 follow-up: the
-    threshold fields and their migration are a separate `[GATED]` decision);
-    it is a separate Implementation issue and removes only the operation's
-    marker.
+    runtime needs the threshold persistence first (LS-1 follow-up, decided
+    by RT-1064: the `product_stock_levels` table and its migration ship in
+    their own Implementation issue); it is a separate Implementation issue
+    and removes only the operation's marker.
 
 
     **Thresholds (LS-1).** Retail Tower operational data, never ERPNext
     (root `CLAUDE.md` §5). Two levels per (store, product), in the product's
     stocking unit: a required `reorderLevel` (> 0) and an optional
-    `criticalLevel` (> 0 and <= `reorderLevel`). They are resolved like the
-    rest of the catalog, Tenant Catalog ⊕ Store Override, AS A PAIR: when the
-    store's active override sets a reorder level, both levels come from the
-    override (`thresholdSource: store`); otherwise both come from the Tenant
-    Catalog product (`thresholdSource: tenant`). A pair with no resolved
-    reorder level is not configured and is never evaluated. The levels are
-    set through the catalog surface (follow-up), not here.
+    `criticalLevel` (> 0 and <= `reorderLevel`). They are layered like the
+    rest of the catalog, a tenant default and a store deviation, and resolved
+    AS A PAIR: when the store has an active store level, both levels come
+    from it (`thresholdSource: store`); otherwise both come from the
+    product's active tenant level (`thresholdSource: tenant`). A pair with no
+    resolved reorder level is not configured and is never evaluated. The
+    levels are stored in their own table (`product_stock_levels`, not on the
+    Store Override row) and set through `catalog/stock-levels.yaml` (RT-1064,
+    decisions TH-1 to TH-5), not here.
 
 
     **Evaluated pairs.** A (store, product) pair is evaluated when the store
@@ -313,7 +315,7 @@ components:
           enum: [tenant, store]
           description: >
             The layer both levels came from (LS-1, resolved as a pair):
-            `store` when the store's active override sets a reorder level,
+            `store` when the store has an active store level (RT-1064 TH-3),
             otherwise `tenant`.
         band:
           type: string
