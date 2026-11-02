@@ -58,6 +58,8 @@ const LIVE_READ_CODES = [
   "inventory_safety.deltas.read",
   "inventory_safety.snapshot.read",
   "pairing_codes.listed",
+  // RT-1063: the console people-name read (RT-968).
+  "people.names_read",
   // RT-548 / RT-689: the POS readSale.
   "pos_sales.detail_read",
   // RT-787: the POS return reads (RT-490 R-8).

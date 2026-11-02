@@ -23,6 +23,7 @@ import type { OutboxConsumer, OutboxEventEnvelope } from "@data-pulse-2/shared";
 import type { ClaimedOutboxEvent } from "@data-pulse-2/db";
 import { DrainerProcessor } from "../../src/outbox/drainer.processor";
 import { OutboxConsumerRegistry } from "../../src/outbox/registry";
+import { InventoryMovementCreatedConsumer } from "../../src/outbox/consumers/inventory-movement-created.consumer";
 import * as workerMetrics from "../../src/observability/metrics/worker.metrics";
 
 const TENANT_A = "0bb00000-0000-7000-8000-000000000001";
@@ -634,5 +635,174 @@ describe("T595 PR-B-1: drainer outbox metric emission (dead-letter / drain-durat
       [EV_METRICS_T595],
     );
     expect(r.rows[0]!.delivery_state).toBe("dead_lettered");
+  });
+});
+
+describe("RT-1057: inventory.movement.created is acknowledged, not unroutable", () => {
+  const EV_MOVEMENT = "0bd00000-0000-4000-8000-000000000003";
+
+  let retrySpy: jest.SpyInstance;
+  let failedSpy: jest.SpyInstance;
+  let errorSpy: jest.SpyInstance;
+
+  beforeAll(async () => {
+    if (dockerSkipped) return;
+    await env!.admin.query(
+      `INSERT INTO outbox_events
+         (event_id, tenant_id, event_type, payload, delivery_state, attempts)
+       VALUES ($1, $2, 'inventory.movement.created', '{"movement_id":"m-1"}'::jsonb, 'pending', 0)`,
+      [EV_MOVEMENT, TENANT_A],
+    );
+  });
+
+  beforeEach(() => {
+    retrySpy = jest.spyOn(workerMetrics, "recordQueueRetry").mockImplementation(() => undefined);
+    failedSpy = jest.spyOn(workerMetrics, "recordQueueFailed").mockImplementation(() => undefined);
+    errorSpy = jest.spyOn(process.stderr, "write").mockImplementation(() => true); // drainer logs via process.stderr
+  });
+
+  afterEach(() => {
+    retrySpy.mockRestore();
+    failedSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("claimed once, ends delivered at attempts=1, no queue_failed / queue_retry, no UnroutableEventType", async () => {
+    if (maybeSkip()) return;
+
+    const registry = new OutboxConsumerRegistry();
+    registry.register(new InventoryMovementCreatedConsumer());
+
+    let claims = 0;
+    const drainer = new DrainerProcessor({
+      pool: env!.admin,
+      registry,
+      claimFn: (async () => {
+        const res = await env!.admin.query<ClaimedOutboxEvent>(
+          `WITH claimed AS (
+             UPDATE outbox_events
+                SET delivery_state='claimed', attempts=attempts+1, updated_at=now()
+              WHERE event_id=$1 AND delivery_state IN ('pending','failed')
+              RETURNING event_id, event_type, tenant_id, store_id, payload, correlation_id, occurred_at, attempts
+           ) SELECT * FROM claimed`,
+          [EV_MOVEMENT],
+        );
+        claims += res.rows.length;
+        return res.rows;
+      }) as (pool: import("pg").Pool, batchSize: number) => Promise<ClaimedOutboxEvent[]>,
+    });
+
+    await drainer.tick();
+    await drainer.tick(); // a delivered row must not be claimable again
+
+    expect(claims).toBe(1);
+    const r = await env!.admin.query<{ delivery_state: string; attempts: number; last_error: string | null }>(
+      `SELECT delivery_state, attempts, last_error FROM outbox_events WHERE event_id=$1`,
+      [EV_MOVEMENT],
+    );
+    expect(r.rows[0]).toMatchObject({ delivery_state: "delivered", attempts: 1, last_error: null });
+    expect(failedSpy).not.toHaveBeenCalled();
+    expect(retrySpy).not.toHaveBeenCalled();
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("UnroutableEventType");
+  });
+});
+
+describe("RT-1057 (added AC, comment 15145): unroutable row at attempts=7 — pins CURRENT behaviour", () => {
+  // Observation of the code path found by RT-1035 (not changed here):
+  // 8th claim -> no consumer -> markFailed throws (attempts >= MAX_ATTEMPTS)
+  // -> safeMarkFailed swallows -> row stays `claimed`; only reclaimStaleClaims
+  // later dead-letters it with last_error='ClaimLeaseExpired'.
+  const EV_A7 = "0bd00000-0000-4000-8000-000000000004";
+
+  let retrySpy: jest.SpyInstance;
+  let failedSpy: jest.SpyInstance;
+  let deadLetterSpy: jest.SpyInstance;
+  let errorSpy: jest.SpyInstance;
+
+  beforeAll(async () => {
+    if (dockerSkipped) return;
+    await env!.admin.query(
+      `INSERT INTO outbox_events
+         (event_id, tenant_id, event_type, payload, delivery_state, attempts)
+       VALUES ($1, $2, 'test.event.unroutable-a7', '{"x":1}'::jsonb, 'pending', 7)`,
+      [EV_A7, TENANT_A],
+    );
+  });
+
+  beforeEach(() => {
+    retrySpy = jest.spyOn(workerMetrics, "recordQueueRetry").mockImplementation(() => undefined);
+    failedSpy = jest.spyOn(workerMetrics, "recordQueueFailed").mockImplementation(() => undefined);
+    deadLetterSpy = jest.spyOn(workerMetrics, "recordQueueDeadLetter").mockImplementation(() => undefined);
+    errorSpy = jest.spyOn(process.stderr, "write").mockImplementation(() => true); // drainer logs via process.stderr
+  });
+
+  afterEach(() => {
+    retrySpy.mockRestore();
+    failedSpy.mockRestore();
+    deadLetterSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("8th claim leaves the row `claimed` (markFailed throws, swallowed); reclaim later dead-letters it with last_error=ClaimLeaseExpired", async () => {
+    if (maybeSkip()) return;
+
+    const claimA7 = (async () => {
+      const res = await env!.admin.query<ClaimedOutboxEvent>(
+        `WITH claimed AS (
+           UPDATE outbox_events
+              SET delivery_state='claimed', attempts=attempts+1, updated_at=now()
+            WHERE event_id=$1 AND delivery_state IN ('pending','failed')
+            RETURNING event_id, event_type, tenant_id, store_id, payload, correlation_id, occurred_at, attempts
+         ) SELECT * FROM claimed`,
+        [EV_A7],
+      );
+      return res.rows;
+    }) as (pool: import("pg").Pool, batchSize: number) => Promise<ClaimedOutboxEvent[]>;
+
+    const registry = new OutboxConsumerRegistry(); // no consumer for the type
+    const drainer = new DrainerProcessor({ pool: env!.admin, registry, claimFn: claimA7 });
+
+    await drainer.tick(); // 8th claim
+
+    const after8 = await env!.admin.query<{
+      delivery_state: string; attempts: number; last_error: string | null; processed_at: string | null;
+    }>(
+      `SELECT delivery_state, attempts, last_error, processed_at FROM outbox_events WHERE event_id=$1`,
+      [EV_A7],
+    );
+    expect(after8.rows[0]).toMatchObject({
+      delivery_state: "claimed", attempts: 8, last_error: null, processed_at: null,
+    });
+    // Unroutable branch still records retry+failed on the 8th claim, and logs
+    // the swallowed markFailed error.
+    expect(failedSpy).toHaveBeenCalledTimes(1);
+    expect(retrySpy).toHaveBeenCalledTimes(1);
+    expect(deadLetterSpy).not.toHaveBeenCalled();
+    expect(JSON.stringify(errorSpy.mock.calls)).toContain("drainer.markFailed failed");
+
+    // Expire the lease, then let the reclaim loop run (claimFn returns nothing).
+    await env!.admin.query(
+      `UPDATE outbox_events SET claimed_at = now() - interval '10 minutes',
+              updated_at = now() - interval '10 minutes' WHERE event_id=$1`,
+      [EV_A7],
+    );
+    const reclaimer = new DrainerProcessor({
+      pool: env!.admin,
+      registry,
+      claimFn: (async () => []) as (pool: import("pg").Pool, batchSize: number) => Promise<ClaimedOutboxEvent[]>,
+    });
+    await reclaimer.tick();
+
+    const end = await env!.admin.query<{
+      delivery_state: string; attempts: number; last_error: string | null; processed_at: string | null;
+    }>(
+      `SELECT delivery_state, attempts, last_error, processed_at FROM outbox_events WHERE event_id=$1`,
+      [EV_A7],
+    );
+    expect(end.rows[0]!.delivery_state).toBe("dead_lettered");
+    expect(end.rows[0]!.attempts).toBe(8);
+    expect(end.rows[0]!.last_error).toBe("ClaimLeaseExpired");
+    expect(end.rows[0]!.processed_at).not.toBeNull();
+    expect(deadLetterSpy).toHaveBeenCalledTimes(1);
   });
 });
