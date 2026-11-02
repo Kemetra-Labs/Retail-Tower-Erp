@@ -125,12 +125,6 @@ paths:
       summary: Display names for up to 200 user ids of the session tenant.
       operationId: listPeopleNames
       x-audit-action: people.names_read
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        Draft contract only (RT-968). Backend-Core has no controller,
-        service or query for this route yet; the runtime issue removes this
-        marker and adds `people.names_read` to the read action-kind
-        registry.
       tags: [console-people]
       description: >
         Resolves each requested id that is a person of the session tenant

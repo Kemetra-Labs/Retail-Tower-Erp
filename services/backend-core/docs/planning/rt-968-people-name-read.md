@@ -78,6 +78,10 @@ times and repeat the authorization logic in three services. **Option B is reject
 * It follows the store-scope rule that the same role already gets on those surfaces.
 * The alternative, every tenant member, would show a store manager the names of staff at stores they
   cannot see at all.
+* **Empty scope (RT-1063, captain decision 2026-11-02 under the owner's delegation).** A store manager
+  whose resolved scope holds no store resolves nobody, members with an `all` grant included: an `all`
+  grant cannot grant "a store of the caller's scope" when that scope is empty. This is fail-closed and
+  the least disclosure.
 
 **Known limit.** Suppose a person's grant on the store was later removed by a membership edit (the
 edit replaces `store_access`). That person no longer resolves for the store manager, and the Console
