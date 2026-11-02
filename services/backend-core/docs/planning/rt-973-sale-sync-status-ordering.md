@@ -84,8 +84,11 @@ After a confirmed repair, the Console writes the repair's `syncStatus` into the 
 ### 4.2 Applied in this PR: `sale-sync-ops.yaml` `1.1.0-draft` → `1.2.0-draft`
 
 `SaleSyncStatus` gains an **optional** `syncStatusVersion` with the semantics above, and states that
-Backend-Core does not emit it yet; the runtime slice (§7, slice 1) emits it on every response and makes
-it `required` in the same PR. Adding an optional response property is additive (`oasdiff`, §8), changes
+Backend-Core does not emit it yet; the runtime slice (§7, slice 1) emits it on every newly computed
+response. It **stays optional for good**: `consoleRepairSaleSync` is `@Idempotent("required")`, and a
+replay returns the body stored when the key was first used (72-hour TTL,
+`apps/api/src/idempotency/idempotency.module.ts`). A repair recorded before slice 1 replays without the
+field, so making it required would make those replays break the contract. Adding an optional response property is additive (`oasdiff`, §8), changes
 no operation, and needs no `x-runtime-status: contract-only` marker (that marker is per operation, and
 every sale-sync-ops operation already ships). The 1.2.0 entry in `info.description` records the change.
 
@@ -111,8 +114,8 @@ Slice 1 also widens the pin "`ConsoleSaleItem` is the `SaleHistoryItem` plus `st
 
 * **Additive only.** A new response property, never a renamed or retyped one. `oasdiff` must report no
   WARN or ERR.
-* **Absent means unknown.** A Console that receives no `syncStatusVersion` (old server, or before slice 1)
-  falls back to today's behaviour: it writes the repair status (after the in-flight read, as now).
+* **Absent means unknown.** A Console that receives no `syncStatusVersion` (old server, before slice 1,
+  or a sale-sync-ops repair replay stored before slice 1) falls back to today's behaviour: it writes the repair status (after the in-flight read, as now).
 * **No POS impact.** `pos-sales/sale-history.yaml` does not change; contracts-compat POS snapshots are untouched.
 * **Never reused.** The field is never reset or repurposed. If the status vocabulary grows, the counter
   keeps counting.
@@ -149,7 +152,8 @@ Created by the coordinator after review, linked to RT-973 with `Blocks`.
      cannot skip it.
    * Reads: `SALE_SELECT_SQL` and the sale-sync-ops SELECTs return the column. The POS sale-history
      projection does not emit it (its contract does not change).
-   * Contract: `sale-sync-ops.yaml` makes `syncStatusVersion` required (e1 fixtures updated);
+   * Contract: `sale-sync-ops.yaml` keeps `syncStatusVersion` optional (§4.2, repair replays) and drops
+     the "not emitted yet" wording;
      `console-sales` `1.2.0-draft` adds it to `ConsoleSaleItem` (pin widened), together with RT-977's field.
    * Tests: monotonic across drain → dead-letter → repair → drain; equal version ⇒ equal status;
      idempotent replay returns the stored version; tenant and store isolation unchanged; POS sale-history

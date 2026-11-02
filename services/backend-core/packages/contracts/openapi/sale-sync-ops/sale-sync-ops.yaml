@@ -59,9 +59,11 @@ info:
     gains an optional `syncStatusVersion`, the Backend-Core-owned ordering
     of the sale's `syncStatus` (decision record
     `docs/planning/rt-973-sale-sync-status-ordering.md`). Backend-Core does
-    not emit it yet; the RT-973 runtime slice emits it on every
-    `SaleSyncStatus` response and makes it required in the same change. No
-    operation changes, so no `x-runtime-status` marker applies.
+    not emit it yet; the RT-973 runtime slice emits it on every newly
+    computed `SaleSyncStatus` response. It stays optional: a
+    `consoleRepairSaleSync` idempotent replay returns the body stored before
+    that slice (72h replay TTL) without it. No operation changes, so no
+    `x-runtime-status` marker applies.
 
 servers:
   - url: https://api.example.com
@@ -333,8 +335,9 @@ components:
             same field, so a client can order this response against the sale
             detail. An idempotent repair replay returns the stored response,
             with the version it had then. NOT EMITTED YET: absent until the
-            RT-973 runtime slice ships, which makes it required; a client
-            treats an absent value as unknown and does not order on it.
+            RT-973 runtime slice ships. Optional for good, because a repair
+            replay stored before that slice has no value; a client treats an
+            absent value as unknown and does not order on it.
         deadLetter:
           description: >
             Present (non-null) when the sale has an OPEN dead-letter row — the
