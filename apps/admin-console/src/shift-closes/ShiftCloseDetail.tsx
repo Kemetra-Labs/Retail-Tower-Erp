@@ -38,6 +38,7 @@ import type { ShiftCloseDetail as Detail, ShiftCashMovement } from "@/lib/shift-
  * counted read as the results they are, and the variance is the anchored total
  * (its direction still in words, never colour).
  */
+import { PeopleNames, PersonRef } from "@/people/PersonRef";
 import { Link, useLocation, useParams } from "react-router";
 import { KindPill } from "./ShiftKindPill";
 import { ShiftScopePrompt } from "./ShiftScopePrompt";
@@ -71,6 +72,11 @@ function BackLink(): React.JSX.Element {
 /** An actor or reference id: machine data, isolated LTR (UX-11). */
 function MachineId({ value }: Readonly<{ value: string }>): React.JSX.Element {
   return <bdi dir="ltr">{value}</bdi>;
+}
+
+/** A user reference: the display name (RT-1070) beside the id, the id alone when unresolved. */
+function UserRef({ value }: Readonly<{ value: string }>): React.JSX.Element {
+  return <PersonRef userId={value} />;
 }
 
 /**
@@ -132,13 +138,13 @@ function SummarySection({ detail, storeName, timeZone }: Readonly<LoadedProps>):
         </Field>
         <Field label={t("shift.field.saleCount")}>{formatNumber(detail.saleCount, locale)}</Field>
         <Field label={t("shift.field.openingUser")} mono>
-          <MachineId value={detail.openingUserId} />
+          <UserRef value={detail.openingUserId} />
         </Field>
         <Field label={t("shift.field.closingUser")} mono>
-          <MachineId value={detail.closingUserId} />
+          <UserRef value={detail.closingUserId} />
         </Field>
         <Field label={t("shift.field.recordedBy")} mono>
-          <MachineId value={detail.recordedByUserId} />
+          <UserRef value={detail.recordedByUserId} />
         </Field>
       </dl>
     </Section>
@@ -220,7 +226,7 @@ function ApprovalSection({ detail }: Readonly<{ detail: Detail }>): React.JSX.El
       {approver ? (
         <dl className="surface__detail">
           <Field label={t("shift.field.approver")} mono>
-            <MachineId value={approver} />
+            <UserRef value={approver} />
           </Field>
         </dl>
       ) : (
@@ -253,7 +259,7 @@ function MovementRow({
       </td>
       <td>{movement.note ? <bdi dir="auto">{movement.note}</bdi> : null}</td>
       <td className="data-table__cell--mono">
-        <MachineId value={movement.recordedByUserId} />
+        <UserRef value={movement.recordedByUserId} />
       </td>
     </tr>
   );
@@ -330,30 +336,39 @@ function ReturnsSection({ refs }: Readonly<{ refs: readonly string[] }>): React.
 
 function Loaded({ detail, storeName, timeZone }: Readonly<LoadedProps>): React.JSX.Element {
   const t = useT();
+  const personIds = [
+    detail.openingUserId,
+    detail.closingUserId,
+    detail.recordedByUserId,
+    detail.varianceApprovedByUserId,
+    ...detail.cashMovements.map((m) => m.recordedByUserId),
+  ];
   return (
-    <div className="surface surface--shifts">
-      <BackLink />
-      <PageHeader
-        title={t("shift.detail.title")}
-        subtitle={t.rich("shift.detail.zoneNote", {
-          zone: <bdi dir="ltr">{timeZone ?? "UTC"}</bdi>,
-        })}
-      >
-        <HeaderStatus label={t("shift.field.kind")}>
-          <KindPill close={detail} />
-        </HeaderStatus>
-      </PageHeader>
-      <ShiftTimeBar detail={detail} timeZone={timeZone} />
-      <DetailGrid>
-        <SummarySection detail={detail} storeName={storeName} timeZone={timeZone} />
-        <CashSection detail={detail} />
-      </DetailGrid>
-      <MovementsSection detail={detail} timeZone={timeZone} />
-      <DetailGrid>
-        <ApprovalSection detail={detail} />
-        <ReturnsSection refs={detail.cashRefundReturnRefs} />
-      </DetailGrid>
-    </div>
+    <PeopleNames ids={personIds}>
+      <div className="surface surface--shifts">
+        <BackLink />
+        <PageHeader
+          title={t("shift.detail.title")}
+          subtitle={t.rich("shift.detail.zoneNote", {
+            zone: <bdi dir="ltr">{timeZone ?? "UTC"}</bdi>,
+          })}
+        >
+          <HeaderStatus label={t("shift.field.kind")}>
+            <KindPill close={detail} />
+          </HeaderStatus>
+        </PageHeader>
+        <ShiftTimeBar detail={detail} timeZone={timeZone} />
+        <DetailGrid>
+          <SummarySection detail={detail} storeName={storeName} timeZone={timeZone} />
+          <CashSection detail={detail} />
+        </DetailGrid>
+        <MovementsSection detail={detail} timeZone={timeZone} />
+        <DetailGrid>
+          <ApprovalSection detail={detail} />
+          <ReturnsSection refs={detail.cashRefundReturnRefs} />
+        </DetailGrid>
+      </div>
+    </PeopleNames>
   );
 }
 

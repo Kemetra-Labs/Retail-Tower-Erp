@@ -22,6 +22,7 @@
  */
 import { TableScrollRegion } from "@/components/DataTableScroll";
 import { formatEvidenceTime, useT } from "@/i18n";
+import { PersonRef } from "@/people/PersonRef";
 import { auditActionLabelKey } from "./auditActionLabel";
 import type { AuditRow } from "./useAuditSearch";
 import "./audit.css";
@@ -91,6 +92,8 @@ export function AuditTable({ rows, onInspect }: Readonly<AuditTableProps>): Reac
                 <td className="audit-table__muted">
                   {row.actor_label != null ? (
                     <bdi>{row.actor_label}</bdi>
+                  ) : row.actor_user_id ? (
+                    <PersonRef userId={row.actor_user_id} display={shortId(row.actor_user_id)} />
                   ) : (
                     <bdi dir="ltr">{shortId(row.actor_user_id)}</bdi>
                   )}
