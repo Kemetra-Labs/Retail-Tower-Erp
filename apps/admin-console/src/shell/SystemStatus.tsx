@@ -104,7 +104,7 @@ export function SystemStatus(): React.JSX.Element | null {
         <output className="sidebar__status-note">{t("shell.status.loading")}</output>
       ) : null}
       {view ? (
-        <ul className="sidebar__status-list">
+        <ul className="sidebar__status-list" aria-live="polite">
           {view.components.map((c) => (
             <li key={c.id} className="sidebar__status-row" data-state={c.state}>
               <span className="sidebar__status-name">

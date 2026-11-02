@@ -86,6 +86,13 @@ describe("RT-1071 system-status block", () => {
     expect(screen.queryByRole("link", { name: "Server" })).toBeNull();
   });
 
+  test("the component list is a polite live region, so a changed state is announced", async () => {
+    read.mockResolvedValue(status());
+    renderBlock();
+    await screen.findByText("Keeping up");
+    expect(screen.getByRole("list").getAttribute("aria-live")).toBe("polite");
+  });
+
   test("unknown is shown as Unknown, never OK", async () => {
     read.mockResolvedValue(status(["ok", "keeping_up"], ["unknown", "not_configured"], "unknown"));
     renderBlock();
