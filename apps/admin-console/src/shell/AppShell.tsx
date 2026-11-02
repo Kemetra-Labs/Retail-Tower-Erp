@@ -66,7 +66,8 @@ export function AppShell({ onSignOut, children }: Readonly<AppShellProps>): Reac
         tag={t("app.productTag")}
         groups={groups}
         scope={inSession ? null : <ScopeHeader />}
-        systemStatus={canReadErpStatus(roleCode)}
+        // A support session shows no tenant surface and sends no tenant request (RT-781).
+        systemStatus={!inSession && canReadErpStatus(roleCode)}
         onSignOut={onSignOut}
       />
 

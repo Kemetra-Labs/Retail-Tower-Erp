@@ -16,6 +16,7 @@ import { useEffect, useId, useState } from "react";
 import { Link } from "react-router";
 import {
   COMPONENT_LABEL,
+  STALE_AFTER_MS,
   STATE_LABEL,
   type StatusView,
   ageMinutes,
@@ -54,12 +55,24 @@ export function SystemStatus(): React.JSX.Element | null {
     retry: false,
   });
 
-  // A local clock for the stale label only; it triggers no request.
+  // A local clock for the stale label only; it triggers no request. It also ticks at
+  // each receipt's exact stale deadline, so the label never lags the 10 minutes.
+  const receivedAt = query.dataUpdatedAt;
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(id);
-  }, []);
+    const staleId =
+      receivedAt > 0
+        ? setTimeout(
+            () => setNow(Date.now()),
+            Math.max(0, receivedAt + STALE_AFTER_MS - Date.now()),
+          )
+        : undefined;
+    return () => {
+      clearInterval(id);
+      if (staleId !== undefined) clearTimeout(staleId);
+    };
+  }, [receivedAt]);
 
   const refused = query.error instanceof StatusReadError && query.error.status === 404;
   if (refused) return null; // non-disclosing: nothing about the cause is shown
@@ -69,7 +82,6 @@ export function SystemStatus(): React.JSX.Element | null {
   const body = query.data;
   // A failed (re-)read shows unknown even if an earlier body is cached: a stale `ok` is never kept.
   const view: StatusView | null = failed ? unknownView() : body ? statusView(body) : null;
-  const receivedAt = query.dataUpdatedAt;
   const stale = !failed && body && receivedAt > 0 && isStale(receivedAt, now);
 
   return (

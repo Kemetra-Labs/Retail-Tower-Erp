@@ -133,7 +133,7 @@ describe("RT-1071 system-status block", () => {
     expect(read).toHaveBeenCalledTimes(1);
     window.dispatchEvent(new Event("focus"));
     expect(read).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
     await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
   });
 
@@ -142,7 +142,7 @@ describe("RT-1071 system-status block", () => {
     renderBlock();
     await screen.findByText("Keeping up");
     read.mockResolvedValueOnce({ status: 500, error: {} });
-    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
     await screen.findByText("The status could not be read. Nothing is confirmed.");
     expect(screen.queryByText("OK")).toBeNull();
   });
@@ -170,6 +170,6 @@ describe("RT-1071 system-status block", () => {
     await screen.findByText("مبيعات تحتاج إصلاحًا");
     expect(screen.getByText("حالة النظام")).toBeDefined();
     expect(screen.getByText("متدهور")).toBeDefined();
-    expect(screen.getByRole("button", { name: "تحديث" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "إعادة الفحص" })).toBeDefined();
   });
 });

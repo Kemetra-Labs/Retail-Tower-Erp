@@ -6,11 +6,11 @@ export const shell = {
   // RT-969: the sidebar landmark (brand, scope switcher, navigation).
   "shell.sidebar.label": "النطاق والتنقل",
   "shell.status.title": "حالة النظام",
-  "shell.status.refresh": "تحديث",
+  "shell.status.refresh": "إعادة الفحص",
   "shell.status.loading": "جارٍ الفحص…",
   "shell.status.readFailed": "تعذّرت قراءة الحالة. لا شيء مؤكَّد.",
   "shell.status.asOf": "حتى {time}",
-  "shell.status.stale": "اللقطة عمرها {age}. حدِّث للتحديث.",
+  "shell.status.stale": "اللقطة عمرها {age}. أعد الفحص للتحديث.",
   "shell.status.component.server": "الخادم",
   "shell.status.component.saleSync": "مزامنة المبيعات",
   "shell.status.component.erpConnector": "موصّل ERPNext",
