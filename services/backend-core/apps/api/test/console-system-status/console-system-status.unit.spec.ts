@@ -209,6 +209,47 @@ describe("RT-1062 ConsoleSystemStatusService check bound (D-4)", () => {
     expect(statements.some((s) => /outbox_events|sale_sync_deadletters|connector_registration|statement_timeout/.test(s))).toBe(false);
   });
 
+  it.each([
+    ["set_config", /statement_timeout/],
+    ["the first status query", /outbox_events|connector_registration/],
+  ])("a deadline that passes during %s starts no later status query", async (_label, slow) => {
+    const statements: string[] = [];
+    let released = 0;
+    const client = {
+      query: (sql: string) => {
+        statements.push(sql);
+        const wait = slow.test(sql) ? 80 : 0;
+        return new Promise((resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                rows: sql.includes("outbox_events")
+                  ? [{ undelivered_count: 0, oldest_age_seconds: null }]
+                  : sql.includes("sale_sync_deadletters")
+                    ? [{ needs_repair_count: 0 }]
+                    : [],
+              }),
+            wait,
+          ),
+        );
+      },
+      release: () => {
+        released += 1;
+      },
+    };
+    const pool = { connect: () => Promise.resolve(client) } as unknown as Pool;
+    const body = await new ConsoleSystemStatusService(pool, 30).read({ tenantId: TENANT });
+    expect(body.components.saleSync.reason).toBe("check_timed_out");
+    expect(body.components.erpConnector.reason).toBe("check_timed_out");
+    const atDeadline = statements.length;
+    await new Promise((r) => setTimeout(r, 250));
+    expect(released).toBe(2);
+    // After the deadline only the transaction end may run: no status query starts.
+    const later = statements.slice(atDeadline);
+    expect(later.filter((s) => /outbox_events|sale_sync_deadletters|connector_registration/.test(s))).toEqual([]);
+    expect(statements.filter((s) => s.includes("sale_sync_deadletters"))).toEqual([]);
+  });
+
   /** A fake client: `onQuery` answers each statement after the tenant GUCs and the timeout. */
   function poolWith(onQuery: (sql: string) => Promise<{ rows: unknown[] }>): { pool: Pool; statements: string[] } {
     const statements: string[] = [];

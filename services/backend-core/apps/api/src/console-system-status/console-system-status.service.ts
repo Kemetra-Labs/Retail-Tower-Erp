@@ -32,7 +32,7 @@
  */
 import { Inject, Injectable } from "@nestjs/common";
 import { OUTBOX_EVENT_TYPES, runWithTenantContext } from "@data-pulse-2/db";
-import type { Pool, PoolClient } from "pg";
+import type { Pool, QueryResult, QueryResultRow } from "pg";
 
 import { PG_POOL } from "../auth/auth.module";
 import {
@@ -56,6 +56,16 @@ type TimedOut = typeof TIMED_OUT;
 function isQueryCanceled(err: unknown): boolean {
   return typeof err === "object" && err !== null && (err as { code?: unknown }).code === QUERY_CANCELED;
 }
+
+/** Thrown by a guarded query once its check has passed the deadline. */
+class CheckAbandonedError extends Error {
+  constructor() {
+    super("check abandoned after its deadline");
+  }
+}
+
+/** The only way a check talks to the database: refused once the check is abandoned. */
+type Query = <R extends QueryResultRow>(sql: string, params?: unknown[]) => Promise<QueryResult<R>>;
 
 const UNDELIVERED_SQL = `
   SELECT count(*)::int AS undelivered_count,
@@ -94,8 +104,8 @@ export class ConsoleSystemStatusService {
   async read(input: { tenantId: string }): Promise<ConsoleSystemStatus> {
     const now = new Date();
     const [saleSync, registrations] = await Promise.all([
-      this.bounded(input.tenantId, (client) => this.saleSyncFacts(client)),
-      this.bounded(input.tenantId, (client) => this.registrations(client)),
+      this.bounded(input.tenantId, (query) => this.saleSyncFacts(query)),
+      this.bounded(input.tenantId, (query) => this.registrations(query)),
     ]);
     return toConsoleSystemStatus(
       now,
@@ -104,12 +114,12 @@ export class ConsoleSystemStatusService {
     );
   }
 
-  private async saleSyncFacts(client: PoolClient): Promise<SaleSyncFacts> {
-    const undelivered = await client.query<{ undelivered_count: number; oldest_age_seconds: string | null }>(
+  private async saleSyncFacts(query: Query): Promise<SaleSyncFacts> {
+    const undelivered = await query<{ undelivered_count: number; oldest_age_seconds: string | null }>(
       UNDELIVERED_SQL,
       [OUTBOX_EVENT_TYPES.SALE_CAPTURED],
     );
-    const repair = await client.query<{ needs_repair_count: number }>(NEEDS_REPAIR_SQL);
+    const repair = await query<{ needs_repair_count: number }>(NEEDS_REPAIR_SQL);
     const u = undelivered.rows[0];
     return {
       undeliveredCount: u?.undelivered_count ?? 0,
@@ -118,8 +128,8 @@ export class ConsoleSystemStatusService {
     };
   }
 
-  private async registrations(client: PoolClient): Promise<ConnectorRegistrationFacts[]> {
-    const res = await client.query<{
+  private async registrations(query: Query): Promise<ConnectorRegistrationFacts[]> {
+    const res = await query<{
       disabled_at: Date | null;
       last_seen_at: Date | null;
       erpnext_reachable: boolean | null;
@@ -135,20 +145,28 @@ export class ConsoleSystemStatusService {
    * Run `work` under the tenant GUC within the check bound. A
    * `statement_timeout` cancel or the timer is `TIMED_OUT`; anything else
    * rejects.
+   *
+   * `abandoned` is set when the timer wins. Every statement of the check goes
+   * through the guarded `query`, which refuses to start once it is set, so no
+   * statement starts after the answer was sent, whichever await the deadline
+   * passed in (the connection wait, `set_config`, or a status query). The
+   * refusal rolls the transaction back and runWithTenantContext releases the
+   * client.
    */
-  private bounded<T>(tenantId: string, work: (client: PoolClient) => Promise<T>): Promise<T | TimedOut> {
+  private bounded<T>(tenantId: string, work: (query: Query) => Promise<T>): Promise<T | TimedOut> {
     const ms = this.checkTimeoutMs;
-    // Set when the timer wins: a check whose connection arrives after the
-    // deadline returns at once (its transaction still ends and the client is
-    // released by runWithTenantContext), so no status query runs for an
-    // answer that was already sent.
     let abandoned = false;
-    const check: Promise<T | TimedOut> = runWithTenantContext<T | TimedOut>(this.pool, { tenantId, isPlatformAdmin: false }, async (client) => {
-      if (abandoned) return TIMED_OUT;
-      await client.query(`SELECT set_config('statement_timeout', $1, true)`, [`${ms}ms`]);
-      return work(client);
-    }).catch((err: unknown): TimedOut => {
-      if (isQueryCanceled(err)) return TIMED_OUT;
+    const check: Promise<T | TimedOut> = runWithTenantContext<T | TimedOut>(
+      this.pool,
+      { tenantId, isPlatformAdmin: false },
+      async (client) => {
+        const query: Query = (sql, params) =>
+          abandoned ? Promise.reject(new CheckAbandonedError()) : client.query(sql, params);
+        await query(`SELECT set_config('statement_timeout', $1, true)`, [`${ms}ms`]);
+        return work(query);
+      },
+    ).catch((err: unknown): TimedOut => {
+      if (isQueryCanceled(err) || err instanceof CheckAbandonedError) return TIMED_OUT;
       throw err;
     });
     let timer: NodeJS.Timeout | undefined;
