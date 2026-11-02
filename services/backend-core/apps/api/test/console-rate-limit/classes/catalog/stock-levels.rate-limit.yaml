@@ -1,0 +1,9 @@
+# Console rate-limit class of each cookieAuth operation in
+# packages/contracts/openapi/catalog/stock-levels.yaml (RT-805; checked by console-rate-limit.ratchet.spec.ts).
+
+# RT-1064: one product's levels (one tenant row and the store rows of the scope).
+consoleGetProductStockLevels: cheapRead
+consoleRetireStoreStockLevel: write
+consoleRetireTenantStockLevel: write
+consoleSetStoreStockLevel: write
+consoleSetTenantStockLevel: write
