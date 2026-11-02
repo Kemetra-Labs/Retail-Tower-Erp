@@ -137,12 +137,6 @@ paths:
     get:
       summary: The tenant's system status (server, sale sync queue, ERPNext connector).
       operationId: consoleGetSystemStatus
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        Contract approved as a design boundary only (RT-1056 D-1 to D-5,
-        owner delegation of 2026-11-02). Backend-Core has no controller,
-        service or query for this route yet; the runtime Implementation
-        issue removes this marker.
       tags: [console-system-status]
       description: >
         Three components of the caller's tenant, each with a state from
