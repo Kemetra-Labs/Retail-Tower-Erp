@@ -78,6 +78,29 @@ describe("people directory fallbacks (no banner)", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  test("a failed lookup is not cached as fresh: the next mount asks again", async () => {
+    const client = createQueryClient();
+    const mount = () =>
+      render(
+        <QueryClientProvider client={client}>
+          <PeopleNames ids={[A]}>
+            <PersonRef userId={A} />
+          </PeopleNames>
+        </QueryClientProvider>,
+      );
+    consoleListPeopleNames.mockResolvedValueOnce({ status: 500, data: undefined });
+    const first = mount();
+    await waitFor(() => expect(consoleListPeopleNames).toHaveBeenCalledTimes(1));
+    first.unmount();
+    consoleListPeopleNames.mockResolvedValue({
+      status: 200,
+      data: { items: [{ user_id: A, display_name: "Omar Khaled" }] },
+    });
+    mount();
+    await waitFor(() => expect(screen.getByText("Omar Khaled")).toBeDefined());
+    expect(consoleListPeopleNames).toHaveBeenCalledTimes(2);
+  });
+
   test("no provider: the id alone, no request", () => {
     render(<PersonRef userId={A} />);
     expect(screen.getByText(A)).toBeDefined();

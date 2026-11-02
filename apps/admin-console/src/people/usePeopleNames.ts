@@ -1,8 +1,9 @@
 /**
  * RT-1070 people directory, data part. One query per batch of at most 200 ids,
  * keyed by tenant (a tenant switch drops every cached name). A failed lookup
- * (any status, a thrown fetch) resolves to "no names": it is never surfaced as
- * an error, the caller falls back to the id (no banner, no retry storm).
+ * (any status, a thrown fetch) leaves the query in its error state, so it is
+ * retried on the next mount, but it is never surfaced to the operator: no names
+ * resolve and the caller falls back to the id (no banner, no retry storm).
  */
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { consoleListPeopleNames } from "@/lib/people-queries";
@@ -15,17 +16,15 @@ export const peopleQueryKeys = {
     ["people-names", tenantId, ids] as const,
 };
 
+class PeopleLookupFailed extends Error {}
+
+/** A failed lookup throws: it stays in the query error state (never cached as fresh data). */
 async function fetchBatch(ids: string[]): Promise<Record<string, string | null>> {
-  try {
-    const { status, data } = await consoleListPeopleNames(ids);
-    if (status !== 200 || !data) return {};
-    const names: Record<string, string | null> = {};
-    for (const item of data.items)
-      names[item.user_id.toLowerCase()] = usableName(item.display_name);
-    return names;
-  } catch {
-    return {};
-  }
+  const { status, data } = await consoleListPeopleNames(ids);
+  if (status !== 200 || !data) throw new PeopleLookupFailed(`people lookup ${status}`);
+  const names: Record<string, string | null> = {};
+  for (const item of data.items) names[item.user_id.toLowerCase()] = usableName(item.display_name);
+  return names;
 }
 
 /** Lower-cased user id → display name, only for ids that resolved to a name. */
