@@ -89,7 +89,9 @@ info:
     `TenantContextGuard` → `RolesGuard`, roles `owner` and `tenant_admin`
     (the roles of the connector-health and sale-sync-ops reads it
     summarises). A role outside the list is the non-disclosing 404; there
-    is no 403. The body holds only the caller's tenant facts: never another
+    is no 403. A platform-admin session passes the role gate, as on every
+    `@Roles` route (repo-wide `RolesGuard` rule), and still reads only its
+    active tenant: the checks never run with platform-admin row access. The body holds only the caller's tenant facts: never another
     tenant's data, never a platform-wide incident, never a host name, error
     text or version.
 
@@ -179,7 +181,8 @@ components:
         (401). With a valid session cookie, the cookie authenticates the
         request and any `Authorization` header is ignored (the repo-wide
         `AuthGuard` rule). `RolesGuard` + `@Roles("owner", "tenant_admin")`
-        gate the route (default deny → 404). 401 semantics are owned by 028
+        gate the route (default deny → 404; a platform-admin session passes
+        the gate and reads only its active tenant). 401 semantics are owned by 028
         (G10).
 
   headers:
@@ -406,7 +409,7 @@ components:
     NotFound:
       description: >
         not_found (404), non-disclosing: a role outside `owner` /
-        `tenant_admin`.
+        `tenant_admin` (a platform-admin session passes the role gate).
       content:
         application/json:
           schema:
