@@ -23,6 +23,9 @@ import { Overview } from "@/shell/Overview";
 const OVERVIEW_H1 = /^(Overview|Welcome, .+)$/;
 import { ProtectedArea } from "@/shell/ProtectedArea";
 
+// RT-1071: the sidebar status block has its own tests (system-status-block); the shell tests here need no read.
+vi.mock("@/shell/SystemStatus", () => ({ SystemStatus: () => null }));
+
 // ProtectedArea is now the protected LAYOUT route element (RF-2 T009): on the
 // authenticated path it renders <AppShell> wrapping <Outlet/>, so the Overview
 // index mounts inside the shell. The gating cases (scope-gate / no-access /

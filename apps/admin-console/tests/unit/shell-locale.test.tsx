@@ -10,6 +10,9 @@ vi.mock("@/context/ActiveContextProvider", () => ({
 
 import { AppShell } from "@/shell/AppShell";
 
+// RT-1071: the sidebar status block has its own tests (system-status-block); the shell tests here need no read.
+vi.mock("@/shell/SystemStatus", () => ({ SystemStatus: () => null }));
+
 /**
  * RT-399 in the real shell: Arabic RTL by default, the top-bar switch flips the
  * whole frame to English LTR, the choice is remembered per user, and the role
