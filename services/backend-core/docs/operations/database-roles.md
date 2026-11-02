@@ -548,6 +548,20 @@ A script without the marker, such as the owner-gated
   two UNIQUE builds (well under a second at pilot volume); run it with no POS
   sync in flight.
 
+- **Migration `0078_product_stock_levels` (RT-1066).** Run
+  [`sql/product-stock-levels-domain-grants.sql`](sql/product-stock-levels-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT`, `INSERT` and
+  `UPDATE` on `product_stock_levels`: the console stock-levels read and writes
+  (`/api/v1/catalog/products/{productId}/stock-levels…`) create a level by
+  `INSERT` and replace or retire it by `UPDATE`. No `DELETE` policy: never
+  grant `DELETE` or `TRUNCATE`. Without the grants the API refuses to boot
+  (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold no privilege on
+  it (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0078 creates a new, empty table (no
+  backfill) and needs no maintenance window. Its down migration refuses while
+  any level is stored.
+
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of

@@ -46,6 +46,7 @@ import {
   inventoryPositionEvents,
   inventoryRecalls,
   inventorySafetyChanges,
+  productStockLevels,
   stockCounts,
   stockMovements,
   tenantInventorySafetyRevisions,
@@ -198,6 +199,27 @@ const BUSINESS_CLASS_COLUMNS: ReadonlyArray<{
       'updated_by',
       'created_at',
       'updated_at',
+    ],
+  },
+  {
+    // RT-1066 (0078): a product's low-stock thresholds — opaque ids, two
+    // exact-decimal quantities, timestamps and the acting principals (never
+    // exposed). No PII, no money, no free text.
+    name: 'product_stock_levels',
+    table: productStockLevels,
+    columns: [
+      'id',
+      'tenant_id',
+      'product_id',
+      'store_id',
+      'reorder_level',
+      'critical_level',
+      'retired_at',
+      'created_at',
+      'updated_at',
+      'created_by',
+      'updated_by',
+      'correlation_id',
     ],
   },
   {
