@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ c8a1a84712be518c19ad11e7241e36027639913f
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 73cd9191a3253626125a315748b1cedcb1748691
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -34,6 +34,10 @@
 // - services/backend-core/packages/contracts/openapi/ai-entitlements.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/platform-support-sessions.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/tenant-branding.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/console-people.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/console-system-status.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/catalog/stock-levels.yaml
+// - services/backend-core/packages/contracts/openapi/inventory/low-stock.yaml
 //
 // The upstream OpenAPI files are separate documents with overlapping component
 // names, so this file namespaces each generated source and composes their path
@@ -3932,7 +3936,7 @@ export namespace ErpnextReconciliationSchema {
                  *
                  *     Null when: Backend-Core raised the dead-letter itself (`retry_budget_exhausted`, the worker's `unmapped_item` / `unmapped_store`); the RT-332 `reconciliation_required` was recorded from a `posted` ack echoing a superseded `resolutionVersion` (a `posted` ack carries no reason); the row was dead-lettered before the RT-410 storage migration; or nothing was left after sanitising.
                  *
-                 *     Handling: readable only through this tenant-scoped, cookieAuth read model. Backend-Core never writes it to a log (length or hash only), audit metadata, a metric label, Sentry or Datadog. A consumer renders it as plain text, never as HTML, shows it only to the roles that can read this backlog, and does not copy it into exports or analytics.
+                 *     Handling: readable only through this tenant-scoped, cookieAuth read model and through `console-sales` `consoleGetSale.erpPostingFailure` (RT-977 D3, 1.6.0-draft), both limited to `owner` and `tenant_admin`, and to a human platform-admin session through the `RolesGuard` bypass (never a token principal). `consoleGetSale` returns it exactly as stored here (no second sanitiser) and withholds it from every other role (`store_manager` sees the category only). Backend-Core never writes it to a log (length or hash only), audit metadata, a metric label, Sentry or Datadog. A consumer renders it as plain text, never as HTML, shows it only to those readers, and does not copy it into exports or analytics.
                  *
                  *     Runtime: the RT-410 storage (migration 0071) and write path have shipped, so the server returns the stored message here, or null in the cases above, and never the category text. Consumers must not depend on `reason` equalling `rejectionCategory`.
                  */
@@ -7381,7 +7385,8 @@ export namespace ConsoleSalesSchema {
             /**
              * Read the full recorded detail of one sale in the caller's store scope.
              * @description Every recorded fact of the sale: lines in receipt order when recorded, tenders, change, the receipt header snapshot, the void and returns summaries and the ERP posting state. A fact that was never recorded is null or `unavailable`, never guessed or filled from current values (OD-534-3/6). No reprint eligibility and no receipt-fact completeness: those are POS concerns. The sale resolves anywhere in the caller's store scope; a sale of another tenant, of a store outside the scope, or an absent ref is the same non-disclosing 404. The sale is read by one query predicated on the tenant, the `saleRef` and the caller's store scope; it is never fetched first and checked after, and the store's timezone is read only for a sale that matched. The operation takes no query parameter; any query key is 400 `validation_error`.
-             *     Audit: one `console_sales.detail_read` event per authorized open, with `sale_ref` and the sale's `store_id` in its metadata.
+             *     `erpPostingFailure` (1.2.0-draft, RT-977): when `erpPosting` shows a `failed` side, one more console-only probe reads the dead-letter of the sale's posting and of its void's reversal (at most two rows, keyed exactly as `erpPosting`, with the tenant and the sale's store). Its content is tiered by the session's role (`disclosure`): the stored rejection `reason`, the RT-332 evidence and the repair handle only for the readers of the `erpnext-reconciliation` posting backlog (`owner`, `tenant_admin`, a platform-admin session); the category and time for `store_manager`. The 404 cases do not change.
+             *     Audit: one `console_sales.detail_read` event per authorized open, with `sale_ref` and the sale's `store_id` in its metadata. Unchanged by `erpPostingFailure` (RT-977 D4): no separate disclosure event, and the `reason` never enters audit metadata.
              */
             get: operations["consoleGetSale"];
             put?: never;
@@ -7526,7 +7531,7 @@ export namespace ConsoleSalesSchema {
                 /** Format: date */
                 to: string;
             };
-            /** @description One sale in a console list, and the summary of its detail: the `SaleHistoryItem` fields of `pos-sales/sale-history.yaml` plus the sale's store. */
+            /** @description One sale in a console list, and the summary of its detail: the `SaleHistoryItem` fields of `pos-sales/sale-history.yaml` plus the sale's store and, console-only (1.2.0-draft), `syncStatusVersion`. */
             ConsoleSaleItem: {
                 /** Format: uuid */
                 saleRef: string;
@@ -7554,8 +7559,10 @@ export namespace ConsoleSalesSchema {
                 voided: boolean;
                 returnState: components["schemas"]["ReturnState"];
                 erpPostingState: components["schemas"]["ErpPostingState"];
+                /** @description RT-973 (1.2.0-draft, console-only; not in pos-sales/sale-history.yaml). Orders this sale's `syncStatus` across reads. Backend-Core increments it by one in the same statement as every write that sets the sale's sync status (capture leaves it at 0; the drain, the dead-letter classifier and the `sale-sync-ops` repair each add one); it never decreases. Comparable only between two reads of the SAME sale: a higher value is a later status, an equal value is the same status. It carries no meaning across sales and is not a count of anything to show. Sales that existed before it read 0 until their next status write. `sale-sync-ops` `SaleSyncStatus.syncStatusVersion` is the same field, so a client can order a sync repair response against this read. */
+                syncStatusVersion: number;
             };
-            /** @description The full recorded detail of one sale: the `SaleHistoryDetail` facts of `pos-sales/sale-history.yaml` without the POS-only `receiptFacts` and `reprint`, plus the store's timezone. */
+            /** @description The full recorded detail of one sale: the `SaleHistoryDetail` facts of `pos-sales/sale-history.yaml` without the POS-only `receiptFacts` and `reprint`, plus the store's timezone and, console-only (1.2.0-draft), `erpPostingFailure`. */
             ConsoleSaleDetail: {
                 summary: components["schemas"]["ConsoleSaleItem"];
                 /** @description The sale's store's current IANA time zone, for showing times. Business dates were fixed at capture and are not recomputed. */
@@ -7587,6 +7594,45 @@ export namespace ConsoleSalesSchema {
                 void: components["schemas"]["VoidSummary"] | null;
                 returns: components["schemas"]["ReturnSummary"][];
                 erpPosting: components["schemas"]["ErpPostingView"];
+                /** @description RT-977 (1.2.0-draft, console-only; not in pos-sales/sale-history.yaml). Why a failed ERP posting of this sale failed, and its repair handle. Null when neither `erpPosting.sale` nor `erpPosting.reversal` was `failed` when the posting rows were read. Covers the same two postings as `erpPosting` (the sale and its void's reversal, a credit-sale void included); a failed return, refund or credit-sale return reversal is not shown here (they stay on the `erpnext-reconciliation` and `erpnext-sync-ops` backlogs, RT-977 D9). Read by a separate probe after the sale matched the caller's scope: a concurrent repair can leave `erpPosting.sale = failed` with `erpPostingFailure.sale = null` (or the reverse); a client treats that as "changed, refresh", never as an error. */
+                erpPostingFailure: components["schemas"]["ConsoleErpPostingFailure"] | null;
+            };
+            /** @description RT-977 (1.2.0-draft). The dead-lettered postings of one sale, as this session may see them. */
+            ConsoleErpPostingFailure: {
+                /**
+                 * @description What this session may see. `full` for a session that may read the `erpnext-reconciliation` posting backlog and call `repairPosting` (`owner`, `tenant_admin`, and a platform admin's human session through the RolesGuard bypass); `category_only` for `store_manager`. Under `category_only`, `reason`, `reconciliationDocumentRef` and `repair` are always null. States the caller's tier, never whether a message exists.
+                 * @enum {string}
+                 */
+                disclosure: "full" | "category_only";
+                /** @description The sale posting's failure; null unless it is dead-lettered. */
+                sale: components["schemas"]["ConsoleErpPostingFailureDetail"] | null;
+                /** @description The void reversal posting's failure; null unless it is dead-lettered. */
+                reversal: components["schemas"]["ConsoleErpPostingFailureDetail"] | null;
+            };
+            /** @description RT-977 (1.2.0-draft). One dead-lettered posting. */
+            ConsoleErpPostingFailureDetail: {
+                /** @description The 015 rejection category, read in place: the values documented on `erpnext-reconciliation/reconciliation.yaml` `PostingBacklogItem.rejectionCategory` (`unmapped_item`, `unmapped_store`, `unmapped_account`, `validation`, `closed_period`, `retry_budget_exhausted`, `reconciliation_required`, `other`). An open set (RT-977 D6): a client shows a generic line for a value it does not know. Null only if no category was recorded: nullable like the column (`0019`) and 025's `rejectionClass`, unlike 017's non-null `rejectionCategory`. */
+                rejectionCategory: string | null;
+                /**
+                 * Format: date-time
+                 * @description When the posting became `permanently_rejected` (the 015 row's `updated_at`).
+                 */
+                deadLetteredAt: string;
+                /** @description Exactly `PostingBacklogItem.reason` (RT-410): the stored, sanitised Connector message, with its classification, retention and handling rules. Null under `category_only`, and in every case that field is null. Plain text; never HTML; never parsed; never logged, audited, exported or sent to telemetry. */
+                reason: string | null;
+                /** @description Exactly `PostingBacklogItem.reconciliationDocumentRef` (RT-332): for a `reconciliation_required` dead-letter, the existing ERPNext document that does not match the intent. Null otherwise and under `category_only`. */
+                reconciliationDocumentRef: {
+                    doctype: string;
+                    name: string;
+                } | null;
+                /** @description The handle for `erpnext-reconciliation` `repairPosting`. Non-null only when `disclosure` is `full`, `rejectionCategory` is not `reconciliation_required`, and the sale's store is live and inside the caller's membership store scope (the repair's own store rule). Every non-null handle is accepted by `repairPosting` for the same session. If the row changed in between, the repair answers by its current state (200 `no_op_echo`, or 201 `eligible_again` / `still_failing`); a 404 means the store was deleted or left the caller's scope. */
+                repair: {
+                    /**
+                     * Format: uuid
+                     * @description The 015 `erpnext_posting_status.id`; pass to `repairPosting`.
+                     */
+                    workItemRef: string;
+                } | null;
             };
             /** @description Canonical error envelope. Out-of-scope and cross-tenant refusals are non-disclosing (§II, §XII): they never name the cause. */
             Error: {
@@ -8102,7 +8148,7 @@ export namespace ConsoleSalesByStoreSchema {
             StoreDay: {
                 businessDate: components["schemas"]["BusinessDate"];
                 /**
-                 * @description Relative to the store's `currentBusinessDate` at `asOf`: an earlier date is `complete`, that date is `so_far`, a later date is `not_begun` (zero figures).
+                 * @description Relative to the store's `currentBusinessDate` at `asOf`: an earlier date is `complete`, that date is `so_far`, a later date is `not_begun` (zero figures unless sales are stored for that date, for example after the store's timezone moved west or a terminal clock ran ahead; the store's days always add up to its total).
                  * @enum {string}
                  */
                 state: "complete" | "so_far" | "not_begun";
@@ -10911,6 +10957,8 @@ export namespace SaleSyncOpsSchema {
                  * @description Null until the off-request drain sets it (FR-071).
                  */
                 processedAt?: string | null;
+                /** @description RT-973 (1.2.0-draft). Orders this sale's `syncStatus` across reads. Backend-Core increments it by one in the same statement as every write that sets the sale's sync status (capture leaves it at 0; the drain, the dead-letter classifier and this repair each add one); it never decreases. Comparable only between two reads of the SAME sale: a higher value is a later status, an equal value is the same status. `console-sales` `ConsoleSaleItem` (1.2.0-draft) carries the same field, so a client can order this response against the sale detail. An idempotent repair replay returns the stored response, with the version it had then. Emitted on every newly computed response since RT-1061 (migration 0077). Optional for good, because a repair replay stored before RT-1061 has no value; a client treats an absent value as unknown and does not order on it. */
+                syncStatusVersion?: number;
                 /** @description Present (non-null) when the sale has an OPEN dead-letter row — the §8 classification + redacted reason + retry accounting. Null otherwise. */
                 deadLetter?: components["schemas"]["DeadLetterDetail"] | null;
             };
@@ -15416,6 +15464,1096 @@ export namespace TenantBrandingSchema {
     }
 }
 
-export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & ConsoleSalesByStoreSchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths;
-export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & ConsoleSalesByStoreSchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components;
-export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & ConsoleSalesByStoreSchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations;
+export namespace ConsolePeopleSchema {
+    export interface paths {
+        "/api/v1/console/people": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Display names for up to 200 user ids of the session tenant.
+             * @description Resolves each requested id that is a person of the session tenant the caller may resolve (see the API description) to its display name. Unknown and unresolvable ids are absent. Read only.
+             *     Audit: one `people.names_read` event per authorized request that returns 200, whatever the number of ids, with the requested and resolved counts; no id, no name.
+             */
+            get: operations["listPeopleNames"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            PersonName: {
+                /**
+                 * Format: uuid
+                 * @description The requested id, lower-cased.
+                 */
+                user_id: string;
+                /** @description `users.display_name`, trimmed. Null when it is null or blank, or when the user is soft-deleted. Never the e-mail or any other substitute. */
+                display_name: string | null;
+            };
+            PeopleNames: {
+                /** @description One entry per distinct requested id that is a person of the session tenant the caller may resolve, by `user_id` ascending. Every other id is absent (non-disclosing). May be empty. */
+                items: components["schemas"]["PersonName"][];
+            };
+            /** @description Canonical error envelope. Out-of-scope and cross-tenant refusals are non-disclosing (§II, §XII): they never name the cause. */
+            Error: {
+                error: {
+                    /** @description Stable machine-readable error code. */
+                    code: string;
+                    /** @description Human-readable summary. No sensitive data, no cause enumeration. */
+                    message: string;
+                    /**
+                     * Format: uuid
+                     * @description Server-side correlation id; the cause is recorded server-side.
+                     */
+                    request_id?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description validation_error (400): `ids` missing, empty or given more than once; more than 200 ids; a raw `ids` value longer than 7,399 characters; an element that is not a UUID; or any other query key. Checked after the guards and before any lookup. */
+            ValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated (401): a missing or invalid session cookie, or a non-cookie credential without a valid session cookie. Non-disclosing. Owned by 028 (G10). */
+            Unauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description not_found (404), non-disclosing: a role outside `owner` / `tenant_admin` / `store_manager`, for any input. An id the caller cannot resolve is never a 404; it is absent from a 200. */
+            NotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description system_failure (500): unexpected server error; the cause is recorded server-side under `request_id`. */
+            SystemFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. The body is the canonical error envelope with a non-disclosing message (no budget, class or window); its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`. A 429 is not a 401: it never means the session ended. The console limit is server-configured and may not be enforced, so a client must handle a 429 but must not expect one. */
+            TooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    /** @description The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a well-formed UUID, otherwise a server-minted one. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+        parameters: {
+            /** @description Comma-separated `users.id` values, 1 to 200 (for example `ids=0190…,0191…`). The raw value is at most 7,399 characters (200 UUIDs and 199 commas); count and length are checked before any element is parsed. Every element must be a UUID in canonical 8-4-4-4-12 form (any case; compared lower-cased). Repeated ids are allowed and answered once. */
+            UserIds: string[];
+        };
+        requestBodies: never;
+        headers: {
+            /** @description `no-store` on every 200: the body carries personal data (display names), so no shared or browser cache keeps it. */
+            CacheControlNoStore: "no-store";
+            /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600. */
+            ConsoleRetryAfter: number;
+        };
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        listPeopleNames: {
+            parameters: {
+                query: {
+                    /** @description Comma-separated `users.id` values, 1 to 200 (for example `ids=0190…,0191…`). The raw value is at most 7,399 characters (200 UUIDs and 199 commas); count and length are checked before any element is parsed. Every element must be a UUID in canonical 8-4-4-4-12 form (any case; compared lower-cased). Repeated ids are allowed and answered once. */
+                    ids: components["parameters"]["UserIds"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The resolvable ids among `ids`, each with its display name. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PeopleNames"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+    }
+}
+
+export namespace ConsoleSystemStatusSchema {
+    export interface paths {
+        "/api/v1/system-status": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * The tenant's system status (server, sale sync queue, ERPNext connector).
+             * @description Three components of the caller's tenant, each with a state from `ok` / `degraded` / `down` / `unknown`, a closed reason, the time of its evidence, its facts and its destination, plus the worst-of `overall` state and `asOf`. Read only; computed on read (see the API description for every rule).
+             */
+            get: operations["consoleGetSystemStatus"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            /**
+             * @description The shared state vocabulary. `unknown` is never `ok`: it means the server has no evidence it can stand behind.
+             * @enum {string}
+             */
+            ComponentState: "ok" | "degraded" | "down" | "unknown";
+            /**
+             * @description The component's destination screen, as a closed value the client maps to its own route; `none` renders no link (UX-09).
+             * @enum {string}
+             */
+            ComponentLink: "sale_sync_ops" | "erp_connection" | "none";
+            /**
+             * Format: date-time
+             * @description Server-clock time of the evidence behind the state; null when there is no evidence.
+             */
+            ObservedAt: string | null;
+            /** @description An exact count. Zero is a real zero, never an unknown. */
+            Count: number;
+            /** @description The Backend-Core API answered this read. In a 200 always `ok` / `answered` / `none`; no platform dependency is reported. */
+            ServerComponent: {
+                /** @constant */
+                state: "ok";
+                /** @constant */
+                reason: "answered";
+                /**
+                 * Format: date-time
+                 * @description The read time (equals `asOf`).
+                 */
+                observedAt: string;
+                /** @constant */
+                link: "none";
+            };
+            /** @description The tenant's sale sync queue facts; null when the check did not answer in time (`check_timed_out`). */
+            SaleSyncFacts: {
+                undeliveredCount: components["schemas"]["Count"];
+                /** @description Whole seconds since the oldest undelivered `sale.captured` event was created (server clock); null when none is undelivered. */
+                oldestUndeliveredAgeSeconds: number | null;
+                needsRepairCount: components["schemas"]["Count"];
+            } | null;
+            SaleSyncComponent: {
+                state: components["schemas"]["ComponentState"];
+                /**
+                 * @description `keeping_up` → `ok`; `queue_behind` and `needs_repair` → `degraded`; `queue_stalled` → `down`; `check_timed_out` → `unknown`.
+                 * @enum {string}
+                 */
+                reason: "keeping_up" | "queue_behind" | "needs_repair" | "queue_stalled" | "check_timed_out";
+                observedAt: components["schemas"]["ObservedAt"];
+                /** @constant */
+                link: "sale_sync_ops";
+                facts: components["schemas"]["SaleSyncFacts"];
+            };
+            /** @description Counts over the tenant's connector registrations (spec 020 liveness, derived at read); null when the check did not answer in time. `healthyCount + staleCount + neverSeenCount = enabledCount`. */
+            ErpConnectorFacts: {
+                registeredCount: components["schemas"]["Count"];
+                enabledCount: components["schemas"]["Count"];
+                healthyCount: components["schemas"]["Count"];
+                staleCount: components["schemas"]["Count"];
+                neverSeenCount: components["schemas"]["Count"];
+                erpUnreachableReportedCount: components["schemas"]["Count"];
+            } | null;
+            ErpConnectorComponent: {
+                state: components["schemas"]["ComponentState"];
+                /**
+                 * @description `heartbeat_fresh` → `ok`; `erp_unreachable_reported` and `some_instances_stale` → `degraded`; `heartbeat_stale` → `down`; `not_configured`, `all_disabled`, `never_seen` and `check_timed_out` → `unknown`.
+                 * @enum {string}
+                 */
+                reason: "heartbeat_fresh" | "erp_unreachable_reported" | "some_instances_stale" | "heartbeat_stale" | "not_configured" | "all_disabled" | "never_seen" | "check_timed_out";
+                observedAt: components["schemas"]["ObservedAt"];
+                /** @constant */
+                link: "erp_connection";
+                facts: components["schemas"]["ErpConnectorFacts"];
+            };
+            ConsoleSystemStatus: {
+                /**
+                 * Format: date-time
+                 * @description Server time of the read. Every component was evaluated at it.
+                 */
+                asOf: string;
+                overall: components["schemas"]["ComponentState"];
+                components: {
+                    server: components["schemas"]["ServerComponent"];
+                    saleSync: components["schemas"]["SaleSyncComponent"];
+                    erpConnector: components["schemas"]["ErpConnectorComponent"];
+                };
+            };
+            /** @description Canonical error envelope. Out-of-scope and cross-tenant refusals are non-disclosing (§II, §XII): they never name the cause. */
+            Error: {
+                error: {
+                    /** @description Stable machine-readable error code. */
+                    code: string;
+                    /** @description Human-readable summary. No sensitive data, no cause enumeration. */
+                    message: string;
+                    /**
+                     * Format: uuid
+                     * @description Server-side correlation id; the cause is recorded server-side.
+                     */
+                    request_id?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description validation_error (400): any query key (the operation takes none). */
+            ValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated (401): a missing or invalid session cookie, or a non-cookie credential without a valid session cookie. Non-disclosing. Owned by 028 (G10). */
+            Unauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description not_found (404), non-disclosing: a role outside `owner` / `tenant_admin` (a platform-admin session passes the role gate). */
+            NotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description system_failure (500): unexpected server error; the cause is recorded server-side under `request_id`. A component check that does not answer in time is never a 500 (it is that component's `unknown`). */
+            SystemFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. The body is the canonical error envelope with a non-disclosing message (no budget, class or window); its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`. A 429 is not a 401: it never means the session ended. The console limit is server-configured and may not be enforced, so a client must handle a 429 but must not expect one. */
+            TooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    /** @description The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a well-formed UUID, otherwise a server-minted one. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+        parameters: never;
+        requestBodies: never;
+        headers: {
+            /** @description `no-store` on every 200: the status is a point-in-time snapshot and no shared or browser cache keeps it. */
+            CacheControlNoStore: "no-store";
+            /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600. */
+            ConsoleRetryAfter: number;
+        };
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        consoleGetSystemStatus: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The tenant's system status at `asOf`. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConsoleSystemStatus"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+    }
+}
+
+export namespace StockLevelsSchema {
+    export interface paths {
+        "/api/v1/catalog/products/{productId}/stock-levels": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Read a product's tenant stock level and the store levels of the caller's scope.
+             * @description The product's active tenant level and the active store levels of the stores in the caller's scope, for a product of the session's tenant whatever its status. A product with no level reads `tenantLevel: null` and an empty `storeLevels`. A product of another tenant or an absent id is the non-disclosing 404. The operation takes no query parameter; any query key is 400 `validation_error`. Not audited.
+             */
+            get: operations["consoleGetProductStockLevels"];
+            /**
+             * Set a product's tenant default stock level.
+             * @description Creates the product's active tenant level, or replaces both of its values. Roles `owner` / `tenant_admin`. `criticalLevel` absent or `null` sets no critical level. `expectedUpdatedAt` is the active tenant level's `updatedAt`, or `null` when the caller saw none; a mismatch either way is 409 `stale_write`. A retired product is 409 `product_retired`. A `criticalLevel` above `reorderLevel` is 422 `critical_above_reorder`. An identical retry with the same `Idempotency-Key` replays the stored `200` with `Idempotent-Replayed: true` and writes nothing. Audited as `catalog.stock_level.set`.
+             */
+            put: operations["consoleSetTenantStockLevel"];
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/products/{productId}/stock-levels/retire": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Retire a product's tenant default stock level.
+             * @description Retires the product's active tenant level (soft: the row is kept with `retired_at`). A store with no store level then has no threshold; store levels are not touched. Roles `owner` / `tenant_admin`. No active tenant level is the non-disclosing 404. A stale `expectedUpdatedAt` is 409 `stale_write`. Allowed on a retired product. Audited as `catalog.stock_level.retire`.
+             */
+            post: operations["consoleRetireTenantStockLevel"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/products/{productId}/stock-levels/stores/{storeId}": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            /**
+             * Set one store's stock level for a product.
+             * @description Creates the store's active level for the product, or replaces both of its values. While it is active, the store resolves BOTH levels from it (TH-3): a `criticalLevel` absent or `null` means the store has no critical level, even when the tenant level has one. Roles `owner` / `tenant_admin` and `store_manager`, for a store in the caller's scope. `expectedUpdatedAt` is the store level's `updatedAt`, or `null` when the caller saw none; a mismatch either way is 409 `stale_write`. A retired product is 409 `product_retired`. A `criticalLevel` above `reorderLevel` is 422 `critical_above_reorder`. A store outside the caller's scope, of another tenant or soft-deleted is the non-disclosing 404. An identical retry with the same `Idempotency-Key` replays the stored `200` with `Idempotent-Replayed: true` and writes nothing. Audited as `catalog.store_stock_level.set`.
+             */
+            put: operations["consoleSetStoreStockLevel"];
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/products/{productId}/stock-levels/stores/{storeId}/retire": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Retire one store's stock level for a product.
+             * @description Retires the store's active level for the product (soft); the store then resolves both levels from the tenant level, if any. Roles `owner` / `tenant_admin` and `store_manager`, for a store in the caller's scope. No active store level, or a store outside the caller's scope, of another tenant or soft-deleted, is the non-disclosing 404. A stale `expectedUpdatedAt` is 409 `stale_write`. Allowed on a retired product. Audited as `catalog.store_stock_level.retire`.
+             */
+            post: operations["consoleRetireStoreStockLevel"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            /** @description A strictly positive exact-decimal quantity as a STRING (`numeric(19,4)` at rest; the same pattern as `inventory/low-stock.yaml` `LevelQuantity`), in the product's stocking unit at the store. Never a float; stored as sent. */
+            LevelQuantity: string;
+            /**
+             * Format: date-time
+             * @description The `updatedAt` the caller last read; compared at millisecond precision. Not the current value → 409 `stale_write`.
+             */
+            ExpectedUpdatedAt: string;
+            /** @description One active level (tenant or store). */
+            StockLevel: {
+                reorderLevel: components["schemas"]["LevelQuantity"];
+                /** @description The critical level (<= `reorderLevel`); null when the level has none. */
+                criticalLevel: components["schemas"]["LevelQuantity"] | null;
+                /**
+                 * Format: date-time
+                 * @description The precondition for the next write of this level.
+                 */
+                updatedAt: string;
+            };
+            /** @description One store's active level; always a store in the caller's scope. */
+            StoreStockLevel: {
+                /** Format: uuid */
+                storeId: string;
+                reorderLevel: components["schemas"]["LevelQuantity"];
+                /** @description The store's critical level (<= `reorderLevel`); null when the store has none, whatever the tenant level holds (TH-3). */
+                criticalLevel: components["schemas"]["LevelQuantity"] | null;
+                /**
+                 * Format: date-time
+                 * @description The precondition for the next write of this level.
+                 */
+                updatedAt: string;
+            };
+            /** @description A product's active levels: the tenant default and the store levels of the caller's scope. No user id and no ERP value. */
+            ProductStockLevels: {
+                /** Format: uuid */
+                productId: string;
+                /** @description The active tenant level; null when the product has none. */
+                tenantLevel: components["schemas"]["StockLevel"] | null;
+                /** @description Active store levels of stores in the caller's scope, ordered by `storeId`. */
+                storeLevels: components["schemas"]["StoreStockLevel"][];
+            };
+            /** @description Both values of the level. `criticalLevel` absent or `null` sets no critical level. The tenant, the store, the actor and every timestamp come from the session and the path, never from the body (§III, §XII). A `criticalLevel` above `reorderLevel` is 422 `critical_above_reorder` (a cross-field rule the schema cannot express). */
+            SetStockLevelRequest: {
+                /**
+                 * Format: date-time
+                 * @description The active level's `updatedAt` the caller last read, or `null` when the caller saw no active level. Not the current state → 409 `stale_write`.
+                 */
+                expectedUpdatedAt: string | null;
+                reorderLevel: components["schemas"]["LevelQuantity"];
+                criticalLevel?: components["schemas"]["LevelQuantity"] | null;
+            };
+            /** @description The precondition of a retire: the active level's `updatedAt`. */
+            RetireStockLevelRequest: {
+                expectedUpdatedAt: components["schemas"]["ExpectedUpdatedAt"];
+            };
+            /** @description The shared `IdempotencyInterceptor`'s 425 body (not the `Error` envelope). */
+            IdempotencyInProgressBody: {
+                /** @constant */
+                error: "idempotency_in_progress";
+                retryAfterSec: number;
+            };
+            /** @description Canonical error envelope. Out-of-scope and cross-tenant refusals are non-disclosing (§II, §XII): they never name the cause. */
+            Error: {
+                error: {
+                    /** @description Stable machine-readable error code. */
+                    code: string;
+                    /** @description Human-readable summary. No sensitive data, no cause enumeration. */
+                    message: string;
+                    /**
+                     * Format: uuid
+                     * @description Server-side correlation id; the cause is recorded server-side.
+                     */
+                    request_id?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description validation_error (400): a malformed path id or any query key. Checked after the guards and before any database read. */
+            ValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description validation_error (400) on a write: a malformed path id, any query key, or a body that does not match the request schema (an unknown or server-owned key, a missing `expectedUpdatedAt` or `reorderLevel`, a zero, negative, float or over-precise level). Checked after the guards and before any database read. Nothing is written. */
+            WriteValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 400 on a set, `error.code` one of: `validation_error` (as `WriteValidationFailure`); `idempotency_key_required` (no `Idempotency-Key`); `idempotency_key_malformed` (a key outside 16 to 128 printable ASCII characters). Nothing is written. */
+            SetValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 425 `idempotency_in_progress`: the first set with this `Idempotency-Key` is still being processed. Retry after `Retry-After` seconds with the same key and body. Nothing is written by this request. */
+            IdempotencyInProgress: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterInProgress"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdempotencyInProgressBody"];
+                };
+            };
+            /** @description Unauthenticated (401): no valid session cookie, whether or not a non-cookie credential (a bearer or an operator envelope) is sent. Non-disclosing. Owned by 028 (G10). */
+            Unauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 403 `origin_rejected` (RT-430): a cookie-authenticated write whose `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`. Nothing is written. */
+            OriginRejected: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description not_found (404), non-disclosing: identical for a role outside `owner` / `tenant_admin` / `store_manager`, a product of another tenant and an absent product. */
+            NotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description not_found (404), non-disclosing: identical for a role outside the write's list, a product of another tenant, an absent product, a `storeId` outside the caller's store scope, of another tenant or soft-deleted, and (on a retire) no active level. Nothing is written. */
+            WriteNotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 409, `error.code` one of: `stale_write` (`expectedUpdatedAt` does not match the active level, or its absence; reload and retry); `product_retired` (no level is set on a retired product); `idempotency_key_conflict` (the same `Idempotency-Key` was used with a different body). Nothing is written. */
+            SetConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 409 `stale_write`: `expectedUpdatedAt` is not the active level's current `updatedAt`; reload and retry. Nothing is written. */
+            RetireConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 422 `critical_above_reorder`: `criticalLevel` is greater than `reorderLevel` (TH-2: `0 < criticalLevel <= reorderLevel`). Nothing is written. */
+            CriticalAboveReorder: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description system_failure (500): unexpected server error; the cause is recorded server-side under `request_id`. */
+            SystemFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. The body is the canonical error envelope with a non-disclosing message (no budget, class or window); its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`. A 429 is not a 401: it never means the session ended. The console limit is server-configured and may not be enforced, so a client must handle a 429 but must not expect one. */
+            TooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    /** @description The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a well-formed UUID, otherwise a server-minted one. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+        parameters: {
+            /** @description The product id (`tenant_products.id`). Case insensitive. A value that is not a UUID is 400 `validation_error` and never reaches the database. */
+            ProductId: string;
+            /** @description The store (`stores.id`) of the level. Case insensitive. A store outside the caller's store scope, of another tenant or soft-deleted is the non-disclosing 404. */
+            StoreIdPath: string;
+            /** @description REQUIRED on both sets: 16 to 128 printable ASCII characters with no whitespace, as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor and tenant, the method, the route and its path parameters. An identical retry replays the stored `200` with `Idempotent-Replayed: true`; key reuse with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425 `idempotency_in_progress`. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. Use a new key for each intended change. */
+            IdempotencyKey: string;
+        };
+        requestBodies: never;
+        headers: {
+            /** @description `no-store` on every 200: the body carries the tenant's store settings, so no shared or browser cache keeps it. */
+            CacheControlNoStore: "no-store";
+            /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600. */
+            ConsoleRetryAfter: number;
+            /** @description Present and `true` on a same-`Idempotency-Key` replay of a set, which carries the stored `200`. Absent on a first-time set. */
+            IdempotentReplayed: boolean;
+            /** @description Seconds to wait before retrying a 425 with the same `Idempotency-Key` and body. */
+            RetryAfterInProgress: number;
+        };
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        consoleGetProductStockLevels: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The product id (`tenant_products.id`). Case insensitive. A value that is not a UUID is 400 `validation_error` and never reaches the database. */
+                    productId: components["parameters"]["ProductId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The product's stock levels. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProductStockLevels"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleSetTenantStockLevel: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED on both sets: 16 to 128 printable ASCII characters with no whitespace, as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor and tenant, the method, the route and its path parameters. An identical retry replays the stored `200` with `Idempotent-Replayed: true`; key reuse with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425 `idempotency_in_progress`. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. Use a new key for each intended change. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description The product id (`tenant_products.id`). Case insensitive. A value that is not a UUID is 400 `validation_error` and never reaches the database. */
+                    productId: components["parameters"]["ProductId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetStockLevelRequest"];
+                };
+            };
+            responses: {
+                /** @description Set. The body is the product's stock levels after the change. A same-key retry replays this `200` with `Idempotent-Replayed: true`. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProductStockLevels"];
+                    };
+                };
+                400: components["responses"]["SetValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["WriteNotFound"];
+                409: components["responses"]["SetConflict"];
+                422: components["responses"]["CriticalAboveReorder"];
+                425: components["responses"]["IdempotencyInProgress"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleRetireTenantStockLevel: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The product id (`tenant_products.id`). Case insensitive. A value that is not a UUID is 400 `validation_error` and never reaches the database. */
+                    productId: components["parameters"]["ProductId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RetireStockLevelRequest"];
+                };
+            };
+            responses: {
+                /** @description Retired. The body is the product's stock levels after the change. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProductStockLevels"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["WriteNotFound"];
+                409: components["responses"]["RetireConflict"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleSetStoreStockLevel: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED on both sets: 16 to 128 printable ASCII characters with no whitespace, as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor and tenant, the method, the route and its path parameters. An identical retry replays the stored `200` with `Idempotent-Replayed: true`; key reuse with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425 `idempotency_in_progress`. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. Use a new key for each intended change. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description The product id (`tenant_products.id`). Case insensitive. A value that is not a UUID is 400 `validation_error` and never reaches the database. */
+                    productId: components["parameters"]["ProductId"];
+                    /** @description The store (`stores.id`) of the level. Case insensitive. A store outside the caller's store scope, of another tenant or soft-deleted is the non-disclosing 404. */
+                    storeId: components["parameters"]["StoreIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetStockLevelRequest"];
+                };
+            };
+            responses: {
+                /** @description Set. The body is the product's stock levels after the change. A same-key retry replays this `200` with `Idempotent-Replayed: true`. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProductStockLevels"];
+                    };
+                };
+                400: components["responses"]["SetValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["WriteNotFound"];
+                409: components["responses"]["SetConflict"];
+                422: components["responses"]["CriticalAboveReorder"];
+                425: components["responses"]["IdempotencyInProgress"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleRetireStoreStockLevel: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The product id (`tenant_products.id`). Case insensitive. A value that is not a UUID is 400 `validation_error` and never reaches the database. */
+                    productId: components["parameters"]["ProductId"];
+                    /** @description The store (`stores.id`) of the level. Case insensitive. A store outside the caller's store scope, of another tenant or soft-deleted is the non-disclosing 404. */
+                    storeId: components["parameters"]["StoreIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RetireStockLevelRequest"];
+                };
+            };
+            responses: {
+                /** @description Retired. The body is the product's stock levels after the change. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProductStockLevels"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["WriteNotFound"];
+                409: components["responses"]["RetireConflict"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+    }
+}
+
+export namespace LowStockSchema {
+    export interface paths {
+        "/api/v1/inventory/low-stock": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * The caller's (store, product) pairs below their reorder level, most severe first.
+             * @description The top `limit` low pairs of the caller's scope (or of `store_id`), ordered by band, then level ratio, with the scope's low, critical, unknown and negative counts. Read only; computed by the server over the movements it had recorded by `asOf` (see the API description for every rule).
+             */
+            get: operations["consoleListLowStock"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            /** @description A strictly positive exact-decimal quantity as a STRING (`numeric(19,4)`, as `inventory.yaml` `PositiveDecimalQuantity`), in the product's stocking unit. */
+            LevelQuantity: string;
+            /** @description A non-negative exact-decimal quantity as a STRING (`numeric(19,4)`, as `inventory.yaml` `NonNegativeDecimalQuantity`), in the product's stocking unit. Every listed item is `known`, so zero here is an observed zero. */
+            OnHandQuantity: string;
+            /** @description `sellableOnHand / reorderLevel`, truncated toward zero to four fractional digits, between `"0.0000"` and `"0.9999"`. The level bar's fill. */
+            LevelRatio: string;
+            /** @description An exact count of evaluated pairs. Zero is a real zero. */
+            Count: number;
+            LowStockItem: {
+                /** Format: uuid */
+                storeId: string;
+                /** @description The store's current name. */
+                storeName: string;
+                /**
+                 * @description A soft-deleted store is never evaluated.
+                 * @enum {string}
+                 */
+                storeStatus: "active" | "inactive";
+                /** Format: uuid */
+                productId: string;
+                /** @description The Tenant Catalog product name (`tenant_products.name`). */
+                productName: string;
+                /** @description The product's stocking unit, the unit of every quantity in this item; null when the product has none. */
+                stockingUnit: string | null;
+                sellableOnHand: components["schemas"]["OnHandQuantity"];
+                reorderLevel: components["schemas"]["LevelQuantity"];
+                /** @description The resolved critical level (<= `reorderLevel`); null when the pair has none, and then `band` is never `critical`. */
+                criticalLevel: components["schemas"]["LevelQuantity"] | null;
+                /**
+                 * @description The layer both levels came from (LS-1, resolved as a pair): `store` when the store has an active store level (RT-1064 TH-3), otherwise `tenant`.
+                 * @enum {string}
+                 */
+                thresholdSource: "tenant" | "store";
+                /**
+                 * @description `critical` when `sellableOnHand < criticalLevel`, otherwise `low`. Only `critical` is shown in red (DESIGN.md §12.4).
+                 * @enum {string}
+                 */
+                band: "critical" | "low";
+                levelRatio: components["schemas"]["LevelRatio"];
+            };
+            ConsoleLowStockList: {
+                /**
+                 * Format: date-time
+                 * @description Server time of the read's snapshot: every on-hand covers the movements committed by then, and no sale still queued on a terminal.
+                 */
+                asOf: string;
+                /**
+                 * @description Always `received_only`: on-hand excludes every sale still queued on a terminal, so it is never presented as complete.
+                 * @constant
+                 */
+                completeness: "received_only";
+                /**
+                 * Format: uuid
+                 * @description The `store_id` of the request; null when the read covers every store of the scope.
+                 */
+                storeId: string | null;
+                /** @description The effective `limit` (10 when absent). */
+                limit: number;
+                /** @description Evaluated pairs of the scope (a resolved reorder level, see the API description). Zero means no threshold is configured in scope, which the widget shows as such, never as "nothing is low". */
+                evaluatedCount: components["schemas"]["Count"];
+                /** @description Every `known` pair below its reorder level (both bands). */
+                belowReorderCount: components["schemas"]["Count"];
+                /** @description The pairs of `belowReorderCount` in the `critical` band. */
+                criticalCount: components["schemas"]["Count"];
+                /** @description Evaluated pairs with no recorded movement (`unknown`); never listed. */
+                unknownOnHandCount: components["schemas"]["Count"];
+                /** @description Evaluated pairs with a negative sellable on-hand (`negative`); never listed. */
+                negativeOnHandCount: components["schemas"]["Count"];
+                /** @description True when `belowReorderCount` exceeds the length of `items`. */
+                truncated: boolean;
+                /** @description The first `limit` low pairs: `critical` before `low`, then the exact level ratio ascending, then `storeId`, then `productId`. */
+                items: components["schemas"]["LowStockItem"][];
+            };
+            /** @description Canonical error envelope. Out-of-scope and cross-tenant refusals are non-disclosing (§II, §XII): they never name the cause. */
+            Error: {
+                error: {
+                    /** @description Stable machine-readable error code. */
+                    code: string;
+                    /** @description Human-readable summary. No sensitive data, no cause enumeration. */
+                    message: string;
+                    /**
+                     * Format: uuid
+                     * @description Server-side correlation id; the cause is recorded server-side.
+                     */
+                    request_id?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description validation_error (400): a malformed query value, an unknown query key (including `cursor` and `page_size`), a query key given more than once, a `store_id` that is not a UUID, or a `limit` outside 1..50. Checked after the guards and before any position is read. */
+            ValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated (401): a missing or invalid session cookie, or a non-cookie credential without a valid session cookie. Non-disclosing. Owned by 028 (G10). */
+            Unauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description not_found (404), non-disclosing: a role outside `owner` / `tenant_admin` / `store_manager`, or a `store_id` outside the caller's store scope, soft-deleted or of another tenant. */
+            NotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description system_failure (500): unexpected server error; the cause is recorded server-side under `request_id`. */
+            SystemFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. The body is the canonical error envelope with a non-disclosing message (no budget, class or window); its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`. A 429 is not a 401: it never means the session ended. The console limit is server-configured and may not be enforced, so a client must handle a 429 but must not expect one. */
+            TooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    /** @description The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a well-formed UUID, otherwise a server-minted one. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+        parameters: {
+            /** @description Limits the read to this store. Validated against the caller's store scope: a store outside it, soft-deleted, or of another tenant, is the non-disclosing 404. Absent: every store of the scope. */
+            StoreIdQuery: string;
+            /** @description The most items returned (the Overview's top-N). Outside 1..50 is 400 `validation_error`. */
+            Limit: number;
+        };
+        requestBodies: never;
+        headers: {
+            /** @description `no-store` on every 200: the body carries the tenant's stock positions, so no shared or browser cache keeps them. */
+            CacheControlNoStore: "no-store";
+            /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600. */
+            ConsoleRetryAfter: number;
+        };
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        consoleListLowStock: {
+            parameters: {
+                query?: {
+                    /** @description Limits the read to this store. Validated against the caller's store scope: a store outside it, soft-deleted, or of another tenant, is the non-disclosing 404. Absent: every store of the scope. */
+                    store_id?: components["parameters"]["StoreIdQuery"];
+                    /** @description The most items returned (the Overview's top-N). Outside 1..50 is 400 `validation_error`. */
+                    limit?: components["parameters"]["Limit"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The low-stock list of the caller's scope. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConsoleLowStockList"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+    }
+}
+
+export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & ConsoleSalesByStoreSchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths & ConsolePeopleSchema.paths & ConsoleSystemStatusSchema.paths & StockLevelsSchema.paths & LowStockSchema.paths;
+export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & ConsoleSalesByStoreSchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components & ConsolePeopleSchema.components & ConsoleSystemStatusSchema.components & StockLevelsSchema.components & LowStockSchema.components;
+export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & ConsoleSalesByStoreSchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations & ConsolePeopleSchema.operations & ConsoleSystemStatusSchema.operations & StockLevelsSchema.operations & LowStockSchema.operations;
