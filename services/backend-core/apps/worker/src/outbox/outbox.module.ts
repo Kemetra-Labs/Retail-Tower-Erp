@@ -54,6 +54,7 @@ import {
   type SaleProcessingQueueLike,
   OUTBOX_SALE_PROCESSING_QUEUE_NAME,
 } from "./consumers/sale-captured.consumer";
+import { InventoryMovementCreatedConsumer } from "./consumers/inventory-movement-created.consumer";
 import type { DrainerProcessor } from "./drainer.processor";
 
 // ---------------------------------------------------------------------------
@@ -306,6 +307,8 @@ const outboxConsumerRegistryProvider: Provider = {
     const registry = new OutboxConsumerRegistry();
     registry.register(new AuditEventCreatedConsumer(auditQueue));
     registry.register(new SaleCapturedConsumer(saleProcessingQueue));
+    // RT-1057: acknowledge-only placeholder; the event is emitted but not yet projected.
+    registry.register(new InventoryMovementCreatedConsumer());
     return registry;
   },
   inject: [OUTBOX_AUDIT_QUEUE, OUTBOX_SALE_PROCESSING_QUEUE],
