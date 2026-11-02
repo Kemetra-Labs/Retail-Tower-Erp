@@ -103,8 +103,10 @@ info:
     surface renders. A value that is not the current state is 409
     `stale_write` and nothing is written; reload and retry. Every accepted
     write gives the level a new, strictly later `updatedAt`, so a retried
-    write that already succeeded is `stale_write`, never a second write. No
-    `Idempotency-Key` is taken: the precondition makes a retry safe.
+    set that already succeeded is `stale_write`, and a retried retire that
+    already succeeded is the non-disclosing 404 (no active level). Neither
+    is a second write. No `Idempotency-Key` is taken: the precondition makes
+    a retry safe.
 
 
     **Audit.** Every accepted write appends one `audit_events` row
