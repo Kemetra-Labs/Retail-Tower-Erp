@@ -102,3 +102,17 @@ export function classificationForStatus(
       return null;
   }
 }
+
+/**
+ * RT-1061 (RT-973 §4.1): `sales.sync_status_version` (0077) as a wire integer.
+ * node-postgres reads a BIGINT as text; the 0077 CHECK bounds it to
+ * 0..2^53 - 1, so the conversion is exact. Anything else is a broken read,
+ * never a value to emit.
+ */
+export function syncStatusVersionOf(raw: string | number): number {
+  const value = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error("sale sync status: sync_status_version is not a non-negative safe integer");
+  }
+  return value;
+}

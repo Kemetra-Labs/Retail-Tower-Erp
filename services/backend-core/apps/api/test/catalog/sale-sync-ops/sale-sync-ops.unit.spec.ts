@@ -161,6 +161,7 @@ describe("032 §9 — read-model branches (T016/T020)", () => {
             id: VALID_REF,
             store_id: "s1",
             sync_status: "failed-needs-repair",
+            sync_status_version: "1",
             source_system: "pos",
             external_id: "x1",
             processed_at: null,
@@ -182,6 +183,8 @@ describe("032 §9 — read-model branches (T016/T020)", () => {
     const svc = new SaleSyncOpsReadModelService({} as never, memberships);
     const body = await svc.getSaleSyncStatus(SCOPED, VALID_REF);
     expect(body.syncStatus).toBe("failed-needs-repair");
+    // RT-1061: the BIGINT version (text from node-postgres) is emitted as an integer.
+    expect(body.syncStatusVersion).toBe(1);
     expect(body.deadLetter?.classification).toBe("needs-repair");
     expect(body.deadLetter?.reasonCode).toBe("auth_revoked");
   });
@@ -195,6 +198,7 @@ describe("032 §9 — read-model branches (T016/T020)", () => {
             id: VALID_REF,
             store_id: "s1",
             sync_status: "captured",
+            sync_status_version: "0",
             source_system: "pos",
             external_id: "x1",
             processed_at: null,
@@ -220,6 +224,7 @@ describe("032 §9 — read-model branches (T016/T020)", () => {
             id: VALID_REF,
             store_id: "s1",
             sync_status: "failed-retryable",
+            sync_status_version: "2",
             source_system: "pos",
             external_id: "x1",
             processed_at: new Date("2026-06-11T01:00:00Z"),
@@ -254,6 +259,7 @@ describe("032 §9 — read-model branches (T016/T020)", () => {
           id: VALID_REF,
           store_id: "s1",
           sync_status: "synced",
+          sync_status_version: "3",
           source_system: "pos",
           external_id: "x1",
           processed_at: new Date(),
@@ -276,6 +282,7 @@ describe("032 §9 — read-model branches (T016/T020)", () => {
             id: VALID_REF,
             store_id: "s1",
             sync_status: "failed-needs-repair",
+            sync_status_version: "1",
             source_system: "pos",
             external_id: "x1",
             processed_at: null,
@@ -294,6 +301,7 @@ describe("032 §9 — read-model branches (T016/T020)", () => {
             id: VALID_REF,
             store_id: "s1",
             sync_status: "failed-retryable",
+            sync_status_version: "2",
             source_system: "pos",
             external_id: "x1",
             processed_at: null,
@@ -306,7 +314,12 @@ describe("032 §9 — read-model branches (T016/T020)", () => {
     const svc = new SaleSyncOpsReadModelService({} as never, memberships);
     const body = await svc.repairSaleSync(SCOPED, VALID_REF);
     expect(body.syncStatus).toBe("failed-retryable");
+    // RT-1061: the response carries the version re-read after the UPDATE.
+    expect(body.syncStatusVersion).toBe(2);
     expect(body.deadLetter).toBeNull();
+    // RT-1061: the repair's status write moves the version in the same UPDATE.
+    const update = String(clientQuery.mock.calls[2]?.[0]).replace(/\s+/g, " ");
+    expect(update).toContain("SET sync_status = $2, sync_status_version = sync_status_version + 1");
   });
 });
 

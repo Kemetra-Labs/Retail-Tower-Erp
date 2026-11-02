@@ -7,12 +7,13 @@
  * store). No DB.
  */
 import { encodeSaleHistoryCursor } from "../../src/catalog/sales/history/sale-history.query";
-import type { SaleHistoryDetail, SaleHistoryRow } from "../../src/catalog/sales/history/sale-history.projections";
+import { toSaleHistoryItem, type SaleHistoryDetail } from "../../src/catalog/sales/history/sale-history.projections";
 import { SALE_SYNC_STATUS_VALUES } from "../../src/catalog/sales/sale-sync-status";
 import { listAuditOf } from "../../src/console-sales/console-sales.controller";
 import {
   assemblePage,
   toConsoleSaleDetail,
+  type ConsoleSaleRow,
 } from "../../src/console-sales/console-sales.projections";
 import {
   consoleFiltersOf,
@@ -178,7 +179,7 @@ describe("RT-562 console sales — cursor binding", () => {
 // ---------------------------------------------------------------------------
 
 let n = 0;
-function row(extra: Partial<SaleHistoryRow> = {}): SaleHistoryRow {
+function row(extra: Partial<ConsoleSaleRow> = {}): ConsoleSaleRow {
   n += 1;
   const id = `0a000000-0000-7000-8000-${String(n).padStart(12, "0")}`;
   return {
@@ -194,6 +195,7 @@ function row(extra: Partial<SaleHistoryRow> = {}): SaleHistoryRow {
     currency_code: "EGP",
     pos_total: "10.0000",
     sync_status: "synced",
+    sync_status_version: "1",
     voided: false,
     return_state: "none",
     erp_status: null,
@@ -210,7 +212,7 @@ function row(extra: Partial<SaleHistoryRow> = {}): SaleHistoryRow {
   };
 }
 
-const page = (rows: SaleHistoryRow[], readLimit: number, pageSize: number, filters = NO_FILTERS) =>
+const page = (rows: ConsoleSaleRow[], readLimit: number, pageSize: number, filters = NO_FILTERS) =>
   assemblePage({ rows, readLimit, pageSize, storeRef: STORE, filters });
 
 describe("RT-562 console sales — page assembly", () => {
@@ -287,10 +289,37 @@ describe("RT-562 console sales — detail projection and audit metadata", () => 
       reprint: { duplicate: "allowed", saleRecord: "allowed", marks: [] },
       erpPosting: { sale: "unknown" },
     } as unknown as SaleHistoryDetail;
-    const out = toConsoleSaleDetail(detail, STORE, "Africa/Cairo");
+    const out = toConsoleSaleDetail({
+      detail,
+      storeRef: STORE,
+      storeTimezone: "Africa/Cairo",
+      syncStatusVersion: "3",
+      erpPostingFailure: null,
+    });
     expect(out).not.toHaveProperty("receiptFacts");
     expect(out).not.toHaveProperty("reprint");
-    expect(out).toMatchObject({ storeTimezone: "Africa/Cairo", summary: { saleRef: "s", storeRef: STORE } });
+    expect(out).toMatchObject({
+      storeTimezone: "Africa/Cairo",
+      summary: { saleRef: "s", storeRef: STORE, syncStatusVersion: 3 },
+      erpPostingFailure: null,
+    });
+  });
+
+  it("RT-1061: every list item carries its row's syncStatusVersion as an integer", () => {
+    const items = page([row({ sync_status_version: "0" }), row({ sync_status_version: "9007199254740991" })], 3, 2).items;
+    expect(items.map((i) => i.syncStatusVersion)).toEqual([0, 9007199254740991]);
+  });
+
+  it("RT-1061: the POS sale-history item is byte-identical whether or not the shared row carries the version", () => {
+    const withVersion = row({ sync_status_version: "5" });
+    const { sync_status_version: _v, ...withoutVersion } = withVersion;
+    expect(JSON.stringify(toSaleHistoryItem(withVersion))).toBe(JSON.stringify(toSaleHistoryItem(withoutVersion)));
+    expect(toSaleHistoryItem(withVersion)).not.toHaveProperty("syncStatusVersion");
+  });
+
+  it("RT-1061: a version that is not a non-negative safe integer is a broken read, never emitted", () => {
+    expect(() => page([row({ sync_status_version: "9007199254740992" })], 2, 1)).toThrow(/sync_status_version/);
+    expect(() => page([row({ sync_status_version: "-1" })], 2, 1)).toThrow(/sync_status_version/);
   });
 
   it("records the store, the filters and the count; the sale number only as a flag; no row ids", () => {

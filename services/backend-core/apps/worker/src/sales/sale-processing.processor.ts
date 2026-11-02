@@ -183,7 +183,9 @@ export class SaleProcessingProcessor {
                       ) <> s.pos_total::numeric
                     ),
                     processed_at = now(),
-                    sync_status = 'synced'
+                    sync_status = 'synced',
+                    -- RT-1061 (RT-973): every sync_status write moves the version by one.
+                    sync_status_version = s.sync_status_version + 1
               WHERE s.id = $1
                 AND s.store_id = $2
                 AND s.processed_at IS NULL

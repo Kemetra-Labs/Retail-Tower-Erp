@@ -277,7 +277,9 @@ export class SaleSyncDeadletterProducer {
   ): Promise<boolean> {
     const r = await client.query<{ id: string }>(
       `UPDATE sales
-          SET sync_status = $3
+          SET sync_status = $3,
+              -- RT-1061 (RT-973): every sync_status write moves the version by one.
+              sync_status_version = sync_status_version + 1
         WHERE id = $1
           AND store_id = $2
           AND sync_status <> $4

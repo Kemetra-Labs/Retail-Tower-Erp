@@ -28,6 +28,7 @@
  */
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   char,
   check,
@@ -74,6 +75,12 @@ export const sales = pgTable(
     // in 0026_sale_sync_status.sql. Rides the existing `sales` tenant UPDATE
     // policy (no new RLS) — the same SaaS-owned-mutable posture as processed_at.
     syncStatus: text("sync_status").notNull().default("captured"),
+    // RT-973 / RT-1061 (0077) — the ordering of `sync_status` across reads.
+    // Every writer that sets `sync_status` adds one in the same UPDATE (the
+    // drain, the dead-letter producer, the console sale-sync repair); capture
+    // leaves it at 0. It orders the SaaS-owned status, not the fact: it is not
+    // an optimistic-concurrency version of the sale (gate D.1 / FR-070 hold).
+    syncStatusVersion: bigint("sync_status_version", { mode: "number" }).notNull().default(0),
     // POS-reported clock, preserved as provenance; NEVER a security clock (FR-022).
     sourceClockAt: timestamp("source_clock_at", { withTimezone: true }),
     sourceSystem: text("source_system").notNull(),
