@@ -19,6 +19,7 @@ import { money } from "./en/money";
 import { operators } from "./en/operators";
 import { overview } from "./en/overview";
 import { platform } from "./en/platform";
+import { postingRepair } from "./en/postingRepair";
 import { productRecon } from "./en/productRecon";
 import { saleSync } from "./en/saleSync";
 import { sales } from "./en/sales";
@@ -47,6 +48,7 @@ export const EN_MODULES = {
   devices,
   sales,
   saleSync,
+  postingRepair,
   cashPolicy,
   inventory,
   aiPlan,
@@ -74,6 +76,7 @@ export const en: MessagesOf<typeof ar> = {
   ...devices,
   ...sales,
   ...saleSync,
+  ...postingRepair,
   ...cashPolicy,
   ...inventory,
   ...aiPlan,

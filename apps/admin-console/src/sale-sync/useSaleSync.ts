@@ -218,30 +218,92 @@ export interface RepairState {
   reset: () => void;
 }
 
+/** The repair's answer that the sale detail's chip takes: the status and, when sent, its version. */
+type RepairedSync = Pick<SaleSyncStatus, "syncStatus" | "syncStatusVersion">;
+
+function isVersion(value: number | undefined | null): value is number {
+  return typeof value === "number";
+}
+
+/**
+ * RT-973 §6: a newer version wins. False only when both sides carry a version
+ * and the cached one is the same or later (equal versions are the same status,
+ * so the read is taken whole). Either side without one is unknown: the repair
+ * lands as before RT-973 (rule 3).
+ */
+function repairIsNewer(repaired: RepairedSync, cached: number | undefined): boolean {
+  const version = repaired.syncStatusVersion;
+  return !(isVersion(version) && isVersion(cached) && version <= cached);
+}
+
+/**
+ * Lays the repair's status (and its version) over the cached detail. A detail
+ * that is not a settled success (an errored read, or none yet) is never
+ * touched, so an error is never masked; the detail keeps its own freshness
+ * time (RT-956).
+ */
+function applyRepairToDetail(
+  queryClient: QueryClient,
+  queryKey: ReturnType<typeof saleQueryKeys.detail>,
+  repaired: RepairedSync,
+): void {
+  const state = queryClient.getQueryState<SaleDetail>(queryKey);
+  if (state?.status !== "success" || !state.data) return;
+  const { data } = state;
+  if (!repairIsNewer(repaired, data.summary.syncStatusVersion)) return;
+  const version = repaired.syncStatusVersion;
+  queryClient.setQueryData<SaleDetail>(
+    queryKey,
+    {
+      ...data,
+      summary: {
+        ...data.summary,
+        syncStatus: repaired.syncStatus,
+        ...(isVersion(version) ? { syncStatusVersion: version } : {}),
+      },
+    },
+    { updatedAt: state.dataUpdatedAt },
+  );
+}
+
 /**
  * The sale detail's header chip reads the same `sync_status`: after a confirmed
  * repair, write the server's answer into it so the chip and this section agree
  * (RT-956). Never a refetch: a failed detail read would unmount this hook and
- * drop its key. A read in flight settles first (its newer fields are kept and
- * the confirmed status lands on top), an errored read is left to show its
- * error, and the detail keeps its own freshness time.
+ * drop its key.
+ *
+ * RT-973 §6 replaces last-write-wins with `syncStatusVersion`:
+ * 1. Both versions known: the repair lands at once when it is newer, without
+ *    waiting for a detail read in flight (so no client timeout is needed, E6).
+ * 2. When that read settles, the higher version is kept: a newer repair is laid
+ *    over the read's other fields; an equal or newer read is taken whole.
+ * 3. Either version absent (an older server, or a repair replay stored before
+ *    the field): as before, the repair lands after a read in flight settles.
+ * 4. An errored read is never masked, and the detail keeps its freshness time.
  */
 async function writeDetailSync(
   queryClient: QueryClient,
   target: SaleTarget,
-  syncStatus: SaleDetail["summary"]["syncStatus"],
+  repaired: RepairedSync,
 ): Promise<void> {
   const queryKey = saleQueryKeys.detail(target.scope, target.saleRef);
   const query = queryClient.getQueryCache().find<SaleDetail>({ queryKey, exact: true });
-  if (query?.state.fetchStatus === "fetching") await query.promise?.catch(() => undefined);
-  const state = queryClient.getQueryState<SaleDetail>(queryKey);
-  if (state?.status !== "success" || !state.data) return;
-  const { data } = state;
-  queryClient.setQueryData<SaleDetail>(
-    queryKey,
-    { ...data, summary: { ...data.summary, syncStatus } },
-    { updatedAt: state.dataUpdatedAt },
-  );
+  const inFlight = query?.state.fetchStatus === "fetching" ? query.promise : undefined;
+  const ordered =
+    isVersion(repaired.syncStatusVersion) &&
+    isVersion(query?.state.data?.summary.syncStatusVersion);
+  if (ordered) applyRepairToDetail(queryClient, queryKey, repaired);
+  if (inFlight) await inFlight.catch(() => undefined);
+  if (inFlight || !ordered) applyRepairToDetail(queryClient, queryKey, repaired);
+}
+
+/**
+ * The status section takes the repair's answer unless the cached status is
+ * already the same or later (RT-973 §4.1: an idempotent replay returns the
+ * version it had then, and a newer read is kept over it).
+ */
+function keepNewerStatus(cached: SaleSyncStatus | undefined, repaired: SaleSyncStatus) {
+  return cached && !repairIsNewer(repaired, cached.syncStatusVersion) ? cached : repaired;
 }
 
 export function useRepairSale(target: SaleTarget): RepairState {
@@ -267,9 +329,12 @@ export function useRepairSale(target: SaleTarget): RepairState {
     }
     if (!keepsKey(next)) key.current = undefined;
     if (next.kind === "repaired") {
-      queryClient.setQueryData(saleSyncQueryKeys.status(target), next.status);
+      const repaired = next.status;
+      queryClient.setQueryData<SaleSyncStatus>(saleSyncQueryKeys.status(target), (cached) =>
+        keepNewerStatus(cached, repaired),
+      );
       // Not awaited: the outcome never waits on a detail read in flight.
-      void writeDetailSync(queryClient, target, next.status.syncStatus);
+      void writeDetailSync(queryClient, target, repaired);
     } else {
       void queryClient.invalidateQueries({ queryKey: saleSyncQueryKeys.status(target) });
     }
