@@ -37,6 +37,8 @@ export function fillPercent(levelRatio: string): number {
 export function asLowStock(data: unknown): LowStockList | undefined {
   const d = data as Partial<LowStockList> | undefined;
   if (!d || !Array.isArray(d.items)) return undefined;
+  // A null or non-object item would throw in `Item`; a malformed answer is an error state instead.
+  if (!d.items.every((item) => item !== null && typeof item === "object")) return undefined;
   for (const k of [
     "belowReorderCount",
     "criticalCount",

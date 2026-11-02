@@ -67,6 +67,8 @@ describe("RT-1073 low-stock logic", () => {
     expect(asLowStock({})).toBeUndefined();
     expect(asLowStock({ items: [], belowReorderCount: "1" })).toBeUndefined();
     expect(asLowStock({ ...base, unknownOnHandCount: undefined })).toBeUndefined();
+    expect(asLowStock({ ...base, items: [null] })).toBeUndefined();
+    expect(asLowStock({ ...base, items: ["x"] })).toBeUndefined();
     expect(asLowStock(base)).toBeDefined();
   });
   test("role gate mirrors the contract", () => {
