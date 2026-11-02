@@ -1,0 +1,5 @@
+# Console rate-limit class of each cookieAuth operation in
+# packages/contracts/openapi/console-people.openapi.yaml (RT-805; checked by console-rate-limit.ratchet.spec.ts).
+
+# RT-968 D-4: one indexed lookup bounded at 200 ids; the class of listMembers.
+listPeopleNames: cheapRead
