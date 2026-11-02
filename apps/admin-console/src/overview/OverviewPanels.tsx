@@ -117,7 +117,7 @@ function Panels({
           ) : null}
         </div>
         <SideColumn
-          role={session.role}
+          session={session}
           attention={<AttentionLedger session={session} nowMs={nowMs} />}
         />
       </div>

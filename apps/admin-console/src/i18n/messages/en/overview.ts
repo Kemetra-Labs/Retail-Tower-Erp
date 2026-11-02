@@ -122,6 +122,22 @@ export const overview: MessagesOf<typeof ar> = {
   "overview.stores.soon":
     "Each store's share of today's sales will appear here once the server provides it.",
   "overview.lowStock.title": "Low stock",
-  "overview.lowStock.soon":
-    "Items below their reorder level, sorted by severity, will appear here once the server provides them.",
+  "overview.lowStock.summary": "{below} below reorder level, {critical} critical.",
+  "overview.lowStock.levelText": "{onHand} on hand, reorder level {level} ({band})",
+  "overview.lowStock.band.critical": "critical",
+  "overview.lowStock.band.low": "low",
+  "overview.lowStock.storeInactive": "inactive store",
+  "overview.lowStock.truncated": "Showing {shown} of {total}.",
+  "overview.lowStock.none": "No item is below its reorder level.",
+  "overview.lowStock.noneChecked": "No item with recorded stock is below its reorder level.",
+  "overview.lowStock.unknown": {
+    one: "{count} item has no recorded stock yet, so it can't be checked.",
+    other: "{count} items have no recorded stock yet, so they can't be checked.",
+  },
+  "overview.lowStock.negative": {
+    one: "{count} item shows negative stock and is not ranked.",
+    other: "{count} items show negative stock and are not ranked.",
+  },
+  "overview.lowStock.unconfigured":
+    "No reorder levels are set yet, so low stock cannot be assessed.",
 };
