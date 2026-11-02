@@ -658,7 +658,7 @@ describe("RT-1057: inventory.movement.created is acknowledged, not unroutable", 
   beforeEach(() => {
     retrySpy = jest.spyOn(workerMetrics, "recordQueueRetry").mockImplementation(() => undefined);
     failedSpy = jest.spyOn(workerMetrics, "recordQueueFailed").mockImplementation(() => undefined);
-    errorSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
+    errorSpy = jest.spyOn(process.stderr, "write").mockImplementation(() => true); // drainer logs via process.stderr
   });
 
   afterEach(() => {
@@ -733,7 +733,7 @@ describe("RT-1057 (added AC, comment 15145): unroutable row at attempts=7 — pi
     retrySpy = jest.spyOn(workerMetrics, "recordQueueRetry").mockImplementation(() => undefined);
     failedSpy = jest.spyOn(workerMetrics, "recordQueueFailed").mockImplementation(() => undefined);
     deadLetterSpy = jest.spyOn(workerMetrics, "recordQueueDeadLetter").mockImplementation(() => undefined);
-    errorSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
+    errorSpy = jest.spyOn(process.stderr, "write").mockImplementation(() => true); // drainer logs via process.stderr
   });
 
   afterEach(() => {
