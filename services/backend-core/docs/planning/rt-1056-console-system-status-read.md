@@ -137,6 +137,10 @@ The Console renders the block only for roles that can read it, so other roles se
 console chain `SessionOnlyAdminGuard` → `TenantContextGuard` → `RolesGuard`, `cookieAuth` only. The body never holds a
 host name, error text, version or another tenant's data.
 
+A platform-admin session passes the role gate, as on every `@Roles` route (the repo-wide `RolesGuard` rule, the same as
+`listConnectorHealth`), and still reads only its active tenant: the checks run with `isPlatformAdmin: false`
+(RT-1062 review, captain decision under owner delegation of 2026-11-02).
+
 ### D-4 — How often the Console may read it
 
 **Options.**
