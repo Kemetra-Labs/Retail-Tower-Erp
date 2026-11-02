@@ -14,12 +14,11 @@ info:
       the caller may resolve. Nothing else about the person.
 
 
-    **Posture.** `1.0.0-draft`, `x-runtime-status: contract-only`. `[GATED]`
-    draft. Decisions D-1 to D-4 of RT-968 were selected under the owner's
-    delegation of 2026-11-02 (captain session); the contract is approved
-    through the usual `[GATED: OpenAPI …]` route. No controller, guard
-    wiring, service or query serves this path yet; the runtime is a separate
-    issue and removes only the operation's marker.
+    **Posture.** `1.0.0-draft`. `[GATED]` draft. Decisions D-1 to D-4 of
+    RT-968 were selected under the owner's delegation of 2026-11-02
+    (captain session); the contract is approved through the usual
+    `[GATED: OpenAPI …]` route. The runtime serves this path since RT-1063
+    (the operation's `contract-only` marker was removed there).
 
 
     **Why one read, not name fields on each surface (D-1, option A).** The
