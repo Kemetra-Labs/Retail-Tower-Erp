@@ -46,7 +46,7 @@ const UuidSchema = z
  * An RFC 3339 instant, as the epoch milliseconds it names. Only compared with
  * a stored `updated_at` at millisecond precision, never written.
  */
-const InstantMillisSchema = z
+export const InstantMillisSchema = z
   .string()
   .transform((value) => value.toUpperCase())
   .pipe(z.string().datetime({ offset: true }))

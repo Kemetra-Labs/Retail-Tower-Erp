@@ -165,11 +165,6 @@ paths:
     get:
       summary: Read a product's tenant stock level and the store levels of the caller's scope.
       operationId: consoleGetProductStockLevels
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1064 is contract-only. The runtime ships with the
-        `product_stock_levels` migration in a separate Implementation issue
-        (RT-1064 decision record §4, follow-up 1).
       tags: [console-stock-levels]
       description: >
         The product's active tenant level and the active store levels of the
@@ -205,11 +200,6 @@ paths:
       summary: Set a product's tenant default stock level.
       operationId: consoleSetTenantStockLevel
       x-idempotency: required
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1064 is contract-only. The runtime ships with the
-        `product_stock_levels` migration in a separate Implementation issue
-        (RT-1064 decision record §4, follow-up 1).
       x-audit-action: catalog.stock_level.set
       tags: [console-stock-levels]
       description: >
@@ -268,11 +258,6 @@ paths:
     post:
       summary: Retire a product's tenant default stock level.
       operationId: consoleRetireTenantStockLevel
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1064 is contract-only. The runtime ships with the
-        `product_stock_levels` migration in a separate Implementation issue
-        (RT-1064 decision record §4, follow-up 1).
       x-audit-action: catalog.stock_level.retire
       tags: [console-stock-levels]
       description: >
@@ -320,11 +305,6 @@ paths:
       summary: Set one store's stock level for a product.
       operationId: consoleSetStoreStockLevel
       x-idempotency: required
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1064 is contract-only. The runtime ships with the
-        `product_stock_levels` migration in a separate Implementation issue
-        (RT-1064 decision record §4, follow-up 1).
       x-audit-action: catalog.store_stock_level.set
       tags: [console-stock-levels]
       description: >
@@ -388,11 +368,6 @@ paths:
     post:
       summary: Retire one store's stock level for a product.
       operationId: consoleRetireStoreStockLevel
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1064 is contract-only. The runtime ships with the
-        `product_stock_levels` migration in a separate Implementation issue
-        (RT-1064 decision record §4, follow-up 1).
       x-audit-action: catalog.store_stock_level.retire
       tags: [console-stock-levels]
       description: >
