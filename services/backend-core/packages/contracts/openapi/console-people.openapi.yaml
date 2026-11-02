@@ -137,8 +137,9 @@ paths:
         the caller may resolve (see the API description) to its display
         name. Unknown and unresolvable ids are absent. Read only.
 
-        Audit: one `people.names_read` event per 200, with the requested
-        and resolved counts; no id, no name.
+        Audit: one `people.names_read` event per authorized request that
+        returns 200, whatever the number of ids, with the requested and
+        resolved counts; no id, no name.
       parameters:
         - $ref: "#/components/parameters/UserIds"
       responses:

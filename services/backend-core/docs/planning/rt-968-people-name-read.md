@@ -108,7 +108,7 @@ delegation as the conservative default. The owner may revisit it.
   read is one indexed lookup, bounded at 200 ids. The ids are random UUIDs, so a tighter class would
   add no protection against enumeration. It would only throttle a Console screen that resolves a page
   of history.
-* **Audit: yes, one `people.names_read` event per 200.**
+* **Audit: yes, one `people.names_read` event per authorized request that returns 200, whatever the number of ids.**
   * The metadata holds only `requested_count` and `resolved_count`, never ids or names.
   * Refusals are not audited.
   * The action joins the read registry (`audit-action-kinds.ts`) when the runtime ships.
