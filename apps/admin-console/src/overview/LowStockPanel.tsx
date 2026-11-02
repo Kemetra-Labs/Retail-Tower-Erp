@@ -3,7 +3,7 @@
  * order, a level bar per item from the contract ratio, red only for `critical`.
  * Loading, empty, unconfigured and error are distinct; a refusal hides the block.
  */
-import { useT } from "@/i18n";
+import { DateTime, useT } from "@/i18n";
 import { formatNumber } from "@/i18n/format";
 import { consoleListLowStock } from "@/lib/low-stock-queries";
 import type { LowStockItem, LowStockList } from "@/lib/low-stock-queries";
@@ -61,38 +61,69 @@ function Item({ item }: Readonly<{ item: LowStockItem }>) {
   );
 }
 
+const EMPTY_COPY = {
+  unconfigured: "overview.lowStock.unconfigured",
+  none: "overview.lowStock.none",
+  noneChecked: "overview.lowStock.noneChecked",
+} as const;
+
+/** Evaluated pairs the server could not assess: never hidden behind "nothing is low". */
+function Unchecked({ list }: Readonly<{ list: LowStockList }>) {
+  const t = useT();
+  return (
+    <>
+      {list.unknownOnHandCount > 0 ? (
+        <p className="low-stock__unchecked">
+          {t("overview.lowStock.unknown", { count: list.unknownOnHandCount })}
+        </p>
+      ) : null}
+      {list.negativeOnHandCount > 0 ? (
+        <p className="low-stock__unchecked">
+          {t("overview.lowStock.negative", { count: list.negativeOnHandCount })}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 function Body({ list }: Readonly<{ list: LowStockList }>) {
   const t = useT();
   const view = viewOf(list);
-  if (view.kind === "unconfigured") {
-    return <p className="soon-panel__note">{t("overview.lowStock.unconfigured")}</p>;
-  }
-  if (view.kind === "none") {
-    return <p className="soon-panel__note">{t("overview.lowStock.none")}</p>;
-  }
   return (
     <>
-      <p className="low-stock__summary">
-        {t("overview.lowStock.summary", {
-          below: formatNumber(list.belowReorderCount),
-          critical: formatNumber(list.criticalCount),
-        })}
-      </p>
-      {/* biome-ignore lint/a11y/useSemanticElements: the explicit list role is the Safari workaround. */}
-      {/* biome-ignore lint/a11y/noRedundantRoles: Safari drops list semantics from a marker-free list. */}
-      <ul className="low-stock" role="list">
-        {list.items.map((item) => (
-          <Item key={`${item.storeId}:${item.productId}`} item={item} />
-        ))}
-      </ul>
-      {list.truncated ? (
-        <p className="low-stock__more">
-          {t("overview.lowStock.truncated", {
-            shown: formatNumber(list.items.length),
-            total: formatNumber(list.belowReorderCount),
-          })}
-        </p>
+      {view.kind === "list" ? (
+        <>
+          <p className="low-stock__summary">
+            {t("overview.lowStock.summary", {
+              below: formatNumber(list.belowReorderCount),
+              critical: formatNumber(list.criticalCount),
+            })}
+          </p>
+          {/* biome-ignore lint/a11y/useSemanticElements: the explicit list role is the Safari workaround. */}
+          {/* biome-ignore lint/a11y/noRedundantRoles: Safari drops list semantics from a marker-free list. */}
+          <ul className="low-stock" role="list">
+            {list.items.map((item) => (
+              <Item key={`${item.storeId}:${item.productId}`} item={item} />
+            ))}
+          </ul>
+          {list.truncated ? (
+            <p className="low-stock__more">
+              {t("overview.lowStock.truncated", {
+                shown: formatNumber(list.items.length),
+                total: formatNumber(list.belowReorderCount),
+              })}
+            </p>
+          ) : null}
+        </>
       ) : null}
+      {view.kind !== "list" && view.kind !== "unchecked" ? (
+        <p className="soon-panel__note">{t(EMPTY_COPY[view.kind])}</p>
+      ) : null}
+      <Unchecked list={list} />
+      <p className="low-stock__fresh">
+        {t.rich("metrics.context.asOf", { asOf: <DateTime value={list.asOf} /> })}{" "}
+        {t("metrics.context.completeness")}
+      </p>
     </>
   );
 }

@@ -101,6 +101,54 @@ describe("RT-1073 low-stock panel", () => {
     expect(screen.queryByText("No item is below its reorder level.")).toBeNull();
   });
 
+  test("unknown on-hand is its own line, never 'no low stock' or zero", async () => {
+    consoleListLowStock.mockImplementation(() =>
+      ok(list({ items: [], belowReorderCount: 0, evaluatedCount: 3, unknownOnHandCount: 3 })),
+    );
+    renderPanel();
+    await screen.findByText("3 items have no recorded stock yet, so they can't be checked.");
+    expect(screen.queryByText("No item is below its reorder level.")).toBeNull();
+    expect(
+      screen.queryByText("No item with recorded stock is below its reorder level."),
+    ).toBeNull();
+  });
+
+  test("some unchecked: the 'none' claim covers only pairs with recorded stock", async () => {
+    consoleListLowStock.mockImplementation(() =>
+      ok(list({ items: [], belowReorderCount: 0, evaluatedCount: 5, unknownOnHandCount: 1 })),
+    );
+    renderPanel();
+    await screen.findByText("No item with recorded stock is below its reorder level.");
+    expect(
+      screen.getByText("1 item has no recorded stock yet, so it can't be checked."),
+    ).toBeTruthy();
+    expect(screen.queryByText("No item is below its reorder level.")).toBeNull();
+  });
+
+  test("negative on-hand renders its line, with or without a list", async () => {
+    consoleListLowStock.mockImplementation(() => ok(list({ negativeOnHandCount: 2 })));
+    renderPanel();
+    await screen.findByText("2 items show negative stock and are not ranked.");
+    expect(screen.getByText("Product 2")).toBeTruthy();
+  });
+
+  test("both counts zero: no unchecked line", async () => {
+    consoleListLowStock.mockImplementation(() => ok(list()));
+    const { container } = renderPanel();
+    await screen.findByText("Product 2");
+    expect(container.querySelector(".low-stock__unchecked")).toBeNull();
+  });
+
+  test("names its freshness and completeness", async () => {
+    consoleListLowStock.mockImplementation(() => ok(list()));
+    const { container } = renderPanel();
+    await screen.findByText("Product 2");
+    const fresh = container.querySelector(".low-stock__fresh") as HTMLElement;
+    expect(fresh.textContent).toContain("As of");
+    expect(fresh.querySelector("time")?.getAttribute("datetime")).toBe("2026-11-02T10:00:00Z");
+    expect(fresh.textContent).toContain("Received facts only");
+  });
+
   test("error is never rendered as empty, and retry reads again", async () => {
     consoleListLowStock.mockImplementationOnce(() => fail(500));
     renderPanel();

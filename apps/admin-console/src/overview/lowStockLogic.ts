@@ -37,20 +37,40 @@ export function fillPercent(levelRatio: string): number {
 export function asLowStock(data: unknown): LowStockList | undefined {
   const d = data as Partial<LowStockList> | undefined;
   if (!d || !Array.isArray(d.items)) return undefined;
-  for (const k of ["belowReorderCount", "criticalCount", "evaluatedCount"] as const) {
+  for (const k of [
+    "belowReorderCount",
+    "criticalCount",
+    "evaluatedCount",
+    "unknownOnHandCount",
+    "negativeOnHandCount",
+  ] as const) {
     if (typeof d[k] !== "number") return undefined;
   }
   return d as LowStockList;
 }
 
 export type LowStockView =
+  /** At least one low item to list. */
+  | { kind: "list" }
   /** No pair has a resolved level: say so, never "nothing is low". */
   | { kind: "unconfigured" }
-  /** Levels exist and nothing is below them. */
+  /** Pairs with recorded stock exist and none is below its level, and no pair is unchecked. */
   | { kind: "none" }
-  | { kind: "list" };
+  /** Same, but some pairs could not be checked: the claim covers only the pairs with recorded stock. */
+  | { kind: "noneChecked" }
+  /** Every evaluated pair is unchecked (no recorded stock, or negative): no claim about low stock at all. */
+  | { kind: "unchecked" };
+
+/** Pairs that were evaluated but could not be assessed (never listed by the server). */
+export function uncheckedCount(list: LowStockList): number {
+  return (list.unknownOnHandCount ?? 0) + (list.negativeOnHandCount ?? 0);
+}
 
 export function viewOf(list: LowStockList): LowStockView {
   if (list.items.length > 0) return { kind: "list" };
-  return list.evaluatedCount === 0 ? { kind: "unconfigured" } : { kind: "none" };
+  if (list.evaluatedCount === 0) return { kind: "unconfigured" };
+  const unchecked = uncheckedCount(list);
+  if (unchecked === 0) return { kind: "none" };
+  // Known pairs = evaluated minus unchecked; with none, nothing can be said about low stock.
+  return list.evaluatedCount - unchecked > 0 ? { kind: "noneChecked" } : { kind: "unchecked" };
 }

@@ -133,5 +133,22 @@ export const overview = {
   "overview.lowStock.storeInactive": "متجر غير نشط",
   "overview.lowStock.truncated": "يُعرض {shown} من {total}.",
   "overview.lowStock.none": "لا يوجد صنف تحت حد إعادة الطلب.",
+  "overview.lowStock.noneChecked": "لا يوجد صنف له مخزون مسجَّل تحت حد إعادة الطلب.",
+  "overview.lowStock.unknown": {
+    zero: "{count} صنف بلا مخزون مسجَّل بعد، فلا يمكن فحصه.",
+    one: "صنف واحد بلا مخزون مسجَّل بعد، فلا يمكن فحصه.",
+    two: "صنفان بلا مخزون مسجَّل بعد، فلا يمكن فحصهما.",
+    few: "{count} أصناف بلا مخزون مسجَّل بعد، فلا يمكن فحصها.",
+    many: "{count} صنفًا بلا مخزون مسجَّل بعد، فلا يمكن فحصها.",
+    other: "{count} صنف بلا مخزون مسجَّل بعد، فلا يمكن فحصها.",
+  },
+  "overview.lowStock.negative": {
+    zero: "{count} صنف بمخزون سالب وغير مرتَّب.",
+    one: "صنف واحد بمخزون سالب وغير مرتَّب.",
+    two: "صنفان بمخزون سالب وغير مرتَّبين.",
+    few: "{count} أصناف بمخزون سالب وغير مرتَّبة.",
+    many: "{count} صنفًا بمخزون سالب وغير مرتَّب.",
+    other: "{count} صنف بمخزون سالب وغير مرتَّب.",
+  },
   "overview.lowStock.unconfigured": "لم تُحدَّد حدود إعادة الطلب بعد، فلا يمكن تقييم المخزون المنخفض.",
 } satisfies Messages;

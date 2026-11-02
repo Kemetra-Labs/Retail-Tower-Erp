@@ -4,6 +4,7 @@ import {
   fillPercent,
   toneOf,
   trimQuantity,
+  uncheckedCount,
   viewOf,
 } from "@/overview/lowStockLogic";
 import { describe, expect, test } from "vitest";
@@ -44,10 +45,28 @@ describe("RT-1073 low-stock logic", () => {
     expect(viewOf(base as never).kind).toBe("none");
     expect(viewOf({ ...base, items: [{}] } as never).kind).toBe("list");
   });
+  test("unchecked pairs never read as plain 'none'", () => {
+    const unknown = { ...base, evaluatedCount: 3, unknownOnHandCount: 1 };
+    expect(viewOf(unknown as never).kind).toBe("noneChecked");
+    expect(viewOf({ ...base, negativeOnHandCount: 2 } as never).kind).toBe("noneChecked");
+    // every evaluated pair unchecked: no low-stock claim at all
+    expect(viewOf({ ...base, evaluatedCount: 3, unknownOnHandCount: 3 } as never).kind).toBe(
+      "unchecked",
+    );
+    expect(
+      viewOf({ ...base, evaluatedCount: 3, unknownOnHandCount: 1, negativeOnHandCount: 2 } as never)
+        .kind,
+    ).toBe("unchecked");
+    expect(
+      uncheckedCount({ ...base, unknownOnHandCount: 1, negativeOnHandCount: 2 } as never),
+    ).toBe(3);
+    expect(viewOf(base as never).kind).toBe("none");
+  });
   test("malformed bodies are rejected", () => {
     expect(asLowStock(undefined)).toBeUndefined();
     expect(asLowStock({})).toBeUndefined();
     expect(asLowStock({ items: [], belowReorderCount: "1" })).toBeUndefined();
+    expect(asLowStock({ ...base, unknownOnHandCount: undefined })).toBeUndefined();
     expect(asLowStock(base)).toBeDefined();
   });
   test("role gate mirrors the contract", () => {
