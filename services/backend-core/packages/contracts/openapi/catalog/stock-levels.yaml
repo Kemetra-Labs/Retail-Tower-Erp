@@ -18,13 +18,11 @@ info:
       5. `consoleRetireStoreStockLevel`  — retire one store's level.
 
 
-    **Posture.** `1.0.0-draft`, every operation `x-runtime-status:
-    contract-only`. `[GATED]` contract, decisions selected under the owner
-    delegation of 2026-11-02 (captain session; recommended options; the
-    owner may revisit). No table, controller, guard wiring or service serves
-    these paths yet. The runtime needs the `product_stock_levels` migration
-    (TH-5) first; both ship in one separate Implementation issue, which
-    removes only each operation's marker.
+    **Posture.** `1.0.0-draft`. `[GATED]` contract, decisions selected under
+    the owner delegation of 2026-11-02 (captain session; recommended
+    options; the owner may revisit). The runtime serves these operations
+    since RT-1066, over the `product_stock_levels` table of migration 0078
+    (TH-5); their `contract-only` markers were removed there.
 
 
     **Authority (TH-1).** Thresholds are Retail Tower operational data,
