@@ -1,0 +1,484 @@
+openapi: 3.1.0
+info:
+  title: Data-Pulse-2 Inventory — Console Low-Stock Read API
+  version: "1.0.0-draft"
+  description: >
+    Jira RT-1055 (Planning; decision record
+    `docs/planning/rt-1055-low-stock-severity-read.md`, decisions LS-1 to
+    LS-5). One read-only operation for the Admin-Console Overview «low stock»
+    side column (Admin-Console DESIGN.md §12.4: items sorted by severity, a
+    level bar per item, red only below the critical level):
+
+      `consoleListLowStock` — the (store, product) pairs of the caller's
+      scope whose sellable on-hand is below their reorder level, most severe
+      first, bounded to a top-N, with the counts the widget needs to say how
+      many more there are and how many pairs it could not judge.
+
+    Every figure, band and ratio is computed by Backend-Core. A client, and
+    any model, presents them as given and never derives a level, a band or a
+    ratio itself (UX-13.5: every figure has a defined metric contract).
+
+
+    **Posture.** `1.0.0-draft`, `x-runtime-status: contract-only`. `[GATED]`
+    contract, decisions selected under the owner delegation of 2026-11-02
+    (captain session; recommended options; the owner may revisit). No
+    controller, guard wiring, service or query serves this path yet. The
+    runtime needs the threshold persistence first (LS-1 follow-up: the
+    threshold fields and their migration are a separate `[GATED]` decision);
+    it is a separate Implementation issue and removes only the operation's
+    marker.
+
+
+    **Thresholds (LS-1).** Retail Tower operational data, never ERPNext
+    (root `CLAUDE.md` §5). Two levels per (store, product), in the product's
+    stocking unit: a required `reorderLevel` (> 0) and an optional
+    `criticalLevel` (> 0 and <= `reorderLevel`). They are resolved like the
+    rest of the catalog, Tenant Catalog ⊕ Store Override, AS A PAIR: when the
+    store's active override sets a reorder level, both levels come from the
+    override (`thresholdSource: store`); otherwise both come from the Tenant
+    Catalog product (`thresholdSource: tenant`). A pair with no resolved
+    reorder level is not configured and is never evaluated. The levels are
+    set through the catalog surface (follow-up), not here.
+
+
+    **Evaluated pairs.** A (store, product) pair is evaluated when the store
+    is in the caller's scope and not soft-deleted, the product is `active` in
+    the Tenant Catalog, the product is available at the store (the resolved
+    availability, Tenant ⊕ Store Override `isActive`), and the pair has a
+    resolved reorder level. Every other pair is absent, never shown with a
+    reason. An inactive (`is_active` false) store is evaluated and reported
+    as `storeStatus: inactive`.
+
+
+    **On-hand (LS-3).** `sellableOnHand` is the `sellable` share of the
+    derived on-hand (`inventory.yaml` `OnHand.sellableQuantity`: the
+    compute-on-read sum of the pair's recorded movements over every location
+    of the store, positions of every tracking identity included), read from
+    one consistent database snapshot taken at `asOf`. It covers every
+    movement committed by then, including the Inventory Effects of the sales,
+    voids and returns the server had received (RT-427); a sale still queued
+    on a terminal is not in it, so `completeness` is always `received_only`.
+
+    Each evaluated pair has one `onHandState`:
+
+      - `known` — the pair has at least one recorded movement and its
+        sellable on-hand is zero or more. Only these pairs are compared
+        with their levels.
+      - `unknown` — the pair has no recorded movement at all. The ledger's
+        deterministic zero (FR-005) is NOT an observed zero: such a pair is
+        never listed and never shown as zero (UX-13.23); it is counted in
+        `unknownOnHandCount`.
+      - `negative` — the sellable on-hand is below zero (allow-and-flag,
+        FR-024). A negative balance is a stock discrepancy, not a level: it
+        is never listed or ranked here and is counted in
+        `negativeOnHandCount` (the discrepancy reads own it).
+
+
+    **Severity (LS-2).** A `known` pair is low when `sellableOnHand <
+    reorderLevel` (strictly below), and `critical` when it also has a
+    critical level and `sellableOnHand < criticalLevel` (strictly below);
+    otherwise its band is `low`. `levelRatio` = `sellableOnHand /
+    reorderLevel`, a unit-free number in [0, 1), so products in different
+    units compare. Order: `critical` before `low`, then the exact ratio
+    ascending (an empty shelf first), then `storeId` ascending, then
+    `productId` ascending. The wire ratio is the exact quotient truncated
+    toward zero to four fractional digits (a low item never reads
+    `"1.0000"`); the order uses the exact quotient.
+
+
+    **Scope and paging (LS-4).** Auth is the `cookieAuth` session only,
+    `SessionOnlyAdminGuard` → `TenantContextGuard` → `RolesGuard`, roles
+    `owner`, `tenant_admin`, `store_manager`, with the operator-surface store
+    scope of `console-catalog.yaml` (`operator-store-scope.ts`; owner and
+    tenant_admin: their membership's store authority; store_manager: the
+    resolved store scope with active-store narrowing). Without `store_id` the
+    read covers every store of that scope; with `store_id` it covers that one
+    store. A role outside the list, and a `store_id` outside the scope,
+    soft-deleted or of another tenant, are the same non-disclosing 404; there
+    is no 403. The list is a bounded top-N (`limit`, 1 to 50, default 10)
+    with no cursor: `belowReorderCount` and `criticalCount` count every low
+    pair of the scope, and `truncated` says whether `items` holds fewer.
+
+
+    **Tracked stock (LS-5).** Tracking (RT-449 family) changes nothing in
+    v1. Levels are per (store, product), never per batch or serial; the
+    on-hand sums every identity's `sellable` position. Stock under a quality
+    or recall hold is not `sellable`, so it is already outside the figure. An
+    expired lot still in `sellable` counts until the governed `sellable →
+    expired` move (it is reported by `listInventorySafetyFindings`).
+
+
+    **Audit.** Not audited: an inventory read without a money figure, as
+    `getOnHand` and `listInventorySafetyFindings`.
+
+
+    **Error envelope.** The canonical `{ error: { code, message, request_id
+    } }`. 400 `validation_error` (a malformed, repeated or unknown query key
+    — `cursor` and `page_size` are unknown here —, a `store_id` that is not a
+    UUID, a `limit` outside 1..50); 401 unauthenticated; 404 non-disclosing
+    not-found; 429 `rate_limited`; 500 internal. `Cache-Control: no-store`
+    on every 200.
+
+servers:
+  - url: https://api.example.com
+
+tags:
+  - name: console-inventory
+    description: >
+      Console-facing inventory reads for the Admin-Console Overview (RT-1055).
+
+security:
+  - cookieAuth: []
+
+paths:
+  /api/v1/inventory/low-stock:
+    get:
+      summary: The caller's (store, product) pairs below their reorder level, most severe first.
+      operationId: consoleListLowStock
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1055 is contract-only. The runtime ships in a separate
+        Implementation issue, after the threshold fields and their migration
+        (RT-1055 decision LS-1 follow-up) are approved and merged.
+      tags: [console-inventory]
+      description: >
+        The top `limit` low pairs of the caller's scope (or of `store_id`),
+        ordered by band, then level ratio, with the scope's low, critical,
+        unknown and negative counts. Read only; computed by the server over
+        the movements it had recorded by `asOf` (see the API description for
+        every rule).
+      parameters:
+        - $ref: "#/components/parameters/StoreIdQuery"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: The low-stock list of the caller's scope.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleLowStockList"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+      description: >
+        The human dashboard session cookie (httpOnly `dp2_session`), verified
+        by `SessionOnlyAdminGuard`. The only accepted credential on this
+        surface: without a valid session cookie, a machine bearer, a POS
+        `device` token or an `operatorAuthorization` envelope is rejected
+        (401). With a valid session cookie, the cookie authenticates the
+        request and any `Authorization` header is ignored (the repo-wide
+        `AuthGuard` rule). `RolesGuard` +
+        `@Roles("owner", "tenant_admin", "store_manager")` gate the route
+        (default deny → 404). 401 semantics are owned by 028 (G10).
+
+  headers:
+    CacheControlNoStore:
+      description: >
+        `no-store` on every 200: the body carries the tenant's stock
+        positions, so no shared or browser cache keeps them.
+      required: true
+      schema:
+        type: string
+        const: no-store
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5). Its own bound, 1 to 3600.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+
+  parameters:
+    StoreIdQuery:
+      name: store_id
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: >
+        Limits the read to this store. Validated against the caller's store
+        scope: a store outside it, soft-deleted, or of another tenant, is the
+        non-disclosing 404. Absent: every store of the scope.
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 10
+      description: The most items returned (the Overview's top-N). Outside 1..50 is 400 `validation_error`.
+
+  schemas:
+    LevelQuantity:
+      type: string
+      pattern: '^(?!0+(?:\.0+)?$)[0-9]{1,15}(\.[0-9]{1,4})?$'
+      description: >
+        A strictly positive exact-decimal quantity as a STRING
+        (`numeric(19,4)`, as `inventory.yaml` `PositiveDecimalQuantity`), in
+        the product's stocking unit.
+    OnHandQuantity:
+      type: string
+      pattern: '^[0-9]{1,15}(\.[0-9]{1,4})?$'
+      description: >
+        A non-negative exact-decimal quantity as a STRING (`numeric(19,4)`,
+        as `inventory.yaml` `NonNegativeDecimalQuantity`), in the product's
+        stocking unit. Every listed item is `known`, so zero here is an
+        observed zero.
+    LevelRatio:
+      type: string
+      pattern: '^0\.[0-9]{4}$'
+      description: >
+        `sellableOnHand / reorderLevel`, truncated toward zero to four
+        fractional digits, between `"0.0000"` and `"0.9999"`. The level bar's
+        fill.
+    Count:
+      type: integer
+      minimum: 0
+      description: An exact count of evaluated pairs. Zero is a real zero.
+
+    LowStockItem:
+      type: object
+      additionalProperties: false
+      required:
+        - storeId
+        - storeName
+        - storeStatus
+        - productId
+        - productName
+        - stockingUnit
+        - sellableOnHand
+        - reorderLevel
+        - criticalLevel
+        - thresholdSource
+        - band
+        - levelRatio
+      properties:
+        storeId:
+          type: string
+          format: uuid
+        storeName:
+          type: string
+          minLength: 1
+          description: The store's current name.
+        storeStatus:
+          type: string
+          enum: [active, inactive]
+          description: A soft-deleted store is never evaluated.
+        productId:
+          type: string
+          format: uuid
+        productName:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: The Tenant Catalog product name (`tenant_products.name`).
+        stockingUnit:
+          type: [string, "null"]
+          description: The product's stocking unit, the unit of every quantity in this item; null when the product has none.
+        sellableOnHand:
+          $ref: "#/components/schemas/OnHandQuantity"
+        reorderLevel:
+          $ref: "#/components/schemas/LevelQuantity"
+        criticalLevel:
+          anyOf:
+            - $ref: "#/components/schemas/LevelQuantity"
+            - type: "null"
+          description: >
+            The resolved critical level (<= `reorderLevel`); null when the
+            pair has none, and then `band` is never `critical`.
+        thresholdSource:
+          type: string
+          enum: [tenant, store]
+          description: >
+            The layer both levels came from (LS-1, resolved as a pair):
+            `store` when the store's active override sets a reorder level,
+            otherwise `tenant`.
+        band:
+          type: string
+          enum: [critical, low]
+          description: >
+            `critical` when `sellableOnHand < criticalLevel`, otherwise `low`.
+            Only `critical` is shown in red (DESIGN.md §12.4).
+        levelRatio:
+          $ref: "#/components/schemas/LevelRatio"
+
+    ConsoleLowStockList:
+      type: object
+      additionalProperties: false
+      required:
+        - asOf
+        - completeness
+        - storeId
+        - limit
+        - evaluatedCount
+        - belowReorderCount
+        - criticalCount
+        - unknownOnHandCount
+        - negativeOnHandCount
+        - truncated
+        - items
+      properties:
+        asOf:
+          type: string
+          format: date-time
+          description: >
+            Server time of the read's snapshot: every on-hand covers the
+            movements committed by then, and no sale still queued on a
+            terminal.
+        completeness:
+          type: string
+          const: received_only
+          description: >
+            Always `received_only`: on-hand excludes every sale still queued
+            on a terminal, so it is never presented as complete.
+        storeId:
+          type: [string, "null"]
+          format: uuid
+          description: The `store_id` of the request; null when the read covers every store of the scope.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 50
+          description: The effective `limit` (10 when absent).
+        evaluatedCount:
+          $ref: "#/components/schemas/Count"
+          description: >
+            Evaluated pairs of the scope (a resolved reorder level, see the
+            API description). Zero means no threshold is configured in scope,
+            which the widget shows as such, never as "nothing is low".
+        belowReorderCount:
+          $ref: "#/components/schemas/Count"
+          description: Every `known` pair below its reorder level (both bands).
+        criticalCount:
+          $ref: "#/components/schemas/Count"
+          description: The pairs of `belowReorderCount` in the `critical` band.
+        unknownOnHandCount:
+          $ref: "#/components/schemas/Count"
+          description: Evaluated pairs with no recorded movement (`unknown`); never listed.
+        negativeOnHandCount:
+          $ref: "#/components/schemas/Count"
+          description: Evaluated pairs with a negative sellable on-hand (`negative`); never listed.
+        truncated:
+          type: boolean
+          description: True when `belowReorderCount` exceeds the length of `items`.
+        items:
+          type: array
+          maxItems: 50
+          description: >
+            The first `limit` low pairs: `critical` before `low`, then the
+            exact level ratio ascending, then `storeId`, then `productId`.
+          items:
+            $ref: "#/components/schemas/LowStockItem"
+
+    Error:
+      type: object
+      required: [error]
+      description: >
+        Canonical error envelope. Out-of-scope and cross-tenant refusals are
+        non-disclosing (§II, §XII): they never name the cause.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id; the cause is recorded server-side.
+
+  responses:
+    ValidationFailure:
+      description: >
+        validation_error (400): a malformed query value, an unknown query key
+        (including `cursor` and `page_size`), a query key given more than
+        once, a `store_id` that is not a UUID, or a `limit` outside 1..50.
+        Checked after the guards and before any position is read.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: >
+        Unauthenticated (401): a missing or invalid session cookie, or a
+        non-cookie credential without a valid session cookie.
+        Non-disclosing. Owned by 028 (G10).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: >
+        not_found (404), non-disclosing: a role outside `owner` /
+        `tenant_admin` / `store_manager`, or a `store_id` outside the
+        caller's store scope, soft-deleted or of another tenant.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SystemFailure:
+      description: >
+        system_failure (500): unexpected server error; the cause is recorded
+        server-side under `request_id`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this
+        class of operation is spent. The body is the canonical error
+        envelope with a non-disclosing message (no budget, class or window);
+        its `request_id` equals the `X-Request-Id` response header. Honour
+        `Retry-After`. A 429 is not a 401: it never means the session ended.
+        The console limit is server-configured and may not be enforced, so a
+        client must handle a 429 but must not expect one.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body: the
+            inbound `X-Request-Id` when it is a well-formed UUID, otherwise a
+            server-minted one.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
