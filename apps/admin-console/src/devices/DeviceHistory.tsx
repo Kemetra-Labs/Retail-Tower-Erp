@@ -2,8 +2,8 @@
  * RT-371 device detail, History tab: the revoke / retire / replace chain as the
  * contract exposes it. Events are the recorded timestamps (paired, revoked,
  * retired), oldest first; the replacement links carry no time in the contract,
- * so they are a relation, not a timed event. Actors are bare user ids (the
- * contract carries no names). A revoke recorded before RT-365 has no actor and
+ * so they are a relation, not a timed event. Actors are user ids with the display name
+ * beside them when the people read resolves one (RT-1070). A revoke recorded before RT-365 has no actor and
  * no reason: shown as "not recorded", never guessed.
  *
  * The revoke note and the retire reason are operator text returned on the
@@ -13,6 +13,7 @@
 import { DetailGrid, DetailPanel, PanelBody } from "@/components/DetailPanel";
 import { DateTime, useT } from "@/i18n";
 import type { DeviceDetail } from "@/lib/device-queries";
+import { PeopleNames, PersonRef } from "@/people/PersonRef";
 import { Link, useLocation } from "react-router";
 import { Field } from "./DeviceOverview";
 import { revokeReasonKey } from "./deviceLogic";
@@ -22,7 +23,7 @@ import "./devices.css";
 function Actor({ userId }: Readonly<{ userId: string | null }>): React.JSX.Element {
   const t = useT();
   return userId ? (
-    <bdi dir="ltr">{userId}</bdi>
+    <PersonRef userId={userId} />
   ) : (
     <span className="device-quiet">{t("devices.history.actorNotRecorded")}</span>
   );
@@ -107,31 +108,37 @@ export function DeviceHistory({
 }: Readonly<{ device: DeviceDetail; timeZone?: string }>): React.JSX.Element {
   const t = useT();
   return (
-    <DetailGrid>
-      <DetailPanel id="device-history-events" title={t("devices.history.events")}>
-        <PanelBody>
-          <ol className="device-history">
-            <Event title={t("devices.history.paired")} at={device.createdAt} timeZone={timeZone} />
-            <RevokeEvent device={device} timeZone={timeZone} />
-            <RetireEvent device={device} timeZone={timeZone} />
-          </ol>
-          {device.revokedAt ? null : (
-            <p className="content__sub">{t("devices.history.noRevoke")}</p>
-          )}
-        </PanelBody>
-      </DetailPanel>
-      <DetailPanel id="device-history-chain" title={t("devices.history.chain")}>
-        <PanelBody>
-          <dl className="surface__detail">
-            <Field label={t("devices.history.replaces")}>
-              <ChainLink deviceId={device.replacesDeviceId} />
-            </Field>
-            <Field label={t("devices.history.replacedBy")}>
-              <ChainLink deviceId={device.replacedByDeviceId} />
-            </Field>
-          </dl>
-        </PanelBody>
-      </DetailPanel>
-    </DetailGrid>
+    <PeopleNames ids={[device.revokedByUserId, device.retiredByUserId]}>
+      <DetailGrid>
+        <DetailPanel id="device-history-events" title={t("devices.history.events")}>
+          <PanelBody>
+            <ol className="device-history">
+              <Event
+                title={t("devices.history.paired")}
+                at={device.createdAt}
+                timeZone={timeZone}
+              />
+              <RevokeEvent device={device} timeZone={timeZone} />
+              <RetireEvent device={device} timeZone={timeZone} />
+            </ol>
+            {device.revokedAt ? null : (
+              <p className="content__sub">{t("devices.history.noRevoke")}</p>
+            )}
+          </PanelBody>
+        </DetailPanel>
+        <DetailPanel id="device-history-chain" title={t("devices.history.chain")}>
+          <PanelBody>
+            <dl className="surface__detail">
+              <Field label={t("devices.history.replaces")}>
+                <ChainLink deviceId={device.replacesDeviceId} />
+              </Field>
+              <Field label={t("devices.history.replacedBy")}>
+                <ChainLink deviceId={device.replacedByDeviceId} />
+              </Field>
+            </dl>
+          </PanelBody>
+        </DetailPanel>
+      </DetailGrid>
+    </PeopleNames>
   );
 }

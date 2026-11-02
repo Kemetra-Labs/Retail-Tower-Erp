@@ -15,6 +15,7 @@
  */
 import { Drawer } from "@/components/Drawer";
 import { formatEvidenceTime, useT } from "@/i18n";
+import { PersonRef } from "@/people/PersonRef";
 import { auditActionLabelKey } from "./auditActionLabel";
 import type { AuditRow } from "./useAuditSearch";
 import "./audit.css";
@@ -43,7 +44,7 @@ function Field({
 
 function actorValue(row: AuditRow): React.ReactNode {
   if (row.actor_label != null) return <bdi>{row.actor_label}</bdi>;
-  if (row.actor_user_id != null) return <bdi dir="ltr">{row.actor_user_id}</bdi>;
+  if (row.actor_user_id != null) return <PersonRef userId={row.actor_user_id} />;
   return "—";
 }
 
