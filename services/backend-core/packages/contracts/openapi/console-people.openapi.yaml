@@ -1,0 +1,346 @@
+openapi: 3.1.0
+info:
+  title: Data-Pulse-2 — Console People Names Read API
+  version: "1.0.0-draft"
+  description: >
+    Jira RT-968 (origin RT-964 comment 14530, option A): one tenant-scoped
+    read that turns `users.id` references on Console surfaces (audit, shift
+    closes, device history) into display names, for the store manager and
+    for staff who have left. Decision record:
+    `services/backend-core/docs/planning/rt-968-people-name-read.md`.
+
+      `listPeopleNames` — for up to 200 user ids, the display name of each
+      one that holds or held a membership in the session tenant and that
+      the caller may resolve. Nothing else about the person.
+
+
+    **Posture.** `1.0.0-draft`, `x-runtime-status: contract-only`. `[GATED]`
+    draft. Decisions D-1 to D-4 of RT-968 were selected under the owner's
+    delegation of 2026-11-02 (captain session); the contract is approved
+    through the usual `[GATED: OpenAPI …]` route. No controller, guard
+    wiring, service or query serves this path yet; the runtime is a separate
+    issue and removes only the operation's marker.
+
+
+    **Why one read, not name fields on each surface (D-1, option A).** The
+    shift-close, device and audit contracts each state that user references
+    are `users.id` values only (for example `shift-closes.openapi.yaml`
+    "PII" and "Not on this surface"). Those statements stay true: names are
+    disclosed only here, under one authorization rule, one audit action and
+    one rate-limit class.
+
+
+    **Auth and tenant.** The HUMAN `cookieAuth` scheme (httpOnly
+    `dp2_session`) only, gated `SessionOnlyAdminGuard` →
+    `TenantContextGuard` → `RolesGuard`. Roles: `owner`, `tenant_admin`,
+    `store_manager`. The tenant is the session's active tenant, never a
+    request value (§II, §XII); there is no `tenant_id` parameter. A role
+    outside the list (`store_staff`, cashier roles) is the non-disclosing
+    404 for any input; there is no 403.
+
+
+    **Who resolves (D-2, D-3).** An id is a *person of the tenant* when a
+    `memberships` row of the session tenant exists for that `user_id` with
+    `deleted_at` null, whether or not it is revoked (`revoked_at` set). A
+    soft-deleted membership row (`memberships.deleted_at` set) does not
+    count.
+
+      - `owner` and `tenant_admin` resolve every person of the tenant. They
+        already list current members with `listMembers`
+        (`tenants.openapi.yaml`); this read adds former staff and nothing
+        else.
+      - `store_manager` resolves only a person whose membership grants at
+        least one store of the caller's store scope: a membership with
+        `store_access_kind = all`, or a `specific` membership with a
+        `store_access` row for a store in that scope. The scope is the
+        operator-surface rule of the shift-close and device reads
+        (`operator-store-scope.ts`): the standard resolved store scope,
+        including active-store narrowing. A revoked membership keeps its
+        `store_access` rows, so a former member of the manager's store
+        resolves. A person whose grant on that store was removed by a later
+        membership edit does not; the Console then shows the id.
+
+    Every other id (unknown, another tenant's user, a soft-deleted
+    membership, a person outside a store manager's scope) is absent from
+    `items`. Absence never says which of these it is (FR-ISO-4).
+
+
+    **What a resolved person returns.** `user_id` and `display_name` only.
+    `display_name` is `users.display_name`, trimmed; it is null when that
+    value is null or blank, and null when the user is soft-deleted
+    (`users.deleted_at` set): the item is still present, so the Console
+    knows the id is a person of the tenant, but a deleted user's name is
+    not disclosed. The server never substitutes the e-mail, an initial or
+    any other value for a missing name.
+
+
+    **PII.** Display names only. Not on this surface (do not fabricate): the
+    e-mail, the role, the membership id, the store grants, the revoked or
+    deleted state and timestamps, `is_platform_admin`, the Clerk subject.
+    A display name is personal data (§XIV): the Console shows it beside the
+    id, never in place of it, keeps it in memory only for the session's
+    tenant, and never logs or caches it beyond the response. Every 200 is
+    `Cache-Control: no-store`.
+
+
+    **Order and duplicates.** `items` is ordered by `user_id` ascending and
+    holds each resolved id once. A repeated id in `ids` is answered once.
+
+
+    **Audit (D-4).** One `people.names_read` event per authorized read (a
+    `read` kind), emitted by the request audit interceptor after a 200
+    only, with `requested_count` (distinct ids asked) and `resolved_count`
+    (items returned) in its metadata; never an id list or a name. Refusals
+    (400 / 401 / 404 / 429) are not audited.
+
+
+    **Rate limit (D-4).** Console class `cheapRead`, the class of
+    `listMembers`: one indexed lookup bounded at 200 ids. 429 is the
+    console `rate_limited` envelope with `Retry-After`.
+
+
+    **Error envelope.** 400 `validation_error` (a missing or empty `ids`,
+    more than 200 ids, an id that is not a UUID, an `ids` value longer than
+    7,399 characters, `ids` given more than once, any other query key); 401
+    unauthenticated; 404 non-disclosing not-found (a role outside the list);
+    429 `rate_limited`; 500 internal. The count and length bounds are checked
+    before any element is parsed (the RT-1051 rule: bound the array, then
+    validate its elements).
+
+servers:
+  - url: https://api.example.com
+
+tags:
+  - name: console-people
+    description: >
+      Console-facing display-name lookup for user ids on history surfaces
+      (RT-968).
+
+security:
+  - cookieAuth: []
+
+paths:
+  /api/v1/console/people:
+    get:
+      summary: Display names for up to 200 user ids of the session tenant.
+      operationId: listPeopleNames
+      x-audit-action: people.names_read
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        Draft contract only (RT-968). Backend-Core has no controller,
+        service or query for this route yet; the runtime issue removes this
+        marker and adds `people.names_read` to the read action-kind
+        registry.
+      tags: [console-people]
+      description: >
+        Resolves each requested id that is a person of the session tenant
+        the caller may resolve (see the API description) to its display
+        name. Unknown and unresolvable ids are absent. Read only.
+
+        Audit: one `people.names_read` event per authorized request that
+        returns 200, whatever the number of ids, with the requested and
+        resolved counts; no id, no name.
+      parameters:
+        - $ref: "#/components/parameters/UserIds"
+      responses:
+        "200":
+          description: The resolvable ids among `ids`, each with its display name.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PeopleNames"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+      description: >
+        The human dashboard session cookie (httpOnly `dp2_session`), verified
+        by `SessionOnlyAdminGuard`. The only accepted credential on this
+        surface: without a valid session cookie, a machine bearer, a POS
+        `device` token or an `operatorAuthorization` envelope is rejected
+        (401). With a valid session cookie, the cookie authenticates the
+        request and any `Authorization` header is ignored (the repo-wide
+        `AuthGuard` rule). `RolesGuard` +
+        `@Roles("owner", "tenant_admin", "store_manager")` gate the route
+        (default deny → 404). 401 semantics are owned by 028 (G10).
+
+  headers:
+    CacheControlNoStore:
+      description: >
+        `no-store` on every 200: the body carries personal data (display
+        names), so no shared or browser cache keeps it.
+      required: true
+      schema:
+        type: string
+        const: no-store
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5). Its own bound, 1 to 3600.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+
+  parameters:
+    UserIds:
+      name: ids
+      in: query
+      required: true
+      style: form
+      explode: false
+      description: >
+        Comma-separated `users.id` values, 1 to 200 (for example
+        `ids=0190…,0191…`). The raw value is at most 7,399 characters (200
+        UUIDs and 199 commas); count and length are checked before any
+        element is parsed. Every element must be a UUID in canonical
+        8-4-4-4-12 form (any case; compared lower-cased). Repeated ids are
+        allowed and answered once.
+      schema:
+        type: array
+        minItems: 1
+        maxItems: 200
+        items:
+          type: string
+          format: uuid
+
+  schemas:
+    PersonName:
+      type: object
+      additionalProperties: false
+      required: [user_id, display_name]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: The requested id, lower-cased.
+        display_name:
+          type: [string, "null"]
+          minLength: 1
+          description: >
+            `users.display_name`, trimmed. Null when it is null or blank, or
+            when the user is soft-deleted. Never the e-mail or any other
+            substitute.
+
+    PeopleNames:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 200
+          description: >
+            One entry per distinct requested id that is a person of the
+            session tenant the caller may resolve, by `user_id` ascending.
+            Every other id is absent (non-disclosing). May be empty.
+          items:
+            $ref: "#/components/schemas/PersonName"
+
+    Error:
+      type: object
+      required: [error]
+      description: >
+        Canonical error envelope. Out-of-scope and cross-tenant refusals are
+        non-disclosing (§II, §XII): they never name the cause.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id; the cause is recorded server-side.
+
+  responses:
+    ValidationFailure:
+      description: >
+        validation_error (400): `ids` missing, empty or given more than once;
+        more than 200 ids; a raw `ids` value longer than 7,399 characters; an
+        element that is not a UUID; or any other query key. Checked after the
+        guards and before any lookup.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: >
+        Unauthenticated (401): a missing or invalid session cookie, or a
+        non-cookie credential without a valid session cookie.
+        Non-disclosing. Owned by 028 (G10).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: >
+        not_found (404), non-disclosing: a role outside `owner` /
+        `tenant_admin` / `store_manager`, for any input. An id the caller
+        cannot resolve is never a 404; it is absent from a 200.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SystemFailure:
+      description: >
+        system_failure (500): unexpected server error; the cause is recorded
+        server-side under `request_id`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this
+        class of operation is spent. The body is the canonical error
+        envelope with a non-disclosing message (no budget, class or window);
+        its `request_id` equals the `X-Request-Id` response header. Honour
+        `Retry-After`. A 429 is not a 401: it never means the session ended.
+        The console limit is server-configured and may not be enforced, so a
+        client must handle a 429 but must not expect one.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body: the
+            inbound `X-Request-Id` when it is a well-formed UUID, otherwise a
+            server-minted one.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
