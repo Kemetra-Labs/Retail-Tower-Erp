@@ -9,6 +9,9 @@ vi.mock("@/context/ActiveContextProvider", () => ({
 
 import { AppShell } from "@/shell/AppShell";
 
+// RT-1071: the sidebar status block has its own tests (system-status-block); the shell tests here need no read.
+vi.mock("@/shell/SystemStatus", () => ({ SystemStatus: () => null }));
+
 function renderShell(role: string | null): void {
   activeContext.mockReturnValue({
     context: {

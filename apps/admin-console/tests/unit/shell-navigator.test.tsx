@@ -19,6 +19,9 @@ import { AppShell } from "@/shell/AppShell";
 import { foldForSearch } from "@/shell/Navigator";
 import { DirtyGuardProvider } from "@/shell/dirty-guard";
 
+// RT-1071: the sidebar status block has its own tests (system-status-block); the shell tests here need no read.
+vi.mock("@/shell/SystemStatus", () => ({ SystemStatus: () => null }));
+
 /**
  * RT-969 AC 3: the Ctrl K navigator opens with Ctrl+K and with its visible
  * button, filters the role's destinations and the stores in scope, works by

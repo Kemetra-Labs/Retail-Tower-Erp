@@ -7,6 +7,9 @@ import { StrictMode } from "react";
 import { Link, Outlet, RouterProvider, createMemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+// RT-1071: the sidebar status block has its own tests (system-status-block); the shell tests here need no read.
+vi.mock("@/shell/SystemStatus", () => ({ SystemStatus: () => null }));
+
 /**
  * RT-958: a route render error stays inside the protected shell. The shell's
  * outlet carries its own `errorElement`, so the navigation and the scope header

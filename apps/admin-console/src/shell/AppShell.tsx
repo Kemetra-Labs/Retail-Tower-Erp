@@ -1,4 +1,5 @@
 import { RateLimitBanner } from "@/components/RateLimitBanner";
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * SF-2 authenticated app shell (T027; RF-2 T009/T010), on the Shell v3 frame
  * (RT-969, owner-approved canvas 2026-10-30): the sidebar at the inline start
@@ -8,7 +9,7 @@ import { RateLimitBanner } from "@/components/RateLimitBanner";
  * family attaches to. RT-270 (UX-09: no dead destinations): a destination is
  * listed only once it is built (`nav-model.ts`).
  */
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { canReadErpStatus } from "@/erp-status/erpStatusLogic";
 import { roleKey, useT } from "@/i18n";
 import {
   SupportSessionBarSlot,
@@ -65,7 +66,7 @@ export function AppShell({ onSignOut, children }: Readonly<AppShellProps>): Reac
         tag={t("app.productTag")}
         groups={groups}
         scope={inSession ? null : <ScopeHeader />}
-        systemStatus
+        systemStatus={canReadErpStatus(roleCode)}
         onSignOut={onSignOut}
       />
 

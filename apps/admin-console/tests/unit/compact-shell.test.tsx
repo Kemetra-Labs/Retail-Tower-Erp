@@ -10,6 +10,9 @@ vi.mock("@/context/ActiveContextProvider", () => ({
 import { PlatformShell } from "@/platform/PlatformShell";
 import { AppShell } from "@/shell/AppShell";
 
+// RT-1071: the sidebar status block has its own tests (system-status-block); the shell tests here need no read.
+vi.mock("@/shell/SystemStatus", () => ({ SystemStatus: () => null }));
+
 /**
  * RT-825 (RT-785 SHELL-M1, decisions D1/D2): at ≤768px the sidebar is hidden,
  * so the top bar carries a menu button that opens a modal navigation drawer at

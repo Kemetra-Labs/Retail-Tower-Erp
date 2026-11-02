@@ -17,11 +17,11 @@
 import { TowerMark } from "@/components/TowerMark";
 import { Icon } from "@/components/icons/Icon";
 import { useT } from "@/i18n";
-import { useId } from "react";
 import { NavLink } from "react-router";
 import { BrandMark } from "./BrandMark";
 import { type ShellNavigator, ShellNavigatorControl } from "./Navigator";
 import { type ShellMenu, ShellMenuButton } from "./ShellMenu";
+import { SystemStatus } from "./SystemStatus";
 import { UserMenu, type UserMenuProps } from "./UserMenu";
 import type { NavGroup } from "./nav-model";
 import "./app-shell.css";
@@ -69,29 +69,9 @@ export interface ShellSidebarProps {
   groups: readonly NavGroup[];
   /** The scope switcher, in the tenant shell. */
   scope?: React.ReactNode;
-  /** RT-993: the system-status block, in the tenant shell only (§12.6). */
+  /** RT-993/RT-1071: the system-status block, in the tenant shell only (§12.6), for the roles that can read it. */
   systemStatus?: boolean;
   onSignOut: () => void | Promise<void>;
-}
-
-/**
- * RT-993 the sidebar system-status block (DESIGN.md §12.6). No read serves a
- * system status to the Console yet (RT-1056), so by owner decision 2026-11-01
- * (RT-993 comment 15088, amending §12.8.6) it renders its frame with a clear
- * «قريبًا» and claims no state.
- */
-function SystemStatus(): React.JSX.Element {
-  const t = useT();
-  const titleId = useId();
-  return (
-    // biome-ignore lint/a11y/useSemanticElements: a named group of read-only text, not form controls; a fieldset would announce a form grouping.
-    <div className="sidebar__status" role="group" aria-labelledby={titleId}>
-      <span id={titleId} className="sidebar__status-title">
-        {t("shell.status.title")}
-      </span>
-      <span className="sidebar__status-soon">{t("shell.status.soon")}</span>
-    </div>
-  );
 }
 
 export function ShellSidebar({

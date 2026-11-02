@@ -43,6 +43,9 @@ import { ProtectedArea } from "@/shell/ProtectedArea";
 import { platformRoutes } from "@/shell/platformRoutes";
 import { loadPlatformPages } from "./platform-pages";
 
+// RT-1071: the sidebar status block has its own tests (system-status-block); the shell tests here need no read.
+vi.mock("@/shell/SystemStatus", () => ({ SystemStatus: () => null }));
+
 // RT-944: load the lazily routed pages before any test waits for one.
 await loadPlatformPages();
 
