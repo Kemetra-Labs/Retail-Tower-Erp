@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ c8a1a84712be518c19ad11e7241e36027639913f
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 73cd9191a3253626125a315748b1cedcb1748691
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -3932,7 +3932,7 @@ export namespace ErpnextReconciliationSchema {
                  *
                  *     Null when: Backend-Core raised the dead-letter itself (`retry_budget_exhausted`, the worker's `unmapped_item` / `unmapped_store`); the RT-332 `reconciliation_required` was recorded from a `posted` ack echoing a superseded `resolutionVersion` (a `posted` ack carries no reason); the row was dead-lettered before the RT-410 storage migration; or nothing was left after sanitising.
                  *
-                 *     Handling: readable only through this tenant-scoped, cookieAuth read model. Backend-Core never writes it to a log (length or hash only), audit metadata, a metric label, Sentry or Datadog. A consumer renders it as plain text, never as HTML, shows it only to the roles that can read this backlog, and does not copy it into exports or analytics.
+                 *     Handling: readable only through this tenant-scoped, cookieAuth read model and through `console-sales` `consoleGetSale.erpPostingFailure` (RT-977 D3, 1.6.0-draft), both limited to `owner` and `tenant_admin`, and to a human platform-admin session through the `RolesGuard` bypass (never a token principal). `consoleGetSale` returns it exactly as stored here (no second sanitiser) and withholds it from every other role (`store_manager` sees the category only). Backend-Core never writes it to a log (length or hash only), audit metadata, a metric label, Sentry or Datadog. A consumer renders it as plain text, never as HTML, shows it only to those readers, and does not copy it into exports or analytics.
                  *
                  *     Runtime: the RT-410 storage (migration 0071) and write path have shipped, so the server returns the stored message here, or null in the cases above, and never the category text. Consumers must not depend on `reason` equalling `rejectionCategory`.
                  */
@@ -7381,7 +7381,8 @@ export namespace ConsoleSalesSchema {
             /**
              * Read the full recorded detail of one sale in the caller's store scope.
              * @description Every recorded fact of the sale: lines in receipt order when recorded, tenders, change, the receipt header snapshot, the void and returns summaries and the ERP posting state. A fact that was never recorded is null or `unavailable`, never guessed or filled from current values (OD-534-3/6). No reprint eligibility and no receipt-fact completeness: those are POS concerns. The sale resolves anywhere in the caller's store scope; a sale of another tenant, of a store outside the scope, or an absent ref is the same non-disclosing 404. The sale is read by one query predicated on the tenant, the `saleRef` and the caller's store scope; it is never fetched first and checked after, and the store's timezone is read only for a sale that matched. The operation takes no query parameter; any query key is 400 `validation_error`.
-             *     Audit: one `console_sales.detail_read` event per authorized open, with `sale_ref` and the sale's `store_id` in its metadata.
+             *     `erpPostingFailure` (1.2.0-draft, RT-977): when `erpPosting` shows a `failed` side, one more console-only probe reads the dead-letter of the sale's posting and of its void's reversal (at most two rows, keyed exactly as `erpPosting`, with the tenant and the sale's store). Its content is tiered by the session's role (`disclosure`): the stored rejection `reason`, the RT-332 evidence and the repair handle only for the readers of the `erpnext-reconciliation` posting backlog (`owner`, `tenant_admin`, a platform-admin session); the category and time for `store_manager`. The 404 cases do not change.
+             *     Audit: one `console_sales.detail_read` event per authorized open, with `sale_ref` and the sale's `store_id` in its metadata. Unchanged by `erpPostingFailure` (RT-977 D4): no separate disclosure event, and the `reason` never enters audit metadata.
              */
             get: operations["consoleGetSale"];
             put?: never;
@@ -7526,7 +7527,7 @@ export namespace ConsoleSalesSchema {
                 /** Format: date */
                 to: string;
             };
-            /** @description One sale in a console list, and the summary of its detail: the `SaleHistoryItem` fields of `pos-sales/sale-history.yaml` plus the sale's store. */
+            /** @description One sale in a console list, and the summary of its detail: the `SaleHistoryItem` fields of `pos-sales/sale-history.yaml` plus the sale's store and, console-only (1.2.0-draft), `syncStatusVersion`. */
             ConsoleSaleItem: {
                 /** Format: uuid */
                 saleRef: string;
@@ -7554,8 +7555,10 @@ export namespace ConsoleSalesSchema {
                 voided: boolean;
                 returnState: components["schemas"]["ReturnState"];
                 erpPostingState: components["schemas"]["ErpPostingState"];
+                /** @description RT-973 (1.2.0-draft, console-only; not in pos-sales/sale-history.yaml). Orders this sale's `syncStatus` across reads. Backend-Core increments it by one in the same statement as every write that sets the sale's sync status (capture leaves it at 0; the drain, the dead-letter classifier and the `sale-sync-ops` repair each add one); it never decreases. Comparable only between two reads of the SAME sale: a higher value is a later status, an equal value is the same status. It carries no meaning across sales and is not a count of anything to show. Sales that existed before it read 0 until their next status write. `sale-sync-ops` `SaleSyncStatus.syncStatusVersion` is the same field, so a client can order a sync repair response against this read. */
+                syncStatusVersion: number;
             };
-            /** @description The full recorded detail of one sale: the `SaleHistoryDetail` facts of `pos-sales/sale-history.yaml` without the POS-only `receiptFacts` and `reprint`, plus the store's timezone. */
+            /** @description The full recorded detail of one sale: the `SaleHistoryDetail` facts of `pos-sales/sale-history.yaml` without the POS-only `receiptFacts` and `reprint`, plus the store's timezone and, console-only (1.2.0-draft), `erpPostingFailure`. */
             ConsoleSaleDetail: {
                 summary: components["schemas"]["ConsoleSaleItem"];
                 /** @description The sale's store's current IANA time zone, for showing times. Business dates were fixed at capture and are not recomputed. */
@@ -7587,6 +7590,45 @@ export namespace ConsoleSalesSchema {
                 void: components["schemas"]["VoidSummary"] | null;
                 returns: components["schemas"]["ReturnSummary"][];
                 erpPosting: components["schemas"]["ErpPostingView"];
+                /** @description RT-977 (1.2.0-draft, console-only; not in pos-sales/sale-history.yaml). Why a failed ERP posting of this sale failed, and its repair handle. Null when neither `erpPosting.sale` nor `erpPosting.reversal` was `failed` when the posting rows were read. Covers the same two postings as `erpPosting` (the sale and its void's reversal, a credit-sale void included); a failed return, refund or credit-sale return reversal is not shown here (they stay on the `erpnext-reconciliation` and `erpnext-sync-ops` backlogs, RT-977 D9). Read by a separate probe after the sale matched the caller's scope: a concurrent repair can leave `erpPosting.sale = failed` with `erpPostingFailure.sale = null` (or the reverse); a client treats that as "changed, refresh", never as an error. */
+                erpPostingFailure: components["schemas"]["ConsoleErpPostingFailure"] | null;
+            };
+            /** @description RT-977 (1.2.0-draft). The dead-lettered postings of one sale, as this session may see them. */
+            ConsoleErpPostingFailure: {
+                /**
+                 * @description What this session may see. `full` for a session that may read the `erpnext-reconciliation` posting backlog and call `repairPosting` (`owner`, `tenant_admin`, and a platform admin's human session through the RolesGuard bypass); `category_only` for `store_manager`. Under `category_only`, `reason`, `reconciliationDocumentRef` and `repair` are always null. States the caller's tier, never whether a message exists.
+                 * @enum {string}
+                 */
+                disclosure: "full" | "category_only";
+                /** @description The sale posting's failure; null unless it is dead-lettered. */
+                sale: components["schemas"]["ConsoleErpPostingFailureDetail"] | null;
+                /** @description The void reversal posting's failure; null unless it is dead-lettered. */
+                reversal: components["schemas"]["ConsoleErpPostingFailureDetail"] | null;
+            };
+            /** @description RT-977 (1.2.0-draft). One dead-lettered posting. */
+            ConsoleErpPostingFailureDetail: {
+                /** @description The 015 rejection category, read in place: the values documented on `erpnext-reconciliation/reconciliation.yaml` `PostingBacklogItem.rejectionCategory` (`unmapped_item`, `unmapped_store`, `unmapped_account`, `validation`, `closed_period`, `retry_budget_exhausted`, `reconciliation_required`, `other`). An open set (RT-977 D6): a client shows a generic line for a value it does not know. Null only if no category was recorded: nullable like the column (`0019`) and 025's `rejectionClass`, unlike 017's non-null `rejectionCategory`. */
+                rejectionCategory: string | null;
+                /**
+                 * Format: date-time
+                 * @description When the posting became `permanently_rejected` (the 015 row's `updated_at`).
+                 */
+                deadLetteredAt: string;
+                /** @description Exactly `PostingBacklogItem.reason` (RT-410): the stored, sanitised Connector message, with its classification, retention and handling rules. Null under `category_only`, and in every case that field is null. Plain text; never HTML; never parsed; never logged, audited, exported or sent to telemetry. */
+                reason: string | null;
+                /** @description Exactly `PostingBacklogItem.reconciliationDocumentRef` (RT-332): for a `reconciliation_required` dead-letter, the existing ERPNext document that does not match the intent. Null otherwise and under `category_only`. */
+                reconciliationDocumentRef: {
+                    doctype: string;
+                    name: string;
+                } | null;
+                /** @description The handle for `erpnext-reconciliation` `repairPosting`. Non-null only when `disclosure` is `full`, `rejectionCategory` is not `reconciliation_required`, and the sale's store is live and inside the caller's membership store scope (the repair's own store rule). Every non-null handle is accepted by `repairPosting` for the same session. If the row changed in between, the repair answers by its current state (200 `no_op_echo`, or 201 `eligible_again` / `still_failing`); a 404 means the store was deleted or left the caller's scope. */
+                repair: {
+                    /**
+                     * Format: uuid
+                     * @description The 015 `erpnext_posting_status.id`; pass to `repairPosting`.
+                     */
+                    workItemRef: string;
+                } | null;
             };
             /** @description Canonical error envelope. Out-of-scope and cross-tenant refusals are non-disclosing (§II, §XII): they never name the cause. */
             Error: {
@@ -8102,7 +8144,7 @@ export namespace ConsoleSalesByStoreSchema {
             StoreDay: {
                 businessDate: components["schemas"]["BusinessDate"];
                 /**
-                 * @description Relative to the store's `currentBusinessDate` at `asOf`: an earlier date is `complete`, that date is `so_far`, a later date is `not_begun` (zero figures).
+                 * @description Relative to the store's `currentBusinessDate` at `asOf`: an earlier date is `complete`, that date is `so_far`, a later date is `not_begun` (zero figures unless sales are stored for that date, for example after the store's timezone moved west or a terminal clock ran ahead; the store's days always add up to its total).
                  * @enum {string}
                  */
                 state: "complete" | "so_far" | "not_begun";
@@ -10911,6 +10953,8 @@ export namespace SaleSyncOpsSchema {
                  * @description Null until the off-request drain sets it (FR-071).
                  */
                 processedAt?: string | null;
+                /** @description RT-973 (1.2.0-draft). Orders this sale's `syncStatus` across reads. Backend-Core increments it by one in the same statement as every write that sets the sale's sync status (capture leaves it at 0; the drain, the dead-letter classifier and this repair each add one); it never decreases. Comparable only between two reads of the SAME sale: a higher value is a later status, an equal value is the same status. `console-sales` `ConsoleSaleItem` (1.2.0-draft) carries the same field, so a client can order this response against the sale detail. An idempotent repair replay returns the stored response, with the version it had then. Emitted on every newly computed response since RT-1061 (migration 0077). Optional for good, because a repair replay stored before RT-1061 has no value; a client treats an absent value as unknown and does not order on it. */
+                syncStatusVersion?: number;
                 /** @description Present (non-null) when the sale has an OPEN dead-letter row — the §8 classification + redacted reason + retry accounting. Null otherwise. */
                 deadLetter?: components["schemas"]["DeadLetterDetail"] | null;
             };
