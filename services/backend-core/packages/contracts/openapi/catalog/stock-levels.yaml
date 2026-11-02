@@ -1,0 +1,826 @@
+openapi: 3.1.0
+info:
+  title: Data-Pulse-2 Catalog — Console Stock Levels API
+  version: "1.0.0-draft"
+  description: >
+    Jira RT-1064 (Planning; decision record
+    `docs/planning/rt-1064-low-stock-thresholds.md`, decisions TH-1 to TH-5),
+    follow-up 1 of RT-1055. The console surface that reads and sets a
+    product's low-stock thresholds, the `reorderLevel` and `criticalLevel`
+    the `consoleListLowStock` read (`inventory/low-stock.yaml`) compares the
+    sellable on-hand with. Five operations:
+
+      1. `consoleGetProductStockLevels`  — the product's tenant level and the
+         store levels of the caller's store scope.
+      2. `consoleSetTenantStockLevel`    — set the tenant default level.
+      3. `consoleRetireTenantStockLevel` — retire the tenant default level.
+      4. `consoleSetStoreStockLevel`     — set one store's level.
+      5. `consoleRetireStoreStockLevel`  — retire one store's level.
+
+
+    **Posture.** `1.0.0-draft`, every operation `x-runtime-status:
+    contract-only`. `[GATED]` contract, decisions selected under the owner
+    delegation of 2026-11-02 (captain session; recommended options; the
+    owner may revisit). No table, controller, guard wiring or service serves
+    these paths yet. The runtime needs the `product_stock_levels` migration
+    (TH-5) first; both ship in one separate Implementation issue, which
+    removes only each operation's marker.
+
+
+    **Authority (TH-1).** Thresholds are Retail Tower operational data,
+    owned by Backend-Core. They are never read from, synced with or
+    written to ERPNext: the ERPNext Item's reorder settings are not an
+    input, and no operation calls ERPNext, Frappe or the connector (root
+    `CLAUDE.md` §5). They follow the catalog's layering — a tenant default
+    per product and a per-store deviation — but they are stored in their
+    own table, `product_stock_levels`, not as columns of `tenant_products`
+    or `store_product_overrides`: the legacy override row is being split by
+    concern (pricing spec 041 OD-5), and a threshold is a fourth concern
+    with its own owner. A threshold never changes what the POS sells, its
+    price, its availability or its tax category, and is not published to
+    the POS read-down.
+
+
+    **Levels and validation (TH-2).** A level is a required `reorderLevel`
+    and an optional `criticalLevel`, each a strictly positive exact-decimal
+    string (`numeric(19,4)` at rest, up to 15 integer and 4 fractional
+    digits, never a float), with `criticalLevel <= reorderLevel` (equal is
+    allowed). The schema checks each value; the server checks the pair and
+    answers 422 `critical_above_reorder` when `criticalLevel` exceeds
+    `reorderLevel`. A level carries no unit: it is a quantity in the
+    product's stocking unit at the store, the single unit the pair's stock
+    movements are recorded in (FR-022, the `stock_movements` one-unit
+    guard). The server stores the value as sent and never rounds it.
+
+
+    **Precedence (TH-3).** For one (store, product) pair the effective level
+    is resolved AS A PAIR (RT-1055 LS-1): when the store has an active store
+    level, both `reorderLevel` and `criticalLevel` come from it
+    (`thresholdSource: store`), a null `criticalLevel` included; otherwise
+    both come from the active tenant level (`thresholdSource: tenant`); with
+    neither, the pair has no threshold and `consoleListLowStock` does not
+    evaluate it. Fields are never mixed across the two layers. A level
+    of a retired product or of a soft-deleted store is kept but never
+    evaluated.
+
+
+    **Auth and scope (TH-4).** The HUMAN `cookieAuth` session only,
+    `SessionOnlyAdminGuard` → `TenantContextGuard` → `RolesGuard`, with the
+    operator-surface store scope of `catalog/console-catalog.yaml`
+    (`operator-store-scope.ts`; `owner` and `tenant_admin`: their
+    membership's store authority; `store_manager`: the resolved store scope
+    with active-store narrowing). The tenant comes from the session, never
+    from the request (§II, §XII).
+
+      - Read: `owner`, `tenant_admin`, `store_manager`. The tenant level is
+        tenant data that every allowed role reads; store levels are limited
+        to the caller's store scope and are omitted outside it.
+      - Tenant level writes: `owner`, `tenant_admin` (the CAT-W1 product
+        write roles).
+      - Store level writes: `owner`, `tenant_admin` and `store_manager`, for
+        a store in the caller's store scope (the CAT-W2 availability roles:
+        a level is a store's operational setting).
+
+    A role outside an operation's list (`store_staff` everywhere;
+    `store_manager` on the tenant level writes), a product of another
+    tenant, an absent product, and a `storeId` outside the caller's scope,
+    of another tenant or soft-deleted are the same non-disclosing 404. A
+    write answers 403 only with `origin_rejected` (RT-430).
+
+
+    **Order of checks on a write.** (1) the session (401), the `Origin` of a
+    cookie-authenticated write (403 `origin_rejected`) and the role (404);
+    (2) on a set only, the `Idempotency-Key` (400 / 409 / 425, or the
+    replay); (3) the path and body (400 `validation_error`); (4) the product
+    and the store (404); (5) the write's own rules: 409 `stale_write`, 409
+    `product_retired` (set only), 422 `critical_above_reorder` (set only);
+    (6) the write and its audit row in one transaction. A refused write
+    writes nothing.
+
+
+    **Concurrency.** Every write takes `expectedUpdatedAt`: the `updatedAt`
+    of the active level the caller last read, or `null` (set only) when the
+    caller saw none. It is compared at the millisecond precision this
+    surface renders. A value that is not the current state is 409
+    `stale_write` and nothing is written; reload and retry. Every accepted
+    write gives the level a new, strictly later `updatedAt`.
+
+
+    **Retries.** The precondition alone cannot make a set safe to retry:
+    `expectedUpdatedAt: null` matches every moment at which the scope has no
+    active level, so a set that created a level, followed by another
+    caller's retire, would let a retry of that set recreate the retired
+    level. Each set therefore REQUIRES an `Idempotency-Key`
+    (`x-idempotency: required`, the shared `IdempotencyInterceptor`, keyed on
+    the verified actor, the tenant, the method, the route and its path
+    parameters): an identical retry replays the stored `200` with
+    `Idempotent-Replayed: true` and writes nothing, whatever happened to the
+    level since. Key reuse with a different body is 409
+    `idempotency_key_conflict`; a key still being processed is 425
+    `idempotency_in_progress`; a missing key is 400
+    `idempotency_key_required`, a malformed one 400
+    `idempotency_key_malformed`. A retire needs no key: it requires the
+    active level's `updatedAt`, which a recreated level never has again, so
+    a retried retire that already succeeded is the non-disclosing 404 (no
+    active level) or, once a new level exists, 409 `stale_write`; never a
+    second retire.
+
+
+    **Audit.** Every accepted write appends one `audit_events` row
+    (`x-audit-action` on each operation) in the same transaction as the
+    change: the actor, the tenant, the product, the store for a store level,
+    and the old and new `reorderLevel` / `criticalLevel`. A refused write
+    writes no audit row. The read is not audited (catalog master-data reads,
+    decision O-6).
+
+
+    **PII.** No user ids, emails or names: `created_by` / `updated_by` are
+    never exposed.
+
+
+    **Error envelope.** The canonical `{ error: { code, message, request_id }
+    }`. 400 `validation_error` (and, on a set, `idempotency_key_required` /
+    `idempotency_key_malformed`), 401 unauthenticated, 403
+    `origin_rejected`, 404 non-disclosing not-found, 409 `stale_write` /
+    `product_retired` / `idempotency_key_conflict`, 422
+    `critical_above_reorder`, 425 `idempotency_in_progress` (its own body,
+    as `catalog/console-catalog.yaml`), 429 `rate_limited` (console rate
+    limit; honour `Retry-After`), 500 internal. `Cache-Control: no-store` on every
+    200.
+
+servers:
+  - url: https://api.example.com
+
+tags:
+  - name: console-stock-levels
+    description: >
+      Console read and writes of a product's low-stock thresholds (RT-1064),
+      the input of the Overview low-stock read (RT-1055).
+
+security:
+  - cookieAuth: []
+
+paths:
+  /api/v1/catalog/products/{productId}/stock-levels:
+    get:
+      summary: Read a product's tenant stock level and the store levels of the caller's scope.
+      operationId: consoleGetProductStockLevels
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1064 is contract-only. The runtime ships with the
+        `product_stock_levels` migration in a separate Implementation issue
+        (RT-1064 decision record §4, follow-up 1).
+      tags: [console-stock-levels]
+      description: >
+        The product's active tenant level and the active store levels of the
+        stores in the caller's scope, for a product of the session's tenant
+        whatever its status. A product with no level reads `tenantLevel:
+        null` and an empty `storeLevels`. A product of another tenant or an
+        absent id is the non-disclosing 404. The operation takes no query
+        parameter; any query key is 400 `validation_error`. Not audited.
+      parameters:
+        - $ref: "#/components/parameters/ProductId"
+      responses:
+        "200":
+          description: The product's stock levels.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductStockLevels"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+    put:
+      summary: Set a product's tenant default stock level.
+      operationId: consoleSetTenantStockLevel
+      x-idempotency: required
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1064 is contract-only. The runtime ships with the
+        `product_stock_levels` migration in a separate Implementation issue
+        (RT-1064 decision record §4, follow-up 1).
+      x-audit-action: catalog.stock_level.set
+      tags: [console-stock-levels]
+      description: >
+        Creates the product's active tenant level, or replaces both of its
+        values. Roles `owner` / `tenant_admin`. `criticalLevel` absent or
+        `null` sets no critical level. `expectedUpdatedAt` is the active
+        tenant level's `updatedAt`, or `null` when the caller saw none; a
+        mismatch either way is 409 `stale_write`. A retired product is 409
+        `product_retired`. A `criticalLevel` above `reorderLevel` is 422
+        `critical_above_reorder`. An identical retry with the same
+        `Idempotency-Key` replays the stored `200` with `Idempotent-Replayed:
+        true` and writes nothing. Audited as `catalog.stock_level.set`.
+      parameters:
+        - $ref: "#/components/parameters/ProductId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetStockLevelRequest"
+      responses:
+        "200":
+          description: >
+            Set. The body is the product's stock levels after the change. A
+            same-key retry replays this `200` with `Idempotent-Replayed: true`.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductStockLevels"
+        "400":
+          $ref: "#/components/responses/SetValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/WriteNotFound"
+        "409":
+          $ref: "#/components/responses/SetConflict"
+        "422":
+          $ref: "#/components/responses/CriticalAboveReorder"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/products/{productId}/stock-levels/retire:
+    post:
+      summary: Retire a product's tenant default stock level.
+      operationId: consoleRetireTenantStockLevel
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1064 is contract-only. The runtime ships with the
+        `product_stock_levels` migration in a separate Implementation issue
+        (RT-1064 decision record §4, follow-up 1).
+      x-audit-action: catalog.stock_level.retire
+      tags: [console-stock-levels]
+      description: >
+        Retires the product's active tenant level (soft: the row is kept with
+        `retired_at`). A store with no store level then has no threshold;
+        store levels are not touched. Roles `owner` / `tenant_admin`. No
+        active tenant level is the non-disclosing 404. A stale
+        `expectedUpdatedAt` is 409 `stale_write`. Allowed on a retired
+        product. Audited as `catalog.stock_level.retire`.
+      parameters:
+        - $ref: "#/components/parameters/ProductId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetireStockLevelRequest"
+      responses:
+        "200":
+          description: Retired. The body is the product's stock levels after the change.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductStockLevels"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/WriteNotFound"
+        "409":
+          $ref: "#/components/responses/RetireConflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/products/{productId}/stock-levels/stores/{storeId}:
+    put:
+      summary: Set one store's stock level for a product.
+      operationId: consoleSetStoreStockLevel
+      x-idempotency: required
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1064 is contract-only. The runtime ships with the
+        `product_stock_levels` migration in a separate Implementation issue
+        (RT-1064 decision record §4, follow-up 1).
+      x-audit-action: catalog.store_stock_level.set
+      tags: [console-stock-levels]
+      description: >
+        Creates the store's active level for the product, or replaces both of
+        its values. While it is active, the store resolves BOTH levels from
+        it (TH-3): a `criticalLevel` absent or `null` means the store has no
+        critical level, even when the tenant level has one. Roles `owner` /
+        `tenant_admin` and `store_manager`, for a store in the caller's
+        scope. `expectedUpdatedAt` is the store level's `updatedAt`, or
+        `null` when the caller saw none; a mismatch either way is 409
+        `stale_write`. A retired product is 409 `product_retired`. A
+        `criticalLevel` above `reorderLevel` is 422 `critical_above_reorder`.
+        A store outside the caller's scope, of another tenant or soft-deleted
+        is the non-disclosing 404. An identical retry with the same
+        `Idempotency-Key` replays the stored `200` with `Idempotent-Replayed:
+        true` and writes nothing. Audited as `catalog.store_stock_level.set`.
+      parameters:
+        - $ref: "#/components/parameters/ProductId"
+        - $ref: "#/components/parameters/StoreIdPath"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetStockLevelRequest"
+      responses:
+        "200":
+          description: >
+            Set. The body is the product's stock levels after the change. A
+            same-key retry replays this `200` with `Idempotent-Replayed: true`.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductStockLevels"
+        "400":
+          $ref: "#/components/responses/SetValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/WriteNotFound"
+        "409":
+          $ref: "#/components/responses/SetConflict"
+        "422":
+          $ref: "#/components/responses/CriticalAboveReorder"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/products/{productId}/stock-levels/stores/{storeId}/retire:
+    post:
+      summary: Retire one store's stock level for a product.
+      operationId: consoleRetireStoreStockLevel
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1064 is contract-only. The runtime ships with the
+        `product_stock_levels` migration in a separate Implementation issue
+        (RT-1064 decision record §4, follow-up 1).
+      x-audit-action: catalog.store_stock_level.retire
+      tags: [console-stock-levels]
+      description: >
+        Retires the store's active level for the product (soft); the store
+        then resolves both levels from the tenant level, if any. Roles
+        `owner` / `tenant_admin` and `store_manager`, for a store in the
+        caller's scope. No active store level, or a store outside the
+        caller's scope, of another tenant or soft-deleted, is the
+        non-disclosing 404. A stale `expectedUpdatedAt` is 409 `stale_write`.
+        Allowed on a retired product. Audited as
+        `catalog.store_stock_level.retire`.
+      parameters:
+        - $ref: "#/components/parameters/ProductId"
+        - $ref: "#/components/parameters/StoreIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetireStockLevelRequest"
+      responses:
+        "200":
+          description: Retired. The body is the product's stock levels after the change.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductStockLevels"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/WriteNotFound"
+        "409":
+          $ref: "#/components/responses/RetireConflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+      description: >
+        The human dashboard session cookie (httpOnly `dp2_session`), verified
+        by `SessionOnlyAdminGuard`. The only accepted credential on this
+        surface: without a valid session cookie, a machine bearer, a POS
+        `device` token or an `operatorAuthorization` envelope is rejected
+        (401). With a valid session cookie, the cookie authenticates the
+        request and any `Authorization` header is ignored (the repo-wide
+        `AuthGuard` rule). `RolesGuard` gates every route with the roles of
+        its operation (default deny → 404). 401 semantics are owned by 028
+        (G10).
+
+  headers:
+    CacheControlNoStore:
+      description: >
+        `no-store` on every 200: the body carries the tenant's store
+        settings, so no shared or browser cache keeps it.
+      required: true
+      schema:
+        type: string
+        const: no-store
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5). Its own bound, 1 to 3600.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+    IdempotentReplayed:
+      description: >
+        Present and `true` on a same-`Idempotency-Key` replay of a set, which
+        carries the stored `200`. Absent on a first-time set.
+      schema:
+        type: boolean
+    RetryAfterInProgress:
+      description: Seconds to wait before retrying a 425 with the same `Idempotency-Key` and body.
+      schema:
+        type: integer
+        minimum: 1
+
+  parameters:
+    ProductId:
+      name: productId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: >
+        The product id (`tenant_products.id`). Case insensitive. A value that
+        is not a UUID is 400 `validation_error` and never reaches the
+        database.
+    StoreIdPath:
+      name: storeId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: >
+        The store (`stores.id`) of the level. Case insensitive. A store
+        outside the caller's store scope, of another tenant or soft-deleted
+        is the non-disclosing 404.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: "^[\\x21-\\x7E]{16,128}$"
+      description: >
+        REQUIRED on both sets: 16 to 128 printable ASCII characters with no
+        whitespace, as the shared `IdempotencyInterceptor` enforces. Keyed on
+        the verified actor and tenant, the method, the route and its path
+        parameters. An identical retry replays the stored `200` with
+        `Idempotent-Replayed: true`; key reuse with a different body is 409
+        `idempotency_key_conflict`; a key still being processed is 425
+        `idempotency_in_progress`. A missing key is 400
+        `idempotency_key_required`, a malformed one 400
+        `idempotency_key_malformed`. Use a new key for each intended change.
+
+  schemas:
+    LevelQuantity:
+      type: string
+      pattern: '^(?!0+(?:\.0+)?$)[0-9]{1,15}(\.[0-9]{1,4})?$'
+      description: >
+        A strictly positive exact-decimal quantity as a STRING
+        (`numeric(19,4)` at rest; the same pattern as
+        `inventory/low-stock.yaml` `LevelQuantity`), in the product's
+        stocking unit at the store. Never a float; stored as sent.
+    ExpectedUpdatedAt:
+      type: string
+      format: date-time
+      description: >
+        The `updatedAt` the caller last read; compared at millisecond
+        precision. Not the current value → 409 `stale_write`.
+
+    StockLevel:
+      type: object
+      additionalProperties: false
+      required: [reorderLevel, criticalLevel, updatedAt]
+      description: One active level (tenant or store).
+      properties:
+        reorderLevel:
+          $ref: "#/components/schemas/LevelQuantity"
+        criticalLevel:
+          description: The critical level (<= `reorderLevel`); null when the level has none.
+          anyOf:
+            - $ref: "#/components/schemas/LevelQuantity"
+            - type: "null"
+        updatedAt:
+          type: string
+          format: date-time
+          description: The precondition for the next write of this level.
+
+    StoreStockLevel:
+      type: object
+      additionalProperties: false
+      required: [storeId, reorderLevel, criticalLevel, updatedAt]
+      description: One store's active level; always a store in the caller's scope.
+      properties:
+        storeId:
+          type: string
+          format: uuid
+        reorderLevel:
+          $ref: "#/components/schemas/LevelQuantity"
+        criticalLevel:
+          description: >
+            The store's critical level (<= `reorderLevel`); null when the
+            store has none, whatever the tenant level holds (TH-3).
+          anyOf:
+            - $ref: "#/components/schemas/LevelQuantity"
+            - type: "null"
+        updatedAt:
+          type: string
+          format: date-time
+          description: The precondition for the next write of this level.
+
+    ProductStockLevels:
+      type: object
+      additionalProperties: false
+      required: [productId, tenantLevel, storeLevels]
+      description: >
+        A product's active levels: the tenant default and the store levels
+        of the caller's scope. No user id and no ERP value.
+      properties:
+        productId:
+          type: string
+          format: uuid
+        tenantLevel:
+          description: The active tenant level; null when the product has none.
+          anyOf:
+            - $ref: "#/components/schemas/StockLevel"
+            - type: "null"
+        storeLevels:
+          type: array
+          description: Active store levels of stores in the caller's scope, ordered by `storeId`.
+          items:
+            $ref: "#/components/schemas/StoreStockLevel"
+
+    SetStockLevelRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedUpdatedAt, reorderLevel]
+      description: >
+        Both values of the level. `criticalLevel` absent or `null` sets no
+        critical level. The tenant, the store, the actor and every
+        timestamp come from the session and the path, never from the body
+        (§III, §XII). A `criticalLevel` above `reorderLevel` is 422
+        `critical_above_reorder` (a cross-field rule the schema cannot
+        express).
+      properties:
+        expectedUpdatedAt:
+          type: [string, "null"]
+          format: date-time
+          description: >
+            The active level's `updatedAt` the caller last read, or `null`
+            when the caller saw no active level. Not the current state → 409
+            `stale_write`.
+        reorderLevel:
+          $ref: "#/components/schemas/LevelQuantity"
+        criticalLevel:
+          anyOf:
+            - $ref: "#/components/schemas/LevelQuantity"
+            - type: "null"
+
+    RetireStockLevelRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedUpdatedAt]
+      description: "The precondition of a retire: the active level's `updatedAt`."
+      properties:
+        expectedUpdatedAt:
+          $ref: "#/components/schemas/ExpectedUpdatedAt"
+
+    IdempotencyInProgressBody:
+      type: object
+      additionalProperties: false
+      required: [error, retryAfterSec]
+      description: The shared `IdempotencyInterceptor`'s 425 body (not the `Error` envelope).
+      properties:
+        error:
+          type: string
+          const: idempotency_in_progress
+        retryAfterSec:
+          type: integer
+          minimum: 1
+
+    Error:
+      type: object
+      required: [error]
+      description: >
+        Canonical error envelope. Out-of-scope and cross-tenant refusals are
+        non-disclosing (§II, §XII): they never name the cause.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id; the cause is recorded server-side.
+
+  responses:
+    ValidationFailure:
+      description: >
+        validation_error (400): a malformed path id or any query key.
+        Checked after the guards and before any database read.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    WriteValidationFailure:
+      description: >
+        validation_error (400) on a write: a malformed path id, any query
+        key, or a body that does not match the request schema (an unknown or
+        server-owned key, a missing `expectedUpdatedAt` or `reorderLevel`, a
+        zero, negative, float or over-precise level). Checked after the
+        guards and before any database read. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SetValidationFailure:
+      description: >
+        400 on a set, `error.code` one of: `validation_error` (as
+        `WriteValidationFailure`); `idempotency_key_required` (no
+        `Idempotency-Key`); `idempotency_key_malformed` (a key outside 16 to
+        128 printable ASCII characters). Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    IdempotencyInProgress:
+      description: >
+        425 `idempotency_in_progress`: the first set with this
+        `Idempotency-Key` is still being processed. Retry after
+        `Retry-After` seconds with the same key and body. Nothing is
+        written by this request.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfterInProgress"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/IdempotencyInProgressBody"
+    Unauthorized:
+      description: >
+        Unauthenticated (401): no valid session cookie, whether or not a
+        non-cookie credential (a bearer or an operator envelope) is sent.
+        Non-disclosing. Owned by 028 (G10).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OriginRejected:
+      description: >
+        403 `origin_rejected` (RT-430): a cookie-authenticated write whose
+        `Origin` header is missing, or is neither the API's own origin nor
+        listed in `ALLOWED_ORIGINS`. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: >
+        not_found (404), non-disclosing: identical for a role outside
+        `owner` / `tenant_admin` / `store_manager`, a product of another
+        tenant and an absent product.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    WriteNotFound:
+      description: >
+        not_found (404), non-disclosing: identical for a role outside the
+        write's list, a product of another tenant, an absent product, a
+        `storeId` outside the caller's store scope, of another tenant or
+        soft-deleted, and (on a retire) no active level. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SetConflict:
+      description: >
+        409, `error.code` one of: `stale_write` (`expectedUpdatedAt` does
+        not match the active level, or its absence; reload and retry);
+        `product_retired` (no level is set on a retired product);
+        `idempotency_key_conflict` (the same `Idempotency-Key` was used with
+        a different body). Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RetireConflict:
+      description: >
+        409 `stale_write`: `expectedUpdatedAt` is not the active level's
+        current `updatedAt`; reload and retry. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    CriticalAboveReorder:
+      description: >
+        422 `critical_above_reorder`: `criticalLevel` is greater than
+        `reorderLevel` (TH-2: `0 < criticalLevel <= reorderLevel`). Nothing
+        is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SystemFailure:
+      description: >
+        system_failure (500): unexpected server error; the cause is recorded
+        server-side under `request_id`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this
+        class of operation is spent. The body is the canonical error
+        envelope with a non-disclosing message (no budget, class or window);
+        its `request_id` equals the `X-Request-Id` response header. Honour
+        `Retry-After`. A 429 is not a 401: it never means the session ended.
+        The console limit is server-configured and may not be enforced, so a
+        client must handle a 429 but must not expect one.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body: the
+            inbound `X-Request-Id` when it is a well-formed UUID, otherwise a
+            server-minted one.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
