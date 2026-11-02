@@ -707,11 +707,9 @@ describe("RT-1057: inventory.movement.created is acknowledged, not unroutable", 
   });
 });
 
-describe("RT-1057 (added AC, comment 15145): unroutable row at attempts=7 — pins CURRENT behaviour", () => {
-  // Observation of the code path found by RT-1035 (not changed here):
-  // 8th claim -> no consumer -> markFailed throws (attempts >= MAX_ATTEMPTS)
-  // -> safeMarkFailed swallows -> row stays `claimed`; only reclaimStaleClaims
-  // later dead-letters it with last_error='ClaimLeaseExpired'.
+describe("RT-1065: unroutable row at attempts=7 dead-letters directly on the final claim", () => {
+  // 8th claim -> no consumer -> final attempt -> markDeadLettered with
+  // last_error='UnroutableEventType' (no lease wait, markFailed not invoked).
   const EV_A7 = "0bd00000-0000-4000-8000-000000000004";
 
   let retrySpy: jest.SpyInstance;
@@ -743,7 +741,7 @@ describe("RT-1057 (added AC, comment 15145): unroutable row at attempts=7 — pi
     errorSpy.mockRestore();
   });
 
-  it("8th claim leaves the row `claimed` (markFailed throws, swallowed); reclaim later dead-letters it with last_error=ClaimLeaseExpired", async () => {
+  it("8th claim ends `dead_lettered` with last_error=UnroutableEventType, one dead-letter metric, no markFailed error log", async () => {
     if (maybeSkip()) return;
 
     const claimA7 = (async () => {
@@ -762,36 +760,7 @@ describe("RT-1057 (added AC, comment 15145): unroutable row at attempts=7 — pi
     const registry = new OutboxConsumerRegistry(); // no consumer for the type
     const drainer = new DrainerProcessor({ pool: env!.admin, registry, claimFn: claimA7 });
 
-    await drainer.tick(); // 8th claim
-
-    const after8 = await env!.admin.query<{
-      delivery_state: string; attempts: number; last_error: string | null; processed_at: string | null;
-    }>(
-      `SELECT delivery_state, attempts, last_error, processed_at FROM outbox_events WHERE event_id=$1`,
-      [EV_A7],
-    );
-    expect(after8.rows[0]).toMatchObject({
-      delivery_state: "claimed", attempts: 8, last_error: null, processed_at: null,
-    });
-    // Unroutable branch still records retry+failed on the 8th claim, and logs
-    // the swallowed markFailed error.
-    expect(failedSpy).toHaveBeenCalledTimes(1);
-    expect(retrySpy).toHaveBeenCalledTimes(1);
-    expect(deadLetterSpy).not.toHaveBeenCalled();
-    expect(JSON.stringify(errorSpy.mock.calls)).toContain("drainer.markFailed failed");
-
-    // Expire the lease, then let the reclaim loop run (claimFn returns nothing).
-    await env!.admin.query(
-      `UPDATE outbox_events SET claimed_at = now() - interval '10 minutes',
-              updated_at = now() - interval '10 minutes' WHERE event_id=$1`,
-      [EV_A7],
-    );
-    const reclaimer = new DrainerProcessor({
-      pool: env!.admin,
-      registry,
-      claimFn: (async () => []) as (pool: import("pg").Pool, batchSize: number) => Promise<ClaimedOutboxEvent[]>,
-    });
-    await reclaimer.tick();
+    await drainer.tick(); // 8th claim — no lease expiry / reclaim needed
 
     const end = await env!.admin.query<{
       delivery_state: string; attempts: number; last_error: string | null; processed_at: string | null;
@@ -799,10 +768,13 @@ describe("RT-1057 (added AC, comment 15145): unroutable row at attempts=7 — pi
       `SELECT delivery_state, attempts, last_error, processed_at FROM outbox_events WHERE event_id=$1`,
       [EV_A7],
     );
-    expect(end.rows[0]!.delivery_state).toBe("dead_lettered");
-    expect(end.rows[0]!.attempts).toBe(8);
-    expect(end.rows[0]!.last_error).toBe("ClaimLeaseExpired");
+    expect(end.rows[0]).toMatchObject({
+      delivery_state: "dead_lettered", attempts: 8, last_error: "UnroutableEventType",
+    });
     expect(end.rows[0]!.processed_at).not.toBeNull();
+    expect(failedSpy).toHaveBeenCalledTimes(1);
+    expect(retrySpy).not.toHaveBeenCalled();
     expect(deadLetterSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("drainer.markFailed failed");
   });
 });
