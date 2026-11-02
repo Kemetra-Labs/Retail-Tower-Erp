@@ -24,6 +24,10 @@ const consoleGetSalesSummary = vi.fn(() => Promise.resolve({ status: 404 }));
 vi.mock("@/lib/sales-summary-queries", () => ({
   consoleGetSalesSummary: (...a: unknown[]) => consoleGetSalesSummary(...(a as [])),
 }));
+vi.mock("@/lib/low-stock-queries", () => ({
+  consoleListLowStock: () => Promise.resolve({ status: 404 }),
+  LOW_STOCK_LIMIT: 10,
+}));
 const listAuditEvents = vi.fn();
 vi.mock("@/lib/client", () => ({
   listAuditEvents: (...a: unknown[]) => listAuditEvents(...a),

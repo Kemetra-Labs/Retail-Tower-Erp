@@ -788,3 +788,63 @@
     color: HighlightText;
   }
 }
+
+/* ---- Low stock (RT-1073): level bar per item, red only for critical ------------------- */
+.low-stock {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.low-stock__item {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border-radius: var(--radius-field-lg);
+  background: var(--color-surface-sunken);
+}
+.low-stock__name {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.low-stock__product {
+  font-weight: var(--weight-medium);
+}
+.low-stock__store,
+.low-stock__text,
+.low-stock__summary,
+.low-stock__more {
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.low-stock__summary,
+.low-stock__more {
+  margin: 0 0 var(--space-2);
+}
+.low-stock__bar {
+  display: block;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--color-border);
+  overflow: hidden;
+}
+.low-stock__fill {
+  display: block;
+  height: 100%;
+  background: var(--color-text-muted);
+}
+.low-stock__item--critical .low-stock__fill {
+  background: var(--color-danger);
+}
+@media (forced-colors: active) {
+  .low-stock__bar {
+    border: 1px solid CanvasText;
+    background: Canvas;
+  }
+  .low-stock__fill {
+    background: CanvasText;
+  }
+}

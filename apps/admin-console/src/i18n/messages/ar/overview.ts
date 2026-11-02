@@ -126,6 +126,12 @@ export const overview = {
   "overview.stores.title": "المتاجر اليوم",
   "overview.stores.soon": "ستظهر هنا حصة كل متجر من مبيعات اليوم عندما يوفّرها الخادم.",
   "overview.lowStock.title": "مخزون منخفض",
-  "overview.lowStock.soon":
-    "ستظهر هنا الأصناف التي نزلت عن حد إعادة الطلب، مرتبة حسب الخطورة، عندما يوفّرها الخادم.",
+  "overview.lowStock.summary": "{below} تحت حد إعادة الطلب، منها {critical} حرجة.",
+  "overview.lowStock.levelText": "المتوفر {onHand}، حد إعادة الطلب {level} ({band})",
+  "overview.lowStock.band.critical": "حرج",
+  "overview.lowStock.band.low": "منخفض",
+  "overview.lowStock.storeInactive": "متجر غير نشط",
+  "overview.lowStock.truncated": "يُعرض {shown} من {total}.",
+  "overview.lowStock.none": "لا يوجد صنف تحت حد إعادة الطلب.",
+  "overview.lowStock.unconfigured": "لم تُحدَّد حدود إعادة الطلب بعد، فلا يمكن تقييم المخزون المنخفض.",
 } satisfies Messages;

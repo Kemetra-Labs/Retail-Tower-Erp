@@ -27,6 +27,10 @@ const quiet = () => Promise.resolve({ status: 200, data: { items: [], nextCursor
 vi.mock("@/lib/stock-discrepancy-queries", () => ({
   listErpnextNegativeOnHandStores: () => quiet(),
 }));
+// RT-1073: the low-stock widget has its own tests (low-stock-panel.test.tsx); here it is hidden.
+vi.mock("@/lib/low-stock-queries", () => ({
+  consoleListLowStock: () => Promise.resolve({ status: 404 }),
+}));
 vi.mock("@/lib/shift-close-queries", () => ({ consoleListShiftCloses: () => quiet() }));
 vi.mock("@/lib/unknown-items-queries", () => ({
   listUnknownItems: () => Promise.resolve({ status: 200, data: { items: [], next_cursor: null } }),
@@ -542,13 +546,11 @@ describe("side column", () => {
     expect(managerLinks.map((a) => a.getAttribute("href"))).not.toContain("/sales-needing-repair");
   });
 
-  test("stores today and low stock: a clear «قريبًا» frame and no invented numbers", async () => {
+  test("stores today: a clear «قريبًا» frame and no invented numbers", async () => {
     renderOverview();
-    for (const name of ["Stores today", "Low stock"]) {
-      const region = screen.getByRole("region", { name });
-      expect(within(region).getByText("Coming soon")).toBeTruthy();
-      expect(region.textContent).not.toMatch(/\d/);
-    }
+    const region = screen.getByRole("region", { name: "Stores today" });
+    expect(within(region).getByText("Coming soon")).toBeTruthy();
+    expect(region.textContent).not.toMatch(/\d/);
   });
 
   test("the attention list keeps its place in the side column", async () => {
@@ -597,6 +599,6 @@ describe("Arabic", () => {
     renderOverview();
     expect((await screen.findAllByText("غير متاح")).length).toBeGreaterThan(0);
     expect(screen.getByRole("region", { name: "مؤشرات اليوم حتى الآن" })).toBeTruthy();
-    expect(screen.getAllByText("قريبًا").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("قريبًا").length).toBeGreaterThanOrEqual(1);
   });
 });
