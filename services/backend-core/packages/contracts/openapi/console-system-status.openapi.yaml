@@ -1,0 +1,459 @@
+openapi: 3.1.0
+info:
+  title: Data-Pulse-2 — Console System Status Read API
+  version: "1.0.0-draft"
+  description: >
+    Jira RT-1056 (decision record
+    `docs/planning/rt-1056-console-system-status-read.md`, D-1 to D-5): the
+    read behind the Admin-Console sidebar system-status block (Admin-Console
+    DESIGN.md §12.6 sidebar footer, §12.8.6). One read-only operation:
+
+      `consoleGetSystemStatus` — a fixed list of three components of the
+      caller's tenant (`server`, `saleSync`, `erpConnector`), each with a
+      state, a closed reason code, the time of its evidence and a few facts,
+      plus the server's worst-of `overall` state and the snapshot time
+      `asOf`.
+
+    Every state is decided by Backend-Core over facts it holds. A client
+    shows the states as given and never composes its own "healthy" claim
+    from other reads (UX-07, UX-13).
+
+
+    **Posture.** `1.0.0-draft`, `x-runtime-status: contract-only`. `[GATED]`
+    contract, decisions D-1 to D-5 selected under the owner delegation of
+    2026-11-02 (captain session), each the recommended option; the owner
+    may revisit them. No controller, guard wiring, service or query serves
+    this path yet; the runtime is a separate Implementation issue and
+    removes only the operation's marker.
+
+
+    **States (D-1).** Every component and `overall` use one closed
+    vocabulary: `ok`, `degraded`, `down`, `unknown`. `unknown` means the
+    server has no evidence it can stand behind (never seen, not
+    configured, the check did not answer in time); it is never `ok`, never
+    shown as `ok`, and a client never maps it to `ok`.
+
+      - **`server`** — the Backend-Core API answered this read for this
+        tenant. In a 200 it is always `ok` with reason `answered`: a server
+        that cannot answer returns no 200, and the client then shows every
+        component as `unknown` (it cannot tell a down server from a lost
+        network). No platform dependency (database pools, Redis, other
+        tenants) is reported (D-3).
+      - **`saleSync`** — whether this tenant's sale sync queue is keeping up:
+        the tenant's undelivered `sale.captured` outbox events (`pending`,
+        `claimed`, `failed`) and its open NEEDS_REPAIR sales (spec 032).
+        `ok` (`keeping_up`): no open NEEDS_REPAIR sale and no undelivered
+        event older than 5 minutes (an empty queue is `keeping_up`: no sale
+        is waiting). `degraded`: an undelivered event is older than 5 minutes
+        but at most 30 minutes (`queue_behind`), or at least one sale needs
+        repair (`needs_repair`; `queue_behind` wins when both hold). `down`
+        (`queue_stalled`): an undelivered event is older than 30 minutes.
+        `unknown` (`check_timed_out`): the facts were not read in time.
+        Event age is `now() - created_at` on the server clock.
+      - **`erpConnector`** — the tenant's ERPNext connector as Backend-Core
+        last heard from it: the spec 020 `connector_health` liveness verdict
+        of each registration (heartbeat within 5 minutes = `healthy`).
+        Backend-Core makes no outbound ERPNext call to decide it; the Console
+        never calls ERPNext. Over the enabled registrations: every one
+        `healthy` and none self-reporting `erpnextReachable: false` is `ok`
+        (`heartbeat_fresh`); every one `healthy` and at least one
+        self-reporting `erpnextReachable: false` is `degraded`
+        (`erp_unreachable_reported`, a connector self-report, never a
+        Backend-Core probe); some but not all `healthy` is `degraded`
+        (`some_instances_stale`); none `healthy` and at least one `stale`
+        is `down` (`heartbeat_stale`). `unknown` when no registration exists
+        (`not_configured`), when every registration is disabled
+        (`all_disabled`), when every enabled one is `never_seen`
+        (`never_seen`), or when the facts were not read in time
+        (`check_timed_out`).
+
+    `overall` is the worst component state, in the order `down`,
+    `degraded`, `unknown`, `ok`: it is `ok` only when every component is
+    `ok`.
+
+
+    **Freshness (D-2).** Computed on read, never cached: `asOf` is the
+    server time of the read and `Cache-Control: no-store` is on every 200.
+    Each component carries `observedAt`, the time of the evidence behind
+    its state (for `erpConnector` the newest `lastSeenAt` of an enabled
+    registration; for `saleSync` and `server` the read time; null when
+    there is no evidence). A client shows `asOf` beside the block and treats
+    the snapshot as stale 10 minutes after it received it, by its own
+    clock, without comparing `asOf` to that clock: a stale snapshot keeps
+    its states, shown muted with the time, and offers Refresh; it is never
+    upgraded and never re-labelled `ok`.
+
+
+    **Scope and roles (D-3).** Tenant-wide only; there is no `store_id`.
+    The `cookieAuth` session only, `SessionOnlyAdminGuard` →
+    `TenantContextGuard` → `RolesGuard`, roles `owner` and `tenant_admin`
+    (the roles of the connector-health and sale-sync-ops reads it
+    summarises). A role outside the list is the non-disclosing 404; there
+    is no 403. The body holds only the caller's tenant facts: never another
+    tenant's data, never a platform-wide incident, never a host name, error
+    text or version.
+
+
+    **Read budget (D-4).** No polling (NG-7). The Console reads it once when
+    the tenant shell loads or its tenant changes, and again only on the
+    user's Refresh. Console rate-limit class `cheapRead`. Each component's
+    check is bounded server-side; a check that does not answer in time is
+    that component's `unknown` with `check_timed_out`, never a 500 and
+    never `ok`.
+
+
+    **Destinations (D-5).** Each component names its destination as a
+    closed `link` value, never a URL: `saleSync` → `sale_sync_ops` (the
+    sales-needing-repair screen), `erpConnector` → `erp_connection` (the
+    ERPNext connection screen), `server` → `none`. The link is the same for
+    every state of a component; `none` means the client renders no link
+    (UX-09: no dead destination).
+
+
+    **Audit.** Not audited: the read returns operational status only, with
+    no business figure and no personal data, like the connector-health and
+    sync-ops summary reads.
+
+
+    **Error envelope.** The canonical `{ error: { code, message,
+    request_id } }`. 400 `validation_error` (any query key: the operation
+    takes none); 401 unauthenticated; 404 non-disclosing not-found; 429
+    `rate_limited`; 500 internal.
+
+servers:
+  - url: https://api.example.com
+
+tags:
+  - name: console-system-status
+    description: >
+      Console-facing read of the tenant's system status for the sidebar
+      status block (RT-1056).
+
+security:
+  - cookieAuth: []
+
+paths:
+  /api/v1/system-status:
+    get:
+      summary: The tenant's system status (server, sale sync queue, ERPNext connector).
+      operationId: consoleGetSystemStatus
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        Contract approved as a design boundary only (RT-1056 D-1 to D-5,
+        owner delegation of 2026-11-02). Backend-Core has no controller,
+        service or query for this route yet; the runtime Implementation
+        issue removes this marker.
+      tags: [console-system-status]
+      description: >
+        Three components of the caller's tenant, each with a state from
+        `ok` / `degraded` / `down` / `unknown`, a closed reason, the time of
+        its evidence, its facts and its destination, plus the worst-of
+        `overall` state and `asOf`. Read only; computed on read (see the
+        API description for every rule).
+      responses:
+        "200":
+          description: The tenant's system status at `asOf`.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleSystemStatus"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+      description: >
+        The human dashboard session cookie (httpOnly `dp2_session`), verified
+        by `SessionOnlyAdminGuard`. The only accepted credential on this
+        surface: without a valid session cookie, a machine bearer, a POS
+        `device` token or an `operatorAuthorization` envelope is rejected
+        (401). With a valid session cookie, the cookie authenticates the
+        request and any `Authorization` header is ignored (the repo-wide
+        `AuthGuard` rule). `RolesGuard` + `@Roles("owner", "tenant_admin")`
+        gate the route (default deny → 404). 401 semantics are owned by 028
+        (G10).
+
+  headers:
+    CacheControlNoStore:
+      description: >
+        `no-store` on every 200: the status is a point-in-time snapshot and
+        no shared or browser cache keeps it.
+      required: true
+      schema:
+        type: string
+        const: no-store
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5). Its own bound, 1 to 3600.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+
+  schemas:
+    ComponentState:
+      type: string
+      enum: [ok, degraded, down, unknown]
+      description: >
+        The shared state vocabulary. `unknown` is never `ok`: it means the
+        server has no evidence it can stand behind.
+    ComponentLink:
+      type: string
+      enum: [sale_sync_ops, erp_connection, none]
+      description: >
+        The component's destination screen, as a closed value the client
+        maps to its own route; `none` renders no link (UX-09).
+    ObservedAt:
+      type: [string, "null"]
+      format: date-time
+      description: >
+        Server-clock time of the evidence behind the state; null when there
+        is no evidence.
+    Count:
+      type: integer
+      minimum: 0
+      description: An exact count. Zero is a real zero, never an unknown.
+
+    ServerComponent:
+      type: object
+      additionalProperties: false
+      required: [state, reason, observedAt, link]
+      description: >
+        The Backend-Core API answered this read. In a 200 always `ok` /
+        `answered` / `none`; no platform dependency is reported.
+      properties:
+        state:
+          type: string
+          const: ok
+        reason:
+          type: string
+          const: answered
+        observedAt:
+          type: string
+          format: date-time
+          description: The read time (equals `asOf`).
+        link:
+          type: string
+          const: none
+
+    SaleSyncFacts:
+      type: [object, "null"]
+      additionalProperties: false
+      required: [undeliveredCount, oldestUndeliveredAgeSeconds, needsRepairCount]
+      description: >
+        The tenant's sale sync queue facts; null when the check did not
+        answer in time (`check_timed_out`).
+      properties:
+        undeliveredCount:
+          $ref: "#/components/schemas/Count"
+        oldestUndeliveredAgeSeconds:
+          type: [integer, "null"]
+          minimum: 0
+          description: >
+            Whole seconds since the oldest undelivered `sale.captured` event
+            was created (server clock); null when none is undelivered.
+        needsRepairCount:
+          $ref: "#/components/schemas/Count"
+
+    SaleSyncComponent:
+      type: object
+      additionalProperties: false
+      required: [state, reason, observedAt, link, facts]
+      properties:
+        state:
+          $ref: "#/components/schemas/ComponentState"
+        reason:
+          type: string
+          enum: [keeping_up, queue_behind, needs_repair, queue_stalled, check_timed_out]
+          description: >
+            `keeping_up` → `ok`; `queue_behind` and `needs_repair` →
+            `degraded`; `queue_stalled` → `down`; `check_timed_out` →
+            `unknown`.
+        observedAt:
+          $ref: "#/components/schemas/ObservedAt"
+        link:
+          type: string
+          const: sale_sync_ops
+        facts:
+          $ref: "#/components/schemas/SaleSyncFacts"
+
+    ErpConnectorFacts:
+      type: [object, "null"]
+      additionalProperties: false
+      required: [registeredCount, enabledCount, healthyCount, staleCount, neverSeenCount, erpUnreachableReportedCount]
+      description: >
+        Counts over the tenant's connector registrations (spec 020 liveness,
+        derived at read); null when the check did not answer in time.
+        `healthyCount + staleCount + neverSeenCount = enabledCount`.
+      properties:
+        registeredCount:
+          $ref: "#/components/schemas/Count"
+        enabledCount:
+          $ref: "#/components/schemas/Count"
+        healthyCount:
+          $ref: "#/components/schemas/Count"
+        staleCount:
+          $ref: "#/components/schemas/Count"
+        neverSeenCount:
+          $ref: "#/components/schemas/Count"
+        erpUnreachableReportedCount:
+          $ref: "#/components/schemas/Count"
+
+    ErpConnectorComponent:
+      type: object
+      additionalProperties: false
+      required: [state, reason, observedAt, link, facts]
+      properties:
+        state:
+          $ref: "#/components/schemas/ComponentState"
+        reason:
+          type: string
+          enum:
+            - heartbeat_fresh
+            - erp_unreachable_reported
+            - some_instances_stale
+            - heartbeat_stale
+            - not_configured
+            - all_disabled
+            - never_seen
+            - check_timed_out
+          description: >
+            `heartbeat_fresh` → `ok`; `erp_unreachable_reported` and
+            `some_instances_stale` → `degraded`; `heartbeat_stale` → `down`;
+            `not_configured`, `all_disabled`, `never_seen` and
+            `check_timed_out` → `unknown`.
+        observedAt:
+          $ref: "#/components/schemas/ObservedAt"
+        link:
+          type: string
+          const: erp_connection
+        facts:
+          $ref: "#/components/schemas/ErpConnectorFacts"
+
+    ConsoleSystemStatus:
+      type: object
+      additionalProperties: false
+      required: [asOf, overall, components]
+      properties:
+        asOf:
+          type: string
+          format: date-time
+          description: Server time of the read. Every component was evaluated at it.
+        overall:
+          $ref: "#/components/schemas/ComponentState"
+        components:
+          type: object
+          additionalProperties: false
+          required: [server, saleSync, erpConnector]
+          properties:
+            server:
+              $ref: "#/components/schemas/ServerComponent"
+            saleSync:
+              $ref: "#/components/schemas/SaleSyncComponent"
+            erpConnector:
+              $ref: "#/components/schemas/ErpConnectorComponent"
+
+    Error:
+      type: object
+      required: [error]
+      description: >
+        Canonical error envelope. Out-of-scope and cross-tenant refusals are
+        non-disclosing (§II, §XII): they never name the cause.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id; the cause is recorded server-side.
+
+  responses:
+    ValidationFailure:
+      description: >
+        validation_error (400): any query key (the operation takes none).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: >
+        Unauthenticated (401): a missing or invalid session cookie, or a
+        non-cookie credential without a valid session cookie.
+        Non-disclosing. Owned by 028 (G10).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: >
+        not_found (404), non-disclosing: a role outside `owner` /
+        `tenant_admin`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SystemFailure:
+      description: >
+        system_failure (500): unexpected server error; the cause is recorded
+        server-side under `request_id`. A component check that does not
+        answer in time is never a 500 (it is that component's `unknown`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this
+        class of operation is spent. The body is the canonical error
+        envelope with a non-disclosing message (no budget, class or window);
+        its `request_id` equals the `X-Request-Id` response header. Honour
+        `Retry-After`. A 429 is not a 401: it never means the session ended.
+        The console limit is server-configured and may not be enforced, so a
+        client must handle a 429 but must not expect one.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body: the
+            inbound `X-Request-Id` when it is a well-formed UUID, otherwise a
+            server-minted one.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
