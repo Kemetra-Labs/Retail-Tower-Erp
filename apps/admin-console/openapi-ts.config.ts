@@ -467,6 +467,27 @@ export const OPENAPI_SOURCE_SPECS: readonly OpenApiSourceSpec[] = [
     name: "TenantBranding",
     path: "services/backend-core/packages/contracts/openapi/tenant-branding.openapi.yaml",
   },
+  // Wave-2 console sources (RT-1068 repin to 73cd9191): people names (RT-1063),
+  // system status (RT-1062), catalog stock levels (RT-1064) and inventory low
+  // stock (RT-1055; the last two contract-only upstream). Composed only: nothing
+  // wraps them yet, the screens that call them are wave-4 follow-ups. Consume-only;
+  // no YAML authored here.
+  {
+    name: "ConsolePeople",
+    path: "services/backend-core/packages/contracts/openapi/console-people.openapi.yaml",
+  },
+  {
+    name: "ConsoleSystemStatus",
+    path: "services/backend-core/packages/contracts/openapi/console-system-status.openapi.yaml",
+  },
+  {
+    name: "StockLevels",
+    path: "services/backend-core/packages/contracts/openapi/catalog/stock-levels.yaml",
+  },
+  {
+    name: "LowStock",
+    path: "services/backend-core/packages/contracts/openapi/inventory/low-stock.yaml",
+  },
 ];
 
 /** Upstream source paths (kept for back-compat / documentation references). */
