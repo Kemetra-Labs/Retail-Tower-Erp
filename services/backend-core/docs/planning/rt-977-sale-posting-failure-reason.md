@@ -468,3 +468,37 @@ the cleaner of the two options there.
 
 Out of scope, unchanged: the Connector rejection vocabulary, the ERPNext side, the 025 sync-ops backlog,
 and the RT-974 state-only banner already shipped.
+
+## 11. Decisions applied (2026-11-02)
+
+Each decision in §9 was selected under the owner delegation of 2026-11-02 (captain session), as the
+recommended option. No non-recommended option was chosen.
+
+| # | Applied |
+| --- | --- |
+| D1 | **(a′)**: a console-only `erpPostingFailure` on `ConsoleSaleDetail`; `ErpPostingView` unchanged. |
+| D2 | `store_manager` sees the category and time: `disclosure = category_only`. |
+| D3 | Yes: the RT-410 reader rule is widened to `consoleGetSale.erpPostingFailure`, same readers (`owner`, `tenant_admin`, and a human platform-admin session through the `RolesGuard` bypass, named explicitly); the §XIV re-review is recorded in the slice 1 PR. |
+| D4 | No separate audit of the disclosure. |
+| D5 | Yes: repair on the sale detail through `repairPosting`, with the §5 handle rules, the §7 outcomes, and no `note`. |
+| D6 | `rejectionCategory` is an open, documented string. |
+| D7 | **Combined with RT-973.** Both were approved in the same window, and RT-973 can ship its runtime in the same PR. The decision records land together now (this file and `rt-973-sale-sync-status-ordering.md`); the Backend-Core runtime slice is one PR for both, taking `console-sales` `1.2.0-draft` with `ConsoleSaleItem.syncStatusVersion` and `ConsoleSaleDetail.erpPostingFailure`. |
+| D8 | This file is the decision record; the coordinator writes the short Confluence Decisions entry. |
+| D9 | Failed return, refund and credit-sale return reversals stay out of scope for the sale detail (on the 017 / 025 backlogs); the contract text says so. |
+
+**What is applied to the OpenAPI now: nothing for RT-977.** As §8 and §10 slice 1 state, `erpPostingFailure`
+cannot land contract-first: it must be `required` (strictness sweep), the HTTP integration spec validates live
+`consoleGetSale` responses against it, and `x-runtime-status: contract-only` marks whole operations, not
+fields. The §6 fragment and the `reconciliation.yaml` `1.6.0-draft` reader-set text are therefore applied by
+slice 1, combined with the RT-973 runtime (D7). The `reconciliation.yaml` description amendment is not
+applied alone either: it would name a reader that does not exist yet. The contract-first part of the
+combined PR is RT-973's optional `SaleSyncStatus.syncStatusVersion` in `sale-sync-ops.yaml` `1.2.0-draft`.
+
+**Slices, updated for D7** (listed, not created; the coordinator creates them, linked with `Blocks`):
+
+1. **Backend-Core contract `[GATED]` + migration `[GATED]` + runtime, one PR for RT-973 and RT-977:** the
+   §10 slice 1 scope above plus RT-973 slice 1 (`rt-973-sale-sync-status-ordering.md` §7). The migration is
+   RT-973's (`sales.sync_status_version`); RT-977 still needs none.
+2. **Admin-Console, RT-977:** the §10 slice 2 scope above.
+3. **Admin-Console, RT-973:** the version-based reconciliation (`rt-973-sale-sync-status-ordering.md` §6, §7 slice 2).
+   Slices 2 and 3 can be one Console PR; both depend on slice 1 being deployed.

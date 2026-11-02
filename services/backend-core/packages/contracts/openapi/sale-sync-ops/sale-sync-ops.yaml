@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — Sale Sync-Ops Read / Repair API
-  version: "1.1.0-draft"
+  version: "1.2.0-draft"
   description: >
     Spec 032 §9 — the server-authoritative sale-sync READ/REPAIR surface the
     later Retail Tower Console consumes. DP-2 owns the authoritative sale-status
@@ -53,6 +53,15 @@ info:
     **1.1.0-draft (RT-620, additive).** Every cookieAuth operation may
     return 429 `rate_limited` (`TooManyRequests`, with `Retry-After`)
     from the console rate limit (RT-574, RT-619). No other wire change.
+
+
+    **1.2.0-draft (RT-973, additive, contract-first).** `SaleSyncStatus`
+    gains an optional `syncStatusVersion`, the Backend-Core-owned ordering
+    of the sale's `syncStatus` (decision record
+    `docs/planning/rt-973-sale-sync-status-ordering.md`). Backend-Core does
+    not emit it yet; the RT-973 runtime slice emits it on every
+    `SaleSyncStatus` response and makes it required in the same change. No
+    operation changes, so no `x-runtime-status` marker applies.
 
 servers:
   - url: https://api.example.com
@@ -309,6 +318,23 @@ components:
           type: [string, "null"]
           format: date-time
           description: Null until the off-request drain sets it (FR-071).
+        syncStatusVersion:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+          description: >
+            RT-973 (1.2.0-draft). Orders this sale's `syncStatus` across reads.
+            Backend-Core increments it by one in the same statement as every
+            write that sets the sale's sync status (capture leaves it at 0;
+            the drain, the dead-letter classifier and this repair each add
+            one); it never decreases. Comparable only between two reads of
+            the SAME sale: a higher value is a later status, an equal value is
+            the same status. `console-sales` `ConsoleSaleItem` will carry the
+            same field, so a client can order this response against the sale
+            detail. An idempotent repair replay returns the stored response,
+            with the version it had then. NOT EMITTED YET: absent until the
+            RT-973 runtime slice ships, which makes it required; a client
+            treats an absent value as unknown and does not order on it.
         deadLetter:
           description: >
             Present (non-null) when the sale has an OPEN dead-letter row — the
