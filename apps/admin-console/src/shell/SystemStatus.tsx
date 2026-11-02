@@ -45,8 +45,9 @@ export function SystemStatus(): React.JSX.Element | null {
     queryKey: ["system-status", tenantId],
     queryFn: readStatus,
     enabled: Boolean(tenantId),
-    // Load and Refresh only (D-4): the cached read is never refetched by itself.
-    staleTime: Number.POSITIVE_INFINITY,
+    // Load and Refresh only (D-4): every mount (a tenant change included) reads once;
+    // focus, reconnect and interval never refetch.
+    staleTime: 0,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,

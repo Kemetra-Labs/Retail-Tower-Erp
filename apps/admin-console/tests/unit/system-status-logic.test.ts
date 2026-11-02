@@ -81,6 +81,18 @@ describe("RT-1071 reason → state mapping (D-1)", () => {
     expect(view.overall).toBe("unknown");
   });
 
+  test("a reason that belongs to another component is unknown, never ok", () => {
+    const sale = statusView(
+      body({ saleSync: { state: "ok", reason: "heartbeat_fresh" }, overall: "ok" }),
+    );
+    expect(sale.components[1]).toMatchObject({ state: "unknown", reasonKey: null });
+    const erp = statusView(body({ erpConnector: { state: "ok", reason: "keeping_up" } }));
+    expect(erp.components[2].state).toBe("unknown");
+    const server = statusView(body({ server: { state: "ok", reason: "keeping_up" } }));
+    expect(server.components[0].state).toBe("unknown");
+    expect(server.overall).toBe("unknown");
+  });
+
   test("an unrecognised state is unknown", () => {
     const view = statusView(
       body({ erpConnector: { state: "healthy", reason: "heartbeat_fresh" } }),

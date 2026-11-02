@@ -25,21 +25,29 @@ export const COMPONENT_IDS: readonly ComponentId[] = ["server", "saleSync", "erp
 /** The snapshot is stale this long after the Console received it (D-2). */
 export const STALE_AFTER_MS = 10 * 60 * 1000;
 
-/** Closed reason → the state the contract maps it to (D-1). */
-const REASON_STATE: Record<string, StatusState> = {
-  answered: "ok",
-  keeping_up: "ok",
-  queue_behind: "degraded",
-  needs_repair: "degraded",
-  queue_stalled: "down",
-  check_timed_out: "unknown",
-  heartbeat_fresh: "ok",
-  erp_unreachable_reported: "degraded",
-  some_instances_stale: "degraded",
-  heartbeat_stale: "down",
-  not_configured: "unknown",
-  all_disabled: "unknown",
-  never_seen: "unknown",
+/**
+ * Closed reason → the state the contract maps it to (D-1), per component: a
+ * reason that belongs to another component is not valid here.
+ */
+const REASON_STATE: Record<ComponentId, Record<string, StatusState>> = {
+  server: { answered: "ok" },
+  saleSync: {
+    keeping_up: "ok",
+    queue_behind: "degraded",
+    needs_repair: "degraded",
+    queue_stalled: "down",
+    check_timed_out: "unknown",
+  },
+  erpConnector: {
+    heartbeat_fresh: "ok",
+    erp_unreachable_reported: "degraded",
+    some_instances_stale: "degraded",
+    heartbeat_stale: "down",
+    not_configured: "unknown",
+    all_disabled: "unknown",
+    never_seen: "unknown",
+    check_timed_out: "unknown",
+  },
 };
 
 const STATES: readonly StatusState[] = ["ok", "degraded", "down", "unknown"];
@@ -92,7 +100,7 @@ function viewOf(
 ): ComponentView {
   const state = STATES.find((s) => s === raw?.state);
   const reason = raw?.reason;
-  if (!raw || !state || !reason || REASON_STATE[reason] !== state) {
+  if (!raw || !state || !reason || REASON_STATE[id][reason] !== state) {
     return { id, state: "unknown", reasonKey: null, route: linkRoute(raw?.link) };
   }
   return { id, state, reasonKey: reasonKey(reason), route: linkRoute(raw.link) };
