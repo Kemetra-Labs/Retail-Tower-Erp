@@ -83,7 +83,7 @@ Types registered since the first slice, each via its own approval PR (§1.1). Th
 | Event type | Feature | Producer | Consumer | Payload (IDs/provenance only — no money/PII) |
 |---|---|---|---|---|
 | `audit.event.created` | 004 | `AuditEmitter` (api) | `audit-event-created.consumer` (worker) | audit envelope |
-| `inventory.movement.created` | 009 (#465) | stock-movement write paths (api/worker) | downstream consumers | movement IDs |
+| `inventory.movement.created` | 009 (#465) | stock-movement write paths (api/worker) | `InventoryMovementCreatedConsumer` (worker) — **acknowledge-only placeholder** (RT-1057): no side effects, the row ends `delivered`; a future projection replaces it | movement IDs |
 | `sale.captured` | 008 (DP-008-LIVELOOP) | `captureSale` in-tx (api) | `SaleCapturedConsumer` → sale-processing queue | saleId / storeId |
 | `erpnext.posting.requested` | 015 | `SaleProcessingProcessor` in-tx (worker) | `PostingRequestedConsumer` → `erpnext_posting_status` | saleId / storeId / kind / source_ref_id |
 | `erpnext.reconciliation.requested` | 017-RECON-WIRING | `triggerRun` in-tx (api) | `ReconciliationRequestedConsumer` → `ReconciliationRunProcessor` | run_id / store_id |
