@@ -100,9 +100,9 @@ Admin-Console manages it per product, next to the product's other store settings
 
 | Option | Effect |
 | --- | --- |
-| **A. Catalog-write precedent: CAT-W1 roles for the tenant level, CAT-W2 roles for store levels; audited per mutation; `expectedUpdatedAt` precondition; no `Idempotency-Key` (recommended)** | Same guards, store scope, 404 rules and error vocabulary as `console-catalog.yaml` writes. |
+| **A. Catalog-write precedent: CAT-W1 roles for the tenant level, CAT-W2 roles for store levels; audited per mutation; `expectedUpdatedAt` precondition on every write, plus a required `Idempotency-Key` on the two sets (recommended)** | Same guards, store scope, 404 rules and error vocabulary as `console-catalog.yaml` writes; the key closes the one retry hole the precondition leaves (below). |
 | B. Owner / tenant_admin only for both | A store manager cannot tune its own shelf, which is the reason store levels exist. |
-| C. `Idempotency-Key` on every write | Unnecessary: every write carries a precondition, so a retry never writes twice (a repeated set reads 409 `stale_write`; a repeated retire reads the non-disclosing 404, as no level is active any more). |
+| C. Precondition only, no `Idempotency-Key` | Rejected (CodeRabbit on #240): `expectedUpdatedAt: null` matches every moment the scope has no level, so set (creates) → another caller retires → retry of the set recreates the retired level. |
 
 **Applied: A.**
 
@@ -120,7 +120,13 @@ Admin-Console manages it per product, next to the product's other store settings
   `critical_above_reorder`; 429; 500. Writes are rate-limit class `write`.
 - **Concurrency:** `expectedUpdatedAt` = the active level's `updatedAt`, or `null` on a set when the caller saw
   none; compared at millisecond precision; mismatch → 409 `stale_write`. Each accepted write gives a strictly
-  later `updatedAt`. A retried set that already succeeded is therefore `stale_write`; a retried retire is the 404.
+  later `updatedAt`.
+- **Idempotency (sets):** `x-idempotency: required`; the shared `IdempotencyInterceptor` (method-generic, keyed on
+  actor, tenant, method, route and path parameters) replays the stored `200` with `Idempotent-Replayed: true`;
+  409 `idempotency_key_conflict`, 425 `idempotency_in_progress`, 400 `idempotency_key_required` /
+  `idempotency_key_malformed`, as `consoleCreateCatalogProduct`. Retires take no key: they need the active
+  level's `updatedAt`, which a recreated level never repeats, so a repeated retire reads 404 (or 409
+  `stale_write` once a new level exists), never a second retire.
 - **Audit:** one `audit_events` row per accepted write, in the same transaction:
   `catalog.stock_level.set`, `catalog.stock_level.retire`, `catalog.store_stock_level.set`,
   `catalog.store_stock_level.retire`; actor, tenant, product, store (store level), old and new values. A

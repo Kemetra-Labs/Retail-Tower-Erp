@@ -90,10 +90,11 @@ info:
 
     **Order of checks on a write.** (1) the session (401), the `Origin` of a
     cookie-authenticated write (403 `origin_rejected`) and the role (404);
-    (2) the path and body (400 `validation_error`); (3) the product and the
-    store (404); (4) the write's own rules: 409 `stale_write`, 409
+    (2) on a set only, the `Idempotency-Key` (400 / 409 / 425, or the
+    replay); (3) the path and body (400 `validation_error`); (4) the product
+    and the store (404); (5) the write's own rules: 409 `stale_write`, 409
     `product_retired` (set only), 422 `critical_above_reorder` (set only);
-    (5) the write and its audit row in one transaction. A refused write
+    (6) the write and its audit row in one transaction. A refused write
     writes nothing.
 
 
@@ -102,11 +103,27 @@ info:
     caller saw none. It is compared at the millisecond precision this
     surface renders. A value that is not the current state is 409
     `stale_write` and nothing is written; reload and retry. Every accepted
-    write gives the level a new, strictly later `updatedAt`, so a retried
-    set that already succeeded is `stale_write`, and a retried retire that
-    already succeeded is the non-disclosing 404 (no active level). Neither
-    is a second write. No `Idempotency-Key` is taken: the precondition makes
-    a retry safe.
+    write gives the level a new, strictly later `updatedAt`.
+
+
+    **Retries.** The precondition alone cannot make a set safe to retry:
+    `expectedUpdatedAt: null` matches every moment at which the scope has no
+    active level, so a set that created a level, followed by another
+    caller's retire, would let a retry of that set recreate the retired
+    level. Each set therefore REQUIRES an `Idempotency-Key`
+    (`x-idempotency: required`, the shared `IdempotencyInterceptor`, keyed on
+    the verified actor, the tenant, the method, the route and its path
+    parameters): an identical retry replays the stored `200` with
+    `Idempotent-Replayed: true` and writes nothing, whatever happened to the
+    level since. Key reuse with a different body is 409
+    `idempotency_key_conflict`; a key still being processed is 425
+    `idempotency_in_progress`; a missing key is 400
+    `idempotency_key_required`, a malformed one 400
+    `idempotency_key_malformed`. A retire needs no key: it requires the
+    active level's `updatedAt`, which a recreated level never has again, so
+    a retried retire that already succeeded is the non-disclosing 404 (no
+    active level) or, once a new level exists, 409 `stale_write`; never a
+    second retire.
 
 
     **Audit.** Every accepted write appends one `audit_events` row
@@ -122,10 +139,13 @@ info:
 
 
     **Error envelope.** The canonical `{ error: { code, message, request_id }
-    }`. 400 `validation_error`, 401 unauthenticated, 403 `origin_rejected`,
-    404 non-disclosing not-found, 409 `stale_write` / `product_retired`, 422
-    `critical_above_reorder`, 429 `rate_limited` (console rate limit;
-    honour `Retry-After`), 500 internal. `Cache-Control: no-store` on every
+    }`. 400 `validation_error` (and, on a set, `idempotency_key_required` /
+    `idempotency_key_malformed`), 401 unauthenticated, 403
+    `origin_rejected`, 404 non-disclosing not-found, 409 `stale_write` /
+    `product_retired` / `idempotency_key_conflict`, 422
+    `critical_above_reorder`, 425 `idempotency_in_progress` (its own body,
+    as `catalog/console-catalog.yaml`), 429 `rate_limited` (console rate
+    limit; honour `Retry-After`), 500 internal. `Cache-Control: no-store` on every
     200.
 
 servers:
@@ -184,6 +204,7 @@ paths:
     put:
       summary: Set a product's tenant default stock level.
       operationId: consoleSetTenantStockLevel
+      x-idempotency: required
       x-runtime-status: contract-only
       x-runtime-note: >
         RT-1064 is contract-only. The runtime ships with the
@@ -198,9 +219,12 @@ paths:
         tenant level's `updatedAt`, or `null` when the caller saw none; a
         mismatch either way is 409 `stale_write`. A retired product is 409
         `product_retired`. A `criticalLevel` above `reorderLevel` is 422
-        `critical_above_reorder`. Audited as `catalog.stock_level.set`.
+        `critical_above_reorder`. An identical retry with the same
+        `Idempotency-Key` replays the stored `200` with `Idempotent-Replayed:
+        true` and writes nothing. Audited as `catalog.stock_level.set`.
       parameters:
         - $ref: "#/components/parameters/ProductId"
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -209,16 +233,20 @@ paths:
               $ref: "#/components/schemas/SetStockLevelRequest"
       responses:
         "200":
-          description: Set. The body is the product's stock levels after the change.
+          description: >
+            Set. The body is the product's stock levels after the change. A
+            same-key retry replays this `200` with `Idempotent-Replayed: true`.
           headers:
             Cache-Control:
               $ref: "#/components/headers/CacheControlNoStore"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ProductStockLevels"
         "400":
-          $ref: "#/components/responses/WriteValidationFailure"
+          $ref: "#/components/responses/SetValidationFailure"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -229,6 +257,8 @@ paths:
           $ref: "#/components/responses/SetConflict"
         "422":
           $ref: "#/components/responses/CriticalAboveReorder"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -289,6 +319,7 @@ paths:
     put:
       summary: Set one store's stock level for a product.
       operationId: consoleSetStoreStockLevel
+      x-idempotency: required
       x-runtime-status: contract-only
       x-runtime-note: >
         RT-1064 is contract-only. The runtime ships with the
@@ -307,10 +338,13 @@ paths:
         `stale_write`. A retired product is 409 `product_retired`. A
         `criticalLevel` above `reorderLevel` is 422 `critical_above_reorder`.
         A store outside the caller's scope, of another tenant or soft-deleted
-        is the non-disclosing 404. Audited as `catalog.store_stock_level.set`.
+        is the non-disclosing 404. An identical retry with the same
+        `Idempotency-Key` replays the stored `200` with `Idempotent-Replayed:
+        true` and writes nothing. Audited as `catalog.store_stock_level.set`.
       parameters:
         - $ref: "#/components/parameters/ProductId"
         - $ref: "#/components/parameters/StoreIdPath"
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -319,16 +353,20 @@ paths:
               $ref: "#/components/schemas/SetStockLevelRequest"
       responses:
         "200":
-          description: Set. The body is the product's stock levels after the change.
+          description: >
+            Set. The body is the product's stock levels after the change. A
+            same-key retry replays this `200` with `Idempotent-Replayed: true`.
           headers:
             Cache-Control:
               $ref: "#/components/headers/CacheControlNoStore"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ProductStockLevels"
         "400":
-          $ref: "#/components/responses/WriteValidationFailure"
+          $ref: "#/components/responses/SetValidationFailure"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -339,6 +377,8 @@ paths:
           $ref: "#/components/responses/SetConflict"
         "422":
           $ref: "#/components/responses/CriticalAboveReorder"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -433,6 +473,17 @@ components:
         type: integer
         minimum: 1
         maximum: 3600
+    IdempotentReplayed:
+      description: >
+        Present and `true` on a same-`Idempotency-Key` replay of a set, which
+        carries the stored `200`. Absent on a first-time set.
+      schema:
+        type: boolean
+    RetryAfterInProgress:
+      description: Seconds to wait before retrying a 425 with the same `Idempotency-Key` and body.
+      schema:
+        type: integer
+        minimum: 1
 
   parameters:
     ProductId:
@@ -457,6 +508,25 @@ components:
         The store (`stores.id`) of the level. Case insensitive. A store
         outside the caller's store scope, of another tenant or soft-deleted
         is the non-disclosing 404.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: "^[\\x21-\\x7E]{16,128}$"
+      description: >
+        REQUIRED on both sets: 16 to 128 printable ASCII characters with no
+        whitespace, as the shared `IdempotencyInterceptor` enforces. Keyed on
+        the verified actor and tenant, the method, the route and its path
+        parameters. An identical retry replays the stored `200` with
+        `Idempotent-Replayed: true`; key reuse with a different body is 409
+        `idempotency_key_conflict`; a key still being processed is 425
+        `idempotency_in_progress`. A missing key is 400
+        `idempotency_key_required`, a malformed one 400
+        `idempotency_key_malformed`. Use a new key for each intended change.
 
   schemas:
     LevelQuantity:
@@ -572,6 +642,19 @@ components:
         expectedUpdatedAt:
           $ref: "#/components/schemas/ExpectedUpdatedAt"
 
+    IdempotencyInProgressBody:
+      type: object
+      additionalProperties: false
+      required: [error, retryAfterSec]
+      description: The shared `IdempotencyInterceptor`'s 425 body (not the `Error` envelope).
+      properties:
+        error:
+          type: string
+          const: idempotency_in_progress
+        retryAfterSec:
+          type: integer
+          minimum: 1
+
     Error:
       type: object
       required: [error]
@@ -614,6 +697,29 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    SetValidationFailure:
+      description: >
+        400 on a set, `error.code` one of: `validation_error` (as
+        `WriteValidationFailure`); `idempotency_key_required` (no
+        `Idempotency-Key`); `idempotency_key_malformed` (a key outside 16 to
+        128 printable ASCII characters). Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    IdempotencyInProgress:
+      description: >
+        425 `idempotency_in_progress`: the first set with this
+        `Idempotency-Key` is still being processed. Retry after
+        `Retry-After` seconds with the same key and body. Nothing is
+        written by this request.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfterInProgress"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/IdempotencyInProgressBody"
     Unauthorized:
       description: >
         Unauthenticated (401): no valid session cookie, whether or not a
@@ -655,8 +761,9 @@ components:
       description: >
         409, `error.code` one of: `stale_write` (`expectedUpdatedAt` does
         not match the active level, or its absence; reload and retry);
-        `product_retired` (no level is set on a retired product). Nothing
-        is written.
+        `product_retired` (no level is set on a retired product);
+        `idempotency_key_conflict` (the same `Idempotency-Key` was used with
+        a different body). Nothing is written.
       content:
         application/json:
           schema:
