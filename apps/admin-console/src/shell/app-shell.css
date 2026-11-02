@@ -292,9 +292,7 @@
 /* RT-993: the system-status frame, «قريبًا» until a read serves it (RT-1056). */
 .sidebar__status {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   gap: var(--space-2);
   margin-block-end: var(--space-2);
   padding: var(--space-3);
@@ -303,14 +301,62 @@
   color: var(--color-ink-muted);
   font-size: var(--text-meta);
 }
+.sidebar__status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
 .sidebar__status-title {
   color: var(--color-on-ink);
   font-weight: var(--weight-medium);
 }
-.sidebar__status-soon {
+.sidebar__status-refresh {
   padding: 2px var(--space-2);
-  border: 1px dashed color-mix(in srgb, var(--color-on-ink) 40%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-on-ink) 40%, transparent);
   border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-on-ink);
+  font: inherit;
+  cursor: pointer;
+}
+.sidebar__status-refresh:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.sidebar__status-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sidebar__status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0 var(--space-2);
+}
+.sidebar__status-name {
+  color: var(--color-on-ink);
+}
+.sidebar__status-link {
+  color: inherit;
+  text-decoration: underline;
+}
+.sidebar__status-state {
+  font-weight: var(--weight-medium);
+}
+.sidebar__status-reason {
+  flex-basis: 100%;
+}
+.sidebar__status-note {
+  display: block;
+}
+.sidebar__status-stale {
+  font-style: italic;
 }
 .nav-group {
   display: flex;
@@ -481,11 +527,13 @@
     border-inline-end: 1px solid CanvasText;
   }
   .sidebar__status,
-  .sidebar__status-soon {
+  .sidebar__status-refresh {
     border-color: CanvasText;
   }
   .sidebar__status,
-  .sidebar__status-title {
+  .sidebar__status-title,
+  .sidebar__status-name,
+  .sidebar__status-refresh {
     color: CanvasText;
   }
   /* The sidebar's text is named as a system colour, not left to the browser's
