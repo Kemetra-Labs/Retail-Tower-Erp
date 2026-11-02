@@ -1,0 +1,5 @@
+# Console rate-limit class of each cookieAuth operation in
+# packages/contracts/openapi/console-system-status.openapi.yaml (RT-805; checked by console-rate-limit.ratchet.spec.ts).
+
+# RT-1056 D-4: a few bounded tenant-scoped checks, read on shell load and on Refresh only (no polling).
+consoleGetSystemStatus: cheapRead
