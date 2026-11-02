@@ -19,14 +19,12 @@ info:
     ratio itself (UX-13.5: every figure has a defined metric contract).
 
 
-    **Posture.** `1.0.0-draft`, `x-runtime-status: contract-only`. `[GATED]`
-    contract, decisions selected under the owner delegation of 2026-11-02
-    (captain session; recommended options; the owner may revisit). No
-    controller, guard wiring, service or query serves this path yet. The
-    runtime needs the threshold persistence first (LS-1 follow-up, decided
-    by RT-1064: the `product_stock_levels` table and its migration ship in
-    their own Implementation issue); it is a separate Implementation issue
-    and removes only the operation's marker.
+    **Posture.** `1.0.0-draft`. `[GATED]` contract, decisions selected under
+    the owner delegation of 2026-11-02 (captain session; recommended
+    options; the owner may revisit). The runtime serves this path since
+    RT-1069, over the thresholds of `product_stock_levels` (RT-1066,
+    migration 0078) and the stock ledger (the operation's `contract-only`
+    marker was removed there).
 
 
     **Thresholds (LS-1).** Retail Tower operational data, never ERPNext
@@ -137,11 +135,6 @@ paths:
     get:
       summary: The caller's (store, product) pairs below their reorder level, most severe first.
       operationId: consoleListLowStock
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1055 is contract-only. The runtime ships in a separate
-        Implementation issue, after the threshold fields and their migration
-        (RT-1055 decision LS-1 follow-up) are approved and merged.
       tags: [console-inventory]
       description: >
         The top `limit` low pairs of the caller's scope (or of `store_id`),
