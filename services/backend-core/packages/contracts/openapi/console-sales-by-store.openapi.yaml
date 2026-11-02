@@ -18,10 +18,9 @@ info:
     and never sums, subtracts or divides them (AI-13; spec 009 §6.3 / AC-9).
 
 
-    **Posture.** `1.0.0-draft`, `x-runtime-status: contract-only`. `[GATED]`
-    contract approved by the owner on 2026-10-31 (RT-996 D-1, RT-1008). No
-    controller, guard wiring, service or query serves this path yet; the
-    runtime is a separate issue and removes only the operation's marker.
+    **Posture.** `1.0.0-draft`. `[GATED]` contract approved by the owner on
+    2026-10-31 (RT-996 D-1, RT-1008). The runtime serves this path since
+    RT-1053 (the operation's `contract-only` marker was removed there).
 
 
     **Relation to `console-sales-summary.openapi.yaml` (RT-649).** That
@@ -82,7 +81,9 @@ info:
     `state` relative to THAT store's `currentBusinessDate` at `asOf`:
     `complete` (an earlier date), `so_far` (the store's current business
     date: received so far, the day is not over) or `not_begun` (a later
-    date; its figures are zero). A range with a `so_far` date is shown as
+    date; its figures are zero unless sales are stored for that date, for
+    example after the store's timezone moved west or a terminal clock ran
+    ahead; the store's days always add up to its total). A range with a `so_far` date is shown as
     including days so far (D-2b); there is no time-of-day cut on the
     baseline. There is no per-day unknown flag in v1 (D-3); the
     `received_only` statement covers it.
@@ -368,7 +369,9 @@ components:
           description: >
             Relative to the store's `currentBusinessDate` at `asOf`: an
             earlier date is `complete`, that date is `so_far`, a later date is
-            `not_begun` (zero figures).
+            `not_begun` (zero figures unless sales are stored for that date,
+            for example after the store's timezone moved west or a terminal
+            clock ran ahead; the store's days always add up to its total).
         count:
           $ref: "#/components/schemas/Count"
         total:
