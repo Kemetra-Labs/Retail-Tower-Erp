@@ -69,6 +69,24 @@ describe("RT-1073 low-stock logic", () => {
     expect(asLowStock({ ...base, unknownOnHandCount: undefined })).toBeUndefined();
     expect(asLowStock({ ...base, items: [null] })).toBeUndefined();
     expect(asLowStock({ ...base, items: ["x"] })).toBeUndefined();
+    const good = {
+      storeId: "s",
+      storeName: "Cairo",
+      storeStatus: "active",
+      productId: "p",
+      productName: "Oil",
+      stockingUnit: null,
+      sellableOnHand: "1.0000",
+      reorderLevel: "5.0000",
+      criticalLevel: null,
+      thresholdSource: "tenant",
+      band: "low",
+      levelRatio: "0.2000",
+    };
+    expect(asLowStock({ ...base, items: [good] })).toBeDefined();
+    expect(asLowStock({ ...base, items: [{ ...good, productName: {} }] })).toBeUndefined();
+    expect(asLowStock({ ...base, items: [{ ...good, band: "x" }] })).toBeUndefined();
+    expect(asLowStock({ ...base, items: [{ ...good, stockingUnit: 3 }] })).toBeUndefined();
     expect(asLowStock(base)).toBeDefined();
   });
   test("role gate mirrors the contract", () => {

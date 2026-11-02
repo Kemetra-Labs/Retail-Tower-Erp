@@ -177,6 +177,21 @@ describe("RT-1073 low-stock panel", () => {
     expect(consoleListLowStock).not.toHaveBeenCalled();
   });
 
+  test("a role change re-reads instead of reusing the other authority's cached answer", async () => {
+    consoleListLowStock.mockImplementation(() => ok(list()));
+    const client = createQueryClient();
+    const view = (role: string) => (
+      <QueryClientProvider client={client}>
+        <LowStockPanel session={{ ...session, role }} />
+      </QueryClientProvider>
+    );
+    const r = render(view("owner"));
+    await screen.findByText("Product 2");
+    expect(consoleListLowStock).toHaveBeenCalledTimes(1);
+    r.rerender(view("store_manager"));
+    await waitFor(() => expect(consoleListLowStock).toHaveBeenCalledTimes(2));
+  });
+
   test("the active store narrows the read", async () => {
     consoleListLowStock.mockImplementation(() => ok(list()));
     renderPanel({ ...session, activeStoreId: S });

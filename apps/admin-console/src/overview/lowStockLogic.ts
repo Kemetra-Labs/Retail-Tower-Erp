@@ -33,12 +33,33 @@ export function fillPercent(levelRatio: string): number {
   return Math.min(100, Math.max(0, n * 100));
 }
 
+const TEXT_FIELDS = [
+  "storeId",
+  "storeName",
+  "productId",
+  "productName",
+  "sellableOnHand",
+  "reorderLevel",
+  "levelRatio",
+] as const;
+
+/** Every field `Item` renders or keys on has the type the contract gives it. */
+function isRenderableItem(item: unknown): boolean {
+  if (item === null || typeof item !== "object") return false;
+  const i = item as Record<string, unknown>;
+  if (!TEXT_FIELDS.every((k) => typeof i[k] === "string")) return false;
+  if (i.band !== "critical" && i.band !== "low") return false;
+  if (i.storeStatus !== "active" && i.storeStatus !== "inactive") return false;
+  return i.stockingUnit === null || typeof i.stockingUnit === "string";
+}
+
 /** The server body when it has the expected shape, else undefined (a malformed answer is an error). */
 export function asLowStock(data: unknown): LowStockList | undefined {
   const d = data as Partial<LowStockList> | undefined;
   if (!d || !Array.isArray(d.items)) return undefined;
-  // A null or non-object item would throw in `Item`; a malformed answer is an error state instead.
-  if (!d.items.every((item) => item !== null && typeof item === "object")) return undefined;
+  // A malformed item would throw in `Item` (a React child that is an object, a missing band);
+  // a malformed answer is the panel's error state instead.
+  if (!d.items.every(isRenderableItem)) return undefined;
   for (const k of [
     "belowReorderCount",
     "criticalCount",

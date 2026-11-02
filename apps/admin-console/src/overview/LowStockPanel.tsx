@@ -22,7 +22,9 @@ import { type PanelState, overviewKey, readResult, usePanelQuery } from "./usePa
 
 export function useLowStock(session: OverviewSession): PanelState<LowStockList> {
   return usePanelQuery({
-    key: overviewKey("low-stock", session),
+    // The role is part of the key: it decides what the server returns (store scope), so a cached
+    // answer must never cross a change of authority.
+    key: [...overviewKey("low-stock", session), session.role],
     gate: canReadLowStock(session.role) ? "run" : "skip",
     read: async () =>
       readResult(
