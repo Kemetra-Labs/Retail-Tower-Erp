@@ -315,8 +315,10 @@ export class DrainerProcessor {
       const consumer = this.registry.resolve(row.event_type);
 
       if (!consumer) {
-        // No consumer registered for this event type. Mark failed with backoff
-        // rather than dead-lettering immediately — allows operator investigation.
+        // No consumer registered for this event type. Retry with backoff while
+        // budget remains (allows operator investigation); on the final attempt
+        // dead-letter directly (RT-1065) — markFailed would throw there and the
+        // row would linger claimed until ClaimLeaseExpired.
         const errorClass = "UnroutableEventType";
         this.logError(
           `drainer: no consumer for event_type="${row.event_type}" event_id="${row.event_id}"`,
@@ -329,8 +331,14 @@ export class DrainerProcessor {
         // per the approved D3 decision.
         const sanitizedClass = sanitizeErrorClass(errorClass);
         recordQueueFailed({ queue: DRAINER_QUEUE_LABEL, error_class: sanitizedClass });
-        recordQueueRetry({ queue: DRAINER_QUEUE_LABEL });
-        await this.safeMarkFailed(row.event_id, row.attempts, errorClass);
+        if (isFinalOutboxAttempt(row.attempts)) {
+          recordQueueDeadLetter({ queue: DRAINER_QUEUE_LABEL });
+          recordOutboxDeadLetter({ event_type: row.event_type });
+          await this.safeMarkDeadLettered(row.event_id, row.attempts, errorClass);
+        } else {
+          recordQueueRetry({ queue: DRAINER_QUEUE_LABEL });
+          await this.safeMarkFailed(row.event_id, row.attempts, errorClass);
+        }
         return;
       }
 
