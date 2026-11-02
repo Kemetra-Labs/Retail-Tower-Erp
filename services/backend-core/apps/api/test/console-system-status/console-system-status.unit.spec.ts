@@ -186,6 +186,29 @@ describe("RT-1062 ConsoleSystemStatusService check bound (D-4)", () => {
     expect(body.overall).toBe("unknown");
   });
 
+  it("a connection that arrives after the deadline runs no status query and is released", async () => {
+    const statements: string[] = [];
+    let released = 0;
+    const client = {
+      query: (sql: string) => {
+        statements.push(sql);
+        return Promise.resolve({ rows: [] });
+      },
+      release: () => {
+        released += 1;
+      },
+    };
+    const pool = {
+      connect: () => new Promise((resolve) => setTimeout(() => resolve(client), 120)),
+    } as unknown as Pool;
+    const body = await new ConsoleSystemStatusService(pool, 30).read({ tenantId: TENANT });
+    expect(body.components.saleSync.reason).toBe("check_timed_out");
+    expect(body.components.erpConnector.reason).toBe("check_timed_out");
+    await new Promise((r) => setTimeout(r, 200));
+    expect(released).toBe(2);
+    expect(statements.some((s) => /outbox_events|sale_sync_deadletters|connector_registration|statement_timeout/.test(s))).toBe(false);
+  });
+
   /** A fake client: `onQuery` answers each statement after the tenant GUCs and the timeout. */
   function poolWith(onQuery: (sql: string) => Promise<{ rows: unknown[] }>): { pool: Pool; statements: string[] } {
     const statements: string[] = [];

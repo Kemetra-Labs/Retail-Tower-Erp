@@ -138,7 +138,13 @@ export class ConsoleSystemStatusService {
    */
   private bounded<T>(tenantId: string, work: (client: PoolClient) => Promise<T>): Promise<T | TimedOut> {
     const ms = this.checkTimeoutMs;
+    // Set when the timer wins: a check whose connection arrives after the
+    // deadline returns at once (its transaction still ends and the client is
+    // released by runWithTenantContext), so no status query runs for an
+    // answer that was already sent.
+    let abandoned = false;
     const check: Promise<T | TimedOut> = runWithTenantContext<T | TimedOut>(this.pool, { tenantId, isPlatformAdmin: false }, async (client) => {
+      if (abandoned) return TIMED_OUT;
       await client.query(`SELECT set_config('statement_timeout', $1, true)`, [`${ms}ms`]);
       return work(client);
     }).catch((err: unknown): TimedOut => {
@@ -147,7 +153,10 @@ export class ConsoleSystemStatusService {
     });
     let timer: NodeJS.Timeout | undefined;
     const deadline = new Promise<TimedOut>((resolve) => {
-      timer = setTimeout(() => resolve(TIMED_OUT), ms);
+      timer = setTimeout(() => {
+        abandoned = true;
+        resolve(TIMED_OUT);
+      }, ms);
     });
     // The losing side settles later; never leave its rejection unhandled.
     check.catch(() => undefined);
