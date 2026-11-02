@@ -16,7 +16,9 @@
  *      REQUIRED on the list (OD-556-2); the detail takes the saleRef alone.
  *   3. The list filters, the 31-day range, the cursor binding and the page bounds.
  *   4. The shared vocabulary is IDENTICAL to `pos-sales/sale-history.yaml`
- *      (descriptions aside), minus the POS-only parts and plus the store.
+ *      (descriptions aside), minus the POS-only parts and plus the store and
+ *      the console-only 1.2.0-draft fields (RT-1061: `syncStatusVersion`,
+ *      `erpPostingFailure`).
  *   5. Projections are strict and use exact-decimal string money.
  *   6. AJV fixtures: valid payloads pass, each invalid one fails.
  *   7. The POS sale-history contract is unchanged (OD-556-1).
@@ -63,9 +65,19 @@ const SHARED_SCHEMAS = [
   "ErpPostingView",
 ] as const;
 
-type SchemaName = "ConsoleSalePage" | "ConsoleSaleItem" | "ConsoleSaleDetail" | "Error";
+type SchemaName =
+  | "ConsoleSalePage"
+  | "ConsoleSaleItem"
+  | "ConsoleSaleDetail"
+  | "ConsoleErpPostingFailure"
+  | "ConsoleErpPostingFailureDetail"
+  | "Error";
 
 const POS_ONLY_FIELDS = ["visibility", "receiptFacts", "reprint"] as const;
+
+/** RT-1061 (1.2.0-draft): the console-only additions to the shared shapes. */
+const CONSOLE_ONLY_ITEM_FIELDS = ["storeRef", "syncStatusVersion"] as const;
+const CONSOLE_ONLY_DETAIL_FIELDS = ["storeTimezone", "erpPostingFailure"] as const;
 
 let doc: OpenApiDocument;
 let historyDoc: OpenApiDocument;
@@ -119,6 +131,7 @@ const ITEM = {
   voided: false,
   returnState: "none",
   erpPostingState: "posted",
+  syncStatusVersion: 2,
 } as const;
 
 const PAGE = {
@@ -158,6 +171,35 @@ const DETAIL = {
   void: null,
   returns: [],
   erpPosting: { sale: "posted", saleDocumentRef: "ACC-SINV-2026-00042", reversal: null, reversalDocumentRef: null },
+  erpPostingFailure: null,
+} as const;
+
+const WORK_ITEM_REF = "0190f5a2-3b4c-7d8e-9f01-000000000007";
+
+/** RT-977: a full disclosure of a failed sale posting, with its repair handle. */
+const FAILURE_FULL = {
+  disclosure: "full",
+  sale: {
+    rejectionCategory: "validation",
+    deadLetteredAt: "2026-10-15T09:40:00.000Z",
+    reason: "ValidationError: Item WIDGET-1 not found",
+    reconciliationDocumentRef: null,
+    repair: { workItemRef: WORK_ITEM_REF },
+  },
+  reversal: null,
+} as const;
+
+/** RT-977: the store_manager view of a reconciliation_required reversal. */
+const FAILURE_CATEGORY_ONLY = {
+  disclosure: "category_only",
+  sale: null,
+  reversal: {
+    rejectionCategory: "reconciliation_required",
+    deadLetteredAt: "2026-10-15T09:40:00.000Z",
+    reason: null,
+    reconciliationDocumentRef: null,
+    repair: null,
+  },
 } as const;
 
 /** A voided, partially returned, tender-unknown pre-RT-77 sale with an unknown ERP state. */
@@ -171,6 +213,7 @@ const LEGACY_DETAIL = {
     voided: true,
     returnState: "partial",
     erpPostingState: "unknown",
+    syncStatusVersion: 0,
   },
   lines: [{ ...LINE, sequence: null, returnedQuantity: "1" }],
   lineOrder: "not_recorded",
@@ -197,9 +240,13 @@ const LEGACY_DETAIL = {
 // 1. Document + operations
 // ===========================================================================
 describe("console-sales — document and operations", () => {
-  it("is an OpenAPI 3.1 document at version 1.1.0-draft (RT-620)", () => {
+  it("is an OpenAPI 3.1 document at version 1.2.0-draft (RT-1061; RT-620 was 1.1.0-draft)", () => {
     expect(doc.openapi).toBe("3.1.0");
-    expect(doc.info?.version).toBe("1.1.0-draft");
+    expect(doc.info?.version).toBe("1.2.0-draft");
+    const info = String(doc.info?.description).replace(/\s+/g, " ");
+    expect(info).toContain("1.2.0-draft (RT-1061: RT-973 slice 1 + RT-977 slice 1, additive");
+    expect(info).toContain("`ConsoleSaleItem.syncStatusVersion`");
+    expect(info).toContain("`ConsoleSaleDetail.erpPostingFailure`");
   });
 
   it("declares exactly the list and detail reads, and nothing else", () => {
@@ -403,11 +450,11 @@ describe("console-sales — shared vocabulary with the POS sale history", () => 
     expect(api.shape(api.schema(name))).toEqual(pos.shape(pos.schema(name)));
   });
 
-  it("ConsoleSaleItem is the SaleHistoryItem plus storeRef", () => {
+  it("ConsoleSaleItem is the SaleHistoryItem plus storeRef and syncStatusVersion (RT-1061)", () => {
     const item = api.schema("ConsoleSaleItem");
     const history = pos.schema("SaleHistoryItem");
     expect(Object.keys(item.properties ?? {}).sort()).toEqual(
-      [...Object.keys(history.properties ?? {}), "storeRef"].sort(),
+      [...Object.keys(history.properties ?? {}), ...CONSOLE_ONLY_ITEM_FIELDS].sort(),
     );
     for (const [key, value] of Object.entries(history.properties ?? {})) {
       expect({ key, shape: api.shape(item.properties![key]) }).toEqual({ key, shape: pos.shape(value) });
@@ -415,11 +462,26 @@ describe("console-sales — shared vocabulary with the POS sale history", () => 
     expect(item.properties!["storeRef"]).toMatchObject({ type: "string", format: "uuid" });
   });
 
-  it("ConsoleSaleDetail is the SaleHistoryDetail minus receiptFacts / reprint, plus storeTimezone", () => {
+  it("RT-1061: ConsoleSaleItem.syncStatusVersion has the schema of sale-sync-ops SaleSyncStatus.syncStatusVersion", () => {
+    const syncOps = contractReader(contractDocument(allContracts(), "sale-sync-ops"));
+    const { description: _a, ...console } = api.schema("ConsoleSaleItem").properties!["syncStatusVersion"]!;
+    const { description: _b, ...ops } = syncOps.schema("SaleSyncStatus").properties!["syncStatusVersion"]!;
+    expect(console).toEqual({ type: "integer", minimum: 0, maximum: 9007199254740991 });
+    expect(console).toEqual(ops);
+    // Optional on sale-sync-ops for good (repair replays stored before RT-1061), required here.
+    expect(syncOps.schema("SaleSyncStatus").required ?? []).not.toContain("syncStatusVersion");
+    expect(api.schema("ConsoleSaleItem").required).toContain("syncStatusVersion");
+  });
+
+  it("RT-1061: neither console-only field is in pos-sales/sale-history.yaml", () => {
+    expect(JSON.stringify(historyDoc)).not.toMatch(/syncStatusVersion|erpPostingFailure|ConsoleErpPostingFailure/);
+  });
+
+  it("ConsoleSaleDetail is the SaleHistoryDetail minus receiptFacts / reprint, plus storeTimezone and erpPostingFailure (RT-1061)", () => {
     const detail = api.schema("ConsoleSaleDetail");
     const history = pos.schema("SaleHistoryDetail");
     const kept = Object.keys(history.properties ?? {}).filter((k) => !POS_ONLY_FIELDS.includes(k as never));
-    expect(Object.keys(detail.properties ?? {}).sort()).toEqual([...kept, "storeTimezone"].sort());
+    expect(Object.keys(detail.properties ?? {}).sort()).toEqual([...kept, ...CONSOLE_ONLY_DETAIL_FIELDS].sort());
     for (const key of kept.filter((k) => k !== "summary")) {
       expect({ key, shape: api.shape(detail.properties![key]) }).toEqual({
         key,
@@ -497,6 +559,54 @@ describe("console-sales — AJV fixtures", () => {
     expect(validator("ConsoleSalePage")({ ...PAGE, items: [], nextCursor: null })).toBe(true);
     expect(validator("ConsoleSaleDetail")(DETAIL)).toBe(true);
     expect(validator("ConsoleSaleDetail")(LEGACY_DETAIL)).toBe(true);
+  });
+
+  it("RT-1061: accepts a detail with each erpPostingFailure tier, and an item at version 0 and at the JSON-safe maximum", () => {
+    expect(validator("ConsoleSaleDetail")({ ...DETAIL, erpPostingFailure: FAILURE_FULL })).toBe(true);
+    expect(validator("ConsoleSaleDetail")({ ...DETAIL, erpPostingFailure: FAILURE_CATEGORY_ONLY })).toBe(true);
+    expect(
+      validator("ConsoleSaleDetail")({ ...DETAIL, erpPostingFailure: { disclosure: "full", sale: null, reversal: null } }),
+    ).toBe(true);
+    expect(validator("ConsoleSaleItem")({ ...ITEM, syncStatusVersion: 0 })).toBe(true);
+    expect(validator("ConsoleSaleItem")({ ...ITEM, syncStatusVersion: 9007199254740991 })).toBe(true);
+    expect(
+      validator("ConsoleErpPostingFailureDetail")({
+        ...FAILURE_CATEGORY_ONLY.reversal,
+        reason: "x",
+        reconciliationDocumentRef: { doctype: "Sales Invoice", name: "SINV-1" },
+        rejectionCategory: null,
+      }),
+    ).toBe(true);
+  });
+
+  it.each([
+    { label: "no syncStatusVersion", payload: without(ITEM, "syncStatusVersion") },
+    { label: "a negative syncStatusVersion", payload: { ...ITEM, syncStatusVersion: -1 } },
+    { label: "a fractional syncStatusVersion", payload: { ...ITEM, syncStatusVersion: 1.5 } },
+    { label: "a string syncStatusVersion", payload: { ...ITEM, syncStatusVersion: "2" } },
+    { label: "a syncStatusVersion above 2^53 - 1", payload: { ...ITEM, syncStatusVersion: 9007199254740992 } },
+  ])("RT-1061: rejects an item with $label", ({ payload }) => {
+    expect(validator("ConsoleSaleItem")(payload)).toBe(false);
+  });
+
+  it.each([
+    { label: "no erpPostingFailure", payload: without(DETAIL, "erpPostingFailure") },
+    { label: "an unknown disclosure", payload: { ...DETAIL, erpPostingFailure: { ...FAILURE_FULL, disclosure: "partial" } } },
+    { label: "a failure without disclosure", payload: { ...DETAIL, erpPostingFailure: without(FAILURE_FULL, "disclosure") } },
+    {
+      label: "a non-uuid repair handle",
+      payload: { ...DETAIL, erpPostingFailure: { ...FAILURE_FULL, sale: { ...FAILURE_FULL.sale, repair: { workItemRef: "x" } } } },
+    },
+    {
+      label: "a reason over 1000 characters",
+      payload: { ...DETAIL, erpPostingFailure: { ...FAILURE_FULL, sale: { ...FAILURE_FULL.sale, reason: "x".repeat(1001) } } },
+    },
+    {
+      label: "an unknown key on a failure side",
+      payload: { ...DETAIL, erpPostingFailure: { ...FAILURE_FULL, sale: { ...FAILURE_FULL.sale, workItemRef: WORK_ITEM_REF } } },
+    },
+  ])("RT-1061: rejects a detail with $label", ({ payload }) => {
+    expect(validator("ConsoleSaleDetail")(payload)).toBe(false);
   });
 
   it.each([

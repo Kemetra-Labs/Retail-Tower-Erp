@@ -70,6 +70,7 @@ import {
   ReResolveConflictError,
   type RecordedReResolution,
 } from "./posting-re-resolution.service";
+import { POSTING_BACKLOG_ROLES } from "./posting-backlog-access";
 import type { PostingBacklogItem } from "./reconciliation-report.projection";
 import { ConsoleRateLimit } from "../../console-rate-limit/console-rate-limit.decorator";
 
@@ -111,7 +112,7 @@ export class ErpnextReconciliationController {
   /** GET — the posting dead-letter backlog of the caller's scoped stores (US1; a read-projection over 015, RT-192). */
   @Get("api/v1/catalog/erpnext-reconciliation/postings/backlog")
   @UseGuards(RolesGuard)
-  @Roles("owner", "tenant_admin")
+  @Roles(...POSTING_BACKLOG_ROLES)
   @Auditable("erpnext_reconciliation.backlog.listed")
   // RT-619 (RT-574 D3): listPostingBacklog.
   @ConsoleRateLimit("expensiveRead")
@@ -140,7 +141,7 @@ export class ErpnextReconciliationController {
   @Post("api/v1/catalog/erpnext-reconciliation/postings/:workItemRef/repair")
   @Idempotent("required")
   @UseGuards(RolesGuard)
-  @Roles("owner", "tenant_admin")
+  @Roles(...POSTING_BACKLOG_ROLES)
   @HttpCode(201)
   async repairPosting(
     @Req() request: TenantContextRequest,

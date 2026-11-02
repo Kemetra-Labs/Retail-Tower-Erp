@@ -598,6 +598,16 @@ describe("reconciliation.yaml — RT-177 description-only edits (D3)", () => {
       expect(description).toContain(field);
     }
     expect(description).toMatch(/entries are never returned/);
-    expect(doc.info?.version).toBe("1.5.0-draft");
+  });
+
+  it("RT-1061 (RT-977 D3): 1.6.0-draft names consoleGetSale.erpPostingFailure as the second reader, same readers", () => {
+    expect(doc.info?.version).toBe("1.6.0-draft");
+    const reason = String(looseSchema("PostingBacklogItem").properties?.["reason"]?.["description"]).replace(/\s+/g, " ");
+    expect(reason).toContain("`console-sales` `consoleGetSale.erpPostingFailure`");
+    expect(reason).toContain("limited to `owner` and `tenant_admin`, and to a human platform-admin session through the `RolesGuard` bypass (never a token principal)");
+    expect(reason).toContain("`store_manager` sees the category only");
+    expect(String((doc.info as { description?: string } | undefined)?.description)).toContain(
+      "1.6.0-draft (RT-1061, RT-977 decision D3, description only)",
+    );
   });
 });

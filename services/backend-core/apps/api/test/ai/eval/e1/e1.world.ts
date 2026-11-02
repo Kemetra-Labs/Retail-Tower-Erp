@@ -57,6 +57,8 @@ function summaryOf(s: Scenario): Json {
     voided: s.voided === true,
     returnState: s.returns === true ? "partial" : "none",
     erpPostingState: s.erp,
+    // RT-1061 (console-sales 1.2.0-draft): console-only; the R1 pack allowlist drops it.
+    syncStatusVersion: s.sync === "captured" ? 0 : 1,
   };
 }
 
@@ -81,6 +83,21 @@ function erpPostingOf(s: Scenario): Json {
     reversal,
     reversalDocumentRef: reversal === "posted" ? `SINV-RET-${s.n}` : null,
   };
+}
+
+/**
+ * RT-1061 (console-sales 1.2.0-draft, RT-977): the failure of a failed side, as
+ * a `category_only` reader sees it (no reason, no evidence, no handle). The R1
+ * pack allowlist drops the whole field, so no reason text can reach a pack.
+ */
+function erpPostingFailureOf(s: Scenario): Json {
+  const reversal = s.voided === true ? (s.reversal ?? "unknown") : null;
+  if (s.erp !== "failed" && reversal !== "failed") return null;
+  const side = (failed: boolean): Json =>
+    failed
+      ? { rejectionCategory: "validation", deadLetteredAt: T_DEAD_LETTERED, reason: null, reconciliationDocumentRef: null, repair: null }
+      : null;
+  return { disclosure: "category_only", sale: side(s.erp === "failed"), reversal: side(reversal === "failed") };
 }
 
 function saleDetailOf(s: Scenario): Json {
@@ -119,6 +136,7 @@ function saleDetailOf(s: Scenario): Json {
         : null,
     returns: returnsOf(s),
     erpPosting: erpPostingOf(s),
+    erpPostingFailure: erpPostingFailureOf(s),
   };
 }
 

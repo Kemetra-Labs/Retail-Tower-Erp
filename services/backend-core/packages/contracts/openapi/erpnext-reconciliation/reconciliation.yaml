@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — ERPNext Reconciliation & Repair API
-  version: "1.5.0-draft"
+  version: "1.6.0-draft"
   description: >
     Spec 017 (erpnext-reconciliation-and-repair) — the ERPNext arc's OPERATIONAL
     reconciliation surface (011→017): run → report → repair. The human
@@ -107,6 +107,17 @@ info:
     **1.5.0-draft (RT-189, description only).** `ReconciliationRun.summary`
     states that `getReconciliationRun` returns `bin_view_report` as metadata
     only. No schema change.
+
+    **1.6.0-draft (RT-1061, RT-977 decision D3, description only).**
+    `PostingBacklogItem.reason` "Handling" names a second reader of the
+    stored message: `console-sales` `consoleGetSale.erpPostingFailure`
+    (1.2.0-draft), for the sale's own posting and its void's reversal. The
+    readers are unchanged: `owner`, `tenant_admin`, and a human
+    platform-admin session through the `RolesGuard` bypass (never a token
+    principal), now named explicitly. The §XIV re-review of the 0019 / 0071
+    classification is recorded in the RT-1061 PR: the classification is
+    unchanged, the reader set gains one surface, the readers are unchanged.
+    No schema change.
 
 servers:
   - url: https://api.example.com
@@ -814,11 +825,17 @@ components:
 
 
             Handling: readable only through this tenant-scoped, cookieAuth
-            read model. Backend-Core never writes it to a log (length or hash
-            only), audit metadata, a metric label, Sentry or Datadog. A
-            consumer renders it as plain text, never as HTML, shows it only to
-            the roles that can read this backlog, and does not copy it into
-            exports or analytics.
+            read model and through `console-sales`
+            `consoleGetSale.erpPostingFailure` (RT-977 D3, 1.6.0-draft), both
+            limited to `owner` and `tenant_admin`, and to a human
+            platform-admin session through the `RolesGuard` bypass (never a
+            token principal). `consoleGetSale` returns it exactly as stored
+            here (no second sanitiser) and withholds it from every other role
+            (`store_manager` sees the category only). Backend-Core never
+            writes it to a log (length or hash only), audit metadata, a metric
+            label, Sentry or Datadog. A consumer renders it as plain text,
+            never as HTML, shows it only to those readers, and does not copy
+            it into exports or analytics.
 
 
             Runtime: the RT-410 storage (migration 0071) and write path have

@@ -32,6 +32,9 @@ export const SALE_SELECT_SQL = `
          s.received_at, s.device_id, d.label AS device_label, s.created_by,
          u.display_name AS user_display_name, s.currency_code, s.pos_total::text AS pos_total,
          s.sync_status,
+         -- RT-1061 (RT-973): read for the console item; the POS sale-history
+         -- projection never emits it (its contract does not change).
+         s.sync_status_version::text AS sync_status_version,
          s.receipt_sale_number, s.receipt_number, s.receipt_terminal_label,
          s.receipt_operator_display_name, s.receipt_settled_at, s.receipt_branch_name,
          s.receipt_branch_address, s.receipt_tax_registration_id,
@@ -146,16 +149,25 @@ export function listQuery(input: ListSaleHistoryInput, keyset: SaleHistoryKeyset
   return q;
 }
 
-export interface LoadedDetail {
-  readonly row: SaleHistoryDetailRow;
+export interface LoadedDetail<R extends SaleHistoryDetailRow = SaleHistoryDetailRow> {
+  readonly row: R;
   readonly projection: SaleHistoryDetail;
 }
 
-/** The detail of a visible sale, or null when it does not resolve within the caller's visibility. */
-export async function loadDetail(client: PoolClient, scope: SaleHistoryScope, saleRef: string): Promise<LoadedDetail | null> {
+/**
+ * The detail of a visible sale, or null when it does not resolve within the
+ * caller's visibility. `R` names the extra `SALE_SELECT_SQL` columns a caller
+ * reads (the console's `sync_status_version`, RT-1061); the projection never
+ * uses them.
+ */
+export async function loadDetail<R extends SaleHistoryDetailRow = SaleHistoryDetailRow>(
+  client: PoolClient,
+  scope: SaleHistoryScope,
+  saleRef: string,
+): Promise<LoadedDetail<R> | null> {
   const q = scopedQuery(scope);
   addPredicate(q, "s.id = $?", saleRef);
-  const sale = await client.query<SaleHistoryDetailRow & { tender_count: number }>(
+  const sale = await client.query<R & { tender_count: number }>(
     `${SALE_SELECT_SQL} WHERE ${q.where.join(" AND ")}`,
     q.params,
   );

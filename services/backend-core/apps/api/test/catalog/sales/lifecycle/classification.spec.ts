@@ -90,6 +90,10 @@ const BUSINESS_CLASS_COLUMNS: ReadonlyArray<{
       "payload_hash",
       "mismatch_flag",
       "sync_status",
+      // RT-1061 (0077): the ordering counter of sync_status (RT-973), bumped by
+      // every status write — re-reviewed under SI-012: a per-row integer, no
+      // PII, no money, no tender data; BUSINESS-class like sync_status.
+      "sync_status_version",
       "created_by",
       // RT-77 (0033): the server-resolved terminal (no PII) and the number of
       // recorded tenders (a count, no payment data) — re-reviewed under SI-012.

@@ -6,7 +6,10 @@
  * the item and the detail are the sale-history projections (RT-539) with the
  * POS-only parts removed (`visibility`, `receiptFacts`, `reprint`) and the
  * store added (`storeRef`, `storeTimezone`): both reads describe one sale the
- * same way by construction.
+ * same way by construction. Console-only additions (1.2.0-draft, RT-1061):
+ * `ConsoleSaleItem.syncStatusVersion` (RT-973) and
+ * `ConsoleSaleDetail.erpPostingFailure` (RT-977); the POS projections never
+ * carry them.
  *
  * Every filter (`sale_number`, `sync_status`, `voided`, `return_state`,
  * `erp_posting_state`) is matched against the PROJECTED item, so a filter and
@@ -21,13 +24,24 @@ import {
   type SaleHistoryRow,
 } from "../catalog/sales/history/sale-history.projections";
 import type { SaleHistoryKeyset } from "../catalog/sales/history/sale-history.query";
+import { syncStatusVersionOf } from "../catalog/sales/sale-sync-status";
+import type { ConsoleErpPostingFailure } from "./console-sales.posting-failure";
 import type { ConsoleSaleFilters } from "./console-sales.query";
 
-export type ConsoleSaleItem = SaleHistoryItem & { readonly storeRef: string };
+/** A row of `SALE_SELECT_SQL` as the console reads it: the sale-history row plus the RT-973 version (BIGINT as text). */
+export type ConsoleSaleRow = SaleHistoryRow & { readonly sync_status_version: string };
+
+export type ConsoleSaleItem = SaleHistoryItem & {
+  readonly storeRef: string;
+  /** RT-973 (1.2.0-draft): the ordering of `syncStatus` across reads of this sale. */
+  readonly syncStatusVersion: number;
+};
 
 export type ConsoleSaleDetail = Omit<SaleHistoryDetail, "summary" | "receiptFacts" | "reprint"> & {
   readonly summary: ConsoleSaleItem;
   readonly storeTimezone: string;
+  /** RT-977 (1.2.0-draft): why a failed posting of this sale failed, and its repair handle. */
+  readonly erpPostingFailure: ConsoleErpPostingFailure | null;
 };
 
 export interface ConsoleSalePage {
@@ -40,15 +54,29 @@ export interface ConsoleSalePage {
   readonly to: string;
 }
 
-export function toConsoleSaleItem(item: SaleHistoryItem, storeRef: string): ConsoleSaleItem {
+export function toConsoleSaleItem(item: SaleHistoryItem, storeRef: string, syncStatusVersion: string): ConsoleSaleItem {
   const { saleRef, ...rest } = item;
-  return { saleRef, storeRef, ...rest };
+  return { saleRef, storeRef, ...rest, syncStatusVersion: syncStatusVersionOf(syncStatusVersion) };
 }
 
-/** The sale-history detail as the console detail: no POS-only facts, plus the store. */
-export function toConsoleSaleDetail(detail: SaleHistoryDetail, storeRef: string, storeTimezone: string): ConsoleSaleDetail {
-  const { summary, receiptFacts: _receiptFacts, reprint: _reprint, ...facts } = detail;
-  return { summary: toConsoleSaleItem(summary, storeRef), storeTimezone, ...facts };
+export interface ConsoleDetailInput {
+  readonly detail: SaleHistoryDetail;
+  readonly storeRef: string;
+  readonly storeTimezone: string;
+  /** The sale row's `sync_status_version` (BIGINT as text). */
+  readonly syncStatusVersion: string;
+  readonly erpPostingFailure: ConsoleErpPostingFailure | null;
+}
+
+/** The sale-history detail as the console detail: no POS-only facts, plus the store and the console-only fields. */
+export function toConsoleSaleDetail(input: ConsoleDetailInput): ConsoleSaleDetail {
+  const { summary, receiptFacts: _receiptFacts, reprint: _reprint, ...facts } = input.detail;
+  return {
+    summary: toConsoleSaleItem(summary, input.storeRef, input.syncStatusVersion),
+    storeTimezone: input.storeTimezone,
+    ...facts,
+    erpPostingFailure: input.erpPostingFailure,
+  };
 }
 
 /** The list filters, matched on the projected item. */
@@ -64,7 +92,7 @@ export function matchesFilters(item: SaleHistoryItem, filters: ConsoleSaleFilter
   return wanted.every(([filter, value]) => filter === null || filter === value);
 }
 
-export function keysetOf(row: SaleHistoryRow): SaleHistoryKeyset {
+export function keysetOf(row: ConsoleSaleRow): SaleHistoryKeyset {
   return { businessDate: row.business_date, occurredAtKey: row.occurred_at_key, saleId: row.sale_id };
 }
 
@@ -86,14 +114,14 @@ export interface AssembledPage {
  * moves the walk forward.
  */
 export function assemblePage(input: {
-  readonly rows: ReadonlyArray<SaleHistoryRow>;
+  readonly rows: ReadonlyArray<ConsoleSaleRow>;
   readonly readLimit: number;
   readonly pageSize: number;
   readonly storeRef: string;
   readonly filters: ConsoleSaleFilters;
 }): AssembledPage {
   const matched = input.rows
-    .map((row) => ({ row, item: toConsoleSaleItem(toSaleHistoryItem(row), input.storeRef) }))
+    .map((row) => ({ row, item: toConsoleSaleItem(toSaleHistoryItem(row), input.storeRef, row.sync_status_version) }))
     .filter(({ item }) => matchesFilters(item, input.filters));
   if (matched.length > input.pageSize) {
     const page = matched.slice(0, input.pageSize);

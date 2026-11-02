@@ -38,18 +38,20 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 
 import { PG_POOL } from "../auth/auth.module";
-import type { SaleHistoryRow } from "../catalog/sales/history/sale-history.projections";
+import type { SaleHistoryDetailRow } from "../catalog/sales/history/sale-history.projections";
 import type { SaleHistoryKeyset } from "../catalog/sales/history/sale-history.query";
 import { listQuery, loadDetail, SALE_SELECT_SQL, type SaleQuery } from "../catalog/sales/history/sale-history.reads";
 import { MembershipRepository } from "../context/membership.repository";
 import { callerStoreScope, inStoreScope, scopeStoreIds } from "../context/operator-store-scope";
 import type { StoreScope } from "../context/store-scope";
 import type { ResolvedContext } from "../context/types";
+import { loadErpPostingFailure } from "./console-sales.posting-failure";
 import {
   assemblePage,
   toConsoleSaleDetail,
   type ConsoleSaleDetail,
   type ConsoleSalePage,
+  type ConsoleSaleRow,
 } from "./console-sales.projections";
 import {
   decodeConsoleSaleCursor,
@@ -157,9 +159,24 @@ export class ConsoleSalesReadService {
   async get(input: ScopedReadInput, saleRef: string): Promise<ConsoleSaleDetail> {
     return await this.inTenant(input, async (client) => {
       const storeId = await this.scopedSaleStore(client, input, saleRef);
-      const detail = await loadDetail(client, { tenantId: input.tenantId, storeId, visibility: { kind: "store" } }, saleRef);
+      const detail = await loadDetail<ConsoleSaleRow & SaleHistoryDetailRow>(client, { tenantId: input.tenantId, storeId, visibility: { kind: "store" } }, saleRef);
       if (detail === null) throw new ConsoleSaleNotFoundError();
-      return toConsoleSaleDetail(detail.projection, storeId, await this.storeTimezone(client, input.tenantId, storeId));
+      const storeTimezone = await this.storeTimezone(client, input.tenantId, storeId);
+      // RT-1061 (RT-977): console-only, only for a sale that matched and shows a failed posting.
+      const erpPostingFailure = await loadErpPostingFailure(client, this.memberships, {
+        tenantId: input.tenantId,
+        context: input.context,
+        storeId,
+        saleRef,
+        erpPosting: detail.projection.erpPosting,
+      });
+      return toConsoleSaleDetail({
+        detail: detail.projection,
+        storeRef: storeId,
+        storeTimezone,
+        syncStatusVersion: detail.row.sync_status_version,
+        erpPostingFailure,
+      });
     });
   }
 
@@ -204,7 +221,7 @@ export class ConsoleSalesReadService {
     input: ListConsoleSalesInput,
     keyset: SaleHistoryKeyset | null,
     limit: number,
-  ): Promise<SaleHistoryRow[]> {
+  ): Promise<ConsoleSaleRow[]> {
     const { from, to } = input.filters;
     // Only tenant, store, range and keyset: the filters are matched on the projected rows.
     const q: SaleQuery = listQuery(
@@ -218,7 +235,7 @@ export class ConsoleSalesReadService {
       },
       keyset,
     );
-    const r = await client.query<SaleHistoryRow>(
+    const r = await client.query<ConsoleSaleRow>(
       `${SALE_SELECT_SQL}
         WHERE ${q.where.join(" AND ")}
         ORDER BY s.business_date DESC, s.occurred_at DESC, s.id DESC

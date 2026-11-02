@@ -48,6 +48,7 @@ import type { StoreScope } from "../../context/store-scope";
 import type { ResolvedContext } from "../../context/types";
 import {
   SALE_SYNC_STATUS,
+  syncStatusVersionOf,
   type SaleSyncStatus,
 } from "../sales/sale-sync-status";
 
@@ -98,6 +99,13 @@ export interface SaleSyncStatusBody {
   readonly sourceSystem: string;
   readonly externalId: string;
   readonly processedAt: string | null;
+  /**
+   * RT-1061 (RT-973, `sale-sync-ops` 1.2.0-draft): the ordering of
+   * `syncStatus`; every write that sets the status adds one. Emitted on every
+   * newly computed body; an idempotent repair replay stored before RT-1061 has
+   * none, which is why the contract keeps it optional.
+   */
+  readonly syncStatusVersion: number;
   readonly deadLetter: DeadLetterDetail | null;
 }
 
@@ -146,6 +154,8 @@ interface SaleStatusRow {
   id: string;
   store_id: string;
   sync_status: SaleSyncStatus;
+  /** BIGINT, read as text by node-postgres. */
+  sync_status_version: string;
   source_system: string;
   external_id: string;
   processed_at: Date | null;
@@ -401,8 +411,10 @@ export class SaleSyncOpsReadModelService {
         }
 
         await client.query(
+          // RT-1061 (RT-973): every sync_status write moves the version by one.
           `UPDATE sales
-              SET sync_status = $2
+              SET sync_status = $2,
+                  sync_status_version = sync_status_version + 1
             WHERE id = $1`,
           [saleId, SALE_SYNC_STATUS.FAILED_RETRYABLE],
         );
@@ -443,8 +455,8 @@ export class SaleSyncOpsReadModelService {
     // received_at (the capture clock for the audit timeline) are returned in
     // the row.
     const r = await client.query<SaleStatusRow>(
-      `SELECT id, store_id, sync_status, source_system, external_id,
-              processed_at, received_at
+      `SELECT id, store_id, sync_status, sync_status_version::text AS sync_status_version,
+              source_system, external_id, processed_at, received_at
          FROM sales
         WHERE id = $1
           AND ($2::uuid[] IS NULL OR store_id = ANY($2::uuid[]))`,
@@ -483,6 +495,7 @@ export class SaleSyncOpsReadModelService {
       sourceSystem: row.source_system,
       externalId: row.external_id,
       processedAt: row.processed_at ? row.processed_at.toISOString() : null,
+      syncStatusVersion: syncStatusVersionOf(row.sync_status_version),
       deadLetter: dl
         ? {
             classification: dl.classification,

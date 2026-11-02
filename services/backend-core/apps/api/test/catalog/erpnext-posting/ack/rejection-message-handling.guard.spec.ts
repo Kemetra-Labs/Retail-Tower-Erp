@@ -24,6 +24,10 @@ const REVIEWED_READERS = [
   "apps/api/src/catalog/erpnext-posting/rejection-message.ts",
   "apps/api/src/catalog/erpnext-reconciliation/erpnext-reconciliation.service.ts",
   "apps/api/src/catalog/erpnext-reconciliation/reconciliation-report.projection.ts",
+  // RT-1061 (RT-977 D3): the consoleGetSale.erpPostingFailure probe; same
+  // readers as the 017 backlog (owner, tenant_admin, a platform-admin session),
+  // returned as stored, never logged or audited.
+  "apps/api/src/console-sales/console-sales.posting-failure.ts",
 ].sort();
 
 /** A write to a log, the console, Sentry, audit metadata or a labelled metric. */

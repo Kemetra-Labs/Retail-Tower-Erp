@@ -116,9 +116,9 @@ import { MembershipRepository } from "../context/membership.repository";
 import type { TenantContextRequest } from "../context/types";
 import {
   ROLES_METADATA_KEY,
-  type RoleCode,
   type RolesMetadata,
 } from "./roles.decorator";
+import { decideTenantRoleGate, isSessionPlatformAdmin } from "./tenant-role-gate";
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -162,32 +162,38 @@ export class RolesGuard implements CanActivate {
       throw forbidden("Platform admin role required.");
     }
 
-    // (4) Platform-admin bypass for @Roles / @RolesFromParam.
-    if (await this.isPlatformAdmin(principal, request)) return true;
-
-    // (5) Resolve tenant id.
-    const tenantId = resolveTenantId(metadata, request);
-    if (!tenantId) {
+    // (4)-(7) The tenant role gate, shared with services that must apply
+    // the same rule (RT-1061: the consoleGetSale posting-failure disclosure):
+    //   (4) platform-admin bypass for @Roles / @RolesFromParam;
+    //   (5) tenant id from `RolesMetadata.tenantFrom`;
+    //   (6) user id from the principal;
+    //   (7) membership + role check, in a platform-admin GUC context so
+    //       `memberships`/`roles` RLS predicates are satisfied on a
+    //       non-superuser pool (`app_test` in tests, `app_role` in prod).
+    const decision = await decideTenantRoleGate(
+      {
+        principal,
+        contextIsPlatformAdmin: request.context?.isPlatformAdmin === true,
+        tenantId: resolveTenantId(metadata, request),
+        accepted: metadata.any,
+      },
+      {
+        isPlatformAdmin: (userId) => this.memberships.isPlatformAdmin(userId),
+        roleCodeInTenant: (userId, tenantId) =>
+          this.withBootstrapCtx((client) =>
+            this.memberships.findRoleCodeForUserInTenant(userId, tenantId, client),
+          ),
+      },
+    );
+    if (decision.allowed) return true;
+    if (decision.reason === "no_tenant") {
       throw forbidden(
         metadata.tenantFrom === "context"
           ? "Active tenant required."
           : "Tenant id missing from request path.",
       );
     }
-
-    // (6) User id from principal.
-    const userId = principal.userId;
-    if (!userId) throw denied(metadata);
-
-    // (7) Membership + role check. Runs in a platform-admin GUC context
-    // so `memberships`/`roles` RLS predicates are satisfied on a
-    // non-superuser pool (`app_test` in tests, `app_role` in prod).
-    const role = await this.withBootstrapCtx((client) =>
-      this.memberships.findRoleCodeForUserInTenant(userId, tenantId, client),
-    );
-    if (!role) throw denied(metadata);
-    if (!isAcceptedRole(role, metadata.any)) throw denied(metadata);
-    return true;
+    throw denied(metadata);
   }
 
   /**
@@ -224,9 +230,9 @@ export class RolesGuard implements CanActivate {
     principal: Principal,
     request: TenantContextRequest,
   ): Promise<boolean> {
-    if (principal.kind !== "session") return false;
-    if (request.context?.isPlatformAdmin === true) return true;
-    return await this.memberships.isPlatformAdmin(principal.userId);
+    return await isSessionPlatformAdmin(principal, request.context?.isPlatformAdmin === true, {
+      isPlatformAdmin: (userId) => this.memberships.isPlatformAdmin(userId),
+    });
   }
 }
 
@@ -244,13 +250,6 @@ function resolveTenantId(
   const value = params?.[paramKey];
   if (typeof value !== "string" || value.length === 0) return null;
   return value;
-}
-
-function isAcceptedRole(actual: string, accepted: readonly RoleCode[]): boolean {
-  for (const code of accepted) {
-    if (code === actual) return true;
-  }
-  return false;
 }
 
 function unauthorized(): UnauthorizedException {
