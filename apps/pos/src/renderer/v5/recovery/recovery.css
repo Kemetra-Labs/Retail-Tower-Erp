@@ -140,17 +140,24 @@
   margin: 0;
 }
 
+/* An amount too long to share its row drops to its own line, still at the end edge, never clipped. */
+.v5-recovery-ledger .v5-ledger-row {
+  flex-wrap: wrap;
+}
+
 .v5-recovery-ledger dt {
   flex: none;
 }
 
 .v5-recovery-ledger dd {
-  min-inline-size: 0;
   margin: 0;
+  margin-inline-start: auto;
 }
 
-/* A name: the body face, so Arabic letters stay joined; it wraps, never cut. */
+/* A name: the body face, so Arabic letters stay joined; it wraps in place, never cut. */
 .v5-recovery-ledger .v5-recovery-text {
+  flex: 1 1 0;
+  min-inline-size: 0;
   overflow-wrap: anywhere;
   font-weight: var(--font-weight-semibold);
   text-align: end;
