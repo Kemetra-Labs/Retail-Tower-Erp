@@ -74,9 +74,6 @@ class FakeGit:
     def tree_of(self, sha, path):
         return "t" + sha[1:]
 
-    def commit_time(self, sha):
-        return self.order.index(sha) if sha in self.order else 99
-
 
 def release(draft=False, pre=False, immutable=True):
     return {"isDraft": draft, "isPrerelease": pre, "isImmutable": immutable}
@@ -148,11 +145,17 @@ class Erp(unittest.TestCase):
         images = FakeImages({tag(S2): D2, "16.52.0-" + S2[:12]: D3}, {D2: labels(S2), D3: labels(S2)}, attested=(D2, D3))
         with self.assertRaises(draft_manifest.DraftError) as caught:
             self.pick(images, FakeGit([S1, S2]))
-        self.assertIn("two deployable images of one commit", str(caught.exception))
+        self.assertIn("deployable images of one commit", str(caught.exception))
         images = FakeImages({tag(S1): D1, tag(S3): D3}, {D1: labels(S1), D3: labels(S3)}, attested=(D1, D3))
         with self.assertRaises(draft_manifest.DraftError) as caught:
             self.pick(images, FakeGit([S1, S2, S3], branches={S1: True}))
-        self.assertIn("not in one line", str(caught.exception))
+        self.assertIn("not of commits in one line", str(caught.exception))
+
+    def test_the_newest_is_chosen_by_ancestry_even_when_dates_disagree(self):
+        # S2 descends from S1; FakeGit has no dates at all, so only ancestry can order them
+        images = FakeImages({tag(S2): D2, tag(S1): D1}, {D1: labels(S1), D2: labels(S2)}, attested=(D1, D2))
+        self.assertEqual(self.pick(images, FakeGit([S1, S2])), (D2, S2))
+        self.assertFalse(hasattr(draft_manifest.Git, "commit_time"))
 
     def test_a_malformed_explicit_digest_is_refused_before_any_lookup(self):
         images = FakeImages({}, {})
@@ -236,8 +239,6 @@ class Adapters(unittest.TestCase):
             with self.assertRaises(draft_manifest.DraftError):
                 git.is_on_main(S1)
             with self.assertRaises(draft_manifest.DraftError):
-                git.commit_time(S1)
-            with self.assertRaises(draft_manifest.DraftError):
                 git.tree_of(S1, "integrations/erpnext-connector")
 
     def test_a_paged_tag_list_and_content_that_does_not_match_its_digest_are_refused(self):
@@ -255,6 +256,33 @@ class Adapters(unittest.TestCase):
         with mock.patch.object(registry, "_get", side_effect=lambda *a, **k: next(replies)):
             with self.assertRaises(draft_manifest.DraftError):
                 registry.labels_of(good)  # the config blob is not the hash of its digest either
+
+    def test_a_stalled_command_is_an_error_not_a_hang(self):
+        stall = subprocess.TimeoutExpired(["gh"], 1)
+        with mock.patch.object(draft_manifest.subprocess, "run", side_effect=stall) as run:
+            with self.assertRaises(draft_manifest.DraftError):
+                draft_manifest.GitHubReleases("o/r").states()
+            with self.assertRaises(draft_manifest.DraftError):
+                draft_manifest.Git(ROOT, "origin/main").is_on_main(S1)
+            with self.assertRaises(draft_manifest.DraftError):
+                draft_manifest.Registry("o/r").is_attested(D1)
+        self.assertTrue(all(call.kwargs.get("timeout") for call in run.call_args_list))
+
+    def test_a_failed_write_leaves_no_partial_file(self):
+        data = Draft.make(Draft())
+        with tempfile.TemporaryDirectory() as tmp:
+            real_open = open
+
+            def failing_open(path, mode="r", *args, **kwargs):
+                handle = real_open(path, mode, *args, **kwargs)
+                if mode == "x":
+                    handle.write = mock.Mock(side_effect=OSError("disk full"))
+                return handle
+
+            with mock.patch("builtins.open", failing_open):
+                with self.assertRaises(draft_manifest.DraftError):
+                    draft_manifest.gated_write(tmp, data, lambda p: 0)
+            self.assertEqual(list(pathlib.Path(tmp).iterdir()), [])
 
     def test_the_pinned_base_is_read_from_the_deploy_workflow(self):
         self.assertRegex(draft_manifest.pinned_base(), r"^sha256:[0-9a-f]{64}$")
@@ -305,6 +333,11 @@ class Cli(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             code, files, _ = self.run_main(tmp, "--system", "lab-2026.11.3", gate_code=1)
         self.assertEqual((code, files), (1, ["lab-2026.11.2.json"]))
+
+    def test_a_gate_that_cannot_evaluate_exits_2_not_1(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, files, _ = self.run_main(tmp, "--system", "lab-2026.11.3", gate_code=2)
+        self.assertEqual((code, files), (2, ["lab-2026.11.2.json"]))
 
     def test_no_draft_exits_2_and_writes_nothing(self):
         for failure in (draft_manifest.DraftError("no attested image"), FileNotFoundError("gh"), FileNotFoundError("git")):

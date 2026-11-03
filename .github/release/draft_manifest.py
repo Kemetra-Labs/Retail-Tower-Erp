@@ -49,6 +49,7 @@ CONNECTOR = "integrations/erpnext-connector"
 IMAGE_TAG = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+-([0-9a-f]{12})$")  # <ERPNext version>-<sha12>, build-erp-image.yml
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 SYSTEM = re.compile(r"^lab-([0-9]{4})\.([0-9]{2})\.([0-9]+)$")
+GH_TIMEOUT, ATTEST_TIMEOUT, GIT_TIMEOUT, GATE_TIMEOUT = 120, 180, 60, 600  # seconds
 MANIFEST_TYPES = "application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json"
 
 
@@ -126,12 +127,14 @@ def pick_erp(images, git, wanted, base_digest):
         candidates.append((digest, revision, tag))
     if not candidates:
         raise DraftError("no deployable build-erp-image.yml image of a commit on main found")
-    digest, revision, tag = max(candidates, key=lambda item: git.commit_time(item[1]))
-    for other_digest, other_revision, other_tag in candidates:
-        if other_revision == revision and other_digest != digest:
-            raise DraftError(f"{tag} and {other_tag} are two deployable images of one commit; choose one with --erp")
-        if not git.is_ancestor(other_revision, revision):
-            raise DraftError(f"{other_tag} and {tag} are not in one line on main; choose one with --erp")
+    # The newest is the candidate every other one descends to (git ancestry: committer dates need not
+    # follow it). Two images of that one commit, or no such candidate, is refused, never guessed.
+    tops = [item for item in candidates if all(git.is_ancestor(other[1], item[1]) for other in candidates)]
+    if not tops:
+        raise DraftError("the deployable images are not of commits in one line on main; choose one with --erp")
+    if len({item[0] for item in tops}) > 1:
+        raise DraftError(f"{' and '.join(item[2] for item in tops)} are deployable images of one commit; choose one with --erp")
+    digest, revision, tag = tops[0]
     if not images.is_attested(digest):
         raise DraftError(f"the newest image {tag} ({digest}) has no valid build-erp-image.yml attestation from "
                          "refs/heads/main (or it could not be checked); an older image needs an explicit --erp")
@@ -208,10 +211,15 @@ def gated_write(out_dir, data, gate):
     if code != 0:
         return None, code
     try:
-        with open(path, "x", encoding="utf-8", newline="\n") as handle:
-            handle.write(render(data))
+        handle = open(path, "x", encoding="utf-8", newline="\n")
     except FileExistsError as exc:
         raise DraftError(f"{path} appeared while drafting; nothing was written") from exc
+    try:
+        with handle:
+            handle.write(render(data))
+    except OSError as exc:
+        path.unlink(missing_ok=True)  # the file this call created, never an existing one
+        raise DraftError(f"writing {path} failed ({exc}); nothing was written") from exc
     return path, 0
 
 
@@ -283,9 +291,8 @@ class Registry:
     def is_attested(self, digest):
         """True only on a passing verification; anything else (no attestation, a network or auth error)
         is False, which pick_erp turns into an error rather than a fallback."""
-        proc = subprocess.run(["gh", "attestation", "verify", f"oci://{IMAGE}@{digest}", "--repo", self.repo,
-                               "--signer-workflow", SIGNER, "--source-ref", "refs/heads/main"],
-                              capture_output=True, text=True, check=False)
+        proc = run(["gh", "attestation", "verify", f"oci://{IMAGE}@{digest}", "--repo", self.repo,
+                    "--signer-workflow", SIGNER, "--source-ref", "refs/heads/main"], ATTEST_TIMEOUT)
         if proc.returncode != 0:
             note(f"attestation check of {digest} failed: {proc.stderr.strip()[:200]}")
         return proc.returncode == 0
@@ -296,7 +303,7 @@ class Git:
         self.repo_dir, self.main = repo_dir, main
 
     def _run(self, *args):
-        return subprocess.run(["git", "-C", str(self.repo_dir), *args], capture_output=True, text=True, check=False)
+        return run(["git", "-C", str(self.repo_dir), *args], GIT_TIMEOUT)
 
     def is_ancestor(self, older, newer):
         """git merge-base --is-ancestor: 0 yes, 1 no, anything else (an unknown commit) is an error."""
@@ -314,15 +321,18 @@ class Git:
             raise DraftError(f"git has no {path} at {sha[:12]}")
         return proc.stdout.strip()
 
-    def commit_time(self, sha):
-        proc = self._run("log", "-1", "--format=%ct", sha)
-        if proc.returncode != 0 or not proc.stdout.strip().isdigit():
-            raise DraftError(f"git cannot read the time of {sha[:12]}")
-        return int(proc.stdout.strip())
+
+
+def run(argv, timeout, capture=True):
+    """subprocess.run bounded by `timeout` seconds; a stall is a DraftError, never a hang."""
+    try:
+        return subprocess.run(argv, capture_output=capture, text=True, check=False, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise DraftError(f"{argv[0]} {argv[1]} did not finish within {timeout} s") from exc
 
 
 def gh(*args):
-    proc = subprocess.run(["gh", *args], capture_output=True, text=True, check=False)
+    proc = run(["gh", *args], GH_TIMEOUT)
     if proc.returncode != 0:
         raise DraftError(f"gh {args[0]} {args[1]} failed: {proc.stderr.strip()[:200]}")
     return proc.stdout
@@ -343,8 +353,8 @@ def main(argv=None):
     out_dir = pathlib.Path(args.out_dir)
 
     def gate(path):
-        return subprocess.run([sys.executable, str(ROOT / ".github" / "release" / "system_gate.py"), "--repo", str(ROOT),
-                               "--manifest", str(path), "--main", args.main], check=False).returncode
+        return run([sys.executable, str(ROOT / ".github" / "release" / "system_gate.py"), "--repo", str(ROOT),
+                    "--manifest", str(path), "--main", args.main], GATE_TIMEOUT, capture=False).returncode
 
     try:
         if not re.fullmatch(r"[A-Za-z0-9_./-]+", args.main) or args.main.startswith("-"):
@@ -364,8 +374,11 @@ def main(argv=None):
         note(str(exc))
         return 2
     if path is None:
-        note("the gate refused the draft; nothing was written")
-        return 1
+        if code == 1:
+            note("the gate refused the draft; nothing was written")
+            return 1
+        note(f"the gate could not evaluate the draft (exit {code}); nothing was written")
+        return 2
     note(f"wrote {path} over {current.name}")
     return 0
 
