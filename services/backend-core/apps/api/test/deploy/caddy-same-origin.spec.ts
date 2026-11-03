@@ -72,6 +72,24 @@ describe("Caddyfile same-origin gateway", () => {
     expect(pages).toContain('Cache-Control "no-cache"');
   });
 
+  it("serves the POS lab feed only when POS_FEED_DIR is set, as plain static files (RT-1115)", () => {
+    const matcher = blockAfter(site, "@pos_feed {");
+    expect(matcher).toContain("path /pos-feed/*");
+    expect(matcher).toContain('expression `{env.POS_FEED_DIR} != ""`');
+
+    const feed = blockAfter(site, "handle @pos_feed {");
+    expect(feed).toContain("uri strip_prefix /pos-feed");
+    expect(feed).toContain("root * /srv/pos-feed");
+    expect(feed).toContain('Cache-Control "no-cache"');
+    expect(feed).toMatch(/^\s*file_server\s*$/m);
+    // No SPA fallback and no listing: a missing feed file is a 404, never the Console's index.html.
+    expect(feed).not.toContain("try_files");
+    expect(feed).not.toContain("browse");
+    // Matched after the API and before the Console.
+    expect(site.indexOf("handle @api {")).toBeLessThan(site.indexOf("handle @pos_feed {"));
+    expect(site.indexOf("handle @pos_feed {")).toBeLessThan(site.indexOf("handle {"));
+  });
+
   it("sends security headers on Console responses only", () => {
     const consoleBlock = blockAfter(site, "handle {");
     expect(consoleBlock).toMatch(/Content-Security-Policy ".*default-src 'self'.*"/);
@@ -103,6 +121,13 @@ describe("production compose for the same-origin gateway", () => {
     expect(caddy).toContain(
       "${CONSOLE_RELEASES_DIR:?CONSOLE_RELEASES_DIR required (pinned Admin Console releases + current symlink)}:/srv/console:ro",
     );
+  });
+
+  it("mounts the POS lab feed read-only, and an empty named volume when it is unset (RT-1115)", () => {
+    expect(caddy).toContain("POS_FEED_DIR: ${POS_FEED_DIR:-}");
+    expect(caddy).toContain("${POS_FEED_DIR:-dp2_pos_feed_off}:/srv/pos-feed/lab:ro");
+    const volumes = compose.slice(compose.indexOf("\nvolumes:"));
+    expect(volumes).toMatch(/^ {2}dp2_pos_feed_off:\s*$/m);
   });
 
   it("passes the public hostname to Caddy without hard-coding a real domain", () => {

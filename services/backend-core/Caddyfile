@@ -37,6 +37,24 @@
 		reverse_proxy api:3000
 	}
 
+	# RT-1115 (RT-1082): the POS lab update feed at /pos-feed/lab/, only where the host sets
+	# POS_FEED_DIR. Unset (this template's default) the matcher never matches and /pos-feed/*
+	# stays the Console's. Plain static files from the read-only feed mount: HTTP Range for the
+	# differential download and no SPA fallback, so a missing file is a 404, never index.html.
+	@pos_feed {
+		path /pos-feed/*
+		expression `{env.POS_FEED_DIR} != ""`
+	}
+	handle @pos_feed {
+		uri strip_prefix /pos-feed
+		root * /srv/pos-feed
+		header {
+			Cache-Control "no-cache"
+			X-Content-Type-Options "nosniff"
+		}
+		file_server
+	}
+
 	# Admin Console: /srv/console/current is a relative symlink to one unpacked,
 	# checksum-verified release, so a release or rollback is a symlink swap with
 	# no Caddy restart (deploy/README.md).
