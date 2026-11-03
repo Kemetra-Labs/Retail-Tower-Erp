@@ -2,12 +2,12 @@
  * RT-1117 (v9 board `Unknown-items`): the small barcode mark before a barcode
  * identifier. Decorative only: it is aria-hidden and carries no text, so the
  * cell's accessible name stays the identifier value. The bar heights come from
- * the digits (the board's rule), so one value always draws the same mark.
+ * the digits (the board's rule), so one value always draws the same mark. The
+ * bars are plain boxes, not an <svg>: the icon grammar keeps raw SVG to the
+ * icon registry.
  */
 
 const BAR_COUNT = 12;
-const BAR_WIDTH = 1.5;
-const BAR_GAP = 1;
 const HEIGHT = 16;
 
 /** Bar heights from the value's digits: every third bar is full height. */
@@ -23,29 +23,16 @@ export function UnknownItemBarcodeGlyph({
 }: Readonly<{ value: string }>): React.JSX.Element | null {
   const bars = barcodeBars(value);
   if (bars.length === 0) return null;
-  const width = bars.length * (BAR_WIDTH + BAR_GAP) - BAR_GAP;
   return (
     <span className="unknown-item-barcode" aria-hidden="true">
-      <svg
-        width={width}
-        height={HEIGHT}
-        viewBox={`0 0 ${width} ${HEIGHT}`}
-        aria-hidden="true"
-        focusable="false"
-      >
-        {bars.map((h, i) => (
-          <rect
-            // biome-ignore lint/suspicious/noArrayIndexKey: the bars are a fixed, positional drawing.
-            key={i}
-            x={i * (BAR_WIDTH + BAR_GAP)}
-            y={HEIGHT - h}
-            width={BAR_WIDTH}
-            height={h}
-            rx={0.5}
-            fill="currentColor"
-          />
-        ))}
-      </svg>
+      {bars.map((h, i) => (
+        <span
+          // biome-ignore lint/suspicious/noArrayIndexKey: the bars are a fixed, positional drawing.
+          key={i}
+          className="unknown-item-barcode__bar"
+          style={{ blockSize: `${String(h)}px` }}
+        />
+      ))}
     </span>
   );
 }

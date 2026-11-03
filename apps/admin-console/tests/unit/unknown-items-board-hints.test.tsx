@@ -18,6 +18,7 @@ vi.mock("@/unknown-items/useUnknownItemScope", () => ({
 }));
 
 import { setLocale } from "@/i18n/locale";
+import { t } from "@/i18n/translate";
 import { barcodeBars } from "@/unknown-items/UnknownItemBarcodeGlyph";
 import { renderList } from "./renderUnknownItemList";
 
@@ -40,8 +41,12 @@ async function openDrawer(item: typeof ITEM): Promise<HTMLElement> {
   listUnknownItems.mockResolvedValue({ status: 200, data: { items: [item], next_cursor: null } });
   inspectUnknownItem.mockResolvedValue({ status: 200, data: item });
   renderList();
-  fireEvent.click(await screen.findByRole("button", { name: `Open ${item.identifier_value}` }));
-  const drawer = await screen.findByRole("dialog", { name: "Unknown item" });
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: t("table.selection.openRow", { value: item.identifier_value }),
+    }),
+  );
+  const drawer = await screen.findByRole("dialog", { name: t("unknownItems.drawer.title") });
   await waitFor(() => expect(drawer.querySelector(".badge")).not.toBeNull());
   return drawer;
 }
@@ -134,7 +139,8 @@ describe("Unknown items drawer action descriptions and barcode mark", () => {
     expect(mark).not.toBeNull();
     expect(mark.getAttribute("aria-hidden")).toBe("true");
     expect(mark.textContent).toBe("");
-    expect(mark.querySelectorAll("rect")).toHaveLength(12);
+    expect(mark.querySelectorAll(".unknown-item-barcode__bar")).toHaveLength(12);
+    expect(mark.querySelector("svg")).toBeNull();
     const skuCell = screen.getByRole("cell", { name: "SKU-778" });
     expect(skuCell.querySelector(".unknown-item-barcode")).toBeNull();
   });

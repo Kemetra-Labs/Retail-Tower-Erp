@@ -182,14 +182,17 @@
 .unknown-item-barcode {
   display: inline-flex;
   align-items: flex-end;
+  gap: 1px;
   padding: var(--space-1);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
   box-shadow: inset 0 0 0 1px var(--color-border);
-  color: var(--color-text);
 }
-.unknown-item-barcode svg {
+.unknown-item-barcode__bar {
   display: block;
+  inline-size: 1.5px;
+  border-radius: 1px;
+  background: var(--color-text);
 }
 
 /* Forced colours: no shadow or tints; system colours carry the split. */
@@ -217,6 +220,8 @@
   .unknown-item-barcode {
     box-shadow: none;
     background: Canvas;
-    color: CanvasText;
+  }
+  .unknown-item-barcode__bar {
+    background: CanvasText;
   }
 }
