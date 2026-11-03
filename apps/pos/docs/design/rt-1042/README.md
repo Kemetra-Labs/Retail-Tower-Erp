@@ -1,6 +1,6 @@
 # RT-1042 — POS sign-in redesign (Planning)
 
-**Status: owner-approved 2026-11-03 (OD-8 still open), not shipped.** This folder is the RT-1042 planning deliverable. It changes no
+**Status: owner-approved 2026-11-03, not shipped.** This folder is the RT-1042 planning deliverable. It changes no
 production code and no governing rule.
 
 - **What governs.** Until the S1 docs slice merges, `docs/DESIGN.md`, the UX Constitution and the G-1
