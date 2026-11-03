@@ -1,0 +1,226 @@
+[
+  {
+    "file": "rt1119-sale-1024x768-light-after.png",
+    "viewport": "1024x768",
+    "mode": "light",
+    "errors": [],
+    "axe": [],
+    "labels": [
+      {
+        "text": "التقاط مسح الباركود",
+        "fontSize": "12px",
+        "fontWeight": "700",
+        "color": "rgb(11, 91, 85)"
+      },
+      {
+        "text": "البحث بالاسم أو الباركود",
+        "fontSize": "12px",
+        "fontWeight": "700",
+        "color": "rgb(11, 91, 85)"
+      }
+    ],
+    "commit": {
+      "disabled": true,
+      "rect": [
+        97,
+        667,
+        254,
+        56
+      ],
+      "describedBy": "sale-handoff-reason"
+    },
+    "reason": {
+      "text": "أضف صنفًا لتسليم السلة للدفع",
+      "fontSize": "12px",
+      "color": "rgb(83, 100, 122)",
+      "rect": [
+        97,
+        731,
+        254,
+        17
+      ]
+    },
+    "overflow": {
+      "page": [
+        0,
+        0
+      ],
+      "liveSale": [
+        0,
+        0
+      ],
+      "cart": [
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "file": "rt1119-sale-1024x768-forced-after.png",
+    "viewport": "1024x768",
+    "mode": "forced",
+    "errors": [],
+    "axe": [],
+    "labels": [
+      {
+        "text": "التقاط مسح الباركود",
+        "fontSize": "12px",
+        "fontWeight": "700",
+        "color": "rgb(0, 0, 0)"
+      },
+      {
+        "text": "البحث بالاسم أو الباركود",
+        "fontSize": "12px",
+        "fontWeight": "700",
+        "color": "rgb(0, 0, 0)"
+      }
+    ],
+    "commit": {
+      "disabled": true,
+      "rect": [
+        97,
+        667,
+        254,
+        56
+      ],
+      "describedBy": "sale-handoff-reason"
+    },
+    "reason": {
+      "text": "أضف صنفًا لتسليم السلة للدفع",
+      "fontSize": "12px",
+      "color": "rgb(0, 0, 0)",
+      "rect": [
+        97,
+        731,
+        254,
+        17
+      ]
+    },
+    "overflow": {
+      "page": [
+        0,
+        0
+      ],
+      "liveSale": [
+        0,
+        0
+      ],
+      "cart": [
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "file": "rt1119-sale-1280x800-light-after.png",
+    "viewport": "1280x800",
+    "mode": "light",
+    "errors": [],
+    "axe": [],
+    "labels": [
+      {
+        "text": "التقاط مسح الباركود",
+        "fontSize": "12px",
+        "fontWeight": "700",
+        "color": "rgb(11, 91, 85)"
+      },
+      {
+        "text": "البحث بالاسم أو الباركود",
+        "fontSize": "12px",
+        "fontWeight": "700",
+        "color": "rgb(11, 91, 85)"
+      }
+    ],
+    "commit": {
+      "disabled": true,
+      "rect": [
+        105,
+        691,
+        286,
+        56
+      ],
+      "describedBy": "sale-handoff-reason"
+    },
+    "reason": {
+      "text": "أضف صنفًا لتسليم السلة للدفع",
+      "fontSize": "12px",
+      "color": "rgb(83, 100, 122)",
+      "rect": [
+        105,
+        755,
+        286,
+        17
+      ]
+    },
+    "overflow": {
+      "page": [
+        0,
+        0
+      ],
+      "liveSale": [
+        0,
+        0
+      ],
+      "cart": [
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "file": "rt1119-sale-1280x800-forced-after.png",
+    "viewport": "1280x800",
+    "mode": "forced",
+    "errors": [],
+    "axe": [],
+    "labels": [
+      {
+        "text": "التقاط مسح الباركود",
+        "fontSize": "12px",
+        "fontWeight": "700",
+        "color": "rgb(0, 0, 0)"
+      },
+      {
+        "text": "البحث بالاسم أو الباركود",
+        "fontSize": "12px",
+        "fontWeight": "700",
+        "color": "rgb(0, 0, 0)"
+      }
+    ],
+    "commit": {
+      "disabled": true,
+      "rect": [
+        105,
+        691,
+        286,
+        56
+      ],
+      "describedBy": "sale-handoff-reason"
+    },
+    "reason": {
+      "text": "أضف صنفًا لتسليم السلة للدفع",
+      "fontSize": "12px",
+      "color": "rgb(0, 0, 0)",
+      "rect": [
+        105,
+        755,
+        286,
+        17
+      ]
+    },
+    "overflow": {
+      "page": [
+        0,
+        0
+      ],
+      "liveSale": [
+        0,
+        0
+      ],
+      "cart": [
+        0,
+        0
+      ]
+    }
+  }
+]
