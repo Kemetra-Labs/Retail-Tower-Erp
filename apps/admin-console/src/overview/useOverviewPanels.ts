@@ -32,9 +32,7 @@ import {
   usePanelQuery,
 } from "./usePanelQuery";
 
-export interface OverviewSession extends OverviewScope {
-  role: string | null;
-}
+export type OverviewSession = OverviewScope;
 
 /** Active tenant, active store and role, from RF-1's provider. */
 export function useOverviewSession(): OverviewSession {
