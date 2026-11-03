@@ -249,6 +249,39 @@ class Decide(unittest.TestCase):
             self.assertTrue(any(text.startswith(f"{product}:") and "deploy-system-lab.yml run 10 " in text for _, text in lines), lines)
         self.assertTrue(any(text.startswith("console:") and "deploy-system-lab.yml run 11 " in text for _, text in lines), lines)
 
+    def test_newer_product_deploys_end_the_system_scan_before_an_expired_older_run(self):
+        fake = Fake()
+        fake.add("deploy-system-lab.yml", 10, 500, system(10), expired=True)  # never read
+        fake.add("deploy-lab.yml", 1, 700, backend(1))
+        fake.add("deploy-console-lab.yml", 2, 700, console(2))
+        fake.add("deploy-erp-lab.yml", 3, 700, erp(3))
+        fake.add("deploy-system-lab.yml", 11, 800, self.skipping_system_run(11, ("backup", "backend", "erp")))
+        lines = run_check(fake)
+        self.assertEqual(failures(lines), [])
+        self.assertTrue(any(text.startswith("backend:") and "(deploy-lab.yml run 1)" in text for _, text in lines), lines)
+        # without a newer product deploy, the expired system run is still needed and still refuses
+        fake = Fake()
+        fake.add("deploy-system-lab.yml", 10, 500, system(10), expired=True)
+        fake.add("deploy-lab.yml", 1, 400, backend(1))
+        fake.add("deploy-console-lab.yml", 2, 400, console(2))
+        fake.add("deploy-erp-lab.yml", 3, 400, erp(3))
+        fake.add("deploy-system-lab.yml", 11, 800, self.skipping_system_run(11, ("backup", "backend", "erp")))
+        with self.assertRaises(live_check.LiveError) as caught:
+            run_check(fake)
+        self.assertIn("expired", str(caught.exception))
+
+    def test_a_system_incident_newer_than_a_product_deploy_is_still_read(self):
+        fake = Fake()
+        fake.add("deploy-lab.yml", 1, 700, backend(1))
+        fake.add("deploy-console-lab.yml", 2, 700, console(2))
+        fake.add("deploy-erp-lab.yml", 3, 700, erp(3))
+        held = system(12, outcome="failed-at:erp")
+        held["steps"][3] = {"step": "erp", "state": "failed", "ssmStatus": "Failed", "target": {}, "gates": gates("check", "stop", "swap"),
+                            "lines": ["RT_GATE check=pass", "RT_GATE stop=pass", "RT_GATE swap=pass", "RT_OUTCOME=held"]}
+        fake.add("deploy-system-lab.yml", 12, 750, held)
+        found = failures(run_check(fake))
+        self.assertTrue(any(text.startswith("erp:") and "may have changed the host" in text for text in found), found)
+
     def test_a_system_run_that_failed_before_sending_its_first_planned_document_is_a_note(self):
         fake = live_lab()
         run = self.skipping_system_run(41530000000, ("backup", "backend"))

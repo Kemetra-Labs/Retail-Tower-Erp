@@ -129,10 +129,11 @@ def reject_rerun(run, workflow):
         raise LiveError(f"{workflow} run {run.get('id')} is a re-run (attempt {run.get('run_attempt')}); read its ledger by hand")
 
 
-def scan(api, key, limit):
+def scan(api, key, limit, floor=None):
     """Newest-first records [(run, ledger or None)] of one workflow, up to and including its newest
-    run that deployed (for the system workflow: until every product has a finished step). Dry runs
-    leave no live ledger and are skipped."""
+    run that deployed (for the system workflow: until every product has a finished step, or the runs
+    are older than that product's newest per-product deploy in `floor`). Dry runs leave no live
+    ledger and are skipped."""
     workflow, prefix, _ = SPECS[key]
     listing = api.runs(workflow, limit)
     runs = [run for run in listing["workflow_runs"] if run.get("head_branch") == "main" and run.get("status") == "completed"]
@@ -142,6 +143,12 @@ def scan(api, key, limit):
         run_id = run["id"]
         if not isinstance(run_id, int):
             raise LiveError(f"{workflow}: a run has no numeric id")
+        # A system run older than a product's newest per-product deploy can neither win nor raise an
+        # incident for it (decide() ignores both), so it is not read, even when its ledger expired.
+        if key == "system" and all(
+                product in covered or (product in (floor or {}) and parse_time(run["created_at"]) < floor[product])
+                for product in PRODUCTS):
+            return records
         found = [art for art in api.artifacts(run_id) if art.get("name") == f"{prefix}-{run_id}"]
         if not found:
             if run.get("conclusion") in ("failure", "cancelled", "timed_out") and live_job_started(api, run_id):
@@ -346,8 +353,13 @@ def decide(manifest, events, incidents):
 def check(api, manifest_path, limit=SCAN_LIMIT):
     manifest = system_ledger.values(system_ledger.load_manifest(manifest_path))
     events, incidents = [], []
-    for key in SPECS:
-        found_events, found_incidents = facts(key, scan(api, key, limit))
+    for key in SPECS:  # the per-product workflows first: their newest deploys bound the system scan
+        floor = None
+        if key == "system":
+            floor = {}
+            for when, product, _, _ in events:
+                floor[product] = max(floor.get(product, when), when)
+        found_events, found_incidents = facts(key, scan(api, key, limit, floor))
         events += found_events
         incidents += found_incidents
     return decide(manifest, events, incidents)
