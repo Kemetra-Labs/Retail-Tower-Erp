@@ -19,6 +19,7 @@ import { PosDeviceAuthGuard } from "../../src/auth/pos-device-auth.guard";
 import { SaleCaptureAuthGuard } from "../../src/catalog/sales/sale-capture-auth.guard";
 import { SaleHistoryAuthGuard } from "../../src/catalog/sales/history/sale-history-auth.guard";
 import { ShiftCashUpAuthGuard } from "../../src/pos-shifts/shift-cash-up-auth.guard";
+import { TrackedLotsAuthGuard } from "../../src/catalog/sales/tracked-lines/tracked-lots-auth.guard";
 import { DeviceRotationAuthGuard } from "../../src/pos-terminal-pairing/device-rotation-auth.guard";
 import { DEVICE_ATTESTED_KEY, DEVICE_BEARER_KEY, DeviceBearer } from "../../src/auth/route-auth";
 
@@ -57,12 +58,17 @@ const REVIEWED_DEVICE_ATTESTED = ["PosAuditEventsController.syncBatch"];
  * of a known token it refuses; the same generic 401 and the same
  * row-sourced principal. Security-reviewed in the RT-369 runtime PR; covered
  * by rotation-decision.unit.spec.ts and rotation.http.integration.spec.ts.
+ * RT-451 S1: TrackedLotsAuthGuard (posListTrackedLots) is the envelope guard,
+ * or, on its generic 401 only, PosDeviceAuthGuard alone with no operator
+ * claim (the contract's "device token alone, as the catalog read-down");
+ * covered by tracked-lots-auth.guard.unit.spec.ts and tracked-lots.spec.ts.
  */
 const REVIEWED_DEVICE_GUARD_COMPOSITES: readonly unknown[] = [
   SaleCaptureAuthGuard,
   ShiftCashUpAuthGuard,
   SaleHistoryAuthGuard,
   DeviceRotationAuthGuard,
+  TrackedLotsAuthGuard,
 ];
 
 interface MarkedRoute {
@@ -173,6 +179,8 @@ describe("route auth markers are enforced at the route (RT-129 / A9)", () => {
       "ShiftCashUpController.recordCashMovement",
       // RT-473 S2: the POS tenant branding read (device bearer only).
       "TenantBrandingDeviceController.read",
+      // RT-451 S1: the POS lot lookup (envelope, or the device bearer alone).
+      "TrackedLotsController.listTrackedLots",
     ]);
     expect(deviceAttested.length).toBeGreaterThan(0);
   });

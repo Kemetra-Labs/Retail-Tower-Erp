@@ -72,6 +72,9 @@ import { SaleHistoryController } from "./history/sale-history.controller";
 import { SaleHistoryService } from "./history/sale-history.service";
 import { PosPayersController } from "./payers/pos-payers.controller";
 import { PosPayersService } from "./payers/pos-payers.service";
+import { TrackedLotsAuthGuard } from "./tracked-lines/tracked-lots-auth.guard";
+import { TrackedLotsController } from "./tracked-lines/tracked-lots.controller";
+import { TrackedLotsService } from "./tracked-lines/tracked-lots.service";
 
 /**
  * 008 Option Y wiring (its PosOperatorSaleAuthGuard is retired; 031 replaced
@@ -95,6 +98,9 @@ import { PosPayersService } from "./payers/pos-payers.service";
     CreditSaleReversalsController,
     PosPayersController,
     RefundExecutionsController,
+    // RT-451 S1: the POS lot lookup (envelope or device token alone; behind
+    // the default-off tracked-selling gate).
+    TrackedLotsController,
   ],
   providers: [
     SalesService,
@@ -103,6 +109,7 @@ import { PosPayersService } from "./payers/pos-payers.service";
     CreditSaleReversalService,
     RefundExecutionsService,
     SaleHistoryService,
+    TrackedLotsService,
     {
       provide: IDENTITY_PROVIDER_PORT,
       useFactory: (pool: Pool): IdentityProviderPort =>
@@ -175,6 +182,9 @@ import { PosPayersService } from "./payers/pos-payers.service";
       inject: [PG_POOL],
     },
     SaleHistoryAuthGuard,
+    // RT-451 S1: the lot lookup's credential gate (the envelope guard above,
+    // or PosDeviceAuthGuard alone). Class-referenced, so reflection-instantiated.
+    TrackedLotsAuthGuard,
     // ADR 0009 (audit M-2): per-device write rate limit, layered AFTER the
     // envelope guard. A class-referenced @UseGuards enhancer is reflection-
     // instantiated, so it must use plain reflectable DI (no factory): RateLimiter

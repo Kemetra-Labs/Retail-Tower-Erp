@@ -128,11 +128,12 @@ describe("pos-sales/tracked-lines.yaml — RT-450 TLV and lot lookup", () => {
   const request = { productId: UUID, identity: { identityId: UUID }, quantity: "2", selection: "scanned", draftLineRef: "draft-1" };
   const withIdentity = (identity: unknown) => ({ ...request, identity });
 
-  it("is a new 1.0.0-draft contract whose two operations are contract-only with a runtime note", () => {
+  it("is a 1.0.0-draft contract: the TLV is contract-only with a runtime note, the lot lookup is served (RT-451 S1)", () => {
     expect(doc.info.version).toBe("1.0.0-draft");
     expect(ops.map((op) => op.operationId)).toEqual(["posValidateTrackedLine", "posListTrackedLots"]);
-    expect(ops.map((op) => op["x-runtime-status"])).toEqual(["contract-only", "contract-only"]);
-    for (const op of ops) expect((op["x-runtime-note"] as string).trim().length).toBeGreaterThan(0);
+    expect(ops.map((op) => op["x-runtime-status"])).toEqual(["contract-only", undefined]);
+    expect((ops[0]!["x-runtime-note"] as string).trim().length).toBeGreaterThan(0);
+    expect(ops[1]!["x-runtime-note"]).toBeUndefined();
   });
 
   it("accepts the envelope OR the device token as separate alternatives, never both in one requirement", () => {
