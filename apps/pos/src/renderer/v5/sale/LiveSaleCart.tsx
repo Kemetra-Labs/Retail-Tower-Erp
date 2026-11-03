@@ -361,6 +361,11 @@ function PrimaryAction(props: Readonly<Props>): JSX.Element {
       </button>
     );
   if (props.cancelled) return <p className="v5-live-notice">تم إلغاء البيع.</p>;
+  return <HandoffAction {...props} />;
+}
+
+/** The editing cart's commit: «تسليم السلة للدفع», with the reason it is unavailable under it. */
+function HandoffAction(props: Readonly<Props>): JSX.Element {
   const reason = props.handingOff ? null : handoffReasonCopy(props);
   return (
     <>
