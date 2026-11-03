@@ -11,8 +11,8 @@
  *
  * The owning screens' hooks are not reused here: they map 403/404 to different
  * kinds (and some to a generic error), while the Overview must omit on both.
- * Keys sit under `["overview", …]` and carry the tenant and active store, so a
- * scope change never reuses another scope's answer.
+ * Keys sit under `["overview", …]` and carry the tenant, active store and role,
+ * so a scope or authority change never reuses another scope's answer (RT-1076).
  */
 import { useQuery } from "@tanstack/react-query";
 import { isRefusal } from "./overviewLogic";
@@ -38,12 +38,14 @@ export interface ApiResult {
 export interface OverviewScope {
   tenantId: string | null;
   activeStoreId: string | null;
+  /** The role decides what the server returns, so a cached answer must not cross a role change. */
+  role: string | null;
 }
 
 export const OVERVIEW_KEY = ["overview"] as const;
 
 export function overviewKey(panel: string, scope: OverviewScope): readonly unknown[] {
-  return [...OVERVIEW_KEY, panel, scope.tenantId, scope.activeStoreId];
+  return [...OVERVIEW_KEY, panel, scope.tenantId, scope.activeStoreId, scope.role];
 }
 
 function requestIdOf(error: unknown): string | undefined {
