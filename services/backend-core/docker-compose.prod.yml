@@ -252,12 +252,17 @@ services:
       # Public hostname for automatic HTTPS. Real hostnames come from private ops
       # config or the host environment, never this public template.
       CADDY_SITE_ADDRESS: ${CADDY_SITE_ADDRESS:-api.example.test}
+      # RT-1115: the POS lab feed route is on only when this is set (deploy/README.md).
+      POS_FEED_DIR: ${POS_FEED_DIR:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       # RT-336: Admin Console on the same origin as the API. The directory holds
       # unpacked, checksum-verified RT-337 releases plus a relative `current`
       # symlink; see deploy/README.md for release and rollback.
       - ${CONSOLE_RELEASES_DIR:?CONSOLE_RELEASES_DIR required (pinned Admin Console releases + current symlink)}:/srv/console:ro
+      # RT-1115: the POS lab feed directory (an absolute host path), read-only. Unset, an empty
+      # named volume takes its place and the feed route stays off.
+      - ${POS_FEED_DIR:-dp2_pos_feed_off}:/srv/pos-feed/lab:ro
       - dp2_caddy_data:/data
       - dp2_caddy_config:/config
     networks: [dp2]
@@ -270,6 +275,7 @@ volumes:
   dp2_redis_data:
   dp2_caddy_data:
   dp2_caddy_config:
+  dp2_pos_feed_off:
 
 # Datadog Agent OpenMetrics check (profile `datadog` only). It scrapes the api's
 # existing Prometheus listener over the internal network, so no endpoint is
