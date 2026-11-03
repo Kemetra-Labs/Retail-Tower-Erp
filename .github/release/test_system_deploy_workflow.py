@@ -20,6 +20,7 @@ BACKEND_SSM = ROOT / "services" / "backend-core" / "deploy" / "lab" / "ssm"
 ERP_DOCUMENT = ROOT / "integrations" / "erpnext-connector" / "deploy" / "lab" / "ssm" / "RT-ErpLabDeploy.json"
 SHA = "f351186493df79c4fdd781ad7416594cf4eaac92"
 DIGEST = "sha256:" + "a" * 64
+FLAGS = {"backup": "run_backup", "backend": "run_backend", "console": "run_console", "erp": "run_erp"}
 ORDER = [("Run RT-BackendLabBackup on lab-02", "backup", "lab-02", "RT-BackendLabBackup"),
          ("Run RT-BackendLabDeploy on lab-01", "backend", "lab-01", "RT-BackendLabDeploy"),
          ("Run RT-ConsoleLabDeploy on lab-01", "console", "lab-01", "RT-ConsoleLabDeploy"),
@@ -121,9 +122,10 @@ class DeploySystemLab(unittest.TestCase):
 
     def test_inputs_and_dry_run_default(self):
         head = self.text.split("jobs:")[0]
-        for name in ("manifest", "current_manifest", "jira_key", "dry_run"):
+        for name in ("manifest", "current_manifest", "jira_key", "dry_run", "force_all"):
             self.assertRegex(head, rf"(?m)^      {name}:$")
         self.assertRegex(head, r"(?m)^      dry_run:\n(?:        .*\n)*?        default: true$")
+        self.assertRegex(head, r"(?m)^      force_all:\n(?:        .*\n)*?        type: boolean\n        default: false$")
 
     def test_concurrency_shared_with_the_product_lab_paths(self):
         self.assertRegex(self.text, r"(?m)^concurrency:\n  group: deploy-aws-lab\n  cancel-in-progress: false$")
@@ -241,13 +243,42 @@ class DeploySystemLab(unittest.TestCase):
         self.assertLess(live.index("- name: Print the OIDC claims"), assumes[0])
 
     def test_stop_at_the_first_failure(self):
+        """RT-1085: the only `if:`s between the first role and the ledger are the step plan's own flags.
+        They hold no status function, so GitHub adds success() and a failed step still stops the rest."""
         live = job(self.text, "live")
         start = live.index("- name: Assume the deploy role for the backup")
         end = live.index("- name: Write the system ledger")
-        self.assertNotIn("if:", live[start:end])
+        conditions = re.findall(r"^        if: (.*)$", live[start:end], re.M)
+        self.assertEqual(len(conditions), 2 * len(ORDER))
+        for condition in conditions:
+            self.assertRegex(condition, r"^\$\{\{ needs\.preflight\.outputs\.run_(backup|backend|console|erp) == 'true' \}\}$")
+            for status in ("always()", "failure()", "cancelled()", "success()"):
+                self.assertNotIn(status, condition)
         self.assertNotIn("continue-on-error", self.text)
         self.assertIn("if: always()", step(self.text, "Write the system ledger"))
         self.assertIn("system_ledger.py final", step_script(self.text, "Write the system ledger"))
+
+    def test_each_role_and_document_runs_on_its_own_step_flag(self):
+        live = job(self.text, "live")
+        assumes = [m.start() for m in re.finditer(r"- name: Assume the deploy role", live)]
+        for (name, label, *_), assume in zip(ORDER, assumes):
+            flag = f"if: ${{{{ needs.preflight.outputs.{FLAGS[label]} == 'true' }}}}"
+            self.assertIn(flag, step(self.text, name))
+            self.assertIn(flag, live[assume:live.index(f"- name: {name}")])
+
+    def test_the_step_plan_reaches_the_live_job_and_its_ledger(self):
+        pre = job(self.text, "preflight")
+        for flag in (*FLAGS.values(), "run_steps"):
+            self.assertIn(f"{flag}: ${{{{ steps.plan.outputs.{flag} }}}}", pre)
+        plan = step_script(self.text, "Write the planned system ledger")
+        for key in ("target_backend_release", "current_backend_release", "target_console_release", "current_console_release"):
+            self.assertIn(f'--commit "{key}=$(tag_sha "${key.upper()}")"', plan)
+        self.assertIn('git rev-parse --verify --quiet "refs/tags/$1^{commit}"', plan)
+        self.assertIn("$LIVE_FLAG $FORCE_FLAG", plan)
+        self.assertIn('"run_\\(.step)=\\(.action == "run")"', plan)
+        self.assertEqual(step_env(self.text, "Write the planned system ledger", "FORCE_ALL"), "${{ inputs.force_all }}")
+        self.assertEqual(step_env(self.text, "Write the system ledger", "RUN_STEPS"), "${{ needs.preflight.outputs.run_steps }}")
+        self.assertIn('--run-steps "$RUN_STEPS"', step_script(self.text, "Write the system ledger"))
 
     def test_each_document_gets_exactly_its_declared_parameters(self):
         for name, _, _, document in ORDER:
@@ -280,11 +311,11 @@ class DeploySystemLab(unittest.TestCase):
     def test_preflight_guard_refuses_other_refs_and_malformed_inputs(self):
         guard = step_script(self.text, "Guard (main only, validated inputs)")
         good = {"RUN_REF": "refs/heads/main", "MANIFEST": "system/releases/lab-2026.11.0.json",
-                "CURRENT_MANIFEST": "system/releases/lab-2026.11.0.json", "JIRA_KEY": "RT-1031", "DRY_RUN": "true"}
+                "CURRENT_MANIFEST": "system/releases/lab-2026.11.0.json", "JIRA_KEY": "RT-1031", "DRY_RUN": "true", "FORCE_ALL": "false"}
         self.assertEqual(run_step(guard, good).returncode, 0)
         for key, bad in (("RUN_REF", "refs/heads/feature"), ("MANIFEST", "../system/releases/lab-2026.11.0.json"),
                          ("MANIFEST", "system/releases/lab-2026.11.0.json; id"), ("CURRENT_MANIFEST", "lab-2026.11.0.json"),
-                         ("JIRA_KEY", "RT-0"), ("DRY_RUN", "maybe")):
+                         ("JIRA_KEY", "RT-0"), ("DRY_RUN", "maybe"), ("FORCE_ALL", ""), ("FORCE_ALL", "yes")):
             self.assertNotEqual(run_step(guard, {**good, key: bad}).returncode, 0, f"{key}={bad} passed the guard")
 
     @unittest.skipUnless(HAVE_BASH, "bash not available")
@@ -296,9 +327,17 @@ class DeploySystemLab(unittest.TestCase):
                 "ROLLBACK_ALLOWED": "true", "CONSOLE_ARCHIVE_DIGEST": DIGEST, "CONSOLE_RELEASE_SHA": SHA,
                 "CONSOLE_CONTRACT_PIN": SHA, "ERP_EXPECTED_VERSION": "0.1.0", "ERP_CURRENT_TREE": SHA,
                 "ERP_ROLLBACK_CLASS": "image-only", "ENVIRONMENT_GATE": "reviewed",
-                "GATE_RESULTS": "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass G8=pass"}
+                "GATE_RESULTS": "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass G8=pass",
+                "RUN_BACKUP": "true", "RUN_BACKEND": "true", "RUN_CONSOLE": "true", "RUN_ERP": "true",
+                "RUN_STEPS": "backup,backend,console,erp"}
         result = run_step(guard, good)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        partial = {**good, "RUN_BACKUP": "false", "RUN_BACKEND": "false", "RUN_CONSOLE": "false", "RUN_STEPS": "erp"}
+        self.assertEqual(run_step(guard, partial).returncode, 0)
+        for change in ({"RUN_ERP": ""}, {"RUN_CONSOLE": "yes"}, {"RUN_BACKUP": "false", "RUN_STEPS": "backend,console,erp"},
+                       {"RUN_STEPS": "backup,backend,console"}, {"RUN_STEPS": "erp,console,backend,backup"},
+                       {**{key: "false" for key in ("RUN_BACKUP", "RUN_BACKEND", "RUN_CONSOLE", "RUN_ERP")}, "RUN_STEPS": ""}):
+            self.assertNotEqual(run_step(guard, {**good, **change}).returncode, 0, f"{change} passed the live guard")
         for key, bad in (("DRY_RUN", "true"), ("ENVIRONMENT_GATE", "unverified"), ("API_DIGEST", ""),
                          ("CONSOLE_CONTRACT_PIN", "35114fd49d7765dccf4e4c9f3b5c3a6e2d6dd828"), ("ROLLBACK_ALLOWED", ""),
                          ("ERP_ROLLBACK_CLASS", "maybe"), ("GATE_RESULTS", "G1=pass G2=pass G3=pass G4=FAIL G5=pass G6=pass G7=pass G8=pass"),
