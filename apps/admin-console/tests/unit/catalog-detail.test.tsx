@@ -21,6 +21,13 @@ vi.mock("@/lib/catalog-queries", () => ({
   consoleListCatalogProducts: vi.fn(),
   consoleListCatalogCategories: vi.fn(),
 }));
+// RT-1074: section 04 reads the stock levels; here the product has none.
+vi.mock("@/lib/stock-level-queries", () => ({
+  consoleGetProductStockLevels: async (productId: string) => ({
+    status: 200,
+    data: { productId, tenantLevel: null, storeLevels: [] },
+  }),
+}));
 const listStores = vi.fn();
 vi.mock("@/lib/rf2-queries", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/rf2-queries")>()),
@@ -117,17 +124,19 @@ describe("CatalogProductDetail (RT-766, CAT-C1b)", () => {
     const availability = within(tenant).getByText("Tenant availability").nextElementSibling;
     expect(availability?.textContent).toBe("Available");
     expect(within(tenant).getByText("Tracking").nextElementSibling?.textContent).toBe("None");
-    // Tenant values are the first section on the page, then identifiers, then overrides;
-    // an owner (a writer, RT-768) then gets the Retire section last, away from the data.
+    // Tenant values are the first section on the page, then identifiers, then overrides,
+    // then the stock levels (RT-1074); an owner (a writer, RT-768) then gets the Retire
+    // section last, away from the data.
     expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
       "Tenant values",
       "Identifiers",
       "Store overrides",
+      "Stock levels",
       "Retire this item",
     ]);
   });
 
-  test("a read-only role gets the three data sections and no Retire section", async () => {
+  test("a read-only role gets the data sections (stock levels since RT-1074) and no Retire section", async () => {
     activeContext.mockReturnValue(ctx("store_manager"));
     renderDetail();
     await loaded();
@@ -135,6 +144,7 @@ describe("CatalogProductDetail (RT-766, CAT-C1b)", () => {
       "Tenant values",
       "Identifiers",
       "Store overrides",
+      "Stock levels",
     ]);
   });
 
@@ -550,16 +560,16 @@ describe("CatalogProductDetail v4.0 (RT-1010)", () => {
     listStores.mockResolvedValue({ status: 200, data: [] });
   });
 
-  test("the sections carry the index badges 01 to 03 in reading order, outside every name", async () => {
+  test("the sections carry the index badges 01 to 04 in reading order, outside every name", async () => {
     const { container } = renderDetail();
     await loaded();
     const badges = Array.from(container.querySelectorAll(".section-index"));
-    expect(badges.map((b) => b.textContent)).toEqual(["01", "02", "03"]);
+    expect(badges.map((b) => b.textContent)).toEqual(["01", "02", "03", "04"]);
     for (const badge of badges) expect(badge.getAttribute("aria-hidden")).toBe("true");
     // Each badge sits in its own section's head, beside the heading that names it.
     const heads = badges.map((b) => b.closest(".section-panel")?.querySelector("h2")?.textContent);
-    expect(heads).toEqual(["Tenant values", "Identifiers", "Store overrides"]);
-    expectPanels(["Tenant values", "Identifiers", "Store overrides"]);
+    expect(heads).toEqual(["Tenant values", "Identifiers", "Store overrides", "Stock levels"]);
+    expectPanels(["Tenant values", "Identifiers", "Store overrides", "Stock levels"]);
   });
 
   test("the contract serves no ERPNext identity, so the page shows none", async () => {

@@ -21,6 +21,8 @@ import { Banner } from "@/components/Banner";
  * RT-1010 (v4.0): the loaded page opts into the v4 panel and pill shapes
  * (`catalog-v4`) and numbers its sections 01 to 03; behaviour,
  * reads and copy are unchanged.
+ *
+ * RT-1074 adds section 04, the product's stock levels (`src/stock-levels/`).
  */
 import { DetailGrid, HeaderStatus } from "@/components/DetailPanel";
 import { GatedButton } from "@/components/GatedButton";
@@ -28,6 +30,7 @@ import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/i18n";
 import type { CatalogProductDetail as ProductDetail } from "@/lib/catalog-queries";
+import { ProductStockLevels } from "@/stock-levels/ProductStockLevels";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { StoreOverrides, TenantValues } from "./CatalogDetailSections";
@@ -251,6 +254,15 @@ function Loaded({
           <p className="catalog-detail__note">{t("catalog.override.chooseStore")}</p>
         ) : null}
       </StoreOverrides>
+      <ProductStockLevels
+        productId={summary.productId}
+        retired={retired}
+        tenantId={scope.tenantId}
+        role={scope.role}
+        activeStoreId={scope.activeStoreId}
+        activeStoreName={scope.activeStoreName}
+        index={4}
+      />
       {editingStore && scope.tenantId ? (
         <StoreOverrideDrawer
           product={product}

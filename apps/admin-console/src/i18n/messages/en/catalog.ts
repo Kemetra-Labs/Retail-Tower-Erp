@@ -340,4 +340,80 @@ export const catalog: MessagesOf<typeof ar> = {
   "catalog.identifier.retire.rowLabel": "Retire {type} {value}",
   "catalog.identifier.added": "Identifier added.",
   "catalog.identifier.retiredDone": "Identifier retired. Its value is free to use again.",
+  // --- RT-1074 stock levels (RT-1064 TH-1 to TH-5) --------------------------
+  "catalog.stockLevels.title": "Stock levels",
+  "catalog.stockLevels.sub":
+    "At the reorder level the item counts as low; at the critical level it counts as critical. A store's own level replaces the tenant level in that store, both values together.",
+  "catalog.stockLevels.loadingNoun": "stock levels",
+  "catalog.stockLevels.loadFailed": "Stock levels could not be loaded.",
+  "catalog.stockLevels.retry": "Reload stock levels",
+  "catalog.stockLevels.unavailable": "Stock levels are not available for this item.",
+  "catalog.stockLevels.retiredNote":
+    "This item is retired, so its stock levels can no longer be changed.",
+  "catalog.stockLevels.tenant.heading": "Tenant level",
+  "catalog.stockLevels.tenant.none":
+    "No tenant level is set. Stores without their own level are not checked for low stock.",
+  "catalog.stockLevels.stores.heading": "Store levels",
+  "catalog.stockLevels.stores.empty": "No store in your scope has its own level.",
+  "catalog.stockLevels.field.reorder": "Reorder level",
+  "catalog.stockLevels.field.critical": "Critical level",
+  "catalog.stockLevels.field.reorderHint":
+    "In the item's stocking unit, for example 12 or 2.5. Up to 4 decimal places.",
+  "catalog.stockLevels.field.criticalHint":
+    "Optional. Not above the reorder level. Leave it empty for no critical level.",
+  "catalog.stockLevels.value.noCritical": "None",
+  "catalog.stockLevels.action.setTenant": "Set the tenant level",
+  "catalog.stockLevels.action.changeTenant": "Change the tenant level",
+  "catalog.stockLevels.action.setStore": "Set a level for {store}",
+  "catalog.stockLevels.action.changeStore": "Change the level for {store}",
+  "catalog.stockLevels.chooseStore":
+    "To set a store's own level, choose that store in the scope bar.",
+  "catalog.stockLevels.tenantSaved": "The tenant level is saved.",
+  "catalog.stockLevels.tenantRemoved":
+    "The tenant level is removed. Stores without their own level are no longer checked for low stock.",
+  "catalog.stockLevels.storeSaved": "The level for {store} is saved.",
+  "catalog.stockLevels.storeRemoved":
+    "The level for {store} is removed. The store now follows the tenant level.",
+  "catalog.stockLevels.gone": "This level had already been removed. The levels shown are current.",
+  "catalog.stockLevels.drawer.tenantTitle": "Tenant stock level",
+  "catalog.stockLevels.drawer.storeTitle": "Stock level for {store}",
+  "catalog.stockLevels.drawer.tenantSub": "Applies to every store that has no level of its own.",
+  "catalog.stockLevels.drawer.storeSub":
+    "Replaces the tenant level in {store}: both values come from here, so an empty critical level means no critical level in this store.",
+  "catalog.stockLevels.save": "Save level",
+  "catalog.stockLevels.retire.title": "Remove this level",
+  "catalog.stockLevels.retire.tenantSub":
+    "Stores without their own level will no longer be checked for low stock.",
+  "catalog.stockLevels.retire.storeSub": "{store} will follow the tenant level again.",
+  "catalog.stockLevels.retire.start": "Remove level",
+  "catalog.stockLevels.retire.confirmLabel": "Confirm: remove the stock level",
+  "catalog.stockLevels.retire.tenantPrompt": "Remove the tenant stock level?",
+  "catalog.stockLevels.retire.storePrompt": "Remove the stock level for {store}?",
+  "catalog.stockLevels.retire.confirm": "Yes, remove the level",
+  "catalog.stockLevels.error.reorderRequired": "Enter a reorder level.",
+  "catalog.stockLevels.error.format": "Enter a number such as 12 or 2.5.",
+  "catalog.stockLevels.error.positive": "Enter a number above zero.",
+  "catalog.stockLevels.error.precision": "Use at most 4 decimal places.",
+  "catalog.stockLevels.error.tooLarge": "This number is too large.",
+  "catalog.stockLevels.error.criticalAboveReorder":
+    "The critical level cannot be above the reorder level.",
+  "catalog.stockLevels.error.validation":
+    "The server did not accept these values. Check them and try again.",
+  "catalog.stockLevels.error.forbidden": "You do not have permission to change this level.",
+  "catalog.stockLevels.error.notFound":
+    "This level is no longer available to you. Reload the page.",
+  "catalog.stockLevels.error.keyConflict":
+    "This save could not be matched to the earlier attempt. Save again.",
+  "catalog.stockLevels.error.conflict":
+    "This level could not be saved because of a conflict. Reload and try again.",
+  "catalog.stockLevels.error.inProgress":
+    "Your earlier save is still being processed. Wait a few seconds, then save again.",
+  "catalog.stockLevels.error.stale":
+    "Someone else changed this level since you opened it. The current values are loaded and your changes are kept. Review them, then save again.",
+  "catalog.stockLevels.error.staleRetire":
+    "Someone else changed this level since you opened it. The current values are loaded. Review them before removing it.",
+  "catalog.stockLevels.error.retired":
+    "This item is retired, so its stock levels can no longer be changed.",
+  "catalog.stockLevels.error.reloadFailed":
+    "The current values could not be loaded. Close this panel and try again.",
 };

@@ -325,4 +325,72 @@ export const catalog = {
   "catalog.identifier.retire.rowLabel": "إزالة {type} {value}",
   "catalog.identifier.added": "أُضيف المعرّف.",
   "catalog.identifier.retiredDone": "أُزيل المعرّف. قيمته متاحة للاستخدام من جديد.",
+  // --- RT-1074 stock levels (RT-1064 TH-1 to TH-5) --------------------------
+  "catalog.stockLevels.title": "حدود المخزون",
+  "catalog.stockLevels.sub":
+    "عند بلوغ الرصيد حدَّ إعادة الطلب يُعدّ الصنف منخفضًا، وعند بلوغه الحدَّ الحرج يُعدّ حرجًا. حدُّ المتجر الخاص يحلّ محلّ حدِّ المؤسسة في ذلك المتجر بقيمتيه معًا.",
+  "catalog.stockLevels.loadingNoun": "حدود المخزون",
+  "catalog.stockLevels.loadFailed": "تعذّر تحميل حدود المخزون.",
+  "catalog.stockLevels.retry": "إعادة تحميل حدود المخزون",
+  "catalog.stockLevels.unavailable": "حدود المخزون غير متاحة لهذا الصنف.",
+  "catalog.stockLevels.retiredNote": "أُخرج هذا الصنف من الكتالوج، فلا يمكن تغيير حدود مخزونه.",
+  "catalog.stockLevels.tenant.heading": "حدّ المؤسسة",
+  "catalog.stockLevels.tenant.none":
+    "لم يُحدَّد حدّ للمؤسسة. المتاجر التي ليس لها حدّ خاص لا تُفحص لانخفاض المخزون.",
+  "catalog.stockLevels.stores.heading": "حدود المتاجر",
+  "catalog.stockLevels.stores.empty": "لا يوجد متجر ضمن نطاقك له حدّ خاص.",
+  "catalog.stockLevels.field.reorder": "حدّ إعادة الطلب",
+  "catalog.stockLevels.field.critical": "الحدّ الحرج",
+  "catalog.stockLevels.field.reorderHint":
+    "بوحدة تخزين الصنف، مثل 12 أو 2.5. حتى أربع خانات عشرية.",
+  "catalog.stockLevels.field.criticalHint":
+    "اختياري. لا يتجاوز حدَّ إعادة الطلب. اتركه فارغًا إن لم يكن هناك حدّ حرج.",
+  "catalog.stockLevels.value.noCritical": "لا يوجد",
+  "catalog.stockLevels.action.setTenant": "تحديد حدّ المؤسسة",
+  "catalog.stockLevels.action.changeTenant": "تغيير حدّ المؤسسة",
+  "catalog.stockLevels.action.setStore": "تحديد حدّ خاص بـ{store}",
+  "catalog.stockLevels.action.changeStore": "تغيير حدّ {store}",
+  "catalog.stockLevels.chooseStore": "لتحديد حدّ خاص بمتجر، اختر ذلك المتجر من شريط النطاق.",
+  "catalog.stockLevels.tenantSaved": "حُفظ حدّ المؤسسة.",
+  "catalog.stockLevels.tenantRemoved":
+    "أُزيل حدّ المؤسسة. المتاجر التي ليس لها حدّ خاص لم تعد تُفحص لانخفاض المخزون.",
+  "catalog.stockLevels.storeSaved": "حُفظ حدّ {store}.",
+  "catalog.stockLevels.storeRemoved": "أُزيل حدّ {store}. يتبع المتجر الآن حدَّ المؤسسة.",
+  "catalog.stockLevels.gone": "كان هذا الحدّ قد أُزيل من قبل. الحدود المعروضة هي الحالية.",
+  "catalog.stockLevels.drawer.tenantTitle": "حدّ المخزون للمؤسسة",
+  "catalog.stockLevels.drawer.storeTitle": "حدّ المخزون في {store}",
+  "catalog.stockLevels.drawer.tenantSub": "يسري على كل متجر ليس له حدّ خاص.",
+  "catalog.stockLevels.drawer.storeSub":
+    "يحلّ محلّ حدّ المؤسسة في {store}: تؤخذ القيمتان من هنا، فالحدّ الحرج الفارغ يعني عدم وجود حدّ حرج في هذا المتجر.",
+  "catalog.stockLevels.save": "حفظ الحدّ",
+  "catalog.stockLevels.retire.title": "إزالة هذا الحدّ",
+  "catalog.stockLevels.retire.tenantSub":
+    "بعدها لا تُفحص المتاجر التي ليس لها حدّ خاص لانخفاض المخزون.",
+  "catalog.stockLevels.retire.storeSub": "بعدها يتبع {store} حدَّ المؤسسة من جديد.",
+  "catalog.stockLevels.retire.start": "إزالة الحدّ",
+  "catalog.stockLevels.retire.confirmLabel": "تأكيد: إزالة حدّ المخزون",
+  "catalog.stockLevels.retire.tenantPrompt": "إزالة حدّ المخزون للمؤسسة؟",
+  "catalog.stockLevels.retire.storePrompt": "إزالة حدّ المخزون في {store}؟",
+  "catalog.stockLevels.retire.confirm": "نعم، أزِل الحدّ",
+  "catalog.stockLevels.error.reorderRequired": "أدخل حدّ إعادة الطلب.",
+  "catalog.stockLevels.error.format": "أدخل رقمًا مثل 12 أو 2.5.",
+  "catalog.stockLevels.error.positive": "أدخل رقمًا أكبر من صفر.",
+  "catalog.stockLevels.error.precision": "استخدم أربع خانات عشرية على الأكثر.",
+  "catalog.stockLevels.error.tooLarge": "هذا الرقم كبير جدًا.",
+  "catalog.stockLevels.error.criticalAboveReorder": "لا يمكن أن يتجاوز الحدّ الحرج حدَّ إعادة الطلب.",
+  "catalog.stockLevels.error.validation": "لم يقبل الخادم هذه القيم. راجعها ثم حاول مرة أخرى.",
+  "catalog.stockLevels.error.forbidden": "ليست لديك صلاحية تغيير هذا الحدّ.",
+  "catalog.stockLevels.error.notFound": "هذا الحدّ لم يعد متاحًا لك. أعد تحميل الصفحة.",
+  "catalog.stockLevels.error.keyConflict":
+    "تعذّر مطابقة هذا الحفظ بالمحاولة السابقة. احفظ مرة أخرى.",
+  "catalog.stockLevels.error.conflict": "تعذّر حفظ هذا الحدّ بسبب تعارض. أعد التحميل ثم حاول مجددًا.",
+  "catalog.stockLevels.error.inProgress":
+    "ما زال الحفظ السابق قيد المعالجة. انتظر بضع ثوانٍ ثم احفظ مرة أخرى.",
+  "catalog.stockLevels.error.stale":
+    "غيّر شخص آخر هذا الحدّ منذ فتحته. حُمّلت القيم الحالية مع الإبقاء على ما غيّرته. راجعها ثم احفظ مرة أخرى.",
+  "catalog.stockLevels.error.staleRetire":
+    "غيّر شخص آخر هذا الحدّ منذ فتحته. حُمّلت القيم الحالية. راجعها قبل إزالته.",
+  "catalog.stockLevels.error.retired": "أُخرج هذا الصنف من الكتالوج، فلا يمكن تغيير حدود مخزونه.",
+  "catalog.stockLevels.error.reloadFailed":
+    "تعذّر تحميل القيم الحالية. أغلق هذه اللوحة ثم حاول مجددًا.",
 } satisfies Messages;
