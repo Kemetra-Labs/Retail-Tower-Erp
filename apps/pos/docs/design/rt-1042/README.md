@@ -17,7 +17,7 @@ production code and no governing rule.
 | [`02-decision-record.md`](02-decision-record.md)       | The three directions, owner decisions OD-1…OD-15 with recommendations, next screens, proposed implementation issues S1–S8                    |
 | [`prototype.html`](prototype.html)                     | Interactive prototype of all three directions. Open it in a browser; it needs no runtime. It never checks a PIN: you pick the outcome         |
 | `boards/Direction-{A,B,C}-*.dc.html`                   | Per direction: a main board (1920×1080 hero plus 1024×768 and 1024×600) and a states board (20 states)                                       |
-| `boards/canvas-2026-11-01/`                            | The owner's design-session canvas boards (A–J, states S2–S6), copied unchanged as non-approved reference (canvas: claude.ai artifact `MjeRvpPxii3GMnb8DNP6L4`, private) |
+| `boards/canvas-2026-11-01/`                            | The owner's design-session canvas boards (A–J; board A is `Main.dc.html`, states are `SignIn` and S2–S6), copied unchanged as non-approved reference (canvas: claude.ai artifact `MjeRvpPxii3GMnb8DNP6L4`, private) |
 
 ## Reading the boards
 

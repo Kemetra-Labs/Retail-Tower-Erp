@@ -265,9 +265,9 @@ box-sizing:border-box;position:relative;overflow:hidden;display:flex;flex-direct
     return 'lg';
   }
 
-  function notice(tone, text) {
+  function notice(tone, text, inSlot) {
     const icon = tone === 'danger' ? ICON.danger : tone === 'warning' ? ICON.warn : ICON.info;
-    return `<div class="nt nt-${tone}" role="${tone === 'info' ? 'status' : 'alert'}">${icon}<span>${esc(text)}</span></div>`;
+    return `<div class="nt nt-${tone}"${inSlot ? "" : ` role="${tone === "info" ? "status" : "alert"}"`}>${icon}<span>${esc(text)}</span></div>`;
   }
 
   function logoSlot(s, onInk) {
@@ -302,8 +302,8 @@ box-sizing:border-box;position:relative;overflow:hidden;display:flex;flex-direct
 
   function feedback(s) {
     if (s.feedback === 'signing') return `<span class="st"><span class="spin" aria-hidden="true"></span>${COPY.signingIn}</span>`;
-    if (s.feedback === 'scan') return notice('warning', SCAN_PIN);
-    if (s.feedback && REFUSAL[s.feedback]) return notice('danger', REFUSAL[s.feedback]);
+    if (s.feedback === 'scan') return notice('warning', SCAN_PIN, true);
+    if (s.feedback && REFUSAL[s.feedback]) return notice('danger', REFUSAL[s.feedback], true);
     return '';
   }
 
@@ -469,7 +469,7 @@ box-sizing:border-box;position:relative;overflow:hidden;display:flex;flex-direct
     else if (e.key === 'Backspace') { st.pin = Math.max(0, st.pin - 1); draw(); }
     else if (e.key === 'Enter' && st.pin >= 4) { submit(); }
   });
-  $('scan').addEventListener('click', function () { if (st.picked != null && st.mode === 'cashier') { st.feedback = 'scan'; draw(); } });
+  $('scan').addEventListener('click', function () { if (st.picked != null && st.mode === 'cashier' && st.feedback !== 'signing') { st.feedback = 'scan'; draw(); } });
   $('end-ok').addEventListener('click', function () { $('end').style.display = 'none'; reset(); draw(); });
   ['dir', 'vp', 'roster', 'names', 'logo', 'fc'].forEach(function (id) {
     $(id).addEventListener('change', function () {
