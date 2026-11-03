@@ -1,0 +1,2258 @@
+[
+  {
+    "file": "rt1120-default10-1024x768-light-after.png",
+    "page": "default10",
+    "viewport": "1024x768",
+    "mode": "light",
+    "errors": [],
+    "names": [
+      {
+        "text": "باراسيتامول 500 مجم · 24 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          127,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          136,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "فيتامين C فوار 1000 مجم · 20 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          183,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          192,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "شراب للكحة للأطفال · 100 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          239,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          248,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "كمامات طبية · 50 قطعة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          295,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          304,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "مناديل مبللة · 80 منديل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          351,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          360,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "واقي شمس SPF 50 · 50 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          689,
+          407,
+          309,
+          21
+        ],
+        "amountRect": [
+          612,
+          416,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "مطهر كحولي 70% · 250 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          463,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          472,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "لاصق جروح متنوع · 40 قطعة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          689,
+          519,
+          309,
+          21
+        ],
+        "amountRect": [
+          612,
+          528,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "معجون أسنان للحساسية · 75 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          689,
+          575,
+          309,
+          21
+        ],
+        "amountRect": [
+          612,
+          584,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "أموكسيسيلين 500 مجم · 16 كبسولة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          631,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          640,
+          61,
+          21
+        ]
+      }
+    ],
+    "listScrolls": true,
+    "pageOverflowY": 0,
+    "pageOverflowX": 0
+  },
+  {
+    "file": "rt1120-lines4-1024x768-light-after.png",
+    "page": "lines4",
+    "viewport": "1024x768",
+    "mode": "light",
+    "errors": [],
+    "names": [
+      {
+        "text": "باراسيتامول 500 مجم · 24 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          127,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          136,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "فيتامين C فوار 1000 مجم · 20 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          183,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          192,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "شراب للكحة للأطفال · 100 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          239,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          248,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "كمامات طبية · 50 قطعة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          295,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          304,
+          61,
+          21
+        ]
+      }
+    ],
+    "listScrolls": false,
+    "pageOverflowY": 0,
+    "pageOverflowX": 0
+  },
+  {
+    "file": "rt1120-mixed-1024x768-light-after.png",
+    "page": "mixed",
+    "viewport": "1024x768",
+    "mode": "light",
+    "errors": [],
+    "names": [
+      {
+        "text": "باراسيتامول 500 مجم · 24 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          174,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          183,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "فيتامين C فوار 1000 مجم · 20 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          230,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          239,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "شراب للكحة للأطفال · 100 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          286,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          295,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "كمامات طبية · 50 قطعة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          342,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          351,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "مناديل مبللة · 80 منديل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          398,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          407,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "واقي شمس SPF 50 · 50 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          689,
+          454,
+          309,
+          21
+        ],
+        "amountRect": [
+          612,
+          463,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "مطهر كحولي 70% · 250 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          510,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          519,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "لاصق جروح متنوع · 40 قطعة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          689,
+          566,
+          309,
+          21
+        ],
+        "amountRect": [
+          612,
+          575,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "معجون أسنان للحساسية · 75 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          689,
+          622,
+          309,
+          21
+        ],
+        "amountRect": [
+          612,
+          631,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "أموكسيسيلين 500 مجم · 16 كبسولة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          678,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          687,
+          61,
+          21
+        ]
+      }
+    ],
+    "listScrolls": true,
+    "pageOverflowY": 0,
+    "pageOverflowX": 0
+  },
+  {
+    "file": "rt1120-default10-1024x768-forced-after.png",
+    "page": "default10",
+    "viewport": "1024x768",
+    "mode": "forced",
+    "errors": [],
+    "names": [
+      {
+        "text": "باراسيتامول 500 مجم · 24 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          127,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          136,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "فيتامين C فوار 1000 مجم · 20 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          183,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          192,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "شراب للكحة للأطفال · 100 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          239,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          248,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "كمامات طبية · 50 قطعة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          295,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          304,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "مناديل مبللة · 80 منديل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          351,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          360,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "واقي شمس SPF 50 · 50 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          689,
+          407,
+          309,
+          21
+        ],
+        "amountRect": [
+          612,
+          416,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "مطهر كحولي 70% · 250 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          463,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          472,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "لاصق جروح متنوع · 40 قطعة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          689,
+          519,
+          309,
+          21
+        ],
+        "amountRect": [
+          612,
+          528,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "معجون أسنان للحساسية · 75 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          689,
+          575,
+          309,
+          21
+        ],
+        "amountRect": [
+          612,
+          584,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "أموكسيسيلين 500 مجم · 16 كبسولة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          631,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          640,
+          61,
+          21
+        ]
+      }
+    ],
+    "listScrolls": true,
+    "pageOverflowY": 0,
+    "pageOverflowX": 0
+  },
+  {
+    "file": "rt1120-lines4-1024x768-forced-after.png",
+    "page": "lines4",
+    "viewport": "1024x768",
+    "mode": "forced",
+    "errors": [],
+    "names": [
+      {
+        "text": "باراسيتامول 500 مجم · 24 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          127,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          136,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "فيتامين C فوار 1000 مجم · 20 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          183,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          192,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "شراب للكحة للأطفال · 100 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          239,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          248,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "كمامات طبية · 50 قطعة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          295,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          304,
+          61,
+          21
+        ]
+      }
+    ],
+    "listScrolls": false,
+    "pageOverflowY": 0,
+    "pageOverflowX": 0
+  },
+  {
+    "file": "rt1120-mixed-1024x768-forced-after.png",
+    "page": "mixed",
+    "viewport": "1024x768",
+    "mode": "forced",
+    "errors": [],
+    "names": [
+      {
+        "text": "باراسيتامول 500 مجم · 24 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          174,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          183,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "فيتامين C فوار 1000 مجم · 20 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          230,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          239,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "شراب للكحة للأطفال · 100 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          286,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          295,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "كمامات طبية · 50 قطعة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          342,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          351,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "مناديل مبللة · 80 منديل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          398,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          407,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "واقي شمس SPF 50 · 50 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          689,
+          454,
+          309,
+          21
+        ],
+        "amountRect": [
+          612,
+          463,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "مطهر كحولي 70% · 250 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          510,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          519,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "لاصق جروح متنوع · 40 قطعة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          689,
+          566,
+          309,
+          21
+        ],
+        "amountRect": [
+          612,
+          575,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "معجون أسنان للحساسية · 75 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          689,
+          622,
+          309,
+          21
+        ],
+        "amountRect": [
+          612,
+          631,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "أموكسيسيلين 500 مجم · 16 كبسولة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          681,
+          678,
+          317,
+          21
+        ],
+        "amountRect": [
+          612,
+          687,
+          61,
+          21
+        ]
+      }
+    ],
+    "listScrolls": true,
+    "pageOverflowY": 0,
+    "pageOverflowX": 0
+  },
+  {
+    "file": "rt1120-default10-1280x800-light-after.png",
+    "page": "default10",
+    "viewport": "1280x800",
+    "mode": "light",
+    "errors": [],
+    "names": [
+      {
+        "text": "باراسيتامول 500 مجم · 24 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          142,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          151,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "فيتامين C فوار 1000 مجم · 20 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 2,
+        "truncated": false,
+        "rect": [
+          1074,
+          198,
+          177,
+          42
+        ],
+        "amountRect": [
+          1005,
+          218,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "شراب للكحة للأطفال · 100 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          275,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          284,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "كمامات طبية · 50 قطعة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          331,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          340,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "مناديل مبللة · 80 منديل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          387,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          396,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "واقي شمس SPF 50 · 50 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1082,
+          443,
+          169,
+          21
+        ],
+        "amountRect": [
+          1005,
+          452,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "مطهر كحولي 70% · 250 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          499,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          508,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "لاصق جروح متنوع · 40 قطعة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1082,
+          555,
+          169,
+          21
+        ],
+        "amountRect": [
+          1005,
+          564,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "معجون أسنان للحساسية · 75 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 2,
+        "truncated": false,
+        "rect": [
+          1082,
+          611,
+          169,
+          42
+        ],
+        "amountRect": [
+          1005,
+          631,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "أموكسيسيلين 500 مجم · 16 كبسولة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 2,
+        "truncated": false,
+        "rect": [
+          1074,
+          688,
+          177,
+          42
+        ],
+        "amountRect": [
+          1005,
+          708,
+          61,
+          21
+        ]
+      }
+    ],
+    "listScrolls": true,
+    "pageOverflowY": 0,
+    "pageOverflowX": 0
+  },
+  {
+    "file": "rt1120-lines4-1280x800-light-after.png",
+    "page": "lines4",
+    "viewport": "1280x800",
+    "mode": "light",
+    "errors": [],
+    "names": [
+      {
+        "text": "باراسيتامول 500 مجم · 24 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          142,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          151,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "فيتامين C فوار 1000 مجم · 20 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 2,
+        "truncated": false,
+        "rect": [
+          1074,
+          198,
+          177,
+          42
+        ],
+        "amountRect": [
+          1005,
+          218,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "شراب للكحة للأطفال · 100 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          275,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          284,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "كمامات طبية · 50 قطعة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          331,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          340,
+          61,
+          21
+        ]
+      }
+    ],
+    "listScrolls": false,
+    "pageOverflowY": 0,
+    "pageOverflowX": 0
+  },
+  {
+    "file": "rt1120-mixed-1280x800-light-after.png",
+    "page": "mixed",
+    "viewport": "1280x800",
+    "mode": "light",
+    "errors": [],
+    "names": [
+      {
+        "text": "باراسيتامول 500 مجم · 24 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          189,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          198,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "فيتامين C فوار 1000 مجم · 20 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 2,
+        "truncated": false,
+        "rect": [
+          1074,
+          245,
+          177,
+          42
+        ],
+        "amountRect": [
+          1005,
+          265,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "شراب للكحة للأطفال · 100 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          322,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          331,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "كمامات طبية · 50 قطعة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          378,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          387,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "مناديل مبللة · 80 منديل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          434,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          443,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "واقي شمس SPF 50 · 50 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1082,
+          490,
+          169,
+          21
+        ],
+        "amountRect": [
+          1005,
+          499,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "مطهر كحولي 70% · 250 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          546,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          555,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "لاصق جروح متنوع · 40 قطعة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1082,
+          602,
+          169,
+          21
+        ],
+        "amountRect": [
+          1005,
+          611,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "معجون أسنان للحساسية · 75 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 2,
+        "truncated": false,
+        "rect": [
+          1082,
+          658,
+          169,
+          42
+        ],
+        "amountRect": [
+          1005,
+          678,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "أموكسيسيلين 500 مجم · 16 كبسولة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 2,
+        "truncated": false,
+        "rect": [
+          1074,
+          735,
+          177,
+          42
+        ],
+        "amountRect": [
+          1005,
+          755,
+          61,
+          21
+        ]
+      }
+    ],
+    "listScrolls": true,
+    "pageOverflowY": 0,
+    "pageOverflowX": 0
+  },
+  {
+    "file": "rt1120-default10-1280x800-forced-after.png",
+    "page": "default10",
+    "viewport": "1280x800",
+    "mode": "forced",
+    "errors": [],
+    "names": [
+      {
+        "text": "باراسيتامول 500 مجم · 24 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          142,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          151,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "فيتامين C فوار 1000 مجم · 20 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 2,
+        "truncated": false,
+        "rect": [
+          1074,
+          198,
+          177,
+          42
+        ],
+        "amountRect": [
+          1005,
+          218,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "شراب للكحة للأطفال · 100 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          275,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          284,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "كمامات طبية · 50 قطعة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          331,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          340,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "مناديل مبللة · 80 منديل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          387,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          396,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "واقي شمس SPF 50 · 50 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1082,
+          443,
+          169,
+          21
+        ],
+        "amountRect": [
+          1005,
+          452,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "مطهر كحولي 70% · 250 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          499,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          508,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "لاصق جروح متنوع · 40 قطعة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1082,
+          555,
+          169,
+          21
+        ],
+        "amountRect": [
+          1005,
+          564,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "معجون أسنان للحساسية · 75 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 2,
+        "truncated": false,
+        "rect": [
+          1082,
+          611,
+          169,
+          42
+        ],
+        "amountRect": [
+          1005,
+          631,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "أموكسيسيلين 500 مجم · 16 كبسولة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 2,
+        "truncated": false,
+        "rect": [
+          1074,
+          688,
+          177,
+          42
+        ],
+        "amountRect": [
+          1005,
+          708,
+          61,
+          21
+        ]
+      }
+    ],
+    "listScrolls": true,
+    "pageOverflowY": 0,
+    "pageOverflowX": 0
+  },
+  {
+    "file": "rt1120-lines4-1280x800-forced-after.png",
+    "page": "lines4",
+    "viewport": "1280x800",
+    "mode": "forced",
+    "errors": [],
+    "names": [
+      {
+        "text": "باراسيتامول 500 مجم · 24 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          142,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          151,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "فيتامين C فوار 1000 مجم · 20 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 2,
+        "truncated": false,
+        "rect": [
+          1074,
+          198,
+          177,
+          42
+        ],
+        "amountRect": [
+          1005,
+          218,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "شراب للكحة للأطفال · 100 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          275,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          284,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "كمامات طبية · 50 قطعة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          331,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          340,
+          61,
+          21
+        ]
+      }
+    ],
+    "listScrolls": false,
+    "pageOverflowY": 0,
+    "pageOverflowX": 0
+  },
+  {
+    "file": "rt1120-mixed-1280x800-forced-after.png",
+    "page": "mixed",
+    "viewport": "1280x800",
+    "mode": "forced",
+    "errors": [],
+    "names": [
+      {
+        "text": "باراسيتامول 500 مجم · 24 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          189,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          198,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "فيتامين C فوار 1000 مجم · 20 قرص",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 2,
+        "truncated": false,
+        "rect": [
+          1074,
+          245,
+          177,
+          42
+        ],
+        "amountRect": [
+          1005,
+          265,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "شراب للكحة للأطفال · 100 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          322,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          331,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "كمامات طبية · 50 قطعة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          378,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          387,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "مناديل مبللة · 80 منديل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          434,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          443,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "واقي شمس SPF 50 · 50 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1082,
+          490,
+          169,
+          21
+        ],
+        "amountRect": [
+          1005,
+          499,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "مطهر كحولي 70% · 250 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1074,
+          546,
+          177,
+          21
+        ],
+        "amountRect": [
+          1005,
+          555,
+          61,
+          21
+        ]
+      },
+      {
+        "text": "لاصق جروح متنوع · 40 قطعة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 1,
+        "truncated": false,
+        "rect": [
+          1082,
+          602,
+          169,
+          21
+        ],
+        "amountRect": [
+          1005,
+          611,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "معجون أسنان للحساسية · 75 مل",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 2,
+        "truncated": false,
+        "rect": [
+          1082,
+          658,
+          169,
+          42
+        ],
+        "amountRect": [
+          1005,
+          678,
+          69,
+          21
+        ]
+      },
+      {
+        "text": "أموكسيسيلين 500 مجم · 16 كبسولة",
+        "whiteSpace": "normal",
+        "lineClamp": "2",
+        "display": "flow-root",
+        "lineHeightPx": 21,
+        "lineHeightRatio": 1.5,
+        "lines": 2,
+        "truncated": false,
+        "rect": [
+          1074,
+          735,
+          177,
+          42
+        ],
+        "amountRect": [
+          1005,
+          755,
+          61,
+          21
+        ]
+      }
+    ],
+    "listScrolls": true,
+    "pageOverflowY": 0,
+    "pageOverflowX": 0
+  }
+]

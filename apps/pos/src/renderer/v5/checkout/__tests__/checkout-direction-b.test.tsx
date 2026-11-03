@@ -463,3 +463,54 @@ describe('M-P3 is a neutral notice (RT-1025, freeze 15) — CSS tripwire', () =>
     expect(neutral.join('')).not.toMatch(/--color-info/);
   });
 });
+
+describe('OrderSummary product names wrap to two lines (RT-1120, Arabic Leading Rule)', () => {
+  const LONG_NAME = 'أموكسيسيلين + حمض الكلافولانيك 875/125 مجم - 20 قرص فوار للمضغ';
+  const css = readFileSync(resolve(__dirname, '../checkout.css'), 'utf-8').replace(
+    /\/\*[\s\S]*?\*\//g,
+    '',
+  );
+
+  /** Declaration bodies of every rule whose selector list includes `selector`. */
+  function bodies(selector: string): string {
+    return css
+      .split('}')
+      .map((rule) => rule.split('{'))
+      .filter(([sel]) => sel?.split(',').some((s) => s.trim() === selector))
+      .map(([, body]) => body ?? '')
+      .join(';');
+  }
+
+  it('clamps the name to two lines and no longer forces one line', () => {
+    const name = bodies('.v5-order-summary__name');
+    expect(name).not.toMatch(/white-space:\s*nowrap/);
+    expect(name).toMatch(/white-space:\s*normal/);
+    expect(name).toMatch(/-webkit-line-clamp:\s*2/);
+    expect(name).toMatch(/(?<![-\w])line-clamp:\s*2/);
+    expect(name).toMatch(/overflow:\s*hidden/);
+    expect(name).toMatch(/overflow-wrap:\s*anywhere/);
+  });
+
+  it('keeps Arabic leading at 1.5 or more on the name', () => {
+    const name = bodies('.v5-order-summary__name');
+    expect(name).toMatch(/line-height:\s*var\(--line-height-(normal|relaxed)\)/);
+  });
+
+  it('keeps the amount anchored in the name/qty grid', () => {
+    const line = bodies('.v5-order-summary__line');
+    expect(line).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/);
+    expect(line).toMatch(/'name amount'\s+'qty amount'/);
+    expect(bodies('.v5-order-summary__name')).toMatch(/grid-area:\s*name/);
+    expect(bodies('.v5-order-summary__amount')).toMatch(/grid-area:\s*amount/);
+  });
+
+  it('puts the full, untruncated product name in the row (clamping is CSS only)', () => {
+    const env = envelope(1);
+    const first = env.lines[0];
+    if (first === undefined) throw new Error('fixture has a line');
+    render(<OrderSummary envelope={{ ...env, lines: [{ ...first, display_name: LONG_NAME }] }} />);
+    const row = within(screen.getByRole('list', { name: 'أصناف السلة' })).getByRole('listitem');
+    expect(row).toHaveTextContent(LONG_NAME);
+    expect(within(row).getByText(LONG_NAME)).toBeInTheDocument();
+  });
+});
