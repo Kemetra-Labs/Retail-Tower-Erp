@@ -35,6 +35,12 @@ export default tsEslint.config(
       // service" on CI. Tooling, not production source. Same rationale as
       // `.claude/**` / `.tmp/**` above.
       '.specify/scratch/**',
+      // Design references (e.g. RT-1090's `docs/design/rt-1042/references/
+      // capture.mjs` screenshot helper). Not production source and in no
+      // tsconfig project, so the project-service parser fails them with "was
+      // not found by the project service". Mirrors `docs/design/` in
+      // .prettierignore.
+      'docs/design/**',
     ],
   },
   tsEslint.configs.strictTypeChecked,

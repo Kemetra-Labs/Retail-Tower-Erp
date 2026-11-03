@@ -173,6 +173,22 @@ describe('RT-79 — tenders (frozen tender_lines_summary_json → payload.tender
     ]);
   });
 
+  it('RT-1052: many tender lines still capture at most one tender per method (never above the server cap of 16)', () => {
+    const sale = withTenders([
+      ...Array.from({ length: 10 }, () => ({ tender_type: 'cash', amount_applied_minor: 100 })),
+      ...Array.from({ length: 10 }, () => ({
+        tender_type: 'external_card_terminal',
+        amount_applied_minor: 50,
+      })),
+    ]);
+    const tenders = buildCapturePayload(sale, ON).tenders ?? [];
+    expect(tenders).toEqual([
+      { method: 'cash', amountMinor: 1000 },
+      { method: 'card_external', amountMinor: 500 },
+    ]);
+    expect(tenders.length).toBeLessThanOrEqual(16);
+  });
+
   it('a voucher tender is NOT sendable (typed error, never a fabricated method)', () => {
     const sale = withTenders([{ tender_type: 'internal_voucher', amount_applied_minor: 1500 }]);
     expect(() => buildCapturePayload(sale, ON)).toThrow(TenderNotSendableError);

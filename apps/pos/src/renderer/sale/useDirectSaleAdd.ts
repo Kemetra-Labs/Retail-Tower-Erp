@@ -12,6 +12,7 @@ import {
   SALE_ADD_FAILED_MESSAGE,
   SALE_FROZEN_MESSAGE,
   SALE_LINE_DISCOUNTED_MESSAGE,
+  SALE_LINE_LIMIT_MESSAGE,
   SCAN_AMBIGUOUS_MESSAGE,
   SCAN_CATALOGUE_UNAVAILABLE_MESSAGE,
   SCAN_SALE_COMPLETE_MESSAGE,
@@ -108,11 +109,15 @@ async function addProduct(job: AddJob, product: ProductSnapshotDisplay): Promise
   else job.opts.notify(addRefusedMessage(res));
 }
 
-/** RT-855: a merge into a discounted line is refused `line_discounted` (OD-28-7). */
+/**
+ * RT-855: a merge into a discounted line is refused `line_discounted` (OD-28-7).
+ * RT-1052: a new item on a sale at the line cap is refused `line_limit`.
+ */
 function addRefusedMessage(res: CartLinesAddResponse | null): string {
-  return res?.kind === 'refused' && res.reason === 'line_discounted'
-    ? SALE_LINE_DISCOUNTED_MESSAGE
-    : SALE_ADD_FAILED_MESSAGE;
+  if (res?.kind !== 'refused') return SALE_ADD_FAILED_MESSAGE;
+  if (res.reason === 'line_discounted') return SALE_LINE_DISCOUNTED_MESSAGE;
+  if (res.reason === 'line_limit') return SALE_LINE_LIMIT_MESSAGE;
+  return SALE_ADD_FAILED_MESSAGE;
 }
 
 /** `cart.lines.add` of one unit; `null` for a failed transport. */
