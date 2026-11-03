@@ -188,7 +188,7 @@ F-01..F-09 come from the prototype audit. F-10..F-19 are additional findings fro
 
 ### 7.2 Offline and outbox
 
-V0.5 has no persistence. No recommended adaptation changes production runtime outside the existing bridge contract: none touches `sale_sync_outbox`, the cart or payment IPC, or the sync engine. S1 adds tests only (some on the main side), with no production change. The offline indicator stays the real-signal design (VN-S6), and the simulated toggle is rejected. **Effect of the adopted items on offline behaviour: none**, provided each implementation slice changes only the renderer and calls only the existing bridge (`cart.*`, `catalogue.*`, `payment.*`); S1 is tests only.
+V0.5 has no persistence. No recommended adaptation changes the existing bridge contracts, their payloads, main persistence (`sale_sync_outbox`, the cart and payment tables) or the sync engine. S3 and S5 call existing `cart.*` operations through the typed preload bridge unchanged. S1 adds tests only (some on the main side), with no production change. The offline indicator stays the real-signal design (VN-S6), and the simulated toggle is rejected. **Effect of the adopted items on offline behaviour: none**, provided each implementation slice changes only the renderer and calls only the existing bridge (`cart.*`, `catalogue.*`, `payment.*`); S1 is tests only.
 
 ### 7.3 Payment UNKNOWN
 
