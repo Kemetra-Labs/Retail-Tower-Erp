@@ -125,6 +125,18 @@ for (const s of SCREENS) {
 
     for (const variant of variants) {
       test(variant, async ({ page, t, appLocale }) => {
+        if (variant === "normal") {
+          // Written first, so build-index.mjs expects this screen's files even if a capture fails.
+          const meta = {
+            ticket: s.ticket,
+            slug: s.slug,
+            route: s.route,
+            denseRoute: s.dense?.route ?? null,
+            locale: appLocale,
+            variants: [...variants, "forced-colors"],
+          };
+          writeFileSync(`${base(s, appLocale)}__meta.json`, `${JSON.stringify(meta, null, 2)}\n`);
+        }
         const errors = watchErrors(page);
         const route = await prepare(page, s, variant);
         const banners: Record<number, number> = {};
@@ -141,17 +153,6 @@ for (const s of SCREENS) {
         }
         if (variant === "banner") {
           writeFileSync(`${base(s, appLocale)}__banner.json`, `${JSON.stringify(banners)}\n`);
-        }
-        if (variant === "normal") {
-          const meta = {
-            ticket: s.ticket,
-            slug: s.slug,
-            route: s.route,
-            denseRoute: s.dense?.route ?? null,
-            locale: appLocale,
-            variants: [...variants, "forced-colors"],
-          };
-          writeFileSync(`${base(s, appLocale)}__meta.json`, `${JSON.stringify(meta, null, 2)}\n`);
         }
       });
     }
