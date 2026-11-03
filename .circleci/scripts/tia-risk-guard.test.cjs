@@ -156,8 +156,8 @@ test("globToRegExp follows the graph syntax", () => {
   assert.ok(guard.globToRegExp("a/**").test("a/b\nc"), "dotAll, as pgraph's re.DOTALL");
 });
 
-test("line terminators and control characters in a name force FULL, even in a critical tier", () => {
-  for (const p of [`${SRC}auth/evil\nname.ts`, `${SRC}auth/evil\rname.ts`, `${SRC}settlement/a\u2028b.ts`, `${SRC}inventory/a\u2029b.ts`, `${SRC}x\u0001.ts`, `${SRC}x\u007f.ts`]) {
+test("line terminators, control characters and lossy (U+FFFD) names force FULL, even in a critical tier", () => {
+  for (const p of [`${SRC}auth/evil\nname.ts`, `${SRC}auth/evil\rname.ts`, `${SRC}settlement/a\u2028b.ts`, `${SRC}inventory/a\u2029b.ts`, `${SRC}x\u0001.ts`, `${SRC}x\u007f.ts`, `${SRC}x\uFFFD.ts`, `${SRC}auth/x\uFFFD.ts`]) {
     assert.ok(guard.pathRisk(p), JSON.stringify(p));
     assert.equal(guard.classify([p]).decision, FORCE_FULL, JSON.stringify(p));
   }

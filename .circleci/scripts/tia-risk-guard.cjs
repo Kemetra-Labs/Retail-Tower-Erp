@@ -96,8 +96,9 @@ function pathRisk(p) {
   if (!p || p.startsWith("/") || p.includes("\\") || p.split("/").some((s) => s === ".." || s === "." || s === "")) {
     return "unclassifiable path";
   }
-  // Control characters and line/paragraph separators in a name are never ordinary source.
-  if (/[\u0000-\u001f\u007f\u2028\u2029]/.test(p)) return "unclassifiable path";
+  // Control characters and line/paragraph separators in a name are never ordinary source, and
+  // U+FFFD means git gave bytes that are not UTF-8 (decoded lossily): the real name is unknown.
+  if (/[\u0000-\u001f\u007f\u2028\u2029\uFFFD]/.test(p)) return "unclassifiable path";
   if (CRITICAL_RES.some((re) => re.test(p))) return "critical Backend-Core tier";
   if (!FAST_RES.some((re) => re.test(p)) || EXCLUDE_RES.some((re) => re.test(p))) {
     return "outside the API fast class";
