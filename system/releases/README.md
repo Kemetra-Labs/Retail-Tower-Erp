@@ -80,6 +80,19 @@ Before G8, a stale manifest was refused only on lab-01, before any version chang
 
 ### 2. Choose the target
 
+For an upgrade, draft the new file with `.github/release/draft_manifest.py` (RT-1089), then open a PR with it:
+
+```bash
+python .github/release/draft_manifest.py
+```
+
+By default it takes:
+- the highest published, immutable `backend-core/vX.Y.Z` and `admin-console/vX.Y.Z` releases;
+- the ERP image that `build-erp-image.yml` built for the newest commit on `main`, checked with `gh attestation verify` against that workflow on `refs/heads/main`, with its commit read from the image's `org.opencontainers.image.revision` label;
+- the POS build of the newest file here.
+
+It writes the next free `lab-YYYY.MM.N` of this month and runs the gate (G1–G5) on it. Override any part with `--backend <tag>`, `--console <tag>`, `--erp sha256:<digest>`, `--pos <build>`, `--current <file>` or `--system <name>`; `--print` shows the draft without writing it. It never overwrites an existing file. It needs `gh` signed in (releases, attestations); the image registry is public and read anonymously. The deploy preflight still checks every product online.
+
 | Goal | `manifest` | `current_manifest` | `force_all` |
 | --- | --- | --- | --- |
 | Prove the path, change no version | the live file | the same file | `true` |
