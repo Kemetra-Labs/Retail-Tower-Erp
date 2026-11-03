@@ -276,6 +276,16 @@ export const PIN_FILE_PATH = "contracts/backend-core/PIN" as const;
  * `changePassword`. The Console's contract pin names a release again, as RT-717
  * C3 intended. Done with `pnpm generate:client --repin 3fe42b6...`. All 27
  * composed sources are byte-identical to 8b4461d; only the commit changed.
+ *
+ * Re-pin to main for RT-455 (2026-11-03, coordinator brief for RT-455, after the
+ * owner decisions OD-0..OD-9 in RT-455 comment 15233): bumped 24cc15f -> 6e3ffc9
+ * (main, after RT-1081 #264 squash-merged as 7b31d8c). 24cc15f was RT-1081's
+ * pre-squash branch commit, so the RT-1081 reads (`listTrackingHolds`,
+ * `listInventoryRecalls`, the identity reads, `getTenantTrackingSummary`) and
+ * RT-451 Step 0 (#262) were already in the client. Done with
+ * `pnpm generate:client --repin 6e3ffc9...`. All composed sources are
+ * byte-identical to 24cc15f; only the commit changed. The pin no longer names
+ * a release commit.
  */
 export const BACKEND_CORE_PIN: ContractsPin = parsePin(
   readFileSync(resolve(repoRoot, PIN_FILE_PATH), "utf8"),

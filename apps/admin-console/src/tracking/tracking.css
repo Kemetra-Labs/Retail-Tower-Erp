@@ -1,0 +1,165 @@
+/* RT-455 tracking holds screen and identity detail. Existing tokens only; no
+ * new colour, font or dependency. Opt-in by `.tracking` on the surface, on top
+ * of the v4.0 inventory surface (`inventory--v4`). Logical properties
+ * throughout (RTL by structure). The tab set keeps the Teal Signal Line, as
+ * the device detail tabs do (filled tab sets are open, RT-1039). */
+
+.tracking__muted {
+  margin: 0;
+  max-inline-size: 75ch;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+
+.tracking__name {
+  overflow-wrap: anywhere;
+}
+
+.tracking__identity {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.tracking__stores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tracking__actor-fallback {
+  color: var(--color-text-muted);
+}
+
+/* ---- Tabs ------------------------------------------------------------------- */
+
+.tracking-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  border-block-end: 1px solid var(--color-border);
+}
+.tracking-tab {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  min-block-size: var(--control-h);
+  padding-inline: var(--space-4);
+  background: none;
+  border: 0;
+  border-block-end: 2px solid transparent;
+  border-start-start-radius: var(--radius-control);
+  border-start-end-radius: var(--radius-control);
+  color: var(--color-text-muted);
+  font: var(--weight-regular) var(--text-control) / var(--leading-tight) var(--font-sans);
+  cursor: pointer;
+  transition: background-color var(--duration-2) var(--ease-out), color var(--duration-2)
+    var(--ease-out);
+}
+.tracking-tab:hover {
+  background-color: var(--color-surface-sunken);
+  color: var(--color-text);
+}
+.tracking-tab[aria-selected="true"] {
+  border-block-end-color: var(--color-primary);
+  color: var(--color-text);
+  font-weight: var(--weight-strong);
+}
+.tracking-tab__count {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+
+/* ---- Not built yet / stopped -------------------------------------------------- */
+
+.tracking__soon {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: var(--space-4);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-object);
+}
+.tracking__soon-title {
+  margin: 0;
+  font-weight: var(--weight-strong);
+}
+
+/* ---- Fields in a drawer or a section ------------------------------------------- */
+
+.tracking__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-3) var(--space-5);
+  margin: 0;
+}
+.tracking__fields dt {
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.tracking__fields dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.tracking__drawer-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-items: flex-start;
+}
+.tracking__drawer-body > .tracking__fields,
+.tracking__drawer-body > .data-table {
+  inline-size: 100%;
+}
+
+.tracking__active-holds {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ---- Tracking consistency (critical, OD-8): a status surface, no ornament ------- */
+
+.tracking__consistency {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-inline-start: 3px solid var(--color-danger);
+  border-radius: var(--radius-object);
+  background: var(--color-surface);
+}
+.tracking__consistency-title {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--text-body);
+  font-weight: var(--weight-strong);
+}
+.tracking__consistency-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (forced-colors: active) {
+  .tracking-tab[aria-selected="true"] {
+    border-block-end-color: Highlight;
+  }
+  .tracking__consistency {
+    border-inline-start-color: CanvasText;
+  }
+}

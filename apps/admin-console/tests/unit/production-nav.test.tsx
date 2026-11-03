@@ -11,6 +11,8 @@ import { AppShell } from "@/shell/AppShell";
 
 // RT-1071: the sidebar status block has its own tests (system-status-block); the shell tests here need no read.
 vi.mock("@/shell/SystemStatus", () => ({ SystemStatus: () => null }));
+// RT-455: the tracking summary is its own read (tracking-logic tests cover the entry).
+vi.mock("@/tracking/useTracking", () => ({ useTrackingSummary: () => undefined }));
 
 function renderShell(role: string): HTMLElement {
   activeContext.mockReturnValue({
