@@ -182,9 +182,10 @@ Times in evidence are Cairo local time, for example `2026-11-04 14:20 (Cairo)`.
    live job's log and step summary carry `RT_PRIOR`, `RT_TARGET`, every `RT_GATE ... pass` and `RT_DONE`,
    and the `pos-lab-live-<run id>` artifact (`ledger.json`) records the outcome as deployed. A second
    deploy of the same or a lower version is refused (`version-not-higher`) and leaves the feed unchanged;
-   a failed smoke puts the previous `lab.yml` back (`RT_REVERT`). The feed keeps this version and the
-   previous one only, so a device two or more versions behind has no old `.blockmap` to diff against and
-   takes a full download.
+   a failed smoke puts the previous `lab.yml` back (`RT_REVERT`), but the failed release's installer and
+   `.blockmap` stay in the feed until a later successful prune. After a successful smoke, the feed keeps
+   this version and the previous one only, so a device two or more versions behind has no old `.blockmap`
+   to diff against and takes a full download.
 7. **Update the device.** With the device on version N and the feed on N+1:
    1. Know when the update can install. The updater decides at two moments only: right after a download
       completes, and when a shift is closed. It installs at the first of them where the gate is clear
@@ -193,8 +194,9 @@ Times in evidence are Cairo local time, for example `2026-11-04 14:20 (Cairo)`.
       in. So an update downloaded while an operator is signed in waits in `update_pending`, possibly with
       no blocker named, and installs at the next shift close or at an app start that downloads before
       sign-in. Clearing a cart or a payment does not by itself trigger an install.
-   2. To drive the drill: with a shift open, let the update download (`update_pending` with blocker
-      `open_shift`), then close the shift, or quit and relaunch the app and stay on the sign-in screen
+   2. To drive the drill, either (a) with a shift open, let the update download (`update_pending` with
+      blocker `open_shift`), then close the shift; or (b) with **no shift open** (close it first: an open
+      shift blocks the install at app start too), quit and relaunch the app and stay on the sign-in screen
       until the download completes. The updater checks at start and then every 6 hours. In the
       newest `main-*.log`, read the **current session only** (logs accumulate across launches, so a count
       over the whole file reports earlier lines). Expected `update:state` order:
@@ -224,7 +226,7 @@ Times in evidence are Cairo local time, for example `2026-11-04 14:20 (Cairo)`.
 | `verify_unavailable` | PowerShell could not verify; never installs | PowerShell is blocked for the user |
 | `update:state` stays on `checking` or goes to `error` | feed unreachable or `lab.yml` unreadable | the Caddy route; `/lab.yml` falling through to a console page means the route is gone |
 | `update_pending` with a blocker | working as designed | the blocker named; it installs at the next shift close or a pre-sign-in app start once clear |
-| `update_pending` with no blocker | working as designed: an operator is signed in | close the shift, or relaunch and stay on the sign-in screen |
+| `update_pending` with no blocker | working as designed: an operator is signed in | close the shift, or (no shift open) relaunch and stay on the sign-in screen |
 | no `downloading` and no error after a deploy | the feed is not newer | `RT_PRIOR` and `RT_TARGET` in the live deploy's step summary; `lab.yml` version on the feed |
 
 Do not disable signature verification, edit the baked `app-update.yml` or trust the root anywhere but
