@@ -260,7 +260,8 @@ export const tracking: MessagesOf<typeof ar> = {
   "tracking.expiry.newDate": "New expiry date",
   "tracking.expiry.current": "Current date: {date}.",
   "tracking.expiry.currentNone": "No expiry date is recorded now.",
-  "tracking.expiry.clear": "Clear the expiry date (the server refuses it when the tracking profile requires one)",
+  "tracking.expiry.clear":
+    "Clear the expiry date (the server refuses it when the tracking profile requires one)",
   "tracking.expiry.submit": "Record correction",
   "tracking.expiry.recorded":
     "The expiry date was corrected to {date}. The correction is kept with the old date and the reason.",

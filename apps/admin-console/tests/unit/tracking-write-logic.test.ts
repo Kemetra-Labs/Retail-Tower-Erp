@@ -99,8 +99,9 @@ describe("commands", () => {
       "tracking.write.error.effectiveAt",
     );
     expect(validateRecall({ ...recall, effectiveAt: "2026-11-01T09:00" }, now)).toEqual({});
-    expect(buildRecallCommand({ ...recall, effectiveAt: "2026-11-01T09:00" }).effectiveAt).toMatch(
-      /^2026-11-0[01]T\d{2}:00:00\.000Z$/,
+    // The local time as this machine parses it, so the assertion holds in any zone.
+    expect(buildRecallCommand({ ...recall, effectiveAt: "2026-11-01T09:00" }).effectiveAt).toBe(
+      new Date("2026-11-01T09:00").toISOString(),
     );
   });
 
@@ -121,6 +122,10 @@ describe("commands", () => {
     expect(validateExpiry({ ...draft, date: "", clear: true })).toEqual({});
     expect(buildExpiryCommand({ ...draft, clear: true }).expiryDate).toBeNull();
     expect(validateExpiry({ ...draft, date: "28/03/2027" }).date).toBe("tracking.write.error.date");
+    // A real calendar day, not only the YYYY-MM-DD shape.
+    expect(validateExpiry({ ...draft, date: "2027-02-30" }).date).toBe("tracking.write.error.date");
+    expect(validateExpiry({ ...draft, date: "2027-13-01" }).date).toBe("tracking.write.error.date");
+    expect(validateExpiry({ ...draft, date: "2028-02-29" })).toEqual({});
   });
 });
 
