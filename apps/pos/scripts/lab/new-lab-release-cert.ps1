@@ -80,7 +80,7 @@ $pfxData = Get-PfxData -FilePath $PfxPath -Password $password
 $pfxThumbprints = @((@($pfxData.EndEntityCertificates) + @($pfxData.OtherCertificates)) | ForEach-Object { $_.Thumbprint })
 if (-not ($pfxThumbprints -contains $root.Thumbprint) -or -not ($pfxThumbprints -contains $leaf.Thumbprint)) {
   Remove-Item -LiteralPath $PfxPath -Force
-  throw "The exported PFX does not contain both the leaf and the release root $($root.Thumbprint); CI would refuse it. It was deleted."
+  throw "The exported PFX does not contain both the leaf and the release root $($root.Thumbprint); CI would refuse it. It was deleted. Remove the new pair before a re-run: Remove-Item Cert:\CurrentUser\My\$($leaf.Thumbprint) -DeleteKey; Remove-Item Cert:\CurrentUser\My\$($root.Thumbprint) -DeleteKey"
 }
 
 Export-Certificate -Cert $root -FilePath $RootCerPath | Out-Null
