@@ -17,9 +17,10 @@
  * project id is a public client identifier, not a secret. The response's
  * `refreshJwt` is discarded: POS stores no refresh token (RT-358 re-auth).
  *
- * Non-2xx or a malformed body →
- * `{ kind: 'refused' }` with no factor detail (PR-2); a transport failure or
- * timeout → `{ kind: 'no_connection' }`. The password is consumed by one
+ * Any other non-2xx or a malformed body →
+ * `{ kind: 'refused' }` with no factor detail (PR-2); a transport failure,
+ * timeout, 429 or 5xx → `{ kind: 'no_connection' }` (RT-1121: an outage or a
+ * rate limit is not a wrong password). The password is consumed by one
  * `JSON.stringify` of the request body that is sent and never logged, and no
  * returned value or propagated error carries it (PR-1).
  */
@@ -92,6 +93,8 @@ export function createDescopeExchanger(deps: CreateDescopeExchangerDeps): Operat
         // in `cause`; it MUST NOT propagate. Map to no_connection.
         return { kind: 'no_connection' };
       }
+      // The status alone decides; the body of a failed response is never read.
+      if (isTransientStatus(res.status)) return { kind: 'no_connection' };
       if (!res.ok) return { kind: 'refused' };
 
       let parsed: unknown;
@@ -104,6 +107,11 @@ export function createDescopeExchanger(deps: CreateDescopeExchangerDeps): Operat
       return toExchangeResult(parsed);
     },
   };
+}
+
+/** 429 and 5xx mean "try later", not "your credentials were wrong" (RT-1121). */
+function isTransientStatus(status: number): boolean {
+  return status === 429 || status >= 500;
 }
 
 interface DescopeUser {
