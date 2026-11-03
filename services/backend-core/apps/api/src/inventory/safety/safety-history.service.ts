@@ -1,7 +1,7 @@
 /**
  * SafetyHistoryService — Jira RT-1081 (RT-455 TR-3a / TR-3b / II-3 / II-4;
  * owner decisions OD-0..OD-8, RT-455 comment 15233). Contract:
- * `inventory/inventory.yaml` 1.9.0-draft.
+ * `inventory/inventory.yaml` 1.10.0-draft.
  *
  *   - listHolds: the tenant's holds, active or released, newest first
  *     (`placed_at DESC, id DESC`), filtered by status, kind, identity and

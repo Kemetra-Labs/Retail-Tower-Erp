@@ -1,7 +1,7 @@
 /**
  * Jira RT-1081 — the tracking Console reads and TR-5, end to end over HTTP
  * against real Postgres (Testcontainers, every migration, the NOBYPASSRLS
- * `app_test` role). Contracts: `inventory/inventory.yaml` 1.9.0-draft and
+ * `app_test` role). Contracts: `inventory/inventory.yaml` 1.10.0-draft and
  * `catalog/tracking-profile.yaml` 1.2.0-draft.
  *
  * Per operation: every 200 body conforms to its contract schema (ajv); the
@@ -12,7 +12,7 @@
  *
  * Positions (OD-6): summed over a store's locations, split by status.
  * TR-5: `other` without a note is a 400 and writes nothing; a code recorded
- * before 1.9.0 (outside the list) still reads back.
+ * before 1.10.0 (outside the list) still reads back.
  *
  * The role read is a fake (`findRoleCodeForUserInTenant`) behind the real
  * `RolesGuard`. Identities and positions are SEEDED: nothing writes them until
@@ -265,7 +265,7 @@ describe('RT-1081 seeding the history through the real commands', () => {
       reasonCode: 'authority_notice',
       reference: 'EDA-1081',
     }).expect(201);
-    // A code recorded before 1.9.0: the services keep the 0072 pattern, only the DTO narrowed.
+    // A code recorded before 1.10.0: the services keep the 0072 pattern, only the DTO narrowed.
     await holds.placeQualityHold({
       tenantId: TENANT_A,
       userId: ACTOR_A,

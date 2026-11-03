@@ -2,7 +2,7 @@
 - RT-1081 `[GATED: OpenAPI contract]`, owner-approved 2026-11-03 (RT-455
   comment 15233, OD-0..OD-8; proposal
   `docs/decisions/rt-455-tracking-console-reads.md`): the tracking Console
-  reads, contract and runtime together. `inventory.yaml` 1.9.0-draft adds
+  reads, contract and runtime together. `inventory.yaml` 1.10.0-draft adds
   `listTrackingHolds` (`GET /api/inventory/v1/tracking-holds`: status, kind,
   identity and product filters), `listInventoryRecalls`
   (`GET /api/inventory/v1/recalls`: summaries with hold counts),

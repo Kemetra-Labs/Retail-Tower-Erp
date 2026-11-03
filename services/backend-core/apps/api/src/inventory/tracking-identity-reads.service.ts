@@ -1,7 +1,7 @@
 /**
  * TrackingIdentityReadsService — Jira RT-1081 (RT-455 II-5 / II-2; owner
  * decision OD-6, RT-455 comment 15233). Contract: `inventory/inventory.yaml`
- * 1.9.0-draft, `getTrackingIdentity` and `getTrackingIdentityPositions`.
+ * 1.10.0-draft, `getTrackingIdentity` and `getTrackingIdentityPositions`.
  *
  *   - getIdentity: one identity of the tenant, the `listTrackingIdentities`
  *     projection.

@@ -1,7 +1,7 @@
 /**
  * Opaque keyset cursors of the inventory safety history lists — Jira RT-1081
  * (`listTrackingHolds`, `listInventoryRecalls`,
- * `listTrackingIdentityExpiryCorrections`; inventory.yaml 1.9.0-draft).
+ * `listTrackingIdentityExpiryCorrections`; inventory.yaml 1.10.0-draft).
  *
  * Each list is ordered newest first by `(<instant> DESC, id DESC)`. The repo
  * convention (`movement-list.cursor.ts`, RT-731): unsigned base64url JSON bound
