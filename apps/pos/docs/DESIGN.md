@@ -303,7 +303,9 @@ follows for now. It is marked **Selected — recommended option, owner may revis
 The owner-approved G-1, G-2, G-3 and G-6 references draw the shipped radii (10 / 14 / 16 px) and
 monospace money. They stay valid layout and state references. The radius and money-type slices
 update the comparison when they land, so a difference from the target is not a regression in
-those references.
+those references. **For the sign-in screen only**, the RT-1042 owner decisions of 2026-11-03
+replace G-1 with the B-lite references in [Entry screens](#entry-screens-rt-1042-owner-decisions-2026-11-03);
+G-1 stays the reference for Ready, pairing and manager re-sign-in.
 
 ## Overview
 
@@ -590,6 +592,118 @@ All three use `ease-out` `cubic-bezier(0.2, 0.7, 0.25, 1)`. New state transition
 - **Motion is logical:** directional movement uses logical inline / block direction, so RTL is correct; whole-workspace route changes are not animated.
 - **Reduced motion:** under `prefers-reduced-motion: reduce` every role is zero (`foundation.css`) and the state change stays visible by colour, text, border, icon and layout. Focus visibility never depends on motion. Per-surface invariance is verified by RT-260.
 
+## Entry screens (RT-1042 owner decisions 2026-11-03)
+
+**Approved, not shipped.** The owner approved direction "B-lite" and OD-1…OD-15 on 2026-11-03
+([RT-1042](https://rahmaqanater.atlassian.net/browse/RT-1042) comments 15250 and 15251). The
+authority is the Confluence decision page
+[POS entry screens — owner decisions (RT-1042)](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/66846721).
+This section is the repository record. The rationale, boards and prototype are in
+[`design/rt-1042/`](design/rt-1042/README.md) ([`02-decision-record.md`](design/rt-1042/02-decision-record.md)).
+
+- **Scope.** The entry screens only: sign-in first, then lock, pairing, Ready and boot, each in its
+  own slice (OD-9). These rules **never** reach the sale, checkout or recovery surfaces. Sale and
+  checkout wait for RT-1044.
+- **Shipped today.** Nothing in this section. Until the recomposition slice *(S3, RT-1092)*
+  merges, the shipped sign-in screen is the RT-246 G-1 layout.
+- **Behaviour is unchanged.** Refusal categories and copy, PIN rules, offline admission
+  (RT-113/RT-114), the roster no-retry rule (RT-246), the scanner owner and keys (D-K1) stay as
+  they are. Where a rule below seems to need a behaviour change, stop and raise it.
+- **Rules win over boards.** Board B draws the full Console look (an Ink commit, Readex Pro, a
+  resting shadow, 20px panels, «POS Pulse»). Those parts are **not** approved: B-lite is B with
+  OD-2, OD-3 and OD-4 answered as below.
+
+### Colour on the entry screens (OD-1, OD-2)
+
+- **Ink and Mint, scoped *(tokens S2, RT-1091)*.** The entry screens may use the Console roles,
+  under the same names: `--color-ink` `#0a2125`, `--color-on-ink` `#ffffff`, `--color-ink-muted`
+  `#a9c2c5` (8.9:1 on Ink) and `--color-mint` `#5fe0cf`. Ink is **only** the brand surface: the
+  band at the top of sign-in (later lock, pairing and boot). Mint appears only on Ink (the brand
+  mark tile, ornament strokes), never as text or fill on a light surface (1.6:1 on white).
+  Mint is the teal family's highlight on dark, not a second hue, so the No-Second-Accent Rule
+  holds. Avatars, PIN dots, roster cards and the dock stay in the light Teal family. Components
+  name the roles; nobody spells the hex. S2 adds them with no consumer.
+- **The Teal commit.** «دخول» is the filled Tower Teal commit, like every POS commit. An Ink commit
+  is rejected (OD-2): one commit colour on every screen.
+- **The band never changes with state.** Refusals, offline and loading use the status roles in
+  the room or the dock, never a recoloured band (Brand-Yields-To-Truth).
+
+### Surfaces, shape and type (OD-3, OD-4)
+
+- **Flat.** No resting shadow on the entry screens; panels keep a 1px border (Borders Before
+  Shadows, Forced Colours). The overlay shadow stays the only shadow.
+- **Radii 8 / 12 / 16.** New entry-screen work draws the UX-04 target: controls (roster cards,
+  keypad keys, the dots field, the commit, inputs) **8px**, contained objects (the roster panel)
+  **12px**, overlays **16px**. Avatars and PIN dots are circles. The shipped tokens stay 10 / 14 / 16
+  until the radius slice migrates them (see [Shapes](#shapes)); S3 uses the target values
+  only where the radius migration has landed, or names the gap in its evidence.
+- **Dubai only.** Readex Pro and any display face are **deferred** (OD-3). A face needs bundling
+  (the terminal works offline), an OFL check and a same-screen A/B in its own slice, like RT-262.
+  It never rides inside S3.
+
+### Composition: the PIN dock replaces G-1 for sign-in (OD-6, OD-7, OD-11) *(S3, RT-1092)*
+
+- **Band, room, dock.** An Ink band across the top (brand, terminal label, powered-by line); the
+  room with the title and the roster panel; a fixed PIN dock at the inline end (left in RTL). The
+  dock keeps every G-1 invariant: the keypad sits at the inline end, it never moves or reflows,
+  and each region has one primary.
+- **Name above the PIN (OD-11).** The picked cashier's avatar and name head the dock: large and
+  centred at 1024×768 and up, a compact row at 1024×600. Three roster columns and a wider stage
+  at 1920×1080. Avatars are initials (first grapheme), because the roster carries only
+  `display_name` (minimum disclosure). No photos.
+- **The refusal slot sits above the dots (OD-7).** The message is next to the name it concerns;
+  the cleared dots and the keypad stay put. The slot is sized for the longest refusal,
+  `terminal_has_unresolved_payment`, at 1024×600, so a refusal never moves the keypad.
+- **OD-15, verify first.** Whether the M-S5 scan refusal also shows in this slot is decided after
+  the scanner bench test *(S8, RT-1097)*. Until then the global scan notice stays, and S3 does not
+  move it.
+
+### Brand on the band (OD-5, OD-8, OD-10)
+
+- **«Retail Tower» (OD-8).** The band names the product «Retail Tower», as the powered-by line
+  already does. This replaces the «POS Pulse» wordmark (POS OD-5) on the entry screens from S3 on.
+  Until the owner supplies the new logo, a three-bar placeholder mark sits in a Mint tile.
+- **The tenant logo sits on the white card on Ink (OD-10),** even when `presentation.card` is
+  false: `low_contrast` is measured against white (spec 039 FR-11), and the server has no "on
+  dark" check. The same rule already holds under forced colours. The slot stays the RT-832 sign-in
+  box (128×32); no 200×80 rendition on sign-in (OD-12).
+- **Confined ornament (OD-5) *(S4, RT-1093)*.** The skyline from the brand bars, a ruler edge and
+  the Tower grid may appear in the **sign-in band only**: static SVG, `aria-hidden`, at most 40%
+  stroke opacity. It is not drawn below 1280 wide or 768 high, not under forced colours, and never
+  on lock, which appears mid-sale. No motion, no gradient on the mark.
+- **Forced colours.** The band maps to `Canvas` / `CanvasText` with a 1px edge; the ornament
+  disappears; the selected roster card and the commit take `Highlight` / `HighlightText`.
+
+### Sign-in references (replace G-1 for sign-in)
+
+Rendered from the Direction B renderer in [`design/rt-1042/prototype.html`](design/rt-1042/prototype.html)
+with the B-lite overrides in [`b-lite.css`](design/rt-1042/references/b-lite.css), by
+[`capture.mjs`](design/rt-1042/references/capture.mjs). The script checks each frame (Teal commit,
+no Readex Pro, no shadow, radii 8 / 12 / 16, ornament ≤ 40%, «Retail Tower», no clipping). State:
+cashier picked, 4 digits entered, no logo.
+
+| Size | Light | Forced colours *(simulated)* |
+|---|---|---|
+| 1920×1080 | [picked](design/rt-1042/references/signin-picked-1920x1080.png) · [logo on card](design/rt-1042/references/signin-logo-card-1920x1080.png) | [picked](design/rt-1042/references/signin-picked-1920x1080-forced-colors.png) · [logo on card](design/rt-1042/references/signin-logo-card-1920x1080-forced-colors.png) |
+| 1280×800 | [picked](design/rt-1042/references/signin-picked-1280x800.png) | [picked](design/rt-1042/references/signin-picked-1280x800-forced-colors.png) |
+| 1024×768 | [picked](design/rt-1042/references/signin-picked-1024x768.png) | [picked](design/rt-1042/references/signin-picked-1024x768-forced-colors.png) |
+| 1024×600 | [picked](design/rt-1042/references/signin-picked-1024x600.png) · [longest refusal](design/rt-1042/references/signin-refusal-unresolved-payment-1024x600.png) | [picked](design/rt-1042/references/signin-picked-1024x600-forced-colors.png) · [longest refusal](design/rt-1042/references/signin-refusal-unresolved-payment-1024x600-forced-colors.png) |
+
+- **Forced colours are simulated** (the prototype's `.fc` class). A real Windows contrast-theme
+  capture, and every packaged capture, is evidence for S8 (RT-1097).
+- **The other states** (roster loading, offline, refused, empty; long names; manager sign-in)
+  are on the B states board [`Direction-B-ink-dock-states.dc.html`](design/rt-1042/boards/Direction-B-ink-dock-states.dc.html).
+  Read it with this section's B-lite rules; where they differ, this section wins.
+- The references draw example names and a placeholder logo box; the copy is the shipped copy.
+
+### Not decided here
+
+- **OD-3** display face: deferred. **OD-15** in-slot scan notice: verify first (S8).
+- **OD-13** lock screen: approved as the next screen *(S6, RT-1095)*; its copy changes stay
+  proposals until the lock board is drawn. **OD-14** roster loading statement *(S5, RT-1094)*.
+- The new product logo, a branch name in the band (needs a bridge field), a connection pill (needs
+  a real signal), the POS dark theme (deferred, UX-02) and the density mapping (Q-1).
+
 ## Do's and Don'ts
 
 ### Do:
@@ -614,6 +728,7 @@ All three use `ease-out` `cubic-bezier(0.2, 0.7, 0.25, 1)`. New state transition
 - **Don't** bind financial confirmation to bare Enter, or show a keyboard hint for a key that is not bound.
 - **Don't** use shadows below the overlay level, nest panels, or put status colours on decoration.
 - **Don't** add a secondary brand accent, a gradient on an operational surface, or a theme toggle (UX-02).
+- **Don't** put Ink or Mint anywhere but the entry-screen brand band, make an entry-screen commit Ink, or draw ornament on lock or below 1280×768 (RT-1042 OD-1, OD-2, OD-5).
 - **Don't** use monospace for ordinary UI text, mix icon families, or ship an icon-only control for a financial, destructive, recovery or technical action (UX-03).
 - **Don't** change a shipped radius, neutral value, money typeface or font outside the bounded slice that owns that migration.
 - **Don't** mix numeral systems on one screen, or write bilingual headings such as «طريقة الدفع (Payment method)».
