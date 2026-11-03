@@ -459,14 +459,15 @@ box-sizing:border-box;position:relative;overflow:hidden;display:flex;flex-direct
     return el.classList.contains('commit') ? '.commit' : null;
   }
   function draw(focusSel) {
-    var keep = focusSel || keyOf(document.activeElement);
+    var keep = typeof focusSel === 'string' ? focusSel : keyOf(document.activeElement);
     var avail = Math.max(320, window.innerWidth - 32);
     var z = Math.min(1, avail / st.vp.w);
     host.innerHTML = '<div style="zoom:' + z + ';box-shadow:0 0 0 1px #c6d3d8">' + R.render(dir, st) + '</div>';
     var target = keep ? host.querySelector(keep) : null;
     if (target && !target.disabled) target.focus();
   }
-  function reset() { st.picked = null; st.pin = 0; st.feedback = null; st.mode = 'cashier'; st.mgrId = false; st.mgrPw = false; }
+  var pending = null;
+  function reset() { if (pending) { clearTimeout(pending); pending = null; } st.picked = null; st.pin = 0; st.feedback = null; st.mode = 'cashier'; st.mgrId = false; st.mgrPw = false; }
   // Manager sign-in: both fields must be filled (shipped EMPTY_INPUT_MESSAGE otherwise).
   function managerSubmit() {
     if (st.feedback === 'signing') return;
@@ -480,7 +481,8 @@ box-sizing:border-box;position:relative;overflow:hidden;display:flex;flex-direct
     if (st.feedback === 'signing') return;
     if (st.mode === 'cashier' && (st.picked == null || st.pin < 4)) return;
     st.feedback = 'signing'; draw();
-    setTimeout(function () {
+    pending = setTimeout(function () {
+      pending = null;
       var o = pick('outcome');
       st.pin = 0;
       if (o === 'ok') { st.feedback = null; draw(); $('end').style.display = 'grid'; $('end-ok').focus(); return; }
@@ -528,7 +530,7 @@ box-sizing:border-box;position:relative;overflow:hidden;display:flex;flex-direct
       draw();
     });
   });
-  window.addEventListener('resize', draw);
+  window.addEventListener('resize', function () { draw(); });
   draw();
 })();
 </script>
