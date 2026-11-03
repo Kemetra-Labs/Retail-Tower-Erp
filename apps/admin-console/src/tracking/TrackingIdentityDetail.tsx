@@ -284,7 +284,9 @@ function HoldsSection({
     />
   );
   const ready = !list.isLoading && !list.error;
-  const activeReady = !active.isLoading && !active.error && !active.hasMore;
+  // A failed refresh keeps the last page on screen (inlineError): the hold state
+  // is then uncertain, so neither the hold lines nor the action are shown.
+  const activeReady = !active.isLoading && !active.error && !active.inlineError && !active.hasMore;
   return (
     <DetailPanel id="tracking-identity-holds" index={2} title={t("tracking.identity.holds")}>
       <Body>
@@ -294,6 +296,14 @@ function HoldsSection({
         {active.error ? (
           <ReadError
             error={active.error}
+            failedKey="tracking.identity.holdsFailed"
+            notFoundKey="tracking.identity.holdsFailed"
+            onRetry={active.retry}
+          />
+        ) : null}
+        {active.inlineError ? (
+          <ReadError
+            error={active.inlineError}
             failedKey="tracking.identity.holdsFailed"
             notFoundKey="tracking.identity.holdsFailed"
             onRetry={active.retry}

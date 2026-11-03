@@ -27,6 +27,23 @@ import {
   keyFor,
 } from "./writeLogic";
 
+/**
+ * How long a command may stay unanswered before the screen calls the outcome
+ * unknown («لم يصل أي رد»), unlocks its drawer and offers a retry with the same
+ * key (or, for release, the same idempotent release). A late answer is ignored.
+ */
+export const WRITE_TIMEOUT_MS = 30_000;
+
+class WriteTimedOut extends Error {}
+
+function withTimeout<T>(request: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new WriteTimedOut()), ms);
+  });
+  return Promise.race([request, timeout]).finally(() => clearTimeout(timer));
+}
+
 interface ApiResult {
   status: number;
   data?: unknown;
@@ -56,7 +73,9 @@ function useGovernedWrite<C>(
       setOutcome(null);
       let result: WriteOutcome;
       try {
-        result = classifyWrite(await send(command, held.current.key));
+        result = classifyWrite(
+          await withTimeout(send(command, held.current.key), WRITE_TIMEOUT_MS),
+        );
       } catch {
         result = { kind: "failed" };
       }

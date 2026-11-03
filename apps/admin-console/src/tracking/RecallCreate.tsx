@@ -129,6 +129,8 @@ export function RecallCreateDrawer({
   const recorded = write.outcome?.kind === "recorded";
 
   function choose(next: CatalogProduct): void {
+    // A pending answer belongs to the product it was sent for.
+    if (write.pending) return;
     setProduct(next);
     setIdentityIds([]);
     write.reset();
@@ -167,7 +169,12 @@ export function RecallCreateDrawer({
           <p>
             {t("tracking.col.product")}: <bdi className="tracking__name">{product.name}</bdi>{" "}
             {recorded ? null : (
-              <button type="button" className="btn-ghost" onClick={() => setProduct(null)}>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => setProduct(null)}
+                disabled={write.pending}
+              >
                 {t("tracking.recallCreate.changeProduct")}
               </button>
             )}

@@ -331,7 +331,9 @@ export function ExpiryForm({
   const t = useT();
   const write = useCorrectExpiry(identityId);
   const [date, setDate] = useState("");
-  const [clear, setClear] = useState(false);
+  const [clearChecked, setClear] = useState(false);
+  // Once the expiry re-reads as empty there is nothing to clear: the choice lapses.
+  const clear = clearChecked && current !== null;
   const [reason, setReason] = useState<SafetyReasonCodeInput | "">("");
   const [note, setNote] = useState("");
   const [errors, setErrors] = useState<WriteErrors>({});

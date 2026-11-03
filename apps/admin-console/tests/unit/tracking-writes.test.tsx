@@ -1,5 +1,14 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -77,6 +86,7 @@ import { createQueryClient } from "@/lib/query";
 import { resetRateLimit } from "@/lib/rate-limit";
 import { TrackingHolds } from "@/tracking/TrackingHolds";
 import { TrackingIdentityDetail } from "@/tracking/TrackingIdentityDetail";
+import { WRITE_TIMEOUT_MS, useCreateRecall } from "@/tracking/useTrackingWrites";
 
 const PRODUCT = "0190f000-0000-7000-8000-0000000007c1";
 const IDENTITY = "0190f000-0000-7000-8000-0000000007b1";
@@ -418,5 +428,108 @@ describe("record a recall", () => {
     renderAt("/tracking");
     await screen.findByTestId("tracking-manager-notes");
     expect(screen.queryByRole("button", { name: "Record recall" })).toBeNull();
+  });
+});
+
+describe("CodeRabbit round 2", () => {
+  test("a command with no answer ends as unknown after the bounded wait", async () => {
+    vi.useFakeTimers();
+    try {
+      api.createInventoryRecall.mockReturnValue(new Promise(() => {}));
+      const client = createQueryClient();
+      const { result } = renderHook(() => useCreateRecall(), {
+        wrapper: ({ children }) => (
+          <QueryClientProvider client={client}>{children}</QueryClientProvider>
+        ),
+      });
+      let done: Promise<unknown> = Promise.resolve();
+      act(() => {
+        done = result.current.submit({
+          tenantProductRef: PRODUCT,
+          trackingIdentityIds: [IDENTITY],
+          reasonCode: "supplier_notice",
+          reference: "R-1",
+        });
+      });
+      expect(result.current.pending).toBe(true);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(WRITE_TIMEOUT_MS);
+        await done;
+      });
+      expect(result.current.pending).toBe(false);
+      expect(result.current.outcome).toEqual({ kind: "failed" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a failed active-holds refresh hides the action and says the state is unknown", async () => {
+    let activeReads = 0;
+    api.listTrackingHolds.mockImplementation((query: { status?: string }) => {
+      if (query.status !== "active") return Promise.resolve(page([]));
+      activeReads += 1;
+      return Promise.resolve(
+        activeReads === 1
+          ? page([])
+          : { status: 500, error: { error: { code: "x", message: "x", request_id: "r" } } },
+      );
+    });
+    api.placeQualityHold.mockResolvedValue(
+      ok({ hold: activeHold, safetyRevision: { revision: 2 } }, 201),
+    );
+    renderAt(`/tracking/identities/${IDENTITY}`);
+    fireEvent.click(await screen.findByRole("button", { name: "Place quality hold" }));
+    const form = await screen.findByTestId("tracking-place-hold");
+    fireEvent.change(within(form).getByLabelText("Reason"), {
+      target: { value: "label_misprint" },
+    });
+    fireEvent.click(within(form).getByRole("button", { name: "Place hold" }));
+    expect(
+      await screen.findByText("The batch's holds could not be loaded. Its hold state is unknown."),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("tracking-identity-no-hold")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Place quality hold" })).toBeNull();
+  });
+
+  test("after a recorded clear the choice lapses and the date field is usable again", async () => {
+    api.correctTrackingIdentityExpiry.mockResolvedValue(
+      ok({ correction: {}, safetyRevision: { revision: 5 } }, 201),
+    );
+    api.getTrackingIdentity
+      .mockResolvedValueOnce(ok(identity))
+      .mockResolvedValue(ok({ ...identity, expiryDate: null }));
+    renderAt(`/tracking/identities/${IDENTITY}`);
+    const form = await screen.findByTestId("tracking-expiry-form");
+    fireEvent.click(within(form).getByRole("checkbox", { name: /Clear the expiry date/ }));
+    expect((within(form).getByLabelText("New expiry date") as HTMLInputElement).disabled).toBe(
+      true,
+    );
+    fireEvent.change(within(form).getByLabelText("Reason"), {
+      target: { value: "supplier_notice" },
+    });
+    fireEvent.click(within(form).getByRole("button", { name: "Record correction" }));
+    await waitFor(() =>
+      expect(within(form).queryByRole("checkbox", { name: /Clear the expiry date/ })).toBeNull(),
+    );
+    expect((within(form).getByLabelText("New expiry date") as HTMLInputElement).disabled).toBe(
+      false,
+    );
+  });
+
+  test("the recall's product cannot change while the request is pending", async () => {
+    api.createInventoryRecall.mockReturnValue(new Promise(() => {}));
+    renderAt("/tracking");
+    fireEvent.click(await screen.findByRole("button", { name: "Record recall" }));
+    const drawer = await screen.findByTestId("tracking-recall-create");
+    fireEvent.click(await within(drawer).findByRole("option", { name: /Mango juice 1 L/ }));
+    await within(drawer).findByText("LOT-2026-1005");
+    fireEvent.click(within(drawer).getAllByRole("checkbox")[0]);
+    fireEvent.change(within(drawer).getByLabelText("Reason"), {
+      target: { value: "supplier_notice" },
+    });
+    fireEvent.change(within(drawer).getByLabelText("Reference"), { target: { value: "R-1" } });
+    fireEvent.click(within(drawer).getByRole("button", { name: "Record the recall" }));
+    const change = await within(drawer).findByRole("button", { name: "Change product" });
+    await waitFor(() => expect((change as HTMLButtonElement).disabled).toBe(true));
   });
 });
