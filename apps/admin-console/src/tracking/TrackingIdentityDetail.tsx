@@ -632,5 +632,7 @@ export function TrackingIdentityDetail(): React.JSX.Element {
   }
   // Another role gets the same answer as an unknown identity: nothing is asked.
   if (!canReadHolds(scope.role) || !isUuid(identityId)) return <NotAvailable back="/tracking" />;
-  return <IdentityView scope={scope} identityId={identityId} storeId={storeId} />;
+  // Keyed by the identity: moving to another batch remounts the page, so no form
+  // state or held Idempotency-Key carries over to the new identity's commands.
+  return <IdentityView key={identityId} scope={scope} identityId={identityId} storeId={storeId} />;
 }

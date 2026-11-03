@@ -30,18 +30,24 @@ import {
 /**
  * How long a command may stay unanswered before the screen calls the outcome
  * unknown («لم يصل أي رد»), unlocks its drawer and offers a retry with the same
- * key (or, for release, the same idempotent release). A late answer is ignored.
+ * key (or, for release, the same idempotent release). The timeout also aborts
+ * the request, so a retry never overlaps it; an abort does not prove the server
+ * skipped the command, so the outcome stays unknown and the key stays held.
  */
 export const WRITE_TIMEOUT_MS = 30_000;
 
 class WriteTimedOut extends Error {}
 
-function withTimeout<T>(request: Promise<T>, ms: number): Promise<T> {
+function withTimeout<T>(start: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new WriteTimedOut()), ms);
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new WriteTimedOut());
+    }, ms);
   });
-  return Promise.race([request, timeout]).finally(() => clearTimeout(timer));
+  return Promise.race([start(controller.signal), timeout]).finally(() => clearTimeout(timer));
 }
 
 interface ApiResult {
@@ -60,7 +66,7 @@ export interface GovernedWrite<C> {
 }
 
 function useGovernedWrite<C>(
-  send: (command: C, key: string) => Promise<ApiResult>,
+  send: (command: C, key: string, signal: AbortSignal) => Promise<ApiResult>,
 ): GovernedWrite<C> {
   const qc = useQueryClient();
   const held = useRef<KeyedCommand | null>(null);
@@ -69,12 +75,13 @@ function useGovernedWrite<C>(
   const submit = useCallback(
     async (command: C): Promise<WriteOutcome> => {
       held.current = keyFor(held.current, command);
+      const key = held.current.key;
       setPending(true);
       setOutcome(null);
       let result: WriteOutcome;
       try {
         result = classifyWrite(
-          await withTimeout(send(command, held.current.key), WRITE_TIMEOUT_MS),
+          await withTimeout((signal) => send(command, key, signal), WRITE_TIMEOUT_MS),
         );
       } catch {
         result = { kind: "failed" };
@@ -96,9 +103,10 @@ function useGovernedWrite<C>(
   return { outcome, pending, submit, reset };
 }
 
-const sendHold = (command: PlaceQualityHoldCommand, key: string) => placeQualityHold(command, key);
-const sendRecall = (command: CreateInventoryRecallCommand, key: string) =>
-  createInventoryRecall(command, key);
+const sendHold = (command: PlaceQualityHoldCommand, key: string, signal: AbortSignal) =>
+  placeQualityHold(command, key, signal);
+const sendRecall = (command: CreateInventoryRecallCommand, key: string, signal: AbortSignal) =>
+  createInventoryRecall(command, key, signal);
 
 export function usePlaceHold(): GovernedWrite<PlaceQualityHoldCommand> {
   return useGovernedWrite(sendHold);
@@ -111,7 +119,8 @@ export function useCreateRecall(): GovernedWrite<CreateInventoryRecallCommand> {
 /** Release takes no key: releasing a released hold answers the recorded release. */
 export function useReleaseHold(holdId: string): GovernedWrite<ReleaseTrackingHoldCommand> {
   const send = useCallback(
-    (command: ReleaseTrackingHoldCommand) => releaseTrackingHold(holdId, command),
+    (command: ReleaseTrackingHoldCommand, _key: string, signal: AbortSignal) =>
+      releaseTrackingHold(holdId, command, signal),
     [holdId],
   );
   return useGovernedWrite(send);
@@ -119,8 +128,8 @@ export function useReleaseHold(holdId: string): GovernedWrite<ReleaseTrackingHol
 
 export function useCorrectExpiry(identityId: string): GovernedWrite<CorrectExpiryCommand> {
   const send = useCallback(
-    (command: CorrectExpiryCommand, key: string) =>
-      correctTrackingIdentityExpiry(identityId, command, key),
+    (command: CorrectExpiryCommand, key: string, signal: AbortSignal) =>
+      correctTrackingIdentityExpiry(identityId, command, key, signal),
     [identityId],
   );
   return useGovernedWrite(send);

@@ -147,21 +147,31 @@ export async function listExpiryCorrections(identityId: string, query: PageQuery
 // --- Commands (RT-449; RT-1081 reason list) ----------------------------------
 
 /** POST /api/inventory/v1/tracking-holds — Idempotency-Key required. */
-export async function placeQualityHold(command: PlaceQualityHoldCommand, idempotencyKey: string) {
+export async function placeQualityHold(
+  command: PlaceQualityHoldCommand,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+) {
   return resultOf(
     await apiClient.POST("/api/inventory/v1/tracking-holds", {
       params: { header: { "Idempotency-Key": idempotencyKey } },
       body: command,
+      signal,
     }),
   );
 }
 
 /** POST /api/inventory/v1/tracking-holds/{holdId}/release — final; a repeat answers the recorded release. */
-export async function releaseTrackingHold(holdId: string, command: ReleaseTrackingHoldCommand) {
+export async function releaseTrackingHold(
+  holdId: string,
+  command: ReleaseTrackingHoldCommand,
+  signal?: AbortSignal,
+) {
   return resultOf(
     await apiClient.POST("/api/inventory/v1/tracking-holds/{holdId}/release", {
       params: { path: { holdId } },
       body: command,
+      signal,
     }),
   );
 }
@@ -170,11 +180,13 @@ export async function releaseTrackingHold(holdId: string, command: ReleaseTracki
 export async function createInventoryRecall(
   command: CreateInventoryRecallCommand,
   idempotencyKey: string,
+  signal?: AbortSignal,
 ) {
   return resultOf(
     await apiClient.POST("/api/inventory/v1/recalls", {
       params: { header: { "Idempotency-Key": idempotencyKey } },
       body: command,
+      signal,
     }),
   );
 }
@@ -184,11 +196,13 @@ export async function correctTrackingIdentityExpiry(
   identityId: string,
   command: CorrectExpiryCommand,
   idempotencyKey: string,
+  signal?: AbortSignal,
 ) {
   return resultOf(
     await apiClient.POST("/api/inventory/v1/tracking-identities/{identityId}/expiry-corrections", {
       params: { path: { identityId }, header: { "Idempotency-Key": idempotencyKey } },
       body: command,
+      signal,
     }),
   );
 }

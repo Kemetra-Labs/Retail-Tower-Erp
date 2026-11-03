@@ -234,6 +234,7 @@ describe("place a quality hold", () => {
     expect(api.placeQualityHold).toHaveBeenCalledWith(
       { trackingIdentityId: IDENTITY, reasonCode: "other", note: "torn" },
       expect.stringMatching(/^[0-9a-f-]{36}$/),
+      expect.any(AbortSignal),
     );
     expect(within(refusal).getByText("Nothing was recorded")).toBeTruthy();
     expect(within(refusal).getByText("Resource not found.")).toBeTruthy();
@@ -283,7 +284,9 @@ describe("release (owner only)", () => {
     fireEvent.click(within(release).getByRole("button", { name: "Release hold" }));
     expect(api.releaseTrackingHold).not.toHaveBeenCalled();
     fireEvent.click(within(release).getByRole("button", { name: "Yes, release the hold" }));
-    await waitFor(() => expect(api.releaseTrackingHold).toHaveBeenCalledWith(HOLD, {}));
+    await waitFor(() =>
+      expect(api.releaseTrackingHold).toHaveBeenCalledWith(HOLD, {}, expect.any(AbortSignal)),
+    );
     // The outcome sits in the drawer, outside the release section (pr-review finding 1).
     const drawer = screen.getByTestId("tracking-hold-drawer");
     expect(await within(drawer).findByTestId("tracking-write-refusal")).toBeTruthy();
@@ -342,6 +345,7 @@ describe("expiry correction", () => {
       IDENTITY,
       { expiryDate: "2027-04-04", reasonCode: "label_misprint" },
       expect.any(String),
+      expect.any(AbortSignal),
     );
   });
 
@@ -417,6 +421,7 @@ describe("record a recall", () => {
           reference: "EDA-2026-1182",
         },
         expect.any(String),
+        expect.any(AbortSignal),
       ),
     );
     expect(await within(drawer).findByTestId("tracking-write-refusal")).toBeTruthy();
@@ -458,6 +463,9 @@ describe("CodeRabbit round 2", () => {
       });
       expect(result.current.pending).toBe(false);
       expect(result.current.outcome).toEqual({ kind: "failed" });
+      // The timeout aborts the request too, so a retry never overlaps it.
+      const signal = api.createInventoryRecall.mock.calls[0][2] as AbortSignal;
+      expect(signal.aborted).toBe(true);
     } finally {
       vi.useRealTimers();
     }
