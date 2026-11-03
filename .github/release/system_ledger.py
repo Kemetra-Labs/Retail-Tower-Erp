@@ -13,10 +13,15 @@ Three subcommands, so the workflow keeps no value or ledger logic in inline shel
 
   values  prints KEY=VALUE lines (for $GITHUB_OUTPUT) for a manifest, each value already checked by
           the G1 patterns of system_gate.py, so it is safe to use as a command argument;
-  plan    writes the planned ledger of the preflight (outcome `planned`, or `refused`);
+  plan    writes the planned ledger of the preflight (outcome `planned`, or `refused`) with the
+          step plan: which documents run and which are skipped because their version is unchanged;
   final   writes the live ledger from the files .github/release/ssm-run.sh left in --live-dir:
           the outcome (`deployed` or `failed-at:<step>`), each step's prior and target version, the
           strict RT_* lines, and the manual rollback inputs for every step that completed.
+
+RT-1085: a product whose release (tag and commit) or ERP image (digest and commit) is the same in
+both manifests is skipped, and the backup runs exactly when the Backend-Core step runs (that step
+reads the backup reference). --force-all runs every step, to prove the whole path.
 
 Stdlib only, fails closed: a manifest that does not pass G1 is an error (exit 2). Exit 0 = written.
 """
@@ -39,6 +44,7 @@ ERP_SERVICES = ("backend", "frontend", "websocket", "scheduler", "queue-short", 
 RULES = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8")
 GATE_LINE = re.compile(r"^(G[1-8]) (pass|FAIL|unverified): (.*)$")
 GATE_RESULTS = re.compile(r"^(G[1-8]=(pass|FAIL|unverified|not-run))( G[1-8]=(pass|FAIL|unverified|not-run))*$")
+COMMIT_KEYS = ("target_backend_release", "current_backend_release", "target_console_release", "current_console_release")
 PLAN_KIND = "rt1031-system-lab-planned-ledger"
 LIVE_KIND = "rt1031-system-lab-live-ledger"
 
@@ -109,15 +115,75 @@ def first(lines, prefix):
     return next((line for line in lines if line.startswith(prefix)), None)
 
 
-def step_records(live_dir):
-    """One record per document, in deploy order: ok, failed (the first that did not finish) or not-run."""
+def parse_commits(items):
+    """{key: sha} from `--commit <key>=<sha>` items. An empty sha (a tag git could not resolve) is None."""
+    out = {}
+    for item in items or ():
+        key, sep, sha = item.partition("=")
+        if not sep or key not in COMMIT_KEYS or key in out or not (sha == "" or system_gate.SHA.fullmatch(sha)):
+            raise ValueError(f"--commit must be <one of {', '.join(COMMIT_KEYS)}>=<40 hex or empty>, once each")
+        out[key] = sha or None
+    return out
+
+
+def step_plan(target, current, commits, force_all):
+    """[{step, action: run | skip, reason}] in deploy order. A product is unchanged only when every
+    identity matches: the release tag and its commit (an unresolved commit counts as changed), or the
+    ERP digest and commit. The backup runs exactly when the Backend-Core step does."""
+    def same_release(product):
+        tag_t, tag_c = target[f"{product}_release"], current[f"{product}_release"]
+        sha_t, sha_c = commits.get(f"target_{product}_release"), commits.get(f"current_{product}_release")
+        if tag_t == tag_c and sha_t is not None and sha_t == sha_c:
+            return True, f"unchanged: {tag_t} at {sha_t[:12]} in both manifests"
+        if tag_t == tag_c:
+            return False, f"{tag_t} in both manifests, but its commit could not be confirmed the same"
+        return False, f"{tag_c} -> {tag_t}"
+
+    def short(digest, sha):
+        return f"{digest[:19]}... at {sha[:12]}"
+
+    backend, console = same_release("backend"), same_release("console")
+    if target["erp_digest"] == current["erp_digest"] and target["erp_sha"] == current["erp_sha"]:
+        erp = (True, f"unchanged: {short(target['erp_digest'], target['erp_sha'])} in both manifests")
+    else:
+        erp = (False, f"{short(current['erp_digest'], current['erp_sha'])} -> {short(target['erp_digest'], target['erp_sha'])}")
+    decided = {
+        "backup": (backend[0], "the Backend-Core step is skipped, so it needs no backup" if backend[0] else "the Backend-Core step needs it"),
+        "backend": backend, "console": console, "erp": erp,
+    }
+    out = []
+    for name, _, _ in STEPS:
+        unchanged, reason = decided[name]
+        if force_all:
+            out.append({"step": name, "action": "run", "reason": "force_all: every step runs"})
+        else:
+            out.append({"step": name, "action": "skip" if unchanged else "run", "reason": reason})
+    return out
+
+
+def parse_run_steps(text):
+    """The steps the verified plan runs, from `--run-steps backup,backend,...` (empty = none)."""
+    names = [name for name in (text or "").split(",") if name]
+    known = [name for name, _, _ in STEPS]
+    if any(name not in known for name in names) or len(set(names)) != len(names):
+        raise ValueError(f"--run-steps must list steps of {', '.join(known)}, once each")
+    if ("backup" in names) != ("backend" in names):
+        raise ValueError("--run-steps must run the backup exactly when it runs the backend step")
+    return set(names)
+
+
+def step_records(live_dir, run_steps):
+    """One record per document, in deploy order: skipped (not in the verified plan), ok, failed (the
+    first planned one that did not finish) or not-run."""
     live = pathlib.Path(live_dir)
     records, failed = [], False
     for name, document, host in STEPS:
         done = (live / f"{name}.ok").is_file()
         lines = read_lines(live / f"{name}.lines")
         status = (live / f"{name}.status").read_text(encoding="utf-8").strip() if (live / f"{name}.status").is_file() else None
-        if done:
+        if name not in run_steps:
+            state = "skipped"
+        elif done:
             state = "ok"
         elif not failed:
             state, failed = "failed", True
@@ -215,7 +281,13 @@ def render_summary(ledger):
     lines = [f"## {title}: {ledger['outcome'].upper()}", "",
              f"{ledger['system']} over {ledger['currentSystem']}, {ledger['jiraKey']}. Gates: "
              + ", ".join(f"{rule} {result}" for rule, result in ledger["gates"].items()) + "."]
+    if ledger.get("stepPlan"):
+        lines += ["", "Steps" + (" (force_all)" if ledger.get("forceAll") else "") + ":"]
+        lines += [f"- {item['step']}: {item['action']}, {item['reason']}" for item in ledger["stepPlan"]]
     for record in ledger.get("steps", []):
+        if record["state"] == "skipped":
+            lines += ["", f"### {record['step']} ({record['document']} on {record['host']}): skipped, the verified plan does not run it"]
+            continue
         lines += ["", f"### {record['step']} ({record['document']} on {record['host']}): {record['state']}", "```", *record["lines"], "```"]
     if ledger.get("failure"):
         lines += ["", f"Failure boundary: {ledger['failure']['reason']}"]
@@ -251,9 +323,13 @@ def plan(args):
     refusals = [f"{rule} failed" for rule, result in results.items() if result == "FAIL"]
     if args.failure:
         refusals.append(args.failure)
+    steps = step_plan(values(target_data), values(current_data), parse_commits(args.commit), args.force_all)
+    if args.live and all(item["action"] == "skip" for item in steps):
+        refusals.append("nothing to deploy: every product is unchanged between the manifests (force_all=true proves the path)")
     ledger = base_ledger(args, PLAN_KIND, target_data, current_data)
     ledger.update({
         "mode": "live" if args.live else "dry-run",
+        "forceAll": bool(args.force_all), "stepPlan": steps,
         "outcome": "refused" if refusals else "planned", "refusals": refusals, "gates": results,
         "backend": {"rollbackAllowed": args.rollback_allowed == "true"},
         "erp": {"rollbackClass": args.erp_rollback_class or None},
@@ -266,7 +342,8 @@ def plan(args):
 def final(args):
     target_data, current_data = load_manifest(args.manifest), load_manifest(args.current_manifest)
     target, current = values(target_data), values(current_data)
-    records = attach_versions(step_records(args.live_dir), target, current)
+    run_steps = parse_run_steps(args.run_steps)
+    records = attach_versions(step_records(args.live_dir, run_steps), target, current)
     failed = next((r for r in records if r["state"] == "failed"), None)
     reason = None
     if failed:
@@ -278,6 +355,7 @@ def final(args):
         "mode": "live",
         "outcome": f"failed-at:{failed['step']}" if failed else "deployed",
         "gates": parse_gate_string(args.gates), "rollbackAllowed": rollback_allowed, "erpRollbackClass": args.erp_rollback_class or None,
+        "runSteps": [name for name, _, _ in STEPS if name in run_steps],
         "failure": failure_of(failed, reason),
         "steps": records,
         "manualRollback": manual_rollback(records, target, current, args.jira_key, rollback_allowed, args.erp_rollback_class),
@@ -310,9 +388,12 @@ def main(argv=None):
             cmd.add_argument("--failure", default="")
             cmd.add_argument("--live", action="store_true")
             cmd.add_argument("--environment-gate", default="unverified", choices=["reviewed", "unverified"])
+            cmd.add_argument("--force-all", action="store_true")
+            cmd.add_argument("--commit", action="append", default=[], help="<key>=<sha>: the commit a release tag resolves to")
         else:
             cmd.add_argument("--live-dir", required=True)
             cmd.add_argument("--gates", required=True)
+            cmd.add_argument("--run-steps", required=True, help="the steps the verified plan runs, comma separated")
 
     args = parser.parse_args(argv)
     try:

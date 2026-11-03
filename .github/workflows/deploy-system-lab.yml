@@ -54,6 +54,11 @@ name: Deploy system lab
         required: true
         type: boolean
         default: true
+      force_all:
+        description: Run all four documents even when a product is unchanged (proves the whole path). false skips unchanged products
+        required: true
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -95,6 +100,12 @@ jobs:
       erp_rollback_class: ${{ steps.erp_class.outputs.class }}
       environment_gate: ${{ steps.plan.outputs.environment_gate }}
       gate_results: ${{ steps.plan.outputs.gate_results }}
+      # RT-1085: the step plan (true or false each; run_steps lists the steps that run, in order).
+      run_backup: ${{ steps.plan.outputs.run_backup }}
+      run_backend: ${{ steps.plan.outputs.run_backend }}
+      run_console: ${{ steps.plan.outputs.run_console }}
+      run_erp: ${{ steps.plan.outputs.run_erp }}
+      run_steps: ${{ steps.plan.outputs.run_steps }}
     steps:
       - name: Guard (main only, validated inputs)
         id: guard
@@ -104,6 +115,7 @@ jobs:
           CURRENT_MANIFEST: ${{ inputs.current_manifest }}
           JIRA_KEY: ${{ inputs.jira_key }}
           DRY_RUN: ${{ inputs.dry_run }}
+          FORCE_ALL: ${{ inputs.force_all }}
         run: |
           set -euo pipefail
           fail() { echo "::error::$*"; exit 1; }
@@ -112,6 +124,7 @@ jobs:
           [[ "$CURRENT_MANIFEST" =~ ^system/releases/lab-[0-9]{4}\.[0-9]{2}\.[0-9]+\.json$ ]] || fail "current_manifest must be system/releases/lab-YYYY.MM.N.json"
           [[ "$JIRA_KEY" =~ ^RT-[1-9][0-9]{0,5}$ ]] || fail "jira_key must be RT-<number>"
           case "$DRY_RUN" in true | false) ;; *) fail "dry_run must be true or false" ;; esac
+          case "$FORCE_ALL" in true | false) ;; *) fail "force_all must be true or false" ;; esac
 
       # No `ref:` on purpose: the gate and the helpers run from the dispatched main commit. Full
       # history and tags: the gate reads release commits, contracts and PINs from git objects.
@@ -497,6 +510,11 @@ jobs:
           OUTCOME_PIN: ${{ steps.pin_rule.outcome }}
           OUTCOME_ERP_IMAGE: ${{ steps.erp_image.outcome }}
           OUTCOME_ERP_CLASS: ${{ steps.erp_class.outcome }}
+          FORCE_ALL: ${{ inputs.force_all }}
+          TARGET_BACKEND_RELEASE: ${{ steps.values.outputs.target_backend_release }}
+          CURRENT_BACKEND_RELEASE: ${{ steps.values.outputs.current_backend_release }}
+          TARGET_CONSOLE_RELEASE: ${{ steps.values.outputs.target_console_release }}
+          CURRENT_CONSOLE_RELEASE: ${{ steps.values.outputs.current_console_release }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/plan"
@@ -531,14 +549,28 @@ jobs:
           if [ "$GATE" = reviewed ]; then echo "G7 pass: aws-lab has a required reviewer" >> "$GATES"; else echo "G7 unverified: aws-lab was not read back with a required reviewer" >> "$GATES"; fi
           LIVE_FLAG=""
           if [ "$DRY_RUN" = "false" ]; then LIVE_FLAG="--live"; fi
+          FORCE_FLAG=""
+          if [ "$FORCE_ALL" = "true" ]; then FORCE_FLAG="--force-all"; fi
+          # RT-1085: a release is unchanged only when its tag and the commit the tag resolves to are the
+          # same in both manifests. An unresolved tag passes an empty commit, which counts as changed.
+          tag_sha() { if [ -n "$1" ]; then git rev-parse --verify --quiet "refs/tags/$1^{commit}" 2>/dev/null || true; fi; }
           STATUS=0
           python3 .github/release/system_ledger.py plan --manifest "$MANIFEST" --current-manifest "$CURRENT_MANIFEST" \
             --jira-key "$JIRA_KEY" --actor "$ACTOR" --run-url "$RUN_URL" --gates-file "$GATES" --failure "$FAILURE" \
             --rollback-allowed "${ROLLBACK_ALLOWED:-false}" --erp-rollback-class "$ERP_CLASS" --environment-gate "$GATE" \
-            --out "$RUNNER_TEMP/plan" $LIVE_FLAG || STATUS=$?
+            --commit "target_backend_release=$(tag_sha "$TARGET_BACKEND_RELEASE")" \
+            --commit "current_backend_release=$(tag_sha "$CURRENT_BACKEND_RELEASE")" \
+            --commit "target_console_release=$(tag_sha "$TARGET_CONSOLE_RELEASE")" \
+            --commit "current_console_release=$(tag_sha "$CURRENT_CONSOLE_RELEASE")" \
+            --out "$RUNNER_TEMP/plan" $LIVE_FLAG $FORCE_FLAG || STATUS=$?
           cat "$RUNNER_TEMP/plan/summary.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
           RESULTS="$(jq -r '.gates | to_entries | map(.key + "=" + .value) | join(" ")' "$RUNNER_TEMP/plan/ledger.json" 2>/dev/null || true)"
           { echo "environment_gate=$GATE"; echo "gate_results=$RESULTS"; } >> "$GITHUB_OUTPUT"
+          # The step plan for the live job's `if:`s and its ledger; the live guard re-checks its shape.
+          if [ -f "$RUNNER_TEMP/plan/ledger.json" ]; then
+            jq -r '.stepPlan[]? | "run_\(.step)=\(.action == "run")"' "$RUNNER_TEMP/plan/ledger.json" >> "$GITHUB_OUTPUT"
+            echo "run_steps=$(jq -r '[.stepPlan[]? | select(.action == "run") | .step] | join(",")' "$RUNNER_TEMP/plan/ledger.json")" >> "$GITHUB_OUTPUT"
+          fi
           if [ "$STATUS" != 0 ]; then echo "::error::the plan was refused (see the ledger)"; exit 1; fi
           if [ "$DRY_RUN" = "false" ] && [ "$GATE" != "reviewed" ]; then
             echo "::error::live run refused: the aws-lab environment was not read back with a required reviewer"
@@ -586,6 +618,11 @@ jobs:
           ERP_ROLLBACK_CLASS: ${{ needs.preflight.outputs.erp_rollback_class }}
           ENVIRONMENT_GATE: ${{ needs.preflight.outputs.environment_gate }}
           GATE_RESULTS: ${{ needs.preflight.outputs.gate_results }}
+          RUN_BACKUP: ${{ needs.preflight.outputs.run_backup }}
+          RUN_BACKEND: ${{ needs.preflight.outputs.run_backend }}
+          RUN_CONSOLE: ${{ needs.preflight.outputs.run_console }}
+          RUN_ERP: ${{ needs.preflight.outputs.run_erp }}
+          RUN_STEPS: ${{ needs.preflight.outputs.run_steps }}
         run: |
           set -euo pipefail
           fail() { echo "::error::$*"; exit 1; }
@@ -607,6 +644,15 @@ jobs:
           [[ "$ERP_CURRENT_TREE" =~ ^[0-9a-f]{40}$ ]] || fail "preflight plan lacks the current Connector tree"
           [[ "$ERP_ROLLBACK_CLASS" =~ ^(image-only|restore)$ ]] || fail "preflight plan lacks the ERP rollback class"
           [[ "$GATE_RESULTS" =~ ^G1=pass\ G2=pass\ G3=pass\ G4=pass\ G5=pass\ G6=pass\ G7=pass\ G8=pass$ ]] || fail "preflight did not pass every rule G1-G8"
+          # RT-1085: each step runs only when the verified plan says true; an empty flag would skip it silently.
+          EXPECTED=""
+          for PAIR in "backup=$RUN_BACKUP" "backend=$RUN_BACKEND" "console=$RUN_CONSOLE" "erp=$RUN_ERP"; do
+            [[ "${PAIR#*=}" =~ ^(true|false)$ ]] || fail "preflight plan lacks the step plan for ${PAIR%%=*}"
+            if [ "${PAIR#*=}" = "true" ]; then EXPECTED="${EXPECTED:+$EXPECTED,}${PAIR%%=*}"; fi
+          done
+          [ "$RUN_BACKUP" = "$RUN_BACKEND" ] || fail "step plan: the backup must run exactly when the Backend-Core step runs"
+          [ "$RUN_STEPS" = "$EXPECTED" ] || fail "step plan: run_steps does not match the step flags"
+          [ -n "$RUN_STEPS" ] || fail "step plan: no step runs (force_all=true proves the path)"
 
       # Fails closed until the owner sets both non-secret variables on aws-lab. Runs before any token is requested.
       - name: Check the deploy variables (fail closed when unset)
@@ -675,7 +721,10 @@ jobs:
 
       # A role is assumed again before each document (a session lasts 3600 s; the documents may
       # take longer in total). A step that fails stops every later step: no document after it runs.
+      # RT-1085: a step whose product is unchanged is skipped by its `if:`. Those `if:`s hold no status
+      # function, so GitHub adds success() to each and a failure still stops every later step.
       - name: Assume the deploy role for the backup (GitHub OIDC, no stored keys)
+        if: ${{ needs.preflight.outputs.run_backup == 'true' }}
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
@@ -685,6 +734,7 @@ jobs:
 
       - name: Run RT-BackendLabBackup on lab-02
         id: backup
+        if: ${{ needs.preflight.outputs.run_backup == 'true' }}
         env:
           BACKEND_RELEASE: ${{ steps.values.outputs.target_backend_release }}
           CURRENT_RELEASE: ${{ steps.values.outputs.current_backend_release }}
@@ -707,6 +757,7 @@ jobs:
           PARAMS="$LIVE/backup-params.json" bash .github/release/ssm-run.sh
 
       - name: Assume the deploy role for the Backend-Core deploy (GitHub OIDC, no stored keys)
+        if: ${{ needs.preflight.outputs.run_backend == 'true' }}
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
@@ -716,6 +767,7 @@ jobs:
 
       - name: Run RT-BackendLabDeploy on lab-01
         id: backend
+        if: ${{ needs.preflight.outputs.run_backend == 'true' }}
         env:
           BACKEND_RELEASE: ${{ steps.values.outputs.target_backend_release }}
           CURRENT_RELEASE: ${{ steps.values.outputs.current_backend_release }}
@@ -749,6 +801,7 @@ jobs:
           DONE_LINE="RT_DONE release=$BACKEND_RELEASE" PARAMS="$LIVE/deploy-params.json" bash .github/release/ssm-run.sh
 
       - name: Assume the deploy role for the Console deploy (GitHub OIDC, no stored keys)
+        if: ${{ needs.preflight.outputs.run_console == 'true' }}
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
@@ -758,6 +811,7 @@ jobs:
 
       - name: Run RT-ConsoleLabDeploy on lab-01
         id: console
+        if: ${{ needs.preflight.outputs.run_console == 'true' }}
         env:
           CONSOLE_RELEASE: ${{ steps.values.outputs.target_console_release }}
           BACKEND_RELEASE: ${{ steps.values.outputs.target_backend_release }}
@@ -782,6 +836,7 @@ jobs:
           DONE_LINE="RT_DONE release=$CONSOLE_RELEASE" PARAMS="$LIVE/console-params.json" bash .github/release/ssm-run.sh
 
       - name: Assume the deploy role for the ERP deploy (GitHub OIDC, no stored keys)
+        if: ${{ needs.preflight.outputs.run_erp == 'true' }}
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
@@ -791,6 +846,7 @@ jobs:
 
       - name: Run RT-ErpLabDeploy on lab-03
         id: erp
+        if: ${{ needs.preflight.outputs.run_erp == 'true' }}
         env:
           JIRA_KEY: ${{ inputs.jira_key }}
           TARGET_DIGEST: ${{ steps.values.outputs.target_erp_digest }}
@@ -833,13 +889,15 @@ jobs:
           ROLLBACK_ALLOWED: ${{ needs.preflight.outputs.rollback_allowed }}
           ERP_ROLLBACK_CLASS: ${{ needs.preflight.outputs.erp_rollback_class }}
           GATE_RESULTS: ${{ needs.preflight.outputs.gate_results }}
+          RUN_STEPS: ${{ needs.preflight.outputs.run_steps }}
         run: |
           set -euo pipefail
           LIVE="$RUNNER_TEMP/live"
           mkdir -p "$LIVE"
           python3 .github/release/system_ledger.py final --manifest "$MANIFEST" --current-manifest "$CURRENT_MANIFEST" \
             --jira-key "$JIRA_KEY" --actor "$ACTOR" --run-url "$RUN_URL" --live-dir "$LIVE" --gates "$GATE_RESULTS" \
-            --rollback-allowed "$ROLLBACK_ALLOWED" --erp-rollback-class "$ERP_ROLLBACK_CLASS" --out "$RUNNER_TEMP/live-ledger"
+            --rollback-allowed "$ROLLBACK_ALLOWED" --erp-rollback-class "$ERP_ROLLBACK_CLASS" --run-steps "$RUN_STEPS" \
+            --out "$RUNNER_TEMP/live-ledger"
           cat "$RUNNER_TEMP/live-ledger/summary.md" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the system ledger

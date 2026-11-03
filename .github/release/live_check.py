@@ -238,6 +238,17 @@ def fail_gate_of(lines):
     return None
 
 
+def skipped_identity(manifest, product):
+    """What a manifest in a system ledger names for a product, or None when it is not readable."""
+    keys = {"backend": ("backendCore", ("release",)), "console": ("adminConsole", ("release",)), "erp": ("erpnext", ("image", "sha"))}
+    section, fields = keys[product]
+    entry = manifest.get(section) if isinstance(manifest, dict) else None
+    if not isinstance(entry, dict):
+        return None
+    found = tuple(entry.get(field) for field in fields)
+    return found if all(isinstance(value, str) and value for value in found) else None
+
+
 def system_facts(ledger, when, label, events, incidents):
     steps = ledger.get("steps")
     if not isinstance(steps, list):
@@ -254,8 +265,15 @@ def system_facts(ledger, when, label, events, incidents):
             raise LiveError(f"{label}: unknown step")
         if name == "backup":
             continue
-        if state not in ("ok", "failed", "not-run"):
+        if state not in ("ok", "failed", "not-run", "skipped"):
             raise LiveError(f"{label}: the {name} step has an unknown state")
+        if state == "skipped":
+            # RT-1085: the run left this product as it was. It is neither a deploy (it must not clear an
+            # older incident) nor an incident, and is valid only when both manifests name the same version.
+            if skipped_identity(ledger.get("manifest"), name) is None or (
+                    skipped_identity(ledger.get("manifest"), name) != skipped_identity(ledger.get("currentManifest"), name)):
+                raise LiveError(f"{label}: the {name} step is skipped, but the manifests do not name one version")
+            continue
         lines = step.get("lines") or []
         if state == "ok":
             target = step.get("target") or {}

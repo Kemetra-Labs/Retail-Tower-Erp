@@ -206,6 +206,45 @@ class Decide(unittest.TestCase):
         fake.add("deploy-system-lab.yml", 41500000001, 951, never)
         self.assertEqual(failures(run_check(fake)), [])
 
+    def skipping_system_run(self, run_id, skipped, current=None):
+        """RT-1085: a system run of lab-2026.11.1 that skipped some products (unchanged in both manifests)."""
+        run = system(run_id)
+        target = json.loads(LIVE.read_text(encoding="utf-8"))
+        run["manifest"], run["currentManifest"] = target, current or json.loads(json.dumps(target))
+        for index, step in enumerate(run["steps"]):
+            if step["step"] in skipped:
+                run["steps"][index] = {"step": step["step"], "state": "skipped", "lines": [], "gates": [], "ssmStatus": None,
+                                       "target": step["target"]}
+        return run
+
+    def test_a_skipped_system_step_is_neither_a_deploy_nor_an_incident(self):
+        fake = live_lab()
+        fake.add("deploy-system-lab.yml", 41520000000, 953, self.skipping_system_run(41520000000, ("backup", "backend", "erp")))
+        lines = run_check(fake)
+        self.assertEqual(failures(lines), [])
+        # the ERP version still comes from the ERP deploy, not from the run that skipped it
+        self.assertTrue(any(text.startswith("erp:") and "deploy-erp-lab.yml run 40916489627" in text for _, text in lines), lines)
+
+    def test_a_skipped_step_does_not_clear_an_older_incident_that_touched_the_host(self):
+        fake = live_lab()
+        fake.add("deploy-erp-lab.yml", 41600000005, 960, erp(41600000005, outcome="held", names=("check", "stop", "backup", "swap", "migrate")),
+                 conclusion="success")
+        fake.add("deploy-system-lab.yml", 41700000000, 970, self.skipping_system_run(41700000000, ("erp",)))
+        found = failures(run_check(fake))
+        self.assertEqual(len(found), 1, found)
+        self.assertTrue(found[0].startswith("erp:") and "may have changed the host" in found[0], found)
+
+    def test_a_skipped_step_whose_manifests_differ_refuses(self):
+        current = json.loads(LIVE.read_text(encoding="utf-8"))
+        current["erpnext"]["sha"] = OTHER_SHA
+        for run_id, run in ((41520000001, self.skipping_system_run(41520000001, ("erp",), current=current)),
+                            (41520000002, {**self.skipping_system_run(41520000002, ("console",)), "currentManifest": None})):
+            fake = live_lab()
+            fake.add("deploy-system-lab.yml", run_id, 954, run)
+            with self.assertRaises(live_check.LiveError) as caught:
+                run_check(fake)
+            self.assertIn("skipped, but the manifests do not name one version", str(caught.exception))
+
     def failed_system_step(self, name, step, reason=None, outcome="failed"):
         fake = live_lab()
         run = system(41510000000, outcome=outcome)
