@@ -102,7 +102,7 @@
   - `test_secret_job_installs_without_scripts`: `sign-release` runs `npm ci --ignore-scripts` and no plain `npm ci`; it always runs `release-lab-installer.ps1 -Cleanup` (`if: always()`).
   - `test_publish_is_protected_and_runs_no_repository_code`: `publish` has `environment: release-pos`, no `actions/checkout`, the protection step requires the policy list `[{"name":"pos/v*","type":"tag"}]`, refuses an existing release, re-checks the tag commit, and lists exactly the five assets.
   - `test_publish_attests_the_installer`: `actions/attest-build-provenance` with `subject-path` ending `POS-Pulse-LAB-Setup-*.exe`.
-- [ ] **Step 2: Run** `python -m unittest .github/release/test_pos_release_workflow.py -v` — Expected: FAIL.
+- [ ] **Step 2: Run** `python -m unittest discover -s .github/release -p test_pos_release_workflow.py -v` — Expected: FAIL.
 - [ ] **Step 3: Modify `release-pos.yml`.**
   - `resolve`: add sparse checkout of `apps/pos/package.json` and, in release mode, fail unless `${TAG#pos/v}` equals its `version`.
   - `build`: unchanged steps; upload `dist-electron/win-unpacked` (the zip stays) as artifact `pos-unpacked-<mode>-<run_id>`.
@@ -153,7 +153,7 @@
 
 - [ ] **Step 1: Write the failing test**, mirroring the `DeployConsoleLab` cases for this file: pinned actions, empty top permissions, dispatch only, inputs never expanded in `run:`, `dry_run` default `true`, concurrency group `deploy-aws-lab`, main only in both jobs, environment `aws-lab` and `id-token: write` only on `live`, live only after preflight and never on a dry-run, preflight runs no repository code, attestation verified with `--signer-workflow` `.github/workflows/release-pos.yml` for the tag, node by tags `Host=lab-01`, only `RT-PosLabFeedDeploy` sent with exactly the five parameters, strict `RT_` regex. Plus:
   - `test_preflight_checks_lab_yml_against_the_installer` (skip without bash): run the `Check lab.yml against the installer` step on a temp installer and a matching `lab.yml` → 0; with a wrong `sha512`, size or version → non-zero.
-- [ ] **Step 2: Run** `python -m unittest .github/release/test_pos_lab_workflow.py -v` — Expected: FAIL.
+- [ ] **Step 2: Run** `python -m unittest discover -s .github/release -p test_pos_lab_workflow.py -v` — Expected: FAIL.
 - [ ] **Step 3: Write the workflow** by copying the structure of `deploy-console-lab.yml` and removing the pin rule and Backend-Core release input. The preflight lab.yml check computes `openssl dgst -sha512 -binary | base64 -w0` and reads `version`, `path`, `sha512`, `size` from `lab.yml` with `yq`.
 - [ ] **Step 4: Run** the test — Expected: PASS. Then `python -m unittest discover -s .github/release` — Expected: all pass.
 - [ ] **Step 5: Commit** `feat(release): approval-gated deploy of a POS release to the lab feed`.

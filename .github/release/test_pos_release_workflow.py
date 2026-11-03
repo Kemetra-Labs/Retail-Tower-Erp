@@ -95,7 +95,7 @@ class ReleasePos(unittest.TestCase):
         for block in re.findall(r"run: \|\n((?:          .*\n|\n)+)", self.text):
             self.assertNotIn("${{", block, block[:200])
 
-    @unittest.skipUnless(HAVE_BASH, "bash not available")
+    @unittest.skipUnless(HAVE_BASH and shutil.which("jq"), "bash and jq are needed")
     def test_resolve_version_gate_and_package_json_read(self):
         script = step_script(self.text, "Resolve SHA, mode and tag")
         package = Path("apps") / "pos" / "package.json"
