@@ -92,7 +92,7 @@
 .v5-sale-command-input label {
   margin: 0;
   color: var(--color-primary-emphasis);
-  font-size: var(--font-size-2xs);
+  font-size: var(--type-meta);
   font-weight: var(--font-weight-bold);
   line-height: var(--line-height-snug);
 }

@@ -187,6 +187,86 @@ describe('v5 Sale polish — frozen cart stays keyboard-scrollable', () => {
   });
 });
 
+// RT-1119: DESIGN.md "The Twelve-Pixel Rule": the command-bar labels are read all shift.
+describe('v5 Sale polish — command-bar labels read at 12px', () => {
+  const css = readFileSync(resolve(__dirname, '../sale/sale-direction-b.css'), 'utf8');
+  const rule = /\.v5-sale-command-input label\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+
+  it('sizes the labels with the meta token, never the 11px keyboard-hint token', () => {
+    expect(rule).toMatch(/font-size:\s*var\(--type-meta\)/);
+    expect(rule).not.toMatch(/--font-size-2xs/);
+  });
+
+  it('keeps the label colour and weight', () => {
+    expect(rule).toMatch(/color:\s*var\(--color-primary-emphasis\)/);
+    expect(rule).toMatch(/font-weight:\s*var\(--font-weight-bold\)/);
+  });
+});
+
+// RT-1119 (M-S11, M-S12; DESIGN.md "Unavailable commit"): the reason sits under the commit.
+describe('v5 Sale polish — the unavailable handoff says why', () => {
+  const HANDOFF = 'تسليم السلة للدفع';
+
+  function reasonOf(button: HTMLElement): HTMLElement {
+    const id = button.getAttribute('aria-describedby');
+    expect(id).toBeTruthy();
+    const reason = document.getElementById(id ?? '');
+    if (reason === null) throw new Error('aria-describedby points at nothing');
+    return reason;
+  }
+
+  it('gives an empty cart a reason, wired to the disabled commit', () => {
+    render(<LiveSaleCart {...cart({ lines: [], itemCount: 0, canHandoff: false })} />);
+    const button = screen.getByRole('button', { name: HANDOFF });
+    expect(button).toBeDisabled();
+    const reason = reasonOf(button);
+    expect(reason).toHaveTextContent('أضف صنفًا لتسليم السلة للدفع');
+    expect(reason).toHaveClass('v5-sale-checkout-reason');
+    // Guidance, not a refusal: no live-region role.
+    expect(reason).not.toHaveAttribute('role');
+  });
+
+  it('says an add is still landing while one is in flight', () => {
+    render(<LiveSaleCart {...cart({ canHandoff: false, addInFlight: true })} />);
+    const button = screen.getByRole('button', { name: HANDOFF });
+    expect(button).toBeDisabled();
+    expect(reasonOf(button)).toHaveTextContent('جارٍ إضافة الصنف…');
+  });
+
+  it('shows no stale reason while the handoff is in flight', () => {
+    render(
+      <LiveSaleCart
+        {...cart({
+          lines: [],
+          itemCount: 0,
+          canHandoff: false,
+          addInFlight: true,
+          handingOff: true,
+        })}
+      />,
+    );
+    const button = screen.getByRole('button', { name: 'جارٍ تسليم السلة…' });
+    expect(button).not.toHaveAttribute('aria-describedby');
+    expect(document.querySelector('.v5-sale-checkout-reason')).toBeNull();
+  });
+
+  it('shows no reason and no description when the handoff is available', () => {
+    render(<LiveSaleCart {...cart()} />);
+    const button = screen.getByRole('button', { name: HANDOFF });
+    expect(button).toBeEnabled();
+    expect(button).not.toHaveAttribute('aria-describedby');
+    expect(document.querySelector('.v5-sale-checkout-reason')).toBeNull();
+  });
+
+  it('sets the reason as meta text, neutral, never below 12px', () => {
+    const css = readFileSync(resolve(__dirname, '../sale/live-sale.css'), 'utf8');
+    const body = /\.v5-live-sale \.v5-sale-checkout-reason\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+    expect(body).toMatch(/font-size:\s*var\(--type-meta\)/);
+    expect(body).toMatch(/color:\s*var\(--color-text-muted\)/);
+    expect(body).not.toMatch(/--font-size-2xs/);
+  });
+});
+
 describe('v5 Sale polish — CTA label size', () => {
   it('keeps the CTA label at the CTA size when the arrow is absent (handing off)', () => {
     const css = readFileSync(resolve(__dirname, '../sale/live-sale.css'), 'utf8');

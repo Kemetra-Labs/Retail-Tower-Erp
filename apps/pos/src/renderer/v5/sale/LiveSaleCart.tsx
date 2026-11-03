@@ -25,6 +25,8 @@ interface Props {
   itemCount: number;
   frozenSubtotalMinor: number | null;
   canHandoff: boolean;
+  /** RT-1119 (M-S12): an add is still landing, which is why the handoff is unavailable. */
+  addInFlight?: boolean;
   handingOff: boolean;
   cancelled: boolean;
   canVoid: boolean;
@@ -359,15 +361,33 @@ function PrimaryAction(props: Readonly<Props>): JSX.Element {
       </button>
     );
   if (props.cancelled) return <p className="v5-live-notice">تم إلغاء البيع.</p>;
+  const reason = props.handingOff ? null : handoffReasonCopy(props);
   return (
-    <button
-      type="button"
-      className="v5-sale-checkout v5-btn v5-btn--primary v5-btn--commit"
-      disabled={!props.canHandoff || props.handingOff}
-      onClick={props.onHandoff}
-    >
-      <span>{props.handingOff ? 'جارٍ تسليم السلة…' : 'تسليم السلة للدفع'}</span>
-      {!props.handingOff && <Icon name="forward" size="lg" />}
-    </button>
+    <>
+      <button
+        type="button"
+        className="v5-sale-checkout v5-btn v5-btn--primary v5-btn--commit"
+        disabled={!props.canHandoff || props.handingOff}
+        aria-describedby={reason === null ? undefined : HANDOFF_REASON_ID}
+        onClick={props.onHandoff}
+      >
+        <span>{props.handingOff ? 'جارٍ تسليم السلة…' : 'تسليم السلة للدفع'}</span>
+        {!props.handingOff && <Icon name="forward" size="lg" />}
+      </button>
+      {reason !== null && (
+        <p id={HANDOFF_REASON_ID} className="v5-sale-checkout-reason">
+          {reason}
+        </p>
+      )}
+    </>
   );
+}
+
+const HANDOFF_REASON_ID = 'sale-handoff-reason';
+
+/** M-S11 (empty cart) and M-S12 (an add still landing): why the handoff is not yet offered. */
+function handoffReasonCopy(props: Readonly<Props>): string | null {
+  if (props.canHandoff) return null;
+  if (props.lines.length === 0) return 'أضف صنفًا لتسليم السلة للدفع';
+  return props.addInFlight === true ? 'جارٍ إضافة الصنف…' : null;
 }
