@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>الاتجاه A · مرحلة Teal ضمن القواعد الحالية</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.bd{box-sizing:border-box;padding:40px;background:#eef2f4;color:#0a2125;font-family:Dubai,'Segoe UI',Tahoma,system-ui,sans-serif;font-size:14px;line-height:1.6;display:flex;flex-direction:column;gap:28px}
+.bd h1{margin:0;font-size:26px;font-weight:700}
+.bd .lead{margin:0;color:#3f5260;max-width:1240px}
+.bd .meta{display:flex;flex-wrap:wrap;gap:8px}
+.tag{font-size:12px;font-weight:700;border-radius:6px;padding:1px 8px;width:fit-content}
+.tag-p{color:#7a4b00;background:#fff4dc;border:1px solid #f3dfbd}
+.tag-s{color:#0d4f33;background:#effaf3;border:1px solid #c8ead6}
+.tag-o{color:#123b52;background:#f2f8fb;border:1px solid #cfe3ef}
+.grid{display:flex;flex-wrap:wrap;gap:40px 40px;align-items:flex-start}
+.fig{margin:0;display:flex;flex-direction:column;gap:8px}
+.fig figcaption{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.fig figcaption b{font-size:12px;font-weight:700;color:#fff;background:#0a2125;border-radius:6px;padding:2px 8px}
+.fig figcaption span{font-size:15px;font-weight:700}
+.fig figcaption i{font-style:normal;font-size:12px;color:#5b6d7c}
+.frame{border-radius:6px;overflow:hidden;box-shadow:0 0 0 1px #c6d3d8}
+.notes{margin:0;padding-inline-start:20px;color:#33454f;max-width:1240px}
+.notes li{margin:2px 0}
+
+.scr{--canvas:#f7f9fa;--surface:#ffffff;--sunken:#eef2f6;--text:#0f1d2e;--muted:#53647a;--border:#d8dfe7;--soft:#e7ecf2;--strong:#6f7b89;--primary:#0f766e;--primary-em:#0b5b55;--primary-soft:#e6f4f1;--danger:#b3261e;--danger-soft:#fbe9e7;--warning:#a35a00;--warning-soft:#fdf1e0;--info:#1b6ca8;--info-soft:#e4f0f9;--ink:#0a2125;--ink-muted:#a9c2c5;--mint:#5fe0cf;
+--aw:340px;--tile:60px;--cols:2;--key:60px;--av:36px;--avl:56px;--fbh:84px;--pad:24px;--gap:16px;--commit:56px;
+box-sizing:border-box;position:relative;overflow:hidden;display:flex;flex-direction:column;background:var(--canvas);color:var(--text);font-family:Dubai,'Segoe UI',Tahoma,Arial,system-ui,sans-serif;font-size:14px;line-height:1.6;text-align:start}
+.scr *{box-sizing:border-box}
+.scr.v-xl{--aw:400px;--tile:72px;--cols:3;--key:64px;--av:44px;--avl:64px;--fbh:76px;--pad:40px;--gap:24px;--commit:60px}
+.scr.v-md{--aw:304px;--tile:52px;--key:56px;--av:32px;--avl:48px;--fbh:88px;--pad:16px;--gap:12px}
+.scr.v-sm{--aw:304px;--tile:48px;--key:48px;--av:30px;--avl:40px;--fbh:84px;--pad:12px;--gap:8px;--commit:52px}
+.scr h1,.scr h2,.scr p{margin:0}
+:where(.scr) button,:where(.scr) input{font:inherit;color:inherit}
+:where(.scr) button{cursor:pointer}
+.scr button:focus-visible,.scr input:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+.head h1{font-size:20px;font-weight:700;line-height:1.3}
+.head p{color:var(--muted)}
+.v-xl .head h1{font-size:26px}.v-xl .head p{font-size:16px}
+.v-sm .head{display:flex;align-items:baseline;gap:12px}.v-sm .head h1{font-size:18px}.v-sm .head p{font-size:13px}
+.panel{display:flex;flex-direction:column;min-height:0;background:var(--surface);border:1px solid var(--border);border-radius:14px}
+.ph{flex:none;display:flex;align-items:center;min-height:48px;padding:8px 16px;border-bottom:1px solid var(--soft)}
+.ph h2{font-size:16px;font-weight:700}
+.pb{flex:1;min-height:0;overflow:auto;padding:16px}
+.v-sm .pb{padding:10px}
+.pf{flex:none;padding:10px 16px;border-top:1px solid var(--soft)}
+.roster{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(var(--cols),minmax(0,1fr));gap:8px}
+.who{position:relative;display:flex;align-items:center;gap:12px;width:100%;min-height:var(--tile);padding:6px 12px;border:1px solid var(--strong);border-radius:10px;background:var(--surface);text-align:start}
+.who[disabled]{cursor:default;opacity:.6}
+.who.sel{border-color:var(--primary);background:var(--primary-soft);color:var(--primary-em)}
+.who.sel::before{content:"";position:absolute;inset-block:8px;inset-inline-start:-1px;width:3px;border-radius:2px;background:var(--primary)}
+.av{flex:none;display:grid;place-items:center;width:var(--av);height:var(--av);border-radius:9999px;background:var(--primary-soft);color:var(--primary-em);font-weight:700;font-size:calc(var(--av) * .45);line-height:1}
+.who.sel .av{background:var(--primary);color:#fff}
+.av-l{width:var(--avl);height:var(--avl);font-size:calc(var(--avl) * .45);background:var(--primary);color:#fff}
+.nm{min-width:0;display:flex;flex-direction:column}
+.nm-t{font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35}
+.nm-r{font-size:12px;color:var(--muted)}
+.who .nm-r{display:none}
+.v-xl .who .nm-r{display:block}
+.who.sel .nm-r{color:var(--primary-em)}
+.rs-empty{min-height:120px}
+.sec{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border:1px solid var(--strong);border-radius:10px;background:var(--surface);font-weight:600}
+.sec[aria-pressed=true]{border-color:var(--primary);background:var(--primary-soft);color:var(--primary-em)}
+.sec[disabled],.ghost[disabled]{opacity:.55;cursor:default}
+.ghost{display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:0 8px;border:0;border-radius:10px;background:transparent;color:var(--muted);font-weight:600;margin-inline-start:auto}
+.ah{flex:none;display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 16px;border-bottom:1px solid var(--soft)}
+.ah-t{font-size:16px;font-weight:700;line-height:1.3}
+.ah-who .ah-t{font-size:18px}
+.v-xl .ah-who .ah-t{font-size:22px}
+.who-t{min-width:0;display:flex;flex-direction:column}
+.who-t .ah-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ab{flex:1;min-height:0;display:flex;flex-direction:column;gap:var(--gap);padding:var(--gap) 16px 16px}
+.v-xl .ab{padding:24px 28px 28px}
+.dots{flex:none;display:flex;align-items:center;justify-content:center;gap:14px;height:52px;border:1px solid var(--strong);border-radius:10px;background:var(--surface)}
+.v-sm .dots{height:44px}
+.dots.err{border-color:var(--danger)}
+.dot{width:14px;height:14px;border-radius:9999px;border:2px solid var(--strong)}
+.dot.on{background:var(--text);border-color:var(--text)}
+.fb{flex:none;min-height:var(--fbh);display:flex;align-items:center}
+.fb>*{width:100%}
+.prompt{color:var(--muted);text-align:center}
+.st{display:inline-flex;align-items:center;justify-content:center;gap:8px;color:var(--muted)}
+.spin{width:16px;height:16px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--primary)}
+.nt{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:10px;border:1px solid;font-size:14px;line-height:1.5}
+.v-sm .nt{font-size:13px;padding:8px 10px}
+.nt svg{flex:none;margin-top:1px}
+.nt-danger{background:var(--danger-soft);border-color:var(--danger);color:#8c1d18}
+.nt-warning{background:var(--warning-soft);border-color:var(--warning);color:#7d4500}
+.nt-info{background:var(--info-soft);border-color:var(--info);color:#145184}
+.keypad{flex:none;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.key{display:grid;place-items:center;height:var(--key);border:1px solid var(--strong);border-radius:10px;background:var(--surface);font-family:ui-monospace,'Cascadia Code',Consolas,monospace;font-size:24px;font-weight:600}
+.key[disabled]{border-color:var(--border);color:#9aa6b4;cursor:default}
+.key.blank{border:0;background:transparent}
+.commit{flex:none;width:100%;min-height:var(--commit);margin-top:auto;border:0;border-radius:10px;background:var(--primary);color:#fff;font-size:17px;font-weight:700}
+.commit[aria-disabled=true]{background:var(--sunken);color:var(--muted);border:1px solid var(--border);cursor:default}
+.mgr{display:flex;flex-direction:column;gap:14px;flex:1}
+.fl{display:flex;flex-direction:column;gap:6px;font-weight:600}
+.in{height:48px;border:1px solid var(--strong);border-radius:10px;padding:0 12px;background:var(--surface);font-weight:400}
+.term{color:var(--muted)}
+.term b{color:var(--text);font-weight:700;margin-inline-start:4px}
+.sep{width:1px;height:20px;background:var(--border)}
+.logo{display:inline-flex;flex:none}
+.logo-box{display:grid;place-items:center;width:128px;height:32px;border:1px dashed var(--strong);border-radius:4px;color:var(--muted);font-size:12px;background:repeating-linear-gradient(135deg,transparent 0 6px,rgba(83,100,122,.06) 6px 12px)}
+.logo-card{padding:2px 4px;border:1px solid var(--border);border-radius:8px;background:#ffffff}
+.logo-lg .logo-box{width:200px;height:80px;font-size:13px}
+.logo-lg.logo-card{padding:12px}
+.pw{font-size:12px;color:var(--muted);white-space:nowrap}
+.pw-end{margin-inline-start:auto}
+.strip{flex:none;display:flex;align-items:center;gap:12px;height:48px;padding:0 var(--pad);background:var(--surface);border-bottom:1px solid var(--border)}
+.v-xl .strip{height:56px}.v-md .strip{height:44px}.v-sm .strip{height:40px}
+.wm{display:inline-flex;align-items:center;gap:8px;font-weight:700}
+.wm-mark{display:grid;place-items:center;width:24px;height:24px;border-radius:6px;background:var(--primary);color:#fff}
+/* Forced colours, simulated for the board (Windows "Night sky"-like). Real captures are slice evidence. */
+.scr.fc,.scr.fc .panel,.scr.fc .strip,.scr.fc .band,.scr.fc .dock,.scr.fc .bp,.scr.fc .who,.scr.fc .key,.scr.fc .dots,.scr.fc .sec,.scr.fc .in,.scr.fc .nt{background:#000 !important;color:#fff !important;border-color:#fff !important;box-shadow:none !important}
+.scr.fc .orn{display:none}
+.scr.fc .who.sel,.scr.fc .sec[aria-pressed=true]{background:#1aebff !important;color:#000 !important}
+.scr.fc .who.sel .nm-r{color:#000 !important}
+.scr.fc .av,.scr.fc .pm,.scr.fc .wm-mark{background:#000 !important;color:#fff !important;border:1px solid #fff}
+.scr.fc .commit{background:#1aebff !important;color:#000 !important}
+.scr.fc .commit[aria-disabled=true],.scr.fc .key[disabled]{background:#000 !important;color:#3ff23f !important;border:1px solid #3ff23f !important}
+.scr.fc .dot.on{background:#fff;border-color:#fff}.scr.fc .dot{border-color:#fff}
+.scr.fc .term b,.scr.fc .pn,.scr.fc .nm-r,.scr.fc .term,.scr.fc .pw,.scr.fc .prompt{color:#fff !important}
+.scr.fc .logo-card{background:#fff !important;border:1px solid #fff}
+.scr.fc .logo-box{color:#000}
+
+.dA .stage{flex:1;min-height:0;width:100%;max-width:1400px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) var(--aw);grid-template-rows:auto minmax(0,1fr);gap:var(--gap);padding:var(--pad)}
+.dA .head{grid-column:1 / -1}
+.dA .auth{grid-row:2;grid-column:2}
+</style>
+</helmet>
+<div class="bd" style="width: 1440px; min-height: 1612px">
+<div style="display:flex;flex-direction:column;gap:6px"><h1>الاتجاه A · مرحلة Teal ضمن القواعد الحالية</h1><p class="lead">يبقي تكوين G-1 المعتمد (عمودان، لوحة الأرقام ثابتة في الطرف) وكل رموز POS الحالية: Tower Teal، خط Dubai، ألواح مسطحة بلا ظل، أنصاف أقطار 10/14. التغيير: الاسم والصورة الرمزية أكبر فوق الرقم السري، بطاقات الكاشير أوضح، ثلاثة أعمدة على شاشة 1920، والمرحلة محدودة العرض حتى لا تتبعثر على شاشة الطيار.</p><p class="lead"><strong>قرارات المالك اللازمة:</strong> لا يحتاج قرار ألوان أو خطوط. يحتاج: OD-11 (الصورة الرمزية الأكبر وثلاثة أعمدة على 1920، تعديل بصري لمرجع G-1).</p><p class="lead" style="color:#5b6d7c">مسودة تخطيط RT-1042، غير معتمدة. القواعد تغلب اللوحات: Constitution وDESIGN.md وقرارات المالك. النصوص المعروضة هي النصوص المشحونة على main ما لم تُعلَّم «مقترح». الأسماء والجهاز وبيانات المدير أمثلة.</p></div>
+<div class="grid"><figure class="fig" style="width:1344px"><figcaption><b>1</b><span>كاشير مختار · شاشة الطيار</span><i dir="ltr">1920×1080</i></figcaption><div class="frame" style="width:1344px;height:756px"><div style="zoom:0.7"><div class="scr dA v-xl" dir="rtl" lang="ar" style="width:1920px;height:1080px"><header class="strip"><span class="wm"><span class="wm-mark"><svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="6" y="1" width="4" height="14" rx="1"/><rect x="1" y="6" width="14" height="4" rx="1"/></svg></span><span dir="ltr">POS Pulse</span></span><span class="sep" aria-hidden="true"></span><span class="term">الجهاز <b><bdi>كاشير 2</bdi></b></span></header>
+<div class="stage"><div class="head"><h1>تسجيل الدخول</h1><p>كل عمليات الوردية تُسجَّل باسمك.</p></div>
+<section class="panel rp" aria-labelledby="rh"><div class="ph"><h2 id="rh">الكاشير في هذا الفرع</h2></div><div class="pb"><ul class="roster" aria-label="قائمة الكاشير"><li><button type="button" class="who" aria-pressed="false" data-pick="0"><span class="av" aria-hidden="true">أ</span><span class="nm"><span class="nm-t">أحمد سمير</span><span class="nm-r">الكاشير</span></span></button></li><li><button type="button" class="who sel" aria-pressed="true" data-pick="1"><span class="av" aria-hidden="true">م</span><span class="nm"><span class="nm-t">منى عادل</span><span class="nm-r">الكاشير</span></span></button></li><li><button type="button" class="who" aria-pressed="false" data-pick="2"><span class="av" aria-hidden="true">خ</span><span class="nm"><span class="nm-t">خالد يوسف</span><span class="nm-r">الكاشير</span></span></button></li><li><button type="button" class="who" aria-pressed="false" data-pick="3"><span class="av" aria-hidden="true">س</span><span class="nm"><span class="nm-t">سارة محمود</span><span class="nm-r">الكاشير</span></span></button></li><li><button type="button" class="who" aria-pressed="false" data-pick="4"><span class="av" aria-hidden="true">ه</span><span class="nm"><span class="nm-t">هدى إبراهيم</span><span class="nm-r">الكاشير</span></span></button></li><li><button type="button" class="who" aria-pressed="false" data-pick="5"><span class="av" aria-hidden="true">ع</span><span class="nm"><span class="nm-t">عمر حسن</span><span class="nm-r">الكاشير</span></span></button></li></ul></div><div class="pf"><button type="button" class="sec" data-act="manager" aria-pressed="false"><svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/></svg>دخول المدير</button></div></section>
+<aside class="panel auth" aria-label="الرقم السري"><div class="ah ah-who big"><span class="av av-l" aria-hidden="true">م</span><div class="who-t"><h2 class="ah-t">منى عادل</h2><span class="nm-r">الكاشير</span></div><button type="button" class="ghost" data-act="back"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>رجوع</button></div><div class="ab"><div class="dots" role="group" aria-label="الرقم السري" dir="ltr"><span class="dot on"></span><span class="dot on"></span><span class="dot on"></span><span class="dot on"></span><span class="dot"></span><span class="dot"></span></div><div class="fb" role="status" aria-live="polite"></div><div class="keypad" role="group" aria-label="إدخال الرقم السري" dir="ltr"><button type="button" class="key" data-key="1">1</button><button type="button" class="key" data-key="2">2</button><button type="button" class="key" data-key="3">3</button><button type="button" class="key" data-key="4">4</button><button type="button" class="key" data-key="5">5</button><button type="button" class="key" data-key="6">6</button><button type="button" class="key" data-key="7">7</button><button type="button" class="key" data-key="8">8</button><button type="button" class="key" data-key="9">9</button><span class="key blank" aria-hidden="true"></span><button type="button" class="key" data-key="0">0</button><button type="button" class="key" aria-label="حذف" data-key="del"><svg aria-hidden="true" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h11a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H9l-6-7 6-7z"/><path d="M12 9.5l5 5M17 9.5l-5 5"/></svg></button></div><button type="button" class="commit" data-key="ok" aria-disabled="false">دخول</button></div></aside></div></div></div></div></figure><figure class="fig" style="width:635px"><figcaption><b>2</b><span>نفس الحالة · 1024×768</span><i dir="ltr">1024×768</i></figcaption><div class="frame" style="width:635px;height:476px"><div style="zoom:0.62"><div class="scr dA v-md" dir="rtl" lang="ar" style="width:1024px;height:768px"><header class="strip"><span class="wm"><span class="wm-mark"><svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="6" y="1" width="4" height="14" rx="1"/><rect x="1" y="6" width="14" height="4" rx="1"/></svg></span><span dir="ltr">POS Pulse</span></span><span class="sep" aria-hidden="true"></span><span class="term">الجهاز <b><bdi>كاشير 2</bdi></b></span></header>
+<div class="stage"><div class="head"><h1>تسجيل الدخول</h1><p>كل عمليات الوردية تُسجَّل باسمك.</p></div>
+<section class="panel rp" aria-labelledby="rh"><div class="ph"><h2 id="rh">الكاشير في هذا الفرع</h2></div><div class="pb"><ul class="roster" aria-label="قائمة الكاشير"><li><button type="button" class="who" aria-pressed="false" data-pick="0"><span class="av" aria-hidden="true">أ</span><span class="nm"><span class="nm-t">أحمد سمير</span><span class="nm-r">الكاشير</span></span></button></li><li><button type="button" class="who sel" aria-pressed="true" data-pick="1"><span class="av" aria-hidden="true">م</span><span class="nm"><span class="nm-t">منى عادل</span><span class="nm-r">الكاشير</span></span></button></li><li><button type="button" class="who" aria-pressed="false" data-pick="2"><span class="av" aria-hidden="true">خ</span><span class="nm"><span class="nm-t">خالد يوسف</span><span class="nm-r">الكاشير</span></span></button></li><li><button type="button" class="who" aria-pressed="false" data-pick="3"><span class="av" aria-hidden="true">س</span><span class="nm"><span class="nm-t">سارة محمود</span><span class="nm-r">الكاشير</span></span></button></li><li><button type="button" class="who" aria-pressed="false" data-pick="4"><span class="av" aria-hidden="true">ه</span><span class="nm"><span class="nm-t">هدى إبراهيم</span><span class="nm-r">الكاشير</span></span></button></li><li><button type="button" class="who" aria-pressed="false" data-pick="5"><span class="av" aria-hidden="true">ع</span><span class="nm"><span class="nm-t">عمر حسن</span><span class="nm-r">الكاشير</span></span></button></li></ul></div><div class="pf"><button type="button" class="sec" data-act="manager" aria-pressed="false"><svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/></svg>دخول المدير</button></div></section>
+<aside class="panel auth" aria-label="الرقم السري"><div class="ah ah-who big"><span class="av av-l" aria-hidden="true">م</span><div class="who-t"><h2 class="ah-t">منى عادل</h2><span class="nm-r">الكاشير</span></div><button type="button" class="ghost" data-act="back"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>رجوع</button></div><div class="ab"><div class="dots" role="group" aria-label="الرقم السري" dir="ltr"><span class="dot on"></span><span class="dot on"></span><span class="dot on"></span><span class="dot on"></span><span class="dot"></span><span class="dot"></span></div><div class="fb" role="status" aria-live="polite"></div><div class="keypad" role="group" aria-label="إدخال الرقم السري" dir="ltr"><button type="button" class="key" data-key="1">1</button><button type="button" class="key" data-key="2">2</button><button type="button" class="key" data-key="3">3</button><button type="button" class="key" data-key="4">4</button><button type="button" class="key" data-key="5">5</button><button type="button" class="key" data-key="6">6</button><button type="button" class="key" data-key="7">7</button><button type="button" class="key" data-key="8">8</button><button type="button" class="key" data-key="9">9</button><span class="key blank" aria-hidden="true"></span><button type="button" class="key" data-key="0">0</button><button type="button" class="key" aria-label="حذف" data-key="del"><svg aria-hidden="true" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h11a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H9l-6-7 6-7z"/><path d="M12 9.5l5 5M17 9.5l-5 5"/></svg></button></div><button type="button" class="commit" data-key="ok" aria-disabled="false">دخول</button></div></aside></div></div></div></div></figure><figure class="fig" style="width:635px"><figcaption><b>3</b><span>نفس الحالة · 1024×600</span><i dir="ltr">1024×600</i></figcaption><div class="frame" style="width:635px;height:372px"><div style="zoom:0.62"><div class="scr dA v-sm" dir="rtl" lang="ar" style="width:1024px;height:600px"><header class="strip"><span class="wm"><span class="wm-mark"><svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="6" y="1" width="4" height="14" rx="1"/><rect x="1" y="6" width="14" height="4" rx="1"/></svg></span><span dir="ltr">POS Pulse</span></span><span class="sep" aria-hidden="true"></span><span class="term">الجهاز <b><bdi>كاشير 2</bdi></b></span></header>
+<div class="stage"><div class="head"><h1>تسجيل الدخول</h1><p>كل عمليات الوردية تُسجَّل باسمك.</p></div>
+<section class="panel rp" aria-labelledby="rh"><div class="ph"><h2 id="rh">الكاشير في هذا الفرع</h2></div><div class="pb"><ul class="roster" aria-label="قائمة الكاشير"><li><button type="button" class="who" aria-pressed="false" data-pick="0"><span class="av" aria-hidden="true">أ</span><span class="nm"><span class="nm-t">أحمد سمير</span><span class="nm-r">الكاشير</span></span></button></li><li><button type="button" class="who sel" aria-pressed="true" data-pick="1"><span class="av" aria-hidden="true">م</span><span class="nm"><span class="nm-t">منى عادل</span><span class="nm-r">الكاشير</span></span></button></li><li><button type="button" class="who" aria-pressed="false" data-pick="2"><span class="av" aria-hidden="true">خ</span><span class="nm"><span class="nm-t">خالد يوسف</span><span class="nm-r">الكاشير</span></span></button></li><li><button type="button" class="who" aria-pressed="false" data-pick="3"><span class="av" aria-hidden="true">س</span><span class="nm"><span class="nm-t">سارة محمود</span><span class="nm-r">الكاشير</span></span></button></li><li><button type="button" class="who" aria-pressed="false" data-pick="4"><span class="av" aria-hidden="true">ه</span><span class="nm"><span class="nm-t">هدى إبراهيم</span><span class="nm-r">الكاشير</span></span></button></li><li><button type="button" class="who" aria-pressed="false" data-pick="5"><span class="av" aria-hidden="true">ع</span><span class="nm"><span class="nm-t">عمر حسن</span><span class="nm-r">الكاشير</span></span></button></li></ul></div><div class="pf"><button type="button" class="sec" data-act="manager" aria-pressed="false"><svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/></svg>دخول المدير</button></div></section>
+<aside class="panel auth" aria-label="الرقم السري"><div class="ah ah-who big"><span class="av av-l" aria-hidden="true">م</span><div class="who-t"><h2 class="ah-t">منى عادل</h2><span class="nm-r">الكاشير</span></div><button type="button" class="ghost" data-act="back"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>رجوع</button></div><div class="ab"><div class="dots" role="group" aria-label="الرقم السري" dir="ltr"><span class="dot on"></span><span class="dot on"></span><span class="dot on"></span><span class="dot on"></span><span class="dot"></span><span class="dot"></span></div><div class="fb" role="status" aria-live="polite"></div><div class="keypad" role="group" aria-label="إدخال الرقم السري" dir="ltr"><button type="button" class="key" data-key="1">1</button><button type="button" class="key" data-key="2">2</button><button type="button" class="key" data-key="3">3</button><button type="button" class="key" data-key="4">4</button><button type="button" class="key" data-key="5">5</button><button type="button" class="key" data-key="6">6</button><button type="button" class="key" data-key="7">7</button><button type="button" class="key" data-key="8">8</button><button type="button" class="key" data-key="9">9</button><span class="key blank" aria-hidden="true"></span><button type="button" class="key" data-key="0">0</button><button type="button" class="key" aria-label="حذف" data-key="del"><svg aria-hidden="true" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h11a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H9l-6-7 6-7z"/><path d="M12 9.5l5 5M17 9.5l-5 5"/></svg></button></div><button type="button" class="commit" data-key="ok" aria-disabled="false">دخول</button></div></aside></div></div></div></div></figure></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1612}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

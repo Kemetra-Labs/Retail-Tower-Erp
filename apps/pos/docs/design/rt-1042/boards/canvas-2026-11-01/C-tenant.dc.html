@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="ar">
+<head>
+<meta charset="utf-8">
+<title>دخول POS - شعار الصيدلية</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&amp;display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div dir="rtl" style="width: 1920px; height: 1080px; box-sizing: border-box; display: flex; overflow: hidden; background: #f7f9fa; color: #0f1d2e; font-family: 'Dubai', 'Tajawal', 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 14px; line-height: 1.6">
+
+<main style="flex: 1; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px; padding: 48px 48px">
+<div style="display: flex; align-items: baseline; gap: 12px">
+<h1 style="margin: 0; font-size: 28px; font-weight: 700; line-height: 1.3">تسجيل الدخول</h1>
+<p style="margin: 0; color: #53647a; font-size: 16px">كل عمليات الوردية تُسجَّل باسمك.</p>
+</div>
+
+<div style="flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px">
+
+<section aria-labelledby="roster-h" style="display: flex; flex-direction: column; min-height: 0; border: 1px solid #d8dfe7; border-radius: 14px; background: #ffffff">
+<div style="display: flex; align-items: center; min-height: 56px; box-sizing: border-box; padding: 12px 20px; border-bottom: 1px solid #e7ecf2">
+<h2 id="roster-h" style="margin: 0; font-size: 18px; font-weight: 700">الكاشير في هذا الفرع</h2>
+</div>
+<ul style="flex: 1; min-height: 0; margin: 0; padding: 20px; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 8px">
+<sc-for list="{{roster}}" as="item" hint-placeholder-count="8">
+<li>
+<sc-if value="{{item.selected}}" hint-placeholder-val="{{ false }}">
+<button type="button" aria-pressed="true" style="position: relative; display: flex; align-items: center; gap: 12px; width: 100%; height: 60px; box-sizing: border-box; padding: 0 12px; border: 1px solid #0f766e; border-radius: 10px; background: #e6f4f1; color: #0b5b55; font: inherit; text-align: start; cursor: pointer">
+<span aria-hidden="true" style="position: absolute; inset-block: 8px; inset-inline-start: -1px; width: 2px; border-radius: 2px; background: #0f766e"></span>
+<span aria-hidden="true" style="flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9999px; background: #0f766e; color: #ffffff; font-size: 18px; font-weight: 700; line-height: 1">{{item.initial}}</span>
+<span style="font-size: 17px; font-weight: 700">{{item.name}}</span>
+</button>
+</sc-if>
+<sc-if value="{{item.idle}}" hint-placeholder-val="{{ true }}">
+<button type="button" aria-pressed="false" style="display: flex; align-items: center; gap: 12px; width: 100%; height: 60px; box-sizing: border-box; padding: 0 12px; border: 1px solid #6f7b89; border-radius: 10px; background: #ffffff; color: #0f1d2e; font: inherit; text-align: start; cursor: pointer">
+<span aria-hidden="true" style="flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9999px; background: #eef2f6; color: #0f1d2e; font-size: 18px; font-weight: 700; line-height: 1">{{item.initial}}</span>
+<span style="font-size: 17px; font-weight: 600">{{item.name}}</span>
+</button>
+</sc-if>
+</li>
+</sc-for>
+</ul>
+<div style="display: flex; align-items: center; padding: 12px 20px; border-top: 1px solid #e7ecf2">
+<button type="button" aria-pressed="false" style="display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 18px; border: 1px solid #6f7b89; border-radius: 10px; background: #ffffff; color: #0f1d2e; font: inherit; font-size: 16px; font-weight: 600; cursor: pointer">
+<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"></circle><path d="M11 12l9-9M16 7l3 3M14 9l2 2"></path></svg>
+دخول المدير
+</button>
+</div>
+</section>
+
+<aside aria-labelledby="auth-h" style="display: flex; flex-direction: column; min-height: 0; border: 1px solid #d8dfe7; border-radius: 14px; background: #ffffff">
+<div style="display: flex; align-items: center; gap: 12px; min-height: 70px; box-sizing: border-box; padding: 12px 20px; border-bottom: 1px solid #e7ecf2">
+<div style="flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px">
+<span aria-hidden="true" style="flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9999px; background: #e6f4f1; color: #0b5b55; font-size: 18px; font-weight: 700; line-height: 1">م</span>
+<div style="min-width: 0">
+<h2 id="auth-h" style="margin: 0; font-size: 18px; font-weight: 700; line-height: 1.3">منى عادل</h2>
+<span style="display: block; color: #53647a; font-size: 12px">الكاشير</span>
+</div>
+</div>
+<button type="button" style="display: inline-flex; align-items: center; gap: 4px; height: 40px; padding: 0 8px; border: 0; border-radius: 10px; background: transparent; color: #53647a; font: inherit; font-size: 15px; cursor: pointer">
+<svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+رجوع
+</button>
+</div>
+<div style="flex: 1; min-height: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; padding: 20px">
+<div role="group" aria-label="الرقم السري" dir="ltr" style="display: flex; align-items: center; justify-content: center; gap: 16px; height: 56px; border: 1px solid #6f7b89; border-radius: 10px; background: #ffffff">
+<span style="width: 14px; height: 14px; border: 2px solid #0f1d2e; border-radius: 9999px; background: #0f1d2e"></span>
+<span style="width: 14px; height: 14px; border: 2px solid #0f1d2e; border-radius: 9999px; background: #0f1d2e"></span>
+<span style="width: 14px; height: 14px; border: 2px solid #0f1d2e; border-radius: 9999px; background: #0f1d2e"></span>
+<span style="width: 14px; height: 14px; border: 2px solid #0f1d2e; border-radius: 9999px; background: #0f1d2e"></span>
+</div>
+<div style="min-height: 70px"></div>
+<div dir="ltr" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+<sc-for list="{{keys}}" as="k" hint-placeholder-count="12">
+<div>
+<sc-if value="{{k.blank}}" hint-placeholder-val="{{ false }}"><div style="height: 64px"></div></sc-if>
+<sc-if value="{{k.real}}" hint-placeholder-val="{{ true }}">
+<button type="button" style="display: grid; place-items: center; width: 100%; height: 64px; border: 1px solid #6f7b89; border-radius: 10px; background: #ffffff; color: #0f1d2e; font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: 28px; font-weight: 600; cursor: pointer">{{k.label}}</button>
+</sc-if>
+</div>
+</sc-for>
+</div>
+<button type="button" style="margin-top: auto; width: 100%; height: 60px; border: 0; border-radius: 10px; background: #0f766e; color: #ffffff; font: inherit; font-size: 20px; font-weight: 700; cursor: pointer">دخول</button>
+</div>
+</aside>
+
+</div>
+</main><main style="flex: 1; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px; padding: 48px 64px">
+<div style="display: flex; align-items: baseline; gap: 12px">
+<h1 style="margin: 0; font-size: 28px; font-weight: 700; line-height: 1.3">تسجيل الدخول</h1>
+<p style="margin: 0; color: #53647a; font-size: 16px">كل عمليات الوردية تُسجَّل باسمك.</p>
+</div>
+
+<div style="flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; max-width: 1120px; width: 100%; margin-inline: auto">
+
+<section aria-labelledby="roster-h" style="display: flex; flex-direction: column; min-height: 0; border: 1px solid #d8dfe7; border-radius: 14px; background: #ffffff">
+<div style="display: flex; align-items: center; min-height: 56px; box-sizing: border-box; padding: 12px 20px; border-bottom: 1px solid #e7ecf2">
+<h2 id="roster-h" style="margin: 0; font-size: 18px; font-weight: 700">الكاشير في هذا الفرع</h2>
+</div>
+<ul style="flex: 1; min-height: 0; margin: 0; padding: 20px; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 8px">
+<sc-for list="{{roster}}" as="item" hint-placeholder-count="8">
+<li>
+<sc-if value="{{item.selected}}" hint-placeholder-val="{{ false }}">
+<button type="button" aria-pressed="true" style="position: relative; display: flex; align-items: center; gap: 12px; width: 100%; height: 60px; box-sizing: border-box; padding: 0 12px; border: 1px solid #0f766e; border-radius: 10px; background: #e6f4f1; color: #0b5b55; font: inherit; text-align: start; cursor: pointer">
+<span aria-hidden="true" style="position: absolute; inset-block: 8px; inset-inline-start: -1px; width: 2px; border-radius: 2px; background: #0f766e"></span>
+<span aria-hidden="true" style="flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9999px; background: #0f766e; color: #ffffff; font-size: 18px; font-weight: 700; line-height: 1">{{item.initial}}</span>
+<span style="font-size: 17px; font-weight: 700">{{item.name}}</span>
+</button>
+</sc-if>
+<sc-if value="{{item.idle}}" hint-placeholder-val="{{ true }}">
+<button type="button" aria-pressed="false" style="display: flex; align-items: center; gap: 12px; width: 100%; height: 60px; box-sizing: border-box; padding: 0 12px; border: 1px solid #6f7b89; border-radius: 10px; background: #ffffff; color: #0f1d2e; font: inherit; text-align: start; cursor: pointer">
+<span aria-hidden="true" style="flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9999px; background: #eef2f6; color: #0f1d2e; font-size: 18px; font-weight: 700; line-height: 1">{{item.initial}}</span>
+<span style="font-size: 17px; font-weight: 600">{{item.name}}</span>
+</button>
+</sc-if>
+</li>
+</sc-for>
+</ul>
+<div style="display: flex; align-items: center; padding: 12px 20px; border-top: 1px solid #e7ecf2">
+<button type="button" aria-pressed="false" style="display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 18px; border: 1px solid #6f7b89; border-radius: 10px; background: #ffffff; color: #0f1d2e; font: inherit; font-size: 16px; font-weight: 600; cursor: pointer">
+<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"></circle><path d="M11 12l9-9M16 7l3 3M14 9l2 2"></path></svg>
+دخول المدير
+</button>
+</div>
+</section>
+
+<aside aria-labelledby="auth-h" style="display: flex; flex-direction: column; min-height: 0; border: 1px solid #d8dfe7; border-radius: 14px; background: #ffffff">
+<div style="display: flex; align-items: center; gap: 12px; min-height: 70px; box-sizing: border-box; padding: 12px 20px; border-bottom: 1px solid #e7ecf2">
+<div style="flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px">
+<span aria-hidden="true" style="flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9999px; background: #e6f4f1; color: #0b5b55; font-size: 18px; font-weight: 700; line-height: 1">م</span>
+<div style="min-width: 0">
+<h2 id="auth-h" style="margin: 0; font-size: 18px; font-weight: 700; line-height: 1.3">منى عادل</h2>
+<span style="display: block; color: #53647a; font-size: 12px">الكاشير</span>
+</div>
+</div>
+<button type="button" style="display: inline-flex; align-items: center; gap: 4px; height: 40px; padding: 0 8px; border: 0; border-radius: 10px; background: transparent; color: #53647a; font: inherit; font-size: 15px; cursor: pointer">
+<svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+رجوع
+</button>
+</div>
+<div style="flex: 1; min-height: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; padding: 20px">
+<div role="group" aria-label="الرقم السري" dir="ltr" style="display: flex; align-items: center; justify-content: center; gap: 16px; height: 56px; border: 1px solid #6f7b89; border-radius: 10px; background: #ffffff">
+<span style="width: 14px; height: 14px; border: 2px solid #0f1d2e; border-radius: 9999px; background: #0f1d2e"></span>
+<span style="width: 14px; height: 14px; border: 2px solid #0f1d2e; border-radius: 9999px; background: #0f1d2e"></span>
+<span style="width: 14px; height: 14px; border: 2px solid #0f1d2e; border-radius: 9999px; background: #0f1d2e"></span>
+<span style="width: 14px; height: 14px; border: 2px solid #0f1d2e; border-radius: 9999px; background: #0f1d2e"></span>
+</div>
+<div style="min-height: 70px"></div>
+<div dir="ltr" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+<sc-for list="{{keys}}" as="k" hint-placeholder-count="12">
+<div>
+<sc-if value="{{k.blank}}" hint-placeholder-val="{{ false }}"><div style="height: 64px"></div></sc-if>
+<sc-if value="{{k.real}}" hint-placeholder-val="{{ true }}">
+<button type="button" style="display: grid; place-items: center; width: 100%; height: 64px; border: 1px solid #6f7b89; border-radius: 10px; background: #ffffff; color: #0f1d2e; font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: 28px; font-weight: 600; cursor: pointer">{{k.label}}</button>
+</sc-if>
+</div>
+</sc-for>
+</div>
+<button type="button" style="margin-top: auto; width: 100%; height: 60px; border: 0; border-radius: 10px; background: #0f766e; color: #ffffff; font: inherit; font-size: 20px; font-weight: 700; cursor: pointer">دخول</button>
+</div>
+</aside>
+
+</div>
+</main>
+
+<aside style="flex: none; width: 440px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; padding: 72px 48px 40px; background: #f3f6fa; border-inline-end: 0; border-inline-start: 1px solid #d8dfe7">
+<div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; width: 100%">
+<div style="display: grid; place-items: center; align-content: center; gap: 10px; width: 240px; height: 240px; box-sizing: border-box; border: 2px dashed #6f7b89; border-radius: 24px; background: #ffffff; color: #53647a">
+<svg aria-hidden="true" viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="9" cy="10" r="2"></circle><path d="M21 16l-5-5-8 9"></path></svg>
+<span style="font-size: 18px; font-weight: 500">[شعار الصيدلية]</span>
+</div>
+<div style="font-size: 30px; font-weight: 700; line-height: 1.3; text-align: center">[اسم الصيدلية]</div>
+<div style="color: #53647a; font-size: 16px; text-align: center">الجهاز <b style="color: #0f1d2e; font-weight: 700"><bdi>[اسم الجهاز]</bdi></b></div>
+</div>
+<div style="flex: none; display: flex; align-items: center; gap: 10px; color: #0b5b55; font-weight: 700">
+<span style="display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; background: #e6f4f1">
+<svg role="img" aria-label="شعار المنتج" viewBox="0 0 100 100" style="width: 18px; height: 18px; fill: #0f766e"><rect x="38" y="8" width="24" height="84" rx="6"></rect><rect x="8" y="38" width="84" height="24" rx="6"></rect></svg>
+</span>
+<span dir="ltr" style="font-size: 20px">POS Pulse</span>
+</div>
+</aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1920,"height":1080}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const names = ['أحمد سمير', 'منى عادل', 'خالد يوسف', 'سارة محمود', 'هدى إبراهيم', 'عمر حسن', 'نهى فاروق', 'ياسر مجدي'];
+    const roster = names.map((name, i) => ({
+      name,
+      initial: Array.from(name)[0],
+      selected: i === 1,
+      idle: i !== 1
+    }));
+    const labels = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'حذف'];
+    const keys = labels.map((label) => ({ label, blank: label === '', real: label !== '' }));
+    return { roster, keys };
+  }
+}
+</script>
+</body>
+</html>
