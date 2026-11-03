@@ -25,7 +25,7 @@ Line references are to `origin/main` at the baseline above.
 
 | Item | Proposal | Owner decision |
 |---|---|---|
-| Create operation | **Reuse** `consoleCreateCatalogProduct` unchanged. No new `createTenantProduct`. | PD-1 |
+| Create operation | **Reuse** the `consoleCreateCatalogProduct` operation (same path and identity). No new `createTenantProduct`. Its contract and runtime stay unchanged unless PD-2 picks (P-b), which adds `initialPrice` to it | PD-1 |
 | Price | The decision that unblocks RT-827: (P-a) price only through the Pricing change-set path, or (P-b) a bounded legacy-authority initial price, or (P-c) a separate interim legacy price write | PD-2 (central) |
 | Unknown-items create path | Keep separate on the wire; no change | PD-5 |
 | Store overrides at create | No | PD-6 |
@@ -144,7 +144,7 @@ Every RT-827 acceptance criterion about error codes (400 / 409 / 425 / 422) is a
 | | Option | What RT-827 gets | Cost and risk |
 |---|---|---|---|
 | **(P-a)** | **Create stays price-free.** Price comes only through the Pricing change-set path (042 PR-04 contract → PR-10 runtime) after cutover. | Create ships after pricing. The landing page links to "set a price" in the Pricing UI. | Longest path. Needs the RT-281 primitive, 042 §7's interim `pricing.change_set_approval` setting (shaped for RT-284 to absorb), 041 tables, 042 runtime, and the tenant's 044 cutover (044 §6.1 rejects Pricing authoring under `legacy`; MC-11 keeps new tenants on `legacy`). No issue exists yet for any of it. |
-| **(P-b)** | **Optional initial price on create**, legacy authority only. An additive optional `initialPrice: Money` on `CreateCatalogProductRequest`. Written to `default_price` + `default_currency_code` (+ a `price_history` row, PD-7) in the create transaction. | One form, one request: the item is sellable once it also has an identifier. | Creates a second legacy price writer that 044 must import and later freeze. Needs the currency rule (PD-3). Does not cover **changing** a price after create, so a typo needs (P-c) or (P-a) anyway. |
+| **(P-b)** | **Optional initial price on create**, legacy authority only. An additive optional `initialPrice: Money` on `CreateCatalogProductRequest`. Written to `default_price` + `default_currency_code` (+ a `price_history` row, PD-7) in the create transaction. | One form, one request: the item is sellable once it is also active (`isActive`, and active for the store) and has an identifier. | Creates a second legacy price writer that 044 must import and later freeze. Needs the currency rule (PD-3). Does not cover **changing** a price after create, so a typo needs (P-c) or (P-a) anyway. |
 | **(P-c)** | **A separate interim legacy price write**, `consoleSetProductDefaultPrice`, in the RT-738 interim style (direct, audited, `expectedUpdatedAt`), replaced by change sets at cutover. | Create stays as is; the landing page offers "set price". Also covers corrections. | A new interim write the owner has not approved. 042 §7's v1 default is `mode: always`, so **every** change set is sensitive and needs a second approver; an interim direct write skips that unless the owner accepts it for `legacy` authority (PD-4). Keeping a `price_history` row per write (PD-7) needs a `[GATED]` migration to close the open interval (§4.1, §8). |
 
 **Recommendation: (P-a) as the target, with (P-c) only if the owner wants live in-pilot product creation before the Pricing runtime exists** (RT-827 comment 13754, "Stage B"). (P-b) alone is not recommended: it solves the first price but not the first correction, and it adds price semantics to a catalog write that O-2 kept price-free on purpose.
@@ -244,7 +244,7 @@ A sale of an unmapped product fails to the DLQ at posting (`erpnext-item-map.yam
 |---|---|
 | (P-a) | None for RT-827. The Pricing tables are spec 041 / 042 / 044's own migrations. |
 | (P-b) | **No new column**: `default_price` and `default_currency_code` exist. A first-price `price_history` INSERT (PD-7) needs no DDL; the writer is new behaviour (its header says every change writes a row, but no code does today, so seeded prices have no row). |
-| (P-c) | No new price column. With PD-7 = yes, a **`[GATED]` migration is required**: the second write on a product must close the open interval, which `price_history_no_update` forbids and `UQ_idx_price_history_tenant_open` makes necessary (§4.1). Shape: a narrowly scoped close-interval path (for example a `SECURITY DEFINER` function that only sets `effective_to` on the open row). The alternative is PD-7 = no for (P-c), which leaves the 044 import (§4.5, MC-3) to rebuild history from the audit rows. |
+| (P-c) | No new price column. With PD-7 = yes, a **`[GATED]` migration is required**: the second write on a product must close the open interval, which `price_history_no_update` forbids and `UQ_idx_price_history_tenant_open` makes necessary (§4.1). Shape: a narrowly scoped close-interval path (for example a `SECURITY DEFINER` function that only sets `effective_to` on the open row). The alternative is PD-7 = no for (P-c). The 044 import (§4.5, MC-3) then finds an empty `price_history` and does nothing; it does not rebuild history from audit rows, so price changes recorded only in audit rows are left out at cutover. Whether that is acceptable, or history is written, or rebuilt separately, is the owner's call (PD-7). |
 | (P-b), (P-c) | **Tenant currency (PD-3):** none exists (§4.1). A "tenant currency only" rule needs a `[GATED]` source (a column or a setting), or a rule taken from the tenant's existing product currencies. |
 
 ---
@@ -253,7 +253,7 @@ A sale of an unmapped product fails to the DLQ at posting (`erpnext-item-map.yam
 
 | # | Decision | Recommendation |
 |---|---|---|
-| **PD-1** | Reuse `consoleCreateCatalogProduct` unchanged, instead of a new create operation | Reuse |
+| **PD-1** | Reuse the `consoleCreateCatalogProduct` operation instead of a new create operation (unchanged unless PD-2 = (P-b)) | Reuse |
 | **PD-2** | How a Console-created product gets its first price: (P-a) Pricing change sets only; (P-b) optional initial price on create (legacy authority); (P-c) interim legacy price write | (P-a) as the target; (P-c) only if live in-pilot product creation is needed before the Pricing runtime |
 | **PD-3** | If (P-b) or (P-c): the price currency rule and whether `0` is allowed. No tenant currency exists today (§4.1), so "tenant currency" needs a `[GATED]` source (cf. 044 MC-10) | Tenant's declared currency (new `[GATED]` source, reusable by 044 MC-10); `> 0` |
 | **PD-4** | If (P-c): accept a direct, audited, single-actor price write under `legacy` authority, without the 042 four-eyes approval | Accept only as interim, removed at cutover |
