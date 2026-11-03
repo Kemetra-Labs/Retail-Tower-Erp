@@ -259,6 +259,62 @@ class Adapters(unittest.TestCase):
     def test_the_pinned_base_is_read_from_the_deploy_workflow(self):
         self.assertRegex(draft_manifest.pinned_base(), r"^sha256:[0-9a-f]{64}$")
 
+    def test_only_a_passing_attestation_verification_counts(self):
+        registry = draft_manifest.Registry("o/r")
+        with mock.patch.object(draft_manifest.subprocess, "run", return_value=self.proc(0)) as run:
+            self.assertTrue(registry.is_attested(D1))
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[:4], ["gh", "attestation", "verify", "oci://ghcr.io/kemetra-labs/rt-erpnext@" + D1])
+        self.assertIn("--source-ref", argv)
+        self.assertEqual(argv[argv.index("--signer-workflow") + 1], draft_manifest.SIGNER)
+        for code in (1, 2):
+            with mock.patch.object(draft_manifest.subprocess, "run", return_value=self.proc(code, err="no attestation")), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                self.assertFalse(registry.is_attested(D1))
+
+
+class Cli(unittest.TestCase):
+    """main()'s exit codes: 0 written or printed, 1 refused by the gate, 2 no draft; never a stray file."""
+
+    data = Draft.make(Draft())
+
+    def run_main(self, out, *argv, draft=None, gate_code=0):
+        (pathlib.Path(out) / "lab-2026.11.2.json").write_text(LIVE.read_text(encoding="utf-8"), encoding="utf-8")
+        gate = subprocess.CompletedProcess([], gate_code, "", "")
+        stdout = io.BytesIO()
+        with mock.patch.object(draft_manifest, "draft", **(draft or {"return_value": self.data})), \
+                mock.patch.object(draft_manifest, "pinned_base", return_value=BASE), \
+                mock.patch.object(draft_manifest.subprocess, "run", return_value=gate), \
+                mock.patch.object(draft_manifest.sys, "stdout", mock.Mock(buffer=stdout)), \
+                contextlib.redirect_stderr(io.StringIO()):
+            code = draft_manifest.main(["--out-dir", str(out), *argv])
+        return code, sorted(p.name for p in pathlib.Path(out).iterdir()), stdout.getvalue().decode("utf-8")
+
+    def test_print_exits_0_without_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, files, printed = self.run_main(tmp, "--print")
+        self.assertEqual((code, files), (0, ["lab-2026.11.2.json"]))
+        self.assertEqual(printed, draft_manifest.render(self.data))
+
+    def test_a_passing_gate_writes_and_exits_0(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, files, _ = self.run_main(tmp, "--system", "lab-2026.11.3")
+        self.assertEqual((code, files), (0, ["lab-2026.11.2.json", "lab-2026.11.3.json"]))
+
+    def test_a_gate_refusal_exits_1_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, files, _ = self.run_main(tmp, "--system", "lab-2026.11.3", gate_code=1)
+        self.assertEqual((code, files), (1, ["lab-2026.11.2.json"]))
+
+    def test_no_draft_exits_2_and_writes_nothing(self):
+        for failure in (draft_manifest.DraftError("no attested image"), FileNotFoundError("gh"), FileNotFoundError("git")):
+            with tempfile.TemporaryDirectory() as tmp:
+                code, files, _ = self.run_main(tmp, "--system", "lab-2026.11.3", draft={"side_effect": failure})
+            self.assertEqual((code, files), (2, ["lab-2026.11.2.json"]), failure)
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(self.run_main(tmp, "--system", "lab-2026.1.3")[0], 2)
+            self.assertEqual(self.run_main(tmp, "--main=--upload-pack=x")[0], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

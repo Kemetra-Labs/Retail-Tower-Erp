@@ -20,8 +20,9 @@ overwritten (a deployed version is never edited). The deploy preflight still che
 
 Reads: `gh` for releases and attestations (the caller's token), the public GHCR registry
 anonymously for image tags, manifests and labels (each checked against its digest), and git for
-main. Any failure of those is an error. Exit 0 = written, 1 = refused by the gate (nothing
-written), 2 = no draft (nothing written).
+main. Any failure of those is an error. Exit 0 = written (with --print: printed, no gate, no
+write), 1 = refused by the gate (nothing written), 2 = no draft: bad input, or a gh, registry or git
+failure (nothing written).
 """
 import argparse
 import datetime
