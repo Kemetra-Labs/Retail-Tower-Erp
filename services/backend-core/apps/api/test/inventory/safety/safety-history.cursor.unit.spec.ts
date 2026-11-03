@@ -22,8 +22,11 @@ const binding: SafetyHistoryCursorBinding = {
   filters: ['active', 'quality_hold', ID, null],
 };
 
-function token(payload: unknown): string {
-  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+/** A real cursor for `binding` with exactly one payload field changed (the digest stays valid). */
+function tampered(change: Record<string, unknown>): string {
+  const real = encodeSafetyHistoryCursor(binding, { atKey: AT, id: ID });
+  const payload = JSON.parse(Buffer.from(real, 'base64url').toString('utf8')) as Record<string, unknown>;
+  return Buffer.from(JSON.stringify({ ...payload, ...change }), 'utf8').toString('base64url');
 }
 
 describe('safety history cursor (RT-1081)', () => {
@@ -46,12 +49,17 @@ describe('safety history cursor (RT-1081)', () => {
 
   it.each<[string, string]>([
     ['not base64 JSON', 'not-a-cursor'],
-    ['an unknown key', token({ op: 'tracking_holds', tenant: TENANT, digest: 'x', at: AT, id: ID, extra: 1 })],
-    ['a millisecond instant', token({ op: 'tracking_holds', tenant: TENANT, digest: 'x', at: '2026-11-03T10:15:30.123Z', id: ID })],
-    ['an impossible day', token({ op: 'tracking_holds', tenant: TENANT, digest: 'x', at: '2026-02-31T00:00:00.000000Z', id: ID })],
-    ['a non-uuid id', token({ op: 'tracking_holds', tenant: TENANT, digest: 'x', at: AT, id: 'LOT-1' })],
+    ['an unknown key', tampered({ extra: 1 })],
+    ['a millisecond instant', tampered({ at: '2026-11-03T10:15:30.123Z' })],
+    ['an impossible day', tampered({ at: '2026-02-31T00:00:00.000000Z' })],
+    ['a non-uuid id', tampered({ id: 'LOT-1' })],
+    ['an upper-case tenant', tampered({ tenant: TENANT.toUpperCase() })],
   ])('refuses %s', (_label, cursor) => {
     expect(() => decodeSafetyHistoryCursor(binding, cursor)).toThrow(SafetyHistoryCursorError);
+  });
+
+  it('accepts the untampered control token (so each refusal above is its one changed field)', () => {
+    expect(decodeSafetyHistoryCursor(binding, tampered({}))).toEqual({ atKey: AT, id: ID });
   });
 
   it('renders the key at microsecond precision in UTC', () => {

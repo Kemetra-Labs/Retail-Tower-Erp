@@ -981,10 +981,10 @@ describe("inventory/inventory.yaml — RT-1081 tracking Console reads and TR-5",
     expect(summary.properties?.["activeHoldCount"]).toMatchObject({ minimum: 0, maximum: 100 });
   });
 
-  it("answers the hold, recall and correction reads 403 for a role, the identity reads 404 only", () => {
+  it("answers the hold, recall and correction reads 403 for a role; the identity reads 404 (403 only for a support session)", () => {
     for (const id of KEYSET_LISTS) expect(op(id).responses?.["403"]).toBeDefined();
     for (const id of ["getTrackingIdentity", "getTrackingIdentityPositions"]) {
-      expect(op(id).responses?.["403"]).toBeUndefined();
+      expect(op(id).responses?.["403"]).toEqual({ $ref: "#/components/responses/SupportSessionRefused" });
       expect(op(id).responses?.["404"]).toEqual({ $ref: "#/components/responses/NotFoundOrCrossTenant" });
     }
     expect(op("listTrackingIdentityExpiryCorrections").responses?.["404"]).toBeDefined();

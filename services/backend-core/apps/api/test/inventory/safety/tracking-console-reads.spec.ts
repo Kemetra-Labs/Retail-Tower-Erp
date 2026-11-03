@@ -83,6 +83,7 @@ let app: INestApplication;
 let holds: TrackingHoldsService;
 let role = 'owner';
 let tenant: { tenantId: string; userId: string } = { tenantId: TENANT_A, userId: ACTOR_A };
+let storeAccess: NonNullable<ResolvedContext['storeAccess']> = { kind: 'all' };
 let keySeq = 0;
 
 const ajv = new Ajv({ strict: false, allErrors: true });
@@ -104,7 +105,7 @@ class ContextGuard implements CanActivate {
       storeId: null,
       isPlatformAdmin: false,
       source: 'session',
-      storeAccess: { kind: 'all' },
+      storeAccess,
     };
     return true;
   }
@@ -223,6 +224,7 @@ afterAll(async () => {
 beforeEach(() => {
   role = 'owner';
   tenant = { tenantId: TENANT_A, userId: ACTOR_A };
+  storeAccess = { kind: 'all' };
 });
 
 const skipped = (): boolean => env === null;
@@ -433,9 +435,17 @@ describe('getTrackingIdentity and getTrackingIdentityPositions', () => {
             { inventoryStatus: 'recall_hold', quantity: zero },
           ],
         },
+        // STORE_A_X sorts before STORE_A_Y: rows are ordered by store id.
         expect.objectContaining({ storeId: STORE_A_Y, quantity: '2.5000', sellableQuantity: '2.5000' }),
-      ].sort((a, b) => (a.storeId < b.storeId ? -1 : 1)),
+      ],
     );
+  });
+
+  it('narrows to the stores of a membership with specific store access', async () => {
+    if (skipped()) return;
+    storeAccess = { kind: 'specific', storeIds: [STORE_A_Y] };
+    const res = await http().get(POSITIONS(ID_POS)).expect(200);
+    expect(res.body.stores.map((s: { storeId: string }) => s.storeId)).toEqual([STORE_A_Y]);
   });
 });
 

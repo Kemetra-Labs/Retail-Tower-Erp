@@ -1122,6 +1122,7 @@ paths:
                 $ref: "#/components/schemas/TrackingIdentity"
         "400": { $ref: "#/components/responses/ValidationFailure" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SupportSessionRefused" }
         "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "5XX": { $ref: "#/components/responses/SystemFailure" }
@@ -1141,7 +1142,8 @@ paths:
         Not paginated: bounded by the tenant's stores. An identity with no
         movement answers `stores: []`. Owner or tenant_admin; an identity of
         another tenant, and a caller without the role, is a non-disclosing
-        404.
+        404. A role failure is never a 403; the only 403 is a platform
+        session's support-session refusal.
       security:
         - cookieAuth: []
       parameters:
@@ -1155,6 +1157,7 @@ paths:
                 $ref: "#/components/schemas/TrackingIdentityPositions"
         "400": { $ref: "#/components/responses/ValidationFailure" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SupportSessionRefused" }
         "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "5XX": { $ref: "#/components/responses/SystemFailure" }
@@ -2443,6 +2446,16 @@ components:
         Also `origin_rejected` (RT-430): the request is authenticated by the
         `dp2_session` cookie and its `Origin` header is missing, or is neither
         the API's own origin nor listed in `ALLOWED_ORIGINS`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SupportSessionRefused:
+      description: >
+        403 — only a platform-admin session without a live support session
+        for the tenant (`support_session_required` /
+        `support_session_expired`, RT-414). A caller without the role is a
+        non-disclosing 404, never this 403 (RT-1081).
       content:
         application/json:
           schema:
