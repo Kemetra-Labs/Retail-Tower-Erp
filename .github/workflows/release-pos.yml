@@ -21,7 +21,8 @@
 #                 source SHA, apps/pos tree hash, installer, blockmap and lab.yml digests, Backend-Core
 #                 contract tree and the POS contract PIN, CI URL. Every run, dry-run included.
 #   publish       release mode only, behind the `release-pos` environment (tag-only deployment policy;
-#                 publish refuses unless the environment is protected that way). Checks that the package
+#                 publish refuses unless release-pos is protected that way and release-pos-sign also admits
+#                 only pos/v* tags). Checks that the package
 #                 is the one the manifest recorded, attests the installer's build provenance and creates
 #                 the GitHub release pos/vX.Y.Z with the installer, its blockmap, lab.yml, its .sha256 and
 #                 the manifest. No rebuild, no repository code. Never overwrites a release, never deploys.
@@ -184,8 +185,11 @@ jobs:
         with:
           name: pos-unpacked-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
           path: apps/pos/dist-electron/win-unpacked/
+          # upload-artifact skips dot-files unless told otherwise; the package must arrive whole.
+          include-hidden-files: true
           if-no-files-found: error
-          retention-days: 1
+          # Long enough to outlast an owner approval delay on release-pos-sign.
+          retention-days: 7
 
   sign-dry-run:
     name: release/sign (dry-run, ephemeral lab certificate)
@@ -306,10 +310,11 @@ jobs:
   manifest:
     name: release/manifest
     needs: [resolve, build, sign-dry-run, sign-release]
-    # always(): sign-dry-run or sign-release is skipped in every run, and a skipped need would skip this job.
-    # The sign job of this run's mode must have succeeded.
+    # !cancelled(): sign-dry-run or sign-release is skipped in every run, and a skipped need would skip this
+    # job under the implicit success(); unlike always(), cancelling the run still stops it. The sign job of
+    # this run's mode must have succeeded.
     if: >-
-      always() && needs.resolve.result == 'success' && needs.build.result == 'success'
+      !cancelled() && needs.resolve.result == 'success' && needs.build.result == 'success'
       && ((needs.resolve.outputs.mode == 'dry-run' && needs.sign-dry-run.result == 'success')
       || (needs.resolve.outputs.mode == 'release' && needs.sign-release.result == 'success'))
     runs-on: ubuntu-24.04
@@ -364,10 +369,11 @@ jobs:
   publish:
     name: release/publish (attestation + GitHub release)
     needs: [resolve, sign-release, manifest]
-    # always(): sign-dry-run is skipped in release mode and is an ancestor through manifest, which would skip
-    # this job under the implicit success(). Every need is checked explicitly instead.
+    # !cancelled(): sign-dry-run is skipped in release mode and is an ancestor through manifest, which would
+    # skip this job under the implicit success(). Every need is checked explicitly instead. Unlike always(),
+    # cancelling the run stops an approved publish.
     if: >-
-      always() && needs.resolve.result == 'success' && needs.resolve.outputs.mode == 'release'
+      !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.mode == 'release'
       && needs.sign-release.result == 'success' && needs.manifest.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -387,23 +393,33 @@ jobs:
       REPO: ${{ github.repository }}
     # No checkout: this job runs no repository code. GH_TOKEN is set per step, only where gh needs it.
     steps:
-      # A job that names a missing environment creates it unprotected. Refuse unless the
-      # environment has a required reviewer and admits only pos/v* tags.
-      - name: Refuse unless the release environment is protected
+      # A job that names a missing environment creates it unprotected. Refuse unless release-pos has a
+      # required reviewer and admits only pos/v* tags, and release-pos-sign (the only holder of the lab
+      # signing PFX) admits only pos/v* tags; a reviewer on release-pos-sign is optional (spec C-7).
+      - name: Refuse unless the release environments are protected
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           fail() { echo "::error::$*"; exit 1; }
-          ENV_JSON="$(gh api "repos/$REPO/environments/release-pos")" || fail "cannot read the release-pos environment"
-          jq -e '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length > 0' <<<"$ENV_JSON" >/dev/null \
-            || fail "release-pos has no required reviewer"
-          jq -e '.deployment_branch_policy.custom_branch_policies == true' <<<"$ENV_JSON" >/dev/null \
-            || fail "release-pos has no custom deployment policy"
-          POLICIES="$(gh api "repos/$REPO/environments/release-pos/deployment-branch-policies" \
-            --jq '[.branch_policies[] | {name, type}]')" || fail "cannot read the deployment policies"
-          [ "$(jq -c . <<<"$POLICIES")" = '[{"name":"pos/v*","type":"tag"}]' ] \
-            || fail "release-pos must admit exactly the tag pattern pos/v* (got $POLICIES)"
+          # check_env NAME REVIEWER: the environment must admit exactly the tag pattern pos/v*; with
+          # REVIEWER=required it must also have a required reviewer.
+          check_env() {
+            local name="$1" reviewer="$2" env_json policies
+            env_json="$(gh api "repos/$REPO/environments/$name")" || fail "cannot read the $name environment"
+            if [ "$reviewer" = required ]; then
+              jq -e '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length > 0' <<<"$env_json" >/dev/null \
+                || fail "$name has no required reviewer"
+            fi
+            jq -e '.deployment_branch_policy.custom_branch_policies == true' <<<"$env_json" >/dev/null \
+              || fail "$name has no custom deployment policy"
+            policies="$(gh api "repos/$REPO/environments/$name/deployment-branch-policies" \
+              --jq '[.branch_policies[] | {name, type}]')" || fail "cannot read the deployment policies of $name"
+            [ "$(jq -c . <<<"$policies")" = '[{"name":"pos/v*","type":"tag"}]' ] \
+              || fail "$name must admit exactly the tag pattern pos/v* (got $policies)"
+          }
+          check_env release-pos required
+          check_env release-pos-sign optional
 
       - name: Check the release inputs
         run: |

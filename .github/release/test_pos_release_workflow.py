@@ -11,17 +11,42 @@ The version gate of the resolve step is run for real with bash (CI is Linux; loc
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+try:  # optional: the release selftest installs nothing, so this check runs only where PyYAML exists
+    import yaml
+except ImportError:  # pragma: no cover
+    yaml = None
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from test_console_lab_workflow import BASH, HAVE_BASH, WORKFLOWS, job, read, step_script, triggers  # noqa: E402
 
 SECRETS = ("POS_LAB_SIGN_PFX_BASE64", "POS_LAB_SIGN_PFX_PASSWORD")
+
+# Stands in for `gh api repos/<repo>/environments/<name>[/deployment-branch-policies] [--jq EXPR]`, answering
+# from env-<name>.json and policies-<name>.json in $FAKE_GH_DATA; a missing file is a 404.
+FAKE_GH = """#!/usr/bin/env bash
+set -euo pipefail
+[ "$1" = api ] || exit 2
+path="$2"; shift 2
+expr=.
+if [ "${1:-}" = --jq ]; then expr="$2"; fi
+prefix=repos/o/r/environments/
+case "$path" in
+  "$prefix"*/deployment-branch-policies) name="${path#"$prefix"}"; name="${name%/deployment-branch-policies}"
+    file="$FAKE_GH_DATA/policies-$name.json" ;;
+  "$prefix"*) name="${path#"$prefix"}"; file="$FAKE_GH_DATA/env-$name.json" ;;
+  *) exit 2 ;;
+esac
+[ -f "$file" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+jq -c "$expr" "$file"
+"""
 
 
 def step(text: str, name: str) -> str:
@@ -211,10 +236,20 @@ class ReleasePos(unittest.TestCase):
             self.assertIn("shell: pwsh", cleanup)
             self.assertLess(sign.index("release-lab-installer.ps1 -Mode"), sign.index("release-lab-installer.ps1 -Cleanup"))
 
+    def test_win_unpacked_upload_is_whole_and_outlasts_an_approval_delay(self):
+        block = step(job(self.text, "build"), "Upload win-unpacked")
+        self.assertIn("path: apps/pos/dist-electron/win-unpacked/", block)
+        # upload-artifact skips dot-files unless told otherwise.
+        self.assertRegex(block, r"(?m)^          include-hidden-files: true$")
+        # An owner approval on release-pos-sign may take days; a 1-day artifact would expire first.
+        self.assertRegex(block, r"(?m)^          retention-days: 7$")
+
     def test_manifest_records_the_installer_blockmap_and_channel_file(self):
         manifest = job(self.text, "manifest")
         condition = job_if(manifest)
-        self.assertIn("always()", condition)
+        # !cancelled(), not always(): cancelling the run must still stop it.
+        self.assertTrue(condition.startswith("!cancelled() && "), condition)
+        self.assertNotIn("always()", condition)
         self.assertIn("needs.resolve.result == 'success'", condition)
         self.assertIn("needs.build.result == 'success'", condition)
         # The sign job of THIS run's mode must have succeeded: a failed or cancelled one never leads to a manifest.
@@ -230,17 +265,24 @@ class ReleasePos(unittest.TestCase):
         publish = job(self.text, "publish")
         self.assertRegex(publish, r"(?m)^    environment: release-pos$")
         self.assertIn("needs: [resolve, sign-release, manifest]", publish)
-        # always() plus explicit results: sign-dry-run is skipped in release mode and is an ancestor through
-        # manifest, so the implicit success() would skip publish on every real release.
+        # !cancelled() plus explicit results: sign-dry-run is skipped in release mode and is an ancestor through
+        # manifest, so the implicit success() would skip publish on every real release. Not always(): cancelling
+        # the run must stop an approved publish.
         condition = job_if(publish)
-        for part in ("always()", "needs.resolve.outputs.mode == 'release'", "needs.resolve.result == 'success'",
+        self.assertTrue(condition.startswith("!cancelled() && "), condition)
+        self.assertNotIn("always()", condition)
+        for part in ("needs.resolve.outputs.mode == 'release'", "needs.resolve.result == 'success'",
                      "needs.sign-release.result == 'success'", "needs.manifest.result == 'success'"):
             self.assertIn(part, condition)
         self.assertNotIn("actions/checkout", publish)
-        protect = step_script(publish, "Refuse unless the release environment is protected")
+        protect = step_script(publish, "Refuse unless the release environments are protected")
         self.assertIn("""'[{"name":"pos/v*","type":"tag"}]'""", protect)
         self.assertIn("required_reviewers", protect)
-        self.assertIn("environments/release-pos", protect)
+        self.assertIn('repos/$REPO/environments/$name"', protect)
+        # Both environments are checked: release-pos with a required reviewer, release-pos-sign (the PFX holder)
+        # for its tag-only policy, the reviewer being optional there (spec C-7).
+        self.assertEqual(re.findall(r"(?m)^check_env (\S+) (\S+)$", protect),
+                         [("release-pos", "required"), ("release-pos-sign", "optional")])
         self.assertIn("refusing to overwrite", step_script(publish, "Refuse if the release already exists"))
         create = step_script(publish, "Create the GitHub release")
         self.assertIn("repos/$REPO/commits/refs/tags/$TAG", create)
@@ -253,6 +295,73 @@ class ReleasePos(unittest.TestCase):
         notes = next(i for i, line in enumerate(lines) if line.lstrip().startswith("--notes"))
         self.assertEqual(re.findall(r'"\$PKG/([^"]+)"', lines[notes + 1]),
                          ["$EXE", "$EXE.blockmap", "lab.yml", "$EXE.sha256", "release-manifest.json"])
+
+    @unittest.skipUnless(HAVE_BASH and shutil.which("jq"), "bash and jq are needed")
+    def test_publish_refuses_unless_both_environments_are_protected(self):
+        script = step_script(job(self.text, "publish"), "Refuse unless the release environments are protected")
+        reviewed = {"protection_rules": [{"type": "required_reviewers", "reviewers": [{"type": "User"}]}],
+                    "deployment_branch_policy": {"custom_branch_policies": True}}
+        unreviewed = {"protection_rules": [], "deployment_branch_policy": {"custom_branch_policies": True}}
+        open_env = {"protection_rules": [], "deployment_branch_policy": None}
+        tag_only = {"branch_policies": [{"id": 1, "name": "pos/v*", "type": "tag"}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            bindir = data / "bin"
+            bindir.mkdir()
+            gh = bindir / "gh"
+            gh.write_text(FAKE_GH, encoding="utf-8", newline="\n")
+            gh.chmod(0o755)
+
+            def run(envs: dict, policies: dict) -> subprocess.CompletedProcess:
+                for old in data.glob("*.json"):
+                    old.unlink()
+                for name, body in envs.items():
+                    (data / f"env-{name}.json").write_text(json.dumps(body), encoding="utf-8")
+                for name, body in policies.items():
+                    (data / f"policies-{name}.json").write_text(json.dumps(body), encoding="utf-8")
+                env = {"PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}", "REPO": "o/r",
+                       "FAKE_GH_DATA": data.as_posix()}
+                return subprocess.run([BASH, "-c", script], capture_output=True, text=True, check=False, env=env)
+
+            good_policies = {"release-pos": tag_only, "release-pos-sign": tag_only}
+            ok = run({"release-pos": reviewed, "release-pos-sign": unreviewed}, good_policies)
+            self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+            # A reviewer on release-pos-sign is allowed too.
+            ok = run({"release-pos": reviewed, "release-pos-sign": reviewed}, good_policies)
+            self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+
+            refusals = {
+                "release-pos-sign missing (a job naming it would create it unprotected)":
+                    ({"release-pos": reviewed}, {"release-pos": tag_only}, "cannot read the release-pos-sign"),
+                "release-pos-sign without a deployment policy":
+                    ({"release-pos": reviewed, "release-pos-sign": open_env}, good_policies,
+                     "release-pos-sign has no custom deployment policy"),
+                "release-pos-sign admits a branch":
+                    ({"release-pos": reviewed, "release-pos-sign": unreviewed},
+                     {"release-pos": tag_only,
+                      "release-pos-sign": {"branch_policies": [{"name": "main", "type": "branch"}]}},
+                     "release-pos-sign must admit exactly the tag pattern pos/v*"),
+                "release-pos-sign admits pos/v* and more":
+                    ({"release-pos": reviewed, "release-pos-sign": unreviewed},
+                     {"release-pos": tag_only, "release-pos-sign": {"branch_policies": [
+                         {"name": "pos/v*", "type": "tag"}, {"name": "*", "type": "tag"}]}},
+                     "release-pos-sign must admit exactly the tag pattern pos/v*"),
+                "release-pos without a reviewer":
+                    ({"release-pos": unreviewed, "release-pos-sign": unreviewed}, good_policies,
+                     "release-pos has no required reviewer"),
+            }
+            for label, (envs, policies, message) in refusals.items():
+                refused = run(envs, policies)
+                self.assertNotEqual(refused.returncode, 0, label)
+                self.assertIn(message, refused.stdout + refused.stderr, label)
+
+    @unittest.skipUnless(yaml, "PyYAML is not installed")
+    def test_conditions_load_as_expressions_starting_with_not_cancelled(self):
+        # A folded scalar starting with `!` must stay a string, not become a YAML tag.
+        jobs = yaml.safe_load(self.text)["jobs"]
+        for name in ("manifest", "publish"):
+            self.assertIsInstance(jobs[name]["if"], str)
+            self.assertTrue(jobs[name]["if"].startswith("!cancelled() && "), name)
 
     def test_publish_checks_the_package_against_the_manifest(self):
         script = step_script(job(self.text, "publish"), "Check the package against the manifest")
@@ -273,7 +382,8 @@ class ReleasePos(unittest.TestCase):
         jobs = {name: job(self.text, name) for name in names}
         # A job whose own `if:` depends on the mode is skipped in some runs (a skipped job skips its dependents
         # under the implicit success(); always() in an upstream job does not carry downstream).
-        skipped = {n for n, text in jobs.items() if "outputs.mode ==" in job_if(text) and "always()" not in job_if(text)}
+        skipped = {n for n, text in jobs.items()
+                   if "outputs.mode ==" in job_if(text) and not job_if(text).startswith("!cancelled()")}
         self.assertEqual(skipped, {"sign-dry-run", "sign-release"})
         downstream: set[str] = set()
         frontier = set(skipped)
@@ -283,7 +393,9 @@ class ReleasePos(unittest.TestCase):
         self.assertEqual(downstream, {"manifest", "publish"})
         for name in sorted(downstream):
             condition = job_if(jobs[name])
-            self.assertIn("always()", condition, f"{name} relies on the implicit success()")
+            # !cancelled() replaces the implicit success() without always()'s "even when cancelled".
+            self.assertTrue(condition.startswith("!cancelled() && "), f"{name} relies on the implicit success()")
+            self.assertNotIn("always()", condition, f"{name} would keep running after a cancel")
             for need in needs_of(jobs[name]):
                 self.assertIn(f"needs.{need}.result == 'success'", condition, f"{name} does not check {need}")
 

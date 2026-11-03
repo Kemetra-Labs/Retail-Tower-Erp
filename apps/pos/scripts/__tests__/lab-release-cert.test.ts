@@ -80,6 +80,34 @@ describe('RT-1082 new-lab-release-cert.ps1', () => {
     expect(script).not.toMatch(/Export-PfxCertificate[^\n]*-Cert \$root/);
   });
 
+  it('reads the PFX back and refuses one without the root and the leaf, as CI would', () => {
+    // CI (release-lab-installer.ps1) refuses a PFX without the pinned root; BuildChain alone
+    // does not prove the root went in, so the produced file is checked here.
+    expect(script).toMatch(/Get-PfxData -FilePath \$PfxPath -Password \$password/);
+    expect(script).toMatch(/\$pfxData\.EndEntityCertificates/);
+    expect(script).toMatch(/\$pfxData\.OtherCertificates/);
+    expect(script).toMatch(/\$pfxThumbprints -contains \$root\.Thumbprint/);
+    expect(script).toMatch(/\$pfxThumbprints -contains \$leaf\.Thumbprint/);
+    // A bad PFX is deleted before the failure, so it cannot be uploaded by mistake.
+    expect(script).toMatch(
+      /Remove-Item -LiteralPath \$PfxPath -Force\n\s*throw "The exported PFX does not contain/,
+    );
+    const exported = script.indexOf('Export-PfxCertificate');
+    const readBack = script.indexOf('Get-PfxData');
+    expect(readBack).toBeGreaterThan(exported);
+    expect(readBack).toBeLessThan(script.indexOf('Write-Host "POS_LAB_ROOT_SHA1'));
+  });
+
+  it('tells the owner the secret names, the variable and to delete the leaf afterwards', () => {
+    expect(script).toMatch(/secret {3}POS_LAB_SIGN_PFX_BASE64 {3}= the base64 of the PFX file/);
+    expect(script).toMatch(/gh secret set POS_LAB_SIGN_PFX_BASE64 --env release-pos-sign/);
+    expect(script).toMatch(/secret {3}POS_LAB_SIGN_PFX_PASSWORD = the PFX password/);
+    expect(script).toMatch(/variable POS_LAB_ROOT_SHA1 {9}= [^\n]*not a secret/);
+    expect(script).toMatch(
+      /Remove-Item Cert:\\CurrentUser\\My\\\$\(\$leaf\.Thumbprint\) -DeleteKey/,
+    );
+  });
+
   it('always creates new certificates and prints the root pin and the leaf expiry', () => {
     expect(script).not.toMatch(/Get-ChildItem/);
     expect(script).toMatch(/Write-Host "POS_LAB_ROOT_SHA1 = \$\(\$root\.Thumbprint\)"/);

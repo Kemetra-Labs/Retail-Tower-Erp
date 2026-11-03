@@ -67,15 +67,39 @@ describe('RT-1082 release-lab-installer.ps1', () => {
     expect(script).toMatch(/\$work = Join-Path \$env:RUNNER_TEMP /);
   });
 
-  it('never prints a password, the PFX bytes or base64', () => {
-    const printed = script
+  it('never prints the PFX, its base64 or its password on any output path', () => {
+    // The variables that hold secret material in Initialize-ReleaseCertificate.
+    const secretVar = /\$(?:encoded|secret|pfxBytes)\b/;
+    // Every line that touches them, exactly: reading the environment, the presence check, the
+    // decode and the two in-memory imports. A new use (an output, a log, a string) fails here.
+    const allowed = new Set([
+      '$encoded = $env:POS_LAB_SIGN_PFX_BASE64',
+      '$secret = $env:POS_LAB_SIGN_PFX_PASSWORD',
+      "if (-not $encoded -or -not $secret) { throw 'release mode needs POS_LAB_SIGN_PFX_BASE64 and POS_LAB_SIGN_PFX_PASSWORD' }",
+      '$pfxBytes = [Convert]::FromBase64String($encoded)',
+      '$all.Import($pfxBytes, $secret, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)',
+      '$persisted.Import($pfxBytes, $secret, $persistFlags)',
+    ]);
+    const uses = script
       .split('\n')
-      .filter((line) => /Write-Host|Write-Output|Write-Error/.test(line));
-    for (const line of printed) {
-      expect(line).not.toMatch(
-        /PFX_BASE64|PFX_PASSWORD|\$pfxBytes|\$password|ToBase64String\(\$pfx/,
-      );
+      .map((line) => line.trim())
+      .filter((line) => secretVar.test(line));
+    expect(new Set(uses)).toEqual(allowed);
+    // No double-quoted (expanding) string anywhere interpolates them, so no Write-*, throw
+    // message, string output or exception text can carry them.
+    for (const literal of script.match(/"(?:[^"`\n]|`.)*"/g) ?? []) {
+      expect(literal).not.toMatch(secretVar);
+      expect(literal).not.toMatch(/PFX_BASE64|PFX_PASSWORD/);
     }
+    // Nothing secret is written as a bare pipeline value (string output) either.
+    expect(script).not.toMatch(/^\s*\$(?:encoded|secret|pfxBytes)\s*$/m);
+    expect(script).not.toMatch(/ToBase64String\(\$pfx|Write-\w+[^\n]*\$env:POS_LAB_SIGN/);
+    // The one catch-all prints only the exception message, which no secret can reach (above).
+    expect(script).toMatch(
+      /\} catch \{\n {2}Write-Host "\[FAIL\] \$\(\$_\.Exception\.Message\)"\n {2}exit 1\n\}/,
+    );
+    // The only PowerShell catch block (the node -e one-liner's `.catch(` is JavaScript).
+    expect(script.match(/\}\s*catch\s*\{/g)).toHaveLength(1);
     // The secrets are read once and removed from the environment before any child process runs.
     expect(script).toMatch(/Remove-Item "Env:\$name"/);
     expect(script).toMatch(/'POS_LAB_SIGN_PFX_BASE64', 'POS_LAB_SIGN_PFX_PASSWORD'/);
@@ -124,8 +148,18 @@ describe('RT-1082 release-lab-installer.ps1', () => {
     expect(functionBody('Initialize-ReleaseCertificate')).toMatch(/Add-RootTrust \$root\b/);
     // `-Cleanup` removes the root again, plus everything the PFX import put in the user store.
     const cleanup = functionBody('Remove-LabTrust');
-    expect(cleanup).toMatch(/Cert:\\LocalMachine\\Root\\\$/);
-    expect(cleanup).toMatch(/Cert:\\CurrentUser\\My\\\$/);
+    expect(cleanup).toMatch(/Cert:\\LocalMachine\\Root\\\$t" \}/);
+    // The user-store leaf goes with its persisted key container; the public root has no key.
+    expect(cleanup).toMatch(/Cert:\\CurrentUser\\My\\\$t" -DeleteKey \}/);
+    expect(cleanup).not.toMatch(/LocalMachine\\Root\\\$t" -DeleteKey/);
+    const remove = functionBody('Remove-LabCertificate');
+    expect(remove).toMatch(
+      /if \(\$DeleteKey\) \{ Remove-Item -LiteralPath \$path -DeleteKey -Force/,
+    );
+    // If the key removal fails, the certificate is still removed.
+    expect(remove).toMatch(
+      /if \(Test-Path -LiteralPath \$path\) \{ Remove-Item -LiteralPath \$path -Force/,
+    );
     expect(script).toMatch(/if \(\$Cleanup\) \{ Remove-LabTrust; exit 0 \}/);
     // The chain is checked against the trusted root before signing starts.
     expect(script).toMatch(/Assert-LeafChain/);
@@ -179,10 +213,62 @@ describe('RT-1082 release-lab-installer.ps1', () => {
     expect(script).toContain('Uninstall POS Pulse.exe');
     expect(script).toContain('POS Pulse.exe');
     expect(script).toMatch(/package\.json/);
-    // The install directory is read from the HKCU Uninstall key, never assumed.
-    expect(script).toMatch(/HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall/);
-    expect(script).toMatch(/\.InstallLocation/);
+    // The install directory is read from the HKCU Uninstall key, never assumed. electron-builder's
+    // NSIS template writes no InstallLocation there (installer.nsh writes it under
+    // Software\<APP_GUID>), so it is the parent of the quoted UninstallString, as in run-lab-spike.ps1.
+    const location = functionBody('Get-InstallLocation');
+    expect(location).toMatch(/HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall/);
+    expect(location).toMatch(/\$_\.DisplayVersion -eq \$expectedVersion -and \$_\.UninstallString/);
+    expect(location).toContain(`[regex]::Match([string]$entry.UninstallString, '^"([^"]+)"')`);
+    expect(location).toMatch(/throw[^\n]*not a quoted executable path/);
+    expect(location).toMatch(/Split-Path -Parent \$uninstallerPath/);
+    expect(script).not.toMatch(/\.InstallLocation/);
     expect(script).not.toMatch(/'Programs'/);
+    const install = functionBody('Test-SilentInstall');
+    expect(install).toMatch(/\$env:LOCALAPPDATA/);
+    expect(install).toMatch(/\$location\.Uninstaller -ne \$uninstaller/);
+  });
+
+  it('bakes resources\\app-update.yml before packaging, after the secrets left the environment', () => {
+    // electron-builder does not write app-update.yml for a --prepackaged app, and the updater
+    // refuses to run without the publisher pin it holds (update-config.ts readPublisherPins).
+    const bake = functionBody('Write-AppUpdateConfig');
+    expect(bake).toMatch(/bake-app-update-yml\.cjs/);
+    expect(bake).toMatch(/& node \$helper \$unpackedDir \$signerCn \| Out-Host/);
+    expect(bake).toMatch(/if \(\$LASTEXITCODE -ne 0\) \{ throw/);
+    expect(bake).toMatch(/Assert-PublisherPin \$text/);
+    expect(existsSync(path.join(REPO_ROOT, 'scripts/lab/ci/bake-app-update-yml.cjs'))).toBe(true);
+    const call = script.indexOf('$appUpdateYml = Write-AppUpdateConfig $Unpacked');
+    expect(call).toBeGreaterThan(0);
+    // After the certificate step (which removes POS_LAB_SIGN_PFX_* from the environment, so the
+    // node child inherits no secret) and before electron-builder packs the installer.
+    expect(call).toBeGreaterThan(script.indexOf('Initialize-ReleaseCertificate $ctx'));
+    expect(call).toBeGreaterThan(script.indexOf('Initialize-DryRunCertificate $ctx'));
+    expect(call).toBeLessThan(script.indexOf('npx electron-builder'));
+  });
+
+  it('requires the installed app-update.yml to pin exactly the lab publisher', () => {
+    // The pins are read as update-config.ts parsePublisherPins reads them: the first
+    // `publisherName:` line, its inline value or the `- item` lines after it, unquoted.
+    const pins = functionBody('Get-PublisherPins');
+    expect(pins).toContain("'^publisherName:\\s*(.*)$'");
+    expect(pins).toContain("'^\\s+-\\s*(.*)$'");
+    expect(pins).toMatch(/if \(\$inline -ne ''\) \{ return @\(\$inline\) \}/);
+    expect(pins).toMatch(/if \(-not \$item\.Success\) \{ break \}/);
+    expect(functionBody('ConvertFrom-YamlScalar')).toContain(`'^(["\\x27])(.*)\\1$'`);
+    const assertPin = functionBody('Assert-PublisherPin');
+    expect(assertPin).toMatch(/\$pins\.Count -ne 1 -or -not \(\$pins\[0\] -ceq \$signerCn\)/);
+    const installed = functionBody('Assert-InstalledAppUpdateConfig');
+    expect(installed).toMatch(/Join-Path \$installDir 'resources\\app-update\.yml'/);
+    expect(installed).toMatch(/throw 'the installed app has no resources\\app-update\.yml/);
+    expect(installed).toMatch(/Assert-PublisherPin \$text/);
+    expect(installed).toMatch(/\$text -cne \$bakedText/);
+    // Checked on the installed files, before the uninstall in the finally block.
+    const install = functionBody('Test-SilentInstall');
+    const check = install.indexOf('Assert-InstalledAppUpdateConfig $installDir $bakedAppUpdate');
+    expect(check).toBeGreaterThan(install.indexOf('try {'));
+    expect(check).toBeLessThan(install.indexOf('} finally {'));
+    expect(script).toMatch(/Test-SilentInstall \$installer \$ctx\.leaf \$Version \$appUpdateYml/);
   });
 
   it('hands over exactly the installer, its blockmap and lab.yml', () => {

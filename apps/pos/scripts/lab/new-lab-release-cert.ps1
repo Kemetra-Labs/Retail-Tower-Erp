@@ -73,12 +73,31 @@ $leaf = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Kemetra POS
   -NotAfter $leafNotAfter
 
 Export-PfxCertificate -Cert $leaf -FilePath $PfxPath -Password $password -ChainOption BuildChain | Out-Null
+
+# CI refuses a PFX that does not carry the pinned root (release-lab-installer.ps1), so the PFX is read back
+# here: it must hold the leaf AND the root's public certificate. A PFX without them is deleted, never handed on.
+$pfxData = Get-PfxData -FilePath $PfxPath -Password $password
+$pfxThumbprints = @((@($pfxData.EndEntityCertificates) + @($pfxData.OtherCertificates)) | ForEach-Object { $_.Thumbprint })
+if (-not ($pfxThumbprints -contains $root.Thumbprint) -or -not ($pfxThumbprints -contains $leaf.Thumbprint)) {
+  Remove-Item -LiteralPath $PfxPath -Force
+  throw "The exported PFX does not contain both the leaf and the release root $($root.Thumbprint); CI would refuse it. It was deleted."
+}
+
 Export-Certificate -Cert $root -FilePath $RootCerPath | Out-Null
 
 Write-Host "POS_LAB_ROOT_SHA1 = $($root.Thumbprint)"
 Write-Host "leaf expires $($leaf.NotAfter.ToString('yyyy-MM-dd'))"
+Write-Host "leaf thumbprint   = $($leaf.Thumbprint)"
 Write-Host ''
-Write-Host "PFX (leaf + chain)  = $PfxPath"
-Write-Host "public root         = $RootCerPath"
-Write-Host 'Only the PFX goes to the release-pos-sign environment. Only the .cer goes to the lab device.'
-Write-Host 'Nothing was imported into a trust store on this machine. The root private key is not exportable.'
+Write-Host "PFX (the leaf with its key + the root's public certificate) = $PfxPath"
+Write-Host "public root = $RootCerPath"
+Write-Host ''
+Write-Host 'Next, on the release-pos-sign environment (never print or commit the PFX or its password):'
+Write-Host '  secret   POS_LAB_SIGN_PFX_BASE64   = the base64 of the PFX file, for example (prints nothing):'
+Write-Host "             [Convert]::ToBase64String([IO.File]::ReadAllBytes('$PfxPath')) | gh secret set POS_LAB_SIGN_PFX_BASE64 --env release-pos-sign"
+Write-Host '  secret   POS_LAB_SIGN_PFX_PASSWORD = the PFX password'
+Write-Host '  variable POS_LAB_ROOT_SHA1         = the root thumbprint above (an environment variable, not a secret)'
+Write-Host 'Once both secrets are stored, delete the exportable leaf and its key from this machine, and the PFX file:'
+Write-Host "  Remove-Item Cert:\CurrentUser\My\$($leaf.Thumbprint) -DeleteKey"
+Write-Host 'Only the .cer goes to the lab device. Nothing was imported into a trust store on this machine.'
+Write-Host 'The root private key is not exportable and stays here.'

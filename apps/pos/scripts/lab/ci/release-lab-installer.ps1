@@ -23,9 +23,11 @@
              by the first real release.
 
   Steps: clear production signing variables -> certificate -> sign the prepackaged executable if
-  electron-builder will not -> build the installer from the prepackaged app with the lab config
-  (never publishing) -> verify (installer signature, lab.yml, silent install, installed files,
-  silent uninstall) -> copy the installer, its blockmap and lab.yml into -Out.
+  electron-builder will not -> bake resources\app-update.yml (electron-builder does not write it for a
+  prepackaged app, and the updater refuses to run without its publisher pin) -> build the installer
+  from the prepackaged app with the lab config (never publishing) -> verify (installer signature,
+  lab.yml, silent install, installed files and installed app-update.yml, silent uninstall) -> copy the
+  installer, its blockmap and lab.yml into -Out.
 
   Every verification failure is a hard failure (non-zero exit). Nothing secret is printed.
 
@@ -72,9 +74,13 @@ function Register-Thumbprint([string]$store, [string]$thumbprint) {
   $script:state | ConvertTo-Json | Set-Content -Encoding UTF8 -LiteralPath $statePath
 }
 
-function Remove-LabCertificate([string]$path) {
+# -DeleteKey (user store only) also removes the persisted private key container. The LocalMachine\Root
+# entry is public only, so it is removed without it; if the key removal fails the certificate still goes.
+function Remove-LabCertificate([string]$path, [switch]$DeleteKey) {
   # Only a full 40-hex thumbprint path: an empty value must never address the whole store.
   if ($path -notmatch '\\[0-9A-Fa-f]{40}$') { return }
+  if (-not (Test-Path -LiteralPath $path)) { return }
+  if ($DeleteKey) { Remove-Item -LiteralPath $path -DeleteKey -Force -ErrorAction SilentlyContinue }
   if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
 }
 
@@ -83,7 +89,7 @@ function Remove-LabTrust {
   if (-not (Test-Path -LiteralPath $statePath)) { return }
   $saved = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
   foreach ($t in @($saved.rootStore)) { Remove-LabCertificate "Cert:\LocalMachine\Root\$t" }
-  foreach ($t in @($saved.userStore)) { Remove-LabCertificate "Cert:\CurrentUser\My\$t" }
+  foreach ($t in @($saved.userStore)) { Remove-LabCertificate "Cert:\CurrentUser\My\$t" -DeleteKey }
   Write-Host 'lab certificates removed from LocalMachine\Root and CurrentUser\My'
 }
 
@@ -261,39 +267,113 @@ function Assert-ChannelFile([string]$ymlPath, [string]$installerPath, [string]$e
   Write-Host "[OK] lab.yml matches the installer (version $expectedVersion, sha512, size $($bytes.Length))"
 }
 
-# The per-user install location is not assumed: it is read from the HKCU Uninstall key the NSIS installer
-# writes (as run-lab-spike.ps1 does). Then the installed executable and uninstaller must be signed by the
-# lab leaf, then a silent uninstall. The uninstaller runs in place (`_?=`) so this waits for it.
-function Get-InstallLocation([string]$expectedVersion) {
-  $keys = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue
-  $entry = @($keys | Where-Object { $_.DisplayName -like 'POS Pulse*' -and $_.DisplayVersion -eq $expectedVersion -and $_.InstallLocation }) |
-    Select-Object -First 1
-  if ($entry) { return ([string]$entry.InstallLocation).Trim().Trim('"') }
-  return $null
+# A YAML scalar as update-config.ts `unquote` reads it: trimmed, one pair of matching quotes removed.
+function ConvertFrom-YamlScalar([string]$value) {
+  $trimmed = $value.Trim()
+  $quoted = [regex]::Match($trimmed, '^(["\x27])(.*)\1$')
+  if ($quoted.Success) { return $quoted.Groups[2].Value.Trim() }
+  return $trimmed
 }
 
-function Test-SilentInstall([string]$installer, [string]$leafThumbprint, [string]$expectedVersion) {
+# The publisher pins of an app-update.yml, read exactly as the updater reads them (update-config.ts
+# `parsePublisherPins`): the first `publisherName:` line, then its inline value or the `- item` lines
+# that follow it. Case-sensitive, like the TypeScript regexes.
+function Get-PublisherPins([string]$text) {
+  $lines = $text -split '\r?\n'
+  $start = -1
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ([regex]::IsMatch($lines[$i], '^publisherName:\s*(.*)$')) { $start = $i; break }
+  }
+  if ($start -lt 0) { return @() }
+  $inline = ConvertFrom-YamlScalar ([regex]::Match($lines[$start], '^publisherName:\s*(.*)$').Groups[1].Value)
+  if ($inline -ne '') { return @($inline) }
+  $pins = @()
+  for ($i = $start + 1; $i -lt $lines.Count; $i++) {
+    $item = [regex]::Match($lines[$i], '^\s+-\s*(.*)$')
+    if (-not $item.Success) { break }
+    $pins += ConvertFrom-YamlScalar $item.Groups[1].Value
+  }
+  return @($pins | Where-Object { $_ -ne '' })
+}
+
+function Assert-PublisherPin([string]$text, [string]$label) {
+  $pins = @(Get-PublisherPins $text)
+  if ($pins.Count -ne 1 -or -not ($pins[0] -ceq $signerCn)) {
+    throw "$label pins [$($pins -join ' | ')], expected exactly '$signerCn': the updater would not accept this build"
+  }
+}
+
+# electron-builder writes resources\app-update.yml from a hook that does not run for a prepackaged app, and
+# the updater refuses to run without the publisher pin it holds. bake-app-update-yml.cjs writes exactly what
+# electron-builder would bake for electron-builder.lab.yml (generic provider, url, channel, cache dir name,
+# publisher list). It runs after the signing secrets left the environment. The file is outside app.asar.
+function Write-AppUpdateConfig([string]$unpackedDir) {
+  $helper = Join-Path $repo 'scripts\lab\ci\bake-app-update-yml.cjs'
+  # Out-Host: nothing node prints may become part of this function's return value.
+  & node $helper $unpackedDir $signerCn | Out-Host
+  if ($LASTEXITCODE -ne 0) { throw 'baking resources\app-update.yml into win-unpacked failed' }
+  $path = Join-Path $unpackedDir 'resources\app-update.yml'
+  if (-not (Test-Path -LiteralPath $path)) { throw 'resources\app-update.yml is missing after baking it' }
+  $text = [System.IO.File]::ReadAllText($path)
+  Assert-PublisherPin $text 'the baked resources\app-update.yml'
+  Write-Host "[OK] resources\app-update.yml baked with the publisher pin '$signerCn'"
+  return $text
+}
+
+# The INSTALLED app must carry the same app-update.yml, with the lab publisher as its only pin.
+function Assert-InstalledAppUpdateConfig([string]$installDir, [string]$bakedText) {
+  $path = Join-Path $installDir 'resources\app-update.yml'
+  if (-not (Test-Path -LiteralPath $path)) {
+    throw 'the installed app has no resources\app-update.yml: its updater would refuse to run'
+  }
+  $text = [System.IO.File]::ReadAllText($path)
+  Assert-PublisherPin $text 'the installed resources\app-update.yml'
+  if ($text -cne $bakedText) { throw 'the installed resources\app-update.yml differs from the one baked into win-unpacked' }
+  Write-Host "[OK] installed resources\app-update.yml pins '$signerCn'"
+}
+
+# The per-user install location is not assumed. electron-builder's NSIS template writes no InstallLocation
+# to the Uninstall key (that value goes under Software\<APP_GUID>); the Uninstall key's UninstallString is
+# the quoted uninstaller path, so the install directory is its parent (as run-lab-spike.ps1 does). Then the
+# installed executable and uninstaller must be signed by the lab leaf and the installed app-update.yml must
+# pin the lab publisher, then a silent uninstall. The uninstaller runs in place (`_?=`) so this waits for it.
+function Get-InstallLocation([string]$expectedVersion) {
+  $keys = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue
+  $entry = @($keys | Where-Object { $_.DisplayName -like 'POS Pulse*' -and $_.DisplayVersion -eq $expectedVersion -and $_.UninstallString }) |
+    Select-Object -First 1
+  if (-not $entry) { return $null }
+  $quoted = [regex]::Match([string]$entry.UninstallString, '^"([^"]+)"')
+  if (-not $quoted.Success) { throw "the POS Pulse UninstallString is not a quoted executable path: $($entry.UninstallString)" }
+  $uninstallerPath = $quoted.Groups[1].Value
+  return [pscustomobject]@{ Dir = (Split-Path -Parent $uninstallerPath); Uninstaller = $uninstallerPath }
+}
+
+function Test-SilentInstall([string]$installer, [string]$leafThumbprint, [string]$expectedVersion, [string]$bakedAppUpdate) {
   $proc = Start-Process -FilePath $installer -ArgumentList '/S' -PassThru -Wait
   if ($proc.ExitCode -ne 0) { throw "silent install exited with $($proc.ExitCode)" }
-  $installDir = $null
+  $location = $null
   $deadline = (Get-Date).AddSeconds(60)
-  while ((Get-Date) -lt $deadline -and -not $installDir) {
-    $installDir = Get-InstallLocation $expectedVersion
-    if (-not $installDir) { Start-Sleep -Seconds 2 }
+  while ((Get-Date) -lt $deadline -and -not $location) {
+    $location = Get-InstallLocation $expectedVersion
+    if (-not $location) { Start-Sleep -Seconds 2 }
   }
-  if (-not $installDir) { throw "no HKCU Uninstall entry with an InstallLocation for POS Pulse $expectedVersion after the silent install" }
-  if (-not $installDir.StartsWith($env:LOCALAPPDATA, [System.StringComparison]::OrdinalIgnoreCase)) {
+  if (-not $location) { throw "no HKCU Uninstall entry with an UninstallString for POS Pulse $expectedVersion after the silent install" }
+  $installDir = $location.Dir
+  $perUserRoot = $env:LOCALAPPDATA.TrimEnd('\') + '\'
+  if (-not $installDir.StartsWith($perUserRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "the install location is not per-user (under LOCALAPPDATA): $installDir"
   }
   Write-Host "installed to $installDir"
   $app = Join-Path $installDir 'POS Pulse.exe'
   $uninstaller = Join-Path $installDir 'Uninstall POS Pulse.exe'
+  if ($location.Uninstaller -ne $uninstaller) { throw "the UninstallString names $($location.Uninstaller), expected $uninstaller" }
   # The installer may start the app when it finishes; it must not be running when it is uninstalled.
   Get-Process 'POS Pulse' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
   $uninstallExit = $null
   try {
     Assert-LabSignature $app $leafThumbprint
     Assert-LabSignature $uninstaller $leafThumbprint
+    Assert-InstalledAppUpdateConfig $installDir $bakedAppUpdate
   } finally {
     if (Test-Path -LiteralPath $uninstaller) {
       $uninstallExit = (Start-Process -FilePath $uninstaller -ArgumentList "/S _?=$installDir" -PassThru -Wait).ExitCode
@@ -334,6 +414,7 @@ try {
   $env:RT772_LAB_CERT_SHA1 = $ctx.leaf
 
   Sign-PrepackagedExe $Unpacked $ctx.leaf
+  $appUpdateYml = Write-AppUpdateConfig $Unpacked
 
   npx electron-builder --win nsis --config electron-builder.lab.yml --prepackaged $Unpacked --publish never "-c.directories.output=$stage"
   if ($LASTEXITCODE -ne 0) { throw 'electron-builder failed' }
@@ -348,7 +429,7 @@ try {
 
   Assert-LabSignature $installer $ctx.leaf
   Assert-ChannelFile $channel $installer $Version
-  Test-SilentInstall $installer $ctx.leaf $Version
+  Test-SilentInstall $installer $ctx.leaf $Version $appUpdateYml
 
   New-Item -ItemType Directory -Force -Path $Out | Out-Null
   foreach ($produced in $installer, $blockmap, $channel) { Copy-Item -LiteralPath $produced -Destination $Out }
