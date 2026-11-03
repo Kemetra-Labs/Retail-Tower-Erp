@@ -173,6 +173,8 @@ responses (create, added codes):
 
 Open points it would carry: whether `amount` may be `0` (the shared `DecimalAmount` allows it; a sale price of zero is a product decision, PD-3); where the tenant currency comes from (044 MC-10 treats it as a declared per-tenant input with no default, so it cannot be guessed).
 
+If P-b is ever chosen: fail closed until 044 exists. With no `tenant_pricing_authority` on `main`, the write has no authority to check, so `initialPrice` must be refused until it does. Unknown-items products would need their own price-set path, because `tenantAdminCreateProductFromUnknownItem` takes no price and P-b offers no later price change.
+
 ### 4.4 Fragment for (P-c), only if chosen
 
 ```yaml
@@ -185,10 +187,18 @@ Open points it would carry: whether `amount` may be `0` (the shared `DecimalAmou
     # roles: owner, tenant_admin (store_manager → 404, 042 §7 Q-B2)
     # precondition: expectedUpdatedAt = product summary.updatedAt → 409 stale_write
     requestBody:
-      required: [expectedUpdatedAt, price]
-      properties:
-        expectedUpdatedAt: ExpectedUpdatedAt
-        price: Money              # tenant currency only (PD-3)
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [expectedUpdatedAt, price]
+            properties:
+              expectedUpdatedAt:
+                $ref: "#/components/schemas/ExpectedUpdatedAt"
+              price:
+                $ref: "#/components/schemas/Money"   # tenant currency only (PD-3)
     responses:
       "200": ConsoleCatalogProductDetail
       "400": validation_error
