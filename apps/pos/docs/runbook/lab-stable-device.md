@@ -182,8 +182,9 @@ Times in evidence are Cairo local time, for example `2026-11-04 14:20 (Cairo)`.
 6. **Deploy live.** Dispatch again with `dry_run` `false`; the `aws-lab` reviewer approves. Expected: the
    live job's log and step summary carry `RT_PRIOR`, `RT_TARGET`, every `RT_GATE ... pass` and `RT_DONE`,
    and the `pos-lab-live-<run id>` artifact (`ledger.json`) records the outcome as `deployed` only when
-   `RT_DONE` was reached; any other end (including a failed smoke) records `failed`, with the
-   `RT_REVERT` evidence. A second
+   `RT_DONE` was reached; any other end records `failed`. `RT_REVERT` (and the ledger's `revert` entries)
+   appear only when a rollback ran, that is a failure after the swap and before the smoke passed (a failed
+   smoke included); a failure before the swap, or in the prune after a good smoke, can leave `revert` empty. A second
    deploy of the same or a lower version is refused (`version-not-higher`) and leaves the feed unchanged;
    a failed smoke puts the previous `lab.yml` back (`RT_REVERT`), but the failed release's installer and
    `.blockmap` stay in the feed until a later successful prune. After a successful smoke, the feed keeps
