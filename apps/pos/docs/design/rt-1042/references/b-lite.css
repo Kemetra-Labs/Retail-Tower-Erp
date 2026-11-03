@@ -1,0 +1,97 @@
+/*
+ * RT-1090 (S1): "B-lite" overrides for the Direction B renderer in ../prototype.html.
+ *
+ * Direction B as drawn shows the full Console look. The owner approved B's composition with the
+ * recommended answers (2026-11-03), so these overrides apply them:
+ *   OD-2  the «دخول» commit is Tower Teal, not Ink;
+ *   OD-3  Readex Pro is deferred, so Dubai renders everywhere;
+ *   OD-4  no shadow below the overlay level; radii 8 (controls), 12 (contained objects);
+ *   OD-1  Ink and Mint stay in the band only: avatars and PIN dots take A's Teal treatment;
+ *   OD-8  the band says «Retail Tower» (set by capture.mjs, which swaps the wordmark text).
+ * Used only to render the reference images. It is not a token file (tokens are S2, RT-1091).
+ */
+.scr.dB.bl .head h1,
+.scr.dB.bl .ph h2,
+.scr.dB.bl .ah-t,
+.scr.dB.bl .pn,
+.scr.dB.bl .av {
+  font-family: Dubai, 'Segoe UI', Tahoma, Arial, system-ui, sans-serif;
+  font-weight: 700;
+}
+
+/* OD-4: flat panels, borders before shadows. */
+.scr.dB.bl .panel {
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+/* OD-4: controls 8px. */
+.scr.dB.bl .who,
+.scr.dB.bl .key,
+.scr.dB.bl .dots,
+.scr.dB.bl .in,
+.scr.dB.bl .sec,
+.scr.dB.bl .ghost,
+.scr.dB.bl .nt,
+.scr.dB.bl .commit,
+.scr.dB.bl .logo-card {
+  border-radius: 8px;
+}
+
+/* OD-2: the commit is Tower Teal. */
+.scr.dB.bl .commit {
+  background: var(--primary);
+}
+.scr.dB.bl .commit[aria-disabled='true'] {
+  background: var(--sunken);
+}
+
+/* OD-1 / OD-11: avatars are initials in A's Teal family, not Ink tiles outside the band. */
+.scr.dB.bl .av {
+  border-radius: 9999px;
+  background: var(--primary-soft);
+  color: var(--primary-em);
+}
+.scr.dB.bl .who.sel .av {
+  background: var(--primary);
+  color: #fff;
+  outline: 0;
+}
+.scr.dB.bl .av-l {
+  border-radius: 9999px;
+  background: var(--primary);
+  color: #fff;
+  outline: 0;
+}
+
+/* OD-1: PIN dots in text colour, as on every other POS surface. */
+.scr.dB.bl .dot.on {
+  background: var(--text);
+  border-color: var(--text);
+}
+
+/* Brand mark in the band: Mint tile on Ink (Console D-V2), radius from the 8/12 scale. */
+.scr.dB.bl .pm {
+  border-radius: 12px;
+}
+.scr.dB.bl.v-md .pm,
+.scr.dB.bl.v-sm .pm {
+  border-radius: 8px;
+}
+
+/* Simulated forced colours: keep the filled dots and the subtitle readable on black. */
+.scr.fc.dB.bl .dot.on {
+  background: #fff;
+  border-color: #fff;
+}
+.scr.fc.dB.bl .head p {
+  color: #fff;
+}
+/* Under forced colours the Ink band maps to Canvas, so a 1px edge keeps it apart (Console D-V9). */
+.scr.fc.dB.bl .band {
+  border-bottom: 1px solid #fff;
+}
+/* Simulated forced colours: the dock's back control keeps full contrast. */
+.scr.fc.dB.bl .ghost {
+  color: #fff;
+}
