@@ -583,8 +583,8 @@ export function recordDuplicateAliasConflict(): void {
 /**
  * Increment inventory_negative_balance_total (009 FR-024 / plan §3.3).
  * Emission site: InventoryService outbound write paths (createStockMovement,
- * createStockTransfer source leg, backfillSaleLinkedOutbound) when the post-
- * write derived on-hand for the affected (store, product) is below zero.
+ * createStockTransfer source leg) when the post-write derived on-hand for the
+ * affected (store, product) is below zero.
  * Unlabeled — the affected key is high-cardinality / PII-adjacent and lives on
  * the movement + audit rows, not here. Allow-and-flag: this is a SIGNAL, never
  * an error — emission MUST NOT alter or block the movement write.

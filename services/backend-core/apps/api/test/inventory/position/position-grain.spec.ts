@@ -223,41 +223,23 @@ describe('RT-432 — every write path lands at an explicit position (G4-6)', () 
     });
   });
 
-  it('the sale-linked backfill and the restock land at the store primary, sellable', async () => {
+  it('the restock backfill lands at the store primary, sellable', async () => {
     if (maybeSkip()) return;
-    const out = await service.backfillSaleLinkedOutbound({
-      ...principal,
-      sourceSystem: 'rt432-backfill',
-      externalId: 'rt432-line-1',
-      movementType: 'outbound',
-      quantity: '-1.0000',
-      stockingUnit: 'ea',
-      tenantProductRef: PRODUCT_A_ACTIVE,
-    });
-    const back = await service.backfillRestockInbound({
+    const restock = {
       ...principal,
       sourceSystem: 'rt432-restock',
       externalId: 'rt432-void-1',
-      movementType: 'inbound',
+      movementType: 'inbound' as const,
       quantity: '1.0000',
       stockingUnit: 'ea',
       tenantProductRef: PRODUCT_A_ACTIVE,
-    });
+    };
+    const back = await service.backfillRestockInbound(restock);
     const primary = await primaryOf(STORE_A_X);
-    for (const id of [out.id, back.id]) {
-      expect(await stored(id)).toEqual({ stock_location_id: primary, inventory_status: SELLABLE });
-    }
+    expect(await stored(back.id)).toEqual({ stock_location_id: primary, inventory_status: SELLABLE });
     // A redelivery returns the same, positioned movement (no second row).
-    const again = await service.backfillSaleLinkedOutbound({
-      ...principal,
-      sourceSystem: 'rt432-backfill',
-      externalId: 'rt432-line-1',
-      movementType: 'outbound',
-      quantity: '-1.0000',
-      stockingUnit: 'ea',
-      tenantProductRef: PRODUCT_A_ACTIVE,
-    });
-    expect(again).toMatchObject({ id: out.id, stockLocationId: primary, positionInterpreted: false });
+    const again = await service.backfillRestockInbound(restock);
+    expect(again).toMatchObject({ id: back.id, stockLocationId: primary, positionInterpreted: false });
   });
 });
 
