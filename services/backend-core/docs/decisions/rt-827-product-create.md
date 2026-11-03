@@ -25,13 +25,15 @@ Line references are to `origin/main` at the baseline above.
 
 | Item | Proposal | Owner decision |
 |---|---|---|
-| Create operation | **Reuse** `consoleCreateCatalogProduct` unchanged. No new `createTenantProduct`. | OD-1 |
-| Price | The decision that unblocks RT-827: (a) price only through the Pricing change-set path, or (b) a bounded legacy-authority initial price, or (c) a separate interim legacy price write | OD-2 (central) |
-| Unknown-items create path | Keep separate on the wire; no change | OD-5 |
-| Store overrides at create | No | OD-6 |
+| Create operation | **Reuse** `consoleCreateCatalogProduct` unchanged. No new `createTenantProduct`. | PD-1 |
+| Price | The decision that unblocks RT-827: (P-a) price only through the Pricing change-set path, or (P-b) a bounded legacy-authority initial price, or (P-c) a separate interim legacy price write | PD-2 (central) |
+| Unknown-items create path | Keep separate on the wire; no change | PD-5 |
+| Store overrides at create | No | PD-6 |
 | ERPNext Item mapping | After create, through the existing 013 backlog; create calls nothing ERP-side | none (fact) |
-| Migration | None for (a) or (c). (b): no column needed, but `price_history` has no writer today (§8) | OD-2 / OD-7 |
-| Implementation split | Depends on OD-2 (§10) | OD-8 |
+| Migration | (P-a): none for RT-827. (P-b): no DDL. (P-c) with a `price_history` row per write: a `[GATED]` migration, because a second write cannot close the open interval today (§8). A tenant-currency source is `[GATED]` for (P-b) and (P-c) | PD-2 / PD-3 / PD-7 |
+| Implementation split | Depends on PD-2 (§10) | PD-8 |
+
+**Naming.** This record's decisions are **PD-n** and its price options **(P-a) / (P-b) / (P-c)**, so they do not collide with the brief's owner decisions OD-2 / OD-3 / OD-4 and D9 option (b) (brief §9, `RT-972-notes.md` §1). "Brief OD-2" below means the 2026-10-29 decision.
 
 ---
 
@@ -46,7 +48,7 @@ Taken from `console-catalog.yaml` 1.1.0-draft as it is on `main` (lines 136–22
 - `catalog_change_log` triggers record every product change, so the POS read-down delta picks it up with no other step.
 - Money is an exact-decimal string plus an ISO-4217 `currencyCode`, `numeric(19,4)` at rest. Never a float.
 - Each `cookieAuth` operation has a class in its contract's own file under `apps/api/test/console-rate-limit/classes/`, in the same PR as the contract (RT-805).
-- **Contract-only marker:** a new operation carries `x-runtime-status: contract-only` only when its contract PR lands before its runtime. If contract and runtime ship in one PR, it carries neither key.
+- **Contract-only marker:** a new operation carries `x-runtime-status: contract-only` only when its contract PR lands before its runtime. If contract and runtime ship in one PR, it carries neither `x-runtime-status` nor `x-runtime-note`.
 
 ---
 
@@ -60,7 +62,7 @@ Sources: `Product-create.dc.html`, `Product-create-states.dc.html`, `RT-972-note
 | الوصف | `description` (nullable, 1–2000) | Yes | Empty → `null` |
 | الفئة | `categoryId` (nullable uuid, not retired) | Yes | 422 `category_unavailable` |
 | فئة الضريبة | `taxCategory` (required, 1–50) | Yes | Free text, no registry (brief G2) |
-| متاح للبيع افتراضيًا | `isActive` (default `true`) | Yes | OD-2 variant (2026-10-29) replaces it with a read-only line if create ships before price |
+| متاح للبيع افتراضيًا | `isActive` (default `true`) | Yes | Brief OD-2 variant (2026-10-29) replaces it with a read-only line if create ships before price |
 | التتبع «بلا تتبع» | none (display only) | Server default | New product starts `none`; changed only on `catalog/tracking-profile.yaml` |
 | **السعر** | **none** | **No** | Board draws a placeholder (PC-1). The only missing field. See §4 |
 | Identifiers (barcode / SKU) | none on create | By design | Added on the detail page with `consoleAddProductIdentifier` (RT-752 AC 3, brief §5: create is not atomic with identifiers). The v3 note "identifiers added inline" (RT-827 comment 14542) is superseded by the v4.0 board and the brief |
@@ -85,15 +87,15 @@ All 15 states on `Product-create-states.dc.html` already map to a response on `m
 | 12 unknown outcome | 500 or no response (same key retry replays the 201) |
 | 13 rate limited | 429 `rate_limited` + `Retry-After` |
 | 14 landing | 201 `ConsoleCatalogProductDetail` (and `Idempotent-Replayed: true` on replay) |
-| 15 OD-2 variant | Conditional: only if create ships before price |
+| 15 brief OD-2 variant | Conditional: only if create ships before price |
 
-PC-3 (OD-2 line wording), PC-4 (categories-failed copy) and PC-5 (aside surface) are copy or design questions, not contract questions. They stay with the Console.
+PC-3 (brief OD-2 line wording), PC-4 (categories-failed copy) and PC-5 (aside surface) are copy or design questions, not contract questions. They stay with the Console.
 
 ---
 
 ## 3. The create operation: reuse, unchanged
 
-Recommendation (OD-1): **reuse** `consoleCreateCatalogProduct`. A second create operation next to an implemented, audited, idempotent one would split the write path and its audit action for no field the board needs.
+Recommendation (PD-1): **reuse** `consoleCreateCatalogProduct`. A second create operation next to an implemented, audited, idempotent one would split the write path and its audit action for no field the board needs.
 
 What it already gives, quoted from `main` for the record (not a change):
 
@@ -131,26 +133,28 @@ Every RT-827 acceptance criterion about error codes (400 / 409 / 425 / 422) is a
 
 - `tenant_products.default_price numeric(19,4)` + `default_currency_code char(3)` exist, paired by a CHECK (`packages/db/src/schema/catalog/tenant-products.ts` lines 8–10, 63–64).
 - `price_history` exists, INSERT-only under RLS, with one open interval per scope (`price-history.ts` lines 1–18, migration `0007_catalog.sql`). **No application code writes it** (no `price_history` reference in `apps/api/src` or `packages/db/src/cli`).
-- The only price writer is the seed CLI (`packages/db/src/cli/seed-catalog.ts`; spec 044 §2.2). There is no HTTP price-authoring surface (spec 044 line 47).
+- The only **reachable** price writer is the seed CLI (`packages/db/src/cli/seed-catalog.ts`). Spec 044 §2.2 also lists `StoreOverrideService.create` (`apps/api/src/modules/catalog/store-override.service.ts`, writes an override `price`, registered in no module, so unreachable) and direct SQL. There is no HTTP price-authoring surface (spec 044 line 47).
+- `price_history` keeps one open interval per product (`UQ_idx_price_history_tenant_open`, `0007_catalog.sql` lines 346–348) and no session can update a row (`price_history_no_update`, `USING (false)`, lines 377–380). So a **second** price write cannot close the earlier open row, and inserting a new open row breaks the unique index.
+- **No tenant currency exists:** `packages/db/src/schema/tenants.ts` has no currency column, and none of the catalog schemas hold one. The legacy currency is per product (`default_currency_code`), and 044 refuses to import a multi-currency tenant (044 plan line 642).
 - The pricing target is specs 041 / 042 / 044: Price Books, change sets with preview, four-eyes approval and publish (042 §3, §7), and a per-tenant single writable authority `legacy | cutover_in_progress | pricing` (044 §6.1, decision 712). Under `legacy` the legacy columns are writable; under the other two they are frozen by a trigger (044 §6.2). **None of this is on `main`:** `tenant_pricing_authority` does not exist in `packages/` or `apps/`.
 - V1 roles: owner and tenant_admin author prices; store_manager authors none (042 §7, Q-B2). That matches the create roles.
 
-### 4.2 Options (OD-2)
+### 4.2 Options (PD-2)
 
 | | Option | What RT-827 gets | Cost and risk |
 |---|---|---|---|
-| **(a)** | **Create stays price-free.** Price comes only through the Pricing change-set path (042 PR-04 contract → PR-10 runtime) after cutover. | Create ships after pricing. The landing page links to "set a price" in the Pricing UI. | Longest path. Needs RT-281 primitive, RT-284 interim setting, 041 tables, 042 runtime, 044 cutover. No issue exists yet for any of it. |
-| **(b)** | **Optional initial price on create**, legacy authority only. An additive optional `initialPrice: Money` on `CreateCatalogProductRequest`. Written to `default_price` + `default_currency_code` (+ a `price_history` row, OD-7) in the create transaction. | One form, one request: the item is sellable once it also has an identifier. | Creates a second legacy price writer that 044 must import and later freeze. Needs the currency rule (OD-3). Does not cover **changing** a price after create, so a typo needs (c) or (a) anyway. |
-| **(c)** | **A separate interim legacy price write**, `consoleSetProductDefaultPrice`, in the RT-738 interim style (direct, audited, `expectedUpdatedAt`), replaced by change sets at cutover. | Create stays as is; the landing page offers "set price". Also covers corrections. | A new interim write the owner has not approved. 042 §7 wants four-eyes for sensitive changes; an interim direct write skips that unless the owner accepts it for `legacy` authority (OD-4). |
+| **(P-a)** | **Create stays price-free.** Price comes only through the Pricing change-set path (042 PR-04 contract → PR-10 runtime) after cutover. | Create ships after pricing. The landing page links to "set a price" in the Pricing UI. | Longest path. Needs the RT-281 primitive, 042 §7's interim `pricing.change_set_approval` setting (shaped for RT-284 to absorb), 041 tables, 042 runtime, and the tenant's 044 cutover (044 §6.1 rejects Pricing authoring under `legacy`; MC-11 keeps new tenants on `legacy`). No issue exists yet for any of it. |
+| **(P-b)** | **Optional initial price on create**, legacy authority only. An additive optional `initialPrice: Money` on `CreateCatalogProductRequest`. Written to `default_price` + `default_currency_code` (+ a `price_history` row, PD-7) in the create transaction. | One form, one request: the item is sellable once it also has an identifier. | Creates a second legacy price writer that 044 must import and later freeze. Needs the currency rule (PD-3). Does not cover **changing** a price after create, so a typo needs (P-c) or (P-a) anyway. |
+| **(P-c)** | **A separate interim legacy price write**, `consoleSetProductDefaultPrice`, in the RT-738 interim style (direct, audited, `expectedUpdatedAt`), replaced by change sets at cutover. | Create stays as is; the landing page offers "set price". Also covers corrections. | A new interim write the owner has not approved. 042 §7's v1 default is `mode: always`, so **every** change set is sensitive and needs a second approver; an interim direct write skips that unless the owner accepts it for `legacy` authority (PD-4). Keeping a `price_history` row per write (PD-7) needs a `[GATED]` migration to close the open interval (§4.1, §8). |
 
-**Recommendation: (a) as the target, with (c) only if the owner wants live in-pilot product creation before the Pricing runtime exists** (RT-827 comment 13754, "Stage B"). (b) alone is not recommended: it solves the first price but not the first correction, and it adds price semantics to a catalog write that O-2 kept price-free on purpose.
+**Recommendation: (P-a) as the target, with (P-c) only if the owner wants live in-pilot product creation before the Pricing runtime exists** (RT-827 comment 13754, "Stage B"). (P-b) alone is not recommended: it solves the first price but not the first correction, and it adds price semantics to a catalog write that O-2 kept price-free on purpose.
 
-### 4.3 Fragment for (b), only if chosen
+### 4.3 Fragment for (P-b), only if chosen
 
-Shown so the owner sees the size of (b). Not proposed as the default.
+Shown so the owner sees the size of (P-b). Not proposed as the default.
 
 ```yaml
-# catalog/console-catalog.yaml 1.2.0-draft — ONLY IF OD-2 = (b). Additive.
+# catalog/console-catalog.yaml 1.2.0-draft — ONLY IF PD-2 = (P-b). Additive.
 CreateCatalogProductRequest:
   properties:
     initialPrice:
@@ -159,19 +163,19 @@ CreateCatalogProductRequest:
         authority is `legacy` (spec 044 §6.1). Written with the product in one
         transaction; audited in the same `catalog.product.create` row
         (new value only). Absent → the product has no price (O-2 behaviour).
-      $ref: "#/components/schemas/Money"    # amount DecimalAmount (> 0, OD-3), currencyCode
+      $ref: "#/components/schemas/Money"    # amount DecimalAmount (> 0, PD-3), currencyCode
 responses (create, added codes):
   "409": pricing_authority_not_legacy    # once 044 exists; the freeze trigger also refuses
-  "422": currency_not_allowed            # currencyCode is not the tenant's currency (OD-3)
+  "422": currency_not_allowed            # currencyCode is not the tenant's currency (PD-3)
 # x-idempotency, x-audit-action, roles, rate-limit class: unchanged
 ```
 
-Open points it would carry: whether `amount` may be `0` (the shared `DecimalAmount` allows it; a sale price of zero is a product decision, OD-3); where the tenant currency comes from (044 MC-10 treats it as a declared per-tenant input with no default, so it cannot be guessed).
+Open points it would carry: whether `amount` may be `0` (the shared `DecimalAmount` allows it; a sale price of zero is a product decision, PD-3); where the tenant currency comes from (044 MC-10 treats it as a declared per-tenant input with no default, so it cannot be guessed).
 
-### 4.4 Fragment for (c), only if chosen
+### 4.4 Fragment for (P-c), only if chosen
 
 ```yaml
-# catalog/console-catalog.yaml 1.2.0-draft — ONLY IF OD-2 = (c). Additive.
+# catalog/console-catalog.yaml 1.2.0-draft — ONLY IF PD-2 = (P-c). Additive.
 /api/v1/catalog/products/{productId}/default-price:
   put:
     operationId: consoleSetProductDefaultPrice
@@ -183,7 +187,7 @@ Open points it would carry: whether `amount` may be `0` (the shared `DecimalAmou
       required: [expectedUpdatedAt, price]
       properties:
         expectedUpdatedAt: ExpectedUpdatedAt
-        price: Money              # tenant currency only (OD-3)
+        price: Money              # tenant currency only (PD-3)
     responses:
       "200": ConsoleCatalogProductDetail
       "400": validation_error
@@ -212,7 +216,7 @@ Clearing a price, and store override prices, stay out (an override price stays o
 | Conflicts | `idempotency_key_conflict` | `alias_conflict`, `already_reconciled` |
 | Runtime | `ConsoleCatalogWriteService` (raw `INSERT`, line 202) | `ReconciliationService` (raw `INSERT`, line 514; it deliberately does not call `TenantCatalogService.create`, lines 46–49, 507) |
 
-Recommendation (OD-5): **keep them separate on the wire.** Do not route the Console create through the unknown-items path or the reverse. If OD-2 picks (b), the unknown-items create stays price-free (its body has no price and nothing asks for one); its result is still an unpriced product, so the same "set a price next" step applies.
+Recommendation (PD-5): **keep them separate on the wire.** Do not route the Console create through the unknown-items path or the reverse. If PD-2 picks (P-b), the unknown-items create stays price-free (its body has no price and nothing asks for one); its result is still an unpriced product, so the same "set a price next" step applies.
 
 A shared internal insert helper would remove the duplicate `INSERT INTO tenant_products` SQL, but it is a refactor that no issue asks for. Not proposed here.
 
@@ -222,7 +226,7 @@ A shared internal insert helper would remove the duplicate `INSERT INTO tenant_p
 
 ## 6. Store overrides at create
 
-**No** (OD-6). The contract creates no override (line 296), the boards draw none, and `consoleUpsertStoreOverride` sets availability and tax per store afterwards. Store override **prices** are not writable by any option above.
+**No** (PD-6). The contract creates no override (line 296), the boards draw none, and `consoleUpsertStoreOverride` sets availability and tax per store afterwards. Store override **prices** are not writable by any option above.
 
 ## 7. ERPNext Item mapping timing
 
@@ -236,10 +240,12 @@ A sale of an unmapped product fails to the DLQ at posting (`erpnext-item-map.yam
 
 ## 8. Migration need
 
-| OD-2 | Migration |
+| PD-2 | Migration |
 |---|---|
-| (a) | None for RT-827. The Pricing tables are spec 041 / 042 / 044's own migrations. |
-| (b) or (c) | **No new column**: `default_price` and `default_currency_code` exist. **To verify** in the implementation issue: whether the write must also insert `price_history` (its header says every change writes a row, but no code does today, so the seed has none either). If yes, no DDL is needed, but the writer is new behaviour (OD-7). A tenant-currency source may need a column if none exists (OD-3). Either is `[GATED]`. |
+| (P-a) | None for RT-827. The Pricing tables are spec 041 / 042 / 044's own migrations. |
+| (P-b) | **No new column**: `default_price` and `default_currency_code` exist. A first-price `price_history` INSERT (PD-7) needs no DDL; the writer is new behaviour (its header says every change writes a row, but no code does today, so seeded prices have no row). |
+| (P-c) | No new price column. With PD-7 = yes, a **`[GATED]` migration is required**: the second write on a product must close the open interval, which `price_history_no_update` forbids and `UQ_idx_price_history_tenant_open` makes necessary (§4.1). Shape: a narrowly scoped close-interval path (for example a `SECURITY DEFINER` function that only sets `effective_to` on the open row). The alternative is PD-7 = no for (P-c), which leaves the 044 import (§4.5, MC-3) to rebuild history from the audit rows. |
+| (P-b), (P-c) | **Tenant currency (PD-3):** none exists (§4.1). A "tenant currency only" rule needs a `[GATED]` source (a column or a setting), or a rule taken from the tenant's existing product currencies. |
 
 ---
 
@@ -247,15 +253,15 @@ A sale of an unmapped product fails to the DLQ at posting (`erpnext-item-map.yam
 
 | # | Decision | Recommendation |
 |---|---|---|
-| **OD-1** | Reuse `consoleCreateCatalogProduct` unchanged, instead of a new create operation | Reuse |
-| **OD-2** | How a Console-created product gets its first price: (a) Pricing change sets only; (b) optional initial price on create (legacy authority); (c) interim legacy price write | (a) as the target; (c) only if live in-pilot product creation is needed before the Pricing runtime |
-| **OD-3** | If (b) or (c): the price currency rule (tenant's declared currency, cf. 044 MC-10) and whether `0` is allowed | Tenant currency only; `> 0` |
-| **OD-4** | If (c): accept a direct, audited, single-actor price write under `legacy` authority, without the 042 four-eyes approval | Accept only as interim, removed at cutover |
-| **OD-5** | Keep the Unknown-items create separate on the wire | Separate |
-| **OD-6** | No store overrides at create | No |
-| **OD-7** | If (b) or (c): write a `price_history` row for each price write | Yes (the table's own rule) |
-| **OD-8** | Implementation split (§10) | Per OD-2 |
-| **OD-9** | Revisit D9 (hold create until a price write exists) once OD-2 is chosen | Keep D9 until the chosen price write is merged |
+| **PD-1** | Reuse `consoleCreateCatalogProduct` unchanged, instead of a new create operation | Reuse |
+| **PD-2** | How a Console-created product gets its first price: (P-a) Pricing change sets only; (P-b) optional initial price on create (legacy authority); (P-c) interim legacy price write | (P-a) as the target; (P-c) only if live in-pilot product creation is needed before the Pricing runtime |
+| **PD-3** | If (P-b) or (P-c): the price currency rule and whether `0` is allowed. No tenant currency exists today (§4.1), so "tenant currency" needs a `[GATED]` source (cf. 044 MC-10) | Tenant's declared currency (new `[GATED]` source, reusable by 044 MC-10); `> 0` |
+| **PD-4** | If (P-c): accept a direct, audited, single-actor price write under `legacy` authority, without the 042 four-eyes approval | Accept only as interim, removed at cutover |
+| **PD-5** | Keep the Unknown-items create separate on the wire | Separate |
+| **PD-6** | No store overrides at create | No |
+| **PD-7** | If (P-b) or (P-c): write a `price_history` row for each price write. For (P-c) this needs a `[GATED]` close-interval migration (§8) | Yes (the table's own rule), with that migration for (P-c) |
+| **PD-8** | Implementation split (§10) | Per PD-2 |
+| **PD-9** | Revisit D9 (hold create until a price write exists) once PD-2 is chosen | Keep D9 until the chosen price write is merged |
 
 Also for the owner: RT-827's `Blocks` links point at RT-484 / RT-485, which are Done as Planning and do not deliver a price writer (comments 13754, 14055). Re-pointing them at the real Implementation issue is a Jira change this record does not make.
 
@@ -263,19 +269,19 @@ Also for the owner: RT-827's `Blocks` links point at RT-484 / RT-485, which are 
 
 Not created; the owner decides.
 
-**If OD-2 = (a):**
+**If PD-2 = (P-a):**
 
 - No Backend-Core issue for create.
 - The Pricing runtime chain needs Implementation issues that do not exist yet: 042 PR-04 (contract), PR-05 (tables), PR-10 (runtime), the 044 cutover, and a Console Pricing UI. That is RT-282's decomposition to file, not RT-827's.
-- RT-827 stays the Console build, blocked by the 042 PR-10 issue once it exists.
+- RT-827 stays the Console build, blocked by the 042 PR-10 issue **and** the 044 cutover for the pilot tenant (044 §6.1, MC-11), once those issues exist.
 
-**If OD-2 = (c):**
+**If PD-2 = (P-c):**
 
-1. *Backend-Core — interim legacy default-price write `consoleSetProductDefaultPrice` [GATED contract]* (Implementation, one PR: contract + rate-limit class + runtime + tests; `price_history` per OD-7). Blocks RT-827.
+1. *Backend-Core — interim legacy default-price write `consoleSetProductDefaultPrice` [GATED contract]* (Implementation, one PR: contract + rate-limit class + runtime + tests; with PD-7 = yes, also the `[GATED]` `price_history` close-interval migration and the tenant-currency source of PD-3). Blocks RT-827.
 2. *Admin-Console — RT-827 product create*, unchanged scope, plus "set price" on the landing page (a design delta to frames 88 / state 14).
 3. Spec 044's import must read rows written by issue 1; note it on the 044 cutover issue when it is filed.
 
-**If OD-2 = (b):** as (c) item 1, but as an additive field on `consoleCreateCatalogProduct`; the board's price placeholder (PC-1) becomes the field. A price correction then still needs (c) or (a).
+**If PD-2 = (P-b):** as (P-c) item 1, but as an additive field on `consoleCreateCatalogProduct`; the board's price placeholder (PC-1) becomes the field. A price correction then still needs (P-c) or (P-a).
 
 ## 11. Not in this proposal
 
