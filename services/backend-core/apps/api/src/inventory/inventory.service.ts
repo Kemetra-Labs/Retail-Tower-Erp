@@ -162,44 +162,9 @@ export interface CreateStockMovementInput {
 }
 
 /**
- * Worker-internal input to backfillSaleLinkedOutbound (009-US4, T052/T064).
- *
- * The OFF-REQUEST counterpart to CreateStockMovementInput: it carries the
- * backfill provenance dedup pair `(sourceSystem, externalId)` that the public
- * HTTP DTO deliberately does NOT accept (the controller DTO stays `.strict()` +
- * provenance-free — FR-052/§XII). This entry is reachable only from the worker
- * backfill processor (T064), never from a request. tenantId / storeId / userId
- * are resolved by the processor from its job context, never from untrusted body.
- */
-export interface BackfillSaleLinkedOutboundInput {
-  readonly tenantId: string;
-  readonly storeId: string;
-  /** The backfill actor (a service principal resolved by the processor). */
-  readonly userId: string;
-  /** Backfill origin (e.g. "pos-backfill") — half of the dedup pair (FR-031). */
-  readonly sourceSystem: string;
-  /** External natural key (e.g. the sale-line id) — the other half. */
-  readonly externalId: string;
-  readonly movementType: 'outbound';
-  /** SIGNED exact-decimal quantity string (outbound ⇒ negative). */
-  readonly quantity: string;
-  readonly stockingUnit: string;
-  readonly tenantProductRef?: string | null | undefined;
-  readonly reason?: string | null | undefined;
-  readonly occurredAt?: string | null | undefined;
-  /** CAPTURED 008 sale provenance (R8) — read by value, never an FK. */
-  readonly saleId?: string | null | undefined;
-  readonly saleLineId?: string | null | undefined;
-  readonly terminalEventRef?: string | null | undefined;
-  /** Carried into the audit metadata for traceability across the backfill. */
-  readonly correlationId?: string | null | undefined;
-}
-
-/**
  * Worker-internal input to backfillRestockInbound (009-RESTOCK, T090/T091).
  *
- * The INBOUND mirror of BackfillSaleLinkedOutboundInput: a void/refund/return →
- * restock is a manual/backfill inbound movement referencing the originating 008
+ * A void/refund/return → restock is a manual/backfill inbound movement referencing the originating 008
  * void/refund terminal event (or a customer return) as provenance, deduped on
  * `(sourceSystem, externalId)` per FR-031 (FR-025/R6). Automatic restock-on-void
  * is DEFERRED (FR-060) — this is the manual/backfill entry only, no auto route.
@@ -549,7 +514,7 @@ function asNotPosted(r: MovementRow): MovementRow {
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 
-/** Normalized, validated fields shared by the two provenance-dedup backfill entries. */
+/** Normalized, validated fields of the provenance-dedup restock backfill entry. */
 interface NormalizedBackfillFields {
   sourceSystem: string;
   externalId: string;
@@ -1332,70 +1297,10 @@ export class InventoryService {
   }
 
   /**
-   * Append a sale-linked OUTBOUND from the off-request backfill (009-US4,
-   * T052/T064). Idempotent on the provenance pair `(tenant_id, source_system,
-   * external_id)` (FR-031/033): a redelivered backfill job for the SAME sale
-   * line appends NO second movement and re-applies NO on-hand — it returns the
-   * already-persisted movement. Dedup is the partial-unique
-   * `uq_stock_movements_tenant_source_external` (migration 0014, R4), NOT a new
-   * primitive; on-hand is compute-on-read, so "applied once" is exactly "at most
-   * one row inserted" — there is no balance to double-decrement.
-   *
-   * This is the WORKER seam: the HTTP createStockMovement DTO stays `.strict()`
-   * + provenance-free (FR-052); only this entry writes `source_system` /
-   * `external_id`. It reuses createStockMovement's validation (outbound sign,
-   * established-unit, append-only INSERT + audit-in-transaction) — the only
-   * additions are the provenance columns and the ON CONFLICT dedup.
-   *
-   * DECOUPLING (R8): the caller (T064) reads CAPTURED 008 rows; this method
-   * never reads `processed_at`, never subscribes to `sale.captured`, and never
-   * mutates the 008 sale fact — the sale ids are recorded by value as provenance.
-   *
-   * RT-427: the worker backfill processor (T064) that mirrored this write was
-   * deleted — it could never backfill (it read `processed_at IS NULL` while the
-   * sale worker sets it), and RT-289 DC-2 / DC-8 retire any async sale
-   * backfill. Sale, void and return effects are now written in the intent's
-   * transaction by `@data-pulse-2/db` `writeSaleLineEffects` and siblings.
-   * This method has no production caller.
-   */
-  async backfillSaleLinkedOutbound(
-    input: BackfillSaleLinkedOutboundInput,
-  ): Promise<StockMovementBody> {
-    // The backfill of a captured SALE is always an outbound (stock leaves on a
-    // sale). Restocks/voids are a separate deferred flow (009-RESTOCK).
-    const f = this.validateBackfillInput(input, {
-      movementType: 'outbound',
-      typeError: 'backfill movementType must be outbound',
-      signError: 'outbound quantity must be negative',
-      provenanceError: 'backfill requires a non-empty sourceSystem and externalId',
-    });
-
-    return await this.runBackfillTransaction(input, f, {
-      movementType: 'outbound',
-      conflictError:
-        'InventoryService.backfillSaleLinkedOutbound: conflict with no matching provenance row',
-      auditMetadata: {
-        sourceSystem: f.sourceSystem,
-        externalId: f.externalId,
-        correlationId: input.correlationId ?? null,
-      },
-      outboxProvenance: {
-        sourceSystem: f.sourceSystem,
-        externalId: f.externalId,
-        saleId: input.saleId ?? null,
-      },
-      // A sale-linked backfill outbound may drive on-hand below zero;
-      // flagged, never rejected (FR-024).
-      flagNegativeOnHand: true,
-    });
-  }
-
-  /**
    * Append a void/refund/return → restock INBOUND from the off-request backfill
-   * (009-RESTOCK, T090/T091, FR-025/R6). The INBOUND mirror of
-   * backfillSaleLinkedOutbound: same provenance-dedup machinery
-   * (`uq_stock_movements_tenant_source_external`, idempotent on
-   * `(tenant_id, source_system, external_id)`), opposite sign. References the
+   * (009-RESTOCK, T090/T091, FR-025/R6). Provenance-dedup on
+   * `uq_stock_movements_tenant_source_external`, idempotent on
+   * `(tenant_id, source_system, external_id)`. References the
    * originating 008 void/refund terminal event (or a customer return) as
    * `terminal_event_ref` provenance — read by value, never an FK; the ledger
    * never mutates the 008 fact (R8). A redelivered restock appends no second
@@ -1430,21 +1335,18 @@ export class InventoryService {
         externalId: f.externalId,
         terminalEventRef: input.terminalEventRef ?? null,
       },
-      // A restock is an INBOUND (positive) — it cannot drive on-hand below
-      // zero, so no negative-balance signal probe is needed (FR-024).
-      flagNegativeOnHand: false,
     });
   }
 
   /**
-   * Shared pre-DB validation for the two provenance-dedup backfill entries
+   * Pre-DB validation for the provenance-dedup backfill entry
    * (mirrors the manual sign rules; the numeric(19,4)-scale zero rule matches
    * createStockMovement).
    */
   private validateBackfillInput(
-    input: BackfillSaleLinkedOutboundInput | BackfillRestockInboundInput,
+    input: BackfillRestockInboundInput,
     spec: {
-      movementType: 'outbound' | 'inbound';
+      movementType: 'inbound';
       typeError: string;
       signError: string;
       provenanceError: string;
@@ -1457,8 +1359,7 @@ export class InventoryService {
     if (qty === 0n) {
       throw new BadRequestException('quantity must be non-zero at numeric(19,4) scale');
     }
-    const wrongSign = spec.movementType === 'outbound' ? qty > 0n : qty < 0n;
-    if (wrongSign) {
+    if (qty < 0n) {
       throw new BadRequestException(spec.signError);
     }
     const sourceSystem = input.sourceSystem.trim();
@@ -1486,23 +1387,23 @@ export class InventoryService {
   }
 
   /**
-   * Shared idempotent-append transaction for the two backfill entries:
+   * Idempotent-append transaction for the restock backfill entry:
    * cross-unit check (FR-022) → ON CONFLICT DO NOTHING append on the
    * provenance pair (FR-031/033; the conflict target restates the partial
    * index predicate — source/external NOT NULL — or Postgres won't match the
    * partial index) → audit + outbox emit ONLY on a genuine append (a
-   * redelivered job writes no duplicate audit and does NOT double-emit) →
-   * optional negative-balance probe (FR-024).
+   * redelivered job writes no duplicate audit and does NOT double-emit). A
+   * restock is an INBOUND (positive), so it cannot drive on-hand below zero
+   * and needs no negative-balance probe (FR-024).
    */
   private runBackfillTransaction(
-    input: BackfillSaleLinkedOutboundInput | BackfillRestockInboundInput,
+    input: BackfillRestockInboundInput,
     f: NormalizedBackfillFields,
     spec: {
-      movementType: 'outbound' | 'inbound';
+      movementType: 'inbound';
       conflictError: string;
       auditMetadata: Record<string, unknown>;
       outboxProvenance: Record<string, unknown>;
-      flagNegativeOnHand: boolean;
     },
   ): Promise<StockMovementBody> {
     const movementId = newId();
@@ -1618,10 +1519,6 @@ export class InventoryService {
           correlationId: input.correlationId ?? null,
           provenance: spec.outboxProvenance,
         });
-
-        if (spec.flagNegativeOnHand) {
-          await this.flagIfNegativeOnHand(client, input.storeId, f.tenantProductRef);
-        }
 
         return toMovementBody(row);
       },
