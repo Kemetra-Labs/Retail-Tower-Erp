@@ -37,9 +37,18 @@ for (const m of metas.sort((a, b) =>
   const axe = files.has(`${m.ticket}__${m.slug}__${m.locale}__axe.json`)
     ? JSON.parse(readFileSync(join(dir, `${m.ticket}__${m.slug}__${m.locale}__axe.json`), "utf8"))
     : null;
+  const bannerFile = `${m.ticket}__${m.slug}__${m.locale}__banner.json`;
+  const banner = files.has(bannerFile)
+    ? JSON.parse(readFileSync(join(dir, bannerFile), "utf8"))
+    : null;
   const screens = byTicket.get(m.ticket) ?? new Map();
   const entry = screens.get(m.slug) ?? { route: m.route, denseRoute: m.denseRoute, locales: [] };
-  entry.locales.push({ locale: m.locale, files: expected.filter((f) => files.has(f)), axe });
+  entry.locales.push({
+    locale: m.locale,
+    files: expected.filter((f) => files.has(f)),
+    axe,
+    banner,
+  });
   screens.set(m.slug, entry);
   byTicket.set(m.ticket, screens);
 }
@@ -53,8 +62,11 @@ const lines = [
   "`forced-colors` at 1280 (C2) and the WCAG 2.1 A/AA axe results (`axe.json`).",
   "File name: `<ticket>__<screen>__<locale>__<width>__<variant>.png`.",
   "",
-  "| Ticket | Screen | Route | Files | axe violations (ar / en) |",
-  "| --- | --- | --- | --- | --- |",
+  "`Banner shown` counts the shared Banner (`.rtc-alert`) in the banner variant at 1280/390:",
+  "it is recorded, not asserted (a capture fails only when a route crashes).",
+  "",
+  "| Ticket | Screen | Route | Files | axe violations (ar / en) | Banner shown (ar / en) |",
+  "| --- | --- | --- | --- | --- | --- |",
 ];
 const counts = [];
 for (const [ticket, screens] of [...byTicket].sort()) {
@@ -65,8 +77,14 @@ for (const [ticket, screens] of [...byTicket].sort()) {
     const axe = ["ar", "en"]
       .map((loc) => e.locales.find((l) => l.locale === loc)?.axe?.violationCount ?? "n/a")
       .join(" / ");
+    const shown = ["ar", "en"]
+      .map((loc) => {
+        const b = e.locales.find((l) => l.locale === loc)?.banner;
+        return b ? `${b[1280] ?? "?"}/${b[390] ?? "?"}` : "n/a";
+      })
+      .join(" / ");
     const route = e.denseRoute ? `\`${e.route}\` (dense: \`${e.denseRoute}\`)` : `\`${e.route}\``;
-    lines.push(`| ${ticket} | ${slug} | ${route} | ${count} | ${axe} |`);
+    lines.push(`| ${ticket} | ${slug} | ${route} | ${count} | ${axe} | ${shown} |`);
   }
   counts.push(`- ${ticket}: ${n} files`);
 }

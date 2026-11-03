@@ -27,6 +27,8 @@ const OUT = process.env.CAPTURE_DIR ?? "playwright-report/captures";
 const WIDTHS = [1280, 390] as const;
 const HEIGHT = 800;
 const AXE_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
+/** The shared Banner (src/components/Banner.tsx) inside the page, below the band. */
+const BANNER = "main .rtc-alert";
 
 type Variant = "normal" | "banner" | "long-tenant" | "dense";
 
@@ -123,14 +125,20 @@ for (const s of SCREENS) {
       test(variant, async ({ page, t, appLocale }) => {
         const errors = watchErrors(page);
         const route = await prepare(page, s, variant);
+        const banners: Record<number, number> = {};
         for (const width of WIDTHS) {
           await page.setViewportSize({ width, height: HEIGHT });
           await page.goto(route);
           await expectRendered(page, t, errors, `${route} ${variant} ${width}`);
+          // The banner state is recorded (index.md), not asserted: a capture fails only on a crash.
+          if (variant === "banner") banners[width] = await page.locator(BANNER).count();
           await shoot(page, `${base(s, appLocale)}__${width}__${variant}`);
           if (variant === "normal" && width === 1280) {
             await saveAxe(page, `${base(s, appLocale)}__axe.json`);
           }
+        }
+        if (variant === "banner") {
+          writeFileSync(`${base(s, appLocale)}__banner.json`, `${JSON.stringify(banners)}\n`);
         }
         if (variant === "normal") {
           const meta = {

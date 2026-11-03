@@ -16,6 +16,7 @@ import {
   mockMembers,
   mockOverview,
   mockSalesDaily,
+  repairItem,
   rows,
   saleRow,
 } from "./screen-data";
@@ -39,6 +40,7 @@ export interface Screen {
 }
 
 const DENSE = 25;
+const NEEDS_REPAIR = "**/api/v1/catalog/sale-sync-ops/needs-repair**";
 
 async function fulfill(page: Page, glob: string, body: unknown): Promise<void> {
   await page.route(glob, (r) => r.fulfill(json(body)));
@@ -102,14 +104,15 @@ export const SCREENS: Screen[] = [
     ticket: "RT-1011",
     slug: "sales-needing-repair",
     route: "/sales-needing-repair",
-    mock: mockRealisticApi,
-    failRead: "**/api/v1/catalog/sale-sync-ops/needs-repair**",
+    // compact-shell-data answers this read with sale rows; the list reads the repair-queue shape.
+    mock: async (page) => {
+      await mockRealisticApi(page);
+      await fulfill(page, NEEDS_REPAIR, { items: rows(1, repairItem), nextCursor: null });
+    },
+    failRead: NEEDS_REPAIR,
     dense: {
       mock: (page) =>
-        fulfill(page, "**/api/v1/catalog/sale-sync-ops/needs-repair**", {
-          items: rows(DENSE, (i) => saleRow(i, { syncStatus: "failed-needs-repair" })),
-          nextCursor: null,
-        }),
+        fulfill(page, NEEDS_REPAIR, { items: rows(DENSE, repairItem), nextCursor: null }),
     },
   },
   {

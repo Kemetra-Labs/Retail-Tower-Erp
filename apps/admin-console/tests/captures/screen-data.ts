@@ -1,3 +1,4 @@
+import type { NeedsRepairItem } from "@/lib/sale-sync-ops-queries";
 import { STORE, context, mockRealisticApi } from "../e2e/compact-shell-data";
 import type { Page } from "../e2e/fixtures";
 import { CAIRO, storeSummary } from "../unit/sales-daily-fixtures";
@@ -59,6 +60,20 @@ export function saleRow(i: number, over: Record<string, unknown> = {}) {
     returnState: i % 5 === 0 ? "partial" : "none",
     erpPostingState: i % 3 === 0 ? "failed" : "unknown",
     ...over,
+  };
+}
+
+/** A repair-queue row (NeedsRepairItem), typed so the compiler checks the contract. */
+export function repairItem(i: number): NeedsRepairItem {
+  return {
+    saleRef: uuid("5b", i),
+    storeId: STORE,
+    syncStatus: "failed-needs-repair",
+    sourceSystem: i % 2 === 0 ? "pos-windows" : "pos-windows-lab",
+    externalId: `R-${String(i).padStart(4, "0")}-CFC-1000`,
+    reasonCode: ["tender_mismatch", "unknown_item", "store_closed"][i % 3],
+    retryCount: i % 4 === 0 ? undefined : i % 5,
+    quarantinedAt: "2026-10-07T10:31:00Z",
   };
 }
 
