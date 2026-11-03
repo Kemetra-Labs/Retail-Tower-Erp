@@ -30,6 +30,17 @@ async function submitWith(answer: () => Promise<never>) {
   return { bridge, user };
 }
 
+/**
+ * The outcome's live region is rendered empty and filled by a passive effect
+ * (K2), which can run after the heading is in the DOM. Wait for the text
+ * itself, not the region (RT-1116).
+ */
+async function alertSays(text: string): Promise<void> {
+  await waitFor(() => {
+    expect(screen.getByRole('alert')).toHaveTextContent(text);
+  });
+}
+
 const refused = (reason: ReturnsRefusalReason, withRet: boolean) => () =>
   Promise.resolve({
     kind: 'refused',
@@ -46,7 +57,7 @@ describe('refused submits (O5)', () => {
     'feature_disabled',
   ])('%s with no journaled return may have been recorded: says so', async (reason) => {
     const { bridge } = await submitWith(refused(reason, false));
-    expect(screen.getByRole('alert')).toHaveTextContent(refusalMessage(reason));
+    await alertSays(refusalMessage(reason));
     expect(screen.getByRole('alert')).toHaveTextContent(OUTCOME_COPY.mayBeRecorded);
     await waitFor(() => {
       expect(bridge.list).toHaveBeenCalledTimes(2);
@@ -55,14 +66,14 @@ describe('refused submits (O5)', () => {
 
   it('a server refusal of a journaled return names the sale, without the may-be note', async () => {
     await submitWith(refused('over_return', true));
-    expect(screen.getByRole('alert')).toHaveTextContent(refusalMessage('over_return'));
+    await alertSays(refusalMessage('over_return'));
     expect(screen.queryByText(OUTCOME_COPY.mayBeRecorded)).not.toBeInTheDocument();
     expect(screen.getByText(SALE_NUMBER)).toBeInTheDocument();
   });
 
   it('a pre-send refusal with no journaled return carries no may-be note', async () => {
     await submitWith(refused('sale_voided', false));
-    expect(screen.getByRole('alert')).toHaveTextContent(refusalMessage('sale_voided'));
+    await alertSays(refusalMessage('sale_voided'));
     expect(screen.queryByText(OUTCOME_COPY.mayBeRecorded)).not.toBeInTheDocument();
   });
 });
@@ -70,7 +81,7 @@ describe('refused submits (O5)', () => {
 describe('a rejected submit (O6)', () => {
   it('is an unknown result that sends the operator to the refreshed history', async () => {
     const { bridge } = await submitWith(() => Promise.reject(new Error('session_locked')));
-    expect(screen.getByRole('alert')).toHaveTextContent(OUTCOME_COPY.submitFailed);
+    await alertSays(OUTCOME_COPY.submitFailed);
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     await waitFor(() => {
       expect(bridge.list).toHaveBeenCalledTimes(2);
