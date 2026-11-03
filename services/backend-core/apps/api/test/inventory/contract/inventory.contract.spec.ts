@@ -989,6 +989,8 @@ describe("inventory/inventory.yaml — RT-451 Step 0 Tracking Resolution", () =>
       "erp_intent_held",
     ]);
     expect(schema("SaleLineFinding").properties?.["severity"]?.const).toBe("critical");
+    expect(schema("SaleLineFinding").required).toEqual(expect.arrayContaining(["saleLineId", "kind", "cause"]));
+    expect(op(SALE_LINE_FINDINGS_PATH, "get").description).toContain("one per line, kind and cause");
   });
 
   it("does not add the event kinds to the computed findings list (OD-2)", () => {

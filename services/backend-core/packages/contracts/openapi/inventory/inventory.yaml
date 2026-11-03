@@ -1032,14 +1032,16 @@ paths:
         RT-451 (RT-455 OD-2; RT-50 G7-9 rows 2 and 3): the critical findings
         recorded on a tracked sale line when the sale was captured, or when a
         Tracking Resolution bound the line (only `erp_intent_held` with cause
-        `edge_map_missing`, see `bindTrackingResolution`), one per line and
-        kind. `unvalidated_tracked_line`: an exact identity with no
+        `edge_map_missing`, see `bindTrackingResolution`), one per line, kind
+        and cause (owner decision 2026-11-03: each cause is its own finding,
+        so a line held by a quality hold and a recall, or both expired and
+        without an edge-map row, records both). `unvalidated_tracked_line`: an exact identity with no
         `validationId`, or one that does not match an accepted validation of
         that identity. `sold_under_hold`: an exact identity held or recalled
         at the sale's `occurredAt`. `erp_intent_held`: an exact identity
         expired at the sale's business date, or with no ERP edge-map row; the
         line's effect is at the identity and the sale's ERP posting intent is
-        held. One line can carry more than one kind. Findings are append-only
+        held. One line can carry more than one kind and cause. Findings are append-only
         records of past sales: they are never removed or rewritten, including
         after the cause is repaired. A `tracking_unresolved` sale (row 4) is
         not a finding; it is in `listTrackingResolutionQueue`. Filters narrow
@@ -1865,7 +1867,9 @@ components:
       required:
         [id, kind, severity, cause, storeId, saleId, saleLineId, tenantProductRef, trackingIdentityId, holdId,
          businessDate, occurredAt, recordedAt]
-      description: RT-451 one recorded finding on a captured tracked sale line. Append-only.
+      description: >
+        RT-451 one recorded finding on a tracked sale line, one per line, kind
+        and cause. Append-only.
       properties:
         id: { type: string, format: uuid }
         kind:
@@ -1875,7 +1879,8 @@ components:
           type: string
           enum: [validation_missing, validation_mismatch, quality_hold, recall_hold, expired, edge_map_missing]
           description: >
-            Why the line was recorded. `unvalidated_tracked_line`:
+            Why the line was recorded; part of the finding's grain (line,
+            kind, cause). `unvalidated_tracked_line`:
             `validation_missing` (no `validationId`) or `validation_mismatch`.
             `sold_under_hold`: `quality_hold` or `recall_hold`.
             `erp_intent_held`: `expired` or `edge_map_missing`.
@@ -1967,7 +1972,8 @@ components:
           description: >
             The lines that made the sale unresolved, as captured. They stay
             listed after the sale is resolved; `resolution.lines` gives the
-            identity each one was bound to.
+            identity each one was bound to. No `maxItems` yet: capture lines are uncapped until RT-1052, so a cap
+            could leave a sale that cannot be resolved; add one when RT-1052 caps them.
           items:
             $ref: "#/components/schemas/UnresolvedTrackedLine"
         resolution:
@@ -2029,7 +2035,8 @@ components:
           minItems: 1
           description: >
             One binding per unresolved line of the sale, each line exactly
-            once; a missing, repeated or foreign `saleLineId` is a 400.
+            once; a missing, repeated or foreign `saleLineId` is a 400. No `maxItems` yet: capture lines are uncapped until RT-1052, so a cap
+            could leave a sale that cannot be resolved; add one when RT-1052 caps them.
           items:
             $ref: "#/components/schemas/TrackingResolutionLineBinding"
     TrackingResolutionLineBinding:
@@ -2063,6 +2070,9 @@ components:
         lines:
           type: array
           minItems: 1
+          description: >
+            One binding per line the resolution bound. No `maxItems` yet: capture lines are uncapped until RT-1052, so a cap
+            could leave a sale that cannot be resolved; add one when RT-1052 caps them.
           items:
             $ref: "#/components/schemas/TrackingResolutionLineBinding"
     SafetyReasonCode:
