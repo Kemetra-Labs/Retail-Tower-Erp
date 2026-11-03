@@ -18,10 +18,14 @@ the key may have leaked (a backup copy, a log, a shared screen).
 3. **Restart the API.** Recreate it so it re-reads the env file, for example
    `/opt/rt-lab/backend/dc up -d --force-recreate api`. Confirm the container is healthy.
 4. **Verify one invite accept.** Accept one test invitation end to end. A `503` means
-   the key is unset or not read; a Descope auth error means the new key is wrong or
-   lacks the role. Keep the old key live until this passes.
-5. **Revoke the old key (owner).** Delete it in the Descope console, then repeat the
-   invite accept once to confirm nothing still uses it.
+   the key is unset, not read, invalid, or insufficiently authorized; invite accept does
+   not return a separate Descope auth error. Check the key and its role. Keep the old key
+   live until this passes.
+5. **Revoke the old key (owner).** First confirm that no `rt-deploy-revert-*` timer is
+   armed and that no run dir has a `REVERT-STARTED` or `REVERTED` marker. If a timer is
+   armed, wait for its run to close. If a revert has run, repeat steps 2 to 4 first. Then
+   delete the old key in the Descope console, and accept a second test invitation to
+   confirm nothing still uses it.
 6. **Purge backup copies.** `deploy/lab/ssm/RT-BackendLabDeploy.yaml` (`backup-config`,
    about lines 336 to 404) copies `backend.env` on every live deploy. List them with
    `ls -l` and delete the ones from before step 2:
