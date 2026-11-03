@@ -115,9 +115,14 @@ describe("account page", () => {
       current_password: "old-secret",
       new_password: "new-secret",
     });
-    const status = await screen.findByRole("status");
-    expect(status.textContent).toContain("Password changed.");
-    expect(status.textContent).toContain(
+    // The success Banner is a live region that is rendered empty and filled on
+    // the next task (RT-978), so wait for the text itself: `findByRole("status")`
+    // can resolve on the still-empty region (RT-1078).
+    const title = await screen.findByText("Password changed.");
+    const status = title.closest('[role="status"]');
+    expect(status).not.toBeNull();
+    expect(status?.textContent).toContain("Password changed.");
+    expect(status?.textContent).toContain(
       "You were signed out of your other sessions. This session stays open.",
     );
     expect(field("Current password").value).toBe("");
