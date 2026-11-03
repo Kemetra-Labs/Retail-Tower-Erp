@@ -17,23 +17,28 @@ the key may have leaked (a backup copy, a log, a shared screen).
    an editor; do not echo the value.
 3. **Restart the API.** Recreate it so it re-reads the env file, for example
    `/opt/rt-lab/backend/dc up -d --force-recreate api`. Confirm the container is healthy.
-4. **Verify one invite accept.** Accept one test invitation end to end. A `503` means
+4. **Verify one new-user invite accept.** Create an invitation for a fresh email with no
+   existing Backend-Core or Descope user, then accept it end to end (only the new-user
+   path calls the Management API). A `503` means
    the key is unset, not read, invalid, or insufficiently authorized; invite accept does
    not return a separate Descope auth error. Check the key and its role. Keep the old key
    live until this passes.
-5. **Revoke the old key (owner).** First confirm that no `rt-deploy-revert-*` timer is
-   armed and that no run dir has a `REVERT-STARTED` or `REVERTED` marker. If a timer is
-   armed, wait for its run to close. If a revert has run, repeat steps 2 to 4 first. Then
-   delete the old key in the Descope console, and accept a second test invitation to
-   confirm nothing still uses it.
+5. **Revoke the old key (owner).** First confirm that no earlier `rt-deploy-revert-*` unit
+   is armed or has fired, and inspect that unit's run dir. If a timer is armed, wait for
+   its run to close. If a revert has run (`REVERT-STARTED` or `REVERTED` in that run dir),
+   repeat steps 2 to 4 first. Then
+   delete the old key in the Descope console, and accept an invitation for another fresh
+   email (same rule as step 4) to confirm the new key works on its own.
 6. **Purge backup copies.** `deploy/lab/ssm/RT-BackendLabDeploy.yaml` (`backup-config`,
-   about lines 336 to 404) copies `backend.env` on every live deploy. List them with
+   about lines 335 to 362) copies `backend.env` on every live deploy. List them with
    `ls -l` and delete the ones from before step 2:
    - `/var/lib/rt-deploy/<RUN_ID>/backend.env` and `backend.env.next` (run dirs, mode `0700`)
    - `/root/rt-lab-secrets/backend.env.bak-pre-<target>-<RUN_ID>`
 
-   Do not purge a run dir that holds `REVERT-BLOCKED` or an auto-revert still pending;
-   its `backend.env` is what a revert restores, so rotate again after that run is closed.
+   Do not purge a run dir with an auto-revert still pending; its `backend.env` is what a
+   revert restores, so rotate again after that run is closed. A run dir with
+   `REVERT-BLOCKED` is not an automatic restore: follow the owner restore or forward-fix
+   decision for it.
    Old copies hold the revoked key, so they are harmless after step 5, but remove them
    so the next reader does not mistake them for current.
 
