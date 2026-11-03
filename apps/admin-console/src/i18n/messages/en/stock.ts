@@ -151,6 +151,7 @@ export const stock: MessagesOf<typeof ar> = {
   "unknownItems.field.resolvedBy": "Resolved by",
 
   "unknownItems.dismiss.action": "Dismiss",
+  "unknownItems.dismiss.hint": "Takes the item out of the review queue. It can be reopened.",
   "unknownItems.dismiss.resource": "{type} {value}",
 
   "unknownItems.errors.forbidden":
@@ -163,6 +164,7 @@ export const stock: MessagesOf<typeof ar> = {
   "unknownItems.filters.status": "Status",
   "unknownItems.emptyStatus": "No items with this status.",
   "unknownItems.create.action": "Create product",
+  "unknownItems.create.hint": "A new product from this identifier.",
   "unknownItems.create.legend": "New product from this identifier",
   "unknownItems.create.name": "Product name",
   "unknownItems.create.taxCategory": "Tax category",
@@ -173,6 +175,7 @@ export const stock: MessagesOf<typeof ar> = {
   "unknownItems.create.success":
     "Product created and the identifier linked to it. The item has left the review queue.",
   "unknownItems.reopen.action": "Reopen",
+  "unknownItems.reopen.hint": "Puts the item back in the review queue to be handled again.",
   "unknownItems.reopen.success": "Item reopened. It is back in the review queue.",
   "unknownItems.bulk.action": "Dismiss selected",
   "unknownItems.bulk.resource": {
@@ -218,6 +221,7 @@ export const stock: MessagesOf<typeof ar> = {
 
   // RT-767: link a pending item to an existing product chosen in the shared picker.
   "unknownItems.link.action": "Link to a product",
+  "unknownItems.link.hint": "The identifier belongs to a product already in the catalog.",
   "unknownItems.link.legend": "Link this identifier to a product",
   "unknownItems.link.lead":
     "Choose the existing product this identifier belongs to. Nothing changes until you confirm.",
