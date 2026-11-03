@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Inventory — Stock Movement Ledger API
-  version: "1.10.0-draft"
+  version: "1.11.0-draft"
   description: >
     Spec 009 Inventory & Stock Movement Ledger contract surface. Defines the
     Inventory source-of-truth domain the SaaS owns: an append-only
@@ -13,22 +13,18 @@ info:
 
     DECOUPLED from the gated 008 live loop: v1 does NOT subscribe to
     `sale.captured`. A movement MAY reference an 008 `sale_id` / `sale_line_id`
-    (or a void/refund terminal event) as PROVENANCE ONLY; the sale-linked
-    backfill reads the CAPTURED (immutable) 008 sale rows directly, never
-    `processed_at`-stamped ones. Automatic decrement and automatic
-    restock-on-void are DEFERRED to a future follow-up (FR-060/FR-025) and are
-    NOT modeled here.
+    (or a void/refund terminal event) as PROVENANCE ONLY. Automatic decrement
+    and automatic restock-on-void are DEFERRED to a future follow-up
+    (FR-060/FR-025) and are NOT modeled here.
 
     AUTH SURFACE (plan §4.2): the operator operations are a dashboard /
     back-office `cookieAuth` surface (the same `dp2_session` cookie scheme as
     `auth.openapi.yaml` / `outbox.openapi.yaml`) — NOT a POS-device
-    (`/api/pos/v1/...`) surface. The sale-linked BACKFILL is a separate
-    platform/admin-invoked path (`platformAdmin`), not a public route. The
-    principal's resolved tenant + store binding supplies `tenant_id` and
-    `store_id`; body-supplied tenant / store / actor / derived-balance fields
+    (`/api/pos/v1/...`) surface. The principal's resolved tenant + store
+    binding supplies `tenant_id` and `store_id`; body-supplied tenant / store / actor / derived-balance fields
     are NEVER accepted (Constitution §III/§XII, FR-052).
 
-    Twenty-nine operations:
+    Twenty-eight operations:
 
       1. `createStockMovement` — append an inbound / outbound / adjustment
          movement (write-off = a reason-coded outbound). Exact-decimal quantity
@@ -52,39 +48,35 @@ info:
       5. `recordStockCount` — record a physical count; any variance from the
          derived on-hand is appended as a `count_correction` movement, never a
          history rewrite (FR-021).
-      6. `backfillSaleLinkedMovements` — PLATFORM/ADMIN: create outbound (or
-         restock) movements referencing captured 008 sale / terminal-event rows
-         as provenance; idempotent on the provenance pair; re-run converges
-         (FR-031/033). Bounded per request (default 500).
-      7. `listStockLocations` — the stock locations of a store (RT-432).
-      8. `listTrackingIdentities` — the batches / serials of a product
+      6. `listStockLocations` — the stock locations of a store (RT-432).
+      7. `listTrackingIdentities` — the batches / serials of a product
          (RT-448).
-      9. `createStatusMove` — move stock between two inventory statuses at one
+      8. `createStatusMove` — move stock between two inventory statuses at one
          location, as one event with two effects (RT-435).
-     10. `createRelocation` — move stock between two locations of one store,
+      9. `createRelocation` — move stock between two locations of one store,
          same status, as one event with two effects (RT-435).
-     11. `getReturnLandingPolicy` / 12. `setReturnLandingPolicy` — the
+     10. `getReturnLandingPolicy` / 11. `setReturnLandingPolicy` — the
          tenant's return landing status (RT-435).
-     13. `placeQualityHold` / 14. `releaseTrackingHold` /
-         15. `getTrackingHold` — a hold on a tracking identity (RT-449).
-     16. `createInventoryRecall` / 17. `getInventoryRecall` — a recall of
+     12. `placeQualityHold` / 13. `releaseTrackingHold` /
+         14. `getTrackingHold` — a hold on a tracking identity (RT-449).
+     15. `createInventoryRecall` / 16. `getInventoryRecall` — a recall of
          listed identities of one product (RT-449).
-     18. `correctTrackingIdentityExpiry` — the governed expiry correction of
+     17. `correctTrackingIdentityExpiry` — the governed expiry correction of
          an identity, with history (RT-449).
-     19. `getSafetyTtlSetting` / 20. `setSafetyTtlSetting` — the tenant's
+     18. `getSafetyTtlSetting` / 19. `setSafetyTtlSetting` — the tenant's
          Safety TTL of the POS inventory safety feed (RT-449).
-     21. `listInventorySafetyFindings` — the computed inventory safety
+     20. `listInventorySafetyFindings` — the computed inventory safety
          findings (RT-449).
-     22. `listTrackingResolutionQueue` / 23. `bindTrackingResolution` — the
+     21. `listTrackingResolutionQueue` / 22. `bindTrackingResolution` — the
          Tracking Resolution queue of `tracking_unresolved` sales and the
          governed bind that resolves one (RT-451; contract-only).
-     24. `listSaleLineFindings` — the recorded sale-line findings of tracked
+     23. `listSaleLineFindings` — the recorded sale-line findings of tracked
          selling (RT-451; contract-only).
-     25. `listTrackingHolds` / 26. `listInventoryRecalls` — the tenant's
+     24. `listTrackingHolds` / 25. `listInventoryRecalls` — the tenant's
          holds and recall summaries in keyset pages (RT-1081).
-     27. `getTrackingIdentity` / 28. `getTrackingIdentityPositions` — one
+     26. `getTrackingIdentity` / 27. `getTrackingIdentityPositions` — one
          identity and its positions per store (RT-1081).
-     29. `listTrackingIdentityExpiryCorrections` — an identity's expiry
+     28. `listTrackingIdentityExpiryCorrections` — an identity's expiry
          history in keyset pages (RT-1081).
 
     Quantity: every quantity is an exact-decimal STRING (`numeric(p,s)` at
@@ -109,7 +101,8 @@ info:
     that starts `not_posted`: none of them is posted to ERPNext yet. Nothing
     activates sale-linked effects in this version (RT-427). The sale-linked
     backfill operation is deprecated and retired (RT-289 Q3: no historical
-    sale backfill); it remains contract-only and is never shipped.
+    sale backfill); it remains contract-only and is never shipped (removed in
+    1.11.0-draft, RT-1099).
 
     1.2.0-draft — Inventory position grain (Jira RT-432; owner-approved
     RT-290 Gate 4, Confluence RETAIL "Inventory Operations" baseline section
@@ -268,6 +261,16 @@ info:
     nothing writes tracked effects until RT-451, so until then these reads
     answer empty pages, empty positions or 404.
 
+    **1.11.0-draft (RT-1099; [GATED: contract] owner authorization
+    2026-11-03).** Removes the deprecated, contract-only
+    `backfillSaleLinkedMovements` (`POST
+    /api/inventory/v1/admin/sale-linked-backfill`), retired by RT-289 Q3 /
+    RT-425 and never served, with the components only it used: the
+    `SaleLinkedBackfillCommand`, `SaleLinkedBackfillItem` and
+    `SaleLinkedBackfillResult` schemas, the `RateLimited` response, the
+    `platformAdmin` security scheme and the `inventory-admin` tag. No other
+    operation changes.
+
 servers:
   - url: https://api.datapulse.example
     description: Placeholder; the dashboard/back-office surface is same-origin.
@@ -278,8 +281,6 @@ security:
 tags:
   - name: inventory
     description: Stock movement ledger + derived on-hand (operator / cookieAuth surface).
-  - name: inventory-admin
-    description: Platform/admin sale-linked backfill (not a public route).
 
 paths:
   /api/inventory/v1/stores/{storeId}/movements:
@@ -1493,69 +1494,12 @@ paths:
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "5XX": { $ref: "#/components/responses/SystemFailure" }
 
-  /api/inventory/v1/admin/sale-linked-backfill:
-    post:
-      operationId: backfillSaleLinkedMovements
-      deprecated: true
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RETIRED (RT-425, RT-289 Q3): activating sale-linked effects never
-        backfills historical sales; an Inventory Anchor is taken from
-        ERP-confirmed state instead, and sale effects are written in the same
-        transaction as their ERP posting intent (RT-427). Never implement or
-        generate this operation. The off-request service/worker seam it
-        described is unregistered and is removed by RT-427.
-      tags: [inventory-admin]
-      summary: "PLATFORM/ADMIN: backfill sale-linked outbound / restock movements."
-      description: >
-        Platform/admin-invoked backfill that creates outbound (or restock)
-        movements referencing CAPTURED 008 sale / terminal-event rows as
-        provenance (FR-032/033). It reads the captured (immutable) sale fact
-        directly — it does NOT subscribe to `sale.captured` and does NOT read
-        `processed_at`-stamped rows (decoupling, SC-002). Dedup is on the
-        provenance pair (`sourceSystem + externalId` / sale-ref); a re-run
-        converges to the same ledger state (no double-apply, FR-031/033). The
-        request is bounded (default 500 movements); over-ceiling is rejected
-        (429). This is NOT a public route — it uses the `platformAdmin` scheme,
-        never `cookieAuth` operator sessions.
-      security:
-        - platformAdmin: []
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SaleLinkedBackfillCommand"
-      responses:
-        "200":
-          description: Backfill result — created vs deduped counts.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SaleLinkedBackfillResult"
-        "400": { $ref: "#/components/responses/ValidationFailure" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
-        "409": { $ref: "#/components/responses/IdempotencyConflict" }
-        "429": { $ref: "#/components/responses/RateLimited" }
-        "5XX": { $ref: "#/components/responses/SystemFailure" }
-
 components:
   securitySchemes:
     cookieAuth:
       type: apiKey
       in: cookie
       name: dp2_session
-    platformAdmin:
-      type: http
-      scheme: bearer
-      description: >
-        Platform/admin credential for the sale-linked backfill worker path.
-        NOT an operator session and NOT a POS-device token. Tied to a
-        platform-admin principal; audited.
 
   parameters:
     IdempotencyKey:
@@ -1567,7 +1511,7 @@ components:
         key + same body returns the prior result with no second movement; a
         replay with the same key + different body is a 409 conflict. Resolved by
         the reused 001/005 idempotency interceptor (the manual-movement dedup
-        contract; the backfill additionally dedups on its provenance pair).
+        contract).
       schema:
         type: string
         minLength: 16
@@ -1716,42 +1660,6 @@ components:
         countedAt:
           type: string
           format: date-time
-    SaleLinkedBackfillCommand:
-      type: object
-      additionalProperties: false
-      required: [sourceSystem, items]
-      description: Bounded batch (default max 500 items); over-ceiling ⇒ 429.
-      properties:
-        sourceSystem:
-          type: string
-          description: Provenance source for the dedup pair `(sourceSystem, externalId)`.
-        items:
-          type: array
-          minItems: 1
-          maxItems: 500
-          items:
-            $ref: "#/components/schemas/SaleLinkedBackfillItem"
-    SaleLinkedBackfillItem:
-      type: object
-      additionalProperties: false
-      required: [externalId, storeId, quantity, stockingUnit]
-      properties:
-        externalId:
-          type: string
-          description: Stable provenance id paired with `sourceSystem` for dedup.
-        storeId: { type: string, format: uuid }
-        saleId: { type: [string, "null"], format: uuid }
-        saleLineId: { type: [string, "null"], format: uuid }
-        terminalEventRef: { type: [string, "null"], format: uuid }
-        tenantProductRef: { type: [string, "null"], format: uuid }
-        quantity:
-          $ref: "#/components/schemas/DecimalQuantity"
-        stockingUnit: { type: string }
-        direction:
-          type: string
-          enum: [outbound, restock]
-          default: outbound
-          description: outbound = sale decrement; restock = void/refund/return inbound (FR-025).
 
     # ----- Projections (response bodies) — explicit toBody wire shapes (§IV); NO raw DB entity
     StockMovement:
@@ -2819,16 +2727,6 @@ components:
             - $ref: "#/components/schemas/StockMovement"
             - type: "null"
           description: The appended count_correction movement, or null on zero variance.
-    SaleLinkedBackfillResult:
-      type: object
-      required: [created, deduped]
-      properties:
-        created:
-          type: integer
-          description: Movements newly appended this run.
-        deduped:
-          type: integer
-          description: Items skipped because their provenance pair already applied (idempotent re-run, FR-033).
 
     # ----- Shared
     StockingUnit:
@@ -2944,8 +2842,7 @@ components:
             $ref: "#/components/schemas/Error"
     IdempotencyConflict:
       description: >
-        409 — an `Idempotency-Key` replay with a DIFFERENT body (FR-030), or a
-        provenance-pair conflict on the backfill path.
+        409 — an `Idempotency-Key` replay with a DIFFERENT body (FR-030).
       content:
         application/json:
           schema:
@@ -2983,12 +2880,6 @@ components:
         `tracking_resolution_already_resolved`: the sale is already resolved.
         `idempotency_key_conflict`: the `Idempotency-Key` was already used for
         a different command. Nothing is written.
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
-    RateLimited:
-      description: 429 — backfill request exceeded the per-request ceiling (default 500 items).
       content:
         application/json:
           schema:

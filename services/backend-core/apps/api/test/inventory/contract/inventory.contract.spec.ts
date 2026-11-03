@@ -14,15 +14,15 @@
  *     it must be loaded explicitly here. T011 is consequently a no-op: there is
  *     no central YAML registry to extend (same verdict as 005 T504 / 008 T011).
  *
- *   * Asserts presence of the six 009 operationIds (plus RT-432's listStockLocations
+ *   * Asserts presence of the five 009 operationIds (plus RT-432's listStockLocations
  *     and RT-448's listTrackingIdentities) and their uniqueness against
  *     the existing top-level contracts (stop condition: "if any operationId
  *     collides with or renames a shipped 005/007/008 operationId").
  *
  *   * Asserts the AUTH SPLIT (plan §4.2): the five operator operations are
  *     secured with `cookieAuth` (NOT a `/api/pos/v1/` device-token surface —
- *     a 009 stop condition); the sale-linked backfill is secured with
- *     `platformAdmin`, never `cookieAuth`.
+ *     a 009 stop condition). The retired sale-linked backfill and its
+ *     `platformAdmin` scheme are gone (RT-1099).
  *
  *   * Asserts the write operations declare the REQUIRED `Idempotency-Key`
  *     header (FR-030); the read does not.
@@ -63,7 +63,6 @@ const OPERATION_IDS = [
   "listStockMovements",
   "createStockTransfer",
   "recordStockCount",
-  "backfillSaleLinkedMovements",
   "listStockLocations",
   "listTrackingIdentities",
   // RT-435: status moves, relocations and the return landing policy.
@@ -95,7 +94,7 @@ const OPERATION_IDS = [
   "listSaleLineFindings",
 ] as const;
 
-// Operator-surface ops use cookieAuth; the backfill is platform/admin.
+// Operator-surface ops use cookieAuth.
 const OPERATOR_OPERATION_IDS = [
   "createStockMovement",
   "getOnHand",
@@ -127,14 +126,12 @@ const OPERATOR_OPERATION_IDS = [
   "bindTrackingResolution",
   "listSaleLineFindings",
 ];
-const ADMIN_OPERATION_IDS = ["backfillSaleLinkedMovements"];
 
 // Write ops that MUST carry a required Idempotency-Key.
 const WRITE_OPERATION_IDS = [
   "createStockMovement",
   "createStockTransfer",
   "recordStockCount",
-  "backfillSaleLinkedMovements",
   "createStatusMove",
   "createRelocation",
   "placeQualityHold",
@@ -172,7 +169,6 @@ const MOVEMENTS_PATH = "/api/inventory/v1/stores/{storeId}/movements";
 const ON_HAND_PATH = "/api/inventory/v1/on-hand/{storeId}/{productId}";
 const TRANSFERS_PATH = "/api/inventory/v1/transfers";
 const COUNTS_PATH = "/api/inventory/v1/stores/{storeId}/counts";
-const BACKFILL_PATH = "/api/inventory/v1/admin/sale-linked-backfill";
 const LOCATIONS_PATH = "/api/inventory/v1/stores/{storeId}/locations";
 const TRACKING_IDENTITIES_PATH = "/api/inventory/v1/products/{productId}/tracking-identities";
 const STATUS_MOVES_PATH = "/api/inventory/v1/stores/{storeId}/status-moves";
@@ -353,9 +349,9 @@ describe("inventory/inventory.yaml — loadability", () => {
     expect(cookie?.name).toBe("dp2_session");
   });
 
-  it("declares the platformAdmin scheme for the backfill path", () => {
+  it("declares no platformAdmin scheme: the retired backfill was its only user (RT-1099)", () => {
     const schemes = inventoryDoc.components?.securitySchemes ?? {};
-    expect(schemes["platformAdmin"]).toBeDefined();
+    expect(Object.keys(schemes)).toEqual(["cookieAuth"]);
   });
 });
 
@@ -384,9 +380,6 @@ describe("inventory/inventory.yaml — operations", () => {
     );
     expect(inventoryDoc.paths?.[COUNTS_PATH]?.["post"]?.operationId).toBe(
       "recordStockCount",
-    );
-    expect(inventoryDoc.paths?.[BACKFILL_PATH]?.["post"]?.operationId).toBe(
-      "backfillSaleLinkedMovements",
     );
     expect(inventoryDoc.paths?.[LOCATIONS_PATH]?.["get"]?.operationId).toBe(
       "listStockLocations",
@@ -437,14 +430,6 @@ describe("inventory/inventory.yaml — operations", () => {
     }
   });
 
-  it("secures the backfill with platformAdmin, NOT cookieAuth", () => {
-    for (const id of ADMIN_OPERATION_IDS) {
-      const op = findOp(id);
-      expect(op).toBeDefined();
-      expect(op?.security).toContainEqual({ platformAdmin: [] });
-      expect(op?.security).not.toContainEqual({ cookieAuth: [] });
-    }
-  });
 
   it("models NO operation as a /api/pos/v1/ device-token route (009 is a cookieAuth surface)", () => {
     const paths = Object.keys(inventoryDoc.paths ?? {});
@@ -529,7 +514,6 @@ describe("inventory/inventory.yaml — projections + envelope", () => {
       "CreateStockMovementCommand",
       "CreateStockTransferCommand",
       "RecordStockCountCommand",
-      "SaleLinkedBackfillCommand",
       "CreateStatusMoveCommand",
       "CreateRelocationCommand",
       "SetReturnLandingPolicyCommand",
@@ -609,12 +593,17 @@ describe("inventory/inventory.yaml — RT-425 effect projection", () => {
     expect(required).not.toContain("erpConfirmedAt");
   });
 
-  it("retires the sale-linked backfill: deprecated, still contract-only (RT-289 Q3)", () => {
-    const op = findOp("backfillSaleLinkedMovements") as
-      | (OperationObject & { deprecated?: boolean; "x-runtime-status"?: string })
-      | undefined;
-    expect(op?.deprecated).toBe(true);
-    expect(op?.["x-runtime-status"]).toBe("contract-only");
+  it("no longer models the retired sale-linked backfill (RT-289 Q3, removed by RT-1099)", () => {
+    expect(findOp("backfillSaleLinkedMovements")).toBeUndefined();
+    expect(Object.keys(inventoryDoc.paths ?? {})).not.toContain(
+      "/api/inventory/v1/admin/sale-linked-backfill",
+    );
+    const schemas = Object.keys(inventoryDoc.components?.schemas ?? {});
+    for (const name of ["SaleLinkedBackfillCommand", "SaleLinkedBackfillItem", "SaleLinkedBackfillResult"]) {
+      expect(schemas).not.toContain(name);
+    }
+    expect(Object.keys(inventoryDoc.components?.responses ?? {})).not.toContain("RateLimited");
+    expect((inventoryDoc.tags ?? []).map((t) => t.name)).not.toContain("inventory-admin");
   });
 });
 
@@ -954,8 +943,8 @@ describe("inventory/inventory.yaml — RT-1081 tracking Console reads and TR-5",
   const op = (id: string): Op => (findOp(id) ?? {}) as Op;
   const KEYSET_LISTS = ["listTrackingHolds", "listInventoryRecalls", "listTrackingIdentityExpiryCorrections"];
 
-  it("is the 1.10.0 draft (after RT-451 Step 0 took 1.9.0)", () => {
-    expect(inventoryDoc.info?.version).toBe("1.10.0-draft");
+  it("records 1.10.0-draft in the version history (RT-1099 moved the version on to 1.11.0)", () => {
+    expect(inventoryDoc.info?.description).toContain("**1.10.0-draft (RT-1081;");
   });
 
   it("ships its runtime with the contract: none of RT-1081's operations keeps an x-runtime-status marker", () => {
@@ -1152,5 +1141,15 @@ describe("inventory/inventory.yaml — RT-451 Step 0 Tracking Resolution", () =>
     for (const kind of ["unvalidated_tracked_line", "sold_under_hold", "erp_intent_held", "tracking_unresolved_sale"]) {
       expect(Object.keys(mapping ?? {})).not.toContain(kind);
     }
+  });
+});
+
+// ===========================================================================
+// RT-1099 — the retired sale-linked backfill removed (1.11.0-draft)
+// ===========================================================================
+describe("inventory/inventory.yaml — RT-1099 sale-linked backfill removal", () => {
+  it("is the 1.11.0 draft, with a version note citing RT-1099", () => {
+    expect(inventoryDoc.info?.version).toBe("1.11.0-draft");
+    expect(inventoryDoc.info?.description).toContain("**1.11.0-draft (RT-1099;");
   });
 });
