@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Inventory — Stock Movement Ledger API
-  version: "1.8.0-draft"
+  version: "1.9.0-draft"
   description: >
     Spec 009 Inventory & Stock Movement Ledger contract surface. Defines the
     Inventory source-of-truth domain the SaaS owns: an append-only
@@ -75,6 +75,11 @@ info:
          Safety TTL of the POS inventory safety feed (RT-449).
      21. `listInventorySafetyFindings` — the computed inventory safety
          findings (RT-449).
+     22. `listTrackingResolutionQueue` / 23. `bindTrackingResolution` — the
+         Tracking Resolution queue of `tracking_unresolved` sales and the
+         governed bind that resolves one (RT-451; contract-only).
+     24. `listSaleLineFindings` — the recorded sale-line findings of tracked
+         selling (RT-451; contract-only).
 
     Quantity: every quantity is an exact-decimal STRING (`numeric(p,s)` at
     rest); no float appears on the wire. There is NO money / tender / payment
@@ -208,6 +213,28 @@ info:
     is a policy value that stays off until RT-50 B1, so it is never emitted
     in 1.8.0. A store_manager sees only its own stores' findings. The
     identity import that gives these reads anything to find is RT-453 (F6).
+
+
+    **1.9.0-draft (RT-451 Step 0, additive, contract-only; [GATED] owner
+    authorization Jira RT-451 description, amended 2026-11-03 after RT-455
+    comment 15233, OD-1, OD-2 and OD-9; design defaults approved by the owner
+    2026-11-03 via the coordinator).** Three operations, each
+    `x-runtime-status: contract-only` until the RT-451 runtime ships.
+    `listTrackingResolutionQueue` lists the `tracking_unresolved` sales of
+    `pos-sales/sales.yaml` G7-9 row 4 with their unresolved lines, in keyset
+    pages, owner / tenant_admin; a store_manager gets only `unresolvedCount`
+    for its own stores. Such a sale is not a finding.
+    `bindTrackingResolution` is the governed, audited, owner-only Tracking
+    Resolution: one atomic command per sale binds an existing identity of the
+    line's product to every unresolved line, then commits the sale's
+    Inventory effects and its ERP posting intent together (RT-50 DC-2).
+    `listSaleLineFindings` lists the recorded, append-only sale-line findings
+    of G7-9 rows 2 and 3 (`unvalidated_tracked_line`, `sold_under_hold`,
+    `erp_intent_held`), filtered by kind and store, newest first. They are
+    not kinds of the computed `listInventorySafetyFindings`, which keeps
+    counting only current-state findings (RT-455 TR-8). Nothing captures a
+    tracked line until the RT-451 runtime, so these reads answer empty until
+    then.
 
 servers:
   - url: https://api.datapulse.example
@@ -992,6 +1019,228 @@ paths:
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "5XX": { $ref: "#/components/responses/SystemFailure" }
 
+  /api/inventory/v1/safety/sale-line-findings:
+    get:
+      operationId: listSaleLineFindings
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-451 Step 0 (contract-first): the runtime that records these
+        findings at sale capture ships with RT-451. Remove both keys then.
+      tags: [inventory]
+      summary: List the recorded sale-line findings of tracked selling, newest first.
+      description: >
+        RT-451 (RT-455 OD-2; RT-50 G7-9 rows 2 and 3): the critical findings
+        recorded on a tracked sale line when the sale was captured, or when a
+        Tracking Resolution bound the line (only `erp_intent_held` with cause
+        `edge_map_missing`, see `bindTrackingResolution`), one per line, kind
+        and cause (owner decision 2026-11-03: each cause is its own finding,
+        so a line held by a quality hold and a recall, or both expired and
+        without an edge-map row, records both). `unvalidated_tracked_line`: an exact identity with no
+        `validationId`, or one that does not match an accepted validation of
+        that identity. `sold_under_hold`: an exact identity held or recalled
+        at the sale's `occurredAt`. `erp_intent_held`: an exact identity
+        expired at the sale's business date, or with no ERP edge-map row; the
+        line's effect is at the identity and the sale's ERP posting intent is
+        held. One line can carry more than one kind and cause. Findings are append-only
+        records of past sales: they are never removed or rewritten, including
+        after the cause is repaired. A `tracking_unresolved` sale (row 4) is
+        not a finding; it is in `listTrackingResolutionQueue`. Filters narrow
+        the list and never widen it: `kind` and `storeId`; a store outside
+        the caller's scope or not of this tenant answers an empty page.
+        Order: newest first, `recordedAt DESC, id DESC`, a total, stable order
+        on values fixed when the finding is recorded. Keyset pagination as
+        `listStockMovements` (RT-731): an opaque `cursor` bound to this
+        operation, the tenant and the filters. Walking the pages with the
+        same filters returns no finding twice and reaches every finding that
+        existed when the walk started. The walk is not a snapshot: a finding
+        recorded during a walk is returned by that walk only if it sorts
+        after the walk's current position. Only `nextCursor: null` ends the
+        walk. Owner and tenant_admin see the tenant; a
+        store_manager sees only findings of its own stores, narrowed like
+        `listInventorySafetyFindings`. Any other role is a 403.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: kind
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/SaleLineFindingKind"
+        - name: storeId
+          in: query
+          required: false
+          description: A store of the tenant; lists only its findings.
+          schema: { type: string, format: uuid }
+        - name: cursor
+          in: query
+          required: false
+          description: >
+            Opaque keyset cursor from a prior page's `nextCursor`, bound to the
+            operation, the tenant and the filters (`kind`, `storeId`). A value
+            the server did not issue, cannot decode, or that is reused with
+            other filters is 400 `validation_error`. The cursor carries only a
+            keyset position and a digest of the filters; its position is ANDed
+            with the tenant, the caller's store scope and the filters and never
+            replaces them. The role and store scope are checked on every
+            request and are never carried by the cursor.
+          schema: { type: string, minLength: 1, maxLength: 1024 }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        "200":
+          description: A page of sale-line findings in the caller's scope, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaleLineFindingList"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/tracking-resolutions:
+    get:
+      operationId: listTrackingResolutionQueue
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-451 Step 0 (contract-first): the runtime that classifies a sale
+        `tracking_unresolved` and serves this queue ships with RT-451. Remove
+        both keys then.
+      tags: [inventory]
+      summary: List the Tracking Resolution queue, newest capture first, in keyset pages.
+      description: >
+        RT-451 (RT-455 TR-2, OD-1 and OD-9; RT-50 G7-9 row 4): the sales
+        captured `tracking_unresolved` (a tracked product's line without
+        `tracking`, with an unknown identity, or with another product's
+        identity). Such a sale has no Inventory effect and no ERP posting
+        intent until `bindTrackingResolution` resolves it. Each item is one
+        sale with its unresolved lines. `status` narrows the items:
+        `unresolved` (the default), `resolved` (with the resolution) or
+        `all`. `storeId` narrows to one store; a store not of this tenant, or
+        outside the caller's scope, matches nothing. Order: newest capture
+        first, `capturedAt DESC, saleId DESC`, a total, stable order on values
+        fixed at capture (`occurredAt` is not the key: an offline till can
+        backdate it). Keyset pagination as `listStockMovements` (RT-731): an
+        opaque `cursor` bound to this operation, the tenant and the filters.
+        A sale resolved during a walk of `status=unresolved` drops out of the
+        later pages, and one resolved during a walk of `status=resolved` can
+        enter them, so neither status-filtered walk is a snapshot of
+        membership at its start. `unresolvedCount` counts the unresolved sales
+        in the caller's scope and `storeId`, whatever `status`, `cursor` and
+        `limit`. Owner and tenant_admin read the items. A store_manager gets
+        only the count for its own stores: `items` is always empty and
+        `nextCursor` null (OD-9). Any other role is a 403.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [unresolved, resolved, all], default: unresolved }
+        - name: storeId
+          in: query
+          required: false
+          description: A store of the tenant; narrows the items and the count to it.
+          schema: { type: string, format: uuid }
+        - name: cursor
+          in: query
+          required: false
+          description: >
+            Opaque keyset cursor from a prior page's `nextCursor`, bound to the
+            operation, the tenant and the filters (`status`, `storeId`). A
+            value the server did not issue, cannot decode, or that is reused
+            with other filters is 400 `validation_error`. The cursor carries
+            only a keyset position and a digest of the filters; its position
+            is ANDed with the tenant, the caller's scope and the filters and
+            never replaces them. The role is checked on every request and is
+            never carried by the cursor.
+          schema: { type: string, minLength: 1, maxLength: 1024 }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        "200":
+          description: A page of the queue, newest capture first, and the unresolved count.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackingResolutionQueue"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/tracking-resolutions/{saleId}/bind:
+    post:
+      operationId: bindTrackingResolution
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-451 Step 0 (contract-first): the governed bind ships with the
+        RT-451 runtime (scope item 4). Remove both keys then.
+      tags: [inventory]
+      summary: Resolve a tracking_unresolved sale by binding an identity to every unresolved line.
+      description: >
+        RT-451 scope item 4 (RT-50 DC-2; RT-455 TR-2): the governed, audited,
+        high-sensitivity Tracking Resolution of one `tracking_unresolved`
+        sale. One command binds an existing tracking identity to EVERY
+        unresolved line of the sale: `lines` names each unresolved line
+        exactly once and nothing else, or the command is a 400 and nothing is
+        written. In one transaction it records the resolution and its audit
+        record, then commits the sale's Inventory effects at the bound
+        identities and its ERP posting intent together, with the ERP Batch
+        ref frozen from the edge map as at capture. A bound identity with no
+        ERP edge-map row still commits its effect, and the intent is held
+        (G7-9 row 3): the bind records an `erp_intent_held` finding with cause
+        `edge_map_missing` for that line. A bind records no other finding:
+        it refuses a held or expired identity, and it is itself the governed
+        check, so a bound line is never an `unvalidated_tracked_line`. The
+        sale then leaves the unresolved queue. Refusals, nothing written: a sale that is not of
+        this tenant or was never `tracking_unresolved`, and an identity that
+        does not exist or is of another tenant, is a non-disclosing 404; a `saleLineId` that is not
+        an unresolved line of the sale is a 400. 409
+        `tracking_resolution_identity_mismatch`: an identity is not of the
+        line's product. 409 `tracking_resolution_identity_held`: an identity
+        has an active hold now, or had one at the sale's `occurredAt`. 409
+        `tracking_resolution_identity_expired`: an identity's expiry date is
+        before the sale's business date (a lot is sellable through its expiry
+        date, G7-5). 409 `tracking_resolution_already_resolved`: the sale was
+        already resolved by another command. The `reasonCode` and a non-blank
+        `note` are required; the runtime trims the note, and a blank one is a
+        400. It does not step the Inventory Safety Revision. Owner only (high
+        sensitivity, as `releaseTrackingHold`); any other role is a 403.
+        Idempotent via the `Idempotency-Key` header: a replay with the same
+        key and body returns the recorded resolution and writes nothing.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SaleIdPath"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BindTrackingResolutionCommand"
+      responses:
+        "200":
+          description: The sale's recorded Tracking Resolution.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackingResolution"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "409": { $ref: "#/components/responses/TrackingResolutionConflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
   /api/inventory/v1/admin/sale-linked-backfill:
     post:
       operationId: backfillSaleLinkedMovements
@@ -1101,6 +1350,12 @@ components:
       in: path
       required: true
       description: A tracking identity; resolved inside the caller's tenant only.
+      schema: { type: string, format: uuid }
+    SaleIdPath:
+      name: saleId
+      in: path
+      required: true
+      description: A captured sale (`pos-sales/sales.yaml` `Sale.saleRef`); resolved inside the caller's tenant only.
       schema: { type: string, format: uuid }
 
   schemas:
@@ -1602,6 +1857,224 @@ components:
           $ref: "#/components/schemas/PositiveDecimalQuantity"
         stockingUnit:
           $ref: "#/components/schemas/StockingUnit"
+    SaleLineFindingKind:
+      type: string
+      enum: [unvalidated_tracked_line, sold_under_hold, erp_intent_held]
+      description: RT-451 (RT-50 G7-9 rows 2 and 3) the kind of a sale-line finding.
+    SaleLineFinding:
+      type: object
+      additionalProperties: false
+      required:
+        [id, kind, severity, cause, storeId, saleId, saleLineId, tenantProductRef, trackingIdentityId, holdId,
+         businessDate, occurredAt, recordedAt]
+      description: >
+        RT-451 one recorded finding on a tracked sale line, one per line, kind
+        and cause. Append-only.
+      properties:
+        id: { type: string, format: uuid }
+        kind:
+          $ref: "#/components/schemas/SaleLineFindingKind"
+        severity: { type: string, const: critical }
+        cause:
+          type: string
+          enum: [validation_missing, validation_mismatch, quality_hold, recall_hold, expired, edge_map_missing]
+          description: >
+            Why the line was recorded; part of the finding's grain (line,
+            kind, cause). `unvalidated_tracked_line`:
+            `validation_missing` (no `validationId`) or `validation_mismatch`.
+            `sold_under_hold`: `quality_hold` or `recall_hold`.
+            `erp_intent_held`: `expired` or `edge_map_missing`.
+        storeId: { type: string, format: uuid }
+        saleId: { type: string, format: uuid }
+        saleLineId: { type: string, format: uuid }
+        tenantProductRef: { type: string, format: uuid }
+        trackingIdentityId:
+          type: string
+          format: uuid
+          description: The exact identity the line carries (rows 2 and 3 always have one).
+        holdId:
+          type: [string, "null"]
+          format: uuid
+          description: The hold the line was sold under; set only for `sold_under_hold`.
+        businessDate:
+          type: string
+          format: date
+          description: The sale's business date at its store.
+        occurredAt:
+          type: string
+          format: date-time
+          description: When the till recorded the sale.
+        recordedAt:
+          type: string
+          format: date-time
+          description: When the server recorded the finding; the order key.
+    SaleLineFindingList:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/SaleLineFinding"
+        nextCursor:
+          type: [string, "null"]
+          description: Opaque cursor for the next page; null when exhausted.
+    TrackingResolutionQueue:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor, unresolvedCount]
+      properties:
+        items:
+          type: array
+          maxItems: 200
+          description: Always empty for a store_manager (OD-9).
+          items:
+            $ref: "#/components/schemas/TrackingResolutionQueueItem"
+        nextCursor:
+          type: [string, "null"]
+          description: Opaque cursor for the next page; null when exhausted, and always null for a store_manager.
+        unresolvedCount:
+          type: integer
+          minimum: 0
+          description: >
+            The unresolved sales in the caller's scope and `storeId` filter,
+            whatever `status`, `cursor` and `limit`.
+    TrackingResolutionQueueItem:
+      type: object
+      additionalProperties: false
+      required: [saleId, storeId, businessDate, occurredAt, capturedAt, status, unresolvedLines, resolution]
+      description: One `tracking_unresolved` sale and its unresolved lines.
+      properties:
+        saleId: { type: string, format: uuid }
+        storeId: { type: string, format: uuid }
+        businessDate:
+          type: string
+          format: date
+          description: The sale's business date at its store.
+        occurredAt:
+          type: string
+          format: date-time
+          description: When the till recorded the sale.
+        capturedAt:
+          type: string
+          format: date-time
+          description: >
+            When the server received the sale (`pos-sales/sales.yaml`
+            `Sale.receivedAt`); the order key.
+        status:
+          type: string
+          enum: [unresolved, resolved]
+        unresolvedLines:
+          type: array
+          minItems: 1
+          description: >
+            The lines that made the sale unresolved, as captured. They stay
+            listed after the sale is resolved; `resolution.lines` gives the
+            identity each one was bound to. No `maxItems` yet: capture lines are uncapped until RT-1052, so a cap
+            could leave a sale that cannot be resolved; add one when RT-1052 caps them.
+          items:
+            $ref: "#/components/schemas/UnresolvedTrackedLine"
+        resolution:
+          description: The recorded resolution; null while the sale is unresolved.
+          oneOf:
+            - $ref: "#/components/schemas/TrackingResolution"
+            - type: "null"
+    UnresolvedTrackedLine:
+      type: object
+      additionalProperties: false
+      required: [saleLineId, tenantProductRef, reason, sentIdentityId, scannedCode, quantity, unit]
+      properties:
+        saleLineId:
+          type: string
+          format: uuid
+          description: The sale line (`pos-sales/sales.yaml` `SaleLine.lineRef`).
+        tenantProductRef: { type: string, format: uuid }
+        reason:
+          type: string
+          enum: [tracking_missing, identity_unknown, identity_other_product]
+          description: >
+            `tracking_missing`: the tracked product's line carried no
+            `tracking`. `identity_unknown`: its `identityId` is not an
+            identity of this tenant. `identity_other_product`: the identity is
+            of another product.
+        sentIdentityId:
+          type: [string, "null"]
+          format: uuid
+          description: The `tracking.identityId` the till sent; null for `tracking_missing`.
+        scannedCode:
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 128
+          description: The `tracking.code` the till sent; null for `tracking_missing`.
+        quantity:
+          type: string
+          description: The line's quantity as captured (`pos-sales/sales.yaml` `SaleLine.quantity`).
+        unit:
+          type: string
+          description: The line's unit as captured (`SaleLine.unit`).
+    BindTrackingResolutionCommand:
+      type: object
+      additionalProperties: false
+      required: [reasonCode, note, lines]
+      description: Strict command. Tenant, sale scope and actor are resolved server-side.
+      properties:
+        reasonCode:
+          $ref: "#/components/schemas/SafetyReasonCode"
+        note:
+          type: string
+          minLength: 1
+          maxLength: 500
+          pattern: "\\S"
+          description: >
+            Required operator note (no PII). The runtime trims it; a blank note
+            is a 400.
+        lines:
+          type: array
+          minItems: 1
+          description: >
+            One binding per unresolved line of the sale, each line exactly
+            once; a missing, repeated or foreign `saleLineId` is a 400. No `maxItems` yet: capture lines are uncapped until RT-1052, so a cap
+            could leave a sale that cannot be resolved; add one when RT-1052 caps them.
+          items:
+            $ref: "#/components/schemas/TrackingResolutionLineBinding"
+    TrackingResolutionLineBinding:
+      type: object
+      additionalProperties: false
+      required: [saleLineId, trackingIdentityId]
+      properties:
+        saleLineId: { type: string, format: uuid }
+        trackingIdentityId:
+          type: string
+          format: uuid
+          description: An existing identity of the line's product.
+    TrackingResolution:
+      type: object
+      additionalProperties: false
+      required: [id, saleId, reasonCode, note, resolvedBy, resolvedAt, lines]
+      description: >
+        RT-451 the recorded, audited Tracking Resolution of one sale. Final: a
+        sale is resolved once.
+      properties:
+        id: { type: string, format: uuid }
+        saleId: { type: string, format: uuid }
+        reasonCode:
+          $ref: "#/components/schemas/SafetyReasonCode"
+        note: { type: string, minLength: 1, maxLength: 500 }
+        resolvedBy:
+          type: string
+          format: uuid
+          description: The acting principal's user id (an internal actor reference, not PII).
+        resolvedAt: { type: string, format: date-time }
+        lines:
+          type: array
+          minItems: 1
+          description: >
+            One binding per line the resolution bound. No `maxItems` yet: capture lines are uncapped until RT-1052, so a cap
+            could leave a sale that cannot be resolved; add one when RT-1052 caps them.
+          items:
+            $ref: "#/components/schemas/TrackingResolutionLineBinding"
     SafetyReasonCode:
       type: string
       pattern: "^[a-z][a-z0-9_]{0,63}$"
@@ -2080,6 +2553,20 @@ components:
         identity already has that expiry date. `idempotency_key_conflict`: the
         `Idempotency-Key` was already used for a different command. Nothing is
         written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TrackingResolutionConflict:
+      description: >
+        409 — RT-451. `tracking_resolution_identity_mismatch`: an identity is
+        not of the line's product. `tracking_resolution_identity_held`: an
+        identity has an active hold now, or had one at the sale's
+        `occurredAt`. `tracking_resolution_identity_expired`: an identity's
+        expiry date is before the sale's business date.
+        `tracking_resolution_already_resolved`: the sale is already resolved.
+        `idempotency_key_conflict`: the `Idempotency-Key` was already used for
+        a different command. Nothing is written.
       content:
         application/json:
           schema:
