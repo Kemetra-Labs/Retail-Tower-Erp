@@ -46,6 +46,10 @@ import { gitChangedFiles } from './source-scope-guard.git';
  * scoped down for 004-operator-session (see source-scope-guard.const.ts
  * — preload / IPC / bridge-api.ts are now allowed seam extensions).
  */
+// The CI fallback (a shallow checkout with no merge base, then a fetch retry) can take 10-15s
+// under runner load; the default 5s timeout then fails a clean diff (seen on RT-1026 #281).
+const GUARD_TIMEOUT_MS = 60_000;
+
 describe('source-scope guard (T006)', () => {
   it('diff must not touch forbidden paths', () => {
     let changedFiles: string[];
@@ -192,5 +196,5 @@ describe('source-scope guard (T006)', () => {
     expect(violations, `Forbidden paths modified by this branch: ${violations.join(', ')}`).toEqual(
       [],
     );
-  });
+  }, GUARD_TIMEOUT_MS);
 });
