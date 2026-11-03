@@ -161,7 +161,8 @@ configuration, so there is no lab-only verification path.
 
 Beyond the lab: the production feed, signing service and promotion are RT-321 and RT-322, the
 fleet visibility and minimum-supported-version contract is RT-323, and the drill on the rt9 lab is
-RT-324. None of those is started here.
+RT-324. None of those is started here. The tag-released lab installer, the lab update feed and the
+standing device setup (RT-1082) are in [`lab-stable-device.md`](lab-stable-device.md).
 
 ## Slice 3: differential-to-full fallback drill (RT-322, lab only)
 
