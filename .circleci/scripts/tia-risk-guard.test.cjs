@@ -110,7 +110,7 @@ test("unclassifiable paths and an empty diff force FULL", () => {
 });
 
 test("the API fast class matches graph.yaml's api_jest_fast exactly", () => {
-  for (const p of [`${SRC}x.ts`, `${SRC}a/b/c/x.ts`, `${SRC}health/x.test.ts`, `${TEST}x.spec.ts`, `${TEST}a/b/x.spec.ts`]) {
+  for (const p of [`${SRC}x.ts`, `${SRC}v2028/rt0089.ts`, `${SRC}a/b/c/x.ts`, `${SRC}health/x.test.ts`, `${TEST}x.spec.ts`, `${TEST}a/b/x.spec.ts`]) {
     assert.equal(guard.pathRisk(p), null, p);
   }
   for (const p of [`${SRC}main.ts`, `${SRC}types/x.d.ts`, `${TEST}a/x.d.ts`, `${TEST}a/x.test.ts`, `${TEST}x.ts`, `${TEST}_helpers/x.spec.ts`, `${SRC}x.tsx`]) {
@@ -151,6 +151,16 @@ test("globToRegExp follows the graph syntax", () => {
   assert.ok(!guard.globToRegExp("a/*.ts").test("a/b/c.ts"));
   assert.ok(guard.globToRegExp("a/**/*.ts").test("a/c.ts"));
   assert.ok(guard.globToRegExp("a/**/*.ts").test("a/b/c/d.ts"));
+  assert.ok(guard.globToRegExp("a/?.ts").test("a/b.ts"));
+  assert.ok(!guard.globToRegExp("a/?.ts").test("a/bc.ts"));
+  assert.ok(guard.globToRegExp("a/**").test("a/b\nc"), "dotAll, as pgraph's re.DOTALL");
+});
+
+test("line terminators and control characters in a name force FULL, even in a critical tier", () => {
+  for (const p of [`${SRC}auth/evil\nname.ts`, `${SRC}auth/evil\rname.ts`, `${SRC}settlement/a\u2028b.ts`, `${SRC}inventory/a\u2029b.ts`, `${SRC}x\u0001.ts`, `${SRC}x\u007f.ts`]) {
+    assert.ok(guard.pathRisk(p), JSON.stringify(p));
+    assert.equal(guard.classify([p]).decision, FORCE_FULL, JSON.stringify(p));
+  }
 });
 
 // ---- drift and config invariants ----------------------------------------------------------
@@ -169,7 +179,16 @@ function flowList(text) {
     } else cur += ch;
   }
   items.push(cur);
-  return items.map((s) => s.trim().replace(/^"(.*)"$/, "$1")).filter(Boolean);
+  return items.map((s) => s.trim().replace(/^"(.*)"$|^'(.*)'$/, "$1$2")).filter(Boolean);
+}
+
+// Flow-list items of every `globs:` key in a block. Fails if any `globs:` key is not a one-line
+// flow list (a block list, say), so a glob can never be skipped silently.
+function globLists(block, what) {
+  const keys = block.match(/^ +globs:/gm) || [];
+  const flows = [...block.matchAll(/^ +globs: \[(.*)\][ \t]*(?:#.*)?$/gm)];
+  assert.equal(flows.length, keys.length, `${what}: a globs key is not a one-line flow list`);
+  return flows.flatMap((m) => flowList(m[1]));
 }
 
 // backend-core's tier globs and its api_jest_fast class, read from graph.yaml.
@@ -179,11 +198,21 @@ function graphBackendCore() {
   const tiersAt = graph.indexOf("\n    tiers:\n", start);
   const fastAt = graph.indexOf("\n    api_jest_fast:\n", tiersAt);
   assert.ok(start >= 0 && tiersAt > start && fastAt > tiersAt, "backend-core tiers / api_jest_fast not found in graph.yaml");
-  const tierGlobs = [...graph.slice(tiersAt, fastAt).matchAll(/^ +globs: \[(.*)\]$/gm)].flatMap((m) => flowList(m[1]));
-  const fastBlock = /^ +globs: \[(.*)\]\n +exclude: \[(.*)\]$/m.exec(graph.slice(fastAt, fastAt + 400));
+  const tierGlobs = globLists(graph.slice(tiersAt, fastAt), "backend-core tiers");
+  const fastBlock = /^ +globs: \[(.*)\][ \t]*(?:#.*)?\n +exclude: \[(.*)\][ \t]*(?:#.*)?$/m.exec(graph.slice(fastAt, fastAt + 400));
   assert.ok(fastBlock, "api_jest_fast globs/exclude not found in graph.yaml");
   return { tierGlobs, fastGlobs: flowList(fastBlock[1]), fastExcludes: flowList(fastBlock[2]) };
 }
+
+// Whole segments of a glob before its first wildcard segment ("" if the first one has one).
+const literalPrefix = (g) => {
+  const segs = [];
+  for (const s of g.split("/")) {
+    if (/[*?{}]/.test(s)) break;
+    segs.push(s);
+  }
+  return segs.join("/");
+};
 
 test("FAST_GLOBS and FAST_EXCLUDES equal graph.yaml's api_jest_fast", () => {
   const g = graphBackendCore();
@@ -196,12 +225,27 @@ test("CRITICAL_API_GLOBS mirrors every backend-core tier glob that can reach app
   assert.ok(tierGlobs.length >= 40, `only ${tierGlobs.length} tier globs parsed`);
   const api = tierGlobs.filter((g) => g.startsWith("apps/api/"));
   assert.deepEqual([...api].sort(), [...guard.CRITICAL_API_GLOBS].sort());
-  // A glob whose first segment is a wildcard could also reach apps/api: it must not match any
-  // fast-class path, or it has to be mirrored above.
-  const probes = ["apps/api/src/x.ts", "apps/api/src/a/b/x.ts", "apps/api/test/x.spec.ts", "apps/api/test/a/x.spec.ts"];
-  for (const g of tierGlobs.filter((x) => /[*{]/.test(x.split("/")[0]))) {
+  // Any other glob whose literal prefix could still reach apps/api (wildcard first, or `apps/*/…`,
+  // `apps/{api,worker}/…`) must match no fast-class probe, or it has to be mirrored above.
+  const probes = [
+    "apps/api/src/x.ts", "apps/api/src/a/b/c/d/x.ts", "apps/api/src/auth/x.ts", "apps/api/src/money/a/x.ts",
+    "apps/api/src/settlement/a/b/x.ts", "apps/api/test/x.spec.ts", "apps/api/test/a/b/c/x.spec.ts", "apps/api/test/auth/x.spec.ts",
+  ];
+  let probed = 0;
+  for (const g of tierGlobs.filter((x) => !x.startsWith("apps/api/"))) {
+    const pre = literalPrefix(g);
+    if (pre !== "" && !"apps/api".startsWith(pre) && !pre.startsWith("apps/api")) continue;
+    probed++;
     for (const p of probes) assert.ok(!guard.globToRegExp(g).test(p), `tier glob ${g} matches ${p}`);
   }
+  assert.ok(probed >= 1, "no wildcard-prefixed tier glob probed (parser regression?)");
+});
+
+test("the drift parser rejects the YAML forms it cannot read", () => {
+  assert.throws(() => globLists("    tiers:\n      a:\n        globs:\n          - apps/api/src/x/**\n", "t"));
+  assert.deepEqual(globLists("        globs: ['apps/api/src/{a,b}/**', \"c\"]  # note\n", "t"), ["apps/api/src/{a,b}/**", "c"]);
+  assert.equal(literalPrefix("apps/{api,worker}/src/**"), "apps");
+  assert.equal(literalPrefix("*/*/package.json"), "");
 });
 
 test("config.yml keeps advisory paused, manual routes, and the full suite in both decisions", () => {

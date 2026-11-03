@@ -241,13 +241,14 @@ jobs:
               printf '{"decision":"FORCE_FULL","reason":"%s"}\n' "$1" > /tmp/tia/guard.json
             }
             rc=0
-            node --test .circleci/scripts/tia-risk-guard.test.cjs || rc=$?
+            # `timeout`: a hang must not reach no_output_timeout, which would fail the job before the suite.
+            timeout 120 node --test .circleci/scripts/tia-risk-guard.test.cjs || rc=$?
             if [ "$rc" -ne 0 ]; then
               force_full "guard self-test failed (exit $rc)"
               exit 0
             fi
             rc=0
-            node .circleci/scripts/tia-risk-guard.cjs --repo ~/project --out /tmp/tia || rc=$?
+            timeout 120 node .circleci/scripts/tia-risk-guard.cjs --repo ~/project --out /tmp/tia || rc=$?
             if [ "$rc" -ne 0 ]; then force_full "guard exited $rc"; fi
       # Shadow mode, step 1: record the checks and the selection without letting either fail
       # the job. With no impact data yet, list-tests may fail, select nothing or fall back to

@@ -58,8 +58,9 @@ const CRITICAL_API_GLOBS = [
   "apps/api/src/catalog/{erpnext-*,read-down,sale-sync-ops}/**",
 ];
 
-// Graph glob syntax: `*` stays inside one segment, `**` spans segments (`**/` also matches no
-// segment), `{a,b}` expands. Returns the pattern body; globToRegExp anchors it.
+// Graph glob syntax (pgraph/globs.py): `*` stays inside one segment, `?` is one character of a
+// segment, `**` spans segments (`**/` also matches no segment), `{a,b}` expands. Returns the
+// pattern body; globToRegExp anchors it.
 function globBody(glob) {
   let re = "";
   for (let i = 0; i < glob.length; i++) {
@@ -73,15 +74,17 @@ function globBody(glob) {
         i++;
       }
     } else if (c === "*") re += "[^/]*";
+    else if (c === "?") re += "[^/]";
     else if (c === "{") {
       const end = glob.indexOf("}", i);
       re += `(?:${glob.slice(i + 1, end).split(",").map(globBody).join("|")})`;
       i = end;
-    } else re += c.replace(/[.+?^$()|[\]\\]/g, "\\$&");
+    } else re += c.replace(/[.+^$()|[\]\\]/g, "\\$&");
   }
   return re;
 }
-const globToRegExp = (glob) => new RegExp(`^${globBody(glob)}$`);
+// dotAll, as pgraph compiles with re.DOTALL: `.*` must also cross a line terminator in a name.
+const globToRegExp = (glob) => new RegExp(`^${globBody(glob)}$`, "s");
 
 const compile = (globs) => globs.map((g) => globToRegExp(BC + g));
 const FAST_RES = compile(FAST_GLOBS);
@@ -93,6 +96,8 @@ function pathRisk(p) {
   if (!p || p.startsWith("/") || p.includes("\\") || p.split("/").some((s) => s === ".." || s === "." || s === "")) {
     return "unclassifiable path";
   }
+  // Control characters and line/paragraph separators in a name are never ordinary source.
+  if (/[\u0000-\u001f\u007f\u2028\u2029]/.test(p)) return "unclassifiable path";
   if (CRITICAL_RES.some((re) => re.test(p))) return "critical Backend-Core tier";
   if (!FAST_RES.some((re) => re.test(p)) || EXCLUDE_RES.some((re) => re.test(p))) {
     return "outside the API fast class";
@@ -142,7 +147,8 @@ function parseRawZ(out) {
 }
 
 function git(repo, args) {
-  return execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 << 20 });
+  // A hung git call (a stalled fetch) throws after a minute and so becomes FORCE_FULL.
+  return execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 << 20, timeout: 60_000 });
 }
 
 // The whole PR diff against merge-base(origin/main, HEAD), or a FORCE_FULL result on any doubt.
