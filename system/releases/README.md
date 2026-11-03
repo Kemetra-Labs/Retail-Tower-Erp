@@ -39,8 +39,9 @@ Locally, run `python .github/release/system_gate.py --manifest system/releases/<
 - `current_manifest`: the version live now. For a same-version redeploy it is the same file.
 - `jira_key`.
 - `dry_run`: defaults to `true`.
+- `force_all`: defaults to `false`. When `false`, a product that is the same in both files is skipped (RT-1085). `true` runs all four documents, to prove the whole path.
 
-The preflight runs the gate above on both files, plus the online checks of each product and G8 (the live lab check, step 1), and writes a planned system ledger. It touches no AWS resource. A live run needs one `aws-lab` approval, then sends four SSM documents in order and stops at the first failure. The ledgers are built by `.github/release/system_ledger.py`. First proven live on 2026-11-01: [run 41306750385](https://github.com/Kemetra-Labs/Retail-Tower-Erp/actions/runs/41306750385), RT-1032.
+The preflight runs the gate above on both files, plus the online checks of each product and G8 (the live lab check, step 1), and writes a planned system ledger. It touches no AWS resource. A live run needs one `aws-lab` approval, then sends the documents of the step plan in order and stops at the first failure. The ledgers are built by `.github/release/system_ledger.py`. First proven live on 2026-11-01: [run 41306750385](https://github.com/Kemetra-Labs/Retail-Tower-Erp/actions/runs/41306750385), RT-1032.
 
 ### 1. Find the version live now
 
@@ -79,10 +80,21 @@ Before G8, a stale manifest was refused only on lab-01, before any version chang
 
 ### 2. Choose the target
 
-| Goal | `manifest` | `current_manifest` |
-| --- | --- | --- |
-| Prove the path, change no version | the live file | the same file |
-| Upgrade | a new file | the live file |
+| Goal | `manifest` | `current_manifest` | `force_all` |
+| --- | --- | --- | --- |
+| Prove the path, change no version | the live file | the same file | `true` |
+| Upgrade | a new file | the live file | `false` |
+
+**The step plan (RT-1085).** The preflight compares the two files and decides, for each document, whether it runs:
+
+| Step | Skipped when |
+| --- | --- |
+| `backup` | the Backend-Core step is skipped (the deploy reads the backup the backup step reports) |
+| `backend` | `backendCore.release` is the same tag in both files, and the tag resolves to a commit |
+| `console` | `adminConsole.release` is the same tag in both files, and the tag resolves to a commit |
+| `erp` | `erpnext.image` (digest) and `erpnext.sha` are the same in both files |
+
+A tag that cannot be resolved counts as changed, so its step runs. Releases are immutable (G2), so one tag always names one commit. The planned ledger lists the plan under `stepPlan`, with a reason for each step, and `summary.md` shows it under "Steps", so the approver sees it before approving. A live run where every step would be skipped is refused in the preflight (`nothing to deploy`); set `force_all=true` to prove the path. G3 ties the Console to the Backend-Core release commit, so a Backend-Core upgrade always comes with a Console upgrade.
 
 The planned ledger reports two rollback rules:
 - `backend.rollbackAllowed` (`rollbackAllowed` in the live ledger): `false` when the Backend-Core releases differ in migrations, or when the verifier could not compare them. The auto-revert then only records that an owner restore or forward fix is needed.
@@ -97,6 +109,7 @@ gh workflow run deploy-system-lab.yml --ref main -f manifest=system/releases/<ta
 `<target>` and `<live>` are the files from step 2; for a same-version run they are the same file. The artifact `deploy-system-lab-plan-<run id>` holds `ledger.json` and `summary.md`. Go on only when:
 - `outcome` is `planned`;
 - `refusals` is empty;
+- `stepPlan` runs the steps you expect (a dry run with nothing to deploy is still `planned`, with every step `skip`);
 - G1–G8 all pass (G1–G5 are the gate above; G6 is the ERP image attestation from `build-erp-image.yml`; G7 is the `aws-lab` required reviewer; G8 is the live lab check of step 1);
 - `environmentGate` is `reviewed`.
 
@@ -104,7 +117,7 @@ The `backend-core/` folder in the artifact holds the Backend-Core verifier's own
 
 ### 4. Live run
 
-Dispatch the same inputs with `-f dry_run=false`. The preflight runs again. Then the live job waits for the `aws-lab` reviewer: open the run, choose **Review deployments**, then **Approve and deploy**. The job then sends:
+Dispatch the same inputs with `-f dry_run=false` (and `-f force_all=true` to prove the path). The preflight runs again. Then the live job waits for the `aws-lab` reviewer: open the run, choose **Review deployments**, then **Approve and deploy**. The job then sends the steps of the plan, skipping the others:
 
 | Step | Document | Host | What changes | Completion line |
 | --- | --- | --- | --- | --- |
@@ -113,7 +126,7 @@ Dispatch the same inputs with `-f dry_run=false`. The preflight runs again. Then
 | `console` | `RT-ConsoleLabDeploy` | lab-01 | the `current` symlink (`RT_SWAP unchanged` for the same release) | `RT_DONE release=<tag>` |
 | `erp` | `RT-ErpLabDeploy` | lab-03 | an ERP backup, the image, migrate; the workers stop and resume | `RT_OUTCOME=deployed` |
 
-On 2026-11-01 a same-version run took about 2 minutes of preflight and 5 minutes of live job, of which the ERP step took about 4. Even with no version change, it writes a lab-02 dump and an ERP backup, and stops and resumes the ERP workers once.
+On 2026-11-01 a same-version run (all four steps, before RT-1085) took about 2 minutes of preflight and 5 minutes of live job, of which the ERP step took about 4. With `force_all=true`, a run still writes a lab-02 dump and an ERP backup, and stops and resumes the ERP workers once, even with no version change. Without it, an unchanged product's document is not sent at all.
 
 ### 5. Read the live ledger
 
@@ -121,10 +134,11 @@ The artifact `deploy-system-lab-live-ledger-<run id>` holds:
 - `outcome`: `deployed` or `failed-at:<step>`;
 - `failure`;
 - the gate results;
-- for each step: `state` (`ok`, `failed` or `not-run`), `prior`, `target`, its gates and its strict `RT_*` lines;
+- `runSteps`: the steps the verified plan ran;
+- for each step: `state` (`ok`, `failed`, `not-run`, or `skipped` when the plan did not run it), `prior`, `target`, its gates and its strict `RT_*` lines;
 - `manualRollback`.
 
-A same-version run is proven when the outcome is `deployed` and each step shows no version change:
+A `skipped` step changed nothing on its host. G8 ignores it and reads older runs until it finds the product's last real deploy, whether by a system run or by its own workflow. A same-version run with `force_all=true` is proven when the outcome is `deployed` and each step shows no version change:
 - `backend`: `prior.sentry_release` equals the target tag without `backend-core/`, and the `RT_PRIOR` and `RT_TARGET` digests are equal;
 - `console`: its lines hold `RT_SWAP unchanged current=…`;
 - `erp`: `RT_DIGEST_AFTER` equals the manifest digest. Its `prior` comes from `current_manifest`, so it is declared, not measured; the document checks it on lab-03.
@@ -143,6 +157,7 @@ Refusals seen so far:
 | Line | Meaning | Action |
 | --- | --- | --- |
 | `G8 FAIL: <product>: the live lab runs …` (preflight) | `current_manifest` is stale, or a newer run left the host unreconciled | step 1 |
+| `nothing to deploy: every product is unchanged between the manifests` (preflight, live run) | the two files name the same versions | choose the right files (step 2), or set `force_all=true` to prove the path |
 | `G-Host reason=wrapper-does-not-use-the-current-release` | `current_manifest` is stale and G8 could not see it (G8 reads ledgers, not hosts) | step 1 |
 | `G-Host reason=an-earlier-auto-revert-is-armed-or-elapsed` | an earlier Backend-Core revert unit is still there | the owner checks it (`services/backend-core/deploy/README.md`, Live run) |
 | `backup-config reason=next-wrapper-still-uses-the-current-release` | a same-release redeploy on `RT-BackendLabDeploy` older than #218 | the owner updates the document (step 7) |

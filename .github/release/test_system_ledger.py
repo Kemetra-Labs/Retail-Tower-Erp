@@ -19,6 +19,10 @@ BACKUP_LINE = "RT_BACKUP name=rtlab-v0.3.1-to-v0.3.2-20261101T080000Z.dump sha25
 OLD_IMAGE = "ghcr.io/kemetra-labs/rt-erpnext@sha256:" + "b" * 64
 OLD_SHA = "c" * 40
 GOOD_GATES = "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass G8=pass"
+ALL_STEPS = "backup,backend,console,erp"
+SHA_A, SHA_B = "1" * 40, "2" * 40
+SAME_COMMITS = ["target_backend_release=" + SHA_A, "current_backend_release=" + SHA_A,
+                "target_console_release=" + SHA_B, "current_console_release=" + SHA_B]
 
 
 def write_current(directory, name="lab-2026.10.0"):
@@ -98,16 +102,17 @@ class GateResults(unittest.TestCase):
 
 
 class Plan(unittest.TestCase):
-    def plan(self, gates, failure="", live=False):
+    def plan(self, gates, failure="", live=False, current=None, commits=(), force_all=False):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         gates_file = pathlib.Path(tmp.name) / "gates.txt"
         gates_file.write_text(gates, encoding="utf-8")
-        argv = ["plan", "--manifest", str(MANIFEST), "--current-manifest", str(MANIFEST), "--jira-key", JIRA,
+        argv = ["plan", "--manifest", str(MANIFEST), "--current-manifest", str(current or MANIFEST), "--jira-key", JIRA,
                 "--gates-file", str(gates_file), "--failure", failure, "--rollback-allowed", "true",
                 "--erp-rollback-class", "image-only", "--environment-gate", "reviewed", "--out", tmp.name,
                 "--generated-at", "2026-11-01T00:00:00Z"]
-        code, _, _ = run_cli(*argv, *(["--live"] if live else []))
+        argv += [item for commit in commits for item in ("--commit", commit)]
+        code, _, _ = run_cli(*argv, *(["--live"] if live else []), *(["--force-all"] if force_all else []))
         return code, json.loads((pathlib.Path(tmp.name) / "ledger.json").read_text(encoding="utf-8")), tmp.name
 
     def test_all_rules_passing_is_planned(self):
@@ -134,9 +139,74 @@ class Plan(unittest.TestCase):
     def test_a_live_plan_says_so(self):
         self.assertEqual(self.plan("", live=True)[1]["mode"], "live")
 
+    def actions(self, ledger):
+        return {item["step"]: item["action"] for item in ledger["stepPlan"]}
+
+    def manifest_with(self, tmp, name, **changes):
+        """The tested manifest under another system name, with some product entries replaced."""
+        data = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        data["system"] = name
+        data.update(changes)
+        path = pathlib.Path(tmp) / f"{name}.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    def test_a_same_version_dry_run_skips_every_step_and_is_planned(self):
+        gates = "".join(f"{rule} pass: ok\n" for rule in system_ledger.RULES)
+        code, ledger, tmp = self.plan(gates, commits=SAME_COMMITS)
+        self.assertEqual((code, ledger["outcome"], ledger["forceAll"]), (0, "planned", False))
+        self.assertEqual(self.actions(ledger), {"backup": "skip", "backend": "skip", "console": "skip", "erp": "skip"})
+        self.assertIn("unchanged: backend-core/v0.3.2 at 111111111111", ledger["stepPlan"][1]["reason"])
+        self.assertIn("- erp: skip, unchanged:", (pathlib.Path(tmp) / "summary.md").read_text(encoding="utf-8"))
+
+    def test_force_all_runs_every_step(self):
+        code, ledger, tmp = self.plan("", commits=SAME_COMMITS, force_all=True)
+        self.assertEqual((code, ledger["forceAll"]), (0, True))
+        self.assertEqual(set(self.actions(ledger).values()), {"run"})
+        self.assertIn("Steps (force_all):", (pathlib.Path(tmp) / "summary.md").read_text(encoding="utf-8"))
+
+    def test_a_live_run_with_nothing_to_deploy_is_refused(self):
+        code, ledger, _ = self.plan("", live=True, commits=SAME_COMMITS)
+        self.assertEqual((code, ledger["outcome"]), (1, "refused"))
+        self.assertTrue(any(r.startswith("nothing to deploy") for r in ledger["refusals"]))
+        self.assertEqual(self.plan("", live=True, commits=SAME_COMMITS, force_all=True)[0], 0)
+
+    def test_a_tag_whose_commit_is_unknown_or_different_runs(self):
+        other = SAME_COMMITS[:1] + ["current_backend_release=" + SHA_B] + SAME_COMMITS[2:]
+        unresolved = ["target_backend_release=", "current_backend_release="] + SAME_COMMITS[2:]
+        for commits in ((), other, unresolved):
+            ledger = self.plan("", commits=commits)[1]
+            self.assertEqual((self.actions(ledger)["backend"], self.actions(ledger)["backup"]), ("run", "run"), commits)
+            self.assertIn("did not resolve to one commit", ledger["stepPlan"][1]["reason"])
+
+    def test_each_product_is_judged_on_its_own_and_the_backup_follows_the_backend(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        current = write_current(tmp.name)  # every product differs
+        self.assertEqual(set(self.actions(self.plan("", current=current, commits=SAME_COMMITS)[1]).values()), {"run"})
+        older = json.loads(current.read_text(encoding="utf-8"))
+        for index, (product, changed) in enumerate((("erpnext", {"erp"}), ("adminConsole", {"console"}),
+                                                    ("backendCore", {"backup", "backend"}))):
+            path = self.manifest_with(tmp.name, f"lab-2026.10.{index + 1}", **{product: older[product]})
+            ledger = self.plan("", current=path, commits=SAME_COMMITS)[1]
+            self.assertEqual({k for k, v in self.actions(ledger).items() if v == "run"}, changed, product)
+
+    def test_an_erp_image_with_another_commit_runs(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        erp = dict(json.loads(MANIFEST.read_text(encoding="utf-8"))["erpnext"], sha=OLD_SHA)
+        path = self.manifest_with(tmp.name, "lab-2026.10.9", erpnext=erp)
+        self.assertEqual(self.actions(self.plan("", current=path, commits=SAME_COMMITS)[1])["erp"], "run")
+
+    def test_malformed_commits_are_refused(self):
+        for bad in (["target_backend_release=xyz"], ["other=" + SHA_A], ["target_backend_release"],
+                    ["target_backend_release=" + SHA_A] * 2):
+            with self.assertRaises(ValueError, msg=bad):
+                system_ledger.parse_commits(bad)
+
 
 class Final(unittest.TestCase):
-    def final(self, ok, lines=None, failure=None, current=None, rollback_allowed="false", erp_class="restore"):
+    def final(self, ok, lines=None, failure=None, current=None, rollback_allowed="false", erp_class="restore", run_steps=ALL_STEPS):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         live = pathlib.Path(tmp.name) / "live"
@@ -146,7 +216,8 @@ class Final(unittest.TestCase):
         out = pathlib.Path(tmp.name) / "out"
         code, _, err = run_cli("final", "--manifest", str(MANIFEST), "--current-manifest", str(current_path), "--jira-key", JIRA,
                                "--live-dir", str(live), "--gates", GOOD_GATES, "--rollback-allowed", rollback_allowed,
-                               "--erp-rollback-class", erp_class, "--out", str(out), "--generated-at", "2026-11-01T00:00:00Z")
+                               "--erp-rollback-class", erp_class, "--out", str(out), "--generated-at", "2026-11-01T00:00:00Z",
+                               "--run-steps", run_steps)
         self.assertEqual((code, err), (0, ""))
         return json.loads((out / "ledger.json").read_text(encoding="utf-8")), (out / "summary.md").read_text(encoding="utf-8")
 
@@ -245,12 +316,58 @@ class Final(unittest.TestCase):
         self.assertEqual([s["state"] for s in ledger["steps"]], ["failed", "not-run", "not-run", "not-run"])
         self.assertIn("RT-BackendLabBackup", ledger["failure"]["reason"])
 
+    def test_skipped_steps_are_recorded_and_never_rolled_back(self):
+        ledger, summary = self.final(["backup", "backend", "console"], {k: v for k, v in self.LINES.items() if k != "erp"},
+                                     run_steps="backup,backend,console")
+        self.assertEqual(ledger["outcome"], "deployed")
+        self.assertEqual(ledger["runSteps"], ["backup", "backend", "console"])
+        self.assertEqual([(s["step"], s["state"]) for s in ledger["steps"]],
+                         [("backup", "ok"), ("backend", "ok"), ("console", "ok"), ("erp", "skipped")])
+        self.assertEqual([item["step"] for item in ledger["manualRollback"]], ["backend", "console"])
+        self.assertIn("erp (RT-ErpLabDeploy on lab-03): skipped", summary)
+
+    def test_a_failure_after_skipped_steps_is_the_failed_one(self):
+        ledger, _ = self.final([], {"erp": ["RT_GATE check=fail:x", "RT_OUTCOME=failed"]}, failure="erp: ended Failed", run_steps="erp")
+        self.assertEqual(ledger["outcome"], "failed-at:erp")
+        self.assertEqual([s["state"] for s in ledger["steps"]], ["skipped", "skipped", "skipped", "failed"])
+        self.assertEqual(ledger["manualRollback"], [])
+
+    def test_a_planned_step_that_never_got_its_parameters_was_not_sent(self):
+        # e.g. the OIDC or compat step failed before the first planned document (backend skipped)
+        ledger, _ = self.final([], run_steps="console,erp")
+        self.assertEqual(ledger["outcome"], "failed-at:console")
+        self.assertEqual(ledger["failure"]["reason"], "console: no parameters file, so RT-ConsoleLabDeploy was not sent")
+
+    def test_a_step_with_its_parameters_but_no_output_may_have_been_sent(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        live = pathlib.Path(tmp.name) / "live"
+        live.mkdir()
+        (live / "console-params.json").write_text("{}", encoding="utf-8")
+        out = pathlib.Path(tmp.name) / "out"
+        code, _, _ = run_cli("final", "--manifest", str(MANIFEST), "--current-manifest", str(write_current(tmp.name)), "--jira-key", JIRA,
+                             "--live-dir", str(live), "--gates", GOOD_GATES, "--out", str(out), "--run-steps", "console")
+        self.assertEqual(code, 0)
+        reason = json.loads((out / "ledger.json").read_text(encoding="utf-8"))["failure"]["reason"]
+        self.assertEqual(reason, "live job stopped before or during RT-ConsoleLabDeploy")
+
+    def test_a_run_of_only_skipped_steps_is_deployed_with_nothing_to_roll_back(self):
+        ledger, _ = self.final([], run_steps="")
+        self.assertEqual((ledger["outcome"], ledger["manualRollback"]), ("deployed", []))
+
+    def test_run_steps_must_be_known_once_and_keep_the_backup_with_the_backend(self):
+        for bad in ("backend", "backup", "backup,backend,deploy", "erp,erp", "console;id"):
+            with self.assertRaises(ValueError, msg=bad):
+                system_ledger.parse_run_steps(bad)
+        self.assertEqual(system_ledger.parse_run_steps("console,erp"), {"console", "erp"})
+
     def test_a_malformed_gate_string_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             live = pathlib.Path(tmp) / "live"
             live.mkdir()
             code, _, err = run_cli("final", "--manifest", str(MANIFEST), "--current-manifest", str(MANIFEST), "--jira-key", JIRA,
-                                   "--live-dir", str(live), "--gates", "G1=pass; id", "--out", str(pathlib.Path(tmp) / "out"))
+                                   "--live-dir", str(live), "--gates", "G1=pass; id", "--out", str(pathlib.Path(tmp) / "out"),
+                                   "--run-steps", ALL_STEPS)
             self.assertEqual(code, 2)
             self.assertIn("--gates", err)
 

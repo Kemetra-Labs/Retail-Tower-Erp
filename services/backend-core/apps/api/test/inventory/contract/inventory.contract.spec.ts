@@ -88,6 +88,11 @@ const OPERATION_IDS = [
   "getTrackingIdentity",
   "getTrackingIdentityPositions",
   "listTrackingIdentityExpiryCorrections",
+  // RT-451 Step 0 (contract-only): the Tracking Resolution queue, its bind and
+  // the sale-line findings.
+  "listTrackingResolutionQueue",
+  "bindTrackingResolution",
+  "listSaleLineFindings",
 ] as const;
 
 // Operator-surface ops use cookieAuth; the backfill is platform/admin.
@@ -118,6 +123,9 @@ const OPERATOR_OPERATION_IDS = [
   "getTrackingIdentity",
   "getTrackingIdentityPositions",
   "listTrackingIdentityExpiryCorrections",
+  "listTrackingResolutionQueue",
+  "bindTrackingResolution",
+  "listSaleLineFindings",
 ];
 const ADMIN_OPERATION_IDS = ["backfillSaleLinkedMovements"];
 
@@ -132,6 +140,7 @@ const WRITE_OPERATION_IDS = [
   "placeQualityHold",
   "createInventoryRecall",
   "correctTrackingIdentityExpiry",
+  "bindTrackingResolution",
 ];
 // releaseTrackingHold is naturally idempotent (a released hold is final; a
 // second release writes nothing), so it carries no Idempotency-Key.
@@ -155,6 +164,8 @@ const READ_OPERATION_IDS = [
   "getTrackingIdentity",
   "getTrackingIdentityPositions",
   "listTrackingIdentityExpiryCorrections",
+  "listTrackingResolutionQueue",
+  "listSaleLineFindings",
 ];
 
 const MOVEMENTS_PATH = "/api/inventory/v1/stores/{storeId}/movements";
@@ -177,6 +188,9 @@ const SAFETY_TTL_PATH = "/api/inventory/v1/settings/safety-ttl";
 const SAFETY_FINDINGS_PATH = "/api/inventory/v1/safety/findings";
 const IDENTITY_PATH = "/api/inventory/v1/tracking-identities/{identityId}";
 const IDENTITY_POSITIONS_PATH = "/api/inventory/v1/tracking-identities/{identityId}/positions";
+const SALE_LINE_FINDINGS_PATH = "/api/inventory/v1/safety/sale-line-findings";
+const RESOLUTION_QUEUE_PATH = "/api/inventory/v1/tracking-resolutions";
+const RESOLUTION_BIND_PATH = "/api/inventory/v1/tracking-resolutions/{saleId}/bind";
 
 // Field-name substrings forbidden anywhere in the contract (§XIV — no PII /
 // money / payment / tender on the inventory ledger in v1).
@@ -225,7 +239,7 @@ interface SchemaObject {
 
 interface OpenApiDocument {
   openapi?: string;
-  info?: { title?: string; version?: string };
+  info?: { title?: string; version?: string; description?: string };
   paths?: Record<string, PathItem>;
   components?: {
     schemas?: Record<string, SchemaObject>;
@@ -349,7 +363,7 @@ describe("inventory/inventory.yaml — loadability", () => {
 // 2. Operations present, uniquely named, correctly secured
 // ===========================================================================
 describe("inventory/inventory.yaml — operations", () => {
-  it("declares exactly the six 009 operationIds, RT-432's listStockLocations, RT-448's listTrackingIdentities, RT-435's four, RT-449's nine and RT-1081's five", () => {
+  it("declares exactly the six 009 operationIds, RT-432's listStockLocations, RT-448's listTrackingIdentities, RT-435's four, RT-449's nine, RT-451's three and RT-1081's five", () => {
     const ids = inventoryOperations()
       .map((o) => o.op.operationId)
       .filter((id): id is string => typeof id === "string")
@@ -861,6 +875,10 @@ describe("inventory/inventory.yaml — RT-449 PR 2 Safety TTL and findings", () 
     "TrackingConsistencyFinding",
   ];
 
+  it("was introduced at 1.8.0-draft (version moved on in RT-451 Step 0)", () => {
+    expect(inventoryDoc.info?.description).toContain("**1.8.0-draft (RT-449 PR 2, additive;");
+  });
+
   it("bounds the Safety TTL to 60-900 seconds, null meaning the default (H8)", () => {
     const cmd = schema("SetSafetyTtlSettingCommand").properties?.["safetyTtlSeconds"];
     expect(cmd).toMatchObject({ type: ["integer", "null"], minimum: 60, maximum: 900 });
@@ -908,7 +926,7 @@ describe("inventory/inventory.yaml — RT-449 PR 2 Safety TTL and findings", () 
 });
 
 // ===========================================================================
-// RT-1081 — the tracking Console reads and TR-5 (1.9.0-draft)
+// RT-1081 — the tracking Console reads and TR-5 (1.10.0-draft)
 // ===========================================================================
 describe("inventory/inventory.yaml — RT-1081 tracking Console reads and TR-5", () => {
   type Prop = {
@@ -936,14 +954,16 @@ describe("inventory/inventory.yaml — RT-1081 tracking Console reads and TR-5",
   const op = (id: string): Op => (findOp(id) ?? {}) as Op;
   const KEYSET_LISTS = ["listTrackingHolds", "listInventoryRecalls", "listTrackingIdentityExpiryCorrections"];
 
-  it("is the 1.9.0 draft", () => {
-    expect(inventoryDoc.info?.version).toBe("1.9.0-draft");
+  it("is the 1.10.0 draft (after RT-451 Step 0 took 1.9.0)", () => {
+    expect(inventoryDoc.info?.version).toBe("1.10.0-draft");
   });
 
-  it("ships the runtime with the contract: only the retired backfill keeps an x-runtime-status marker", () => {
+  it("ships its runtime with the contract: none of RT-1081's operations keeps an x-runtime-status marker", () => {
+    const rt1081 = ["listTrackingHolds", "listInventoryRecalls", "getTrackingIdentity", "getTrackingIdentityPositions",
+      "listTrackingIdentityExpiryCorrections"];
     for (const { op: o } of inventoryOperations()) {
-      const marked = (o as Record<string, unknown>)["x-runtime-status"] !== undefined;
-      expect(marked).toBe(o.operationId === "backfillSaleLinkedMovements");
+      if (!rt1081.includes(o.operationId ?? "")) continue;
+      expect((o as Record<string, unknown>)["x-runtime-status"]).toBeUndefined();
     }
   });
 
@@ -1008,7 +1028,7 @@ describe("inventory/inventory.yaml — RT-1081 tracking Console reads and TR-5",
       "serial_position_out_of_range",
       "profile_erp_flag_mismatch",
     ]);
-    expect(op("listInventorySafetyFindings").description).toMatch(/1\.9\.0 emits none/);
+    expect(op("listInventorySafetyFindings").description).toMatch(/1\.10\.0 emits none/);
   });
 
   it("TR-5: the three commands take the fixed reason list; projections keep the pattern", () => {
@@ -1023,6 +1043,114 @@ describe("inventory/inventory.yaml — RT-1081 tracking Console reads and TR-5",
     }
     for (const name of ["TrackingHold", "InventoryRecall", "InventoryRecallSummary", "TrackingIdentityExpiryCorrection"]) {
       expect(schema(name).properties?.["reasonCode"]?.$ref).toBe("#/components/schemas/SafetyReasonCode");
+    }
+  });
+});
+
+// ===========================================================================
+// RT-451 Step 0 — Tracking Resolution queue, bind and sale-line findings
+// (1.9.0-draft, contract-only; RT-455 OD-1, OD-2, OD-9)
+// ===========================================================================
+describe("inventory/inventory.yaml — RT-451 Step 0 Tracking Resolution", () => {
+  type Prop = { type?: unknown; enum?: unknown[]; const?: unknown; minLength?: number; $ref?: string };
+  type Schema = { properties?: Record<string, Prop>; required?: string[]; additionalProperties?: unknown };
+  type Op = OperationObject & { "x-runtime-status"?: string; "x-runtime-note"?: string; description?: string };
+  const schema = (name: string): Schema => (inventoryDoc.components?.schemas?.[name] ?? {}) as Schema;
+  const op = (path: string, method: string): Op => (inventoryDoc.paths?.[path]?.[method] ?? {}) as Op;
+  const STEP0: Array<[string, string, string]> = [
+    [RESOLUTION_QUEUE_PATH, "get", "listTrackingResolutionQueue"],
+    [RESOLUTION_BIND_PATH, "post", "bindTrackingResolution"],
+    [SALE_LINE_FINDINGS_PATH, "get", "listSaleLineFindings"],
+  ];
+
+  it("was introduced at 1.9.0-draft and its note cites the owner decisions (version moved on in RT-1081)", () => {
+    expect(inventoryDoc.info?.description).toContain("**1.9.0-draft (RT-451 Step 0, additive, contract-only;");
+    expect(inventoryDoc.info?.description).toContain("RT-455 comment 15233, OD-1, OD-2 and OD-9");
+  });
+
+  it.each(STEP0)("maps %s %s to %s, marked contract-only for RT-451", (path, method, operationId) => {
+    const o = op(path, method);
+    expect(o.operationId).toBe(operationId);
+    expect(o["x-runtime-status"]).toBe("contract-only");
+    expect(o["x-runtime-note"]).toContain("RT-451");
+    expect(o.security).toEqual([{ cookieAuth: [] }]);
+    expect(o.responses?.["429"]).toEqual({ $ref: "#/components/responses/TooManyRequests" });
+  });
+
+  it("pages both reads with an RT-731 keyset cursor, limit 1-200 and a required nullable nextCursor", () => {
+    for (const [path, , ] of STEP0.filter(([, m]) => m === "get")) {
+      const params = (op(path, "get").parameters ?? []) as Array<{ name?: string; schema?: Record<string, unknown> }>;
+      expect(params.find((p) => p.name === "cursor")?.schema).toMatchObject({ type: "string", maxLength: 1024 });
+      expect(params.find((p) => p.name === "limit")?.schema).toMatchObject({ minimum: 1, maximum: 200, default: 50 });
+    }
+    for (const name of ["TrackingResolutionQueue", "SaleLineFindingList"]) {
+      expect(schema(name).required).toEqual(expect.arrayContaining(["items", "nextCursor"]));
+      expect(schema(name).properties?.["nextCursor"]?.type).toEqual(["string", "null"]);
+    }
+  });
+
+  it("gives the queue a store_manager count (OD-9) and keeps every projection strict", () => {
+    expect(schema("TrackingResolutionQueue").required).toContain("unresolvedCount");
+    expect(op(RESOLUTION_QUEUE_PATH, "get").description).toContain("A store_manager gets only the count");
+    for (const name of [
+      "TrackingResolutionQueue",
+      "TrackingResolutionQueueItem",
+      "UnresolvedTrackedLine",
+      "BindTrackingResolutionCommand",
+      "TrackingResolutionLineBinding",
+      "TrackingResolution",
+      "SaleLineFinding",
+      "SaleLineFindingList",
+    ]) {
+      expect(schema(name).additionalProperties).toBe(false);
+    }
+    expect(schema("UnresolvedTrackedLine").properties?.["reason"]?.enum).toEqual([
+      "tracking_missing",
+      "identity_unknown",
+      "identity_other_product",
+    ]);
+  });
+
+  it("makes the bind an idempotent, owner-only, whole-sale command with a required reason and note", () => {
+    const bind = op(RESOLUTION_BIND_PATH, "post");
+    expect(bind.description).toContain("Owner only");
+    expect(bind.description).toContain("EVERY unresolved line of the sale");
+    expect(bind.responses?.["404"]).toEqual({ $ref: "#/components/responses/NotFoundOrCrossTenant" });
+    expect(bind.responses?.["409"]).toEqual({ $ref: "#/components/responses/TrackingResolutionConflict" });
+    const cmd = schema("BindTrackingResolutionCommand");
+    expect(cmd.required).toEqual(["reasonCode", "note", "lines"]);
+    expect(cmd.properties?.["reasonCode"]?.$ref).toBe("#/components/schemas/SafetyReasonCode");
+    expect(cmd.properties?.["note"]?.minLength).toBe(1);
+    const conflict = inventoryDoc.components?.responses?.["TrackingResolutionConflict"] as { description?: string };
+    for (const code of [
+      "tracking_resolution_identity_mismatch",
+      "tracking_resolution_identity_held",
+      "tracking_resolution_identity_expired",
+      "tracking_resolution_already_resolved",
+    ]) {
+      expect(conflict.description).toContain(code);
+    }
+  });
+
+  it("filters sale-line findings by the three event kinds, all critical", () => {
+    const params = (op(SALE_LINE_FINDINGS_PATH, "get").parameters ?? []) as Array<{ name?: string }>;
+    expect(params.map((p) => p.name)).toEqual(["kind", "storeId", "cursor", "limit"]);
+    expect((inventoryDoc.components?.schemas?.["SaleLineFindingKind"] as Prop).enum).toEqual([
+      "unvalidated_tracked_line",
+      "sold_under_hold",
+      "erp_intent_held",
+    ]);
+    expect(schema("SaleLineFinding").properties?.["severity"]?.const).toBe("critical");
+    expect(schema("SaleLineFinding").required).toEqual(expect.arrayContaining(["saleLineId", "kind", "cause"]));
+    expect(op(SALE_LINE_FINDINGS_PATH, "get").description).toContain("one per line, kind and cause");
+  });
+
+  it("does not add the event kinds to the computed findings list (OD-2)", () => {
+    const mapping = (inventoryDoc.components?.schemas?.["InventorySafetyFinding"] as unknown as {
+      discriminator?: { mapping?: Record<string, string> };
+    }).discriminator?.mapping;
+    for (const kind of ["unvalidated_tracked_line", "sold_under_hold", "erp_intent_held", "tracking_unresolved_sale"]) {
+      expect(Object.keys(mapping ?? {})).not.toContain(kind);
     }
   });
 });

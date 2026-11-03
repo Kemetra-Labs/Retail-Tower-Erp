@@ -129,18 +129,26 @@ def reject_rerun(run, workflow):
         raise LiveError(f"{workflow} run {run.get('id')} is a re-run (attempt {run.get('run_attempt')}); read its ledger by hand")
 
 
-def scan(api, key, limit):
+def scan(api, key, limit, floor=None):
     """Newest-first records [(run, ledger or None)] of one workflow, up to and including its newest
-    run that deployed. Dry runs leave no live ledger and are skipped."""
+    run that deployed (for the system workflow: until every product has a finished step, or the runs
+    are older than that product's newest per-product deploy in `floor`). Dry runs leave no live
+    ledger and are skipped."""
     workflow, prefix, _ = SPECS[key]
     listing = api.runs(workflow, limit)
     runs = [run for run in listing["workflow_runs"] if run.get("head_branch") == "main" and run.get("status") == "completed"]
     runs.sort(key=lambda run: (parse_time(run["created_at"]), run["id"]), reverse=True)
-    records = []
+    records, covered = [], set()
     for run in runs:
         run_id = run["id"]
         if not isinstance(run_id, int):
             raise LiveError(f"{workflow}: a run has no numeric id")
+        # A system run older than a product's newest per-product deploy can neither win nor raise an
+        # incident for it (decide() ignores both), so it is not read, even when its ledger expired.
+        if key == "system" and all(
+                product in covered or (product in (floor or {}) and parse_time(run["created_at"]) < floor[product])
+                for product in PRODUCTS):
+            return records
         found = [art for art in api.artifacts(run_id) if art.get("name") == f"{prefix}-{run_id}"]
         if not found:
             if run.get("conclusion") in ("failure", "cancelled", "timed_out") and live_job_started(api, run_id):
@@ -153,7 +161,15 @@ def scan(api, key, limit):
             raise LiveError(f"{workflow} run {run_id}: its live ledger is expired or too large to read")
         ledger = read_ledger(api.download(art["id"]), run_id, key)
         records.append((run, ledger))
-        if ledger["outcome"] == "deployed":
+        if key != "system":
+            if ledger["outcome"] == "deployed":
+                return records
+            continue
+        # RT-1085: a system run can skip products, so one deployed ledger does not end the scan. Go on
+        # until every product has a finished step; an older step of a product can no longer matter.
+        steps = ledger.get("steps") if isinstance(ledger.get("steps"), list) else []
+        covered |= {step.get("step") for step in steps if isinstance(step, dict) and step.get("state") == "ok"}
+        if covered >= set(PRODUCTS):
             return records
     if listing.get("total_count", 0) > len(listing["workflow_runs"]):
         raise LiveError(f"{workflow}: more than {limit} runs and no deployed live ledger in the newest {limit}")
@@ -238,6 +254,17 @@ def fail_gate_of(lines):
     return None
 
 
+def skipped_identity(manifest, product):
+    """What a manifest in a system ledger names for a product, or None when it is not readable."""
+    keys = {"backend": ("backendCore", ("release",)), "console": ("adminConsole", ("release",)), "erp": ("erpnext", ("image", "sha"))}
+    section, fields = keys[product]
+    entry = manifest.get(section) if isinstance(manifest, dict) else None
+    if not isinstance(entry, dict):
+        return None
+    found = tuple(entry.get(field) for field in fields)
+    return found if all(isinstance(value, str) and value for value in found) else None
+
+
 def system_facts(ledger, when, label, events, incidents):
     steps = ledger.get("steps")
     if not isinstance(steps, list):
@@ -254,8 +281,15 @@ def system_facts(ledger, when, label, events, incidents):
             raise LiveError(f"{label}: unknown step")
         if name == "backup":
             continue
-        if state not in ("ok", "failed", "not-run"):
+        if state not in ("ok", "failed", "not-run", "skipped"):
             raise LiveError(f"{label}: the {name} step has an unknown state")
+        if state == "skipped":
+            # RT-1085: the run left this product as it was. It is neither a deploy (it must not clear an
+            # older incident) nor an incident, and is valid only when both manifests name the same version.
+            if skipped_identity(ledger.get("manifest"), name) is None or (
+                    skipped_identity(ledger.get("manifest"), name) != skipped_identity(ledger.get("currentManifest"), name)):
+                raise LiveError(f"{label}: the {name} step is skipped, but the manifests do not name one version")
+            continue
         lines = step.get("lines") or []
         if state == "ok":
             target = step.get("target") or {}
@@ -319,8 +353,13 @@ def decide(manifest, events, incidents):
 def check(api, manifest_path, limit=SCAN_LIMIT):
     manifest = system_ledger.values(system_ledger.load_manifest(manifest_path))
     events, incidents = [], []
-    for key in SPECS:
-        found_events, found_incidents = facts(key, scan(api, key, limit))
+    for key in SPECS:  # the per-product workflows first: their newest deploys bound the system scan
+        floor = None
+        if key == "system":
+            floor = {}
+            for when, product, _, _ in events:
+                floor[product] = max(floor.get(product, when), when)
+        found_events, found_incidents = facts(key, scan(api, key, limit, floor))
         events += found_events
         incidents += found_incidents
     return decide(manifest, events, incidents)
