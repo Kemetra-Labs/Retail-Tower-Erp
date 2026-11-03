@@ -16,6 +16,7 @@ import {
   SupportSessionBoundary,
 } from "@/platform/session/SupportSessionBoundary";
 import { useSupportSession } from "@/platform/session/useSupportSession";
+import { useTrackingSummary } from "@/tracking/useTracking";
 import { useShellNavigator } from "./Navigator";
 import { ScopeHeader } from "./ScopeHeader";
 import { NavEntries, ShellContent, ShellSidebar, ShellTopBar, SkipLink } from "./ShellFrame";
@@ -38,7 +39,13 @@ export function AppShell({ onSignOut, children }: Readonly<AppShellProps>): Reac
   const user = context?.user;
   const roleCode = context?.active_role_code;
   const roleLabel = roleCode ? t(roleKey(roleCode)) : undefined;
-  const groups = tenantNav(roleCode, inSession);
+  // RT-455 (TR-6): the tracking entry waits for the server's summary.
+  const hasTrackedProducts = useTrackingSummary(
+    context?.active_tenant?.id ?? null,
+    roleCode,
+    !inSession,
+  );
+  const groups = tenantNav(roleCode, inSession, { hasTrackedProducts });
   const menu = useShellMenu();
   const menuId = useShellMenuId();
   const navigator = useShellNavigator();

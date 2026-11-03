@@ -16,6 +16,13 @@
         "files": ["design/claude-design-system/preview/foundations-content.html"],
         "createdAt": "2026-10-11T16:57:14.168Z",
         "reason": "Claude (not user): same detector artifact as state-ladder; .banner padding uses var(--space-*) from the @import the detector does not resolve; headless Chromium render 2026-10-11 shows 12px/16px inset. Note: value \"*\" suppresses ALL cramped-padding findings in this file; the finding carried no narrower value"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": ["src/tracking/tracking.css"],
+        "createdAt": "2026-11-03T13:23:29.161Z",
+        "reason": "DESIGN.md 12.4/12.5: critical status surfaces carry a 3px red inline-start edge (Claude, RT-455 consistency band)"
       }
     ]
   }

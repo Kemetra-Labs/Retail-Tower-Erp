@@ -29,6 +29,7 @@ import { shell } from "./en/shell";
 import { shift } from "./en/shift";
 import { stock } from "./en/stock";
 import { tenants } from "./en/tenants";
+import { tracking } from "./en/tracking";
 import type { MessagesOf } from "./types";
 
 export const EN_MODULES = {
@@ -57,6 +58,7 @@ export const EN_MODULES = {
   metrics,
   salesDaily,
   salesByStore,
+  tracking,
 };
 
 export const en: MessagesOf<typeof ar> = {
@@ -85,4 +87,5 @@ export const en: MessagesOf<typeof ar> = {
   ...metrics,
   ...salesDaily,
   ...salesByStore,
+  ...tracking,
 };

@@ -11,6 +11,7 @@ import { canUseSaleSyncOps } from "@/sale-sync/saleSyncLogic";
 import { canReadSales } from "@/sales/saleLogic";
 import { canReadShiftCloses } from "@/shift-closes/shiftCloseLogic";
 import { canReadStockDiscrepancies } from "@/stock-discrepancies/stockDiscrepancyLogic";
+import { showTrackingNav } from "@/tracking/trackingLogic";
 import { canReadUnknownItems } from "@/unknown-items/unknownItemAccess";
 
 /**
@@ -43,7 +44,13 @@ export interface NavGroup {
   readonly entries: readonly NavEntry[];
 }
 
-type Gate = (role: string | null | undefined) => boolean;
+/** What the shell knows about the tenant beyond the role (server signals). */
+export interface NavSignals {
+  /** `getTenantTrackingSummary`; undefined while unknown (TR-6). */
+  readonly hasTrackedProducts?: boolean;
+}
+
+type Gate = (role: string | null | undefined, signals: NavSignals) => boolean;
 const always: Gate = () => true;
 
 interface GatedEntry extends NavEntry {
@@ -82,6 +89,14 @@ const TENANT_NAV: readonly GatedGroup[] = [
         to: "/inventory",
         icon: "inventory",
         canRead: canReadInventory,
+      },
+      // RT-455 (TR-1, TR-6): tracking holds and recalls, listed only once the
+      // tenant's tracking summary says it has tracked products (967, 968).
+      {
+        label: "tracking.nav.label",
+        to: "/tracking",
+        icon: "inventory",
+        canRead: (role, signals) => showTrackingNav(role, signals.hasTrackedProducts),
       },
       {
         label: "shell.nav.stockDiscrepancies",
@@ -155,13 +170,17 @@ const SESSION_NAV: readonly NavGroup[] = [
 export const PLATFORM_NAV: readonly NavGroup[] = SESSION_NAV;
 
 /** The tenant shell's groups for a role; a group left with no entry is dropped. */
-export function tenantNav(role: string | null | undefined, inSession: boolean): NavGroup[] {
+export function tenantNav(
+  role: string | null | undefined,
+  inSession: boolean,
+  signals: NavSignals = {},
+): NavGroup[] {
   if (inSession) return [...SESSION_NAV];
   return TENANT_NAV.map((group) => ({
     id: group.id,
     heading: group.heading,
     entries: group.entries
-      .filter((entry) => entry.canRead(role))
+      .filter((entry) => entry.canRead(role, signals))
       .map(({ canRead: _gate, ...entry }) => entry),
   })).filter((group) => group.entries.length > 0);
 }
