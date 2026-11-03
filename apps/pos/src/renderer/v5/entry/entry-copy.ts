@@ -19,6 +19,8 @@ export const SIGN_IN_COPY = Object.freeze({
   submit: 'دخول',
   signingIn: 'جارٍ تسجيل الدخول…',
   pinPrompt: 'اختر اسمك من القائمة لإدخال الرقم السري.',
+  /** RT-1094 (RT-1042 OD-14): the roster fetch is in flight; shown instead of a blank panel. */
+  rosterLoading: 'جارٍ تحميل قائمة الكاشير…',
   /** The roster could not be fetched because the terminal is offline (`no_connection`). */
   rosterOffline: 'تعذّر تحميل قائمة الكاشير. تحقق من الاتصال.',
   /** Any other roster refusal: no connection hint. */

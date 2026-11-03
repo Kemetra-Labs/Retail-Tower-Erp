@@ -17,6 +17,7 @@ export type RosterState = 'loading' | 'ready' | 'offline' | 'refused' | 'empty';
 const ROSTER_NOTICE: Readonly<
   Partial<Record<RosterState, { tone: 'warning' | 'info'; text: string }>>
 > = Object.freeze({
+  loading: { tone: 'info', text: SIGN_IN_COPY.rosterLoading },
   offline: { tone: 'warning', text: SIGN_IN_COPY.rosterOffline },
   refused: { tone: 'warning', text: SIGN_IN_COPY.rosterRefused },
   empty: { tone: 'info', text: SIGN_IN_COPY.rosterEmpty },
