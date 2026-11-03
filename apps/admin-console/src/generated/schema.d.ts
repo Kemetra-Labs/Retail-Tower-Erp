@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 3c0abcdb922f2fc86f13860d0df10e8e8721b662
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 24cc15fafa229324c65da925ce3ff20cfc544929
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -11544,7 +11544,7 @@ export namespace InventorySchema {
             };
             /**
              * List the tenant's computed inventory safety findings.
-             * @description RT-449 (H6; decisions 953, 954): computed on read, never stored. `active_tracking_hold` (critical): one per active hold, with `storeIds` = the stores where the held identity has a non-zero position. `expired_lot_sellable` (critical): one per identity, store and stocking unit whose `sellable` position is positive while the identity's expiry date is before the store's local business date (a lot is sellable through its expiry date, G7-5); the prompt for the governed `sellable → expired` status move. `expiring_lot` (warning) is reserved and never emitted in 1.8.0: the near-expiry window is a policy value that stays off until RT-50 B1. `tracking_consistency` (critical, 1.9.0, OD-8) is reserved: a tracked product or identity whose records disagree, one finding per `check` grain; each `check` is emitted only once the runtime producing its data ships (RT-451, RT-453), so 1.9.0 emits none. Order: severity, then kind, then ids. Owner and tenant_admin see the tenant (their membership's stores); a store_manager sees only findings in its store scope: a hold appears when the held identity has stock in one of its stores, with `storeIds` narrowed to them. The list is not paginated.
+             * @description RT-449 (H6; decisions 953, 954): computed on read, never stored. `active_tracking_hold` (critical): one per active hold, with `storeIds` = the stores where the held identity has a non-zero position. `expired_lot_sellable` (critical): one per identity, store and stocking unit whose `sellable` position is positive while the identity's expiry date is before the store's local business date (a lot is sellable through its expiry date, G7-5); the prompt for the governed `sellable → expired` status move. `expiring_lot` (warning) is reserved and never emitted in 1.8.0: the near-expiry window is a policy value that stays off until RT-50 B1. `tracking_consistency` (critical, 1.10.0, OD-8) is reserved: a tracked product or identity whose records disagree, one finding per `check` grain; each `check` is emitted only once the runtime producing its data ships (RT-451, RT-453), so 1.10.0 emits none. Order: severity, then kind, then ids. Owner and tenant_admin see the tenant (their membership's stores); a store_manager sees only findings in its store scope: a hold appears when the held identity has stock in one of its stores, with `storeIds` narrowed to them. The list is not paginated.
              */
             get: operations["listInventorySafetyFindings"];
             put?: never;
@@ -11721,6 +11721,66 @@ export namespace InventorySchema {
              * @description RT-449 (RT-50 G7-2, ruling H7): the governed correction of an identity's `expiryDate`. Null clears an optional expiry; when the product's tracking profile requires an expiry, clearing it is a 400. Every correction is kept as history (old date, new date, reason, actor) and steps the Inventory Safety Revision once; the expiry never changes without it. The current date again is a 409 `expiry_unchanged`; a date before the identity's manufacture date is a 400. Another tenant's identity is a non-disclosing 404. Owner or tenant_admin. Idempotent via the `Idempotency-Key` header; nothing is written on a refusal.
              */
             post: operations["correctTrackingIdentityExpiry"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/safety/sale-line-findings": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * List the recorded sale-line findings of tracked selling, newest first.
+             * @description RT-451 (RT-455 OD-2; RT-50 G7-9 rows 2 and 3): the critical findings recorded on a tracked sale line when the sale was captured, or when a Tracking Resolution bound the line (only `erp_intent_held` with cause `edge_map_missing`, see `bindTrackingResolution`), one per line, kind and cause (owner decision 2026-11-03: each cause is its own finding, so a line held by a quality hold and a recall, or both expired and without an edge-map row, records both). `unvalidated_tracked_line`: an exact identity with no `validationId`, or one that does not match an accepted validation of that identity. `sold_under_hold`: an exact identity held or recalled at the sale's `occurredAt`. `erp_intent_held`: an exact identity expired at the sale's business date, or with no ERP edge-map row; the line's effect is at the identity and the sale's ERP posting intent is held. One line can carry more than one kind and cause. Findings are append-only records of past sales: they are never removed or rewritten, including after the cause is repaired. A `tracking_unresolved` sale (row 4) is not a finding; it is in `listTrackingResolutionQueue`. Filters narrow the list and never widen it: `kind` and `storeId`; a store outside the caller's scope or not of this tenant answers an empty page. Order: newest first, `recordedAt DESC, id DESC`, a total, stable order on values fixed when the finding is recorded. Keyset pagination as `listStockMovements` (RT-731): an opaque `cursor` bound to this operation, the tenant and the filters. Walking the pages with the same filters returns no finding twice and reaches every finding that existed when the walk started. The walk is not a snapshot: a finding recorded during a walk is returned by that walk only if it sorts after the walk's current position. Only `nextCursor: null` ends the walk. Owner and tenant_admin see the tenant; a store_manager sees only findings of its own stores, narrowed like `listInventorySafetyFindings`. Any other role is a 403.
+             */
+            get: operations["listSaleLineFindings"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/tracking-resolutions": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * List the Tracking Resolution queue, newest capture first, in keyset pages.
+             * @description RT-451 (RT-455 TR-2, OD-1 and OD-9; RT-50 G7-9 row 4): the sales captured `tracking_unresolved` (a tracked product's line without `tracking`, with an unknown identity, or with another product's identity). Such a sale has no Inventory effect and no ERP posting intent until `bindTrackingResolution` resolves it. Each item is one sale with its unresolved lines. `status` narrows the items: `unresolved` (the default), `resolved` (with the resolution) or `all`. `storeId` narrows to one store; a store not of this tenant, or outside the caller's scope, matches nothing. Order: newest capture first, `capturedAt DESC, saleId DESC`, a total, stable order on values fixed at capture (`occurredAt` is not the key: an offline till can backdate it). Keyset pagination as `listStockMovements` (RT-731): an opaque `cursor` bound to this operation, the tenant and the filters. A sale resolved during a walk of `status=unresolved` drops out of the later pages, and one resolved during a walk of `status=resolved` can enter them, so neither status-filtered walk is a snapshot of membership at its start. `unresolvedCount` counts the unresolved sales in the caller's scope and `storeId`, whatever `status`, `cursor` and `limit`. Owner and tenant_admin read the items. A store_manager gets only the count for its own stores: `items` is always empty and `nextCursor` null (OD-9). Any other role is a 403.
+             */
+            get: operations["listTrackingResolutionQueue"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/tracking-resolutions/{saleId}/bind": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Resolve a tracking_unresolved sale by binding an identity to every unresolved line.
+             * @description RT-451 scope item 4 (RT-50 DC-2; RT-455 TR-2): the governed, audited, high-sensitivity Tracking Resolution of one `tracking_unresolved` sale. One command binds an existing tracking identity to EVERY unresolved line of the sale: `lines` names each unresolved line exactly once and nothing else, or the command is a 400 and nothing is written. In one transaction it records the resolution and its audit record, then commits the sale's Inventory effects at the bound identities and its ERP posting intent together, with the ERP Batch ref frozen from the edge map as at capture. A bound identity with no ERP edge-map row still commits its effect, and the intent is held (G7-9 row 3): the bind records an `erp_intent_held` finding with cause `edge_map_missing` for that line. A bind records no other finding: it refuses a held or expired identity, and it is itself the governed check, so a bound line is never an `unvalidated_tracked_line`. The sale then leaves the unresolved queue. Refusals, nothing written: a sale that is not of this tenant or was never `tracking_unresolved`, and an identity that does not exist or is of another tenant, is a non-disclosing 404; a `saleLineId` that is not an unresolved line of the sale is a 400. 409 `tracking_resolution_identity_mismatch`: an identity is not of the line's product. 409 `tracking_resolution_identity_held`: an identity has an active hold now, or had one at the sale's `occurredAt`. 409 `tracking_resolution_identity_expired`: an identity's expiry date is before the sale's business date (a lot is sellable through its expiry date, G7-5). 409 `tracking_resolution_already_resolved`: the sale was already resolved by another command. The `reasonCode` and a non-blank `note` are required; the runtime trims the note, and a blank one is a 400. It does not step the Inventory Safety Revision. Owner only (high sensitivity, as `releaseTrackingHold`); any other role is a 403. Idempotent via the `Idempotency-Key` header: a replay with the same key and body returns the recorded resolution and writes nothing.
+             */
+            post: operations["bindTrackingResolution"];
             delete?: never;
             options?: never;
             head?: never;
@@ -12115,7 +12175,7 @@ export namespace InventorySchema {
                 sellableQuantity: components["schemas"]["PositiveDecimalQuantity"];
                 stockingUnit: components["schemas"]["StockingUnit"];
             };
-            /** @description RT-50 G7-12 (956), reserved in 1.9.0-draft (RT-1081): a tracked product or identity whose records disagree, one finding per check grain (identity; product × store × unit; identity × store × unit; product). Each `check` is emitted only once the runtime that produces its data has shipped; 1.9.0 emits none. A store_manager sees a finding only when `storeId` is in its scope; a tenant-wide finding (`storeId` null) is owner / tenant_admin only. */
+            /** @description RT-50 G7-12 (956), reserved in 1.10.0-draft (RT-1081): a tracked product or identity whose records disagree, one finding per check grain (identity; product × store × unit; identity × store × unit; product). Each `check` is emitted only once the runtime that produces its data has shipped; 1.10.0 emits none. A store_manager sees a finding only when `storeId` is in its scope; a tenant-wide finding (`storeId` null) is owner / tenant_admin only. */
             TrackingConsistencyFinding: {
                 /**
                  * @description discriminator enum property added by openapi-typescript
@@ -12144,7 +12204,159 @@ export namespace InventorySchema {
                 /** @description The stocking unit of a position check; null for a tenant-wide check. */
                 stockingUnit: components["schemas"]["StockingUnit"] | null;
             };
-            /** @description RT-449: a machine reason code of a hold, recall or expiry correction, lower snake case (e.g. `supplier_notice`, `authority_notice`, `label_misprint`). Projections keep this pattern (RT-1081, TR-5), so a code recorded before 1.9.0 still reads back; commands accept only `SafetyReasonCodeInput`. */
+            /**
+             * @description RT-451 (RT-50 G7-9 rows 2 and 3) the kind of a sale-line finding.
+             * @enum {string}
+             */
+            SaleLineFindingKind: "unvalidated_tracked_line" | "sold_under_hold" | "erp_intent_held";
+            /** @description RT-451 one recorded finding on a tracked sale line, one per line, kind and cause. Append-only. */
+            SaleLineFinding: {
+                /** Format: uuid */
+                id: string;
+                kind: components["schemas"]["SaleLineFindingKind"];
+                /** @constant */
+                severity: "critical";
+                /**
+                 * @description Why the line was recorded; part of the finding's grain (line, kind, cause). `unvalidated_tracked_line`: `validation_missing` (no `validationId`) or `validation_mismatch`. `sold_under_hold`: `quality_hold` or `recall_hold`. `erp_intent_held`: `expired` or `edge_map_missing`.
+                 * @enum {string}
+                 */
+                cause: "validation_missing" | "validation_mismatch" | "quality_hold" | "recall_hold" | "expired" | "edge_map_missing";
+                /** Format: uuid */
+                storeId: string;
+                /** Format: uuid */
+                saleId: string;
+                /** Format: uuid */
+                saleLineId: string;
+                /** Format: uuid */
+                tenantProductRef: string;
+                /**
+                 * Format: uuid
+                 * @description The exact identity the line carries (rows 2 and 3 always have one).
+                 */
+                trackingIdentityId: string;
+                /**
+                 * Format: uuid
+                 * @description The hold the line was sold under; set only for `sold_under_hold`.
+                 */
+                holdId: string | null;
+                /**
+                 * Format: date
+                 * @description The sale's business date at its store.
+                 */
+                businessDate: string;
+                /**
+                 * Format: date-time
+                 * @description When the till recorded the sale.
+                 */
+                occurredAt: string;
+                /**
+                 * Format: date-time
+                 * @description When the server recorded the finding; the order key.
+                 */
+                recordedAt: string;
+            };
+            SaleLineFindingList: {
+                items: components["schemas"]["SaleLineFinding"][];
+                /** @description Opaque cursor for the next page; null when exhausted. */
+                nextCursor: string | null;
+            };
+            TrackingResolutionQueue: {
+                /** @description Always empty for a store_manager (OD-9). */
+                items: components["schemas"]["TrackingResolutionQueueItem"][];
+                /** @description Opaque cursor for the next page; null when exhausted, and always null for a store_manager. */
+                nextCursor: string | null;
+                /** @description The unresolved sales in the caller's scope and `storeId` filter, whatever `status`, `cursor` and `limit`. */
+                unresolvedCount: number;
+            };
+            /** @description One `tracking_unresolved` sale and its unresolved lines. */
+            TrackingResolutionQueueItem: {
+                /** Format: uuid */
+                saleId: string;
+                /** Format: uuid */
+                storeId: string;
+                /**
+                 * Format: date
+                 * @description The sale's business date at its store.
+                 */
+                businessDate: string;
+                /**
+                 * Format: date-time
+                 * @description When the till recorded the sale.
+                 */
+                occurredAt: string;
+                /**
+                 * Format: date-time
+                 * @description When the server received the sale (`pos-sales/sales.yaml` `Sale.receivedAt`); the order key.
+                 */
+                capturedAt: string;
+                /** @enum {string} */
+                status: "unresolved" | "resolved";
+                /** @description The lines that made the sale unresolved, as captured. They stay listed after the sale is resolved; `resolution.lines` gives the identity each one was bound to. No `maxItems` yet: capture lines are uncapped until RT-1052, so a cap could leave a sale that cannot be resolved; add one when RT-1052 caps them. */
+                unresolvedLines: components["schemas"]["UnresolvedTrackedLine"][];
+                /** @description The recorded resolution; null while the sale is unresolved. */
+                resolution: components["schemas"]["TrackingResolution"] | null;
+            };
+            UnresolvedTrackedLine: {
+                /**
+                 * Format: uuid
+                 * @description The sale line (`pos-sales/sales.yaml` `SaleLine.lineRef`).
+                 */
+                saleLineId: string;
+                /** Format: uuid */
+                tenantProductRef: string;
+                /**
+                 * @description `tracking_missing`: the tracked product's line carried no `tracking`. `identity_unknown`: its `identityId` is not an identity of this tenant. `identity_other_product`: the identity is of another product.
+                 * @enum {string}
+                 */
+                reason: "tracking_missing" | "identity_unknown" | "identity_other_product";
+                /**
+                 * Format: uuid
+                 * @description The `tracking.identityId` the till sent; null for `tracking_missing`.
+                 */
+                sentIdentityId: string | null;
+                /** @description The `tracking.code` the till sent; null for `tracking_missing`. */
+                scannedCode: string | null;
+                /** @description The line's quantity as captured (`pos-sales/sales.yaml` `SaleLine.quantity`). */
+                quantity: string;
+                /** @description The line's unit as captured (`SaleLine.unit`). */
+                unit: string;
+            };
+            /** @description Strict command. Tenant, sale scope and actor are resolved server-side. */
+            BindTrackingResolutionCommand: {
+                reasonCode: components["schemas"]["SafetyReasonCode"];
+                /** @description Required operator note (no PII). The runtime trims it; a blank note is a 400. */
+                note: string;
+                /** @description One binding per unresolved line of the sale, each line exactly once; a missing, repeated or foreign `saleLineId` is a 400. No `maxItems` yet: capture lines are uncapped until RT-1052, so a cap could leave a sale that cannot be resolved; add one when RT-1052 caps them. */
+                lines: components["schemas"]["TrackingResolutionLineBinding"][];
+            };
+            TrackingResolutionLineBinding: {
+                /** Format: uuid */
+                saleLineId: string;
+                /**
+                 * Format: uuid
+                 * @description An existing identity of the line's product.
+                 */
+                trackingIdentityId: string;
+            };
+            /** @description RT-451 the recorded, audited Tracking Resolution of one sale. Final: a sale is resolved once. */
+            TrackingResolution: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                saleId: string;
+                reasonCode: components["schemas"]["SafetyReasonCode"];
+                note: string;
+                /**
+                 * Format: uuid
+                 * @description The acting principal's user id (an internal actor reference, not PII).
+                 */
+                resolvedBy: string;
+                /** Format: date-time */
+                resolvedAt: string;
+                /** @description One binding per line the resolution bound. No `maxItems` yet: capture lines are uncapped until RT-1052, so a cap could leave a sale that cannot be resolved; add one when RT-1052 caps them. */
+                lines: components["schemas"]["TrackingResolutionLineBinding"][];
+            };
+            /** @description RT-449: a machine reason code of a hold, recall or expiry correction, lower snake case (e.g. `supplier_notice`, `authority_notice`, `label_misprint`). Projections keep this pattern (RT-1081, TR-5), so a code recorded before 1.10.0 still reads back; commands accept only `SafetyReasonCodeInput`. */
             SafetyReasonCode: string;
             /**
              * @description RT-1081 / RT-455 TR-5 (owner decision RT-972 c14943; OD-4, OD-7): the governed reason a command accepts for a quality hold, a recall or an expiry correction. `other` («أخرى») requires a `note` that is not empty after trimming; without one the command is a 400 `validation_error` and nothing is written. Projections keep `SafetyReasonCode` (the pattern), so a recorded code outside this list still reads back.
@@ -12538,6 +12750,15 @@ export namespace InventorySchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description 409 — RT-451. `tracking_resolution_identity_mismatch`: an identity is not of the line's product. `tracking_resolution_identity_held`: an identity has an active hold now, or had one at the sale's `occurredAt`. `tracking_resolution_identity_expired`: an identity's expiry date is before the sale's business date. `tracking_resolution_already_resolved`: the sale is already resolved. `idempotency_key_conflict`: the `Idempotency-Key` was already used for a different command. Nothing is written. */
+            TrackingResolutionConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description 429 — backfill request exceeded the per-request ceiling (default 500 items). */
             RateLimited: {
                 headers: {
@@ -12584,6 +12805,8 @@ export namespace InventorySchema {
             RecallIdPath: string;
             /** @description A tracking identity; resolved inside the caller's tenant only. */
             IdentityIdPath: string;
+            /** @description A captured sale (`pos-sales/sales.yaml` `Sale.saleRef`); resolved inside the caller's tenant only. */
+            SaleIdPath: string;
         };
         requestBodies: never;
         headers: {
@@ -13380,6 +13603,107 @@ export namespace InventorySchema {
                 403: components["responses"]["ForbiddenOrOriginRejected"];
                 404: components["responses"]["NotFoundOrCrossTenant"];
                 409: components["responses"]["SafetyConflict"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        listSaleLineFindings: {
+            parameters: {
+                query?: {
+                    kind?: components["schemas"]["SaleLineFindingKind"];
+                    /** @description A store of the tenant; lists only its findings. */
+                    storeId?: string;
+                    /** @description Opaque keyset cursor from a prior page's `nextCursor`, bound to the operation, the tenant and the filters (`kind`, `storeId`). A value the server did not issue, cannot decode, or that is reused with other filters is 400 `validation_error`. The cursor carries only a keyset position and a digest of the filters; its position is ANDed with the tenant, the caller's store scope and the filters and never replaces them. The role and store scope are checked on every request and are never carried by the cursor. */
+                    cursor?: string;
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of sale-line findings in the caller's scope, newest first. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SaleLineFindingList"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        listTrackingResolutionQueue: {
+            parameters: {
+                query?: {
+                    status?: "unresolved" | "resolved" | "all";
+                    /** @description A store of the tenant; narrows the items and the count to it. */
+                    storeId?: string;
+                    /** @description Opaque keyset cursor from a prior page's `nextCursor`, bound to the operation, the tenant and the filters (`status`, `storeId`). A value the server did not issue, cannot decode, or that is reused with other filters is 400 `validation_error`. The cursor carries only a keyset position and a digest of the filters; its position is ANDed with the tenant, the caller's scope and the filters and never replaces them. The role is checked on every request and is never carried by the cursor. */
+                    cursor?: string;
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of the queue, newest capture first, and the unresolved count. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TrackingResolutionQueue"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        bindTrackingResolution: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract; the backfill additionally dedups on its provenance pair). */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description A captured sale (`pos-sales/sales.yaml` `Sale.saleRef`); resolved inside the caller's tenant only. */
+                    saleId: components["parameters"]["SaleIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["BindTrackingResolutionCommand"];
+                };
+            };
+            responses: {
+                /** @description The sale's recorded Tracking Resolution. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TrackingResolution"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                409: components["responses"]["TrackingResolutionConflict"];
                 429: components["responses"]["TooManyRequests"];
                 "5XX": components["responses"]["SystemFailure"];
             };
