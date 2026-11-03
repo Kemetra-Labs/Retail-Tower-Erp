@@ -4,6 +4,12 @@
 // prints the selection ratio and every failing spec that was NOT selected (a miss). Misses must
 // stay at 0 for impact analysis ever to be trusted.
 //
+// RT-1083: it also reports the GUARDED selection, the RT-1075 risk guard's decision applied
+// (<outDir>/guard.json). FORCE_FULL means every spec would run, so no miss is possible;
+// TIA_ELIGIBLE means the raw list-tests selection would run. A missing, unreadable, invalid or
+// stale guard.json is FORCE_FULL_UNKNOWN: labelled, with misses null, never a measured pass.
+// The raw fields are unchanged, so the raw-versus-guarded difference stays visible.
+//
 // Advisory only: this script never fails the job. Every problem is reported and it exits 0.
 //
 // usage: tia-shadow-report.cjs <selected.txt> <junit.xml> <outDir> <apiRootDir>
@@ -11,7 +17,8 @@
 //   junit.xml      the converter's report, or a directory whose *.xml reports are all read
 //                  (the CLI numbers outputs.junit, e.g. backend-api-jest-1.xml); spec paths
 //                  in `file` are relative to apiRootDir
-//   outDir         where report.json and report.txt are written (the stored artifact)
+//   outDir         where report.json and report.txt are written (the stored artifact); the
+//                  risk guard step writes guard.json here too
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
@@ -66,8 +73,52 @@ function parseSelection(text, specs, apiRoot) {
   return { selected, unknown };
 }
 
-function buildReport([selectedPath, junitPath, outDir, apiRoot]) {
+const GUARD_DECISIONS = ["FORCE_FULL", "TIA_ELIGIBLE"];
+
+// The guard's decision for this head. Any doubt is FORCE_FULL_UNKNOWN with the reason, never an
+// error. The guard step's bash fallback writes only decision and reason (no head key), and only
+// FORCE_FULL. TIA_ELIGIBLE narrows the selection, so it counts only when pinned to CIRCLE_SHA1;
+// FORCE_FULL is safe on any head the guard could not resolve (head null).
+function readGuard(outDir, sha) {
+  const unknown = (source, reason, head = null) => ({ decision: "FORCE_FULL_UNKNOWN", source, reason, head });
+  let g;
+  try {
+    const text = readIfExists(outDir && path.join(outDir, "guard.json"));
+    if (text === null) return unknown("missing", "no guard.json: the risk guard step recorded no decision");
+    g = JSON.parse(text);
+  } catch (err) {
+    return unknown("unreadable", `guard.json unreadable: ${err.message}`);
+  }
+  if (!g || typeof g !== "object" || Array.isArray(g) || !GUARD_DECISIONS.includes(g.decision)) {
+    return unknown("invalid-decision", "guard.json has no FORCE_FULL or TIA_ELIGIBLE decision");
+  }
+  const fallback = !("head" in g);
+  if (fallback && g.decision !== "FORCE_FULL") {
+    return unknown("invalid-decision", "guard.json without head records only FORCE_FULL (the step's fallback)");
+  }
+  const head = typeof g.head === "string" && g.head ? g.head : null;
+  if (head && sha && head !== sha) return unknown("stale-head", `guard.json is for ${head}, not ${sha}`, head);
+  if (g.decision === "TIA_ELIGIBLE" && !(head && sha)) {
+    return unknown("stale-head", `TIA_ELIGIBLE not pinned to this commit (guard head ${head || "none"}, CIRCLE_SHA1 ${sha || "unset"})`, head);
+  }
+  return { decision: g.decision, source: fallback ? "fallback" : "guard.json", reason: typeof g.reason === "string" ? g.reason : null, head };
+}
+
+// What would have run with the guard in force. Only a known decision yields misses.
+function guardedSelection(r) {
+  const none = (status) => ({ status, selectedSpecs: null, selectionRatio: null, misses: null });
+  if (r.guard.decision === "FORCE_FULL") {
+    return { status: "force-full", selectedSpecs: r.totalSpecs, selectionRatio: r.totalSpecs ? 1 : null, misses: [] };
+  }
+  if (r.guard.decision !== "TIA_ELIGIBLE") return none("force-full-unknown");
+  if (!r.misses) return none(r.status);
+  return { status: r.status, selectedSpecs: r.selectedSpecs, selectionRatio: r.selectionRatio, misses: [...r.misses] };
+}
+
+function buildReport(args) {
+  const [, junitPath, outDir, apiRoot] = args;
   const report = { branch: process.env.CIRCLE_BRANCH || null, sha: process.env.CIRCLE_SHA1 || null };
+  report.guard = readGuard(outDir, report.sha);
   const rcText = readIfExists(outDir && path.join(outDir, "list-tests.rc"));
   report.listTestsExitCode = rcText === null ? null : Number(rcText.trim());
 
@@ -75,6 +126,8 @@ function buildReport([selectedPath, junitPath, outDir, apiRoot]) {
   if (xml === null) {
     report.status = "no-junit";
     report.note = `No JUnit report at ${junitPath}: the suite did not run (guard halt or earlier failure).`;
+    // No guarded block here or on partial-run: without a full-suite report there is no
+    // measurement to apply the guard to; `guard` alone records the decision.
     return report;
   }
   const { specs, failing } = parseJunit(xml, apiRoot || "");
@@ -90,15 +143,24 @@ function buildReport([selectedPath, junitPath, outDir, apiRoot]) {
     return report;
   }
 
+  measureRaw(report, args[0], specs, apiRoot || "");
+  // The guarded selection does not depend on list-tests: FORCE_FULL is computable even when
+  // list-tests failed.
+  report.guarded = guardedSelection(report);
+  return report;
+}
+
+// The raw list-tests selection against the full run (the pre-RT-1083 report, unchanged).
+function measureRaw(report, selectedPath, specs, apiRoot) {
   const selectionText = readIfExists(selectedPath);
   // No selection data is not the same as "selected nothing": a failed list-tests means misses
   // are not computable, never "all failures".
   if (selectionText === null || report.listTestsExitCode !== 0) {
     report.status = "no-selection-data";
     report.note = "list-tests failed or wrote nothing; selection ratio and misses not computable.";
-    return report;
+    return;
   }
-  const { selected, unknown } = parseSelection(selectionText, specs, apiRoot || "");
+  const { selected, unknown } = parseSelection(selectionText, specs, apiRoot);
   report.selectedSpecs = selected.size;
   report.selectionRatio = specs.size ? selected.size / specs.size : null;
   report.unknownSelected = unknown.sort();
@@ -115,7 +177,23 @@ function buildReport([selectedPath, junitPath, outDir, apiRoot]) {
   } else {
     report.status = "measured";
   }
-  return report;
+}
+
+function renderGuarded(r, lines) {
+  if (r.guard) {
+    lines.push(`guard decision: ${r.guard.decision} (${r.guard.source})${r.guard.reason ? `: ${r.guard.reason}` : ""}`);
+  }
+  const g = r.guarded;
+  if (!g) return;
+  if (g.status === "force-full-unknown") {
+    lines.push("GUARDED: guard decision unknown, not a measured result");
+  } else if (g.misses === null) {
+    lines.push(`GUARDED: ${g.status}; selection ratio and misses not computable`);
+  } else {
+    const pct = g.selectionRatio === null ? "n/a" : `${(g.selectionRatio * 100).toFixed(1)}%`;
+    lines.push(`GUARDED: selected ${g.selectedSpecs}/${r.totalSpecs} (${pct}), MISSES ${g.misses.length}`);
+    for (const s of g.misses) lines.push(`  GUARDED MISS ${s}`);
+  }
 }
 
 function render(r) {
@@ -131,6 +209,7 @@ function render(r) {
     lines.push(`MISSES (failing but not selected): ${r.misses.length}`);
     for (const s of r.misses) lines.push(`  MISS ${s}`);
   }
+  renderGuarded(r, lines);
   return lines.join("\n");
 }
 
@@ -159,4 +238,4 @@ if (require.main === module) {
   main(process.argv.slice(2));
   process.exit(0);
 }
-module.exports = { main, normalize, parseJunit, parseSelection };
+module.exports = { main, normalize, parseJunit, parseSelection, readGuard };
