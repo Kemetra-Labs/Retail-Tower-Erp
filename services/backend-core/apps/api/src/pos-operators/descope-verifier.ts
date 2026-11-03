@@ -12,6 +12,10 @@
  *     `https://api.descope.com/<projectId>` and the bare `<projectId>`; or
  *     exactly `DESCOPE_JWT_ISSUER` when set;
  *   - `exp` required, small clock tolerance;
+ *   - token age capped (jose `maxTokenAge`, which also requires `iat`): at most
+ *     `DESCOPE_JWT_MAX_TOKEN_AGE_SECONDS` since issue, default the 8 h session
+ *     TTL plus a 30 min margin (RT-1122), so a long console TTL cannot widen the
+ *     replay window unnoticed;
  *   - `aud` must be the project id (Descope stamps it), or exactly
  *     `DESCOPE_JWT_AUDIENCE` when set;
  *   - a token marked as a refresh token (`drn: "DSR"`) is refused — only the
@@ -45,6 +49,11 @@ const ALLOWED_ALGORITHMS = ["RS256"];
 const CLOCK_TOLERANCE_SECONDS = 5;
 const JWKS_TIMEOUT_MS = 5_000;
 const REFRESH_TOKEN_DRN = "DSR";
+
+/** Agreed session TTL (owner decision 2026-10-29: 8 h) plus a 30 min margin. */
+export const DEFAULT_MAX_TOKEN_AGE_SECONDS = 8 * 60 * 60 + 30 * 60;
+const MIN_MAX_TOKEN_AGE_SECONDS = 60;
+const MAX_MAX_TOKEN_AGE_SECONDS = 24 * 60 * 60;
 
 const REJECTED = "descope verifier: token rejected";
 
@@ -104,14 +113,35 @@ export function acceptedDescopeIssuers(projectId: string): string[] {
 }
 
 /**
- * Issuer + audience the production verifier enforces (the JWKS is added by the
- * factory). `aud` is `DESCOPE_JWT_AUDIENCE` when set, else the project id.
+ * `DESCOPE_JWT_MAX_TOKEN_AGE_SECONDS`, validated (an integer from 60 to 86400),
+ * or the default when unset. A malformed or out-of-range value fails at boot:
+ * it must never silently disable or widen the cap.
  */
-export function descopeVerifierConfig(projectId: string): Pick<DescopeVerifierOptions, "issuer" | "audience"> {
+function maxTokenAgeSeconds(): number {
+  const raw = (process.env["DESCOPE_JWT_MAX_TOKEN_AGE_SECONDS"] ?? "").trim();
+  if (raw.length === 0) return DEFAULT_MAX_TOKEN_AGE_SECONDS;
+  const value = /^\d{1,6}$/.test(raw) ? Number(raw) : NaN;
+  if (!(value >= MIN_MAX_TOKEN_AGE_SECONDS && value <= MAX_MAX_TOKEN_AGE_SECONDS)) {
+    throw new Error(
+      `DESCOPE_JWT_MAX_TOKEN_AGE_SECONDS must be an integer from ${MIN_MAX_TOKEN_AGE_SECONDS} to ${MAX_MAX_TOKEN_AGE_SECONDS}`,
+    );
+  }
+  return value;
+}
+
+/**
+ * Issuer, audience and token-age cap the production verifier enforces (the
+ * JWKS is added by the factory). `aud` is `DESCOPE_JWT_AUDIENCE` when set, else
+ * the project id.
+ */
+export function descopeVerifierConfig(
+  projectId: string,
+): Pick<DescopeVerifierOptions, "issuer" | "audience" | "maxTokenAgeSeconds"> {
   const audienceOverride = (process.env["DESCOPE_JWT_AUDIENCE"] ?? "").trim();
   return {
     issuer: acceptedDescopeIssuers(projectId),
     audience: audienceOverride.length > 0 ? audienceOverride : projectId,
+    maxTokenAgeSeconds: maxTokenAgeSeconds(),
   };
 }
 
@@ -129,6 +159,8 @@ export interface DescopeVerifierOptions {
   readonly issuer: string | readonly string[];
   readonly jwks: JWTVerifyGetKey;
   readonly audience?: string;
+  /** Token-age cap; omitted means `DEFAULT_MAX_TOKEN_AGE_SECONDS`, never uncapped. */
+  readonly maxTokenAgeSeconds?: number;
 }
 
 function toVerifyOptions(options: DescopeVerifierOptions): JWTVerifyOptions {
@@ -137,6 +169,7 @@ function toVerifyOptions(options: DescopeVerifierOptions): JWTVerifyOptions {
     algorithms: ALLOWED_ALGORITHMS,
     clockTolerance: CLOCK_TOLERANCE_SECONDS,
     requiredClaims: ["exp", "sub"],
+    maxTokenAge: options.maxTokenAgeSeconds ?? DEFAULT_MAX_TOKEN_AGE_SECONDS,
     ...(options.audience !== undefined ? { audience: options.audience } : {}),
   };
 }

@@ -6,7 +6,8 @@
  * request reaches Descope. Proves the verifier refuses (throws a generic error)
  * on bad signature, wrong issuer, expired / exp-less tokens, a disallowed
  * algorithm, a JWKS fetch failure, a missing `sub` and (when configured) a
- * wrong audience; a valid token returns `{ sub }` only.
+ * wrong audience; a valid token returns `{ sub }` only. RT-1122 adds the
+ * token-age cap, `nbf` with the 5 s clock tolerance, and HS256 confusion.
  */
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -16,12 +17,14 @@ import {
   createLocalJWKSet,
   createRemoteJWKSet,
   exportJWK,
+  exportSPKI,
   generateKeyPair,
   type JWK,
   type KeyLike,
 } from "jose";
 
 import {
+  DEFAULT_MAX_TOKEN_AGE_SECONDS,
   DescopeJwksVerifier,
   acceptedDescopeIssuers,
   descopeIssuer,
@@ -35,12 +38,14 @@ const SUB = "U2descopeUser0001";
 const KID = "test-kid-1";
 
 let privateKey: KeyLike;
+let publicKey: KeyLike;
 let publicJwk: JWK;
 let otherPrivateKey: KeyLike;
 
 beforeAll(async () => {
   const pair = await generateKeyPair("RS256");
   privateKey = pair.privateKey;
+  publicKey = pair.publicKey;
   publicJwk = { ...(await exportJWK(pair.publicKey)), kid: KID, alg: "RS256", use: "sig" };
   otherPrivateKey = (await generateKeyPair("RS256")).privateKey;
 });
@@ -339,5 +344,123 @@ describe("descopeVerifierConfig — the real Descope session token shape", () =>
     process.env["DESCOPE_JWT_ISSUER"] = "https://issuer.override.example";
     expect(descopeVerifierConfig(PROJECT_ID).issuer).toEqual(["https://issuer.override.example"]);
     await expect(configuredVerifier().verify(await realShapeToken())).rejects.toThrow("token rejected");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RT-1122 (RT-943 items 3a, 3c): token-age cap, nbf / clock skew, HS256 confusion.
+// ---------------------------------------------------------------------------
+
+describe("DescopeJwksVerifier — token age, nbf and algorithm confusion (RT-1122)", () => {
+  const AGE_KEY = "DESCOPE_JWT_MAX_TOKEN_AGE_SECONDS";
+  afterEach(() => {
+    delete process.env[AGE_KEY];
+  });
+
+  function nowSeconds(): number {
+    return Math.floor(Date.now() / 1000);
+  }
+
+  /** A session token (aud = the project id) with explicit iat / nbf; exp stays in the future. */
+  async function timedToken(opts: { iatAgo?: number; nbfIn?: number } = {}): Promise<string> {
+    const now = nowSeconds();
+    let jwt = new SignJWT({ drn: "DS" })
+      .setProtectedHeader({ alg: "RS256", kid: KID })
+      .setIssuer(ISSUER)
+      .setSubject(SUB)
+      .setAudience(PROJECT_ID)
+      .setIssuedAt(now - (opts.iatAgo ?? 0))
+      .setExpirationTime(now + 300);
+    if (opts.nbfIn !== undefined) jwt = jwt.setNotBefore(now + opts.nbfIn);
+    return jwt.sign(privateKey);
+  }
+
+  function configuredLocalVerifier(): DescopeJwksVerifier {
+    const config = descopeVerifierConfig(PROJECT_ID);
+    return new DescopeJwksVerifier({ ...config, jwks: createLocalJWKSet({ keys: [publicJwk] }) });
+  }
+
+  it("defaults the cap to the 8 h session TTL plus a margin", () => {
+    expect(DEFAULT_MAX_TOKEN_AGE_SECONDS).toBe(8 * 60 * 60 + 30 * 60);
+    expect(descopeVerifierConfig(PROJECT_ID).maxTokenAgeSeconds).toBe(DEFAULT_MAX_TOKEN_AGE_SECONDS);
+  });
+
+  it("refuses a token issued longer ago than the default cap", async () => {
+    const t = await timedToken({ iatAgo: DEFAULT_MAX_TOKEN_AGE_SECONDS + 600 });
+    // exp is still 5 min ahead, so the age cap is what refuses it (jose reports
+    // an over-age iat as ERR_JWT_EXPIRED).
+    await expect(localVerifier().verify(t)).rejects.toThrow(
+      /^descope verifier: token rejected \(ERR_JWT_EXPIRED\)$/,
+    );
+  });
+
+  it("accepts a token issued within the default cap", async () => {
+    const t = await timedToken({ iatAgo: DEFAULT_MAX_TOKEN_AGE_SECONDS - 600 });
+    await expect(localVerifier().verify(t)).resolves.toEqual({ providerKey: "descope", sub: SUB });
+  });
+
+  it("applies DESCOPE_JWT_MAX_TOKEN_AGE_SECONDS from config", async () => {
+    process.env[AGE_KEY] = "600";
+    const verifier = configuredLocalVerifier();
+    await expect(verifier.verify(await timedToken({ iatAgo: 1_200 }))).rejects.toThrow(
+      "descope verifier: token rejected",
+    );
+    await expect(verifier.verify(await timedToken({ iatAgo: 60 }))).resolves.toEqual({
+      providerKey: "descope",
+      sub: SUB,
+    });
+  });
+
+  it("treats a blank DESCOPE_JWT_MAX_TOKEN_AGE_SECONDS as unset", () => {
+    process.env[AGE_KEY] = "  ";
+    expect(descopeVerifierConfig(PROJECT_ID).maxTokenAgeSeconds).toBe(DEFAULT_MAX_TOKEN_AGE_SECONDS);
+  });
+
+  it.each(["0", "59", "86401", "-1", "1h", "3600.5", "1e4", "99999999"])(
+    "a malformed or out-of-range DESCOPE_JWT_MAX_TOKEN_AGE_SECONDS %p fails at config time",
+    (bad) => {
+      process.env[AGE_KEY] = bad;
+      expect(() => descopeVerifierConfig(PROJECT_ID)).toThrow(/DESCOPE_JWT_MAX_TOKEN_AGE_SECONDS/);
+    },
+  );
+
+  it("refuses a token without iat (the age cap needs it)", async () => {
+    const t = await new SignJWT({ drn: "DS" })
+      .setProtectedHeader({ alg: "RS256", kid: KID })
+      .setIssuer(ISSUER)
+      .setSubject(SUB)
+      .setExpirationTime(nowSeconds() + 300)
+      .sign(privateKey);
+    await expect(localVerifier().verify(t)).rejects.toThrow("descope verifier: token rejected");
+  });
+
+  it("refuses an nbf beyond the 5 s clock tolerance", async () => {
+    await expect(localVerifier().verify(await timedToken({ nbfIn: 60 }))).rejects.toThrow(
+      /^descope verifier: token rejected \(ERR_JWT_CLAIM_VALIDATION_FAILED\)$/,
+    );
+  });
+
+  it("accepts an nbf within the 5 s clock tolerance", async () => {
+    await expect(localVerifier().verify(await timedToken({ nbfIn: 2 }))).resolves.toEqual({
+      providerKey: "descope",
+      sub: SUB,
+    });
+  });
+
+  it("refuses an HS256 token signed with the RSA public key as the HMAC secret", async () => {
+    const secret = new TextEncoder().encode(await exportSPKI(publicKey));
+    const t = await new SignJWT({ drn: "DS" })
+      .setProtectedHeader({ alg: "HS256", kid: KID })
+      .setIssuer(ISSUER)
+      .setSubject(SUB)
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(secret);
+    // A key getter that hands back the public key for any header, so the
+    // algorithm allow-list (not a missing JWKS match) is what refuses it.
+    const verifier = new DescopeJwksVerifier({ issuer: ISSUER, jwks: async () => publicKey });
+    await expect(verifier.verify(t)).rejects.toThrow(
+      /^descope verifier: token rejected \(ERR_JOSE_ALG_NOT_ALLOWED\)$/,
+    );
   });
 });
