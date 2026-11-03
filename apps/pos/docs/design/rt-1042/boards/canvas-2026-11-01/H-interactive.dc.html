@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="ar">
+<head>
+<meta charset="utf-8">
+<title>دخول POS - نموذج تفاعلي</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&amp;family=Tajawal:wght@400;500;700&amp;display=swap">
+<style>
+body{margin:0}
+button:focus-visible,input:focus-visible{outline:2px solid #0f766e;outline-offset:2px}
+button{transition:background-color 150ms ease-out,border-color 150ms ease-out}
+.dot{transition:background-color 80ms ease-out,border-color 80ms ease-out}
+.settle{animation:settle 150ms ease-out}
+@keyframes settle{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion: reduce){button,.dot{transition:none}.settle{animation:none}}
+</style>
+</helmet>
+<div dir="rtl" style="--color-canvas: #f2f5f6; --color-surface: #ffffff; --color-surface-sunken: #eef2f6; --color-text: #0f1d2e; --color-text-muted: #53647a; --color-ink: #0a2125; --color-ink-muted: #a9c2c5; --color-mint: #5fe0cf; --color-primary: #0f766e; --color-primary-emphasis: #0b5b55; --color-primary-soft: #e6f4f1; --color-border: #d8dfe7; --color-border-soft: #e7ecf2; --color-border-strong: #6f7b89; --color-danger: #b3261e; --color-danger-soft: #fbe9e7; --color-warning: #a35a00; --color-warning-soft: #fdf1e0; --color-info: #1b6ca8; --color-info-soft: #e4f0f9; --elevation-resting: 0 1px 2px rgba(10, 33, 37, 0.06), 0 32px 32px -24px rgba(10, 33, 37, 0.25); width: 1920px; height: 1080px; position: relative; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; background: var(--color-canvas); color: var(--color-text); font-family: 'Dubai', 'Tajawal', 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 14px; line-height: 1.6">
+
+<header style="flex: none; position: relative; overflow: hidden; height: 132px; box-sizing: border-box; display: flex; align-items: center; gap: 20px; padding: 0 56px; background: var(--color-ink)">
+<svg aria-hidden="true" viewBox="0 0 1920 132" width="1920" height="132" style="position: absolute; inset: 0">
+<defs>
+<pattern id="tower-grid" width="26" height="26" patternUnits="userSpaceOnUse"><path d="M26 0H0V26" fill="none" style="stroke: var(--color-mint)" stroke-opacity="0.06" stroke-width="1"/></pattern>
+<pattern id="ruler" width="65" height="14" patternUnits="userSpaceOnUse"><path d="M6.5 14v-5M19.5 14v-5M32.5 14v-5M45.5 14v-5M58.5 14v-11" fill="none" style="stroke: var(--color-mint)" stroke-opacity="0.22" stroke-width="1"/></pattern>
+<radialGradient id="glow" cx="50%" cy="50%" r="50%"><stop offset="0" style="stop-color: var(--color-mint)" stop-opacity="0.2"/><stop offset="1" style="stop-color: var(--color-mint)" stop-opacity="0"/></radialGradient>
+<linearGradient id="fade" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" style="stop-color: var(--color-mint)" stop-opacity="0.9"/><stop offset="1" style="stop-color: var(--color-mint)" stop-opacity="0"/></linearGradient>
+</defs>
+<rect width="1920" height="132" fill="url(#tower-grid)"/>
+<ellipse cx="1700" cy="66" rx="520" ry="120" fill="url(#glow)"/>
+<ellipse cx="320" cy="110" rx="520" ry="110" fill="url(#glow)"/>
+<rect x="0" y="118" width="1920" height="14" fill="url(#ruler)"/>
+<g opacity="0.55" fill="none" stroke="url(#fade)" stroke-width="1.5">
+<rect x="30" y="88" width="40" height="52" rx="4"/><rect x="86" y="62" width="40" height="78" rx="4"/><rect x="142" y="80" width="40" height="60" rx="4"/><rect x="198" y="36" width="40" height="104" rx="4"/><rect x="254" y="58" width="40" height="82" rx="4"/><rect x="310" y="24" width="40" height="116" rx="4"/><path d="M330 24V8"/><rect x="366" y="72" width="40" height="68" rx="4"/><rect x="422" y="48" width="40" height="92" rx="4"/><rect x="478" y="84" width="40" height="56" rx="4"/><rect x="534" y="42" width="40" height="98" rx="4"/><rect x="590" y="68" width="40" height="72" rx="4"/><rect x="646" y="76" width="40" height="64" rx="4"/><rect x="702" y="94" width="40" height="46" rx="4"/>
+</g>
+<g style="fill: var(--color-mint)">
+<rect x="208" y="50" width="6" height="6" fill-opacity="0.5"/><rect x="222" y="50" width="6" height="6" fill-opacity="0.2"/><rect x="208" y="66" width="6" height="6" fill-opacity="0.2"/><rect x="222" y="66" width="6" height="6" fill-opacity="0.5"/><rect x="208" y="82" width="6" height="6" fill-opacity="0.5"/>
+<rect x="320" y="40" width="6" height="6" fill-opacity="0.5"/><rect x="334" y="40" width="6" height="6" fill-opacity="0.2"/><rect x="320" y="56" width="6" height="6" fill-opacity="0.2"/><rect x="334" y="56" width="6" height="6" fill-opacity="0.5"/><rect x="320" y="72" width="6" height="6" fill-opacity="0.5"/><rect x="334" y="88" width="6" height="6" fill-opacity="0.2"/>
+<rect x="432" y="64" width="6" height="6" fill-opacity="0.2"/><rect x="446" y="64" width="6" height="6" fill-opacity="0.4"/><rect x="432" y="80" width="6" height="6" fill-opacity="0.4"/>
+</g>
+</svg>
+<div style="position: relative; flex: none; display: grid; place-items: center; width: 68px; height: 68px; border-radius: 18px; background: linear-gradient(135deg, #5fe0cf 0%, #0f766e 100%)">
+<svg role="img" aria-label="شعار المنتج" viewBox="0 0 64 64" width="36" height="36" fill="#0a2125"><rect x="8" y="36" width="12" height="20" rx="3"/><rect x="26" y="22" width="12" height="34" rx="3"/><rect x="44" y="8" width="12" height="48" rx="3"/></svg>
+</div>
+<div style="position: relative">
+<div dir="ltr" style="font-family: 'Readex Pro', 'Tajawal', sans-serif; font-size: 34px; font-weight: 600; line-height: 1.15; color: #ffffff; text-align: start">POS Pulse</div>
+<div style="color: var(--color-ink-muted); font-size: 15px">الجهاز <b style="margin-inline-start: 6px; color: #ffffff; font-weight: 700"><bdi>[اسم الجهاز]</bdi></b></div>
+</div>
+</header>
+
+<div style="flex: 1; min-height: 0; display: flex">
+
+<main style="flex: 1; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; gap: 20px; padding: 40px 56px">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<h1 style="margin: 0; font-family: 'Readex Pro', 'Tajawal', sans-serif; font-size: 32px; font-weight: 600; line-height: 1.3">تسجيل الدخول</h1>
+<p style="margin: 0; color: var(--color-text-muted); font-size: 17px">كل عمليات الوردية تُسجَّل باسمك.</p>
+</div>
+
+<section aria-labelledby="roster-h" style="display: flex; flex-direction: column; border: 1px solid var(--color-border); border-radius: 20px; background: var(--color-surface); box-shadow: var(--elevation-resting)">
+<div style="display: flex; align-items: center; min-height: 60px; box-sizing: border-box; padding: 12px 24px; border-bottom: 1px solid var(--color-border-soft)">
+<h2 id="roster-h" style="margin: 0; font-family: 'Readex Pro', 'Tajawal', sans-serif; font-size: 18px; font-weight: 600">الكاشير في هذا الفرع</h2>
+</div>
+
+<sc-if value="{{rosterList}}" hint-placeholder-val="{{ true }}">
+<ul style="margin: 0; padding: 24px; list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+<sc-for list="{{roster}}" as="item" hint-placeholder-count="8">
+<li>
+<sc-if value="{{item.selected}}" hint-placeholder-val="{{ false }}">
+<button type="button" aria-pressed="true" onClick="{{ item.pick }}" style="position: relative; display: flex; align-items: center; gap: 14px; width: 100%; height: 88px; box-sizing: border-box; padding: 0 16px; border: 1px solid var(--color-primary); border-radius: 12px; background: var(--color-primary-soft); color: var(--color-primary-emphasis); font: inherit; text-align: start; cursor: pointer">
+<span aria-hidden="true" style="position: absolute; inset-block: 12px; inset-inline-start: -1px; width: 2px; border-radius: 2px; background: var(--color-primary)"></span>
+<span aria-hidden="true" style="flex: none; display: grid; place-items: center; width: 52px; height: 52px; border-radius: 14px; background: var(--color-ink); color: var(--color-mint); font-family: 'Readex Pro', 'Tajawal', sans-serif; font-size: 24px; font-weight: 600; line-height: 1">{{item.initial}}</span>
+<span style="min-width: 0"><span style="display: block; font-size: 18px; font-weight: 700">{{item.name}}</span><span style="display: block; font-size: 13px; font-weight: 400">الكاشير</span></span>
+</button>
+</sc-if>
+<sc-if value="{{item.idle}}" hint-placeholder-val="{{ true }}">
+<button type="button" aria-pressed="false" onClick="{{ item.pick }}" style="display: flex; align-items: center; gap: 14px; width: 100%; height: 88px; box-sizing: border-box; padding: 0 16px; border: 1px solid var(--color-border-strong); border-radius: 12px; background: var(--color-surface); color: var(--color-text); font: inherit; text-align: start; cursor: pointer">
+<span aria-hidden="true" style="flex: none; display: grid; place-items: center; width: 52px; height: 52px; border-radius: 14px; background: var(--color-ink); color: var(--color-mint); font-family: 'Readex Pro', 'Tajawal', sans-serif; font-size: 24px; font-weight: 600; line-height: 1">{{item.initial}}</span>
+<span style="min-width: 0"><span style="display: block; font-size: 18px; font-weight: 600">{{item.name}}</span><span style="display: block; color: var(--color-text-muted); font-size: 13px">الكاشير</span></span>
+</button>
+</sc-if>
+<sc-if value="{{item.off}}" hint-placeholder-val="{{ false }}">
+<button type="button" disabled style="display: flex; align-items: center; gap: 14px; width: 100%; height: 88px; box-sizing: border-box; padding: 0 16px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface-sunken); color: var(--color-text-muted); font: inherit; text-align: start; cursor: not-allowed">
+<span aria-hidden="true" style="flex: none; display: grid; place-items: center; width: 52px; height: 52px; border-radius: 14px; background: var(--color-surface); color: var(--color-text-muted); font-family: 'Readex Pro', 'Tajawal', sans-serif; font-size: 24px; font-weight: 600; line-height: 1">{{item.initial}}</span>
+<span style="min-width: 0"><span style="display: block; font-size: 18px; font-weight: 600">{{item.name}}</span><span style="display: block; font-size: 13px">الكاشير</span></span>
+</button>
+</sc-if>
+</li>
+</sc-for>
+</ul>
+</sc-if>
+
+<sc-if value="{{rosterNotice}}" hint-placeholder-val="{{ false }}">
+<div style="box-sizing: border-box; padding: 24px">
+<div role="status" style="display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px; border: 1px solid {{noticeInk}}; border-radius: 10px; background: {{noticeSoft}}; font-size: 14px; line-height: 1.5">
+<sc-if value="{{rosterWarn}}" hint-placeholder-val="{{ false }}"><svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="{{noticeInk}}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-block-start: 1px"><path d="M12 3l10 18H2L12 3z"/><path d="M12 10v5M12 18h.01"/></svg></sc-if>
+<sc-if value="{{rosterInfo}}" hint-placeholder-val="{{ false }}"><svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="{{noticeInk}}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-block-start: 1px"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg></sc-if>
+<span style="flex: 1; min-width: 0; align-self: center">{{noticeText}}</span>
+</div>
+</div>
+</sc-if>
+
+<div style="display: flex; align-items: center; padding: 14px 24px; border-top: 1px solid var(--color-border-soft)">
+<sc-if value="{{mgrOn}}" hint-placeholder-val="{{ true }}">
+<button type="button" aria-pressed="false" onClick="{{ toggleManager }}" style="display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 18px; border: 1px solid var(--color-border-strong); border-radius: 12px; background: var(--color-surface); color: var(--color-text); font: inherit; font-size: 16px; font-weight: 600; cursor: pointer">
+<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/></svg>
+دخول المدير
+</button>
+</sc-if>
+<sc-if value="{{mgrPressed}}" hint-placeholder-val="{{ false }}">
+<button type="button" aria-pressed="true" onClick="{{ toggleManager }}" style="display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 18px; border: 1px solid var(--color-primary); border-radius: 12px; background: var(--color-primary-soft); color: var(--color-primary-emphasis); font: inherit; font-size: 16px; font-weight: 600; cursor: pointer">
+<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/></svg>
+دخول المدير
+</button>
+</sc-if>
+<sc-if value="{{mgrOff}}" hint-placeholder-val="{{ false }}">
+<button type="button" disabled style="display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 18px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface-sunken); color: var(--color-text-muted); font: inherit; font-size: 16px; font-weight: 600; cursor: not-allowed">
+<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/></svg>
+دخول المدير
+</button>
+</sc-if>
+</div>
+</section>
+</main>
+
+<aside aria-labelledby="auth-h" style="flex: none; width: 440px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; padding: 28px 36px; background: var(--color-surface); border-inline-start: 1px solid var(--color-border)">
+<div style="height: 640px; display: flex; flex-direction: column; gap: 12px">
+
+<sc-if value="{{isCashier}}" hint-placeholder-val="{{ true }}">
+
+<div style="flex: none; position: relative; height: 144px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px">
+<sc-if value="{{hasPick}}" hint-placeholder-val="{{ false }}">
+<sc-if value="{{backOn}}" hint-placeholder-val="{{ true }}"><button type="button" onClick="{{ clearPick }}" style="position: absolute; inset-block-start: -4px; inset-inline-start: -12px; display: inline-flex; align-items: center; gap: 4px; height: 44px; padding: 0 8px; border: 0; border-radius: 12px; background: transparent; color: var(--color-text-muted); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>رجوع</button></sc-if>
+<sc-if value="{{backOff}}" hint-placeholder-val="{{ false }}"><button type="button" disabled style="position: absolute; inset-block-start: -4px; inset-inline-start: -12px; display: inline-flex; align-items: center; gap: 4px; height: 44px; padding: 0 8px; border: 0; border-radius: 12px; background: transparent; color: var(--color-border-strong); font: inherit; font-size: 15px; font-weight: 600; cursor: not-allowed"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>رجوع</button></sc-if>
+<span aria-hidden="true" style="display: grid; place-items: center; width: 84px; height: 84px; border-radius: 24px; background: var(--color-ink); color: var(--color-mint); outline: 2px solid var(--color-primary); outline-offset: 4px; font-family: 'Readex Pro', 'Tajawal', sans-serif; font-size: 38px; font-weight: 600; line-height: 1">{{pickInitial}}</span>
+<h2 id="auth-h" style="margin: 10px 0 0; font-family: 'Readex Pro', 'Tajawal', sans-serif; font-size: 22px; font-weight: 600; line-height: 1.3">{{pickName}}</h2>
+<span style="color: var(--color-text-muted); font-size: 13px">الكاشير</span>
+</sc-if>
+<sc-if value="{{noPick}}" hint-placeholder-val="{{ true }}">
+<span aria-hidden="true" style="display: grid; place-items: center; width: 84px; height: 84px; border: 2px dashed var(--color-border-strong); border-radius: 24px; color: var(--color-border-strong)"><svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span>
+<h2 id="auth-h" style="margin: 10px 0 0; font-family: 'Readex Pro', 'Tajawal', sans-serif; font-size: 22px; font-weight: 600; line-height: 1.3">الرقم السري</h2>
+</sc-if>
+</div>
+
+<div style="flex: none; order: 1; height: 56px">
+<sc-if value="{{hasPick}}" hint-placeholder-val="{{ false }}">
+<div role="group" aria-label="الرقم السري" dir="ltr" style="display: flex; align-items: center; justify-content: center; gap: 16px; height: 56px; box-sizing: border-box; border: 1px solid {{dotsEdge}}; border-radius: 12px; background: var(--color-surface)">
+<sc-for list="{{dots}}" as="d" hint-placeholder-count="6">
+<span class="dot" style="width: 14px; height: 14px; box-sizing: border-box; border: 2px solid {{d.edge}}; border-radius: 9999px; background: {{d.fill}}"></span>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{noPick}}" hint-placeholder-val="{{ true }}">
+<p style="display: flex; align-items: center; height: 56px; margin: 0; box-sizing: border-box; padding: 4px 14px; border: 1px dashed var(--color-border-strong); border-radius: 12px; color: var(--color-text-muted); font-size: 13px; line-height: 1.4">{{prompt}}</p>
+</sc-if>
+</div>
+
+<div style="flex: none; height: 70px; display: flex; align-items: center">
+<sc-if value="{{fbSigning}}" hint-placeholder-val="{{ false }}"><span role="status" style="color: var(--color-text-muted)">جارٍ تسجيل الدخول…</span></sc-if>
+<sc-if value="{{fbRefusal}}" hint-placeholder-val="{{ false }}">
+<span role="alert" class="settle" style="display: flex; align-items: flex-start; gap: 8px; width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px solid var(--color-danger); border-radius: 10px; background: var(--color-danger-soft); font-size: 14px; line-height: 1.5">
+<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="var(--color-danger)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-block-start: 1px"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5h.01"/></svg>
+<span style="flex: 1; min-width: 0; align-self: center">بيانات الدخول غير صحيحة. حاول مرة أخرى.</span>
+</span>
+</sc-if>
+</div>
+
+<div dir="ltr" role="group" aria-label="إدخال الرقم السري" style="flex: none; order: 2; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+<sc-for list="{{keys}}" as="k" hint-placeholder-count="12">
+<div>
+<sc-if value="{{k.blank}}" hint-placeholder-val="{{ false }}"><div style="height: 64px"></div></sc-if>
+<sc-if value="{{k.digitOn}}" hint-placeholder-val="{{ true }}"><button type="button" onClick="{{ k.press }}" style="display: grid; place-items: center; width: 100%; height: 64px; border: 1px solid var(--color-border-strong); border-radius: 12px; background: var(--color-surface); color: var(--color-text); font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: 28px; font-weight: 600; cursor: pointer">{{k.label}}</button></sc-if>
+<sc-if value="{{k.digitOff}}" hint-placeholder-val="{{ false }}"><button type="button" disabled style="display: grid; place-items: center; width: 100%; height: 64px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface-sunken); color: var(--color-text-muted); font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: 28px; font-weight: 600; cursor: default">{{k.label}}</button></sc-if>
+<sc-if value="{{k.backOn}}" hint-placeholder-val="{{ false }}"><button type="button" aria-label="حذف" onClick="{{ k.press }}" style="display: grid; place-items: center; width: 100%; height: 64px; border: 1px solid var(--color-border-strong); border-radius: 12px; background: var(--color-surface); color: var(--color-text); cursor: pointer"><svg aria-hidden="true" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h11a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H9l-6-7 6-7z"/><path d="M12 9.5l5 5M17 9.5l-5 5"/></svg></button></sc-if>
+<sc-if value="{{k.backOff}}" hint-placeholder-val="{{ false }}"><button type="button" disabled aria-label="حذف" style="display: grid; place-items: center; width: 100%; height: 64px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface-sunken); color: var(--color-text-muted); cursor: default"><svg aria-hidden="true" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h11a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H9l-6-7 6-7z"/><path d="M12 9.5l5 5M17 9.5l-5 5"/></svg></button></sc-if>
+</div>
+</sc-for>
+</div>
+
+<sc-if value="{{commitOn}}" hint-placeholder-val="{{ false }}">
+<button type="button" onClick="{{ submitCashier }}" style="order: 3; margin-top: auto; display: inline-flex; align-items: center; justify-content: center; gap: 10px; width: 100%; height: 60px; border: 0; border-radius: 12px; background: var(--color-ink); color: #ffffff; box-shadow: 0 6px 14px -6px rgba(10, 33, 37, 0.55); font: inherit; font-size: 18px; font-weight: 700; cursor: pointer">
+دخول
+<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="var(--color-mint)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+</button>
+</sc-if>
+<sc-if value="{{commitOff}}" hint-placeholder-val="{{ true }}">
+<button type="button" aria-disabled="true" style="order: 3; margin-top: auto; width: 100%; height: 60px; box-sizing: border-box; border: 2px dashed var(--color-border-strong); border-radius: 12px; background: var(--color-surface-sunken); color: var(--color-text-muted); font: inherit; font-size: 18px; font-weight: 700; cursor: not-allowed">دخول</button>
+</sc-if>
+
+</sc-if>
+
+<sc-if value="{{isManager}}" hint-placeholder-val="{{ false }}">
+<div style="flex: none; position: relative; height: 144px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px">
+<sc-if value="{{backOn}}" hint-placeholder-val="{{ true }}"><button type="button" onClick="{{ toggleManager }}" style="position: absolute; inset-block-start: -4px; inset-inline-start: -12px; display: inline-flex; align-items: center; gap: 4px; height: 44px; padding: 0 8px; border: 0; border-radius: 12px; background: transparent; color: var(--color-text-muted); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>رجوع</button></sc-if>
+<sc-if value="{{backOff}}" hint-placeholder-val="{{ false }}"><button type="button" disabled style="position: absolute; inset-block-start: -4px; inset-inline-start: -12px; display: inline-flex; align-items: center; gap: 4px; height: 44px; padding: 0 8px; border: 0; border-radius: 12px; background: transparent; color: var(--color-border-strong); font: inherit; font-size: 15px; font-weight: 600; cursor: not-allowed"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>رجوع</button></sc-if>
+<span aria-hidden="true" style="display: grid; place-items: center; width: 84px; height: 84px; border-radius: 24px; background: var(--color-ink); color: var(--color-mint); outline: 2px solid var(--color-primary); outline-offset: 4px"><svg viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/></svg></span>
+<h2 id="auth-h" style="margin: 10px 0 0; font-family: 'Readex Pro', 'Tajawal', sans-serif; font-size: 22px; font-weight: 600; line-height: 1.3">دخول المدير</h2>
+</div>
+<div style="flex: none; display: grid; gap: 6px">
+<label for="mgr-id" style="font-weight: 600">البريد الإلكتروني أو اسم المستخدم</label>
+<input id="mgr-id" dir="ltr" type="text" autocomplete="off" onInput="{{ onId }}" style="height: 48px; box-sizing: border-box; padding: 0 12px; border: 1px solid var(--color-border-strong); border-radius: 12px; background: var(--color-surface); color: var(--color-text); font: inherit; font-size: 16px; text-align: left">
+</div>
+<div style="flex: none; display: grid; gap: 6px">
+<label for="mgr-pw" style="font-weight: 600">كلمة المرور</label>
+<input id="mgr-pw" dir="ltr" type="password" autocomplete="off" onInput="{{ onPw }}" style="height: 48px; box-sizing: border-box; padding: 0 12px; border: 1px solid var(--color-border-strong); border-radius: 12px; background: var(--color-surface); color: var(--color-text); font: inherit; font-size: 16px; text-align: left">
+</div>
+<div style="flex: none; height: 70px; display: flex; align-items: center">
+<sc-if value="{{fbSigning}}" hint-placeholder-val="{{ false }}"><span role="status" style="color: var(--color-text-muted)">جارٍ تسجيل الدخول…</span></sc-if>
+<sc-if value="{{fbRefusal}}" hint-placeholder-val="{{ false }}">
+<span role="alert" class="settle" style="display: flex; align-items: flex-start; gap: 8px; width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px solid var(--color-danger); border-radius: 10px; background: var(--color-danger-soft); font-size: 14px; line-height: 1.5">
+<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="var(--color-danger)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-block-start: 1px"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5h.01"/></svg>
+<span style="flex: 1; min-width: 0; align-self: center">بيانات الدخول غير صحيحة. حاول مرة أخرى.</span>
+</span>
+</sc-if>
+<sc-if value="{{fbEmpty}}" hint-placeholder-val="{{ false }}">
+<span role="alert" class="settle" style="display: flex; align-items: flex-start; gap: 8px; width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px solid var(--color-danger); border-radius: 10px; background: var(--color-danger-soft); font-size: 14px; line-height: 1.5">
+<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="var(--color-danger)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-block-start: 1px"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5h.01"/></svg>
+<span style="flex: 1; min-width: 0; align-self: center">أدخل بيانات الدخول للمتابعة.</span>
+</span>
+</sc-if>
+</div>
+<sc-if value="{{mgrCommitOn}}" hint-placeholder-val="{{ true }}">
+<button type="button" onClick="{{ submitManager }}" style="margin-top: auto; width: 100%; height: 60px; border: 0; border-radius: 12px; background: var(--color-ink); color: #ffffff; box-shadow: 0 6px 14px -6px rgba(10, 33, 37, 0.55); font: inherit; font-size: 18px; font-weight: 700; cursor: pointer">تسجيل الدخول</button>
+</sc-if>
+<sc-if value="{{mgrCommitBusy}}" hint-placeholder-val="{{ false }}">
+<button type="button" disabled style="margin-top: auto; width: 100%; height: 60px; box-sizing: border-box; border: 2px dashed var(--color-border-strong); border-radius: 12px; background: var(--color-surface-sunken); color: var(--color-text-muted); font: inherit; font-size: 18px; font-weight: 700; cursor: not-allowed">جارٍ تسجيل الدخول…</button>
+</sc-if>
+</sc-if>
+
+</div>
+</aside>
+
+</div>
+
+<sc-if value="{{isDone}}" hint-placeholder-val="{{ false }}">
+<div style="position: absolute; inset: 0; display: grid; place-items: center; background: rgba(8, 14, 24, 0.55)">
+<div role="dialog" aria-modal="true" aria-label="نهاية النموذج" style="width: 520px; box-sizing: border-box; padding: 28px; border-radius: 16px; background: var(--color-surface); box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.25); text-align: center">
+<div style="font-family: 'Readex Pro', 'Tajawal', sans-serif; font-size: 20px; font-weight: 600">نهاية النموذج</div>
+<p style="margin: 8px 0 20px; color: var(--color-text-muted)">في التطبيق الحقيقي تنتقل الشاشة هنا إلى البيع. لا يوجد دخول حقيقي في هذا النموذج.</p>
+<button type="button" onClick="{{ reset }}" style="height: 48px; padding: 0 22px; border: 1px solid var(--color-border-strong); border-radius: 12px; background: var(--color-surface); color: var(--color-text); font: inherit; font-size: 16px; font-weight: 600; cursor: pointer">إعادة التجربة</button>
+</div>
+</div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"roster":{"editor":"enum","options":["ready","offline","empty"],"default":"ready"},"$preview":{"width":1920,"height":1080}}'>
+class Component extends DCLogic {
+  get s() {
+    return Object.assign({ picked: -1, pin: '', phase: 'idle', mode: 'cashier', idLen: 0, pwLen: 0, emptyHint: false }, this.state || {});
+  }
+
+  componentWillUnmount() {
+    if (this._timer) clearTimeout(this._timer);
+  }
+
+  renderVals() {
+    const s = this.s;
+    const set = (p) => this.setState(p);
+    const rosterState = this.props.roster ?? 'ready';
+    const signing = s.phase === 'signing';
+    const refused = s.phase === 'refused';
+    const isManager = s.mode === 'manager';
+    const names = ['أحمد سمير', 'منى عادل', 'خالد يوسف', 'سارة محمود', 'هدى إبراهيم', 'عمر حسن', 'نهى فاروق', 'ياسر مجدي'];
+    const rosterReady = rosterState === 'ready';
+    const hasPick = !isManager && rosterReady && s.picked >= 0;
+    const afterInput = (extra) => Object.assign({ phase: s.phase === 'refused' ? 'idle' : s.phase }, extra);
+
+    const roster = names.map((name, i) => {
+      const sel = hasPick && i === s.picked;
+      return {
+        name,
+        initial: Array.from(name)[0],
+        selected: sel,
+        idle: !sel && !signing,
+        off: !sel && signing,
+        pick: () => {
+          if (this.s.phase === 'signing') return;
+          set({ picked: i, pin: '', phase: 'idle', mode: 'cashier', emptyHint: false });
+        }
+      };
+    });
+
+    const keysOn = hasPick && !signing;
+    const labels = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'back'];
+    const keys = labels.map((label) => ({
+      label,
+      blank: label === '',
+      digitOn: label !== '' && label !== 'back' && keysOn,
+      digitOff: label !== '' && label !== 'back' && !keysOn,
+      backOn: label === 'back' && keysOn,
+      backOff: label === 'back' && !keysOn,
+      press: () => {
+        const cur = this.s;
+        if (cur.phase === 'signing' || cur.picked < 0) return;
+        if (label === 'back') {
+          set(Object.assign({ pin: cur.pin.slice(0, -1) }, { phase: cur.phase === 'refused' ? 'idle' : cur.phase }));
+        } else if (cur.pin.length < 6) {
+          set({ pin: cur.pin + label, phase: cur.phase === 'refused' ? 'idle' : cur.phase });
+        }
+      }
+    }));
+
+    const dots = [0, 1, 2, 3, 4, 5].map((i) => {
+      const on = i < s.pin.length;
+      return { edge: on ? '#0a2125' : '#6f7b89', fill: on ? '#0a2125' : 'transparent' };
+    });
+
+    let noticeText = 'تعذّر تحميل قائمة الكاشير. تحقق من الاتصال.';
+    if (rosterState === 'empty') noticeText = 'لا يوجد كاشير مسجّل في هذا الفرع.';
+    let prompt = 'اختر اسمك من القائمة لإدخال الرقم السري.';
+    if (rosterState === 'offline') prompt = 'لا يمكن إدخال الرقم السري قبل تحميل القائمة.';
+    if (rosterState === 'empty') prompt = 'الدخول بالرقم السري يحتاج كاشيرًا مسجّلًا في هذا الفرع.';
+
+    const canSubmit = hasPick && s.pin.length >= 4 && !signing;
+
+    return {
+      roster,
+      keys,
+      dots,
+      prompt,
+      noticeText,
+      rosterList: rosterReady,
+      rosterNotice: !rosterReady,
+      rosterWarn: rosterState === 'offline',
+      rosterInfo: rosterState === 'empty',
+      noticeInk: rosterState === 'offline' ? '#a35a00' : '#1b6ca8',
+      noticeSoft: rosterState === 'offline' ? '#fdf1e0' : '#e4f0f9',
+      isCashier: !isManager,
+      isManager,
+      hasPick,
+      noPick: !hasPick,
+      pickName: hasPick ? names[s.picked] : '',
+      pickInitial: hasPick ? Array.from(names[s.picked])[0] : '',
+      dotsEdge: refused ? '#b3261e' : '#6f7b89',
+      fbSigning: signing,
+      fbRefusal: refused,
+      fbEmpty: isManager && s.emptyHint && !signing && !refused,
+      backOn: !signing,
+      backOff: signing,
+      commitOn: canSubmit,
+      commitOff: !canSubmit,
+      mgrCommitOn: !signing,
+      mgrCommitBusy: signing,
+      mgrOn: !isManager && !signing,
+      mgrPressed: isManager && !signing,
+      mgrOff: signing,
+      isDone: s.phase === 'done',
+      clearPick: () => {
+        if (this.s.phase === 'signing') return;
+        set({ picked: -1, pin: '', phase: 'idle' });
+      },
+      toggleManager: () => {
+        const cur = this.s;
+        if (cur.phase === 'signing') return;
+        set({ mode: cur.mode === 'manager' ? 'cashier' : 'manager', picked: -1, pin: '', phase: 'idle', emptyHint: false, idLen: 0, pwLen: 0 });
+      },
+      submitCashier: () => {
+        const cur = this.s;
+        if (cur.phase === 'signing' || cur.picked < 0 || cur.pin.length < 4) return;
+        set({ phase: 'signing' });
+        this._timer = setTimeout(() => {
+          const ok = this.s.pin === '1234';
+          set(ok ? { phase: 'done' } : { phase: 'refused', pin: '' });
+        }, 900);
+      },
+      submitManager: () => {
+        const cur = this.s;
+        if (cur.phase === 'signing') return;
+        if (cur.idLen === 0 || cur.pwLen === 0) {
+          set({ emptyHint: true, phase: 'idle' });
+          return;
+        }
+        set({ phase: 'signing', emptyHint: false });
+        this._timer = setTimeout(() => {
+          set({ phase: 'refused' });
+        }, 900);
+      },
+      onId: (e) => {
+        set(afterInput({ idLen: e.target.value.length, emptyHint: false }));
+      },
+      onPw: (e) => {
+        set(afterInput({ pwLen: e.target.value.length, emptyHint: false }));
+      },
+      reset: () => {
+        set({ picked: -1, pin: '', phase: 'idle', mode: 'cashier', emptyHint: false, idLen: 0, pwLen: 0 });
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>
