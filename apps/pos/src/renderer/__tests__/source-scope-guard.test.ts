@@ -51,7 +51,7 @@ import { gitChangedFiles } from './source-scope-guard.git';
 const GUARD_TIMEOUT_MS = 60_000;
 
 describe('source-scope guard (T006)', () => {
-  it('diff must not touch forbidden paths', () => {
+  it('diff must not touch forbidden paths', { timeout: GUARD_TIMEOUT_MS }, () => {
     let changedFiles: string[];
 
     const runDiff = (tripleDoc: boolean): string[] =>
@@ -196,5 +196,5 @@ describe('source-scope guard (T006)', () => {
     expect(violations, `Forbidden paths modified by this branch: ${violations.join(', ')}`).toEqual(
       [],
     );
-  }, GUARD_TIMEOUT_MS);
+  });
 });
