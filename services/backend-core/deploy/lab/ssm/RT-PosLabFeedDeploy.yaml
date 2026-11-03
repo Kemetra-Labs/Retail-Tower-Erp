@@ -1,0 +1,328 @@
+# RT-1082 (slice S2, under RT-717): lab-01 deploy of one lab-signed POS release into the lab update
+# feed, for the GitHub `Deploy POS lab` workflow (deploy-pos-lab.yml), over SSM Run Command.
+#
+# THIS DOCUMENT IS THE SECURITY BOUNDARY. The SSM agent runs it as root, and the deploy role
+# may run nothing else (no AWS shell document, no sessions). The OWNER creates it from this
+# file (never CI); see deploy/README.md, "POS lab feed deploy".
+#
+# The feed is a plain directory that Caddy serves as static files (owner-created route): the
+# electron-updater `generic` feed of the `lab` channel. It holds lab.yml, the installer
+# POS-Pulse-LAB-Setup-<X.Y.Z>.exe and its .blockmap, for the current and one previous version.
+# Devices read lab.yml first and then fetch the file it names, so a deploy writes the installer
+# and blockmap first and lab.yml last, each by an atomic rename in the feed directory.
+#
+# Host configuration (owner-created, root-owned, never sourced): /etc/rt-deploy/pos-feed.env
+#   FEED_DIR=/srv/rt-pos-feed/lab         the directory Caddy serves (absolute, root-owned)
+#   FEED_URL=http://<host>/<path>         the feed URL as Caddy ON THIS HOST serves it; the
+#                                         smokes resolve <host> to 127.0.0.1 (port 80 for http,
+#                                         443 for https), never the public edge
+#
+# Order, stopping at the first failure:
+#   G-Host    the host configuration is valid, FEED_DIR and its parent are root-owned and not
+#             writable by others, and the origin serves the feed directory as it is now
+#   version   read the version of the lab.yml served now; refuse a Version that is not higher
+#   fetch     the three assets from the GitHub release into a root-only staging directory next
+#             to FEED_DIR (same file system, never served)
+#   check     each asset is its attested/recorded sha256, and lab.yml names Version, the
+#             installer, its sha512 and its size
+#   swap      copy the served lab.yml aside, then rename installer, blockmap and, last, lab.yml
+#             into FEED_DIR
+#   G-Smoke   the origin serves exactly the three new files; on a failure the script sees after
+#             the swap (a failed check, an abort under set -e, a trappable signal) the previous
+#             lab.yml is put back (the new installer may stay: nothing points at it)
+#   prune     keep the previous lab.yml as lab.yml.prev, and the installers and blockmaps of
+#             this version and the previous one only
+#
+# Time budget: the curl limits add up to 1200 s (fetch 600 + 60 + 60, four origin reads of
+# 120), under the 1500 s step timeout, so SSM never kills the script between swap and smoke.
+#
+# Parameters reach the script only as SSM_<name> environment variables (interpolationType
+# ENV_VAR, SSM Agent 3.3.2746.0 or newer). The script never contains a `{{ }}` placeholder,
+# and each value is re-validated before use. An older agent sets no SSM_* variable, and the
+# script stops.
+#
+# Output contract: stdout carries only fixed `RT_*` lines that the workflow parses with strict
+# patterns (the Actions log of this public repo is public). Command output goes to a root-only
+# log under /var/log/rt-deploy.
+schemaVersion: "2.2"
+description: "RT lab-01: publish one lab-signed POS release into the lab update feed by digest, lab.yml last, roll-forward only, reverting lab.yml on a failed smoke (RT-1082)."
+parameters:
+  ReleaseTag:
+    type: String
+    description: "POS release of the monorepo, pos/vX.Y.Z (from release-pos.yml)."
+    allowedPattern: "^pos/v[0-9]+\\.[0-9]+\\.[0-9]+$"
+    interpolationType: ENV_VAR
+  Version:
+    type: String
+    description: "Version of the release, X.Y.Z; must equal the ReleaseTag version and the lab.yml version."
+    allowedPattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    interpolationType: ENV_VAR
+  InstallerDigest:
+    type: String
+    description: "Attested digest of POS-Pulse-LAB-Setup-X.Y.Z.exe, sha256:<64 hex> (verified by the workflow preflight)."
+    allowedPattern: "^sha256:[0-9a-f]{64}$"
+    interpolationType: ENV_VAR
+  BlockmapDigest:
+    type: String
+    description: "Digest of POS-Pulse-LAB-Setup-X.Y.Z.exe.blockmap recorded in release-manifest.json, sha256:<64 hex>."
+    allowedPattern: "^sha256:[0-9a-f]{64}$"
+    interpolationType: ENV_VAR
+  ChannelDigest:
+    type: String
+    description: "Digest of lab.yml recorded in release-manifest.json, sha256:<64 hex>."
+    allowedPattern: "^sha256:[0-9a-f]{64}$"
+    interpolationType: ENV_VAR
+mainSteps:
+  - action: aws:runShellScript
+    name: deployPosFeed
+    precondition:
+      StringEquals:
+        - platformType
+        - Linux
+    inputs:
+      timeoutSeconds: "1500"
+      runCommand:
+        - |
+          set -eu
+          umask 077
+          RT_SCRIPT="$(mktemp /root/.rt-lab-pos-feed-deploy.XXXXXX)"
+          cat > "$RT_SCRIPT" <<'RT_POS_FEED_SCRIPT'
+          set -euo pipefail
+          export LC_ALL=C
+          umask 077
+
+          # Host contract (owner-created, deploy/README.md "POS lab feed deploy").
+          FEED_ENV=/etc/rt-deploy/pos-feed.env
+          LOG_DIR=/var/log/rt-deploy
+          REPO=Kemetra-Labs/Retail-Tower-Erp
+          MAX_INSTALLER_BYTES=$((512 * 1024 * 1024))
+          MAX_SMALL_BYTES=$((4 * 1024 * 1024))
+
+          GATE=inputs
+          RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
+          mkdir -p "$LOG_DIR"
+          LOG="$LOG_DIR/pos-feed-deploy-$RUN_ID.log"
+          # fd 3 keeps the real stdout for RT_* lines; everything else goes to the root-only log.
+          exec 3>&1 >>"$LOG" 2>&1
+
+          say() { printf '%s\n' "$*" >&3; }
+          pass() { say "RT_GATE $1 pass"; }
+          stop() { echo "stopped at gate $GATE: $*"; say "RT_FAIL gate=$GATE reason=$*"; exit 1; }
+
+          RELEASE_TAG="${SSM_ReleaseTag:-}"
+          VERSION="${SSM_Version:-}"
+          INSTALLER_DIGEST="${SSM_InstallerDigest:-}"
+          BLOCKMAP_DIGEST="${SSM_BlockmapDigest:-}"
+          CHANNEL_DIGEST="${SSM_ChannelDigest:-}"
+          [[ "$RELEASE_TAG" =~ ^pos/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || stop "ReleaseTag-missing-or-invalid"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || stop "Version-missing-or-invalid"
+          [[ "$INSTALLER_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || stop "InstallerDigest-missing-or-invalid"
+          [[ "$BLOCKMAP_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || stop "BlockmapDigest-missing-or-invalid"
+          [[ "$CHANNEL_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || stop "ChannelDigest-missing-or-invalid"
+          [ "$VERSION" = "${RELEASE_TAG#pos/v}" ] || stop "Version-is-not-the-ReleaseTag-version"
+          # File names come from the validated Version, never from the raw tag.
+          EXE="POS-Pulse-LAB-Setup-$VERSION.exe"
+          MAP="$EXE.blockmap"
+          echo "POS lab feed deploy: $RELEASE_TAG"
+
+          GATE=lock
+          # The lock the Backend-Core and Console deploy documents take: one lab-01 deploy at a time.
+          exec 9>/run/rt-lab-deploy.lock
+          flock -n 9 || stop "another-deploy-is-running"
+          WORK=""
+          PRIOR=none
+          SWAPPED=no
+          SMOKE_OK=no
+          # Puts the previous lab.yml back (or none, on a first deploy), once; only after this run swapped it.
+          # The copy it restores from stays in the staging directory until the smoke has passed.
+          revert() {
+            [ "$SWAPPED" = yes ] || return 0
+            if [ "$PRIOR" = none ]; then
+              rm -f "$FEED_DIR/lab.yml" && SWAPPED=reverted && say "RT_REVERT restored version=none" && return 0
+            elif cp -p "$WORK/lab.yml.prev" "$WORK/lab.yml.revert" && mv -f "$WORK/lab.yml.revert" "$FEED_DIR/lab.yml"; then
+              SWAPPED=reverted
+              say "RT_REVERT restored version=$PRIOR"
+              return 0
+            fi
+            say "RT_REVERT failed version=$VERSION"
+          }
+          # Any exit after the swap and before the smoke passed (a failed check, or an abort under
+          # set -e) reverts lab.yml first; then the staging directory goes.
+          on_exit() {
+            if [ "$SWAPPED" = yes ] && [ "$SMOKE_OK" != yes ]; then revert; fi
+            if [ -n "$WORK" ]; then rm -rf "$WORK"; fi
+          }
+          trap on_exit EXIT
+          trap 'exit 1' INT TERM HUP
+
+          # Reads one KEY=value line; refuses a key that is missing or set twice.
+          env_value() {
+            local file="$1" key="$2" count
+            count="$(grep -c "^$key=" "$file" || true)"
+            [ "$count" = 1 ] || return 1
+            grep "^$key=" "$file" | cut -d= -f2-
+          }
+          # Every value of one lab.yml key, at the top level or inside the files list, one per line,
+          # with one pair of quotes removed (the same reading as release-lab-installer.ps1).
+          yml_values() {
+            sed -nE "s/^[[:space:]]*(-[[:space:]]+)?$2:[[:space:]]*['\"]?([^'\"]*[^'\"[:space:]])?['\"]?[[:space:]]*\$/\\2/p" "$1"
+          }
+          # The single top-level value of a key, or nothing when it is missing or repeated.
+          yml_top() {
+            local values
+            values="$(grep -E "^$2:" "$1" | sed -nE "s/^$2:[[:space:]]*['\"]?([^'\"]*[^'\"[:space:]])?['\"]?[[:space:]]*\$/\\1/p")"
+            [ "$(grep -c . <<<"$values" || true)" = 1 ] && printf '%s\n' "$values"
+          }
+          # Every value of a key is the expected one; at least one exists unless the key is optional.
+          yml_all_equal() {
+            local file="$1" key="$2" want="$3" optional="${4:-}" values
+            values="$(yml_values "$file" "$key")"
+            if [ -z "$values" ]; then [ "$optional" = optional ]; return; fi
+            [ "$(grep -cvxF -- "$want" <<<"$values" || true)" = 0 ]
+          }
+          sha512_base64() {
+            python3 -c 'import base64, hashlib, sys
+          h = hashlib.sha512()
+          with open(sys.argv[1], "rb") as f:
+              for chunk in iter(lambda: f.read(1 << 20), b""):
+                  h.update(chunk)
+          print(base64.b64encode(h.digest()).decode())' "$1" </dev/null
+          }
+          digest_of() { echo "sha256:$(sha256sum "$1" | cut -d' ' -f1)"; }
+          # A feed file as Caddy on this host serves it (FEED_HOST resolved to this host), never the public edge.
+          origin_get() {
+            curl -sS --max-time 120 --resolve "$FEED_HOST:$FEED_PORT:127.0.0.1" -o "$2" -w '%{http_code}' "$FEED_URL/$1" </dev/null || true
+          }
+
+          # ---------------------------------------------------------------- G-Host
+          GATE=G-Host
+          [ -f "$FEED_ENV" ] && [ ! -L "$FEED_ENV" ] || stop "feed-env-file-missing"
+          [ "$(stat -c '%u' "$FEED_ENV")" = 0 ] && [ "$(( 0$(stat -c '%a' "$FEED_ENV") & 022 ))" = 0 ] || stop "feed-env-file-not-root-only-writable"
+          command -v curl >/dev/null && command -v python3 >/dev/null && command -v sha256sum >/dev/null && command -v flock >/dev/null || stop "host-contract-tools-missing"
+          FEED_DIR="$(env_value "$FEED_ENV" FEED_DIR)" || stop "FEED_DIR-missing-or-duplicated"
+          FEED_URL="$(env_value "$FEED_ENV" FEED_URL)" || stop "FEED_URL-missing-or-duplicated"
+          [[ "$FEED_DIR" =~ ^(/[A-Za-z0-9_][A-Za-z0-9._-]*)+$ ]] && [[ "$FEED_DIR" != *..* ]] || stop "FEED_DIR-is-not-an-absolute-plain-path"
+          [[ "$FEED_URL" =~ ^(http|https)://([a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+)(/[A-Za-z0-9_][A-Za-z0-9._-]*)*$ ]] || stop "FEED_URL-is-not-a-plain-http-url"
+          [[ "$FEED_URL" != *..* ]] || stop "FEED_URL-is-not-a-plain-http-url"
+          FEED_HOST="${BASH_REMATCH[2]}"
+          if [ "${BASH_REMATCH[1]}" = https ]; then FEED_PORT=443; else FEED_PORT=80; fi
+          FEED_PARENT="$(dirname "$FEED_DIR")"
+          for DIR in "$FEED_PARENT" "$FEED_DIR"; do
+            [ -d "$DIR" ] && [ ! -L "$DIR" ] || stop "feed-directory-missing"
+            [ "$(stat -c '%u' "$DIR")" = 0 ] && [ "$(( 0$(stat -c '%a' "$DIR") & 022 ))" = 0 ] || stop "feed-directory-not-root-only-writable"
+          done
+          # A staging directory left by a run that was killed (under this lock, no other run owns one).
+          for OLD in "$FEED_PARENT"/.rt-pos-feed-stage.*; do
+            [ -d "$OLD" ] && [ ! -L "$OLD" ] || continue
+            rm -rf -- "$OLD"
+          done
+          WORK="$(mktemp -d "$FEED_PARENT/.rt-pos-feed-stage.XXXXXX")"
+          [ "$(stat -c '%d' "$WORK")" = "$(stat -c '%d' "$FEED_DIR")" ] || stop "staging-is-not-on-the-feed-file-system"
+          # The origin serves the feed directory as it is now: its lab.yml, or a 404 before the first deploy.
+          if [ -e "$FEED_DIR/lab.yml" ]; then
+            [ -f "$FEED_DIR/lab.yml" ] && [ ! -L "$FEED_DIR/lab.yml" ] || stop "served-lab-yml-is-not-a-file"
+            [ "$(origin_get lab.yml "$WORK/served-before.yml")" = 200 ] || stop "origin-lab-yml-not-200"
+            cmp -s "$WORK/served-before.yml" "$FEED_DIR/lab.yml" || stop "origin-does-not-serve-FEED_DIR"
+          else
+            [ "$(origin_get lab.yml "$WORK/served-before.yml")" = 404 ] || stop "origin-lab-yml-not-404-before-the-first-deploy"
+          fi
+          pass G-Host
+
+          # ---------------------------------------------------------------- version
+          GATE=version
+          if [ -e "$FEED_DIR/lab.yml" ]; then
+            # A lab.yml that cannot be read stops the run: it never counts as an empty feed.
+            PRIOR="$(yml_top "$FEED_DIR/lab.yml" version)" || stop "served-lab-yml-has-no-single-version"
+            [[ "$PRIOR" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || stop "served-lab-yml-version-invalid"
+          fi
+          say "RT_PRIOR version=$PRIOR"
+          say "RT_TARGET version=$VERSION"
+          # Roll forward only: the same version or a lower one is refused, and the feed is unchanged.
+          if [ "$PRIOR" != none ]; then
+            [ "$PRIOR" != "$VERSION" ] || stop "version-not-higher"
+            [ "$(printf '%s\n%s\n' "$PRIOR" "$VERSION" | sort -V | tail -n 1)" = "$VERSION" ] || stop "version-not-higher"
+          fi
+          pass version
+
+          # ---------------------------------------------------------------- fetch
+          GATE=fetch
+          # GitHub serves a tag with `/` at this literal path (its own browser_download_url form).
+          BASE="https://github.com/$REPO/releases/download/$RELEASE_TAG"
+          fetch_asset() {
+            curl -fsSL --proto '=https' --tlsv1.2 --max-time "$3" --max-filesize "$2" \
+              -o "$WORK/$1" "$BASE/$1" </dev/null || stop "release-asset-download-failed"
+          }
+          fetch_asset "$EXE" "$MAX_INSTALLER_BYTES" 600
+          fetch_asset "$MAP" "$MAX_SMALL_BYTES" 60
+          fetch_asset lab.yml "$MAX_SMALL_BYTES" 60
+          pass fetch
+
+          # ---------------------------------------------------------------- check
+          GATE=check
+          [ "$(digest_of "$WORK/$EXE")" = "$INSTALLER_DIGEST" ] || stop "installer-is-not-InstallerDigest"
+          [ "$(digest_of "$WORK/$MAP")" = "$BLOCKMAP_DIGEST" ] || stop "blockmap-is-not-BlockmapDigest"
+          [ "$(digest_of "$WORK/lab.yml")" = "$CHANNEL_DIGEST" ] || stop "lab-yml-is-not-ChannelDigest"
+          SHA512="$(sha512_base64 "$WORK/$EXE")" || stop "installer-sha512-failed"
+          SIZE="$(stat -c '%s' "$WORK/$EXE")"
+          [ "$(yml_top "$WORK/lab.yml" version || true)" = "$VERSION" ] || stop "lab-yml-version-is-not-Version"
+          [ "$(yml_top "$WORK/lab.yml" path || true)" = "$EXE" ] || stop "lab-yml-path-is-not-the-installer"
+          yml_all_equal "$WORK/lab.yml" url "$EXE" optional || stop "lab-yml-url-is-not-the-installer"
+          yml_all_equal "$WORK/lab.yml" sha512 "$SHA512" || stop "lab-yml-sha512-is-not-the-installer"
+          yml_all_equal "$WORK/lab.yml" size "$SIZE" || stop "lab-yml-size-is-not-the-installer"
+          # Caddy may run as another user: the published files are world-readable (none holds a secret).
+          chmod 0644 "$WORK/$EXE" "$WORK/$MAP" "$WORK/lab.yml"
+          pass check
+
+          # ---------------------------------------------------------------- swap
+          GATE=swap
+          # The served lab.yml, kept aside for the revert; it becomes lab.yml.prev only after the smoke passed.
+          if [ "$PRIOR" != none ]; then cp -p "$FEED_DIR/lab.yml" "$WORK/lab.yml.prev"; fi
+          # The installer and blockmap first: until lab.yml moves, devices read the previous, consistent
+          # lab.yml, and a run stopped here leaves files nothing points at (the next deploy replaces them).
+          mv -f "$WORK/$EXE" "$FEED_DIR/$EXE"
+          mv -f "$WORK/$MAP" "$FEED_DIR/$MAP"
+          # marked before the mv, so a signal during it still reverts
+          SWAPPED=yes && mv -f "$WORK/lab.yml" "$FEED_DIR/lab.yml" || stop "swap-failed"
+          say "RT_SWAP channel=lab.yml from=$PRIOR to=$VERSION"
+          pass swap
+
+          # ---------------------------------------------------------------- G-Smoke
+          GATE=G-Smoke
+          # On a failed smoke, the previous lab.yml goes back before the run stops.
+          smoke_fail() { revert; stop "$1"; }
+          [ "$(origin_get lab.yml "$WORK/served.yml")" = 200 ] || smoke_fail "origin-lab-yml-not-200-after-the-swap"
+          [ "$(digest_of "$WORK/served.yml")" = "$CHANNEL_DIGEST" ] || smoke_fail "origin-does-not-serve-ChannelDigest"
+          [ "$(origin_get "$MAP" "$WORK/served.blockmap")" = 200 ] || smoke_fail "origin-blockmap-not-200"
+          [ "$(digest_of "$WORK/served.blockmap")" = "$BLOCKMAP_DIGEST" ] || smoke_fail "origin-does-not-serve-BlockmapDigest"
+          [ "$(origin_get "$EXE" "$WORK/served.exe")" = 200 ] || smoke_fail "origin-installer-not-200"
+          [ "$(digest_of "$WORK/served.exe")" = "$INSTALLER_DIGEST" ] || smoke_fail "origin-does-not-serve-InstallerDigest"
+          SMOKE_OK=yes
+          pass G-Smoke
+
+          # ---------------------------------------------------------------- prune
+          GATE=prune
+          # The previous channel file stays for a manual rollback (deploy/README.md).
+          if [ "$PRIOR" != none ]; then mv -f "$WORK/lab.yml.prev" "$FEED_DIR/lab.yml.prev"; fi
+          # Keep this version and the previous one (the version lab.yml.prev names); remove only
+          # installers and blockmaps of other versions, by their exact release names.
+          KEPT=0
+          REMOVED=0
+          for FILE in "$FEED_DIR"/POS-Pulse-LAB-Setup-*; do
+            NAME="${FILE##*/}"
+            [[ "$NAME" =~ ^POS-Pulse-LAB-Setup-([0-9]+\.[0-9]+\.[0-9]+)\.exe(\.blockmap)?$ ]] || continue
+            [ -f "$FILE" ] && [ ! -L "$FILE" ] || continue
+            if [ "${BASH_REMATCH[1]}" = "$VERSION" ] || [ "${BASH_REMATCH[1]}" = "$PRIOR" ]; then
+              KEPT=$((KEPT + 1))
+            else
+              rm -f -- "$FEED_DIR/$NAME"
+              REMOVED=$((REMOVED + 1))
+            fi
+          done
+          say "RT_PRUNE kept=$KEPT removed=$REMOVED"
+          pass prune
+          say "RT_DONE release=$RELEASE_TAG"
+          RT_POS_FEED_SCRIPT
+          RC=0
+          /bin/bash "$RT_SCRIPT" || RC=$?
+          rm -f "$RT_SCRIPT"
+          exit "$RC"

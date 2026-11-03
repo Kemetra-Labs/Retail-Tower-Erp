@@ -643,6 +643,112 @@ lab-01 runs), `jira_key` and `dry_run` (default `true`).
 4. Dry-run first (`dry_run: true`), then a live same-release redeploy (the release
    directory is reused and `current` does not change).
 
+## POS lab feed deploy (RT-1082)
+
+The manual `Deploy POS lab` workflow (`.github/workflows/deploy-pos-lab.yml`) puts one
+published, lab-signed POS release (`pos/vX.Y.Z`, from `release-pos.yml`) into the **lab
+update feed** on lab-01. An installed POS on the `lab` channel then updates itself from that
+feed through its normal updater. The feed is static files that Caddy serves:
+`lab.yml`, `POS-Pulse-LAB-Setup-X.Y.Z.exe` and its `.blockmap`, for the current version and
+one previous version. GitHub Releases is only the immutable release store; devices never read
+from it.
+
+Run the workflow from `main` with `pos_release`, `jira_key` and `dry_run` (default `true`).
+
+- **preflight** (every run, GitHub only, deploys nothing):
+  - the release is immutable, its tag commit is on `main`, and it has exactly its five assets;
+  - the installer matches its `.sha256` and has a build-provenance attestation signed by
+    `release-pos.yml` for that tag;
+  - `release-manifest.json` names the tag and commit and records the installer, blockmap and
+    `lab.yml` with their digests;
+  - `lab.yml` names the version and the installer, and its `sha512` and `size` are those of
+    the installer.
+
+  The planned ledger is the `pos-lab-planned-<run id>` artifact.
+- **live** (`dry_run: false` only): after the `aws-lab` reviewer approves, the job assumes
+  the deploy role by OIDC and runs the owner-created SSM document `RT-PosLabFeedDeploy`
+  ([`deploy/lab/ssm/`](lab/ssm/)) on lab-01. The document:
+  - refuses a version that is not higher than the one in the `lab.yml` the feed serves now
+    (roll forward only), so the same or a lower release is refused and the feed is unchanged;
+  - fetches the three files over https into a root-only staging directory next to the feed,
+    and checks each against the digests the preflight verified, and `lab.yml` against the
+    installer;
+  - copies the served `lab.yml` aside, then renames the installer, the blockmap and, **last**,
+    `lab.yml` into the feed. A run stopped before that last rename leaves devices on the
+    previous, consistent `lab.yml`, and the next deploy replaces the files it left;
+  - smokes the feed on this host, and puts the previous `lab.yml` back if the smoke fails;
+  - only then keeps the previous `lab.yml` as `lab.yml.prev`, and prunes the installers and
+    blockmaps of every version but this one and the previous one.
+
+  It takes the same host lock as the Backend-Core and Console deploys and restarts nothing.
+  The live ledger is the `pos-lab-live-<run id>` artifact.
+
+**Owner-only, before the first live run** (no agent or CI job does any of this):
+
+1. **Decide how the feed is served (open owner decision).** Choose the feed host name and path.
+   The feed must be served as plain static files (`file_server`, which also answers HTTP `Range`
+   requests for the differential download), **without** the Console's SPA fallback, under a
+   **publicly trusted** TLS certificate. The device's `ELECTRON_UPDATE_FEED_URL` is that public
+   URL. On lab-01, Caddy is the `dp2-caddy` container of the Backend-Core release: its
+   `Caddyfile` is bind-mounted from the release directory and it sees only `/srv/console`
+   (`docker-compose.prod.yml`). A route added there by hand is replaced by the next
+   `RT-BackendLabDeploy`, and the container cannot read the feed directory without a new mount.
+   The durable options are:
+   - a feed site or route, gated on an environment variable, plus a read-only mount of
+     `FEED_DIR`, committed to this `Caddyfile` and `docker-compose.prod.yml`. This is also the
+     production edge template, so it needs its own authorization on a Jira issue; RT-1082 does
+     not change either file;
+   - or a Caddy (or other static server) outside the Backend-Core compose stack, which binds no
+     port the stack uses.
+
+   If the route disappears, the feed's `/lab.yml` falls through to the Console's `index.html`,
+   devices stop updating (the updater fails closed), and the next feed deploy stops at G-Host
+   (`origin-does-not-serve-FEED_DIR` or `origin-lab-yml-not-404-before-the-first-deploy`)
+   before it changes anything.
+2. Create the feed directory and its parent, both owned by root and writable only by root
+   (for example `install -d -o root -g root -m 0755 /srv/rt-pos-feed /srv/rt-pos-feed/lab`).
+   The document stages its downloads in a root-only `.rt-pos-feed-stage.*` directory in the
+   parent, so the parent must be on the same file system as the feed and must not itself be
+   served.
+3. Create `/etc/rt-deploy/pos-feed.env`, owned by root, mode `0644` or stricter. The
+   document reads exactly two keys from it, once each, and never sources it:
+
+   ```bash
+   FEED_DIR=/srv/rt-pos-feed/lab
+   FEED_URL=http://<feed host>/<path>
+   ```
+
+   `FEED_URL` is the feed as Caddy **on lab-01** serves it. The document resolves its host to
+   `127.0.0.1` (port 80 for `http`, 443 for `https`), so the smokes never go through the
+   public edge. Use `http://` when the public edge is a tunnel that reaches Caddy on port 80,
+   as for the Console, and `https://` when Caddy holds the certificate itself.
+4. Create the document from the merged file, in `AWS_REGION`, with the setup identity
+   (never root or the deploy role):
+
+   ```bash
+   aws ssm create-document --name RT-PosLabFeedDeploy --document-type Command \
+     --document-format YAML --content file://deploy/lab/ssm/RT-PosLabFeedDeploy.yaml
+   ```
+
+   After a merged change to the file, run `update-document` with
+   `--document-version '$LATEST'`, then `update-document-default-version`. The workflow
+   always runs the default version.
+5. Add `ssm:SendCommand` on `document/RT-PosLabFeedDeploy` for the lab-01 managed node
+   (`Host=lab-01`) to the deploy role's identity policy and its boundary. The role needs no
+   other new permission (see the Console steps above for `DescribeInstanceInformation` and
+   `GetCommandInvocation`), and still never gets `AWS-RunShellScript`, `StartSession` or
+   `CreateDocument` / `UpdateDocument`.
+6. Add `Kemetra-Labs/Retail-Tower-Erp/.github/workflows/deploy-pos-lab.yml@refs/heads/main`
+   to the `job_workflow_ref` list in the monorepo statement of the role's trust policy.
+   Without it the live job fails at "Assume the deploy role", before anything reaches lab-01.
+7. Dry-run first (`dry_run: true`), then the first live deploy. A second live run of the same
+   release must then end in `RT_FAIL gate=version reason=version-not-higher`, with the feed
+   unchanged.
+
+To roll the feed back by hand, as root on lab-01: `lab.yml.prev` is the previous version's
+channel file, and that version's installer and blockmap are still in the feed. Devices only
+roll forward, so a rolled-back feed stops updates rather than downgrading any device.
+
 ## System lab deploy workflow (RT-1031)
 
 `.github/workflows/deploy-system-lab.yml` deploys one whole lab system version from its
