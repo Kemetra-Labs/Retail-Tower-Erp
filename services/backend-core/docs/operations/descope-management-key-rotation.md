@@ -25,8 +25,10 @@ the key may have leaked (a backup copy, a log, a shared screen).
    live until this passes.
 5. **Revoke the old key (owner).** First confirm that no earlier `rt-deploy-revert-*` unit
    is armed or has fired, and inspect that unit's run dir. If a timer is armed, wait for
-   its run to close. If a revert has run (`REVERT-STARTED` or `REVERTED` in that run dir),
-   repeat steps 2 to 4 first. Then
+   its run to close. If `REVERT-STARTED` exists without `REVERTED` or `REVERT-BLOCKED`, do not
+   revoke the old key; wait for or resolve the in-progress revert. If
+   `REVERT-BLOCKED` exists, complete the owner restore or forward-fix before
+   continuing. If `REVERTED` exists, repeat steps 2 to 4 after the restore. Then
    delete the old key in the Descope console, and accept an invitation for another fresh
    email (same rule as step 4) to confirm the new key works on its own.
 6. **Purge backup copies.** `deploy/lab/ssm/RT-BackendLabDeploy.yaml` (`backup-config`,
@@ -36,9 +38,7 @@ the key may have leaked (a backup copy, a log, a shared screen).
    - `/root/rt-lab-secrets/backend.env.bak-pre-<target>-<RUN_ID>`
 
    Do not purge a run dir with an auto-revert still pending; its `backend.env` is what a
-   revert restores, so rotate again after that run is closed. A run dir with
-   `REVERT-BLOCKED` is not an automatic restore: follow the owner restore or forward-fix
-   decision for it.
+   revert restores, so rotate again after that run is closed.
    Old copies hold the revoked key, so they are harmless after step 5, but remove them
    so the next reader does not mistake them for current.
 
