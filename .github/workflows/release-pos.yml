@@ -1,23 +1,42 @@
-# RT-871 (MR-1, MR-9): POS release, independent of the other products. Shadow: dry-run only.
+# RT-871 (MR-1, MR-9), RT-1082: POS release, independent of the other products. Publishes on a pos/vX.Y.Z tag
+# (lab-signed installer, RT-1082); dry-run by default.
 #
 # Triggers: a `pos/vX.Y.Z` tag push, or a manual dispatch whose default is a dry-run. No
-# pull_request trigger: PR code can never start this workflow with the release environment.
+# pull_request trigger: PR code can never start this workflow with a release environment.
 #
-#   resolve   the release SHA (always github.sha) must be on main; a release needs a
-#             pos/vX.Y.Z tag ref, a dry-run needs nothing else.
-#   build     the Windows package, UNSIGNED until RT-321 (the same steps as pos/package-windows,
-#             including the RT-830 fuse readback and native-load smoke), zipped and uploaded as
-#             a workflow artifact. No cache: a release build reads nothing a PR could write.
-#   manifest  release-manifest.json + unsigned provenance + SHA256SUMS (.github/release/manifest.py):
-#             source SHA, apps/pos tree hash, package digest, Backend-Core contract tree and the
-#             POS contract PIN, CI URL. Every run, dry-run included.
-#   publish   release mode only, behind the `release-pos` environment. Publication is not enabled
-#             on Shadow (real releases are RT-717), so it refuses after the environment admits it.
-#   env-probe manual negative probe (input probe_environment): asks for the environment from the
-#             dispatched ref; from anything but a pos/v* tag it must never start.
+#   resolve       the release SHA (always github.sha) must be on main; a release needs a pos/vX.Y.Z tag
+#                 ref whose version equals apps/pos/package.json, a dry-run needs nothing else.
+#   build         the Windows package (win-unpacked), unsigned: the same steps as pos/package-windows,
+#                 including the RT-830 fuse readback and native-load smoke. The win-unpacked directory is
+#                 uploaded for the signing jobs (and zipped as before). No cache: a release build reads
+#                 nothing a PR could write. No secrets, no environment.
+#   sign-dry-run  dry-run mode only. Builds the per-user NSIS installer from the prebuilt win-unpacked
+#                 with an ephemeral lab certificate (release-lab-installer.ps1 -Mode dry-run) and runs
+#                 the same verification (signature, lab.yml, silent install and uninstall). No
+#                 environment and no lab signing material.
+#   sign-release  release mode only, behind the `release-pos-sign` environment (the only job that reads
+#                 the lab signing PFX). Installs with --ignore-scripts, signs with the stable lab
+#                 certificate, verifies, and always removes the certificates it added.
+#   manifest      release-manifest.json + unsigned provenance + SHA256SUMS (.github/release/manifest.py):
+#                 source SHA, apps/pos tree hash, installer, blockmap and lab.yml digests, Backend-Core
+#                 contract tree and the POS contract PIN, CI URL. Every run, dry-run included.
+#   publish       release mode only, behind the `release-pos` environment (tag-only deployment policy;
+#                 publish refuses unless release-pos is protected that way and release-pos-sign also admits
+#                 only pos/v* tags). Checks that the package
+#                 is the one the manifest recorded, attests the installer's build provenance and creates
+#                 the GitHub release pos/vX.Y.Z with the installer, its blockmap, lab.yml, its .sha256 and
+#                 the manifest. No rebuild, no repository code. Never overwrites a release, never deploys.
+#   env-probe     manual negative probe (input probe_environment): asks for the environment from the
+#                 dispatched ref; from anything but a pos/v* tag it must never start.
 #
-# Every job is environment-free and secret-free except publish and env-probe. The token is
-# read-only (workflow `permissions: {}`, contents: read per job).
+# Publication enabled for pos/v* (lab-signed installer, RT-1082). The installer is signed with a LAB TEST
+# certificate and is NOT for production terminals (RT-321 production signing is not used).
+#
+# Every job is environment-free and secret-free except sign-release, publish and env-probe. The token is
+# read-only (workflow `permissions: {}`, contents: read per job). Only publish, admitted by the
+# environment, gets contents write, id-token write and attestations write (plus actions read to check the
+# environment's protection): the write scopes are repo-wide (a monorepo token is never confined to
+# apps/pos); the boundary is the tag-only environment and this job's steps.
 name: release-pos
 
 "on":
@@ -26,7 +45,7 @@ name: release-pos
   workflow_dispatch:
     inputs:
       dry_run:
-        description: Dry-run (build + manifest, publish nothing). false needs a pos/vX.Y.Z tag ref.
+        description: Dry-run (build, sign with an ephemeral lab certificate, manifest; publish nothing). false needs a pos/vX.Y.Z tag ref.
         type: boolean
         default: true
       probe_environment:
@@ -57,7 +76,11 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-          sparse-checkout: .github/release
+          # Non-cone: cone mode takes directories, and apps/pos/package.json is a single file.
+          sparse-checkout: |
+            /.github/release/
+            /apps/pos/package.json
+          sparse-checkout-cone-mode: false
 
       - name: Resolve SHA, mode and tag
         id: resolve
@@ -79,11 +102,19 @@ jobs:
               fi ;;
             *) fail "unsupported event $EVENT" ;;
           esac
+          # Read the version in both modes, so a dry-run proves the read before the first real tag. The installer's
+          # file name and the packaged app carry package.json's version: a release tag must be that version.
+          PKG_VERSION="$(jq -er .version apps/pos/package.json)" || fail "cannot read the version of apps/pos/package.json"
+          [[ "$PKG_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "apps/pos/package.json version '$PKG_VERSION' is not X.Y.Z"
+          if [ "$mode" = release ]; then
+            [ "${REF#refs/tags/pos/v}" = "$PKG_VERSION" ] \
+              || fail "tag ${REF#refs/tags/} is version ${REF#refs/tags/pos/v} but apps/pos/package.json is version $PKG_VERSION"
+          fi
           git merge-base --is-ancestor "$SHA" refs/remotes/origin/main || fail "$SHA is not on main"
           tag=""
           if [ "$mode" = release ]; then tag="${REF#refs/tags/}"; fi
           { echo "sha=$SHA"; echo "mode=$mode"; echo "tag=$tag"; } >> "$GITHUB_OUTPUT"
-          echo "### release-pos: $mode ${tag:-(no tag)} at \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "### release-pos: $mode ${tag:-(no tag)} at \`$SHA\` (apps/pos version $PKG_VERSION)" >> "$GITHUB_STEP_SUMMARY"
 
   build:
     name: release/build (Windows package, unsigned)
@@ -117,7 +148,7 @@ jobs:
       - name: Build (renderer + main + preload)
         run: npm run build
 
-      # Unsigned until RT-321: electron-builder finds no signing credential in this job.
+      # Unsigned: electron-builder finds no signing credential in this job. The lab signing is the sign-* jobs.
       - name: Package (Windows --dir, unsigned)
         run: npm run package:dir
 
@@ -148,9 +179,145 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      # The signing jobs build the installer from exactly this fused, smoke-tested directory.
+      - name: Upload win-unpacked (for the signing jobs)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pos-unpacked-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
+          path: apps/pos/dist-electron/win-unpacked/
+          # upload-artifact skips dot-files unless told otherwise; the package must arrive whole.
+          include-hidden-files: true
+          if-no-files-found: error
+          # Long enough to outlast an owner approval delay on release-pos-sign.
+          retention-days: 7
+
+  sign-dry-run:
+    name: release/sign (dry-run, ephemeral lab certificate)
+    needs: [resolve, build]
+    if: needs.resolve.outputs.mode == 'dry-run'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    # No environment: this path never reads the lab signing material.
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/pos
+    steps:
+      - name: Checkout the release SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+
+      # Dependencies only, no lifecycle scripts: electron-builder is needed, no package script may run here.
+      - name: Install dependencies (no scripts)
+        run: npm ci --ignore-scripts
+
+      - name: Download win-unpacked
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: pos-unpacked-dry-run-${{ github.run_id }}
+          path: ${{ runner.temp }}/pos-unpacked
+
+      # -Version must equal package.json's version (the script checks it too). -Out must be empty or absent.
+      - name: Sign and verify the installer
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          & ./scripts/lab/ci/release-lab-installer.ps1 -Mode dry-run -Unpacked "$env:RUNNER_TEMP/pos-unpacked" -Version $version -Out "$env:RUNNER_TEMP/pos-installer"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Remove the lab certificates
+        if: always()
+        shell: pwsh
+        run: ./scripts/lab/ci/release-lab-installer.ps1 -Cleanup
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pos-installer-dry-run-${{ github.run_id }}
+          path: ${{ runner.temp }}/pos-installer/
+          if-no-files-found: error
+          retention-days: 7
+
+  sign-release:
+    name: release/sign (lab certificate, release-pos-sign environment)
+    needs: [resolve, build]
+    if: needs.resolve.outputs.mode == 'release'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    environment: release-pos-sign
+    # The only job that reads the lab signing PFX; the environment admits pos/v* tags only.
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/pos
+    steps:
+      - name: Checkout the release SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+
+      # Dependencies only, no lifecycle scripts: this job holds the signing key, so no package script may run.
+      - name: Install dependencies (no scripts)
+        run: npm ci --ignore-scripts
+
+      - name: Download win-unpacked
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: pos-unpacked-release-${{ github.run_id }}
+          path: ${{ runner.temp }}/pos-unpacked
+
+      # The signing material reaches this one step only. -Version must equal package.json's version
+      # (the script checks it too). -Out must be empty or absent.
+      - name: Sign and verify the installer
+        shell: pwsh
+        env:
+          POS_LAB_SIGN_PFX_BASE64: ${{ secrets.POS_LAB_SIGN_PFX_BASE64 }}
+          POS_LAB_SIGN_PFX_PASSWORD: ${{ secrets.POS_LAB_SIGN_PFX_PASSWORD }}
+          POS_LAB_ROOT_SHA1: ${{ vars.POS_LAB_ROOT_SHA1 }}
+        run: |
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          & ./scripts/lab/ci/release-lab-installer.ps1 -Mode release -Unpacked "$env:RUNNER_TEMP/pos-unpacked" -Version $version -Out "$env:RUNNER_TEMP/pos-installer"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Remove the lab certificates
+        if: always()
+        shell: pwsh
+        run: ./scripts/lab/ci/release-lab-installer.ps1 -Cleanup
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pos-installer-release-${{ github.run_id }}
+          path: ${{ runner.temp }}/pos-installer/
+          if-no-files-found: error
+          # As long as the manifest: publish waits for the owner's release-pos approval, which may take days.
+          retention-days: 90
+
   manifest:
     name: release/manifest
-    needs: [resolve, build]
+    needs: [resolve, build, sign-dry-run, sign-release]
+    # !cancelled(): sign-dry-run or sign-release is skipped in every run, and a skipped need would skip this
+    # job under the implicit success(); unlike always(), cancelling the run still stops it. The sign job of
+    # this run's mode must have succeeded.
+    if: >-
+      !cancelled() && needs.resolve.result == 'success' && needs.build.result == 'success'
+      && ((needs.resolve.outputs.mode == 'dry-run' && needs.sign-dry-run.result == 'success')
+      || (needs.resolve.outputs.mode == 'release' && needs.sign-release.result == 'success'))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -161,10 +328,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Download the package
+      - name: Download the installer
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: pos-package-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
+          name: pos-installer-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
           path: ${{ runner.temp }}/pkg
 
       - name: Write the release manifest
@@ -177,10 +344,16 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          zips=("$RUNNER_TEMP"/pkg/*.zip)
-          [ "${#zips[@]}" -eq 1 ] || { echo "::error::expected one package zip, found ${#zips[@]}"; exit 1; }
+          PKG="$RUNNER_TEMP/pkg"
+          exes=("$PKG"/POS-Pulse-LAB-Setup-*.exe)
+          [ "${#exes[@]}" -eq 1 ] || { echo "::error::expected one installer, found ${#exes[@]}"; exit 1; }
+          EXE="$(basename "${exes[0]}")"
+          [ "$(ls "$PKG" | sort | paste -sd ' ' -)" = "$(printf '%s\n' "$EXE" "$EXE.blockmap" lab.yml | sort | paste -sd ' ' -)" ] \
+            || { echo "::error::the installer package must hold exactly $EXE, $EXE.blockmap and lab.yml (got: $(ls "$PKG" | paste -sd ' ' -))"; exit 1; }
           args=(--product pos --sha "$SHA" --mode "$MODE" --repository "$REPOSITORY" --ci-url "$CI_URL"
-                --artifact "pos-win-unpacked=${zips[0]}" --note "signing=unsigned until RT-321"
+                --artifact "pos-installer=$PKG/$EXE" --artifact "pos-blockmap=$PKG/$EXE.blockmap"
+                --artifact "pos-channel=$PKG/lab.yml"
+                --note "signing=lab test certificate (RT-321 production signing not used)"
                 --out "$RUNNER_TEMP/manifest")
           if [ -n "$TAG" ]; then args+=(--tag "$TAG"); fi
           python3 .github/release/manifest.py "${args[@]}"
@@ -195,18 +368,150 @@ jobs:
           retention-days: 90
 
   publish:
-    name: release/publish (disabled until RT-717)
-    needs: [resolve, manifest]
-    if: needs.resolve.outputs.mode == 'release'
+    name: release/publish (attestation + GitHub release)
+    needs: [resolve, sign-release, manifest]
+    # !cancelled(): sign-dry-run is skipped in release mode and is an ancestor through manifest, which would
+    # skip this job under the implicit success(). Every need is checked explicitly instead. Unlike always(),
+    # cancelling the run stops an approved publish.
+    if: >-
+      !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.mode == 'release'
+      && needs.sign-release.result == 'success' && needs.manifest.result == 'success'
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 15
     environment: release-pos
-    permissions: {}
+    # One publish at a time for the product.
+    concurrency:
+      group: release-pos-publish
+      cancel-in-progress: false
+    permissions:
+      contents: write # the GitHub release
+      id-token: write # attestation signing (Sigstore)
+      attestations: write
+      actions: read # the environment and deployment-policy reads in the first step
+    env:
+      SHA: ${{ needs.resolve.outputs.sha }}
+      TAG: ${{ needs.resolve.outputs.tag }}
+      REPO: ${{ github.repository }}
+    # No checkout: this job runs no repository code. GH_TOKEN is set per step, only where gh needs it.
     steps:
-      - name: Refuse publication (Shadow)
+      # A job that names a missing environment creates it unprotected. Refuse unless release-pos has a
+      # required reviewer and admits only pos/v* tags, and release-pos-sign (the only holder of the lab
+      # signing PFX) admits only pos/v* tags; a reviewer on release-pos-sign is optional (spec C-7).
+      - name: Refuse unless the release environments are protected
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "::error::publication is not enabled on Shadow (RT-871 builds and dry-runs the release path; real releases are RT-717). Nothing was published."
-          exit 1
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          # check_env NAME REVIEWER: the environment must admit exactly the tag pattern pos/v*; with
+          # REVIEWER=required it must also have a required reviewer.
+          check_env() {
+            local name="$1" reviewer="$2" env_json policies
+            env_json="$(gh api "repos/$REPO/environments/$name")" || fail "cannot read the $name environment"
+            if [ "$reviewer" = required ]; then
+              jq -e '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length > 0' <<<"$env_json" >/dev/null \
+                || fail "$name has no required reviewer"
+            fi
+            jq -e '.deployment_branch_policy.custom_branch_policies == true' <<<"$env_json" >/dev/null \
+              || fail "$name has no custom deployment policy"
+            policies="$(gh api "repos/$REPO/environments/$name/deployment-branch-policies" \
+              --jq '[.branch_policies[] | {name, type}]')" || fail "cannot read the deployment policies of $name"
+            [ "$(jq -c . <<<"$policies")" = '[{"name":"pos/v*","type":"tag"}]' ] \
+              || fail "$name must admit exactly the tag pattern pos/v* (got $policies)"
+          }
+          check_env release-pos required
+          check_env release-pos-sign optional
+
+      - name: Check the release inputs
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          [[ "$TAG" =~ ^pos/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "release tag '$TAG' is not pos/vX.Y.Z"
+          [ "$SHA" = "$GITHUB_SHA" ] || fail "resolved SHA $SHA != workflow SHA $GITHUB_SHA"
+
+      - name: Download the installer
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: pos-installer-release-${{ github.run_id }}
+          path: ${{ runner.temp }}/pkg
+
+      - name: Download the release manifest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: pos-release-manifest-release-${{ github.run_id }}
+          path: ${{ runner.temp }}/manifest
+
+      # What is published must be exactly what the signing job produced and the manifest job recorded: no rebuild.
+      - name: Check the package against the manifest
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          VERSION="${TAG#pos/v}"
+          EXE="POS-Pulse-LAB-Setup-$VERSION.exe"
+          PKG="$RUNNER_TEMP/pkg"
+          MANIFEST="$RUNNER_TEMP/manifest/release-manifest.json"
+          [ "$(ls "$PKG" | sort | paste -sd ' ' -)" = "$(printf '%s\n' "$EXE" "$EXE.blockmap" lab.yml | sort | paste -sd ' ' -)" ] \
+            || fail "the package must hold exactly $EXE, $EXE.blockmap and lab.yml (got: $(ls "$PKG" | paste -sd ' ' -))"
+          digest() { echo "sha256:$(sha256sum "$PKG/$1" | cut -d' ' -f1)"; }
+          jq -e --arg tag "$TAG" --arg sha "$SHA" \
+              --arg exe "$EXE" --arg exe_digest "$(digest "$EXE")" \
+              --arg map "$EXE.blockmap" --arg map_digest "$(digest "$EXE.blockmap")" \
+              --arg yml lab.yml --arg yml_digest "$(digest lab.yml)" '
+              .product == "pos" and .mode == "release" and .tag == $tag and .source.sha == $sha
+              and ([.artifacts[] | select(.name == "pos-installer" and .file == $exe and .digest == $exe_digest)] | length == 1)
+              and ([.artifacts[] | select(.name == "pos-blockmap" and .file == $map and .digest == $map_digest)] | length == 1)
+              and ([.artifacts[] | select(.name == "pos-channel" and .file == $yml and .digest == $yml_digest)] | length == 1)
+              and (.artifacts | length == 3)
+            ' "$MANIFEST" >/dev/null \
+            || fail "the manifest does not match the package: expected tag $TAG, sha $SHA, files $EXE, $EXE.blockmap and lab.yml"
+          # The .sha256 asset has the `sha256sum -c` shape, like the other products' releases.
+          (cd "$PKG" && sha256sum "$EXE" > "$EXE.sha256")
+          cp "$MANIFEST" "$PKG/release-manifest.json"
+
+      # Re-run safe, never overwrites: a release that exists (even a draft) stops the job.
+      - name: Refuse if the release already exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if OUT="$(gh release view "$TAG" --repo "$REPO" --json isDraft --jq .isDraft 2>&1)"; then
+            echo "::error::release $TAG already exists (draft: $OUT); refusing to overwrite. A draft left by a failed run must be deleted by the owner first."
+            exit 1
+          fi
+          grep -qi "release not found" <<<"$OUT" \
+            || { echo "::error::could not determine whether release $TAG exists: $OUT"; exit 1; }
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: ${{ runner.temp }}/pkg/POS-Pulse-LAB-Setup-*.exe
+
+      - name: Create the GitHub release (never overwrites)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          VERSION="${TAG#pos/v}"
+          EXE="POS-Pulse-LAB-Setup-$VERSION.exe"
+          PKG="$RUNNER_TEMP/pkg"
+          [ "$(ls "$PKG" | sort | paste -sd ' ' -)" = "$(printf '%s\n' "$EXE" "$EXE.blockmap" lab.yml "$EXE.sha256" release-manifest.json | sort | paste -sd ' ' -)" ] \
+            || fail "the release assets are not exactly $EXE, $EXE.blockmap, lab.yml, $EXE.sha256 and release-manifest.json"
+          # --verify-tag only proves the tag exists: it must still point at the SHA this run built.
+          TAG_SHA="$(gh api "repos/$REPO/commits/refs/tags/$TAG" --jq .sha)" || fail "cannot resolve tag $TAG"
+          [ "$TAG_SHA" = "$SHA" ] || fail "tag $TAG now points at $TAG_SHA, not $SHA"
+          gh release create "$TAG" \
+            --repo "$REPO" \
+            --verify-tag \
+            --title "POS Pulse $TAG (LAB)" \
+            --notes "Lab-signed per-user POS installer built from $SHA by $GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID. It is signed with a LAB TEST certificate and is not for production terminals. Verify with the .sha256 file and gh attestation verify before use." \
+            "$PKG/$EXE" "$PKG/$EXE.blockmap" "$PKG/lab.yml" "$PKG/$EXE.sha256" "$PKG/release-manifest.json"
+          {
+            echo "### Published $TAG"
+            echo
+            echo "- release: $GITHUB_SERVER_URL/$REPO/releases/tag/$TAG"
+            echo "- installer: \`$EXE\` ($(jq -r '.artifacts[] | select(.name == "pos-installer") | .digest' "$PKG/release-manifest.json"))"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   env-probe:
     name: release/env-probe (must not start outside a pos/v* tag)
