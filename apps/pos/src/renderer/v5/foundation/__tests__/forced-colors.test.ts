@@ -177,3 +177,17 @@ describe('forced colors — viewport notice and dialog (RT-313)', () => {
     );
   });
 });
+
+describe('forced colors — the shared ledger row (RT-1026)', () => {
+  const ledger = read('../ledger.css');
+
+  it('the anchored total keeps a 2px edge when its tint is dropped', () => {
+    expect(ruleFor(forcedColorsCss(ledger), '.v5-ledger-row--total')).toMatch(
+      /border-block-start:\s*2px solid CanvasText/,
+    );
+  });
+
+  it('never opts out of forced colors', () => {
+    expect(ledger).not.toMatch(/forced-color-adjust/);
+  });
+});

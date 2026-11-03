@@ -75,7 +75,7 @@ const MONEY_SELECTORS: ReadonlyArray<[string, string]> = [
   ['v5/checkout/checkout.css', '.v5-cash-keypad__key'],
   ['v5/checkout/checkout.css', '.v5-card__amount-value'],
   ['v5/checkout/checkout.css', '.v5-ledger__due-value'],
-  ['v5/checkout/checkout.css', '.v5-ledger-row__amount'],
+  ['v5/foundation/ledger.css', '.v5-ledger-row__amount'],
   ['v5/checkout/completion.css', '.v5-proof-line__value'],
   ['v5/shift/shift.css', '.v5-shift-money'],
   ['v5/shift/shift.css', '.v5-shift-amount'],

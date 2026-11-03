@@ -138,9 +138,30 @@ describe('RecoveryScreen — amounts and controls', () => {
     expect(complete).toHaveClass('v5-recovery-btn', 'v5-recovery-btn--primary');
     for (const name of [RECOVERY_COPY.cancelPayment, RECOVERY_COPY.cancelSale]) {
       const btn = screen.getByRole('button', { name });
-      expect(btn).toHaveClass('v5-recovery-btn');
-      expect(btn).not.toHaveClass('v5-recovery-btn--primary');
+      expect(btn).toHaveClass('v5-recovery-btn', 'v5-btn');
+      // RT-1026: the neutral secondary button, never danger-toned or primary.
+      for (const tone of [
+        'v5-recovery-btn--primary',
+        'v5-btn--primary',
+        'v5-btn--danger-quiet',
+        'v5-btn--danger',
+      ]) {
+        expect(btn).not.toHaveClass(tone);
+      }
     }
+  });
+
+  it('sets every stuck-payment amount in a ledger amount cell (RT-1026, money family)', async () => {
+    show(fakeBridges(heldView({ stuck: stuckAttempt() })));
+    await screen.findByRole('button', { name: RECOVERY_COPY.complete });
+    const stuck = screen.getByRole('region', { name: RECOVERY_COPY.stuckTitle });
+    for (const minor of [15_000, 5_000, 10_000]) {
+      const amount = within(stuck).getByText(formatCheckoutMoney(minor));
+      expect(amount).toHaveClass('v5-recovery-money');
+      expect(amount.closest('dd')).toHaveClass('v5-ledger-row__amount');
+    }
+    const owner = within(stuck).getByText(RECOVERY_COPY.owner, { selector: 'dt' });
+    expect(owner.nextElementSibling).not.toHaveClass('v5-ledger-row__amount');
   });
 });
 

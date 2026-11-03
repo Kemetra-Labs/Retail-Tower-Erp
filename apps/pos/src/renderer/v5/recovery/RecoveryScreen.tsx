@@ -16,6 +16,7 @@ import { RECOVERY_COPY, recoveryRefusalMessage } from './recovery-copy';
 import { RecoveryActionDialog, type RecoveryAction } from './RecoveryActionDialog';
 import { RECOVERY_ACTION_KIND } from './recovery-actions';
 import { RecoveryAlert } from './RecoveryAlert';
+import '../foundation/ledger.css';
 import './recovery.css';
 
 /**
@@ -232,19 +233,18 @@ function Outcome({ message }: Readonly<{ message: string }>): JSX.Element {
   );
 }
 
-/** One fact; `text` sets a word (a name) in the body face, not the tabular one. */
+/**
+ * One ledger row (RT-1026, the shared `.v5-ledger-row`); `text` sets a word (a
+ * name) in the body face, not the tabular one; `total` anchors the last row.
+ */
 function Fact(
-  props: Readonly<{ label: string; value: string; text?: boolean; lead?: boolean }>,
+  props: Readonly<{ label: string; value: string; text?: boolean; total?: boolean }>,
 ): JSX.Element {
   const { label, value } = props;
   return (
-    <div
-      className={
-        props.lead === true ? 'v5-recovery-fact v5-recovery-fact--lead' : 'v5-recovery-fact'
-      }
-    >
+    <div className={props.total === true ? 'v5-ledger-row v5-ledger-row--total' : 'v5-ledger-row'}>
       <dt>{label}</dt>
-      <dd className={props.text === true ? 'v5-recovery-text' : undefined}>
+      <dd className={props.text === true ? 'v5-recovery-text' : 'v5-ledger-row__amount'}>
         {props.text === true ? <bdi>{value}</bdi> : <Num>{value}</Num>}
       </dd>
     </div>
@@ -325,7 +325,7 @@ function StuckPanel(
             </button>
             <button
               type="button"
-              className="v5-recovery-btn v5-btn v5-btn--danger-quiet"
+              className="v5-recovery-btn v5-btn"
               onClick={() => {
                 props.onAction({ kind: 'cancel_attempt', stuck });
               }}
@@ -345,8 +345,8 @@ function StuckFacts(
 ): JSX.Element {
   const { stuck } = props;
   return (
-    <dl className="v5-recovery-facts">
-      <Fact label={RECOVERY_COPY.owner} value={props.owner} text lead />
+    <dl className="v5-recovery-ledger">
+      <Fact label={RECOVERY_COPY.owner} value={props.owner} text />
       <Fact label={RECOVERY_COPY.lines} value={String(stuck.line_count)} />
       <Fact label={RECOVERY_COPY.total} value={formatCheckoutMoney(stuck.total_minor)} />
       {stuck.cash_minor > 0 && (
@@ -358,12 +358,11 @@ function StuckFacts(
       {stuck.voucher_minor > 0 && (
         <Fact label={RECOVERY_COPY.voucher} value={formatCheckoutMoney(stuck.voucher_minor)} />
       )}
-      <div className="v5-recovery-fact v5-recovery-fact--due">
-        <dt>{RECOVERY_COPY.remaining}</dt>
-        <dd>
-          <Num>{formatCheckoutMoney(stuck.remaining_minor)}</Num>
-        </dd>
-      </div>
+      <Fact
+        label={RECOVERY_COPY.remaining}
+        value={formatCheckoutMoney(stuck.remaining_minor)}
+        total
+      />
     </dl>
   );
 }
@@ -436,7 +435,7 @@ function HeldRow(
       {props.canCancel && (
         <button
           type="button"
-          className="v5-recovery-btn v5-btn v5-btn--danger-quiet"
+          className="v5-recovery-btn v5-btn"
           onClick={() => {
             props.onAction({ kind: 'cancel_cart', cart });
           }}

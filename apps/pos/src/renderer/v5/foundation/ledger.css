@@ -1,0 +1,62 @@
+/*
+ * RT-1026 — the shared Precision Ledger row (DESIGN.md UX-02): a label and its
+ * value on one aligned line, the amount in the money family with tabular
+ * numerals, a soft separator between rows. Promoted from Checkout's payment
+ * ledger (RT-243) so the recovery panel's facts use the same row; a surface
+ * keeps its own class only for placement. `--change` stays here with the base
+ * row because it overrides it at the same specificity.
+ */
+
+.v5-ledger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-block-size: 36px;
+  margin: 0;
+  border-block-end: 1px solid var(--color-border-soft);
+  font-size: var(--font-size-sm);
+}
+
+.v5-ledger-row__amount {
+  font-family: var(--font-family-money);
+  font-size: var(--font-size-lg);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: var(--font-weight-bold);
+  white-space: nowrap;
+}
+
+/* M-P5: the change to hand back is large and neutral, never a success colour. */
+.v5-ledger-row--change {
+  min-block-size: 44px;
+  border-block-end: 0;
+  font-weight: var(--font-weight-semibold);
+}
+
+.v5-ledger-row--change .v5-ledger-row__amount {
+  font-size: var(--font-size-2xl);
+}
+
+/* The anchored total: the last row, a strong rule above it, its amount set largest. */
+.v5-ledger-row:has(+ .v5-ledger-row--total) {
+  border-block-end: 0;
+}
+
+.v5-ledger-row--total {
+  min-block-size: 52px;
+  border-block-start: 1px solid var(--color-border-strong);
+  border-block-end: 0;
+  font-weight: var(--font-weight-semibold);
+}
+
+.v5-ledger-row--total .v5-ledger-row__amount {
+  font-size: var(--font-size-2xl);
+  line-height: 1.2;
+}
+
+/* ── Windows contrast themes (DESIGN.md Forced-Colours Rule) ───── */
+@media (forced-colors: active) {
+  .v5-ledger-row--total {
+    border-block-start: 2px solid CanvasText;
+  }
+}
