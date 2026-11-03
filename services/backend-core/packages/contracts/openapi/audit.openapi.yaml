@@ -85,8 +85,7 @@ paths:
                     items:
                       $ref: "#/components/schemas/AuditEvent"
                   next_cursor:
-                    type: string
-                    nullable: true
+                    type: [string, "null"]
         "400":
           description: >
             `validation_error`: a query parameter is invalid (for example an
@@ -262,10 +261,10 @@ components:
       properties:
         id: { type: string, format: uuid }
         occurred_at: { type: string, format: date-time }
-        actor_user_id: { type: string, format: uuid, nullable: true }
-        actor_label: { type: string, nullable: true }
+        actor_user_id: { type: [string, "null"], format: uuid }
+        actor_label: { type: [string, "null"] }
         tenant_id: { type: string, format: uuid }
-        store_id: { type: string, format: uuid, nullable: true }
+        store_id: { type: [string, "null"], format: uuid }
         action: { type: string }
         kind:
           type: string
@@ -273,9 +272,9 @@ components:
             Action kind derived by the server from `action` (not stored). Known
             values: `read`, `change`. More values may be added; treat an unknown
             value as `change`. An action the server has not classified is `change`.
-        target_type: { type: string, nullable: true }
-        target_id: { type: string, format: uuid, nullable: true }
-        request_id: { type: string, format: uuid, nullable: true }
+        target_type: { type: [string, "null"] }
+        target_id: { type: [string, "null"], format: uuid }
+        request_id: { type: [string, "null"], format: uuid }
         metadata:
           type: object
           additionalProperties: true

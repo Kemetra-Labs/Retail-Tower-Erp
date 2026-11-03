@@ -29,6 +29,34 @@ function ctx() {
   };
 }
 
+const LOW_STOCK_ITEM = {
+  storeId: "0190f000-0000-7000-8000-0000000000a1",
+  storeName: "Cairo Festival City",
+  storeStatus: "active",
+  productId: "0190f000-0000-7000-8000-0000000000b1",
+  productName: "Olive oil 1L",
+  stockingUnit: "box",
+  sellableOnHand: "2.0000",
+  reorderLevel: "10.0000",
+  criticalLevel: "3.0000",
+  thresholdSource: "tenant",
+  band: "critical",
+  levelRatio: "0.2000",
+};
+const LOW_STOCK = {
+  asOf: "2026-11-02T10:00:00Z",
+  completeness: "received_only",
+  storeId: null,
+  limit: 10,
+  evaluatedCount: 4,
+  belowReorderCount: 1,
+  criticalCount: 1,
+  unknownOnHandCount: 0,
+  negativeOnHandCount: 0,
+  truncated: false,
+  items: [LOW_STOCK_ITEM],
+};
+
 const stores = [
   { id: "s1", code: "CFC", name: "Cairo Festival City", is_active: true, timezone: "Africa/Cairo" },
   { id: "s2", code: "NCM", name: "New Cairo Mall", is_active: true, timezone: "Africa/Cairo" },
@@ -172,6 +200,7 @@ async function mock(page: Page): Promise<Record<Panel, (string | null)[]>> {
     return r.fulfill(json(salesSummary()));
   });
   // RT-970: the pipeline's active devices and the store's latest sales.
+  await page.route("**/api/v1/inventory/low-stock**", (r) => r.fulfill(json(LOW_STOCK)));
   await page.route("**/api/v1/devices?**", (r) =>
     r.fulfill(json({ items: items(3), nextCursor: null })),
   );
@@ -267,8 +296,16 @@ test("AC-13: light, dark and forced-colors render; every control is keyboard-rea
   await expect(
     page.getByRole("img", { name: t("overview.trend.summary", { currency: "EGP", days: 14 }) }),
   ).toBeVisible();
+  const lowStock = page.getByRole("region", { name: t("overview.lowStock.title") });
+  await expect(lowStock.getByText(LOW_STOCK_ITEM.productName)).toBeVisible();
   await expect(
-    page.getByRole("region", { name: t("overview.lowStock.title") }).getByText(t("overview.soon")),
+    lowStock.getByText(
+      t("overview.lowStock.levelText", {
+        onHand: "2 box",
+        level: "10 box",
+        band: t("overview.lowStock.band.critical"),
+      }),
+    ),
   ).toBeVisible();
   await expectNoAxeViolations(page, `overview ${appLocale} light`);
   await capture("light");

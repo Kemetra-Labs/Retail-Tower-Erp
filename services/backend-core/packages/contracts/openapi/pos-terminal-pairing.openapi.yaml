@@ -823,9 +823,8 @@ components:
               type: string
               description: Human-readable summary; no sensitive data.
             request_id:
-              type: string
+              type: [string, "null"]
               format: uuid
-              nullable: true
               description: Server-assigned correlation id.
 
     IdempotencyInProgress:
@@ -897,9 +896,8 @@ components:
             MUST NEVER appear in any log sink, audit-event payload,
             support bundle, or response body of any other endpoint.
         expires_at:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
           description: >
             The device credential's expiry (`devices.expires_at`, RT-138
             L2: 90 days after pairing). Populated by Backend-Core since
@@ -989,8 +987,7 @@ components:
             Added 2026-05-28 to satisfy the Slice 3 prep-audit
             finding.
         printer_com_port:
-          type: string
-          nullable: true
+          type: [string, "null"]
           minLength: 1
           maxLength: 32
           description: >
@@ -1037,7 +1034,6 @@ components:
               type: string
               description: Human-readable summary; no sensitive data.
             request_id:
-              type: string
+              type: [string, "null"]
               format: uuid
-              nullable: true
               description: Server-assigned correlation id.

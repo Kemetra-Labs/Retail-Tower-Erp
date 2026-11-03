@@ -254,9 +254,8 @@ components:
           format: uuid
           description: Tenant scope of the event.
         store_id:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: Store scope when applicable; NULL for tenant-level events.
         delivery_state:
           type: string
@@ -272,13 +271,11 @@ components:
             Number of claim attempts at the time the row transitioned to
             `dead_lettered`. Bounded by the retry budget (currently 8).
         correlation_id:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: End-to-end trace id from the originating request or job.
         last_error_class:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: >
             Defensively-sanitized error-class identifier (e.g.
             `ConsumerTimeout`). NULL when the column was never set or
@@ -297,9 +294,8 @@ components:
           format: date-time
           description: Last state-transition time.
         processed_at:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
           description: >
             Set when the row reached `delivered` or `dead_lettered`.
             For rows returned by this endpoint, always non-null.
@@ -317,8 +313,7 @@ components:
           items:
             $ref: "#/components/schemas/OutboxDeadLetter"
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: >
             Opaque cursor for the next page; null when the current page
             is the last. Clients MUST treat as opaque.

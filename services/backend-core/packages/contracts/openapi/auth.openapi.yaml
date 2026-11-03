@@ -435,8 +435,7 @@ components:
         email:
           type: string
         display_name:
-          type: string
-          nullable: true
+          type: [string, "null"]
         is_platform_admin:
           type: boolean
     MembershipSummary:

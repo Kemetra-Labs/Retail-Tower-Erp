@@ -137,14 +137,15 @@ components:
         user:
           $ref: "#/components/schemas/UserSummary"
         active_tenant:
-          $ref: "#/components/schemas/TenantSummary"
-          nullable: true
+          anyOf:
+            - $ref: "#/components/schemas/TenantSummary"
+            - type: "null"
         active_store:
-          $ref: "#/components/schemas/StoreSummary"
-          nullable: true
+          anyOf:
+            - $ref: "#/components/schemas/StoreSummary"
+            - type: "null"
         active_role_code:
-          type: string
-          nullable: true
+          type: [string, "null"]
         memberships:
           type: array
           items:
@@ -186,7 +187,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         email: { type: string }
-        display_name: { type: string, nullable: true }
+        display_name: { type: [string, "null"] }
         is_platform_admin: { type: boolean }
     TenantSummary:
       type: object

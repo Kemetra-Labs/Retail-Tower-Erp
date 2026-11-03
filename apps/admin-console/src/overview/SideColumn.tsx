@@ -5,10 +5,10 @@
  * - Quick actions: at most four, one colour family, each a destination that
  *   exists and that the role may open (the same gates as the navigation), with
  *   a one-line description of what it opens. None performs an action.
- * - Stores today and low stock have no backing read yet. By owner decision
- *   2026-11-01 (RT-993 comment 15088, amending §12.8.6) each renders its frame
- *   with a clear «قريبًا» state and no invented figure. The reads: store share
- *   RT-1053 (`consoleGetSalesByStore` runtime), low-stock severity RT-1055.
+ * - Stores today has no backing read wired yet. By owner decision 2026-11-01
+ *   (RT-993 comment 15088, amending §12.8.6) it renders its frame with a clear
+ *   «قريبًا» state and no invented figure (read: RT-1053).
+ * - Low stock (RT-1073) reads `consoleListLowStock` (RT-1055 contract, RT-1069).
  */
 import { canReadCatalog } from "@/catalog/catalogLogic";
 import { type MessageKey, useT } from "@/i18n";
@@ -16,6 +16,8 @@ import { canUseSaleSyncOps } from "@/sale-sync/saleSyncLogic";
 import { canReadSales } from "@/sales/saleLogic";
 import { useId } from "react";
 import { Link } from "react-router";
+import { LowStockPanel } from "./LowStockPanel";
+import type { OverviewSession } from "./useOverviewPanels";
 
 type Gate = (role: string | null | undefined) => boolean;
 
@@ -108,16 +110,16 @@ function ComingSoon({ title, note }: Readonly<{ title: MessageKey; note: Message
 }
 
 export function SideColumn({
-  role,
+  session,
   attention,
-}: Readonly<{ role: string | null; attention: React.ReactNode }>): React.JSX.Element {
+}: Readonly<{ session: OverviewSession; attention: React.ReactNode }>): React.JSX.Element {
   const t = useT();
   return (
     <section className="overview__side" aria-label={t("overview.side.label")}>
-      <QuickActions role={role} />
+      <QuickActions role={session.role} />
       {attention}
       <ComingSoon title="overview.stores.title" note="overview.stores.soon" />
-      <ComingSoon title="overview.lowStock.title" note="overview.lowStock.soon" />
+      <LowStockPanel session={session} />
     </section>
   );
 }

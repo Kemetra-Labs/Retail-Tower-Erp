@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 73cd9191a3253626125a315748b1cedcb1748691
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 44a933a270d8f2e1f6410ef1eaa712e03c81e399
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -695,8 +695,8 @@ export namespace ContextSchema {
         schemas: {
             ContextResponse: {
                 user?: components["schemas"]["UserSummary"];
-                active_tenant?: components["schemas"]["TenantSummary"];
-                active_store?: components["schemas"]["StoreSummary"];
+                active_tenant?: components["schemas"]["TenantSummary"] | null;
+                active_store?: components["schemas"]["StoreSummary"] | null;
                 active_role_code?: string | null;
                 memberships?: components["schemas"]["MembershipSummary"][];
                 /** @description RT-414: the caller's current support session (`active` or `expired`), or null. Always null for a user who is not a platform admin, and when the active tenant was entered through membership. */

@@ -99,8 +99,10 @@ when inherited lines remain; delete them in any later PR.
 - `oasdiff validate` rejects the `(?!` lookahead in `PositiveDecimalAmount`
   (`pos-sales/sales.yaml`, `erpnext-connector/posting-feed.yaml`; Go RE2).
   Diffing still works; pattern checks there compare text only.
-- `nullable: true` (OAS 3.0 keyword) inside the 3.1 contracts is treated as nullable
-  by oasdiff. See RT-53.
+- oasdiff 1.32.1 does not read the OpenAPI 3.1 null forms (`type: [T, "null"]`,
+  `anyOf: [{$ref}, {type: "null"}]`) as nullable. Converting the old 3.0 `nullable: true`
+  keyword to them (RT-913) is reported as `request-property-became-not-nullable` and, for a
+  `$ref`, as an `anyOf`/type change; such findings need an acknowledgement. See RT-53, RT-913.
 
 ## Running locally
 
