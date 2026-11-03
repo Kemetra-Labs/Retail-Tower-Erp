@@ -685,21 +685,29 @@ Run the workflow from `main` with `pos_release`, `jira_key` and `dry_run` (defau
 
 **Owner-only, before the first live run** (no agent or CI job does any of this):
 
-1. **Decide how the feed is served (open owner decision).** Choose the feed host name and path.
-   The feed must be served as plain static files (`file_server`, which also answers HTTP `Range`
-   requests for the differential download), **without** the Console's SPA fallback, under a
-   **publicly trusted** TLS certificate. The device's `ELECTRON_UPDATE_FEED_URL` is that public
-   URL. On lab-01, Caddy is the `dp2-caddy` container of the Backend-Core release: its
-   `Caddyfile` is bind-mounted from the release directory and it sees only `/srv/console`
-   (`docker-compose.prod.yml`). A route added there by hand is replaced by the next
-   `RT-BackendLabDeploy`, and the container cannot read the feed directory without a new mount.
-   The durable options are:
-   - a feed site or route, gated on an environment variable, plus a read-only mount of
-     `FEED_DIR`, committed to this `Caddyfile` and `docker-compose.prod.yml`. This is also the
-     production edge template, so it needs its own authorization on a Jira issue; RT-1082 does
-     not change either file;
-   - or a Caddy (or other static server) outside the Backend-Core compose stack, which binds no
-     port the stack uses.
+1. **Turn on the feed route (RT-1115).** Owner decision (2026-11-03, RT-1082): the feed is
+   `https://lab.kemetralabs.com/pos-feed/lab/`, on the Console's host and certificate. The
+   committed `Caddyfile` has a `/pos-feed/*` route that is on only when `POS_FEED_DIR` is set.
+   It serves the feed as plain static files (`file_server`, which also answers HTTP `Range`
+   requests for the differential download), with `Cache-Control: no-cache` and **without** the
+   Console's SPA fallback, so a missing file is a 404. `docker-compose.prod.yml` mounts
+   `POS_FEED_DIR` read-only at `/srv/pos-feed/lab` (an empty named volume when it is unset).
+   To turn it on, as root on lab-01:
+   - add one line to the env file the compose wrapper passes as `--env-file`
+     (`/root/rt-lab-secrets/backend.env`). `RT-BackendLabDeploy` carries every other key of that
+     file into the next release unchanged:
+
+     ```bash
+     POS_FEED_DIR=/srv/rt-pos-feed/lab
+     ```
+
+   - the route goes live when the `dp2-caddy` container is next recreated. That is the next
+     `RT-BackendLabDeploy` (or system deploy) that runs the Backend-Core step, because the
+     container's environment and mounts changed. Before the first feed deploy,
+     `/pos-feed/lab/lab.yml` must then answer 404, not the Console's `index.html`.
+
+   The device's `ELECTRON_UPDATE_FEED_URL` is the public URL above. The public edge must pass
+   `Range` requests through and must not cache `lab.yml`.
 
    If the route disappears, the feed's `/lab.yml` falls through to the Console's `index.html`,
    devices stop updating (the updater fails closed), and the next feed deploy stops at G-Host
@@ -715,8 +723,10 @@ Run the workflow from `main` with `pos_release`, `jira_key` and `dry_run` (defau
 
    ```bash
    FEED_DIR=/srv/rt-pos-feed/lab
-   FEED_URL=http://<feed host>/<path>
+   FEED_URL=http://lab.kemetralabs.com/pos-feed/lab
    ```
+
+   `FEED_DIR` must be the same directory as `POS_FEED_DIR` in step 1.
 
    `FEED_URL` is the feed as Caddy **on lab-01** serves it. The document resolves its host to
    `127.0.0.1` (port 80 for `http`, 443 for `https`), so the smokes never go through the
