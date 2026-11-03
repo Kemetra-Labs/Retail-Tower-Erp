@@ -3,7 +3,7 @@
 The workflow is policy class (root .github/), so its checks live here and run in
 project-graph-selftest (`python -m unittest discover -s .github/release`), next to the Console and
 ERP lab-path checks whose helpers are reused. The signing script itself,
-apps/pos/scripts/lab/ci/release-lab-installer.ps1, is Windows-only and is proven by the workflow run.
+apps/pos/scripts/lab/ci/release-lab-installer.ps1, is Windows-only; it is first proven by the post-merge dry-run on main (resolve refuses branch SHAs).
 
 The version gate of the resolve step is run for real with bash (CI is Linux; locally only when bash works).
 """
@@ -243,6 +243,11 @@ class ReleasePos(unittest.TestCase):
         self.assertRegex(block, r"(?m)^          include-hidden-files: true$")
         # An owner approval on release-pos-sign may take days; a 1-day artifact would expire first.
         self.assertRegex(block, r"(?m)^          retention-days: 7$")
+
+    def test_release_installer_artifact_outlasts_the_publish_approval(self):
+        block = step(job(self.text, "sign-release"), "Upload the installer")
+        # publish downloads it only after the release-pos approval; keep it as long as the manifest.
+        self.assertRegex(block, r"(?m)^          retention-days: 90$")
 
     def test_manifest_records_the_installer_blockmap_and_channel_file(self):
         manifest = job(self.text, "manifest")

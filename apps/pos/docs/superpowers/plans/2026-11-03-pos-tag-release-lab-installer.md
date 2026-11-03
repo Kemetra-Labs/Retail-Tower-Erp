@@ -67,14 +67,14 @@
 
 - [ ] **Step 1: Write the failing static test** `release-lab-installer.test.ts`:
   - `it('builds the installer from the prepackaged app with the lab config, never publishing')`: matches `electron-builder`, `--prepackaged`, `--config electron-builder.lab.yml`, `--publish never`; does not match `extraMetadata`.
-  - `it('imports the leaf non-exportable and never exports a key')`: matches `Import-PfxCertificate` without `-Exportable`; no `Export-PfxCertificate`; the PFX bytes are written only under `$env:RUNNER_TEMP` and deleted in a `finally`.
+  - `it('imports the leaf non-exportable and never exports a key')`: *(as shipped, see Ruling 6 in the SDD ledger)* the PFX is parsed in memory only (no file, no `Import-PfxCertificate`); only the leaf, the single certificate with a private key, is added to `CurrentUser\My` through `X509Store` with a persisted non-exportable key; no `Export-PfxCertificate`.
   - `it('refuses a leaf that is not the lab subject or expires within 30 days')`: matches `LAB TEST - NOT FOR PRODUCTION` subject check and `AddDays(30)` against `NotAfter`, both before the electron-builder call.
   - `it('trusts only the pinned public root, only for verification, and removes it')`: root imported into `Cert:\LocalMachine\Root` only after its thumbprint equals `$env:POS_LAB_ROOT_SHA1`; `-Cleanup` removes it.
   - `it('uses an ephemeral certificate in dry-run and reads no signing variable')`: dry-run branch calls `new-lab-signing-cert.ps1 -LeafDays 2 -RootDays 3` and references no `POS_LAB_SIGN_` name.
   - `it('clears every production signing variable')`: `CSC_LINK`, `CSC_KEY_PASSWORD`, `CSC_NAME`, `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` removed, as in `build-lab-installer.ps1`.
   - `it('checks signatures, the channel file and the installed files')`: matches `Get-AuthenticodeSignature`, a CN equality against `Kemetra POS LAB TEST - NOT FOR PRODUCTION`, `SHA512`, `/S` silent install, `Uninstall POS Pulse.exe`, `POS Pulse.exe`.
 - [ ] **Step 2: Run** `cd apps/pos && npx vitest run scripts/__tests__/release-lab-installer.test.ts` — Expected: FAIL.
-- [ ] **Step 3: Write `release-lab-installer.ps1`.** Order: clear CSC vars → certificate (release: decode PFX to `$env:RUNNER_TEMP`, `Import-PfxCertificate -CertStoreLocation Cert:\CurrentUser\My`, check subject and `NotAfter`, import the chain's root into `LocalMachine\Root` only if it matches `POS_LAB_ROOT_SHA1`; dry-run: `new-lab-signing-cert.ps1`, trust its exported root the way `run-lab-spike.ps1` does) → set `RT772_LAB_CERT_SHA1` → `npx electron-builder --win nsis --config electron-builder.lab.yml --prepackaged $Unpacked --publish never -c.directories.output=$Out` → verify (below) → keep only the three files in `-Out`.
+- [ ] **Step 3: Write `release-lab-installer.ps1`.** Order: clear CSC vars → certificate (release, as shipped: parse the PFX in memory, refuse unless it holds the root whose thumbprint is `POS_LAB_ROOT_SHA1` (subject `...RELEASE ROOT`), check the leaf subject and `NotAfter`, add only the leaf to `CurrentUser\My` via `X509Store`, trust the root from its public bytes in `LocalMachine\Root`; dry-run: `new-lab-signing-cert.ps1`, trust its exported root the way `run-lab-spike.ps1` does) → set `RT772_LAB_CERT_SHA1` → `npx electron-builder --win nsis --config electron-builder.lab.yml --prepackaged $Unpacked --publish never -c.directories.output=$Out` → verify (below) → keep only the three files in `-Out`.
   Verification, each a hard failure:
   - installer: `Status -eq 'Valid'` and signer CN `-ceq` the pin;
   - `lab.yml`: `version` equals `-Version`; `path` equals the installer name; `sha512` equals the base64 SHA-512 of the installer bytes; `size` equals its length;
@@ -107,11 +107,11 @@
   - `resolve`: add sparse checkout of `apps/pos/package.json` and, in release mode, fail unless `${TAG#pos/v}` equals its `version`.
   - `build`: unchanged steps; upload `dist-electron/win-unpacked` (the zip stays) as artifact `pos-unpacked-<mode>-<run_id>`.
   - New `sign-dry-run` and `sign-release` jobs on `windows-latest`: checkout the release SHA, setup Node from `.nvmrc`, `npm ci --ignore-scripts` in `apps/pos`, download `pos-unpacked-…`, run `release-lab-installer.ps1 -Mode <mode>`, cleanup `if: always()`, upload `pos-installer-<mode>-<run_id>`. `sign-release` maps the two secrets and `vars.POS_LAB_ROOT_SHA1` to env only on that step.
-  - `manifest`: needs the sign job of its mode (`if: always() && one of them succeeded`), records the three files with the names above, and the note `signing=lab test certificate (RT-321 production signing not used)`.
+  - `manifest`: needs the sign job of its mode (as shipped: `if: !cancelled() &&` explicit `needs.<job>.result == 'success'` checks for the sign job of its own mode), records the three files with the names above, and the note `signing=lab test certificate (RT-321 production signing not used)`.
   - `publish`: replace the refusal with the `release-admin-console.yml` publish steps, adapted to the `pos/v*` pattern, the five assets and title `POS Pulse <tag> (LAB)`; notes say the installer is lab-signed and not for production terminals.
   - Header comment updated to the new job graph.
 - [ ] **Step 4: Run** the test — Expected: PASS. Then `cd tools/project-graph && python -m pgraph privileges --repo ../..` — Expected: no problems.
-- [ ] **Step 5: Dry-run proof** (after the PR is pushed, owner-authorized): `gh workflow run release-pos.yml --ref <branch> -f dry_run=true`. Expected: `sign-dry-run` green with the three files, no publish. Record the run URL in Jira.
+- [ ] **Step 5: Dry-run proof — after merge, on main** (`resolve` refuses any SHA not on main, so a branch dispatch cannot reach the build): `gh workflow run release-pos.yml --ref main -f dry_run=true`. Expected: `sign-dry-run` green with the three files, no publish. Record the run URL in Jira. Until then the Windows signing, install and uninstall path is proven only by static tests.
 - [ ] **Step 6: Commit** `feat(release): sign and publish the POS lab installer on pos/v* tags`.
 
 ## Slice S2 — deploy-pos-lab (one PR, Jira must authorize the Backend-Core deploy area)

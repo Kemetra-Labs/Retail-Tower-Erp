@@ -305,7 +305,8 @@ jobs:
           name: pos-installer-release-${{ github.run_id }}
           path: ${{ runner.temp }}/pos-installer/
           if-no-files-found: error
-          retention-days: 7
+          # As long as the manifest: publish waits for the owner's release-pos approval, which may take days.
+          retention-days: 90
 
   manifest:
     name: release/manifest
