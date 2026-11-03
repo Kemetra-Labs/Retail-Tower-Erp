@@ -12,10 +12,15 @@
   Modes
     release  signs with the stable lab leaf from POS_LAB_SIGN_PFX_BASE64 / POS_LAB_SIGN_PFX_PASSWORD.
              The only root ever trusted is the one whose SHA-1 thumbprint equals POS_LAB_ROOT_SHA1;
-             a PFX that does not contain it is refused (fail closed). The leaf is imported
-             non-exportable and the PFX file lives only under RUNNER_TEMP, deleted in a finally.
+             a PFX that does not contain it is refused (fail closed). Only the leaf is added to
+             CurrentUser\My, through the .NET store API with a persisted non-exportable key; the
+             PFX bytes stay in memory and are never written to disk.
     dry-run  signs with an ephemeral pair from new-lab-signing-cert.ps1 (2-day leaf, 3-day root) and
-             reads no secret. It proves the same build, signing and verification path.
+             reads no secret. It proves the build from the prepackaged app, the lab signing hook,
+             the installer / lab.yml / installed-file checks and the silent install and uninstall.
+             It does NOT exercise the release-only certificate path (in-memory PFX parse, leaf
+             import, pinned-root check, trusting the root from the PFX): that path is first proven
+             by the first real release.
 
   Steps: clear production signing variables -> certificate -> sign the prepackaged executable if
   electron-builder will not -> build the installer from the prepackaged app with the lab config
@@ -54,7 +59,6 @@ $signerCn = 'Kemetra POS LAB TEST - NOT FOR PRODUCTION'
 if (-not $env:RUNNER_TEMP) { throw 'RUNNER_TEMP is not set: this script is for an ephemeral GitHub runner only' }
 $work = Join-Path $env:RUNNER_TEMP 'lab-release'
 $statePath = Join-Path $work 'state.json'
-$pfxPath = Join-Path $work 'lab-leaf.pfx'
 $certDir = Join-Path $work 'certs'
 $stage = Join-Path $work 'out'
 # The POS product root (apps/pos in the monorepo), not the git top level.
@@ -76,7 +80,6 @@ function Remove-LabCertificate([string]$path) {
 
 function Remove-LabTrust {
   Get-Process 'POS Pulse' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-  Remove-Item -LiteralPath $pfxPath -Force -ErrorAction SilentlyContinue
   if (-not (Test-Path -LiteralPath $statePath)) { return }
   $saved = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
   foreach ($t in @($saved.rootStore)) { Remove-LabCertificate "Cert:\LocalMachine\Root\$t" }
@@ -142,7 +145,9 @@ function Initialize-ReleaseCertificate($ctx) {
   if (-not $root) {
     throw 'the PFX does not contain the pinned root (POS_LAB_ROOT_SHA1): re-export the leaf with its chain, or fix the pin. Nothing was imported or trusted.'
   }
-  if ($root.Subject -ne $rootSubject) { throw "the pinned root is not the lab root (subject: $($root.Subject))" }
+  # new-lab-release-cert.ps1 names the release root differently from the dry-run helper's root.
+  $releaseRootSubject = 'CN=Kemetra POS LAB TEST - NOT FOR PRODUCTION RELEASE ROOT'
+  if ($root.Subject -ne $releaseRootSubject) { throw "the pinned root is not the lab release root (subject: $($root.Subject))" }
   $withKey = @($all | Where-Object { $_.HasPrivateKey })
   if ($withKey.Count -ne 1) { throw "the PFX must hold exactly one certificate with a private key, found $($withKey.Count)" }
   $leaf = $withKey[0]
@@ -151,14 +156,24 @@ function Initialize-ReleaseCertificate($ctx) {
     throw "the lab leaf expires on $($leaf.NotAfter.ToString('yyyy-MM-dd')), less than 30 days away: issue a new one (new-lab-release-cert.ps1)"
   }
 
-  # Everything the import puts in CurrentUser\My is recorded first so -Cleanup removes it.
-  foreach ($c in $all) { Register-Thumbprint 'userStore' $c.Thumbprint }
-  [System.IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
-  $securePassword = ConvertTo-SecureString -String $secret -AsPlainText -Force
-  Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $securePassword | Out-Null
-  Remove-Item -LiteralPath $pfxPath -Force
+  # Only the leaf goes into CurrentUser\My, through the .NET store API, with a persisted key that is
+  # not marked exportable. The PFX's root is never added to any store from the PFX: a user-level Root
+  # add raises a modal prompt, and the root is trusted below from its public bytes in LocalMachine only.
+  $persistFlags = [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet -bor [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::UserKeySet
+  $persisted = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection
+  $persisted.Import($pfxBytes, $secret, $persistFlags)
+  $leafToStore = @($persisted | Where-Object { $_.HasPrivateKey -and $_.Thumbprint -eq $leaf.Thumbprint }) | Select-Object -First 1
+  if (-not $leafToStore) { throw 'the lab leaf could not be loaded from the PFX with a persisted key' }
+  Register-Thumbprint 'userStore' $leaf.Thumbprint
+  $userStore = [System.Security.Cryptography.X509Certificates.X509Store]::new('My', 'CurrentUser')
+  try {
+    $userStore.Open('ReadWrite')
+    $userStore.Add($leafToStore)
+  } finally {
+    $userStore.Close()
+  }
   $stored = Get-Item -LiteralPath "Cert:\CurrentUser\My\$($leaf.Thumbprint)"
-  if (-not $stored.HasPrivateKey) { throw 'the imported lab leaf has no private key' }
+  if (-not $stored.HasPrivateKey) { throw 'the stored lab leaf has no private key' }
 
   Add-RootTrust $root
   Assert-LeafChain $stored $pinnedRoot $all
@@ -246,21 +261,37 @@ function Assert-ChannelFile([string]$ymlPath, [string]$installerPath, [string]$e
   Write-Host "[OK] lab.yml matches the installer (version $expectedVersion, sha512, size $($bytes.Length))"
 }
 
-# Silent per-user install, then the installed executable and uninstaller must be signed by the lab
-# leaf, then a silent uninstall. The uninstaller runs in place (`_?=`) so this waits for it.
-function Test-SilentInstall([string]$installer, [string]$leafThumbprint) {
-  $installDir = Join-Path (Join-Path $env:LOCALAPPDATA 'Programs') 'POS Pulse'
-  $app = Join-Path $installDir 'POS Pulse.exe'
-  $uninstaller = Join-Path $installDir 'Uninstall POS Pulse.exe'
+# The per-user install location is not assumed: it is read from the HKCU Uninstall key the NSIS installer
+# writes (as run-lab-spike.ps1 does). Then the installed executable and uninstaller must be signed by the
+# lab leaf, then a silent uninstall. The uninstaller runs in place (`_?=`) so this waits for it.
+function Get-InstallLocation([string]$expectedVersion) {
+  $keys = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue
+  $entry = @($keys | Where-Object { $_.DisplayName -like 'POS Pulse*' -and $_.DisplayVersion -eq $expectedVersion -and $_.InstallLocation }) |
+    Select-Object -First 1
+  if ($entry) { return ([string]$entry.InstallLocation).Trim().Trim('"') }
+  return $null
+}
+
+function Test-SilentInstall([string]$installer, [string]$leafThumbprint, [string]$expectedVersion) {
   $proc = Start-Process -FilePath $installer -ArgumentList '/S' -PassThru -Wait
   if ($proc.ExitCode -ne 0) { throw "silent install exited with $($proc.ExitCode)" }
+  $installDir = $null
   $deadline = (Get-Date).AddSeconds(60)
-  while ((Get-Date) -lt $deadline -and -not ((Test-Path -LiteralPath $app) -and (Test-Path -LiteralPath $uninstaller))) { Start-Sleep -Seconds 2 }
+  while ((Get-Date) -lt $deadline -and -not $installDir) {
+    $installDir = Get-InstallLocation $expectedVersion
+    if (-not $installDir) { Start-Sleep -Seconds 2 }
+  }
+  if (-not $installDir) { throw "no HKCU Uninstall entry with an InstallLocation for POS Pulse $expectedVersion after the silent install" }
+  if (-not $installDir.StartsWith($env:LOCALAPPDATA, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "the install location is not per-user (under LOCALAPPDATA): $installDir"
+  }
+  Write-Host "installed to $installDir"
+  $app = Join-Path $installDir 'POS Pulse.exe'
+  $uninstaller = Join-Path $installDir 'Uninstall POS Pulse.exe'
   # The installer may start the app when it finishes; it must not be running when it is uninstalled.
   Get-Process 'POS Pulse' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
   $uninstallExit = $null
   try {
-    if (-not (Test-Path -LiteralPath $app)) { throw "the installed app is missing at $app" }
     Assert-LabSignature $app $leafThumbprint
     Assert-LabSignature $uninstaller $leafThumbprint
   } finally {
@@ -317,7 +348,7 @@ try {
 
   Assert-LabSignature $installer $ctx.leaf
   Assert-ChannelFile $channel $installer $Version
-  Test-SilentInstall $installer $ctx.leaf
+  Test-SilentInstall $installer $ctx.leaf $Version
 
   New-Item -ItemType Directory -Force -Path $Out | Out-Null
   foreach ($produced in $installer, $blockmap, $channel) { Copy-Item -LiteralPath $produced -Destination $Out }
@@ -325,6 +356,4 @@ try {
 } catch {
   Write-Host "[FAIL] $($_.Exception.Message)"
   exit 1
-} finally {
-  Remove-Item -LiteralPath $pfxPath -Force -ErrorAction SilentlyContinue
 }

@@ -30,9 +30,6 @@ function functionBody(name: string): string {
   return match?.[1] ?? '';
 }
 
-// Each Import-PfxCertificate call, including its backtick-continued lines.
-const pfxImports = script.match(/Import-PfxCertificate(?:[^\n]*`\n)*[^\n]*/g) ?? [];
-
 describe('RT-1082 release-lab-installer.ps1', () => {
   it('exists', () => {
     expect(script).not.toBe('');
@@ -47,18 +44,27 @@ describe('RT-1082 release-lab-installer.ps1', () => {
     expect(script).not.toMatch(/extraMetadata/);
   });
 
-  it('imports the leaf non-exportable and never exports a key', () => {
-    expect(pfxImports.length).toBeGreaterThan(0);
-    for (const call of pfxImports) expect(call).not.toMatch(/-Exportable/);
+  it('imports only the leaf, non-exportable, through the store API, and never exports a key', () => {
+    const release = functionBody('Initialize-ReleaseCertificate');
+    // No whole-PFX import: the PFX's root must never land in any store, and no PKI compat layer.
+    expect(script).not.toMatch(/Import-PfxCertificate/);
+    expect(release).toMatch(
+      /X509Store\]::new\('My', 'CurrentUser'\)[\s\S]*\$userStore\.Add\(\$leafToStore\)/,
+    );
+    // A persisted key without the exportable flag.
+    expect(release).toMatch(/X509KeyStorageFlags\]::PersistKeySet/);
+    expect(script).not.toMatch(/-Exportable|::Exportable/);
     expect(script).not.toMatch(/Export-PfxCertificate|Export-Certificate/);
     expect(script).not.toMatch(/\.Export\(/);
-    // The PFX bytes only ever exist under RUNNER_TEMP and are deleted in a finally.
+    // Only the one certificate with a private key is stored; its thumbprint is recorded first.
+    expect(release).toMatch(/\$_\.HasPrivateKey -and \$_\.Thumbprint -eq \$leaf\.Thumbprint/);
+    expect(release.indexOf("Register-Thumbprint 'userStore'")).toBeGreaterThan(0);
+    expect(release.indexOf("Register-Thumbprint 'userStore'")).toBeLessThan(
+      release.indexOf('$userStore.Add('),
+    );
+    // The PFX bytes are never written to disk; the work directory sits under RUNNER_TEMP.
+    expect(script).not.toMatch(/WriteAllBytes|\.pfx|\$pfxPath|Set-Content[^\n]*\$pfxBytes/);
     expect(script).toMatch(/\$work = Join-Path \$env:RUNNER_TEMP /);
-    expect(script).toMatch(/\$pfxPath = Join-Path \$work /);
-    const writes = [...script.matchAll(/WriteAllBytes\(([^,]+),/g)].map((m) => m[1]);
-    expect(writes.length).toBeGreaterThan(0);
-    for (const target of writes) expect(target).toBe('$pfxPath');
-    expect(script).toMatch(/finally \{[\s\S]*Remove-Item[^\n]*\$pfxPath/);
   });
 
   it('never prints a password, the PFX bytes or base64', () => {
@@ -94,13 +100,17 @@ describe('RT-1082 release-lab-installer.ps1', () => {
     expect(release).toMatch(/\[0-9A-F\]\{40\}/);
     expect(release).toMatch(/Thumbprint -eq \$pinnedRoot/);
     expect(release).toMatch(/throw[^\n]*does not contain the pinned root/);
-    expect(release).toMatch(/Subject -ne \$rootSubject/);
-    // The refusal happens before the root is added to any trust store.
+    // The release root is new-lab-release-cert.ps1's subject (RELEASE ROOT), not the dry-run
+    // helper's `... ROOT`: expecting the wrong literal would make every release fail.
+    expect(release).toContain("'CN=Kemetra POS LAB TEST - NOT FOR PRODUCTION RELEASE ROOT'");
+    expect(release).toMatch(/Subject -ne \$releaseRootSubject/);
+    expect(release).not.toMatch(/\$rootSubject/);
+    // The refusal happens before the root is added to any trust store or the leaf is stored.
     expect(release.indexOf('does not contain the pinned root')).toBeLessThan(
       release.indexOf('Add-RootTrust'),
     );
     expect(release.indexOf('does not contain the pinned root')).toBeLessThan(
-      release.indexOf('Import-PfxCertificate'),
+      release.indexOf('PersistKeySet'),
     );
   });
 
@@ -169,6 +179,10 @@ describe('RT-1082 release-lab-installer.ps1', () => {
     expect(script).toContain('Uninstall POS Pulse.exe');
     expect(script).toContain('POS Pulse.exe');
     expect(script).toMatch(/package\.json/);
+    // The install directory is read from the HKCU Uninstall key, never assumed.
+    expect(script).toMatch(/HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall/);
+    expect(script).toMatch(/\.InstallLocation/);
+    expect(script).not.toMatch(/'Programs'/);
   });
 
   it('hands over exactly the installer, its blockmap and lab.yml', () => {
