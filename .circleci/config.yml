@@ -222,6 +222,36 @@ jobs:
               echo "Backend-Core, .circleci or .nvmrc changed since $base (git diff rc=$rc); running the suite."
             fi
       - backend-setup
+      # RT-1075: cumulative PR-diff risk guard, shadow only (CircleCI support case #151821496).
+      # full-test-run-paths compares hashes with the saved impact data, not with the PR's
+      # merge-base, so a high-risk file changed earlier in a PR can stop forcing a full selection
+      # after an unrelated push. The guard classifies the WHOLE diff against
+      # merge-base(origin/main, HEAD) on every head. FORCE_FULL and TIA_ELIGIBLE both run the full
+      # suite below (--run-tests=all); the decision is only printed and kept in the tia artifact
+      # (guard.json, guard.txt). This step never fails the job, so the full suite always runs: a
+      # failing offline self-test (for example graph.yaml drift) or a guard crash records
+      # FORCE_FULL with the reason instead of a decision from a broken guard.
+      - run:
+          name: "Risk guard (shadow): self-test, then FORCE_FULL or TIA_ELIGIBLE on the whole PR diff"
+          command: |
+            mkdir -p /tmp/tia
+            force_full() {
+              echo "RISK GUARD: $1; recording FORCE_FULL (the full suite still runs)."
+              printf 'TIA_GUARD_DECISION=FORCE_FULL\nreason: %s\n' "$1" > /tmp/tia/guard.txt
+              printf '{"decision":"FORCE_FULL","reason":"%s"}\n' "$1" > /tmp/tia/guard.json
+            }
+            rc=0
+            # `timeout`: a hang must not reach no_output_timeout, which would fail the job before the suite.
+            # TIA_GUARD_RUNTIME=1 skips only the review-time parameter-default check, so a deliberate
+            # advisory re-enable does not disable the guard.
+            TIA_GUARD_RUNTIME=1 timeout 120 node --test .circleci/scripts/tia-risk-guard.test.cjs || rc=$?
+            if [ "$rc" -ne 0 ]; then
+              force_full "guard self-test failed (exit $rc)"
+              exit 0
+            fi
+            rc=0
+            timeout 120 node .circleci/scripts/tia-risk-guard.cjs --repo ~/project --out /tmp/tia || rc=$?
+            if [ "$rc" -ne 0 ]; then force_full "guard exited $rc"; fi
       # Shadow mode, step 1: record the checks and the selection without letting either fail
       # the job. With no impact data yet, list-tests may fail, select nothing or fall back to
       # every spec; the report labels a failure, an empty selection and an all-spec selection

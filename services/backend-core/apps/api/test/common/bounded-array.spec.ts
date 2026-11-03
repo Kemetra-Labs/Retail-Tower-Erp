@@ -12,6 +12,10 @@ import { load } from "js-yaml";
 import { z, type ZodTypeAny } from "zod";
 
 import { AiEntitlementCheckInputSchema, MAX_TARGET_STORES } from "../../src/ai-entitlements/entitlement-checker";
+import {
+  BIN_VIEW_WINDOW_MAX_ITEMS,
+  SnapshotReportBodySchema,
+} from "../../src/catalog/erpnext-bin-view/dto/snapshot-report.dto";
 import { CreditSaleReversalRequestSchema } from "../../src/catalog/sales/dto/credit-sale-reversal-request.dto";
 import {
   MAX_REFUND_TENDERS,
@@ -81,6 +85,7 @@ const CASES: BoundCase[] = [
   { name: "SettlementIntentCreate.payers", schema: SettlementIntentCreateSchema, field: "payers", max: 16, base: {}, item: () => ({}) },
   { name: "ApproverEligibilityRequest.user_ids", schema: ApproverEligibilityRequestSchema, field: "user_ids", max: MAX_APPROVER_USER_IDS, base: {}, item: (i) => uuidAt(i + 1) },
   { name: "CloseShiftRequest.cashRefundReturnRefs", schema: CloseShiftRequestSchema, field: "cashRefundReturnRefs", max: 1000, base: {}, item: (i) => uuidAt(i + 1) },
+  { name: "SnapshotReportBody.entries", schema: SnapshotReportBodySchema, field: "entries", max: BIN_VIEW_WINDOW_MAX_ITEMS, base: {}, item: () => ({}) },
 ];
 
 describe.each(CASES)("$name", ({ schema, field, max, base, item }) => {
@@ -115,6 +120,7 @@ describe("contract maxItems match the zod bounds", () => {
   const memberships = read("memberships.openapi.yaml");
   const audit = read("pos-audit-events.openapi.yaml");
   const ai = read("ai-entitlements.openapi.yaml");
+  const stockView = read("erpnext-connector/stock-view.yaml");
   const maxOf = (doc: Doc, schema: string, prop: string) => doc.components.schemas[schema]?.properties[prop]?.maxItems;
 
   it.each([
@@ -125,6 +131,7 @@ describe("contract maxItems match the zod bounds", () => {
     [memberships, "MembershipUpdate", "store_ids", MAX_STORE_IDS],
     [audit, "PosAuditEventsSyncRequest", "events", MAX_AUDIT_EVENTS_PER_BATCH],
     [ai, "AiEntitlementCheckInput", "targetStores", MAX_TARGET_STORES],
+    [stockView, "BinViewSnapshotReport", "entries", BIN_VIEW_WINDOW_MAX_ITEMS],
   ] as const)("%#: %s.%s", (doc, schema, prop, max) => {
     expect(maxOf(doc, schema, prop)).toBe(max);
   });
