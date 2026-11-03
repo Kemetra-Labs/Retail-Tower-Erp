@@ -6,9 +6,11 @@ info:
     RT-450 ([GATED] owner authorization Jira RT-450 comment 13212, 2026-10-21;
     RT-50 Gate 7 follow-up F3; rules G7-8 and G7-13 in RT-50 comments 11763 and
     11764; owner decisions RT-50 comment 11765: Q4, Q5, Q10, Q11 and Q12).
-    CONTRACT ONLY: both operations carry `x-runtime-status: contract-only`
-    until the RT-451 runtime. Nothing here is implemented, and the POS MUST NOT
-    call either operation before RT-451 is deployed and tracked selling is
+    RUNTIME STATUS: `posValidateTrackedLine` carries `x-runtime-status:
+    contract-only` until its RT-451 runtime. `posListTrackedLots` is served
+    since RT-451 slice S1, behind a deployment gate that is off by default
+    (while off it answers the non-disclosing 404). The POS MUST NOT call
+    either operation before RT-451 is deployed and tracked selling is
     activated for the tenant (a per-tenant flag, default off).
 
     Two POS-facing operations that let a till sell a lot-tracked product
@@ -221,10 +223,6 @@ paths:
     get:
       summary: List the lots of a product the till may offer at the caller's store.
       operationId: posListTrackedLots
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-450 is contract-only. The runtime ships in RT-451 (RT-50 F4) behind
-        a default-off per-tenant activation flag.
       tags: [pos-tracked-lines]
       security:
         - operatorAuthorization: []

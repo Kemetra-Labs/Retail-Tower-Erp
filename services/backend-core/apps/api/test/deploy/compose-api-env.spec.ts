@@ -47,6 +47,8 @@ const EXCLUDED: Readonly<Record<string, string>> = {
     "RT-336 single origin: CORS and extra trusted origins stay off by construction (caddy-same-origin.spec.ts)",
   ERPNEXT_FEED_RESPONSIBILITIES_ENABLED:
     "unmapped until the RT-419 hold lift, which must re-head the held rows in the same release step",
+  POS_TRACKED_SELLING_ENABLED:
+    "RT-451: unmapped, so production stays off, until the owner approves activating tracked selling (per-tenant flag, Q13 preconditions)",
   TRUST_PROXY_DIRECT_DEPLOYMENT:
     "RT-625: only for a deployment with no proxy in front of the API; this compose runs behind Caddy and pins TRUST_PROXY to 1",
 };

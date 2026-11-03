@@ -78,6 +78,8 @@ const LIVE_READ_CODES = [
   // RT-473 S2: the tenant logo reads (Console and POS).
   "tenant.branding.device_read",
   "tenant.logo.read",
+  // RT-451 S1: the POS lot lookup.
+  "tracked_lots.listed",
 ] as const;
 
 /**

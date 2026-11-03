@@ -130,6 +130,9 @@ export const POS_WRITE_RATE_LIMIT_BUCKETS = {
   // RT-802: the till's payer lookup, read when a manager attaches payers to
   // a credit sale (online, a few times per sale at most).
   posReadPayers: { limit: 600, windowMs: 60 * 60 * 1000 },
+  // RT-451 S1: the till's lot lookup, read when a tracked product is added to
+  // a sale (online, about once per tracked line), like the payer lookup.
+  posReadTrackedLots: { limit: 1200, windowMs: 60 * 60 * 1000 },
   // RT-369: the device token rotation. A till rotates about once per 75 days
   // (plus a retry after a lost response), so this only bounds abuse by a
   // device that holds a live token.
