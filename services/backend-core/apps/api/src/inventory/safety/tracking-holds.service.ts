@@ -43,6 +43,7 @@ import {
   idempotencyConflict,
   normalizeNote,
   normalizeReasonCode,
+  requireNoteForOther,
   toHoldBody,
   type HoldRow,
   type TrackingHoldBody,
@@ -83,6 +84,7 @@ export class TrackingHoldsService {
   async placeQualityHold(input: PlaceQualityHoldInput): Promise<TrackingHoldResult> {
     const reasonCode = normalizeReasonCode(input.reasonCode);
     const note = normalizeNote(input.note);
+    requireNoteForOther(reasonCode, note);
     const commandFingerprint = fingerprint(['quality_hold', input.userId.toLowerCase(), input.idempotencyKey]);
     return await runWithTenantContext(this.pool, { tenantId: input.tenantId, isPlatformAdmin: false }, async (client) => {
       await lockTenantSafety(client, input.tenantId);

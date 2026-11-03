@@ -33,6 +33,7 @@ import {
   idempotencyConflict,
   normalizeNote,
   normalizeReasonCode,
+  requireNoteForOther,
   toHoldBody,
   type TrackingHoldBody,
 } from './safety.common';
@@ -262,12 +263,15 @@ function normalizeRecall(input: CreateRecallInput): RecallCommand {
   if (reference.length === 0 || reference.length > 200) {
     throw new BadRequestException('reference must be 1-200 characters');
   }
+  const reasonCode = normalizeReasonCode(input.reasonCode);
+  const note = normalizeNote(input.note);
+  requireNoteForOther(reasonCode, note);
   return {
     tenantProductRef: input.tenantProductRef.toLowerCase(),
     identityIds: [...identityIds].sort(byText),
-    reasonCode: normalizeReasonCode(input.reasonCode),
+    reasonCode,
     reference,
-    note: normalizeNote(input.note),
+    note,
     effectiveAt: normalizeEffectiveAt(input.effectiveAt),
     fingerprint: fingerprint(['recall', input.userId.toLowerCase(), input.idempotencyKey]),
   };

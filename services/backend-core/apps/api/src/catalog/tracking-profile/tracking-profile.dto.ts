@@ -48,3 +48,11 @@ export function toTrackingProfile(row: TrackingProfileRow): TrackingProfileBody 
     profile_locked: row.profileLocked,
   };
 }
+
+/**
+ * Contract `TenantTrackingSummary` (RT-1081 TR-6). camelCase as the approved
+ * RT-455 proposal fragment, unlike the profile's snake_case fields.
+ */
+export interface TenantTrackingSummaryBody {
+  readonly hasTrackedProducts: boolean;
+}

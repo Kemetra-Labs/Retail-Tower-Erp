@@ -395,7 +395,8 @@ interface TrackingIdentityRow {
   sort_expiry: string;
 }
 
-function toTrackingIdentityBody(t: TrackingIdentityRow): TrackingIdentityBody {
+/** Also used by `TrackingIdentityReadsService` (RT-1081 `getTrackingIdentity`). */
+export function toTrackingIdentityBody(t: Omit<TrackingIdentityRow, 'sort_expiry'>): TrackingIdentityBody {
   return {
     id: t.id,
     productId: t.tenant_product_ref,

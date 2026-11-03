@@ -23,8 +23,13 @@ import { loadOpenApiContracts } from "../../../../src/openapi/loader";
 
 const NEW_CONTRACT_ID = "tracking-profile";
 const PATH = "/api/v1/catalog/products/{productId}/tracking-profile";
+const SUMMARY_PATH = "/api/v1/catalog/tracking-summary";
 
-const OPERATION_IDS = ["tenantAdminGetTrackingProfile", "tenantAdminSetTrackingProfile"] as const;
+const OPERATION_IDS = [
+  "tenantAdminGetTrackingProfile",
+  "tenantAdminSetTrackingProfile",
+  "getTenantTrackingSummary",
+] as const;
 
 function openapiSubDir(sub: string): string {
   return resolve(__dirname, "..", "..", "..", "..", "..", "..", "packages", "contracts", "openapi", sub);
@@ -100,9 +105,15 @@ describe("catalog/tracking-profile.yaml — document", () => {
     expect(doc.info?.version).toEqual(expect.stringMatching(/-draft$/));
   });
 
-  it("maps GET and PUT on the product path to the two operationIds, nothing else", () => {
+  it("is the 1.2.0 draft (RT-1081)", () => {
+    expect(doc.info?.version).toBe("1.2.0-draft");
+  });
+
+  it("maps GET and PUT on the product path and GET on the summary path, nothing else", () => {
     const item = doc.paths?.[PATH] ?? {};
-    expect(Object.keys(doc.paths ?? {})).toEqual([PATH]);
+    expect(Object.keys(doc.paths ?? {}).sort()).toEqual([PATH, SUMMARY_PATH].sort());
+    expect(Object.keys(doc.paths?.[SUMMARY_PATH] ?? {})).toEqual(["get"]);
+    expect(doc.paths?.[SUMMARY_PATH]?.["get"]?.operationId).toBe("getTenantTrackingSummary");
     expect(item["get"]?.operationId).toBe("tenantAdminGetTrackingProfile");
     expect(item["put"]?.operationId).toBe("tenantAdminSetTrackingProfile");
     expect(Object.keys(item).sort()).toEqual(["get", "put"]);
@@ -163,6 +174,15 @@ describe("catalog/tracking-profile.yaml — schemas", () => {
     const text = JSON.stringify(doc.paths?.[PATH]?.["put"]?.responses?.["409"]);
     expect(text).toContain("tracking_activation_pending");
     expect(text).toContain("tracking_profile_locked");
+  });
+
+  it("the tracking summary (TR-6) is a strict boolean signal; a role failure is a 403, never a 404", () => {
+    const s = schema("TenantTrackingSummary");
+    expect(s?.additionalProperties).toBe(false);
+    expect(s?.required).toEqual(["hasTrackedProducts"]);
+    const responses = doc.paths?.[SUMMARY_PATH]?.["get"]?.responses ?? {};
+    expect(Object.keys(responses).sort()).toEqual(["200", "401", "403", "429"]);
+    expect(JSON.stringify(responses["403"])).toContain("forbidden");
   });
 
   it("Error is the strict canonical envelope", () => {

@@ -24,7 +24,13 @@ import type { Pool, PoolClient } from 'pg';
 import { PG_POOL } from '../../auth/auth.module';
 import { writeAudit } from '../position-events/position-event.writer';
 import { bumpSafetyRevision, lockTenantSafety, recordedRevision, recordSafetyChange } from './safety-revision';
-import { fingerprint, idempotencyConflict, normalizeNote, normalizeReasonCode } from './safety.common';
+import {
+  fingerprint,
+  idempotencyConflict,
+  normalizeNote,
+  normalizeReasonCode,
+  requireNoteForOther,
+} from './safety.common';
 
 export interface CorrectExpiryInput {
   readonly tenantId: string;
@@ -56,7 +62,7 @@ export interface ExpiryCorrectionResult {
   readonly safetyRevision: number;
 }
 
-interface CorrectionRow {
+export interface CorrectionRow {
   id: string;
   tracking_identity_id: string;
   tenant_product_ref: string;
@@ -68,7 +74,7 @@ interface CorrectionRow {
   created_at: Date;
 }
 
-const CORRECTION_COLUMNS =
+export const CORRECTION_COLUMNS =
   'id, tracking_identity_id, tenant_product_ref, old_expiry_date::text AS old_expiry_date, ' +
   'new_expiry_date::text AS new_expiry_date, reason_code, note, created_by, created_at';
 
@@ -91,6 +97,7 @@ export class IdentityExpiryService {
     const expiryDate = normalizeDate(input.expiryDate);
     const reasonCode = normalizeReasonCode(input.reasonCode);
     const note = normalizeNote(input.note);
+    requireNoteForOther(reasonCode, note);
     const commandFingerprint = fingerprint(['expiry_correction', input.userId.toLowerCase(), input.idempotencyKey]);
     return await runWithTenantContext(this.pool, { tenantId: input.tenantId, isPlatformAdmin: false }, async (client) => {
       await lockTenantSafety(client, input.tenantId);
@@ -265,7 +272,7 @@ function isRealDay(value: string): boolean {
   return year >= 1 && JSON.stringify(roundTrip) === JSON.stringify([year, month, day]);
 }
 
-function toCorrectionBody(row: CorrectionRow): ExpiryCorrectionBody {
+export function toCorrectionBody(row: CorrectionRow): ExpiryCorrectionBody {
   return {
     id: row.id,
     trackingIdentityId: row.tracking_identity_id,

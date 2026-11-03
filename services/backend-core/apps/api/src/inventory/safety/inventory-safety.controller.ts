@@ -16,6 +16,18 @@
  *   PUT  /api/inventory/v1/settings/safety-ttl               → setSafetyTtlSetting
  *   GET  /api/inventory/v1/safety/findings                   → listInventorySafetyFindings
  *
+ * RT-1081 (RT-455 TR-3a / TR-3b / II-4; owner decisions OD-0..OD-8):
+ *
+ *   GET  /api/inventory/v1/tracking-holds                    → listTrackingHolds
+ *   GET  /api/inventory/v1/recalls                           → listInventoryRecalls
+ *   GET  /api/inventory/v1/tracking-identities/{identityId}/expiry-corrections
+ *                                                            → listTrackingIdentityExpiryCorrections
+ *
+ * Keyset-paged, owner / tenant_admin (denyAs 403, as the single reads), and
+ * TR-5: the three commands accept only the governed reason codes
+ * (`SafetyReasonCodeInput`); `other` needs a note (the services enforce it
+ * on the trimmed note, before any write).
+ *
  * The two reads also admit a store_manager: the Safety TTL is the tenant's
  * (as the return landing policy), and the service filters the findings to the
  * caller's store scope (H6). Setting the TTL is owner / tenant_admin; the
@@ -49,11 +61,12 @@ import {
   Param,
   Post,
   Put,
+  Query,
   Req,
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
-import { SAFETY_REASON_CODE_PATTERN } from '@data-pulse-2/db';
+import { TRACKING_HOLD_KINDS } from '@data-pulse-2/db';
 import { z } from 'zod';
 
 import { DashboardAuthGuard } from '../../auth/dashboard-auth.guard';
@@ -71,8 +84,14 @@ import {
   type InventoryRecallBody,
   type InventoryRecallResult,
 } from './inventory-recalls.service';
-import type { TrackingHoldBody, TrackingHoldResult } from './safety.common';
+import { SAFETY_REASON_CODE_INPUTS, type TrackingHoldBody, type TrackingHoldResult } from './safety.common';
 import { SafetyFindingsService, type InventorySafetyFindingList } from './safety-findings.service';
+import {
+  SafetyHistoryService,
+  type ExpiryCorrectionListBody,
+  type InventoryRecallSummaryListBody,
+  type TrackingHoldListBody,
+} from './safety-history.service';
 import {
   DEFAULT_SAFETY_TTL_SECONDS,
   MIN_SAFETY_TTL_SECONDS,
@@ -82,8 +101,23 @@ import {
 import { TrackingHoldsService } from './tracking-holds.service';
 
 const UuidSchema = z.string().uuid();
-const ReasonCodeSchema = z.string().regex(SAFETY_REASON_CODE_PATTERN);
+/** RT-1081 TR-5: contract `SafetyReasonCodeInput` (projections keep the pattern). */
+const ReasonCodeSchema = z.enum(SAFETY_REASON_CODE_INPUTS);
 const NoteSchema = z.string().max(500).optional();
+const LimitSchema = z.coerce.number().int().min(1).max(200).optional();
+const CursorSchema = z.string().min(1).max(1024).optional();
+const OptionalUuidSchema = UuidSchema.optional();
+
+/** Query of `listTrackingHolds` (unknown parameters are ignored, as on the other lists). */
+const ListHoldsQuerySchema = z.object({
+  status: z.enum(['active', 'released', 'all']).optional(),
+  kind: z.enum(TRACKING_HOLD_KINDS).optional(),
+  trackingIdentityId: OptionalUuidSchema,
+  productId: OptionalUuidSchema,
+  cursor: CursorSchema,
+  limit: LimitSchema,
+});
+type ListHoldsQuery = z.infer<typeof ListHoldsQuerySchema>;
 
 /** Contract `PlaceQualityHoldCommand` (`additionalProperties: false`). */
 const PlaceQualityHoldSchema = z
@@ -154,7 +188,47 @@ export class InventorySafetyController {
     private readonly expiry: IdentityExpiryService,
     private readonly safetyTtl: SafetyTtlService,
     private readonly findings: SafetyFindingsService,
+    private readonly history: SafetyHistoryService,
   ) {}
+
+  /** RT-1081 TR-3a / II-3: the tenant's holds, newest first, in keyset pages. */
+  @Get('api/inventory/v1/tracking-holds')
+  @Roles('owner', 'tenant_admin', { denyAs: 403 })
+  async listTrackingHolds(
+    @Req() request: TenantContextRequest,
+    @Query(new ZodValidationPipe(ListHoldsQuerySchema)) query: ListHoldsQuery,
+  ): Promise<TrackingHoldListBody> {
+    return await this.history.listHolds({ tenantId: actor(request).tenantId, ...query });
+  }
+
+  /** RT-1081 TR-3b: the tenant's recall summaries, newest first, in keyset pages. */
+  @Get('api/inventory/v1/recalls')
+  @Roles('owner', 'tenant_admin', { denyAs: 403 })
+  async listInventoryRecalls(
+    @Req() request: TenantContextRequest,
+    @Query('productId', new ZodValidationPipe(OptionalUuidSchema)) productId: string | undefined,
+    @Query('cursor', new ZodValidationPipe(CursorSchema)) cursor: string | undefined,
+    @Query('limit', new ZodValidationPipe(LimitSchema)) limit: number | undefined,
+  ): Promise<InventoryRecallSummaryListBody> {
+    return await this.history.listRecalls({ tenantId: actor(request).tenantId, productId, cursor, limit });
+  }
+
+  /** RT-1081 II-4: one identity's expiry history, newest first, in keyset pages. */
+  @Get('api/inventory/v1/tracking-identities/:identityId/expiry-corrections')
+  @Roles('owner', 'tenant_admin', { denyAs: 403 })
+  async listTrackingIdentityExpiryCorrections(
+    @Req() request: TenantContextRequest,
+    @Param('identityId', new ZodValidationPipe(UuidSchema)) identityId: string,
+    @Query('cursor', new ZodValidationPipe(CursorSchema)) cursor: string | undefined,
+    @Query('limit', new ZodValidationPipe(LimitSchema)) limit: number | undefined,
+  ): Promise<ExpiryCorrectionListBody> {
+    return await this.history.listExpiryCorrections({
+      tenantId: actor(request).tenantId,
+      trackingIdentityId: identityId,
+      cursor,
+      limit,
+    });
+  }
 
   /** Place a quality hold on a tracking identity (G7-6). */
   @Post('api/inventory/v1/tracking-holds')

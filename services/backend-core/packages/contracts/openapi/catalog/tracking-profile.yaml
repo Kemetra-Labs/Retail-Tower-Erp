@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Catalog — Product Tracking Profile API
-  version: "1.1.0-draft"
+  version: "1.2.0-draft"
   description: >
     Jira RT-448 (RT-50 Inventory Gate 7, rule G7-1; Confluence RETAIL
     "Inventory Operations" baseline section "Gate 7"; decisions 852, 384, 386,
@@ -29,24 +29,38 @@ info:
     enforcement ships (a later Gate 7 issue); otherwise an untracked sale would
     lock a tracked profile that nothing enforces.
 
-    Two operations:
+    Three operations:
 
       1. `tenantAdminGetTrackingProfile` — read a product's profile.
       2. `tenantAdminSetTrackingProfile` — set it (full replacement of both
          fields).
+      3. `getTenantTrackingSummary` — whether the tenant has tracked
+         products (RT-1081).
 
     Authentication: dashboard session (`cookieAuth`, the httpOnly `dp2_session`
-    cookie), owner / tenant-admin only — the same human Tenant-Admin scheme as
-    `catalog/erpnext-warehouse-map.yaml`. `tenant_id` and the actor are
-    resolved server-side, never from the body (§XII). A product outside the
-    session tenant, and a caller without the role, is a non-disclosing 404
-    (§II/§XII). Consumed by
+    cookie) — the same human scheme as `catalog/erpnext-warehouse-map.yaml`.
+    `tenant_id` and the actor are resolved server-side, never from the body
+    (§XII). Roles are per operation: the two profile operations are owner /
+    tenant-admin only, and a product outside the session tenant, and a caller
+    without the role, is a non-disclosing 404 (§II/§XII).
+    `getTenantTrackingSummary` also admits a store_manager and answers any
+    other role 403 `forbidden`: it is a tenant-level read with no path id, so
+    there is nothing whose existence a 404 would hide. Consumed by
     `apps/api/test/catalog/tracking-profile/contract/tracking-profile.contract.spec.ts`.
 
 
     **1.1.0-draft (RT-620, additive).** Every cookieAuth operation may
     return 429 `rate_limited` (`TooManyRequests`, with `Retry-After`)
     from the console rate limit (RT-574, RT-619). No other wire change.
+
+
+    **1.2.0-draft (RT-1081, additive; owner decisions OD-0 and OD-5 on
+    RT-455, comment 15233).** `getTenantTrackingSummary` answers
+    `hasTrackedProducts`: true when at least one of the tenant's products
+    that is not retired has `tracking_mode` `batch` or `serial`. The Console
+    hides its tracking section while it is false. It reads false until
+    tracked selling lifts `409 tracking_activation_pending` (RT-451), because
+    until then every profile is `none`. Owner, tenant_admin or store_manager.
 
 servers:
   - url: https://api.example.com
@@ -58,6 +72,43 @@ tags:
       tenant-admin read/set. RT-448.
 
 paths:
+  /api/v1/catalog/tracking-summary:
+    get:
+      summary: Whether the tenant has tracked products.
+      operationId: getTenantTrackingSummary
+      tags: [catalog-tracking-profile]
+      description: >
+        RT-1081 (RT-455 TR-6, OD-5; decisions 967, 968): `hasTrackedProducts`
+        is true when at least one of the tenant's products that is not
+        retired has `tracking_mode` `batch` or `serial`. The Console hides
+        the tracking section while it is false. It reads false until tracked
+        selling lifts `409 tracking_activation_pending` (RT-451), because
+        until then every profile is `none`. Owner, tenant_admin or
+        store_manager; any other role is a 403.
+      responses:
+        "200":
+          description: The tenant's tracking summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantTrackingSummary"
+        "401":
+          description: Caller is not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: >
+            `forbidden`: authenticated, but not owner, tenant_admin or
+            store_manager in the session tenant.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /api/v1/catalog/products/{productId}/tracking-profile:
     get:
       summary: Read a product's Tracking Profile.
@@ -182,6 +233,18 @@ components:
 
   schemas:
 
+    TenantTrackingSummary:
+      type: object
+      additionalProperties: false
+      required: [hasTrackedProducts]
+      description: RT-1081 (TR-6) — the tenant-level tracking signal.
+      properties:
+        hasTrackedProducts:
+          type: boolean
+          description: >
+            True when a product of the tenant that is not retired has
+            `tracking_mode` `batch` or `serial`.
+
     SetTrackingProfileRequest:
       type: object
       additionalProperties: false
@@ -248,8 +311,9 @@ components:
               type: string
               description: >
                 Stable machine-readable error code. Closed set on this surface:
-                validation_error | not_found | tracking_activation_pending |
-                tracking_profile_locked | origin_rejected | system_failure
+                validation_error | not_found | forbidden |
+                tracking_activation_pending | tracking_profile_locked |
+                origin_rejected | system_failure
                 (plus the generic 401 refusal and the console 429 `rate_limited`).
             message:
               type: string

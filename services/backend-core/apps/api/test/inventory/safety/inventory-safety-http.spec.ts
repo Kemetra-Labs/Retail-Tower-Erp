@@ -18,6 +18,10 @@
  * store_manager and set by owner and tenant_admin only, with a strict
  * 60–900-or-null body; the findings read admits a store_manager and hands
  * the service the resolved context (the service applies the store scope).
+ *
+ * RT-1081: the hold, recall and correction lists are owner / tenant_admin
+ * (403 otherwise, never reaching the service), with strict query values; the
+ * three commands take only the TR-5 reason codes.
  */
 import 'reflect-metadata';
 
@@ -35,6 +39,7 @@ import { IdentityExpiryService } from '../../../src/inventory/safety/identity-ex
 import { InventoryRecallsService } from '../../../src/inventory/safety/inventory-recalls.service';
 import { InventorySafetyController } from '../../../src/inventory/safety/inventory-safety.controller';
 import { SafetyFindingsService } from '../../../src/inventory/safety/safety-findings.service';
+import { SafetyHistoryService } from '../../../src/inventory/safety/safety-history.service';
 import { SafetyTtlService } from '../../../src/inventory/safety/safety-ttl.service';
 import { TrackingHoldsService } from '../../../src/inventory/safety/tracking-holds.service';
 
@@ -79,6 +84,15 @@ class FakeServices {
   }
   async listFindings(input: unknown) {
     return this.record('findings', input);
+  }
+  async listHolds(input: unknown) {
+    return this.record('listHolds', input);
+  }
+  async listRecalls(input: unknown) {
+    return this.record('listRecalls', input);
+  }
+  async listExpiryCorrections(input: unknown) {
+    return this.record('listCorrections', input);
   }
 }
 
@@ -127,6 +141,7 @@ beforeAll(async () => {
       { provide: IdentityExpiryService, useValue: fake },
       { provide: SafetyTtlService, useValue: fake },
       { provide: SafetyFindingsService, useValue: fake },
+      { provide: SafetyHistoryService, useValue: fake },
       { provide: MembershipRepository, useValue: memberships },
       RolesGuard,
     ],
@@ -275,6 +290,9 @@ describe('RT-449 strict requests', () => {
   it.each<[string, string, unknown]>([
     ['a non-uuid identity', PLACE, { ...placeBody, trackingIdentityId: 'LOT-1' }],
     ['a reason code that is not lower snake case', PLACE, { ...placeBody, reasonCode: 'Supplier Notice' }],
+    ['a reason code outside the TR-5 list (hold)', PLACE, { ...placeBody, reasonCode: 'other_reason' }],
+    ['a reason code outside the TR-5 list (recall)', RECALLS, { ...recallBody, reasonCode: 'quality_hold' }],
+    ['a reason code outside the TR-5 list (expiry)', EXPIRY, { ...expiryBody, reasonCode: 'typo' }],
     ['a body tenant', PLACE, { ...placeBody, tenantId: TENANT }],
     ['a body actor', PLACE, { ...placeBody, placedBy: USER }],
     ['a note over 500 characters', PLACE, { ...placeBody, note: 'x'.repeat(501) }],
@@ -346,5 +364,77 @@ describe('RT-449 PR 2 Safety TTL and findings (H6, H8)', () => {
   ])('refuses a Safety TTL %s with 400', async (_label, body) => {
     await put(body).expect(400);
     expect(fake.last).toBeNull();
+  });
+});
+
+describe('RT-1081 hold, recall and correction lists', () => {
+  const HOLDS = '/api/inventory/v1/tracking-holds';
+  const LIST_RECALLS = '/api/inventory/v1/recalls';
+  const CORRECTIONS = `/api/inventory/v1/tracking-identities/${IDENTITY}/expiry-corrections`;
+  const get = (path: string) => request(app.getHttpServer()).get(path);
+
+  it.each(['owner', 'tenant_admin'])('a %s lists with the server-resolved tenant and the parsed query', async (role) => {
+    memberships.role = role;
+    await get(`${HOLDS}?status=active&kind=quality_hold&trackingIdentityId=${IDENTITY}&productId=${PRODUCT}&limit=7&cursor=abc`).expect(200);
+    expect(fake.last).toEqual({
+      op: 'listHolds',
+      input: {
+        tenantId: TENANT,
+        status: 'active',
+        kind: 'quality_hold',
+        trackingIdentityId: IDENTITY,
+        productId: PRODUCT,
+        limit: 7,
+        cursor: 'abc',
+      },
+    });
+    await get(`${LIST_RECALLS}?productId=${PRODUCT}&limit=200`).expect(200);
+    expect(fake.last).toEqual({
+      op: 'listRecalls',
+      input: { tenantId: TENANT, productId: PRODUCT, cursor: undefined, limit: 200 },
+    });
+    await get(`${CORRECTIONS}?limit=1`).expect(200);
+    expect(fake.last).toEqual({
+      op: 'listCorrections',
+      input: { tenantId: TENANT, trackingIdentityId: IDENTITY, cursor: undefined, limit: 1 },
+    });
+  });
+
+  it('a hold list without filters hands the service none (the service applies the defaults)', async () => {
+    await get(HOLDS).expect(200);
+    expect(fake.last).toEqual({ op: 'listHolds', input: { tenantId: TENANT } });
+  });
+
+  it.each(['store_manager', 'store_staff'])('a %s is a 403 on the three lists, never reaching a service', async (role) => {
+    memberships.role = role;
+    await get(HOLDS).expect(403);
+    await get(LIST_RECALLS).expect(403);
+    await get(CORRECTIONS).expect(403);
+    expect(fake.last).toBeNull();
+  });
+
+  it.each<[string, string]>([
+    ['limit 0', `${HOLDS}?limit=0`],
+    ['limit 201', `${HOLDS}?limit=201`],
+    ['a fractional limit', `${LIST_RECALLS}?limit=1.5`],
+    ['an unknown status', `${HOLDS}?status=open`],
+    ['an unknown kind', `${HOLDS}?kind=damaged`],
+    ['a non-uuid identity filter', `${HOLDS}?trackingIdentityId=LOT-1`],
+    ['a non-uuid product filter', `${LIST_RECALLS}?productId=nope`],
+    ['an empty cursor', `${CORRECTIONS}?cursor=`],
+    ['an over-long cursor', `${CORRECTIONS}?cursor=${'a'.repeat(1025)}`],
+    ['a non-uuid identity path', '/api/inventory/v1/tracking-identities/LOT-1/expiry-corrections'],
+  ])('refuses %s with 400', async (_label, path) => {
+    await get(path).expect(400);
+    expect(fake.last).toBeNull();
+  });
+});
+
+describe('RT-1081 TR-5 reason codes', () => {
+  it.each(['supplier_notice', 'authority_notice', 'label_misprint', 'other'])('accepts %s on every command', async (code) => {
+    await post(PLACE, { ...placeBody, reasonCode: code, note: 'n' }).expect(201);
+    await post(RECALLS, { ...recallBody, reasonCode: code, note: 'n' }).expect(201);
+    await post(EXPIRY, { ...expiryBody, reasonCode: code, note: 'n' }).expect(201);
+    expect(fake.last).toEqual({ op: 'expiry', input: expect.objectContaining({ reasonCode: code, note: 'n' }) });
   });
 });
