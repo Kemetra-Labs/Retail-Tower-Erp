@@ -75,9 +75,11 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          # Non-cone: cone mode takes directories, and apps/pos/package.json is a single file.
           sparse-checkout: |
-            .github/release
-            apps/pos/package.json
+            /.github/release/
+            /apps/pos/package.json
+          sparse-checkout-cone-mode: false
 
       - name: Resolve SHA, mode and tag
         id: resolve
@@ -99,9 +101,11 @@ jobs:
               fi ;;
             *) fail "unsupported event $EVENT" ;;
           esac
-          # The installer's file name and the packaged app carry package.json's version: the tag must be that version.
+          # Read the version in both modes, so a dry-run proves the read before the first real tag. The installer's
+          # file name and the packaged app carry package.json's version: a release tag must be that version.
+          PKG_VERSION="$(jq -er .version apps/pos/package.json)" || fail "cannot read the version of apps/pos/package.json"
+          [[ "$PKG_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "apps/pos/package.json version '$PKG_VERSION' is not X.Y.Z"
           if [ "$mode" = release ]; then
-            PKG_VERSION="$(jq -er .version apps/pos/package.json)" || fail "cannot read the version of apps/pos/package.json"
             [ "${REF#refs/tags/pos/v}" = "$PKG_VERSION" ] \
               || fail "tag ${REF#refs/tags/} is version ${REF#refs/tags/pos/v} but apps/pos/package.json is version $PKG_VERSION"
           fi
@@ -109,7 +113,7 @@ jobs:
           tag=""
           if [ "$mode" = release ]; then tag="${REF#refs/tags/}"; fi
           { echo "sha=$SHA"; echo "mode=$mode"; echo "tag=$tag"; } >> "$GITHUB_OUTPUT"
-          echo "### release-pos: $mode ${tag:-(no tag)} at \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "### release-pos: $mode ${tag:-(no tag)} at \`$SHA\` (apps/pos version $PKG_VERSION)" >> "$GITHUB_STEP_SUMMARY"
 
   build:
     name: release/build (Windows package, unsigned)
@@ -302,9 +306,12 @@ jobs:
   manifest:
     name: release/manifest
     needs: [resolve, build, sign-dry-run, sign-release]
+    # always(): sign-dry-run or sign-release is skipped in every run, and a skipped need would skip this job.
+    # The sign job of this run's mode must have succeeded.
     if: >-
       always() && needs.resolve.result == 'success' && needs.build.result == 'success'
-      && (needs.sign-dry-run.result == 'success' || needs.sign-release.result == 'success')
+      && ((needs.resolve.outputs.mode == 'dry-run' && needs.sign-dry-run.result == 'success')
+      || (needs.resolve.outputs.mode == 'release' && needs.sign-release.result == 'success'))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -357,7 +364,11 @@ jobs:
   publish:
     name: release/publish (attestation + GitHub release)
     needs: [resolve, sign-release, manifest]
-    if: needs.resolve.outputs.mode == 'release'
+    # always(): sign-dry-run is skipped in release mode and is an ancestor through manifest, which would skip
+    # this job under the implicit success(). Every need is checked explicitly instead.
+    if: >-
+      always() && needs.resolve.result == 'success' && needs.resolve.outputs.mode == 'release'
+      && needs.sign-release.result == 'success' && needs.manifest.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: release-pos

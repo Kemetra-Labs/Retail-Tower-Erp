@@ -32,6 +32,19 @@ def step(text: str, name: str) -> str:
     return match.group(0)
 
 
+def job_if(text: str) -> str:
+    """The job-level `if:` expression (plain or folded `>-` block) joined into one line; '' when absent."""
+    match = re.search(r"^    if: >-\n((?:      .*\n)+)", text, re.M) or re.search(r"^    if: (.*)\n", text, re.M)
+    return " ".join(part.strip() for part in match.group(1).splitlines()) if match else ""
+
+
+def needs_of(text: str) -> list[str]:
+    match = re.search(r"^    needs: (?:\[(.*?)\]|(\S+))\n", text, re.M)
+    if not match:
+        return []
+    return [n.strip() for n in (match.group(1) or match.group(2)).split(",")]
+
+
 def git(cwd: Path, *args: str) -> str:
     return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.test", *args],
                           cwd=cwd, capture_output=True, text=True, check=True).stdout.strip()
@@ -58,42 +71,89 @@ class ReleasePos(unittest.TestCase):
             self.assertNotIn("${{", block, block[:200])
 
     @unittest.skipUnless(HAVE_BASH, "bash not available")
-    def test_resolve_refuses_a_tag_that_differs_from_package_json(self):
+    def test_resolve_version_gate_and_package_json_read(self):
         script = step_script(self.text, "Resolve SHA, mode and tag")
+        package = Path("apps") / "pos" / "package.json"
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
-            (repo / "apps" / "pos").mkdir(parents=True)
+            (repo / package).parent.mkdir(parents=True)
             git(repo, "init", "-q")
-            (repo / "apps" / "pos" / "package.json").write_text(json.dumps({"version": "0.1.0"}), encoding="utf-8")
-            git(repo, "add", "apps/pos/package.json")
+            (repo / package).write_text(json.dumps({"version": "0.1.0"}), encoding="utf-8")
+            git(repo, "add", package.as_posix())
             git(repo, "commit", "-q", "-m", "x")
             sha = git(repo, "rev-parse", "HEAD")
             git(repo, "update-ref", "refs/remotes/origin/main", sha)
             summary, output = repo / "summary.md", repo / "output.txt"
 
-            def run(ref: str) -> subprocess.CompletedProcess:
+            def run(event: str, ref: str, dry_run: str) -> subprocess.CompletedProcess:
                 # Same environment the resolve step gets, with GITHUB_OUTPUT and the step summary in the temp dir.
-                env = {"EVENT": "push", "REF": ref, "SHA": sha, "DRY_RUN": "",
+                output.unlink(missing_ok=True)
+                summary.unlink(missing_ok=True)
+                env = {"EVENT": event, "REF": ref, "SHA": sha, "DRY_RUN": dry_run,
                        "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary)}
                 return subprocess.run([BASH, "-c", script], cwd=repo, capture_output=True, text=True, check=False,
                                       env={"PATH": os.environ.get("PATH", ""), **env})
 
-            refused = run("refs/tags/pos/v0.2.0")
+            def release(tag_version: str) -> subprocess.CompletedProcess:
+                return run("push", f"refs/tags/pos/v{tag_version}", "")
+
+            def dry_run() -> subprocess.CompletedProcess:
+                return run("workflow_dispatch", "refs/heads/some-branch", "true")
+
+            # A release tag that differs from package.json is refused and names both versions.
+            refused = release("0.2.0")
             self.assertNotEqual(refused.returncode, 0)
             message = refused.stdout + refused.stderr
             self.assertIn("0.2.0", message)
             self.assertIn("0.1.0", message)
             self.assertFalse(output.exists() and output.read_text(encoding="utf-8"), "outputs written despite refusal")
-
-            (repo / "apps" / "pos" / "package.json").write_text(json.dumps({"version": "0.2.0"}), encoding="utf-8")
-            accepted = run("refs/tags/pos/v0.2.0")
+            # A matching tag passes.
+            accepted = release("0.1.0")
             self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
-            self.assertIn("tag=pos/v0.2.0", output.read_text(encoding="utf-8"))
+            self.assertIn("tag=pos/v0.1.0", output.read_text(encoding="utf-8"))
+            # A dry-run with a readable package.json passes (no tag to compare) and reports the version it read.
+            dry = dry_run()
+            self.assertEqual(dry.returncode, 0, dry.stdout + dry.stderr)
+            self.assertIn("mode=dry-run", output.read_text(encoding="utf-8"))
+            self.assertIn("apps/pos version 0.1.0", summary.read_text(encoding="utf-8"))
+
+            # An unreadable package.json fails in both modes: missing, not JSON, no version, not X.Y.Z.
+            for label, content in (("missing", None), ("not json", "{"), ("no version", "{}"),
+                                   ("not X.Y.Z", json.dumps({"version": "1.0"}))):
+                if content is None:
+                    (repo / package).unlink()
+                else:
+                    (repo / package).write_text(content, encoding="utf-8")
+                for mode_name, result in (("release", release("0.1.0")), ("dry-run", dry_run())):
+                    self.assertNotEqual(result.returncode, 0, f"{mode_name} passed with a {label} package.json")
+                    self.assertIn("package.json", result.stdout + result.stderr, f"{mode_name}, {label}")
+
+    def sparse_patterns(self) -> list[str]:
+        block = step(job(self.text, "resolve"), "Checkout (history only")
+        body = re.search(r"^          sparse-checkout: \|\n((?:            .*\n)+)", block, re.M).group(1)
+        return [line.strip() for line in body.splitlines() if line.strip() and not line.strip().startswith("#")]
 
     def test_resolve_checks_out_only_what_it_reads(self):
         block = step(job(self.text, "resolve"), "Checkout (history only")
-        self.assertIn(".github/release", block)
-        self.assertIn("apps/pos/package.json", block)
+        # Non-cone mode: cone mode takes directories, and package.json is a single file.
+        self.assertIn("sparse-checkout-cone-mode: false", block)
+        self.assertEqual(self.sparse_patterns(), ["/.github/release/", "/apps/pos/package.json"])
+
+    def test_the_sparse_checkout_patterns_yield_package_json_and_the_release_scripts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            files = [".github/release/manifest.py", "apps/pos/package.json", "apps/pos/src/main.ts",
+                     "apps/admin-console/package.json", "package.json"]
+            for name in files:
+                (repo / name).parent.mkdir(parents=True, exist_ok=True)
+                (repo / name).write_text("x", encoding="utf-8")
+            git(repo, "init", "-q")
+            git(repo, "add", *files)
+            git(repo, "commit", "-q", "-m", "x")
+            git(repo, "sparse-checkout", "set", "--no-cone", *self.sparse_patterns())
+            present = sorted(p.relative_to(repo).as_posix() for p in repo.rglob("*")
+                             if p.is_file() and ".git" not in p.relative_to(repo).parts)
+            self.assertEqual(present, [".github/release/manifest.py", "apps/pos/package.json"])
 
     def test_only_sign_release_mentions_secrets(self):
         for name in ("resolve", "build", "sign-dry-run", "manifest", "publish"):
@@ -153,9 +213,13 @@ class ReleasePos(unittest.TestCase):
 
     def test_manifest_records_the_installer_blockmap_and_channel_file(self):
         manifest = job(self.text, "manifest")
-        self.assertIn("always()", manifest)
-        self.assertIn("needs.sign-dry-run.result == 'success'", manifest)
-        self.assertIn("needs.sign-release.result == 'success'", manifest)
+        condition = job_if(manifest)
+        self.assertIn("always()", condition)
+        self.assertIn("needs.resolve.result == 'success'", condition)
+        self.assertIn("needs.build.result == 'success'", condition)
+        # The sign job of THIS run's mode must have succeeded: a failed or cancelled one never leads to a manifest.
+        self.assertIn("needs.resolve.outputs.mode == 'dry-run' && needs.sign-dry-run.result == 'success'", condition)
+        self.assertIn("needs.resolve.outputs.mode == 'release' && needs.sign-release.result == 'success'", condition)
         script = step_script(manifest, "Write the release manifest")
         for name in ("pos-installer", "pos-blockmap", "pos-channel"):
             self.assertIn(f'--artifact "{name}=', script)
@@ -165,8 +229,13 @@ class ReleasePos(unittest.TestCase):
     def test_publish_is_protected_and_runs_no_repository_code(self):
         publish = job(self.text, "publish")
         self.assertRegex(publish, r"(?m)^    environment: release-pos$")
-        self.assertRegex(publish, r"(?m)^    if: needs\.resolve\.outputs\.mode == 'release'$")
         self.assertIn("needs: [resolve, sign-release, manifest]", publish)
+        # always() plus explicit results: sign-dry-run is skipped in release mode and is an ancestor through
+        # manifest, so the implicit success() would skip publish on every real release.
+        condition = job_if(publish)
+        for part in ("always()", "needs.resolve.outputs.mode == 'release'", "needs.resolve.result == 'success'",
+                     "needs.sign-release.result == 'success'", "needs.manifest.result == 'success'"):
+            self.assertIn(part, condition)
         self.assertNotIn("actions/checkout", publish)
         protect = step_script(publish, "Refuse unless the release environment is protected")
         self.assertIn("""'[{"name":"pos/v*","type":"tag"}]'""", protect)
@@ -198,6 +267,25 @@ class ReleasePos(unittest.TestCase):
         self.assertRegex(block, r"uses: actions/attest-build-provenance@[0-9a-f]{40}")
         self.assertRegex(block, r"subject-path: .*POS-Pulse-LAB-Setup-\*\.exe\n")
         self.assertIn("attestations: write", job(self.text, "publish"))
+
+    def test_no_job_downstream_of_a_mode_skipped_job_relies_on_the_implicit_success(self):
+        names = re.findall(r"^  ([a-z][a-z0-9_-]*):\n", self.text.split("\njobs:\n", 1)[1], re.M)
+        jobs = {name: job(self.text, name) for name in names}
+        # A job whose own `if:` depends on the mode is skipped in some runs (a skipped job skips its dependents
+        # under the implicit success(); always() in an upstream job does not carry downstream).
+        skipped = {n for n, text in jobs.items() if "outputs.mode ==" in job_if(text) and "always()" not in job_if(text)}
+        self.assertEqual(skipped, {"sign-dry-run", "sign-release"})
+        downstream: set[str] = set()
+        frontier = set(skipped)
+        while frontier:
+            frontier = {n for n, text in jobs.items() if n not in downstream and set(needs_of(text)) & frontier}
+            downstream |= frontier
+        self.assertEqual(downstream, {"manifest", "publish"})
+        for name in sorted(downstream):
+            condition = job_if(jobs[name])
+            self.assertIn("always()", condition, f"{name} relies on the implicit success()")
+            for need in needs_of(jobs[name]):
+                self.assertIn(f"needs.{need}.result == 'success'", condition, f"{name} does not check {need}")
 
     def test_only_publish_has_write_scopes(self):
         for name in ("resolve", "build", "sign-dry-run", "sign-release", "manifest", "env-probe"):
