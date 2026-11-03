@@ -131,12 +131,13 @@ def reject_rerun(run, workflow):
 
 def scan(api, key, limit):
     """Newest-first records [(run, ledger or None)] of one workflow, up to and including its newest
-    run that deployed. Dry runs leave no live ledger and are skipped."""
+    run that deployed (for the system workflow: until every product has a finished step). Dry runs
+    leave no live ledger and are skipped."""
     workflow, prefix, _ = SPECS[key]
     listing = api.runs(workflow, limit)
     runs = [run for run in listing["workflow_runs"] if run.get("head_branch") == "main" and run.get("status") == "completed"]
     runs.sort(key=lambda run: (parse_time(run["created_at"]), run["id"]), reverse=True)
-    records = []
+    records, covered = [], set()
     for run in runs:
         run_id = run["id"]
         if not isinstance(run_id, int):
@@ -153,7 +154,15 @@ def scan(api, key, limit):
             raise LiveError(f"{workflow} run {run_id}: its live ledger is expired or too large to read")
         ledger = read_ledger(api.download(art["id"]), run_id, key)
         records.append((run, ledger))
-        if ledger["outcome"] == "deployed":
+        if key != "system":
+            if ledger["outcome"] == "deployed":
+                return records
+            continue
+        # RT-1085: a system run can skip products, so one deployed ledger does not end the scan. Go on
+        # until every product has a finished step; an older step of a product can no longer matter.
+        steps = ledger.get("steps") if isinstance(ledger.get("steps"), list) else []
+        covered |= {step.get("step") for step in steps if isinstance(step, dict) and step.get("state") == "ok"}
+        if covered >= set(PRODUCTS):
             return records
     if listing.get("total_count", 0) > len(listing["workflow_runs"]):
         raise LiveError(f"{workflow}: more than {limit} runs and no deployed live ledger in the newest {limit}")

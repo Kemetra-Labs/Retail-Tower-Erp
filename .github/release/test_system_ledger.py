@@ -177,7 +177,7 @@ class Plan(unittest.TestCase):
         for commits in ((), other, unresolved):
             ledger = self.plan("", commits=commits)[1]
             self.assertEqual((self.actions(ledger)["backend"], self.actions(ledger)["backup"]), ("run", "run"), commits)
-            self.assertIn("could not be confirmed", ledger["stepPlan"][1]["reason"])
+            self.assertIn("did not resolve to one commit", ledger["stepPlan"][1]["reason"])
 
     def test_each_product_is_judged_on_its_own_and_the_backup_follows_the_backend(self):
         tmp = tempfile.TemporaryDirectory()
@@ -331,6 +331,25 @@ class Final(unittest.TestCase):
         self.assertEqual(ledger["outcome"], "failed-at:erp")
         self.assertEqual([s["state"] for s in ledger["steps"]], ["skipped", "skipped", "skipped", "failed"])
         self.assertEqual(ledger["manualRollback"], [])
+
+    def test_a_planned_step_that_never_got_its_parameters_was_not_sent(self):
+        # e.g. the OIDC or compat step failed before the first planned document (backend skipped)
+        ledger, _ = self.final([], run_steps="console,erp")
+        self.assertEqual(ledger["outcome"], "failed-at:console")
+        self.assertEqual(ledger["failure"]["reason"], "console: no parameters file, so RT-ConsoleLabDeploy was not sent")
+
+    def test_a_step_with_its_parameters_but_no_output_may_have_been_sent(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        live = pathlib.Path(tmp.name) / "live"
+        live.mkdir()
+        (live / "console-params.json").write_text("{}", encoding="utf-8")
+        out = pathlib.Path(tmp.name) / "out"
+        code, _, _ = run_cli("final", "--manifest", str(MANIFEST), "--current-manifest", str(write_current(tmp.name)), "--jira-key", JIRA,
+                             "--live-dir", str(live), "--gates", GOOD_GATES, "--out", str(out), "--run-steps", "console")
+        self.assertEqual(code, 0)
+        reason = json.loads((out / "ledger.json").read_text(encoding="utf-8"))["failure"]["reason"]
+        self.assertEqual(reason, "live job stopped before or during RT-ConsoleLabDeploy")
 
     def test_a_run_of_only_skipped_steps_is_deployed_with_nothing_to_roll_back(self):
         ledger, _ = self.final([], run_steps="")

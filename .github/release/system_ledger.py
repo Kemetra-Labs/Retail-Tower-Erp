@@ -44,6 +44,7 @@ ERP_SERVICES = ("backend", "frontend", "websocket", "scheduler", "queue-short", 
 RULES = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8")
 GATE_LINE = re.compile(r"^(G[1-8]) (pass|FAIL|unverified): (.*)$")
 GATE_RESULTS = re.compile(r"^(G[1-8]=(pass|FAIL|unverified|not-run))( G[1-8]=(pass|FAIL|unverified|not-run))*$")
+PARAMS_FILES = {"backup": "backup-params.json", "backend": "deploy-params.json", "console": "console-params.json", "erp": "erp-params.json"}
 COMMIT_KEYS = ("target_backend_release", "current_backend_release", "target_console_release", "current_console_release")
 PLAN_KIND = "rt1031-system-lab-planned-ledger"
 LIVE_KIND = "rt1031-system-lab-live-ledger"
@@ -127,16 +128,17 @@ def parse_commits(items):
 
 
 def step_plan(target, current, commits, force_all):
-    """[{step, action: run | skip, reason}] in deploy order. A product is unchanged only when every
-    identity matches: the release tag and its commit (an unresolved commit counts as changed), or the
-    ERP digest and commit. The backup runs exactly when the Backend-Core step does."""
+    """[{step, action: run | skip, reason}] in deploy order. A release is unchanged when its tag is the
+    same in both manifests and resolves to a commit (both are resolved in one checkout, so this catches
+    an unresolvable tag; release immutability, G2, keeps a tag on one commit). ERP is unchanged when
+    the digest and the commit are the same. The backup runs exactly when the Backend-Core step does."""
     def same_release(product):
         tag_t, tag_c = target[f"{product}_release"], current[f"{product}_release"]
         sha_t, sha_c = commits.get(f"target_{product}_release"), commits.get(f"current_{product}_release")
         if tag_t == tag_c and sha_t is not None and sha_t == sha_c:
             return True, f"unchanged: {tag_t} at {sha_t[:12]} in both manifests"
         if tag_t == tag_c:
-            return False, f"{tag_t} in both manifests, but its commit could not be confirmed the same"
+            return False, f"{tag_t} in both manifests, but the tag did not resolve to one commit"
         return False, f"{tag_c} -> {tag_t}"
 
     def short(digest, sha):
@@ -349,6 +351,11 @@ def final(args):
     if failed:
         reason_lines = read_lines(pathlib.Path(args.live_dir) / "failure.txt")
         reason = reason_lines[0] if reason_lines else f"live job stopped before or during {failed['document']}"
+        # ssm-run.sh sends only from its parameters file: without one, no output and no status, the
+        # document was never sent. Said in G8's "not sent" words (PRE_SEND), so it is not an incident.
+        params = pathlib.Path(args.live_dir) / PARAMS_FILES[failed["step"]]
+        if not reason_lines and not failed["lines"] and failed["ssmStatus"] is None and not params.is_file():
+            reason = f"{failed['step']}: no parameters file, so {failed['document']} was not sent"
     rollback_allowed = args.rollback_allowed == "true"
     ledger = base_ledger(args, LIVE_KIND, target_data, current_data)
     ledger.update({

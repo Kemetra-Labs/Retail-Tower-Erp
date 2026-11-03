@@ -222,8 +222,10 @@ class Decide(unittest.TestCase):
         fake.add("deploy-system-lab.yml", 41520000000, 953, self.skipping_system_run(41520000000, ("backup", "backend", "erp")))
         lines = run_check(fake)
         self.assertEqual(failures(lines), [])
-        # the ERP version still comes from the ERP deploy, not from the run that skipped it
-        self.assertTrue(any(text.startswith("erp:") and "deploy-erp-lab.yml run 40916489627" in text for _, text in lines), lines)
+        # ERP and Backend-Core come from the older full system run, never from the run that skipped them
+        for product in ("backend", "erp"):
+            self.assertTrue(any(text.startswith(f"{product}:") and "deploy-system-lab.yml run 41306750385 " in text for _, text in lines), lines)
+        self.assertFalse(any("run 41520000000" in text for _, text in lines if not text.startswith("console:")), lines)
 
     def test_a_skipped_step_does_not_clear_an_older_incident_that_touched_the_host(self):
         fake = live_lab()
@@ -233,6 +235,29 @@ class Decide(unittest.TestCase):
         found = failures(run_check(fake))
         self.assertEqual(len(found), 1, found)
         self.assertTrue(found[0].startswith("erp:") and "may have changed the host" in found[0], found)
+
+    def test_a_partial_system_run_does_not_hide_an_older_full_one(self):
+        fake = Fake()
+        fake.add("deploy-lab.yml", 1, 5, backend(1, tag="backend-core/v0.3.2"))
+        fake.add("deploy-console-lab.yml", 2, 5, console(2, release="admin-console/v0.1.0"))
+        fake.add("deploy-erp-lab.yml", 3, 5, erp(3, digest=OTHER_DIGEST))
+        fake.add("deploy-system-lab.yml", 10, 500, system(10))
+        fake.add("deploy-system-lab.yml", 11, 600, self.skipping_system_run(11, ("backup", "backend", "erp")))
+        lines = run_check(fake)
+        self.assertEqual(failures(lines), [])
+        for product in ("backend", "erp"):
+            self.assertTrue(any(text.startswith(f"{product}:") and "deploy-system-lab.yml run 10 " in text for _, text in lines), lines)
+        self.assertTrue(any(text.startswith("console:") and "deploy-system-lab.yml run 11 " in text for _, text in lines), lines)
+
+    def test_a_system_run_that_failed_before_sending_its_first_planned_document_is_a_note(self):
+        fake = live_lab()
+        run = self.skipping_system_run(41530000000, ("backup", "backend"))
+        run["outcome"] = "failed-at:console"
+        run["failure"] = {"step": "console", "reason": "console: no parameters file, so RT-ConsoleLabDeploy was not sent"}
+        run["steps"][2] = {"step": "console", "state": "failed", "lines": [], "gates": [], "ssmStatus": None, "target": {}}
+        run["steps"][3] = {"step": "erp", "state": "not-run", "lines": [], "gates": [], "ssmStatus": None, "target": {}}
+        fake.add("deploy-system-lab.yml", 41530000000, 955, run)
+        self.assertEqual(failures(run_check(fake)), [])
 
     def test_a_skipped_step_whose_manifests_differ_refuses(self):
         current = json.loads(LIVE.read_text(encoding="utf-8"))

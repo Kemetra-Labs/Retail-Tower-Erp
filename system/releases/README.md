@@ -90,11 +90,11 @@ Before G8, a stale manifest was refused only on lab-01, before any version chang
 | Step | Skipped when |
 | --- | --- |
 | `backup` | the Backend-Core step is skipped (the deploy reads the backup the backup step reports) |
-| `backend` | `backendCore.release` is the same tag in both files, and the tag resolves to the same commit |
-| `console` | `adminConsole.release` is the same tag in both files, and the tag resolves to the same commit |
+| `backend` | `backendCore.release` is the same tag in both files, and the tag resolves to a commit |
+| `console` | `adminConsole.release` is the same tag in both files, and the tag resolves to a commit |
 | `erp` | `erpnext.image` (digest) and `erpnext.sha` are the same in both files |
 
-A tag that cannot be resolved counts as changed, so its step runs. The planned ledger lists the plan under `stepPlan`, with a reason for each step, and `summary.md` shows it under "Steps", so the approver sees it before approving. A live run where every step would be skipped is refused in the preflight (`nothing to deploy`); set `force_all=true` to prove the path. G3 ties the Console to the Backend-Core release commit, so a Backend-Core upgrade always comes with a Console upgrade.
+A tag that cannot be resolved counts as changed, so its step runs. Releases are immutable (G2), so one tag always names one commit. The planned ledger lists the plan under `stepPlan`, with a reason for each step, and `summary.md` shows it under "Steps", so the approver sees it before approving. A live run where every step would be skipped is refused in the preflight (`nothing to deploy`); set `force_all=true` to prove the path. G3 ties the Console to the Backend-Core release commit, so a Backend-Core upgrade always comes with a Console upgrade.
 
 The planned ledger reports two rollback rules:
 - `backend.rollbackAllowed` (`rollbackAllowed` in the live ledger): `false` when the Backend-Core releases differ in migrations, or when the verifier could not compare them. The auto-revert then only records that an owner restore or forward fix is needed.
@@ -138,7 +138,7 @@ The artifact `deploy-system-lab-live-ledger-<run id>` holds:
 - for each step: `state` (`ok`, `failed`, `not-run`, or `skipped` when the plan did not run it), `prior`, `target`, its gates and its strict `RT_*` lines;
 - `manualRollback`.
 
-A `skipped` step changed nothing on its host; G8 ignores it and keeps the product's last real deploy. A same-version run with `force_all=true` is proven when the outcome is `deployed` and each step shows no version change:
+A `skipped` step changed nothing on its host. G8 ignores it and reads older runs until it finds the product's last real deploy, whether by a system run or by its own workflow. A same-version run with `force_all=true` is proven when the outcome is `deployed` and each step shows no version change:
 - `backend`: `prior.sentry_release` equals the target tag without `backend-core/`, and the `RT_PRIOR` and `RT_TARGET` digests are equal;
 - `console`: its lines hold `RT_SWAP unchanged current=…`;
 - `erp`: `RT_DIGEST_AFTER` equals the manifest digest. Its `prior` comes from `current_manifest`, so it is declared, not measured; the document checks it on lab-03.
