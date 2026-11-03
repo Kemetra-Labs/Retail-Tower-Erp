@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom/vitest';
 import { MemoryRouter } from 'react-router-dom';
@@ -165,6 +165,28 @@ describe('AppRouter + /sign-in (T022)', () => {
     expect(screen.queryByTestId('manager-admin-sign-in-form')).not.toBeInTheDocument();
     await user.click(screen.getByTestId('sign-in-manager-entry'));
     expect(screen.getByTestId('manager-admin-sign-in-form')).toBeInTheDocument();
+  });
+
+  // RT-1094 (RT-1042 OD-14): while the roster loads the panel states it, politely.
+  it('states the roster is loading, politely, until the fetch settles', async () => {
+    let settle: (r: ListBranchRosterResponse) => void = () => undefined;
+    const pending = new Promise<ListBranchRosterResponse>((resolve) => {
+      settle = resolve;
+    });
+    render(
+      <AppRouter
+        pairing={pairedBridge()}
+        operator={operatorBridge({ listBranchRoster: () => pending })}
+        initialEntry="/sign-in"
+      />,
+    );
+    const state = await screen.findByTestId('roster-state');
+    expect(state).toHaveAttribute('data-state', 'loading');
+    expect(state).toHaveTextContent('جارٍ تحميل قائمة الكاشير…');
+    expect(within(state).getByRole('status')).toBeInTheDocument();
+    settle({ kind: 'roster', cashiers: [CASHIER] });
+    await waitFor(() => expect(screen.getByTestId('roster-list')).toBeInTheDocument());
+    expect(screen.queryByTestId('roster-state')).not.toBeInTheDocument();
   });
 
   it('shows the paired terminal label in the context strip', async () => {
