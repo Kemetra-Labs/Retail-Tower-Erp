@@ -233,6 +233,14 @@ describe('v5 Sale polish — the unavailable handoff says why', () => {
     expect(reasonOf(button)).toHaveTextContent('جارٍ إضافة الصنف…');
   });
 
+  it('says the first add is landing, not that the cart is empty, while it is in flight', () => {
+    render(
+      <LiveSaleCart {...cart({ lines: [], itemCount: 0, canHandoff: false, addInFlight: true })} />,
+    );
+    const button = screen.getByRole('button', { name: HANDOFF });
+    expect(reasonOf(button)).toHaveTextContent('جارٍ إضافة الصنف…');
+  });
+
   it('shows no stale reason while the handoff is in flight', () => {
     render(
       <LiveSaleCart

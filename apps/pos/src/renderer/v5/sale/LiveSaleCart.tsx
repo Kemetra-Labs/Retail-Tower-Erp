@@ -393,6 +393,7 @@ const HANDOFF_REASON_ID = 'sale-handoff-reason';
 /** M-S11 (empty cart) and M-S12 (an add still landing): why the handoff is not yet offered. */
 function handoffReasonCopy(props: Readonly<Props>): string | null {
   if (props.canHandoff) return null;
-  if (props.lines.length === 0) return 'أضف صنفًا لتسليم السلة للدفع';
-  return props.addInFlight === true ? 'جارٍ إضافة الصنف…' : null;
+  // The first add leaves the cart empty until it lands: say it is landing, not that it is empty.
+  if (props.addInFlight === true) return 'جارٍ إضافة الصنف…';
+  return props.lines.length === 0 ? 'أضف صنفًا لتسليم السلة للدفع' : null;
 }
