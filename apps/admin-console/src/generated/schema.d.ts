@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 6c869e5ad27ec0f5a1fd198add9acf001c35b678
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 3c0abcdb922f2fc86f13860d0df10e8e8721b662
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -11692,7 +11692,7 @@ export namespace InventorySchema {
             };
             /**
              * The derived positions of one identity, per store and status.
-             * @description RT-1081 (RT-455 II-2, OD-6): compute-on-read signed sums of the movements that carry the identity, one row per store and stocking unit where the identity has at least one movement, in the caller's store scope, ordered by `storeId` then `stockingUnit`. Each row is split into the six inventory statuses like `OnHand`, summed over the store's locations: +5 at one location and -5 at another read as 0. Not paginated: bounded by the tenant's stores. An identity with no movement answers `stores: []`. Owner or tenant_admin; an identity of another tenant, and a caller without the role, is a non-disclosing 404.
+             * @description RT-1081 (RT-455 II-2, OD-6): compute-on-read signed sums of the movements that carry the identity, one row per store and stocking unit where the identity has at least one movement, in the caller's store scope, ordered by `storeId` then `stockingUnit`. Each row is split into the six inventory statuses like `OnHand`, summed over the store's locations: +5 at one location and -5 at another read as 0. Not paginated: bounded by the tenant's stores. An identity with no movement answers `stores: []`. Owner or tenant_admin; an identity of another tenant, and a caller without the role, is a non-disclosing 404. A role failure is never a 403; the only 403 is a platform session's support-session refusal.
              */
             get: operations["getTrackingIdentityPositions"];
             put?: never;
@@ -12493,6 +12493,15 @@ export namespace InventorySchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description 403 — only a platform-admin session without a live support session for the tenant (`support_session_required` / `support_session_expired`, RT-414). A caller without the role is a non-disclosing 404, never this 403 (RT-1081). */
+            SupportSessionRefused: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description 404 — the target (movement / on-hand / store / product / sale ref / destination store) does not exist OR belongs to another tenant. The two are INDISTINGUISHABLE by design (non-disclosing, §II/§XII, FR-051). */
             NotFoundOrCrossTenant: {
                 headers: {
@@ -13270,6 +13279,7 @@ export namespace InventorySchema {
                 };
                 400: components["responses"]["ValidationFailure"];
                 401: components["responses"]["Unauthorized"];
+                403: components["responses"]["SupportSessionRefused"];
                 404: components["responses"]["NotFoundOrCrossTenant"];
                 429: components["responses"]["TooManyRequests"];
                 "5XX": components["responses"]["SystemFailure"];
@@ -13298,6 +13308,7 @@ export namespace InventorySchema {
                 };
                 400: components["responses"]["ValidationFailure"];
                 401: components["responses"]["Unauthorized"];
+                403: components["responses"]["SupportSessionRefused"];
                 404: components["responses"]["NotFoundOrCrossTenant"];
                 429: components["responses"]["TooManyRequests"];
                 "5XX": components["responses"]["SystemFailure"];
