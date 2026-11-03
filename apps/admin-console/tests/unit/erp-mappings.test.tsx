@@ -255,8 +255,10 @@ describe("gate and reads", () => {
       api.tenantAdminListErpnextItemMappings.mockResolvedValue(failure(status));
       api.tenantAdminListErpnextWarehouseMappings.mockResolvedValue(failure(status));
       renderPage();
-      const alerts = await screen.findAllByText("This section isn't available to your role.");
-      expect(alerts).toHaveLength(2);
+      // Two independent reads: wait for both panels, not just the first to answer.
+      await waitFor(() =>
+        expect(screen.getAllByText("This section isn't available to your role.")).toHaveLength(2),
+      );
       expect(screen.queryByLabelText("State")).toBeNull();
       expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
       expect(screen.queryByRole("form", { name: "Set a warehouse mapping" })).toBeNull();
