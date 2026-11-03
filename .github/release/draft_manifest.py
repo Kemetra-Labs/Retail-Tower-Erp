@@ -15,8 +15,9 @@ Writes system/releases/<system>.json for deploy-system-lab.yml from:
   --pos                  `current` (the POS build of the current manifest) or a 40-hex build id.
 
 The file is named after --system, by default the next free lab-YYYY.MM.N of this month. It is
-checked with system_gate.py (G1-G5) before it is written, and an existing file is never
-overwritten (a deployed version is never edited). The deploy preflight still checks every product.
+checked with system_gate.py (G1, G2, G3, G5; G4 runs in contracts/check on its PR) before it is
+written, and an existing file is never overwritten (a deployed version is never edited). The
+deploy preflight still checks every product.
 
 Reads: `gh` for releases and attestations (the caller's token), the public GHCR registry
 anonymously for image tags, manifests and labels (each checked against its digest), and git for
