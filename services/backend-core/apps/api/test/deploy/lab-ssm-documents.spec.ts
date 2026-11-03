@@ -10,8 +10,9 @@
  * a legacy backend-core-<sha12>.
  */
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import * as yaml from "js-yaml";
 
 const repoRoot = resolve(__dirname, "..", "..", "..", "..");
@@ -36,6 +37,8 @@ const backup = load("RT-BackendLabBackup.yaml");
 const deploy = load("RT-BackendLabDeploy.yaml");
 // RT-1007 (RT-717 C7): the Admin Console swap on lab-01, run by the root deploy-console-lab.yml.
 const consoleDeploy = load("RT-ConsoleLabDeploy.yaml");
+// RT-1082 (S2): the POS lab update feed on lab-01, run by the root deploy-pos-lab.yml.
+const posFeed = load("RT-PosLabFeedDeploy.yaml");
 
 function bashWorks(): boolean {
   const probe = spawnSync("bash", ["-c", "printf ok"], { encoding: "utf8" });
@@ -57,6 +60,7 @@ describe.each([
   ["RT-BackendLabBackup", backup, ["ReleaseTag", "CurrentRelease", "JiraKey"]],
   ["RT-BackendLabDeploy", deploy, ["ReleaseTag", "ReleaseSha", "ApiDigest", "WorkerDigest", "MigrateDigest", "CurrentRelease", "JiraKey", "BackupName", "BackupSha256", "RollbackAllowed"]],
   ["RT-ConsoleLabDeploy", consoleDeploy, ["ReleaseTag", "ArchiveDigest", "ExpectedSha", "ExpectedPin", "BackendRelease", "JiraKey"]],
+  ["RT-PosLabFeedDeploy", posFeed, ["ReleaseTag", "Version", "InstallerDigest", "BlockmapDigest", "ChannelDigest"]],
 ])("%s document", (_name, d, params) => {
   it("is a schema 2.2 Command document with one Linux shell step", () => {
     expect(d.doc.schemaVersion).toBe("2.2");
@@ -612,5 +616,224 @@ describe("RT-ConsoleLabDeploy (lab-01, RT-1007)", () => {
     expect(run("admin-console/v0.1.0", "backend-core/v0.3.2", "release-backend-core-v0.3.20/x release-backend-core-v0x3x2/y")).toBe(
       "admin-console-v0.1.0|backend-core-v0.3.2|v0.3.2|nomatch",
     );
+  });
+});
+
+describe("RT-PosLabFeedDeploy (lab-01, RT-1082 S2)", () => {
+  const b = posFeed.body;
+  const params = posFeed.doc.parameters;
+  const section = (from: string, to: string): string => b.slice(b.indexOf(from), b.indexOf(to));
+  // A bash path for a temporary directory (Git Bash on Windows reads C:/... but not C:\...).
+  const tempDir = (): string => mkdtempSync(join(tmpdir(), "rt-pos-feed-")).replace(/\\/g, "/");
+  const helpers = section("# Every value of one lab.yml key", "sha512_base64() {");
+  const stubs = "say() { printf '%s\\n' \"$*\"; }\npass() { say \"RT_GATE $1 pass\"; }\nstop() { say \"RT_FAIL gate=$GATE reason=$*\"; exit 1; }\n";
+  const labYml = (version: string, sha512 = "c2hhNTEy+/=", size = "1234"): string =>
+    [`version: ${version}`, "files:", `  - url: POS-Pulse-LAB-Setup-${version}.exe`, `    sha512: ${sha512}`, `    size: ${size}`,
+      `path: POS-Pulse-LAB-Setup-${version}.exe`, `sha512: ${sha512}`, "releaseDate: '2026-11-03T10:00:00.000Z'", ""].join("\n");
+
+  it("follows the order inputs, lock, host, version, fetch, check, swap, smoke, prune", () => {
+    expectInOrder(b, [
+      'stop "Version-is-not-the-ReleaseTag-version"',
+      "flock -n 9 || stop",
+      "GATE=G-Host",
+      "pass G-Host",
+      "GATE=version",
+      'say "RT_PRIOR version=$PRIOR"',
+      'stop "version-not-higher"',
+      "pass version",
+      "GATE=fetch",
+      "pass fetch",
+      "GATE=check",
+      'stop "installer-is-not-InstallerDigest"',
+      'stop "blockmap-is-not-BlockmapDigest"',
+      'stop "lab-yml-is-not-ChannelDigest"',
+      'stop "lab-yml-size-is-not-the-installer"',
+      "pass check",
+      "GATE=swap",
+      "pass swap",
+      "GATE=G-Smoke",
+      "SMOKE_OK=yes",
+      "pass G-Smoke",
+      "GATE=prune",
+      'say "RT_PRUNE kept=$KEPT removed=$REMOVED"',
+      'say "RT_DONE release=$RELEASE_TAG"',
+    ]);
+  });
+
+  it("takes the lab-01 deploy lock the Backend-Core and Console documents take", () => {
+    expect(b).toContain("exec 9>/run/rt-lab-deploy.lock\n");
+    expect(consoleDeploy.body).toContain("exec 9>/run/rt-lab-deploy.lock\n");
+  });
+
+  it("has exactly the five strict ENV_VAR parameters, and Version must be the tag's version", () => {
+    expect(params.ReleaseTag?.allowedPattern).toBe("^pos/v[0-9]+\\.[0-9]+\\.[0-9]+$");
+    expect(params.Version?.allowedPattern).toBe("^[0-9]+\\.[0-9]+\\.[0-9]+$");
+    for (const name of ["InstallerDigest", "BlockmapDigest", "ChannelDigest"]) expect(params[name]?.allowedPattern).toBe("^sha256:[0-9a-f]{64}$");
+    const tag = new RegExp(params.ReleaseTag?.allowedPattern ?? "^$");
+    expect(tag.test("pos/v0.1.1")).toBe(true);
+    expect(tag.test("pos/v0.1.1/../x")).toBe(false);
+    expect(tag.test("admin-console/v0.1.1")).toBe(false);
+    expect(b).toContain('[ "$VERSION" = "${RELEASE_TAG#pos/v}" ] || stop "Version-is-not-the-ReleaseTag-version"');
+    // file names come from the validated Version only
+    expect(b).toContain('EXE="POS-Pulse-LAB-Setup-$VERSION.exe"');
+    for (const line of b.split("\n").filter((l) => /\$\{?RELEASE_TAG\b/.test(l) && !/^\s*#/.test(l))) {
+      expect(line).toMatch(/^(RELEASE_TAG=|\[\[ "\$RELEASE_TAG" =~|\[ "\$VERSION" = |echo "POS lab feed deploy|BASE="https:\/\/github\.com\/\$REPO\/releases\/download\/\$RELEASE_TAG"$|say "RT_DONE)/);
+    }
+  });
+
+  it("reads the host configuration without sourcing it, and refuses one others could write", () => {
+    const host = section("GATE=G-Host", "pass G-Host");
+    expect(b).toContain("FEED_ENV=/etc/rt-deploy/pos-feed.env\n");
+    expect(b).not.toMatch(/(^|\s)(source|\.) "?\$FEED_ENV/m);
+    expect(host).toContain('FEED_DIR="$(env_value "$FEED_ENV" FEED_DIR)" || stop');
+    expect(host).toContain('FEED_URL="$(env_value "$FEED_ENV" FEED_URL)" || stop');
+    expect(host).toContain('stop "feed-env-file-not-root-only-writable"');
+    expect(host).toContain('stop "feed-directory-not-root-only-writable"');
+    expect(host).toContain('stop "FEED_DIR-is-not-an-absolute-plain-path"');
+    expect(host).toContain('stop "FEED_URL-is-not-a-plain-http-url"');
+    // nothing in the feed changes before the version gate; the only removal is a killed run's staging directory
+    expect(host).not.toMatch(/\bln\b|\bmv\b|\bcp\b|chmod/);
+    expect(host.split("\n").filter((l) => /\brm\b/.test(l)).map((l) => l.trim())).toEqual(['rm -rf -- "$OLD"']);
+    expect(host).toContain('for OLD in "$FEED_PARENT"/.rt-pos-feed-stage.*; do\n  [ -d "$OLD" ] && [ ! -L "$OLD" ] || continue\n');
+    expect(b.indexOf("for OLD in")).toBeGreaterThan(b.indexOf("flock -n 9 || stop"));
+  });
+
+  it("stages in a root-only directory next to the feed (same file system, never served)", () => {
+    expect(b).toContain('WORK="$(mktemp -d "$FEED_PARENT/.rt-pos-feed-stage.XXXXXX")"');
+    expect(b).toContain('[ "$(stat -c \'%d\' "$WORK")" = "$(stat -c \'%d\' "$FEED_DIR")" ] || stop "staging-is-not-on-the-feed-file-system"');
+    // every download lands in the staging directory, never straight in the feed
+    expect(section("GATE=fetch", "pass fetch")).toContain('-o "$WORK/$1" "$BASE/$1"');
+    // the curl limits (fetch 600 + 60 + 60, four origin reads of 120 s) fit inside the step timeout
+    const fetches = [...b.matchAll(/fetch_asset \S+ "\$MAX_[A-Z_]+" ([0-9]+)/g)].map((m) => Number(m[1]));
+    // G-Host has one origin read in each of its two branches, and runs one of them; the smoke has three
+    const originReads = [...b.matchAll(/origin_get [^ ]+ "\$WORK/g)].length - 1;
+    expect(fetches).toEqual([600, 60, 60]);
+    expect(originReads).toBe(4);
+    expect(b).toContain("curl -sS --max-time 120 --resolve");
+    expect(fetches.reduce((a, n) => a + n, 0) + originReads * 120).toBeLessThan(Number(posFeed.doc.mainSteps[0]?.inputs.timeoutSeconds));
+  });
+
+  itBash("refuses a version that is not higher than the one the feed serves, and an unreadable lab.yml", () => {
+    const gate = section("GATE=version", "pass version") + "pass version\n";
+    const run = (served: string | null, version: string): string => {
+      const dir = tempDir();
+      if (served !== null) writeFileSync(join(dir, "lab.yml"), served);
+      const out = spawnSync("bash", ["-c", `set -euo pipefail\n${stubs}${helpers}\nFEED_DIR='${dir}' VERSION='${version}' PRIOR=none\n${gate}`], { encoding: "utf8" });
+      rmSync(dir, { recursive: true, force: true });
+      return out.stdout.trim().split("\n").pop() ?? "";
+    };
+    expect(run(null, "0.1.1")).toBe("RT_GATE version pass");
+    expect(run(labYml("0.1.1"), "0.1.2")).toBe("RT_GATE version pass");
+    // sort -V, not a string compare: 0.1.10 is higher than 0.1.9
+    expect(run(labYml("0.1.9"), "0.1.10")).toBe("RT_GATE version pass");
+    expect(run(labYml("0.1.1"), "0.1.1")).toBe("RT_FAIL gate=version reason=version-not-higher");
+    expect(run(labYml("0.1.2"), "0.1.1")).toBe("RT_FAIL gate=version reason=version-not-higher");
+    expect(run(labYml("0.1.10"), "0.1.9")).toBe("RT_FAIL gate=version reason=version-not-higher");
+    expect(run("files: []\n", "0.1.1")).toBe("RT_FAIL gate=version reason=served-lab-yml-has-no-single-version");
+    expect(run(`${labYml("0.1.1")}version: 0.1.3\n`, "0.1.2")).toBe("RT_FAIL gate=version reason=served-lab-yml-has-no-single-version");
+  });
+
+  itBash("checks lab.yml against the installer: version, path, url, every sha512 and every size", () => {
+    const check = (yml: string, sha512: string, size: string): string =>
+      spawnSync("bash", ["-c", `set -euo pipefail\n${helpers}\nF="$(mktemp)"; printf '%s' "$1" > "$F"
+yml_top "$F" version >/dev/null && [ "$(yml_top "$F" version)" = 0.1.2 ] || { echo version; exit 0; }
+[ "$(yml_top "$F" path || true)" = POS-Pulse-LAB-Setup-0.1.2.exe ] || { echo path; exit 0; }
+yml_all_equal "$F" url POS-Pulse-LAB-Setup-0.1.2.exe optional || { echo url; exit 0; }
+yml_all_equal "$F" sha512 '${sha512}' || { echo sha512; exit 0; }
+yml_all_equal "$F" size '${size}' || { echo size; exit 0; }
+echo ok`, "_", yml], { encoding: "utf8" }).stdout.trim();
+    const good = labYml("0.1.2", "abc+/=", "1234");
+    expect(check(good, "abc+/=", "1234")).toBe("ok");
+    expect(check(good, "abd+/=", "1234")).toBe("sha512");
+    expect(check(good, "abc+/=", "1235")).toBe("size");
+    expect(check(labYml("0.1.3", "abc+/=", "1234"), "abc+/=", "1234")).toBe("version");
+    // one sha512 differs from the other: refused, whichever one the updater reads
+    expect(check(good.replace("    sha512: abc+/=", "    sha512: other"), "abc+/=", "1234")).toBe("sha512");
+    expect(check(good.replace("path: POS-Pulse-LAB-Setup-0.1.2.exe", "path: other.exe"), "abc+/=", "1234")).toBe("path");
+    expect(check(good.replace("  - url: POS-Pulse-LAB-Setup-0.1.2.exe", "  - url: other.exe"), "abc+/=", "1234")).toBe("url");
+    expect(check(good.replace(/ {4}size: 1234\n/, ""), "abc+/=", "1234")).toBe("size");
+  });
+
+  it("checks all three digests and lab.yml before the first write into the feed", () => {
+    // the first write into the feed is the installer's rename, inside the swap
+    const firstWrite = b.indexOf('mv -f "$WORK/$EXE" "$FEED_DIR/$EXE"');
+    expect(firstWrite).toBeGreaterThan(b.indexOf("GATE=swap"));
+    for (const needle of ['stop "installer-is-not-InstallerDigest"', 'stop "blockmap-is-not-BlockmapDigest"', 'stop "lab-yml-is-not-ChannelDigest"', 'stop "lab-yml-sha512-is-not-the-installer"']) {
+      expect(b.indexOf(needle)).toBeGreaterThan(-1);
+      expect(b.indexOf(needle)).toBeLessThan(firstWrite);
+    }
+    expect(b).toContain('fetch_asset "$EXE" "$MAX_INSTALLER_BYTES" 600');
+    expect(b).toContain("curl -fsSL --proto '=https' --tlsv1.2");
+  });
+
+  it("writes installer and blockmap before lab.yml, each by a rename from the staging directory, world-readable", () => {
+    const swap = section("GATE=swap", "pass swap");
+    expectInOrder(swap, [
+      'cp -p "$FEED_DIR/lab.yml" "$WORK/lab.yml.prev"',
+      'mv -f "$WORK/$EXE" "$FEED_DIR/$EXE"',
+      'mv -f "$WORK/$MAP" "$FEED_DIR/$MAP"',
+      'SWAPPED=yes && mv -f "$WORK/lab.yml" "$FEED_DIR/lab.yml" || stop "swap-failed"',
+    ]);
+    // every rename into the feed comes from the staging directory
+    for (const line of b.split("\n").filter((l) => /\bmv\b/.test(l) && !l.trim().startsWith("#"))) expect(line).toMatch(/mv -f "\$WORK\//);
+    // Caddy is not root: the files are made world-readable before they are renamed into place
+    expect(b.indexOf('chmod 0644 "$WORK/$EXE" "$WORK/$MAP" "$WORK/lab.yml"')).toBeGreaterThan(-1);
+    expect(b.indexOf('chmod 0644 "$WORK/$EXE"')).toBeLessThan(b.indexOf("GATE=swap"));
+    expect([...b.matchAll(/SWAPPED=yes/g)]).toHaveLength(1);
+  });
+
+  it("puts the previous lab.yml back on ANY exit after the swap until the smoke passed", () => {
+    expect(b).toContain('[ "$SWAPPED" = yes ] || return 0');
+    expect(b).toContain('if [ "$SWAPPED" = yes ] && [ "$SMOKE_OK" != yes ]; then revert; fi');
+    expect(b).toContain("trap on_exit EXIT\n");
+    expect(b).toContain("trap 'exit 1' INT TERM HUP\n");
+    expectInOrder(b, ['WORK=""', "PRIOR=none", "SWAPPED=no", "SMOKE_OK=no", "trap on_exit EXIT", "GATE=G-Host"]);
+    expect(b).toContain('cp -p "$WORK/lab.yml.prev" "$WORK/lab.yml.revert" && mv -f "$WORK/lab.yml.revert" "$FEED_DIR/lab.yml"');
+    // lab.yml.prev in the feed is replaced only after the smoke passed, so a failed run keeps the N-1 channel file
+    const keepPrev = 'if [ "$PRIOR" != none ]; then mv -f "$WORK/lab.yml.prev" "$FEED_DIR/lab.yml.prev"; fi';
+    expect([...b.matchAll(/"\$FEED_DIR\/lab\.yml\.prev"/g)]).toHaveLength(1);
+    expect(b.indexOf(keepPrev)).toBeGreaterThan(b.indexOf("SMOKE_OK=yes"));
+    const smoke = section("GATE=G-Smoke", "pass G-Smoke");
+    expect(smoke).toContain("smoke_fail() { revert; stop \"$1\"; }");
+    for (const line of smoke.split("\n").filter((l) => /\|\| (stop|smoke_fail) /.test(l))) expect(line).toMatch(/\|\| smoke_fail "[A-Za-z0-9_-]+"$/);
+    expect(smoke).toContain('smoke_fail "origin-does-not-serve-InstallerDigest"\nSMOKE_OK=yes\n');
+    expect([...b.matchAll(/SMOKE_OK=yes/g)]).toHaveLength(1);
+  });
+
+  it("smokes the feed on this host, never the public edge", () => {
+    expect(b).toContain('--resolve "$FEED_HOST:$FEED_PORT:127.0.0.1"');
+    expect(b).toContain('if [ "${BASH_REMATCH[1]}" = https ]; then FEED_PORT=443; else FEED_PORT=80; fi');
+    expect(b).not.toMatch(/kemetralabs\.com/);
+  });
+
+  it("removes only staging directories, a reverted first lab.yml, and pruned release files", () => {
+    const removals = b.split("\n").filter((l) => /\brm\b/.test(l) && !l.trim().startsWith("#")).map((l) => l.trim());
+    expect(removals).toEqual([
+      'rm -f "$FEED_DIR/lab.yml" && SWAPPED=reverted && say "RT_REVERT restored version=none" && return 0',
+      'if [ -n "$WORK" ]; then rm -rf "$WORK"; fi',
+      'rm -rf -- "$OLD"',
+      'rm -f -- "$FEED_DIR/$NAME"',
+    ]);
+    // prune runs only after the smoke passed
+    expect(b.indexOf("GATE=prune")).toBeGreaterThan(b.indexOf("SMOKE_OK=yes"));
+  });
+
+  itBash("keeps the current and one previous version, and removes only other release installers and blockmaps", () => {
+    const dir = tempDir();
+    const names = ["0.1.0", "0.1.1", "0.1.2"].flatMap((v) => [`POS-Pulse-LAB-Setup-${v}.exe`, `POS-Pulse-LAB-Setup-${v}.exe.blockmap`]);
+    for (const name of [...names, "lab.yml", "POS-Pulse-LAB-Setup-notes.txt", "index.html"]) writeFileSync(join(dir, name), "x");
+    // the served lab.yml the swap kept aside becomes lab.yml.prev here
+    const work = tempDir();
+    writeFileSync(join(work, "lab.yml.prev"), "version: 0.1.1\n");
+    const prune = section("GATE=prune", "pass prune") + "pass prune\n";
+    const r = spawnSync("bash", ["-c", `set -euo pipefail\n${stubs}FEED_DIR='${dir}' WORK='${work}' VERSION=0.1.2 PRIOR=0.1.1\n${prune}`], { encoding: "utf8" });
+    expect(readFileSync(join(dir, "lab.yml.prev"), "utf8")).toBe("version: 0.1.1\n");
+    rmSync(work, { recursive: true, force: true });
+    expect(r.stdout).toContain("RT_PRUNE kept=4 removed=2\n");
+    expect(readdirSync(dir).sort()).toEqual(
+      ["POS-Pulse-LAB-Setup-0.1.1.exe", "POS-Pulse-LAB-Setup-0.1.1.exe.blockmap", "POS-Pulse-LAB-Setup-0.1.2.exe", "POS-Pulse-LAB-Setup-0.1.2.exe.blockmap",
+        "POS-Pulse-LAB-Setup-notes.txt", "index.html", "lab.yml", "lab.yml.prev"].sort(),
+    );
+    rmSync(dir, { recursive: true, force: true });
   });
 });
