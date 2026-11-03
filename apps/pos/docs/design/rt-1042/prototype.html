@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RT-1042 · نموذج تفاعلي لشاشة الدخول</title>
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#e4eaed;font-family:Dubai,'Segoe UI',Tahoma,system-ui,sans-serif;color:#0a2125}
+.bar{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;padding:10px 16px;background:#fff;border-bottom:1px solid #c6d3d8;font-size:13px}
+.bar label{display:inline-flex;gap:6px;align-items:center}
+.bar select,.bar button{font:inherit;min-height:32px}
+.bar .note{flex-basis:100%;color:#5b6d7c;margin:0}
+#host{padding:16px;display:flex;justify-content:center}
+#end{position:fixed;inset:0;display:none;place-items:center;background:rgba(8,14,24,.55);z-index:9}
+#end div{background:#fff;border-radius:16px;padding:24px;max-width:420px;text-align:center}
+
+.scr{--canvas:#f7f9fa;--surface:#ffffff;--sunken:#eef2f6;--text:#0f1d2e;--muted:#53647a;--border:#d8dfe7;--soft:#e7ecf2;--strong:#6f7b89;--primary:#0f766e;--primary-em:#0b5b55;--primary-soft:#e6f4f1;--danger:#b3261e;--danger-soft:#fbe9e7;--warning:#a35a00;--warning-soft:#fdf1e0;--info:#1b6ca8;--info-soft:#e4f0f9;--ink:#0a2125;--ink-muted:#a9c2c5;--mint:#5fe0cf;
+--aw:340px;--tile:60px;--cols:2;--key:60px;--av:36px;--avl:56px;--fbh:84px;--pad:24px;--gap:16px;--commit:56px;
+box-sizing:border-box;position:relative;overflow:hidden;display:flex;flex-direction:column;background:var(--canvas);color:var(--text);font-family:Dubai,'Segoe UI',Tahoma,Arial,system-ui,sans-serif;font-size:14px;line-height:1.6;text-align:start}
+.scr *{box-sizing:border-box}
+.scr.v-xl{--aw:400px;--tile:72px;--cols:3;--key:64px;--av:44px;--avl:64px;--fbh:76px;--pad:40px;--gap:24px;--commit:60px}
+.scr.v-md{--aw:304px;--tile:52px;--key:56px;--av:32px;--avl:48px;--fbh:88px;--pad:16px;--gap:12px}
+.scr.v-sm{--aw:304px;--tile:48px;--key:48px;--av:30px;--avl:40px;--fbh:84px;--pad:12px;--gap:8px;--commit:52px}
+.scr h1,.scr h2,.scr p{margin:0}
+:where(.scr) button,:where(.scr) input{font:inherit;color:inherit}
+:where(.scr) button{cursor:pointer}
+.scr button:focus-visible,.scr input:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+.head h1{font-size:20px;font-weight:700;line-height:1.3}
+.head p{color:var(--muted)}
+.v-xl .head h1{font-size:26px}.v-xl .head p{font-size:16px}
+.v-sm .head{display:flex;align-items:baseline;gap:12px}.v-sm .head h1{font-size:18px}.v-sm .head p{font-size:13px}
+.panel{display:flex;flex-direction:column;min-height:0;background:var(--surface);border:1px solid var(--border);border-radius:14px}
+.ph{flex:none;display:flex;align-items:center;min-height:48px;padding:8px 16px;border-bottom:1px solid var(--soft)}
+.ph h2{font-size:16px;font-weight:700}
+.pb{flex:1;min-height:0;overflow:auto;padding:16px}
+.v-sm .pb{padding:10px}
+.pf{flex:none;padding:10px 16px;border-top:1px solid var(--soft)}
+.roster{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(var(--cols),minmax(0,1fr));gap:8px}
+.who{position:relative;display:flex;align-items:center;gap:12px;width:100%;min-height:var(--tile);padding:6px 12px;border:1px solid var(--strong);border-radius:10px;background:var(--surface);text-align:start}
+.who[disabled]{cursor:default;opacity:.6}
+.who.sel{border-color:var(--primary);background:var(--primary-soft);color:var(--primary-em)}
+.who.sel::before{content:"";position:absolute;inset-block:8px;inset-inline-start:-1px;width:3px;border-radius:2px;background:var(--primary)}
+.av{flex:none;display:grid;place-items:center;width:var(--av);height:var(--av);border-radius:9999px;background:var(--primary-soft);color:var(--primary-em);font-weight:700;font-size:calc(var(--av) * .45);line-height:1}
+.who.sel .av{background:var(--primary);color:#fff}
+.av-l{width:var(--avl);height:var(--avl);font-size:calc(var(--avl) * .45);background:var(--primary);color:#fff}
+.nm{min-width:0;display:flex;flex-direction:column}
+.nm-t{font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35}
+.nm-r{font-size:12px;color:var(--muted)}
+.who .nm-r{display:none}
+.v-xl .who .nm-r{display:block}
+.who.sel .nm-r{color:var(--primary-em)}
+.rs-empty{min-height:120px}
+.sec{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border:1px solid var(--strong);border-radius:10px;background:var(--surface);font-weight:600}
+.sec[aria-pressed=true]{border-color:var(--primary);background:var(--primary-soft);color:var(--primary-em)}
+.sec[disabled],.ghost[disabled]{opacity:.55;cursor:default}
+.ghost{display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:0 8px;border:0;border-radius:10px;background:transparent;color:var(--muted);font-weight:600;margin-inline-start:auto}
+.ah{flex:none;display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 16px;border-bottom:1px solid var(--soft)}
+.ah-t{font-size:16px;font-weight:700;line-height:1.3}
+.ah-who .ah-t{font-size:18px}
+.v-xl .ah-who .ah-t{font-size:22px}
+.who-t{min-width:0;display:flex;flex-direction:column}
+.who-t .ah-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ab{flex:1;min-height:0;display:flex;flex-direction:column;gap:var(--gap);padding:var(--gap) 16px 16px}
+.v-xl .ab{padding:24px 28px 28px}
+.dots{flex:none;display:flex;align-items:center;justify-content:center;gap:14px;height:52px;border:1px solid var(--strong);border-radius:10px;background:var(--surface)}
+.v-sm .dots{height:44px}
+.dots.err{border-color:var(--danger)}
+.dot{width:14px;height:14px;border-radius:9999px;border:2px solid var(--strong)}
+.dot.on{background:var(--text);border-color:var(--text)}
+.fb{flex:none;min-height:var(--fbh);display:flex;align-items:center}
+.fb>*{width:100%}
+.prompt{color:var(--muted);text-align:center}
+.st{display:inline-flex;align-items:center;justify-content:center;gap:8px;color:var(--muted)}
+.spin{width:16px;height:16px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--primary)}
+.nt{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:10px;border:1px solid;font-size:14px;line-height:1.5}
+.v-sm .nt{font-size:13px;padding:8px 10px}
+.nt svg{flex:none;margin-top:1px}
+.nt-danger{background:var(--danger-soft);border-color:var(--danger);color:#8c1d18}
+.nt-warning{background:var(--warning-soft);border-color:var(--warning);color:#7d4500}
+.nt-info{background:var(--info-soft);border-color:var(--info);color:#145184}
+.keypad{flex:none;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.key{display:grid;place-items:center;height:var(--key);border:1px solid var(--strong);border-radius:10px;background:var(--surface);font-family:ui-monospace,'Cascadia Code',Consolas,monospace;font-size:24px;font-weight:600}
+.key[disabled]{border-color:var(--border);color:#9aa6b4;cursor:default}
+.key.blank{border:0;background:transparent}
+.commit{flex:none;width:100%;min-height:var(--commit);margin-top:auto;border:0;border-radius:10px;background:var(--primary);color:#fff;font-size:17px;font-weight:700}
+.commit[aria-disabled=true]{background:var(--sunken);color:var(--muted);border:1px solid var(--border);cursor:default}
+.mgr{display:flex;flex-direction:column;gap:14px;flex:1}
+.fl{display:flex;flex-direction:column;gap:6px;font-weight:600}
+.in{height:48px;border:1px solid var(--strong);border-radius:10px;padding:0 12px;background:var(--surface);font-weight:400}
+.term{color:var(--muted)}
+.term b{color:var(--text);font-weight:700;margin-inline-start:4px}
+.sep{width:1px;height:20px;background:var(--border)}
+.logo{display:inline-flex;flex:none}
+.logo-box{display:grid;place-items:center;width:128px;height:32px;border:1px dashed var(--strong);border-radius:4px;color:var(--muted);font-size:12px;background:repeating-linear-gradient(135deg,transparent 0 6px,rgba(83,100,122,.06) 6px 12px)}
+.logo-card{padding:2px 4px;border:1px solid var(--border);border-radius:8px;background:#ffffff}
+.logo-lg .logo-box{width:200px;height:80px;font-size:13px}
+.logo-lg.logo-card{padding:12px}
+.pw{font-size:12px;color:var(--muted);white-space:nowrap}
+.pw-end{margin-inline-start:auto}
+.strip{flex:none;display:flex;align-items:center;gap:12px;height:48px;padding:0 var(--pad);background:var(--surface);border-bottom:1px solid var(--border)}
+.v-xl .strip{height:56px}.v-md .strip{height:44px}.v-sm .strip{height:40px}
+.wm{display:inline-flex;align-items:center;gap:8px;font-weight:700}
+.wm-mark{display:grid;place-items:center;width:24px;height:24px;border-radius:6px;background:var(--primary);color:#fff}
+/* Forced colours, simulated for the board (Windows "Night sky"-like). Real captures are slice evidence. */
+.scr.fc,.scr.fc .panel,.scr.fc .strip,.scr.fc .band,.scr.fc .dock,.scr.fc .bp,.scr.fc .who,.scr.fc .key,.scr.fc .dots,.scr.fc .sec,.scr.fc .in,.scr.fc .nt{background:#000 !important;color:#fff !important;border-color:#fff !important;box-shadow:none !important}
+.scr.fc .orn{display:none}
+.scr.fc .who.sel,.scr.fc .sec[aria-pressed=true]{background:#1aebff !important;color:#000 !important}
+.scr.fc .who.sel .nm-r{color:#000 !important}
+.scr.fc .av,.scr.fc .pm,.scr.fc .wm-mark{background:#000 !important;color:#fff !important;border:1px solid #fff}
+.scr.fc .commit{background:#1aebff !important;color:#000 !important}
+.scr.fc .commit[aria-disabled=true],.scr.fc .key[disabled]{background:#000 !important;color:#3ff23f !important;border:1px solid #3ff23f !important}
+.scr.fc .dot.on{background:#fff;border-color:#fff}.scr.fc .dot{border-color:#fff}
+.scr.fc .term b,.scr.fc .pn,.scr.fc .nm-r,.scr.fc .term,.scr.fc .pw,.scr.fc .prompt{color:#fff !important}
+.scr.fc .logo-card{background:#fff !important;border:1px solid #fff}
+.scr.fc .logo-box{color:#000}
+
+.dA .stage{flex:1;min-height:0;width:100%;max-width:1400px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) var(--aw);grid-template-rows:auto minmax(0,1fr);gap:var(--gap);padding:var(--pad)}
+.dA .head{grid-column:1 / -1}
+.dA .auth{grid-row:2;grid-column:2}
+
+.dB{--canvas:#f2f5f6}
+.dB .head h1,.dB .ph h2,.dB .ah-t,.dB .pn{font-family:'Readex Pro',Dubai,'Segoe UI',sans-serif;font-weight:600}
+.dB .band{flex:none;position:relative;height:96px;background:var(--ink);color:#fff;overflow:hidden}
+.dB.v-xl .band{height:120px}.dB.v-md .band{height:64px}.dB.v-sm .band{height:52px}
+.dB .orn{position:absolute;inset:0;width:100%;height:100%}
+.dB .band-in{position:relative;height:100%;display:flex;align-items:center;gap:16px;padding:0 var(--pad)}
+.dB.v-xl .band-in{padding:0 56px}
+.dB .pm{display:grid;place-items:center;width:48px;height:48px;border-radius:14px;background:var(--mint);color:var(--ink)}
+.dB.v-xl .pm{width:56px;height:56px;border-radius:16px}.dB.v-md .pm{width:36px;height:36px;border-radius:10px}.dB.v-sm .pm{width:32px;height:32px;border-radius:9px}
+.dB .pn{font-size:26px;line-height:1.1;color:#fff}
+.dB.v-xl .pn{font-size:30px}.dB.v-md .pn{font-size:22px}.dB.v-sm .pn{font-size:20px}
+.dB .band .term{color:var(--ink-muted)}.dB .band .term b{color:#fff}
+.dB .band .sep{background:rgba(169,194,197,.35)}
+.dB .band .pw{color:var(--ink-muted)}
+.dB .split{flex:1;min-height:0;display:flex}
+.dB .room{flex:1;min-width:0;display:flex;flex-direction:column;gap:var(--gap);padding:var(--pad)}
+.dB.v-xl .room{padding:40px 56px;justify-content:center}
+.dB .panel{border-radius:20px;box-shadow:0 1px 2px rgba(10,33,37,.06),0 32px 32px -24px rgba(10,33,37,.25)}
+.dB .rp{flex:1;max-height:100%}
+.dB.v-xl .rp{flex:none;max-height:calc(100% - 80px)}
+.dB{--cols:3}.dB.v-md,.dB.v-sm{--cols:2}
+.dB{--tile:72px}.dB.v-xl{--tile:88px}.dB.v-md{--tile:60px}.dB.v-sm{--tile:52px}
+.dB{--aw:360px}.dB.v-xl{--aw:440px}.dB.v-md,.dB.v-sm{--aw:320px}
+.dB .who{border-radius:12px}
+.dB .av{border-radius:12px;background:var(--ink);color:var(--mint);font-family:'Readex Pro',Dubai,sans-serif}
+.dB .who.sel .av{background:var(--ink);color:var(--mint);outline:2px solid var(--primary);outline-offset:2px}
+.dB .who .nm-r{display:block}
+.dB.v-sm .who .nm-r{display:none}
+.dB .dock{flex:none;width:var(--aw);display:flex;flex-direction:column;background:var(--surface);border-inline-start:1px solid var(--border)}
+.dB .dock .ah{border-bottom:0}
+.dB .ah-who.big{position:relative;flex-direction:column;justify-content:center;gap:4px;padding-top:20px;text-align:center}
+.dB .ah-who.big .who-t{align-items:center}
+.dB .ah-who.big .ghost{position:absolute;inset-block-start:4px;inset-inline-start:4px}
+.dB .av-l{border-radius:20px;background:var(--ink);color:var(--mint);outline:2px solid var(--primary);outline-offset:3px}
+.dB{--avl:72px}.dB.v-xl{--avl:88px}.dB.v-md{--avl:56px}
+.dB.v-sm .ah-who.big{flex-direction:row;padding-top:8px;text-align:start}
+.dB.v-sm .ah-who.big .who-t{align-items:flex-start}
+.dB.v-sm .ah-who.big .ghost{position:static}
+.dB.v-sm{--avl:40px}
+.dB .key,.dB .dots,.dB .in,.dB .sec{border-radius:12px}
+.dB .dot.on{background:var(--ink);border-color:var(--ink)}
+.dB .commit{border-radius:12px;background:var(--ink)}
+.dB .commit[aria-disabled=true]{background:var(--sunken)}
+.dB .fb{min-height:calc(var(--fbh) - 8px)}
+
+.dC .tri{flex:1;min-height:0;display:flex;gap:var(--gap);padding:var(--pad)}
+.dC.v-xl .tri,.dC.v-lg .tri{padding:0;gap:0}
+.dC .bp{flex:none;width:260px;display:flex;flex-direction:column;align-items:flex-start;gap:16px;padding:32px 28px;background:var(--ink);color:#fff}
+.dC.v-xl .bp{width:340px;padding:48px 40px}
+.dC .pm{display:grid;place-items:center;width:64px;height:64px;border-radius:16px;background:var(--mint);color:var(--ink)}
+.dC .pn{font-size:24px;font-weight:700;line-height:1.1}
+.dC .bp .term{color:var(--ink-muted)}.dC .bp .term b{color:#fff;display:block;margin:0;font-size:18px}
+.dC .bp-sep{width:40px;height:2px;background:var(--mint)}
+.dC .bp-fill{flex:1}
+.dC .bp .pw{color:var(--ink-muted)}
+.dC .room{flex:1;min-width:0;display:flex;flex-direction:column;gap:var(--gap)}
+.dC.v-xl .room,.dC.v-lg .room{padding:var(--pad)}
+.dC .auth{flex:none;width:var(--aw)}
+.dC.v-xl .auth,.dC.v-lg .auth{margin:var(--pad);margin-inline-start:0;margin-top:calc(var(--pad) + 74px)}
+.dC.v-lg .auth{margin-top:calc(var(--pad) + 62px)}
+.dC .rp{flex:1}
+.dC.v-xl{--cols:3}
+
+</style>
+</head>
+<body>
+<div class="bar" role="toolbar" aria-label="عناصر التحكم في النموذج">
+<label>الاتجاه <select id="dir"><option value="A">A · Teal</option><option value="B" selected>B · شريط Ink</option><option value="C">C · لوحة Ink</option></select></label>
+<label>الشاشة <select id="vp"><option value="1920x1080">1920×1080</option><option value="1280x800" selected>1280×800</option><option value="1024x768">1024×768</option><option value="1024x600">1024×600</option></select></label>
+<label>القائمة <select id="roster"><option value="ready">جاهزة</option><option value="loading">قيد التحميل</option><option value="offline">غير متصل</option><option value="refused">رفض</option><option value="empty">فارغة</option></select></label>
+<label>العدد <select id="names"><option value="six">6</option><option value="two">2</option><option value="long">18 · أسماء طويلة</option></select></label>
+<label>الشعار <select id="logo"><option value="none">بلا شعار</option><option value="logo">شعار</option><option value="card">شعار على بطاقة</option></select></label>
+<label>نتيجة «دخول» <select id="outcome"><option value="invalid_input">invalid_input</option><option value="rate_limited">rate_limited</option><option value="terminal_has_unresolved_payment">terminal_has_unresolved_payment</option><option value="no_connection">no_connection</option><option value="ok">نجاح (نهاية النموذج)</option></select></label>
+<label><input type="checkbox" id="fc"> ألوان قسرية (محاكاة)</label>
+<button type="button" id="scan">محاكاة مسح في حقل الرقم السري</button>
+<p class="note">نموذج تخطيط غير معتمد (RT-1042). لا يتحقق من أي رقم سري: النتيجة تختارها من القائمة أعلاه. النصوص هي المشحونة على main، ورسالة المسح داخل الخانة مقترحة. لا اختصارات لوحة مفاتيح غير الأرقام وBackspace وEnter الموجودة اليوم.</p>
+</div>
+<div id="host"></div>
+<div id="end" role="dialog" aria-modal="true" aria-labelledby="end-t"><div><h2 id="end-t" style="margin:0 0 8px">نهاية النموذج</h2><p style="margin:0 0 16px">في التطبيق، النجاح ينقل الكاشير إلى شاشة البيع. لا شيء آخر يحدث هنا.</p><button type="button" id="end-ok" style="font:inherit;min-height:44px;padding:0 20px">إغلاق</button></div></div>
+<script>
+// RT-1042 board renderer: one render(dir, state) used both to pre-render the static
+// .dc.html state boards (Node) and, embedded, by the interactive prototype.html.
+/* eslint-disable */
+(function (root) {
+  const COPY = {
+    title: 'تسجيل الدخول',
+    subtitle: 'كل عمليات الوردية تُسجَّل باسمك.',
+    rosterHeading: 'الكاشير في هذا الفرع',
+    pinHeading: 'الرقم السري',
+    cashierRole: 'الكاشير',
+    managerEntry: 'دخول المدير',
+    back: 'رجوع',
+    submit: 'دخول',
+    signingIn: 'جارٍ تسجيل الدخول…',
+    pinPrompt: 'اختر اسمك من القائمة لإدخال الرقم السري.',
+    rosterOffline: 'تعذّر تحميل قائمة الكاشير. تحقق من الاتصال.',
+    rosterRefused: 'تعذّر تحميل قائمة الكاشير.',
+    pinPromptNoRoster: 'لا يمكن إدخال الرقم السري قبل تحميل القائمة.',
+    rosterEmpty: 'لا يوجد كاشير مسجّل في هذا الفرع.',
+    pinPromptEmptyRoster: 'الدخول بالرقم السري يحتاج كاشيرًا مسجّلًا في هذا الفرع.',
+    terminal: 'الجهاز',
+    idLabel: 'البريد الإلكتروني أو اسم المستخدم',
+    pwLabel: 'كلمة المرور',
+    mgrSubmit: 'تسجيل الدخول',
+    poweredBy: 'بدعم من',
+  };
+  const REFUSAL = {
+    invalid_input: 'بيانات الدخول غير صحيحة. حاول مرة أخرى.',
+    no_connection: 'تعذّر الوصول إلى الخادم. حاول مرة أخرى.',
+    rate_limited: 'محاولات كثيرة. انتظر قليلًا ثم حاول مرة أخرى.',
+    terminal_has_unresolved_payment:
+      'على هذه الطرفية دفع غير مكتمل لموظف آخر. لا يمكن الدخول حتى يعود صاحبه ويكمله.',
+  };
+  const SCAN_PIN = 'لا يُقبل المسح في حقل الرقم السري. أدخل الرقم السري بالأرقام.';
+  const NAMES = {
+    six: ['أحمد سمير', 'منى عادل', 'خالد يوسف', 'سارة محمود', 'هدى إبراهيم', 'عمر حسن'],
+    two: ['أحمد سمير', 'منى عادل'],
+    long: [
+      'أحمد سمير', 'منى عادل', 'عبد الرحمن محمد عبد العزيز الشناوي', 'سارة محمود',
+      'هدى إبراهيم', 'عمر حسن', 'فاطمة الزهراء عبد الله إبراهيم', 'ياسر مجدي', 'نهى فاروق',
+      'كريم عاطف', 'ريم صلاح', 'محمود طه', 'دينا رأفت', 'شريف نبيل', 'آية مصطفى', 'حسام وجدي',
+      'إيمان شوقي', 'طارق سليم',
+    ],
+  };
+  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const initial = (n) => Array.from(n.trim())[0] || '';
+
+  const ICON = {
+    key: '<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/></svg>',
+    back: '<svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
+    del: '<svg aria-hidden="true" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h11a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H9l-6-7 6-7z"/><path d="M12 9.5l5 5M17 9.5l-5 5"/></svg>',
+    danger: '<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/></svg>',
+    warn: '<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></svg>',
+    info: '<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>',
+    cross: '<svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="6" y="1" width="4" height="14" rx="1"/><rect x="1" y="6" width="14" height="4" rx="1"/></svg>',
+    bars: '<svg aria-hidden="true" viewBox="0 0 64 64" width="60%" height="60%" fill="currentColor"><rect x="8" y="36" width="12" height="20" rx="3"/><rect x="26" y="22" width="12" height="34" rx="3"/><rect x="44" y="8" width="12" height="48" rx="3"/></svg>',
+  };
+
+  // Viewport classes: xl 1920x1080 (pilot), lg 1280x800, md 1024x768, sm 1024x600 (compact band).
+  function vpClass(vp) {
+    if (vp.w >= 1600) return 'xl';
+    if (vp.h < 768) return 'sm';
+    if (vp.w < 1280) return 'md';
+    return 'lg';
+  }
+
+  function notice(tone, text) {
+    const icon = tone === 'danger' ? ICON.danger : tone === 'warning' ? ICON.warn : ICON.info;
+    return `<div class="nt nt-${tone}" role="${tone === 'info' ? 'status' : 'alert'}">${icon}<span>${esc(text)}</span></div>`;
+  }
+
+  function logoSlot(s, onInk) {
+    // RT-832 sign_in box: 128x32 incl. clear space. On Ink it always sits on the white card (proposal, OD-10).
+    const card = s.logo === 'card' || onInk;
+    return `<span class="logo${card ? ' logo-card' : ''}"><span class="logo-box">[شعار الصيدلية]</span></span>`;
+  }
+  function powered(cls) {
+    return `<span class="pw ${cls || ''}">${COPY.poweredBy} <bdi dir="ltr"><b>Retail Tower</b></bdi></span>`;
+  }
+
+  function rosterBody(s) {
+    if (s.roster === 'offline') return notice('warning', COPY.rosterOffline);
+    if (s.roster === 'refused') return notice('warning', COPY.rosterRefused);
+    if (s.roster === 'empty') return notice('info', COPY.rosterEmpty);
+    if (s.roster === 'loading') return '<div class="rs-empty" aria-busy="true"></div>';
+    const names = NAMES[s.names || 'six'];
+    const busy = s.feedback === 'signing';
+    return `<ul class="roster" aria-label="قائمة الكاشير">${names
+      .map((n, i) => {
+        const sel = i === s.picked && s.mode !== 'manager';
+        return `<li><button type="button" class="who${sel ? ' sel' : ''}" aria-pressed="${sel}" data-pick="${i}"${busy ? ' disabled' : ''}><span class="av" aria-hidden="true">${esc(initial(n))}</span><span class="nm"><span class="nm-t">${esc(n)}</span><span class="nm-r">${COPY.cashierRole}</span></span></button></li>`;
+      })
+      .join('')}</ul>`;
+  }
+
+  function promptFor(s) {
+    if (s.roster === 'offline' || s.roster === 'refused') return COPY.pinPromptNoRoster;
+    if (s.roster === 'empty') return COPY.pinPromptEmptyRoster;
+    return COPY.pinPrompt;
+  }
+
+  function feedback(s) {
+    if (s.feedback === 'signing') return `<span class="st"><span class="spin" aria-hidden="true"></span>${COPY.signingIn}</span>`;
+    if (s.feedback === 'scan') return notice('warning', SCAN_PIN);
+    if (s.feedback && REFUSAL[s.feedback]) return notice('danger', REFUSAL[s.feedback]);
+    return '';
+  }
+
+  function dots(n, err) {
+    let out = '';
+    for (let i = 0; i < 6; i++) out += `<span class="dot${i < n ? ' on' : ''}"></span>`;
+    return `<div class="dots${err ? ' err' : ''}" role="group" aria-label="${COPY.pinHeading}" dir="ltr">${out}</div>`;
+  }
+
+  function keypad(s, enabled) {
+    const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'del'];
+    const dis = enabled ? '' : ' disabled';
+    const k = keys
+      .map((d) => {
+        if (d === '') return '<span class="key blank" aria-hidden="true"></span>';
+        if (d === 'del') return `<button type="button" class="key" aria-label="حذف" data-key="del"${dis}>${ICON.del}</button>`;
+        return `<button type="button" class="key" data-key="${d}"${dis}>${d}</button>`;
+      })
+      .join('');
+    const canSubmit = enabled && s.pin >= 4 && s.feedback !== 'signing';
+    return `<div class="keypad" role="group" aria-label="إدخال الرقم السري" dir="ltr">${k}</div><button type="button" class="commit" data-key="ok" aria-disabled="${!canSubmit}">${COPY.submit}</button>`;
+  }
+
+  function managerForm(s) {
+    const busy = s.feedback === 'signing';
+    return `<form class="mgr" onsubmit="return false"><label class="fl"><span>${COPY.idLabel}</span><input dir="ltr" class="in" value="${s.pin > 0 ? 'manager@store' : ''}"${busy ? ' disabled' : ''}></label><label class="fl"><span>${COPY.pwLabel}</span><input type="password" class="in" value="${s.pin > 0 ? '••••••••' : ''}"${busy ? ' disabled' : ''}></label><div class="fb" role="status" aria-live="polite">${feedback(s)}</div><button type="button" class="commit" aria-disabled="${busy}">${busy ? COPY.signingIn : COPY.mgrSubmit}</button></form>`;
+  }
+
+  function authHead(s, big) {
+    const busy = s.feedback === 'signing' ? ' disabled' : '';
+    if (s.mode === 'manager')
+      return `<div class="ah"><h2 class="ah-t">${COPY.managerEntry}</h2><button type="button" class="ghost" data-act="back"${busy}>${ICON.back}${COPY.back}</button></div>`;
+    if (s.picked == null || s.roster !== 'ready')
+      return `<div class="ah"><h2 class="ah-t">${COPY.pinHeading}</h2></div>`;
+    const n = NAMES[s.names || 'six'][s.picked];
+    return `<div class="ah ah-who${big ? ' big' : ''}"><span class="av av-l" aria-hidden="true">${esc(initial(n))}</span><div class="who-t"><h2 class="ah-t">${esc(n)}</h2><span class="nm-r">${COPY.cashierRole}</span></div><button type="button" class="ghost" data-act="back"${busy}>${ICON.back}${COPY.back}</button></div>`;
+  }
+
+  // The refusal slot sits between dots and keypad (shipped, G-1) unless refusalAbove (Direction B, OD-7).
+  function authBody(s, refusalAbove) {
+    if (s.mode === 'manager') return managerForm(s);
+    const picked = s.picked != null && s.roster === 'ready';
+    const err = !!(s.feedback && REFUSAL[s.feedback]);
+    const fb = `<div class="fb" role="status" aria-live="polite">${picked ? feedback(s) : `<p class="prompt">${esc(promptFor(s))}</p>`}</div>`;
+    const d = dots(picked ? s.pin : 0, err);
+    const enabled = picked && s.feedback !== 'signing';
+    return refusalAbove ? fb + d + keypad(s, enabled) : d + fb + keypad(s, enabled);
+  }
+
+  function managerEntry(s) {
+    const busy = s.feedback === 'signing' ? ' disabled' : '';
+    return `<button type="button" class="sec" data-act="manager" aria-pressed="${s.mode === 'manager'}"${busy}>${ICON.key}${COPY.managerEntry}</button>`;
+  }
+
+  function terminal(s) {
+    return `<span class="term">${COPY.terminal} <b><bdi>${esc(s.terminal || 'كاشير 2')}</bdi></b></span>`;
+  }
+
+  // ---- Direction A: Teal stage (inside today's rules) ----
+  function renderA(s, v) {
+    const brand =
+      s.logo === 'none'
+        ? `<span class="wm"><span class="wm-mark">${ICON.cross}</span><span dir="ltr">POS Pulse</span></span>`
+        : logoSlot(s, false);
+    return `<header class="strip">${brand}<span class="sep" aria-hidden="true"></span>${terminal(s)}${s.logo === 'none' ? '' : powered('pw-end')}</header>
+<div class="stage"><div class="head"><h1>${COPY.title}</h1><p>${COPY.subtitle}</p></div>
+<section class="panel rp" aria-labelledby="rh"><div class="ph"><h2 id="rh">${COPY.rosterHeading}</h2></div><div class="pb">${rosterBody(s)}</div><div class="pf">${managerEntry(s)}</div></section>
+<aside class="panel auth" aria-label="${COPY.pinHeading}">${authHead(s, true)}<div class="ab">${authBody(s, false)}</div></aside></div>`;
+  }
+
+  // ---- Direction B: Ink band + PIN dock (owner's G/H, corrected) ----
+  function skyline(v) {
+    if (v === 'sm' || v === 'md') return '';
+    const w = v === 'xl' ? 1920 : 1280;
+    const h = v === 'xl' ? 120 : 96;
+    const bars = [52, 78, 60, 104, 82, 116, 68, 92, 56, 98, 72, 64, 46];
+    const bw = v === 'xl' ? 40 : 28, gap = v === 'xl' ? 16 : 10;
+    const r = bars
+      .map((b, i) => {
+        const bh = Math.round((b / 116) * (h - 24));
+        return `<rect x="${40 + i * (bw + gap)}" y="${h - bh}" width="${bw}" height="${bh}" rx="3"/>`;
+      })
+      .join('');
+    return `<svg class="orn" aria-hidden="true" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMinYMax slice"><defs><pattern id="tg-${v}" width="26" height="26" patternUnits="userSpaceOnUse"><path d="M26 0H0V26" fill="none" stroke="#5fe0cf" stroke-opacity="0.06"/></pattern><pattern id="ru-${v}" width="65" height="12" patternUnits="userSpaceOnUse"><path d="M6.5 12V8M19.5 12V8M32.5 12V8M45.5 12V8M58.5 12V3" fill="none" stroke="#5fe0cf" stroke-opacity="0.22"/></pattern></defs><rect width="${w}" height="${h}" fill="url(#tg-${v})"/><rect y="${h - 12}" width="${w}" height="12" fill="url(#ru-${v})"/><g fill="none" stroke="#5fe0cf" stroke-opacity="0.4" stroke-width="1.25">${r}</g></svg>`;
+  }
+  function renderB(s, v) {
+    const brand =
+      s.logo === 'none'
+        ? `<span class="pm" aria-hidden="true">${ICON.bars}</span><span class="pn" dir="ltr">POS Pulse</span>`
+        : logoSlot(s, true);
+    return `<header class="band">${skyline(v)}<div class="band-in">${brand}<span class="sep" aria-hidden="true"></span>${terminal(s)}${s.logo === 'none' ? '' : powered('pw-end')}</div></header>
+<div class="split"><main class="room"><div class="head"><h1>${COPY.title}</h1><p>${COPY.subtitle}</p></div>
+<section class="panel rp" aria-labelledby="rh"><div class="ph"><h2 id="rh">${COPY.rosterHeading}</h2></div><div class="pb">${rosterBody(s)}</div><div class="pf">${managerEntry(s)}</div></section></main>
+<aside class="dock" aria-label="${COPY.pinHeading}">${authHead(s, true)}<div class="ab">${authBody(s, true)}</div></aside></div>`;
+  }
+
+  // ---- Direction C: flat Ink brand panel (Console PW-5 pattern) ----
+  function renderC(s, v) {
+    const showPanel = v === 'xl' || v === 'lg';
+    const panel = showPanel
+      ? `<aside class="bp" aria-label="${COPY.terminal}">${
+          s.logo === 'none'
+            ? `<span class="pm pm-l" aria-hidden="true">${ICON.bars}</span><span class="pn" dir="ltr">POS Pulse</span>`
+            : `<span class="logo logo-card logo-lg"><span class="logo-box">[شعار الصيدلية]</span></span>`
+        }<span class="bp-sep" aria-hidden="true"></span>${terminal(s)}<span class="bp-fill"></span>${s.logo === 'none' ? '' : powered('')}</aside>`
+      : '';
+    const strip = showPanel
+      ? ''
+      : `<header class="strip">${s.logo === 'none' ? `<span class="wm"><span class="wm-mark">${ICON.cross}</span><span dir="ltr">POS Pulse</span></span>` : logoSlot(s, false)}<span class="sep" aria-hidden="true"></span>${terminal(s)}${s.logo === 'none' ? '' : powered('pw-end')}</header>`;
+    return `${strip}<div class="tri">${panel}<main class="room"><div class="head"><h1>${COPY.title}</h1><p>${COPY.subtitle}</p></div>
+<section class="panel rp" aria-labelledby="rh"><div class="ph"><h2 id="rh">${COPY.rosterHeading}</h2></div><div class="pb">${rosterBody(s)}</div><div class="pf">${managerEntry(s)}</div></section></main>
+<aside class="panel auth" aria-label="${COPY.pinHeading}">${authHead(s, true)}<div class="ab">${authBody(s, false)}</div></aside></div>`;
+  }
+
+  function render(dir, s) {
+    const v = vpClass(s.vp);
+    const body = dir === 'A' ? renderA(s, v) : dir === 'B' ? renderB(s, v) : renderC(s, v);
+    return `<div class="scr d${dir} v-${v}${s.fc ? ' fc' : ''}" dir="rtl" lang="ar" style="width:${s.vp.w}px;height:${s.vp.h}px">${body}</div>`;
+  }
+
+  root.RT1042 = { render, COPY, REFUSAL, NAMES };
+})(typeof module !== 'undefined' ? module.exports : window);
+
+(function () {
+  var R = window.RT1042;
+  var st = { vp: { w: 1280, h: 800 }, roster: 'ready', names: 'six', picked: null, pin: 0, feedback: null, mode: 'cashier', logo: 'none', fc: false };
+  var dir = 'B';
+  var host = document.getElementById('host');
+  function $(id) { return document.getElementById(id); }
+  function draw() {
+    var avail = Math.max(320, window.innerWidth - 32);
+    var z = Math.min(1, avail / st.vp.w);
+    host.innerHTML = '<div style="zoom:' + z + ';box-shadow:0 0 0 1px #c6d3d8">' + R.render(dir, st) + '</div>';
+  }
+  function reset() { st.picked = null; st.pin = 0; st.feedback = null; st.mode = 'cashier'; }
+  function submit() {
+    if (st.feedback === 'signing') return;
+    if (st.mode === 'cashier' && (st.picked == null || st.pin < 4)) return;
+    st.feedback = 'signing'; draw();
+    setTimeout(function () {
+      var o = $('outcome').value;
+      st.pin = 0;
+      if (o === 'ok') { st.feedback = null; draw(); $('end').style.display = 'grid'; $('end-ok').focus(); return; }
+      st.feedback = o; draw();
+    }, 900);
+  }
+  host.addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b || b.disabled || b.getAttribute('aria-disabled') === 'true' && b.dataset.key !== 'ok') return;
+    if (b.dataset.pick != null) { st.mode = 'cashier'; st.picked = +b.dataset.pick; st.pin = 0; st.feedback = null; }
+    else if (b.dataset.act === 'manager') { var m = st.mode === 'manager'; reset(); st.mode = m ? 'cashier' : 'manager'; }
+    else if (b.dataset.act === 'back') { var wasMgr = st.mode === 'manager'; reset(); if (!wasMgr) st.picked = null; }
+    else if (b.dataset.key === 'del') { st.pin = Math.max(0, st.pin - 1); st.feedback = st.feedback === 'signing' ? 'signing' : null; }
+    else if (b.dataset.key === 'ok') { if (st.mode === 'manager') st.pin = 1; submit(); return; }
+    else if (b.dataset.key) { if (st.pin < 6) st.pin++; if (st.feedback !== 'signing') st.feedback = null; }
+    else if (b.classList.contains('commit') && st.mode === 'manager') { st.pin = 1; submit(); return; }
+    draw();
+  });
+  window.addEventListener('keydown', function (e) {
+    if (e.target.closest && e.target.closest('.bar')) return;
+    if (st.mode !== 'cashier' || st.picked == null || st.feedback === 'signing') return;
+    if (e.key >= '0' && e.key <= '9') { if (st.pin < 6) st.pin++; st.feedback = null; draw(); }
+    else if (e.key === 'Backspace') { st.pin = Math.max(0, st.pin - 1); draw(); }
+    else if (e.key === 'Enter' && st.pin >= 4) { submit(); }
+  });
+  $('scan').addEventListener('click', function () { if (st.picked != null && st.mode === 'cashier') { st.feedback = 'scan'; draw(); } });
+  $('end-ok').addEventListener('click', function () { $('end').style.display = 'none'; reset(); draw(); });
+  ['dir', 'vp', 'roster', 'names', 'logo', 'fc'].forEach(function (id) {
+    $(id).addEventListener('change', function () {
+      dir = $('dir').value;
+      var p = $('vp').value.split('x'); st.vp = { w: +p[0], h: +p[1] };
+      if ($('roster').value !== st.roster || $('names').value !== st.names) reset();
+      st.roster = $('roster').value; st.names = $('names').value; st.logo = $('logo').value; st.fc = $('fc').checked;
+      draw();
+    });
+  });
+  window.addEventListener('resize', draw);
+  draw();
+})();
+</script>
+</body>
+</html>
