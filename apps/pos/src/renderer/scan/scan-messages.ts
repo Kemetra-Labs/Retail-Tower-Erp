@@ -64,3 +64,11 @@ export const SALE_FROZEN_MESSAGE = 'السلة مُسلّمة للدفع؛ لا 
  */
 export const SALE_LINE_DISCOUNTED_MESSAGE =
   'لا يمكن تغيير كمية صنف عليه خصم. أزل الخصم أولًا ثم غيّر الكمية.';
+
+/**
+ * RT-1052 (owner-approved copy, 2026-11-03, RT-1052 comment 15260) — a new item
+ * on a sale that already holds `MAX_SALE_LINES` (30) lines (main refuses
+ * `line_limit`). A re-scan of an item already in the sale still merges.
+ */
+export const SALE_LINE_LIMIT_MESSAGE =
+  'وصلت للحد الأقصى: 30 صنف في البيعة الواحدة. أنهِ البيعة وابدأ بيعة جديدة.';
