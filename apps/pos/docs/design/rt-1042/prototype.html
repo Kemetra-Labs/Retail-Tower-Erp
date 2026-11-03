@@ -232,7 +232,8 @@ box-sizing:border-box;position:relative;overflow:hidden;display:flex;flex-direct
     terminal_has_unresolved_payment:
       'على هذه الطرفية دفع غير مكتمل لموظف آخر. لا يمكن الدخول حتى يعود صاحبه ويكمله.',
   };
-  const SCAN_PIN = 'لا يُقبل المسح في حقل الرقم السري. أدخل الرقم السري بالأرقام.';
+  const EMPTY_INPUT = 'أدخل بيانات الدخول للمتابعة.';
+  const SCAN_PIN ='لا يُقبل المسح في حقل الرقم السري. أدخل الرقم السري بالأرقام.';
   const NAMES = {
     six: ['أحمد سمير', 'منى عادل', 'خالد يوسف', 'سارة محمود', 'هدى إبراهيم', 'عمر حسن'],
     two: ['أحمد سمير', 'منى عادل'],
@@ -303,6 +304,7 @@ box-sizing:border-box;position:relative;overflow:hidden;display:flex;flex-direct
   function feedback(s) {
     if (s.feedback === 'signing') return `<span class="st"><span class="spin" aria-hidden="true"></span>${COPY.signingIn}</span>`;
     if (s.feedback === 'scan') return notice('warning', SCAN_PIN, true);
+    if (s.feedback === 'empty') return notice('danger', EMPTY_INPUT, true);
     if (s.feedback && REFUSAL[s.feedback]) return notice('danger', REFUSAL[s.feedback], true);
     return '';
   }
@@ -329,7 +331,10 @@ box-sizing:border-box;position:relative;overflow:hidden;display:flex;flex-direct
 
   function managerForm(s) {
     const busy = s.feedback === 'signing';
-    return `<form class="mgr" onsubmit="return false"><label class="fl"><span>${COPY.idLabel}</span><input dir="ltr" class="in" value="${s.pin > 0 ? 'manager@store' : ''}"${busy ? ' disabled' : ''}></label><label class="fl"><span>${COPY.pwLabel}</span><input type="password" class="in" value="${s.pin > 0 ? '••••••••' : ''}"${busy ? ' disabled' : ''}></label><div class="fb" role="status" aria-live="polite">${feedback(s)}</div><button type="button" class="commit" aria-disabled="${busy}">${busy ? COPY.signingIn : COPY.mgrSubmit}</button></form>`;
+    // Filled fields are shown as fixed sample values: typed text is never echoed into the markup.
+    const idOn = s.mgrId === true || (s.mgrId === undefined && s.pin > 0);
+    const pwOn = s.mgrPw === true || (s.mgrPw === undefined && s.pin > 0);
+    return `<form class="mgr" onsubmit="return false"><label class="fl"><span>${COPY.idLabel}</span><input dir="ltr" class="in" data-field="id" value="${idOn ? 'manager@store' : ''}"${busy ? ' disabled' : ''}></label><label class="fl"><span>${COPY.pwLabel}</span><input type="password" class="in" data-field="pw" value="${pwOn ? '••••••••' : ''}"${busy ? ' disabled' : ''}></label><div class="fb" role="status" aria-live="polite">${feedback(s)}</div><button type="button" class="commit" aria-disabled="${busy}">${busy ? COPY.signingIn : COPY.mgrSubmit}</button></form>`;
   }
 
   function authHead(s, big) {
@@ -443,12 +448,34 @@ box-sizing:border-box;position:relative;overflow:hidden;display:flex;flex-direct
     outcome: ['invalid_input', 'rate_limited', 'terminal_has_unresolved_payment', 'no_connection', 'ok'],
   };
   function pick(id) { var v = $(id).value; var list = ALLOWED[id]; return list.indexOf(v) >= 0 ? list[list.indexOf(v)] : list[0]; }
-  function draw() {
+  // The board is re-rendered on every change, so focus is carried over by the control's data key.
+  function keyOf(el) {
+    if (!el || !host.contains(el)) return null;
+    var attrs = ['pick', 'key', 'act', 'field'];
+    for (var i = 0; i < attrs.length; i++) {
+      var v = el.dataset[attrs[i]];
+      if (v != null) return '[data-' + attrs[i] + '="' + v + '"]';
+    }
+    return el.classList.contains('commit') ? '.commit' : null;
+  }
+  function draw(focusSel) {
+    var keep = focusSel || keyOf(document.activeElement);
     var avail = Math.max(320, window.innerWidth - 32);
     var z = Math.min(1, avail / st.vp.w);
     host.innerHTML = '<div style="zoom:' + z + ';box-shadow:0 0 0 1px #c6d3d8">' + R.render(dir, st) + '</div>';
+    var target = keep ? host.querySelector(keep) : null;
+    if (target && !target.disabled) target.focus();
   }
-  function reset() { st.picked = null; st.pin = 0; st.feedback = null; st.mode = 'cashier'; }
+  function reset() { st.picked = null; st.pin = 0; st.feedback = null; st.mode = 'cashier'; st.mgrId = false; st.mgrPw = false; }
+  // Manager sign-in: both fields must be filled (shipped EMPTY_INPUT_MESSAGE otherwise).
+  function managerSubmit() {
+    if (st.feedback === 'signing') return;
+    var id = host.querySelector('[data-field="id"]');
+    var pw = host.querySelector('[data-field="pw"]');
+    st.mgrId = !!(id && id.value.trim()); st.mgrPw = !!(pw && pw.value);
+    if (!st.mgrId || !st.mgrPw) { st.feedback = 'empty'; draw(st.mgrId ? '[data-field="pw"]' : '[data-field="id"]'); return; }
+    st.pin = 1; submit();
+  }
   function submit() {
     if (st.feedback === 'signing') return;
     if (st.mode === 'cashier' && (st.picked == null || st.pin < 4)) return;
@@ -463,17 +490,27 @@ box-sizing:border-box;position:relative;overflow:hidden;display:flex;flex-direct
   host.addEventListener('click', function (e) {
     var b = e.target.closest('button');
     if (!b || b.disabled || b.getAttribute('aria-disabled') === 'true' && b.dataset.key !== 'ok') return;
-    if (b.dataset.pick != null) { st.mode = 'cashier'; st.picked = +b.dataset.pick; st.pin = 0; st.feedback = null; }
-    else if (b.dataset.act === 'manager') { var m = st.mode === 'manager'; reset(); st.mode = m ? 'cashier' : 'manager'; }
-    else if (b.dataset.act === 'back') { var wasMgr = st.mode === 'manager'; reset(); if (!wasMgr) st.picked = null; }
+    if (b.dataset.pick != null) { var i = +b.dataset.pick; reset(); st.picked = i; draw('[data-key="1"]'); return; }
+    else if (b.dataset.act === 'manager') { var m = st.mode === 'manager'; reset(); st.mode = m ? 'cashier' : 'manager'; draw(m ? '[data-act="manager"]' : '[data-field="id"]'); return; }
+    else if (b.dataset.act === 'back') { var wasMgr = st.mode === 'manager'; var from = st.picked; reset(); draw(wasMgr || from == null ? '[data-act="manager"]' : '[data-pick="' + from + '"]'); return; }
     else if (b.dataset.key === 'del') { st.pin = Math.max(0, st.pin - 1); st.feedback = st.feedback === 'signing' ? 'signing' : null; }
-    else if (b.dataset.key === 'ok') { if (st.mode === 'manager') st.pin = 1; submit(); return; }
+    else if (b.dataset.key === 'ok') { submit(); return; }
     else if (b.dataset.key) { if (st.pin < 6) st.pin++; if (st.feedback !== 'signing') st.feedback = null; }
-    else if (b.classList.contains('commit') && st.mode === 'manager') { st.pin = 1; submit(); return; }
+    else if (b.classList.contains('commit') && st.mode === 'manager') { managerSubmit(); return; }
     draw();
+  });
+  host.addEventListener('input', function (e) {
+    var f = e.target.dataset && e.target.dataset.field;
+    if (f === 'id') st.mgrId = !!e.target.value.trim();
+    else if (f === 'pw') st.mgrPw = !!e.target.value;
   });
   window.addEventListener('keydown', function (e) {
     if (e.target.closest && e.target.closest('.bar')) return;
+    if (e.key === 'Enter' && e.target.closest && e.target.closest('button, input')) {
+      // A focused control keeps its own Enter; Enter in a manager field submits the form.
+      if (st.mode === 'manager' && e.target.dataset.field) { e.preventDefault(); managerSubmit(); }
+      return;
+    }
     if (st.mode !== 'cashier' || st.picked == null || st.feedback === 'signing') return;
     if (e.key >= '0' && e.key <= '9') { if (st.pin < 6) st.pin++; st.feedback = null; draw(); }
     else if (e.key === 'Backspace') { st.pin = Math.max(0, st.pin - 1); draw(); }
