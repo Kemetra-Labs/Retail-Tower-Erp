@@ -913,7 +913,7 @@ describe("inventory/inventory.yaml — RT-451 Step 0 Tracking Resolution", () =>
   it("is the 1.9.0 draft and its note cites the owner decisions", () => {
     expect(inventoryDoc.info?.version).toBe("1.9.0-draft");
     expect(inventoryDoc.info?.description).toContain("**1.9.0-draft (RT-451 Step 0, additive, contract-only;");
-    expect(inventoryDoc.info?.description).toContain("RT-455\n    comment 15233, OD-1, OD-2 and OD-9");
+    expect(inventoryDoc.info?.description).toContain("RT-455 comment 15233, OD-1, OD-2 and OD-9");
   });
 
   it.each(STEP0)("maps %s %s to %s, marked contract-only for RT-451", (path, method, operationId) => {
@@ -939,7 +939,7 @@ describe("inventory/inventory.yaml — RT-451 Step 0 Tracking Resolution", () =>
 
   it("gives the queue a store_manager count (OD-9) and keeps every projection strict", () => {
     expect(schema("TrackingResolutionQueue").required).toContain("unresolvedCount");
-    expect(op(RESOLUTION_QUEUE_PATH, "get").description).toContain("A store_manager gets\n        only the count");
+    expect(op(RESOLUTION_QUEUE_PATH, "get").description).toContain("A store_manager gets only the count");
     for (const name of [
       "TrackingResolutionQueue",
       "TrackingResolutionQueueItem",
@@ -962,7 +962,7 @@ describe("inventory/inventory.yaml — RT-451 Step 0 Tracking Resolution", () =>
   it("makes the bind an idempotent, owner-only, whole-sale command with a required reason and note", () => {
     const bind = op(RESOLUTION_BIND_PATH, "post");
     expect(bind.description).toContain("Owner only");
-    expect(bind.description).toContain("EVERY\n        unresolved line of the sale");
+    expect(bind.description).toContain("EVERY unresolved line of the sale");
     expect(bind.responses?.["404"]).toEqual({ $ref: "#/components/responses/NotFoundOrCrossTenant" });
     expect(bind.responses?.["409"]).toEqual({ $ref: "#/components/responses/TrackingResolutionConflict" });
     const cmd = schema("BindTrackingResolutionCommand");

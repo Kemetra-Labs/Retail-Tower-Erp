@@ -1030,7 +1030,9 @@ paths:
       summary: List the recorded sale-line findings of tracked selling, newest first.
       description: >
         RT-451 (RT-455 OD-2; RT-50 G7-9 rows 2 and 3): the critical findings
-        recorded when a tracked sale line was captured, one per line and
+        recorded on a tracked sale line when the sale was captured, or when a
+        Tracking Resolution bound the line (only `erp_intent_held` with cause
+        `edge_map_missing`, see `bindTrackingResolution`), one per line and
         kind. `unvalidated_tracked_line`: an exact identity with no
         `validationId`, or one that does not match an accepted validation of
         that identity. `sold_under_hold`: an exact identity held or recalled
@@ -1048,8 +1050,10 @@ paths:
         `listStockMovements` (RT-731): an opaque `cursor` bound to this
         operation, the tenant and the filters. Walking the pages with the
         same filters returns no finding twice and reaches every finding that
-        existed when the walk started; a finding recorded during a walk is
-        not returned by it. Owner and tenant_admin see the tenant; a
+        existed when the walk started. The walk is not a snapshot: a finding
+        recorded during a walk is returned by that walk only if it sorts
+        after the walk's current position. Only `nextCursor: null` ends the
+        walk. Owner and tenant_admin see the tenant; a
         store_manager sees only findings of its own stores, narrowed like
         `listInventorySafetyFindings`. Any other role is a 403.
       security:
@@ -1189,10 +1193,13 @@ paths:
         identities and its ERP posting intent together, with the ERP Batch
         ref frozen from the edge map as at capture. A bound identity with no
         ERP edge-map row still commits its effect, and the intent is held
-        (G7-9 row 3, an `erp_intent_held` finding). The sale then leaves the
-        unresolved queue. Refusals, nothing written: a sale that is not of
-        this tenant or was never `tracking_unresolved`, and an identity of
-        another tenant, is a non-disclosing 404; a `saleLineId` that is not
+        (G7-9 row 3): the bind records an `erp_intent_held` finding with cause
+        `edge_map_missing` for that line. A bind records no other finding:
+        it refuses a held or expired identity, and it is itself the governed
+        check, so a bound line is never an `unvalidated_tracked_line`. The
+        sale then leaves the unresolved queue. Refusals, nothing written: a sale that is not of
+        this tenant or was never `tracking_unresolved`, and an identity that
+        does not exist or is of another tenant, is a non-disclosing 404; a `saleLineId` that is not
         an unresolved line of the sale is a 400. 409
         `tracking_resolution_identity_mismatch`: an identity is not of the
         line's product. 409 `tracking_resolution_identity_held`: an identity
@@ -1346,7 +1353,7 @@ components:
       name: saleId
       in: path
       required: true
-      description: A captured sale (`pos-sales/sales.yaml` `Sale.id`); resolved inside the caller's tenant only.
+      description: A captured sale (`pos-sales/sales.yaml` `Sale.saleRef`); resolved inside the caller's tenant only.
       schema: { type: string, format: uuid }
 
   schemas:
@@ -1948,7 +1955,9 @@ components:
         capturedAt:
           type: string
           format: date-time
-          description: When the server captured the sale; the order key.
+          description: >
+            When the server received the sale (`pos-sales/sales.yaml`
+            `Sale.receivedAt`); the order key.
         status:
           type: string
           enum: [unresolved, resolved]
@@ -1971,7 +1980,10 @@ components:
       additionalProperties: false
       required: [saleLineId, tenantProductRef, reason, sentIdentityId, scannedCode, quantity, unit]
       properties:
-        saleLineId: { type: string, format: uuid }
+        saleLineId:
+          type: string
+          format: uuid
+          description: The sale line (`pos-sales/sales.yaml` `SaleLine.lineRef`).
         tenantProductRef: { type: string, format: uuid }
         reason:
           type: string
@@ -2042,7 +2054,7 @@ components:
         saleId: { type: string, format: uuid }
         reasonCode:
           $ref: "#/components/schemas/SafetyReasonCode"
-        note: { type: string }
+        note: { type: string, minLength: 1, maxLength: 500 }
         resolvedBy:
           type: string
           format: uuid
