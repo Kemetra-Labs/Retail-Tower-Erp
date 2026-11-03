@@ -127,11 +127,13 @@ def pick_erp(images, git, wanted, base_digest):
         candidates.append((digest, revision, tag))
     if not candidates:
         raise DraftError("no deployable build-erp-image.yml image of a commit on main found")
-    # The newest is the candidate every other one descends to (git ancestry: committer dates need not
-    # follow it). Two images of that one commit, or no such candidate, is refused, never guessed.
+    # The newest is the candidate every other one is an ancestor of (git ancestry: committer dates need
+    # not follow it). Such a commit contains every other candidate, so it is unambiguous even when two
+    # older ones are not comparable with each other (a merge). No such commit, or two images of it, is
+    # refused, never guessed.
     tops = [item for item in candidates if all(git.is_ancestor(other[1], item[1]) for other in candidates)]
     if not tops:
-        raise DraftError("the deployable images are not of commits in one line on main; choose one with --erp")
+        raise DraftError("no single newest commit among the deployable images on main; choose one with --erp")
     if len({item[0] for item in tops}) > 1:
         raise DraftError(f"{' and '.join(item[2] for item in tops)} are deployable images of one commit; choose one with --erp")
     digest, revision, tag = tops[0]

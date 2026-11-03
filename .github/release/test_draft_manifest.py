@@ -149,13 +149,26 @@ class Erp(unittest.TestCase):
         images = FakeImages({tag(S1): D1, tag(S3): D3}, {D1: labels(S1), D3: labels(S3)}, attested=(D1, D3))
         with self.assertRaises(draft_manifest.DraftError) as caught:
             self.pick(images, FakeGit([S1, S2, S3], branches={S1: True}))
-        self.assertIn("not of commits in one line", str(caught.exception))
+        self.assertIn("no single newest commit", str(caught.exception))
 
     def test_the_newest_is_chosen_by_ancestry_even_when_dates_disagree(self):
         # S2 descends from S1; FakeGit has no dates at all, so only ancestry can order them
         images = FakeImages({tag(S2): D2, tag(S1): D1}, {D1: labels(S1), D2: labels(S2)}, attested=(D1, D2))
         self.assertEqual(self.pick(images, FakeGit([S1, S2])), (D2, S2))
         self.assertFalse(hasattr(draft_manifest.Git, "commit_time"))
+
+    def test_a_merge_that_descends_from_every_candidate_is_the_one_newest(self):
+        # S1 and S2 are not comparable, S3 merges both: S3 contains every candidate, so it is the newest
+        relation = {(S1, S1), (S2, S2), (S3, S3), (S1, S3), (S2, S3)}
+        git = FakeGit([S1, S2, S3])
+        git.is_ancestor = lambda older, newer: (older, newer) in relation
+        images = FakeImages({tag(S1): D1, tag(S2): D2, tag(S3): D3}, {D1: labels(S1), D2: labels(S2), D3: labels(S3)},
+                            attested=(D1, D2, D3))
+        self.assertEqual(self.pick(images, git), (D3, S3))
+        # without the merge there is no single newest commit: refused
+        images = FakeImages({tag(S1): D1, tag(S2): D2}, {D1: labels(S1), D2: labels(S2)}, attested=(D1, D2))
+        with self.assertRaises(draft_manifest.DraftError):
+            self.pick(images, git)
 
     def test_a_malformed_explicit_digest_is_refused_before_any_lookup(self):
         images = FakeImages({}, {})
