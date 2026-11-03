@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ar">
+<head>
+<meta charset="utf-8">
+<title>دخول POS - شريط ولوحة جانبية</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&amp;family=Tajawal:wght@400;500;700&amp;display=swap">
+<style>
+body{margin:0}
+button:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}
+button{transition:background-color 150ms ease-out,border-color 150ms ease-out}
+@media (prefers-reduced-motion: reduce){button{transition:none}}
+</style>
+</helmet>
+<div dir="rtl" style="--color-canvas: #f2f5f6; --color-surface: #ffffff; --color-surface-sunken: #eef2f6; --color-text: #0f1d2e; --color-text-muted: #53647a; --color-ink: #0a2125; --color-ink-muted: #a9c2c5; --color-mint: #5fe0cf; --color-primary: #0f766e; --color-primary-emphasis: #0b5b55; --color-primary-soft: #e6f4f1; --color-border: #d8dfe7; --color-border-soft: #e7ecf2; --color-border-strong: #6f7b89; --elevation-resting: 0 1px 2px rgba(10, 33, 37, 0.06), 0 32px 32px -24px rgba(10, 33, 37, 0.25); width: 1920px; height: 1080px; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; background: var(--color-canvas); color: var(--color-text); font-family: 'Dubai', 'Tajawal', 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 14px; line-height: 1.6">
+
+<header style="flex: none; position: relative; overflow: hidden; height: 132px; box-sizing: border-box; display: flex; align-items: center; gap: 20px; padding: 0 56px; background: var(--color-ink)">
+<svg aria-hidden="true" viewBox="0 0 1920 132" width="1920" height="132" style="position: absolute; inset: 0">
+<defs>
+<pattern id="tower-grid" width="26" height="26" patternUnits="userSpaceOnUse"><path d="M26 0H0V26" fill="none" style="stroke: var(--color-mint)" stroke-opacity="0.06" stroke-width="1"/></pattern>
+<pattern id="ruler" width="65" height="14" patternUnits="userSpaceOnUse"><path d="M6.5 14v-5M19.5 14v-5M32.5 14v-5M45.5 14v-5M58.5 14v-11" fill="none" style="stroke: var(--color-mint)" stroke-opacity="0.22" stroke-width="1"/></pattern>
+<radialGradient id="glow" cx="50%" cy="50%" r="50%"><stop offset="0" style="stop-color: var(--color-mint)" stop-opacity="0.2"/><stop offset="1" style="stop-color: var(--color-mint)" stop-opacity="0"/></radialGradient>
+<linearGradient id="fade" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" style="stop-color: var(--color-mint)" stop-opacity="0.9"/><stop offset="1" style="stop-color: var(--color-mint)" stop-opacity="0"/></linearGradient>
+</defs>
+<rect width="1920" height="132" fill="url(#tower-grid)"/>
+<ellipse cx="1700" cy="66" rx="520" ry="120" fill="url(#glow)"/>
+<ellipse cx="320" cy="110" rx="520" ry="110" fill="url(#glow)"/>
+<rect x="0" y="118" width="1920" height="14" fill="url(#ruler)"/>
+<g opacity="0.55" fill="none" stroke="url(#fade)" stroke-width="1.5">
+<rect x="30" y="88" width="40" height="52" rx="4"/>
+<rect x="86" y="62" width="40" height="78" rx="4"/>
+<rect x="142" y="80" width="40" height="60" rx="4"/>
+<rect x="198" y="36" width="40" height="104" rx="4"/>
+<rect x="254" y="58" width="40" height="82" rx="4"/>
+<rect x="310" y="24" width="40" height="116" rx="4"/>
+<path d="M330 24V8"/>
+<rect x="366" y="72" width="40" height="68" rx="4"/>
+<rect x="422" y="48" width="40" height="92" rx="4"/>
+<rect x="478" y="84" width="40" height="56" rx="4"/>
+<rect x="534" y="42" width="40" height="98" rx="4"/>
+<rect x="590" y="68" width="40" height="72" rx="4"/>
+<rect x="646" y="76" width="40" height="64" rx="4"/>
+<rect x="702" y="94" width="40" height="46" rx="4"/>
+</g>
+<g style="fill: var(--color-mint)">
+<rect x="208" y="50" width="6" height="6" fill-opacity="0.5"/><rect x="222" y="50" width="6" height="6" fill-opacity="0.2"/><rect x="208" y="66" width="6" height="6" fill-opacity="0.2"/><rect x="222" y="66" width="6" height="6" fill-opacity="0.5"/><rect x="208" y="82" width="6" height="6" fill-opacity="0.5"/>
+<rect x="320" y="40" width="6" height="6" fill-opacity="0.5"/><rect x="334" y="40" width="6" height="6" fill-opacity="0.2"/><rect x="320" y="56" width="6" height="6" fill-opacity="0.2"/><rect x="334" y="56" width="6" height="6" fill-opacity="0.5"/><rect x="320" y="72" width="6" height="6" fill-opacity="0.5"/><rect x="334" y="88" width="6" height="6" fill-opacity="0.2"/>
+<rect x="432" y="64" width="6" height="6" fill-opacity="0.2"/><rect x="446" y="64" width="6" height="6" fill-opacity="0.4"/><rect x="432" y="80" width="6" height="6" fill-opacity="0.4"/>
+<rect x="544" y="58" width="6" height="6" fill-opacity="0.3"/><rect x="558" y="58" width="6" height="6" fill-opacity="0.15"/><rect x="544" y="74" width="6" height="6" fill-opacity="0.15"/>
+</g>
+</svg>
+<div style="position: relative; flex: none; display: grid; place-items: center; width: 68px; height: 68px; border-radius: 18px; background: linear-gradient(135deg, #5fe0cf 0%, #0f766e 100%)">
+<svg role="img" aria-label="شعار المنتج" viewBox="0 0 64 64" width="36" height="36" fill="#0a2125"><rect x="8" y="36" width="12" height="20" rx="3"/><rect x="26" y="22" width="12" height="34" rx="3"/><rect x="44" y="8" width="12" height="48" rx="3"/></svg>
+</div>
+<div style="position: relative">
+<div dir="ltr" style="font-family: 'Readex Pro', 'Tajawal', sans-serif; font-size: 34px; font-weight: 600; line-height: 1.15; color: #ffffff; text-align: start">POS Pulse</div>
+<div style="color: var(--color-ink-muted); font-size: 15px">الجهاز <b style="margin-inline-start: 6px; color: #ffffff; font-weight: 700"><bdi>[اسم الجهاز]</bdi></b></div>
+</div>
+</header>
+
+<div style="flex: 1; min-height: 0; display: flex">
+
+<main style="flex: 1; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; gap: 20px; padding: 40px 56px">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<h1 style="margin: 0; font-family: 'Readex Pro', 'Tajawal', sans-serif; font-size: 32px; font-weight: 600; line-height: 1.3">تسجيل الدخول</h1>
+<p style="margin: 0; color: var(--color-text-muted); font-size: 17px">كل عمليات الوردية تُسجَّل باسمك.</p>
+</div>
+
+<section aria-labelledby="roster-h" style="display: flex; flex-direction: column; border: 1px solid var(--color-border); border-radius: 20px; background: var(--color-surface); box-shadow: var(--elevation-resting)">
+<div style="display: flex; align-items: center; min-height: 60px; box-sizing: border-box; padding: 12px 24px; border-bottom: 1px solid var(--color-border-soft)">
+<h2 id="roster-h" style="margin: 0; font-family: 'Readex Pro', 'Tajawal', sans-serif; font-size: 18px; font-weight: 600">الكاشير في هذا الفرع</h2>
+</div>
+<ul style="margin: 0; padding: 24px; list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+<sc-for list="{{roster}}" as="item" hint-placeholder-count="8">
+<li>
+<sc-if value="{{item.selected}}" hint-placeholder-val="{{ false }}">
+<button type="button" aria-pressed="true" style="position: relative; display: flex; align-items: center; gap: 14px; width: 100%; height: 88px; box-sizing: border-box; padding: 0 16px; border: 1px solid var(--color-primary); border-radius: 12px; background: var(--color-primary-soft); color: var(--color-primary-emphasis); font: inherit; text-align: start; cursor: pointer">
+<span aria-hidden="true" style="position: absolute; inset-block: 12px; inset-inline-start: -1px; width: 2px; border-radius: 2px; background: var(--color-primary)"></span>
+<span aria-hidden="true" style="flex: none; display: grid; place-items: center; width: 52px; height: 52px; border-radius: 14px; background: var(--color-ink); color: var(--color-mint); outline: 2px solid var(--color-primary); outline-offset: 2px; font-family: 'Readex Pro', 'Tajawal', sans-serif; font-size: 24px; font-weight: 600; line-height: 1">{{item.initial}}</span>
+<span style="min-width: 0"><span style="display: block; font-size: 18px; font-weight: 700">{{item.name}}</span><span style="display: block; font-size: 13px; font-weight: 400">الكاشير</span></span>
+</button>
+</sc-if>
+<sc-if value="{{item.idle}}" hint-placeholder-val="{{ true }}">
+<button type="button" aria-pressed="false" style="display: flex; align-items: center; gap: 14px; width: 100%; height: 88px; box-sizing: border-box; padding: 0 16px; border: 1px solid var(--color-border-strong); border-radius: 12px; background: var(--color-surface); color: var(--color-text); font: inherit; text-align: start; cursor: pointer">
+<span aria-hidden="true" style="flex: none; display: grid; place-items: center; width: 52px; height: 52px; border-radius: 14px; background: var(--color-ink); color: var(--color-mint); font-family: 'Readex Pro', 'Tajawal', sans-serif; font-size: 24px; font-weight: 600; line-height: 1">{{item.initial}}</span>
+<span style="min-width: 0"><span style="display: block; font-size: 18px; font-weight: 600">{{item.name}}</span><span style="display: block; color: var(--color-text-muted); font-size: 13px">الكاشير</span></span>
+</button>
+</sc-if>
+</li>
+</sc-for>
+</ul>
+<div style="display: flex; align-items: center; padding: 14px 24px; border-top: 1px solid var(--color-border-soft)">
+<button type="button" aria-pressed="false" style="display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 18px; border: 1px solid var(--color-border-strong); border-radius: 12px; background: var(--color-surface); color: var(--color-text); font: inherit; font-size: 16px; font-weight: 600; cursor: pointer">
+<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/></svg>
+دخول المدير
+</button>
+</div>
+</section>
+</main>
+
+<aside aria-labelledby="auth-h" style="flex: none; width: 440px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; gap: 12px; padding: 28px 36px; background: var(--color-surface); border-inline-start: 1px solid var(--color-border)">
+<div style="position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding-block-start: 8px; margin-block-end: 8px">
+<button type="button" style="position: absolute; inset-block-start: -8px; inset-inline-start: -12px; display: inline-flex; align-items: center; gap: 4px; height: 44px; padding: 0 8px; border: 0; border-radius: 12px; background: transparent; color: var(--color-text-muted); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer">
+<svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+رجوع
+</button>
+<span aria-hidden="true" style="display: grid; place-items: center; width: 84px; height: 84px; margin-block-start: 12px; border-radius: 24px; background: var(--color-ink); color: var(--color-mint); outline: 2px solid var(--color-primary); outline-offset: 4px; font-family: 'Readex Pro', 'Tajawal', sans-serif; font-size: 38px; font-weight: 600; line-height: 1">م</span>
+<h2 id="auth-h" style="margin: 12px 0 0; font-family: 'Readex Pro', 'Tajawal', sans-serif; font-size: 22px; font-weight: 600; line-height: 1.3">منى عادل</h2>
+<span style="color: var(--color-text-muted); font-size: 13px">الكاشير</span>
+</div>
+<div role="group" aria-label="الرقم السري" dir="ltr" style="display: flex; align-items: center; justify-content: center; gap: 16px; height: 56px; border: 1px solid var(--color-border-strong); border-radius: 12px; background: var(--color-surface)">
+<span style="width: 14px; height: 14px; box-sizing: border-box; border: 2px solid var(--color-ink); border-radius: 9999px; background: var(--color-ink)"></span>
+<span style="width: 14px; height: 14px; box-sizing: border-box; border: 2px solid var(--color-ink); border-radius: 9999px; background: var(--color-ink)"></span>
+<span style="width: 14px; height: 14px; box-sizing: border-box; border: 2px solid var(--color-ink); border-radius: 9999px; background: var(--color-ink)"></span>
+<span style="width: 14px; height: 14px; box-sizing: border-box; border: 2px solid var(--color-ink); border-radius: 9999px; background: var(--color-ink)"></span>
+<span style="width: 14px; height: 14px; box-sizing: border-box; border: 2px solid var(--color-border-strong); border-radius: 9999px"></span>
+<span style="width: 14px; height: 14px; box-sizing: border-box; border: 2px solid var(--color-border-strong); border-radius: 9999px"></span>
+</div>
+<div style="min-height: 70px"></div>
+<div dir="ltr" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+<sc-for list="{{keys}}" as="k" hint-placeholder-count="12">
+<div>
+<sc-if value="{{k.blank}}" hint-placeholder-val="{{ false }}"><div style="height: 64px"></div></sc-if>
+<sc-if value="{{k.digit}}" hint-placeholder-val="{{ true }}"><button type="button" style="display: grid; place-items: center; width: 100%; height: 64px; border: 1px solid var(--color-border-strong); border-radius: 12px; background: var(--color-surface); color: var(--color-text); font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: 28px; font-weight: 600; cursor: pointer">{{k.label}}</button></sc-if>
+<sc-if value="{{k.back}}" hint-placeholder-val="{{ false }}"><button type="button" aria-label="حذف" style="display: grid; place-items: center; width: 100%; height: 64px; border: 1px solid var(--color-border-strong); border-radius: 12px; background: var(--color-surface); color: var(--color-text); cursor: pointer"><svg aria-hidden="true" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h11a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H9l-6-7 6-7z"/><path d="M12 9.5l5 5M17 9.5l-5 5"/></svg></button></sc-if>
+</div>
+</sc-for>
+</div>
+<button type="button" style="margin-top: 4px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; width: 100%; height: 60px; border: 0; border-radius: 12px; background: var(--color-ink); color: #ffffff; box-shadow: 0 6px 14px -6px rgba(10, 33, 37, 0.55); font: inherit; font-size: 18px; font-weight: 700; cursor: pointer">
+دخول
+<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="var(--color-mint)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+</button>
+</aside>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1920,"height":1080}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const names = ['أحمد سمير', 'منى عادل', 'خالد يوسف', 'سارة محمود', 'هدى إبراهيم', 'عمر حسن', 'نهى فاروق', 'ياسر مجدي'];
+    const roster = names.map((name, i) => ({
+      name,
+      initial: Array.from(name)[0],
+      selected: i === 1,
+      idle: i !== 1
+    }));
+    const labels = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'back'];
+    const keys = labels.map((label) => ({ label, blank: label === '', digit: label !== '' && label !== 'back', back: label === 'back' }));
+    return { roster, keys };
+  }
+}
+</script>
+</body>
+</html>
