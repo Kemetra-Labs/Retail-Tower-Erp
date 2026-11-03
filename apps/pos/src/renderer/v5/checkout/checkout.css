@@ -194,11 +194,23 @@
   font-size: var(--font-size-sm);
 }
 
+/*
+ * RT-1120 (Arabic Leading Rule): this is the last review before taking money, so a long
+ * product name wraps to two lines before the ellipsis; a one-line ellipsis hid the strength
+ * and pack size («…فوار 1000 مجم - 20 …»). Same line-clamp as the cart's name. The full name
+ * stays in the DOM text, so the row reads it whole. Leading stays at 1.5 (never snug) so
+ * Arabic dots and descenders do not clip; the amount keeps its own grid column.
+ */
 .v5-order-summary__name {
   grid-area: name;
+  display: -webkit-box;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  line-height: var(--line-height-normal);
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .v5-order-summary__qty {
