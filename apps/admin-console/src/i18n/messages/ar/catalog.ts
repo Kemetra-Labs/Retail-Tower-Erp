@@ -333,7 +333,7 @@ export const catalog = {
   "catalog.stockLevels.loadFailed": "تعذّر تحميل حدود المخزون.",
   "catalog.stockLevels.retry": "إعادة تحميل حدود المخزون",
   "catalog.stockLevels.unavailable": "حدود المخزون غير متاحة لهذا الصنف.",
-  "catalog.stockLevels.retiredNote": "هذا الصنف موقوف، فلا يمكن تغيير حدود مخزونه.",
+  "catalog.stockLevels.retiredNote": "أُخرج هذا الصنف من الكتالوج، فلا يمكن تغيير حدود مخزونه.",
   "catalog.stockLevels.tenant.heading": "حدّ المؤسسة",
   "catalog.stockLevels.tenant.none":
     "لم يُحدَّد حدّ للمؤسسة. المتاجر التي ليس لها حدّ خاص لا تُفحص لانخفاض المخزون.",
@@ -390,7 +390,7 @@ export const catalog = {
     "غيّر شخص آخر هذا الحدّ منذ فتحته. حُمّلت القيم الحالية مع الإبقاء على ما غيّرته. راجعها ثم احفظ مرة أخرى.",
   "catalog.stockLevels.error.staleRetire":
     "غيّر شخص آخر هذا الحدّ منذ فتحته. حُمّلت القيم الحالية. راجعها قبل إزالته.",
-  "catalog.stockLevels.error.retired": "هذا الصنف موقوف، فلا يمكن تغيير حدود مخزونه.",
+  "catalog.stockLevels.error.retired": "أُخرج هذا الصنف من الكتالوج، فلا يمكن تغيير حدود مخزونه.",
   "catalog.stockLevels.error.reloadFailed":
     "تعذّر تحميل القيم الحالية. أغلق هذه اللوحة ثم حاول مجددًا.",
 } satisfies Messages;
