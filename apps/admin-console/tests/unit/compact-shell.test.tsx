@@ -12,6 +12,8 @@ import { AppShell } from "@/shell/AppShell";
 
 // RT-1071: the sidebar status block has its own tests (system-status-block); the shell tests here need no read.
 vi.mock("@/shell/SystemStatus", () => ({ SystemStatus: () => null }));
+// RT-455: the tracking summary is its own read (tracking-logic tests cover the entry).
+vi.mock("@/tracking/useTracking", () => ({ useTrackingSummary: () => undefined }));
 
 /**
  * RT-825 (RT-785 SHELL-M1, decisions D1/D2): at ≤768px the sidebar is hidden,

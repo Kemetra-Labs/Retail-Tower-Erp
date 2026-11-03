@@ -78,7 +78,7 @@ function errorOf(error: unknown): InventoryError | undefined {
   return error instanceof InventoryFetchError ? error.detail : { kind: "generic" };
 }
 
-interface ApiResult<P> {
+export interface ApiResult<P> {
   status: number;
   data?: P;
   error?: unknown;
@@ -121,7 +121,7 @@ function readState<T>(result: UseQueryResult<T>): ReadState<T> {
 }
 
 /** One read: requested only with a tenant, never retried on its own. */
-function useInventoryRead<T>(read: {
+export function useInventoryRead<T>(read: {
   queryKey: readonly unknown[];
   scope: InventoryScope;
   load: () => Promise<ApiResult<T>>;
@@ -199,7 +199,7 @@ function pagedState<T, P extends { items: T[] }>(result: InfiniteLike<P>): Paged
 const FIRST_PAGE: string | undefined = undefined;
 
 /** A keyset-paged read: Load more follows `nextCursor`; a null cursor ends it. */
-function useInventoryPages<T, P extends { items: T[]; nextCursor?: string | null }>(read: {
+export function useInventoryPages<T, P extends { items: T[]; nextCursor?: string | null }>(read: {
   queryKey: readonly unknown[];
   scope: InventoryScope;
   fetchPage: (query: PageQuery) => Promise<ApiResult<P>>;
