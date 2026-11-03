@@ -1,9 +1,9 @@
 # RT-1042 — POS sign-in redesign (Planning)
 
-**Status: proposal, not approved.** This folder is the RT-1042 planning deliverable. It changes no
+**Status: owner-approved 2026-11-03 (OD-8 still open), not shipped.** This folder is the RT-1042 planning deliverable. It changes no
 production code and no governing rule.
 
-- **What governs.** Until the owner decides, `docs/DESIGN.md`, the UX Constitution and the G-1
+- **What governs.** Until the S1 docs slice merges, `docs/DESIGN.md`, the UX Constitution and the G-1
   references (RT-246) govern the sign-in screen. **Rules win over boards.**
 - **The copy.** The boards draw the copy shipped on `main` (`v5/entry/entry-copy.ts`,
   `ui/operator/messages.ts`). Anything new is marked «مقترح» on the board and listed in the

@@ -1,11 +1,19 @@
-# RT-1042 — Decision record (draft for the owner)
+# RT-1042 — Decision record
 
-> **Status: Planning draft, nothing here is approved.**
+> **Status: owner-approved 2026-11-03, not yet shipped.** The owner approved the recommendations
+> in chat on 2026-11-03 («all approved»). So the recommended direction "B-lite" and each OD below
+> are decided as recommended, with two limits:
 >
-> - **Recommendations** are the planning agent's. **Decisions** are the owner's.
-> - Every OD below is **open** until the owner answers it on RT-1042.
-> - Once approved, the answers go to a Confluence RETAIL decision page (like the Console's D-V1…D-V10, page 62816260), and `docs/DESIGN.md` is amended in its own slice.
-> - Until then, `DESIGN.md`, the UX Constitution and the G-1 references (RT-246) still govern the POS sign-in screen.
+> - **OD-8 stays open.** It had no recommendation, so the product name (POS Pulse or Retail Tower)
+>   still needs the owner's choice before S3.
+> - **OD-15 is decided as "verify first".** The in-slot placement waits for the S8 bench test.
+>
+> Next:
+>
+> - The answers go to a Confluence RETAIL decision page (like the Console's D-V1…D-V10, page
+>   62816260), and `docs/DESIGN.md` is amended in its own slice (S1).
+> - Until S1 merges, `DESIGN.md`, the UX Constitution and the G-1 references (RT-246) still govern
+>   the shipped POS sign-in screen.
 > - OD-1…OD-9 keep the numbering from the RT-1042 description. OD-10…OD-15 are new: the boards raised them.
 
 ## 1. The three directions

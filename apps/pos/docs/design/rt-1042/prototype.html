@@ -433,6 +433,16 @@ box-sizing:border-box;position:relative;overflow:hidden;display:flex;flex-direct
   var dir = 'B';
   var host = document.getElementById('host');
   function $(id) { return document.getElementById(id); }
+  // Control values are mapped through fixed allow-lists, so no DOM text ever reaches the markup.
+  var VPS = { '1920x1080': { w: 1920, h: 1080 }, '1280x800': { w: 1280, h: 800 }, '1024x768': { w: 1024, h: 768 }, '1024x600': { w: 1024, h: 600 } };
+  var ALLOWED = {
+    dir: ['A', 'B', 'C'],
+    roster: ['ready', 'loading', 'offline', 'refused', 'empty'],
+    names: ['six', 'two', 'long'],
+    logo: ['none', 'logo', 'card'],
+    outcome: ['invalid_input', 'rate_limited', 'terminal_has_unresolved_payment', 'no_connection', 'ok'],
+  };
+  function pick(id) { var v = $(id).value; var list = ALLOWED[id]; return list.indexOf(v) >= 0 ? list[list.indexOf(v)] : list[0]; }
   function draw() {
     var avail = Math.max(320, window.innerWidth - 32);
     var z = Math.min(1, avail / st.vp.w);
@@ -444,7 +454,7 @@ box-sizing:border-box;position:relative;overflow:hidden;display:flex;flex-direct
     if (st.mode === 'cashier' && (st.picked == null || st.pin < 4)) return;
     st.feedback = 'signing'; draw();
     setTimeout(function () {
-      var o = $('outcome').value;
+      var o = pick('outcome');
       st.pin = 0;
       if (o === 'ok') { st.feedback = null; draw(); $('end').style.display = 'grid'; $('end-ok').focus(); return; }
       st.feedback = o; draw();
@@ -473,10 +483,11 @@ box-sizing:border-box;position:relative;overflow:hidden;display:flex;flex-direct
   $('end-ok').addEventListener('click', function () { $('end').style.display = 'none'; reset(); draw(); });
   ['dir', 'vp', 'roster', 'names', 'logo', 'fc'].forEach(function (id) {
     $(id).addEventListener('change', function () {
-      dir = $('dir').value;
-      var p = $('vp').value.split('x'); st.vp = { w: +p[0], h: +p[1] };
-      if ($('roster').value !== st.roster || $('names').value !== st.names) reset();
-      st.roster = $('roster').value; st.names = $('names').value; st.logo = $('logo').value; st.fc = $('fc').checked;
+      dir = pick('dir');
+      st.vp = VPS[$('vp').value] || VPS['1280x800'];
+      var roster = pick('roster'), names = pick('names');
+      if (roster !== st.roster || names !== st.names) reset();
+      st.roster = roster; st.names = names; st.logo = pick('logo'); st.fc = $('fc').checked === true;
       draw();
     });
   });
