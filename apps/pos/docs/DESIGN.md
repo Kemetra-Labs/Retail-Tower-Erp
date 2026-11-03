@@ -391,7 +391,7 @@ Retail Tower is recognised by how it behaves, not by ornament. Each signature ap
 - **Mineral Layering:** depth through canvas, surface, recessed and overlay tones (see Elevation).
 - **Signal Line:** the 2px inline-start bar that marks current context or selection, in logical (RTL-correct) position.
 - **Pulse Dot:** a small state dot (ready, connected, syncing, attention). It is static while healthy or ready and moves only during genuine activity, never under reduced motion (UX-06).
-- **Precision Ledger:** money and operational relationships as aligned label / value rows with tabular numerals, separators and an anchored total, not one card per value.
+- **Precision Ledger:** money and operational relationships as aligned label / value rows with tabular numerals, separators and an anchored total, not one card per value. The shared row is `.v5-ledger-row` (`v5/foundation/ledger.css`, **RT-1026**), with `--total` for the anchored last row; the Checkout payment ledger and the manager recovery panel both use it.
 
 Light is the only offered theme (UX-02: light-first; dark deferred). The dark register (`:root[data-theme='dark']`) is maintained in CSS but **not offered** in the pilot (OD-4); it returns only after a dedicated dark QA slice captures every V5 screen. Components consume semantic role tokens, so a future dark or high-contrast theme remaps roles without changing what a component means.
 
@@ -529,7 +529,7 @@ One shared system, `.v5-btn` (`src/renderer/v5/foundation/buttons.css`, loaded o
 - **Secondary (`.v5-btn`):** white surface, Control Edge boundary, ink text. The default, and what a bordered cancel, back or close stays.
 - **Primary (`--primary`):** Tower Teal fill, white text. **Commit (`--commit`, with `--primary`):** the one next action, large and full panel width (Checkout CTA, confirm payment, the Sale «الدفع» handoff, new sale).
 - **Quiet (`--quiet`):** borderless, muted ink. Only for a cancel, back or close that is borderless today.
-- **Danger-quiet / danger:** danger-quiet (red ink and edge) *starts* a destructive flow (cancel sale, void, cancel payment, force-close a stuck shift); danger (red fill) *executes* it inside its confirm dialog or step.
+- **Danger-quiet / danger:** danger-quiet (red ink and edge) *starts* a destructive flow (cancel sale, void, cancel payment, force-close a stuck shift); danger (red fill) *executes* it inside its confirm dialog or step. The one exception is manager recovery (المبيعات المعلقة): its «إلغاء الدفع» and «إلغاء البيع» are the neutral Secondary, because each only opens a manager-PIN confirm dialog (RC-Recovery OD-5; owner decision 2026-10-31, **RT-1026**).
 - **Hover:** neutral or one step deeper, over the Signal role. **Press:** one step deeper and a 1px drop, over the Contact role (80ms); none under reduced motion.
 - **Focus:** `outline: 2px solid` the focus ring (teal) with a 2px offset on every focusable element, never only a box-shadow, which disappears in contrast themes.
 - **Unavailable (`:disabled` and `aria-disabled`):** recessed, not faded. A sunken fill, a Control Edge hairline and muted ink; no opacity. **Unavailable commit:** the same, with a 2px dashed edge, so it never looks payable. The reason sits in the same region.

@@ -4,6 +4,7 @@ import type { TenderLineRendererView, TenderType } from '../../../shared/payment
 import { formatHumanMoney } from '../../ui/format/human-format';
 import { Notice } from '../foundation/Notice';
 import type { CashDraft } from './cash-draft';
+import '../foundation/ledger.css';
 
 /**
  * RT-243 W1-C (freeze 15 §4 `PaymentLedger`; DESIGN.md Direction B) — the

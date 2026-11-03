@@ -97,6 +97,25 @@ describe('RecoveryScreen — the stuck payment', () => {
     expect(fact(stuck, RECOVERY_COPY.card)).toHaveTextContent(formatCheckoutMoney(7_000));
     expect(fact(stuck, RECOVERY_COPY.voucher)).toHaveTextContent(formatCheckoutMoney(900));
   });
+
+  it('sets the facts as rows of one Precision Ledger, «المتبقي» last (RT-1026, UX-02)', async () => {
+    show(fakeBridges(heldView({ stuck: stuckAttempt() })));
+    await screen.findByText(RECOVERY_COPY.complete);
+    const stuck = panel(RECOVERY_COPY.stuckTitle);
+    const ledgers = stuck.querySelectorAll('dl');
+    expect(ledgers).toHaveLength(1);
+    const rows = Array.from((ledgers[0] as HTMLElement).children);
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) expect(row).toHaveClass('v5-ledger-row');
+    for (const term of within(stuck).getAllByText(/.+/, { selector: 'dt' })) {
+      expect(term.parentElement).toHaveClass('v5-ledger-row');
+    }
+    expect(stuck.querySelector('[class*="v5-recovery-fact"]')).toBeNull();
+    const last = rows.at(-1) as HTMLElement;
+    expect(last).toHaveClass('v5-ledger-row--total');
+    expect(within(last).getByText(RECOVERY_COPY.remaining, { selector: 'dt' })).toBeInTheDocument();
+    expect(stuck.querySelectorAll('.v5-ledger-row--total')).toHaveLength(1);
+  });
 });
 
 describe('RecoveryScreen — held sales', () => {
