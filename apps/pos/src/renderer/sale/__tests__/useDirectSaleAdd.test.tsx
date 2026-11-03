@@ -11,6 +11,7 @@ import {
   SALE_ADD_FAILED_MESSAGE,
   SALE_FROZEN_MESSAGE,
   SALE_LINE_DISCOUNTED_MESSAGE,
+  SALE_LINE_LIMIT_MESSAGE,
   SCAN_AMBIGUOUS_MESSAGE,
   SCAN_CATALOGUE_UNAVAILABLE_MESSAGE,
   SCAN_SALE_COMPLETE_MESSAGE,
@@ -194,6 +195,20 @@ describe('useDirectSaleAdd', () => {
     });
     expect(options.onLineAdded).not.toHaveBeenCalled();
     expect(options.notify).toHaveBeenCalledWith(SALE_LINE_DISCOUNTED_MESSAGE);
+  });
+
+  it('RT-1052: a new item on a sale already at 30 lines names the owner-approved limit', async () => {
+    const add = vi.fn().mockResolvedValue({ kind: 'refused', reason: 'line_limit' });
+    const bridge = { lines: { add } } as unknown as CartBridgeAPI;
+    const { result, options } = setup({ bridge });
+    await act(async () => {
+      await result.current.scan('111');
+    });
+    expect(options.onLineAdded).not.toHaveBeenCalled();
+    expect(options.notify).toHaveBeenCalledWith(SALE_LINE_LIMIT_MESSAGE);
+    expect(SALE_LINE_LIMIT_MESSAGE).toBe(
+      'وصلت للحد الأقصى: 30 صنف في البيعة الواحدة. أنهِ البيعة وابدأ بيعة جديدة.',
+    );
   });
 
   it('reads the cart bridge from the preload when none is injected, and fails closed without one', async () => {

@@ -40,6 +40,7 @@ import type {
 } from '../../shared/cart/bridge-types.js';
 import { isOrdinaryReplayOf, planUndo, replayUndo } from './undo-last.js';
 import { CartState } from '../../shared/cart/cart-state.js';
+import { MAX_SALE_LINES } from '../../shared/cart/limits.js';
 import type { CartRefusalReason } from '../../shared/cart/refusal.js';
 import { computeLineSubtotal, LineSubtotalError } from './line-subtotal.js';
 import { requireOperatorSession } from './require-operator-session.js';
@@ -921,6 +922,8 @@ export class CartBridgeHandlers {
     resolved: { display_name: string; unit_price_minor: number },
     now: string,
   ): CartLinesAddResponse {
+    // RT-1052: never build a sale Backend-Core would refuse at sync (capture `lines` maxItems).
+    if (ctx.store.getActiveLines(req.cart_id).length >= MAX_SALE_LINES) return refuse('line_limit');
     let subtotal: number;
     try {
       subtotal = computeLineSubtotal(req.quantity, resolved.unit_price_minor);

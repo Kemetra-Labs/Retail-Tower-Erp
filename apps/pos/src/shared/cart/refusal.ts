@@ -63,7 +63,13 @@ export type CartRefusalReason =
    * RT-854 (OD-28-7) — the line's quantity cannot change while it holds a
    * manual discount (a change, a re-scan merge). Remove the discount first.
    */
-  | 'line_discounted';
+  | 'line_discounted'
+  /**
+   * RT-1052 — `cart.lines.add`: the sale already holds `MAX_SALE_LINES`
+   * distinct lines. A new item is refused; a re-scan of an item already in
+   * the sale still merges. Nothing was written.
+   */
+  | 'line_limit';
 
 export interface CartRefusal {
   readonly kind: 'refused';
