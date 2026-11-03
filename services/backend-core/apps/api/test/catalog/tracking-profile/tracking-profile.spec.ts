@@ -45,8 +45,10 @@ import { TrackingProfileService } from "../../../src/catalog/tracking-profile/tr
 import { GlobalExceptionFilter } from "../../../src/common/exception.filter";
 import { TenantContextGuard } from "../../../src/context/tenant-context.guard";
 import type { ResolvedContext } from "../../../src/context/types";
+import { MembershipRepository } from "../../../src/context/membership.repository";
 import { InventoryService } from "../../../src/inventory/inventory.service";
 import { TrackingIdentitiesController } from "../../../src/inventory/tracking-identities.controller";
+import { TrackingIdentityReadsService } from "../../../src/inventory/tracking-identity-reads.service";
 
 import {
   applyAllUpAndCreateAppRole,
@@ -190,6 +192,9 @@ beforeAll(async () => {
       { provide: PG_POOL, useFactory: (): Pool => localEnv.app },
       TrackingProfileService,
       InventoryService,
+      // RT-1081: the controller's identity reads (not exercised here; RolesGuard is overridden).
+      TrackingIdentityReadsService,
+      { provide: MembershipRepository, useValue: {} },
       { provide: AUDIT_JOB_ENQUEUER, useValue: auditSpy },
       { provide: APP_INTERCEPTOR, useValue: auditInterceptor },
     ],
