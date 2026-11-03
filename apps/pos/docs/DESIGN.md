@@ -305,7 +305,8 @@ monospace money. They stay valid layout and state references. The radius and mon
 update the comparison when they land, so a difference from the target is not a regression in
 those references. **For the sign-in screen only**, the RT-1042 owner decisions of 2026-11-03
 replace G-1 with the B-lite references in [Entry screens](#entry-screens-rt-1042-owner-decisions-2026-11-03);
-G-1 stays the reference for Ready, pairing and manager re-sign-in.
+G-1 stays the reference for Ready, pairing and manager re-sign-in. The B-lite references draw the
+UX-04 target radii (8 / 12 / 16), not the shipped ones.
 
 ## Overview
 
@@ -632,18 +633,19 @@ This section is the repository record. The rationale, boards and prototype are i
 
 - **Flat.** No resting shadow on the entry screens; panels keep a 1px border (Borders Before
   Shadows, Forced Colours). The overlay shadow stays the only shadow.
-- **Radii 8 / 12 / 16.** New entry-screen work draws the UX-04 target: controls (roster cards,
-  keypad keys, the dots field, the commit, inputs) **8px**, contained objects (the roster panel)
-  **12px**, overlays **16px**. Avatars and PIN dots are circles. The shipped tokens stay 10 / 14 / 16
-  until the radius slice migrates them (see [Shapes](#shapes)); S3 uses the target values
-  only where the radius migration has landed, or names the gap in its evidence.
+- **Radii 8 / 12 / 16.** The entry-screen references draw the UX-04 target: controls (roster
+  cards, keypad keys, the dots field, the commit, inputs) **8px**, contained objects (the roster
+  panel) **12px**, overlays **16px**. Avatars and PIN dots are circles. The shipped tokens stay
+  10 / 14 / 16 until the radius slice migrates them (see [Shapes](#shapes)), so S3 ships the
+  current tokens and names the gap in its evidence; it does not change a radius token itself.
 - **Dubai only.** Readex Pro and any display face are **deferred** (OD-3). A face needs bundling
   (the terminal works offline), an OFL check and a same-screen A/B in its own slice, like RT-262.
   It never rides inside S3.
 
 ### Composition: the PIN dock replaces G-1 for sign-in (OD-6, OD-7, OD-11) *(S3, RT-1092)*
 
-- **Band, room, dock.** An Ink band across the top (brand, terminal label, powered-by line); the
+- **Band, room, dock.** An Ink band across the top (brand, terminal label, and the powered-by
+  line when a tenant logo shows); the
   room with the title and the roster panel; a fixed PIN dock at the inline end (left in RTL). The
   dock keeps every G-1 invariant: the keypad sits at the inline end, it never moves or reflows,
   and each region has one primary.
@@ -679,7 +681,7 @@ This section is the repository record. The rationale, boards and prototype are i
 Rendered from the Direction B renderer in [`design/rt-1042/prototype.html`](design/rt-1042/prototype.html)
 with the B-lite overrides in [`b-lite.css`](design/rt-1042/references/b-lite.css), by
 [`capture.mjs`](design/rt-1042/references/capture.mjs). The script checks each frame (Teal commit,
-no Readex Pro, no shadow, radii 8 / 12 / 16, ornament ≤ 40%, «Retail Tower», no clipping). State:
+no Readex Pro, no shadow, radii 8 / 12 / 16, ornament ≤ 40%, «Retail Tower», no horizontal clipping). It needs a Windows host for the Dubai font. State:
 cashier picked, 4 digits entered, no logo.
 
 | Size | Light | Forced colours *(simulated)* |
@@ -728,7 +730,7 @@ cashier picked, 4 digits entered, no logo.
 - **Don't** bind financial confirmation to bare Enter, or show a keyboard hint for a key that is not bound.
 - **Don't** use shadows below the overlay level, nest panels, or put status colours on decoration.
 - **Don't** add a secondary brand accent, a gradient on an operational surface, or a theme toggle (UX-02).
-- **Don't** put Ink or Mint anywhere but the entry-screen brand band, make an entry-screen commit Ink, or draw ornament on lock or below 1280×768 (RT-1042 OD-1, OD-2, OD-5).
+- **Don't** put Ink or Mint anywhere but the entry-screen brand band, make an entry-screen commit Ink, or draw ornament on lock or below 1280 wide or 768 high (RT-1042 OD-1, OD-2, OD-5).
 - **Don't** use monospace for ordinary UI text, mix icon families, or ship an icon-only control for a financial, destructive, recovery or technical action (UX-03).
 - **Don't** change a shipped radius, neutral value, money typeface or font outside the bounded slice that owns that migration.
 - **Don't** mix numeral systems on one screen, or write bilingual headings such as «طريقة الدفع (Payment method)».

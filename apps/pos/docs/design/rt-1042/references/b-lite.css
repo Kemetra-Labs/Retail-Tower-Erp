@@ -91,3 +91,7 @@
 .scr.fc.dB.bl .band {
   border-bottom: 1px solid #fff;
 }
+/* Simulated forced colours: the dock's back control keeps full contrast. */
+.scr.fc.dB.bl .ghost {
+  color: #fff;
+}

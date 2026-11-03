@@ -3,6 +3,8 @@
 //
 // Run from apps/pos (it uses the POS devDependency Playwright and its Chromium):
 //   node docs/design/rt-1042/references/capture.mjs
+// Run it on Windows: the frames use the Dubai font that ships with Windows 10/11, so another OS
+// renders a fallback face and the PNGs will not match. The overflow check is horizontal only.
 //
 // Each image is the `.scr` element at zoom 1, so the PNG has the frame's real pixel size.
 // Forced colours use the prototype's `.fc` simulation. A real Windows contrast-theme capture is
