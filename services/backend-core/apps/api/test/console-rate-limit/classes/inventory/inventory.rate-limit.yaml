@@ -13,11 +13,16 @@ getOnHand: cheapRead
 getReturnLandingPolicy: cheapRead
 getSafetyTtlSetting: cheapRead
 getTrackingHold: cheapRead
+getTrackingIdentity: cheapRead
+getTrackingIdentityPositions: expensiveRead
+listInventoryRecalls: cheapRead
 listInventorySafetyFindings: expensiveRead
 listSaleLineFindings: expensiveRead
 listStockLocations: cheapRead
 listStockMovements: expensiveRead
+listTrackingHolds: cheapRead
 listTrackingIdentities: cheapRead
+listTrackingIdentityExpiryCorrections: cheapRead
 listTrackingResolutionQueue: expensiveRead
 placeQualityHold: write
 recordStockCount: write

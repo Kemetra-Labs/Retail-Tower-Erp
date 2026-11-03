@@ -44,6 +44,23 @@ export function normalizeNote(note: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/**
+ * RT-1081 TR-5 (contract `SafetyReasonCodeInput`): the governed reason codes a
+ * command accepts. Projections keep the 0072 pattern, so a code recorded
+ * before 1.10.0 still reads back; only the DTOs narrow to this list.
+ */
+export const SAFETY_REASON_CODE_INPUTS = ['supplier_notice', 'authority_notice', 'label_misprint', 'other'] as const;
+
+/**
+ * TR-5: `other` needs a note that is not empty after trimming. Called with the
+ * NORMALIZED note (whitespace-only is already null), before any write.
+ */
+export function requireNoteForOther(reasonCode: string, note: string | null): void {
+  if (reasonCode === 'other' && note === null) {
+    throw new BadRequestException('note is required when reasonCode is other');
+  }
+}
+
 /** Wire projection of a hold (contract `TrackingHold`). */
 export interface TrackingHoldBody {
   readonly id: string;

@@ -88,6 +88,27 @@ export class TrackingProfileService {
     @Optional() @Inject(ROOT_LOGGER) private readonly logger?: Logger,
   ) {}
 
+  /**
+   * RT-1081 (RT-455 TR-6, OD-5): true when a product of the tenant that is not
+   * retired is tracked (`batch` or `serial`). False until tracked selling lifts
+   * `tracking_activation_pending` (RT-451).
+   */
+  async hasTrackedProducts(tenantId: string): Promise<boolean> {
+    return await runWithTenantContext(
+      this.pool,
+      { tenantId, isPlatformAdmin: false },
+      async (client): Promise<boolean> => {
+        const r = await client.query<{ tracked: boolean }>(
+          `SELECT EXISTS (SELECT 1 FROM tenant_products
+                           WHERE tenant_id = $1 AND retired_at IS NULL
+                             AND tracking_mode IN ('batch', 'serial')) AS tracked`,
+          [tenantId],
+        );
+        return r.rows[0]?.tracked === true;
+      },
+    );
+  }
+
   async get(input: {
     readonly tenantId: string;
     readonly productId: string;
