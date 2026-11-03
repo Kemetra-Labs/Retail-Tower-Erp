@@ -120,6 +120,7 @@ describe("contract maxItems match the zod bounds", () => {
   const memberships = read("memberships.openapi.yaml");
   const audit = read("pos-audit-events.openapi.yaml");
   const ai = read("ai-entitlements.openapi.yaml");
+  const stockView = read("erpnext-connector/stock-view.yaml");
   const maxOf = (doc: Doc, schema: string, prop: string) => doc.components.schemas[schema]?.properties[prop]?.maxItems;
 
   it.each([
@@ -130,6 +131,7 @@ describe("contract maxItems match the zod bounds", () => {
     [memberships, "MembershipUpdate", "store_ids", MAX_STORE_IDS],
     [audit, "PosAuditEventsSyncRequest", "events", MAX_AUDIT_EVENTS_PER_BATCH],
     [ai, "AiEntitlementCheckInput", "targetStores", MAX_TARGET_STORES],
+    [stockView, "BinViewSnapshotReport", "entries", BIN_VIEW_WINDOW_MAX_ITEMS],
   ] as const)("%#: %s.%s", (doc, schema, prop, max) => {
     expect(maxOf(doc, schema, prop)).toBe(max);
   });
