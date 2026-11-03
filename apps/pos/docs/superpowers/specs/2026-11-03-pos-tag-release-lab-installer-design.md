@@ -76,7 +76,7 @@ My calls (the owner can overrule; marked so they are not read as agreed):
 
 | ID | Call |
 |:--|:--|
-| C-1 | **Only the leaf goes in CI.** The lab root key stays non-exportable on the owner's machine and signs the leaf; only the leaf (as a password-protected PFX) becomes the secret. A leaked secret then cannot mint new certificates, and rotation is a new leaf under the same root, so devices keep trusting it. This deviates from RT-234 §5.1 and the lab runbook ("no `.pfx`") **for the lab channel only**; production stays on the cloud-HSM path. |
+| C-1 | **Only the leaf's key goes in CI.** The lab root key stays non-exportable on the owner's machine and signs the leaf; only the leaf with its key, plus the root's **public** certificate (a password-protected PFX, leaf + chain; §8 step 1), becomes the secret. A leaked secret then cannot mint new certificates, and rotation is a new leaf under the same root, so devices keep trusting it. This deviates from RT-234 §5.1 and the lab runbook ("no `.pfx`") **for the lab channel only**; production stays on the cloud-HSM path. |
 | C-2 | **A new lab root and leaf pair for this stable channel**, with the same subject names so the baked publisher pin is unchanged: root about two years, leaf about one. The existing 180-day pair (root expires 2027-04-19) cannot back a one-year leaf, and the stable device is new, so trusting a new public root costs one import. The existing drill pair is left alone. No timestamp unless the owner sets `RT772_LAB_TSA_URL`; the signature stops verifying when the leaf expires, which is the accepted lab trade-off. |
 | C-6 | **Signing placement.** `win-unpacked` is built in a secret-free job (Electron fuses are applied there). A signing job in the `release-pos-sign` environment downloads it and runs electron-builder with `--prepackaged` and the `lab-sign.cjs` hook, after `npm ci --ignore-scripts`, so no package install script runs beside the secret. The installer, `lab.yml` and `.blockmap` are produced after signing. If `--prepackaged` does not sign the app exe, the fallback is signing inside that same job, with the same `--ignore-scripts` rule; the acceptance in §9 decides, not the mechanism. |
 | C-7 | **Two environments.** `release-pos-sign` holds the leaf secrets and admits only `pos/v*` tags; the existing `release-pos` runs publish and cannot read them. Both require the owner as reviewer (RT-234 §5.2), so a release takes two approvals. The owner may drop the reviewer on `release-pos-sign`, since publish still gates. |
@@ -126,10 +126,17 @@ Each slice is its own Jira issue and PR, in this order. A slice that touches a p
 - Verify the signature and the pin on the produced installer (a Windows step), and fail the release on
   anything but a valid signature with the lab publisher. Keep the RT-830 fuse readback and native-load
   smoke from the current workflow.
+- Bake `resources/app-update.yml`. electron-builder writes it only when it packs the app itself, so with
+  `--prepackaged` it is missing, and the updater refuses to run without the publisher pin it holds. Before
+  packaging, the sign step writes exactly what electron-builder bakes for the lab config's `generic`
+  provider: `url` and `channel` from `electron-builder.lab.yml`, `updaterCacheDirName`, and
+  `publisherName` as a list holding only the lab publisher. The file sits outside `app.asar`, so fuses and
+  asar integrity are unaffected. The installed copy is then checked to carry exactly that pin.
 - Turn `publish` on for `pos/v*`, modelled line for line on `release-admin-console.yml` (protected
   environment check, package-vs-manifest check, attestation, never overwrite, tag-still-points-at-SHA).
   Assets: installer, `.blockmap`, `lab.yml`, `.sha256`, manifest.
-- Dry-run keeps working unsigned and publishes nothing.
+- The dry-run signs with an ephemeral lab certificate, runs the same verification, reads no secret and
+  publishes nothing.
 
 **S2 — deploy-pos-lab** (repo: `.github/workflows/deploy-pos-lab.yml`; Backend-Core deploy area:
 `services/backend-core/deploy/lab/ssm/RT-PosLabFeedDeploy.yaml`, caddy route)
@@ -171,11 +178,26 @@ or a sibling)
 Claude does not create certificates, set secrets, change environments or run SSM Run Command without
 the owner's explicit yes and a Jira scope.
 
-1. Create the new lab root (two years, non-exportable) and a one-year leaf under it (C-2); export only
-   the leaf as a password-protected PFX; store it and its password as secrets of `release-pos-sign`.
-   Never print or commit either. Import only the **public** root on the lab device.
-2. Give `release-pos-sign` and `release-pos` each a required reviewer and a deployment policy that
-   admits exactly the tag pattern `pos/v*` (the publish job refuses otherwise, as for the Console).
+1. Create the new lab root (two years, non-exportable) and a one-year leaf under it (C-2) with
+   `apps/pos/scripts/lab/new-lab-release-cert.ps1`. It exports a password-protected PFX that holds the
+   leaf with its key **and the root's public certificate** (leaf + chain; CI refuses a PFX without the
+   pinned root), checks that the PFX really contains both, and exports the public root `.cer`.
+   On `release-pos-sign`, set:
+   - secret `POS_LAB_SIGN_PFX_BASE64`: the base64 of the PFX file. This writes it straight into the
+     secret without printing it: `[Convert]::ToBase64String([IO.File]::ReadAllBytes('<pfx path>')) | gh secret set POS_LAB_SIGN_PFX_BASE64 --env release-pos-sign`
+     (or `... | Set-Clipboard` to paste it in the GitHub UI). A trailing newline is harmless; base64
+     decoding ignores whitespace.
+   - secret `POS_LAB_SIGN_PFX_PASSWORD`: the PFX password.
+   - environment **variable** (not a secret) `POS_LAB_ROOT_SHA1`: the root's SHA-1 thumbprint, which
+     the script prints.
+
+   Never print or commit the PFX or its password. Once both secrets are stored, delete the exportable
+   leaf and its key from the owner's `Cert:\CurrentUser\My` (`Remove-Item Cert:\CurrentUser\My\<leaf thumbprint> -DeleteKey`;
+   the script prints the thumbprint) and the PFX file. Import only the **public** root on the lab device.
+2. Give `release-pos` a required reviewer and a deployment policy that admits exactly the tag pattern
+   `pos/v*`. Give `release-pos-sign` a deployment policy that admits exactly `pos/v*` too; a required
+   reviewer there is optional (C-7). The publish job reads both environments and refuses otherwise, as
+   for the Console.
 3. Create the SSM document, its IAM permission for the deploy role, and the caddy route and TLS for the
    lab feed origin on lab-01.
 4. Provision the lab device (import the public root, set the two variables).
