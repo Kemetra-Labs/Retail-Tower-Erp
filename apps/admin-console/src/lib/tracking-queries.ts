@@ -1,7 +1,7 @@
 /**
  * RT-455 data layer: typed wrappers over the generated `apiClient` for the
- * tracked-inventory safety READS the Console's holds screen and identity detail
- * use (`inventory/inventory.yaml` 1.10.0-draft, RT-449 and RT-1081;
+ * tracked-inventory safety reads and the four governed commands the Console's
+ * holds screen and identity detail use (`inventory/inventory.yaml` 1.10.0-draft, RT-449 and RT-1081;
  * `catalog/tracking-profile.yaml`, RT-1081):
  *
  *   - `getTenantTrackingSummary`: whether the tenant has tracked products (the
@@ -11,6 +11,10 @@
  *   - `listInventoryRecalls`, `getInventoryRecall`: recall summaries, one recall.
  *   - `getTrackingIdentity`, `getTrackingIdentityPositions`,
  *     `listTrackingIdentityExpiryCorrections`: one batch or serial.
+ *   - Commands (owner approval, RT-455 comment 15245): `placeQualityHold`,
+ *     `releaseTrackingHold` (owner only), `createInventoryRecall`,
+ *     `correctTrackingIdentityExpiry`, each with `SafetyReasonCodeInput`. Until
+ *     RT-453 writes identities they answer 404; the caller shows the refusal.
  *
  * Boundary: the RT-451 Step 0 operations (`listTrackingResolutionQueue`,
  * `bindTrackingResolution`, `listSaleLineFindings`) are contract-only (no route
@@ -43,6 +47,10 @@ export type IdentityStorePosition = Schemas["TrackingIdentityStorePosition"];
 export type ExpiryCorrection = Schemas["TrackingIdentityExpiryCorrection"];
 export type ExpiryCorrectionList = Schemas["TrackingIdentityExpiryCorrectionList"];
 export type SafetyReasonCodeInput = Schemas["SafetyReasonCodeInput"];
+export type PlaceQualityHoldCommand = Schemas["PlaceQualityHoldCommand"];
+export type ReleaseTrackingHoldCommand = Schemas["ReleaseTrackingHoldCommand"];
+export type CreateInventoryRecallCommand = Schemas["CreateInventoryRecallCommand"];
+export type CorrectExpiryCommand = Schemas["CorrectTrackingIdentityExpiryCommand"];
 
 /** A 429's wait in seconds via the shared RT-621 classifier (30 s fallback, [1, 3600]). */
 function retryAfterOf(response: Response): number | undefined {
@@ -132,6 +140,55 @@ export async function listExpiryCorrections(identityId: string, query: PageQuery
   return resultOf(
     await apiClient.GET("/api/inventory/v1/tracking-identities/{identityId}/expiry-corrections", {
       params: { path: { identityId }, query },
+    }),
+  );
+}
+
+// --- Commands (RT-449; RT-1081 reason list) ----------------------------------
+
+/** POST /api/inventory/v1/tracking-holds — Idempotency-Key required. */
+export async function placeQualityHold(command: PlaceQualityHoldCommand, idempotencyKey: string) {
+  return resultOf(
+    await apiClient.POST("/api/inventory/v1/tracking-holds", {
+      params: { header: { "Idempotency-Key": idempotencyKey } },
+      body: command,
+    }),
+  );
+}
+
+/** POST /api/inventory/v1/tracking-holds/{holdId}/release — final; a repeat answers the recorded release. */
+export async function releaseTrackingHold(holdId: string, command: ReleaseTrackingHoldCommand) {
+  return resultOf(
+    await apiClient.POST("/api/inventory/v1/tracking-holds/{holdId}/release", {
+      params: { path: { holdId } },
+      body: command,
+    }),
+  );
+}
+
+/** POST /api/inventory/v1/recalls — Idempotency-Key required. */
+export async function createInventoryRecall(
+  command: CreateInventoryRecallCommand,
+  idempotencyKey: string,
+) {
+  return resultOf(
+    await apiClient.POST("/api/inventory/v1/recalls", {
+      params: { header: { "Idempotency-Key": idempotencyKey } },
+      body: command,
+    }),
+  );
+}
+
+/** POST /api/inventory/v1/tracking-identities/{identityId}/expiry-corrections — Idempotency-Key required. */
+export async function correctTrackingIdentityExpiry(
+  identityId: string,
+  command: CorrectExpiryCommand,
+  idempotencyKey: string,
+) {
+  return resultOf(
+    await apiClient.POST("/api/inventory/v1/tracking-identities/{identityId}/expiry-corrections", {
+      params: { path: { identityId }, header: { "Idempotency-Key": idempotencyKey } },
+      body: command,
     }),
   );
 }

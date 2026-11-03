@@ -14,6 +14,11 @@ import { useStoreLabels } from "@/catalog/useCatalogProduct";
  *      −5 at another read as 0); quantities as sent, never summed here;
  *   04 its expiry corrections (`listTrackingIdentityExpiryCorrections`, II-4).
  *
+ * Commands (owner approval, RT-455 comment 15245): section 02 places a quality
+ * hold, or opens the active one's drawer for the release; section 04 corrects
+ * the expiry date. Each answers 404 until RT-453 writes identities, and the
+ * page says so instead of showing a success.
+ *
  * Reached from a hold row or a product's batch table; `?store=` names the
  * store page it came from, for the back link.
  */
@@ -30,7 +35,7 @@ import type {
   TrackingHold,
   TrackingIdentityPositions,
 } from "@/lib/tracking-queries";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { inventoryStatusKey, isUuid, trackingKindKey } from "../inventory/inventoryLogic";
 import { BackLink, LoadMore, Machine, Quantity, ReadError, StaleError } from "../inventory/parts";
@@ -40,6 +45,8 @@ import {
   type ReadState,
   useInventoryScope,
 } from "../inventory/useInventory";
+import { HoldDrawer } from "./TrackingDrawers";
+import { ExpiryForm, PlaceHoldDrawer } from "./TrackingForms";
 import {
   ActorName,
   DateValue,
@@ -50,7 +57,7 @@ import {
   TrackingNamesProvider,
   When,
 } from "./parts";
-import { activeHolds, canReadHolds, holdKindKey } from "./trackingLogic";
+import { activeHolds, canReadHolds, canReleaseHold, holdKindKey } from "./trackingLogic";
 import {
   useExpiryCorrections,
   useIdentityPositions,
@@ -205,11 +212,65 @@ function PagedBody<T>({
   return null;
 }
 
+/**
+ * The primary action of the holds section: «وضع حجز جودة» while no quality
+ * hold is active; with one, the hold's drawer, where the owner releases it (a
+ * tenant_admin sees the release recessed, with the reason).
+ */
+function HoldAction({
+  scope,
+  identity,
+  holds,
+}: Readonly<{
+  scope: InventoryScope;
+  identity: TrackingIdentity;
+  holds: readonly TrackingHold[];
+}>) {
+  const t = useT();
+  const [placing, setPlacing] = useState(false);
+  const [openHold, setOpenHold] = useState<string | null>(null);
+  const quality = activeHolds(holds).find((hold) => hold.kind === "quality_hold");
+  const owner = canReleaseHold(scope.role);
+  return (
+    <div className="tracking__actions">
+      {quality ? (
+        <button
+          type="button"
+          className={owner ? "btn-danger-quiet" : "btn-secondary"}
+          onClick={() => setOpenHold(quality.id)}
+        >
+          {owner ? t("tracking.release.submit") : t("tracking.identity.viewHold")}
+        </button>
+      ) : (
+        <button type="button" className="btn-primary" onClick={() => setPlacing(true)}>
+          {t("tracking.placeHold.open")}
+        </button>
+      )}
+      {placing ? (
+        <PlaceHoldDrawer
+          identityId={identity.id}
+          code={identity.code}
+          onClose={() => setPlacing(false)}
+        />
+      ) : null}
+      {openHold ? (
+        <HoldDrawer
+          scope={scope}
+          holdId={openHold}
+          code={identity.code}
+          onClose={() => setOpenHold(null)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function HoldsSection({
   scope,
-  identityId,
-}: Readonly<{ scope: InventoryScope; identityId: string }>) {
+  identity,
+}: Readonly<{ scope: InventoryScope; identity: TrackingIdentity }>) {
   const t = useT();
+  const identityId = identity.id;
   const list = useTrackingHolds(scope, "all", identityId);
   const status = (
     <PagedBody
@@ -225,6 +286,8 @@ function HoldsSection({
       <Body>
         {/* Newest first and at most one active hold per kind: the active ones are on page 1. */}
         {ready ? <ActiveHoldLines holds={list.rows} /> : null}
+        {/* An unknown hold state offers no action: placing one could only be refused. */}
+        {ready ? <HoldAction scope={scope} identity={identity} holds={list.rows} /> : null}
         {status}
       </Body>
       {ready && list.rows.length > 0 ? <HoldHistoryTable rows={list.rows} /> : null}
@@ -410,9 +473,10 @@ function CorrectionsTable({ rows }: Readonly<{ rows: readonly ExpiryCorrection[]
 
 function CorrectionsSection({
   scope,
-  identityId,
-}: Readonly<{ scope: InventoryScope; identityId: string }>) {
+  identity,
+}: Readonly<{ scope: InventoryScope; identity: TrackingIdentity }>) {
   const t = useT();
+  const identityId = identity.id;
   const list = useExpiryCorrections(scope, identityId);
   const status = (
     <PagedBody
@@ -431,6 +495,8 @@ function CorrectionsSection({
     >
       <Body>
         <p className="tracking__muted">{t("tracking.corrections.note")}</p>
+        <ExpiryForm identityId={identityId} current={identity.expiryDate} />
+        <h3 className="tracking__subhead">{t("tracking.corrections.history")}</h3>
         {status}
       </Body>
       {ready ? <CorrectionsTable rows={list.rows} /> : null}
@@ -520,9 +586,9 @@ function IdentityView({
         {data ? (
           <>
             <IdentitySection identity={data} />
-            <HoldsSection scope={scope} identityId={identityId} />
+            <HoldsSection scope={scope} identity={data} />
             <PositionsSection positions={positions} />
-            <CorrectionsSection scope={scope} identityId={identityId} />
+            <CorrectionsSection scope={scope} identity={data} />
           </>
         ) : null}
       </div>

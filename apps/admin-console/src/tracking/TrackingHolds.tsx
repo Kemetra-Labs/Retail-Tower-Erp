@@ -37,6 +37,7 @@ import { ReadError } from "../inventory/parts";
 import { type InventoryScope, type ReadState, useInventoryScope } from "../inventory/useInventory";
 import { ActiveHoldsPanel, ConsistencyBand, ExpiredPanel, ExpiringPanel } from "./FindingPanels";
 import { RecallsPanel, ReleasedPanel } from "./HistoryPanels";
+import { RecallCreateDrawer } from "./RecallCreate";
 import { HoldDrawer, RecallDrawer } from "./TrackingDrawers";
 import { ComingSoon, TrackingNamesProvider } from "./parts";
 import {
@@ -252,6 +253,7 @@ function HoldsView({ scope }: Readonly<{ scope: InventoryScope }>): React.JSX.El
   const [search, setSearch] = useSearchParams();
   const [holdId, setHoldId] = useState<string | null>(null);
   const [recallId, setRecallId] = useState<string | null>(null);
+  const [recalling, setRecalling] = useState(false);
   const tabs = tabsFor(scope.role);
   const selected = tabFromSearch(search, tabs);
   const findings = useSafetyFindings(scope);
@@ -292,6 +294,13 @@ function HoldsView({ scope }: Readonly<{ scope: InventoryScope }>): React.JSX.El
             holdsRole ? t.rich("tracking.sub.tenant", { tenant }) : t("tracking.sub.manager")
           }
           facts={facts}
+          actions={
+            holdsRole ? (
+              <button type="button" className="btn-primary" onClick={() => setRecalling(true)}>
+                {t("tracking.recallCreate.open")}
+              </button>
+            ) : undefined
+          }
         />
         {findings.inlineError ? (
           <Banner
@@ -322,10 +331,18 @@ function HoldsView({ scope }: Readonly<{ scope: InventoryScope }>): React.JSX.El
           onOpenRecall={setRecallId}
         />
         {holdId && holdsRole ? (
-          <HoldDrawer scope={scope} holdId={holdId} onClose={() => setHoldId(null)} />
+          <HoldDrawer
+            scope={scope}
+            holdId={holdId}
+            code={groups?.holds.find((h) => h.holdId === holdId)?.identityCode}
+            onClose={() => setHoldId(null)}
+          />
         ) : null}
         {recallId && holdsRole ? (
           <RecallDrawer scope={scope} recallId={recallId} onClose={() => setRecallId(null)} />
+        ) : null}
+        {recalling && holdsRole ? (
+          <RecallCreateDrawer scope={scope} onClose={() => setRecalling(false)} />
         ) : null}
       </div>
     </TrackingNamesProvider>

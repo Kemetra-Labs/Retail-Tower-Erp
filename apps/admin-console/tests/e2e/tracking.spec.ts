@@ -280,3 +280,32 @@ test("390: the holds screen never scrolls sideways", async ({ page }) => {
   );
   expect(overflow).toBe(0);
 });
+
+test("owner: placing a hold answers 404 until RT-453, and the page says nothing was recorded", async ({
+  page,
+  t,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await mock(page, "owner");
+  await page.route(`**${INV}/tracking-holds?**`, (r) =>
+    r.fulfill(json({ items: [], nextCursor: null })),
+  );
+  await page.route(`**${INV}/tracking-holds`, (r) =>
+    r.request().method() === "POST"
+      ? r.fulfill(
+          json(
+            { error: { code: "not_found", message: "Resource not found.", request_id: "req-404" } },
+            404,
+          ),
+        )
+      : r.fallback(),
+  );
+  await page.goto(`/tracking/identities/${IDENTITY}`);
+  await page.getByRole("button", { name: t("tracking.placeHold.open") }).click();
+  const form = page.getByTestId("tracking-place-hold");
+  await form.getByLabel(t("tracking.write.reason")).selectOption("label_misprint");
+  await form.getByRole("button", { name: t("tracking.placeHold.submit") }).click();
+  await expect(form.getByTestId("tracking-write-refusal")).toBeVisible();
+  await expect(form.getByText(t("tracking.write.hint.notFound"))).toBeVisible();
+  await lightAndDark(page, testInfo, "place-hold-404");
+});

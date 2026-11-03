@@ -3,6 +3,8 @@
  * (`getTrackingHold`) and one recall with its holds (`getInventoryRecall`).
  * Each opens over the list, so the table keeps its place, filters and focus
  * (UX-10.31). The actor is a member's name, else the fallback label (OD-3).
+ * An active hold's drawer carries the release (owner only; recessed with the
+ * reason for a tenant_admin, owner approval RT-455 comment 15245).
  */
 import { Drawer } from "@/components/Drawer";
 import { ListState } from "@/components/ListState";
@@ -11,6 +13,7 @@ import type { InventoryRecall, TrackingHold } from "@/lib/tracking-queries";
 import { Machine, ReadError } from "../inventory/parts";
 import type { InventoryScope } from "../inventory/useInventory";
 import { IdentityLink } from "./HistoryPanels";
+import { ReleaseSection } from "./TrackingForms";
 import { ActorName, HoldKindBadge, ProductName, ReasonLabel, When } from "./parts";
 import { canReleaseHold, holdKindKey } from "./trackingLogic";
 import { useRecall, useTrackingHold } from "./useTracking";
@@ -73,25 +76,18 @@ function HoldFields({ hold }: Readonly<{ hold: TrackingHold }>): React.JSX.Eleme
   );
 }
 
-/** What release means, and who may do it (965: owner only; the server decides). */
-function ReleaseNotice({
-  hold,
-  role,
-}: Readonly<{ hold: TrackingHold; role: string | null }>): React.JSX.Element | null {
-  const t = useT();
-  if (!hold.active) return null;
-  return (
-    <p className="tracking__muted" data-testid="tracking-release-notice">
-      {canReleaseHold(role) ? t("tracking.release.ownerNote") : t("tracking.release.ownerOnly")}
-    </p>
-  );
-}
-
 export function HoldDrawer({
   scope,
   holdId,
+  code,
   onClose,
-}: Readonly<{ scope: InventoryScope; holdId: string; onClose: () => void }>): React.JSX.Element {
+}: Readonly<{
+  scope: InventoryScope;
+  holdId: string;
+  /** The held identity's code when the opener knows it (a hold carries only the id). */
+  code?: string;
+  onClose: () => void;
+}>): React.JSX.Element {
   const t = useT();
   const hold = useTrackingHold(scope, holdId);
   const data = hold.data;
@@ -119,7 +115,13 @@ export function HoldDrawer({
           <>
             <HoldKindBadge kind={data.kind} />
             <HoldFields hold={data} />
-            <ReleaseNotice hold={data} role={scope.role} />
+            {data.active ? (
+              <ReleaseSection
+                holdId={data.id}
+                code={code ?? data.trackingIdentityId}
+                canRelease={canReleaseHold(scope.role)}
+              />
+            ) : null}
           </>
         ) : null}
       </div>

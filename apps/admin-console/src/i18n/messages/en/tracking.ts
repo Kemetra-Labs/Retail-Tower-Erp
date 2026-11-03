@@ -190,4 +190,80 @@ export const tracking: MessagesOf<typeof ar> = {
   "tracking.notTracked.title": "This tenant has no tracked products.",
   "tracking.notTracked.body":
     "This section appears once at least one product has a batch or serial tracking profile.",
+  "tracking.write.reason": "Reason",
+  "tracking.write.reasonChoose": "Choose a reason",
+  "tracking.write.note": "Note",
+  "tracking.write.noteOptional": "Optional, up to 500 characters. No personal data.",
+  "tracking.write.noteRequired": "Required with “Other”, up to 500 characters. No personal data.",
+  "tracking.write.error.reason": "Choose a reason from the list.",
+  "tracking.write.error.noteRequired": "Write a note that explains “Other”.",
+  "tracking.write.error.noteLength": "The note is longer than 500 characters.",
+  "tracking.write.error.reference": "Enter the reference, 1 to 200 characters.",
+  "tracking.write.error.identities": "Choose at least one batch.",
+  "tracking.write.error.tooMany": "At most 100 batches can be recalled at once.",
+  "tracking.write.error.effectiveAt": "The effective time is now or earlier, never later.",
+  "tracking.write.error.date": "Enter the date as year-month-day.",
+  "tracking.write.rejected": "Nothing was recorded",
+  "tracking.write.noBody": "The server refused the command (status {status}) without a message.",
+  "tracking.write.code": "Code: {code}",
+  "tracking.write.failed":
+    "No answer arrived, so it is not known whether the command was recorded. Retrying the same command is safe: it is never recorded twice.",
+  "tracking.write.hint.notFound":
+    "The server did not find this batch. Tracking commands work only once batches are imported from ERPNext.",
+  "tracking.write.hint.forbidden": "This command is not available to your role.",
+  "tracking.write.hint.holdActive":
+    "This batch already has an active hold of this kind, so nothing was recorded. Open the existing hold from the active holds list.",
+  "tracking.write.hint.expiryUnchanged":
+    "That is the current expiry date, so no correction was recorded.",
+  "tracking.write.cancel": "Cancel",
+  "tracking.write.close": "Close",
+  "tracking.placeHold.open": "Place quality hold",
+  "tracking.placeHold.title": "Place quality hold",
+  "tracking.placeHold.scope": "{code} · every store",
+  "tracking.placeHold.effect":
+    "Sellable and return-inspection stock of this batch moves to “Quality hold” in every store, and a held batch is not sold. Only the tenant owner can release it.",
+  "tracking.placeHold.submit": "Place hold",
+  "tracking.placeHold.recorded":
+    "A quality hold was placed on {code}. Holds and quantities are re-read from the server.",
+  "tracking.release.submit": "Release hold",
+  "tracking.release.confirm":
+    "Release the hold on {code}? Its stock returns to “Sellable”, or to “Recall hold” if it was ever recalled.",
+  "tracking.release.yes": "Yes, release the hold",
+  "tracking.release.recorded":
+    "The hold on {code} was released. Holds and quantities are re-read from the server.",
+  "tracking.recallCreate.open": "Record recall",
+  "tracking.recallCreate.title": "Record recall",
+  "tracking.recallCreate.pickProduct": "Choose the recalled product, then its batches.",
+  "tracking.recallCreate.changeProduct": "Change product",
+  "tracking.recallCreate.identities": "Recalled batches",
+  "tracking.recallCreate.identitiesHelp": {
+    one: "1 to {max} batches. 1 chosen.",
+    other: "1 to {max} batches. {count} chosen.",
+  },
+  "tracking.recallCreate.identitiesNoun": "batches",
+  "tracking.recallCreate.identitiesFailed": "The product's batches could not be loaded.",
+  "tracking.recallCreate.identitiesEmpty": "No batches or serials are recorded for this product.",
+  "tracking.recallCreate.identitiesMore": "Load more batches",
+  "tracking.recallCreate.referenceHelp":
+    "The external notice number, such as an authority notice. Up to 200 characters.",
+  "tracking.recallCreate.effectiveHelp": "Leave empty for now, or choose an earlier time.",
+  "tracking.recallCreate.effect":
+    "Sellable and return-inspection stock of these batches moves to “Recall hold” in every store. Releasing the recall hold later does not return it.",
+  "tracking.recallCreate.submit": "Record the recall",
+  "tracking.recallCreate.recorded": {
+    one: "The recall was recorded and 1 batch is under a recall hold. Holds are re-read from the server.",
+    other:
+      "The recall was recorded and {count} batches are under a recall hold. Holds are re-read from the server.",
+  },
+  "tracking.identity.viewHold": "View hold",
+  "tracking.expiry.newDate": "New expiry date",
+  "tracking.expiry.current":
+    "Current date: {date}. Leave empty to clear an expiry that is not required.",
+  "tracking.expiry.currentNone": "No expiry date is recorded now.",
+  "tracking.expiry.submit": "Record correction",
+  "tracking.expiry.recorded":
+    "The expiry date was corrected to {date}. The correction is kept with the old date and the reason.",
+  "tracking.expiry.cleared":
+    "The expiry date was cleared. The correction is kept with the old date and the reason.",
+  "tracking.corrections.history": "Correction history",
 };
