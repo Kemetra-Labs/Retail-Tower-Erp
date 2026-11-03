@@ -205,7 +205,10 @@ function OnHandSection({
 
 // --- Tracking identities ------------------------------------------------------------
 
-function TrackingTable({ items }: Readonly<{ items: TrackingIdentity[] }>): React.JSX.Element {
+function TrackingTable({
+  items,
+  storeId,
+}: Readonly<{ items: TrackingIdentity[]; storeId: string }>): React.JSX.Element {
   const t = useT();
   return (
     <TableScrollRegion>
@@ -227,7 +230,10 @@ function TrackingTable({ items }: Readonly<{ items: TrackingIdentity[] }>): Reac
               <tr key={id.id} className="data-table__row data-table__row--static">
                 <td>{t(trackingKindKey(id.kind))}</td>
                 <th scope="row">
-                  <Machine value={id.code} />
+                  {/* RT-455: the batch or serial detail, back to this store's page. */}
+                  <Link to={`/tracking/identities/${id.id}?store=${storeId}`}>
+                    <Machine value={id.code} />
+                  </Link>
                 </th>
                 <td>
                   {id.expiryDate ? <Machine value={id.expiryDate} /> : t("inventory.value.none")}
@@ -248,7 +254,10 @@ function TrackingTable({ items }: Readonly<{ items: TrackingIdentity[] }>): Reac
   );
 }
 
-function TrackingBody({ list }: Readonly<{ list: PagedState<TrackingIdentity> }>) {
+function TrackingBody({
+  list,
+  storeId,
+}: Readonly<{ list: PagedState<TrackingIdentity>; storeId: string }>) {
   const t = useT();
   if (list.isLoading) {
     return (
@@ -278,7 +287,7 @@ function TrackingBody({ list }: Readonly<{ list: PagedState<TrackingIdentity> }>
   }
   return (
     <>
-      <TrackingTable items={list.rows} />
+      <TrackingTable items={list.rows} storeId={storeId} />
       {list.inlineError ? (
         <Body>
           <StaleError error={list.inlineError} onRetry={list.retry} />
@@ -304,7 +313,7 @@ function TrackingSection({
   if (list.error && isHiddenSection(list.error.kind)) return null;
   return (
     <DetailPanel id="inventory-tracking" index={index} title={t("inventory.tracking.title")}>
-      <TrackingBody list={list} />
+      <TrackingBody list={list} storeId={target.storeId} />
     </DetailPanel>
   );
 }

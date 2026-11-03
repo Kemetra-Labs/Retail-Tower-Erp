@@ -30,6 +30,7 @@ import { shell } from "./ar/shell";
 import { shift } from "./ar/shift";
 import { stock } from "./ar/stock";
 import { tenants } from "./ar/tenants";
+import { tracking } from "./ar/tracking";
 
 export const AR_MODULES = {
   common,
@@ -57,6 +58,7 @@ export const AR_MODULES = {
   metrics,
   salesDaily,
   salesByStore,
+  tracking,
 };
 
 export const ar = {
@@ -85,4 +87,5 @@ export const ar = {
   ...metrics,
   ...salesDaily,
   ...salesByStore,
+  ...tracking,
 };

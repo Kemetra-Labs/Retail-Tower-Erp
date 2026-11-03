@@ -14,8 +14,10 @@
  *
  * RT-436 adds the one write the status-disposition action needs:
  * `createStatusMove` (RT-435). Boundary: `createStockMovement`,
- * `createStockTransfer`, `recordStockCount`, `createRelocation`, the tracking
- * holds / recalls and the sale-linked backfill are NOT wrapped and NOT called. Same `{ status, data?, error?, retryAfter? }`
+ * `createStockTransfer`, `recordStockCount`, `createRelocation` and the
+ * sale-linked backfill are NOT wrapped and NOT called here; the tracking holds,
+ * recalls and identity reads and commands live in `tracking-queries.ts` (RT-455).
+ * Same `{ status, data?, error?, retryAfter? }`
  * shape as `src/lib/sale-sync-ops-queries.ts`. Cookie transport is on the
  * generated client.
  */
