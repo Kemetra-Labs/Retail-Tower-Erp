@@ -495,6 +495,55 @@ describe("Overview panels (RT-559, spec 009)", () => {
     }
   });
 
+  test("RT-1076: a role change in the same tenant re-reads every panel; no answer of the old role is shown", async () => {
+    activeContext.mockReturnValue(ctx("owner"));
+    const qc = createQueryClient();
+    const tree = () => (
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <Overview />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const { rerender } = render(tree());
+    await within(await findRow(UNKNOWN)).findByText("Items: 1");
+    await findRow(stockLabel("Cairo Festival City"));
+    await findRow(SHIFT);
+
+    // Same tenant, same store: only the role changes, to one the server answers differently.
+    listUnknownItems.mockImplementation(() => ok({ items: [{}, {}, {}, {}], next_cursor: null }));
+    activeContext.mockReturnValue(ctx("store_staff"));
+    rerender(tree());
+    await within(row(UNKNOWN)).findByText("Items: 4");
+    expect(screen.queryByText("Items: 1")).toBeNull();
+    // The panels the new role may not read are gone, not served from the owner's cache.
+    expect(screen.queryByText(SHIFT)).toBeNull();
+    expect(screen.queryByText(/Stock discrepancies/)).toBeNull();
+    expect(listUnknownItems).toHaveBeenCalledTimes(2);
+  });
+
+  test("RT-1076: two roles that may both read a panel still do not share one cached answer", async () => {
+    activeContext.mockReturnValue(ctx("owner"));
+    const qc = createQueryClient();
+    const tree = () => (
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <Overview />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const { rerender } = render(tree());
+    await within(await findRow(UNKNOWN)).findByText("Items: 1");
+
+    listUnknownItems.mockImplementation(() => ok({ items: [{}, {}], next_cursor: null }));
+    activeContext.mockReturnValue(ctx("tenant_admin"));
+    rerender(tree());
+    await within(row(UNKNOWN)).findByText("Items: 2");
+    for (const fn of [listErpnextNegativeOnHandStores, consoleListShiftCloses, listUnknownItems]) {
+      expect(fn).toHaveBeenCalledTimes(2);
+    }
+  });
+
   test("a malformed store roster does not break the page; the window falls back to UTC", async () => {
     activeContext.mockReturnValue(ctx("owner", { id: A, name: "Cairo Festival City" }));
     storeRows.mockReturnValue({});
