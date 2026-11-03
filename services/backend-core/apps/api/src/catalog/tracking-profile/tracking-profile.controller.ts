@@ -14,6 +14,11 @@
  * Routes:
  *   GET /api/v1/catalog/products/:productId/tracking-profile  tenantAdminGetTrackingProfile
  *   PUT /api/v1/catalog/products/:productId/tracking-profile  tenantAdminSetTrackingProfile
+ *   GET /api/v1/catalog/tracking-summary                      getTenantTrackingSummary
+ *
+ * RT-1081 (RT-455 TR-6, OD-5): the summary is a tenant-level read with no path
+ * id, so it also admits a store_manager and answers any other role 403
+ * (denyAs 403: there is nothing whose existence a 404 would hide).
  *
  * `tenant_id` + actor come from `request.context`, never the body (§XII; the
  * strict Zod DTO rejects smuggled fields with 400). A locked profile (387) is
@@ -47,6 +52,7 @@ import {
   SetTrackingProfileRequestSchema,
   toTrackingProfile,
   type SetTrackingProfileRequestDto,
+  type TenantTrackingSummaryBody,
   type TrackingProfileBody,
 } from "./tracking-profile.dto";
 import { TrackingProfileService } from "./tracking-profile.service";
@@ -65,6 +71,17 @@ export class TrackingProfileController {
     const userId = request.context?.userId;
     if (!userId) throw new UnauthorizedException("Unauthorized");
     return { tenantId, userId };
+  }
+
+  /** GET — whether the tenant has tracked products (RT-1081 TR-6). */
+  @Get("api/v1/catalog/tracking-summary")
+  @UseGuards(RolesGuard)
+  @Roles("owner", "tenant_admin", "store_manager", { denyAs: 403 })
+  async getTenantTrackingSummary(
+    @Req() request: TenantContextRequest,
+  ): Promise<TenantTrackingSummaryBody> {
+    const { tenantId } = this.requireContext(request);
+    return { hasTrackedProducts: await this.service.hasTrackedProducts(tenantId) };
   }
 
   /** GET — read a product's Tracking Profile. */

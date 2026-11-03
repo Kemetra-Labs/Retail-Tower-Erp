@@ -44,7 +44,9 @@ import { InventorySafetyController } from "./safety/inventory-safety.controller"
 import { SafetyFindingsService } from "./safety/safety-findings.service";
 import { SafetyTtlService } from "./safety/safety-ttl.service";
 import { TrackingHoldsService } from "./safety/tracking-holds.service";
+import { SafetyHistoryService } from "./safety/safety-history.service";
 import { TrackingIdentitiesController } from "./tracking-identities.controller";
+import { TrackingIdentityReadsService } from "./tracking-identity-reads.service";
 
 /**
  * InventoryModule — populated by 009-US1-ONHAND (T033).
@@ -88,6 +90,10 @@ import { TrackingIdentitiesController } from "./tracking-identities.controller";
     SafetyTtlService,
     SafetyFindingsService,
     InventorySafetyFeedService,
+    // RT-1081: the tracking Console reads (hold, recall and correction
+    // history; one identity and its positions).
+    SafetyHistoryService,
+    TrackingIdentityReadsService,
     RolesGuard,
     // The feed's PosDeviceAuthGuard resolves (tenant, store) from the device
     // row: the device on the pre-tenant lookup pool, its tenant's status on
