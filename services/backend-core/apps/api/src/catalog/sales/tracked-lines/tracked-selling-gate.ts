@@ -15,14 +15,15 @@
  *     gate never turns tracked selling on for a tenant by itself in that slice.
  *
  * Read per request (the `isPosReturnsEnabled` convention), so a test or a
- * restart-free toggle sees the current value. Not passed by
- * `docker-compose.prod.yml`, so production stays off until a deploy change
- * passes it on purpose.
+ * restart-free toggle sees the current value. Deliberately NOT passed by
+ * `docker-compose.prod.yml` (an RT-984 exclusion with this reason), so
+ * production stays off until the owner approves turning tracked selling on.
  */
 import { isEnvFlagOn } from "../sale-tenders-gate";
 
 export const TRACKED_SELLING_GATE = "POS_TRACKED_SELLING_ENABLED";
 
 export function isTrackedSellingEnabled(): boolean {
-  return isEnvFlagOn(TRACKED_SELLING_GATE);
+  // The literal name, so the RT-984 compose env sweep resolves it.
+  return isEnvFlagOn("POS_TRACKED_SELLING_ENABLED");
 }
