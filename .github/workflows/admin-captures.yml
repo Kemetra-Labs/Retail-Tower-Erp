@@ -1,0 +1,101 @@
+# RT-1118: on-demand Admin Console v4.0 evidence captures (C2/C4) and axe JSON, uploaded as a
+# workflow artifact. Owner decision 2026-11-04: the captures are produced in CI, never on the
+# owner's laptop. The spec is apps/admin-console/tests/captures/ (mocked Backend-Core, no live
+# backend); it fails only when a route crashes, never on what a capture shows.
+#
+# Not a graph job and not part of `required` (gate.yml does not list this workflow). Triggers:
+# workflow_dispatch on any ref, and pull_request on its own paths so a change to it is checked on
+# its own PR. PR-reachable: read-only token, no secrets, no environment, actions pinned by SHA.
+# Install, build and the Playwright image are those of the admin/e2e job in admin-console.yml.
+name: admin-captures
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - apps/admin-console/tests/captures/**
+      - .github/workflows/admin-captures.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: admin-captures-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  captures:
+    name: admin/captures
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    container:
+      image: mcr.microsoft.com/playwright:v1.60.0-noble@sha256:9bd26ad900bb5e0f4dee75839e957a89ae89c2b7ab1e76050e559790e946b948
+      options: --ipc=host
+    # In a container job a `run:` step without `shell:` uses `sh -e`, so every step uses bash.
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/admin-console
+    env:
+      CAPTURE_DIR: playwright-report/captures
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      # RT-817 check, for this workflow's image: the image carries the browsers for one Playwright
+      # version, which must equal @playwright/test in the lockfile.
+      - name: Check the Playwright image matches the lockfile
+        working-directory: .
+        run: |
+          set -euo pipefail
+          wf=.github/workflows/admin-captures.yml
+          lock=apps/admin-console/pnpm-lock.yaml
+          mapfile -t images < <(grep -oE 'mcr\.microsoft\.com/playwright:v[0-9]+\.[0-9]+\.[0-9]+-noble@sha256:[0-9a-f]{64}' "$wf" | sort -u)
+          if [ "${#images[@]}" -ne 1 ]; then
+            echo "::error title=Playwright image pin::expected one digest-pinned image in $wf, found ${#images[@]}"
+            exit 1
+          fi
+          image_version=$(sed -E 's/^[^:]+:v([0-9.]+)-noble@.*$/\1/' <<< "${images[0]}")
+          mapfile -t locked < <(grep -oE "^  '@playwright/test@[0-9]+\.[0-9]+\.[0-9]+':" "$lock" | sed -E "s/^.*@([0-9.]+)':$/\1/" | sort -u)
+          if [ "${#locked[@]}" -ne 1 ] || [ "${locked[0]}" != "$image_version" ]; then
+            echo "::error title=Playwright version mismatch::$lock resolves @playwright/test to '${locked[*]:-none}' but $wf runs the image for $image_version. Pin the image to the lockfile version (as in admin-console.yml)."
+            exit 1
+          fi
+          echo "Playwright $image_version: lockfile and container image agree"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          package_json_file: apps/admin-console/package.json
+
+      - name: Setup Node (.nvmrc)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: apps/admin-console/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build
+        run: pnpm build
+
+      - name: Captures
+        run: pnpm exec playwright test -c tests/captures/playwright.captures.config.ts
+
+      - name: Index and completeness check
+        if: ${{ !cancelled() }}
+        run: |
+          node tests/captures/build-index.mjs "$CAPTURE_DIR" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload captures
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: admin-v4-captures-${{ github.run_id }}
+          path: apps/admin-console/playwright-report/captures/
+          if-no-files-found: error
+          retention-days: 90
