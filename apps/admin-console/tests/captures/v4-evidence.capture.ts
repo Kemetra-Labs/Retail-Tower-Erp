@@ -15,7 +15,7 @@ import { SCREENS, type Screen } from "./screens";
  * nothing that pulses is caught mid-frame.
  *
  * A capture never fails on what it shows. It fails only when the route does
- * not render: no `<h1>`, the in-shell route error, the root crash screen, or an
+ * not render: neither an `<h1>` nor a banner, the in-shell route error, the root crash screen, or an
  * uncaught page error.
  *
  * Files land flat in CAPTURE_DIR as `<ticket>__<slug>__<locale>__<width>__<variant>.png`,
@@ -75,7 +75,9 @@ async function expectRendered(
   errors: string[],
   label: string,
 ): Promise<void> {
-  await expect(page.getByRole("heading", { level: 1 }).first(), label).toBeVisible({
+  // A detail page whose read failed shows its banner with no `<h1>`: that is a state, not a crash.
+  const ready = page.getByRole("heading", { level: 1 }).or(page.locator(BANNER)).first();
+  await expect(ready, label).toBeVisible({
     timeout: 20_000,
   });
   await settle(page);
