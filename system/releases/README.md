@@ -80,6 +80,21 @@ Before G8, a stale manifest was refused only on lab-01, before any version chang
 
 ### 2. Choose the target
 
+For an upgrade, draft the new file with `.github/release/draft_manifest.py` (RT-1089), then open a PR with it:
+
+```bash
+python .github/release/draft_manifest.py
+```
+
+By default it takes:
+- the highest published, immutable `backend-core/vX.Y.Z` and `admin-console/vX.Y.Z` releases;
+- the ERP image that `build-erp-image.yml` built for the newest commit on `main`, with its commit read from the image's `org.opencontainers.image.revision` label. The image must carry the Connector tree and base labels the deploy preflight requires, and pass `gh attestation verify` against that workflow on `refs/heads/main`;
+- the POS build of the newest file here.
+
+The newest image is the one whose commit has every other candidate as an ancestor. It stops instead of falling back to an older image when that image is not attested, when two images share that commit, or when no single commit has all the others as ancestors: choose one with `--erp`. Any failure of `gh`, the registry or `git` stops it too, so `git fetch origin` first.
+
+It names the draft with the next free `lab-YYYY.MM.N` of this month and runs `system_gate.py` on it (G1, G2, G3 and G5; G4 runs in the `contracts/check` CI job of the PR that adds the file), then writes it only when the gate passes. Exit codes: 0 means written (with `--print`, printed, without running the gate or writing); 1 means the gate refused the draft; 2 means no draft could be made (bad input, or a failure of `gh`, the registry or `git`). Nothing is written unless it exits 0 without `--print`. Override any part with `--backend <tag>`, `--console <tag>`, `--erp sha256:<digest>`, `--pos <build>`, `--current <file>` or `--system <name>`; `--print` shows the draft without writing it. It never overwrites an existing file. It needs `gh` signed in (releases, attestations); the image registry is public and read anonymously. The deploy preflight still checks every product online.
+
 | Goal | `manifest` | `current_manifest` | `force_all` |
 | --- | --- | --- | --- |
 | Prove the path, change no version | the live file | the same file | `true` |
