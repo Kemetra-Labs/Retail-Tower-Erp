@@ -3,6 +3,7 @@
  * picked result adds at once; scans keep their order; exceptions are notices.
  */
 import { act, renderHook } from '@testing-library/react';
+import { MAX_SALE_LINES } from '../../../shared/cart/limits';
 import { describe, expect, it, vi } from 'vitest';
 import type { CartBridgeAPI, CatalogueLookupResponse } from '../../../shared/bridge-api';
 import type { CartLinesAddRequest } from '../../../shared/cart/bridge-types';
@@ -209,6 +210,8 @@ describe('useDirectSaleAdd', () => {
     expect(SALE_LINE_LIMIT_MESSAGE).toBe(
       'وصلت للحد الأقصى: 30 صنف في البيعة الواحدة. أنهِ البيعة وابدأ بيعة جديدة.',
     );
+    // The number in the copy must follow the cap main enforces.
+    expect(SALE_LINE_LIMIT_MESSAGE).toContain(String(MAX_SALE_LINES));
   });
 
   it('reads the cart bridge from the preload when none is injected, and fails closed without one', async () => {
