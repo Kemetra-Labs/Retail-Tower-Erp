@@ -69,8 +69,9 @@ Nothing here is done by Claude or by CI. Follow the design §8 and the `POS lab 
    **Keep the PFX (encrypted, offline) and the exportable leaf until the first real `sign-release` run
    has succeeded.** The release-only signing path (parsing the PFX in memory, importing the leaf, the
    pinned-root check) is exercised only by a real tag, and a wrong base64 or password shows up there. The
-   root is non-exportable, so once the leaf and PFX are gone the only recovery is a new root and a new
-   device import. After that first success, delete the leaf (`Remove-Item Cert:\CurrentUser\My\<leaf thumbprint> -DeleteKey`)
+   root is non-exportable and stays on this machine, so once the leaf and PFX are gone a replacement leaf
+   can still be issued by hand under the same root (see "Rotation and clean-up"). A new root and a new
+   device import are needed only if the root key is lost. After that first success, delete the leaf (`Remove-Item Cert:\CurrentUser\My\<leaf thumbprint> -DeleteKey`)
    and the PFX file. Never paste the PFX, its base64 or its password into Jira, Confluence, a log or this page.
 3. **Check `release-pos`.** It must keep a required reviewer and the tag policy `pos/v*` only. The publish
    job refuses to run if either environment admits anything else.
@@ -99,7 +100,7 @@ which is not a fault of the device.
 
 1. **Trust the public root only.** Import the `.cer` from step 1 into that user's *Trusted Root
    Certification Authorities*. This is a system-trust change made by the device owner. Never import
-   the PFX, never trust the root on the build machine, and never put the root's private key anywhere.
+   the PFX, never trust the root on the build machine, and never put the root's private key on the device or in CI.
    The TLS certificate of the feed is publicly trusted, so no TLS trust step is needed.
 2. **Set the updater inputs persistently.** The installer's relaunch does not inherit the process
    environment (see "Gotchas" in `lab-nsis-installer.md`), so set both as user variables:
@@ -180,7 +181,9 @@ Times in evidence are Cairo local time, for example `2026-11-04 14:20 (Cairo)`.
    nothing. Expected: green.
 6. **Deploy live.** Dispatch again with `dry_run` `false`; the `aws-lab` reviewer approves. Expected: the
    live job's log and step summary carry `RT_PRIOR`, `RT_TARGET`, every `RT_GATE ... pass` and `RT_DONE`,
-   and the `pos-lab-live-<run id>` artifact (`ledger.json`) records the outcome as deployed. A second
+   and the `pos-lab-live-<run id>` artifact (`ledger.json`) records the outcome as `deployed` only when
+   `RT_DONE` was reached; any other end (including a failed smoke) records `failed`, with the
+   `RT_REVERT` evidence. A second
    deploy of the same or a lower version is refused (`version-not-higher`) and leaves the feed unchanged;
    a failed smoke puts the previous `lab.yml` back (`RT_REVERT`), but the failed release's installer and
    `.blockmap` stay in the feed until a later successful prune. After a successful smoke, the feed keeps
