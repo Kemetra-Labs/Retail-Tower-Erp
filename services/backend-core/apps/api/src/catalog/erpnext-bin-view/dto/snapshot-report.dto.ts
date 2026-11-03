@@ -28,6 +28,8 @@
  */
 import { z } from "zod";
 
+import { boundedArray } from "../../../common/bounded-array";
+
 /**
  * Per-window entry cap advertised on every `BinViewRequest` as
  * `itemWindow.maxItems` — equals the report `entries` ceiling (contract invariant).
@@ -71,7 +73,8 @@ const BinViewReportWindowSchema = z
 
 export const SnapshotReportBodySchema = z
   .object({
-    entries: z.array(BinEntrySchema).max(BIN_VIEW_WINDOW_MAX_ITEMS),
+    // RT-1051: length-first, so an oversized report never validates each entry.
+    entries: boundedArray(BIN_VIEW_WINDOW_MAX_ITEMS, z.array(BinEntrySchema)),
     window: BinViewReportWindowSchema.optional(),
     readAt: z.string().datetime({ offset: true }),
   })
