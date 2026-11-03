@@ -219,7 +219,7 @@ interface SchemaObject {
 
 interface OpenApiDocument {
   openapi?: string;
-  info?: { title?: string; version?: string };
+  info?: { title?: string; version?: string; description?: string };
   paths?: Record<string, PathItem>;
   components?: {
     schemas?: Record<string, SchemaObject>;
@@ -992,7 +992,7 @@ describe("inventory/inventory.yaml — RT-451 Step 0 Tracking Resolution", () =>
   });
 
   it("does not add the event kinds to the computed findings list (OD-2)", () => {
-    const mapping = (inventoryDoc.components?.schemas?.["InventorySafetyFinding"] as {
+    const mapping = (inventoryDoc.components?.schemas?.["InventorySafetyFinding"] as unknown as {
       discriminator?: { mapping?: Record<string, string> };
     }).discriminator?.mapping;
     for (const kind of ["unvalidated_tracked_line", "sold_under_hold", "erp_intent_held", "tracking_unresolved_sale"]) {
