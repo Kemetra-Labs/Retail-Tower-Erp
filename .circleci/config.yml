@@ -242,7 +242,9 @@ jobs:
             }
             rc=0
             # `timeout`: a hang must not reach no_output_timeout, which would fail the job before the suite.
-            timeout 120 node --test .circleci/scripts/tia-risk-guard.test.cjs || rc=$?
+            # TIA_GUARD_RUNTIME=1 skips only the review-time parameter-default check, so a deliberate
+            # advisory re-enable does not disable the guard.
+            TIA_GUARD_RUNTIME=1 timeout 120 node --test .circleci/scripts/tia-risk-guard.test.cjs || rc=$?
             if [ "$rc" -ne 0 ]; then
               force_full "guard self-test failed (exit $rc)"
               exit 0

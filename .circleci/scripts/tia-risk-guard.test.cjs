@@ -248,16 +248,28 @@ test("the drift parser rejects the YAML forms it cannot read", () => {
   assert.equal(literalPrefix("*/*/package.json"), "");
 });
 
-test("config.yml keeps advisory paused, manual routes, and the full suite in both decisions", () => {
+// The pipeline-parameter defaults are review-time policy (RT-1059 pause), not a property of the
+// guard: the job's self-test sets TIA_GUARD_RUNTIME=1 and skips this one, so re-enabling advisory
+// by default (the documented rollback) cannot turn every guard decision into a self-test failure.
+test(
+  "config.yml keeps advisory paused and the manual routes off by default (review time only)",
+  { skip: process.env.TIA_GUARD_RUNTIME === "1" && "policy check; runs offline, not in the CI self-test" },
+  () => {
+    const cfg = readText(".circleci/config.yml");
+    const param = (name) => new RegExp(`\\n  ${name}:\\n(?:    [^\\n]*\\n)*?    default: ([^\\n]+)\\n`).exec(cfg)?.[1];
+    assert.equal(param("advisory_enabled"), "false");
+    assert.equal(param("full_tia_analysis"), "false");
+    assert.equal(param("tia_probe"), "false");
+    assert.equal(param("remote_suite"), "none");
+  },
+);
+
+test("config.yml runs the full suite in both decisions and runs the guard", () => {
   const cfg = readText(".circleci/config.yml");
-  const param = (name) => new RegExp(`\\n  ${name}:\\n(?:    [^\\n]*\\n)*?    default: ([^\\n]+)\\n`).exec(cfg)?.[1];
-  assert.equal(param("advisory_enabled"), "false");
-  assert.equal(param("full_tia_analysis"), "false");
-  assert.equal(param("tia_probe"), "false");
-  assert.equal(param("remote_suite"), "none");
   assert.match(cfg, /circleci testsuite run "backend api jest" --run-tests=all --analyze-tests=none/);
   assert.doesNotMatch(cfg, /--run-tests=impacted/);
   assert.match(cfg, /node \.circleci\/scripts\/tia-risk-guard\.cjs/);
+  assert.match(cfg, /TIA_GUARD_RUNTIME=1 timeout 120 node --test \.circleci\/scripts\/tia-risk-guard\.test\.cjs/);
 });
 
 // ---- git integration ----------------------------------------------------------------------
