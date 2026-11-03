@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 6e3ffc99a6dafc07193fd201f655ba1550768fe0
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 8c72ed5e3436c6095704f97eceb6cb88349166cc
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -11787,27 +11787,6 @@ export namespace InventorySchema {
             patch?: never;
             trace?: never;
         };
-        "/api/inventory/v1/admin/sale-linked-backfill": {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            get?: never;
-            put?: never;
-            /**
-             * PLATFORM/ADMIN: backfill sale-linked outbound / restock movements.
-             * @deprecated
-             * @description Platform/admin-invoked backfill that creates outbound (or restock) movements referencing CAPTURED 008 sale / terminal-event rows as provenance (FR-032/033). It reads the captured (immutable) sale fact directly — it does NOT subscribe to `sale.captured` and does NOT read `processed_at`-stamped rows (decoupling, SC-002). Dedup is on the provenance pair (`sourceSystem + externalId` / sale-ref); a re-run converges to the same ledger state (no double-apply, FR-031/033). The request is bounded (default 500 movements); over-ceiling is rejected (429). This is NOT a public route — it uses the `platformAdmin` scheme, never `cookieAuth` operator sessions.
-             */
-            post: operations["backfillSaleLinkedMovements"];
-            delete?: never;
-            options?: never;
-            head?: never;
-            patch?: never;
-            trace?: never;
-        };
     }
     export type webhooks = Record<string, never>;
     export interface components {
@@ -11885,34 +11864,6 @@ export namespace InventorySchema {
                 stockingUnit: components["schemas"]["StockingUnit"];
                 /** Format: date-time */
                 countedAt?: string;
-            };
-            /** @description Bounded batch (default max 500 items); over-ceiling ⇒ 429. */
-            SaleLinkedBackfillCommand: {
-                /** @description Provenance source for the dedup pair `(sourceSystem, externalId)`. */
-                sourceSystem: string;
-                items: components["schemas"]["SaleLinkedBackfillItem"][];
-            };
-            SaleLinkedBackfillItem: {
-                /** @description Stable provenance id paired with `sourceSystem` for dedup. */
-                externalId: string;
-                /** Format: uuid */
-                storeId: string;
-                /** Format: uuid */
-                saleId?: string | null;
-                /** Format: uuid */
-                saleLineId?: string | null;
-                /** Format: uuid */
-                terminalEventRef?: string | null;
-                /** Format: uuid */
-                tenantProductRef?: string | null;
-                quantity: components["schemas"]["DecimalQuantity"];
-                stockingUnit: string;
-                /**
-                 * @description outbound = sale decrement; restock = void/refund/return inbound (FR-025).
-                 * @default outbound
-                 * @enum {string}
-                 */
-                direction: "outbound" | "restock";
             };
             /** @description toBody projection of a stock_movements row. The lineage-only `idempotency_key` column and internal fields are NOT projected. */
             StockMovement: {
@@ -12637,12 +12588,6 @@ export namespace InventorySchema {
                 /** @description The appended count_correction movement, or null on zero variance. */
                 correctionMovement?: components["schemas"]["StockMovement"] | null;
             };
-            SaleLinkedBackfillResult: {
-                /** @description Movements newly appended this run. */
-                created: number;
-                /** @description Items skipped because their provenance pair already applied (idempotent re-run, FR-033). */
-                deduped: number;
-            };
             /** @description Unit the quantity is expressed in; MUST match the product's stocking unit (cross-unit rejected, FR-022). 1–32 characters and not whitespace-only (the server trims it; a blank unit is a 400). */
             StockingUnit: string;
             /** @description Signed, non-zero exact-decimal quantity as a STRING (`numeric(19,4)`): ≤15 integer and ≤4 fraction digits. Zero is a 400 for every movement type. */
@@ -12723,7 +12668,7 @@ export namespace InventorySchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 409 — an `Idempotency-Key` replay with a DIFFERENT body (FR-030), or a provenance-pair conflict on the backfill path. */
+            /** @description 409 — an `Idempotency-Key` replay with a DIFFERENT body (FR-030). */
             IdempotencyConflict: {
                 headers: {
                     [name: string]: unknown;
@@ -12759,15 +12704,6 @@ export namespace InventorySchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 429 — backfill request exceeded the per-request ceiling (default 500 items). */
-            RateLimited: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
             /** @description 5xx — internal failure; the cause is recorded server-side under `request_id`. */
             SystemFailure: {
                 headers: {
@@ -12793,7 +12729,7 @@ export namespace InventorySchema {
             };
         };
         parameters: {
-            /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract; the backfill additionally dedups on its provenance pair). */
+            /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
             IdempotencyKey: string;
             /** @description Store the request is scoped to; access is authorized server-side. */
             StoreIdPath: string;
@@ -12858,7 +12794,7 @@ export namespace InventorySchema {
             parameters: {
                 query?: never;
                 header: {
-                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract; the backfill additionally dedups on its provenance pair). */
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
                     "Idempotency-Key": components["parameters"]["IdempotencyKey"];
                 };
                 path: {
@@ -12985,7 +12921,7 @@ export namespace InventorySchema {
             parameters: {
                 query?: never;
                 header: {
-                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract; the backfill additionally dedups on its provenance pair). */
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
                     "Idempotency-Key": components["parameters"]["IdempotencyKey"];
                 };
                 path?: never;
@@ -13019,7 +12955,7 @@ export namespace InventorySchema {
             parameters: {
                 query?: never;
                 header: {
-                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract; the backfill additionally dedups on its provenance pair). */
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
                     "Idempotency-Key": components["parameters"]["IdempotencyKey"];
                 };
                 path: {
@@ -13056,7 +12992,7 @@ export namespace InventorySchema {
             parameters: {
                 query?: never;
                 header: {
-                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract; the backfill additionally dedups on its provenance pair). */
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
                     "Idempotency-Key": components["parameters"]["IdempotencyKey"];
                 };
                 path: {
@@ -13093,7 +13029,7 @@ export namespace InventorySchema {
             parameters: {
                 query?: never;
                 header: {
-                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract; the backfill additionally dedups on its provenance pair). */
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
                     "Idempotency-Key": components["parameters"]["IdempotencyKey"];
                 };
                 path: {
@@ -13294,7 +13230,7 @@ export namespace InventorySchema {
             parameters: {
                 query?: never;
                 header: {
-                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract; the backfill additionally dedups on its provenance pair). */
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
                     "Idempotency-Key": components["parameters"]["IdempotencyKey"];
                 };
                 path?: never;
@@ -13420,7 +13356,7 @@ export namespace InventorySchema {
             parameters: {
                 query?: never;
                 header: {
-                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract; the backfill additionally dedups on its provenance pair). */
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
                     "Idempotency-Key": components["parameters"]["IdempotencyKey"];
                 };
                 path?: never;
@@ -13574,7 +13510,7 @@ export namespace InventorySchema {
             parameters: {
                 query?: never;
                 header: {
-                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract; the backfill additionally dedups on its provenance pair). */
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
                     "Idempotency-Key": components["parameters"]["IdempotencyKey"];
                 };
                 path: {
@@ -13675,7 +13611,7 @@ export namespace InventorySchema {
             parameters: {
                 query?: never;
                 header: {
-                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract; the backfill additionally dedups on its provenance pair). */
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
                     "Idempotency-Key": components["parameters"]["IdempotencyKey"];
                 };
                 path: {
@@ -13705,40 +13641,6 @@ export namespace InventorySchema {
                 404: components["responses"]["NotFoundOrCrossTenant"];
                 409: components["responses"]["TrackingResolutionConflict"];
                 429: components["responses"]["TooManyRequests"];
-                "5XX": components["responses"]["SystemFailure"];
-            };
-        };
-        backfillSaleLinkedMovements: {
-            parameters: {
-                query?: never;
-                header: {
-                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract; the backfill additionally dedups on its provenance pair). */
-                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                };
-                path?: never;
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["SaleLinkedBackfillCommand"];
-                };
-            };
-            responses: {
-                /** @description Backfill result — created vs deduped counts. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["SaleLinkedBackfillResult"];
-                    };
-                };
-                400: components["responses"]["ValidationFailure"];
-                401: components["responses"]["Unauthorized"];
-                403: components["responses"]["Forbidden"];
-                404: components["responses"]["NotFoundOrCrossTenant"];
-                409: components["responses"]["IdempotencyConflict"];
-                429: components["responses"]["RateLimited"];
                 "5XX": components["responses"]["SystemFailure"];
             };
         };
