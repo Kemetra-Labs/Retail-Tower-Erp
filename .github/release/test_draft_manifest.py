@@ -254,6 +254,14 @@ class Adapters(unittest.TestCase):
             with self.assertRaises(draft_manifest.DraftError):
                 git.tree_of(S1, "integrations/erpnext-connector")
 
+    def test_an_http_protocol_error_is_a_draft_error_not_a_traceback(self):
+        import http.client
+        for error in (http.client.IncompleteRead(b"partial"), http.client.BadStatusLine("x"), OSError("refused")):
+            registry = draft_manifest.Registry("o/r")
+            with mock.patch.object(draft_manifest.urllib.request, "urlopen", side_effect=error):
+                with self.assertRaises(draft_manifest.DraftError, msg=repr(error)):
+                    registry.tags()  # the token fetch fails too, and is covered
+
     def test_a_paged_tag_list_and_content_that_does_not_match_its_digest_are_refused(self):
         registry = draft_manifest.Registry("o/r")
         with mock.patch.object(registry, "_get", return_value=({"Link": "<next>"}, b'{"tags": []}')):

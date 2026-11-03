@@ -28,6 +28,7 @@ failure (nothing written).
 import argparse
 import datetime
 import hashlib
+import http.client
 import json
 import pathlib
 import re
@@ -257,15 +258,16 @@ class Registry:
         self._token = None
 
     def _get(self, path, accept=None, method="GET"):
-        if self._token is None:
-            with urllib.request.urlopen(f"{REGISTRY}/token?scope=repository:{REGISTRY_NAME}:pull", timeout=30) as resp:
-                self._token = json.load(resp)["token"]
-        request = urllib.request.Request(f"{REGISTRY}/v2/{REGISTRY_NAME}/{path}", method=method,
-                                         headers={"Authorization": f"Bearer {self._token}", **({"Accept": accept} if accept else {})})
+        # http.client errors (IncompleteRead, a bad status line) are not OSError: both are a DraftError.
         try:
+            if self._token is None:
+                with urllib.request.urlopen(f"{REGISTRY}/token?scope=repository:{REGISTRY_NAME}:pull", timeout=30) as resp:
+                    self._token = json.load(resp)["token"]
+            request = urllib.request.Request(f"{REGISTRY}/v2/{REGISTRY_NAME}/{path}", method=method,
+                                             headers={"Authorization": f"Bearer {self._token}", **({"Accept": accept} if accept else {})})
             with urllib.request.urlopen(request, timeout=30) as resp:
                 return resp.headers, (resp.read() if method == "GET" else b"")
-        except OSError as exc:
+        except (OSError, http.client.HTTPException) as exc:
             raise DraftError(f"the registry refused {path}: {exc}") from exc
 
     def tags(self):
@@ -373,7 +375,7 @@ def main(argv=None):
             sys.stdout.buffer.write(render(data).encode("utf-8"))  # LF on every platform, as in the files
             return 0
         path, code = gated_write(out_dir, data, gate)
-    except (DraftError, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+    except (DraftError, OSError, http.client.HTTPException, ValueError, KeyError, TypeError, AttributeError) as exc:
         note(str(exc))
         return 2
     if path is None:
