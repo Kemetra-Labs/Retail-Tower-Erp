@@ -26,8 +26,9 @@ const user = (id: string) => ({
 });
 
 const readData = vi.fn();
+const renderedData: Array<{ principal: string | undefined; value: string }> = [];
 
-function DataScreen(): React.JSX.Element {
+function DataScreen({ principal }: { principal: string | undefined }): React.JSX.Element {
   const q = useQuery({
     queryKey: ["sales", "list"],
     queryFn: async () => {
@@ -36,7 +37,9 @@ function DataScreen(): React.JSX.Element {
     },
     staleTime: Number.POSITIVE_INFINITY,
   });
-  return <div data-testid="data">{q.data ?? "none"}</div>;
+  const value = q.data ?? "none";
+  renderedData.push({ principal, value });
+  return <div data-testid="data">{value}</div>;
 }
 
 let refreshCtx: () => Promise<void>;
@@ -46,13 +49,14 @@ function Probe(): React.JSX.Element {
   return (
     <>
       <div data-testid="who">{context?.user?.id ?? "nobody"}</div>
-      <DataScreen />
+      <DataScreen principal={context?.user?.id} />
     </>
   );
 }
 
 function setup() {
   const qc = createQueryClient();
+  renderedData.length = 0;
   qc.setQueryData(["sales", "list"], "A-private");
   render(
     <QueryClientProvider client={qc}>
@@ -78,11 +82,13 @@ describe("session replacement without sign-out (RT-1077)", () => {
     const qc = setup();
     await waitFor(() => expect(screen.getByTestId("who").textContent).toBe("A"));
     expect(screen.getByTestId("data").textContent).toBe("A-private");
+    renderedData.length = 0;
 
     await act(() => refreshCtx()); // A's session is gone (expiry)
     await act(() => refreshCtx()); // B signs in on the same tab
 
     await waitFor(() => expect(screen.getByTestId("data").textContent).toBe("fresh"));
+    expect(renderedData).not.toContainEqual({ principal: "B", value: "A-private" });
     expect(readData).toHaveBeenCalled();
     expect(qc.getQueryData(["sales", "list"])).toBe("fresh");
   });
