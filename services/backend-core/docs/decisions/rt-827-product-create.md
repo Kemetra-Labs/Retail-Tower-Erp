@@ -5,6 +5,7 @@
 | **Jira** | RT-827 (Admin-Console product create, split from RT-768 by D9). Inputs: RT-972 v4.0 boards, the design brief `apps/admin-console/docs/design/rt827-product-create/README.md` (PR #109), owner decisions of 2026-10-29 (RT-827 comment 14416). Related: RT-752 (field contract, AC 3), RT-738 (interim catalog writes), RT-484 / RT-485 (pricing plans, specs 042 / 044), RT-282 (pricing decomposition). |
 | **Work Mode** | Planning (contract-first), at the coordinator's request. Docs only: no contract file, code, migration, rate-limit class or CI change. **Note:** the Jira field on RT-827 says *Implementation*; this record does not change it. |
 | **Status** | **Proposed.** Every option below needs an owner decision. Any contract change it leads to needs an owning issue and `[GATED]` approval. |
+| **Owner decisions** | RT-827 comment (2026-11-03): PD-2 = P-a, the rest as recommended. |
 | **Baseline** | `Kemetra-Labs/Retail-Tower-Erp` `origin/main` = `6e3ffc99` (RT-1082, #267). `catalog/console-catalog.yaml` is `1.1.0-draft`. |
 | **Why docs only** | `packages/contracts/openapi/**` and SQL migrations are `[GATED]` (`services/backend-core/CLAUDE.md`). Nothing in RT-827 authorizes a contract change. |
 
