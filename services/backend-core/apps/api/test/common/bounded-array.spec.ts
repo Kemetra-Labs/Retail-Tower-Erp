@@ -12,6 +12,10 @@ import { load } from "js-yaml";
 import { z, type ZodTypeAny } from "zod";
 
 import { AiEntitlementCheckInputSchema, MAX_TARGET_STORES } from "../../src/ai-entitlements/entitlement-checker";
+import {
+  BIN_VIEW_WINDOW_MAX_ITEMS,
+  SnapshotReportBodySchema,
+} from "../../src/catalog/erpnext-bin-view/dto/snapshot-report.dto";
 import { CreditSaleReversalRequestSchema } from "../../src/catalog/sales/dto/credit-sale-reversal-request.dto";
 import {
   MAX_REFUND_TENDERS,
@@ -81,6 +85,7 @@ const CASES: BoundCase[] = [
   { name: "SettlementIntentCreate.payers", schema: SettlementIntentCreateSchema, field: "payers", max: 16, base: {}, item: () => ({}) },
   { name: "ApproverEligibilityRequest.user_ids", schema: ApproverEligibilityRequestSchema, field: "user_ids", max: MAX_APPROVER_USER_IDS, base: {}, item: (i) => uuidAt(i + 1) },
   { name: "CloseShiftRequest.cashRefundReturnRefs", schema: CloseShiftRequestSchema, field: "cashRefundReturnRefs", max: 1000, base: {}, item: (i) => uuidAt(i + 1) },
+  { name: "SnapshotReportBody.entries", schema: SnapshotReportBodySchema, field: "entries", max: BIN_VIEW_WINDOW_MAX_ITEMS, base: {}, item: () => ({}) },
 ];
 
 describe.each(CASES)("$name", ({ schema, field, max, base, item }) => {
