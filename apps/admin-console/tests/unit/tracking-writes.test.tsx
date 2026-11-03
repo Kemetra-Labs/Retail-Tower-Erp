@@ -274,8 +274,10 @@ describe("release (owner only)", () => {
     expect(api.releaseTrackingHold).not.toHaveBeenCalled();
     fireEvent.click(within(release).getByRole("button", { name: "Yes, release the hold" }));
     await waitFor(() => expect(api.releaseTrackingHold).toHaveBeenCalledWith(HOLD, {}));
-    expect(await within(release).findByTestId("tracking-write-refusal")).toBeTruthy();
-    expect(within(release).queryByText(/was released/)).toBeNull();
+    // The outcome sits in the drawer, outside the release section (pr-review finding 1).
+    const drawer = screen.getByTestId("tracking-hold-drawer");
+    expect(await within(drawer).findByTestId("tracking-write-refusal")).toBeTruthy();
+    expect(within(drawer).queryByText(/was released/)).toBeNull();
   });
 
   test("tenant_admin: the release is recessed with the reason and sends nothing", async () => {
@@ -289,6 +291,24 @@ describe("release (owner only)", () => {
     fireEvent.click(button);
     expect(within(release).getByText(/Only the tenant owner can release/)).toBeTruthy();
     expect(api.releaseTrackingHold).not.toHaveBeenCalled();
+  });
+  test("a recorded release stays on screen after the hold re-reads as released", async () => {
+    api.listTrackingHolds.mockResolvedValue(page([activeHold]));
+    api.releaseTrackingHold.mockResolvedValue(
+      ok({ hold: { ...activeHold, active: false }, safetyRevision: { revision: 4 } }),
+    );
+    api.getTrackingHold
+      .mockResolvedValueOnce(ok(activeHold))
+      .mockResolvedValue(ok({ ...activeHold, active: false, releasedAt: "2026-11-03T13:00:00Z" }));
+    renderAt(`/tracking/identities/${IDENTITY}`);
+    fireEvent.click(await screen.findByRole("button", { name: "Release hold" }));
+    const drawer = await screen.findByTestId("tracking-hold-drawer");
+    const release = await within(drawer).findByTestId("tracking-release");
+    fireEvent.click(within(release).getByRole("button", { name: "Release hold" }));
+    fireEvent.click(within(release).getByRole("button", { name: "Yes, release the hold" }));
+    await waitFor(() => expect(within(drawer).queryByTestId("tracking-release")).toBeNull());
+    // A success banner is a status region that fills on the next task.
+    expect(await within(drawer).findByText(/The hold on LOT-2026-1004 was released/)).toBeTruthy();
   });
 });
 
@@ -315,18 +335,42 @@ describe("expiry correction", () => {
     );
   });
 
-  test("an empty date clears it (null), and the 404 is a refusal", async () => {
+  test("an empty date is refused; clearing is an explicit choice that sends null", async () => {
     renderAt(`/tracking/identities/${IDENTITY}`);
     const form = await screen.findByTestId("tracking-expiry-form");
     fireEvent.change(within(form).getByLabelText("Reason"), {
       target: { value: "supplier_notice" },
     });
     fireEvent.click(within(form).getByRole("button", { name: "Record correction" }));
+    expect(
+      await within(form).findByText("Choose the new date, or choose to clear the expiry date."),
+    ).toBeTruthy();
+    expect(api.correctTrackingIdentityExpiry).not.toHaveBeenCalled();
+
+    fireEvent.click(within(form).getByRole("checkbox", { name: /Clear the expiry date/ }));
+    fireEvent.click(within(form).getByRole("button", { name: "Record correction" }));
     expect(await within(form).findByTestId("tracking-write-refusal")).toBeTruthy();
     expect(api.correctTrackingIdentityExpiry.mock.calls[0][1]).toEqual({
       expiryDate: null,
       reasonCode: "supplier_notice",
     });
+  });
+
+  test("the success banner keeps the recorded date when the field changes", async () => {
+    api.correctTrackingIdentityExpiry.mockResolvedValue(
+      ok({ correction: {}, safetyRevision: { revision: 3 } }, 201),
+    );
+    renderAt(`/tracking/identities/${IDENTITY}`);
+    const form = await screen.findByTestId("tracking-expiry-form");
+    const dateField = within(form).getByLabelText("New expiry date");
+    fireEvent.change(dateField, { target: { value: "2027-03-28" } });
+    fireEvent.change(within(form).getByLabelText("Reason"), {
+      target: { value: "label_misprint" },
+    });
+    fireEvent.click(within(form).getByRole("button", { name: "Record correction" }));
+    expect(await within(form).findByText(/corrected to 2027-03-28/)).toBeTruthy();
+    fireEvent.change(dateField, { target: { value: "2027-05-01" } });
+    expect(within(form).getByText(/corrected to 2027-03-28/)).toBeTruthy();
   });
 });
 

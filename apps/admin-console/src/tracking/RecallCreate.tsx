@@ -180,55 +180,58 @@ export function RecallCreateDrawer({
         )}
         {product ? (
           <form className="surface__form" onSubmit={submit} noValidate>
-            <IdentityChoices
-              scope={scope}
-              productId={product.productId}
-              chosen={identityIds}
-              onToggle={toggle}
-              error={errors.identities}
-            />
-            <ReasonFields
-              idPrefix="recall"
-              reason={reason}
-              note={note}
-              errors={errors}
-              onReason={setReason}
-              onNote={setNote}
-            />
-            <div className="field">
-              <label htmlFor="recall-reference">{t("tracking.col.reference")}</label>
-              <input
-                id="recall-reference"
-                className="input"
-                dir="auto"
-                maxLength={REFERENCE_MAX_LENGTH}
-                value={reference}
-                aria-invalid={errors.reference ? true : undefined}
-                aria-describedby="recall-reference-help"
-                onChange={(e) => setReference(e.target.value)}
+            {/* Once recorded, the form is evidence of what was sent: read-only. */}
+            <fieldset className="tracking__plain" disabled={recorded}>
+              <IdentityChoices
+                scope={scope}
+                productId={product.productId}
+                chosen={identityIds}
+                onToggle={toggle}
+                error={errors.identities}
               />
-              <p id="recall-reference-help" className="tracking__muted">
-                {t("tracking.recallCreate.referenceHelp")}
-              </p>
-              <InlineError message={errors.reference ? t(errors.reference) : undefined} />
-            </div>
-            <div className="field">
-              <label htmlFor="recall-effective">{t("tracking.col.effectiveAt")}</label>
-              <input
-                id="recall-effective"
-                type="datetime-local"
-                className="input"
-                dir="ltr"
-                value={effectiveAt}
-                aria-invalid={errors.effectiveAt ? true : undefined}
-                aria-describedby="recall-effective-help"
-                onChange={(e) => setEffectiveAt(e.target.value)}
+              <ReasonFields
+                idPrefix="recall"
+                reason={reason}
+                note={note}
+                errors={errors}
+                onReason={setReason}
+                onNote={setNote}
               />
-              <p id="recall-effective-help" className="tracking__muted">
-                {t("tracking.recallCreate.effectiveHelp")}
-              </p>
-              <InlineError message={errors.effectiveAt ? t(errors.effectiveAt) : undefined} />
-            </div>
+              <div className="field">
+                <label htmlFor="recall-reference">{t("tracking.col.reference")}</label>
+                <input
+                  id="recall-reference"
+                  className="input"
+                  dir="auto"
+                  maxLength={REFERENCE_MAX_LENGTH}
+                  value={reference}
+                  aria-invalid={errors.reference ? true : undefined}
+                  aria-describedby="recall-reference-help"
+                  onChange={(e) => setReference(e.target.value)}
+                />
+                <p id="recall-reference-help" className="tracking__muted">
+                  {t("tracking.recallCreate.referenceHelp")}
+                </p>
+                <InlineError message={errors.reference ? t(errors.reference) : undefined} />
+              </div>
+              <div className="field">
+                <label htmlFor="recall-effective">{t("tracking.col.effectiveAt")}</label>
+                <input
+                  id="recall-effective"
+                  type="datetime-local"
+                  className="input"
+                  dir="ltr"
+                  value={effectiveAt}
+                  aria-invalid={errors.effectiveAt ? true : undefined}
+                  aria-describedby="recall-effective-help"
+                  onChange={(e) => setEffectiveAt(e.target.value)}
+                />
+                <p id="recall-effective-help" className="tracking__muted">
+                  {t("tracking.recallCreate.effectiveHelp")}
+                </p>
+                <InlineError message={errors.effectiveAt ? t(errors.effectiveAt) : undefined} />
+              </div>
+            </fieldset>
             <p className="tracking__muted">{t("tracking.recallCreate.effect")}</p>
             <WriteResult
               outcome={write.outcome}

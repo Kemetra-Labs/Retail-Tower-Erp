@@ -13,10 +13,11 @@ import type { InventoryRecall, TrackingHold } from "@/lib/tracking-queries";
 import { Machine, ReadError } from "../inventory/parts";
 import type { InventoryScope } from "../inventory/useInventory";
 import { IdentityLink } from "./HistoryPanels";
-import { ReleaseSection } from "./TrackingForms";
+import { ReleaseSection, WriteResult } from "./TrackingForms";
 import { ActorName, HoldKindBadge, ProductName, ReasonLabel, When } from "./parts";
 import { canReleaseHold, holdKindKey } from "./trackingLogic";
 import { useRecall, useTrackingHold } from "./useTracking";
+import { useReleaseHold } from "./useTrackingWrites";
 
 function Field({
   label,
@@ -90,6 +91,7 @@ export function HoldDrawer({
 }>): React.JSX.Element {
   const t = useT();
   const hold = useTrackingHold(scope, holdId);
+  const release = useReleaseHold(holdId);
   const data = hold.data;
   const title = data
     ? t("tracking.hold.title", {
@@ -98,7 +100,12 @@ export function HoldDrawer({
       })
     : t("tracking.hold.titleLoading");
   return (
-    <Drawer title={title} onClose={onClose} scope={t("tracking.hold.scope")}>
+    <Drawer
+      title={title}
+      onClose={onClose}
+      scope={t("tracking.hold.scope")}
+      dismissible={!release.pending}
+    >
       <div className="tracking__drawer-body" data-testid="tracking-hold-drawer">
         {hold.isLoading ? (
           <ListState state="loading" label={t("tracking.hold.loadingNoun")} />
@@ -117,11 +124,16 @@ export function HoldDrawer({
             <HoldFields hold={data} />
             {data.active ? (
               <ReleaseSection
-                holdId={data.id}
+                write={release}
                 code={code ?? data.trackingIdentityId}
                 canRelease={canReleaseHold(scope.role)}
               />
             ) : null}
+            {/* Outside the active branch: a recorded release re-reads the hold as released. */}
+            <WriteResult
+              outcome={release.outcome}
+              recorded={t("tracking.release.recorded", { code: code ?? data.trackingIdentityId })}
+            />
           </>
         ) : null}
       </div>

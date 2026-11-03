@@ -42,7 +42,8 @@ export type WriteFieldError =
   | "tracking.write.error.identities"
   | "tracking.write.error.tooMany"
   | "tracking.write.error.effectiveAt"
-  | "tracking.write.error.date";
+  | "tracking.write.error.date"
+  | "tracking.write.error.dateRequired";
 
 export type WriteErrors = Partial<
   Record<"reason" | "note" | "reference" | "identities" | "effectiveAt" | "date", WriteFieldError>
@@ -150,21 +151,28 @@ export function buildRecallCommand(draft: RecallDraft): CreateInventoryRecallCom
 // --- Expiry correction ----------------------------------------------------------------
 
 export interface ExpiryDraft extends ReasonDraft {
-  /** `YYYY-MM-DD`, or "" to clear an optional expiry (the server refuses a required one). */
+  /** `YYYY-MM-DD`; ignored when `clear` is set. */
   date: string;
+  /**
+   * Clear the expiry (`null`): an explicit choice, never the result of an empty
+   * field. The server refuses it when the tracking profile requires an expiry.
+   */
+  clear: boolean;
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function validateExpiry(draft: ExpiryDraft): WriteErrors {
   const errors = validateReason(draft);
-  if (draft.date && !ISO_DATE.test(draft.date)) errors.date = "tracking.write.error.date";
+  if (draft.clear) return errors;
+  if (!draft.date) errors.date = "tracking.write.error.dateRequired";
+  else if (!ISO_DATE.test(draft.date)) errors.date = "tracking.write.error.date";
   return errors;
 }
 
 export function buildExpiryCommand(draft: ExpiryDraft): CorrectExpiryCommand {
   return {
-    expiryDate: draft.date || null,
+    expiryDate: draft.clear ? null : draft.date,
     reasonCode: draft.reason as SafetyReasonCodeInput,
     ...noteOf(draft.note),
   };

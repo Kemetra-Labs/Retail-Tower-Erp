@@ -229,7 +229,7 @@ function HoldAction({
   const t = useT();
   const [placing, setPlacing] = useState(false);
   const [openHold, setOpenHold] = useState<string | null>(null);
-  const quality = activeHolds(holds).find((hold) => hold.kind === "quality_hold");
+  const quality = holds.find((hold) => hold.active && hold.kind === "quality_hold");
   const owner = canReleaseHold(scope.role);
   return (
     <div className="tracking__actions">
@@ -272,6 +272,9 @@ function HoldsSection({
   const t = useT();
   const identityId = identity.id;
   const list = useTrackingHolds(scope, "all", identityId);
+  // The hold state and the action come from their own read of the ACTIVE holds
+  // (at most one per kind, so one page), never from page 1 of the history.
+  const active = useTrackingHolds(scope, "active", identityId);
   const status = (
     <PagedBody
       list={list}
@@ -281,13 +284,21 @@ function HoldsSection({
     />
   );
   const ready = !list.isLoading && !list.error;
+  const activeReady = !active.isLoading && !active.error && !active.hasMore;
   return (
     <DetailPanel id="tracking-identity-holds" index={2} title={t("tracking.identity.holds")}>
       <Body>
-        {/* Newest first and at most one active hold per kind: the active ones are on page 1. */}
-        {ready ? <ActiveHoldLines holds={list.rows} /> : null}
+        {activeReady ? <ActiveHoldLines holds={active.rows} /> : null}
         {/* An unknown hold state offers no action: placing one could only be refused. */}
-        {ready ? <HoldAction scope={scope} identity={identity} holds={list.rows} /> : null}
+        {activeReady ? <HoldAction scope={scope} identity={identity} holds={active.rows} /> : null}
+        {active.error ? (
+          <ReadError
+            error={active.error}
+            failedKey="tracking.identity.holdsFailed"
+            notFoundKey="tracking.identity.holdsFailed"
+            onRetry={active.retry}
+          />
+        ) : null}
         {status}
       </Body>
       {ready && list.rows.length > 0 ? <HoldHistoryTable rows={list.rows} /> : null}

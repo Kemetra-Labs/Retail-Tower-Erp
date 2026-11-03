@@ -203,6 +203,7 @@ export const tracking: MessagesOf<typeof ar> = {
   "tracking.write.error.tooMany": "At most 100 batches can be recalled at once.",
   "tracking.write.error.effectiveAt": "The effective time is now or earlier, never later.",
   "tracking.write.error.date": "Enter the date as year-month-day.",
+  "tracking.write.error.dateRequired": "Choose the new date, or choose to clear the expiry date.",
   "tracking.write.rejected": "Nothing was recorded",
   "tracking.write.noBody": "The server refused the command (status {status}) without a message.",
   "tracking.write.code": "Code: {code}",
@@ -257,9 +258,9 @@ export const tracking: MessagesOf<typeof ar> = {
   },
   "tracking.identity.viewHold": "View hold",
   "tracking.expiry.newDate": "New expiry date",
-  "tracking.expiry.current":
-    "Current date: {date}. Leave empty to clear an expiry that is not required.",
+  "tracking.expiry.current": "Current date: {date}.",
   "tracking.expiry.currentNone": "No expiry date is recorded now.",
+  "tracking.expiry.clear": "Clear the expiry date (the server refuses it when the tracking profile requires one)",
   "tracking.expiry.submit": "Record correction",
   "tracking.expiry.recorded":
     "The expiry date was corrected to {date}. The correction is kept with the old date and the reason.",

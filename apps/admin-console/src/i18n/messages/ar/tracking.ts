@@ -225,6 +225,7 @@ export const tracking = {
   "tracking.write.error.tooMany": "يمكن استدعاء 100 دفعة على الأكثر في المرة الواحدة.",
   "tracking.write.error.effectiveAt": "وقت السريان الآن أو وقت سابق، لا وقت لاحق.",
   "tracking.write.error.date": "اكتب التاريخ بالصيغة سنة-شهر-يوم.",
+  "tracking.write.error.dateRequired": "اختر التاريخ الجديد، أو اختر مسح تاريخ الانتهاء.",
   "tracking.write.rejected": "لم يُسجَّل شيء",
   "tracking.write.noBody": "رفض الخادم الأمر (الحالة {status}) دون رسالة.",
   "tracking.write.code": "الرمز: {code}",
@@ -282,8 +283,9 @@ export const tracking = {
   },
   "tracking.identity.viewHold": "عرض الحجز",
   "tracking.expiry.newDate": "تاريخ الانتهاء الجديد",
-  "tracking.expiry.current": "التاريخ الحالي: {date}. اتركه فارغًا لمسح تاريخ غير مطلوب.",
+  "tracking.expiry.current": "التاريخ الحالي: {date}.",
   "tracking.expiry.currentNone": "لا تاريخ انتهاء مسجّل الآن.",
+  "tracking.expiry.clear": "مسح تاريخ الانتهاء (يرفضه الخادم إن كان ملف التتبع يتطلبه)",
   "tracking.expiry.submit": "تسجيل التصحيح",
   "tracking.expiry.recorded":
     "صُحّح تاريخ الانتهاء إلى {date}. حُفظ التصحيح في السجل مع التاريخ القديم والسبب.",

@@ -15,11 +15,11 @@ import { Drawer } from "@/components/Drawer";
 import { GatedButton } from "@/components/GatedButton";
 import { InlineError } from "@/components/InlineError";
 import { useT } from "@/i18n";
-import type { SafetyReasonCodeInput } from "@/lib/tracking-queries";
+import type { ReleaseTrackingHoldCommand, SafetyReasonCodeInput } from "@/lib/tracking-queries";
 import { useState } from "react";
 import { Machine } from "../inventory/parts";
 import { REASON_CODES, reasonKey } from "./trackingLogic";
-import { useCorrectExpiry, usePlaceHold, useReleaseHold } from "./useTrackingWrites";
+import { type GovernedWrite, useCorrectExpiry, usePlaceHold } from "./useTrackingWrites";
 import {
   NOTE_MAX_LENGTH,
   type WriteErrors,
@@ -233,14 +233,21 @@ export function PlaceHoldDrawer({
 
 // --- Release ----------------------------------------------------------------------
 
-/** Owner only (965). A tenant_admin sees the action recessed, with the reason. */
+/**
+ * Owner only (965). A tenant_admin sees the action recessed, with the reason.
+ * The drawer owns the write (`useReleaseHold`), so it stays open while the
+ * release is in flight and keeps the outcome after the hold re-reads released.
+ */
 export function ReleaseSection({
-  holdId,
+  write,
   code,
   canRelease,
-}: Readonly<{ holdId: string; code: string; canRelease: boolean }>): React.JSX.Element {
+}: Readonly<{
+  write: GovernedWrite<ReleaseTrackingHoldCommand>;
+  code: string;
+  canRelease: boolean;
+}>): React.JSX.Element {
   const t = useT();
-  const write = useReleaseHold(holdId);
   const [note, setNote] = useState("");
   const [errors, setErrors] = useState<WriteErrors>({});
   const [confirming, setConfirming] = useState(false);
@@ -289,7 +296,6 @@ export function ReleaseSection({
           onNote={setNote}
         />
       )}
-      <WriteResult outcome={write.outcome} recorded={t("tracking.release.recorded", { code })} />
       {confirming ? (
         <fieldset className="tracking__confirm">
           <legend>{t("tracking.release.confirm", { code })}</legend>
@@ -325,17 +331,23 @@ export function ExpiryForm({
   const t = useT();
   const write = useCorrectExpiry(identityId);
   const [date, setDate] = useState("");
+  const [clear, setClear] = useState(false);
   const [reason, setReason] = useState<SafetyReasonCodeInput | "">("");
   const [note, setNote] = useState("");
   const [errors, setErrors] = useState<WriteErrors>({});
+  // The value the outcome is about, fixed at submit: editing the field later
+  // never rewrites what the banner says was recorded.
+  const [submitted, setSubmitted] = useState<string | null>(null);
 
   async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
-    const draft = { date, reason, note };
+    const draft = { date, clear, reason, note };
     const found = validateExpiry(draft);
     setErrors(found);
     if (Object.keys(found).length > 0) return;
-    const outcome = await write.submit(buildExpiryCommand(draft));
+    const command = buildExpiryCommand(draft);
+    setSubmitted(command.expiryDate);
+    const outcome = await write.submit(command);
     if (outcome.kind === "recorded") {
       setNote("");
       setReason("");
@@ -353,6 +365,7 @@ export function ExpiryForm({
             className="input"
             dir="ltr"
             value={date}
+            disabled={clear}
             aria-invalid={errors.date ? true : undefined}
             aria-describedby="expiry-date-help"
             onChange={(e) => setDate(e.target.value)}
@@ -365,6 +378,12 @@ export function ExpiryForm({
           <InlineError message={errors.date ? t(errors.date) : undefined} />
         </div>
       </div>
+      {current ? (
+        <label className="tracking__choice">
+          <input type="checkbox" checked={clear} onChange={(e) => setClear(e.target.checked)} />
+          {t("tracking.expiry.clear")}
+        </label>
+      ) : null}
       <ReasonFields
         idPrefix="expiry"
         reason={reason}
@@ -375,7 +394,11 @@ export function ExpiryForm({
       />
       <WriteResult
         outcome={write.outcome}
-        recorded={date ? t("tracking.expiry.recorded", { date }) : t("tracking.expiry.cleared")}
+        recorded={
+          submitted
+            ? t("tracking.expiry.recorded", { date: submitted })
+            : t("tracking.expiry.cleared")
+        }
       />
       <div className="tracking__actions">
         <GatedButton type="submit" className="btn-primary" disabled={write.pending}>

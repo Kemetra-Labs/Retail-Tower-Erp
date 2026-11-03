@@ -104,14 +104,22 @@ describe("commands", () => {
     );
   });
 
-  test("expiry: a date or null to clear; a malformed date is refused", () => {
-    const draft = { date: "2027-03-28", reason: "label_misprint" as const, note: "" };
+  test("expiry: a date, or null only when clearing is chosen explicitly", () => {
+    const draft = {
+      date: "2027-03-28",
+      clear: false,
+      reason: "label_misprint" as const,
+      note: "",
+    };
     expect(validateExpiry(draft)).toEqual({});
     expect(buildExpiryCommand(draft)).toEqual({
       expiryDate: "2027-03-28",
       reasonCode: "label_misprint",
     });
-    expect(buildExpiryCommand({ ...draft, date: "" }).expiryDate).toBeNull();
+    // An empty field is not a request to clear (pr-review finding 2).
+    expect(validateExpiry({ ...draft, date: "" }).date).toBe("tracking.write.error.dateRequired");
+    expect(validateExpiry({ ...draft, date: "", clear: true })).toEqual({});
+    expect(buildExpiryCommand({ ...draft, clear: true }).expiryDate).toBeNull();
     expect(validateExpiry({ ...draft, date: "28/03/2027" }).date).toBe("tracking.write.error.date");
   });
 });

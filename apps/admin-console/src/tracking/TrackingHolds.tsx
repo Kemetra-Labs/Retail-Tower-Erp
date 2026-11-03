@@ -223,6 +223,7 @@ function TabPanel(props: Readonly<PanelProps>): React.JSX.Element {
   return (
     <section
       role="tabpanel"
+      tabIndex={0}
       id={panelId(tab)}
       aria-labelledby={tabId(tab)}
       className="tracking-panel"
