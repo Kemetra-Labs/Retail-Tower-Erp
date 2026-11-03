@@ -49,6 +49,8 @@ import { gitChangedFiles } from './source-scope-guard.git';
 // The CI fallback (a shallow checkout with no merge base, then a fetch retry) can take 10-15s
 // under runner load; the default 5s timeout then fails a clean diff (seen on RT-1026 #281).
 const GUARD_TIMEOUT_MS = 60_000;
+// A synchronous fetch blocks the worker, so the test timeout cannot stop it; bound it directly.
+const FETCH_TIMEOUT_MS = 30_000;
 
 describe('source-scope guard (T006)', () => {
   it('diff must not touch forbidden paths', { timeout: GUARD_TIMEOUT_MS }, () => {
@@ -70,6 +72,7 @@ describe('source-scope guard (T006)', () => {
         execSync('git fetch --depth=1 origin main:refs/remotes/origin/main', {
           encoding: 'utf-8',
           stdio: 'pipe',
+          timeout: FETCH_TIMEOUT_MS,
         });
       } catch (e) {
         fetchErr = e instanceof Error ? e.message : String(e);
