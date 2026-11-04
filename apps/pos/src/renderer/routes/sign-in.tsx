@@ -13,7 +13,8 @@ import { ManagerAdminSignInForm } from '../ui/operator/ManagerAdminSignInForm.js
 import { PinPad, PinPadPreview } from '../ui/operator/PinPad.js';
 import { TakeoverPrompt } from '../ui/operator/TakeoverPrompt.js';
 import { SIGN_IN_REFUSAL_COPY } from '../ui/operator/messages.js';
-import { EntryStrip, useTerminalLabel } from '../v5/entry/EntryStrip.js';
+import { useTerminalLabel } from '../v5/entry/EntryStrip.js';
+import { SignInBand } from '../v5/entry/SignInBand.js';
 import { useBranding } from '../branding/branding-store.js';
 import { RefusalNotice } from '../v5/entry/RefusalNotice.js';
 import {
@@ -27,6 +28,7 @@ import {
 } from '../v5/entry/SignInPanels.js';
 import { SIGN_IN_COPY } from '../v5/entry/entry-copy.js';
 import '../v5/entry/entry.css';
+import '../v5/entry/sign-in.css';
 
 /**
  * 004-operator-session T029 / T075 / T077 — `/sign-in` route.
@@ -46,6 +48,13 @@ import '../v5/entry/entry.css';
  * name is picked (disabled), so picking never reflows the layout. Behaviour is
  * unchanged: no roster retry, no offline sign-in, one generic message per
  * refusal category (P11 / PR-2).
+ *
+ * RT-1092 (RT-1042 S3, "B-lite") recomposes it again: an Ink band across the
+ * top (OD-1, OD-8, OD-10), the room with the title and the roster, and a fixed
+ * PIN dock at the inline end with the picked name above the PIN (OD-6,
+ * OD-11). The refusal slot sits above the dots (OD-7). The root opts into the
+ * entry-surface tokens with `data-entry-surface`. Behaviour, copy and test ids
+ * are unchanged.
  *
  * #101 boundary: no terminal-A invalidation, no 30-second assertion,
  * no T056 assertion. getCurrentSession is local-only until #101.
@@ -267,7 +276,7 @@ export function SignInRoute(props: Readonly<SignInRouteProps>): JSX.Element {
       return (
         <AuthPanel head={<AuthHeading>{SIGN_IN_COPY.pinHeading}</AuthHeading>}>
           <div className="v5-entry__auth-body">
-            <PinPadPreview prompt={pinPromptFor(rosterState)} />
+            <PinPadPreview prompt={pinPromptFor(rosterState)} feedbackPosition="above" />
           </div>
         </AuthPanel>
       );
@@ -294,6 +303,7 @@ export function SignInRoute(props: Readonly<SignInRouteProps>): JSX.Element {
             error={cashierError !== undefined}
             submitLabel={SIGN_IN_COPY.submit}
             autoFocus
+            feedbackPosition="above"
             {...(cashierError !== undefined ? { describedBy: 'cashier-sign-in-error' } : {})}
             feedback={
               // Note 1 invariant — alert XOR spinner, one live region.
@@ -308,32 +318,40 @@ export function SignInRoute(props: Readonly<SignInRouteProps>): JSX.Element {
   };
 
   return (
-    <main data-testid="route-sign-in" className="v5-entry" dir="rtl" lang="ar">
-      <EntryStrip
+    <main
+      data-testid="route-sign-in"
+      className="v5-entry v5-entry--sign-in"
+      data-entry-surface=""
+      dir="rtl"
+      lang="ar"
+    >
+      <SignInBand
         {...(terminalLabel !== undefined ? { terminalLabel } : {})}
         {...(branding !== undefined ? { branding } : {})}
       />
-      <div className="v5-entry__stage">
-        <div className="v5-entry__head">
-          <h1 className="v5-entry__title">{SIGN_IN_COPY.title}</h1>
-          <p className="v5-entry__subtitle">{SIGN_IN_COPY.subtitle}</p>
-        </div>
+      <div className="v5-signin__split">
+        <div className="v5-signin__room">
+          <div className="v5-entry__head">
+            <h1 className="v5-entry__title">{SIGN_IN_COPY.title}</h1>
+            <p className="v5-entry__subtitle">{SIGN_IN_COPY.subtitle}</p>
+          </div>
 
-        <RosterPanel
-          state={rosterState}
-          managerMode={mode === 'manager'}
-          onManagerEntry={handleManagerEntry}
-          disabled={isSigningIn}
-          roster={
-            <RosterList
-              cashiers={rosterEntries}
-              inert={rosterState !== 'ready'}
-              onSelect={handleCashierSelect}
-              selectedId={selectedCashier?.id}
-              disabled={isSigningIn}
-            />
-          }
-        />
+          <RosterPanel
+            state={rosterState}
+            managerMode={mode === 'manager'}
+            onManagerEntry={handleManagerEntry}
+            disabled={isSigningIn}
+            roster={
+              <RosterList
+                cashiers={rosterEntries}
+                inert={rosterState !== 'ready'}
+                onSelect={handleCashierSelect}
+                selectedId={selectedCashier?.id}
+                disabled={isSigningIn}
+              />
+            }
+          />
+        </div>
 
         {renderAuthPanel()}
       </div>

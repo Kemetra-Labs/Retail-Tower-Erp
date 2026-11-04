@@ -33,6 +33,9 @@ import { Icon } from '../../icons/Icon';
  * commit under the keypad (same `pin-pad-enter` test id); a physical Enter
  * still submits. `feedback` is the reserved slot between the dots and the
  * keypad, so a refusal never moves the keypad.
+ *
+ * RT-1092 (RT-1042 OD-7): `feedbackPosition="above"` puts that slot above the
+ * dots instead, next to the picked name. The default stays `between`.
  */
 
 export const PIN_MIN_LENGTH = 4;
@@ -57,7 +60,12 @@ export interface PinPadProps {
   describedBy?: string;
   /** Moves focus to the PIN field on mount (a cashier was just picked). */
   autoFocus?: boolean;
+  /** Where the reserved feedback slot sits: between the dots and the keypad (default) or above the dots. */
+  feedbackPosition?: FeedbackPosition;
 }
+
+/** RT-1092 (OD-7): the reserved feedback slot's place in the column. */
+export type FeedbackPosition = 'between' | 'above';
 
 const DIGITS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'] as const;
 
@@ -72,6 +80,7 @@ export function PinPad(props: Readonly<PinPadProps>): JSX.Element {
     submitLabel = 'دخول',
     describedBy,
     autoFocus = false,
+    feedbackPosition = 'between',
   } = props;
   const canSubmit = value.length >= PIN_MIN_LENGTH;
   const canAppend = value.length < PIN_MAX_LENGTH;
@@ -131,13 +140,14 @@ export function PinPad(props: Readonly<PinPadProps>): JSX.Element {
 
   return (
     <div className="v5-entry__pin" data-testid="pin-pad" data-disabled={disabled || undefined}>
+      {feedbackPosition === 'above' && <div className="v5-entry__feedback">{feedback}</div>}
       <PinDots
         filled={value.length}
         error={error}
         describedBy={describedBy}
         autoFocus={autoFocus}
       />
-      <div className="v5-entry__feedback">{feedback}</div>
+      {feedbackPosition === 'between' && <div className="v5-entry__feedback">{feedback}</div>}
 
       <div className="v5-entry__keypad" role="group" aria-label="إدخال الرقم السري" dir="ltr">
         {DIGITS.map((key) => (
@@ -254,20 +264,46 @@ function PinDots({
  * disabled with a prompt in place of the dots, so picking a name never reflows
  * the layout. It wires no keyboard listener and no scan surface: nothing here
  * accepts input.
+ *
+ * RT-1092 (OD-7): with `feedbackPosition="above"` the prompt sits in the slot
+ * above the dots, and an empty, decorative dots field holds the dots' place, so
+ * the keypad is where it will be once a cashier is picked.
  */
 export function PinPadPreview({
   prompt,
   submitLabel = 'دخول',
+  feedbackPosition = 'between',
 }: Readonly<{
   prompt: string;
   submitLabel?: string;
+  feedbackPosition?: FeedbackPosition;
 }>): JSX.Element {
+  const promptLine = (
+    <p className="v5-entry__prompt" data-testid="pin-awaiting-selection">
+      {prompt}
+    </p>
+  );
   return (
     <div className="v5-entry__pin" data-testid="pin-pad-preview">
-      <p className="v5-entry__prompt" data-testid="pin-awaiting-selection">
-        {prompt}
-      </p>
-      <div className="v5-entry__feedback" />
+      {feedbackPosition === 'above' ? (
+        <>
+          <div className="v5-entry__feedback">{promptLine}</div>
+          <div
+            className="v5-entry__dots v5-entry__dots--placeholder"
+            data-testid="pin-pad-dots-placeholder"
+            aria-hidden="true"
+          >
+            {Array.from({ length: PIN_MAX_LENGTH }, (_, i) => (
+              <span key={i} className="v5-entry__dot" data-state="empty" />
+            ))}
+          </div>
+        </>
+      ) : (
+        <>
+          {promptLine}
+          <div className="v5-entry__feedback" />
+        </>
+      )}
       <div
         className="v5-entry__keypad"
         role="group"
