@@ -20,7 +20,7 @@ A change to any of these paths is a policy change (`graph.yaml` `shared_classes.
 
 `.github/**`, `.circleci/**`, `apps/*/.github/**`, `services/*/.github/**`, `integrations/*/.github/**`, `tools/project-graph/**`, `tools/ci-gate/**`, `tools/agent-broker/**`, `CODEOWNERS`.
 
-It selects every job, except `.circleci/**` and `.github/release/**`, which select no product job: they are still policy changes that need the approval below (RT-1173). In `required` mode (the default; see the `policy_approval` paragraph below), `required` stays at `POLICY_APPROVAL_REQUIRED` until a login in `policy_approvers` submits an APPROVED review on the exact head commit whose body contains the `policy-change-approved: base=<sha> fingerprint=<fp>` line printed in the `required` summary. Any new commit or base move invalidates it. An agent never approves its own PR and never edits `policy_approvers` without owner authorization.
+It selects every job, except `.circleci/**` (selects no product job) and `.github/release/**` (selects only `contracts/check`): they are still policy changes that need the approval below (RT-1173). In `required` mode (the default; see the `policy_approval` paragraph below), `required` stays at `POLICY_APPROVAL_REQUIRED` until a login in `policy_approvers` submits an APPROVED review on the exact head commit whose body contains the `policy-change-approved: base=<sha> fingerprint=<fp>` line printed in the `required` summary. Any new commit or base move invalidates it. An agent never approves its own PR and never edits `policy_approvers` without owner authorization.
 
 While `tools/project-graph/graph.yaml` has `policy_approval: observe` (owner decision 2026-10-27: the owner is the only maintainer), that approval is still evaluated and printed but a missing one does not fail `required`; `required` is red only for a real problem (a failed job, an invalid graph or plan). The aggregator reads the mode from the trusted base graph, so a PR cannot relax its own approval. Owner decision 2026-10-28 (RT-578): keep `observe` and keep the admin bypass (solo developer); revisit, by setting `policy_approval: required`, only when a second maintainer joins. An agent never changes this mode without owner authorization.
 
@@ -439,7 +439,7 @@ Never force-push unless the owner explicitly instructs it.
 
 ### Sync with main and batch fixes before a PR push (RT-948 option 1a)
 
-Since RT-1173 the CI plan selects jobs from what the PR adds (`git merge-base(base, head)..head`), so a branch behind `main` is no longer charged for `main`'s newer commits. Before that, a two-dot diff charged it (RT-921 c14837: about 500 extra Backend-Core runner-minutes across 20 branches), which is why step 1 used to require a sync on every push.
+Since RT-1173 the CI plan selects jobs from what the PR adds (`git merge-base(base, head)..head`), so a branch behind `main` is no longer charged for `main`'s newer commits. Before that, a two-dot diff charged it (RT-921 c14837: about 500 extra Backend-Core runner-minutes across 20 branches), which is why step 1 used to require a sync on every push. Trade-off: jobs are selected from the PR's own paths, so the merge ref is not re-tested for jobs that only `main`'s newer changes would select; step 4's pre-merge sync and a green `required` on that head cover it.
 
 For every push to a PR that targets `main` (the first push and each corrective push), when that push is otherwise authorized:
 

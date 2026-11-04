@@ -9,7 +9,7 @@ import support
 from pgraph import api_jest_select as ajs
 from pgraph import evaluate as ev
 from pgraph import gitio
-from pgraph.cli import changes_for
+from pgraph.cli import GRAPH_REPO_PATH, changes_for, proposed_graph
 from pgraph.graph import Graph, load_graph, validate_graph
 
 
@@ -73,6 +73,23 @@ class MergeBaseSelectionTests(unittest.TestCase):
         with self.assertRaises(gitio.DiffUnavailable):
             changes_for(self.repo, "pull_request", self.main, other)
 
+    def test_main_changing_the_graph_is_not_the_stale_branchs_change(self):
+        # reviewer finding: main edits graph.yaml after the fork; the branch only edits POS
+        self.main = _commit(self.repo, GRAPH_REPO_PATH, "schema: main-v2\n", "main edits the graph")
+        base, _ = changes_for(self.repo, "pull_request", self.main, self.head)
+        trusted = gitio.read_text(self.repo, self.main, GRAPH_REPO_PATH)
+        head_graph = gitio.read_text(self.repo, self.head, GRAPH_REPO_PATH)   # absent at the fork: None
+        self.assertNotEqual(head_graph, trusted)
+        self.assertIsNone(proposed_graph(self.repo, trusted, head_graph, base))
+
+    def test_a_branch_that_edits_the_graph_still_proposes_it(self):
+        _git(self.repo, "checkout", "-q", "feature")
+        head = _commit(self.repo, GRAPH_REPO_PATH, "schema: pr-edit\n", "pr edits the graph")
+        base, changes = changes_for(self.repo, "pull_request", self.main, head)
+        self.assertIn(GRAPH_REPO_PATH, [c.path for c in changes])
+        trusted = gitio.read_text(self.repo, self.main, GRAPH_REPO_PATH)
+        self.assertEqual(proposed_graph(self.repo, trusted, "schema: pr-edit\n", base), "schema: pr-edit\n")
+
     def test_unresolvable_head_fails_closed(self):
         with self.assertRaises(gitio.DiffUnavailable):
             changes_for(self.repo, "pull_request", self.main, "f" * 40)
@@ -95,11 +112,12 @@ class NamedJobClassTests(unittest.TestCase):
         self.assertTrue(plan["policy_change"] and plan["approval_required"])
         self.assertEqual(set(plan["needed_jobs"]), self.always)
 
-    def test_release_tooling_is_a_policy_change_that_selects_no_product_job(self):
-        plan = _plan(".github/release/draft_manifest.py")
+    def test_release_tooling_is_a_policy_change_that_selects_the_contracts_check(self):
+        # contracts/check runs .github/release/system_gate.py on every manifest (reviewer finding)
+        plan = _plan(".github/release/system_gate.py")
         self.assertFalse(plan["select_all"])
         self.assertTrue(plan["policy_change"])
-        self.assertEqual(set(plan["needed_jobs"]), self.always)
+        self.assertEqual(set(plan["needed_jobs"]), self.always | {"contracts/check"})
 
     def test_system_manifest_selects_the_gate_and_e2e_only(self):
         plan = _plan("system/releases/lab-2026.11.9.json")

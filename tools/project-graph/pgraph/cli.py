@@ -45,10 +45,18 @@ def changes_for(repo, event, base, head):
     return diff_base, tuple(gitio.read_changes(repo, diff_base, head))
 
 
+def proposed_graph(repo, trusted, head_graph, diff_base):
+    """The head's graph as data to compare, or None when the PR did not change it. RT-1173: a branch
+    behind main still carries the graph of its fork point; if main changed graph.yaml since, that is
+    main's change, not the PR's (a PR that edits graph.yaml has it in its merge-base diff anyway)."""
+    if head_graph == trusted or (diff_base and head_graph == gitio.read_text(repo, diff_base, GRAPH_REPO_PATH)):
+        return None
+    return head_graph or ""
+
+
 def cmd_evaluate(args):
     trusted = gitio.read_text(args.repo, args.base, GRAPH_REPO_PATH)
     head_graph = gitio.read_text(args.repo, args.head, GRAPH_REPO_PATH)
-    proposed = None if head_graph == trusted else (head_graph or "")
     try:
         diff_base, changes = changes_for(args.repo, args.event, args.base, args.head)
         base_tree = frozenset(gitio.list_tree(args.repo, args.base))
@@ -56,6 +64,7 @@ def cmd_evaluate(args):
         diff_error = False
     except gitio.DiffUnavailable:
         changes, base_tree, head_tree, diff_error, diff_base = (), None, None, True, None
+    proposed = proposed_graph(args.repo, trusted, head_graph, diff_base)
     workflows = None if diff_error else gitio.workflow_definitions(args.repo, args.base)
     inp = ev.EvalInput(
         event=args.event, base_sha=args.base_sha or args.base, head_sha=args.head_sha or args.head,
