@@ -412,3 +412,33 @@ export function isRt1181ExemptFile(branch: string, file: string): boolean {
     (RT_1181_POS_PIN_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * `claude/rt-1183-pos-stop-storing-printer-fields` implements Jira RT-1183 (RT-1165 S3): the POS stops
+ * storing the printer USB and COM fields from the pairing response, which lives in
+ * the pairing store and service under `src/main/pairing/`.
+ *
+ * Authority: owner decision 2026-11-04 (RT-1165, comment 15479, remove the printer
+ * fields from pairing), following the RT-591 file-list pattern: exactly SEVEN files on
+ * exactly ONE branch (exact name, no `startsWith`). Narrowness is asserted by
+ * `source-scope-guard-rt1183.test.ts`.
+ */
+export const RT_1183_STOP_STORING_PRINTER_FIELDS_BRANCH =
+  'claude/rt-1183-pos-stop-storing-printer-fields' as const;
+export const RT_1183_STOP_STORING_PRINTER_FIELDS_EXEMPT_FILES = [
+  'src/main/pairing/__tests__/service.test.ts',
+  'src/main/pairing/__tests__/store-device-revoked.test.ts',
+  'src/main/pairing/__tests__/store-token-binding.test.ts',
+  'src/main/pairing/__tests__/store.test.ts',
+  'src/main/pairing/dev-skip-pairing.ts',
+  'src/main/pairing/service.ts',
+  'src/main/pairing/store.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is one of the files the RT-1183 exemption allows on `branch`. */
+export function isRt1183ExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1183_STOP_STORING_PRINTER_FIELDS_BRANCH &&
+    (RT_1183_STOP_STORING_PRINTER_FIELDS_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}

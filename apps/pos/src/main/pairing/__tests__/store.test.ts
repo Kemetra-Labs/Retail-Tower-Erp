@@ -70,10 +70,11 @@ const MIGRATION_0042_SQL = readFileSync(
 const DEVICE_TOKEN_KEY: SecretKey = makeSecretKey('terminal.device-token');
 
 /**
- * Stub for the 6 new fields added by 008 T094a alongside migration 0027.
+ * Stub for the 3 fields added by 008 T094a alongside migration 0027
+ * (RT-1183 dropped the three printer fields from the row).
  * Existing tests that pre-date T094a use this spread to satisfy the
  * `TerminalAssignmentRow` shape without affecting their behaviour — all
- * six fields are pure data carriers on the row, no read-side branching
+ * three fields are pure data carriers on the row, no read-side branching
  * in the store gates on their values.
  *
  * The dedicated T094a test block below uses realistic values to verify
@@ -83,9 +84,6 @@ const T094A_STUB_FIELDS = {
   branch_name: null,
   branch_address: null,
   tenant_tax_registration_id: null,
-  printer_vendor_id: null,
-  printer_product_id: null,
-  printer_com_port: null,
 } as const;
 
 interface TestHarness {
@@ -103,14 +101,13 @@ interface TestHarness {
 function makeSqlJsAdapter(db: SqlJsDatabase): PairingStoreDb {
   return {
     readAssignment() {
-      // 11-column SELECT mirrors production `bindPairingStoreDb`
-      // (post-T094a). The 6 new columns may be NULL on rows written
-      // before migration 0027 ran, hence the explicit
-      // `as string | null` coercion via the row property reads.
+      // 8-column SELECT mirrors production `bindPairingStoreDb`
+      // (post-T094a, RT-1183). The 3 migration-0027 columns it reads may
+      // be NULL on rows written before migration 0027 ran, hence the
+      // explicit `as string | null` coercion via the row property reads.
       const stmt = db.prepare(
         `SELECT tenant_id, branch_id, terminal_id, terminal_label, paired_at,
-                branch_name, branch_address, tenant_tax_registration_id,
-                printer_vendor_id, printer_product_id, printer_com_port
+                branch_name, branch_address, tenant_tax_registration_id
          FROM terminal_assignment WHERE id = 1`,
       );
       try {
@@ -125,23 +122,19 @@ function makeSqlJsAdapter(db: SqlJsDatabase): PairingStoreDb {
           branch_name: (row['branch_name'] as string | null) ?? null,
           branch_address: (row['branch_address'] as string | null) ?? null,
           tenant_tax_registration_id: (row['tenant_tax_registration_id'] as string | null) ?? null,
-          printer_vendor_id: (row['printer_vendor_id'] as string | null) ?? null,
-          printer_product_id: (row['printer_product_id'] as string | null) ?? null,
-          printer_com_port: (row['printer_com_port'] as string | null) ?? null,
         };
       } finally {
         stmt.free();
       }
     },
     writeAssignment(row) {
-      // INSERT OR REPLACE writes all 11 columns. Mirrors production
-      // `bindPairingStoreDb.writeAssignment` post-T094a.
+      // INSERT OR REPLACE writes 8 columns. Mirrors production
+      // `bindPairingStoreDb.writeAssignment` post-T094a and RT-1183.
       db.run(
         `INSERT OR REPLACE INTO terminal_assignment
            (id, tenant_id, branch_id, terminal_id, terminal_label, paired_at,
-            branch_name, branch_address, tenant_tax_registration_id,
-            printer_vendor_id, printer_product_id, printer_com_port)
-         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            branch_name, branch_address, tenant_tax_registration_id)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           row.tenant_id,
           row.branch_id,
@@ -151,9 +144,6 @@ function makeSqlJsAdapter(db: SqlJsDatabase): PairingStoreDb {
           row.branch_name,
           row.branch_address,
           row.tenant_tax_registration_id,
-          row.printer_vendor_id,
-          row.printer_product_id,
-          row.printer_com_port,
         ],
       );
     },
@@ -613,21 +603,24 @@ describe('createPairingStore.clear() — US7 token-leak guard (T071)', () => {
  */
 
 // =========================================================================
-// 008 T094a — six new fields round-trip through migration 0027 +
-//             post-extension store SQL.
+// 008 T094a — the branch / tax-registration fields round-trip through
+//             migration 0027 + post-extension store SQL.
+//             RT-1183: the three printer fields are no longer part of the row.
 // =========================================================================
 //
 // Verifies the post-T094a contract:
-//   - Migration 0027 adds 6 nullable columns to `terminal_assignment`.
-//   - `writeAssignment` persists all 11 columns (5 baseline + 6 new).
-//   - `readAssignment` projects all 11 columns.
+//   - Migration 0027 adds nullable columns to `terminal_assignment`.
+//   - `writeAssignment` persists 8 columns (5 baseline + 3 new).
+//   - `readAssignment` projects those 8 columns.
 //   - A row written with non-null new fields round-trips byte-for-byte.
 //   - A row written with null new fields round-trips as null (forward-
 //     compatibility with pre-T094a paired terminals).
-//   - `persist()` propagates the 6 new fields from PersistInput into
+//   - `persist()` propagates the 3 new fields from PersistInput into
 //     the underlying writeAssignment call.
+//   - RT-1183: the three printer columns are neither written nor read;
+//     a legacy row that still holds printer values stays readable.
 //
-describe('008 T094a — six new fields round-trip (branch + tax + printer config)', () => {
+describe('008 T094a — new fields round-trip (branch + tax registration)', () => {
   let h: TestHarness | undefined;
   afterEach(() => {
     h?.db.close();
@@ -638,12 +631,9 @@ describe('008 T094a — six new fields round-trip (branch + tax + printer config
     branch_name: 'Maadi Pharmacy Branch 3',
     branch_address: '12 Road 9, Maadi, Cairo',
     tenant_tax_registration_id: '123456789',
-    printer_vendor_id: '0x04B8',
-    printer_product_id: '0x0202',
-    printer_com_port: null, // USB-only printer; COM port is genuinely null
   } as const;
 
-  it('writeAssignment persists all six new fields and readAssignment returns them byte-for-byte', async () => {
+  it('writeAssignment persists the three new fields and readAssignment returns them byte-for-byte', async () => {
     h = await makeHarness();
     h.storeDb.writeAssignment({
       tenant_id: 'tenant-A',
@@ -659,15 +649,12 @@ describe('008 T094a — six new fields round-trip (branch + tax + printer config
     expect(row?.branch_name).toBe('Maadi Pharmacy Branch 3');
     expect(row?.branch_address).toBe('12 Road 9, Maadi, Cairo');
     expect(row?.tenant_tax_registration_id).toBe('123456789');
-    expect(row?.printer_vendor_id).toBe('0x04B8');
-    expect(row?.printer_product_id).toBe('0x0202');
-    expect(row?.printer_com_port).toBeNull();
   });
 
-  it('the six new fields round-trip as null when written as null (pre-T094a re-pair scenario)', async () => {
+  it('the three new fields round-trip as null when written as null (pre-T094a re-pair scenario)', async () => {
     // Forward-compat invariant: a terminal that was paired before
     // 2026-05-28 has a row in terminal_assignment with NULL for the
-    // six new fields. The store MUST NOT crash on read; it MUST
+    // new fields. The store MUST NOT crash on read; it MUST
     // surface the nulls so the renderer / receipt template can fall
     // back gracefully (or refuse to render if the field is
     // load-bearing for that surface).
@@ -678,7 +665,7 @@ describe('008 T094a — six new fields round-trip (branch + tax + printer config
       terminal_id: 'terminal-C',
       terminal_label: 'Counter 1',
       paired_at: 1735689600,
-      ...T094A_STUB_FIELDS, // all six are null
+      ...T094A_STUB_FIELDS, // all three are null
     });
 
     const row = h.storeDb.readAssignment();
@@ -686,12 +673,9 @@ describe('008 T094a — six new fields round-trip (branch + tax + printer config
     expect(row?.branch_name).toBeNull();
     expect(row?.branch_address).toBeNull();
     expect(row?.tenant_tax_registration_id).toBeNull();
-    expect(row?.printer_vendor_id).toBeNull();
-    expect(row?.printer_product_id).toBeNull();
-    expect(row?.printer_com_port).toBeNull();
   });
 
-  it('persist() propagates all six new fields from PersistInput into the row write', async () => {
+  it('persist() propagates the three new fields from PersistInput into the row write', async () => {
     h = await makeHarness();
     await h.store.persist({
       device_token: 'opaque-token-value',
@@ -707,15 +691,12 @@ describe('008 T094a — six new fields round-trip (branch + tax + printer config
     expect(row?.branch_name).toBe('Maadi Pharmacy Branch 3');
     expect(row?.branch_address).toBe('12 Road 9, Maadi, Cairo');
     expect(row?.tenant_tax_registration_id).toBe('123456789');
-    expect(row?.printer_vendor_id).toBe('0x04B8');
-    expect(row?.printer_product_id).toBe('0x0202');
-    expect(row?.printer_com_port).toBeNull();
   });
 
-  it('persist() rollback on SQL failure also rolls back the six new fields (no orphan token)', async () => {
+  it('persist() rollback on SQL failure also rolls back the new fields (no orphan token)', async () => {
     // Reproduces the persist()-atomicity contract: SecretStore write
     // followed by SQL transaction; on SQL failure, the SecretStore
-    // entry is compensated by delete. The six new fields participate
+    // entry is compensated by delete. The new fields participate
     // in the same transactional unit — a SQL failure during their
     // write rolls back the entire row, and the token is purged.
     h = await makeHarness();
@@ -737,6 +718,71 @@ describe('008 T094a — six new fields round-trip (branch + tax + printer config
     expect(await h.secretStore.get(DEVICE_TOKEN_KEY)).toBeNull();
     // We can't read the row (db is closed); the in-process compensation
     // is what we're asserting here.
+  });
+
+  // RT-1183 (RT-1165 S3) — the printer USB / COM columns of migration
+  // 0027 stay in the table but the store no longer writes or reads them.
+  function readPrinterColumns(
+    db: SqlJsDatabase,
+  ): { vendor: unknown; product: unknown; com: unknown } | null {
+    const stmt = db.prepare(
+      'SELECT printer_vendor_id, printer_product_id, printer_com_port FROM terminal_assignment WHERE id = 1',
+    );
+    try {
+      if (!stmt.step()) return null;
+      const r = stmt.getAsObject();
+      return {
+        vendor: r['printer_vendor_id'],
+        product: r['printer_product_id'],
+        com: r['printer_com_port'],
+      };
+    } finally {
+      stmt.free();
+    }
+  }
+
+  it('RT-1183: persist() leaves the unused printer_* columns NULL', async () => {
+    h = await makeHarness();
+    await h.store.persist({
+      device_token: 'opaque-token-value',
+      tenant_id: 'tenant-A',
+      branch_id: 'branch-B',
+      terminal_id: 'terminal-C',
+      terminal_label: 'Counter 1',
+      paired_at: 1735689600,
+      ...T094A_REAL_FIELDS,
+    });
+    expect(readPrinterColumns(h.db)).toEqual({ vendor: null, product: null, com: null });
+  });
+
+  it('RT-1183: a terminal paired before this change (row holding printer values) is still read, and the row carries no printer fields', async () => {
+    h = await makeHarness();
+    // A row as written by the pre-RT-1183 POS: printer_* populated.
+    h.db.run(
+      `INSERT OR REPLACE INTO terminal_assignment
+         (id, tenant_id, branch_id, terminal_id, terminal_label, paired_at,
+          branch_name, branch_address, tenant_tax_registration_id,
+          printer_vendor_id, printer_product_id, printer_com_port)
+       VALUES (1, 'tenant-A', 'branch-B', 'terminal-C', 'Counter 1', 1735689600,
+               'Maadi Pharmacy Branch 3', '12 Road 9, Maadi, Cairo', '123456789',
+               '0x04B8', '0x0202', 'COM3')`,
+    );
+    const row = h.storeDb.readAssignment();
+    expect(row).toEqual({
+      tenant_id: 'tenant-A',
+      branch_id: 'branch-B',
+      terminal_id: 'terminal-C',
+      terminal_label: 'Counter 1',
+      paired_at: 1735689600,
+      ...T094A_REAL_FIELDS,
+    });
+    expect(Object.keys(row ?? {}).filter((k) => k.startsWith('printer_'))).toEqual([]);
+    // Reading does not touch the stored values.
+    expect(readPrinterColumns(h.db)).toEqual({
+      vendor: '0x04B8',
+      product: '0x0202',
+      com: 'COM3',
+    });
   });
 });
 
@@ -841,11 +887,9 @@ describe('bindPairingStoreDb', () => {
       'term',
       'Counter 1',
       1735689600,
-      // Six T094a fields appended after paired_at (positional). When
-      // the row uses T094A_STUB_FIELDS, all six are null.
-      null,
-      null,
-      null,
+      // Three T094a fields appended after paired_at (positional). When
+      // the row uses T094A_STUB_FIELDS, all three are null. RT-1183: no
+      // printer_* values follow.
       null,
       null,
       null,
