@@ -374,7 +374,7 @@ export function isRt889ExemptFile(branch: string, file: string): boolean {
  * contracts:repin`), which regenerates `src/shared/api-types.ts`.
  *
  * Authority: owner decision 2026-11-01 ("Repin in this PR", RT-1051), following
- * the RT-889 pattern: exactly TWO files on exactly ONE branch (exact name, no
+ * the RT-889 pattern: exactly ONE file on exactly ONE branch (exact name, no
  * `startsWith`). Narrowness is asserted by `source-scope-guard-rt1051.test.ts`.
  */
 export const RT_1051_BOUND_ARRAYS_BRANCH = 'fix/rt-1051-bound-request-arrays' as const;

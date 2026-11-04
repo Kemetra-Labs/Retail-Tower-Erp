@@ -56,10 +56,9 @@ const SUCCESS_BODY = {
 
 /**
  * RT-1183 (RT-1165 S3) — the printer USB / COM fields the pair response
- * may still carry. The POS ignores them. The vendored contract (and the
- * generated `api-types.ts`) still type them as required until the RT-1181
- * contract is re-pinned, so the body is cast to `PairSuccessBody`; the
- * cast is the point of the test (a server that sends them as strings, as
+ * may still carry. The POS ignores them. The re-pinned contract no longer
+ * has these fields, but an older backend can still send them, so the tests
+ * model that legacy response (a server that sends them as strings, as
  * null, or not at all).
  */
 const PRINTER_FIELDS_AS_STRINGS = {
