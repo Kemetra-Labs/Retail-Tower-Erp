@@ -665,9 +665,8 @@ components:
               type: string
               description: Human-readable summary; no sensitive data.
             request_id:
-              type: string
+              type: [string, "null"]
               format: uuid
-              nullable: true
               description: Server-assigned correlation id.
 
 security:

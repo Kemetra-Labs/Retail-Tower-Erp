@@ -391,6 +391,29 @@ export function isRt1051ExemptFile(branch: string, file: string): boolean {
 }
 
 /**
+ * `claude/rt-1181-pos-pin-repin` repins the POS to the in-tree Backend-Core contract
+ * after RT-1181 (#313) made the pair response's printer ids nullable, which
+ * regenerates `src/shared/api-types.ts` (`npm run contracts:repin`).
+ *
+ * Authority: owner decision 2026-11-04 (RT-1165 / RT-1181: merge #313 with the
+ * known-red `contracts/check` POS pin, then repin), following the RT-889 / RT-1051
+ * pattern: exactly ONE file on exactly ONE branch (exact name, no `startsWith`).
+ * Narrowness is asserted by `source-scope-guard-rt1181.test.ts`.
+ */
+export const RT_1181_POS_PIN_REPIN_BRANCH = 'claude/rt-1181-pos-pin-repin' as const;
+export const RT_1181_POS_PIN_REPIN_EXEMPT_FILES = [
+  'src/shared/api-types.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is one of the files the RT-1181 exemption allows on `branch`. */
+export function isRt1181ExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1181_POS_PIN_REPIN_BRANCH &&
+    (RT_1181_POS_PIN_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}
+
+/**
  * `claude/rt-1183-pos-stop-storing-printer-fields` implements Jira RT-1183 (RT-1165 S3): the POS stops
  * storing the printer USB and COM fields from the pairing response, which lives in
  * the pairing store and service under `src/main/pairing/`.

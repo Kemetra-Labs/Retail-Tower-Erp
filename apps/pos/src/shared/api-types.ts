@@ -2120,23 +2120,24 @@ export namespace PosSalesSales {
              *          the ERP Batch ref is frozen with the posting intent. No finding.
              *       2. Exact identity, but no `validationId` or one that does not match,
              *          or held or recalled at `occurredAt`. Accepted; the effect is
-             *          normal (the goods left). Critical finding: "tracked line without
-             *          online validation" or "sold under hold".
+             *          normal (the goods left). Critical sale-line finding
+             *          `unvalidated_tracked_line` or `sold_under_hold`.
              *       3. Exact identity, but expired at the business date, or with no ERP
              *          edge-map row. Accepted; the effect is at the identity and the
-             *          ERP posting intent is held, never sent. Critical finding; an
-             *          edge map is repaired and re-posted, an expired lot goes to the
-             *          owner (RT-50 B1).
+             *          ERP posting intent is held, never sent. Critical sale-line
+             *          finding `erp_intent_held`; an edge map is repaired and
+             *          re-posted, an expired lot goes to the owner (RT-50 B1).
              *       4. Unrepresentable: a tracked product's line without `tracking`, an
              *          unknown `identityId`, or another product's identity. Accepted;
              *          the whole sale is `tracking_unresolved`: no Inventory effect and
-             *          no ERP posting intent. Critical finding; resolved only by a
-             *          governed Tracking Resolution (high sensitivity, audited) that
-             *          binds an existing identity and then commits the effects and the
-             *          intent together (RT-50 DC-2). Tracking Resolution is a later
-             *          contract.
+             *          no ERP posting intent. It is NOT a finding: the sale enters the
+             *          Tracking Resolution queue and leaves it only through the
+             *          governed, audited, owner-only Tracking Resolution
+             *          (`bindTrackingResolution`), which binds an existing identity to
+             *          every unresolved line and then commits the effects and the
+             *          intent together (RT-50 DC-2).
              *
-             *     The response is the same `Sale` projection whatever the classification: this version adds no status code, no error code and no classification field to capture. The findings surface through Inventory Health and the Tracking Resolution queue (later issues). Known gap: an ad-hoc line (no `tenantProductRef`) can never be tracked, so the till MUST NOT sell a tracked product as an ad-hoc line. `safetyRevision` and `safetySyncedAt` record the Inventory Safety Revision the till held and when it last synced it (RT-50 G7-7), which lets the server tell a line sold under a hold the till had not yet seen. Tracked lines are never completed offline: they need a successful `posValidateTrackedLine`.
+             *     The response is the same `Sale` projection whatever the classification: this version adds no status code, no error code and no classification field to capture. Rows 2 and 3 surface as sale-line findings (`listSaleLineFindings`); a row-4 sale surfaces only in the Tracking Resolution queue (`listTrackingResolutionQueue`), where a store_manager sees a count for its own stores (RT-455 OD-9). Both reads and the bind are in `inventory/inventory.yaml` 1.9.0-draft. Known gap: an ad-hoc line (no `tenantProductRef`) can never be tracked, so the till MUST NOT sell a tracked product as an ad-hoc line. `safetyRevision` and `safetySyncedAt` record the Inventory Safety Revision the till held and when it last synced it (RT-50 G7-7), which lets the server tell a line sold under a hold the till had not yet seen. Tracked lines are never completed offline: they need a successful `posValidateTrackedLine`.
              */
             post: operations["captureSale"];
             delete?: never;
@@ -4815,12 +4816,12 @@ export namespace PosTerminalPairing {
                  * @description The device credential's expiry (`devices.expires_at`, RT-138 L2: 90 days after pairing). Populated by Backend-Core since RT-367; older servers omitted it, so a client tolerates its absence. Reported, not enforced until RT-370. POS-Pulse v1 ignores it; the rotation client (RT-373) rotates before it.
                  */
                 expires_at?: string | null;
-                /** @description OPTIONAL additional COM port (e.g. `COM3` on Windows, `/dev/ttyS0` on Linux) set ONLY when an RS-232 serial path is also available alongside the required USB connection (some Epson models expose both). NULL for USB-only printers. `printer_vendor_id` + `printer_product_id` remain required regardless — a "COM-port-only" terminal config is NOT permitted by this contract in 008 v1. Added 2026-05-28 to satisfy the Slice 3 prep-audit finding. */
+                /** @description OPTIONAL additional COM port (e.g. `COM3` on Windows, `/dev/ttyS0` on Linux) set ONLY when an RS-232 serial path is also available alongside the required USB connection (some Epson models expose both). NULL for USB-only printers. A "COM-port-only" terminal config was NOT permitted by this contract in 008 v1; since RT-1181 the two USB ids may be null as well. Added 2026-05-28 to satisfy the Slice 3 prep-audit finding. */
                 printer_com_port: string | null;
-                /** @description USB product ID of the receipt printer, as a hex string (e.g. `0x0202` for Epson TM-T20III). Paired with `printer_vendor_id` to uniquely identify the device. Added 2026-05-28 to satisfy the Slice 3 prep-audit finding. */
-                printer_product_id: string;
-                /** @description USB vendor ID of the receipt printer, as a hex string (e.g. `0x04B8` for Epson). Used by the POS print pipeline (008 Slice 3) to discover the printer at app startup. Added 2026-05-28 to satisfy the Slice 3 prep-audit finding on printer-config provenance. */
-                printer_vendor_id: string;
+                /** @description USB product ID of the receipt printer, as a hex string (e.g. `0x0202` for Epson TM-T20III), or `null` when the issuer did not supply it (nullable since RT-1181). Paired with `printer_vendor_id` to uniquely identify the device. Added 2026-05-28 to satisfy the Slice 3 prep-audit finding. */
+                printer_product_id: string | null;
+                /** @description USB vendor ID of the receipt printer, as a hex string (e.g. `0x04B8` for Epson), or `null` when the issuer did not supply it (nullable since RT-1181). Used by the POS print pipeline (008 Slice 3) to discover the printer at app startup. Added 2026-05-28 to satisfy the Slice 3 prep-audit finding on printer-config provenance. */
+                printer_vendor_id: string | null;
                 /**
                  * Format: uuid
                  * @description Tenant the terminal is bound to. Persisted in the local `terminal_assignment` row; included in every subsequent POS-authenticated request via the JWT principal.
