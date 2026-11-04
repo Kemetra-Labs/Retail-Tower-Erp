@@ -126,12 +126,19 @@ describe('the Sale screen is the scan owner (F-01)', () => {
     signIn();
     renderSale(bridges);
     const user = userEvent.setup();
-    await user.type(screen.getByLabelText('البحث بالاسم أو الباركود'), `${typed}{Enter}`);
-    await waitFor(() => {
-      expect(searchMock).toHaveBeenCalled();
-    });
-    // Let the results render: an auto-add would happen after the search resolves.
+    await user.type(screen.getByLabelText('البحث بالاسم أو الباركود'), typed);
+    // Press Enter only once the result is on screen: that is the case an auto-add would break.
     expect(await screen.findByText('بنادول')).toBeInTheDocument();
+    const callsBeforeEnter = searchMock.mock.calls.length;
+    await user.keyboard('{Enter}');
+    await waitFor(() => {
+      expect(searchMock.mock.calls.length).toBeGreaterThan(callsBeforeEnter);
+    });
+    // Settle the Enter-triggered search before asserting that nothing was added.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText('بنادول')).toBeInTheDocument();
     expect(bridges.add).not.toHaveBeenCalled();
     expect(bridges.lookupBarcode).not.toHaveBeenCalled();
     expect(document.querySelectorAll('.v5-sale-cart-line')).toHaveLength(0);
