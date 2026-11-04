@@ -635,6 +635,10 @@ This section is the repository record. The rationale, boards and prototype are i
   is rejected (OD-2): one commit colour on every screen.
 - **The band never changes with state.** Refusals, offline and loading use the status roles in
   the room or the dock, never a recoloured band (Brand-Yields-To-Truth).
+- **Pairing, Ready and boot *(S7, RT-1096)*.** Each root sets `data-entry-surface` and carries the
+  same short Ink band (`EntryBand`: Mint mark tile and the «Retail Tower» wordmark, no ornament).
+  The tenant logo stays in the card (pairing, 200×80) or the stage (boot, 240×120), on the light
+  surface, never on the band; under forced colours the band is Canvas with a 1px edge.
 
 ### Surfaces, shape and type (OD-3, OD-4)
 

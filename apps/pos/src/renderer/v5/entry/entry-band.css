@@ -1,0 +1,65 @@
+/*
+ * RT-1096 (RT-1042 S7) — the Ink band of pairing, Ready and boot. Every colour
+ * is an entry-surface role (styles/tailwind.css, `[data-entry-surface]`), so
+ * the band only renders under a root that opted in. Flat: no shadow, no
+ * gradient, no ornament (OD-4, OD-5). Mint appears only as the mark tile.
+ */
+
+.v5-entry-band {
+  --entry-band-size: 64px;
+  --entry-band-tile: 40px;
+
+  box-sizing: border-box;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
+  block-size: var(--entry-band-size);
+  padding-inline: var(--space-5);
+  background: var(--color-ink);
+  color: var(--color-on-ink);
+}
+
+/* 1024×600 floor: the same band, shorter, so the card keeps its room. */
+@media (max-width: 1279px), (max-height: 700px) {
+  .v5-entry-band {
+    --entry-band-size: 52px;
+    --entry-band-tile: 32px;
+
+    padding-inline: var(--space-4);
+  }
+}
+
+.v5-entry-band__mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  inline-size: var(--entry-band-tile);
+  block-size: var(--entry-band-tile);
+  border-radius: var(--radius-control);
+  background: var(--color-mint);
+  color: var(--color-ink);
+}
+
+.v5-entry-band__name {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-snug);
+  white-space: nowrap;
+  unicode-bidi: isolate;
+}
+
+/* Windows contrast themes (DESIGN.md Forced-Colours Rule): Canvas, a 1px edge, no Mint. */
+@media (forced-colors: active) {
+  .v5-entry-band {
+    border-block-end: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+
+  .v5-entry-band__mark {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+}
