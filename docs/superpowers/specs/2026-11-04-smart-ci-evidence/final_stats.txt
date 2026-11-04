@@ -1,0 +1,32 @@
+### 1 validation (gated heads only)
+gated heads compared 75 exact match 71 mismatch 4
+   (253, 0, 'red', {'admin/e2e': ['cancelled'], 'bc/db-integration': ['cancelled'], 'bc/db-package': ['cancelled'], 'bc/schemathesis': ['cancelled']}, [])
+   (262, 0, 'red', {'admin/build-test': ['cancelled'], 'admin/e2e': ['cancelled'], 'bc/db-integration': ['cancelled'], 'bc/db-package': ['cancelled'], 'bc/schemathesis': ['cancelled']}, [])
+   (268, 0, 'red', {'admin/e2e': ['cancelled'], 'bc/db-integration': ['cancelled'], 'bc/db-package': ['cancelled'], 'bc/schemathesis': ['cancelled']}, [])
+   (273, 1, 'red', {'admin/e2e': ['cancelled']}, [])
+c94ea6cd1 ci: RT-1030 system release manifest and offline compatibility gate [GATED: .github] (#181)
+
+### 2 strict bot attribution
+corrective 83 | pure main-merge (no PR-own path changed since previous head): 26 runner-min 1099.7
+strict A (bot inline comment on a file this push changed, posted since prev push): 33 runner-min 1493.1
+strict B (bot review on previous head, push not a pure main merge): 38 runner-min 1931.3
+A or B: 41 runner-min 2060.3 ; neither strict and not pure-main: 16
+### 3 docs split what-if
+bc_docs(services/backend-core/docs/**) | present in 14 shas | changes selection in 10 shas / 1 PRs | runner-min on deselected jobs 361.9
+bc_changelog_d | present in 20 shas | changes selection in 0 shas / 0 PRs | runner-min on deselected jobs 0.0
+bc_deploy_README(deploy-security tier) | present in 7 shas | changes selection in 0 shas / 0 PRs | runner-min on deselected jobs 0.0
+system/releases/README.md(system class) | present in 10 shas | changes selection in 0 shas / 0 PRs | runner-min on deselected jobs 0.0
+pos_docs(low tier) | present in 40 shas | changes selection in 36 shas / 8 PRs | runner-min on deselected jobs 47.0
+admin_docs(low tier) | present in 0 shas | changes selection in 0 shas / 0 PRs | runner-min on deselected jobs 0.0
+BC docs+changelog.d together: selection changes in 10 shas; runner-min 361.9 =6.2% of total
+### 4 main parents green on main push CI?
+main-merge parents 47 with push-CI runs found 47 all-green among those 43 not green 4
+   (270, 9, 'eb4510cd', [('project-graph', 'success'), ('Scorecard supply-chain security', 'success'), ('contracts', 'success'), ('gitleaks', 'cancelled'), ('project-graph-selftest', 'cancelled'), ('sonar', 'cancelled'), ('backend-core', 'success'), ('admin-console', 'success'), ('pos', 'failure'), ('e2e', 'success'), ('erpnext-connector', 'success')])
+   (274, 2, 'eb4510cd', [('project-graph', 'success'), ('Scorecard supply-chain security', 'success'), ('contracts', 'success'), ('gitleaks', 'cancelled'), ('project-graph-selftest', 'cancelled'), ('sonar', 'cancelled'), ('backend-core', 'success'), ('admin-console', 'success'), ('pos', 'failure'), ('e2e', 'success'), ('erpnext-connector', 'success')])
+   (274, 3, '3ee41a92', [('gitleaks', 'success'), ('contracts', 'success'), ('Scorecard supply-chain security', 'success'), ('Trivy image scan (Backend-Core)', 'success'), ('project-graph', 'success'), ('backend-core', 'success'), ('admin-console', 'success'), ('erpnext-connector', 'success'), ('e2e', 'success'), ('sonar', 'cancelled'), ('project-graph-selftest', 'success'), ('pos', 'failure')])
+   (276, 2, '3ee41a92', [('gitleaks', 'success'), ('contracts', 'success'), ('Scorecard supply-chain security', 'success'), ('Trivy image scan (Backend-Core)', 'success'), ('project-graph', 'success'), ('backend-core', 'success'), ('admin-console', 'success'), ('erpnext-connector', 'success'), ('e2e', 'success'), ('sonar', 'cancelled'), ('project-graph-selftest', 'success'), ('pos', 'failure')])
+### 6 levers
+PR 268 heads 7 select-all heads 7 runner-min 650.9
+policy-class path hits by top dir [('.github/release', 33), ('.circleci', 14), ('.github/workflows', 11)]
+select-all heads by PR [(260, 4), (261, 1), (265, 1), (266, 3), (267, 2), (268, 7), (269, 1), (284, 4), (287, 1)]
+heads where pos/test(+shards,+pos/static) selected only via a non-POS semantic edge: 17 runner-min of pos static+test jobs 270.0 PRs [253, 259, 262, 264, 279, 280]
