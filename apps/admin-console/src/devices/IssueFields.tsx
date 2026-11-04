@@ -199,32 +199,6 @@ export function IssueFields({
           ltr
           onChange={(taxRegistrationId) => onChange({ taxRegistrationId })}
         />
-        <Input
-          id="issue-printer-vendor"
-          label={t("devices.issue.field.printerVendorId", { bus: "USB" })}
-          help={t("devices.issue.field.usbHelp")}
-          value={draft.printerVendorId}
-          problem={problems.printerVendorId}
-          ltr
-          onChange={(printerVendorId) => onChange({ printerVendorId })}
-        />
-        <Input
-          id="issue-printer-product"
-          label={t("devices.issue.field.printerProductId", { bus: "USB" })}
-          help={t("devices.issue.field.usbHelp")}
-          value={draft.printerProductId}
-          problem={problems.printerProductId}
-          ltr
-          onChange={(printerProductId) => onChange({ printerProductId })}
-        />
-        <Input
-          id="issue-printer-com"
-          label={t("devices.issue.field.printerComPort", { port: "COM" })}
-          value={draft.printerComPort}
-          problem={problems.printerComPort}
-          ltr
-          onChange={(printerComPort) => onChange({ printerComPort })}
-        />
       </fieldset>
     </>
   );

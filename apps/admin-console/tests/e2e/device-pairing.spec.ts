@@ -9,7 +9,7 @@ import { type Page, expect, test } from "./fixtures";
  * RT-372 part B E2E against mocked Backend-Core (C-5): replace, move and the
  * pairing codes (issue, list, cancel). The console renders the server's impact
  * preview and the code once; nothing about the code outlives the drawer.
- *   S1 replace allowed: the five binding fields, the impact, the code shown once with its TTL.
+ *   S1 replace allowed: the three binding fields, the impact, the code shown once with its TTL.
  *   S2 move: the store-scope refusal (non-disclosing 404) reads as unavailable.
  *   S3 blocked unresolved_cash_session: nothing to issue, no override.
  *   S4 replacement_already_pending: its own message, never retried.
@@ -77,8 +77,6 @@ async function fillBinding(page: Page, t: (k: MessageKey, p?: Params) => string)
   await drawer.getByLabel(t("devices.issue.field.branchName")).fill("Dubai Mall");
   await drawer.getByLabel(t("devices.issue.field.branchAddress")).fill("Level 1");
   await drawer.getByLabel(t("devices.issue.field.taxRegistrationId")).fill("TRN-100");
-  await drawer.getByLabel(t("devices.issue.field.printerVendorId", { bus: "USB" })).fill("0x04B8");
-  await drawer.getByLabel(t("devices.issue.field.printerProductId", { bus: "USB" })).fill("0x0E15");
 }
 
 test("S1: replace: binding → the server's impact → the code, once, with its TTL", async ({
@@ -94,9 +92,9 @@ test("S1: replace: binding → the server's impact → the code, once, with its 
   await page.getByRole("button", { name: t("devices.actions.replace") }).click();
   const drawer = page.getByRole("dialog");
 
-  // The five binding fields are required (decision C1).
+  // The three binding fields are required (decision C1).
   await drawer.getByRole("button", { name: t("devices.flow.review") }).click();
-  await expect(drawer.getByText(t("devices.text.required"))).toHaveCount(5);
+  await expect(drawer.getByText(t("devices.text.required"))).toHaveCount(3);
 
   await fillBinding(page, t);
   await drawer.getByRole("button", { name: t("devices.flow.review") }).click();
@@ -113,8 +111,6 @@ test("S1: replace: binding → the server's impact → the code, once, with its 
       branchName: "Dubai Mall",
       branchAddress: "Level 1",
       taxRegistrationId: "TRN-100",
-      printerVendorId: "0x04B8",
-      printerProductId: "0x0E15",
     },
   ]);
   expect(issues.keys[0]).toMatch(/^[\x21-\x7E]{16,128}$/);

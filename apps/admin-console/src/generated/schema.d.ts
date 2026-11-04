@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 8c72ed5e3436c6095704f97eceb6cb88349166cc
+// Source: Kemetra-Labs/Retail-Tower-Erp @ b38370ada1bd174b78805989f975dcb983676ee5
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -6772,7 +6772,10 @@ export namespace DevicesSchema {
             BindingText: string;
             /** @description A USB vendor or product id as `0xHHHH` (0024 CHECK). */
             PrinterUsbId: string;
-            /** @description The code to issue. The tenant is the session's, never the request's. `branchName`, `branchAddress`, `taxRegistrationId` and the printer fields are the terminal binding `posPairTerminal` returns: the terminal pins them at pairing and prints them on receipts. Backend-Core holds no store address, tax registration or printer, so the issuer supplies them, as the bootstrap CLI does. */
+            /**
+             * @description The code to issue. The tenant is the session's, never the request's. `branchName`, `branchAddress`, `taxRegistrationId` and the printer fields are the terminal binding `posPairTerminal` returns: the terminal pins them at pairing and prints them on receipts. Backend-Core holds no store address, tax registration or printer, so the issuer supplies them, as the bootstrap CLI does.
+             *     **Printer fields (RT-1181, RT-1165 S1, expand step).** `printerVendorId`, `printerProductId` and `printerComPort` are all optional and are still accepted when sent (a sent id must still match `0xHHHH`). The owner decision on RT-1165 is to remove them from pairing; this version only stops requiring them, so a client that no longer sends them is not refused. A later contract step removes them (RT-1184).
+             */
             PairingCodeIssueRequest: {
                 /**
                  * Format: uuid
@@ -6797,8 +6800,10 @@ export namespace DevicesSchema {
                 branchAddress: components["schemas"]["BindingText"];
                 /** @description The tenant's tax registration id printed on fiscal receipts. */
                 taxRegistrationId: string;
-                printerVendorId: components["schemas"]["PrinterUsbId"];
-                printerProductId: components["schemas"]["PrinterUsbId"];
+                /** @description Optional (RT-1181). The receipt printer's USB vendor id; omitted, it is stored as NULL and `posPairTerminal` returns `null`. */
+                printerVendorId?: components["schemas"]["PrinterUsbId"];
+                /** @description Optional (RT-1181). The receipt printer's USB product id; omitted, it is stored as NULL and `posPairTerminal` returns `null`. */
+                printerProductId?: components["schemas"]["PrinterUsbId"];
                 /** @description The optional RS-232 port alongside the USB printer (e.g. `COM3`); omitted or null for a USB-only printer. */
                 printerComPort?: string | null;
             };
