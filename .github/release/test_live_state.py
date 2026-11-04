@@ -425,6 +425,21 @@ class Writes(Case):
         self.assertIn("another write landed between this run's read (version 1) and its write (version 3)", str(caught.exception))
         self.assertIn("version 2 in /rt/lab/live-state's history", str(caught.exception))
 
+    def test_the_aws_cli_itself_never_retries_a_write(self):
+        """A CLI retry of a write whose response was lost would write twice, and the version gap would read as another writer."""
+        seen = []
+
+        def fake_run(argv, **kwargs):
+            seen.append((argv[-1] if argv[1:2] == ["ssm"] else argv, kwargs.get("env")))
+            return mock.Mock(returncode=0, stdout="{}", stderr="")
+
+        with mock.patch.object(live_state.subprocess, "run", fake_run):
+            live_state.run_aws(["aws", "ssm", "put-parameter", "--name", live_state.PARAM, "--value", "{}"])
+            live_state.run_aws(["aws", "ssm", "get-parameter", "--name", live_state.PARAM])
+        (_, put_env), (_, get_env) = seen
+        self.assertEqual(put_env["AWS_MAX_ATTEMPTS"], "1")
+        self.assertIsNone(get_env)  # reads keep the CLI's own retries
+
     def test_a_denied_write_is_not_retried(self):
         aws = FakeAws(dump(SEED))
         aws.put_plan = ["denied", "ok"]

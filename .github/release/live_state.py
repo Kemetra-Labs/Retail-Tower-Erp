@@ -23,6 +23,7 @@ import argparse
 import datetime
 import hashlib
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -214,8 +215,14 @@ def resolve(record, root, given=""):
 
 def run_aws(argv, timeout=AWS_TIMEOUT):
     argv = [shutil.which(argv[0]) or argv[0]] + list(argv[1:])
+    env = None
+    if "put-parameter" in argv:
+        # The AWS CLI retries transient failures by default. A write whose response was lost would then be written a
+        # second time, and put_checked would read the version gap as another writer. It decides about retries itself,
+        # after reading the record back.
+        env = {**os.environ, "AWS_MAX_ATTEMPTS": "1"}
     try:
-        proc = subprocess.run(argv, capture_output=True, text=True, check=False, timeout=timeout)
+        proc = subprocess.run(argv, capture_output=True, text=True, check=False, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         return 124, "", "timed out"
     except OSError as exc:
