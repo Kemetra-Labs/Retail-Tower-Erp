@@ -22,8 +22,9 @@ L3 is kept: nothing of the sale is shown, and there is no ornament (OD-5).
 
 ```text
 ┌──────────────────────────── Ink band (data-entry-surface) ────────────────────────────┐
-│ [tenant logo 200×80 on the white card]        Retail Tower · الطرفية مقفلة              │
+│ [mark on a Mint tile]  Retail Tower                                                    │
 └────────────────────────────────────────────────────────────────────────────────────────┘
+        [tenant logo 200×80, in the dialog, never on Ink]
         الطرفية مقفلة
         أدخل الرقم السري للمتابعة.
         فتح القفل لـ  <اسم الكاشير>
