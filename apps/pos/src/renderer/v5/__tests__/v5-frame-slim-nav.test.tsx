@@ -101,6 +101,25 @@ describe('the frame nav', () => {
     expect(screen.getByRole('button', { name: 'تسجيل الخروج' })).toBeInTheDocument();
   });
 
+  // RT-1191 — Void has no nav entry of its own; the dashboard hub stays current.
+  it('marks the dashboard entry current on the Void route', () => {
+    signIn('manager');
+    renderAt('/app/void');
+    const nav = screen.getByRole('navigation', { name: 'التنقل الرئيسي' });
+    expect(within(nav).getByRole('link', { name: 'لوحة المتابعة' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(within(nav).queryAllByRole('link', { current: 'page' })).toHaveLength(1);
+  });
+
+  it('keeps the full operator name and sign-out label as text for the accessible name', () => {
+    signIn('cashier');
+    renderAt('/app/cart');
+    expect(screen.getByTestId('v5-frame-operator')).toHaveTextContent('د. سارة');
+    expect(screen.getByRole('button', { name: 'تسجيل الخروج' })).toHaveTextContent('تسجيل الخروج');
+  });
+
   it('is axe-clean in the slim rail', async () => {
     signIn('manager');
     await expectNoAxeViolations(renderAt('/app/cart'));
@@ -128,5 +147,19 @@ describe('slim rail CSS', () => {
     for (const match of (rule?.[1] ?? '').matchAll(/min-block-size:\s*(\d+)px/g)) {
       expect(Number(match[1])).toBeGreaterThanOrEqual(44);
     }
+  });
+
+  // RT-1191 — ≈76px rail: name and sign-out each fit on one line with an ellipsis.
+  it.each(['operator-name', 'sign-out button'])('keeps the slim-rail %s on one line', (which) => {
+    const selector =
+      which === 'operator-name'
+        ? /\.v5-frame\[data-nav='slim'\] \.v5-frame__operator-name\s*\{([^}]*)\}/
+        : /\.v5-frame\[data-nav='slim'\] \.v5-frame__sign-out button\s*\{([^}]*)\}/;
+    const body = selector.exec(css)?.[1] ?? '';
+    expect(body).toMatch(/white-space:\s*nowrap/);
+    expect(body).toMatch(/overflow:\s*hidden/);
+    expect(body).toMatch(/text-overflow:\s*ellipsis/);
+    expect(body).not.toMatch(/line-clamp/);
+    expect(body).not.toMatch(/white-space:\s*normal/);
   });
 });

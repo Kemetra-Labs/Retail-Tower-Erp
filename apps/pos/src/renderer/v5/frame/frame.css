@@ -266,12 +266,12 @@
 }
 
 .v5-frame[data-nav='slim'] .v5-frame__operator-name {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
+  /* RT-1191 — one line; the full name stays in the DOM text (accessible name). */
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: var(--font-size-xs);
-  white-space: normal;
+  white-space: nowrap;
 }
 
 .v5-frame[data-nav='slim'] .v5-frame__operator-role,
@@ -279,10 +279,14 @@
   font-size: var(--font-size-xs);
 }
 
-/* .v5-btn keeps labels on one line; the ≈76px rail lets «تسجيل الخروج» wrap. */
+/* RT-1191 — «تسجيل الخروج» stays on one line in the ≈76px rail; ellipsis if it must clip. */
 .v5-frame[data-nav='slim'] .v5-frame__sign-out button {
+  display: block;
   min-inline-size: 0;
-  white-space: normal;
+  max-inline-size: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding-inline: 2px;
   font-size: var(--font-size-xs);
   line-height: var(--line-height-snug);
