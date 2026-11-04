@@ -38,14 +38,6 @@
 {"file":"ready-1024x768-fc.webp","innerScroll":"none","bandW":1024,"w":1024,"h":768,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
 {"file":"ready-1280x800-fc.webp","innerScroll":"none","bandW":1280,"w":1280,"h":800,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
 {"file":"ready-1920x1080-fc.webp","innerScroll":"none","bandW":1920,"w":1920,"h":1080,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
-{"file":"lock-cashier-logo-1024x600.webp","innerScroll":"v5-dialog v5-live-dialog:352px","bandW":1024,"w":1024,"h":600,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":10,"dir":"rtl"}
-{"file":"lock-cashier-logo-1024x768.webp","innerScroll":"v5-dialog v5-live-dialog:184px","bandW":1024,"w":1024,"h":768,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":2,"dir":"rtl"}
-{"file":"lock-cashier-logo-1280x800.webp","innerScroll":"v5-dialog v5-live-dialog:200px","bandW":1280,"w":1280,"h":800,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":2,"dir":"rtl"}
-{"file":"lock-cashier-logo-1920x1080.webp","innerScroll":"none","bandW":1920,"w":1920,"h":1080,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
-{"file":"lock-cashier-logo-1024x600-fc.webp","innerScroll":"v5-dialog v5-live-dialog:353px","bandW":1024,"w":1024,"h":600,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":10,"dir":"rtl"}
-{"file":"lock-cashier-logo-1024x768-fc.webp","innerScroll":"v5-dialog v5-live-dialog:185px","bandW":1024,"w":1024,"h":768,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":2,"dir":"rtl"}
-{"file":"lock-cashier-logo-1280x800-fc.webp","innerScroll":"v5-dialog v5-live-dialog:201px","bandW":1280,"w":1280,"h":800,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":2,"dir":"rtl"}
-{"file":"lock-cashier-logo-1920x1080-fc.webp","innerScroll":"none","bandW":1920,"w":1920,"h":1080,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
 {"file":"lock-manager-1024x600.webp","innerScroll":"none","bandW":1024,"w":1024,"h":600,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
 {"file":"lock-manager-1024x768.webp","innerScroll":"none","bandW":1024,"w":1024,"h":768,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
 {"file":"lock-manager-1280x800.webp","innerScroll":"none","bandW":1280,"w":1280,"h":800,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
@@ -54,14 +46,6 @@
 {"file":"lock-manager-1024x768-fc.webp","innerScroll":"none","bandW":1024,"w":1024,"h":768,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
 {"file":"lock-manager-1280x800-fc.webp","innerScroll":"none","bandW":1280,"w":1280,"h":800,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
 {"file":"lock-manager-1920x1080-fc.webp","innerScroll":"none","bandW":1920,"w":1920,"h":1080,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
-{"file":"lock-cashier-1024x600.webp","innerScroll":"v5-dialog v5-live-dialog:182px","bandW":1024,"w":1024,"h":600,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":3,"dir":"rtl"}
-{"file":"lock-cashier-1024x768.webp","innerScroll":"v5-dialog v5-live-dialog:14px","bandW":1024,"w":1024,"h":768,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
-{"file":"lock-cashier-1280x800.webp","innerScroll":"v5-dialog v5-live-dialog:30px","bandW":1280,"w":1280,"h":800,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
-{"file":"lock-cashier-1920x1080.webp","innerScroll":"none","bandW":1920,"w":1920,"h":1080,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
-{"file":"lock-cashier-1024x600-fc.webp","innerScroll":"v5-dialog v5-live-dialog:183px","bandW":1024,"w":1024,"h":600,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":3,"dir":"rtl"}
-{"file":"lock-cashier-1024x768-fc.webp","innerScroll":"v5-dialog v5-live-dialog:15px","bandW":1024,"w":1024,"h":768,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
-{"file":"lock-cashier-1280x800-fc.webp","innerScroll":"v5-dialog v5-live-dialog:31px","bandW":1280,"w":1280,"h":800,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
-{"file":"lock-cashier-1920x1080-fc.webp","innerScroll":"none","bandW":1920,"w":1920,"h":1080,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
 {"file":"takeover-1024x600.webp","innerScroll":"none","bandW":1024,"w":1024,"h":600,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
 {"file":"takeover-1024x768.webp","innerScroll":"none","bandW":1024,"w":1024,"h":768,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
 {"file":"takeover-1280x800.webp","innerScroll":"none","bandW":1280,"w":1280,"h":800,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
@@ -78,3 +62,19 @@
 {"file":"lock-manager-logo-1024x768-fc.webp","innerScroll":"none","bandW":1024,"w":1024,"h":768,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
 {"file":"lock-manager-logo-1280x800-fc.webp","innerScroll":"none","bandW":1280,"w":1280,"h":800,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
 {"file":"lock-manager-logo-1920x1080-fc.webp","innerScroll":"none","bandW":1920,"w":1920,"h":1080,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
+{"file":"lockgate-cashier-1024x600.webp","innerScroll":"v5-dialog v5-live-dialog:182px","bandW":1024,"w":1024,"h":600,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":3,"dir":"rtl"}
+{"file":"lockgate-cashier-1024x768.webp","innerScroll":"v5-dialog v5-live-dialog:14px","bandW":1024,"w":1024,"h":768,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
+{"file":"lockgate-cashier-1280x800.webp","innerScroll":"v5-dialog v5-live-dialog:30px","bandW":1280,"w":1280,"h":800,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
+{"file":"lockgate-cashier-1920x1080.webp","innerScroll":"none","bandW":1920,"w":1920,"h":1080,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
+{"file":"lockgate-cashier-1024x600-fc.webp","innerScroll":"v5-dialog v5-live-dialog:183px","bandW":1024,"w":1024,"h":600,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":3,"dir":"rtl"}
+{"file":"lockgate-cashier-1024x768-fc.webp","innerScroll":"v5-dialog v5-live-dialog:15px","bandW":1024,"w":1024,"h":768,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
+{"file":"lockgate-cashier-1280x800-fc.webp","innerScroll":"v5-dialog v5-live-dialog:31px","bandW":1280,"w":1280,"h":800,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
+{"file":"lockgate-cashier-1920x1080-fc.webp","innerScroll":"none","bandW":1920,"w":1920,"h":1080,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
+{"file":"lockgate-cashier-logo-1024x600.webp","innerScroll":"v5-dialog v5-live-dialog:352px","bandW":1024,"w":1024,"h":600,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":10,"dir":"rtl"}
+{"file":"lockgate-cashier-logo-1024x768.webp","innerScroll":"v5-dialog v5-live-dialog:184px","bandW":1024,"w":1024,"h":768,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":2,"dir":"rtl"}
+{"file":"lockgate-cashier-logo-1280x800.webp","innerScroll":"v5-dialog v5-live-dialog:200px","bandW":1280,"w":1280,"h":800,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":2,"dir":"rtl"}
+{"file":"lockgate-cashier-logo-1920x1080.webp","innerScroll":"none","bandW":1920,"w":1920,"h":1080,"vis":"visible","fc":false,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
+{"file":"lockgate-cashier-logo-1024x600-fc.webp","innerScroll":"v5-dialog v5-live-dialog:353px","bandW":1024,"w":1024,"h":600,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":10,"dir":"rtl"}
+{"file":"lockgate-cashier-logo-1024x768-fc.webp","innerScroll":"v5-dialog v5-live-dialog:185px","bandW":1024,"w":1024,"h":768,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":2,"dir":"rtl"}
+{"file":"lockgate-cashier-logo-1280x800-fc.webp","innerScroll":"v5-dialog v5-live-dialog:201px","bandW":1280,"w":1280,"h":800,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":2,"dir":"rtl"}
+{"file":"lockgate-cashier-logo-1920x1080-fc.webp","innerScroll":"none","bandW":1920,"w":1920,"h":1080,"vis":"visible","fc":true,"hScroll":false,"vScroll":false,"under44":0,"offscreen":0,"dir":"rtl"}
