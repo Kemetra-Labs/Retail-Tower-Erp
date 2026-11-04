@@ -175,12 +175,14 @@ def _schema_errors(data):
                                  or not _is_str_list(fast.get("globs")) or not fast["globs"]
                                  or not _is_str_list(fast.get("exclude", []))):
             errs.append(f"SCHEMA: {name}.api_jest_fast must be {{globs: [str, ...], exclude?: [str]}}")
+    # RT-1173: besides `all`, a shared class may select a list of graph job keys; `e2e` means e2e_job.
+    selectable = {"e2e"} | set(data["jobs"] if isinstance(data.get("jobs"), dict) else ())
     for name, cls in data["shared_classes"].items():
         if not isinstance(cls, dict) or not isinstance(cls.get("precedence"), int) \
                 or not _is_str_list(cls.get("globs")) \
                 or not (cls.get("selects") == "all"
-                        or (_is_str_list(cls.get("selects")) and set(cls["selects"]) <= {"e2e"})):
-            errs.append(f"SCHEMA: shared class {name} is malformed (selects must be all, [e2e] or [])")
+                        or (_is_str_list(cls.get("selects")) and set(cls["selects"]) <= selectable)):
+            errs.append(f"SCHEMA: shared class {name} is malformed (selects must be all or a list of graph jobs/e2e)")
     for edge in data["edges"]:
         if not isinstance(edge, dict) or edge.get("from") not in data["products"] \
                 or edge.get("to") not in data["products"] or not _is_str_list(edge.get("via")):

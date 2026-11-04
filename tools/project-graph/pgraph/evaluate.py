@@ -41,6 +41,7 @@ class EvalInput:
     workflows: dict = None             # workflow -> raw jobs at base (RT-867 plan guard)
     base_tree: frozenset = None        # rule 4 for the trusted graph
     head_tree: frozenset = None        # rule 4 for the proposed graph
+    diff_base: str = None              # RT-1173: where `changes` start (PR: merge-base); None = base_sha
 
 
 @dataclass
@@ -60,9 +61,10 @@ class _Acc:
         self.hard.setdefault(reason, []).append(detail)
         self.select_all.append(reason)
 
-    def need_approval(self, reason, detail):
+    def need_approval(self, reason, detail, select_all=True):
         self.approval.setdefault(reason, []).append(detail)
-        self.select_all.append(reason)
+        if select_all:
+            self.select_all.append(reason)
 
 
 def _sha256(text):
@@ -110,11 +112,15 @@ def _add_product(acc, graph, product, tiers, why):
 def _apply_class(acc, graph, cls_name, path):
     cls = graph.shared_class(cls_name)
     if cls.get("policy_change"):
-        acc.need_approval("POLICY_CHANGE", path)
+        # RT-1173: a policy class that names its jobs (.circleci, release tooling) still needs the
+        # approval and the fingerprint, but selects only its list: no product suite can test it.
+        acc.need_approval("POLICY_CHANGE", path, select_all=cls["selects"] == "all")
     if cls["selects"] == "all":
         acc.select_all.append(f"CLASS_{cls_name.upper()}")
-    elif "e2e" in cls["selects"]:
-        acc.needed.add(graph.data["e2e_job"])
+        return
+    # RT-1173: a named list of graph jobs; the token `e2e` stands for the graph's e2e_job.
+    for job in cls["selects"]:
+        acc.needed.add(graph.data["e2e_job"] if job == "e2e" else job)
 
 
 def _classify_path(acc, trusted, proposed, path, mode):
@@ -214,6 +220,7 @@ def _finish(acc, inp, trusted, trusted_sha, proposed_sha):
         "job_event": "pull_request" if inp.event in PR_EVENTS else inp.event,
         "base_sha": inp.base_sha,
         "head_sha": inp.head_sha,
+        "diff_base": inp.diff_base or inp.base_sha,
         "trusted_graph_sha": trusted_sha,
         "proposed_graph_sha": proposed_sha,
         "select_all": bool(acc.select_all),
