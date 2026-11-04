@@ -133,6 +133,12 @@ class NamedJobClassTests(unittest.TestCase):
                 self.assertTrue(plan["select_all"])
                 self.assertEqual(set(plan["needed_jobs"]), self.graph.all_jobs)
 
+    def test_compat_matrix_change_selects_the_contracts_check(self):
+        # the release specs and the system gate (G5) in contracts/check parse this matrix
+        plan = _plan("services/backend-core/contracts-compat/pos-supported.yaml")
+        self.assertIn("contracts/check", plan["needed_jobs"])
+        self.assertIn("bc/contracts-compat", plan["needed_jobs"])
+
     def test_classification_of_the_narrowed_paths(self):
         self.assertEqual(self.graph.classify(".circleci/scripts/x.cjs")[:2], ("class", "circleci"))
         self.assertEqual(self.graph.classify(".github/release/x.py")[:2], ("class", "release_tooling"))

@@ -169,6 +169,11 @@ products:
       tooling:
         globs: [scripts/**, loadtests/**, .eslintrc.cjs, .prettierrc, codecov.yml, .sonarcloud.properties, .coderabbit.yaml]
         jobs: [bc/fast]
+      # RT-1173: the POS compatibility matrix and its parser. contracts/check reads them too (the
+      # system release gate's G5 and the release specs), so a change here also runs that job.
+      compat-matrix:
+        globs: [contracts-compat/**]
+        jobs: ["@bc-full", contracts/check]
       # No `low` tier for BC yet. §B.3.3 makes docs/**, specs/**, .specify/**,
       # *.md and images low ONLY if no code under apps/ packages/ tools/ quotes
       # the path (RT-582 rule, e.g. deploy/README.md read by release-images.spec.ts).
