@@ -230,8 +230,9 @@ def _check_shared(data, roots, errs):
                 errs.append(f"SHARED_GLOB_IN_PRODUCT: {name} glob {g.text} is unanchored")
                 continue
             # A policy class outranks product ownership (Graph.classify), so it may reach into a
-            # product root: it only ever adds approval and selects everything (fail closed).
-            if cls.get("policy_change") is True:
+            # product root only while it selects everything (fail closed). RT-1173: a policy class
+            # with a named-job list would take product paths away from that product's own tests.
+            if cls.get("policy_change") is True and cls.get("selects") == "all":
                 by_prec.setdefault(cls["precedence"], []).append((name, g))
                 continue
             for pname, root in roots.items():

@@ -186,6 +186,18 @@ class SchemaTests(unittest.TestCase):
         g["shared_classes"]["docs"]["selects"] = ["bc/fast", "e2e"]
         self.assertNotIn("SCHEMA", {e.split(":", 1)[0] for e in validate_graph(g, workflow_jobs=dict(g["jobs"]))})
 
+    def test_a_narrowed_policy_class_may_not_reach_a_product_root(self):
+        g = load_graph(support.trusted_text())
+        g["shared_classes"]["circleci"]["globs"] = [".circleci/**", "apps/pos/.circleci/**"]
+        errs = validate_graph(g, workflow_jobs=dict(g["jobs"]))
+        self.assertTrue(any(e.startswith("SHARED_GLOB_IN_PRODUCT: circleci") for e in errs), errs)
+
+    def test_a_select_all_policy_class_may_still_reach_a_product_root(self):
+        g = load_graph(support.trusted_text())
+        self.assertIn("apps/*/.github/**", g["shared_classes"]["policy"]["globs"])
+        errs = validate_graph(g, workflow_jobs=dict(g["jobs"]))
+        self.assertFalse([e for e in errs if e.startswith("SHARED_GLOB_IN_PRODUCT")], errs)
+
     def test_an_unknown_job_name_is_rejected(self):
         g = load_graph(support.trusted_text())
         g["shared_classes"]["docs"]["selects"] = ["bc/nope"]

@@ -439,7 +439,7 @@ Never force-push unless the owner explicitly instructs it.
 
 ### Sync with main and batch fixes before a PR push (RT-948 option 1a)
 
-Since RT-1173 the CI plan selects jobs from what the PR adds (`git merge-base(base, head)..head`), so a branch behind `main` is no longer charged for `main`'s newer commits. Before that, a two-dot diff charged it (RT-921 c14837: about 500 extra Backend-Core runner-minutes across 20 branches), which is why step 1 used to require a sync on every push. Trade-off: jobs are selected from the PR's own paths, so the merge ref is not re-tested for jobs that only `main`'s newer changes would select; step 4's pre-merge sync and a green `required` on that head cover it.
+Since RT-1173 the CI plan selects jobs from what the PR adds (`git merge-base(base, head)..head`), so a branch behind `main` is no longer charged for `main`'s newer commits. Before that, a two-dot diff charged it (RT-921 c14837: about 500 extra Backend-Core runner-minutes across 20 branches), which is why step 1 used to require a sync on every push. Trade-off: jobs are selected from the PR's own paths, so the merge ref is not re-tested for jobs that only `main`'s newer changes would select. Step 4's pre-merge sync does not select them either (after the sync the merge-base is `main`'s tip); each of those `main` changes was tested on its own PR, and the first run that selects every job is the merged commit's `push` to `main` (`FULL_EVENTS` in `pgraph/evaluate.py`).
 
 For every push to a PR that targets `main` (the first push and each corrective push), when that push is otherwise authorized:
 
