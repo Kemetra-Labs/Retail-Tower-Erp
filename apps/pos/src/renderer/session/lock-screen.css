@@ -7,10 +7,35 @@
  * the sale, so there is no summary block (doc 15 §2.1, owner decision L3).
  */
 
+/*
+ * RT-1095 (RT-1042 S6): the PinPad reuses entry.css's keypad classes, whose sizes
+ * come from `.v5-entry` custom properties. The lock is not a `.v5-entry` root, so
+ * it carries the same keypad sizes (64/60 comfortable, 56/56 below 1280 wide) and
+ * the band's gutter. `data-entry-surface` on the root opts in to the Ink roles.
+ */
+.session-lock {
+  --entry-pad: 20px;
+  --entry-key: 64px;
+  --entry-commit: 60px;
+}
+
+@media (max-width: 1279px) {
+  .session-lock {
+    --entry-pad: var(--space-4);
+    --entry-key: 56px;
+    --entry-commit: 56px;
+  }
+}
+
 /* RT-161: the lock's own backdrop is opaque. The shared dialog scrim is
    translucent and would let the sale show through on an unattended till. */
 .session-lock .v5-dialog-backdrop {
   background: var(--color-background);
+}
+
+.session-lock__keys {
+  /* a key-listening scope with no box of its own: the dialog lays out its children */
+  display: contents;
 }
 
 .session-lock__head {

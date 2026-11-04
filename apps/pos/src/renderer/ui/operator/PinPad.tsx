@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, type JSX, type KeyboardEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  type JSX,
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 
 import { useRefuseSurface } from '../../scan/ScanGuardHost';
 import type { RefuseSurface } from '../../scan/scan-guard';
@@ -57,6 +65,14 @@ export interface PinPadProps {
   describedBy?: string;
   /** Moves focus to the PIN field on mount (a cashier was just picked). */
   autoFocus?: boolean;
+  /**
+   * RT-1095 — where the hardware keys are heard. Default: `window` (sign-in).
+   * The lock names its own root: it stops key events there so nothing behind
+   * the lock hears them, which would also silence a `window` listener.
+   */
+  keyTarget?: RefObject<HTMLElement | null>;
+  /** RT-1095 — the caller's handle on the PIN field (a dialog's initial focus). */
+  dotsRef?: RefObject<HTMLDivElement | null>;
 }
 
 const DIGITS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'] as const;
@@ -72,6 +88,8 @@ export function PinPad(props: Readonly<PinPadProps>): JSX.Element {
     submitLabel = 'دخول',
     describedBy,
     autoFocus = false,
+    keyTarget,
+    dotsRef,
   } = props;
   const canSubmit = value.length >= PIN_MIN_LENGTH;
   const canAppend = value.length < PIN_MAX_LENGTH;
@@ -123,11 +141,12 @@ export function PinPad(props: Readonly<PinPadProps>): JSX.Element {
         e.preventDefault();
       }
     };
-    window.addEventListener('keydown', onKeyDown);
+    const target: EventTarget = keyTarget?.current ?? window;
+    target.addEventListener('keydown', onKeyDown as EventListener);
     return () => {
-      window.removeEventListener('keydown', onKeyDown);
+      target.removeEventListener('keydown', onKeyDown as EventListener);
     };
-  }, [value, disabled, canAppend, canSubmit, onChange, onSubmit]);
+  }, [value, disabled, canAppend, canSubmit, onChange, onSubmit, keyTarget]);
 
   return (
     <div className="v5-entry__pin" data-testid="pin-pad" data-disabled={disabled || undefined}>
@@ -136,6 +155,7 @@ export function PinPad(props: Readonly<PinPadProps>): JSX.Element {
         error={error}
         describedBy={describedBy}
         autoFocus={autoFocus}
+        fieldRef={dotsRef}
       />
       <div className="v5-entry__feedback">{feedback}</div>
 
@@ -215,16 +235,19 @@ function PinDots({
   error,
   describedBy,
   autoFocus,
+  fieldRef,
 }: Readonly<{
   filled: number;
   error: boolean;
   describedBy?: string | undefined;
   autoFocus: boolean;
+  fieldRef?: RefObject<HTMLDivElement | null> | undefined;
 }>): JSX.Element {
-  const ref = useRef<HTMLDivElement>(null);
+  const ownRef = useRef<HTMLDivElement>(null);
+  const ref = fieldRef ?? ownRef;
   useEffect(() => {
     if (autoFocus) ref.current?.focus();
-  }, [autoFocus]);
+  }, [autoFocus, ref]);
   return (
     <div
       ref={ref}
