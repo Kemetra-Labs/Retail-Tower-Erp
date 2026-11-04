@@ -605,8 +605,9 @@ This section is the repository record. The rationale, boards and prototype are i
 - **Scope.** The entry screens only: sign-in first, then lock, pairing, Ready and boot, each in its
   own slice (OD-9). These rules **never** reach the sale, checkout or recovery surfaces. Sale and
   checkout wait for RT-1044.
-- **Shipped today.** Nothing in this section. Until the recomposition slice *(S3, RT-1092)*
-  merges, the shipped sign-in screen is the RT-246 G-1 layout.
+- **Shipped today.** Only the inert Ink and Mint tokens (S2, RT-1091); no screen uses them. Until
+  the recomposition slice *(S3, RT-1092)* merges, the shipped sign-in screen is the RT-246 G-1
+  layout.
 - **Behaviour is unchanged.** Refusal categories and copy, PIN rules, offline admission
   (RT-113/RT-114), the roster no-retry rule (RT-246), the scanner owner and keys (D-K1) stay as
   they are. Where a rule below seems to need a behaviour change, stop and raise it.

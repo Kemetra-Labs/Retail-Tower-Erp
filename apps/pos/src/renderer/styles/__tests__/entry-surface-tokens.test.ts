@@ -120,8 +120,11 @@ describe("RT-1091 — entry-surface Ink and Mint: scope (OD-1, DESIGN.md Don'ts)
     }
   });
 
-  it("the hook is not FitGuard's `data-surface`, which names a notice surface", () => {
-    expect(ENTRY_SCOPE).not.toMatch(/^\[data-surface/);
+  it("the hook is not FitGuard's `data-surface`: FitGuard does not set it, and the scope is a distinct attribute", () => {
+    const fitGuard = readFileSync(resolve(RENDERER, 'v5/foundation/FitGuard.tsx'), 'utf-8');
+    expect(fitGuard).toContain('data-surface={');
+    expect(fitGuard).not.toContain('data-entry-surface');
+    expect(tailwind).not.toMatch(/\[data-surface\b/);
   });
 });
 
@@ -139,6 +142,9 @@ const NON_ENTRY_DIRS = [
   'v5/manager',
   'v5/frame',
   'v5/printer',
+  'routes/app',
+  'ui/receipts',
+  'ui/states',
 ];
 
 function sourceFiles(dir: string): string[] {
@@ -179,7 +185,7 @@ describe('RT-1091 — entry-surface Ink and Mint: contrast pairs', () => {
   const onInk = value('--color-on-ink');
   const muted = value('--color-ink-muted');
   const mint = value('--color-mint');
-  const white = declarations(tailwind, ':root').get('--color-surface') ?? '';
+  const white = '#ffffff'; // the light card surface DESIGN.md measures Mint against
 
   it('on-ink text on Ink clears AAA (16.7:1)', () => {
     expect(contrastRatio(onInk, ink)).toBeGreaterThanOrEqual(7);
@@ -200,7 +206,6 @@ describe('RT-1091 — entry-surface Ink and Mint: contrast pairs', () => {
   });
 
   it('Mint on a light surface is the 1.6:1 that bans it there', () => {
-    expect(white).toBe('#ffffff');
     const ratio = contrastRatio(mint, white);
     expect(ratio).toBeCloseTo(1.6, 1);
     expect(ratio).toBeLessThan(3);
