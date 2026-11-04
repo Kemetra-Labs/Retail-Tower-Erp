@@ -86,6 +86,39 @@ emulation, not a Windows contrast theme (owner check 1).
   that, the window was moved behind other windows without focus (`ShowWindow` minimise then
   `SW_SHOWNOACTIVATE`, `HWND_BOTTOM`) and no further input arrived.
 
+## Scanner bench, simulated (R-dev dry run on `2cf86978`; to be repeated after RT-1093)
+
+Method: the repo's `#/dev/sign-in-proof` tree rendered over the real `App` (its
+`ScanGuardHost` is the only guard and is registered first, as in production). A burst is
+`6221000000011` then Enter, sent as CDP `Input.dispatchKeyEvent` to the dev page only,
+pipelined about 4 ms apart (max measured gap 16.5 ms; the guard's limit is 35 ms). Label:
+R-dev simulated; not a real scanner (owner check 3).
+
+| Step | Where the burst landed | Notice and where | Field after | Submitted? |
+|---|---|---|---|---|
+| S1 | Sign-in, no cashier picked | «المسح غير متاح» (M-S1), global scan notice | (no field) | No |
+| S2 | Cashier picked, PIN 2 of 6 | M-S5 «لا يُقبل المسح في حقل الرقم السري…», global scan notice, **not** the PIN slot above the dots | PIN restored to 2 of 6 | No |
+| S3 | Manager form, password with 2 characters | M-S5 (the PIN wording), global scan notice | password restored to 2 characters | No |
+| S4 | Lock, cashier PIN 2 of 6 | M-S5, global scan notice | PIN restored to 2 of 6 | No |
+
+Observation: on the manager password the notice says «حقل الرقم السري» (PIN field) for a
+password field; the M-S5 family has no password wording (`scan-messages.ts`).
+
+Method lessons: a per-key CDP round trip (16–39 ms gaps) and an Enter sent from a second
+process are not a burst, so the guard correctly treats them as typing; and a guard mounted
+after the PIN pad, with no App guard, left the burst's digits in the PIN (listener order), which
+production does not do. Neither appears in the table above.
+
+## Screen reader proxy: roster loading (R-dev, not a screen reader)
+
+The real `SignInRoute` with a roster call that never resolves. A `MutationObserver` started
+before the mount shows the `role="status"` element inserted 5 ms after mount, inside the
+screen's first render, **with its text already in it**
+(«جارٍ تحميل قائمة الكاشير…»; no `aria-live`/`aria-atomic` attribute beyond the role).
+A live region that appears together with its content is commonly not announced, so the
+CodeRabbit concern on PR #274 is plausible. This is a DOM proxy only; the result comes from
+owner check 2 (Narrator / NVDA).
+
 ## Pending
 
 - Sign-in (roster loading, roster, PIN with a refusal above the dots) at four sizes and forced
