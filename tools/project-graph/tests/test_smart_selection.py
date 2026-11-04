@@ -106,11 +106,12 @@ class NamedJobClassTests(unittest.TestCase):
         self.graph = Graph(load_graph(support.trusted_text()))
         self.always = set(self.graph.data["always_jobs"])
 
-    def test_circleci_is_a_policy_change_that_selects_no_product_job(self):
+    def test_circleci_is_a_policy_change_that_selects_only_the_contracts_check(self):
+        # contracts/check runs the .circleci/scripts offline specs
         plan = _plan(".circleci/config.yml")
         self.assertFalse(plan["select_all"])
         self.assertTrue(plan["policy_change"] and plan["approval_required"])
-        self.assertEqual(set(plan["needed_jobs"]), self.always)
+        self.assertEqual(set(plan["needed_jobs"]), self.always | {"contracts/check"})
 
     def test_release_tooling_class_selects_the_contracts_check(self):
         plan = _plan(".github/release/system_gate.py")

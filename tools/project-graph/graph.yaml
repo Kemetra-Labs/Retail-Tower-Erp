@@ -246,9 +246,10 @@ shared_classes:   # precedence: lower wins; two matches at the SAME precedence =
   # .circleci/** (RT-920) is CI configuration that runs repository code on CircleCI; it never feeds `required`.
   policy:  { precedence: 1, globs: [.github/**, .circleci/**, tools/project-graph/**, tools/ci-gate/**, tools/agent-broker/**, CODEOWNERS, .gitleaks.toml, .gitleaksignore, .python-version, renovate.json5, "apps/*/.github/**", "services/*/.github/**", "integrations/*/.github/**"], selects: all, policy_change: true }
   # RT-1173 (smart CI step 1): .circleci/** only configures the advisory CircleCI lane, which never
-  # feeds `required`; no product suite can test it and its offline tests run in that lane. It stays a
-  # policy change (approval, fingerprint) but selects no job. Precedence 0 beats policy's 1.
-  circleci: { precedence: 0, globs: [.circleci/**], selects: [], policy_change: true }
+  # feeds `required`; no product suite can test it. Its offline tests (.circleci/scripts/*.test.cjs)
+  # run in contracts/check, so it selects only that job. It stays a policy change (approval,
+  # fingerprint). Precedence 0 beats policy's 1.
+  circleci: { precedence: 0, globs: [.circleci/**], selects: [contracts/check], policy_change: true }
   # RT-1173: .github/release/** is release tooling. Release and deploy workflows run it, never a
   # product suite. contracts/check runs its offline specs (the gated copy of release/selftest) and
   # system_gate.py on every system manifest, so it selects only that job. It stays a policy change.
