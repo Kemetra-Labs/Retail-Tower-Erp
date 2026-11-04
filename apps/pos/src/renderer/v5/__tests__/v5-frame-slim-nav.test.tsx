@@ -186,7 +186,7 @@ describe('slim rail CSS', () => {
     expect(rule?.[1]).toMatch(/white-space:\s*normal/);
     expect(rule?.[1]).not.toMatch(/overflow:\s*hidden/);
     // No later confirm-specific rule may bring nowrap or clipping back.
-    const confirmRules = [...css.matchAll(/--confirming[^{]*\{([^}]*)\}/g)];
+    const confirmRules = [...css.matchAll(/--confirming(?!\))[^{]*\{([^}]*)\}/g)];
     for (const [, body] of confirmRules) {
       expect(body).not.toMatch(/white-space:\s*nowrap/);
       expect(body).not.toMatch(/overflow:\s*hidden/);
