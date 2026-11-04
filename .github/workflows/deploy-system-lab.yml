@@ -1027,3 +1027,24 @@ jobs:
           path: ${{ runner.temp }}/live-ledger/
           if-no-files-found: warn
           retention-days: 90
+
+      # RT-1086: the ledger summary goes to the authorizing Jira issue as ONE comment, automatically, on success
+      # and on failure. It writes nothing else (no transition, no field: status and the Closeout Gate stay the
+      # owner's). It is best effort by design: jira_comment.py turns a missing secret or any Jira or network error
+      # into a warning and exits 0, so Jira can never change the deploy outcome. The token comes from the aws-lab
+      # environment (only an approved live run can use it; a dry run posts nothing), is masked and never printed,
+      # and the comment is a code block, so ledger text is never read as markup.
+      - name: Post the ledger summary to the Jira issue
+        if: always()
+        env:
+          JIRA_KEY: ${{ inputs.jira_key }}
+          JIRA_COMMENT_TOKEN: ${{ secrets.JIRA_COMMENT_TOKEN }}
+          JIRA_COMMENT_USER: ${{ vars.JIRA_COMMENT_USER }}
+          JIRA_CLOUD_ID: ${{ vars.JIRA_CLOUD_ID }}
+          JOB_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # `timeout` covers what the helper's per-socket timeout does not (name resolution, a slow trickle); it is a warning, never a failure.
+          timeout 120 python3 .github/release/jira_comment.py --summary "$RUNNER_TEMP/live-ledger/summary.md" --run-url "$RUN_URL" --outcome "$JOB_STATUS" \
+            || echo "::warning::Jira comment not posted: the step failed or timed out"
