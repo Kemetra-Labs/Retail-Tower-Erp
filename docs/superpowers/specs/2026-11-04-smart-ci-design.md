@@ -51,7 +51,23 @@ The full report, the derived CSVs and the analysis scripts are kept next to this
 - **#273 (head `941cb30c`) and #268 (`b779d097`):** every product workflow and `gate/evaluate` / `gate/post` succeeded. The `required` check-runs on the head still stayed `in_progress` ("required: waiting", created 14:33:25 and 14:38:26, after `gate/post` finished at 14:33:18). Both PRs were merged by an admin.
 - **#292 (`6fe5d173`):** all 10 workflows concluded `failure` with no jobs (a startup failure; GitHub returned 504s in the same window). It was merged with no CI at all.
 - **Mechanism (`gate.yml`):** the gate runs on `pull_request_target` and on each product workflow's `workflow_run`, with `concurrency: gate-<head_sha>`. It posts `required: waiting` (`in_progress`) while runs are pending.
-- **Root-cause hypothesis to verify (not yet proven):** a later gate run created a fresh `waiting` check-run after the deciding run completed. One cause could be GitHub concurrency dropping an older pending run. Another could be a `workflow_run` event that arrived while some sibling still looked pending. No later event then completed it. The fix must close this race. It must also make a startup-failed head fail `required` explicitly, not leave it missing.
+- **Verified root cause (2026-11-04, after the first draft): PRs were merged before CI finished.** The gate behaved correctly; the earlier gate-race hypothesis is disproved.
+  - **The gate saw it:** the gate run for #273's last `workflow_run` (run 41656685451) logged "PR #273 is already merged" and correctly posted nothing.
+  - **All 7 were merged by `Kemetra`, the owner account that agent sessions also use:**
+
+| PR | Merged (UTC) | Last CI finished |
+|---|---|---|
+| #264 | 12:37:36 | 12:44:00 |
+| #266 | 12:11:41 | 12:11:58 |
+| #268 | 14:43:09 | 14:46:34 |
+| #270 | 14:44:13 | 15:08:33 |
+| #273 | 14:43:45 | 14:44:32 |
+| #292 | 08:24:14 | 08:24:16 |
+| #262 | 12:11:56 | 12:11:53 (the gate had not posted yet) |
+
+  - **#292 was merged 2 s after its last push.** Its workflows then failed to start (9 failures with no jobs), so that head never had any CI.
+  - **Why the merges were possible:** no ruleset requires `required` (RT-866 open), so a merge succeeds while `required` is `in_progress`.
+  - **The fix is enforcement, not gate code.** Missing, `in_progress` and red `required` must all block a merge.
 
 ### 3.1 Mid-PR syncing with `main`
 - **How selection works today:** the `plan` job selects jobs from `git diff <pull_request.base.sha> <pull_request.head.sha>` (two-dot; `pgraph/gitio.read_changes`). The base is the current tip of `main`.
@@ -78,11 +94,8 @@ Each of the 9 root workflows evaluates the same graph in its own `plan` job (294
 ## 4. Design (ordered; each phase is its own Jira issue and PR, measured before the next)
 
 ### Phase 0: Gate integrity (G1) — must ship first
-1. **Find the race (Verification).** Reproduce the `waiting`-after-final sequence from the run logs of #273 and #268. Prove which gate run created the stray `in_progress` check-run and why no later run completed it.
-2. **Fix the gate (`tools/ci-gate/**`, `gate.yml`; policy class).**
-   - A gate run must never leave a newer `waiting` check-run than the newest decided one.
-   - When every expected workflow for the head has concluded, `required` must end `success` or `failure`, and never stay `in_progress`.
-   - A head whose workflows failed to start (no jobs) must get `required = failure` with that reason.
+1. **Root cause found (done during design):** merges before CI finished; see §3.0. No gate code change is needed for G1.
+2. **Agent merge rule (CLAUDE.md, written).** An agent merges only when the `required` check-run on the PR's current head SHA is `completed` with conclusion `success`. It pins the merge to that SHA (`--match-head-commit`), never uses `--admin`, and never merges seconds after a push.
 3. **Merge enforcement (owner decision 2026-11-04: ruleset, bypass kept).**
    - A repository ruleset on `main` requires the `required` check (RT-866 scope, its own issue and approval).
    - The owner keeps the admin bypass (RT-578), for stated emergencies only, with the reason written on the PR.
