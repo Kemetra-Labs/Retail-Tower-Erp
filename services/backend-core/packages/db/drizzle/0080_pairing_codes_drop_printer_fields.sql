@@ -8,6 +8,11 @@
 -- Console (RT-1182) and the POS (RT-1183) are merged and deployed and no older
 -- paired POS build remains (RT-1184 acceptance item 5).
 --
+-- For an existing Backend-Core deployment, fully roll out the RT-1184 API and
+-- stop or drain every older API instance BEFORE applying this migration. Older
+-- API instances read and insert these columns and fail with SQLSTATE 42703
+-- after they are dropped.
+--
 -- Drops `pairing_codes.printer_vendor_id`, `printer_product_id` and
 -- `printer_com_port` (0024_pairing_codes.sql; the first two made nullable by
 -- 0079_pairing_codes_printer_ids_nullable.sql), together with their CHECK
