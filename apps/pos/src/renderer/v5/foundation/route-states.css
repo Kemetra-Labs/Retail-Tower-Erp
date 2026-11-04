@@ -29,6 +29,22 @@
   font-size: var(--font-size-sm);
 }
 
+/* RT-1096 (RT-1042 S7): the boot screen is the entry family: the Ink band, then the stage. */
+.v5-route-state--entry {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.v5-route-state__stage {
+  display: grid;
+  flex: 1;
+  place-items: safe center;
+  min-block-size: 0;
+  padding: var(--space-5);
+  overflow-y: auto;
+}
+
 /* RT-475 (RT-832 boot): logo, 24px, status, 24px, powered-by — one centred stack. */
 .v5-route-state__stack {
   display: grid;
