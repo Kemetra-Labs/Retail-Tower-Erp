@@ -605,8 +605,9 @@ This section is the repository record. The rationale, boards and prototype are i
 - **Scope.** The entry screens only: sign-in first, then lock, pairing, Ready and boot, each in its
   own slice (OD-9). These rules **never** reach the sale, checkout or recovery surfaces. Sale and
   checkout wait for RT-1044.
-- **Shipped today.** Nothing in this section. Until the recomposition slice *(S3, RT-1092)*
-  merges, the shipped sign-in screen is the RT-246 G-1 layout.
+- **Shipped today.** Only the inert Ink and Mint tokens (S2, RT-1091); no screen uses them. Until
+  the recomposition slice *(S3, RT-1092)* merges, the shipped sign-in screen is the RT-246 G-1
+  layout.
 - **Behaviour is unchanged.** Refusal categories and copy, PIN rules, offline admission
   (RT-113/RT-114), the roster no-retry rule (RT-246), the scanner owner and keys (D-K1) stay as
   they are. Where a rule below seems to need a behaviour change, stop and raise it.
@@ -623,7 +624,11 @@ This section is the repository record. The rationale, boards and prototype are i
   mark tile, ornament strokes), never as text or fill on a light surface (1.6:1 on white).
   Mint is the teal family's highlight on dark, not a second hue, so the No-Second-Accent Rule
   holds. Avatars, PIN dots, roster cards and the dock stay in the light Teal family. Components
-  name the roles; nobody spells the hex. S2 adds them with no consumer.
+  name the roles; nobody spells the hex. S2 added them with no consumer, declared in
+  `styles/tailwind.css` on `[data-entry-surface]`, not on `:root`: an entry screen's root sets
+  that attribute to opt in, and the roles do not resolve anywhere else. They are the same in
+  every theme, have no `@theme` utility and no `colors.ts` export. Guard:
+  `styles/__tests__/entry-surface-tokens.test.ts`.
 - **The Teal commit.** «دخول» is the filled Tower Teal commit, like every POS commit. An Ink commit
   is rejected (OD-2): one commit colour on every screen.
 - **The band never changes with state.** Refusals, offline and loading use the status roles in
