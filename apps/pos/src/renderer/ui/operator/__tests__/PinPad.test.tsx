@@ -324,6 +324,25 @@ describe('PinPad — RT-244 G-1 layout', () => {
     expect(slot.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  // RT-1092 (RT-1042 OD-7): sign-in puts the slot above the dots.
+  it('renders one feedback slot above the dots when feedbackPosition is "above"', () => {
+    const { container } = render(
+      <PinPad
+        value=""
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        feedbackPosition="above"
+        feedback={<span data-testid="slot-content">x</span>}
+      />,
+    );
+    const dots = screen.getByTestId('pin-pad-dots');
+    const slot = screen.getByTestId('slot-content');
+    const grid = screen.getByRole('group', { name: 'إدخال الرقم السري' });
+    expect(container.querySelectorAll('.v5-entry__feedback')).toHaveLength(1);
+    expect(slot.compareDocumentPosition(dots) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(dots.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('marks the dots field refused and links it to the message', () => {
     render(<PinPad value="" onChange={vi.fn()} onSubmit={vi.fn()} error describedBy="err-id" />);
     const dots = screen.getByTestId('pin-pad-dots');
@@ -347,5 +366,24 @@ describe('PinPadPreview — the PIN column before a cashier is picked', () => {
     await user.keyboard('1234{Enter}');
     expect(screen.queryByTestId('pin-pad-dots')).not.toBeInTheDocument();
     expect(screen.queryByTestId('pin-pad')).not.toBeInTheDocument();
+  });
+
+  // RT-1092 (OD-7): the same column shape as the picked pad, so a pick never moves the keypad.
+  it('with feedbackPosition "above", the prompt fills the slot over a decorative dots field', () => {
+    render(<PinPadPreview prompt="اختر اسمك" feedbackPosition="above" />);
+    const prompt = screen.getByTestId('pin-awaiting-selection');
+    const placeholder = screen.getByTestId('pin-pad-dots-placeholder');
+    const grid = screen.getByRole('group', { name: 'إدخال الرقم السري' });
+    expect(prompt.parentElement).toHaveClass('v5-entry__feedback');
+    expect(placeholder).toHaveAttribute('aria-hidden', 'true');
+    expect(placeholder).not.toHaveAttribute('tabindex');
+    expect(placeholder.querySelectorAll('[data-state="empty"]')).toHaveLength(6);
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(
+      prompt.compareDocumentPosition(placeholder) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      placeholder.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });
