@@ -37,6 +37,19 @@ describe('OnlineCredentialVerifier with the Descope exchanger', () => {
     expect(verdict).toEqual({ kind: 'refused', category: 'invalid_input', stage: 'identity' });
   });
 
+  it('labels an unreachable identity provider provider-neutrally, not "clerk"', async () => {
+    const offline: OperatorExchanger = {
+      exchange: () => Promise.resolve({ kind: 'no_connection' }),
+    };
+    const verifier = new OnlineCredentialVerifier({ clerk: offline });
+    const verdict = await verifier.verify('U2manager', 'm@x.test', 'pw');
+    expect(verdict).toEqual({
+      kind: 'refused',
+      category: 'no_connection',
+      stage: 'identity_provider',
+    });
+  });
+
   it('refuses a held pre-cutover Clerk id against a Descope userId', async () => {
     const verifier = new OnlineCredentialVerifier({ clerk: descopeReturning('U2manager') });
     const verdict = await verifier.verify('user_clerk123', 'm@x.test', 'pw');

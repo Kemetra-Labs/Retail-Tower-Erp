@@ -147,8 +147,8 @@ PR-1 **PASS**.
 | Failure mode | Bridge response | Log stage (main-process only) |
 |:--|:--|:--|
 | Invalid request shape | `{ kind: 'refused', category: 'invalid_input' }` | N/A (pre-handler) |
-| Clerk 4xx / 5xx | `{ kind: 'refused', category: 'invalid_input' }` | `stage: 'clerk'` |
-| Clerk transport failure | `{ kind: 'refused', category: 'no_connection' }` | `stage: 'clerk'` |
+| Identity provider 4xx / 5xx | `{ kind: 'refused', category: 'invalid_input' }` | `stage: 'identity_provider'` |
+| Identity provider transport failure | `{ kind: 'refused', category: 'no_connection' }` | `stage: 'identity_provider'` |
 | Backend 4xx / 5xx | `{ kind: 'refused', category: 'invalid_input' }` | `stage: 'backend'` |
 | Backend transport failure | `{ kind: 'refused', category: 'no_connection' }` | `stage: 'backend'` |
 | Cashier role (S1 defence-in-depth) | `{ kind: 'refused', category: 'invalid_input' }` | `stage: 'role'` |
