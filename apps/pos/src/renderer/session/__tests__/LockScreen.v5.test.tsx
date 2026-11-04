@@ -147,6 +147,12 @@ describe('RT-1095 lock joins the entry family (OD-13)', () => {
     );
   });
 
+  it('draws no ornament: the lock appears mid-sale (RT-1093, OD-5)', () => {
+    renderWith();
+    expect(screen.getByTestId('entry-band')).not.toHaveClass('v5-entry-band--ornament');
+    expect(document.querySelector('.v5-entry-band__ornament')).toBeNull();
+  });
+
   it('shows the sign-in PIN dock for a cashier, with no text field', () => {
     renderWith();
     expect(screen.getByTestId('pin-pad')).toBeInTheDocument();

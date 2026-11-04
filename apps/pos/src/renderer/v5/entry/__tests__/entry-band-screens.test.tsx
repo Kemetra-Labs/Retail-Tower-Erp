@@ -8,6 +8,7 @@ import { PairedScreen } from '../../../routes/paired/PairedScreen';
 import { PairingScreen } from '../../../routes/pairing/PairingScreen';
 import { RouteLoading } from '../../foundation/RouteLoading';
 import { EntryBand } from '../EntryBand';
+import { SignInBand } from '../SignInBand';
 import { PAIRING_COPY, READY_COPY } from '../entry-copy';
 import type { PairingBridgeAPI } from '../../../../shared/bridge-api';
 import type { BrandingSnapshot } from '../../../../shared/branding/types';
@@ -196,5 +197,85 @@ describe('RT-1096 — boot screen', () => {
     render(<RouteLoading />);
     expect(screen.queryByTestId('brand-slot-boot')).not.toBeInTheDocument();
     expect(screen.queryByTestId('powered-by')).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * RT-1093 (RT-1042 S4, OD-5) — the ornament is an additive opt-in that only the
+ * sign-in band takes. happy-dom resolves no layout, so the removal below 1280
+ * wide / 768 high and under forced colours are checked in the stylesheet tests.
+ */
+describe('RT-1093 — band ornament', () => {
+  const ornamentOf = (root: ParentNode): Element | null =>
+    root.querySelector('.v5-entry-band__ornament');
+
+  it('sign-in draws it: one static, decorative, non-focusable SVG behind the content', () => {
+    render(<SignInBand terminalLabel="Counter 1" />);
+    const band = screen.getByTestId('entry-strip');
+    expect(band).toHaveClass('v5-entry-band', 'v5-entry-band--ornament');
+    const orn = ornamentOf(band);
+    expect(orn).not.toBeNull();
+    expect(orn?.tagName.toLowerCase()).toBe('svg');
+    expect(orn).toHaveAttribute('aria-hidden', 'true');
+    expect(orn).toHaveAttribute('focusable', 'false');
+    expect(orn?.getAttribute('tabindex')).toBeNull();
+    expect(orn?.querySelectorAll('a, button, input, [tabindex], title, desc, text')).toHaveLength(
+      0,
+    );
+    expect(orn?.querySelectorAll('animate, animateTransform, animateMotion, set')).toHaveLength(0);
+    expect(band.firstElementChild).toBe(orn);
+    expect(band).toHaveTextContent('Retail Tower');
+  });
+
+  it('sign-in with a tenant logo still draws it, decorative', () => {
+    resetBrandingForTests(LOGO);
+    render(<SignInBand branding={LOGO} />);
+    const orn = ornamentOf(screen.getByTestId('entry-strip'));
+    expect(orn).not.toBeNull();
+    expect(orn).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('draws the approved geometry: grid, ruler and 13 skyline bars, no text', () => {
+    render(<SignInBand />);
+    const orn = ornamentOf(screen.getByTestId('entry-strip'));
+    expect(orn?.querySelectorAll('.v5-entry-band__ornament-skyline rect')).toHaveLength(13);
+    expect(orn?.querySelectorAll('.v5-entry-band__ornament-grid')).toHaveLength(1);
+    expect(orn?.querySelectorAll('.v5-entry-band__ornament-ruler')).toHaveLength(1);
+    expect(orn?.textContent).toBe('');
+  });
+
+  it('the default EntryBand render has no ornament and no modifier class', () => {
+    render(<EntryBand />);
+    const band = screen.getByTestId('entry-band');
+    expect(band.className).toBe('v5-entry-band');
+    expect(ornamentOf(band)).toBeNull();
+    expect(band.querySelectorAll('svg')).toHaveLength(1); // the mark only
+  });
+
+  it('is absent on pairing', () => {
+    render(
+      <MemoryRouter>
+        <PairingScreen pairing={pairing} />
+      </MemoryRouter>,
+    );
+    expect(ornamentOf(document.body)).toBeNull();
+    expect(screen.getByTestId('entry-band').className).toBe('v5-entry-band');
+  });
+
+  it('is absent on Ready', async () => {
+    render(
+      <MemoryRouter>
+        <PairedScreen pairing={pairing} />
+      </MemoryRouter>,
+    );
+    await screen.findByTestId('route-paired');
+    expect(ornamentOf(document.body)).toBeNull();
+    expect(screen.getByTestId('entry-band').className).toBe('v5-entry-band');
+  });
+
+  it('is absent on boot', () => {
+    render(<RouteLoading />);
+    expect(ornamentOf(document.body)).toBeNull();
+    expect(screen.getByTestId('entry-band').className).toBe('v5-entry-band');
   });
 });
