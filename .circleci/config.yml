@@ -427,9 +427,10 @@ jobs:
             NODE_OPTIONS: --max-old-space-size=4096
           # test-analysis-duration (30 min) is a target the CLI checks between specs, not a hard
           # limit, and no_output_timeout only fires when output stops. As in the manual full-analysis
-          # job: a wall-clock stop (SIGKILL 2 min after SIGTERM, in case Jest children hold the step
-          # open), so one run cannot hold the serial group longer than 50 minutes. A killed run
-          # saves nothing; the next push repeats its specs.
+          # job: a wall-clock stop (SIGTERM at 50 minutes, SIGKILL 2 minutes later in case Jest
+          # children hold the step open), so this step ends within 52 minutes. The setup steps
+          # before it are extra, so a whole run holds the serial group for about 60 minutes at
+          # most. A killed run saves nothing; the next push repeats its specs.
           command: timeout -k 2m 50m circleci testsuite run "backend api jest" --run-tests=none
 
   # One link of the manual full-analysis chain: the analysis job above with a hard stop.
