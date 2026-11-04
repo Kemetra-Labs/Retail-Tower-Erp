@@ -165,6 +165,7 @@ export const stock = {
 
   // Dismiss confirm.
   "unknownItems.dismiss.action": "استبعاد",
+  "unknownItems.dismiss.hint": "يُخرج الصنف من قائمة المراجعة، ويمكن إعادة فتحه.",
   "unknownItems.dismiss.resource": "{type} {value}",
 
   // Error copy (mapUnknownItemError). 5xx and bad-request reuse errors.*.
@@ -176,6 +177,7 @@ export const stock = {
   "unknownItems.filters.status": "الحالة",
   "unknownItems.emptyStatus": "لا توجد أصناف بهذه الحالة.",
   "unknownItems.create.action": "إنشاء صنف",
+  "unknownItems.create.hint": "صنف جديد من هذا المعرّف.",
   "unknownItems.create.legend": "صنف جديد من هذا المعرّف",
   "unknownItems.create.name": "اسم الصنف",
   "unknownItems.create.taxCategory": "فئة الضريبة",
@@ -185,6 +187,7 @@ export const stock = {
   "unknownItems.create.taxCategoryRequired": "أدخل فئة الضريبة.",
   "unknownItems.create.success": "تم إنشاء الصنف وربط المعرّف به. لم يعد الصنف في قائمة المراجعة.",
   "unknownItems.reopen.action": "إعادة فتح",
+  "unknownItems.reopen.hint": "يعيد الصنف إلى قائمة المراجعة ليُعالج من جديد.",
   "unknownItems.reopen.success": "أُعيد فتح الصنف وعاد إلى قائمة المراجعة.",
   "unknownItems.bulk.action": "استبعاد المحدد",
   "unknownItems.bulk.resource": {
@@ -241,6 +244,7 @@ export const stock = {
 
   // RT-767: ربط صنف معلّق بصنف موجود يُختار من المنتقي المشترك.
   "unknownItems.link.action": "ربط بصنف",
+  "unknownItems.link.hint": "المعرّف يعود إلى صنف موجود في الكتالوج.",
   "unknownItems.link.legend": "ربط هذا المعرّف بصنف",
   "unknownItems.link.lead":
     "اختر الصنف الموجود الذي يعود إليه هذا المعرّف. لا يتغير شيء قبل التأكيد.",

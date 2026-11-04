@@ -16,8 +16,9 @@ import {
  *  - `sessionJwt` → `jwt`, `user.userId` → `operator_id`, name/email →
  *    `display_name`, role defaults to `manager` (Backend-Core is authoritative).
  *  - The `refreshJwt` is discarded: it never appears in the result.
- *  - Non-2xx and malformed bodies collapse to `{ kind: 'refused' }`
- *    (no factor distinction); transport failure and timeout → `no_connection`.
+ *  - Other non-2xx and malformed bodies collapse to `{ kind: 'refused' }`
+ *    (no factor distinction); transport failure, timeout, 429 and 5xx →
+ *    `no_connection` (RT-1121).
  *  - PR-1: the password never reaches a thrown error or a returned value.
  */
 
@@ -187,7 +188,7 @@ describe('createDescopeExchanger — success mapping', () => {
 });
 
 describe('createDescopeExchanger — generic refusal (PR-2)', () => {
-  it.each([400, 401, 403, 404, 429, 500])('collapses HTTP %i to refused', async (status) => {
+  it.each([400, 401, 403, 404, 422])('collapses HTTP %i to refused', async (status) => {
     const { fetchImpl } = cannedFetch(
       jsonResponse({ errorCode: 'E062108', errorDescription: 'User not found' }, status),
     );
@@ -228,6 +229,26 @@ describe('createDescopeExchanger — generic refusal (PR-2)', () => {
 });
 
 describe('createDescopeExchanger — transport', () => {
+  // RT-1121: a rate limit or an outage is not a wrong password.
+  it.each([429, 500, 502, 503, 504])('returns no_connection on HTTP %i', async (status) => {
+    const { fetchImpl } = cannedFetch(
+      jsonResponse({ errorCode: 'E011003', errorDescription: 'Too many requests' }, status),
+    );
+    const result = await exchangerFor(fetchImpl).exchange({ identifier: 'i', password: 'p' });
+    expect(result).toEqual<OperatorExchangeResult>({ kind: 'no_connection' });
+  });
+
+  it('never reads the body of a 429 or 5xx response', async () => {
+    for (const status of [429, 503]) {
+      const response = jsonResponse({ sessionJwt: SESSION_JWT, user: { userId: 'U2abc' } }, status);
+      const json = vi.spyOn(response, 'json');
+      const { fetchImpl } = cannedFetch(response);
+      const result = await exchangerFor(fetchImpl).exchange({ identifier: 'i', password: 'p' });
+      expect(result).toEqual<OperatorExchangeResult>({ kind: 'no_connection' });
+      expect(json).not.toHaveBeenCalled();
+    }
+  });
+
   it('returns no_connection on a network rejection', async () => {
     const fetchImpl = vi.fn(() => Promise.reject(new TypeError('fetch failed')));
     const result = await exchangerFor(fetchImpl).exchange({ identifier: 'i', password: 'p' });
@@ -281,8 +302,13 @@ describe('createDescopeExchanger — PR-1 redaction', () => {
     expect(JSON.stringify(result)).not.toContain(SECRET_PASSWORD);
   });
 
-  it('no result (ok or refused) carries the password', async () => {
-    for (const response of [jsonResponse(signInBody()), jsonResponse({}, 401)]) {
+  it('no result (ok, refused or no_connection) carries the password', async () => {
+    for (const response of [
+      jsonResponse(signInBody()),
+      jsonResponse({}, 401),
+      jsonResponse({}, 429),
+      jsonResponse({}, 503),
+    ]) {
       const { fetchImpl } = cannedFetch(response);
       const result = await exchangerFor(fetchImpl).exchange({
         identifier: 'i',

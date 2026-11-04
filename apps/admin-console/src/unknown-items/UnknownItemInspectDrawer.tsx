@@ -26,10 +26,11 @@ import {
  * RT-1018 (v4.0): the drawer opens with the Ink header (title, tenant scope
  * line, close); the status reads as a pill, its text first. Actions, steps and
  * errors are unchanged.
+ * RT-1117: each action carries its one-line description under it.
  * RT-399: enum fields render their localized labels (never the raw code), ids
  * stay LTR-isolated, and the instants render as operational times.
  */
-import { useState } from "react";
+import { useId, useState } from "react";
 import { UnknownItemCreateProduct } from "./UnknownItemCreateProduct";
 import { UnknownItemDismiss } from "./UnknownItemDismiss";
 import { UnknownItemErrorBanner } from "./UnknownItemErrorBanner";
@@ -65,6 +66,7 @@ function ReopenAction({
   onReopened: () => void;
 }>): React.JSX.Element {
   const t = useT();
+  const hintId = useId();
   const reopen = useUnknownItemReopen(activeTenantId);
   const result = reopen.data;
   const error = result && !result.ok ? result.render : undefined;
@@ -72,22 +74,57 @@ function ReopenAction({
     <div className="unknown-item-dismiss">
       {error ? <UnknownItemErrorBanner error={error} /> : null}
       {reopen.isError ? <Banner variant="danger" message={t("errors.server")} /> : null}
-      <div className="unknown-item-detail__actions">
-        <GatedButton
-          type="button"
-          className="btn-primary"
-          busy={reopen.isPending}
-          onClick={() =>
-            reopen.mutate(item.id, {
-              onSuccess: (res) => {
-                if (res.ok) onReopened();
-              },
-            })
-          }
-        >
-          {t("unknownItems.reopen.action")}
-        </GatedButton>
+      <div className="unknown-item-choices">
+        <div className="unknown-item-choice">
+          <GatedButton
+            type="button"
+            className="btn-primary"
+            busy={reopen.isPending}
+            aria-describedby={hintId}
+            onClick={() =>
+              reopen.mutate(item.id, {
+                onSuccess: (res) => {
+                  if (res.ok) onReopened();
+                },
+              })
+            }
+          >
+            {t("unknownItems.reopen.action")}
+          </GatedButton>
+          <p id={hintId} className="field__hint">
+            {t("unknownItems.reopen.hint")}
+          </p>
+        </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * RT-1117 (v9 board `Unknown-items`): one drawer action with its one-line
+ * description under it. The description is a visible hint wired with
+ * `aria-describedby`, so the button's accessible name stays its label.
+ */
+function ActionChoice({
+  className,
+  label,
+  hint,
+  onClick,
+}: Readonly<{
+  className: string;
+  label: string;
+  hint: string;
+  onClick: () => void;
+}>): React.JSX.Element {
+  const hintId = useId();
+  return (
+    <div className="unknown-item-choice">
+      <button type="button" className={className} aria-describedby={hintId} onClick={onClick}>
+        {label}
+      </button>
+      <p id={hintId} className="field__hint">
+        {hint}
+      </p>
     </div>
   );
 }
@@ -198,16 +235,25 @@ export function UnknownItemInspectDrawer({
           ) : null}
           <DetailBody item={item} />
           {isPending && step === "actions" ? (
-            <div className="unknown-item-detail__actions">
-              <button type="button" className="btn-primary" onClick={() => setStep("create")}>
-                {t("unknownItems.create.action")}
-              </button>
-              <button type="button" className="btn-secondary" onClick={() => setStep("link")}>
-                {t("unknownItems.link.action")}
-              </button>
-              <button type="button" className="btn-danger-quiet" onClick={() => setStep("dismiss")}>
-                {t("unknownItems.dismiss.action")}
-              </button>
+            <div className="unknown-item-choices">
+              <ActionChoice
+                className="btn-primary"
+                label={t("unknownItems.create.action")}
+                hint={t("unknownItems.create.hint")}
+                onClick={() => setStep("create")}
+              />
+              <ActionChoice
+                className="btn-secondary"
+                label={t("unknownItems.link.action")}
+                hint={t("unknownItems.link.hint")}
+                onClick={() => setStep("link")}
+              />
+              <ActionChoice
+                className="btn-danger-quiet"
+                label={t("unknownItems.dismiss.action")}
+                hint={t("unknownItems.dismiss.hint")}
+                onClick={() => setStep("dismiss")}
+              />
             </div>
           ) : null}
           {isPending && step === "link" ? (

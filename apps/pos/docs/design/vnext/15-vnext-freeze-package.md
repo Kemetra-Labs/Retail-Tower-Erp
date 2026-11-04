@@ -299,6 +299,8 @@ Conditional rows (marked ⏳) depend on the named contract and must not ship bef
 | M-S8 | Line deleted | «حُذف ‹الاسم›.» · «تراجع» ✅ D-U1 | neutral |
 | M-S9 | Prescription flag | «بوصفة طبية» (line badge) | info |
 | M-S10 | Catalogue stale / never downloaded | «الكتالوج لم يُحدَّث منذ ‹time›.» / «لم يُنزَّل الكتالوج بعد — جارٍ التحديث…» | warning |
+| M-S11 | Reason under the unavailable (dashed) «تسليم السلة للدفع» commit when the cart is empty and no add is landing, so the money column is never blank (RT-1119; owner-approved 2026-11-04, audit programme 2026-10-31) | «أضف صنفًا لتسليم السلة للدفع» | neutral (commit reason line) |
+| M-S12 | The same line while an add is still landing, even when it is the first and the cart is still empty (it wins over M-S11); it clears when the add lands and never shows during the handoff itself (RT-1119; owner-approved 2026-11-04) | «جارٍ إضافة الصنف…» | neutral (commit reason line) |
 | **Checkout and payment** | | | |
 | M-P1 | Back refused (money recorded) | «لا يمكن الرجوع إلى البيع بعد تسجيل مبلغ. أكمل الدفع أو ألغِه.» | info |
 | M-P2 | Back refused after a reversal (N-13) | «أُلغي المبلغ المسجَّل. اختر طريقة دفع أخرى أو ألغِ البيع.» | info |

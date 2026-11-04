@@ -471,6 +471,17 @@
   font-size: inherit;
 }
 
+/*
+ * M-S11/M-S12 (RT-1119): why the dashed handoff commit is unavailable, directly under it.
+ * Guidance, not a refusal: neutral meta ink, the same register as Checkout's M-P30 line.
+ */
+.v5-live-sale .v5-sale-checkout-reason {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-meta);
+  line-height: var(--line-height-snug);
+}
+
 /* State and failure notices are read, not squinted at. */
 .v5-live-sale .v5-live-notice {
   margin: 0 0 var(--space-2);

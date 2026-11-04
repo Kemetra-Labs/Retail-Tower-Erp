@@ -158,6 +158,43 @@
   transform: rotate(45deg);
 }
 
+/* RT-1117 (v9 board): the drawer's actions stack, each with its one-line
+ * description under it (the shared .field__hint; aria-describedby, never part
+ * of the button's name). */
+.unknown-item-choices {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-5);
+}
+.unknown-item-choice {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-1);
+}
+
+/* RT-1117: the small barcode mark before a barcode identifier, in the text
+ * colour on the work surface so it holds in both themes. */
+.unknown-item-identifier {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.unknown-item-barcode {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1px;
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+.unknown-item-barcode__bar {
+  display: block;
+  inline-size: 1.5px;
+  border-radius: 1px;
+  background: var(--color-text);
+}
+
 /* Forced colours: no shadow or tints; system colours carry the split. */
 @media (forced-colors: active) {
   .surface--v4 .unknown-results {
@@ -178,6 +215,13 @@
     color: CanvasText;
   }
   .unknown-item-detail .badge::before {
+    background: CanvasText;
+  }
+  .unknown-item-barcode {
+    box-shadow: none;
+    background: Canvas;
+  }
+  .unknown-item-barcode__bar {
     background: CanvasText;
   }
 }

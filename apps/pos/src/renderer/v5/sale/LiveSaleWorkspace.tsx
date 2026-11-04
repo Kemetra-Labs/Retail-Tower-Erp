@@ -347,6 +347,7 @@ function LiveSaleActive(
           lastAddedLineId={actions.lastAdd?.lineId ?? null}
           lastAddNonce={actions.lastAdd?.nonce ?? 0}
           canHandoff={cartState === CartState.editing && cart.lines.length > 0 && !lane.busy}
+          addInFlight={lane.busy}
           handingOff={cartState === CartState.handing_off}
           cancelled={cartState === CartState.cancelled}
           canVoid={canVoidCart(cartState, props.role, paid)}
