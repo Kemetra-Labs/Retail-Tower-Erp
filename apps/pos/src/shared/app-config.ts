@@ -77,7 +77,8 @@ export interface AppConfig {
     /**
      * RT-15 S2 — enables the cashier return flow (`returns.*`).
      *
-     * Defaults to `false` (AC1). Flip via `POS_PULSE_FEATURE_RETURNS` in main.
+     * Defaults to `true` since RT-1180 (owner decision 2026-11-04); an explicit
+     * falsy `POS_PULSE_FEATURE_RETURNS` in main turns it off (kill switch).
      * Fail-closed: with it off every `returns.*` call is refused
      * `feature_disabled` and nothing is journaled or sent. Backend-Core has
      * its own gate (`POS_RETURNS_ENABLED`, 404 while off).

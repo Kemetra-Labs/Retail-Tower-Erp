@@ -2,7 +2,7 @@
  * RT-15 S2 — the main-process return domain behind the `returns.*` bridge.
  *
  * Every call passes the same admission gate, in order:
- *   1. `POS_PULSE_FEATURE_RETURNS` on (default off — AC1), else `feature_disabled`;
+ *   1. `POS_PULSE_FEATURE_RETURNS` on (default on since RT-1180; explicit false is the kill switch), else `feature_disabled`;
  *   2. an operator session on a paired terminal, else `no_session`;
  *   3. role manager or admin, checked here in main (D-b, AC2), else
  *      `role_denied` — audited.

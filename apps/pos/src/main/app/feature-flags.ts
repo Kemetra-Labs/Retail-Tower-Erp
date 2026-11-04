@@ -9,7 +9,12 @@ import type { AppConfig } from '../../shared/app-config.js';
  *
  *   • the env-var names are the ops contract (unchanged);
  *   • truthy values are `1 | true | yes | on`, case-insensitive, trimmed;
- *   • anything else, or unset, is `false` — every flag is fail-closed.
+ *   • anything else, or unset, is `false` — every flag is fail-closed,
+ *     except `returns` (RT-1180, owner decision 2026-11-04): unset or blank is
+ *     `true`, so a manager has returns from the first sign-in. An explicit
+ *     `0 | false | no | off` is the device kill switch, and an unrecognised
+ *     value still fails closed. The manager/admin role rule stays in
+ *     `returns-service.ts`.
  *
  * It also owns the D-1 cashier-profile rule (owner decision, RT-160 comment
  * 10721): `PAYMENTS` on with `SALE_FINALIZATION` off is an INVALID profile.
@@ -46,6 +51,20 @@ export function isTruthyFlag(raw: string | undefined): boolean {
   return typeof raw === 'string' && TRUTHY_VALUES.has(raw.trim().toLowerCase());
 }
 
+const FALSY_VALUES: ReadonlySet<string> = new Set(['0', 'false', 'no', 'off']);
+
+/**
+ * RT-1180 default-on parser. Unset or blank → `true`; truthy → `true`;
+ * explicit falsy → `false` (kill switch); anything else → `false`.
+ */
+export function isDefaultOnFlag(raw: string | undefined): boolean {
+  const value = (raw ?? '').trim().toLowerCase();
+  if (value === '') return true;
+  if (TRUTHY_VALUES.has(value)) return true;
+  if (FALSY_VALUES.has(value)) return false;
+  return false;
+}
+
 /** Parse every feature flag from an environment (normally `process.env`). */
 export function parseFeatureFlags(env: Readonly<Record<string, string | undefined>>): FeatureFlags {
   return {
@@ -54,7 +73,7 @@ export function parseFeatureFlags(env: Readonly<Record<string, string | undefine
     saleFinalization: isTruthyFlag(env[FEATURE_FLAG_ENV.saleFinalization]),
     productSearch: isTruthyFlag(env[FEATURE_FLAG_ENV.productSearch]),
     voucherTender: isTruthyFlag(env[FEATURE_FLAG_ENV.voucherTender]),
-    returns: isTruthyFlag(env[FEATURE_FLAG_ENV.returns]),
+    returns: isDefaultOnFlag(env[FEATURE_FLAG_ENV.returns]),
     shiftCashup: isTruthyFlag(env[FEATURE_FLAG_ENV.shiftCashup]),
     saleVoid: isTruthyFlag(env[FEATURE_FLAG_ENV.saleVoid]),
     cardTender: isTruthyFlag(env[FEATURE_FLAG_ENV.cardTender]),

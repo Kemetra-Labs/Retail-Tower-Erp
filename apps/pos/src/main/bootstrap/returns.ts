@@ -66,7 +66,7 @@ export function registerReturns(deps: ReturnsDeps): void {
   //
   // The `returns:*` handlers are registered UNCONDITIONALLY (T094c lesson: the
   // renderer gets a typed `feature_disabled` refusal, never "no handler"). The
-  // service re-reads `POS_PULSE_FEATURE_RETURNS` per call (default off, AC1),
+  // service re-reads `POS_PULSE_FEATURE_RETURNS` per call (default on since RT-1180),
   // requires a manager/admin operator session (D-b), and talks only to
   // Backend-Core `/api/pos/v1/sales/...` (AC7) with the operator envelope of
   // the admitted authorization snapshot (RT-197 A5). The background resolver
