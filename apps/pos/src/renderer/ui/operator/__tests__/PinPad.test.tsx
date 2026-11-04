@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactNode } from 'react';
 import '@testing-library/jest-dom/vitest';
 
 import { PinPad, PinPadPreview, PIN_MAX_LENGTH } from '../PinPad.js';
@@ -324,6 +325,25 @@ describe('PinPad — RT-244 G-1 layout', () => {
     expect(slot.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  // RT-1092 (RT-1042 OD-7): sign-in puts the slot above the dots.
+  it('renders one feedback slot above the dots when feedbackPosition is "above"', () => {
+    const { container } = render(
+      <PinPad
+        value=""
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        feedbackPosition="above"
+        feedback={<span data-testid="slot-content">x</span>}
+      />,
+    );
+    const dots = screen.getByTestId('pin-pad-dots');
+    const slot = screen.getByTestId('slot-content');
+    const grid = screen.getByRole('group', { name: 'إدخال الرقم السري' });
+    expect(container.querySelectorAll('.v5-entry__feedback')).toHaveLength(1);
+    expect(slot.compareDocumentPosition(dots) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(dots.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('marks the dots field refused and links it to the message', () => {
     render(<PinPad value="" onChange={vi.fn()} onSubmit={vi.fn()} error describedBy="err-id" />);
     const dots = screen.getByTestId('pin-pad-dots');
@@ -348,4 +368,98 @@ describe('PinPadPreview — the PIN column before a cashier is picked', () => {
     expect(screen.queryByTestId('pin-pad-dots')).not.toBeInTheDocument();
     expect(screen.queryByTestId('pin-pad')).not.toBeInTheDocument();
   });
+
+  // RT-1092 (OD-7): the same column shape as the picked pad, so a pick never moves the keypad.
+  it('with feedbackPosition "above", the prompt fills the slot over a decorative dots field', () => {
+    render(<PinPadPreview prompt="اختر اسمك" feedbackPosition="above" />);
+    const prompt = screen.getByTestId('pin-awaiting-selection');
+    const placeholder = screen.getByTestId('pin-pad-dots-placeholder');
+    const grid = screen.getByRole('group', { name: 'إدخال الرقم السري' });
+    expect(prompt.parentElement).toHaveClass('v5-entry__feedback');
+    expect(placeholder).toHaveAttribute('aria-hidden', 'true');
+    expect(placeholder).not.toHaveAttribute('tabindex');
+    expect(placeholder.querySelectorAll('[data-state="empty"]')).toHaveLength(6);
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(
+      prompt.compareDocumentPosition(placeholder) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      placeholder.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
 });
+
+describe('RT-1095 — Enter acts once, by where focus is', () => {
+  it('(a) Enter on a focused digit key submits once and types nothing', async () => {
+    const { onChange, onSubmit } = renderWithHandlers('1234');
+    screen.getByTestId('pin-pad-key-5').focus();
+    await userEvent.keyboard('{Enter}');
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('(b) Enter on the focused backspace removes one digit and does not submit', async () => {
+    const { onChange, onSubmit } = renderWithHandlers('1234');
+    screen.getByTestId('pin-pad-backspace').focus();
+    await userEvent.keyboard('{Enter}');
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith('123');
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('(c) Enter on another button activates it and does not submit', async () => {
+    const other = vi.fn();
+    const { onSubmit } = renderWithHandlers(
+      '1234',
+      <button type="button" onClick={other}>
+        دخول موظف آخر
+      </button>,
+    );
+    screen.getByRole('button', { name: 'دخول موظف آخر' }).focus();
+    await userEvent.keyboard('{Enter}');
+    expect(other).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('(d) Enter with body focus submits', async () => {
+    const { onSubmit } = renderWithHandlers('1234');
+    (document.activeElement as HTMLElement | null)?.blur();
+    await userEvent.keyboard('{Enter}');
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it('(d2) Enter on the focused dots submits', async () => {
+    const { onSubmit } = renderWithHandlers('1234');
+    screen.getByTestId('pin-pad-dots').focus();
+    await userEvent.keyboard('{Enter}');
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it('(e) Enter on the focused commit submits exactly once', async () => {
+    const { onSubmit } = renderWithHandlers('1234');
+    screen.getByTestId('pin-pad-enter').focus();
+    await userEvent.keyboard('{Enter}');
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it('(f) Enter below the minimum length submits nothing from any focus', async () => {
+    const { onSubmit } = renderWithHandlers('12');
+    screen.getByTestId('pin-pad-key-5').focus();
+    await userEvent.keyboard('{Enter}');
+    screen.getByTestId('pin-pad-enter').focus();
+    await userEvent.keyboard('{Enter}');
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+});
+
+function renderWithHandlers(value: string, extra?: ReactNode) {
+  const onChange = vi.fn();
+  const onSubmit = vi.fn();
+  render(
+    <>
+      <PinPad value={value} onChange={onChange} onSubmit={onSubmit} />
+      {extra}
+    </>,
+  );
+  return { onChange, onSubmit };
+}

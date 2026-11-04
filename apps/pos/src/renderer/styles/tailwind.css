@@ -830,14 +830,29 @@ body {
 
   /* ── TakeoverPrompt ──────────────────────────────────────────────────── */
 
+  /*
+   * RT-1096 (RT-1042 §3 item 4, OD-1 / OD-4 / OD-9): the prompt is an entry-family
+   * screen, not a v4-screen overlay. The root opts into the entry-surface roles
+   * (`data-entry-surface`), carries the shared `EntryBand` and holds one flat card on
+   * the light canvas. It fills the viewport, so the route's wrapper never shows.
+   * No shadow, no scrim (nothing is
+   * underneath to dim).
+   */
   .takeover-prompt {
     position: fixed;
     inset: 0;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    background-color: var(--color-overlay-scrim);
+    flex-direction: column;
+    background-color: var(--color-background);
     z-index: 50;
+  }
+
+  .takeover-prompt__stage {
+    display: flex;
+    flex: 1;
+    min-block-size: 0;
+    padding: var(--space-5);
+    overflow-y: auto;
   }
 
   .takeover-prompt__content {
@@ -845,11 +860,12 @@ body {
     flex-direction: column;
     gap: var(--space-5);
     inline-size: 480px;
-    max-inline-size: calc(100vw - var(--space-8));
+    max-inline-size: 100%;
+    margin: auto;
     padding: var(--space-7);
-    background-color: var(--color-surface-elevated);
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-pane);
-    box-shadow: var(--shadow-overlay);
   }
 
   .takeover-prompt__title {
@@ -887,6 +903,17 @@ body {
   }
 
   /* The takeover buttons are shared .v5-btn (v5/foundation/buttons.css). */
+
+  /* Windows contrast themes (DESIGN.md Forced-Colours Rule): Canvas, 1px edges, no Mint. */
+  @media (forced-colors: active) {
+    .takeover-prompt {
+      background-color: Canvas;
+    }
+
+    .takeover-prompt__content {
+      border-color: CanvasText;
+    }
+  }
 
   /* === POS v3.5 prototype port (Phase 0 Task 1) — tender/account/held classes from docs/design/pos-v3.5/design-reference/kit.css === */
   /*

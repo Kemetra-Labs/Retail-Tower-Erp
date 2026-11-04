@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useId,
   useRef,
   useState,
@@ -13,11 +14,13 @@ import type {
   UnlockSessionResponse,
 } from '../../shared/bridge-api';
 import type { RefusalCategory } from '../../shared/audit/event-shape';
-import { PIN_MAX_LENGTH, PIN_MIN_LENGTH } from '../ui/operator/PinPad';
+import { PIN_MAX_LENGTH, PIN_MIN_LENGTH, PinPad } from '../ui/operator/PinPad';
 import { Dialog, DialogHost } from '../v5/foundation/Dialog';
 import { Icon } from '../icons/Icon';
+import { EntryBand } from '../v5/entry/EntryBand';
 import { BrandSlot, PoweredBy } from '../branding/BrandSlot';
 import { useBranding } from '../branding/branding-store';
+import '../v5/entry/entry.css';
 import '../v5/sale/live-sale.css';
 import '../v5/shift/shift.css';
 import './lock-screen.css';
@@ -58,9 +61,16 @@ const PIN_FORMAT = new RegExp(
 const LOCK_TITLE = 'الطرفية مقفلة';
 const LOCK_PROMPT_PIN = 'أدخل الرقم السري للمتابعة.';
 const LOCK_PROMPT_CREDENTIALS = 'أدخل بيانات الدخول للمتابعة.';
+/**
+ * RT-1095 (OD-13, owner L-3): the PIN format copy is sign-in's own, in Arabic
+ * only. The hint shows in the PinPad's status slot, the error replaces it.
+ */
+const LOCK_PIN_HINT = 'من 4 إلى 6 أرقام.';
+const LOCK_PIN_FORMAT_ERROR = 'الرقم السري من 4 إلى 6 أرقام.';
+const LOCK_UNLOCK_LABEL = 'فتح القفل';
 
 function refusalMessage(category: RefusalCategory): string {
-  if (category === 'rate_limited') return 'محاولات كثيرة. انتظر قليلاً ثم حاول مرة أخرى.';
+  if (category === 'rate_limited') return 'محاولات كثيرة. انتظر قليلًا ثم حاول مرة أخرى.';
   if (category === 'no_connection') return 'تعذّر الاتصال. فتح قفل المدير يتطلب اتصالاً بالشبكة.';
   return 'تعذّر فتح القفل. تحقّق من البيانات وحاول مرة أخرى.';
 }
@@ -74,19 +84,30 @@ export function LockScreen({
   const titleId = useId();
   const descId = useId();
   const errId = useId();
-  const firstFieldRef = useRef<HTMLInputElement>(null);
+  // Manager: the identifier input. Cashier: the PinPad's dots field.
+  const identifierRef = useRef<HTMLInputElement>(null);
+  const dotsRef = useRef<HTMLDivElement>(null);
   const [pin, setPin] = useState('');
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const isCashier = view.role === 'cashier';
+  const firstFieldRef = isCashier ? dotsRef : identifierRef;
 
   useEffect(() => {
     firstFieldRef.current?.focus();
-  }, []);
+  }, [firstFieldRef]);
 
   const rootRef = useRef<HTMLDivElement>(null);
+  // The PinPad hears the hardware keys on the Dialog panel. The portal host runs
+  // its own React listener, which stops key events at the lock's onKeyDown, so
+  // neither the root nor `window` ever sees them; the panel is focusable
+  // (tabIndex -1), so it must be the listener itself, not a child scope.
+  const panelRef = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    panelRef.current = rootRef.current?.querySelector<HTMLElement>('.v5-dialog') ?? null;
+  }, []);
   // RT-475 (RT-832 lock): the tenant logo above the lock head, from the local cache.
   const branding = useBranding();
 
@@ -125,14 +146,14 @@ export function LockScreen({
     cancelEntry();
   };
 
-  const submit = async (event: { preventDefault(): void }): Promise<void> => {
-    event.preventDefault();
+  const submit = async (event?: { preventDefault(): void }): Promise<void> => {
+    event?.preventDefault();
     if (busy) return;
     // RT-24 I-4 — a scanner burst (or any non-PIN entry) never reaches main as
     // a PIN attempt, so it cannot count toward the 004 lockout.
     if (isCashier && !PIN_FORMAT.test(pin)) {
       setPin('');
-      setError('رمز PIN من 4 إلى 6 أرقام.');
+      setError(LOCK_PIN_FORMAT_ERROR);
       firstFieldRef.current?.focus();
       return;
     }
@@ -159,7 +180,8 @@ export function LockScreen({
   };
 
   return (
-    <div ref={rootRef} className="session-lock" onKeyDown={onLockKeyDown}>
+    <div ref={rootRef} className="session-lock" data-entry-surface="" onKeyDown={onLockKeyDown}>
+      <EntryBand />
       <DialogHost>
         <Dialog
           label={LOCK_TITLE}
@@ -192,31 +214,36 @@ export function LockScreen({
               </p>
             )}
             {isCashier ? (
-              <div className="v5-shift-fields">
-                <label htmlFor={`${titleId}-pin`}>رمز PIN</label>
-                <input
-                  className="v5-shift-input"
-                  ref={firstFieldRef}
-                  id={`${titleId}-pin`}
-                  type="password"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  dir="ltr"
-                  value={pin}
-                  aria-invalid={error !== null ? 'true' : undefined}
-                  aria-describedby={error !== null ? errId : undefined}
-                  onChange={(e) => {
-                    setPin(e.target.value);
-                  }}
-                />
-              </div>
+              <PinPad
+                value={pin}
+                onChange={setPin}
+                onSubmit={() => {
+                  void submit();
+                }}
+                disabled={busy}
+                error={error !== null}
+                {...(error !== null ? { describedBy: errId } : {})}
+                submitLabel={LOCK_UNLOCK_LABEL}
+                keyTarget={panelRef}
+                dotsRef={dotsRef}
+                feedback={
+                  error !== null ? (
+                    <p id={errId} role="alert" className="session-lock__error">
+                      <Icon name="status.danger" />
+                      <span>{error}</span>
+                    </p>
+                  ) : (
+                    <p className="v5-entry__status">{LOCK_PIN_HINT}</p>
+                  )
+                }
+              />
             ) : (
               <>
                 <div className="v5-shift-fields">
                   <label htmlFor={`${titleId}-id`}>البريد أو اسم المستخدم</label>
                   <input
                     className="v5-shift-input"
-                    ref={firstFieldRef}
+                    ref={identifierRef}
                     id={`${titleId}-id`}
                     type="text"
                     autoComplete="username"
@@ -245,21 +272,23 @@ export function LockScreen({
                 </div>
               </>
             )}
-            {error !== null && (
+            {!isCashier && error !== null && (
               <p id={errId} role="alert" className="session-lock__error">
                 <Icon name="status.danger" />
                 <span>{error}</span>
               </p>
             )}
             <div>
-              <button
-                type="submit"
-                className="v5-live-btn v5-live-btn--primary v5-btn v5-btn--primary"
-                disabled={busy}
-                aria-busy={busy ? 'true' : undefined}
-              >
-                فتح القفل
-              </button>
+              {!isCashier && (
+                <button
+                  type="submit"
+                  className="v5-live-btn v5-live-btn--primary v5-btn v5-btn--primary"
+                  disabled={busy}
+                  aria-busy={busy ? 'true' : undefined}
+                >
+                  {LOCK_UNLOCK_LABEL}
+                </button>
+              )}
               {onSwitchOperator !== undefined && (
                 <button
                   type="button"

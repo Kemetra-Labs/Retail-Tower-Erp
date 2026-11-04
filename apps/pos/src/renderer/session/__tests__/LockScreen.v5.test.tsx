@@ -100,7 +100,7 @@ describe('RT-593 lock is V5, not 007', () => {
   });
 
   it('uses V5 button vocabulary and keeps the switch-operator button', () => {
-    renderLock(LOCKED, vi.fn());
+    renderLock({ ...LOCKED, role: 'manager' }, vi.fn());
     const unlock = screen.getByRole('button', { name: 'فتح القفل' });
     expect(unlock).toHaveClass('v5-live-btn', 'v5-live-btn--primary');
     expect(unlock).toHaveAttribute('type', 'submit');
@@ -109,13 +109,144 @@ describe('RT-593 lock is V5, not 007', () => {
     expect(sw).toHaveAttribute('type', 'button');
   });
 
-  it('focuses the first field on open and Esc clears the entry but keeps the lock', async () => {
+  it('focuses the PIN field on open and Esc clears the entry but keeps the lock', async () => {
     renderLock();
-    const pin = screen.getByLabelText('رمز PIN');
-    expect(pin).toHaveFocus();
-    await userEvent.type(pin, '12');
+    const field = screen.getByTestId('pin-pad-dots');
+    expect(field).toHaveFocus();
+    await userEvent.keyboard('12');
+    expect(field).toHaveAccessibleName('الرقم السري، أُدخل 2 من 6');
     await userEvent.keyboard('{Escape}');
-    expect(pin).toHaveValue('');
+    expect(field).toHaveAccessibleName('الرقم السري، أُدخل 0 من 6');
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('focuses the identifier on open for a manager', () => {
+    renderLock({ ...LOCKED, role: 'manager' });
+    expect(screen.getByLabelText('البريد أو اسم المستخدم')).toHaveFocus();
+  });
+});
+
+describe('RT-1095 lock joins the entry family (OD-13)', () => {
+  function renderWith(unlock = vi.fn(() => Promise.resolve({ kind: 'unlocked' as const }))) {
+    const onUnlocked = vi.fn();
+    render(<LockScreen view={LOCKED} unlock={unlock} onUnlocked={onUnlocked} />);
+    return { unlock, onUnlocked };
+  }
+
+  it('sets the entry-surface scope on the lock root', () => {
+    renderWith();
+    expect(document.querySelector('.session-lock')).toHaveAttribute('data-entry-surface');
+  });
+
+  it('carries the shared Ink band, with no second band and no sale content', () => {
+    renderWith();
+    expect(screen.getAllByTestId('entry-band')).toHaveLength(1);
+    expect(screen.getByTestId('entry-band')).toHaveTextContent('Retail Tower');
+    expect(document.querySelector('.session-lock')).toContainElement(
+      screen.getByTestId('entry-band'),
+    );
+  });
+
+  it('shows the sign-in PIN dock for a cashier, with no text field', () => {
+    renderWith();
+    expect(screen.getByTestId('pin-pad')).toBeInTheDocument();
+    expect(screen.queryByLabelText('رمز PIN')).toBeNull();
+    for (const k of '0123456789')
+      expect(screen.getByTestId(`pin-pad-key-${k}`)).toBeInTheDocument();
+    expect(screen.getByTestId('pin-pad-backspace')).toBeInTheDocument();
+    expect(screen.getByTestId('pin-pad-enter')).toHaveTextContent('فتح القفل');
+  });
+
+  it('shows the Arabic-only format hint, with no Latin letters in the lock copy', () => {
+    renderWith();
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('من 4 إلى 6 أرقام.');
+    expect(dialog.textContent).not.toMatch(/PIN/);
+  });
+
+  it('takes digits from the hardware keyboard and submits on Enter, like sign-in', async () => {
+    const { unlock, onUnlocked } = renderWith();
+    await userEvent.keyboard('1234');
+    expect(screen.getByTestId('pin-pad-dots')).toHaveAccessibleName('الرقم السري، أُدخل 4 من 6');
+    await userEvent.keyboard('{Backspace}');
+    await userEvent.keyboard('9{Enter}');
+    expect(unlock).toHaveBeenCalledWith({ method: 'pin', pin: '1239' });
+    await vi.waitFor(() => {
+      expect(onUnlocked).toHaveBeenCalled();
+    });
+  });
+
+  it('takes digits from the on-screen keypad and clears them after a refusal', async () => {
+    const unlock = vi.fn(() =>
+      Promise.resolve({ kind: 'refused' as const, category: 'rate_limited' as const }),
+    );
+    renderWith(unlock as never);
+    for (const k of '1234') await userEvent.click(screen.getByTestId(`pin-pad-key-${k}`));
+    await userEvent.click(screen.getByTestId('pin-pad-enter'));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('محاولات كثيرة. انتظر قليلًا ثم حاول مرة أخرى.');
+    expect(screen.getByTestId('pin-pad-dots')).toHaveAccessibleName('الرقم السري، أُدخل 0 من 6');
+    expect(screen.getByTestId('pin-pad-dots')).toHaveAccessibleDescription(
+      'محاولات كثيرة. انتظر قليلًا ثم حاول مرة أخرى.',
+    );
+  });
+
+  it('submits once on Enter after clicking digits (focus on a digit key), and not twice on the commit', async () => {
+    const { unlock } = renderWith();
+    for (const k of '1234') await userEvent.click(screen.getByTestId(`pin-pad-key-${k}`));
+    await userEvent.keyboard('{Enter}');
+    expect(unlock).toHaveBeenCalledTimes(1);
+  });
+
+  it('Enter on the focused backspace key deletes a digit and never submits', async () => {
+    const { unlock } = renderWith();
+    await userEvent.keyboard('1234');
+    screen.getByTestId('pin-pad-backspace').focus();
+    await userEvent.keyboard('{Enter}');
+    expect(unlock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('pin-pad-dots')).toHaveAccessibleName('الرقم السري، أُدخل 3 من 6');
+  });
+
+  it('keeps the commit inert below 4 digits and never reaches main', async () => {
+    const { unlock } = renderWith();
+    await userEvent.keyboard('12{Enter}');
+    await userEvent.click(screen.getByTestId('pin-pad-enter'));
+    expect(unlock).not.toHaveBeenCalled();
+  });
+
+  it('still takes digits when focus sits on the dialog panel, not a control', async () => {
+    const { unlock } = renderWith();
+    screen.getByRole('dialog').focus();
+    expect(screen.getByRole('dialog')).toHaveFocus();
+    await userEvent.keyboard('1234{Enter}');
+    expect(unlock).toHaveBeenCalledWith({ method: 'pin', pin: '1234' });
+  });
+
+  it('keeps digits typed on the lock away from the sale behind it', async () => {
+    const behind = vi.fn();
+    window.addEventListener('keydown', behind);
+    renderWith();
+    await userEvent.keyboard('12{Backspace}{Enter}');
+    window.removeEventListener('keydown', behind);
+    expect(behind).not.toHaveBeenCalled();
+  });
+
+  it('is right-to-left Arabic with an LTR keypad', () => {
+    renderWith();
+    expect(screen.getByRole('group', { name: 'إدخال الرقم السري' })).toHaveAttribute('dir', 'ltr');
+  });
+
+  it('spells «قليلًا» in the lock refusal and in no other way', () => {
+    const src = readFileSync(resolve(__dirname, '../LockScreen.tsx'), 'utf-8');
+    expect(src).toContain('قليلًا');
+    expect(src).not.toContain('قليلاً');
+  });
+
+  it('keeps the manager credential form without a keypad', () => {
+    render(
+      <LockScreen view={{ ...LOCKED, role: 'manager' }} unlock={vi.fn()} onUnlocked={vi.fn()} />,
+    );
+    expect(screen.queryByTestId('pin-pad')).toBeNull();
+    expect(screen.getByLabelText('كلمة المرور')).toBeInTheDocument();
   });
 });

@@ -17,6 +17,8 @@ import type {
   SignInResponse,
 } from '../../../shared/bridge-api.js';
 import type { PairingStatus } from '../../../shared/pairing-types.js';
+import type { BrandingSnapshot } from '../../../shared/branding/types.js';
+import { resetBrandingForTests } from '../../branding/branding-store.js';
 
 /**
  * 004-operator-session T022 + T024 — `/sign-in` route + sign-out
@@ -196,7 +198,8 @@ describe('AppRouter + /sign-in (T022)', () => {
     await waitFor(() =>
       expect(screen.getByTestId('entry-terminal-label')).toHaveTextContent('Counter 1'),
     );
-    expect(screen.getByTestId('entry-strip')).toHaveTextContent('POS Pulse');
+    // RT-1092 (RT-1042 OD-8): the sign-in band names the product «Retail Tower».
+    expect(screen.getByTestId('entry-strip')).toHaveTextContent('Retail Tower');
   });
 
   it('successful sign-in surfaces signedIn state in the operator session store', async () => {
@@ -772,5 +775,153 @@ describe('SignInRoute — FSM reset clears PIN (signedOut effect)', () => {
     await waitFor(() =>
       expect(screen.queryByTestId('cashier-sign-in-spinner')).not.toBeInTheDocument(),
     );
+  });
+});
+
+// ─── RT-1092 (RT-1042 S3): the B-lite composition ────────────────────────────
+
+const RENDITION = {
+  width: 100,
+  height: 25,
+  src1x: 'data:image/png;base64,QUFB',
+  src2x: 'data:image/png;base64,QkJC',
+};
+const LOGO: BrandingSnapshot = {
+  v: 1,
+  kind: 'logo',
+  displayName: 'صيدلية النور',
+  card: false,
+  slots: {
+    boot: { ...RENDITION, width: 240, height: 60 },
+    pairing: RENDITION,
+    sign_in: { ...RENDITION, width: 128, height: 32 },
+    lock: RENDITION,
+  },
+};
+
+/** True when `a` comes before `b` in document order. */
+function precedes(a: Element, b: Element): boolean {
+  return (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+}
+
+describe('SignInRoute — RT-1092 B-lite composition', () => {
+  afterEach(() => {
+    resetBrandingForTests(undefined);
+  });
+
+  it('the root is RTL Arabic and opts into the entry-surface tokens', async () => {
+    await renderWithCashier();
+    const root = screen.getByTestId('route-sign-in');
+    expect(root).toHaveAttribute('dir', 'rtl');
+    expect(root).toHaveAttribute('lang', 'ar');
+    expect(root).toHaveAttribute('data-entry-surface');
+    expect(root).toHaveClass('v5-entry--sign-in');
+    expect(screen.getAllByRole('main')).toHaveLength(1);
+  });
+
+  it('band, then room, then dock: the dock is the one complementary region, after the roster', async () => {
+    await renderWithCashier();
+    const band = screen.getByTestId('entry-strip');
+    const roster = screen.getByRole('region', { name: 'الكاشير في هذا الفرع' });
+    const dock = screen.getByTestId('sign-in-auth');
+    expect(screen.getByRole('complementary')).toBe(dock);
+    expect(precedes(band, roster)).toBe(true);
+    expect(precedes(roster, dock)).toBe(true);
+  });
+
+  it('with no logo the band shows the placeholder mark and «Retail Tower», no slot, no powered-by', async () => {
+    await renderWithCashier();
+    const band = screen.getByTestId('entry-strip');
+    expect(band).toHaveTextContent('Retail Tower');
+    expect(band).not.toHaveTextContent('POS Pulse');
+    expect(within(band).queryByTestId('brand-slot-sign_in')).not.toBeInTheDocument();
+    expect(within(band).queryByTestId('powered-by')).not.toBeInTheDocument();
+  });
+
+  it('with a logo the band holds the sign-in slot and the powered-by line, not the wordmark', async () => {
+    resetBrandingForTests(LOGO);
+    await renderWithCashier();
+    const band = screen.getByTestId('entry-strip');
+    expect(within(band).getByTestId('brand-slot-sign_in')).toBeInTheDocument();
+    expect(within(band).getByRole('img', { name: 'صيدلية النور' })).toBeInTheDocument();
+    expect(within(band).getByTestId('powered-by')).toHaveTextContent('بدعم من Retail Tower');
+    expect(band.querySelector('.v5-entry-band__name')).toBeNull();
+  });
+
+  it('before a pick, the prompt sits in the slot above a decorative dots field, then the keypad', async () => {
+    await renderWithCashier();
+    const prompt = screen.getByTestId('pin-awaiting-selection');
+    const placeholder = screen.getByTestId('pin-pad-dots-placeholder');
+    const keypad = screen.getByRole('group', { name: 'إدخال الرقم السري' });
+    expect(prompt.parentElement).toHaveClass('v5-entry__feedback');
+    expect(placeholder).toHaveAttribute('aria-hidden', 'true');
+    expect(placeholder).not.toHaveAttribute('tabindex');
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(precedes(prompt, placeholder)).toBe(true);
+    expect(precedes(placeholder, keypad)).toBe(true);
+  });
+
+  it('the picked name heads the dock, above the PIN, with the role noun', async () => {
+    const user = await renderWithCashier();
+    await user.click(screen.getByTestId('roster-item-0'));
+    const dock = screen.getByTestId('sign-in-auth');
+    const name = within(dock).getByRole('heading', { name: 'Alice Smith' });
+    expect(name).toHaveAttribute('id', 'signin-auth-heading');
+    expect(dock).toHaveAccessibleName('Alice Smith');
+    expect(within(dock).getByText('الكاشير')).toBeInTheDocument();
+    expect(precedes(name, screen.getByTestId('pin-pad-dots'))).toBe(true);
+  });
+
+  it('a refusal sits above the dots, inside the polite live region, and describes the PIN field', async () => {
+    const user = await renderWithCashier(refusedInvalid);
+    await pickCashierAndSubmitPin(user);
+    const error = await screen.findByTestId('cashier-sign-in-error');
+    const dots = screen.getByTestId('pin-pad-dots');
+    const keypad = screen.getByRole('group', { name: 'إدخال الرقم السري' });
+    expect(precedes(error, dots)).toBe(true);
+    expect(precedes(dots, keypad)).toBe(true);
+    expect(error).toHaveAttribute('role', 'alert');
+    const live = error.closest('[aria-live]');
+    expect(live).toHaveAttribute('aria-live', 'polite');
+    expect(live).toHaveAttribute('role', 'status');
+    expect(dots).toHaveAccessibleDescription('بيانات الدخول غير صحيحة. حاول مرة أخرى.');
+  });
+
+  it('the longest refusal takes the same slot above the dots', async () => {
+    const user = await renderWithCashier(() =>
+      Promise.resolve({
+        kind: 'refused' as const,
+        category: 'terminal_has_unresolved_payment' as const,
+      }),
+    );
+    await pickCashierAndSubmitPin(user);
+    const error = await screen.findByTestId('cashier-sign-in-error');
+    expect(error.closest('.v5-entry__feedback')).not.toBeNull();
+    expect(precedes(error, screen.getByTestId('pin-pad-dots'))).toBe(true);
+  });
+
+  it('keyboard: after a pick, Tab runs back → PIN field → keys → commit, in that order', async () => {
+    const user = await renderWithCashier();
+    await user.click(screen.getByTestId('roster-item-0'));
+    const dots = screen.getByTestId('pin-pad-dots');
+    expect(dots).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(screen.getByTestId('cashier-pin-cancel')).toHaveFocus();
+    await user.tab();
+    expect(dots).toHaveFocus();
+    await user.tab();
+    expect(screen.getByTestId('pin-pad-key-1')).toHaveFocus();
+    for (let i = 0; i < 10; i += 1) await user.tab();
+    expect(screen.getByTestId('pin-pad-backspace')).toHaveFocus();
+    await user.tab();
+    expect(screen.getByTestId('pin-pad-enter')).toHaveFocus();
+  });
+
+  it('keyboard: the roster and «دخول المدير» come before the dock in Tab order', async () => {
+    const user = await renderWithCashier();
+    await user.tab();
+    expect(screen.getByTestId('roster-item-0')).toHaveFocus();
+    await user.tab();
+    expect(screen.getByTestId('sign-in-manager-entry')).toHaveFocus();
   });
 });

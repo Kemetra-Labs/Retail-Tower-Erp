@@ -4,6 +4,7 @@ import type { OperatorBridgeAPI } from '../../../shared/bridge-api.js';
 import { useOperatorSessionStore } from '../../stores/operator-session-store.js';
 import { completeSignIn } from '../../session/complete-sign-in.js';
 import { SIGN_IN_REFUSAL_COPY } from './messages.js';
+import { EntryBand } from '../../v5/entry/EntryBand.js';
 
 /**
  * 004-operator-session T076 + T077 — TakeoverPrompt (Surface 5).
@@ -126,47 +127,52 @@ export function TakeoverPrompt({
       aria-labelledby="takeover-prompt-title"
       data-testid="takeover-prompt"
       className="takeover-prompt"
+      data-entry-surface=""
     >
-      <div className="takeover-prompt__content">
-        <h2
-          id="takeover-prompt-title"
-          className="takeover-prompt__title"
-          data-testid="takeover-prompt-title"
-        >
-          You are already signed in on another POS terminal in this branch.
-        </h2>
-        <p className="takeover-prompt__body" data-testid="takeover-prompt-body">
-          Continue here and sign out there?
-        </p>
-
-        <div className="takeover-prompt__feedback" role="status" aria-live="polite">
-          {feedback()}
-        </div>
-
-        <div className="takeover-prompt__actions">
-          <button
-            ref={cancelRef}
-            type="button"
-            className="takeover-prompt__cancel v5-btn"
-            data-testid="takeover-prompt-cancel"
-            disabled={confirming}
-            onClick={() => {
-              void handleCancel();
-            }}
+      {/* RT-1096: the entry family's Ink band; decorative, never changes with state. */}
+      <EntryBand />
+      <div className="takeover-prompt__stage">
+        <div className="takeover-prompt__content">
+          <h2
+            id="takeover-prompt-title"
+            className="takeover-prompt__title"
+            data-testid="takeover-prompt-title"
           >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="takeover-prompt__confirm v5-btn v5-btn--primary"
-            data-testid="takeover-prompt-confirm"
-            disabled={confirming}
-            onClick={() => {
-              void handleConfirm();
-            }}
-          >
-            {confirming ? 'Signing in…' : 'Continue here'}
-          </button>
+            You are already signed in on another POS terminal in this branch.
+          </h2>
+          <p className="takeover-prompt__body" data-testid="takeover-prompt-body">
+            Continue here and sign out there?
+          </p>
+
+          <div className="takeover-prompt__feedback" role="status" aria-live="polite">
+            {feedback()}
+          </div>
+
+          <div className="takeover-prompt__actions">
+            <button
+              ref={cancelRef}
+              type="button"
+              className="takeover-prompt__cancel v5-btn"
+              data-testid="takeover-prompt-cancel"
+              disabled={confirming}
+              onClick={() => {
+                void handleCancel();
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="takeover-prompt__confirm v5-btn v5-btn--primary"
+              data-testid="takeover-prompt-confirm"
+              disabled={confirming}
+              onClick={() => {
+                void handleConfirm();
+              }}
+            >
+              {confirming ? 'Signing in…' : 'Continue here'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
