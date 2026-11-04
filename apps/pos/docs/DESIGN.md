@@ -482,7 +482,7 @@ Icons reinforce; text decides (UX-03). Domain, destructive, financial and recove
 | Checkout | order summary ≈280px · tender panel fluid · payment ledger ≈320px (amount due and commit pinned) | tender panel fluid · payment ledger ≈296px; summary collapses to a one-line strip with «عرض الأصناف» |
 | Below 1024 | `ScreenTooSmall`, Arabic copy *(VN-S2; today English)* | — |
 
-The money column keeps the same place through the whole journey: the Sale total becomes the Checkout amount due and «الدفع» becomes «تأكيد الدفع». Column widths are reference-kit values (`design/vnext/references/`), confirmed in the real app by *(VN-S12)* (Sale layout and slim nav) and *(VN-S4)* (Checkout content); the Sale renders the Direction B command bar on `main` (`LiveProductRail.tsx:69-76`, mounted by `LiveCatalogueRegion` from `LiveSaleWorkspace.tsx:318`, styled by `sale-direction-b.css`). It is merged, not yet verified on the packaged app: packaged verification is pending under RT-1166 (RT-1044 S0), so these widths and the ≥6-row target are not yet measured there.
+The money column keeps the same place through the whole journey: the Sale total becomes the Checkout amount due and «الدفع» becomes «تأكيد الدفع». Column widths are reference-kit values (`design/vnext/references/`), confirmed in the real app by *(VN-S12)* (Sale layout and slim nav) and *(VN-S4)* (Checkout content); the Sale renders the Direction B command bar on `main` (`LiveProductRail.tsx:69-77`, mounted by `LiveCatalogueRegion` from `LiveSaleWorkspace.tsx:318`, styled by `sale-direction-b.css`). It is merged, not yet verified on the packaged app: packaged verification is pending under RT-1166 (RT-1044 S0), so these widths and the ≥6-row target are not yet measured there.
 
 **The Never-Scrolled-Away Rule.** At neither width may the total, the amount due, the safe back/cancel, suspend (when applicable) or the primary action be scrolled out of view. In the 600–767px compact-height band, a Sale or Checkout state that cannot keep them in view (stacked banners with actions) is covered by the in-surface fit notice M-F3 rather than shown clipped (RT-312 D2, RT-412); the screen stays mounted and inert under it, and the banners stay usable.
 
@@ -595,7 +595,7 @@ All three use `ease-out` `cubic-bezier(0.2, 0.7, 0.25, 1)`. New state transition
 
 ## Sale flow: RT-1044 Flow V0.5 outcome (owner decisions 2026-11-03)
 
-[RT-1044](https://rahmaqanater.atlassian.net/browse/RT-1044) evaluated the V0.5 "Precision Workspace" prototype against Direction B. Verdict **REVISE**: Direction B stays the base and V0.5 contributes a few ideas. The owner accepted RT1044-OD-1..15 on 2026-11-03 (comments 15252, 15259). The record is [`design/rt-1044-flow-v05-evaluation.md`](design/rt-1044-flow-v05-evaluation.md). The OD numbers carry the `RT1044-` prefix to stay apart from this file's OD-4 and OD-7. **Approved, not shipped:** none of the adapted ideas below is in the code yet.
+[RT-1044](https://rahmaqanater.atlassian.net/browse/RT-1044) evaluated the V0.5 "Precision Workspace" prototype against Direction B. Verdict **REVISE**: Direction B stays the base and V0.5 contributes a few ideas. The owner accepted RT1044-OD-1..15 on 2026-11-03 (comment 15252; slice issues in comment 15436). The record is [`design/rt-1044-flow-v05-evaluation.md`](design/rt-1044-flow-v05-evaluation.md). The OD numbers carry the `RT1044-` prefix to stay apart from this file's OD-4 and OD-7. **Approved, not shipped:** none of the adapted ideas below is in the code yet.
 
 | Decision | Outcome |
 |---|---|
@@ -605,7 +605,7 @@ All three use `ease-out` `cubic-bezier(0.2, 0.7, 0.25, 1)`. New state transition
 | OD-6 | **Adapt, gated:** one-press «الدفع», only after RT-754 verification and an RT-24 re-read. |
 | OD-13 | **Adapt** the «آخر مسح» marker only; **reject** the SKU/barcode line. |
 | OD-15 | **Adopt:** measure Direction B on the packaged app first (RT-1166). |
-| OD-2, 3, 7 | **Reject:** shared scan/search field; bottom money dock (the inline-end money column stays); inline payment. |
+| OD-2, 3, 7 | **Reject:** shared scan/search field; bottom money dock (the inline-end money column stays; chrome is trimmed only if S0 shows fewer than 6 rows); inline payment, rejected for the pilot and revisited after RT-754 with measured evidence. |
 | OD-8, 9 | **Reject:** pre-filled cash amount; card paid / not-paid declaration screens. |
 | OD-10, 11 | **Reject:** new shortcuts (any new key goes through D-K1); toolbar. |
 | OD-12, 14 | **Reject:** the V0.5 visual language (Mineral Daylight + Tower Teal stays); colloquial copy (MSA register stays). |
