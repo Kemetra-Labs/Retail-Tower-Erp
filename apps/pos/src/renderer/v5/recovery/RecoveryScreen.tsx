@@ -8,6 +8,7 @@ import type {
   RecoveryListHeldResponse,
   RecoveryStuckAttemptView,
 } from '../../../shared/operator/recovery';
+import { formatHumanDateTime } from '../../ui/format/human-format';
 import { formatCheckoutMoney } from '../../ui/payments/format-checkout-money';
 import { Notice } from '../foundation/Notice';
 import { ScreenSection } from '../foundation/ScreenSection';
@@ -251,6 +252,21 @@ function Fact(
   );
 }
 
+/**
+ * An absolute, machine-readable time in Western digits; nothing at all when it cannot be read.
+ * Not `Num`: that is LTR, and «13 أكتوبر، 12:00» mixes Arabic words with digits, so it keeps
+ * the page direction and reads right-to-left.
+ */
+function Stamp({ iso }: Readonly<{ iso: string }>): JSX.Element | null {
+  const text = formatHumanDateTime(iso);
+  if (text === null) return null;
+  return (
+    <time dateTime={iso} className="v5-recovery-time">
+      {text}
+    </time>
+  );
+}
+
 function Panel(
   props: Readonly<{
     id: string;
@@ -347,6 +363,7 @@ function StuckFacts(
   return (
     <dl className="v5-recovery-ledger">
       <Fact label={RECOVERY_COPY.owner} value={props.owner} text />
+      <StartedFact iso={stuck.started_at} />
       <Fact label={RECOVERY_COPY.lines} value={String(stuck.line_count)} />
       <Fact label={RECOVERY_COPY.total} value={formatCheckoutMoney(stuck.total_minor)} />
       {stuck.cash_minor > 0 && (
@@ -364,6 +381,19 @@ function StuckFacts(
         total
       />
     </dl>
+  );
+}
+
+/** RT-1190: when the stuck payment began, so a manager can tell how stale it is. */
+function StartedFact({ iso }: Readonly<{ iso: string }>): JSX.Element | null {
+  if (formatHumanDateTime(iso) === null) return null;
+  return (
+    <div className="v5-ledger-row">
+      <dt>{RECOVERY_COPY.startedAt}</dt>
+      <dd className="v5-ledger-row__amount">
+        <Stamp iso={iso} />
+      </dd>
+    </div>
   );
 }
 
@@ -423,7 +453,10 @@ function HeldRow(
           <span className="v5-recovery-tag">
             {cart.kind === 'draft' ? RECOVERY_COPY.draft : RECOVERY_COPY.handedOff}
           </span>
-          {cart.parked && <span className="v5-recovery-tag">{RECOVERY_COPY.parked}</span>}
+        </span>
+        <span className="v5-recovery-meta">
+          <Stamp iso={cart.updated_at} />
+          {cart.parked && <span>{RECOVERY_COPY.parked}</span>}
         </span>
       </div>
       <div className="v5-recovery-row__sum">
