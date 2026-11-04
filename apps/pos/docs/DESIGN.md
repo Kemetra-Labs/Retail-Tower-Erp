@@ -608,6 +608,8 @@ This section is the repository record. The rationale, boards and prototype are i
 - **Shipped today.** Only the inert Ink and Mint tokens (S2, RT-1091); no screen uses them. Until
   the recomposition slice *(S3, RT-1092)* merges, the shipped sign-in screen is the RT-246 G-1
   layout.
+- **Lock *(S6, RT-1095)*.** The lock uses sign-in's PIN dock and Arabic-only format copy; board:
+  [`03-lock-board.md`](design/rt-1042/03-lock-board.md).
 - **Behaviour is unchanged.** Refusal categories and copy, PIN rules, offline admission
   (RT-113/RT-114), the roster no-retry rule (RT-246), the scanner owner and keys (D-K1) stay as
   they are. Where a rule below seems to need a behaviour change, stop and raise it.
