@@ -240,24 +240,20 @@ shared_classes:   # precedence: lower wins; two matches at the SAME precedence =
   # renovate.json5 (RT-924) decides what the Renovate bot may change in the repo, so editing it is a policy change.
   # .circleci/** (RT-920) is CI configuration that runs repository code on CircleCI; it never feeds `required`.
   policy:  { precedence: 1, globs: [.github/**, .circleci/**, tools/project-graph/**, tools/ci-gate/**, tools/agent-broker/**, CODEOWNERS, .gitleaks.toml, .gitleaksignore, .python-version, renovate.json5, "apps/*/.github/**", "services/*/.github/**", "integrations/*/.github/**"], selects: all, policy_change: true }
-  # RT-1173 (smart CI step 1): two policy paths whose change no product suite can test. They stay
-  # policy changes (approval, fingerprint) but select only the job that does exercise them.
-  # Precedence 0 beats policy's 1. .circleci/** only configures the advisory CircleCI lane, which
-  # never feeds `required`; its offline tests run in that lane, so it selects no job.
-  # .github/release/** is release/deploy tooling run by release and deploy workflows, not by product
-  # suites; contracts/check runs its system_gate.py on every manifest (contracts.yml), so it selects
-  # that job, and project-graph-selftest still runs its unit tests (release/selftest) on every PR.
-  # Workflows, actions, gate and graph code stay `all`.
+  # RT-1173 (smart CI step 1): .circleci/** only configures the advisory CircleCI lane, which never
+  # feeds `required`; no product suite can test it and its offline tests run in that lane. It stays a
+  # policy change (approval, fingerprint) but selects no job. Precedence 0 beats policy's 1.
+  # Named-job lists for .github/release/** and system/** follow in a separate graph-only PR: the
+  # trusted (base) evaluator must understand the new schema before a graph may use it.
   circleci: { precedence: 0, globs: [.circleci/**], selects: [], policy_change: true }
-  release_tooling: { precedence: 0, globs: [.github/release/**], selects: [contracts/check], policy_change: true }
   tooling: { precedence: 2, globs: [tools/**], selects: all }
   e2e:     { precedence: 3, globs: [tests/e2e/**], selects: [e2e] }
   docs:    { precedence: 3, globs: [docs/**], selects: [] }
   # RT-1030: system release manifests (system/releases/*.json) name the product releases deployed
   # together; contracts/check runs the system release gate (G1-G5) on every one of them.
-  # RT-1173: a shared class can now name jobs, so a manifest selects that gate plus e2e/smoke instead
-  # of every job (the releases it names were built and tested on their own release tags).
-  system:  { precedence: 3, globs: [system/**], selects: [contracts/check, e2e] }
+  # A shared class can only select all, [e2e] or [] on the trusted evaluator, and a new system
+  # version is rare, so it selects all (RT-1173 follow-up narrows it once the schema is on main).
+  system:  { precedence: 3, globs: [system/**], selects: all }
   # RT-578 (CI Modernization PR-1): the two root prose files select no job. Precedence 3 beats
   # root's 4, so they never fall through to the "*" catch-all below. No code, workflow or build
   # reads them (RT-578 PR evidence); a new root file still hits `root` and selects everything.

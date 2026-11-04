@@ -5,6 +5,8 @@ import subprocess
 import tempfile
 import unittest
 
+import yaml
+
 import support
 from pgraph import api_jest_select as ajs
 from pgraph import evaluate as ev
@@ -95,12 +97,39 @@ class MergeBaseSelectionTests(unittest.TestCase):
             changes_for(self.repo, "pull_request", self.main, "f" * 40)
 
 
-def _plan(path):
-    return ev.evaluate(support.eval_input({"changes": [{"status": "M", "path": path}]}))
+class _NoAliasDumper(yaml.SafeDumper):
+    """load_graph rejects YAML aliases, so never emit any."""
+
+    def ignore_aliases(self, data):
+        return True
+
+
+def _narrowed_text():
+    """The trusted graph plus the two named-job classes of the RT-1173 graph follow-up."""
+    data = load_graph(support.trusted_text())
+    data["shared_classes"]["release_tooling"] = {"precedence": 0, "globs": [".github/release/**"],
+                                                 "selects": ["contracts/check"], "policy_change": True}
+    data["shared_classes"]["system"]["selects"] = ["contracts/check", "e2e"]
+    return yaml.dump(data, Dumper=_NoAliasDumper, sort_keys=False)
+
+
+NARROWED = None
+
+
+def _plan(path, trusted_text=None):
+    inp = support.eval_input({"changes": [{"status": "M", "path": path}]})
+    if trusted_text is not None:
+        inp = ev.EvalInput(**{**inp.__dict__, "trusted_text": trusted_text})
+    return ev.evaluate(inp)
 
 
 class NamedJobClassTests(unittest.TestCase):
     """Narrowed classes select exactly their list; everything else in policy still selects all."""
+
+    @classmethod
+    def setUpClass(cls):
+        global NARROWED
+        NARROWED = _narrowed_text()
 
     def setUp(self):
         self.graph = Graph(load_graph(support.trusted_text()))
@@ -112,18 +141,24 @@ class NamedJobClassTests(unittest.TestCase):
         self.assertTrue(plan["policy_change"] and plan["approval_required"])
         self.assertEqual(set(plan["needed_jobs"]), self.always)
 
-    def test_release_tooling_is_a_policy_change_that_selects_the_contracts_check(self):
-        # contracts/check runs .github/release/system_gate.py on every manifest (reviewer finding)
-        plan = _plan(".github/release/system_gate.py")
+    def test_release_tooling_class_selects_the_contracts_check(self):
+        # the named-job classes the graph-only follow-up enables, exercised on a test graph
+        plan = _plan(".github/release/system_gate.py", NARROWED)
         self.assertFalse(plan["select_all"])
         self.assertTrue(plan["policy_change"])
         self.assertEqual(set(plan["needed_jobs"]), self.always | {"contracts/check"})
 
-    def test_system_manifest_selects_the_gate_and_e2e_only(self):
-        plan = _plan("system/releases/lab-2026.11.9.json")
+    def test_system_manifest_class_selects_the_gate_and_e2e_only(self):
+        plan = _plan("system/releases/lab-2026.11.9.json", NARROWED)
         self.assertFalse(plan["select_all"])
         self.assertEqual(set(plan["needed_jobs"]),
                          self.always | {"contracts/check", self.graph.data["e2e_job"]})
+
+    def test_the_real_graph_still_selects_all_for_release_and_system(self):
+        # until the graph-only follow-up lands, the trusted graph keeps these two broad
+        for path in (".github/release/system_gate.py", "system/releases/lab-2026.11.9.json"):
+            with self.subTest(path=path):
+                self.assertTrue(_plan(path)["select_all"])
 
     def test_other_policy_paths_still_select_all(self):
         for path in (".github/workflows/pos.yml", ".github/workflows/gate.yml", ".github/actions/x/action.yml",
@@ -136,7 +171,7 @@ class NamedJobClassTests(unittest.TestCase):
 
     def test_classification_of_the_narrowed_paths(self):
         self.assertEqual(self.graph.classify(".circleci/scripts/x.cjs")[:2], ("class", "circleci"))
-        self.assertEqual(self.graph.classify(".github/release/x.py")[:2], ("class", "release_tooling"))
+        self.assertEqual(self.graph.classify(".github/release/x.py")[:2], ("class", "policy"))
         self.assertEqual(self.graph.classify(".github/releases.yml")[:2], ("class", "policy"))
 
     def test_plan_reports_where_the_diff_starts(self):
