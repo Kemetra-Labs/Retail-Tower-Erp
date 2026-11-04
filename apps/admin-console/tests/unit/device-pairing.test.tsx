@@ -70,8 +70,6 @@ const BINDING = {
   "Store name on receipts": "Dubai Mall",
   "Store address on receipts": "Level 1, Downtown",
   "Tax registration id": "TRN-100200300",
-  "Printer vendor id (USB)": "0x04B8",
-  "Printer product id (USB)": "0x0E15",
 };
 
 function fillBinding(overrides: Record<string, string> = {}): void {
@@ -140,15 +138,11 @@ describe("Replace and Move (RT-372 part B)", () => {
     ).toEqual(["Replace", "Move to another store", "Retire"]);
   });
 
-  test("Replace collects the five binding fields (decision C1); nothing is asked of the server until they are valid", async () => {
+  test("Replace collects the three binding fields (decision C1); nothing is asked of the server until they are valid", async () => {
     await openAction("Replace");
     click("Review impact");
     const required = within(dialog()).getAllByText("This field is required.");
-    expect(required).toHaveLength(5);
-    expect(consoleGetDeviceImpact).not.toHaveBeenCalled();
-    fillBinding({ "Printer vendor id (USB)": "04B8" });
-    click("Review impact");
-    expect(within(dialog()).getByText("Use 0x followed by four hex digits.")).toBeDefined();
+    expect(required).toHaveLength(3);
     expect(consoleGetDeviceImpact).not.toHaveBeenCalled();
   });
 
@@ -182,8 +176,6 @@ describe("Replace and Move (RT-372 part B)", () => {
       branchName: "Dubai Mall",
       branchAddress: "Level 1, Downtown",
       taxRegistrationId: "TRN-100200300",
-      printerVendorId: "0x04B8",
-      printerProductId: "0x0E15",
     });
     expect(key).toMatch(/^[\x21-\x7E]{16,128}$/);
 
@@ -235,7 +227,7 @@ describe("Replace and Move (RT-372 part B)", () => {
       .map((o) => o.textContent);
     expect(options).toEqual(["Choose a store", "Fifth Avenue"]);
     click("Review impact");
-    expect(within(dialog()).getAllByText("This field is required.")).toHaveLength(6);
+    expect(within(dialog()).getAllByText("This field is required.")).toHaveLength(4);
     fireEvent.change(target, { target: { value: NEW_YORK_STORE } });
     fillBinding();
     click("Review impact");

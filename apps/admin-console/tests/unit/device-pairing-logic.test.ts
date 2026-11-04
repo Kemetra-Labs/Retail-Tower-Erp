@@ -15,8 +15,6 @@ const valid: IssueDraft = {
   branchName: "Dubai Mall",
   branchAddress: "Level 1\nDowntown",
   taxRegistrationId: "TRN-100200300",
-  printerVendorId: "0x04B8",
-  printerProductId: "0x0E15",
 };
 
 describe("validateIssueDraft (form checks; the server re-validates everything)", () => {
@@ -24,13 +22,11 @@ describe("validateIssueDraft (form checks; the server re-validates everything)",
     expect(validateIssueDraft(valid)).toEqual({});
   });
 
-  test("the five binding fields and the store are required (decision C1)", () => {
+  test("the three binding fields and the store are required (decision C1)", () => {
     const problems = validateIssueDraft(EMPTY_ISSUE_DRAFT);
     expect(Object.keys(problems).sort()).toEqual([
       "branchAddress",
       "branchName",
-      "printerProductId",
-      "printerVendorId",
       "storeId",
       "taxRegistrationId",
     ]);
@@ -43,25 +39,26 @@ describe("validateIssueDraft (form checks; the server re-validates everything)",
     );
   });
 
-  test("printer ids are 0xHHHH", () => {
-    expect(validateIssueDraft({ ...valid, printerVendorId: "04B8" }).printerVendorId?.key).toBe(
-      "devices.issue.problem.usbId",
+  test("a draft has no printer field and the checks know none (RT-1165)", () => {
+    expect(Object.keys(EMPTY_ISSUE_DRAFT).sort()).toEqual([
+      "branchAddress",
+      "branchName",
+      "storeId",
+      "taxRegistrationId",
+      "terminalLabel",
+      "ttlMinutes",
+    ]);
+    expect(Object.keys(validateIssueDraft(EMPTY_ISSUE_DRAFT)).some((k) => /printer/i.test(k))).toBe(
+      false,
     );
-    expect(validateIssueDraft({ ...valid, printerProductId: "0x12G4" }).printerProductId?.key).toBe(
-      "devices.issue.problem.usbId",
-    );
-    expect(validateIssueDraft({ ...valid, printerProductId: "0xabcd" })).toEqual({});
   });
 
   test("optional fields may be empty; their limits still hold", () => {
-    expect(validateIssueDraft({ ...valid, terminalLabel: "", printerComPort: "" })).toEqual({});
+    expect(validateIssueDraft({ ...valid, terminalLabel: "" })).toEqual({});
     expect(validateIssueDraft({ ...valid, terminalLabel: "x".repeat(65) }).terminalLabel).toEqual({
       key: "devices.issue.problem.tooLong",
       params: { max: 64 },
     });
-    expect(validateIssueDraft({ ...valid, printerComPort: "x".repeat(33) }).printerComPort).toEqual(
-      { key: "devices.issue.problem.tooLong", params: { max: 32 } },
-    );
     expect(
       validateIssueDraft({ ...valid, branchName: "x".repeat(257) }).branchName?.params,
     ).toEqual({ max: 256 });
@@ -108,9 +105,8 @@ describe("buildIssueBody", () => {
       branchName: "Dubai Mall",
       branchAddress: "Level 1\nDowntown",
       taxRegistrationId: "TRN-100200300",
-      printerVendorId: "0x04B8",
-      printerProductId: "0x0E15",
     });
+    expect(Object.keys(buildIssueBody(valid)).some((k) => /printer/i.test(k))).toBe(false);
   });
 
   test("replace and move send replacesDeviceId; the server derives the kind from the stores", () => {
@@ -125,11 +121,9 @@ describe("buildIssueBody", () => {
       ...valid,
       terminalLabel: " Counter 2 ",
       ttlMinutes: "120",
-      printerComPort: " COM3 ",
     });
     expect(body.terminalLabel).toBe("Counter 2");
     expect(body.ttlMinutes).toBe(120);
-    expect(body.printerComPort).toBe("COM3");
   });
 });
 

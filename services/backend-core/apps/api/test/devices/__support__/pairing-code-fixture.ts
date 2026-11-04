@@ -83,13 +83,11 @@ export const SES_STAFF = id("07a3");
 export const OP_TOKEN_FREE = generateRawToken();
 export const SIBLING_CODE = id("08a1");
 
-/** The receipt / printer binding every issue sends. */
+/** The receipt binding every issue sends. */
 export const BINDING = {
   branchName: "Main Store",
   branchAddress: "1 Pilot St, Cairo",
   taxRegistrationId: "123-456-789",
-  printerVendorId: "0x04B8",
-  printerProductId: "0x0E15",
 } as const;
 
 const digest = (s: string): Buffer => createHash("sha256").update(s).digest();
@@ -200,24 +198,24 @@ async function seedCredentials(admin: Pool): Promise<void> {
   await admin.query(
     `INSERT INTO pairing_codes
        (id, tenant_id, store_id, code_hash, terminal_id, terminal_label, branch_name, branch_address,
-        tenant_tax_registration_id, printer_vendor_id, printer_product_id, status, expires_at)
-     VALUES ($1, $2, $3, $4, $5, 'Sibling', 'Branch', 'Address', 'TAX-1', '0x04b8', '0x0202',
+        tenant_tax_registration_id, status, expires_at)
+     VALUES ($1, $2, $3, $4, $5, 'Sibling', 'Branch', 'Address', 'TAX-1',
              'pending', now() + interval '1 day')`,
     [SIBLING_CODE, TENANT_A, STORE_A_X, digest(`code:${SIBLING_CODE}`), PARITY_DEVICES.replace.free],
   );
   await admin.query(
     `INSERT INTO pairing_codes
        (id, tenant_id, store_id, code_hash, terminal_id, terminal_label, branch_name, branch_address,
-        tenant_tax_registration_id, printer_vendor_id, printer_product_id, status, expires_at, replaces_device_id)
-     VALUES ($1, $2, $3, $4, gen_random_uuid(), 'Stale', 'Branch', 'Address', 'TAX-1', '0x04b8', '0x0202',
+        tenant_tax_registration_id, status, expires_at, replaces_device_id)
+     VALUES ($1, $2, $3, $4, gen_random_uuid(), 'Stale', 'Branch', 'Address', 'TAX-1',
              'pending', now() - interval '1 minute', $5)`,
     [STALE_SIBLING_CODE, TENANT_A, STORE_A_X, digest(`code:${STALE_SIBLING_CODE}`), RP_REV_SIB],
   );
   await admin.query(
     `INSERT INTO pairing_codes
        (id, tenant_id, store_id, code_hash, terminal_id, terminal_label, branch_name, branch_address,
-        tenant_tax_registration_id, printer_vendor_id, printer_product_id, status, expires_at, replaces_device_id)
-     VALUES ($1, $2, $3, $4, gen_random_uuid(), 'Conc', 'Branch', 'Address', 'TAX-1', '0x04b8', '0x0202',
+        tenant_tax_registration_id, status, expires_at, replaces_device_id)
+     VALUES ($1, $2, $3, $4, gen_random_uuid(), 'Conc', 'Branch', 'Address', 'TAX-1',
              'pending', now() + interval '1 hour', $5)`,
     [CONC_SIBLING_CODE, TENANT_A, STORE_A_X, digest(CONC_SIBLING_RAW), RP_CONC],
   );
