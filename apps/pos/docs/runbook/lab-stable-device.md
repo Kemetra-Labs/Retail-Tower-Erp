@@ -102,16 +102,36 @@ which is not a fault of the device.
    Certification Authorities*. This is a system-trust change made by the device owner. Never import
    the PFX, never trust the root on the build machine, and never put the root's private key on the device or in CI.
    The TLS certificate of the feed is publicly trusted, so no TLS trust step is needed.
-2. **Set the updater inputs persistently.** The installer's relaunch does not inherit the process
-   environment (see "Gotchas" in `lab-nsis-installer.md`), so set both as user variables:
+2. **Set the device's inputs persistently.** The installer's relaunch does not inherit the process
+   environment (see "Gotchas" in `lab-nsis-installer.md`), so set these as user variables:
 
    ```powershell
    setx ELECTRON_UPDATE_FEED_URL "<FEED_URL>"
    setx POS_PULSE_UPDATE_CHANNEL lab
+   setx VITE_API_BASE_URL "<BACKEND_URL>"
+   setx DESCOPE_PROJECT_ID "<lab Descope project id>"
+   setx POS_PULSE_FEATURE_CART true
+   setx POS_PULSE_FEATURE_PRODUCT_SEARCH true
+   setx POS_PULSE_FEATURE_PAYMENTS true
+   setx POS_PULSE_FEATURE_SALE_FINALIZATION true
+   setx POS_PULSE_FEATURE_SHIFT_CASHUP true
    ```
 
    `setx` writes the user environment for **new** processes only: sign out and sign in again before
    installing. The origin must be `https://`; the updater refuses anything else (`origin_not_https`).
+
+   The packaged app has no built-in backend or identity provider (RT-1082, 2026-11-04 lab run):
+   - Without `VITE_API_BASE_URL` it calls the non-routable default `https://example.invalid`. Pairing then
+     fails at once with «لا يوجد اتصال», and the log shows `backend:request outcome=transport_error` and
+     `pairing_attempt outcome=network_error`. `<BACKEND_URL>` is the Backend-Core origin, without a path;
+     `<BACKEND_URL>/api/v1/health/live` must answer 200.
+   - Without `DESCOPE_PROJECT_ID`, every manager or admin sign-in is refused with the generic error, and
+     the log shows `operator.sign_in.refused category=invalid_input stage=identity_provider`. The project
+     id is public, not a secret. Cashier PIN sign-in does not need it.
+   - Every sale feature is off in a packaged app. With `POS_PULSE_FEATURE_CART` unset, a signed-in manager sees
+     «سلة البيع غير مفعّلة على هذا الجهاز بعد.». The five `true` variables above are the set for a cash test sale
+     (source: `src/main/app/feature-flags.ts`). `PAYMENTS` needs `SALE_FINALIZATION`; with `PAYMENTS` on and it off, the
+     app refuses to sell. `RETURNS`, `SALE_VOID`, `CARD_TENDER` and `VOUCHER_TENDER` stay off unless a drill needs them.
 3. **Install the first release.** The device needs `gh` (signed in) and a copy of
    `apps/pos/scripts/lab/verify-lab-signature.ps1`; if it has neither, run the download and the checks on
    the build machine and carry the installer, its `.sha256` and the script across. Verify before running:
@@ -128,9 +148,13 @@ which is not a fault of the device.
    Expected: matching hash, a verified attestation from `release-pos.yml` for that tag (the two flags are
    the same ones the deploy preflight uses), and `RESULT: PASS` on this device (it would be `FAIL` on a
    machine that does not trust the root). Then run the installer. It installs per user, without UAC,
-   under `%LOCALAPPDATA%\Programs\POS Pulse`.
+   under `%LOCALAPPDATA%\Programs\pos-pulse` (the executable is `POS Pulse.exe`), and launches the app.
+   If `%APPDATA%\pos-pulse` already holds data from development runs, the installed app uses it; move it
+   aside first for a clean device.
 4. **Pair and make data.** Pair the terminal against the lab Backend-Core, sign in, open and close a
-   shift if needed and make a test sale so the database and outbox hold rows. Record the row counts; the
+   shift if needed and make a test sale so the database and outbox hold rows. The store needs at least
+   one cashier admitted in the Admin Console first: on an empty store the log shows
+   `operator.roster.fetched count=0` and there is no one to sell as. Record the row counts; the
    update must not change them. Take them the same way every time and write the method down (for example
    the sales-history screen plus a read-only copy of `%APPDATA%\pos-pulse` opened with a SQLite tool;
    `sqlite3` is not installed by default).
@@ -214,7 +238,7 @@ Times in evidence are Cairo local time, for example `2026-11-04 14:20 (Cairo)`.
 8. **Differential download.** The Caddy feed serves HTTP `Range`, so a differential download using the
    `.blockmap` is expected to work. Record which path was taken: launch the packaged app from PowerShell
    with its console piped to a file (for example
-   `& "$env:LOCALAPPDATA\Programs\POS Pulse\POS Pulse.exe" 2>&1 | Tee-Object <log>`), because the
+   `& "$env:LOCALAPPDATA\Programs\pos-pulse\POS Pulse.exe" 2>&1 | Tee-Object <log>`), because the
    updater's own logger is not routed into `main-*.log`. If the console shows the fallback line, note its
    cause; the full download is checked the same way (`sha512`, then the pinned publisher) and the
    fallback itself stays proven by the Sandbox drill in `lab-nsis-installer.md`.

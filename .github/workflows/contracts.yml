@@ -191,3 +191,11 @@ jobs:
               --oasdiff "$RUNNER_TEMP/oasdiff/oasdiff" --only pins "${revs[@]}" --summary "$GITHUB_STEP_SUMMARY")
             echo "::endgroup::"
           done
+
+      # RT-1173: the release tooling's offline specs, the same as release/selftest
+      # (project-graph-selftest.yml, advisory: outside the gate). Here they feed `required`, which
+      # lets .github/release/** select only this job instead of every product suite.
+      - name: Release tooling specs
+        run: |
+          node --test .github/release/compat-gate.test.cjs
+          python -m unittest discover -s .github/release -p 'test_*.py' -v

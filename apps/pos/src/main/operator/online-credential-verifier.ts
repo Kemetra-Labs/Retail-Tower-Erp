@@ -56,7 +56,7 @@ export class OnlineCredentialVerifier {
     this.inFlight = true;
     try {
       const exchange = await this.deps.clerk.exchange({ identifier, password });
-      if (exchange.kind === 'no_connection') return refused('no_connection', 'clerk');
+      if (exchange.kind === 'no_connection') return refused('no_connection', 'identity_provider');
       if (exchange.kind !== 'ok' || exchange.operator_id !== operator_id) {
         this.recordFailure(operator_id);
         return refused('invalid_input', 'identity');
