@@ -62,10 +62,13 @@ const lines = [
   "`forced-colors` at 1280 (C2) and the WCAG 2.1 A/AA axe results (`axe.json`).",
   "File name: `<ticket>__<screen>__<locale>__<width>__<variant>.png`.",
   "",
-  "`Banner shown` counts the shared Banner (`.rtc-alert`) in the banner variant at 1280/390:",
-  "it is recorded, not asserted (a capture fails only when a route crashes).",
+  "`Error state shown` counts, in the banner variant at 1280/390, the shared Banner (`.rtc-alert`)",
+  "and, on a screen that reports a failed read inside its own panels (the Overview), its `PanelError`",
+  "panels too (`.glance-error`, one per failed panel: the Overview's three panels that share the",
+  "sales-summary read count 3). It is recorded, not asserted (a capture fails only when a route",
+  "crashes).",
   "",
-  "| Ticket | Screen | Route | Files | axe violations (ar / en) | Banner shown (ar / en) |",
+  "| Ticket | Screen | Route | Files | axe violations (ar / en) | Error state shown (ar / en) |",
   "| --- | --- | --- | --- | --- | --- |",
 ];
 const counts = [];

@@ -36,6 +36,11 @@ export interface Screen {
   route: string;
   mock: (page: Page) => Promise<void>;
   failRead?: string;
+  /**
+   * What counts as "the error state shown" in the banner variant. Absent: the shared Banner
+   * (`.rtc-alert`). A screen that reports a failed read inside its own panels names them here.
+   */
+  errorSelector?: string;
   dense?: { route?: string; mock: (page: Page) => Promise<void> };
 }
 
@@ -194,5 +199,8 @@ export const SCREENS: Screen[] = [
     route: "/",
     mock: mockOverview,
     failRead: OVERVIEW_GLANCE,
+    // RT-1164: the Overview shows a failed read as a `PanelError` (`.glance-error`) in each affected
+    // panel, not as the shared Banner. The ledger rows' own `.ledger__error` is not counted.
+    errorSelector: "main .rtc-alert, main .glance-error",
   },
 ];
