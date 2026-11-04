@@ -44,7 +44,8 @@ interface Region {
   targets: Target[];
 }
 
-const OVERVIEW = "section.section-panel:has(#overview-recent) .data-table__scroll";
+// The Overview's panel is a `div.section-panel`, not a `section`.
+const OVERVIEW = ".section-panel:has(#overview-recent) .data-table__scroll";
 const IDENTIFIERS = "section.section-panel:has(#catalog-detail-identifiers) .data-table__scroll";
 const OVERRIDES = "section.section-panel:has(#catalog-detail-overrides)";
 const STOCK_LEVELS = "section.section-panel:has(#catalog-detail-stock-levels)";
@@ -265,6 +266,9 @@ async function probeTarget(page: Page, region: Region, target: Target) {
       ? await arrowToEnd(page, region.scroller)
       : null;
   const afterReach = await page.evaluate(measure, target.selector);
+  const maxScroll = region.scroller
+    ? await atMaxScroll(page, region.scroller, target.selector)
+    : null;
   return {
     name: target.name,
     method: target.method,
@@ -274,8 +278,45 @@ async function probeTarget(page: Page, region: Region, target: Target) {
     scrollLeftAfter: scrolled?.after ?? null,
     atRest,
     afterReach,
+    maxScroll,
     verdict: verdictOf(atRest, afterReach),
   };
+}
+
+/**
+ * After the keyboard step: scrolls the region to its very end and measures again, with the
+ * scroll offsets of every clipping ancestor. If the target is still cut here, no amount of
+ * scrolling the region reveals it: it is clipped by an outer ancestor, not merely off-screen.
+ */
+async function atMaxScroll(page: Page, scroller: string, selector: string) {
+  const state = await page.evaluate((s) => {
+    const el = document.querySelector<HTMLElement>(s);
+    if (!el) return null;
+    const sign = getComputedStyle(el).direction === "rtl" ? -1 : 1;
+    el.scrollLeft = sign * el.scrollWidth;
+    const ancestors: Array<{
+      el: string;
+      overflowX: string;
+      scrollLeft: number;
+      scrollWidth: number;
+      clientWidth: number;
+    }> = [];
+    for (let a: HTMLElement | null = el; a && a !== document.documentElement; a = a.parentElement) {
+      const overflowX = getComputedStyle(a).overflowX;
+      if (overflowX === "visible") continue;
+      const cls = typeof a.className === "string" ? a.className.trim().split(/\s+/).join(".") : "";
+      ancestors.push({
+        el: `${a.tagName.toLowerCase()}${cls ? `.${cls}` : ""}`,
+        overflowX,
+        scrollLeft: a.scrollLeft,
+        scrollWidth: a.scrollWidth,
+        clientWidth: a.clientWidth,
+      });
+    }
+    return ancestors;
+  }, scroller);
+  const measured = await page.evaluate(measure, selector);
+  return { ancestors: state, measured, revealed: measured ? !isCut(measured) : null };
 }
 
 for (const region of REGIONS) {
@@ -321,7 +362,23 @@ for (const region of REGIONS) {
         clientWidth: container.clientWidth,
         tabIndex: container.tabIndex,
       },
-      targets: targets.map((t) => ({ name: t.name, verdict: t.verdict, tabs: t.tabPresses })),
+      targets: targets.map((t) => ({
+        name: t.name,
+        verdict: t.verdict,
+        tabs: t.tabPresses,
+        scrollLeft: [t.scrollLeftBefore, t.scrollLeftAfter],
+        maxScroll: t.maxScroll && {
+          revealed: t.maxScroll.revealed,
+          anc: t.maxScroll.ancestors,
+          ex: t.maxScroll.measured?.excluders,
+        },
+        rest: t.atRest && { l: t.atRest.left, r: t.atRest.right, ex: t.atRest.excluders },
+        after: t.afterReach && {
+          l: t.afterReach.left,
+          r: t.afterReach.right,
+          ex: t.afterReach.excluders,
+        },
+      })),
     };
     console.log(`RT-1187-OVERFLOW ${JSON.stringify(line)}`);
   });
