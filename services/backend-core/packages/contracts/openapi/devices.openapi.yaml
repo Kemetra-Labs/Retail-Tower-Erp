@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — Console Device Registry API
-  version: "1.5.0-draft"
+  version: "1.6.0-draft"
   description: >
     Jira RT-365 (RT-287 F2; RT-138 L3 / DL-2), RT-366 (RT-287 F3), RT-367
     (RT-287 F4; RT-138 L1 / L5 / DL-3) and RT-368 (RT-287 F5; D-Q2): the
@@ -256,9 +256,11 @@ info:
 
       - **Issue.** The caller names the store, the terminal binding the POS
         pins at pairing (`branchName`, `branchAddress`, `taxRegistrationId`,
-        the printer ids). These are passed through to satisfy migration
-        0024's NOT NULL snapshot columns; this API does not manage them, and
-        Backend-Core has no other source for them. Then an
+        and, optionally, the printer ids). These are passed through to satisfy migration
+        0024's NOT NULL snapshot columns; this API does not manage
+        them, and Backend-Core has no other source for them. The printer ids
+        are optional since RT-1181 (RT-1165 S1): omitted, they are stored as
+        NULL and `posPairTerminal` returns them as `null`. Then an
         optional `terminalLabel`, an optional `ttlMinutes` (default 60, at most
         1440 = 24 h) and optionally `replacesDeviceId`. The server generates
         the code and returns it ONCE, in the 201 body only. It stores only a
@@ -479,6 +481,17 @@ info:
     `console-device-builds.openapi.yaml`. Since the RT-719 runtime the served
     projections send the key (`null` until a terminal reports). No operation
     changes, no existing key changes.
+
+
+    **1.6.0-draft (RT-1181, RT-1165 S1, `[GATED]`, additive).**
+    `PairingCodeIssueRequest.printerVendorId` and `printerProductId` are no
+    longer required (`printerComPort` already was optional). A sent value is
+    still accepted and still validated as `0xHHHH`; an omitted one is stored as
+    NULL and `posPairTerminal` returns `null` for it
+    (`pos-terminal-pairing.openapi.yaml` 1.5.0-draft). The request stays strict:
+    any other unknown key is still a 400. This is the expand step of removing
+    the printer fields from pairing (owner decision, RT-1165 comment 15479);
+    the contract step that removes them is RT-1184.
 
 servers:
   - url: https://api.example.com
@@ -2174,8 +2187,6 @@ components:
         - branchName
         - branchAddress
         - taxRegistrationId
-        - printerVendorId
-        - printerProductId
       description: >
         The code to issue. The tenant is the session's, never the request's.
         `branchName`, `branchAddress`, `taxRegistrationId` and the printer
@@ -2183,6 +2194,13 @@ components:
         terminal pins them at pairing and prints them on receipts. Backend-Core
         holds no store address, tax registration or printer, so the issuer
         supplies them, as the bootstrap CLI does.
+
+        **Printer fields (RT-1181, RT-1165 S1, expand step).** `printerVendorId`,
+        `printerProductId` and `printerComPort` are all optional and are still
+        accepted when sent (a sent id must still match `0xHHHH`). The owner
+        decision on RT-1165 is to remove them from pairing; this version only
+        stops requiring them, so a client that no longer sends them is not
+        refused. A later contract step removes them (RT-1184).
       properties:
         storeId:
           type: string
@@ -2227,8 +2245,14 @@ components:
           pattern: '^[^\u0000]*[^\s\u0000][^\u0000]*$'
           description: The tenant's tax registration id printed on fiscal receipts.
         printerVendorId:
+          description: >
+            Optional (RT-1181). The receipt printer's USB vendor id; omitted,
+            it is stored as NULL and `posPairTerminal` returns `null`.
           $ref: "#/components/schemas/PrinterUsbId"
         printerProductId:
+          description: >
+            Optional (RT-1181). The receipt printer's USB product id; omitted,
+            it is stored as NULL and `posPairTerminal` returns `null`.
           $ref: "#/components/schemas/PrinterUsbId"
         printerComPort:
           description: >

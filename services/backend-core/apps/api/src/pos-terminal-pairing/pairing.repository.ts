@@ -51,8 +51,9 @@ export interface PairingCodeRow {
   branch_name: string;
   branch_address: string;
   tenant_tax_registration_id: string;
-  printer_vendor_id: string;
-  printer_product_id: string;
+  /** NULL when the issuer did not supply it (RT-1181: the column is nullable). */
+  printer_vendor_id: string | null;
+  printer_product_id: string | null;
   printer_com_port: string | null;
   status: "pending" | "used" | "cancelled";
   expires_at: Date;

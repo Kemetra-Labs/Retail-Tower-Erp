@@ -18,7 +18,7 @@
  *   - pairing_codes — a single `pending` code bound to (tenant_id, store_id),
  *     storing the SHA-256 HASH of the plaintext code (never the plaintext), plus
  *     the inline snapshot fields the consume pins at pair-time (terminal_label,
- *     branch_name/address, tax-reg id, printer vendor/product/com-port).
+ *     branch_name/address, tax-reg id, and the OPTIONAL printer vendor/product/com-port).
  *
  * WHAT THIS DOES **NOT** DO (out of scope, by design):
  *   - Mint a device / device_token. That is the runtime OUTPUT of the consume
@@ -67,8 +67,12 @@
  *   PAIRING_TERMINAL_LABEL="Home Counter 1" \
  *   PAIRING_BRANCH_NAME="Main Store" PAIRING_BRANCH_ADDRESS="1 Pilot St" \
  *   PAIRING_TAX_REGISTRATION_ID="123-456-789" \
- *   PAIRING_PRINTER_VENDOR_ID=0x04b8 PAIRING_PRINTER_PRODUCT_ID=0x0e15 \
  *   node dist/cli/bootstrap-pairing-code.js
+ *
+ * The printer arguments (PAIRING_PRINTER_VENDOR_ID, PAIRING_PRINTER_PRODUCT_ID,
+ * PAIRING_PRINTER_COM_PORT) are OPTIONAL since RT-1181 (RT-1165 S1): when omitted the
+ * row stores NULL and the pair response returns null. A vendor/product ID that is
+ * given must still match 0xHHHH.
  *
  * Usage (OPT-IN — generate a random code; printed EXACTLY ONCE to stdout):
  *   ... node dist/cli/bootstrap-pairing-code.js --generate
@@ -112,8 +116,8 @@ interface PairingConfig {
   branchName: string;
   branchAddress: string;
   taxRegistrationId: string;
-  printerVendorId: string;
-  printerProductId: string;
+  printerVendorId: string | null;
+  printerProductId: string | null;
   printerComPort: string | null;
   expiresInMinutes: number;
   dryRun: boolean;
@@ -173,7 +177,7 @@ function readConfig(argv: string[]): PairingConfig {
   const suppliedCode = readArg(argv, "code", "PAIRING_CODE");
   const expiresRaw = readArg(argv, "expires-in-minutes", "PAIRING_EXPIRES_IN_MINUTES");
 
-  // Required, validated against the migration's CHECK constraints so a bad value
+  // Validated against the migration's CHECK constraints so a bad value
   // fails HERE with a clear message rather than as an opaque 23514 at INSERT.
   const tenantId = requirePattern(tenantIdRaw, UUID_RE, "PAIRING_TENANT_ID must be a UUID");
   const storeId = requirePattern(storeIdRaw, UUID_RE, "PAIRING_STORE_ID must be a UUID");
@@ -197,16 +201,23 @@ function readConfig(argv: string[]): PairingConfig {
     taxRegistrationIdRaw,
     "PAIRING_TAX_REGISTRATION_ID is required, non-empty",
   );
-  const printerVendorId = requirePattern(
-    printerVendorIdRaw,
-    PRINTER_HEX,
-    "PAIRING_PRINTER_VENDOR_ID must match 0xHHHH (4 hex digits), e.g. 0x04b8",
-  );
-  const printerProductId = requirePattern(
-    printerProductIdRaw,
-    PRINTER_HEX,
-    "PAIRING_PRINTER_PRODUCT_ID must match 0xHHHH (4 hex digits), e.g. 0x0e15",
-  );
+  // Optional (RT-1181): absent -> NULL; given -> must still match the 0xHHHH CHECK.
+  const printerVendorId =
+    printerVendorIdRaw === undefined
+      ? null
+      : requirePattern(
+          printerVendorIdRaw,
+          PRINTER_HEX,
+          "PAIRING_PRINTER_VENDOR_ID must match 0xHHHH (4 hex digits), e.g. 0x04b8",
+        );
+  const printerProductId =
+    printerProductIdRaw === undefined
+      ? null
+      : requirePattern(
+          printerProductIdRaw,
+          PRINTER_HEX,
+          "PAIRING_PRINTER_PRODUCT_ID must match 0xHHHH (4 hex digits), e.g. 0x0e15",
+        );
   const printerComPort =
     printerComPortRaw !== undefined && printerComPortRaw.trim() !== ""
       ? printerComPortRaw.trim()

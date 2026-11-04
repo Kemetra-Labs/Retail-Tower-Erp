@@ -37,8 +37,9 @@ export const PairingCodeIssueBodySchema = z
     branchName: text(256),
     branchAddress: text(512),
     taxRegistrationId: text(64),
-    printerVendorId: PrinterUsbIdSchema,
-    printerProductId: PrinterUsbIdSchema,
+    // RT-1181 (RT-1165 S1, expand): optional; still validated as 0xHHHH when sent. S4 removes them.
+    printerVendorId: PrinterUsbIdSchema.optional(),
+    printerProductId: PrinterUsbIdSchema.optional(),
     printerComPort: text(32).nullable().optional(),
   })
   .strict();

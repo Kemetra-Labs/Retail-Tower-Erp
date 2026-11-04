@@ -33,8 +33,9 @@ export interface TerminalPairResponseBody {
   readonly branch_name: string;
   readonly branch_address: string;
   readonly tenant_tax_registration_id: string;
-  readonly printer_vendor_id: string;
-  readonly printer_product_id: string;
+  /** RT-1181: null when the issuer did not supply the printer fields. */
+  readonly printer_vendor_id: string | null;
+  readonly printer_product_id: string | null;
   readonly printer_com_port: string | null;
   /** The device credential's expiry (`devices.expires_at`, RT-138 L2); POS-Pulse v1 ignores it. */
   readonly expires_at?: string | null;
@@ -52,8 +53,8 @@ export interface PairingCodeBindingRow {
   readonly branch_name: string;
   readonly branch_address: string;
   readonly tenant_tax_registration_id: string;
-  readonly printer_vendor_id: string;
-  readonly printer_product_id: string;
+  readonly printer_vendor_id: string | null;
+  readonly printer_product_id: string | null;
   readonly printer_com_port: string | null;
 }
 
