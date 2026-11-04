@@ -41,6 +41,25 @@ class ClassifyMergeTest(unittest.TestCase):
         ]
         self.assertEqual(classify_merge("2026-11-03T10:10:00Z", runs), "RED_AT_MERGE")
 
+    def test_newer_waiting_run_after_success_blocks(self):
+        # A later `required: waiting` was posted before the merge: the newest verdict was not green.
+        runs = [
+            run("completed", "success", "2026-11-03T10:00:00Z", "2026-11-03T10:01:00Z"),
+            run("in_progress", None, "2026-11-03T10:05:00Z"),
+        ]
+        self.assertEqual(classify_merge("2026-11-03T10:10:00Z", runs), "MERGED_BEFORE_GREEN")
+
+    def test_completed_at_merge_instant_is_not_green(self):
+        runs = [run("completed", "success", "2026-11-03T10:00:00Z", "2026-11-03T10:10:00Z")]
+        self.assertEqual(classify_merge("2026-11-03T10:10:00Z", runs), "MERGED_BEFORE_GREEN")
+
+    def test_run_started_after_merge_is_ignored(self):
+        runs = [
+            run("completed", "success", "2026-11-03T10:00:00Z", "2026-11-03T10:01:00Z"),
+            run("in_progress", None, "2026-11-03T10:20:00Z"),
+        ]
+        self.assertEqual(classify_merge("2026-11-03T10:10:00Z", runs), "GREEN_BEFORE_MERGE")
+
 
 if __name__ == "__main__":
     unittest.main()

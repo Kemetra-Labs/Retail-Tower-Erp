@@ -3,9 +3,9 @@
 
 For every merged PR, reads the `required` check-runs on its final head and
 classifies the merge:
-  GREEN_BEFORE_MERGE   the latest `required` completed before the merge was `success`
-  RED_AT_MERGE         the latest `required` completed before the merge was not `success`
-  MERGED_BEFORE_GREEN  `required` existed but none had completed when the PR merged
+  GREEN_BEFORE_MERGE   the newest `required` started before the merge completed `success` before it
+  RED_AT_MERGE         that newest `required` completed before the merge, not `success`
+  MERGED_BEFORE_GREEN  that newest `required` had not completed when the PR merged
   NO_REQUIRED          no `required` check-run was ever posted on the head
 
 Read-only: uses `gh` for the PR list and check-runs. ASCII output.
@@ -18,22 +18,35 @@ import json
 import subprocess
 import time
 
-CAIRO = dt.timezone(dt.timedelta(hours=2))  # winter time (EET) from 2026-10-30
+try:
+    from zoneinfo import ZoneInfo
+
+    CAIRO = ZoneInfo("Africa/Cairo")
+except Exception:  # no tz database on this machine: fall back to UTC and say so in the output
+    CAIRO = dt.timezone.utc
 
 
 def _ts(value):
     return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def _done_before(run, merged):
+    # Strictly before: a verdict landing in the merge's own second is a race, not a gate.
+    return run.get("status") == "completed" and bool(run.get("completed_at")) and _ts(run["completed_at"]) < merged
+
+
 def classify_merge(merged_at, required_runs):
+    """The newest `required` started before the merge decides; it must have completed green before it."""
     if not required_runs:
         return "NO_REQUIRED"
     merged = _ts(merged_at)
-    done = [r for r in required_runs if r.get("completed_at") and _ts(r["completed_at"]) <= merged]
-    if not done:
+    started = [r for r in required_runs if r.get("started_at") and _ts(r["started_at"]) < merged]
+    if not started:
         return "MERGED_BEFORE_GREEN"
-    latest = max(done, key=lambda r: _ts(r["completed_at"]))
-    return "GREEN_BEFORE_MERGE" if latest.get("conclusion") == "success" else "RED_AT_MERGE"
+    newest = max(started, key=lambda r: _ts(r["started_at"]))
+    if not _done_before(newest, merged):
+        return "MERGED_BEFORE_GREEN"
+    return "GREEN_BEFORE_MERGE" if newest.get("conclusion") == "success" else "RED_AT_MERGE"
 
 
 def _gh(args, attempts=3):
@@ -61,8 +74,8 @@ def main():
                     "--jq", ".check_runs"])
         cls = classify_merge(pr["mergedAt"], runs)
         green += cls == "GREEN_BEFORE_MERGE"
-        cairo = _ts(pr["mergedAt"]).astimezone(CAIRO).strftime("%Y-%m-%d %H:%M")
-        print(f"#{pr['number']} {cls} merged={cairo} Cairo head={pr['headRefOid'][:8]}")
+        cairo = _ts(pr["mergedAt"]).astimezone(CAIRO).strftime("%Y-%m-%d %H:%M %Z")
+        print(f"#{pr['number']} {cls} merged={cairo} head={pr['headRefOid'][:8]}")
     print(f"green_before_merge={green}/{len(prs)}")
 
 

@@ -1,6 +1,6 @@
 # Smart CI: less waiting, same or better quality (design)
 
-Status: DRAFT for owner approval, 2026-11-04. Author: Claude, with the owner. The goal and the trade-offs below are the owner's; every evidence number comes from the read-only recon of 2026-11-04 (40 merged PRs #253–#292, 123 pushed heads, GitHub Actions only). Each item that touches a policy-class path (`.github/**`, `.circleci/**`, `tools/project-graph/**`, `tools/ci-gate/**`) needs its own owner-approved Jira issue and PR. This document authorizes none of them.
+Status: APPROVED by the owner 2026-11-04 (later the same day amended with the verified root cause in §3.0 and the owner-directed §4.5). Author: Claude, with the owner. The goal and the trade-offs below are the owner's; every evidence number comes from the read-only recon of 2026-11-04 (40 merged PRs from #253 to #293, merged 2026-11-02 23:22Z to 2026-11-04 08:24Z, 123 pushed heads, GitHub Actions only). Each item that touches a policy-class path (`.github/**`, `.circleci/**`, `tools/project-graph/**`, `tools/ci-gate/**`) needs its own owner-approved Jira issue and PR. This document authorizes none of them.
 
 ## 1. Intent
 
@@ -49,7 +49,7 @@ The full report, the derived CSVs and the analysis scripts are kept next to this
 
 ### 3.0 The gate does not always finalize `required` (quality)
 - **#273 (head `941cb30c`) and #268 (`b779d097`):** every product workflow and `gate/evaluate` / `gate/post` succeeded. The `required` check-runs on the head still stayed `in_progress` ("required: waiting", created 14:33:25 and 14:38:26, after `gate/post` finished at 14:33:18). Both PRs were merged by an admin.
-- **#292 (`6fe5d173`):** all 10 workflows concluded `failure` with no jobs (a startup failure; GitHub returned 504s in the same window). It was merged with no CI at all.
+- **#292 (`6fe5d173`):** 9 of its 10 workflows concluded `failure` with no jobs (a startup failure; GitHub returned 504s in the same window). It was merged with no CI at all.
 - **Mechanism (`gate.yml`):** the gate runs on `pull_request_target` and on each product workflow's `workflow_run`, with `concurrency: gate-<head_sha>`. It posts `required: waiting` (`in_progress`) while runs are pending.
 - **Verified root cause (2026-11-04, after the first draft): PRs were merged before CI finished.** The gate behaved correctly; the earlier gate-race hypothesis is disproved.
   - **The gate saw it:** the gate run for #273's last `workflow_run` (run 41656685451) logged "PR #273 is already merged" and correctly posted nothing.
@@ -105,21 +105,22 @@ Each of the 9 root workflows evaluates the same graph in its own `plan` job (294
   - The next 20 merged PRs all have a completed green `required` on their final head.
 
 ### Phase 1: Stop wasted cycles (G2) — biggest time win, small code
-1. **Selection from the merge-base.**
+1. **(1a) Selection from the merge-base.**
    - **Change:** `plan` (and the gate's re-evaluation, which must stay identical) computes changes from `git merge-base(base, head)` to `head`. That is exactly what the PR adds to `main`, and matches what `refs/pull/N/merge` tests.
    - **Fail-safe:** if the merge-base cannot be resolved, select everything (fail closed).
    - **Approval binding unchanged (my call):** only the selection diff moves to the merge-base. The policy-approval line, its fingerprint and the aggregator's `--base` keep binding to `pull_request.base.sha`, exactly as today, so the trust model and approval semantics (§1.2) do not change.
    - **Where:** `tools/project-graph/**` and every root `plan` step; policy class.
-2. **Retire mid-PR syncing.** Amend RT-948 so that a push no longer needs a merge of `main` for selection reasons. Keep the pre-merge freshness rule (step 4) in a narrower, still conservative form:
+2. **(1b) Retire mid-PR syncing.** Amend RT-948 so that a push no longer needs a merge of `main` for selection reasons. Keep the pre-merge freshness rule (step 4) in a narrower, still conservative form:
    - **When it applies (my call, the conservative reading):** before merging, compute what `main` added since the green head's merge-base. If that selects **any** job at all, merge `origin/main` and get a fresh green `required`. Only a `main` change that selects no job (docs, for example) is exempt.
    - **Not the weaker reading:** "only when it selects a job this PR also selects" is rejected. It would let a `main` change in product X merge untested next to a PR in product Y.
+   - **Interaction with the CircleCI pre-push run:** its remote guard refuses a branch whose `.circleci/` differs from `origin/main`; a branch behind a `.circleci/` change on `main` must sync first (rare).
    - **Who enforces it:** the merge practice and the merge check of Phase 0 (§6 Q1). A head's `required` does not turn red on its own when `main` moves, so it has to be checked at merge time.
-3. **One fix push per review round.**
+3. **(1b) One fix push per review round.**
    - Agents wait until the head's CI has finished **and** the reviewers have posted (CodeRabbit usually within 11 min). They collate every finding, fix locally, run the relevant local tests, then push once (this extends the existing RT-948 step 2).
    - Superseded runs are still cancelled by the existing concurrency groups; that behaviour does not change.
    - CodeRabbit keeps reviewing every push automatically; its settings do not change (owner decision 2026-11-04). The saving comes from batching, not from fewer reviews.
 - **Acceptance:**
-  - On 10 merged PRs, the average number of pushed heads per PR and the cancelled-minute share fall measurably against the recon baseline (2.95 heads/PR, 18.7%).
+  - On 10 merged PRs, the average number of pushed heads per PR and the cancelled-minute share fall measurably against the recon baseline (3.08 heads/PR = 123/40, 18.7%).
   - No PR merges without Phase 0's guarantees.
   - Replaying the recon heads with merge-base selection never selects fewer jobs than the PR's own changes require.
 
@@ -210,6 +211,7 @@ The owner wants an integrated system, with CircleCI and TIA used, not idle. Each
 - **Schemathesis:** cut via tiers, not dropped.
 
 **Owner decisions after the builder check (2026-11-04):**
+- **Integrated system (§4.5):** GitHub `required` stays the gate; a CircleCI pre-push run and TIA inside it are added (owner: "add it", "TIA needed too"). The `CLAUDE.md` RT-948 steps 2, 5 and 6 carry the agent rules.
 - **Q1:** a ruleset requires `required` on `main`; the owner keeps the admin bypass for stated emergencies; agents never bypass.
 - **Q2:** CodeRabbit keeps auto-reviewing every push; agents batch fixes after CI and the review finish.
 
