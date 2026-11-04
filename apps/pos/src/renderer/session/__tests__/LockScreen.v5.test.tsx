@@ -189,6 +189,14 @@ describe('RT-1095 lock joins the entry family (OD-13)', () => {
     expect(unlock).not.toHaveBeenCalled();
   });
 
+  it('still takes digits when focus sits on the dialog panel, not a control', async () => {
+    const { unlock } = renderWith();
+    screen.getByRole('dialog').focus();
+    expect(screen.getByRole('dialog')).toHaveFocus();
+    await userEvent.keyboard('1234{Enter}');
+    expect(unlock).toHaveBeenCalledWith({ method: 'pin', pin: '1234' });
+  });
+
   it('keeps digits typed on the lock away from the sale behind it', async () => {
     const behind = vi.fn();
     window.addEventListener('keydown', behind);

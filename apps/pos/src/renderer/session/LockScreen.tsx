@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useId,
   useRef,
   useState,
@@ -101,7 +102,13 @@ export function LockScreen({
   // The PinPad hears the hardware keys here, inside the Dialog's portal. The
   // portal host runs its own React listener, which stops key events at the
   // lock's onKeyDown, so neither the root nor `window` ever sees them.
+  // The panel itself is the listener: it is focusable (tabIndex -1), so a press on
+  // its padding moves focus there, outside any child scope.
   const keyScopeRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    panelRef.current = keyScopeRef.current?.parentElement ?? null;
+  }, []);
   // RT-475 (RT-832 lock): the tenant logo above the lock head, from the local cache.
   const branding = useBranding();
 
@@ -218,7 +225,7 @@ export function LockScreen({
                   error={error !== null}
                   {...(error !== null ? { describedBy: errId } : {})}
                   submitLabel={LOCK_UNLOCK_LABEL}
-                  keyTarget={keyScopeRef}
+                  keyTarget={panelRef}
                   dotsRef={dotsRef}
                   feedback={
                     error !== null ? (
