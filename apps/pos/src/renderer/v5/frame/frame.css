@@ -200,6 +200,18 @@
   padding-inline: var(--space-2);
 }
 
+.v5-frame__sign-out-short {
+  display: none;
+}
+
+.v5-frame[data-nav='slim'] .v5-frame__sign-out-short {
+  display: inline;
+}
+
+.v5-frame[data-nav='slim'] .v5-frame__sign-out-long {
+  display: none;
+}
+
 .v5-frame__sign-out-hint {
   color: var(--v5-text-muted);
   font-size: var(--v5-text-meta);
@@ -279,7 +291,7 @@
   font-size: var(--font-size-xs);
 }
 
-/* RT-1191 — «تسجيل الخروج» stays on one line in the ≈76px rail; ellipsis if it must clip. */
+/* RT-1191 — the slim rail shows «خروج» (owner, 2026-11-04); one line, ellipsis as a safety net. */
 .v5-frame[data-nav='slim'] .v5-frame__sign-out button {
   display: block;
   min-inline-size: 0;

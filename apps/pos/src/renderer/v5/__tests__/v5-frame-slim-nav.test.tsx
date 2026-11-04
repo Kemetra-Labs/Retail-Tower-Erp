@@ -113,11 +113,16 @@ describe('the frame nav', () => {
     expect(within(nav).queryAllByRole('link', { current: 'page' })).toHaveLength(1);
   });
 
-  it('keeps the full operator name and sign-out label as text for the accessible name', () => {
+  // Owner decision 2026-11-04: the slim rail shows «خروج»; the name stays whole.
+  it('names sign-out in full and carries the short slim label as hidden text', () => {
     signIn('cashier');
     renderAt('/app/cart');
     expect(screen.getByTestId('v5-frame-operator')).toHaveTextContent('د. سارة');
-    expect(screen.getByRole('button', { name: 'تسجيل الخروج' })).toHaveTextContent('تسجيل الخروج');
+    const button = screen.getByRole('button', { name: 'تسجيل الخروج' });
+    const short = button.querySelector('.v5-frame__sign-out-short');
+    expect(short).toHaveTextContent(/^خروج$/);
+    expect(short).toHaveAttribute('aria-hidden', 'true');
+    expect(button.querySelector('.v5-frame__sign-out-long')).toHaveTextContent(/^تسجيل الخروج$/);
   });
 
   it('is axe-clean in the slim rail', async () => {
@@ -161,5 +166,15 @@ describe('slim rail CSS', () => {
     expect(body).toMatch(/text-overflow:\s*ellipsis/);
     expect(body).not.toMatch(/line-clamp/);
     expect(body).not.toMatch(/white-space:\s*normal/);
+  });
+
+  it('shows the short sign-out label only in the slim rail', () => {
+    expect(css).toMatch(/\.v5-frame__sign-out-short\s*\{[^}]*display:\s*none/);
+    expect(css).toMatch(
+      /\.v5-frame\[data-nav='slim'\] \.v5-frame__sign-out-short\s*\{[^}]*display:\s*inline/,
+    );
+    expect(css).toMatch(
+      /\.v5-frame\[data-nav='slim'\] \.v5-frame__sign-out-long\s*\{[^}]*display:\s*none/,
+    );
   });
 });

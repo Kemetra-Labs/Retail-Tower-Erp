@@ -109,10 +109,15 @@ function SignOutButton({ flow }: Readonly<{ flow: SignOutFlow }>): JSX.Element {
         type="button"
         className="v5-btn"
         disabled={paymentOpen}
+        aria-label="تسجيل الخروج"
         aria-describedby={paymentOpen ? HINT_ID : undefined}
         onClick={flow.ask}
       >
-        تسجيل الخروج
+        {/* RT-1191 — the slim rail swaps in «خروج»; the name stays the full label. */}
+        <span className="v5-frame__sign-out-long">تسجيل الخروج</span>
+        <span className="v5-frame__sign-out-short" aria-hidden="true">
+          خروج
+        </span>
       </button>
       {paymentOpen && (
         <span id={HINT_ID} className="v5-frame__sign-out-hint">
