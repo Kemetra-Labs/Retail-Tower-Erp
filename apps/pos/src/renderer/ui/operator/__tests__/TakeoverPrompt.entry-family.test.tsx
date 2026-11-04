@@ -119,8 +119,7 @@ describe('TakeoverPrompt stylesheet', () => {
   });
 
   it('maps the band, tile and card to system colours under forced colours, with no Mint', () => {
-    const start = tailwind.indexOf('.takeover-prompt {');
-    const section = tailwind.slice(start, tailwind.indexOf('/* === POS v3.5', start));
+    const section = tailwind.slice(tailwind.indexOf('.takeover-prompt__actions {'));
     const forced = forcedBlock(section);
     expect(forced).toMatch(
       /\.takeover-prompt__band\s*\{[^}]*border-block-end\s*:\s*1px solid CanvasText/,
