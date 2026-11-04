@@ -5,7 +5,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { cairoBusinessDay, hashRequest, isStale, normalizeLabel } from '../park-rules.js';
+import { businessDayOf } from '../../../../shared/time/business-day.js';
+import { hashRequest, isStale, normalizeLabel } from '../park-rules.js';
 import {
   computeResumeDiff,
   createCataloguePriceLookup,
@@ -36,7 +37,7 @@ describe('isStale (K4)', () => {
 
   it('is stale on the next Cairo business day even within 12 h', () => {
     expect(isStale('2026-10-13T20:00:00.000Z', new Date('2026-10-13T21:30:00.000Z'))).toBe(true);
-    expect(cairoBusinessDay(new Date('2026-10-13T21:30:00.000Z'))).toBe('2026-10-14');
+    expect(businessDayOf(new Date('2026-10-13T21:30:00.000Z'))).toBe('2026-10-14');
   });
 });
 

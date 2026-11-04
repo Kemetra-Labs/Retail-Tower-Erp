@@ -143,6 +143,54 @@ export const SALES_LIST_AFTER_SQL = `${SALES_LIST_SELECT}
    AND finalized_at <= ? AND (finalized_at < ? OR sale_id < ?)
  ${SALES_LIST_ORDER}`;
 
+/**
+ * RT-1189: one window read for the recent list. Bounds use `Date#toISOString`
+ * format. `sale_number_suffix`, when set, keeps only numbers ending with it
+ * (a prefilter for the short form; the caller confirms each row).
+ */
+export interface RecentSalesQuery {
+  scope: TenantScope;
+  /** Only this operator's sales (a cashier), or null for the whole scope. */
+  selling_operator_id: string | null;
+  start_inclusive: string;
+  end_exclusive: string;
+  sale_number_suffix: string | null;
+  limit: number;
+}
+
+/**
+ * RT-1189: the columns a recent-list row is built from. Kept apart from
+ * `SaleListRow` so `sales.list` stays a strict projection (RT-541 A4-8); it
+ * carries the stored day (to confirm the short form) and the tender summary
+ * (for the types only). Never `selling_operator_id` or a main-only id.
+ */
+export type RecentSaleDbRow = Pick<
+  SaleRow,
+  | 'sale_id'
+  | 'sale_number'
+  | 'local_calendar_day'
+  | 'finalized_at'
+  | 'subtotal_minor'
+  | 'total_tax_minor'
+  | 'tender_lines_summary_json'
+  | 'selling_operator_display_name'
+>;
+
+/**
+ * RT-1189: the window read. Same index as `SALES_LIST_SQL`
+ * (`idx_sales_tenant_branch_finalized_at`); the suffix test is a residual
+ * predicate on the rows the range already selected.
+ */
+export const RECENT_SALES_SQL = `SELECT sale_id, sale_number, local_calendar_day, finalized_at,
+       subtotal_minor, total_tax_minor, tender_lines_summary_json,
+       selling_operator_display_name
+  FROM sales
+ WHERE tenant_id = ? AND branch_id = ? AND terminal_id = ?
+   AND (? IS NULL OR selling_operator_id = ?)
+   AND finalized_at >= ? AND finalized_at < ?
+   AND (? IS NULL OR sale_number LIKE ?)
+ ORDER BY finalized_at DESC, sale_id DESC LIMIT ?`;
+
 export interface SalesRepository {
   insert(row: InsertSaleRowInput): void;
   readById(sale_id: string): SaleRow | null;
@@ -160,6 +208,11 @@ export interface SalesRepository {
    * the scope, ordered `finalized_at DESC, sale_id DESC`, at most `limit`.
    */
   listByFinalizedRange(query: SaleListQuery): SaleListRow[];
+  /**
+   * RT-1189: the sales finalized in `[start_inclusive, end_exclusive)` within
+   * the scope, `finalized_at DESC, sale_id DESC`, at most `limit`.
+   */
+  listRecentInWindow(query: RecentSalesQuery): RecentSaleDbRow[];
 }
 
 export function bindSalesRepository(db: DatabaseHandle): SalesRepository {
@@ -197,6 +250,7 @@ export function bindSalesRepository(db: DatabaseHandle): SalesRepository {
 
   const listStmt = db.prepare(SALES_LIST_SQL) as PrepareAll<SaleListRow>;
   const listAfterStmt = db.prepare(SALES_LIST_AFTER_SQL) as PrepareAll<SaleListRow>;
+  const recentStmt = db.prepare(RECENT_SALES_SQL) as PrepareAll<RecentSaleDbRow>;
 
   return {
     insert(row: InsertSaleRowInput): void {
@@ -265,6 +319,24 @@ export function bindSalesRepository(db: DatabaseHandle): SalesRepository {
         after.finalized_at,
         after.finalized_at,
         after.sale_id,
+        query.limit,
+      );
+    },
+
+    listRecentInWindow(query: RecentSalesQuery): RecentSaleDbRow[] {
+      const { scope, selling_operator_id: operator, sale_number_suffix: suffix } = query;
+      // `LIKE` wildcards cannot occur: the suffix is `-` and digits only.
+      const pattern = suffix === null ? null : `%${suffix}`;
+      return recentStmt.all(
+        scope.tenant_id,
+        scope.branch_id,
+        scope.terminal_id,
+        operator,
+        operator,
+        query.start_inclusive,
+        query.end_exclusive,
+        pattern,
+        pattern,
         query.limit,
       );
     },

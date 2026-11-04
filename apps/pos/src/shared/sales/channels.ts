@@ -17,6 +17,8 @@ export const SALES_IPC_CHANNELS = {
   UNSUBSCRIBE: 'sales:unsubscribe',
   /** RT-541: this device's sales over a range of store business days. */
   LIST: 'sales:list',
+  /** RT-1189: this terminal's sales on the current Cairo business day. */
+  LIST_RECENT: 'sales:listRecent',
 } as const;
 
 export type SalesIpcChannel = (typeof SALES_IPC_CHANNELS)[keyof typeof SALES_IPC_CHANNELS];
