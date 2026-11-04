@@ -38,13 +38,15 @@ describe('CashEntry refuses a scan burst (M-S5)', () => {
     act(() => {
       input.focus();
     });
+    // The cashier had already typed an amount; the burst must not disturb it.
+    fireEvent.change(input, { target: { value: '50' } });
     for (const key of '6221000000011') {
       fireEvent.keyDown(input, { key });
       fireEvent.change(input, { target: { value: input.value + key } });
     }
     fireEvent.keyDown(input, { key: 'Enter' });
 
-    expect(input).toHaveValue('');
+    expect(input).toHaveValue('50');
     expect(screen.getByText(SCAN_REFUSED_MESSAGE.amount)).toBeInTheDocument();
     expect(tenderApply).not.toHaveBeenCalled();
   });

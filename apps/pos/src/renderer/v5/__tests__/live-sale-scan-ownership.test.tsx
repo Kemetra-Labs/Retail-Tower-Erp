@@ -6,6 +6,7 @@
  * the burst must reach the catalogue lookup and must never press `+` or `حذف`.
  */
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { ScanGuardHost, resetScanGuardForTests } from '../../scan/ScanGuardHost';
@@ -15,7 +16,6 @@ import { useCatalogueSearchStore } from '../../stores/catalogueSearchStore';
 import { useFeatureFlagsStore } from '../../stores/feature-flags-store';
 import { useOperatorSessionStore } from '../../stores/operator-session-store';
 import { usePaymentStore } from '../../stores/payment-store';
-import userEvent from '@testing-library/user-event';
 import {
   makeBridges,
   PANADOL,
@@ -114,7 +114,7 @@ describe('the Sale screen is the scan owner (F-01)', () => {
   it.each([
     ['an exact product name', 'بنادول'],
     ['a full barcode', '6223004355218'],
-  ])('Enter in the search field after %s (human speed) never adds a line', async (_n, typed) => {
+  ])('Enter in the search field after %s never adds a line (no scan guard)', async (_n, typed) => {
     const bridges = makeBridges();
     vi.mocked(bridges.catalogue.search).mockResolvedValue({
       kind: 'results',
@@ -128,6 +128,8 @@ describe('the Sale screen is the scan owner (F-01)', () => {
     await waitFor(() => {
       expect(bridges.catalogue.search).toHaveBeenCalled();
     });
+    // Let the results render: an auto-add would happen after the search resolves.
+    expect(await screen.findByText('بنادول')).toBeInTheDocument();
     expect(bridges.add).not.toHaveBeenCalled();
     expect(bridges.lookupBarcode).not.toHaveBeenCalled();
     expect(document.querySelectorAll('.v5-sale-cart-line')).toHaveLength(0);

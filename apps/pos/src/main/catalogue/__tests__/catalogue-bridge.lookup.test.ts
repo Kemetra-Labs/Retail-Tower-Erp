@@ -94,7 +94,7 @@ describe('T025 — catalogue.lookupBarcode wired to the repo', () => {
     expect(registered[0]?.values[0]?.[0]).toBe(0);
 
     expect((await bridgeFor(db).lookupBarcode({ barcode: prefix })).kind).toBe('not_found');
-    expect((await bridgeFor(db).lookupBarcode({ barcode: '6221000000001' })).kind).toBe('one');
+    expect((await bridgeFor(db).lookupBarcode({ barcode: full })).kind).toBe('one');
     db.close();
   });
 
