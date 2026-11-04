@@ -216,7 +216,9 @@ function verdictOf(rest: Measured | null, after: Measured | null): Verdict {
 
 async function reset(page: Page): Promise<void> {
   await page.evaluate(() => {
-    for (const el of document.querySelectorAll(".data-table__scroll")) el.scrollLeft = 0;
+    for (const el of document.querySelectorAll(".data-table__scroll, .section-panel")) {
+      el.scrollLeft = 0;
+    }
     window.scrollTo(0, 0);
     (document.activeElement as HTMLElement | null)?.blur();
   });
@@ -231,6 +233,9 @@ async function tabTo(page: Page, selector: string): Promise<number | null> {
       selector,
     );
     if (hit) {
+      // A focus-scroll can start a few hundred ms late: run 41896183097 read the Retire button
+      // before it moved, run 41895284460 mid-way.
+      await page.waitForTimeout(500);
       await settleScroll(page);
       return presses;
     }
@@ -248,7 +253,7 @@ async function settleScroll(page: Page): Promise<void> {
   let still = 0;
   for (let i = 0; i < 40 && still < 3; i++) {
     const now = await page.evaluate(() =>
-      [...document.querySelectorAll(".data-table__scroll, main.content")]
+      [...document.querySelectorAll(".data-table__scroll, .section-panel, main.content")]
         .map((e) => e.scrollLeft)
         .join(),
     );
