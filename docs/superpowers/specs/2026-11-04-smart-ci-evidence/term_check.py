@@ -10,7 +10,9 @@ term={}
 for r in rows:
     if r['pr'] not in term or r['idx']>term[r['pr']]['idx']: term[r['pr']]=r
 for n,r in sorted(term.items()):
-    if r['state']!='none': continue
+    # Terminal heads not green AT MERGE time (a required that succeeded only after mergedAt counts too).
+    ra=r.get('required_at')
+    if r['state']=='green' and ra and ra<prs[n]['mergedAt']: continue
     s=full[r['sha']];js=jb[s]
     c=collections.Counter(j['conclusion'] for j in js if j['workflow']!='gate')
     g=[(j['job'],j['conclusion'],j['completed']) for j in js if j['workflow']=='gate']

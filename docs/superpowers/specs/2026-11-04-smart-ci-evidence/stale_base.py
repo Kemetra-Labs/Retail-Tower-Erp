@@ -11,9 +11,9 @@ n=0;behind=0;diffsel=0;saved=0.0;rows=[];behindcount=[]
 for s,d in shas.items():
     b=d['base']
     if not b: continue
-    mb=subprocess.run(['git','-C',L.WT,'merge-base',b,s],capture_output=True,text=True).stdout.strip()
+    mb=subprocess.run(['git','-C',L.WT,'merge-base',b,s],capture_output=True,text=True,check=True).stdout.strip()
     n+=1
-    nb=int(subprocess.run(['git','-C',L.WT,'rev-list','--count',f'{mb}..{b}'],capture_output=True,text=True).stdout.strip() or 0)
+    nb=int(subprocess.run(['git','-C',L.WT,'rev-list','--count',f'{mb}..{b}'],capture_output=True,text=True,check=True).stdout.strip())
     if mb!=b:
         behind+=1
         p1,_=L.evaluate(b,s);p2,_=L.evaluate(b,s,change_base=mb)

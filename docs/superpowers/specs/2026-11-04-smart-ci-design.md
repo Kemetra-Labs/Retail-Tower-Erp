@@ -47,9 +47,9 @@ The full report, the derived CSVs and the analysis scripts are kept next to this
 
 ## 3. Root causes (verified in code and on GitHub)
 
-### 3.0 The gate does not always finalize `required` (quality)
+### 3.0 PRs merged before `required` completed (quality)
 - **#273 (head `941cb30c`) and #268 (`b779d097`):** every product workflow and `gate/evaluate` / `gate/post` succeeded. The `required` check-runs on the head still stayed `in_progress` ("required: waiting", created 14:33:25 and 14:38:26, after `gate/post` finished at 14:33:18). Both PRs were merged by an admin.
-- **#292 (`6fe5d173`):** 9 of its 10 workflows concluded `failure` with no jobs (a startup failure; GitHub returned 504s in the same window). It was merged with no CI at all.
+- **#292 (`6fe5d173`):** its 10 workflows were created at the push (00:24Z) but never started a job. They stayed queued for 8 hours and ended as `failure` at the moment of the merge (08:24Z). It was merged with no CI result.
 - **Mechanism (`gate.yml`):** the gate runs on `pull_request_target` and on each product workflow's `workflow_run`, with `concurrency: gate-<head_sha>`. It posts `required: waiting` (`in_progress`) while runs are pending.
 - **Verified root cause (2026-11-04, after the first draft): PRs were merged before CI finished.** The gate behaved correctly; the earlier gate-race hypothesis is disproved.
   - **The gate saw it:** the gate run for #273's last `workflow_run` (run 41656685451) logged "PR #273 is already merged" and correctly posted nothing.
@@ -65,7 +65,7 @@ The full report, the derived CSVs and the analysis scripts are kept next to this
 | #292 | 08:24:14 | 08:24:16 |
 | #262 | 12:11:56 | 12:11:53 (the gate had not posted yet) |
 
-  - **#292 was merged 2 s after its last push.** Its workflows then failed to start (9 failures with no jobs), so that head never had any CI.
+  - **#292 was merged 8 hours after its last push while its workflows were still queued with no jobs.** They ended as `failure` only when the merge closed the PR, so that head never had any CI result.
   - **Why the merges were possible:** no ruleset requires `required` (RT-866 open), so a merge succeeds while `required` is `in_progress`.
   - **The fix is enforcement, not gate code.** Missing, `in_progress` and red `required` must all block a merge.
 

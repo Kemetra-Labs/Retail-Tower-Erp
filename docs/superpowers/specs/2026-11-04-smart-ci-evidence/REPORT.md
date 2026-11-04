@@ -3,7 +3,7 @@
 Written by a read-only subagent (Sonnet, high effort) on 2026-11-04. The main session independently recomputed the headline totals from `jobs.csv`: 5,837.2 runner-min, 1,094.1 cancelled, 40 PRs. Times are UTC unless marked Cairo. Runner-min is the sum of each job's started_at..completed_at over all attempts, cancelled jobs included, not rounded to billing minutes. Raw data and scripts are in this folder.
 
 ## 0. Sample
-- The 40 most recent merged PRs (#253, merged 2026-11-02 23:22Z, to #292, merged 2026-11-04 08:24Z). That is about 25.5 h of pushes in an agent-heavy sprint, so the shares are indicative.
+- The 40 most recent merged PRs (#253, merged 2026-11-02 23:22Z, to #292, merged 2026-11-04 08:24Z). Pushes span about 25.5 h (first 2026-11-02 22:56Z, last 2026-11-04 00:24Z) and merges about 33 h, in an agent-heavy sprint, so the shares are indicative.
 - 123 head SHAs: 40 first pushes and 83 corrective pushes. 25 of the 40 PRs had at least one corrective push.
 - 1,242 workflow runs and 4,468 job records, of which 3,055 executed.
 
@@ -43,7 +43,7 @@ By product: Backend-Core 2,482 (42.5%), POS 1,381 (23.7%), Admin-Console 825 (14
 
 ## 4. Corrective pushes (83)
 - **Cost and timing:** 3,694 runner-min; the median gap to the previous push is 11.4 min.
-  - 41 of the 83 arrived before the previous head reached `required`.
+  - 47 of the 83 arrived before the previous head's `required` had completed (compared by time; the first count, 41, used the eventual state and was corrected after review).
   - 36 of the 83 had no earlier green head.
 - **CodeRabbit timing:** CodeRabbit reviews land a median 5.6 min after each push (p90 11.0), usually mid-CI.
 - **Strict attribution:**
@@ -107,5 +107,5 @@ By product: Backend-Core 2,482 (42.5%), POS 1,381 (23.7%), Admin-Console 825 (14
 - **Missing base:** 2 heads have no recoverable base.
 - **Flake vs real:** provable only where a rerun exists.
 - **Push time:** approximated by the first workflow-run created_at.
-- **Sample:** an agent-heavy 25.5 h window.
+- **Sample:** an agent-heavy window (about 25.5 h of pushes, 33 h of merges).
 - **Scope:** nightly, deploy and main-push workflows are outside it.

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** No PR reaches `main` unless the `required` check on its exact head is completed and green. This is enforced by GitHub, not only by habit, and is measured afterwards.
+**Goal:** No PR reaches `main` unless the `required` check on its exact head is completed and green. This is enforced by GitHub, not only by habit, and is measured afterwards. Freshness against a newer `main` is **not** enforced by GitHub in Phase 0; it stays the RT-948 step 4 practice (see Global Constraints).
 
 **Architecture:**
 - **Root cause:** the gate already behaves correctly (design §3.0); merges simply happened before `required` completed.
@@ -21,7 +21,7 @@
 - **Owner approval:** repository settings (rulesets) change only with the owner's explicit approval for that exact call, under Jira RT-866 or its successor.
 - **Gate:** GitHub Actions `required` (producer: `github-actions`, app id 15368) stays the only merge authority. No change to `gate.yml`, `tools/project-graph/**`, `policy_approval` or Merge Queue.
 - **Bypass (owner decision Q1):** the admin bypass stays (`RepositoryRole` id 5), for owner emergencies only, with the reason written on the PR. Agents never bypass.
-- **Ruleset freshness:** `strict_required_status_checks_policy` stays `false`. Pre-merge freshness follows the design's conservative rule (sync when `main` changed anything that selects a job), done by practice.
+- **Ruleset freshness:** `strict_required_status_checks_policy` stays `false` on purpose: strict mode would force a sync push whenever `main` moved at all, which is the cost Phase 1 removes. Freshness is therefore a manual practice (RT-948 step 4 and the design's conservative rule), not a GitHub guarantee. Known exception: a PR can merge on a green `required` computed against an older `main` if an agent skips step 4; `merge_integrity.py` does not detect this. Revisit strict mode if such a case causes a red `main`.
 - **Times:** report times to the owner in Cairo local time.
 
 ## Review Focus
@@ -54,7 +54,7 @@
   - `test_latest_completed_before_merge_wins`: `success` at 10:00, then `failure` at 10:05, merged 10:10. Assert `RED_AT_MERGE`.
 - [ ] **Step 2: Run:** `python -m unittest docs/superpowers/specs/2026-11-04-smart-ci-evidence/test_merge_integrity.py -v`. Expected: FAIL (module missing).
 - [ ] **Step 3: Implement `classify_merge` and the CLI.**
-  - **Rule:** take the runs with `completed_at <= merged_at`. If there are none and no run exists at all, the result is `NO_REQUIRED`. If there are none but runs exist (all completed later or still in progress), the result is `MERGED_BEFORE_GREEN`. Otherwise, the latest completed run decides: `success` gives `GREEN_BEFORE_MERGE`, anything else gives `RED_AT_MERGE`.
+  - **Rule:** no run at all gives `NO_REQUIRED`. Otherwise take the newest run (latest `started_at`) that started before the merge. If none did, or it had not completed strictly before the merge (`completed_at < merged_at`), the result is `MERGED_BEFORE_GREEN`. Otherwise that run decides: `success` gives `GREEN_BEFORE_MERGE`, anything else gives `RED_AT_MERGE`.
   - **CLI data source:** `gh pr list --state merged --search "merged:>=<date>" --json number,headRefOid,mergedAt` plus the check-runs call above via `subprocess` with `gh api`.
   - **Output:** ASCII only.
 - [ ] **Step 4: Run the tests.** Expected: all pass (8 after the review round: also a newer `waiting` after a success, a verdict at the merge instant, and a run started after the merge).

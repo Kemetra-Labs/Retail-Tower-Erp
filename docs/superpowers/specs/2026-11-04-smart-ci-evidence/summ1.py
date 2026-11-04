@@ -9,9 +9,9 @@ ok=0;bad=[];n=0
 for r in rows:
     s=byfull[r['sha']]
     if s not in sel: continue
-    n+=1
     pred=set(sel[s]['needed']);act=set(r['actual_keys'])
     if r['state']=='none': continue
+    n+=1
     sh={'pos/test-shard-1','pos/test-shard-2','pos/test-shard-3'}
     if pred&(sh|{'pos/test'}): pred|=sh|{'pos/test'}
     if act&(sh|{'pos/test'}): act|=sh|{'pos/test'}

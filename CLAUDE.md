@@ -462,7 +462,7 @@ For every push to a PR that targets `main` (the first push and each corrective p
    - **When:** merge only when the newest (latest `started_at`) `required` check-run on the PR's current head SHA is `completed` with conclusion `success`. Check this with `gh api "repos/<owner>/<repo>/commits/<head>/check-runs?check_name=required&filter=all" --jq '.check_runs'` (keep the quotes), not only `gh pr checks`.
    - **How:** always pass `--match-head-commit <head>`. Never pass `--admin` or use any ruleset bypass; the bypass is the owner's, for a stated emergency written on the PR.
    - **Never right after a push:** a head pushed seconds ago has no `required` yet.
-   - **If the product workflows failed to start (failure with no jobs):** re-run them with `gh run rerun <run-id>` (free on GitHub), or ask the owner. Do not push only to re-trigger. A label toggle re-runs only the gate, so it helps only when the gate itself failed to post.
+   - **If the product workflows are stuck queued, or failed with no jobs (#292 sat queued for 8 hours):** cancel the stuck runs and re-run them with `gh run rerun <run-id>` (free on GitHub), or ask the owner. Do not push only to re-trigger. A label toggle re-runs only the gate, so it helps only when the gate itself failed to post.
    - **Check afterwards:** `docs/superpowers/specs/2026-11-04-smart-ci-evidence/merge_integrity.py`. Its baseline: 37 of 44 PRs merged between 2026-11-02 23:00Z and 2026-11-04 were green before merge.
 
 This is a working practice, not an enforced branch rule. It never authorizes a push, a merge or a gate bypass.

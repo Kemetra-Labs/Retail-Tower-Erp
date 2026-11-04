@@ -1,5 +1,7 @@
 import sys,functools,re,fnmatch
-WT=r'C:/Users/user/Documents/GitHub/Retail-Tower-Erp/.claude/worktrees/rt-946-ci-analysis-90480c'
+import os,pathlib
+# Repo root: RT_WORKTREE overrides; default is this file's checkout (docs/superpowers/specs/<evidence>/ -> 4 up).
+WT=os.environ.get('RT_WORKTREE') or str(pathlib.Path(__file__).resolve().parents[4])
 sys.path.insert(0,WT+'/tools/project-graph')
 from pgraph import evaluate as ev, gitio
 from pgraph.graph import Graph, load_graph

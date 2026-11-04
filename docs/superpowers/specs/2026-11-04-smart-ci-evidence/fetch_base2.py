@@ -10,6 +10,7 @@ for s in sorted(allsha-set(base)):
             j=[x for x in json.load(open(f"{S}/jobs/{r['id']}.json")) if x['name']=='plan']
             if not j: continue
             o=subprocess.run(['gh','api','--allow-escape-sequences',f"repos/Kemetra-Labs/Retail-Tower-Erp/actions/jobs/{j[0]['id']}/logs"],capture_output=True)
+            if o.returncode!=0: raise SystemExit(f'log request failed for job {j[0]["id"]}: {o.stderr[:200]!r}')
             mm=re.search(rb'PR_BASE: ([0-9a-f]{40})',o.stdout)
             if mm: base[s]=mm.group(1).decode();print(s[:8],'via',r['name']);break
     else: print('still missing',s[:8],[ (r['name'],r['conclusion']) for r in rs if r['head_sha']==s and r['event']=='pull_request'][:12])

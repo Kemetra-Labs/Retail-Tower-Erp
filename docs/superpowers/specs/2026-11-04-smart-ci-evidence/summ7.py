@@ -33,7 +33,7 @@ print('== BC high-tier docs/changelog-only shas')
 BC=set(['bc/fast','bc/db-integration','bc/db-package','bc/oasdiff','bc/contracts-compat','bc/schemathesis'])
 x=0;xs=[]
 for s,v in sel.items():
-    if BC<=set(v['needed']) and not BC<=set(v['whatif']['ALL_incidental']):
+    if BC<=set(v['needed']) and not (BC & set(v['whatif']['ALL_incidental'])):
         bcm=sum(j['dur_s'] for j in jb[s] if j['key'] in BC)/60;x+=bcm;xs.append((v['pr'],R[s[:10]]['idx'],round(bcm,1)))
 print('shas where incidental removal drops all of bc-full:',len(xs),'BC runner-min on those shas',round(x,1),xs)
 # ---- counterfactual anchor
@@ -64,8 +64,11 @@ print('saved by job',[(k,round(v,1)) for k,v in jc.most_common()])
 d1=[c for c in done if c['anchor_dist']==1]
 print('anchor_dist==1:',len(d1),'saved',round(sum(c['saved_runner_min'] for c in d1),1),'of',round(sum(c['runner_min'] for c in d1),1))
 # caveat: sha with actual cancelled (superseded) hmm
-sup=[c for c in done if c['required'] in('none',None)]
+ung=[c for c in done if c['required'] in('none',None)]
+sup=[c for c in ung if R[c['sha']]['idx']<R[c['sha']]['n_in_pr']-1]
+fin=[c for c in ung if c not in sup]
 print('anchored pushes that were themselves superseded (never gated):',len(sup),'saved',round(sum(c['saved_runner_min'] for c in sup),1))
+print('anchored final heads with no completed required (merged before CI):',len(fin),'saved',round(sum(c['saved_runner_min'] for c in fin),1))
 gated=[c for c in done if c['required'] not in('none',None)]
 print('anchored pushes that completed required:',len(gated),'saved',round(sum(c['saved_runner_min'] for c in gated),1),'runner',round(sum(c['runner_min'] for c in gated),1))
 print('details: pr idx anchor dist n_actual n_cf saved wall wall_cf')

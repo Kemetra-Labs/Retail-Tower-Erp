@@ -1,7 +1,9 @@
 """Stage 1: join cached API data into jobs.csv / shas.csv / prs.csv + data.json (no git evaluator here)."""
 import json,glob,os,sys,csv,subprocess,collections,datetime as dt
 S=sys.argv[1]
-WT=r'C:/Users/user/Documents/GitHub/Retail-Tower-Erp/.claude/worktrees/rt-946-ci-analysis-90480c'
+import os,pathlib
+# Repo root: RT_WORKTREE overrides; default is this file's checkout (docs/superpowers/specs/<evidence>/ -> 4 up).
+WT=os.environ.get('RT_WORKTREE') or str(pathlib.Path(__file__).resolve().parents[4])
 def T(s): return dt.datetime.strptime(s,'%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc) if s else None
 def ld(p):
     with open(p,encoding='utf-8') as f: return json.load(f)

@@ -51,7 +51,7 @@ for r in cor:
     # A: inline bot comment since prev push on a file touched by this push (PR's own change since prev)
     a=any(prevpush<=T(x['created_at'])<push and x['path'] in pr_changes_since for x in bot_inline[r['pr']])
     # B: bot review whose commit_id == previous head (full sha), posted before this push, and push is not a pure main merge
-    b=(not pure) and any(x['commit_id']==prev and T(x['submitted_at'])<push for x in bot_rev[r['pr']])
+    b=(not pure) and any(x['commit_id']==prev and x.get('submitted_at') and T(x['submitted_at'])<push for x in bot_rev[r['pr']])
     strictA+=a;strictB+=b;pure_main+=pure
     rowsout.append(dict(sha=r['sha'],pr=r['pr'],idx=r['idx'],pure_main=pure,strictA=a,strictB=b,main_sync=r['main_sync'],runner_min=r['runner_min'],n_pr_paths_changed_since_prev=len(pr_changes_since)))
 print('corrective',len(cor),'| pure main-merge (no PR-own path changed since previous head):',pure_main,'runner-min',round(sum(o['runner_min'] for o in rowsout if o.get('pure_main')),1))

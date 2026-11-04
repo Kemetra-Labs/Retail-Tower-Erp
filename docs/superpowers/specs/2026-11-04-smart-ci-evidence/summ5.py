@@ -26,7 +26,8 @@ print('gap from previous push median min',st.median([r['gap_prev_push_min'] for 
 prevnone=0
 for r in cor:
     prev=[x for x in rows if x['pr']==r['pr'] and x['idx']==r['idx']-1][0]
-    if prev['state']=='none': prevnone+=1
+    # Not yet gated when this push landed: no required yet, or it completed only after the push.
+    if not prev['required_at'] or T(prev['required_at'])>T(r['push']): prevnone+=1
 print('corrective pushes that superseded a not-yet-gated head',prevnone)
 # bot review timing vs first push
 ev=collections.defaultdict(list)

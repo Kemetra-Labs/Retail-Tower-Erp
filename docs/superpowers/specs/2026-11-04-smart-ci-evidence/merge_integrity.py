@@ -69,6 +69,8 @@ def main():
     prs = _gh(["pr", "list", "--repo", a.repo, "--state", "merged", "--limit", str(a.limit),
                "--search", f"merged:>={a.merged_since}", "--json", "number,headRefOid,mergedAt"])
     green = 0
+    if len(prs) >= a.limit:
+        print(f"WARNING: --limit {a.limit} reached; older merged PRs may be missing. Raise --limit.")
     for pr in sorted(prs, key=lambda x: x["mergedAt"]):
         runs = _gh(["api", f"repos/{a.repo}/commits/{pr['headRefOid']}/check-runs?check_name=required&filter=all",
                     "--jq", ".check_runs"])
