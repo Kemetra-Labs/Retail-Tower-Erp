@@ -324,7 +324,6 @@ class DeploySystemLab(unittest.TestCase):
                          ("JIRA_KEY", "RT-0"), ("DRY_RUN", "maybe"), ("FORCE_ALL", ""), ("FORCE_ALL", "yes")):
             self.assertNotEqual(run_step(guard, {**good, key: bad}).returncode, 0, f"{key}={bad} passed the guard")
 
-    @unittest.skipUnless(HAVE_BASH, "bash not available")
     # ---- RT-1084: the live-state record (G9), one resolved current manifest, the inflight marker
 
     def test_current_manifest_is_resolved_once_and_never_read_from_the_input_again(self):
@@ -410,6 +409,7 @@ class DeploySystemLab(unittest.TestCase):
     def test_the_lab_deploy_lock_is_the_shared_one(self):
         self.assertRegex(self.text, r"(?m)^concurrency:\n  group: deploy-aws-lab\n  cancel-in-progress: false$")
 
+    @unittest.skipUnless(HAVE_BASH, "bash not available")
     def test_live_guard_needs_the_verified_plan_and_every_rule_passed(self):
         guard = step_script(self.text, "Guard (main only, live run, verified plan)")
         good = {"RUN_REF": "refs/heads/main", "DRY_RUN": "false", "MANIFEST": "system/releases/lab-2026.11.0.json",

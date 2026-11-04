@@ -281,6 +281,11 @@ class Ssm:
             except AwsError as exc:
                 raise StateError(f"the write of {self.param} is ambiguous: its read-back failed ({exc})") from exc
             if seen == text:
+                if version != before_version + 1:
+                    # SSM has no compare-and-set. A version gap means another writer's value sat between the read
+                    # and this write (it is the previous version in the parameter's history) and this write replaced it.
+                    raise StateError(f"another write landed between this run's read (version {before_version}) and its write "
+                                     f"(version {version}); that value is version {version - 1} in {self.param}'s history, and this run replaced it")
                 return version
             if seen == before_text and version == before_version:
                 if attempt + 1 < self.attempts:

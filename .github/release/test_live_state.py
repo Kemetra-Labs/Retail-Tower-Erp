@@ -414,6 +414,17 @@ class Writes(Case):
             client.put_checked(dump({**SEED, "note": "new"}), version, before)
         self.assertIn("ambiguous", str(caught.exception))
 
+    def test_a_write_that_replaced_another_writers_value_is_reported(self):
+        aws = FakeAws(dump(SEED))
+        client = ssm(aws)
+        version, before = client.get()
+        # the owner writes between this run's read and its write
+        aws.value, aws.version = dump({**SEED, "note": "owner reconciliation"}), 2
+        with self.assertRaises(live_state.StateError) as caught:
+            client.put_checked(dump({**SEED, "note": "new"}), version, before)
+        self.assertIn("another write landed between this run's read (version 1) and its write (version 3)", str(caught.exception))
+        self.assertIn("version 2 in /rt/lab/live-state's history", str(caught.exception))
+
     def test_a_denied_write_is_not_retried(self):
         aws = FakeAws(dump(SEED))
         aws.put_plan = ["denied", "ok"]

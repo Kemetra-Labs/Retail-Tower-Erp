@@ -85,11 +85,11 @@ Before G8, a stale manifest was refused only on lab-01, before any version chang
 The durable answer to "what does the lab run now" is one SSM String parameter, `/rt/lab/live-state` (us-east-1), written by `.github/release/live_state.py`. Schema `retail-tower/lab-live-state@1`, at most 4096 bytes, no secrets:
 
 ```json
-{"schema": "retail-tower/lab-live-state@1", "updatedAt": "<UTC>", "writer": {"workflow": "<one of the four lab deploys>", "runId": 0, "sha": "<40 hex of main>"},
+{"schema": "retail-tower/lab-live-state@1", "updatedAt": "<UTC>", "writer": {"workflow": "<one of the four lab deploys>", "runId": 41738798480, "sha": "<40 hex of main>"},
  "system": "lab-YYYY.MM.N or null", "note": "optional text",
- "products": {"backend": {"release": "backend-core/vX.Y.Z", "sha": "<40 hex>", "runId": 0, "at": "<UTC>", "state": "ok"},
-              "console": {"release": "admin-console/vX.Y.Z", "sha": "<40 hex>", "runId": 0, "at": "<UTC>", "state": "ok"},
-              "erp": {"digest": "sha256:<64 hex>", "sha": "<40 hex>", "runId": 0, "at": "<UTC>", "state": "ok"}},
+ "products": {"backend": {"release": "backend-core/vX.Y.Z", "sha": "<40 hex>", "runId": 41738798480, "at": "<UTC>", "state": "ok"},
+              "console": {"release": "admin-console/vX.Y.Z", "sha": "<40 hex>", "runId": 41738798480, "at": "<UTC>", "state": "ok"},
+              "erp": {"digest": "sha256:<64 hex>", "sha": "<40 hex>", "runId": 41738798480, "at": "<UTC>", "state": "ok"}},
  "inflight": null}
 ```
 
@@ -104,7 +104,7 @@ Any other key, a bad pattern, a `dirty` product without a `reason`, or a bigger 
 - G8 is unchanged and still runs as the second check.
 
 **The live job.**
-1. After approval and before any document it reads the record again. A version or digest different from the one the preflight read refuses the run (run a new dry run).
+1. After approval and before any document it reads the record again. If the version or digest differs from the value read during the preflight, the live job refuses the run (run a new dry run).
 2. It marks the run `inflight` (`workflow`, `runId`, `startedAt`, the products the run touches) in one write. If that write fails, no document is sent.
 3. The documents run as before.
 4. After the ledger is written, `finish` records what the ledger proves, once, only while the record is still the one this run marked:
@@ -114,13 +114,14 @@ Any other key, a bad pattern, a `dirty` product without a `reason`, or a bigger 
 | a step finished (`ok`) | that product is `ok`, with the release and commit (or digest and commit) the ledger names |
 | a step failed and may have reached its host (the same rule as G8) | that product is `dirty`, with the reason; its old version stays and the target is never recorded |
 | a step failed and provably never sent its document, or did not run, or was skipped | that product is exactly as it was |
-| the ledger cannot be read | every product the run marked becomes `dirty` |
+| the ledger file cannot be read, or is not JSON | `inflight` stays set and no product changes: the next preflight refuses |
+| the ledger is JSON but is not a ledger this tool can read | every product the run marked becomes `dirty` |
 
 `inflight` is cleared in the same write. `system` is set only by a system run whose products all match the manifest. Nothing is inferred from a skipped or failed step.
 
 **Failures never produce a false `ok`.** A run that is cancelled, times out or loses its runner before `finish` leaves `inflight` set. A `finish` that fails after it has checked the record is still the one this run marked (the ledger cannot be read, a release commit cannot be found, the write fails) leaves it set too, and says what failed in `state-finish.json` beside the ledger (the artifact), with the record it meant to write when it got that far. The Backend-Core and Console ledgers carry their release commit, so a shallow checkout without tags is enough. In both cases the next preflight refuses with the reason.
 
-**Writes.** SSM has no compare-and-set. The workflows share the `deploy-aws-lab` concurrency group, so lab deploys run one at a time; the record is also re-read before each write and read back after it. A write that errors may still have landed: the record is read back, the intended text means it landed (accepted, never written twice), the unchanged record is tried again (three attempts at most), anything else means another writer changed it and the run stops. A manual write outside the lock shows up as a changed version or digest at the next read.
+**Writes.** SSM has no compare-and-set. The workflows share the `deploy-aws-lab` concurrency group, so lab deploys run one at a time; the record is also re-read before each write and read back after it. A write that errors may still have landed: the record is read back, the intended text means it landed (accepted, never written twice), the unchanged record is tried again (three attempts at most), anything else means another writer changed it and the run stops. A write outside the lock is not prevented, only detected, and only if it lands after this run's read: the owner must not write the record while a lab deploy runs (from its approval to its last step; check that no lab deploy is in progress first). If an owner write lands between a run's read and its write, the version then jumps by two, the run fails loudly, and the value the owner wrote is the previous version in the parameter's history, where the owner can recover it. An owner write between `begin` and `finish` makes `finish` refuse and leave the owner's record as it is.
 
 **Recovery, with no deadlock and no automatic clearing of an uncertain host.** A job never clears `dirty` or `inflight` by itself.
 - One product in doubt: run that product's own workflow (`deploy-lab.yml`, `deploy-console-lab.yml` or `deploy-erp-lab.yml`). It may start only when exactly that product is the one in doubt, its own host gates check the host, and only a ledger that proves the deploy makes it `ok`. When it starts, a product left `inflight` by a crashed run is first turned into `dirty` (with the earlier run named), so a recovery run that fails without reaching the host leaves it `dirty`, never `ok`.
@@ -247,5 +248,5 @@ Refusals seen so far:
   ```
 
   `RT-ErpLabDeploy` is JSON: use `--document-format JSON`. Then check that `DefaultVersion` equals `LatestVersion`: `aws ssm describe-document --name <document> --region us-east-1 --profile <profile>`.
-- **The live-state record.** Created once by the owner, without overwrite, from what the hosts run: `aws ssm put-parameter --name /rt/lab/live-state --type String --value file://<record.json> --region us-east-1 --profile <profile>`, then read back (`get-parameter`) to compare the version and the value. Re-seeding after a multi-product doubt is the same command with `--overwrite`, after reading the hosts. Use a non-root identity. The roles are `rt-gha-aws-lab-state-read` (`ssm:GetParameter` on this parameter only) for the preflight and `rt-gha-aws-lab-deploy` (`GetParameter` and `PutParameter`, inside its permissions boundary) for the live jobs; the repository variable is `AWS_STATE_READ_ROLE_ARN`.
+- **The live-state record.** Created once by the owner, without overwrite, from what the hosts run: `aws ssm put-parameter --name /rt/lab/live-state --type String --value file://record.json --region us-east-1 --profile "$AWS_PROFILE"` (run in the folder that holds `record.json`), then read back (`get-parameter`) to compare the version and the value. Re-seeding after a multi-product doubt is the same command with `--overwrite`, after reading the hosts. Use a non-root identity. The roles are `rt-gha-aws-lab-state-read` (`ssm:GetParameter` on this parameter only) for the preflight and `rt-gha-aws-lab-deploy` (`GetParameter` and `PutParameter`, inside its permissions boundary) for the live jobs; the repository variable is `AWS_STATE_READ_ROLE_ARN`.
 - **Approval.** The `aws-lab` approval is the human gate of every live run.
