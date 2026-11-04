@@ -80,9 +80,16 @@ describe('RT-1092 sign-in.css — tokens and scope', () => {
     expect(off).toEqual([]);
   });
 
-  it('never puts Mint on a light surface: it only fills the band mark tile', () => {
-    const mint = rules(css).filter(([, body]) => /var\(--color-mint\)/.test(body));
-    expect(mint.map(([selector]) => selector)).toEqual(['.v5-signin__mark']);
+  it("adds no Mint: the band's one Mint tile is entry-band.css's (RT-1096)", () => {
+    expect(css).not.toMatch(/var\(--color-mint\)/);
+  });
+
+  it('restyles no band colour: the band itself stays the one entry band', () => {
+    const band = rules(css).filter(([selector]) => /\.v5-entry-band$/.test(selector));
+    expect(band.length).toBeGreaterThan(0);
+    for (const [, body] of band) {
+      expect(body).not.toMatch(/(?:^|[;\s])(background|color)\s*:/);
+    }
   });
 
   it('every rule is scoped to the sign-in screen, never the shared entry root', () => {
@@ -138,21 +145,15 @@ describe('RT-1092 sign-in.css — fit (OD-7, OD-11)', () => {
   });
 
   it('the band leaves a positioned layer for the S4 ornament, without drawing one', () => {
-    expect(css).toMatch(/\.v5-signin__band\s*\{[^}]*position:\s*relative/);
+    expect(css).toMatch(/\.v5-entry--sign-in \.v5-entry-band\s*\{[^}]*position:\s*relative/);
     expect(css).not.toMatch(/orn|skyline|ruler/);
   });
 });
 
 describe('RT-1092 sign-in.css — Windows contrast themes', () => {
-  it('the band maps to Canvas / CanvasText with a 1px edge', () => {
-    const band = /\.v5-signin__band\s*\{([^}]*)\}/.exec(forced)?.[1] ?? '';
-    expect(band).toMatch(/background:\s*Canvas\b/);
-    expect(band).toMatch(/color:\s*CanvasText/);
-    expect(band).toMatch(/border-block-end:\s*1px solid CanvasText/);
-  });
-
-  it('the Mint tile keeps a visible boundary', () => {
-    expect(forced).toMatch(/\.v5-signin__mark\s*\{[^}]*border:\s*1px solid CanvasText/);
+  it('what sign-in adds on the band reads as CanvasText (the band maps in entry-band.css)', () => {
+    expect(forced).toMatch(/\.v5-signin__context,[^{]*\{[^}]*color:\s*CanvasText/);
+    expect(forced).toMatch(/\.v5-signin__sep\s*\{[^}]*background:\s*CanvasText/);
   });
 
   it('only an available commit takes the system highlight', () => {

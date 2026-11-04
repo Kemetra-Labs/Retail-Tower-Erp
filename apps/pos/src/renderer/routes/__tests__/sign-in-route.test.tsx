@@ -845,7 +845,7 @@ describe('SignInRoute — RT-1092 B-lite composition', () => {
     expect(within(band).getByTestId('brand-slot-sign_in')).toBeInTheDocument();
     expect(within(band).getByRole('img', { name: 'صيدلية النور' })).toBeInTheDocument();
     expect(within(band).getByTestId('powered-by')).toHaveTextContent('بدعم من Retail Tower');
-    expect(band.querySelector('.v5-signin__product')).toBeNull();
+    expect(band.querySelector('.v5-entry-band__name')).toBeNull();
   });
 
   it('before a pick, the prompt sits in the slot above a decorative dots field, then the keypad', async () => {

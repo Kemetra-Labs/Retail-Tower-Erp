@@ -4,10 +4,12 @@
  * docs/design/rt-1042/references/): an Ink band across the top, the room with
  * the title and the roster, and a fixed PIN dock at the inline end.
  *
- * - Scoped to `.v5-entry--sign-in`, so Ready and pairing (which share
- *   `.v5-entry` and entry.css) are untouched until their own slice (S7).
- * - Ink and Mint come from the `[data-entry-surface]` roles (S2, RT-1091) and
- *   appear only on the band. Everything else stays in the light Teal family.
+ * - Scoped to `.v5-entry--sign-in`, so Ready, pairing and boot (which share
+ *   `.v5-entry`, entry.css and the band) are untouched.
+ * - The band is the one entry band (`EntryBand`, entry-band.css, RT-1096);
+ *   this file sizes it and styles what sign-in adds on it. Ink and Mint (the
+ *   `[data-entry-surface]` roles, S2 RT-1091) appear only on the band.
+ *   Everything else stays in the light Teal family.
  * - Flat (no shadow) and on the shipped radius tokens: the 8 / 12 references
  *   wait for the radius slice (DESIGN.md "Surfaces, shape and type").
  * - The keypad never moves: the dock head and the feedback slot keep one
@@ -83,56 +85,21 @@
   }
 }
 
-/* ── the Ink band (OD-1, OD-8, OD-10) ─────────────────────────── */
-.v5-signin__band {
-  /* positioned, so the S4 ornament (RT-1093) can sit behind the row */
-  position: relative;
-  flex: none;
-  block-size: var(--signin-band);
-  overflow: hidden;
-  background: var(--color-ink);
-  color: var(--color-on-ink);
-}
+/* ── the Ink band: the one entry band (EntryBand, entry-band.css) ── */
+/* Sign-in sizes it per profile, and positions it, so the S4 ornament
+   (RT-1093) can sit behind its content. Its colours stay entry-band.css's. */
+.v5-entry--sign-in .v5-entry-band {
+  --entry-band-size: var(--signin-band);
+  --entry-band-tile: var(--signin-mark);
 
-.v5-signin__band-row {
   position: relative;
-  display: flex;
-  align-items: center;
   gap: var(--space-4);
-  block-size: 100%;
+  overflow: hidden;
   padding-inline: var(--signin-band-pad);
 }
 
-.v5-signin__brand {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-/* the brand mark: the Ink glyph on a Mint tile, on Ink only */
-.v5-signin__mark {
-  display: grid;
-  flex: none;
-  place-items: center;
-  inline-size: var(--signin-mark);
-  block-size: var(--signin-mark);
-  border-radius: var(--radius-card);
-  background: var(--color-mint);
-  color: var(--color-ink);
-}
-
-.v5-signin__mark-glyph {
-  inline-size: 60%;
-  block-size: 60%;
-}
-
-.v5-signin__product {
-  color: var(--color-on-ink);
+.v5-entry--sign-in .v5-entry-band__name {
   font-size: var(--signin-product);
-  font-weight: var(--font-weight-bold);
-  line-height: var(--line-height-snug);
-  white-space: nowrap;
 }
 
 .v5-signin__sep {
@@ -170,7 +137,7 @@
 
 /* OD-10: on Ink the tenant logo always sits on the white card, even when
    `presentation.card` is false (low_contrast is measured against white). */
-.v5-signin__band .v5-brand-slot {
+.v5-entry--sign-in .v5-entry-band .v5-brand-slot {
   padding: 2px 4px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -312,19 +279,7 @@
 
 /* ── Windows contrast themes (DESIGN.md "Brand on the band") ───── */
 @media (forced-colors: active) {
-  .v5-signin__band {
-    border-block-end: 1px solid CanvasText;
-    background: Canvas;
-    color: CanvasText;
-  }
-
-  .v5-signin__mark {
-    border: 1px solid CanvasText;
-    background: Canvas;
-    color: CanvasText;
-  }
-
-  .v5-signin__product,
+  /* The band itself maps in entry-band.css (Canvas, a 1px edge). */
   .v5-signin__context,
   .v5-signin__context b,
   .v5-entry--sign-in .v5-signin__powered-by,
