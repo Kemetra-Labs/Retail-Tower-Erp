@@ -17,7 +17,7 @@ store with the RT-475 slot sizes). It is not a real tenant's logo.
 
 ## Baseline
 
-- `origin/main` `2cf86978f` (RT-1095, #296). Electron 44.9.1.
+- Non-sign-in screens: `origin/main` `2cf86978f` (RT-1095, #296). Sign-in and the bench: `c263f18a5` (RT-1093, #300). Electron 44.9.1.
 - Native modules for the R-dev run were copied from the CI artifact
   `pos-pulse-win-unpacked-2cf86978…` (run 41813056875), because this laptop has no Visual Studio
   toolchain for `electron-rebuild`. Artifact hashes: `POS Pulse.exe` sha256 `06f7c58d…f5d2`,
@@ -86,7 +86,30 @@ emulation, not a Windows contrast theme (owner check 1).
   that, the window was moved behind other windows without focus (`ShowWindow` minimise then
   `SW_SHOWNOACTIVATE`, `HWND_BOTTOM`) and no further input arrived.
 
-## Scanner bench, simulated (R-dev dry run on `2cf86978`; to be repeated after RT-1093)
+## Results: sign-in (R-dev, `main` `c263f18a`, after RT-1093)
+
+Captured through the repo's dev harness `#/dev/sign-in-proof` (the real `SignInRoute` with an
+in-memory bridge; RT-244), except roster loading, which the harness cannot show: there the real
+`SignInRoute` is mounted inside `SupportedViewport` and `MemoryRouter`, as the router mounts
+it, with a roster call that never resolves.
+
+| State | Set | Result |
+|---|---|---|
+| Roster loading | `signin-roster-loading-*` | **Pass.** «جارٍ تحميل قائمة الكاشير…» in the roster card; fits at all sizes. |
+| Roster, 6 cashiers, no cashier picked | `signin-roster-*` | **Pass.** 2 columns below 1280 px, 3 at 1280 and up (OD-11); PIN dock fixed; no scroll; band with the RT-1093 ornament. |
+| Roster with tenant logo | `signin-roster-logo-*` | **Pass.** 128×32 logo on the white card in the band (OD-10), powered-by line; fits at all sizes. |
+| Long roster (18 cashiers) | `signin-roster-long-*` | **Pass.** Only the roster list scrolls (`.v5-entry__roster`: 214 / 130 / 26 px at 1024×600 / 1024×768 / 1280×800); PIN dock and band stay put. |
+| Cashier picked, PIN 2 of 6 | `signin-pin-*` | **Pass.** Fits at all sizes. |
+| Refusal | `signin-refusal-*` | **Pass (OD-7).** «بيانات الدخول غير صحيحة. حاول مرة أخرى.» sits above the dots (refusal bottom 193 px, dots top 228 px at 1024×600). |
+
+Forced colours (emulated): band, cards, roster tiles, keys and the refusal draw in system
+colours; the selected cashier uses the system highlight; no Mint or Ink remains.
+
+Observation (for owner check 2): the refusal text is exposed in two live regions at once, a
+`role="status"` and a `role="alert"` (`.v5-notice`) at the same spot, which a screen reader may
+read twice.
+
+## Scanner bench, simulated (R-dev, `main` `c263f18a`; the same results as a dry run on `2cf86978`)
 
 Method: the repo's `#/dev/sign-in-proof` tree rendered over the real `App` (its
 `ScanGuardHost` is the only guard and is registered first, as in production). A burst is
@@ -103,6 +126,24 @@ R-dev simulated; not a real scanner (owner check 3).
 
 Observation: on the manager password the notice says «حقل الرقم السري» (PIN field) for a
 password field; the M-S5 family has no password wording (`scan-messages.ts`).
+
+Where the notice appears (`bench-s2-1024x600.png`, `bench-s4-1024x600.png`): a fixed toast at
+the top centre (z-index 2000), over the Ink band and, on the lock, above the dialog. At 1024 px
+it covers part of the band's terminal label. On sign-in it is about 700 px from the PIN dots in
+the dock. (These two shots show a page scrollbar that comes from the harness, which un-hides the
+App root so its notice is visible; it is not in the app.)
+
+## OD-15 recommendation (from the simulated bench; to be confirmed by owner check 3)
+
+**In-slot.** The guard already does the safe part everywhere: no digit lands in the PIN or the
+password, and nothing is submitted. What OD-15 decides is only where M-S5 shows. Today it shows
+only in the global toast at the top centre, far from the dock where the cashier is looking and
+over the band's terminal label at 1024 px, while the PIN feedback slot above the dots, where the
+refusal already shows (OD-7), stays empty. Showing M-S5 in that slot, and keeping the toast for
+the screens without a slot (no cashier picked, M-S1), puts the message where the eyes are. The
+manager password and the lock PIN would need the same treatment, and the password case needs a
+password wording. The real scanner (owner check 3) should confirm the bursts behave as above
+before this is decided.
 
 Method lessons: a per-key CDP round trip (16–39 ms gaps) and an Enter sent from a second
 process are not a burst, so the guard correctly treats them as typing; and a guard mounted
@@ -121,9 +162,6 @@ owner check 2 (Narrator / NVDA).
 
 ## Pending
 
-- Sign-in (roster loading, roster, PIN with a refusal above the dots) at four sizes and forced
-  colours: after RT-1093 merges.
-- Simulated scanner bench (no cashier picked, during PIN, during manager password; where M-S5
-  shows): after RT-1093 merges, with the sign-in run.
-- Packaged captures (R-pkg): after RT-1093 merges; the owner types the pairing code and PIN.
+- Packaged captures (R-pkg) of the CI artifact for `c263f18a`; the owner types the pairing code
+  and the PIN.
 - Owner checks: [`owner-checks.md`](owner-checks.md). Blocked on the owner until he reports.
