@@ -230,9 +230,32 @@ async function tabTo(page: Page, selector: string): Promise<number | null> {
       (s) => document.activeElement === document.querySelector(s),
       selector,
     );
-    if (hit) return presses;
+    if (hit) {
+      await settleScroll(page);
+      return presses;
+    }
   }
   return null;
+}
+
+/**
+ * Waits until the scroll offsets have been still for three reads: the browser animates the
+ * scroll a key press or a focus causes, and a measure taken mid-animation reads a half-way cell
+ * (run 41893472227 did, so its keyboard verdicts were an artefact).
+ */
+async function settleScroll(page: Page): Promise<void> {
+  let last = "";
+  let still = 0;
+  for (let i = 0; i < 40 && still < 3; i++) {
+    const now = await page.evaluate(() =>
+      [...document.querySelectorAll(".data-table__scroll, main.content")]
+        .map((e) => e.scrollLeft)
+        .join(),
+    );
+    still = now === last ? still + 1 : 0;
+    last = now;
+    await page.waitForTimeout(60);
+  }
 }
 
 /** With the region focused, arrows toward the inline end until it stops scrolling. */
@@ -249,6 +272,7 @@ async function arrowToEnd(
   let still = 0;
   for (let i = 0; i < MAX_ARROWS && still < 2; i++) {
     await page.keyboard.press(rtl ? "ArrowLeft" : "ArrowRight");
+    await settleScroll(page);
     const now = await read();
     still = now === last ? still + 1 : 0;
     last = now;
