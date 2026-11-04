@@ -9,8 +9,8 @@ boundary. Owner decisions for the method: RT-1097, "owner 2026-11-04 via coordin
 |---|---|---|
 | **R-dev** | Unpackaged `electron .` of `main`, Vite dev renderer, CDP `Page.captureScreenshot` at an exact viewport (`Emulation.setDeviceMetricsOverride`, DPR 1). Forced colours are CDP `Emulation.setEmulatedMedia` `forced-colors: active`. Scratch `--user-data-dir`, deleted after the run (two profiles first landed under `C:\tmp\…` because of a Git Bash path; found and deleted, no pairing attempt in either). | Not the packaged exe, not the production bundle, not a Windows contrast theme. |
 | **R-dev fixture mount** | Same window and CSS; the real component module (`RouteLoading`, `LockScreen`, `TakeoverPrompt`) is imported from the Vite dev server and rendered with fixture props in place of `#root`. Used where the state cannot be reached without a backend (boot is transient; a cashier lock needs a cashier session; takeover needs a backend `takeover_required`). `SessionLockGate` renders `LockScreen` directly and the sign-in route wraps `TakeoverPrompt` in `<main dir="rtl">`, which the mount copies. | Not the state machine that reaches the screen. |
-| **R-pkg** | The CI-built `pos/package-windows` artifact, OS screenshots only (the packaged exe refuses CDP by design, `launch-switch-guard.ts`). | Pending: after RT-1093 merges. |
-| **Owner** | A person at the device: contrast theme, screen reader, real scanner. See [`owner-checks.md`](owner-checks.md). | Pending. |
+| **R-pkg** | The CI-built `pos/package-windows` artifact of `c263f18a`, run on this laptop with a scratch profile against the rt9 lab, captured with Win32 `PrintWindow` cropped to the client area. No input was sent by the agent; the owner typed the pairing code and the sign-in. Forced colours are the Chromium flag `--force-high-contrast`. | Not a Windows contrast theme; no CDP (the packaged exe refuses it by design, `launch-switch-guard.ts`). |
+| **Owner** | A person at the device: contrast theme, screen reader, real scanner. See [`owner-checks.md`](owner-checks.md). | Blocked on the owner. |
 
 The tenant logo is a fixture (an orange «FIXTURE» SVG, injected into the renderer branding
 store with the RT-475 slot sizes). It is not a real tenant's logo.
@@ -160,8 +160,37 @@ A live region that appears together with its content is commonly not announced, 
 CodeRabbit concern on PR #274 is plausible. This is a DOM proxy only; the result comes from
 owner check 2 (Narrator / NVDA).
 
+## Results: packaged (R-pkg, `c263f18a`)
+
+Artifact `pos-pulse-win-unpacked-c263f18a…` (main run 41818778020): `POS Pulse.exe` sha256
+`960c876a…b223`, `resources/app.asar` sha256 `21eabd80…9712`;
+the asar contains the RT-1093 ornament. The display is 1920×1080 at 125 % (DPI 120), so each CSS
+size was a physical client of ×1.25 (1280×750, 1280×960, 1600×1000 and 2400×1350; the window
+accepts a client larger than the screen). The packaged window has no native menu bar, so the
+client area is the page. Files are `r-pkg/<screen>[-fc]-<w>x<h>.png` (CSS size in the name).
+
+| Screen | Set | Result |
+|---|---|---|
+| Pairing | `pairing-*`, `pairing-fc-*` | **Pass.** Same layout as R-dev at all four sizes, light and forced colours. |
+| Sign-in, empty roster | `signin-empty-*`, `signin-empty-fc-*` | **Pass.** Band with the terminal label «dsad», ornament, PIN dock and «دخول المدير»; no scroll at any size. The roster is empty («لا يوجد كاشير مسجّل في هذا الفرع») because the new terminal has no cashier with a PIN. |
+| Ready | (none) | **Not captured packaged; covered by R-dev only.** Ready shows once, right after pairing; a restart of a paired terminal goes to sign-in (or to the app while a session is held). |
+| Boot | (none) | **Not captured packaged.** Too short on this machine; F1 rests on R-dev and the CSS. |
+| Sign-in PIN entry, refusal, lock | (none) | **Not captured packaged.** Owner action: give a lab cashier a PIN on this terminal («إدارة الكاشير»), then sign in as that cashier. |
+| Takeover | (none) | **Not captured packaged** (needs a second terminal); R-dev only. |
+
+Frames that showed part of the manager's login id (the dashboard after the owner signed in)
+were deleted and are not in this folder. The pairing field is empty in every committed frame.
+
+**F4. The window title still says «POS Pulse» (OD-8).** `apps/pos/src/renderer/index.html`
+has `<title>POS Pulse</title>` and `electron-builder.yml` has `productName: POS Pulse`, so the
+title bar and the taskbar read «POS Pulse» while the band says «Retail Tower». RT-1092 changed the
+strip to «Retail Tower» (OD-8) but not the window title.
+
+The lab terminal «dsad» created by this run stays paired to the rt9 store. The owner can revoke
+it from the Admin Console if it is not wanted.
+
 ## Pending
 
-- Packaged captures (R-pkg) of the CI artifact for `c263f18a`; the owner types the pairing code
-  and the PIN.
-- Owner checks: [`owner-checks.md`](owner-checks.md). Blocked on the owner until he reports.
+- Packaged PIN entry, refusal and lock: not captured (owner action above).
+- Owner checks: [`owner-checks.md`](owner-checks.md): contrast theme, Narrator/NVDA on roster
+  loading (and the doubled refusal live region), real scanner. Blocked on the owner.
