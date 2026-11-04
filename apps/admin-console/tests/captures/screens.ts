@@ -199,7 +199,8 @@ export const SCREENS: Screen[] = [
     route: "/",
     mock: mockOverview,
     failRead: OVERVIEW_GLANCE,
-    // RT-1164: the Overview shows a failed read as an error in each panel, not as the shared Banner.
+    // RT-1164: the Overview shows a failed read as a `PanelError` (`.glance-error`) in each affected
+    // panel, not as the shared Banner. The ledger rows' own `.ledger__error` is not counted.
     errorSelector: "main .rtc-alert, main .glance-error",
   },
 ];
