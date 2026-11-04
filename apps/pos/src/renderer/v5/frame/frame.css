@@ -291,17 +291,22 @@
   font-size: var(--font-size-xs);
 }
 
-/* RT-1191 — the slim rail shows «خروج» (owner, 2026-11-04); one line, ellipsis as a safety net. */
+/* .v5-btn keeps labels on one line; the confirm step's longer labels may wrap in the ≈76px rail. */
 .v5-frame[data-nav='slim'] .v5-frame__sign-out button {
-  display: block;
   min-inline-size: 0;
+  white-space: normal;
+  padding-inline: 2px;
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-snug);
+}
+
+/* RT-1191 — the slim rail shows «خروج» (owner, 2026-11-04); one line, ellipsis as a safety net. */
+.v5-frame[data-nav='slim'] .v5-frame__sign-out:not(.v5-frame__sign-out--confirming) button {
+  display: block;
   max-inline-size: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding-inline: 2px;
-  font-size: var(--font-size-xs);
-  line-height: var(--line-height-snug);
 }
 
 @media (prefers-reduced-motion: reduce) {

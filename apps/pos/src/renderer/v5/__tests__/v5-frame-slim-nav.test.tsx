@@ -159,7 +159,7 @@ describe('slim rail CSS', () => {
     const selector =
       which === 'operator-name'
         ? /\.v5-frame\[data-nav='slim'\] \.v5-frame__operator-name\s*\{([^}]*)\}/
-        : /\.v5-frame\[data-nav='slim'\] \.v5-frame__sign-out button\s*\{([^}]*)\}/;
+        : /\.v5-frame\[data-nav='slim'\] \.v5-frame__sign-out:not\(\.v5-frame__sign-out--confirming\) button\s*\{([^}]*)\}/;
     const body = selector.exec(css)?.[1] ?? '';
     expect(body).toMatch(/white-space:\s*nowrap/);
     expect(body).toMatch(/overflow:\s*hidden/);
@@ -176,5 +176,14 @@ describe('slim rail CSS', () => {
     expect(css).toMatch(
       /\.v5-frame\[data-nav='slim'\] \.v5-frame__sign-out-long\s*\{[^}]*display:\s*none/,
     );
+  });
+
+  // Review (CodeRabbit): the two-button confirm step keeps wrapping, never clips.
+  it('leaves the confirm step buttons free to wrap in the slim rail', () => {
+    const rule = /\.v5-frame\[data-nav='slim'\] \.v5-frame__sign-out button\s*\{([^}]*)\}/.exec(
+      css,
+    );
+    expect(rule?.[1]).toMatch(/white-space:\s*normal/);
+    expect(rule?.[1]).not.toMatch(/overflow:\s*hidden/);
   });
 });
