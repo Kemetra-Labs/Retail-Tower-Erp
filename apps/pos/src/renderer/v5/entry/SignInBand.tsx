@@ -15,6 +15,7 @@ import { SIGN_IN_COPY } from './entry-copy';
  *   card on Ink (OD-10, sign-in.css), and the powered-by line sits at the
  *   inline end.
  * - The terminal label is admin free text, isolated with `<bdi>`.
+ * - The static ornament (RT-1093, OD-5) sits behind it: sign-in only.
  * - The band never changes with state (Brand-Yields-To-Truth).
  */
 export function SignInBand({
@@ -25,6 +26,7 @@ export function SignInBand({
   return (
     <EntryBand
       testId="entry-strip"
+      ornament
       {...(branded ? { brand: <BrandSlot slot="sign_in" snapshot={branding} /> } : {})}
     >
       {terminalLabel !== undefined && terminalLabel.length > 0 && (
