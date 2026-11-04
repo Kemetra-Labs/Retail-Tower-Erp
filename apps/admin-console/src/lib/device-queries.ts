@@ -36,8 +36,15 @@ export type DeviceRevokeResult = Schemas["DeviceRevokeResult"];
 export type DeviceRetireResult = Schemas["DeviceRetireResult"];
 export type PairingCodePage = Schemas["PairingCodePage"];
 export type PairingCodeSummary = Schemas["PairingCodeSummary"];
-/** `ttlMinutes` has a server default (60), so the console may omit it. */
-export type PairingCodeIssueRequest = Omit<Schemas["PairingCodeIssueRequest"], "ttlMinutes"> & {
+/**
+ * `ttlMinutes` has a server default (60), so the console may omit it. The
+ * printer fields are never sent (RT-1165): the pinned generated type still
+ * marks them required until the client is re-pinned past Backend-Core RT-1181.
+ */
+export type PairingCodeIssueRequest = Omit<
+  Schemas["PairingCodeIssueRequest"],
+  "ttlMinutes" | "printerVendorId" | "printerProductId" | "printerComPort"
+> & {
   ttlMinutes?: number;
 };
 export type PairingCodeIssued = Schemas["PairingCodeIssued"];

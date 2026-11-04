@@ -218,14 +218,12 @@ describe("PairingCodes (RT-372 part B)", () => {
     const dialog = screen.getByRole("dialog", { name: "Issue pairing code" });
     await within(dialog).findByRole("option", { name: "Fifth Avenue" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Issue pairing code" }));
-    expect(within(dialog).getAllByText("This field is required.")).toHaveLength(6);
+    expect(within(dialog).getAllByText("This field is required.")).toHaveLength(4);
     fireEvent.change(within(dialog).getByLabelText("Store"), { target: { value: NEW_YORK_STORE } });
     for (const [label, value] of Object.entries({
       "Store name on receipts": "Fifth Avenue",
       "Store address on receipts": "5th Ave",
       "Tax registration id": "TRN-1",
-      "Printer vendor id (USB)": "0x04B8",
-      "Printer product id (USB)": "0x0E15",
     })) {
       fireEvent.change(within(dialog).getByLabelText(label), { target: { value } });
     }
@@ -237,8 +235,6 @@ describe("PairingCodes (RT-372 part B)", () => {
       branchName: "Fifth Avenue",
       branchAddress: "5th Ave",
       taxRegistrationId: "TRN-1",
-      printerVendorId: "0x04B8",
-      printerProductId: "0x0E15",
     });
     expect(key).toMatch(/^[\x21-\x7E]{16,128}$/);
     expect(await within(dialog).findByText(SECRET_CODE)).toBeDefined();
@@ -262,8 +258,6 @@ describe("PairingCodes (RT-372 part B)", () => {
       "Store name on receipts": "Dubai Mall",
       "Store address on receipts": "Level 1",
       "Tax registration id": "TRN-1",
-      "Printer vendor id (USB)": "0x04B8",
-      "Printer product id (USB)": "0x0E15",
     })) {
       fireEvent.change(within(dialog).getByLabelText(label), { target: { value } });
     }
@@ -382,8 +376,6 @@ describe("PairingCodes review fixes (RT-372)", () => {
       "Store name on receipts": "Dubai Mall",
       "Store address on receipts": "Level 1",
       "Tax registration id": "TRN-1",
-      "Printer vendor id (USB)": "0x04B8",
-      "Printer product id (USB)": "0x0E15",
     })) {
       fireEvent.change(within(dialog).getByLabelText(label), { target: { value } });
     }
