@@ -827,6 +827,23 @@ milliseconds, at least `60000` (1 minute). Any other value stops the worker
 from booting. `docker-compose.prod.yml` does not pass it, so production runs
 the hourly default.
 
+### `DESCOPE_MANAGEMENT_KEY` (RT-937, RT-1123)
+
+A Descope Management key, **secret**. The api reads it from the environment
+(`docker-compose.prod.yml` passes `DESCOPE_MANAGEMENT_KEY`; on the lab it lives in
+the root-only `backend.env`). Leave it out of git and out of logs.
+
+- **Use:** only invite accept (RT-937). `descope-auth.client.ts` calls the Management
+  API for `createUser`, `loadUser` and `setActivePassword` while a new invitee is set up.
+  Nothing else uses it.
+- **Unset or empty:** invite accept fails closed with `503` (deployment fault). Sign-in,
+  token verification and every other route are unaffected, because they use only
+  `DESCOPE_PROJECT_ID`.
+- **Rotation:** [descope-management-key-rotation.md](../docs/operations/descope-management-key-rotation.md).
+  Use the least-privileged Descope role that allows those three calls.
+- **Copies:** the lab deploy document backs up `backend.env` before each live run (see the
+  runbook, step 6). A rotation must purge those copies too.
+
 ## Known follow-ups (not in this artifact)
 
 - **Hardening:** run containers as a non-root user; add resource limits; offsite backups
