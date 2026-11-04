@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, act, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, act, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom/vitest';
 import { useState, type JSX } from 'react';
 
 import { SessionLockGate } from '../SessionLockGate';
+import { ScanGuardHost, resetScanGuardForTests } from '../../scan/ScanGuardHost';
 import { useOperatorSessionStore } from '../../stores/operator-session-store';
 import type {
   LockStateView,
@@ -152,9 +153,11 @@ describe('RT-117 SessionLockGate', () => {
         <Counter />
       </SessionLockGate>,
     );
-    const pin = await screen.findByLabelText('رمز PIN');
-    expect(pin).toHaveAttribute('type', 'password');
-    await userEvent.type(pin, '1234');
+    // RT-1095: the cashier unlocks on the sign-in PIN dock (dots, never a text field).
+    const pin = await screen.findByTestId('pin-pad-dots');
+    expect(screen.queryByLabelText('رمز PIN')).toBeNull();
+    expect(pin).toHaveFocus();
+    await userEvent.keyboard('1234');
     await userEvent.click(screen.getByRole('button', { name: 'فتح القفل' }));
 
     expect(op.api.unlockSession).toHaveBeenCalledWith({ method: 'pin', pin: '1234' });
@@ -172,41 +175,55 @@ describe('RT-117 SessionLockGate', () => {
         <Counter />
       </SessionLockGate>,
     );
-    const pin = await screen.findByLabelText('رمز PIN');
-    await userEvent.type(pin, '0000');
+    const pin = await screen.findByTestId('pin-pad-dots');
+    await userEvent.keyboard('0000');
     await userEvent.click(screen.getByRole('button', { name: 'فتح القفل' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('تعذّر فتح القفل');
-    expect(pin).toHaveValue('');
+    expect(pin).toHaveAccessibleName('الرقم السري، أُدخل 0 من 6');
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
-  // RT-24 I-4: no scanner input into PIN fields. A barcode burst typed into
-  // the focused PIN field must never reach main as a PIN attempt — each wrong
-  // attempt counts toward the 004 lockout, which nobody can clear from a lock.
-  it('rejects a scanner burst locally without calling unlockSession', async () => {
+  // RT-24 I-4: no scanner input into PIN fields. A barcode burst on the lock
+  // must never reach main as a PIN attempt — each wrong attempt counts toward
+  // the 004 lockout, which nobody can clear from a lock. The PIN dock has no
+  // text field, so the scan guard (a capture listener on window, mounted by
+  // App before the gate) restores the dots and claims the Enter.
+  it('rejects a scanner burst without calling unlockSession', async () => {
+    resetScanGuardForTests();
     const op = fakeOperator(LOCKED_CASHIER);
     render(
-      <SessionLockGate operator={op.api}>
-        <Counter />
-      </SessionLockGate>,
+      <>
+        <ScanGuardHost />
+        <SessionLockGate operator={op.api}>
+          <Counter />
+        </SessionLockGate>
+      </>,
     );
-    const pin = await screen.findByLabelText('رمز PIN');
-    await userEvent.type(pin, '6223000123456{Enter}');
+    const pin = await screen.findByTestId('pin-pad-dots');
+    // Fake time only now: findBy polls on timers. Keys with no clock movement are a burst.
+    vi.useFakeTimers();
+    try {
+      for (const key of '6223000123456') fireEvent.keyDown(pin, { key });
+      fireEvent.keyDown(pin, { key: 'Enter' });
+    } finally {
+      vi.useRealTimers();
+    }
 
     expect(op.api.unlockSession).not.toHaveBeenCalled();
-    expect(await screen.findByRole('alert')).toHaveTextContent('رمز PIN من 4 إلى 6 أرقام');
-    expect(pin).toHaveValue('');
+    expect(pin).toHaveAccessibleName('الرقم السري، أُدخل 0 من 6');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
-  it.each(['123', 'abcd', '12 34'])('rejects a malformed PIN %j locally', async (entry) => {
+  it.each(['123', 'abcd'])('does not submit a short or malformed PIN %j', async (entry) => {
     const op = fakeOperator(LOCKED_CASHIER);
     render(
       <SessionLockGate operator={op.api}>
         <Counter />
       </SessionLockGate>,
     );
-    await userEvent.type(await screen.findByLabelText('رمز PIN'), `${entry}{Enter}`);
+    await screen.findByTestId('pin-pad-dots');
+    await userEvent.keyboard(`${entry}{Enter}`);
     expect(op.api.unlockSession).not.toHaveBeenCalled();
   });
 
@@ -240,11 +257,12 @@ describe('RT-117 SessionLockGate', () => {
         <Counter />
       </SessionLockGate>,
     );
-    const pin = await screen.findByLabelText('رمز PIN');
-    await userEvent.type(pin, '12');
+    const pin = await screen.findByTestId('pin-pad-dots');
+    await userEvent.keyboard('12');
+    expect(pin).toHaveAccessibleName('الرقم السري، أُدخل 2 من 6');
     await userEvent.keyboard('{Escape}');
 
-    expect(pin).toHaveValue('');
+    expect(pin).toHaveAccessibleName('الرقم السري، أُدخل 0 من 6');
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(op.api.unlockSession).not.toHaveBeenCalled();
   });
@@ -256,8 +274,8 @@ describe('RT-117 SessionLockGate', () => {
     [
       'typed on the lock screen',
       async (): Promise<void> => {
-        await userEvent.type(await screen.findByLabelText('رمز PIN'), '12');
-        await userEvent.keyboard('{Escape}');
+        await screen.findByTestId('pin-pad-dots');
+        await userEvent.keyboard('12{Escape}');
       },
     ],
     [

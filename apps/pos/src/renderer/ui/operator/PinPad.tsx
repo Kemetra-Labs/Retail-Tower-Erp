@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, type JSX, type KeyboardEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  type JSX,
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 
 import { useRefuseSurface } from '../../scan/ScanGuardHost';
 import type { RefuseSurface } from '../../scan/scan-guard';
@@ -60,6 +68,14 @@ export interface PinPadProps {
   describedBy?: string;
   /** Moves focus to the PIN field on mount (a cashier was just picked). */
   autoFocus?: boolean;
+  /**
+   * RT-1095 — where the hardware keys are heard. Default: `window` (sign-in).
+   * The lock names its own root: it stops key events there so nothing behind
+   * the lock hears them, which would also silence a `window` listener.
+   */
+  keyTarget?: RefObject<HTMLElement | null>;
+  /** RT-1095 — the caller's handle on the PIN field (a dialog's initial focus). */
+  dotsRef?: RefObject<HTMLDivElement | null>;
   /** Where the reserved feedback slot sits: between the dots and the keypad (default) or above the dots. */
   feedbackPosition?: FeedbackPosition;
 }
@@ -80,6 +96,8 @@ export function PinPad(props: Readonly<PinPadProps>): JSX.Element {
     submitLabel = 'دخول',
     describedBy,
     autoFocus = false,
+    keyTarget,
+    dotsRef,
     feedbackPosition = 'between',
   } = props;
   const canSubmit = value.length >= PIN_MIN_LENGTH;
@@ -128,15 +146,23 @@ export function PinPad(props: Readonly<PinPadProps>): JSX.Element {
         if (value.length > 0) onChange(value.slice(0, -1));
         e.preventDefault();
       } else if (e.key === 'Enter') {
+        // RT-1095: a control that already handled the key (the backspace key's own
+        // onKeyDown) or that activates natively (the commit, any other button) must
+        // not also submit here, or one Enter would act twice. A PIN digit key does
+        // not activate on Enter, so digit, digit, Enter still submits.
+        if (e.defaultPrevented) return;
+        const button = e.target instanceof Element ? e.target.closest('button') : null;
+        if (button !== null && button.dataset['pinDigit'] === undefined) return;
         if (canSubmit) onSubmit();
         e.preventDefault();
       }
     };
-    window.addEventListener('keydown', onKeyDown);
+    const target: EventTarget = keyTarget?.current ?? window;
+    target.addEventListener('keydown', onKeyDown as EventListener);
     return () => {
-      window.removeEventListener('keydown', onKeyDown);
+      target.removeEventListener('keydown', onKeyDown as EventListener);
     };
-  }, [value, disabled, canAppend, canSubmit, onChange, onSubmit]);
+  }, [value, disabled, canAppend, canSubmit, onChange, onSubmit, keyTarget]);
 
   return (
     <div className="v5-entry__pin" data-testid="pin-pad" data-disabled={disabled || undefined}>
@@ -146,6 +172,7 @@ export function PinPad(props: Readonly<PinPadProps>): JSX.Element {
         error={error}
         describedBy={describedBy}
         autoFocus={autoFocus}
+        fieldRef={dotsRef}
       />
       {feedbackPosition === 'between' && <div className="v5-entry__feedback">{feedback}</div>}
 
@@ -203,6 +230,7 @@ function DigitKey({
       type="button"
       className="v5-entry__key"
       data-testid={`pin-pad-key-${digit}`}
+      data-pin-digit=""
       aria-label={digit}
       disabled={disabled}
       onClick={() => {
@@ -225,16 +253,19 @@ function PinDots({
   error,
   describedBy,
   autoFocus,
+  fieldRef,
 }: Readonly<{
   filled: number;
   error: boolean;
   describedBy?: string | undefined;
   autoFocus: boolean;
+  fieldRef?: RefObject<HTMLDivElement | null> | undefined;
 }>): JSX.Element {
-  const ref = useRef<HTMLDivElement>(null);
+  const ownRef = useRef<HTMLDivElement>(null);
+  const ref = fieldRef ?? ownRef;
   useEffect(() => {
     if (autoFocus) ref.current?.focus();
-  }, [autoFocus]);
+  }, [autoFocus, ref]);
   return (
     <div
       ref={ref}
