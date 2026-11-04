@@ -105,7 +105,7 @@ describe('RecoveryScreen — the stuck payment', () => {
     await screen.findByText(RECOVERY_COPY.complete);
     const stuck = panel(RECOVERY_COPY.stuckTitle);
     const time = stuck.querySelector('time') as HTMLTimeElement;
-    expect(time).toHaveTextContent(formatHumanDateTime(started) as string);
+    expect(time).toHaveTextContent(formatHumanDateTime(started, { withYear: true }) as string);
     expect(time).toHaveAttribute('datetime', started);
     expect(time.closest('.v5-ledger-row')).not.toBeNull();
   });
@@ -185,11 +185,12 @@ describe('RecoveryScreen — held sales', () => {
     const updated = '2026-10-13T08:30:00.000Z';
     show(fakeBridges(heldView({ held: [heldCart({ cart_id: 'c-1', updated_at: updated })] })));
     const row = (await screen.findAllByRole('listitem'))[0] as HTMLElement;
-    const expected = formatHumanDateTime(updated);
+    const expected = formatHumanDateTime(updated, { withYear: true });
     expect(expected).not.toBeNull();
     const time = row.querySelector('time') as HTMLTimeElement;
     expect(time).toHaveTextContent(expected as string);
     expect(time).toHaveAttribute('datetime', updated);
+    expect(time.textContent).toContain('2026');
     expect(time.textContent).toMatch(/\d/);
     expect(time.textContent).not.toMatch(/[٠-٩]/);
   });

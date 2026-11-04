@@ -258,7 +258,7 @@ function Fact(
  * the page direction and reads right-to-left.
  */
 function Stamp({ iso }: Readonly<{ iso: string }>): JSX.Element | null {
-  const text = formatHumanDateTime(iso);
+  const text = formatHumanDateTime(iso, { withYear: true });
   if (text === null) return null;
   return (
     <time dateTime={iso} className="v5-recovery-time">
@@ -386,7 +386,7 @@ function StuckFacts(
 
 /** RT-1190: when the stuck payment began, so a manager can tell how stale it is. */
 function StartedFact({ iso }: Readonly<{ iso: string }>): JSX.Element | null {
-  if (formatHumanDateTime(iso) === null) return null;
+  if (formatHumanDateTime(iso, { withYear: true }) === null) return null;
   return (
     <div className="v5-ledger-row">
       <dt>{RECOVERY_COPY.startedAt}</dt>
