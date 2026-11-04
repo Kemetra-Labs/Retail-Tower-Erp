@@ -62,29 +62,31 @@ export interface TerminalAssignmentRow {
   // ── Added 2026-05-28 by 008 T094a (PR #272 pinned the contract;
   //    migration 0027 added the columns; this PR populates them).
   //
-  //    The six new fields come from `TerminalPairResponse` per
-  //    Data-Pulse-2 PR #388 (merged 2026-05-28; squash commit
-  //    6c9dda2). They populate the local `terminal_assignment` row
-  //    at pair-time and are consumed by the receipt template +
-  //    print pipeline.
+  //    The three branch / tax-registration fields come from
+  //    `TerminalPairResponse` per Data-Pulse-2 PR #388 (merged
+  //    2026-05-28; squash commit 6c9dda2). They populate the local
+  //    `terminal_assignment` row at pair-time and are consumed by the
+  //    receipt template + print pipeline.
   //
   //    Nullability: declared as `string | null` rather than
   //    optional (`?:`) because the migration 0027 added the SQL
   //    columns as NULLABLE without DEFAULT. Existing dev terminals
   //    paired before 2026-05-28 have a row in terminal_assignment
-  //    with NULL for these six fields; re-pair populates them.
+  //    with NULL for these fields; re-pair populates them.
   //    A future migration may enforce NOT NULL once dev fixtures
   //    have all been re-paired (see migration 0027 comment block).
   //
-  //    `printer_com_port` remains nullable post-backfill too, since
-  //    RS-232 serial is genuinely optional (USB-only printers have
-  //    no COM port).
+  //    RT-1183 (RT-1165 S3): the three printer columns that migration
+  //    0027 also added (the printer USB vendor / product IDs and the
+  //    COM port) are no longer written or read. The pair response may
+  //    still carry them; the POS ignores them. The columns stay in the
+  //    table, unused and nullable (no migration; dropping them is a
+  //    separate owner decision). Rows already holding values are left
+  //    as they are until the terminal is re-paired, which replaces the
+  //    whole row.
   branch_name: string | null;
   branch_address: string | null;
   tenant_tax_registration_id: string | null;
-  printer_vendor_id: string | null;
-  printer_product_id: string | null;
-  printer_com_port: string | null;
 }
 
 /**
@@ -440,9 +442,6 @@ export function createPairingStore(
             branch_name: input.branch_name,
             branch_address: input.branch_address,
             tenant_tax_registration_id: input.tenant_tax_registration_id,
-            printer_vendor_id: input.printer_vendor_id,
-            printer_product_id: input.printer_product_id,
-            printer_com_port: input.printer_com_port,
           });
         });
       } catch (err) {
@@ -529,15 +528,16 @@ export function bindPairingStoreDb(handle: DatabaseHandle): PairingStoreDb {
 
   return {
     readAssignment(): StoredAssignmentRow | null {
-      // SELECT projects all 11 columns (5 baseline from 0003 + 6 added
-      // by migration 0027). The new columns are NULLABLE at the SQL
-      // layer; better-sqlite3 returns SQL NULL as JS `null` directly,
-      // which matches the `string | null` shape on TerminalAssignmentRow.
-      // RT-215: + `device_revoked_at` (migration 0042).
+      // SELECT projects 8 assignment columns (5 baseline from 0003 + 3
+      // added by migration 0027) plus `device_revoked_at`. The 0027
+      // columns are NULLABLE at the SQL layer; better-sqlite3 returns
+      // SQL NULL as JS `null` directly, which matches the `string | null`
+      // shape on TerminalAssignmentRow. RT-215: + `device_revoked_at`
+      // (migration 0042). RT-1183: the three unused printer_* columns
+      // are not selected.
       selectStmt ??= handle.prepare(
         `SELECT tenant_id, branch_id, terminal_id, terminal_label, paired_at,
                 branch_name, branch_address, tenant_tax_registration_id,
-                printer_vendor_id, printer_product_id, printer_com_port,
                 device_revoked_at
          FROM terminal_assignment WHERE id = 1`,
       ) as SelectStmt;
@@ -545,15 +545,14 @@ export function bindPairingStoreDb(handle: DatabaseHandle): PairingStoreDb {
       return row === undefined ? null : row;
     },
     writeAssignment(row: TerminalAssignmentRow): void {
-      // INSERT OR REPLACE writes all 11 columns. Pre-migration-0027
-      // rows had only 5 columns; once 0027 has run, every write goes
-      // through this path with all 11 supplied.
+      // INSERT OR REPLACE writes 8 columns. RT-1183: the three unused
+      // printer_* columns (migration 0027) are not written, so a re-pair
+      // leaves them NULL (the row is replaced as a whole).
       insertStmt ??= handle.prepare(
         `INSERT OR REPLACE INTO terminal_assignment
            (id, tenant_id, branch_id, terminal_id, terminal_label, paired_at,
-            branch_name, branch_address, tenant_tax_registration_id,
-            printer_vendor_id, printer_product_id, printer_com_port)
-         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            branch_name, branch_address, tenant_tax_registration_id)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ) as RunStmt;
       insertStmt.run(
         row.tenant_id,
@@ -564,9 +563,6 @@ export function bindPairingStoreDb(handle: DatabaseHandle): PairingStoreDb {
         row.branch_name,
         row.branch_address,
         row.tenant_tax_registration_id,
-        row.printer_vendor_id,
-        row.printer_product_id,
-        row.printer_com_port,
       );
     },
     deleteAssignment(): void {

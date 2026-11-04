@@ -37,12 +37,12 @@
  *     `pos-payments/vouchers.yaml`, closed-set discriminator enums on
  *     every response body (`additionalProperties: false`).
  *
- *   * Verifies the 6 new fields added 2026-05-28 from the POS-Pulse
+ *   * Verifies the 3 fields added 2026-05-28 from the POS-Pulse
  *     Slice 1 closeout-gap audit (branch_name, branch_address,
- *     tenant_tax_registration_id) and the POS-Pulse Slice 3 prep
- *     audit (printer_vendor_id, printer_product_id,
- *     printer_com_port). These fields are required on the response
- *     to ensure backend implementers cannot accidentally omit them.
+ *     tenant_tax_registration_id). These fields are required on the
+ *     response to ensure backend implementers cannot accidentally omit
+ *     them. The Slice 3 printer fields were removed by RT-1184
+ *     (RT-1165 S4) and are proved absent below.
  *
  *   * Verifies the closed-set `error.code` enum matches the five
  *     sentinels POS-Pulse `src/main/pairing/failure-mapping.ts`
@@ -105,13 +105,12 @@ const EXPECTED_ERROR_CODES = [
  * Required fields on `TerminalPairResponse`. The 5 baseline fields
  * (`device_token`, `tenant_id`, `branch_id`, `terminal_id`,
  * `terminal_label`) match the pinned snapshot at
- * `POS-Pulse/scripts/openapi-snapshot.json`. The 6 new fields added
+ * `POS-Pulse/scripts/openapi-snapshot.json`. The 3 fields added
  * 2026-05-28 (`branch_name`, `branch_address`,
- * `tenant_tax_registration_id`, `printer_vendor_id`,
- * `printer_product_id`, `printer_com_port`) come from the POS-Pulse
- * Slice 1 closeout-gap audit + Slice 3 prep audit (recorded in
- * POS-Pulse `coordination.md` §"Slice 1 closeout gap discovery" and
- * §"Slice 3 prep audit").
+ * `tenant_tax_registration_id`) come from the POS-Pulse Slice 1
+ * closeout-gap audit (recorded in POS-Pulse `coordination.md`
+ * §"Slice 1 closeout gap discovery"). The three Slice 3 printer fields
+ * that audit also added were removed by RT-1184 (RT-1165 S4).
  */
 const EXPECTED_PAIR_RESPONSE_REQUIRED_FIELDS = [
   // Baseline (5)
@@ -124,10 +123,6 @@ const EXPECTED_PAIR_RESPONSE_REQUIRED_FIELDS = [
   "branch_name",
   "branch_address",
   "tenant_tax_registration_id",
-  // Slice 3 prep-audit additions (3)
-  "printer_vendor_id",
-  "printer_product_id",
-  "printer_com_port",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -428,11 +423,11 @@ describe("pos-terminal-pairing.yaml — TerminalPairRequest shape", () => {
 });
 
 // ===========================================================================
-// 7. Response shape — the 11-field envelope (5 baseline + 6 new from
-//    POS-Pulse Slice 1/3 audits)
+// 7. Response shape — the 8-field envelope (5 baseline + 3 new from the
+//    POS-Pulse Slice 1 audit; the printer fields were removed by RT-1184)
 // ===========================================================================
 describe("pos-terminal-pairing.yaml — TerminalPairResponse shape", () => {
-  it("declares all 11 fields as required (5 baseline + 6 new from 2026-05-28 audits)", () => {
+  it("declares all 8 fields as required (5 baseline + 3 new from the 2026-05-28 audit)", () => {
     const schema = pairingDoc.components?.schemas?.["TerminalPairResponse"];
     const required = (schema?.["required"] ?? []) as string[];
     expect([...required].sort()).toEqual(
@@ -534,46 +529,16 @@ describe("pos-terminal-pairing.yaml — Slice 1 closeout-gap fields (branch + ta
 });
 
 // ===========================================================================
-// 9. New fields from POS-Pulse Slice 3 prep audit (2026-05-28)
+// 9. The printer fields are removed (RT-1184, RT-1165 S4)
 // ===========================================================================
-describe("pos-terminal-pairing.yaml — Slice 3 prep audit fields (printer config)", () => {
-  it("printer_vendor_id is a hex-string-pattern 4-digit USB vendor identifier, nullable since RT-1181", () => {
+describe("pos-terminal-pairing.yaml — printer config removed from the pair response", () => {
+  it("neither declares nor requires any printer field, and the response stays closed", () => {
     const schema = pairingDoc.components?.schemas?.["TerminalPairResponse"];
-    const props = schema?.["properties"] as
-      | Record<string, { type?: string | string[]; pattern?: string }>
-      | undefined;
-    // RT-1181 (RT-1165 S1): the key stays required, the value is null when the issuer sent none.
-    expect(props?.["printer_vendor_id"]?.type).toEqual(["string", "null"]);
-    expect(props?.["printer_vendor_id"]?.pattern).toBe("^0x[0-9A-Fa-f]{4}$");
-    expect((schema?.["required"] ?? []) as string[]).toContain("printer_vendor_id");
-  });
-
-  it("printer_product_id is a hex-string-pattern 4-digit USB product identifier, nullable since RT-1181", () => {
-    const schema = pairingDoc.components?.schemas?.["TerminalPairResponse"];
-    const props = schema?.["properties"] as
-      | Record<string, { type?: string | string[]; pattern?: string }>
-      | undefined;
-    expect(props?.["printer_product_id"]?.type).toEqual(["string", "null"]);
-    expect(props?.["printer_product_id"]?.pattern).toBe("^0x[0-9A-Fa-f]{4}$");
-    expect((schema?.["required"] ?? []) as string[]).toContain("printer_product_id");
-  });
-
-  it("printer_com_port is OPTIONAL nullable string (RS-232 serial fallback)", () => {
-    // The COM port is populated only when the printer is attached over
-    // RS-232 serial instead of USB. NULL when USB-only. The field is
-    // REQUIRED in the response (so the backend cannot silently drop
-    // it) but NULLABLE (so backends with USB-only printers can send
-    // NULL).
-    const schema = pairingDoc.components?.schemas?.["TerminalPairResponse"];
+    const props = Object.keys((schema?.["properties"] ?? {}) as Record<string, unknown>);
     const required = (schema?.["required"] ?? []) as string[];
-    expect(required).toContain("printer_com_port");
-
-    const props = schema?.["properties"] as
-      | Record<string, { type?: string | string[]; nullable?: boolean }>
-      | undefined;
-    // RT-913: OpenAPI 3.1 null type, not the 3.0 `nullable` keyword.
-    expect(props?.["printer_com_port"]?.type).toEqual(["string", "null"]);
-    expect(props?.["printer_com_port"]?.nullable).toBeUndefined();
+    expect(props.filter((key) => /printer/.test(key))).toEqual([]);
+    expect(required.filter((key) => /printer/.test(key))).toEqual([]);
+    expect(schema?.["additionalProperties"]).toBe(false);
   });
 });
 

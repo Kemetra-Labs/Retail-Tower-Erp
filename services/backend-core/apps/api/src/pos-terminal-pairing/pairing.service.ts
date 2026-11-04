@@ -136,8 +136,5 @@ function bindingOf(code: PairingCodeRow): PairingCodeBindingRow {
     branch_name: code.branch_name,
     branch_address: code.branch_address,
     tenant_tax_registration_id: code.tenant_tax_registration_id,
-    printer_vendor_id: code.printer_vendor_id,
-    printer_product_id: code.printer_product_id,
-    printer_com_port: code.printer_com_port,
   };
 }

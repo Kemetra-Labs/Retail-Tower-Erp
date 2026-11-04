@@ -69,9 +69,8 @@ function writePairing(terminalId: string): void {
   db.run(
     `INSERT OR REPLACE INTO terminal_assignment
        (id, tenant_id, branch_id, terminal_id, terminal_label, paired_at,
-        branch_name, branch_address, tenant_tax_registration_id,
-        printer_vendor_id, printer_product_id, printer_com_port)
-     VALUES (1, 't1', 'b1', ?, 'Till 1', 1700000000, 'Branch', 'Addr', 'TRN', NULL, NULL, NULL)`,
+        branch_name, branch_address, tenant_tax_registration_id)
+     VALUES (1, 't1', 'b1', ?, 'Till 1', 1700000000, 'Branch', 'Addr', 'TRN')`,
     [terminalId],
   );
 }
