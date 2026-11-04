@@ -39,17 +39,17 @@ Files are `r-dev/<screen>-<w>x<h>[-fc].webp`; each set is 1024×600, 1024×768, 
 | Pairing, no logo | `pairing-*` | **Pass.** Fits at all four sizes, no scroll, full-width band, no target under 44 px. |
 | Pairing, with logo | `pairing-logo-*` | **Pass at 1024×768 and up. Observation at 1024×600:** the card scrolls 30 px inside `.v5-entry__center`; the commit button stays visible and the powered-by line sits at the fold. |
 | Ready | `ready-*` | **Pass.** Fits at all sizes. Ready has no logo slot (RT-475 slots are boot, pairing, sign-in, lock), so there is no logo variant. |
-| Boot, no logo / with logo | `boot-nologo-*`, `boot-logo-*` | **Fail (F1).** The Ink band is not full width: about 205 px wide and centred in a 1536 px window, at every size and in forced colours. |
+| Boot, no logo / with logo | `boot-nologo-*`, `boot-logo-*` | **Fail (F1).** The Ink band is not full width: it shrinks to its content and sits centred, visibly so in every boot capture, light and forced colours. Measured once with `getBoundingClientRect` at the window's own viewport (1536 CSS px wide, i.e. 1920 physical at 125 %): band 205 px wide, starting 666 px in. The `bandW` field is 0 on the `boot-*` lines of `metrics.jsonl` because the probe then matched the hidden `#root` band first; it was fixed for the later sets. |
 | Lock, cashier, no logo | `lockgate-cashier-*` | **Fail (F2) below 1920×1080.** The dialog scrolls: 182 px at 1024×600, 14 px at 1024×768, 30 px at 1280×800. At 1024×600 the keypad's last rows and «فتح القفل» are below the fold, and «دخول موظف آخر» overlaps the keypad. |
 | Lock, cashier, with logo | `lockgate-cashier-logo-*` | **Fail (F2).** Scrolls 352 / 184 / 200 px at 1024×600 / 1024×768 / 1280×800; fits only at 1920×1080. |
+| Lock, manager, no logo | `lock-manager-*` | **Pass.** Fits at all sizes. |
+| Lock, manager, with logo | `lock-manager-logo-*` | **Observation at 1024×600:** scrolls 52 px. Fits at 1024×768 and up. |
+| Takeover prompt | `takeover-*` | **Layout pass, copy fail (F3).** Fits at all sizes with the shared band. The copy is English inside an RTL container, so the sentence punctuation renders at the wrong end («.terminal in this branch», «?Continue here…»). |
 
 The cashier lock sets come from the repo's own dev harness `#/dev/sign-in-proof?screen=locked`
 (RT-244/RT-444), which renders the real `SessionLockGate` over the real sign-in route with an
 in-memory bridge. A first pass through the fixture mount gave the same scroll values; it was
 replaced. The PIN read «أُدخل 0 من 6» before and after each set.
-| Lock, manager, no logo | `lock-manager-*` | **Pass.** Fits at all sizes. |
-| Lock, manager, with logo | `lock-manager-logo-*` | **Observation at 1024×600:** scrolls 52 px. Fits at 1024×768 and up. |
-| Takeover prompt | `takeover-*` | **Layout pass, copy fail (F3).** Fits at all sizes with the shared band. The copy is English inside an RTL container, so the sentence punctuation renders at the wrong end («.terminal in this branch», «?Continue here…»). |
 
 Forced colours (emulated): on every screen above, the band, cards, inputs, keys and buttons
 draw in system colours with visible 1 px edges; no Mint or Ink remains. This is Chromium's
@@ -63,7 +63,8 @@ emulation, not a Windows contrast theme (owner check 1).
   (`.v5-entry-band`, no inline size) is not stretched. Pairing and Ready (`EntryCardScreen`) are
   not affected. Source: RT-1096 S7 (#295). RT-1096's tests check structure and roles, not
   computed width. Measured through the fixture mount of the real `RouteLoading` (boot is
-  transient in the routed app); the packaged pass is to confirm it on the real boot screen.
+  transient in the routed app). R-dev fixture mount only: boot was too short to capture in the
+  packaged run, so F1 is not confirmed packaged.
 - **F2. Cashier lock does not fit below 1920×1080.** The `.v5-dialog.v5-live-dialog` panel
   is capped by `max-block-size: calc(100dvh - 52/64px - 2 * gutter)`
   (`src/renderer/session/lock-screen.css`), and the cashier content (title, prompt, dots,
@@ -181,7 +182,7 @@ client area is the page. Files are `r-pkg/<screen>[-fc]-<w>x<h>.png` (CSS size i
 Frames that showed part of the manager's login id (the dashboard after the owner signed in)
 were deleted and are not in this folder. The pairing field is empty in every committed frame.
 
-**F4. The window title still says «POS Pulse» (OD-8).** `apps/pos/src/renderer/index.html`
+**F4. The window title still says «POS Pulse» (OD-8).** `src/renderer/index.html`
 has `<title>POS Pulse</title>` and `electron-builder.yml` has `productName: POS Pulse`, so the
 title bar and the taskbar read «POS Pulse» while the band says «Retail Tower». RT-1092 changed the
 strip to «Retail Tower» (OD-8) but not the window title.
