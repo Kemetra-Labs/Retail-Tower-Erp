@@ -4,7 +4,7 @@ import { createPairingService } from '../../pairing/service.js';
 import { createPairingLog } from '../../pairing/log.js';
 import { TransportError } from '../../pairing/network.js';
 import type { PairingStore } from '../../pairing/store.js';
-import type { Network } from '../../pairing/network.js';
+import type { Network, PairSuccessBody } from '../../pairing/network.js';
 
 /**
  * 002-terminal-pairing T064 (US6) — Sentry breadcrumb behaviour test.
@@ -70,14 +70,15 @@ function makeNetwork(
             branch_id: 'b1',
             terminal_id: 'term-1',
             terminal_label: 'Counter 1',
-            // 6 new fields pinned 2026-05-28 from Data-Pulse-2 PR #388.
+            // Branch / tax fields pinned 2026-05-28 from Data-Pulse-2 PR #388.
+            // RT-1183: the printer fields are not part of this fixture; the
+            // POS does not read them. The cast is needed only while the
+            // pinned contract still types them as required (until the
+            // RT-1181 contract is re-pinned).
             branch_name: 'Test Branch',
             branch_address: '12 Test Road',
             tenant_tax_registration_id: '123456789',
-            printer_vendor_id: '0x04B8',
-            printer_product_id: '0x0202',
-            printer_com_port: null,
-          },
+          } as unknown as PairSuccessBody,
         });
       }
       if (result.type === 'transport') {
