@@ -104,6 +104,7 @@ cp deploy/grants.env.example deploy/grants.env  # then set private references/va
 ```
 
 > **Existing deployments and migration 0080 (RT-1184, drops the pairing-code printer columns).** Before step 1, fully roll out the RT-1184 API and stop or drain every older API instance while the columns still exist; run `migrate` only after that. An older instance reads and inserts those columns and fails with SQLSTATE `42703` once they are dropped. A first installation keeps the migration-first sequence below.
+> Before `migrate` on an existing deployment, take a database backup and confirm that it can be restored. Record its reference. Migration 0080 discards the stored printer values, and rollback cannot restore them without that backup.
 
 Then run the release sequence. Use it for the first deploy **and** for every
 redeploy of a new ref:
