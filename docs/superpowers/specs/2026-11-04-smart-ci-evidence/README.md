@@ -15,13 +15,13 @@ Every script takes the data folder `S` as `sys.argv[1]`. The repo root comes fro
 
 | Step | Produces | How |
 |---|---|---|
-| 1 | `prs40.json` | `gh pr list --repo Kemetra-Labs/Retail-Tower-Erp --state merged --limit 40 --json number,title,headRefName,headRefOid,mergedAt,createdAt,baseRefName` (external command) |
-| 2 | `runs.json` | `gh api "repos/Kemetra-Labs/Retail-Tower-Erp/actions/runs?created=<4 h window>&per_page=100" --paginate`. Windows run from 2026-11-02 22:00Z to 2026-11-04 10:00Z; a window that hit the 1000-result cap was re-fetched hourly (external command). |
+| 1 | `prs40.json` | The pinned sample: #253–#262, #264–#293 (#263 is not in it; 40 PRs merged 2026-11-02 23:22Z–2026-11-04 08:24Z). Rebuild it with `gh pr view <n> --json number,title,headRefName,headRefOid,mergedAt,createdAt,baseRefName` for each of those numbers, joined into one JSON array. Do not use `gh pr list --limit 40`, which drifts as new PRs merge. |
+| 2 | `runs.json` | One flat JSON array of run objects. For each 4 h window from 2026-11-02 22:00Z to 2026-11-04 10:00Z (re-fetch hourly where a window hits the 1000-result cap), run `gh api --paginate "repos/Kemetra-Labs/Retail-Tower-Erp/actions/runs?created=<from>..<to>&per_page=100" --jq '.workflow_runs[]'`. Then combine every page and window, dedupe by `id`, into an array: `… \| jq -s 'unique_by(.id)' > runs.json`. The API returns pages of objects with a `workflow_runs` field, not an array (external command). |
 | 3 | `jobs/<run>.json` | `fetch_jobs.py` |
 | 4 | `pr_reviews/`, `pr_comments/`, `issue_comments/`, `pr_commits/` | `fetch_meta.py`, `fetch_meta2.py` |
 | 5 | `pr_base.json` (PR_BASE from plan-job logs) | `fetch_base.py`, then `fetch_base2.py` |
-| 6 | `cr_all/<sha>.json` (all check-runs per head) | `fetch_cr_all.py` |
-| 7 | `shas.json`, `jobs.csv`, `jobs.json` | `build_data.py` |
+| 6 | `shas.json`, `jobs.csv`, `jobs.json` (first pass, no checks yet) | `build_data.py` |
+| 7 | `cr_all/<sha>.json` (all check-runs per head; reads `shas.json`), then **run `build_data.py` again** to attach them | `fetch_cr_all.py`, `build_data.py` |
 | 8 | `pr_shas.json` | list of each PR's head SHAs from `shas.json` (inline) |
 | 9 | `selection.json` (real `pgraph` replay) | `run_selection.py` |
 | 10 | `analysis.json`, `shas.csv` | `analyze.py` |

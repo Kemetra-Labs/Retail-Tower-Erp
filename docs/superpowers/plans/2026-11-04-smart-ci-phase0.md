@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** No PR reaches `main` unless the `required` check on its exact head is completed and green. This is enforced by GitHub, not only by habit, and is measured afterwards. Freshness against a newer `main` is **not** enforced by GitHub in Phase 0; it stays the RT-948 step 4 practice (see Global Constraints).
+**Goal:** Except for an owner-approved emergency bypass (stated on the PR), no PR reaches `main` unless the `required` check on its exact head is completed and green. This is enforced by GitHub, not only by habit, and is measured afterwards. Freshness against a newer `main` is **not** enforced by GitHub in Phase 0; it stays the RT-948 step 4 practice (see Global Constraints).
 
 **Architecture:**
 - **Root cause:** the gate already behaves correctly (design §3.0); merges simply happened before `required` completed.
