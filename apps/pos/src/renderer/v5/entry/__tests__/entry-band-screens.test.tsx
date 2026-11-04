@@ -209,39 +209,65 @@ describe('RT-1093 — band ornament', () => {
   const ornamentOf = (root: ParentNode): Element | null =>
     root.querySelector('.v5-entry-band__ornament');
 
-  it('sign-in draws it: one static, decorative, non-focusable SVG behind the content', () => {
+  const allOf = (root: ParentNode): Element[] =>
+    Array.from(root.querySelectorAll('.v5-entry-band__ornament'));
+
+  it('sign-in draws it: static, decorative, non-focusable SVGs behind the content', () => {
     render(<SignInBand terminalLabel="Counter 1" />);
     const band = screen.getByTestId('entry-strip');
     expect(band).toHaveClass('v5-entry-band', 'v5-entry-band--ornament');
-    const orn = ornamentOf(band);
-    expect(orn).not.toBeNull();
-    expect(orn?.tagName.toLowerCase()).toBe('svg');
-    expect(orn).toHaveAttribute('aria-hidden', 'true');
-    expect(orn).toHaveAttribute('focusable', 'false');
-    expect(orn?.getAttribute('tabindex')).toBeNull();
-    expect(orn?.querySelectorAll('a, button, input, [tabindex], title, desc, text')).toHaveLength(
-      0,
-    );
-    expect(orn?.querySelectorAll('animate, animateTransform, animateMotion, set')).toHaveLength(0);
-    expect(band.firstElementChild).toBe(orn);
+    const svgs = allOf(band);
+    expect(svgs.map((svg) => svg.getAttribute('viewBox'))).toEqual(['0 0 1280 96', '0 0 1920 120']);
+    for (const orn of svgs) {
+      expect(orn.tagName.toLowerCase()).toBe('svg');
+      expect(orn).toHaveAttribute('aria-hidden', 'true');
+      expect(orn).toHaveAttribute('focusable', 'false');
+      expect(orn.getAttribute('tabindex')).toBeNull();
+      expect(orn.querySelectorAll('a, button, input, [tabindex], title, desc, text')).toHaveLength(
+        0,
+      );
+      expect(orn.querySelectorAll('animate, animateTransform, animateMotion, set')).toHaveLength(0);
+    }
+    expect(band.firstElementChild).toBe(svgs[0]);
+    expect(svgs[1]?.previousElementSibling).toBe(svgs[0]);
     expect(band).toHaveTextContent('Retail Tower');
   });
 
   it('sign-in with a tenant logo still draws it, decorative', () => {
     resetBrandingForTests(LOGO);
     render(<SignInBand branding={LOGO} />);
-    const orn = ornamentOf(screen.getByTestId('entry-strip'));
-    expect(orn).not.toBeNull();
-    expect(orn).toHaveAttribute('aria-hidden', 'true');
+    const svgs = allOf(screen.getByTestId('entry-strip'));
+    expect(svgs).toHaveLength(2);
+    for (const orn of svgs) expect(orn).toHaveAttribute('aria-hidden', 'true');
   });
 
-  it('draws the approved geometry: grid, ruler and 13 skyline bars, no text', () => {
+  it('draws the approved geometry per variant: 13 bars, grid, ruler, no text', () => {
     render(<SignInBand />);
-    const orn = ornamentOf(screen.getByTestId('entry-strip'));
-    expect(orn?.querySelectorAll('.v5-entry-band__ornament-skyline rect')).toHaveLength(13);
-    expect(orn?.querySelectorAll('.v5-entry-band__ornament-grid')).toHaveLength(1);
-    expect(orn?.querySelectorAll('.v5-entry-band__ornament-ruler')).toHaveLength(1);
-    expect(orn?.textContent).toBe('');
+    const band = screen.getByTestId('entry-strip');
+    const variants = [
+      ['base', 28, 10, 96],
+      ['wide', 40, 16, 120],
+    ] as const;
+    for (const [name, barWidth, gap, height] of variants) {
+      const orn = band.querySelector(`.v5-entry-band__ornament--${name}`);
+      const bars = Array.from(orn?.querySelectorAll('.v5-entry-band__ornament-skyline rect') ?? []);
+      expect(bars, name).toHaveLength(13);
+      expect(bars.map((b) => Number(b.getAttribute('width')))).toEqual(Array(13).fill(barWidth));
+      const xs = bars.map((b) => Number(b.getAttribute('x')));
+      expect(xs[0]).toBe(40);
+      expect(xs[1]).toBe(40 + barWidth + gap);
+      // the tallest bar (116) reaches H - 24 above the baseline
+      expect(Math.min(...bars.map((b) => Number(b.getAttribute('y'))))).toBe(24);
+      expect(Number(bars[5]?.getAttribute('y')) + Number(bars[5]?.getAttribute('height'))).toBe(
+        height,
+      );
+      expect(orn?.querySelectorAll('.v5-entry-band__ornament-grid')).toHaveLength(1);
+      expect(orn?.querySelectorAll('.v5-entry-band__ornament-ruler')).toHaveLength(1);
+      expect(orn?.textContent).toBe('');
+    }
+    // pattern ids stay unique across the two SVGs
+    const ids = Array.from(band.querySelectorAll('pattern')).map((p) => p.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it('the default EntryBand render has no ornament and no modifier class', () => {

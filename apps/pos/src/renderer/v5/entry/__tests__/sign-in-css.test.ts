@@ -281,6 +281,22 @@ describe('RT-1093 entry-band-ornament.css', () => {
     expect(ornamentSmall).toMatch(/\.v5-entry-band__ornament\s*\{[^}]*display:\s*none/);
   });
 
+  it('shows one variant: 1280×96 by default, 1920×120 from 1600 wide (the 120px band)', () => {
+    expect(ornamentCss).toMatch(/\.v5-entry-band__ornament--wide\s*\{[^}]*display:\s*none/);
+    const wideScreen = mediaBlocks(ornamentCss, /\(min-width:\s*1600px\)/);
+    expect(wideScreen).toMatch(/\.v5-entry-band__ornament--base\s*\{[^}]*display:\s*none/);
+    expect(wideScreen).toMatch(/\.v5-entry-band__ornament--wide\s*\{[^}]*display:\s*block/);
+  });
+
+  it('the removal rules come last, so a short 1920 screen or forced colours still hide both', () => {
+    const wideAt = ornamentCss.indexOf('(min-width: 1600px)');
+    const smallAt = ornamentCss.indexOf('(max-width: 1279px), (max-height: 767px)');
+    const forcedAt = ornamentCss.indexOf('(forced-colors: active)');
+    expect(wideAt).toBeGreaterThan(-1);
+    expect(smallAt).toBeGreaterThan(wideAt);
+    expect(forcedAt).toBeGreaterThan(smallAt);
+  });
+
   it('is not drawn under forced colours', () => {
     expect(ornamentForced).toMatch(/\.v5-entry-band__ornament\s*\{[^}]*display:\s*none/);
     expect(ornamentForced).not.toMatch(/--color-mint/);
