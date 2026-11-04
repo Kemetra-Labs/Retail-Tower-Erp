@@ -191,6 +191,22 @@ describe('RT-1095 lock joins the entry family (OD-13)', () => {
     );
   });
 
+  it('submits once on Enter after clicking digits (focus on a digit key), and not twice on the commit', async () => {
+    const { unlock } = renderWith();
+    for (const k of '1234') await userEvent.click(screen.getByTestId(`pin-pad-key-${k}`));
+    await userEvent.keyboard('{Enter}');
+    expect(unlock).toHaveBeenCalledTimes(1);
+  });
+
+  it('Enter on the focused backspace key deletes a digit and never submits', async () => {
+    const { unlock } = renderWith();
+    await userEvent.keyboard('1234');
+    screen.getByTestId('pin-pad-backspace').focus();
+    await userEvent.keyboard('{Enter}');
+    expect(unlock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('pin-pad-dots')).toHaveAccessibleName('الرقم السري، أُدخل 3 من 6');
+  });
+
   it('keeps the commit inert below 4 digits and never reaches main', async () => {
     const { unlock } = renderWith();
     await userEvent.keyboard('12{Enter}');

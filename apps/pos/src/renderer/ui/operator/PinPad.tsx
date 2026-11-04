@@ -146,6 +146,13 @@ export function PinPad(props: Readonly<PinPadProps>): JSX.Element {
         if (value.length > 0) onChange(value.slice(0, -1));
         e.preventDefault();
       } else if (e.key === 'Enter') {
+        // RT-1095: a control that already handled the key (the backspace key's own
+        // onKeyDown) or that activates natively (the commit, any other button) must
+        // not also submit here, or one Enter would act twice. A PIN digit key does
+        // not activate on Enter, so digit, digit, Enter still submits.
+        if (e.defaultPrevented) return;
+        const button = e.target instanceof Element ? e.target.closest('button') : null;
+        if (button !== null && button.dataset['pinDigit'] === undefined) return;
         if (canSubmit) onSubmit();
         e.preventDefault();
       }
@@ -223,6 +230,7 @@ function DigitKey({
       type="button"
       className="v5-entry__key"
       data-testid={`pin-pad-key-${digit}`}
+      data-pin-digit=""
       aria-label={digit}
       disabled={disabled}
       onClick={() => {
