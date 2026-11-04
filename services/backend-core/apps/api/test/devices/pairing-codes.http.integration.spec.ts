@@ -402,86 +402,51 @@ describe("consoleIssuePairingCode", () => {
     expect((await pair(issued.code)).status).toBe(410);
   });
 
-  it("keeps a given label and the optional COM port", async () => {
+  it("keeps a given label", async () => {
     if (skip()) return;
-    const issued = await issueOk(SES_OWNER_ALL, { storeId: STORE_A_X, terminalLabel: "Counter 9", printerComPort: "COM3" });
+    const issued = await issueOk(SES_OWNER_ALL, { storeId: STORE_A_X, terminalLabel: "Counter 9" });
     expect(issued.terminalLabel).toBe("Counter 9");
-    expect((await pair(issued.code)).body).toMatchObject({ terminal_label: "Counter 9", printer_com_port: "COM3" });
+    expect((await pair(issued.code)).body).toMatchObject({ terminal_label: "Counter 9" });
   });
 
-  describe("the printer USB ids are optional (RT-1181, RT-1165 S1)", () => {
-    const { printerVendorId: _vendor, printerProductId: _product, ...BINDING_NO_PRINTER } = BINDING;
-
-    async function printerColumns(codeId: string): Promise<Record<string, unknown>> {
+  describe("the printer fields are gone (RT-1184, RT-1165 S4)", () => {
+    async function pairingCodeColumns(): Promise<string[]> {
       const r = await h
         .env()
-        .admin.query(
-          `SELECT printer_vendor_id, printer_product_id, printer_com_port FROM pairing_codes WHERE id = $1`,
-          [codeId],
+        .admin.query<{ column_name: string }>(
+          `SELECT column_name FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'pairing_codes' AND column_name LIKE 'printer%'`,
         );
-      return r.rows[0] as Record<string, unknown>;
+      return r.rows.map((row) => row.column_name);
     }
 
-    it("issues without the printer fields: 201, NULLs stored, and the pair response returns null", async () => {
+    it("issues without them: 201, and the pair response carries none of them", async () => {
       if (skip()) return;
-      const res = await h
-        .post(CODES, SES_OWNER_ALL, { ...BINDING_NO_PRINTER, storeId: STORE_A_X })
-        .set("Idempotency-Key", randomUUID());
+      const res = await h.post(CODES, SES_OWNER_ALL, { ...BINDING, storeId: STORE_A_X }).set("Idempotency-Key", randomUUID());
       expect([res.status, res.body]).toEqual([201, expect.anything()]);
       h.conforms("PairingCodeIssued", res.body);
-      const issued = res.body as Issued;
-      expect(await printerColumns(issued.pairingCodeId)).toEqual({
-        printer_vendor_id: null,
-        printer_product_id: null,
-        printer_com_port: null,
-      });
 
-      const paired = await pair(issued.code);
+      const paired = await pair((res.body as Issued).code);
       expect(paired.status).toBe(200);
-      expect(paired.body).toMatchObject({
-        branch_name: BINDING.branchName,
-        printer_vendor_id: null,
-        printer_product_id: null,
-        printer_com_port: null,
-      });
-      // The keys stay on the wire, as the contract keeps them required.
-      expect(Object.keys(paired.body)).toEqual(
-        expect.arrayContaining(["printer_vendor_id", "printer_product_id", "printer_com_port"]),
-      );
+      expect(paired.body).toMatchObject({ branch_name: BINDING.branchName });
+      expect(Object.keys(paired.body).filter((key) => /printer/.test(key))).toEqual([]);
     });
 
-    it("still issues with the printer fields: they are stored and the pair response returns them", async () => {
+    it("stores no printer column on the table", async () => {
       if (skip()) return;
-      const issued = await issueOk(SES_OWNER_ALL, { storeId: STORE_A_X, printerComPort: "COM4" });
-      expect(await printerColumns(issued.pairingCodeId)).toEqual({
-        printer_vendor_id: BINDING.printerVendorId,
-        printer_product_id: BINDING.printerProductId,
-        printer_com_port: "COM4",
-      });
-      expect((await pair(issued.code)).body).toMatchObject({
-        printer_vendor_id: BINDING.printerVendorId,
-        printer_product_id: BINDING.printerProductId,
-        printer_com_port: "COM4",
-      });
+      expect(await pairingCodeColumns()).toEqual([]);
     });
 
-    it("accepts one id without the other and stores NULL for the missing one", async () => {
+    it("refuses a request that still sends one of them, the request being strict (400)", async () => {
       if (skip()) return;
-      const res = await h
-        .post(CODES, SES_OWNER_ALL, { ...BINDING_NO_PRINTER, storeId: STORE_A_X, printerVendorId: "0x04B8" })
-        .set("Idempotency-Key", randomUUID());
-      expect(res.status).toBe(201);
-      expect(await printerColumns((res.body as Issued).pairingCodeId)).toMatchObject({
-        printer_vendor_id: "0x04B8",
-        printer_product_id: null,
-      });
-    });
-
-    it("still refuses an id that is not 0xHHHH, and any other unknown key", async () => {
-      if (skip()) return;
-      for (const extra of [{ printerVendorId: "04B8" }, { printerProductId: "0xZZZZ" }, { printerSerial: "x" }]) {
+      for (const extra of [
+        { printerVendorId: "0x04B8" },
+        { printerProductId: "0x0E15" },
+        { printerComPort: "COM3" },
+        { printerSerial: "x" },
+      ]) {
         const res = await h
-          .post(CODES, SES_OWNER_ALL, { ...BINDING_NO_PRINTER, storeId: STORE_A_X, ...extra })
+          .post(CODES, SES_OWNER_ALL, { ...BINDING, storeId: STORE_A_X, ...extra })
           .set("Idempotency-Key", randomUUID());
         expect([extra, res.status]).toEqual([extra, 400]);
       }

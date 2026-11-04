@@ -18,7 +18,7 @@
  *   - pairing_codes — a single `pending` code bound to (tenant_id, store_id),
  *     storing the SHA-256 HASH of the plaintext code (never the plaintext), plus
  *     the inline snapshot fields the consume pins at pair-time (terminal_label,
- *     branch_name/address, tax-reg id, and the OPTIONAL printer vendor/product/com-port).
+ *     branch_name/address, tax-reg id).
  *
  * WHAT THIS DOES **NOT** DO (out of scope, by design):
  *   - Mint a device / device_token. That is the runtime OUTPUT of the consume
@@ -69,11 +69,6 @@
  *   PAIRING_TAX_REGISTRATION_ID="123-456-789" \
  *   node dist/cli/bootstrap-pairing-code.js
  *
- * The printer arguments (PAIRING_PRINTER_VENDOR_ID, PAIRING_PRINTER_PRODUCT_ID,
- * PAIRING_PRINTER_COM_PORT) are OPTIONAL since RT-1181 (RT-1165 S1): when omitted the
- * row stores NULL and the pair response returns null. A vendor/product ID that is
- * given must still match 0xHHHH.
- *
  * Usage (OPT-IN — generate a random code; printed EXACTLY ONCE to stdout):
  *   ... node dist/cli/bootstrap-pairing-code.js --generate
  *
@@ -90,7 +85,6 @@ import { Client } from "pg";
 
 const NIL_TENANT_ID = "00000000-0000-0000-0000-000000000000";
 const DEFAULT_EXPIRES_IN_MINUTES = 60;
-const PRINTER_HEX = /^0x[0-9A-Fa-f]{4}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -116,9 +110,6 @@ interface PairingConfig {
   branchName: string;
   branchAddress: string;
   taxRegistrationId: string;
-  printerVendorId: string | null;
-  printerProductId: string | null;
-  printerComPort: string | null;
   expiresInMinutes: number;
   dryRun: boolean;
   /** Opt-in: mint a random code and print it once. Mutually informs suppliedCode. */
@@ -171,9 +162,6 @@ function readConfig(argv: string[]): PairingConfig {
   const branchNameRaw = readArg(argv, "branch-name", "PAIRING_BRANCH_NAME");
   const branchAddressRaw = readArg(argv, "branch-address", "PAIRING_BRANCH_ADDRESS");
   const taxRegistrationIdRaw = readArg(argv, "tax-registration-id", "PAIRING_TAX_REGISTRATION_ID");
-  const printerVendorIdRaw = readArg(argv, "printer-vendor-id", "PAIRING_PRINTER_VENDOR_ID");
-  const printerProductIdRaw = readArg(argv, "printer-product-id", "PAIRING_PRINTER_PRODUCT_ID");
-  const printerComPortRaw = readArg(argv, "printer-com-port", "PAIRING_PRINTER_COM_PORT");
   const suppliedCode = readArg(argv, "code", "PAIRING_CODE");
   const expiresRaw = readArg(argv, "expires-in-minutes", "PAIRING_EXPIRES_IN_MINUTES");
 
@@ -201,28 +189,6 @@ function readConfig(argv: string[]): PairingConfig {
     taxRegistrationIdRaw,
     "PAIRING_TAX_REGISTRATION_ID is required, non-empty",
   );
-  // Optional (RT-1181): absent -> NULL; given -> must still match the 0xHHHH CHECK.
-  const printerVendorId =
-    printerVendorIdRaw === undefined
-      ? null
-      : requirePattern(
-          printerVendorIdRaw,
-          PRINTER_HEX,
-          "PAIRING_PRINTER_VENDOR_ID must match 0xHHHH (4 hex digits), e.g. 0x04b8",
-        );
-  const printerProductId =
-    printerProductIdRaw === undefined
-      ? null
-      : requirePattern(
-          printerProductIdRaw,
-          PRINTER_HEX,
-          "PAIRING_PRINTER_PRODUCT_ID must match 0xHHHH (4 hex digits), e.g. 0x0e15",
-        );
-  const printerComPort =
-    printerComPortRaw !== undefined && printerComPortRaw.trim() !== ""
-      ? printerComPortRaw.trim()
-      : null;
-
   const expiresInMinutes = parseExpiresInMinutes(expiresRaw);
 
   const generate = argv.includes("--generate");
@@ -250,9 +216,6 @@ function readConfig(argv: string[]): PairingConfig {
     branchName,
     branchAddress,
     taxRegistrationId,
-    printerVendorId,
-    printerProductId,
-    printerComPort,
     expiresInMinutes,
     dryRun: argv.includes("--dry-run"),
     generate,
@@ -287,14 +250,12 @@ async function insertPairingCode(
     `INSERT INTO pairing_codes (
        id, tenant_id, store_id, code_hash, terminal_id, terminal_label,
        branch_name, branch_address, tenant_tax_registration_id,
-       printer_vendor_id, printer_product_id, printer_com_port,
        status, expires_at
      )
      VALUES (
        $1, $2, $3, $4, $5, $6,
        $7, $8, $9,
-       $10, $11, $12,
-       'pending', now() + ($13 || ' minutes')::interval
+       'pending', now() + ($10 || ' minutes')::interval
      )
      RETURNING expires_at`,
     [
@@ -307,9 +268,6 @@ async function insertPairingCode(
       cfg.branchName,
       cfg.branchAddress,
       cfg.taxRegistrationId,
-      cfg.printerVendorId,
-      cfg.printerProductId,
-      cfg.printerComPort,
       String(cfg.expiresInMinutes),
     ],
   );
@@ -332,9 +290,6 @@ function describeInsert(cfg: PairingConfig): Record<string, unknown> {
     branch_name: cfg.branchName,
     branch_address: cfg.branchAddress,
     tenant_tax_registration_id: cfg.taxRegistrationId,
-    printer_vendor_id: cfg.printerVendorId,
-    printer_product_id: cfg.printerProductId,
-    printer_com_port: cfg.printerComPort,
     status: "pending",
     expires_in_minutes: cfg.expiresInMinutes,
     code_source: cfg.generate ? "generated (printed once on real run)" : "supplied (not echoed)",

@@ -212,9 +212,6 @@ export function pairInput(over: Partial<PersistInput> = {}): PersistInput {
     branch_name: null,
     branch_address: null,
     tenant_tax_registration_id: null,
-    printer_vendor_id: null,
-    printer_product_id: null,
-    printer_com_port: null,
     ...over,
   };
 }

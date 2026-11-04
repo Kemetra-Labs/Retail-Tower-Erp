@@ -2,10 +2,10 @@
  * RT-372 pure helpers for the pairing-code forms. No React, no fetch.
  *
  * The issue form collects the terminal binding the contract requires (decision
- * C1): the branch name and address, the tax registration id and the printer's
- * USB ids, which the POS pins at pairing and prints on receipts. Backend-Core
- * holds no other source for them. These are form checks that mirror the
- * contract's patterns; the server re-validates everything.
+ * C1): the branch name and address and the tax registration id, which the POS
+ * pins at pairing and prints on receipts. Backend-Core holds no other source
+ * for them. These are form checks that mirror the contract's patterns; the
+ * server re-validates everything.
  */
 import type { MessageKey } from "@/i18n";
 import type { PairingCodeIssueRequest } from "@/lib/device-queries";
@@ -17,9 +17,6 @@ export interface IssueDraft {
   branchName: string;
   branchAddress: string;
   taxRegistrationId: string;
-  printerVendorId: string;
-  printerProductId: string;
-  printerComPort: string;
 }
 
 export const EMPTY_ISSUE_DRAFT: IssueDraft = {
@@ -29,9 +26,6 @@ export const EMPTY_ISSUE_DRAFT: IssueDraft = {
   branchName: "",
   branchAddress: "",
   taxRegistrationId: "",
-  printerVendorId: "",
-  printerProductId: "",
-  printerComPort: "",
 };
 
 export interface FieldProblem {
@@ -41,7 +35,6 @@ export interface FieldProblem {
 
 export type IssueProblems = Partial<Record<keyof IssueDraft, FieldProblem>>;
 
-const USB_ID = /^0x[0-9A-Fa-f]{4}$/;
 export const TTL_MIN = 1;
 export const TTL_MAX = 1440;
 
@@ -50,19 +43,12 @@ const LIMITS = {
   branchName: 256,
   branchAddress: 512,
   taxRegistrationId: 64,
-  printerComPort: 32,
 } as const;
 
 function textProblem(value: string, max: number, required: boolean): FieldProblem | undefined {
   if (value.includes("\u0000")) return { key: "devices.text.invalid" };
   if (value.trim() === "") return required ? { key: "devices.text.required" } : undefined;
   return value.length > max ? { key: "devices.issue.problem.tooLong", params: { max } } : undefined;
-}
-
-function usbProblem(value: string): FieldProblem | undefined {
-  const id = value.trim();
-  if (id === "") return { key: "devices.text.required" };
-  return USB_ID.test(id) ? undefined : { key: "devices.issue.problem.usbId" };
 }
 
 const ARABIC_INDIC_ZERO = 0x0660;
@@ -95,10 +81,7 @@ const CHECKS: Readonly<
   branchName: (v) => textProblem(v, LIMITS.branchName, true),
   branchAddress: (v) => textProblem(v, LIMITS.branchAddress, true),
   taxRegistrationId: (v) => textProblem(v, LIMITS.taxRegistrationId, true),
-  printerVendorId: usbProblem,
-  printerProductId: usbProblem,
   terminalLabel: (v) => textProblem(v, LIMITS.terminalLabel, false),
-  printerComPort: (v) => textProblem(v, LIMITS.printerComPort, false),
   ttlMinutes: ttlProblem,
 };
 
@@ -122,17 +105,13 @@ export function buildIssueBody(
 ): PairingCodeIssueRequest {
   const label = draft.terminalLabel.trim();
   const ttl = normalizeDigits(draft.ttlMinutes).trim();
-  const com = draft.printerComPort.trim();
   return {
     storeId: draft.storeId,
     branchName: draft.branchName.trim(),
     branchAddress: draft.branchAddress.trim(),
     taxRegistrationId: draft.taxRegistrationId.trim(),
-    printerVendorId: draft.printerVendorId.trim(),
-    printerProductId: draft.printerProductId.trim(),
     ...(label === "" ? {} : { terminalLabel: label }),
     ...(ttl === "" ? {} : { ttlMinutes: Number(ttl) }),
-    ...(com === "" ? {} : { printerComPort: com }),
     ...(replacesDeviceId ? { replacesDeviceId } : {}),
   };
 }
