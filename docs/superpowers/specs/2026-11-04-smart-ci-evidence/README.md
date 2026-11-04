@@ -11,7 +11,7 @@ The scripts are a **frozen snapshot of a one-off analysis**, kept so that every 
 
 ## Inputs and run order
 
-Every script takes the data folder `S` as `sys.argv[1]`. The repo root comes from `RT_WORKTREE`, and defaults to this checkout.
+Every data-processing script below takes the data folder `S` as `sys.argv[1]`; the repo root comes from `RT_WORKTREE`, and defaults to this checkout. `merge_integrity.py` is different: it reads GitHub directly, e.g. `python merge_integrity.py --repo Kemetra-Labs/Retail-Tower-Erp --merged-since 2026-11-04T00:00:00Z --limit 60`.
 
 | Step | Produces | How |
 |---|---|---|
