@@ -277,6 +277,25 @@ describe('RT-1189 — the current Cairo business day only', () => {
     expect(res.business_day).toBe('2026-10-16');
   });
 
+  it('uses the system clock when none is injected', async () => {
+    seed({ id: 'now-sale', at: '2026-10-16T09:00:00.000Z' });
+    vi.useFakeTimers({ now: NOW });
+    try {
+      const handle = makeSqlJsHandle(db);
+      const b = createSalesBridge({
+        getCurrentSession: () => MANAGER,
+        salesRepo: bindSalesRepository(handle),
+        printEventsRepo: bindPrintEventsRepository(handle),
+        drawerEventsRepo: bindDrawerEventsRepository(handle),
+      });
+      const res = okRes(await b.listRecent({}));
+      expect(res.business_day).toBe('2026-10-16');
+      expect(res.items.map((i) => i.sale_id)).toEqual(['now-sale']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('excludes the first instant of tomorrow', async () => {
     seed({ id: 'last', at: '2026-10-16T20:59:59.999Z' });
     seed({ id: 'tomorrow', at: '2026-10-16T21:00:00.000Z' });
