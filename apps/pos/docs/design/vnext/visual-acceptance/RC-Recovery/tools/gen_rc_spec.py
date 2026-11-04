@@ -154,7 +154,7 @@ def build(states: list[tuple[str, str]]) -> str:
         section(f"الحالات ({len(states)} حالة × 1024×768 و1280×800)", states_body),
         section("ما رُسم وما التزم به", f"<ul>{DRAWN}</ul>"),
         section("خريطة أسباب الرفض", table(["السبب", "الحالة"], [row(a, b) for a, b in REFS])),
-        section("النصوص (مأخوذة من RECOVERY_COPY، عدا «بدأ الدفع»: نص جديد من RT-1190 ينتظر اعتماد المالك)", table(["المكان", "النص", "المصدر"], [row(*c) for c in COPY])),
+        section("النصوص (مأخوذة من RECOVERY_COPY، عدا «بدأ الدفع»: نص جديد من RT-1190 اعتمده المالك في 2026-11-04)", table(["المكان", "النص", "المصدر"], [row(*c) for c in COPY])),
         section(
             f"قرارات المالك ({PENDING})",
             table(["#", "النقطة", "المقترح"], [row(a, b, c) for a, b, c in DECISIONS]),
