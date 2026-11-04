@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Sales — Transaction Capture API
-  version: "1.16.0-draft"
+  version: "1.17.0-draft"
   description: >
     Spec 008 Sales / Transaction Capture contract surface. Defines the first
     sale fact the SaaS owns: an immutable `sales` header + frozen `sale_lines`
@@ -492,6 +492,15 @@ info:
     longer array with 400 `validation_error` before validating any element.
     Narrowing only; no other wire change.
 
+    RT-451 Step 0 (1.17.0-draft; [GATED] owner authorization Jira RT-451
+    description, amended 2026-11-03 after RT-455 comment 15233, OD-1, OD-2 and
+    OD-9): wording only, no wire change. The G7-9 classification on
+    `captureSale` no longer calls a `tracking_unresolved` sale a finding: it
+    surfaces only in the Tracking Resolution queue, and rows 2 and 3 surface
+    as sale-line findings. The queue, the bind and the sale-line findings
+    read are contract-only operations of `inventory/inventory.yaml`
+    1.9.0-draft.
+
 servers:
   - url: https://api.example.com
 
@@ -627,26 +636,30 @@ paths:
              the ERP Batch ref is frozen with the posting intent. No finding.
           2. Exact identity, but no `validationId` or one that does not match,
              or held or recalled at `occurredAt`. Accepted; the effect is
-             normal (the goods left). Critical finding: "tracked line without
-             online validation" or "sold under hold".
+             normal (the goods left). Critical sale-line finding
+             `unvalidated_tracked_line` or `sold_under_hold`.
           3. Exact identity, but expired at the business date, or with no ERP
              edge-map row. Accepted; the effect is at the identity and the
-             ERP posting intent is held, never sent. Critical finding; an
-             edge map is repaired and re-posted, an expired lot goes to the
-             owner (RT-50 B1).
+             ERP posting intent is held, never sent. Critical sale-line
+             finding `erp_intent_held`; an edge map is repaired and
+             re-posted, an expired lot goes to the owner (RT-50 B1).
           4. Unrepresentable: a tracked product's line without `tracking`, an
              unknown `identityId`, or another product's identity. Accepted;
              the whole sale is `tracking_unresolved`: no Inventory effect and
-             no ERP posting intent. Critical finding; resolved only by a
-             governed Tracking Resolution (high sensitivity, audited) that
-             binds an existing identity and then commits the effects and the
-             intent together (RT-50 DC-2). Tracking Resolution is a later
-             contract.
+             no ERP posting intent. It is NOT a finding: the sale enters the
+             Tracking Resolution queue and leaves it only through the
+             governed, audited, owner-only Tracking Resolution
+             (`bindTrackingResolution`), which binds an existing identity to
+             every unresolved line and then commits the effects and the
+             intent together (RT-50 DC-2).
 
         The response is the same `Sale` projection whatever the
         classification: this version adds no status code, no error code and no
-        classification field to capture. The findings surface through
-        Inventory Health and the Tracking Resolution queue (later issues).
+        classification field to capture. Rows 2 and 3 surface as sale-line
+        findings (`listSaleLineFindings`); a row-4 sale surfaces only in the
+        Tracking Resolution queue (`listTrackingResolutionQueue`), where a
+        store_manager sees a count for its own stores (RT-455 OD-9). Both
+        reads and the bind are in `inventory/inventory.yaml` 1.9.0-draft.
         Known gap: an ad-hoc line (no `tenantProductRef`) can never be
         tracked, so the till MUST NOT sell a tracked product as an ad-hoc
         line. `safetyRevision` and `safetySyncedAt` record the Inventory
