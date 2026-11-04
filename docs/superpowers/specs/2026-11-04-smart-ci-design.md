@@ -16,7 +16,7 @@ The owner's balance is **time and quality first**. Runner minutes and CircleCI c
 - **G5. One brain.** The trusted Project Graph (`graph.yaml` + `pgraph`) stays the single decision source. It is reused, not duplicated.
 
 ### 1.2 Non-goals
-- Test-level selection inside a suite (CircleCI TIA, RT-949 `api_jest_fast` going live). Both stay in shadow mode under RT-920/RT-921; nothing here promotes them.
+- Test-level selection inside the **gate** (CircleCI TIA, RT-949 `api_jest_fast`). Neither ever decides `required`. TIA gets a defined role in the **pre-push run** instead (§4.5, owner direction 2026-11-04). Its promotion stays with RT-920 evidence and an RT-921 decision.
 - Changing the gate's trust model, the `policy_approval` mode, the trusted producer, or the vendor (D-CI-2026-10-29 §6).
 - Enabling GitHub Merge Queue. It is out of scope unless separately designed (D-CI-2026-10-29 §5).
 
@@ -151,6 +151,39 @@ Each of the 9 root workflows evaluates the same graph in its own `plan` job (294
   - shard `admin/e2e`;
   - start the POS tests without waiting on `pos/static`, if the dependency is not needed;
   - run schemathesis shards only for contract, auth or money tiers, or keep all 4 but only on the final head. The latter is only allowed if Phase 0 guarantees the final head is green before merge.
+
+### 4.5 How it fits together: one system, three roles (owner direction 2026-11-04)
+
+The owner wants an integrated system, with CircleCI and TIA used, not idle. Each part has one job:
+
+| Part | Role | Decides a merge? |
+|---|---|---|
+| Project Graph (one brain) | Decides which product jobs a change needs | It feeds the gate |
+| GitHub Actions `required` | The quality gate: the full selected suites on the exact head | **Yes, the only authority** |
+| CircleCI pre-push run (`remote_suite`) | Fast feedback **before** a push, so the push arrives clean and corrective loops shrink (63% of CI time today) | No |
+| TIA inside the pre-push run | Learns which API specs a change touches. Later, it makes the pre-push run faster | No |
+| RT-1075 guard | Forces a full pre-push run whenever the PR's whole diff touches risk | No |
+
+**Flow for an agent fix:**
+1. Local light checks.
+2. Push to `<pr-branch>-preflight` (no PR), then run `remote_suite` on CircleCI.
+3. When it is green, push once to the PR branch.
+4. The gate runs the graph-selected suites.
+5. Merge on a completed green `required` (Phase 0).
+
+**Phase 1c: TIA shadow inside the pre-push run.**
+- **What runs:** every `remote_suite=api` run also runs the RT-1075 guard, `circleci testsuite list-tests` and the RT-1083 shadow report next to the full suite, like the paused advisory job does.
+- **Why it is cheap:** each pre-push run then is both a check and an RT-920 measurement (D2: only TIA_ELIGIBLE PRs count), with no extra pipeline.
+- **Impact data:** it needs fresh impact data from the main-only analysis job (`backend-api-jest-analysis`). Re-enable that job on `main` merges with a monthly credit cap, which is grant use with lasting value.
+- **Needs:**
+  - a `.circleci/config.yml` change (policy class);
+  - an owner amendment of the RT-981 rule "never the TIA parameters", for the pre-push run only;
+  - the credit cap, written into the issue.
+
+**Phase 5 (later, only after RT-920 evidence): TIA speeds up the pre-push run.**
+- **Trigger:** 10 distinct TIA_ELIGIBLE PRs with zero observed misses, then an RT-921 KEEP decision.
+- **Change:** the pre-push run uses `--run-tests=impacted` when the guard says TIA_ELIGIBLE, and the full suite otherwise.
+- **The gate does not change:** it still runs the full selected suites, so quality cannot drop. A miss would be caught by the gate, cost one extra push, and be recorded.
 
 ## 5. Constraints
 - **Repo rules:** CLAUDE.md, the monorepo rules MR-1…MR-9, the policy class and approval flow, and D-CI-2026-10-29 apply in full.
