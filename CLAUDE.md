@@ -444,9 +444,19 @@ The CI plan diffs the PR base against the head. A branch that is behind `main` i
 For every push to a PR that targets `main` (the first push and each corrective push), when that push is otherwise authorized:
 
 1. `git fetch origin` and compare the branch's merge-base with `origin/main`. If `main` has moved, merge `origin/main` into the branch in the same push. Use a normal merge: no rebase, no force-push, and no push made only to sync, except the pre-merge sync in step 4.
-2. Batch all review findings of one round (CodeRabbit or other reviewers) into one fix set. Run the relevant local tests, then push once for that round.
+2. Batch all review findings of one round (CodeRabbit or other reviewers) into one fix set. Run the relevant local tests, then push once for that round. A round ends only when the current head's GitHub CI has finished **and** the review bots have posted on it (CodeRabbit usually within about 11 minutes). Do not push a fix while that head's CI is still running: the push cancels it and restarts every selected job (2026-11-04 recon: 63% of CI time went to corrective pushes, and 18.7% was cancelled in flight).
 3. Stop and report instead of merging blindly on a merge conflict, a stacked PR, uncommitted work, or a `main` change to shared, contract, security or policy paths.
 4. Each new head SHA needs its own green `required` on GitHub. Before merging, run `git fetch origin` and check `origin/main` again; if it moved after the checks ran, merge `origin/main` in a normal merge, push that sync, and wait for a green `required` on the new head.
+5. **Heavy tests before the push, on CircleCI (smart CI Phase 1).** When a fix touches code covered by a CircleCI `remote_suite` (`api`, `db-package`, `backend-fast`, `admin`, `admin-e2e`, `pos`), run that suite on CircleCI before pushing to the PR branch.
+   - **How:** push the fix to a separate branch with no PR (`<pr-branch>-preflight`), then trigger `remote_suite` under the RT-981 rules: expected SHA, `.circleci/` equal to `origin/main`, at most 30 triggers per Cairo day, one at a time.
+   - **Then:** push to the PR branch only when the suite is green. The laptop runs only light checks.
+   - **Limits:** this never replaces GitHub `required`, and it does not authorize a push on its own.
+6. **Merge only on a completed green `required` (smart CI Phase 0).**
+   - **When:** merge only when the newest `required` check-run on the PR's current head SHA is `completed` with conclusion `success`. Check this with `gh api repos/<owner>/<repo>/commits/<head>/check-runs?check_name=required&filter=all`, not only `gh pr checks`.
+   - **How:** always pass `--match-head-commit <head>`. Never pass `--admin` or use any ruleset bypass; the bypass is the owner's, for a stated emergency written on the PR.
+   - **Never right after a push:** a head pushed seconds ago has no `required` yet.
+   - **If `required` is missing because the workflows failed to start:** ask the owner, or add and remove a label so the gate runs again.
+   - **Check afterwards:** `docs/superpowers/specs/2026-11-04-smart-ci-evidence/merge_integrity.py`. Its 2026-11-04 baseline was 36 of 43 merged PRs green before merge.
 
 This is a working practice, not an enforced branch rule. It never authorizes a push, a merge or a gate bypass.
 
