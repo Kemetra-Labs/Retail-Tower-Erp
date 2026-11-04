@@ -157,6 +157,27 @@ describe("PairingService — closed result union", () => {
       expect(r.body.terminal_id).toBe(TERMINAL);
     }
   });
+
+  it("a code holding no printer fields → ok with the three printer fields present and null (RT-1181)", async () => {
+    const svc = serviceWith({
+      findByCode: jest
+        .fn()
+        .mockResolvedValue(aRow({ printer_vendor_id: null, printer_product_id: null, printer_com_port: null })),
+      recordAttempt: jest.fn().mockResolvedValue(1),
+      findPairedBranch: jest.fn().mockResolvedValue(null),
+      burnAndProvision: jest.fn().mockResolvedValue({ kind: "ok", rawToken: "the-raw-device-token-aaaaaaaaaaaaaaaaaa" }),
+    });
+    const r: PairResult = await svc.pair("code-123456");
+    expect(r.kind).toBe("ok");
+    if (r.kind === "ok") {
+      const wire = JSON.parse(JSON.stringify(r.body)) as Record<string, unknown>;
+      // The keys stay on the wire (the contract keeps them required); the values are null.
+      for (const key of ["printer_vendor_id", "printer_product_id", "printer_com_port"]) {
+        expect(Object.keys(wire)).toContain(key);
+        expect(wire[key]).toBeNull();
+      }
+    }
+  });
 });
 
 describe("toTerminalPairBody — projection", () => {

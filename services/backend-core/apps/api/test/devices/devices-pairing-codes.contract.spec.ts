@@ -212,16 +212,27 @@ describe("pairing codes contract — the code is returned once", () => {
 // 3. The issue body
 // ===========================================================================
 describe("pairing codes contract — the issue body", () => {
-  it("is closed and requires the store and the terminal binding", () => {
+  it("is closed and requires the store and the terminal binding, but not the printer ids (RT-1181)", () => {
     const s = contract.schema("PairingCodeIssueRequest");
     expect(s["additionalProperties"]).toBe(false);
     expect([...(s["required"] as string[])].sort()).toEqual(
-      ["storeId", "branchName", "branchAddress", "taxRegistrationId", "printerVendorId", "printerProductId"].sort(),
+      ["storeId", "branchName", "branchAddress", "taxRegistrationId"].sort(),
     );
     expect(contract.accepts("PairingCodeIssueRequest", ISSUE_REQUEST)).toBe(true);
     for (const key of s["required"] as string[]) {
       expect([key, contract.accepts("PairingCodeIssueRequest", omit(ISSUE_REQUEST, key))]).toEqual([key, false]);
     }
+  });
+
+  it("accepts a request without the printer fields, and still accepts them when sent (RT-1181)", () => {
+    const bare = omit(omit(ISSUE_REQUEST, "printerVendorId"), "printerProductId");
+    expect(contract.accepts("PairingCodeIssueRequest", bare)).toBe(true);
+    expect(contract.accepts("PairingCodeIssueRequest", omit(ISSUE_REQUEST, "printerVendorId"))).toBe(true);
+    expect(contract.accepts("PairingCodeIssueRequest", omit(ISSUE_REQUEST, "printerProductId"))).toBe(true);
+    expect(contract.accepts("PairingCodeIssueRequest", { ...ISSUE_REQUEST })).toBe(true);
+    // A sent id is still validated, and the request is still closed.
+    expect(contract.accepts("PairingCodeIssueRequest", { ...bare, printerVendorId: "04B8" })).toBe(false);
+    expect(contract.accepts("PairingCodeIssueRequest", { ...bare, printerSerial: "x" })).toBe(false);
   });
 
   it.each([
@@ -378,8 +389,8 @@ describe("pos-terminal-pairing contract — RT-367 wording", () => {
       "properties"
     ] as Record<string, JsonObject>;
 
-  it("is 1.4.0-draft (RT-327 named operation sets, after RT-719 build identity and RT-369 rotate) and no longer calls the token long-lived or says terminal_id survives re-pairing", () => {
-    expect((pairing()["info"] as JsonObject)["version"]).toBe("1.4.0-draft");
+  it("is 1.5.0-draft (RT-1181 nullable printer ids, after RT-327 named operation sets, RT-719 build identity and RT-369 rotate) and no longer calls the token long-lived or says terminal_id survives re-pairing", () => {
+    expect((pairing()["info"] as JsonObject)["version"]).toBe("1.5.0-draft");
     expect(text()).not.toMatch(/long-lived/i);
     expect(text()).not.toMatch(/Survives\s+re-pairing/i);
   });

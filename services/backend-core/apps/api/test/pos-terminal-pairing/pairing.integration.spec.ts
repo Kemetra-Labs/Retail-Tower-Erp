@@ -65,6 +65,8 @@ const RAW_CANCELLED = "CANCELLED-CD-01";
 const RAW_SAMEBRANCH = "SAMEBRANCH-0001";
 const RAW_DIFFBRANCH = "DIFFBRANCH-0001";
 const RAW_RATE = "RATELIMIT-00001";
+const RAW_NO_PRINTER = "NOPRINTER-00001";
+const TERMINAL_NO_PRINTER = "0e000000-0000-7000-8000-0000000071a4";
 
 let env: PgTestEnv | null = null;
 let app: INestApplication | null = null;
@@ -76,6 +78,8 @@ interface SeedCodeOpts {
   status?: "pending" | "used" | "cancelled";
   expiresInMs?: number;
   comPort?: string | null;
+  /** RT-1181: a code issued without the printer USB ids (stored as NULL). */
+  noPrinterIds?: boolean;
 }
 
 async function seedTenantAndStores(pool: Pool): Promise<void> {
@@ -110,8 +114,8 @@ async function seedCode(pool: Pool, opts: SeedCodeOpts): Promise<void> {
       "Maadi Pharmacy Branch X",
       "12 Road 9, Maadi, Cairo",
       "123456789",
-      "0x04B8",
-      "0x0202",
+      opts.noPrinterIds ? null : "0x04B8",
+      opts.noPrinterIds ? null : "0x0202",
       opts.comPort === undefined ? null : opts.comPort,
       opts.status ?? "pending",
       expiresAt.toISOString(),
@@ -157,6 +161,7 @@ beforeAll(async () => {
   await seedCode(env.admin, { rawCode: RAW_SAMEBRANCH, storeId: STORE_X, terminalId: TERMINAL_PAIRED });
   await seedCode(env.admin, { rawCode: RAW_DIFFBRANCH, storeId: STORE_Y, terminalId: TERMINAL_PAIRED });
   await seedCode(env.admin, { rawCode: RAW_RATE, storeId: STORE_X, terminalId: TERMINAL_RATE });
+  await seedCode(env.admin, { rawCode: RAW_NO_PRINTER, storeId: STORE_X, terminalId: TERMINAL_NO_PRINTER, noPrinterIds: true });
 
   // A pre-existing device at TERMINAL_PAIRED under STORE_X → drives the
   // already-paired (same branch) and branch-mismatch (different branch) checks.
@@ -228,6 +233,20 @@ describe("posPairTerminal — happy path + device_token credential", () => {
     expect(b.printer_vendor_id).toBe("0x04B8");
     expect(b.printer_product_id).toBe("0x0202");
     expect(b.printer_com_port).toBeNull();
+  });
+
+  it("a code stored without the printer ids → 200 with the three printer fields present and null (RT-1181)", async () => {
+    if (skip()) return;
+    const res = await http().post(PAIR).send({ pairing_code: RAW_NO_PRINTER });
+    expect(res.status).toBe(200);
+    const b = res.body;
+    expect(b.terminal_id).toBe(TERMINAL_NO_PRINTER);
+    expect(b.branch_id).toBe(STORE_X);
+    // The keys stay present (the contract keeps them required); the values are null.
+    for (const key of ["printer_vendor_id", "printer_product_id", "printer_com_port"]) {
+      expect(Object.keys(b)).toContain(key);
+      expect(b[key]).toBeNull();
+    }
   });
 
   it("the returned device_token authenticates via PosDeviceAuthGuard (read-down would accept it)", async () => {

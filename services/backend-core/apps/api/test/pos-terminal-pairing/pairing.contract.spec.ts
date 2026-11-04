@@ -537,22 +537,25 @@ describe("pos-terminal-pairing.yaml — Slice 1 closeout-gap fields (branch + ta
 // 9. New fields from POS-Pulse Slice 3 prep audit (2026-05-28)
 // ===========================================================================
 describe("pos-terminal-pairing.yaml — Slice 3 prep audit fields (printer config)", () => {
-  it("printer_vendor_id is a hex-string-pattern 4-digit USB vendor identifier", () => {
+  it("printer_vendor_id is a hex-string-pattern 4-digit USB vendor identifier, nullable since RT-1181", () => {
     const schema = pairingDoc.components?.schemas?.["TerminalPairResponse"];
     const props = schema?.["properties"] as
-      | Record<string, { type?: string; pattern?: string }>
+      | Record<string, { type?: string | string[]; pattern?: string }>
       | undefined;
-    expect(props?.["printer_vendor_id"]?.type).toBe("string");
+    // RT-1181 (RT-1165 S1): the key stays required, the value is null when the issuer sent none.
+    expect(props?.["printer_vendor_id"]?.type).toEqual(["string", "null"]);
     expect(props?.["printer_vendor_id"]?.pattern).toBe("^0x[0-9A-Fa-f]{4}$");
+    expect((schema?.["required"] ?? []) as string[]).toContain("printer_vendor_id");
   });
 
-  it("printer_product_id is a hex-string-pattern 4-digit USB product identifier", () => {
+  it("printer_product_id is a hex-string-pattern 4-digit USB product identifier, nullable since RT-1181", () => {
     const schema = pairingDoc.components?.schemas?.["TerminalPairResponse"];
     const props = schema?.["properties"] as
-      | Record<string, { type?: string; pattern?: string }>
+      | Record<string, { type?: string | string[]; pattern?: string }>
       | undefined;
-    expect(props?.["printer_product_id"]?.type).toBe("string");
+    expect(props?.["printer_product_id"]?.type).toEqual(["string", "null"]);
     expect(props?.["printer_product_id"]?.pattern).toBe("^0x[0-9A-Fa-f]{4}$");
+    expect((schema?.["required"] ?? []) as string[]).toContain("printer_product_id");
   });
 
   it("printer_com_port is OPTIONAL nullable string (RS-232 serial fallback)", () => {
