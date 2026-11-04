@@ -116,7 +116,9 @@ describe('the Sale screen is the scan owner (F-01)', () => {
     ['a full barcode', '6223004355218'],
   ])('Enter in the search field after %s never adds a line (no scan guard)', async (_n, typed) => {
     const bridges = makeBridges();
-    vi.mocked(bridges.catalogue.search).mockResolvedValue({
+    const searchMock = (bridges.catalogue as unknown as { search: ReturnType<typeof vi.fn> })
+      .search;
+    searchMock.mockResolvedValue({
       kind: 'results',
       items: [PANADOL],
       truncated: false,
@@ -126,7 +128,7 @@ describe('the Sale screen is the scan owner (F-01)', () => {
     const user = userEvent.setup();
     await user.type(screen.getByLabelText('البحث بالاسم أو الباركود'), `${typed}{Enter}`);
     await waitFor(() => {
-      expect(bridges.catalogue.search).toHaveBeenCalled();
+      expect(searchMock).toHaveBeenCalled();
     });
     // Let the results render: an auto-add would happen after the search resolves.
     expect(await screen.findByText('بنادول')).toBeInTheDocument();
