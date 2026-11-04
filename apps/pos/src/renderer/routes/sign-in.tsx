@@ -218,7 +218,7 @@ export function SignInRoute(props: Readonly<SignInRouteProps>): JSX.Element {
   // TakeoverPrompt overlay — rendered when FSM is in takeoverPrompt state.
   if (fsm.kind === 'takeoverPrompt') {
     return (
-      <main data-testid="route-sign-in" className="v4-screen" dir="rtl">
+      <main data-testid="route-sign-in" dir="rtl">
         <TakeoverPrompt operator={operator} pending_takeover_id={fsm.pending_takeover_id} />
       </main>
     );
