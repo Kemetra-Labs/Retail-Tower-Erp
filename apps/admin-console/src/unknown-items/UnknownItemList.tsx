@@ -48,6 +48,7 @@ import {
  * holds no facts. The results (states, bulk bar, table) sit in one v4 panel.
  */
 import { useMemo, useState } from "react";
+import { UnknownItemBarcodeGlyph } from "./UnknownItemBarcodeGlyph";
 import { UnknownItemErrorBanner } from "./UnknownItemErrorBanner";
 import { UnknownItemInspectDrawer } from "./UnknownItemInspectDrawer";
 import { useUnknownItemBulkDismiss, useUnknownItemList } from "./useUnknownItemQueries";
@@ -84,7 +85,14 @@ function columns(t: T) {
     {
       key: "identifier",
       header: t("unknownItems.col.identifier"),
-      cell: (r: ReviewQueueItem) => <bdi dir="ltr">{r.identifier_value}</bdi>,
+      cell: (r: ReviewQueueItem) => (
+        <span className="unknown-item-identifier">
+          {r.identifier_type === "barcode" ? (
+            <UnknownItemBarcodeGlyph value={r.identifier_value} />
+          ) : null}
+          <bdi dir="ltr">{r.identifier_value}</bdi>
+        </span>
+      ),
       mono: true,
     },
     {
