@@ -72,6 +72,35 @@ describe('RT-1096 — EntryBand', () => {
     expect(within(band).queryByRole('img')).not.toBeInTheDocument();
     expect(within(band).queryByTestId('powered-by')).not.toBeInTheDocument();
   });
+
+  // RT-1092 (RT-1042 S3): sign-in renders the same band with three optional additions.
+  it('`brand` replaces the mark and the wordmark', () => {
+    render(<EntryBand brand={<span data-testid="tenant-brand">logo</span>} />);
+    const band = screen.getByTestId('entry-band');
+    expect(within(band).getByTestId('tenant-brand')).toBeInTheDocument();
+    expect(band).not.toHaveTextContent('Retail Tower');
+    expect(band.querySelector('svg')).toBeNull();
+  });
+
+  it('`children` follow the brand, after the wordmark', () => {
+    render(
+      <EntryBand>
+        <span data-testid="band-context">الجهاز</span>
+      </EntryBand>,
+    );
+    const band = screen.getByTestId('entry-band');
+    const name = within(band).getByText('Retail Tower');
+    const context = within(band).getByTestId('band-context');
+    expect(name.compareDocumentPosition(context) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('`testId` replaces the default test id, and nothing else', () => {
+    render(<EntryBand testId="entry-strip" />);
+    expect(screen.queryByTestId('entry-band')).not.toBeInTheDocument();
+    const band = screen.getByTestId('entry-strip');
+    expect(band).toHaveClass('v5-entry-band');
+    expect(band).toHaveTextContent('Retail Tower');
+  });
 });
 
 describe('RT-1096 — pairing screen', () => {
