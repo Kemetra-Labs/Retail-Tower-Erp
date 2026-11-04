@@ -126,47 +126,63 @@ export function TakeoverPrompt({
       aria-labelledby="takeover-prompt-title"
       data-testid="takeover-prompt"
       className="takeover-prompt"
+      data-entry-surface=""
     >
-      <div className="takeover-prompt__content">
-        <h2
-          id="takeover-prompt-title"
-          className="takeover-prompt__title"
-          data-testid="takeover-prompt-title"
-        >
-          You are already signed in on another POS terminal in this branch.
-        </h2>
-        <p className="takeover-prompt__body" data-testid="takeover-prompt-body">
-          Continue here and sign out there?
-        </p>
-
-        <div className="takeover-prompt__feedback" role="status" aria-live="polite">
-          {feedback()}
-        </div>
-
-        <div className="takeover-prompt__actions">
-          <button
-            ref={cancelRef}
-            type="button"
-            className="takeover-prompt__cancel v5-btn"
-            data-testid="takeover-prompt-cancel"
-            disabled={confirming}
-            onClick={() => {
-              void handleCancel();
-            }}
+      {/* RT-1096: the entry family's Ink band; decorative, never changes with state. */}
+      <div className="takeover-prompt__band" aria-hidden="true">
+        <span className="takeover-prompt__mark">
+          <svg viewBox="0 0 64 64" width="60%" height="60%" fill="currentColor" focusable="false">
+            <rect x="8" y="36" width="12" height="20" rx="3" />
+            <rect x="26" y="22" width="12" height="34" rx="3" />
+            <rect x="44" y="8" width="12" height="48" rx="3" />
+          </svg>
+        </span>
+        <span className="takeover-prompt__brand" dir="ltr">
+          Retail Tower
+        </span>
+      </div>
+      <div className="takeover-prompt__stage">
+        <div className="takeover-prompt__content">
+          <h2
+            id="takeover-prompt-title"
+            className="takeover-prompt__title"
+            data-testid="takeover-prompt-title"
           >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="takeover-prompt__confirm v5-btn v5-btn--primary"
-            data-testid="takeover-prompt-confirm"
-            disabled={confirming}
-            onClick={() => {
-              void handleConfirm();
-            }}
-          >
-            {confirming ? 'Signing in…' : 'Continue here'}
-          </button>
+            You are already signed in on another POS terminal in this branch.
+          </h2>
+          <p className="takeover-prompt__body" data-testid="takeover-prompt-body">
+            Continue here and sign out there?
+          </p>
+
+          <div className="takeover-prompt__feedback" role="status" aria-live="polite">
+            {feedback()}
+          </div>
+
+          <div className="takeover-prompt__actions">
+            <button
+              ref={cancelRef}
+              type="button"
+              className="takeover-prompt__cancel v5-btn"
+              data-testid="takeover-prompt-cancel"
+              disabled={confirming}
+              onClick={() => {
+                void handleCancel();
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="takeover-prompt__confirm v5-btn v5-btn--primary"
+              data-testid="takeover-prompt-confirm"
+              disabled={confirming}
+              onClick={() => {
+                void handleConfirm();
+              }}
+            >
+              {confirming ? 'Signing in…' : 'Continue here'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

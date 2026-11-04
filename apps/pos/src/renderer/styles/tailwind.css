@@ -830,14 +830,74 @@ body {
 
   /* ── TakeoverPrompt ──────────────────────────────────────────────────── */
 
+  /*
+   * RT-1096 (RT-1042 §3 item 4, OD-1 / OD-4 / OD-9): the prompt is an entry-family
+   * screen, not a v4-screen overlay. The root opts into the entry-surface roles
+   * (`data-entry-surface`), carries the short Ink band and holds one flat card on
+   * the light canvas. It fills the viewport, so the route's wrapper never shows.
+   * Mint only appears on the mark tile, on Ink. No shadow, no scrim (nothing is
+   * underneath to dim).
+   */
   .takeover-prompt {
     position: fixed;
     inset: 0;
     display: flex;
+    flex-direction: column;
+    background-color: var(--color-background);
+    z-index: 50;
+  }
+
+  .takeover-prompt__band {
+    --takeover-band-size: 64px;
+    --takeover-band-tile: 40px;
+
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-3);
+    block-size: var(--takeover-band-size);
+    padding-inline: var(--space-5);
+    background: var(--color-ink);
+    color: var(--color-on-ink);
+  }
+
+  /* 1024x600 floor: the same band, shorter, so the card keeps its room. */
+  @media (max-width: 1279px), (max-height: 700px) {
+    .takeover-prompt__band {
+      --takeover-band-size: 52px;
+      --takeover-band-tile: 32px;
+
+      padding-inline: var(--space-4);
+    }
+  }
+
+  .takeover-prompt__mark {
+    display: grid;
+    flex: none;
+    place-items: center;
+    inline-size: var(--takeover-band-tile);
+    block-size: var(--takeover-band-tile);
+    border-radius: var(--radius-control);
+    background: var(--color-mint);
+    color: var(--color-ink);
+  }
+
+  .takeover-prompt__brand {
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-bold);
+    line-height: var(--line-height-snug);
+    white-space: nowrap;
+    unicode-bidi: isolate;
+  }
+
+  .takeover-prompt__stage {
+    display: flex;
+    flex: 1;
     align-items: center;
     justify-content: center;
-    background-color: var(--color-overlay-scrim);
-    z-index: 50;
+    min-block-size: 0;
+    padding: var(--space-5);
+    overflow-y: auto;
   }
 
   .takeover-prompt__content {
@@ -845,11 +905,11 @@ body {
     flex-direction: column;
     gap: var(--space-5);
     inline-size: 480px;
-    max-inline-size: calc(100vw - var(--space-8));
+    max-inline-size: 100%;
     padding: var(--space-7);
-    background-color: var(--color-surface-elevated);
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-pane);
-    box-shadow: var(--shadow-overlay);
   }
 
   .takeover-prompt__title {
@@ -887,6 +947,29 @@ body {
   }
 
   /* The takeover buttons are shared .v5-btn (v5/foundation/buttons.css). */
+
+  /* Windows contrast themes (DESIGN.md Forced-Colours Rule): Canvas, 1px edges, no Mint. */
+  @media (forced-colors: active) {
+    .takeover-prompt {
+      background-color: Canvas;
+    }
+
+    .takeover-prompt__band {
+      border-block-end: 1px solid CanvasText;
+      background: Canvas;
+      color: CanvasText;
+    }
+
+    .takeover-prompt__mark {
+      border: 1px solid CanvasText;
+      background: Canvas;
+      color: CanvasText;
+    }
+
+    .takeover-prompt__content {
+      border-color: CanvasText;
+    }
+  }
 
   /* === POS v3.5 prototype port (Phase 0 Task 1) — tender/account/held classes from docs/design/pos-v3.5/design-reference/kit.css === */
   /*
