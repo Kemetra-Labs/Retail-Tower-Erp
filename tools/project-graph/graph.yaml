@@ -243,12 +243,13 @@ shared_classes:   # precedence: lower wins; two matches at the SAME precedence =
   # .gitleaks.toml and .gitleaksignore (RT-876) decide what the root secret scan ignores, so widening them is a policy change too.
   # The root .python-version (RT-923) picks the interpreter the gate and every plan job run the trusted evaluator on.
   # renovate.json5 (RT-924) decides what the Renovate bot may change in the repo, so editing it is a policy change.
-  # .circleci/** (RT-920) is CI configuration that runs repository code on CircleCI; it never feeds `required`.
+  # .circleci/** (RT-920) is CI configuration that runs repository code on CircleCI; that lane never feeds `required`.
   policy:  { precedence: 1, globs: [.github/**, .circleci/**, tools/project-graph/**, tools/ci-gate/**, tools/agent-broker/**, CODEOWNERS, .gitleaks.toml, .gitleaksignore, .python-version, renovate.json5, "apps/*/.github/**", "services/*/.github/**", "integrations/*/.github/**"], selects: all, policy_change: true }
   # RT-1173 (smart CI step 1): .circleci/** only configures the advisory CircleCI lane, which never
-  # feeds `required`; no product suite can test it and its offline tests run in that lane. It stays a
-  # policy change (approval, fingerprint) but selects no job. Precedence 0 beats policy's 1.
-  circleci: { precedence: 0, globs: [.circleci/**], selects: [], policy_change: true }
+  # feeds `required`; no product suite can test it. Its offline tests (.circleci/scripts/*.test.cjs)
+  # run in contracts/check, so it selects only that job. It stays a policy change (approval,
+  # fingerprint). Precedence 0 beats policy's 1.
+  circleci: { precedence: 0, globs: [.circleci/**], selects: [contracts/check], policy_change: true }
   # RT-1173: .github/release/** is release tooling. Release and deploy workflows run it, never a
   # product suite. contracts/check runs its offline specs (the gated copy of release/selftest) and
   # system_gate.py on every system manifest, so it selects only that job. It stays a policy change.
