@@ -86,17 +86,19 @@ parameters:
     type: string
     default: ""
   # RT-1188: the main-only impact analysis (workflow tia-main-analysis). true (default) runs
-  # backend-api-jest-analysis on a push to main whose commit changed Backend-Core, .circleci or
-  # .nvmrc, one run at a time. It builds the impact data the pre-push shadow reads and runs no
-  # tests. Kill switch and rollback: set this default to false.
+  # backend-api-jest-analysis on every push to main, one run at a time. It builds the impact data
+  # the pre-push shadow reads and runs no tests. Kill switch and rollback: set this default to
+  # false.
   # Credit bound, owner decision 2026-11-04: 500k credits per month. CircleCI config cannot count
-  # credits, so the bound is structural: only a main push that changed those paths starts a run
-  # (the job halts otherwise; a push that is not provably one squash or merge commit always runs),
-  # one at a time (serial-group), each stopped by the CLI's
-  # test-analysis-duration (30 min) and the step's no_output_timeout. ESTIMATE, to verify against
-  # CircleCI usage after the first runs: a large machine is about 20 credits per minute, so one
-  # run of up to about 45 minutes is about 900 credits, and 500k credits allow about 550 runs per
-  # month. Verify the real cost on RT-1188 before relying on this.
+  # credits, so the bound is structural: one run at a time (serial-group), each stopped by the
+  # CLI's test-analysis-duration (30 min) and the step's no_output_timeout, and the kill switch
+  # above. Every main push starts a run (a path guard cannot be sound without the push's first
+  # commit, see backend-api-jest-analysis). ESTIMATE, to verify against CircleCI usage after the
+  # first runs: a large machine is about 20 credits per minute, so a run that analyzes for 30
+  # minutes is about 900 credits and a run with nothing stale (setup only) about 100 to 160. With
+  # about 20 main pushes per day, that is roughly 60k credits per month when nothing is stale and
+  # up to about 540k if every push left stale specs, so the cap can be exceeded in that worst
+  # case. Read the real cost on RT-1188 after the first runs and set the switch accordingly.
   main_analysis_enabled:
     type: boolean
     default: true
@@ -410,39 +412,11 @@ jobs:
     resource_class: large
     steps:
       - checkout
-      # RT-1188 credit bound: a main push that changed nothing the analysis reads starts no work.
-      # A GitHub App project has no pipeline.git.base_revision, so the push's first commit is
-      # unknown. HEAD^..HEAD covers the whole push only when HEAD is one squash-merge commit
-      # (single parent, subject ends in "(#N)") or one merge commit (two parents: the diff to the
-      # first parent is the whole merged branch). Anything else, such as a rebase merge or a direct
-      # multi-commit push, may hide an earlier commit, so the analysis runs. Fails open too when
-      # git cannot answer.
-      - run:
-          name: Stop unless this main push changed Backend-Core, .circleci or the root .nvmrc
-          command: |
-            if [ "${CIRCLE_BRANCH:-}" != "main" ]; then
-              echo "Not main; running the analysis."
-              exit 0
-            fi
-            words="$(git rev-list --parents -n 1 HEAD | wc -w)" || words=0
-            subject="$(git log -1 --format=%s HEAD)" || subject=""
-            if [ "$words" -eq 3 ]; then
-              echo "HEAD is a merge commit; its diff to the first parent is the whole push."
-            elif [ "$words" -eq 2 ] && [[ "$subject" =~ \(#[0-9]+\)$ ]]; then
-              echo "HEAD is a squash-merge commit; it is the whole push."
-            else
-              echo "Cannot tell that HEAD is the whole push (parents: $((words - 1)), subject '$subject'); running the analysis."
-              exit 0
-            fi
-            # --quiet exits 1 when the paths changed, 0 when not; anything else runs the analysis.
-            rc=0
-            git diff --quiet HEAD^ HEAD -- services/backend-core/ .circleci/ .nvmrc || rc=$?
-            if [ "$rc" -eq 0 ]; then
-              echo "No Backend-Core, .circleci or .nvmrc change in this push; nothing to analyze."
-              circleci-agent step halt
-            else
-              echo "Backend-Core, .circleci or .nvmrc changed (git diff rc=$rc); running the analysis."
-            fi
+      # RT-1188: no path guard here on purpose. A GitHub App project has no
+      # pipeline.git.base_revision, so the first commit of a push is unknown, and no commit shape
+      # (squash, merge) proves that HEAD is the whole push. Skipping on a guess could leave the
+      # impact data stale. The analysis itself only works on specs whose data is stale and a run
+      # with nothing stale ends after the setup, so the cost of an unrelated push is the setup.
       - backend-setup
       - run:
           name: Impact analysis of the API Jest suite (LCOV, one spec at a time)
