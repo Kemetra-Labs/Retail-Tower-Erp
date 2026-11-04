@@ -41,7 +41,7 @@ R-dev capture, so the packaged pass matters for rows beyond "same bundle".
 | clean | nothing (printer notice dismissed with «لاحقًا», online) |
 | printer | the info banner «لم تُختر طابعة الإيصالات بعد…» (62 px), online |
 | offline + printer | the warning banner «غير متصل — البيع محفوظ…» plus the printer banner |
-| **+ chip** | any of the above, within 8 s of an add, while the «أُضيف: … · تراجع» chip is showing |
+| **+ chip** (the «أُضيف: …» text stays on screen; only the «تراجع» button expires after about 8 s, and the data field `state.chipVisible` is true even when idle, so rely on `commandH`) | any of the above, within 8 s of an add, while the «أُضيف: … · تراجع» chip is showing |
 
 ## Measurement table (23 lines; fully visible rows only, a partly cut row is not counted)
 
@@ -58,11 +58,11 @@ brackets. Source: `data/measure-*.json`.
 | R-pkg, Sale, any size | NOT RUN (needs the owner) | | | | | |
 
 The layout jump on an add is real and is finding F5: at 1024 the status row wraps to a second line
-while the chip shows, so the cart moves down 52 px for about 8 s after every add (command bar 115.7 →
+while the chip shows (measured in the printer-banner state, cartTop 246.1 → 298.1), so the cart moves down 52 px for about 8 s after every add (command bar 115.7 →
 167.7 px; `data/chip-layout-shift.json`; capture `scan-chip-visible-1024x768.webp`). At 1280 it does
 not move. It may depend on the dev-only catalogue chip; the packaged pass decides.
 
-Forced colours (emulated) and reduced motion do not change any number in the table. Verified for
+Forced colours (emulated) and reduced motion do not change any number in the table (no separate capture for the reduced-motion numbers beyond `scan-motion-reduced`). Verified for
 **clean** at 1024×768 and 1280×800, DPR 1 and 1.25.
 
 ## Control sizes (R-dev, clean, DPR 1; `data/measure-idle-clean.json`)
@@ -98,7 +98,7 @@ other visible text node is ≥ 12 px. With no flag on screen the minimum is 12 p
 |---|---|
 | 10 repeated exact scans of one code (22.00 EGP) | One line 1 → 11, total 683.00 → 903.00 EGP (+220.00 = 10 × 22.00), 23 lines before and after. **0 wrong items.** Focus on the scan owner. |
 | Partial barcode, 12, 11 and 10 digits (strict prefixes of registered codes) | Cart unchanged, inline notice «الباركود … غير موجود في الكتالوج. امسح مرة أخرى أو ابحث بالاسم.» (captures `scan-partial_a/b/c`). **0 wrong items.** |
-| Unknown barcode (13 digits) | Cart unchanged, the same inline notice, no modal, no toast. Scanning continues, focus on the scan owner (`scan-unknown`). |
+| Unknown barcode (13 digits) | Cart unchanged, the same notice, no modal (it renders as a floating pill over the search field and status row, see `scan-unknown`). Scanning continues, focus on the scan owner (`scan-unknown`). |
 | A prefix typed into the **search** field + Enter | Cart unchanged: «لم يُعثر على الصنف». No add. |
 | A name search («ام») | Results list opens; nothing is added until a pick. |
 
@@ -129,23 +129,25 @@ reduced motion (`data/focus-ring-and-motion.json`).
 
 ## Pass / fail against the §11 bar (R-dev; R-pkg NOT RUN)
 
+S0 acceptance is **partial**: it asks for the packaged build at 100 % and 125 %; only the `ScreenTooSmall` screen was captured packaged.
+
 | # | Criterion | Result | Note |
 |---|---|---|---|
-| 1 | ≥ 6 rows at 1024 with 23 lines | **PASS at 1024×768** in every state (10 down to 7). **Open at 1024×640** (reading b): 5 or 4 rows in three of the six states | The DESIGN.md bar is "at 1024×768"; whether it covers the 600–767 high band is the owner's call (see S2 below) |
-| 2 | Every control ≥ 44 × 44 | **PASS** | Smallest: row «إنقاص», «زيادة», «حذف» 44 × 44; «تراجع» 55.2 × 44 |
+| 1 | ≥ 6 rows at 1024 with 23 lines | **PASS (R-dev) at 1024×768** in every state (10 down to 7). **Open at 1024×640** (reading b): 5 or 4 rows in three of the six states | The DESIGN.md bar is "at 1024×768"; whether it covers the 600–767 high band is the owner's call (see S2 below) |
+| 2 | Every control ≥ 44 × 44 | **PASS (R-dev)** | Smallest: row «إنقاص», «زيادة», «حذف» 44 × 44; «تراجع» 55.2 × 44 |
 | 3 | Commit 56 / 60 px | **PASS at 56; DESIGN.md "60 at comfortable" NOT met on Sale** | 56 at both 1024 and 1280. The Sale rule `.v5-live-sale .v5-sale-checkout.v5-btn { min-block-size: 56px }` (`live-sale.css:460-464`) has no comfortable lift; the Checkout ledger lifts to 60 (`checkout.css:823-827`) |
 | 4 | Text ≥ 12 px | **FAIL** | 11 px Rx / controlled flags, `.v5-live-flag` `font-size: var(--font-size-2xs)` (`live-sale.css:186-190`) |
-| 5 | Total and commit visible at 1024 and 1280 | **PASS** | In the viewport in every state and size, including 1024×640 (the money column is pinned) |
+| 5 | Total and commit visible at 1024 and 1280 | **PASS (R-dev)** | In the viewport in every state and size, including 1024×640 (the money column is pinned) |
 | 6 | Focus never on `BODY` | **FAIL (one step)** | F1 |
-| 7 | 0 wrong items over the scans | **PASS** | 10 exact, 3 partial, 1 unknown, 1 typed prefix |
+| 7 | 0 wrong items over the scans | **PASS (R-dev)** | 10 exact, 3 partial, 1 unknown, 1 typed prefix |
 | – | Forced colours, reduced motion | **PASS** (emulated) | Layout unchanged; flash removed under reduced motion. A real Windows contrast theme is an owner check |
 
 ## Findings (not fixed; first failing boundary)
 
 - **F1. Focus drops to `BODY` after the handoff.** Enter on «تسليم السلة للدفع» swaps the money
   column's action from `HandoffAction` to the frozen-cart «المتابعة إلى الدفع» button (a different
-  element, `LiveSaleCart.tsx:351-364`), and focus is not moved. Reproduced twice (`document.activeElement` is `BODY` at +100 ms, +400 ms and +1500 ms;
-  `focus-after-handoff-body.webp`). A keyboard or scanner-only cashier loses their place; the next
+  element, `LiveSaleCart.tsx:351-364`), and focus is not moved. Reproduced twice (`document.activeElement` is `BODY` at +100 ms, +400 ms and +1500 ms; raw readings in `data/focus-path-3.json`;
+  `focus-after-handoff-body.webp` shows the frozen cart, a still image cannot show `BODY`). A keyboard or scanner-only cashier loses their place; the next
   Tab starts from the document start. Fails the `BODY` criterion and the F-04 class in the
   evaluation record. Slice: S5 touches this button (RT-1171); a focus fix belongs there or in its own issue.
 - **F2. Rx and controlled-substance flags are 11 px.** `live-sale.css:186-190`. A cashier must read
@@ -169,11 +171,14 @@ The answer depends on one thing only the owner can state: **does the "≥ 6 rows
 to a 1024×640 CSS viewport** (a 1280×800 laptop at real 125 % scaling, which is the compact-height
 band 600–767 px)?
 
-- **If the bar is 1024×768 only:** no shortfall in any R-dev state (10 to 7 rows). **S2 is not
-  needed** on this evidence. The packaged rt9 pass can only add rows (the catalogue chip goes).
+- **If the bar is 1024×768 only:** no shortfall in any R-dev state (10 to 7 rows). S2 is not
+  needed on R-dev evidence; this is unconfirmed until a packaged pass exists (not run).
 - **If the bar also covers 1024×640:** a shortfall appears with the printer banner plus the chip
-  (5), with the offline banner (5 and 4), and in no state without a banner. **S2 is needed**, and
-  it would be the banner stack and the chip's wrap, not the cart rows.
+  (5), with the offline banner (5 and 4), and in no state without a banner. S2 is needed on R-dev
+  evidence, and it would be the banner stack and the chip's wrap, not the cart rows.
+- **Plain answer:** read literally ("≥ 6 rows at 1024 with 23 lines, at 100 % and 125 %"), 5 rows
+  at a real 125 % on a 1280×800 screen **is a shortfall** whenever a banner shows. Recommendation:
+  RT-1168 is needed, bounded to banner and chip chrome, with the packaged pass still outstanding. The owner decides.
 - A third, independent reading: **1024×768 screens at 125 % get `ScreenTooSmall`** (819×614 CSS,
   captured on the packaged exe too). That is a product-limit question, not an S2 question.
 
