@@ -24,8 +24,6 @@ const text = (max: number): z.ZodType<string> =>
     .regex(/\S/, "must not be blank")
     .refine((value) => !value.includes("\u0000"), "must not contain a NUL character");
 
-const PrinterUsbIdSchema = z.string().regex(/^0x[0-9A-Fa-f]{4}$/, "must be 0xHHHH");
-
 export const TTL_MINUTES_DEFAULT = 60;
 
 export const PairingCodeIssueBodySchema = z
@@ -37,10 +35,6 @@ export const PairingCodeIssueBodySchema = z
     branchName: text(256),
     branchAddress: text(512),
     taxRegistrationId: text(64),
-    // RT-1181 (RT-1165 S1, expand): optional; still validated as 0xHHHH when sent. S4 removes them.
-    printerVendorId: PrinterUsbIdSchema.optional(),
-    printerProductId: PrinterUsbIdSchema.optional(),
-    printerComPort: text(32).nullable().optional(),
   })
   .strict();
 

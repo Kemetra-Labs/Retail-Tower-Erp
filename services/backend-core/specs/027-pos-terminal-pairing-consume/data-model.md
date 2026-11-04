@@ -8,8 +8,17 @@ device-auth model (`devices`, migration `0001`).
 
 The 200 `TerminalPairResponse` requires, at consume time, a SOURCE for every one
 of: `tenant_id`, `branch_id`, `terminal_id`, `terminal_label`, `branch_name`,
-`branch_address`, `tenant_tax_registration_id`, `printer_vendor_id`,
-`printer_product_id`, `printer_com_port` (+ the minted `device_token`).
+`branch_address`, `tenant_tax_registration_id` (+ the minted `device_token`).
+
+> **RT-1184 (RT-1165 S4), supersedes the original model below.** The original
+> response also carried three receipt-printer fields (`printer_vendor_id`,
+> `printer_product_id`, `printer_com_port`), stored as inline columns on
+> `pairing_codes` (0024). The owner decision on RT-1165 (2026-11-04) removed them
+> from device pairing: migration `0080_pairing_codes_drop_printer_fields` drops the
+> three columns and their CHECKs, and the response and the issue request no longer
+> carry them (`pos-terminal-pairing.openapi.yaml` 1.6.0-draft, `devices.openapi.yaml`
+> 1.7.0-draft). The rest of this document is the 0024 design as written, kept as
+> history; read every printer field in it as removed.
 
 **Verified against the live schema (`0000_initial.sql`):**
 - `tenants` has `id, slug, name, status` — **NO `tax_registration_id` column.**
@@ -17,7 +26,7 @@ of: `tenant_id`, `branch_id`, `terminal_id`, `terminal_label`, `branch_name`,
 - No `terminal_label`, no printer-config table exists anywhere.
 
 So there is **no existing column to FK-project** `branch_address`,
-`tenant_tax_registration_id`, `terminal_label`, or the three printer fields from.
+`tenant_tax_registration_id`, `terminal_label`, or the three printer fields (removed by RT-1184) from.
 A pure-FK design is therefore impossible without **also** adding columns to
 `tenants` / `stores` / a new printer table — which would be a SECOND-table /
 multi-migration scope expansion (a stop condition) and would couple the pairing
@@ -27,8 +36,8 @@ slice to the tenant/store schema.
 **inline snapshot columns**, populated by the issuer (seeded directly for the
 smoke). `tenant_id` and `store_id` are real FKs (they MUST reference live rows —
 they are the RLS axis and the `devices`-row scope). Everything else
-(`terminal_label`, `branch_name`, `branch_address`, `tenant_tax_registration_id`,
-`printer_vendor_id`, `printer_product_id`, `printer_com_port`) is an inline value
+(`terminal_label`, `branch_name`, `branch_address`, `tenant_tax_registration_id`;
+originally also the three printer fields, removed by RT-1184) is an inline value
 the issuer pins at issue-time — exactly the contract's stated model: these fields
 are "pinned at pair-time" terminal-resident copies, NOT live-fetched per sale.
 
@@ -56,9 +65,9 @@ empty-GUC CASE guard from 0017–0021).
 | `branch_name` | TEXT NOT NULL | CHECK non-empty (contract: minLength 1) |
 | `branch_address` | TEXT NOT NULL | CHECK non-empty |
 | `tenant_tax_registration_id` | TEXT NOT NULL | CHECK non-empty (string for ETA forward-compat) |
-| `printer_vendor_id` | TEXT NOT NULL | CHECK `~ '^0x[0-9A-Fa-f]{4}$'` (contract pattern) |
-| `printer_product_id` | TEXT NOT NULL | CHECK `~ '^0x[0-9A-Fa-f]{4}$'` |
-| `printer_com_port` | TEXT NULL | CHECK NULL OR non-empty; nullable per contract |
+| ~~`printer_vendor_id`~~ | removed by `0080` (RT-1184) | was TEXT NOT NULL (nullable from `0079`), hex CHECK |
+| ~~`printer_product_id`~~ | removed by `0080` (RT-1184) | was TEXT NOT NULL (nullable from `0079`), hex CHECK |
+| ~~`printer_com_port`~~ | removed by `0080` (RT-1184) | was TEXT NULL, non-empty CHECK |
 | `status` | TEXT NOT NULL DEFAULT 'pending' | CHECK `IN ('pending','used','cancelled')` |
 | `expires_at` | TIMESTAMPTZ NOT NULL | redeemable only while `now() < expires_at` |
 | `attempt_count` | INTEGER NOT NULL DEFAULT 0 | per-code attempt accounting → 429 (FR-008) |

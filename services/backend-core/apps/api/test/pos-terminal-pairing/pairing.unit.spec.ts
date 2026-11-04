@@ -34,9 +34,6 @@ function aRow(over: Partial<PairingCodeRow> = {}): PairingCodeRow {
     branch_name: "Branch X",
     branch_address: "Addr",
     tenant_tax_registration_id: "123456789",
-    printer_vendor_id: "0x04B8",
-    printer_product_id: "0x0202",
-    printer_com_port: null,
     status: "pending",
     expires_at: new Date(Date.now() + 600_000),
     attempt_count: 0,
@@ -158,11 +155,9 @@ describe("PairingService — closed result union", () => {
     }
   });
 
-  it("a code holding no printer fields → ok with the three printer fields present and null (RT-1181)", async () => {
+  it("the pair response carries exactly the eight binding fields and none of the removed printer ones (RT-1184)", async () => {
     const svc = serviceWith({
-      findByCode: jest
-        .fn()
-        .mockResolvedValue(aRow({ printer_vendor_id: null, printer_product_id: null, printer_com_port: null })),
+      findByCode: jest.fn().mockResolvedValue(aRow()),
       recordAttempt: jest.fn().mockResolvedValue(1),
       findPairedBranch: jest.fn().mockResolvedValue(null),
       burnAndProvision: jest.fn().mockResolvedValue({ kind: "ok", rawToken: "the-raw-device-token-aaaaaaaaaaaaaaaaaa" }),
@@ -171,17 +166,24 @@ describe("PairingService — closed result union", () => {
     expect(r.kind).toBe("ok");
     if (r.kind === "ok") {
       const wire = JSON.parse(JSON.stringify(r.body)) as Record<string, unknown>;
-      // The keys stay on the wire (the contract keeps them required); the values are null.
-      for (const key of ["printer_vendor_id", "printer_product_id", "printer_com_port"]) {
-        expect(Object.keys(wire)).toContain(key);
-        expect(wire[key]).toBeNull();
-      }
+      expect(Object.keys(wire).sort()).toEqual(
+        [
+          "branch_address",
+          "branch_id",
+          "branch_name",
+          "device_token",
+          "tenant_id",
+          "tenant_tax_registration_id",
+          "terminal_id",
+          "terminal_label",
+        ].sort(),
+      );
     }
   });
 });
 
 describe("toTerminalPairBody — projection", () => {
-  it("maps store_id → branch_id and carries the raw token; com_port nullable", () => {
+  it("maps store_id → branch_id and carries the raw token", () => {
     const body = toTerminalPairBody(
       {
         tenant_id: TENANT,
@@ -191,15 +193,11 @@ describe("toTerminalPairBody — projection", () => {
         branch_name: "Branch X",
         branch_address: "Addr",
         tenant_tax_registration_id: "123456789",
-        printer_vendor_id: "0x04B8",
-        printer_product_id: "0x0202",
-        printer_com_port: "COM3",
       },
       "raw-token-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
     );
     expect(body.branch_id).toBe(STORE_X);
     expect(body.device_token).toBe("raw-token-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
-    expect(body.printer_com_port).toBe("COM3");
     // Without the device's expiry (an older caller), expires_at is omitted.
     expect(body.expires_at).toBeUndefined();
   });
@@ -215,9 +213,6 @@ describe("toTerminalPairBody — projection", () => {
         branch_name: "Branch X",
         branch_address: "Addr",
         tenant_tax_registration_id: "123456789",
-        printer_vendor_id: "0x04B8",
-        printer_product_id: "0x0202",
-        printer_com_port: null,
       },
       "raw-token-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
       expiresAt,
