@@ -144,8 +144,10 @@ for (const s of SCREENS) {
           await page.setViewportSize({ width, height: HEIGHT });
           await page.goto(route);
           await expectRendered(page, t, errors, `${route} ${variant} ${width}`);
-          // The banner state is recorded (index.md), not asserted: a capture fails only on a crash.
-          if (variant === "banner") banners[width] = await page.locator(BANNER).count();
+          // The error state is recorded (index.md), not asserted: a capture fails only on a crash.
+          if (variant === "banner") {
+            banners[width] = await page.locator(s.errorSelector ?? BANNER).count();
+          }
           await shoot(page, `${base(s, appLocale)}__${width}__${variant}`);
           if (variant === "normal" && width === 1280) {
             await saveAxe(page, `${base(s, appLocale)}__axe.json`);
