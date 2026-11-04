@@ -36,23 +36,41 @@ def _read_json(path):
         return None
 
 
+def changes_for(repo, event, base, head):
+    """(diff_base, changes) for one evaluation. RT-1173: a PR is judged on what it adds
+    (merge-base..head), not on a two-dot diff with the current base, which charged a branch behind
+    main for main's newer commits. Graph, workflows and trees are still read at the trusted base.
+    No merge-base raises gitio.DiffUnavailable, which the caller turns into select-all."""
+    diff_base = gitio.merge_base(repo, base, head) if event in ev.PR_EVENTS else base
+    return diff_base, tuple(gitio.read_changes(repo, diff_base, head))
+
+
+def proposed_graph(repo, trusted, head_graph, diff_base):
+    """The head's graph as data to compare, or None when the PR did not change it. RT-1173: a branch
+    behind main still carries the graph of its fork point; if main changed graph.yaml since, that is
+    main's change, not the PR's (a PR that edits graph.yaml has it in its merge-base diff anyway)."""
+    if head_graph == trusted or (diff_base and head_graph == gitio.read_text(repo, diff_base, GRAPH_REPO_PATH)):
+        return None
+    return head_graph or ""
+
+
 def cmd_evaluate(args):
     trusted = gitio.read_text(args.repo, args.base, GRAPH_REPO_PATH)
     head_graph = gitio.read_text(args.repo, args.head, GRAPH_REPO_PATH)
-    proposed = None if head_graph == trusted else (head_graph or "")
     try:
-        changes = tuple(gitio.read_changes(args.repo, args.base, args.head))
+        diff_base, changes = changes_for(args.repo, args.event, args.base, args.head)
         base_tree = frozenset(gitio.list_tree(args.repo, args.base))
         head_tree = frozenset(gitio.list_tree(args.repo, args.head))
         diff_error = False
     except gitio.DiffUnavailable:
-        changes, base_tree, head_tree, diff_error = (), None, None, True
+        changes, base_tree, head_tree, diff_error, diff_base = (), None, None, True, None
+    proposed = proposed_graph(args.repo, trusted, head_graph, diff_base)
     workflows = None if diff_error else gitio.workflow_definitions(args.repo, args.base)
     inp = ev.EvalInput(
         event=args.event, base_sha=args.base_sha or args.base, head_sha=args.head_sha or args.head,
         changes=changes, trusted_text=trusted or "", proposed_text=proposed, diff_error=diff_error,
         workflow_jobs=None if diff_error else gitio.workflow_jobs(args.repo, args.base, workflows),
-        workflows=workflows, base_tree=base_tree, head_tree=head_tree,
+        workflows=workflows, base_tree=base_tree, head_tree=head_tree, diff_base=diff_base,
     )
     plan = ev.evaluate(inp)
     pathlib.Path(args.out).write_text(json.dumps(plan, indent=2, sort_keys=True, ensure_ascii=True),

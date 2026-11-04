@@ -70,9 +70,9 @@ def _verdict(graph, fast, change, base_side=False):
     path = normalize_path(change.path)
     c = graph.classify(path)
     if c.kind == "class":
-        # A shared class selects `all`, `[e2e]` or `[]` (graph schema); only `all` reaches this job.
+        # A shared class selects `all` or a list of jobs (RT-1173); it reaches this job only by naming it.
         selects = graph.shared_class(c.owner)["selects"]
-        return ("ignore", None) if selects != "all" else ("full", f"CLASS:{c.owner}")
+        return ("full", f"CLASS:{c.owner}") if selects == "all" or JOB in selects else ("ignore", None)
     if c.kind != "product":
         return ("full", f"{c.kind.upper()}_PATH")
     if c.owner != PRODUCT:

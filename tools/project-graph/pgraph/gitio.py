@@ -27,6 +27,19 @@ def _commit_exists(repo, rev):
     return _git(repo, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}").returncode == 0
 
 
+def merge_base(repo, base, head):
+    """RT-1173: the commit a PR branched from. `merge_base..head` is exactly what the PR adds
+    to `main` (what `refs/pull/N/merge` tests on top of current `main`), so a branch behind
+    `main` is no longer charged for `main`'s newer commits. Raises DiffUnavailable (fail closed)."""
+    if not (_commit_exists(repo, base) and _commit_exists(repo, head)):
+        raise DiffUnavailable(f"cannot resolve {base}..{head}")
+    proc = _git(repo, "merge-base", base, head)
+    sha = proc.stdout.decode("ascii", "replace").strip()
+    if proc.returncode != 0 or len(sha) != 40 or any(c not in "0123456789abcdef" for c in sha):
+        raise DiffUnavailable(f"no merge-base for {base} and {head}")
+    return sha
+
+
 def read_changes(repo, base, head):
     if not (_commit_exists(repo, base) and _commit_exists(repo, head)):
         raise DiffUnavailable(f"cannot resolve {base}..{head}")
