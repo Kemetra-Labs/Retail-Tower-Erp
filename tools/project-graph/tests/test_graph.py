@@ -198,7 +198,7 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.g.classify("apps/pos/README.md").kind, "product")
 
     def test_system_releases_select_the_contracts_check(self):
-        # RT-1030: a system release manifest has its own class (it selects all, which runs contracts/check).
+        # RT-1030: a system release manifest has its own class (RT-1173: it selects contracts/check and e2e).
         self.assertEqual(self.g.classify("system/releases/lab-2026.11.0.json").owner, "system")
         self.assertEqual(self.g.classify("system/releases/README.md").owner, "system")
 
