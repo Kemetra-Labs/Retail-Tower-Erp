@@ -185,7 +185,7 @@ disables differential download. This section is the runtime proof. Run it in the
 - **Where the evidence is.** The app never routes electron-updater's own logger into `main-*.log`
   (`UpdateService` records only `update:*` state lines), so the fallback line and its cause are
   written to the process console. Launch the packaged lab POS from PowerShell with its output piped
-  to a file, for example `& "$env:LOCALAPPDATA\Programs\POS Pulse\POS Pulse.exe" 2>&1 | Tee-Object C:\rt322-console.log`
+  to a file, for example `& "$env:LOCALAPPDATA\Programs\pos-pulse\POS Pulse.exe" 2>&1 | Tee-Object C:\rt322-console.log`
   (piping keeps the console handle attached), and read the fallback line and the error text after it
   there; the `update:*` states and `verify_failed` stay in `main-*.log`.
   The build writes them by default (`createBlockmap`); do not pass `--config.nsis.differentialPackage=false`.
