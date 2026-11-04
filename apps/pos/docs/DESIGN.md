@@ -605,9 +605,12 @@ This section is the repository record. The rationale, boards and prototype are i
 - **Scope.** The entry screens only: sign-in first, then lock, pairing, Ready and boot, each in its
   own slice (OD-9). These rules **never** reach the sale, checkout or recovery surfaces. Sale and
   checkout wait for RT-1044.
-- **Shipped today.** Only the inert Ink and Mint tokens (S2, RT-1091); no screen uses them. Until
-  the recomposition slice *(S3, RT-1092)* merges, the shipped sign-in screen is the RT-246 G-1
-  layout.
+- **Shipped today.** The Ink and Mint tokens (S2, RT-1091). The sign-in screen uses them in the
+  B-lite composition *(S3, RT-1092; packaged verification pending in S8, RT-1097)*: the
+  Ink band (the one `EntryBand` of S7, with the logo, terminal label and powered-by line that
+  sign-in adds), the roster cards, the PIN dock and the refusal slot above the dots
+  (`routes/sign-in.tsx`, `v5/entry/SignInBand.tsx`, `v5/entry/sign-in.css`). It ships on the
+  current radius tokens, and the dock avatar is the filled Teal disc the references draw.
 - **Lock *(S6, RT-1095)*.** The lock uses sign-in's PIN dock and Arabic-only format copy; board:
   [`03-lock-board.md`](design/rt-1042/03-lock-board.md).
 - **Behaviour is unchanged.** Refusal categories and copy, PIN rules, offline admission

@@ -1,4 +1,4 @@
-import type { JSX } from 'react';
+import type { JSX, ReactNode } from 'react';
 
 import { RetailTowerMark } from '../brand/RetailTowerMark';
 import './entry-band.css';
@@ -13,16 +13,32 @@ import './entry-band.css';
  *
  * The roles come from `[data-entry-surface]`, so a screen opts in on its own
  * root before it renders this band.
+ *
+ * RT-1092 (RT-1042 S3) — the sign-in screen renders the same band, with three
+ * optional additions; with none of them the band is exactly the one above:
+ * - `brand` replaces the mark and the wordmark (the tenant logo, which the
+ *   sign-in stylesheet puts on the white card, OD-10);
+ * - `children` follow the brand (the terminal label and the powered-by line);
+ * - `testId` replaces `entry-band` (sign-in keeps its strip's `entry-strip`).
  */
-export function EntryBand(): JSX.Element {
+export function EntryBand({
+  brand,
+  children,
+  testId = 'entry-band',
+}: Readonly<{ brand?: ReactNode; children?: ReactNode; testId?: string }>): JSX.Element {
   return (
-    <header className="v5-entry-band" data-testid="entry-band">
-      <span className="v5-entry-band__mark" aria-hidden="true">
-        <RetailTowerMark />
-      </span>
-      <span className="v5-entry-band__name" dir="ltr">
-        Retail Tower
-      </span>
+    <header className="v5-entry-band" data-testid={testId}>
+      {brand ?? (
+        <>
+          <span className="v5-entry-band__mark" aria-hidden="true">
+            <RetailTowerMark />
+          </span>
+          <span className="v5-entry-band__name" dir="ltr">
+            Retail Tower
+          </span>
+        </>
+      )}
+      {children}
     </header>
   );
 }

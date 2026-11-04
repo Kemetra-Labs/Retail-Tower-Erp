@@ -1,0 +1,346 @@
+/*
+ * RT-1092 (RT-1042 S3) — the sign-in screen in the owner-approved "B-lite"
+ * composition (docs/DESIGN.md "Entry screens"; references in
+ * docs/design/rt-1042/references/): an Ink band across the top, the room with
+ * the title and the roster, and a fixed PIN dock at the inline end.
+ *
+ * - Scoped to `.v5-entry--sign-in`, so Ready, pairing and boot (which share
+ *   `.v5-entry`, entry.css and the band) are untouched.
+ * - The band is the one entry band (`EntryBand`, entry-band.css, RT-1096);
+ *   this file sizes it and styles what sign-in adds on it. Ink and Mint (the
+ *   `[data-entry-surface]` roles, S2 RT-1091) appear only on the band.
+ *   Everything else stays in the light Teal family.
+ * - Flat (no shadow) and on the shipped radius tokens: the 8 / 12 references
+ *   wait for the radius slice (DESIGN.md "Surfaces, shape and type").
+ * - The keypad never moves: the dock head and the feedback slot keep one
+ *   height before a pick, after it, while signing in and on a refusal, and the
+ *   slot fits the longest refusal (`terminal_has_unresolved_payment`).
+ *
+ * Profiles: base = 1280×800 · ≥1600 wide = the 1920×1080 pilot display ·
+ * ≤1279 wide = 1024×768 · <768 high = 1024×600 (a compact dock head row).
+ */
+
+.v5-entry.v5-entry--sign-in {
+  --signin-band: 96px;
+  --signin-band-pad: var(--entry-gutter);
+  --signin-mark: 48px;
+  --signin-product: var(--font-size-2xl);
+  --signin-dock: 360px;
+  --signin-dock-head: 148px;
+  --signin-avatar: 72px;
+  --signin-badge: 40px;
+  --signin-cols: 3;
+  --signin-dots: 52px;
+  --signin-slot: 84px;
+  --entry-tile: 72px;
+  --entry-key: 60px;
+}
+
+@media (min-width: 1600px) {
+  .v5-entry.v5-entry--sign-in {
+    --signin-band: 120px;
+    --signin-band-pad: 56px;
+    --signin-mark: 56px;
+    --signin-product: var(--font-size-3xl);
+    --signin-dock: 440px;
+    --signin-dock-head: 184px;
+    --signin-avatar: 88px;
+    --signin-badge: 44px;
+    --signin-dots: 56px;
+    --entry-tile: 88px;
+    --entry-key: 64px;
+  }
+}
+
+@media (max-width: 1279px) {
+  .v5-entry.v5-entry--sign-in {
+    --signin-band: 64px;
+    --signin-mark: 36px;
+    --signin-product: var(--font-size-xl);
+    --signin-dock: 320px;
+    --signin-dock-head: 136px;
+    --signin-avatar: 56px;
+    --signin-badge: 32px;
+    --signin-cols: 2;
+    --entry-tile: 60px;
+    --entry-key: 56px;
+  }
+}
+
+/* 1024×600 (RT-313 floor): the shortest stage. 48px keys still clear the 44px floor. */
+@media (max-height: 767px) {
+  .v5-entry.v5-entry--sign-in {
+    --signin-band: 52px;
+    --signin-mark: 32px;
+    --signin-product: var(--font-size-xl);
+    --signin-dock: 320px;
+    --signin-dock-head: 64px;
+    --signin-avatar: 40px;
+    --signin-badge: 30px;
+    --signin-cols: 2;
+    --signin-dots: 44px;
+    --entry-tile: 52px;
+    --entry-key: 48px;
+  }
+}
+
+/* A 1280–1599 wide screen only 768–799 high (1366×768): the base dock less 16px of keys. */
+@media (min-width: 1280px) and (max-width: 1599px) and (min-height: 768px) and (max-height: 799px) {
+  .v5-entry.v5-entry--sign-in {
+    --entry-key: 56px;
+  }
+}
+
+/* ── the Ink band: the one entry band (EntryBand, entry-band.css) ── */
+/* Sign-in sizes it per profile, and positions it, so the S4 ornament
+   (RT-1093) can sit behind its content. Its colours stay entry-band.css's. */
+.v5-entry--sign-in .v5-entry-band {
+  --entry-band-size: var(--signin-band);
+  --entry-band-tile: var(--signin-mark);
+
+  position: relative;
+  gap: var(--space-4);
+  overflow: hidden;
+  padding-inline: var(--signin-band-pad);
+}
+
+.v5-entry--sign-in .v5-entry-band__name {
+  font-size: var(--signin-product);
+}
+
+.v5-signin__sep {
+  flex: none;
+  inline-size: 1px;
+  block-size: 20px;
+  background: var(--color-ink-muted);
+  opacity: 0.35;
+}
+
+/* the terminal label is admin free text: it truncates, the band never wraps */
+.v5-signin__context {
+  flex: 0 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  color: var(--color-ink-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v5-signin__context b {
+  color: var(--color-on-ink);
+  font-weight: var(--font-weight-semibold);
+}
+
+.v5-entry--sign-in .v5-signin__powered-by {
+  flex: none;
+  margin-inline-start: auto;
+  color: var(--color-ink-muted);
+}
+
+.v5-entry--sign-in .v5-signin__powered-by .v5-powered-by__name {
+  color: var(--color-on-ink);
+}
+
+/* OD-10: on Ink the tenant logo always sits on the white card, even when
+   `presentation.card` is false (low_contrast is measured against white). */
+.v5-entry--sign-in .v5-entry-band .v5-brand-slot {
+  padding: 2px 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--brand-card-bg);
+}
+
+/* ── room | dock ──────────────────────────────────────────────── */
+.v5-signin__split {
+  display: flex;
+  flex: 1;
+  min-block-size: 0;
+}
+
+.v5-signin__room {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--entry-gap);
+  min-inline-size: 0;
+  min-block-size: 0;
+  padding: var(--entry-gutter);
+}
+
+.v5-signin__room .v5-entry__panel {
+  flex: 1;
+}
+
+@media (min-width: 1600px) {
+  .v5-signin__room {
+    justify-content: center;
+    padding: 40px 56px;
+  }
+
+  .v5-signin__room .v5-entry__panel {
+    flex: none;
+    max-block-size: calc(100% - 80px);
+  }
+}
+
+.v5-entry--sign-in .v5-entry__roster {
+  grid-template-columns: repeat(var(--signin-cols), minmax(0, 1fr));
+}
+
+.v5-entry--sign-in .v5-entry__who .v5-entry__badge {
+  inline-size: var(--signin-badge);
+  block-size: var(--signin-badge);
+  font-size: calc(var(--signin-badge) * 0.45);
+}
+
+/* the dock: a full-height column at the inline end, not a floating card */
+.v5-entry--sign-in .v5-entry__auth {
+  flex: none;
+  inline-size: var(--signin-dock);
+  border: 0;
+  border-inline-start: 1px solid var(--color-border);
+  border-radius: 0;
+}
+
+.v5-entry--sign-in .v5-entry__auth .v5-entry__panel-head {
+  /* one height in every state, so the keypad never moves */
+  block-size: var(--signin-dock-head);
+  min-block-size: var(--signin-dock-head);
+  border-block-end: 0;
+}
+
+/* OD-11: the picked cashier heads the dock, large and centred */
+.v5-entry--sign-in .v5-entry__panel-head:has(.v5-entry__badge) {
+  position: relative;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-1);
+}
+
+.v5-entry--sign-in .v5-entry__panel-head:has(.v5-entry__badge) .v5-entry__auth-who {
+  flex: none;
+  flex-direction: column;
+  gap: var(--space-1);
+  /* stretched, so a long admin-entered name truncates instead of spilling out */
+  align-items: stretch;
+  inline-size: 100%;
+  min-inline-size: 0;
+  text-align: center;
+}
+
+.v5-entry--sign-in
+  .v5-entry__panel-head:has(.v5-entry__badge)
+  .v5-entry__auth-who
+  .v5-entry__badge {
+  align-self: center;
+}
+
+.v5-entry--sign-in .v5-entry__panel-head:has(.v5-entry__badge) .v5-entry__panel-title {
+  font-size: var(--font-size-lg);
+}
+
+.v5-entry--sign-in .v5-entry__panel-head:has(.v5-entry__badge) .v5-entry__btn--ghost {
+  position: absolute;
+  inset-block-start: var(--space-1);
+  inset-inline-start: var(--space-1);
+}
+
+.v5-entry--sign-in .v5-entry__auth-who .v5-entry__badge {
+  inline-size: var(--signin-avatar);
+  block-size: var(--signin-avatar);
+  background: var(--color-primary);
+  color: var(--color-primary-on);
+  font-size: calc(var(--signin-avatar) * 0.45);
+}
+
+@media (min-width: 1600px) {
+  .v5-entry--sign-in .v5-entry__panel-head:has(.v5-entry__badge) .v5-entry__panel-title {
+    font-size: var(--font-size-xl);
+  }
+}
+
+/* 1024×600: the picked name is a compact row */
+@media (max-height: 767px) {
+  .v5-entry--sign-in .v5-entry__panel-head:has(.v5-entry__badge) {
+    flex-direction: row;
+    justify-content: flex-start;
+  }
+
+  .v5-entry--sign-in .v5-entry__panel-head:has(.v5-entry__badge) .v5-entry__auth-who {
+    flex: 1;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-3);
+    inline-size: auto;
+    text-align: start;
+  }
+
+  .v5-entry--sign-in .v5-entry__panel-head:has(.v5-entry__badge) .v5-entry__btn--ghost {
+    position: static;
+  }
+
+  .v5-entry--sign-in .v5-entry__feedback .v5-notice {
+    font-size: var(--font-size-xs);
+  }
+}
+
+/* OD-7: the slot above the dots fits the longest refusal at the dock width */
+.v5-entry--sign-in .v5-entry__feedback {
+  flex: none;
+  min-block-size: var(--signin-slot);
+}
+
+.v5-entry--sign-in .v5-entry__dots {
+  flex: none;
+  block-size: var(--signin-dots);
+}
+
+/* before a pick the dots hold their place, recessed like the keypad beneath them */
+.v5-entry--sign-in .v5-entry__dots--placeholder {
+  border-color: var(--color-border);
+  background: var(--color-surface-sunken);
+}
+
+/* ── Windows contrast themes (DESIGN.md "Brand on the band") ───── */
+@media (forced-colors: active) {
+  /* The band itself maps in entry-band.css (Canvas, a 1px edge). */
+  .v5-signin__context,
+  .v5-signin__context b,
+  .v5-entry--sign-in .v5-signin__powered-by,
+  .v5-entry--sign-in .v5-signin__powered-by .v5-powered-by__name {
+    color: CanvasText;
+  }
+
+  .v5-signin__sep {
+    background: CanvasText;
+    opacity: 1;
+  }
+
+  .v5-entry--sign-in .v5-entry__auth {
+    border-inline-start-color: CanvasText;
+  }
+
+  /* the band's logo card keeps the system edge brand-slot.css gives it (RT-832 §2) */
+  .v5-entry--sign-in .v5-entry-band .v5-brand-slot {
+    border-color: CanvasText;
+  }
+
+  .v5-entry--sign-in .v5-entry__dots--placeholder {
+    border-color: GrayText;
+  }
+
+  .v5-entry--sign-in .v5-entry__auth-who .v5-entry__badge {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+
+  /* The commit takes the system highlight only when it can be pressed; an
+     unavailable commit keeps the recessed GrayText edge, so it never looks ready. */
+  .v5-entry--sign-in .v5-entry__commit.v5-btn:not(:disabled, [aria-disabled='true']) {
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
+    forced-color-adjust: none;
+  }
+}
