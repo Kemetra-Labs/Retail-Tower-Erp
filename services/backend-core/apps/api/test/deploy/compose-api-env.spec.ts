@@ -226,6 +226,7 @@ describe("RT-984 production compose passes every API env setting", () => {
       ["CASHIER_TAKEOVER_LIMITER_TIMEOUT_MS", () => readTakeoverLimiterTimeoutMs()],
       ["DESCOPE_JWT_ISSUER", () => descopeVerifierConfig(PROJECT_ID)],
       ["DESCOPE_JWT_AUDIENCE", () => descopeVerifierConfig(PROJECT_ID)],
+      ["DESCOPE_JWT_MAX_TOKEN_AGE_SECONDS", () => descopeVerifierConfig(PROJECT_ID)],
       [
         "DESCOPE_MANAGEMENT_KEY",
         () => {

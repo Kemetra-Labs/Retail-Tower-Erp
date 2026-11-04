@@ -86,6 +86,11 @@ compose stack. Redis is containerized by default.
    a terminal left on `clerk` refuses every manager/admin sign-in. Rolling back
    to an older image also needs `DESCOPE_PROJECT_ID` to be set, because the
    compose file requires it.
+   **Token-age cap (RT-1122):** the API refuses a Descope session token issued
+   more than `DESCOPE_JWT_MAX_TOKEN_AGE_SECONDS` ago. Leave it blank for the
+   default 30600 (the agreed 8 h session TTL plus 30 min); a value outside
+   60-86400 fails the API at boot. If the Descope console session TTL is raised
+   above 8 h, raise this cap with it, or long sessions are refused.
 
 ## Deploy
 
