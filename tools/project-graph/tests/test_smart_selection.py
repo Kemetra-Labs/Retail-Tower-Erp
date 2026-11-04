@@ -118,7 +118,7 @@ class NamedJobClassTests(unittest.TestCase):
         self.assertTrue(plan["policy_change"])
         self.assertEqual(set(plan["needed_jobs"]), self.always | {"contracts/check"})
 
-    def test_system_manifest_class_selects_the_gate_and_e2e_only(self):
+    def test_system_manifest_class_selects_the_contracts_check_and_e2e_only(self):
         plan = _plan("system/releases/lab-2026.11.9.json")
         self.assertFalse(plan["select_all"])
         self.assertEqual(set(plan["needed_jobs"]),

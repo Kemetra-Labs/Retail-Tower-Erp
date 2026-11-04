@@ -244,16 +244,17 @@ shared_classes:   # precedence: lower wins; two matches at the SAME precedence =
   # feeds `required`; no product suite can test it and its offline tests run in that lane. It stays a
   # policy change (approval, fingerprint) but selects no job. Precedence 0 beats policy's 1.
   circleci: { precedence: 0, globs: [.circleci/**], selects: [], policy_change: true }
-  # RT-1173: .github/release/** is release tooling. Release and deploy workflows run it (never a PR
-  # job); its own tests run in release/selftest on every PR, and contracts/check runs system_gate.py
-  # on every system manifest. So it selects contracts/check only; it stays a policy change.
+  # RT-1173: .github/release/** is release tooling. Release and deploy workflows run it, never a
+  # product suite. contracts/check runs its offline specs (the gated copy of release/selftest) and
+  # system_gate.py on every system manifest, so it selects only that job. It stays a policy change.
   release_tooling: { precedence: 0, globs: [.github/release/**], selects: [contracts/check], policy_change: true }
   tooling: { precedence: 2, globs: [tools/**], selects: all }
   e2e:     { precedence: 3, globs: [tests/e2e/**], selects: [e2e] }
   docs:    { precedence: 3, globs: [docs/**], selects: [] }
   # RT-1030: system release manifests (system/releases/*.json) name the product releases deployed
   # together; contracts/check runs the system release gate (G1-G5) on every one of them.
-  # RT-1173: no product job reads system/**, so it selects contracts/check and the e2e smoke only.
+  # RT-1173: no product job reads system/**; contracts/check does (system gate and release specs),
+  # plus the e2e smoke as a stack check.
   system:  { precedence: 3, globs: [system/**], selects: [contracts/check, e2e] }
   # RT-578 (CI Modernization PR-1): the two root prose files select no job. Precedence 3 beats
   # root's 4, so they never fall through to the "*" catch-all below. No code, workflow or build
