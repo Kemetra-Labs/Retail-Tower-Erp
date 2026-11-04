@@ -1,0 +1,73 @@
+/*
+ * RT-1093 (RT-1042 S4, OD-5) — the sign-in band's ornament. It ships with
+ * `EntryBandOrnament`, and every selector is scoped to the ornament classes, so it
+ * is inert on every other entry screen's band.
+ *
+ * - Mint strokes on Ink, never on a light surface: the layer lives inside the
+ *   band, and the Mint role only resolves under `[data-entry-surface]`.
+ * - Static: no animation, no transition, no gradient, no shadow.
+ * - At most 40% stroke opacity (OD-5); the grid and the ruler are fainter.
+ * - Behind the band's content (`z-index: -1` in the band's own stacking
+ *   context), and never an event target.
+ * - Not drawn below 1280 wide or 768 high, and not under forced colours.
+ */
+
+.v5-entry-band--ornament {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.v5-entry-band__ornament {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  inline-size: 100%;
+  block-size: 100%;
+  pointer-events: none;
+}
+
+.v5-entry-band__ornament--wide {
+  display: none;
+}
+
+/* The 120px band (1600 wide and up) draws the 1920×120 variant, the 96px band the 1280×96 one. */
+@media (min-width: 1600px) {
+  .v5-entry-band__ornament--base {
+    display: none;
+  }
+
+  .v5-entry-band__ornament--wide {
+    display: block;
+  }
+}
+
+.v5-entry-band__ornament-grid {
+  stroke: var(--color-mint);
+  stroke-opacity: 0.06;
+}
+
+.v5-entry-band__ornament-ruler {
+  stroke: var(--color-mint);
+  stroke-opacity: 0.22;
+}
+
+.v5-entry-band__ornament-skyline {
+  stroke: var(--color-mint);
+  stroke-opacity: 0.4;
+  stroke-width: 1.25;
+}
+
+/* 1024×768 and 1024×600 draw no ornament: the band is short and the stage is tight. */
+@media (max-width: 1279px), (max-height: 767px) {
+  .v5-entry-band__ornament {
+    display: none;
+  }
+}
+
+/* Windows contrast themes: the band is Canvas, so there is nothing to draw on. */
+@media (forced-colors: active) {
+  .v5-entry-band__ornament {
+    display: none;
+  }
+}

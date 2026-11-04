@@ -57,6 +57,8 @@ describe('TakeoverPrompt structure', () => {
     const band = dialog.querySelector('.v5-entry-band');
     expect(band).toHaveAttribute('data-testid', 'entry-band');
     expect(band).toHaveTextContent('Retail Tower');
+    expect(band).not.toHaveClass('v5-entry-band--ornament');
+    expect(dialog.querySelector('.v5-entry-band__ornament')).toBeNull();
 
     const card = dialog.querySelector('.takeover-prompt__stage > .takeover-prompt__content');
     expect(card).not.toBeNull();

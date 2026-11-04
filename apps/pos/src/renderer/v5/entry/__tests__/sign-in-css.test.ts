@@ -192,8 +192,9 @@ describe('RT-1092 sign-in.css — fit (OD-7, OD-11)', () => {
     },
   );
 
-  it('the band leaves a positioned layer for the S4 ornament, without drawing one', () => {
+  it('the band stays positioned for the ornament layer, and sign-in.css draws none itself', () => {
     expect(css).toMatch(/\.v5-entry--sign-in \.v5-entry-band\s*\{[^}]*position:\s*relative/);
+    // RT-1093: the drawing lives in entry-band-ornament.css, loaded only with the sign-in opt-in.
     expect(css).not.toMatch(/orn|skyline|ruler/);
   });
 });
@@ -222,5 +223,104 @@ describe('RT-1092 sign-in.css — Windows contrast themes', () => {
     expect(rule).toMatch(/background:\s*Highlight/);
     expect(rule).toMatch(/color:\s*HighlightText/);
     expect(rule).toMatch(/forced-color-adjust:\s*none/);
+  });
+});
+
+/**
+ * RT-1093 (RT-1042 S4, OD-5) — the ornament's stylesheet and who may draw it.
+ * Source checks: happy-dom resolves no layout; the captures (S8, RT-1097) are
+ * the visual proof.
+ */
+const stripComments = (source: string): string => source.replace(/\/\*[\s\S]*?\*\//g, '');
+const ornamentCss = stripComments(
+  readFileSync(resolve(__dirname, '../../brand/entry-band-ornament.css'), 'utf-8'),
+);
+const ornamentForced = mediaBlocks(ornamentCss, /\(forced-colors:\s*active\)/);
+const ornamentSmall = mediaBlocks(
+  ornamentCss,
+  /\(max-width:\s*1279px\),\s*\(max-height:\s*767px\)/,
+);
+
+describe('RT-1093 entry-band-ornament.css', () => {
+  it('names the roles: no raw colour literal', () => {
+    expect(ornamentCss).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    expect(ornamentCss).not.toMatch(/rgba?\(|hsla?\(/);
+  });
+
+  it('is static and flat: no animation, no transition, no gradient, no shadow', () => {
+    expect(ornamentCss).not.toMatch(/animation|transition|@keyframes|gradient\(|box-shadow|filter/);
+  });
+
+  it('uses Mint only for strokes inside the ornament layer, never on a light surface', () => {
+    const uses = rules(ornamentCss).filter(([, body]) => /--color-mint/.test(body));
+    expect(uses).toHaveLength(3);
+    for (const [selector, body] of uses) {
+      expect(selector).toMatch(/^\.v5-entry-band__ornament-(grid|ruler|skyline)$/);
+      expect(body).toMatch(/(?:^|[;\s])stroke\s*:\s*var\(--color-mint\)/);
+      expect(body).not.toMatch(/(?:^|[;\s])(?:fill|background|color)\s*:\s*var\(--color-mint\)/);
+    }
+  });
+
+  it('keeps every stroke at 40% opacity or less', () => {
+    const opacities = [...ornamentCss.matchAll(/stroke-opacity:\s*([\d.]+)/g)].map((m) =>
+      Number(m[1]),
+    );
+    expect(opacities).toHaveLength(3);
+    for (const o of opacities) expect(o).toBeLessThanOrEqual(0.4);
+  });
+
+  it('sits behind the content and never takes events', () => {
+    const layer = /\.v5-entry-band__ornament\s*\{([^}]*)\}/.exec(ornamentCss)?.[1] ?? '';
+    expect(layer).toMatch(/position:\s*absolute/);
+    expect(layer).toMatch(/z-index:\s*-1/);
+    expect(layer).toMatch(/pointer-events:\s*none/);
+    expect(ornamentCss).toMatch(/\.v5-entry-band--ornament\s*\{[^}]*isolation:\s*isolate/);
+  });
+
+  it('is not drawn below 1280 wide or 768 high', () => {
+    expect(ornamentSmall).toMatch(/\.v5-entry-band__ornament\s*\{[^}]*display:\s*none/);
+  });
+
+  it('shows one variant: 1280×96 by default, 1920×120 from 1600 wide (the 120px band)', () => {
+    expect(ornamentCss).toMatch(/\.v5-entry-band__ornament--wide\s*\{[^}]*display:\s*none/);
+    const wideScreen = mediaBlocks(ornamentCss, /\(min-width:\s*1600px\)/);
+    expect(wideScreen).toMatch(/\.v5-entry-band__ornament--base\s*\{[^}]*display:\s*none/);
+    expect(wideScreen).toMatch(/\.v5-entry-band__ornament--wide\s*\{[^}]*display:\s*block/);
+  });
+
+  it('the removal rules come last, so a short 1920 screen or forced colours still hide both', () => {
+    const wideAt = ornamentCss.indexOf('(min-width: 1600px)');
+    const smallAt = ornamentCss.indexOf('(max-width: 1279px), (max-height: 767px)');
+    const forcedAt = ornamentCss.indexOf('(forced-colors: active)');
+    expect(wideAt).toBeGreaterThan(-1);
+    expect(smallAt).toBeGreaterThan(wideAt);
+    expect(forcedAt).toBeGreaterThan(smallAt);
+  });
+
+  it('is not drawn under forced colours', () => {
+    expect(ornamentForced).toMatch(/\.v5-entry-band__ornament\s*\{[^}]*display:\s*none/);
+    expect(ornamentForced).not.toMatch(/--color-mint/);
+  });
+
+  it('the shared band stylesheet is unchanged: no ornament rule leaks into it', () => {
+    const bandCss = stripComments(readFileSync(resolve(__dirname, '../entry-band.css'), 'utf-8'));
+    expect(bandCss).not.toMatch(/orn|skyline|ruler/);
+  });
+
+  it('only the sign-in band opts in (lock, takeover, pairing, Ready and boot never pass it)', () => {
+    const root = resolve(__dirname, '../../..');
+    for (const file of [
+      'session/LockScreen.tsx',
+      'ui/operator/TakeoverPrompt.tsx',
+      'v5/entry/EntryCard.tsx',
+      'v5/foundation/RouteLoading.tsx',
+    ]) {
+      expect(readFileSync(resolve(root, file), 'utf-8'), file).not.toMatch(
+        /^\s*ornament\s*$|\bornament=/m,
+      );
+    }
+    expect(readFileSync(resolve(root, 'v5/entry/SignInBand.tsx'), 'utf-8')).toMatch(
+      /^\s*ornament\s*$/m,
+    );
   });
 });
