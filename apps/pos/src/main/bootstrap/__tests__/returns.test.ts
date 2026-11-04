@@ -90,8 +90,9 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe('registerReturns, flag off (the default)', () => {
+describe('registerReturns, flag off (explicit kill switch, RT-1180)', () => {
   it('registers the handlers unconditionally and schedules no resolver', () => {
+    vi.stubEnv(FLAG, 'off');
     const h = makeHarness();
     registerReturns(h.deps);
     expect(m.registerReturnsHandlers).toHaveBeenCalledTimes(1);
@@ -102,12 +103,22 @@ describe('registerReturns, flag off (the default)', () => {
     expect(h.workersRegister).not.toHaveBeenCalled();
   });
 
-  it.each(['', '0', 'false', 'off'])('treats %j as off', (raw) => {
+  it.each(['0', 'false', 'off', 'maybe'])('treats %j as off', (raw) => {
     vi.stubEnv(FLAG, raw);
     const h = makeHarness();
     registerReturns(h.deps);
     expect(m.scheduleReturnsResolver).not.toHaveBeenCalled();
     expect(h.workersRegister).not.toHaveBeenCalled();
+  });
+});
+
+describe('registerReturns, default on (RT-1180)', () => {
+  it.each([undefined, '', '  '])('schedules the resolver when the flag is %j', (raw) => {
+    vi.stubEnv(FLAG, raw);
+    const h = makeHarness();
+    registerReturns(h.deps);
+    expect(m.scheduleReturnsResolver).toHaveBeenCalledTimes(1);
+    expect(h.workersRegister).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -179,6 +190,8 @@ describe('registerReturns composition (both flag states pass the same sources)',
     const h = makeHarness();
     registerReturns(h.deps);
     const isEnabled = composed().isEnabled as () => boolean;
+    expect(isEnabled()).toBe(true);
+    vi.stubEnv(FLAG, 'off');
     expect(isEnabled()).toBe(false);
     vi.stubEnv(FLAG, 'true');
     expect(isEnabled()).toBe(true);

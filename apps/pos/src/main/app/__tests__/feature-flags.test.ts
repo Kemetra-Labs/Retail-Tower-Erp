@@ -62,14 +62,14 @@ describe('parseFeatureFlags', () => {
     });
   });
 
-  it('defaults every flag to false when nothing is set', () => {
+  it('defaults every flag to false when nothing is set, except returns (RT-1180)', () => {
     expect(parseFeatureFlags({})).toEqual({
       cart: false,
       payments: false,
       saleFinalization: false,
       productSearch: false,
       voucherTender: false,
-      returns: false,
+      returns: true,
       shiftCashup: false,
       saleVoid: false,
       cardTender: false,
@@ -100,7 +100,8 @@ describe('parseFeatureFlags', () => {
     for (const [key, envName] of Object.entries(FEATURE_FLAG_ENV)) {
       const flags = parseFeatureFlags({ [envName]: 'on' });
       for (const [otherKey, value] of Object.entries(flags)) {
-        expect(value).toBe(otherKey === key);
+        // RT-1180: returns is default-on, so it reads true whichever other flag is set.
+        expect(value).toBe(otherKey === key || otherKey === 'returns');
       }
     }
   });
@@ -120,17 +121,30 @@ describe('parseFeatureFlags', () => {
       saleFinalization: true,
       productSearch: true,
       voucherTender: false,
-      returns: false,
+      returns: true,
       shiftCashup: false,
       saleVoid: false,
       cardTender: false,
     });
   });
 
-  it('RT-15: returns is off by default and on only via POS_PULSE_FEATURE_RETURNS', () => {
-    expect(parseFeatureFlags({}).returns).toBe(false);
-    expect(parseFeatureFlags({ POS_PULSE_FEATURE_RETURNS: 'off' }).returns).toBe(false);
-    expect(parseFeatureFlags({ POS_PULSE_FEATURE_RETURNS: 'on' }).returns).toBe(true);
+  it('RT-1180: returns is on by default; an explicit falsy value is the kill switch', () => {
+    expect(parseFeatureFlags({}).returns).toBe(true);
+    for (const unset of ['', '   ']) {
+      expect(parseFeatureFlags({ POS_PULSE_FEATURE_RETURNS: unset }).returns).toBe(true);
+    }
+    for (const on of ['1', 'true', 'YES', ' on ']) {
+      expect(parseFeatureFlags({ POS_PULSE_FEATURE_RETURNS: on }).returns).toBe(true);
+    }
+    for (const off of ['0', 'false', 'No', ' OFF ']) {
+      expect(parseFeatureFlags({ POS_PULSE_FEATURE_RETURNS: off }).returns).toBe(false);
+    }
+  });
+
+  it('RT-1180: an unrecognised returns value fails closed', () => {
+    for (const odd of ['maybe', 'enabled', '2']) {
+      expect(parseFeatureFlags({ POS_PULSE_FEATURE_RETURNS: odd }).returns).toBe(false);
+    }
   });
 
   it('RT-17: shiftCashup is off by default and on only via POS_PULSE_FEATURE_SHIFT_CASHUP', () => {

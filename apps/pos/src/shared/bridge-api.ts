@@ -855,7 +855,7 @@ export interface PreloadBridgeAPI {
 
   /**
    * RT-15 S2: the cashier return flow (`returns.*`). Main-process gated on
-   * `POS_PULSE_FEATURE_RETURNS` (default off), an operator session and the
+   * `POS_PULSE_FEATURE_RETURNS` (default on since RT-1180), an operator session and the
    * manager/admin role; refused while the session is locked. Optional for the
    * same staged-wiring reason as the namespaces above (the renderer flow is S3).
    */
