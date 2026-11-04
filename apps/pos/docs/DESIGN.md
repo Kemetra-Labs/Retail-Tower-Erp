@@ -606,7 +606,7 @@ This section is the repository record. The rationale, boards and prototype are i
   own slice (OD-9). These rules **never** reach the sale, checkout or recovery surfaces. Sale and
   checkout wait for RT-1044.
 - **Shipped today.** The Ink and Mint tokens (S2, RT-1091). The sign-in screen uses them in the
-  B-lite composition *(S3, RT-1092: merged, packaged verification pending in S8, RT-1097)*: the
+  B-lite composition *(S3, RT-1092; packaged verification pending in S8, RT-1097)*: the
   Ink band (the one `EntryBand` of S7, with the logo, terminal label and powered-by line that
   sign-in adds), the roster cards, the PIN dock and the refusal slot above the dots
   (`routes/sign-in.tsx`, `v5/entry/SignInBand.tsx`, `v5/entry/sign-in.css`). It ships on the

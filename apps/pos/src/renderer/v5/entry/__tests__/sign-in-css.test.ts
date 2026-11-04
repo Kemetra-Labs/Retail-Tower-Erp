@@ -54,7 +54,19 @@ const base = profileRule.exec(css)?.[1] ?? '';
 const pilot = profileRule.exec(mediaBlocks(css, /\(min-width:\s*1600px\)/))?.[1] ?? '';
 const compact = profileRule.exec(mediaBlocks(css, /\(max-width:\s*1279px\)/))?.[1] ?? '';
 const short = profileRule.exec(mediaBlocks(css, /\(max-height:\s*767px\)/))?.[1] ?? '';
+const laptop =
+  profileRule.exec(
+    mediaBlocks(css, /\(min-width:\s*1280px\) and \(max-width:\s*1599px\)[^{]*/),
+  )?.[1] ?? '';
 const forced = mediaBlocks(css, /\(forced-colors:\s*active\)/);
+
+/** The last profile body that sets `--name` wins, as the cascade does (later blocks win). */
+function resolved(bodies: readonly string[], name: string): number {
+  for (const body of [...bodies].reverse()) {
+    if (new RegExp(`--${name}:`).test(body)) return pxVar(body, name);
+  }
+  throw new Error(`--${name} is set by no profile`);
+}
 
 describe('RT-1092 sign-in.css — tokens and scope', () => {
   it('pins no raw colour literal: every colour is a token or a system colour', () => {
@@ -114,8 +126,14 @@ describe('RT-1092 sign-in.css — fit (OD-7, OD-11)', () => {
     }
   });
 
-  it('the commit stays at or above 44px at 1024×600', () => {
-    expect(pxVar(short, 'entry-commit')).toBeGreaterThanOrEqual(44);
+  it('does not shrink the commit below the entry density (56px compact, 60px comfortable)', () => {
+    expect(css).not.toMatch(/--entry-commit:/);
+  });
+
+  it('a long picked name truncates in the dock instead of spilling out', () => {
+    expect(css).toMatch(
+      /:has\(\.v5-entry__badge\) \.v5-entry__auth-who\s*\{[^}]*align-items:\s*stretch[^}]*min-inline-size:\s*0/,
+    );
   });
 
   it('three roster columns at 1280 and up, two below (OD-11)', () => {
@@ -140,9 +158,39 @@ describe('RT-1092 sign-in.css — fit (OD-7, OD-11)', () => {
     expect(css).toMatch(
       /\.v5-entry--sign-in \.v5-entry__feedback\s*\{[^}]*min-block-size:\s*var\(--signin-slot\)/,
     );
-    // Sized for the longest refusal (terminal_has_unresolved_payment, three lines) at 1024×600.
-    expect(pxVar(base, 'signin-slot')).toBeGreaterThanOrEqual(84);
   });
+
+  // entry.css: the auth-body padding and the commit height, comfortable (≥1280) and compact.
+  const ENTRY = { comfortable: { pad: 20, commit: 60 }, compact: { pad: 16, commit: 56 } };
+  const GAP = 12; // the auth body's gap (--space-3)
+  const KEY_GAP = 8; // the keypad's gap (--space-2)
+
+  it.each([
+    ['1920×1080', 1080, [base, pilot], ENTRY.comfortable],
+    ['1280×800', 800, [base], ENTRY.comfortable],
+    ['1366×768', 768, [base, laptop], ENTRY.comfortable],
+    ['1024×768', 768, [base, compact], ENTRY.compact],
+    ['1024×600', 600, [base, compact, short], ENTRY.compact],
+  ] as const)(
+    'the dock fits under the band — %s (head, slot, dots, four key rows, commit)',
+    (_label, height, bodies, entry) => {
+      const v = (name: string): number => resolved(bodies, name);
+      const commit = /--entry-commit:/.test(bodies.join('\n')) ? v('entry-commit') : entry.commit;
+      const dock =
+        v('signin-dock-head') +
+        2 * entry.pad +
+        v('signin-slot') +
+        GAP +
+        v('signin-dots') +
+        GAP +
+        (4 * v('entry-key') + 3 * KEY_GAP) +
+        GAP +
+        commit;
+      expect(dock).toBeLessThanOrEqual(height - v('signin-band'));
+      // The commit keeps the 56px commit size, even at the 600px floor.
+      expect(commit).toBeGreaterThanOrEqual(56);
+    },
+  );
 
   it('the band leaves a positioned layer for the S4 ornament, without drawing one', () => {
     expect(css).toMatch(/\.v5-entry--sign-in \.v5-entry-band\s*\{[^}]*position:\s*relative/);
@@ -154,6 +202,16 @@ describe('RT-1092 sign-in.css — Windows contrast themes', () => {
   it('what sign-in adds on the band reads as CanvasText (the band maps in entry-band.css)', () => {
     expect(forced).toMatch(/\.v5-signin__context,[^{]*\{[^}]*color:\s*CanvasText/);
     expect(forced).toMatch(/\.v5-signin__sep\s*\{[^}]*background:\s*CanvasText/);
+  });
+
+  it('the logo card on the band keeps its CanvasText edge (RT-832 §2)', () => {
+    expect(forced).toMatch(
+      /\.v5-entry--sign-in \.v5-entry-band \.v5-brand-slot\s*\{[^}]*border-color:\s*CanvasText/,
+    );
+  });
+
+  it('the placeholder dots read as unavailable', () => {
+    expect(forced).toMatch(/\.v5-entry__dots--placeholder\s*\{[^}]*border-color:\s*GrayText/);
   });
 
   it('only an available commit takes the system highlight', () => {

@@ -288,7 +288,11 @@ export function PinPadPreview({
       {feedbackPosition === 'above' ? (
         <>
           <div className="v5-entry__feedback">{promptLine}</div>
-          <div className="v5-entry__dots" data-testid="pin-pad-dots-placeholder" aria-hidden="true">
+          <div
+            className="v5-entry__dots v5-entry__dots--placeholder"
+            data-testid="pin-pad-dots-placeholder"
+            aria-hidden="true"
+          >
             {Array.from({ length: PIN_MAX_LENGTH }, (_, i) => (
               <span key={i} className="v5-entry__dot" data-state="empty" />
             ))}

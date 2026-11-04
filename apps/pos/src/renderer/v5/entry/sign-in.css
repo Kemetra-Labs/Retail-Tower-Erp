@@ -81,7 +81,13 @@
     --signin-dots: 44px;
     --entry-tile: 52px;
     --entry-key: 48px;
-    --entry-commit: 52px;
+  }
+}
+
+/* A 1280–1599 wide screen only 768–799 high (1366×768): the base dock less 16px of keys. */
+@media (min-width: 1280px) and (max-width: 1599px) and (min-height: 768px) and (max-height: 799px) {
+  .v5-entry.v5-entry--sign-in {
+    --entry-key: 56px;
   }
 }
 
@@ -215,8 +221,18 @@
   flex: none;
   flex-direction: column;
   gap: var(--space-1);
-  max-inline-size: 100%;
+  /* stretched, so a long admin-entered name truncates instead of spilling out */
+  align-items: stretch;
+  inline-size: 100%;
+  min-inline-size: 0;
   text-align: center;
+}
+
+.v5-entry--sign-in
+  .v5-entry__panel-head:has(.v5-entry__badge)
+  .v5-entry__auth-who
+  .v5-entry__badge {
+  align-self: center;
 }
 
 .v5-entry--sign-in .v5-entry__panel-head:has(.v5-entry__badge) .v5-entry__panel-title {
@@ -253,7 +269,9 @@
   .v5-entry--sign-in .v5-entry__panel-head:has(.v5-entry__badge) .v5-entry__auth-who {
     flex: 1;
     flex-direction: row;
+    align-items: center;
     gap: var(--space-3);
+    inline-size: auto;
     text-align: start;
   }
 
@@ -277,6 +295,12 @@
   block-size: var(--signin-dots);
 }
 
+/* before a pick the dots hold their place, recessed like the keypad beneath them */
+.v5-entry--sign-in .v5-entry__dots--placeholder {
+  border-color: var(--color-border);
+  background: var(--color-surface-sunken);
+}
+
 /* ── Windows contrast themes (DESIGN.md "Brand on the band") ───── */
 @media (forced-colors: active) {
   /* The band itself maps in entry-band.css (Canvas, a 1px edge). */
@@ -294,6 +318,15 @@
 
   .v5-entry--sign-in .v5-entry__auth {
     border-inline-start-color: CanvasText;
+  }
+
+  /* the band's logo card keeps the system edge brand-slot.css gives it (RT-832 §2) */
+  .v5-entry--sign-in .v5-entry-band .v5-brand-slot {
+    border-color: CanvasText;
+  }
+
+  .v5-entry--sign-in .v5-entry__dots--placeholder {
+    border-color: GrayText;
   }
 
   .v5-entry--sign-in .v5-entry__auth-who .v5-entry__badge {
