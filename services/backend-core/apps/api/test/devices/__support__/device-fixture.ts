@@ -273,9 +273,9 @@ async function insertCode(
   await admin.query(
     `INSERT INTO pairing_codes
        (id, tenant_id, store_id, code_hash, terminal_id, terminal_label, branch_name, branch_address,
-        tenant_tax_registration_id, printer_vendor_id, printer_product_id, status, expires_at,
+        tenant_tax_registration_id, status, expires_at,
         replaces_device_id, device_id, used_at)
-     VALUES ($1, $2, $3, $4, $5, 'Till', 'Branch', 'Address', 'TAX-1', '0x04b8', '0x0202', $6,
+     VALUES ($1, $2, $3, $4, $5, 'Till', 'Branch', 'Address', 'TAX-1', $6,
              now() + interval '1 day', $7, $8, CASE WHEN $6 = 'used' THEN now() ELSE NULL END)`,
     [code.id, TENANT_A, STORE_A_X, digest(`code:${code.id}`), code.terminalId, code.status, code.replaces ?? null, code.deviceId ?? null],
   );

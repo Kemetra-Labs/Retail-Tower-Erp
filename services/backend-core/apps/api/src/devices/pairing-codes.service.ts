@@ -326,10 +326,10 @@ async function insertCode(
   const inserted = await client.query<{ id: string; created_at: Date; expires_at: Date }>(
     `INSERT INTO pairing_codes
        (id, tenant_id, store_id, code_hash, terminal_id, terminal_label, branch_name, branch_address,
-        tenant_tax_registration_id, printer_vendor_id, printer_product_id, printer_com_port,
+        tenant_tax_registration_id,
         status, expires_at, replaces_device_id)
-     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-             'pending', now() + make_interval(mins => $12::int), $13)
+     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8,
+             'pending', now() + make_interval(mins => $9::int), $10)
      RETURNING id, created_at, expires_at`,
     [
       input.tenantId,
@@ -340,9 +340,6 @@ async function insertCode(
       body.branchName,
       body.branchAddress,
       body.taxRegistrationId,
-      body.printerVendorId ?? null,
-      body.printerProductId ?? null,
-      body.printerComPort ?? null,
       body.ttlMinutes ?? TTL_MINUTES_DEFAULT,
       replacesDeviceId,
     ],
