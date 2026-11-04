@@ -2,7 +2,8 @@
 # whole lab system version, named by a system release manifest (system/releases/<system>.json,
 # RT-1030), modelled on deploy-lab.yml, deploy-console-lab.yml and deploy-erp-lab.yml.
 #
-# preflight (every run): GitHub only, no AWS. The offline gate of RT-1030 (G1-G5: manifest shape,
+# preflight (every run): GitHub, and one read of the durable live-state record (RT-1084, G9) with the
+# read-only state role. It assumes no deploy role and changes nothing in AWS. The offline gate of RT-1030 (G1-G5: manifest shape,
 # releases on main, Console pin, consumer contracts under `oasdiff breaking`, POS build) on the
 # manifest being deployed and on the manifest of the system version live now, then the online
 # checks of each product, taken from today's preflights: the Backend-Core release (immutable,
@@ -10,7 +11,8 @@
 # release (immutable, checksum, attestation, version.json, the pin rule), the ERP image
 # (attestation, labels, base, rollback class), and the aws-lab reviewer readback. G8 reads the live
 # ledgers of the per-product and system deploys (actions: read, no AWS) and refuses a current_manifest
-# that no longer matches what the lab runs. It uploads a planned system ledger and changes nothing.
+# that no longer matches what the lab runs; G9 reads the SSM record /rt/lab/live-state (one parameter, read-only
+# role) and refuses a missing, malformed, dirty or inflight record. It uploads a planned system ledger and changes nothing.
 # Any failed rule refuses before a host is touched.
 #
 # live (dry_run=false only): after ONE aws-lab approval the job assumes the deploy role through
@@ -30,6 +32,13 @@
 # G8 (live_check.py) refuses it in the preflight when a newer deploy moved the lab, so the stale
 # manifest no longer reaches RT-BackendLabDeploy G-Host after the lab-02 backup has run.
 #
+# RT-1084: current_manifest is optional. The live-state record (live_state.py) names the versions each
+# product runs; the preflight resolves the one manifest that names them (or checks the given one against
+# it) and every later use, in the preflight and in the live job, takes that one resolved value. Before any
+# document the live job re-reads the record (a changed version or digest refuses) and marks the run
+# `inflight`; after the ledger it records what the ledger proves. SSM has no compare-and-set: this
+# workflow's concurrency group serialises the lab deploys. G8 is unchanged and keeps its 90-day artifact limit.
+#
 # Concurrency is shared with deploy-lab.yml, deploy-console-lab.yml and deploy-erp-lab.yml: one lab
 # deploy at a time. It fails closed while AWS_ROLE_ARN / AWS_REGION are unset.
 name: Deploy system lab
@@ -42,9 +51,10 @@ name: Deploy system lab
         required: true
         type: string
       current_manifest:
-        description: System release manifest of the system version live now (the same file for a same-version redeploy)
-        required: true
+        description: Optional. System release manifest of the system version live now. Empty resolves it from the live-state record; given, it must match the record
+        required: false
         type: string
+        default: ""
       jira_key:
         description: Jira issue authorizing this run (RT-<number>)
         required: true
@@ -85,6 +95,7 @@ jobs:
       packages: read # GHCR reads for labels and attestations
       attestations: read # gh attestation verify
       actions: read # read (never create) the aws-lab environment; read the live ledger artifacts of past lab deploys (G8)
+      id-token: write # RT-1084: the OIDC token for the read-only state role (G9); the deploy role is assumed only in the live job
     # The verified plan, for the live job only (non-secret digests, commits and rollback classes).
     outputs:
       backend_release_sha: ${{ steps.backend_plan.outputs.release_sha }}
@@ -106,6 +117,11 @@ jobs:
       run_console: ${{ steps.plan.outputs.run_console }}
       run_erp: ${{ steps.plan.outputs.run_erp }}
       run_steps: ${{ steps.plan.outputs.run_steps }}
+      # RT-1084: the one resolved current manifest and the exact record it came from, for the live job.
+      current_manifest: ${{ steps.state.outputs.manifest }}
+      state_version: ${{ steps.state.outputs.state_version }}
+      state_sha256: ${{ steps.state.outputs.state_sha256 }}
+      manifest_source: ${{ steps.state.outputs.manifest_source }}
     steps:
       - name: Guard (main only, validated inputs)
         id: guard
@@ -121,7 +137,7 @@ jobs:
           fail() { echo "::error::$*"; exit 1; }
           [ "$RUN_REF" = "refs/heads/main" ] || fail "must be dispatched from refs/heads/main"
           [[ "$MANIFEST" =~ ^system/releases/lab-[0-9]{4}\.[0-9]{2}\.[0-9]+\.json$ ]] || fail "manifest must be system/releases/lab-YYYY.MM.N.json"
-          [[ "$CURRENT_MANIFEST" =~ ^system/releases/lab-[0-9]{4}\.[0-9]{2}\.[0-9]+\.json$ ]] || fail "current_manifest must be system/releases/lab-YYYY.MM.N.json"
+          [ -z "$CURRENT_MANIFEST" ] || [[ "$CURRENT_MANIFEST" =~ ^system/releases/lab-[0-9]{4}\.[0-9]{2}\.[0-9]+\.json$ ]] || fail "current_manifest must be empty or system/releases/lab-YYYY.MM.N.json"
           [[ "$JIRA_KEY" =~ ^RT-[1-9][0-9]{0,5}$ ]] || fail "jira_key must be RT-<number>"
           case "$DRY_RUN" in true | false) ;; *) fail "dry_run must be true or false" ;; esac
           case "$FORCE_ALL" in true | false) ;; *) fail "force_all must be true or false" ;; esac
@@ -135,12 +151,45 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      # RT-1084 (G9): the durable record of what the lab runs, read with the read-only state role (GetParameter on
+      # /rt/lab/live-state, nothing else; no environment, so the trust is the main branch). A role that cannot be
+      # assumed or a record that cannot be read ends here, before any manifest is read. The refusal is a G9 line in
+      # the gates file, which the planned ledger keeps. No output is written unless the record is valid.
+      - name: Assume the state-read role (GitHub OIDC, read-only, one SSM parameter)
+        id: state_auth
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_STATE_READ_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: rt-deploy-system-lab-state-read-${{ github.run_id }}
+
+      # Empty current_manifest: the one manifest naming the recorded versions. Given: it must be that manifest.
+      # Every later step of both jobs takes steps.state.outputs.manifest, never inputs.current_manifest.
+      - name: Read the live-state record (G9, resolves current_manifest)
+        id: state
+        env:
+          CURRENT_MANIFEST: ${{ inputs.current_manifest }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/plan"
+          python3 .github/release/live_state.py read --root "$GITHUB_WORKSPACE" --given "$CURRENT_MANIFEST" \
+            --out-dir "$RUNNER_TEMP/state" --gates-file "$RUNNER_TEMP/plan/gates.txt" >> "$GITHUB_OUTPUT"
+
+      # The preflight needs the state-read credentials for that one read only: no later step gets them in its
+      # environment, whether the read passed or failed. (id-token stays a job permission; the role it can reach
+      # is read-only on one parameter.)
+      - name: Drop the state-read credentials from the environment
+        if: ${{ always() && steps.state_auth.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          for NAME in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION AWS_DEFAULT_REGION; do echo "$NAME=" >> "$GITHUB_ENV"; done
+
       # Both manifests must pass G1 here; every value is pattern-checked, so it is safe as an argument.
       - name: Read the manifests
         id: values
         env:
           MANIFEST: ${{ inputs.manifest }}
-          CURRENT_MANIFEST: ${{ inputs.current_manifest }}
+          CURRENT_MANIFEST: ${{ steps.state.outputs.manifest }}
         run: |
           set -euo pipefail
           python3 .github/release/system_ledger.py values --manifest "$MANIFEST" --prefix target >> "$GITHUB_OUTPUT"
@@ -176,12 +225,12 @@ jobs:
         id: gate
         env:
           MANIFEST: ${{ inputs.manifest }}
-          CURRENT_MANIFEST: ${{ inputs.current_manifest }}
+          CURRENT_MANIFEST: ${{ steps.state.outputs.manifest }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/plan"
           GATES="$RUNNER_TEMP/plan/gates.txt"
-          : > "$GATES"
+          touch "$GATES" # the state step already wrote the G9 line
           if [ "$CURRENT_MANIFEST" != "$MANIFEST" ]; then
             python3 .github/release/system_gate.py --manifest "$CURRENT_MANIFEST" --main origin/main \
               || { echo "G1 FAIL: the current manifest $CURRENT_MANIFEST does not pass the gate" >> "$GATES"; exit 1; }
@@ -205,7 +254,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          CURRENT_MANIFEST: ${{ inputs.current_manifest }}
+          CURRENT_MANIFEST: ${{ steps.state.outputs.manifest }}
         run: |
           set -euo pipefail
           python3 .github/release/live_check.py --repo "$REPO" --current-manifest "$CURRENT_MANIFEST" \
@@ -494,12 +543,17 @@ jobs:
         env:
           DRY_RUN: ${{ inputs.dry_run }}
           MANIFEST: ${{ inputs.manifest }}
-          CURRENT_MANIFEST: ${{ inputs.current_manifest }}
+          CURRENT_MANIFEST: ${{ steps.state.outputs.manifest }}
           JIRA_KEY: ${{ inputs.jira_key }}
           ACTOR: ${{ github.actor }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           ROLLBACK_ALLOWED: ${{ steps.backend_plan.outputs.rollback_allowed }}
           ERP_CLASS: ${{ steps.erp_class.outputs.class }}
+          OUTCOME_STATE_AUTH: ${{ steps.state_auth.outcome }}
+          OUTCOME_STATE: ${{ steps.state.outcome }}
+          STATE_VERSION: ${{ steps.state.outputs.state_version }}
+          STATE_SHA256: ${{ steps.state.outputs.state_sha256 }}
+          MANIFEST_SOURCE: ${{ steps.state.outputs.manifest_source }}
           OUTCOME_VALUES: ${{ steps.values.outcome }}
           OUTCOME_GATE: ${{ steps.gate.outcome }}
           OUTCOME_LIVE_LAB: ${{ steps.live_lab.outcome }}
@@ -536,7 +590,7 @@ jobs:
           # Every one of these steps must have succeeded for a planned ledger: a step skipped after
           # an earlier failure refuses as well (the first one not succeeded is the reason).
           FAILURE=""
-          for NAME in VALUES GATE LIVE_LAB BACKEND_EVIDENCE ERP_IMAGE BACKEND_VERIFY BACKEND CONSOLE PIN ERP_CLASS; do
+          for NAME in STATE_AUTH STATE VALUES GATE LIVE_LAB BACKEND_EVIDENCE ERP_IMAGE BACKEND_VERIFY BACKEND CONSOLE PIN ERP_CLASS; do
             VAR="OUTCOME_$NAME"
             if [ "${!VAR}" != success ]; then FAILURE="preflight step ${NAME,,} ended ${!VAR:-not-run}"; break; fi
           done
@@ -554,8 +608,13 @@ jobs:
           # RT-1085: a release is unchanged only when its tag and the commit the tag resolves to are the
           # same in both manifests. An unresolved tag passes an empty commit, which counts as changed.
           tag_sha() { if [ -n "$1" ]; then git rev-parse --verify --quiet "refs/tags/$1^{commit}" 2>/dev/null || true; fi; }
+          # RT-1084: a refused G9 leaves no resolved current manifest; the ledger is then refused with that reason.
+          CURRENT_ARGS=()
+          if [ -n "$CURRENT_MANIFEST" ]; then CURRENT_ARGS=(--current-manifest "$CURRENT_MANIFEST"); fi
+          STATE_ARGS=()
+          if [ -n "$STATE_VERSION" ]; then STATE_ARGS=(--state-version "$STATE_VERSION" --state-sha256 "$STATE_SHA256" --manifest-source "$MANIFEST_SOURCE"); fi
           STATUS=0
-          python3 .github/release/system_ledger.py plan --manifest "$MANIFEST" --current-manifest "$CURRENT_MANIFEST" \
+          python3 .github/release/system_ledger.py plan --manifest "$MANIFEST" "${CURRENT_ARGS[@]}" "${STATE_ARGS[@]}" \
             --jira-key "$JIRA_KEY" --actor "$ACTOR" --run-url "$RUN_URL" --gates-file "$GATES" --failure "$FAILURE" \
             --rollback-allowed "${ROLLBACK_ALLOWED:-false}" --erp-rollback-class "$ERP_CLASS" --environment-gate "$GATE" \
             --commit "target_backend_release=$(tag_sha "$TARGET_BACKEND_RELEASE")" \
@@ -603,7 +662,10 @@ jobs:
           RUN_REF: ${{ github.ref }}
           DRY_RUN: ${{ inputs.dry_run }}
           MANIFEST: ${{ inputs.manifest }}
-          CURRENT_MANIFEST: ${{ inputs.current_manifest }}
+          CURRENT_MANIFEST: ${{ needs.preflight.outputs.current_manifest }}
+          STATE_VERSION: ${{ needs.preflight.outputs.state_version }}
+          STATE_SHA256: ${{ needs.preflight.outputs.state_sha256 }}
+          MANIFEST_SOURCE: ${{ needs.preflight.outputs.manifest_source }}
           JIRA_KEY: ${{ inputs.jira_key }}
           BACKEND_RELEASE_SHA: ${{ needs.preflight.outputs.backend_release_sha }}
           API_DIGEST: ${{ needs.preflight.outputs.api_digest }}
@@ -643,7 +705,10 @@ jobs:
           [[ "$ERP_EXPECTED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "preflight plan lacks the Connector version"
           [[ "$ERP_CURRENT_TREE" =~ ^[0-9a-f]{40}$ ]] || fail "preflight plan lacks the current Connector tree"
           [[ "$ERP_ROLLBACK_CLASS" =~ ^(image-only|restore)$ ]] || fail "preflight plan lacks the ERP rollback class"
-          [[ "$GATE_RESULTS" =~ ^G1=pass\ G2=pass\ G3=pass\ G4=pass\ G5=pass\ G6=pass\ G7=pass\ G8=pass$ ]] || fail "preflight did not pass every rule G1-G8"
+          [[ "$GATE_RESULTS" =~ ^G1=pass\ G2=pass\ G3=pass\ G4=pass\ G5=pass\ G6=pass\ G7=pass\ G8=pass\ G9=pass$ ]] || fail "preflight did not pass every rule G1-G9"
+          [[ "$STATE_VERSION" =~ ^[1-9][0-9]*$ ]] || fail "preflight plan lacks the version of the live-state record"
+          [[ "$STATE_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail "preflight plan lacks the digest of the live-state record"
+          [[ "$MANIFEST_SOURCE" =~ ^(given|record)$ ]] || fail "preflight plan lacks the source of current_manifest"
           # RT-1085: each step runs only when the verified plan says true; an empty flag would skip it silently.
           EXPECTED=""
           for PAIR in "backup=$RUN_BACKUP" "backend=$RUN_BACKEND" "console=$RUN_CONSOLE" "erp=$RUN_ERP"; do
@@ -680,7 +745,7 @@ jobs:
         id: values
         env:
           MANIFEST: ${{ inputs.manifest }}
-          CURRENT_MANIFEST: ${{ inputs.current_manifest }}
+          CURRENT_MANIFEST: ${{ needs.preflight.outputs.current_manifest }}
         run: |
           set -euo pipefail
           python3 .github/release/system_ledger.py values --manifest "$MANIFEST" --prefix target >> "$GITHUB_OUTPUT"
@@ -718,6 +783,30 @@ jobs:
           printf '%s' "$TOKEN" | node services/backend-core/deploy/lab/oidc-claims-check.cjs \
             --jira-key "$JIRA_KEY" --workflow-file deploy-system-lab.yml --summary "$GITHUB_STEP_SUMMARY" \
             || echo "::warning::a claim differs from the trust design; see the step summary (AWS STS still decides)"
+
+      # RT-1084: after approval and before any document, the record is read again with the deploy role. A
+      # changed version or digest (the preflight read another one), a record not valid, or any product in doubt
+      # stops the run here. Then the run is marked inflight; if that write fails, no document is sent.
+      - name: Assume the deploy role to mark the live-state record (GitHub OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: rt-deploy-system-lab-state-begin-${{ github.run_id }}
+
+      - name: Mark the live-state record inflight (re-validates it first)
+        id: begin
+        env:
+          RUN_STEPS: ${{ needs.preflight.outputs.run_steps }}
+          STATE_VERSION: ${{ needs.preflight.outputs.state_version }}
+          STATE_SHA256: ${{ needs.preflight.outputs.state_sha256 }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/live-ledger"
+          python3 .github/release/live_state.py begin --kind system --run-id "$RUN_ID" --sha "$RUN_SHA" --run-steps "$RUN_STEPS" \
+            --expect-version "$STATE_VERSION" --expect-sha256 "$STATE_SHA256" --out-dir "$RUNNER_TEMP/live-ledger" >> "$GITHUB_OUTPUT"
 
       # A role is assumed again before each document (a session lasts 3600 s; the documents may
       # take longer in total). A step that fails stops every later step: no document after it runs.
@@ -882,7 +971,10 @@ jobs:
         if: always()
         env:
           MANIFEST: ${{ inputs.manifest }}
-          CURRENT_MANIFEST: ${{ inputs.current_manifest }}
+          CURRENT_MANIFEST: ${{ needs.preflight.outputs.current_manifest }}
+          STATE_VERSION: ${{ needs.preflight.outputs.state_version }}
+          STATE_SHA256: ${{ needs.preflight.outputs.state_sha256 }}
+          MANIFEST_SOURCE: ${{ needs.preflight.outputs.manifest_source }}
           JIRA_KEY: ${{ inputs.jira_key }}
           ACTOR: ${{ github.actor }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -897,8 +989,35 @@ jobs:
           python3 .github/release/system_ledger.py final --manifest "$MANIFEST" --current-manifest "$CURRENT_MANIFEST" \
             --jira-key "$JIRA_KEY" --actor "$ACTOR" --run-url "$RUN_URL" --live-dir "$LIVE" --gates "$GATE_RESULTS" \
             --rollback-allowed "$ROLLBACK_ALLOWED" --erp-rollback-class "$ERP_ROLLBACK_CLASS" --run-steps "$RUN_STEPS" \
+            --state-version "$STATE_VERSION" --state-sha256 "$STATE_SHA256" --manifest-source "$MANIFEST_SOURCE" \
             --out "$RUNNER_TEMP/live-ledger"
           cat "$RUNNER_TEMP/live-ledger/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      # RT-1084: what the ledger proves is recorded: a finished step makes its product ok with the version the
+      # ledger names; a step that may have reached its host makes it dirty; a step that provably never reached
+      # it changes nothing. It never infers success. A write that fails leaves the run marked inflight, so the
+      # next preflight refuses, and keeps the intended record in state-finish.json next to the ledger.
+      - name: Assume the deploy role to record the outcome (GitHub OIDC, no stored keys)
+        if: ${{ always() && steps.begin.outcome == 'success' }}
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: rt-deploy-system-lab-state-finish-${{ github.run_id }}
+
+      - name: Record the live state
+        id: finish
+        if: ${{ always() && steps.begin.outcome == 'success' }}
+        env:
+          MANIFEST: ${{ inputs.manifest }}
+          BEGIN_VERSION: ${{ steps.begin.outputs.begin_version }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 .github/release/live_state.py finish --kind system --run-id "$RUN_ID" --sha "$RUN_SHA" \
+            --ledger "$RUNNER_TEMP/live-ledger/ledger.json" --begin-version "$BEGIN_VERSION" --manifest "$MANIFEST" \
+            --root "$GITHUB_WORKSPACE" --out-dir "$RUNNER_TEMP/live-ledger"
 
       - name: Upload the system ledger
         if: always()

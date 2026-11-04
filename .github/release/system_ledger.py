@@ -41,9 +41,9 @@ STEPS = (
     ("erp", "RT-ErpLabDeploy", "lab-03"),
 )
 ERP_SERVICES = ("backend", "frontend", "websocket", "scheduler", "queue-short", "queue-long")
-RULES = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8")
-GATE_LINE = re.compile(r"^(G[1-8]) (pass|FAIL|unverified): (.*)$")
-GATE_RESULTS = re.compile(r"^(G[1-8]=(pass|FAIL|unverified|not-run))( G[1-8]=(pass|FAIL|unverified|not-run))*$")
+RULES = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9")
+GATE_LINE = re.compile(r"^(G[1-9]) (pass|FAIL|unverified): (.*)$")
+GATE_RESULTS = re.compile(r"^(G[1-9]=(pass|FAIL|unverified|not-run))( G[1-9]=(pass|FAIL|unverified|not-run))*$")
 PARAMS_FILES = {"backup": "backup-params.json", "backend": "deploy-params.json", "console": "console-params.json", "erp": "erp-params.json"}
 COMMIT_KEYS = ("target_backend_release", "current_backend_release", "target_console_release", "current_console_release")
 PLAN_KIND = "rt1031-system-lab-planned-ledger"
@@ -281,7 +281,7 @@ def failure_of(failed, reason):
 def render_summary(ledger):
     title = "System lab deploy " + ("plan" if ledger["kind"] == PLAN_KIND else "live")
     lines = [f"## {title}: {ledger['outcome'].upper()}", "",
-             f"{ledger['system']} over {ledger['currentSystem']}, {ledger['jiraKey']}. Gates: "
+             f"{ledger['system']} over {ledger['currentSystem'] or 'no resolved current manifest'}, {ledger['jiraKey']}. Gates: "
              + ", ".join(f"{rule} {result}" for rule, result in ledger["gates"].items()) + "."]
     if ledger.get("stepPlan"):
         lines += ["", "Steps" + (" (force_all)" if ledger.get("forceAll") else "") + ":"]
@@ -310,23 +310,35 @@ def write(out_dir, ledger):
 
 
 def base_ledger(args, kind, target_data, current_data):
-    return {
-        "schemaVersion": 1, "kind": kind, "system": target_data["system"], "currentSystem": current_data["system"],
+    ledger = {
+        "schemaVersion": 1, "kind": kind, "system": target_data["system"],
+        "currentSystem": current_data["system"] if current_data else None,
         "jiraKey": args.jira_key, "actor": args.actor, "runUrl": args.run_url, "generatedAt": args.generated_at or now(),
         "environment": "aws-lab", "manifest": target_data, "currentManifest": current_data,
         "order": [{"step": n, "document": d, "host": h} for n, d, h in STEPS],
     }
+    if args.state_version is not None:
+        # RT-1084: the durable record the preflight read, so the manifest that stood for "live now" is explained.
+        ledger["liveState"] = {"param": "/rt/lab/live-state", "version": args.state_version, "sha256": args.state_sha256,
+                               "currentManifestSource": args.manifest_source}
+    return ledger
 
 
 def plan(args):
-    target_data, current_data = load_manifest(args.manifest), load_manifest(args.current_manifest)
+    target_data = load_manifest(args.manifest)
+    # RT-1084: a refused G9 leaves no resolved current manifest; the plan is then refused, with no step plan.
+    current_data = load_manifest(args.current_manifest) if args.current_manifest else None
     gates_text = pathlib.Path(args.gates_file).read_text(encoding="utf-8") if args.gates_file and pathlib.Path(args.gates_file).is_file() else ""
     results = gate_results(gates_text)
     refusals = [f"{rule} failed" for rule, result in results.items() if result == "FAIL"]
     if args.failure:
         refusals.append(args.failure)
-    steps = step_plan(values(target_data), values(current_data), parse_commits(args.commit), args.force_all)
-    if args.live and all(item["action"] == "skip" for item in steps):
+    if current_data is None:
+        steps = []
+        refusals.append("no current manifest was resolved, so no step plan can be made")
+    else:
+        steps = step_plan(values(target_data), values(current_data), parse_commits(args.commit), args.force_all)
+    if args.live and steps and all(item["action"] == "skip" for item in steps):
         refusals.append("nothing to deploy: every product is unchanged between the manifests (force_all=true proves the path)")
     ledger = base_ledger(args, PLAN_KIND, target_data, current_data)
     ledger.update({
@@ -382,7 +394,10 @@ def main(argv=None):
     for name in ("plan", "final"):
         cmd = sub.add_parser(name)
         cmd.add_argument("--manifest", required=True)
-        cmd.add_argument("--current-manifest", required=True)
+        cmd.add_argument("--current-manifest", required=name == "final", default="")
+        cmd.add_argument("--state-version", type=int, help="version of the live-state record the preflight read (RT-1084)")
+        cmd.add_argument("--state-sha256", help="its sha256")
+        cmd.add_argument("--manifest-source", choices=["given", "record"], help="where current_manifest came from")
         cmd.add_argument("--jira-key", required=True)
         cmd.add_argument("--actor", default="")
         cmd.add_argument("--run-url", default="")

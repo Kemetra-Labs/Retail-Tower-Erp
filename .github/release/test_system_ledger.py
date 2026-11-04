@@ -18,7 +18,7 @@ JIRA = "RT-1031"
 BACKUP_LINE = "RT_BACKUP name=rtlab-v0.3.1-to-v0.3.2-20261101T080000Z.dump sha256=" + "a" * 64
 OLD_IMAGE = "ghcr.io/kemetra-labs/rt-erpnext@sha256:" + "b" * 64
 OLD_SHA = "c" * 40
-GOOD_GATES = "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass G8=pass"
+GOOD_GATES = "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass G8=pass G9=pass"
 ALL_STEPS = "backup,backend,console,erp"
 SHA_A, SHA_B = "1" * 40, "2" * 40
 SAME_COMMITS = ["target_backend_release=" + SHA_A, "current_backend_release=" + SHA_A,
@@ -90,25 +90,26 @@ class GateResults(unittest.TestCase):
         self.assertEqual(set(system_ledger.gate_results("").values()), {"not-run"})
 
     def test_fail_beats_pass_and_unverified_beats_pass(self):
-        text = "G1 pass: a\nG2 pass: b\nG2 FAIL: c\nG7 unverified: d\nG7 pass: e\nnoise\nG9 pass: x\n"
+        text = "G1 pass: a\nG2 pass: b\nG2 FAIL: c\nG7 unverified: d\nG7 pass: e\nnoise\nG0 pass: x\nG10 pass: y\nG9 FAIL: record: z\n"
         results = system_ledger.gate_results(text)
         self.assertEqual((results["G1"], results["G2"], results["G7"], results["G3"]), ("pass", "FAIL", "unverified", "not-run"))
+        self.assertEqual((results["G9"], len(results)), ("FAIL", 9))  # G9 is the live-state record (RT-1084); G8 is its own rule
 
     def test_the_gate_string_is_strict(self):
         self.assertEqual(system_ledger.parse_gate_string(GOOD_GATES)["G4"], "pass")
-        for bad in ("", "G1=pass; id", "G1=maybe", "G9=pass"):
+        for bad in ("", "G1=pass; id", "G1=maybe", "G0=pass", "G10=pass"):
             with self.assertRaises(ValueError, msg=bad):
                 system_ledger.parse_gate_string(bad)
 
 
 class Plan(unittest.TestCase):
-    def plan(self, gates, failure="", live=False, current=None, commits=(), force_all=False):
+    def plan(self, gates, failure="", live=False, current=None, commits=(), force_all=False, no_current=False, extra=()):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         gates_file = pathlib.Path(tmp.name) / "gates.txt"
         gates_file.write_text(gates, encoding="utf-8")
-        argv = ["plan", "--manifest", str(MANIFEST), "--current-manifest", str(current or MANIFEST), "--jira-key", JIRA,
-                "--gates-file", str(gates_file), "--failure", failure, "--rollback-allowed", "true",
+        argv = ["plan", "--manifest", str(MANIFEST), *([] if no_current else ["--current-manifest", str(current or MANIFEST)]),
+                "--jira-key", JIRA, "--gates-file", str(gates_file), "--failure", failure, *extra, "--rollback-allowed", "true",
                 "--erp-rollback-class", "image-only", "--environment-gate", "reviewed", "--out", tmp.name,
                 "--generated-at", "2026-11-01T00:00:00Z"]
         argv += [item for commit in commits for item in ("--commit", commit)]
@@ -125,6 +126,21 @@ class Plan(unittest.TestCase):
         self.assertEqual(ledger["backend"], {"rollbackAllowed": True})
         self.assertEqual(ledger["erp"], {"rollbackClass": "image-only"})
         self.assertIn("PLANNED", (pathlib.Path(tmp) / "summary.md").read_text(encoding="utf-8"))
+
+    def test_a_refused_G9_leaves_a_refused_plan_with_no_current_manifest(self):
+        code, ledger, tmp = self.plan("G9 FAIL: record: ParameterNotFound\n", failure="preflight step state ended failure", no_current=True, live=True)
+        self.assertEqual((code, ledger["outcome"]), (1, "refused"))
+        self.assertEqual((ledger["currentSystem"], ledger["currentManifest"], ledger["stepPlan"]), (None, None, []))
+        self.assertEqual(ledger["gates"]["G9"], "FAIL")
+        self.assertIn("no current manifest was resolved", " ".join(ledger["refusals"]))
+        self.assertNotIn("nothing to deploy", " ".join(ledger["refusals"]))
+        self.assertIn("no resolved current manifest", (pathlib.Path(tmp) / "summary.md").read_text(encoding="utf-8"))
+
+    def test_the_live_state_the_preflight_read_is_in_the_ledger(self):
+        _, ledger, _ = self.plan("", extra=["--state-version", "7", "--state-sha256", "a" * 64, "--manifest-source", "record"])
+        self.assertEqual(ledger["liveState"], {"param": "/rt/lab/live-state", "version": 7, "sha256": "a" * 64, "currentManifestSource": "record"})
+        _, ledger, _ = self.plan("")
+        self.assertNotIn("liveState", ledger)
 
     def test_a_failed_rule_refuses(self):
         code, ledger, _ = self.plan("G1 pass: ok\nG4 FAIL: a consumer PIN is incompatible\n")
