@@ -128,10 +128,12 @@ which is not a fault of the device.
    - Without `DESCOPE_PROJECT_ID`, every manager or admin sign-in is refused with the generic error, and
      the log shows `operator.sign_in.refused category=invalid_input stage=identity_provider`. The project
      id is public, not a secret. Cashier PIN sign-in does not need it.
-   - Every sale feature is off in a packaged app. With `POS_PULSE_FEATURE_CART` unset, a signed-in manager sees
-     «سلة البيع غير مفعّلة على هذا الجهاز بعد.». The five `true` variables above are the set for a cash test sale
-     (source: `src/main/app/feature-flags.ts`). `PAYMENTS` needs `SALE_FINALIZATION`; with `PAYMENTS` on and it off, the
-     app refuses to sell. `RETURNS`, `SALE_VOID`, `CARD_TENDER` and `VOUCHER_TENDER` stay off unless a drill needs them.
+   - Every sale feature except returns is off in a packaged app. With `POS_PULSE_FEATURE_CART` unset, a signed-in
+     manager sees «سلة البيع غير مفعّلة على هذا الجهاز بعد.». The five `true` variables above are the set for a cash
+     test sale (source: `src/main/app/feature-flags.ts`). `PAYMENTS` needs `SALE_FINALIZATION`; with `PAYMENTS` on and it
+     off, the app refuses to sell. `RETURNS` is on by default for managers and admins since RT-1180
+     (`POS_PULSE_FEATURE_RETURNS=false` turns it off). `SALE_VOID`, `CARD_TENDER` and `VOUCHER_TENDER` stay off unless
+     a drill needs them.
 3. **Install the first release.** The device needs `gh` (signed in) and a copy of
    `apps/pos/scripts/lab/verify-lab-signature.ps1`; if it has neither, run the download and the checks on
    the build machine and carry the installer, its `.sha256` and the script across. Verify before running:
