@@ -454,7 +454,7 @@ For every push to a PR that targets `main` (the first push and each corrective p
      - `.circleci/` equal to `origin/main` (the remote guard refuses otherwise);
      - no existing result for that SHA;
      - one run at a time, at most 30 triggers per Cairo day across all sessions;
-     - never `rerun_workflow`, never the TIA parameters (until the owner amends that rule);
+     - never `rerun_workflow`, never the TIA parameters (`advisory_enabled`, `full_tia_analysis`, `tia_probe`); a `remote_suite=api` run records the TIA shadow by itself, with no parameter (RT-1188), and the guard, selection and miss report land in its `tia` artifact;
      - log each run on the work's Jira issue.
    - **Then:** push to the PR branch only when the suite is green. The laptop runs only light checks.
    - **Limits:** this never replaces GitHub `required`.
