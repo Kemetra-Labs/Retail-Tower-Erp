@@ -79,6 +79,42 @@ describe('T025 — catalogue.lookupBarcode wired to the repo', () => {
     db.close();
   });
 
+  // RT-1167 (RT-1044 S1, F-01): lookup is exact. A partial scan never resolves a product.
+  it('returns not_found for a strict prefix of a seeded barcode that is not itself registered', async () => {
+    const db = freshCatalogueDb();
+    seedProduct(db, { product_id: 'p-1', sku: 'S1' });
+    const full: string = '6221000000001';
+    seedBarcode(db, { product_id: 'p-1', barcode: full });
+    const prefix: string = full.slice(0, 9);
+    // The fixture precondition: the prefix is a strict prefix and is NOT registered.
+    expect(full.startsWith(prefix) && prefix !== full).toBe(true);
+    const registered = db.exec(
+      `SELECT COUNT(*) FROM product_barcodes WHERE barcode_norm = '${prefix}'`,
+    );
+    expect(registered[0]?.values[0]?.[0]).toBe(0);
+
+    expect((await bridgeFor(db).lookupBarcode({ barcode: prefix })).kind).toBe('not_found');
+    expect((await bridgeFor(db).lookupBarcode({ barcode: '6221000000001' })).kind).toBe('one');
+    db.close();
+  });
+
+  it('returns the shorter product when the prefix is itself a registered barcode', async () => {
+    const db = freshCatalogueDb();
+    seedProduct(db, { product_id: 'p-1', sku: 'S1' });
+    seedProduct(db, { product_id: 'p-2', sku: 'S2' });
+    seedBarcode(db, { barcode_id: 'b-long', product_id: 'p-1', barcode: '6221000000001' });
+    seedBarcode(db, { barcode_id: 'b-short', product_id: 'p-2', barcode: '622100000' });
+
+    const short = await bridgeFor(db).lookupBarcode({ barcode: '622100000' });
+    expect(short.kind).toBe('one');
+    if (short.kind === 'one') expect(short.product.product_id).toBe('p-2');
+
+    const long = await bridgeFor(db).lookupBarcode({ barcode: '6221000000001' });
+    expect(long.kind).toBe('one');
+    if (long.kind === 'one') expect(long.product.product_id).toBe('p-1');
+    db.close();
+  });
+
   it('returns ambiguous when one barcode maps to two distinct active products', async () => {
     const db = freshCatalogueDb();
     seedProduct(db, { product_id: 'p-1', sku: 'S1' });

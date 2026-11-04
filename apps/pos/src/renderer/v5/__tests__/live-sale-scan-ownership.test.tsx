@@ -15,7 +15,14 @@ import { useCatalogueSearchStore } from '../../stores/catalogueSearchStore';
 import { useFeatureFlagsStore } from '../../stores/feature-flags-store';
 import { useOperatorSessionStore } from '../../stores/operator-session-store';
 import { usePaymentStore } from '../../stores/payment-store';
-import { makeBridges, saleWithLines } from './__helpers__/live-sale-harness';
+import userEvent from '@testing-library/user-event';
+import {
+  makeBridges,
+  PANADOL,
+  renderSale,
+  saleWithLines,
+  signIn,
+} from './__helpers__/live-sale-harness';
 
 afterEach(() => {
   cleanup();
@@ -101,6 +108,29 @@ describe('the Sale screen is the scan owner (F-01)', () => {
     expect(await screen.findByText(SCAN_DIALOG_OPEN_MESSAGE)).toBeInTheDocument();
     expect(bridges.lookupBarcode).not.toHaveBeenCalled();
     expect(bridges.voidCart).not.toHaveBeenCalled();
+  });
+
+  // RT-1167 (RT-1044 S1, F-01): the search field has no auto-add branch.
+  it.each([
+    ['an exact product name', 'بنادول'],
+    ['a full barcode', '6223004355218'],
+  ])('Enter in the search field after %s (human speed) never adds a line', async (_n, typed) => {
+    const bridges = makeBridges();
+    vi.mocked(bridges.catalogue.search).mockResolvedValue({
+      kind: 'results',
+      items: [PANADOL],
+      truncated: false,
+    });
+    signIn();
+    renderSale(bridges);
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('البحث بالاسم أو الباركود'), `${typed}{Enter}`);
+    await waitFor(() => {
+      expect(bridges.catalogue.search).toHaveBeenCalled();
+    });
+    expect(bridges.add).not.toHaveBeenCalled();
+    expect(bridges.lookupBarcode).not.toHaveBeenCalled();
+    expect(document.querySelectorAll('.v5-sale-cart-line')).toHaveLength(0);
   });
 
   it('a burst typed into the search field is a scan and clears the field', async () => {
