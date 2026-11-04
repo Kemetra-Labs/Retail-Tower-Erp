@@ -13,7 +13,7 @@ INSERT / UPDATE policies (no DELETE), `updated_at` trigger. DOWN drops the table
 ## T002 — DTO `dto/terminal-pair.dto.ts`
 Zod `TerminalPairRequestSchema` (`pairing_code` 6–32, `additionalProperties:false`
 via `.strict()`); `TerminalPairResponseBody` type; `toBody()` projection mapping
-DB row + raw token → the 11-field snake_case envelope (printer_com_port nullable).
+DB row + raw token → the snake_case envelope (11 fields as first written; 8 since RT-1184 removed the three printer fields).
 
 ## T003 — Repository `pairing.repository.ts`
 `findByCodeHash` (bare admin pool, hash probe, returns row or null);

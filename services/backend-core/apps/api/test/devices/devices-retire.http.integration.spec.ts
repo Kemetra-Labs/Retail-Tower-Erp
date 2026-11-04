@@ -79,8 +79,8 @@ const h = scopedHttpHarness({
     await env.admin.query(
       `INSERT INTO pairing_codes
          (id, tenant_id, store_id, code_hash, terminal_id, terminal_label, branch_name, branch_address,
-          tenant_tax_registration_id, printer_vendor_id, printer_product_id, status, expires_at, replaces_device_id)
-       VALUES ($1, $2, $3, $4, gen_random_uuid(), 'Till', 'Branch', 'Address', 'TAX-1', '0x04b8', '0x0202',
+          tenant_tax_registration_id, status, expires_at, replaces_device_id)
+       VALUES ($1, $2, $3, $4, gen_random_uuid(), 'Till', 'Branch', 'Address', 'TAX-1',
                'pending', now() + interval '1 day', $5)`,
       [OLD_PENDING_CODE, TENANT_A, STORE_A_X, createHash("sha256").update("old-pending").digest(), D_OLD],
     );

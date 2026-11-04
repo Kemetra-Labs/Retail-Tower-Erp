@@ -183,9 +183,6 @@ function pairing({ terminal_id, device_token }: PairingFixture): PersistInput {
     branch_name: 'Branch',
     branch_address: 'Addr',
     tenant_tax_registration_id: 'TRN',
-    printer_vendor_id: null,
-    printer_product_id: null,
-    printer_com_port: null,
     device_token,
   };
 }
