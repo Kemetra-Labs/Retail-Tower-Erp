@@ -4,6 +4,7 @@ import type { OperatorBridgeAPI } from '../../../shared/bridge-api.js';
 import { useOperatorSessionStore } from '../../stores/operator-session-store.js';
 import { completeSignIn } from '../../session/complete-sign-in.js';
 import { SIGN_IN_REFUSAL_COPY } from './messages.js';
+import { EntryBand } from '../../v5/entry/EntryBand.js';
 
 /**
  * 004-operator-session T076 + T077 — TakeoverPrompt (Surface 5).
@@ -129,18 +130,7 @@ export function TakeoverPrompt({
       data-entry-surface=""
     >
       {/* RT-1096: the entry family's Ink band; decorative, never changes with state. */}
-      <div className="takeover-prompt__band" aria-hidden="true">
-        <span className="takeover-prompt__mark">
-          <svg viewBox="0 0 64 64" width="60%" height="60%" fill="currentColor" focusable="false">
-            <rect x="8" y="36" width="12" height="20" rx="3" />
-            <rect x="26" y="22" width="12" height="34" rx="3" />
-            <rect x="44" y="8" width="12" height="48" rx="3" />
-          </svg>
-        </span>
-        <span className="takeover-prompt__brand" dir="ltr">
-          Retail Tower
-        </span>
-      </div>
+      <EntryBand />
       <div className="takeover-prompt__stage">
         <div className="takeover-prompt__content">
           <h2

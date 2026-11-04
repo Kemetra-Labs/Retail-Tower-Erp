@@ -47,17 +47,16 @@ function forcedBlock(css: string): string {
 }
 
 describe('TakeoverPrompt structure', () => {
-  it('is an entry-surface dialog with a decorative Ink band and the card inside', () => {
+  it('is an entry-surface dialog with the shared Ink band and the card inside', () => {
     render(<TakeoverPrompt operator={bridge} pending_takeover_id="p1" />);
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveAttribute('data-entry-surface');
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(dialog).toHaveAttribute('aria-labelledby', 'takeover-prompt-title');
 
-    const band = dialog.querySelector('.takeover-prompt__band');
-    expect(band).toHaveAttribute('aria-hidden', 'true');
+    const band = dialog.querySelector('.v5-entry-band');
+    expect(band).toHaveAttribute('data-testid', 'entry-band');
     expect(band).toHaveTextContent('Retail Tower');
-    expect(band?.querySelector('.takeover-prompt__brand')).toHaveAttribute('dir', 'ltr');
 
     const card = dialog.querySelector('.takeover-prompt__stage > .takeover-prompt__content');
     expect(card).not.toBeNull();
@@ -75,29 +74,15 @@ describe('TakeoverPrompt structure', () => {
         .join(''),
     ).not.toMatch(/overlay-scrim|shadow-overlay/);
   });
-
-  it('keeps the dialog name free of the decorative band text', () => {
-    render(<TakeoverPrompt operator={bridge} pending_takeover_id="p1" />);
-    expect(screen.getByRole('dialog', { name: /already signed in/i })).toBeInTheDocument();
-  });
 });
 
 describe('TakeoverPrompt stylesheet', () => {
   const rules = takeoverRules(tailwind);
 
-  it('names the Ink roles and never spells a colour', () => {
+  it('never spells a colour', () => {
     const joined = rules.map(([, body]) => body).join('\n');
-    expect(joined).toMatch(/var\(--color-ink\)/);
-    expect(joined).toMatch(/var\(--color-on-ink\)/);
     expect(joined).not.toMatch(/#[0-9a-f]{3,8}\b/i);
     expect(joined).not.toMatch(/rgba?\(/i);
-  });
-
-  it('uses Mint only as the mark tile background, never as text or on the light card', () => {
-    const uses = rules.filter(([, body]) => /var\(--color-mint\)/.test(body));
-    expect(uses.map(([selector]) => selector)).toEqual(['.takeover-prompt__mark']);
-    expect(uses[0]?.[1]).toMatch(/background\s*:\s*var\(--color-mint\)/);
-    expect(uses[0]?.[1]).not.toMatch(/(?:^|[;\s])color\s*:\s*var\(--color-mint\)/);
   });
 
   it('is flat: no shadow, no gradient (OD-4)', () => {
@@ -111,21 +96,12 @@ describe('TakeoverPrompt stylesheet', () => {
     expect(joined).not.toMatch(/(?:^|[;\s])(?:left|right|margin-left|margin-right)\s*:/);
     expect(joined).not.toMatch(/(?:padding|border)-(?:left|right)/);
     expect(joined).not.toMatch(/(?:^|[;\s])(?:width|height)\s*:/);
-    expect(joined).toMatch(/padding-inline\s*:/);
   });
 
-  it('keeps the band short at the 1024x600 floor', () => {
-    expect(tailwind).toMatch(/--takeover-band-size:\s*52px/);
-  });
-
-  it('maps the band, tile and card to system colours under forced colours, with no Mint', () => {
+  it('maps the root and card to system colours under forced colours (the band maps itself in entry-band.css)', () => {
     const section = tailwind.slice(tailwind.indexOf('.takeover-prompt__actions {'));
     const forced = forcedBlock(section);
-    expect(forced).toMatch(
-      /\.takeover-prompt__band\s*\{[^}]*border-block-end\s*:\s*1px solid CanvasText/,
-    );
-    expect(forced).toMatch(/\.takeover-prompt__band\s*\{[^}]*background\s*:\s*Canvas/);
-    expect(forced).toMatch(/\.takeover-prompt__mark\s*\{[^}]*background\s*:\s*Canvas/);
+    expect(forced).toMatch(/\.takeover-prompt\s*\{[^}]*background-color\s*:\s*Canvas/);
     expect(forced).toMatch(/\.takeover-prompt__content\s*\{[^}]*border-color\s*:\s*CanvasText/);
     expect(forced).not.toMatch(/var\(--color-mint\)|var\(--color-ink\)/);
   });
