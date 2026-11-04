@@ -1,5 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { store } from "../e2e/compact-shell-data";
+import { PRODUCT } from "../e2e/detail-template-data";
 import { type Page, expect, test } from "../e2e/fixtures";
 import { FIXED_NOW } from "./screen-data";
 import { SCREENS } from "./screens";
@@ -30,10 +32,38 @@ const OVERRIDES = "section.section-panel:has(#catalog-detail-overrides)";
 const STOCK_LEVELS = "section.section-panel:has(#catalog-detail-stock-levels)";
 
 const CHANGE_VALUES = `${OVERRIDES} .catalog-detail__store-actions button`;
+/** A second store, with a stock level, so the panel renders a per-store "Change" button too. */
+const OTHER_STORE = {
+  ...store,
+  id: "0190f000-0000-7000-8000-0000000005a2",
+  code: "ALX-2000",
+  name: `${store.name} 2`,
+};
+const OTHER_STORE_LEVELS = {
+  productId: PRODUCT,
+  tenantLevel: null,
+  storeLevels: [
+    {
+      storeId: OTHER_STORE.id,
+      reorderLevel: "12.5000",
+      criticalLevel: "3",
+      updatedAt: "2026-10-07T10:30:00Z",
+    },
+  ],
+};
+
 const BUTTONS = [
   { name: "change-values", selector: CHANGE_VALUES },
   { name: "set-level", selector: `${STOCK_LEVELS} .catalog-retire__actions button` },
-  { name: "change-level", selector: `${STOCK_LEVELS} .catalog-detail__store-actions button` },
+  // The tenant action sits in an `h3` head; a store row's head has an `h4`.
+  {
+    name: "change-store-level",
+    selector: `${STOCK_LEVELS} .catalog-detail__store-head:has(h4) .catalog-detail__store-actions button`,
+  },
+  {
+    name: "change-tenant-level",
+    selector: `${STOCK_LEVELS} .catalog-detail__store-head:has(h3) .catalog-detail__store-actions button`,
+  },
 ];
 
 /** In the page. The button and its label against every clipping ancestor. */
@@ -81,6 +111,15 @@ async function open(page: Page, width: number): Promise<void> {
   if (!screen) return;
   await page.clock.setFixedTime(FIXED_NOW);
   await screen.mock(page);
+  const json = (body: unknown) => ({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify(body),
+  });
+  await page.route("**/api/v1/stores", (r) => r.fulfill(json([store, OTHER_STORE])));
+  await page.route(`**/api/v1/catalog/products/${PRODUCT}/stock-levels`, (r) =>
+    r.fulfill(json(OTHER_STORE_LEVELS)),
+  );
   await page.setViewportSize({ width, height: HEIGHT });
   await page.goto(screen.route);
   await expect(page.locator(CHANGE_VALUES).first()).toBeVisible({ timeout: 20_000 });
@@ -111,8 +150,8 @@ for (const width of WIDTHS) {
       );
       console.log(`RT-1195-FIT ${JSON.stringify(line)}`);
 
-      // The two buttons RT-1187 measured must exist; the third only when the mock has one.
-      for (const name of ["change-values", "set-level"]) {
+      // The buttons RT-1187 measured, and the two other kinds of store button, must all exist.
+      for (const name of BUTTONS.map((b) => b.name)) {
         expect(absent, `${name} found`).not.toContain(name);
       }
       for (const r of results) {
