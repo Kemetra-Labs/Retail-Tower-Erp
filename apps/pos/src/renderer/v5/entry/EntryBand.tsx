@@ -1,7 +1,7 @@
 import type { JSX, ReactNode } from 'react';
 
 import { RetailTowerMark } from '../brand/RetailTowerMark';
-import { EntryBandOrnament } from './EntryBandOrnament';
+import { EntryBandOrnament } from '../brand/EntryBandOrnament';
 import './entry-band.css';
 
 /**

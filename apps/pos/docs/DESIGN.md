@@ -690,7 +690,7 @@ This section is the repository record. The rationale, boards and prototype are i
   Shipped (S4, RT-1093) as an opt-in `ornament` on `EntryBand`, passed only by `SignInBand`:
   the reference geometry (grid, ruler, 13 skyline bars; Mint strokes at 6 / 22 / 40%) behind the band's
   content, `display: none` below 1280 wide or 768 high and under forced colours. Other bands render
-  unchanged. Source: `v5/entry/EntryBandOrnament.tsx`, `entry-band-ornament.css`.
+  unchanged. Source: `v5/brand/EntryBandOrnament.tsx` and `entry-band-ornament.css` (a brand mark, so it lives with the others, RT-695).
 - **Forced colours.** The band maps to `Canvas` / `CanvasText` with a 1px edge; the ornament
   disappears; the selected roster card and the commit take `Highlight` / `HighlightText`.
 

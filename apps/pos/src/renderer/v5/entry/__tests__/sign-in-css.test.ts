@@ -233,7 +233,7 @@ describe('RT-1092 sign-in.css — Windows contrast themes', () => {
  */
 const stripComments = (source: string): string => source.replace(/\/\*[\s\S]*?\*\//g, '');
 const ornamentCss = stripComments(
-  readFileSync(resolve(__dirname, '../entry-band-ornament.css'), 'utf-8'),
+  readFileSync(resolve(__dirname, '../../brand/entry-band-ornament.css'), 'utf-8'),
 );
 const ornamentForced = mediaBlocks(ornamentCss, /\(forced-colors:\s*active\)/);
 const ornamentSmall = mediaBlocks(
