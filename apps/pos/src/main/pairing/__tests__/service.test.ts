@@ -73,7 +73,7 @@ const PRINTER_FIELDS_AS_NULL = {
   printer_com_port: null,
 };
 function pairBody(printerFields: Record<string, string | null> | undefined): PairSuccessBody {
-  return { ...SUCCESS_BODY, ...printerFields } as unknown as PairSuccessBody;
+  return { ...SUCCESS_BODY, ...printerFields };
 }
 const PAIRED_AT = 1735689600;
 
