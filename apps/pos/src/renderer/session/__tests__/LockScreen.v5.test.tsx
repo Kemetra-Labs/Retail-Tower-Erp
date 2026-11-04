@@ -138,6 +138,15 @@ describe('RT-1095 lock joins the entry family (OD-13)', () => {
     expect(document.querySelector('.session-lock')).toHaveAttribute('data-entry-surface');
   });
 
+  it('carries the shared Ink band, with no second band and no sale content', () => {
+    renderWith();
+    expect(screen.getAllByTestId('entry-band')).toHaveLength(1);
+    expect(screen.getByTestId('entry-band')).toHaveTextContent('Retail Tower');
+    expect(document.querySelector('.session-lock')).toContainElement(
+      screen.getByTestId('entry-band'),
+    );
+  });
+
   it('shows the sign-in PIN dock for a cashier, with no text field', () => {
     renderWith();
     expect(screen.getByTestId('pin-pad')).toBeInTheDocument();

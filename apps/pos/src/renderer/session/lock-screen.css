@@ -33,9 +33,34 @@
   background: var(--color-background);
 }
 
-.session-lock__keys {
-  /* a key-listening scope with no box of its own: the dialog lays out its children */
-  display: contents;
+/*
+ * RT-1095 (L-2): the shared Ink band (EntryBand, RT-1096) sits over the opaque
+ * backdrop, pinned at the top. The dialog is centred in what is left below it.
+ */
+.session-lock > .v5-entry-band {
+  position: fixed;
+  z-index: 11;
+  inset-block-start: 0;
+  inset-inline: 0;
+}
+
+.session-lock .v5-dialog-backdrop {
+  box-sizing: border-box;
+  padding-block-start: 64px;
+}
+
+.session-lock .v5-dialog {
+  max-block-size: calc(100dvh - 64px - 2 * var(--v5-gutter, var(--space-3)));
+}
+
+@media (max-width: 1279px), (max-height: 700px) {
+  .session-lock .v5-dialog-backdrop {
+    padding-block-start: 52px;
+  }
+
+  .session-lock .v5-dialog {
+    max-block-size: calc(100dvh - 52px - 2 * var(--v5-gutter, var(--space-3)));
+  }
 }
 
 .session-lock__head {

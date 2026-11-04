@@ -17,6 +17,7 @@ import type { RefusalCategory } from '../../shared/audit/event-shape';
 import { PIN_MAX_LENGTH, PIN_MIN_LENGTH, PinPad } from '../ui/operator/PinPad';
 import { Dialog, DialogHost } from '../v5/foundation/Dialog';
 import { Icon } from '../icons/Icon';
+import { EntryBand } from '../v5/entry/EntryBand';
 import { BrandSlot, PoweredBy } from '../branding/BrandSlot';
 import { useBranding } from '../branding/branding-store';
 import '../v5/entry/entry.css';
@@ -99,15 +100,13 @@ export function LockScreen({
   }, [firstFieldRef]);
 
   const rootRef = useRef<HTMLDivElement>(null);
-  // The PinPad hears the hardware keys here, inside the Dialog's portal. The
-  // portal host runs its own React listener, which stops key events at the
-  // lock's onKeyDown, so neither the root nor `window` ever sees them.
-  // The panel itself is the listener: it is focusable (tabIndex -1), so a press on
-  // its padding moves focus there, outside any child scope.
-  const keyScopeRef = useRef<HTMLDivElement>(null);
+  // The PinPad hears the hardware keys on the Dialog panel. The portal host runs
+  // its own React listener, which stops key events at the lock's onKeyDown, so
+  // neither the root nor `window` ever sees them; the panel is focusable
+  // (tabIndex -1), so it must be the listener itself, not a child scope.
   const panelRef = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
-    panelRef.current = keyScopeRef.current?.parentElement ?? null;
+    panelRef.current = rootRef.current?.querySelector<HTMLElement>('.v5-dialog') ?? null;
   }, []);
   // RT-475 (RT-832 lock): the tenant logo above the lock head, from the local cache.
   const branding = useBranding();
@@ -182,6 +181,7 @@ export function LockScreen({
 
   return (
     <div ref={rootRef} className="session-lock" data-entry-surface="" onKeyDown={onLockKeyDown}>
+      <EntryBand />
       <DialogHost>
         <Dialog
           label={LOCK_TITLE}
@@ -190,120 +190,118 @@ export function LockScreen({
           initialFocusRef={firstFieldRef}
           restoreFocus={false}
         >
-          <div ref={keyScopeRef} className="session-lock__keys">
-            <BrandSlot slot="lock" snapshot={branding} />
-            <div className="session-lock__head">
-              <span className="session-lock__mark" aria-hidden="true">
-                <Icon name="lock" size="lg" />
-              </span>
-              <h2 id={titleId} className="v5-live-dialog-title session-lock__title">
-                {LOCK_TITLE}
-              </h2>
-            </div>
-            <p id={descId} className="session-lock__prompt">
-              {isCashier ? LOCK_PROMPT_PIN : LOCK_PROMPT_CREDENTIALS}
-            </p>
-            <form
-              className="session-lock__form"
-              onSubmit={(e) => {
-                void submit(e);
-              }}
-            >
-              {view.display_name !== null && (
-                <p className="session-lock__operator">
-                  فتح القفل لـ <bdi>{view.display_name}</bdi>
-                </p>
-              )}
-              {isCashier ? (
-                <PinPad
-                  value={pin}
-                  onChange={setPin}
-                  onSubmit={() => {
-                    void submit();
-                  }}
-                  disabled={busy}
-                  error={error !== null}
-                  {...(error !== null ? { describedBy: errId } : {})}
-                  submitLabel={LOCK_UNLOCK_LABEL}
-                  keyTarget={panelRef}
-                  dotsRef={dotsRef}
-                  feedback={
-                    error !== null ? (
-                      <p id={errId} role="alert" className="session-lock__error">
-                        <Icon name="status.danger" />
-                        <span>{error}</span>
-                      </p>
-                    ) : (
-                      <p className="v5-entry__status">{LOCK_PIN_HINT}</p>
-                    )
-                  }
-                />
-              ) : (
-                <>
-                  <div className="v5-shift-fields">
-                    <label htmlFor={`${titleId}-id`}>البريد أو اسم المستخدم</label>
-                    <input
-                      className="v5-shift-input"
-                      ref={identifierRef}
-                      id={`${titleId}-id`}
-                      type="text"
-                      autoComplete="username"
-                      dir="ltr"
-                      value={identifier}
-                      onChange={(e) => {
-                        setIdentifier(e.target.value);
-                      }}
-                    />
-                  </div>
-                  <div className="v5-shift-fields">
-                    <label htmlFor={`${titleId}-pw`}>كلمة المرور</label>
-                    <input
-                      className="v5-shift-input"
-                      id={`${titleId}-pw`}
-                      type="password"
-                      autoComplete="current-password"
-                      dir="ltr"
-                      value={password}
-                      aria-invalid={error !== null ? 'true' : undefined}
-                      aria-describedby={error !== null ? errId : undefined}
-                      onChange={(e) => {
-                        setPassword(e.target.value);
-                      }}
-                    />
-                  </div>
-                </>
-              )}
-              {!isCashier && error !== null && (
-                <p id={errId} role="alert" className="session-lock__error">
-                  <Icon name="status.danger" />
-                  <span>{error}</span>
-                </p>
-              )}
-              <div>
-                {!isCashier && (
-                  <button
-                    type="submit"
-                    className="v5-live-btn v5-live-btn--primary v5-btn v5-btn--primary"
-                    disabled={busy}
-                    aria-busy={busy ? 'true' : undefined}
-                  >
-                    {LOCK_UNLOCK_LABEL}
-                  </button>
-                )}
-                {onSwitchOperator !== undefined && (
-                  <button
-                    type="button"
-                    className="v5-live-btn v5-btn"
-                    disabled={busy}
-                    onClick={onSwitchOperator}
-                  >
-                    دخول موظف آخر
-                  </button>
-                )}
-              </div>
-            </form>
-            <PoweredBy snapshot={branding} className="session-lock__powered-by" />
+          <BrandSlot slot="lock" snapshot={branding} />
+          <div className="session-lock__head">
+            <span className="session-lock__mark" aria-hidden="true">
+              <Icon name="lock" size="lg" />
+            </span>
+            <h2 id={titleId} className="v5-live-dialog-title session-lock__title">
+              {LOCK_TITLE}
+            </h2>
           </div>
+          <p id={descId} className="session-lock__prompt">
+            {isCashier ? LOCK_PROMPT_PIN : LOCK_PROMPT_CREDENTIALS}
+          </p>
+          <form
+            className="session-lock__form"
+            onSubmit={(e) => {
+              void submit(e);
+            }}
+          >
+            {view.display_name !== null && (
+              <p className="session-lock__operator">
+                فتح القفل لـ <bdi>{view.display_name}</bdi>
+              </p>
+            )}
+            {isCashier ? (
+              <PinPad
+                value={pin}
+                onChange={setPin}
+                onSubmit={() => {
+                  void submit();
+                }}
+                disabled={busy}
+                error={error !== null}
+                {...(error !== null ? { describedBy: errId } : {})}
+                submitLabel={LOCK_UNLOCK_LABEL}
+                keyTarget={panelRef}
+                dotsRef={dotsRef}
+                feedback={
+                  error !== null ? (
+                    <p id={errId} role="alert" className="session-lock__error">
+                      <Icon name="status.danger" />
+                      <span>{error}</span>
+                    </p>
+                  ) : (
+                    <p className="v5-entry__status">{LOCK_PIN_HINT}</p>
+                  )
+                }
+              />
+            ) : (
+              <>
+                <div className="v5-shift-fields">
+                  <label htmlFor={`${titleId}-id`}>البريد أو اسم المستخدم</label>
+                  <input
+                    className="v5-shift-input"
+                    ref={identifierRef}
+                    id={`${titleId}-id`}
+                    type="text"
+                    autoComplete="username"
+                    dir="ltr"
+                    value={identifier}
+                    onChange={(e) => {
+                      setIdentifier(e.target.value);
+                    }}
+                  />
+                </div>
+                <div className="v5-shift-fields">
+                  <label htmlFor={`${titleId}-pw`}>كلمة المرور</label>
+                  <input
+                    className="v5-shift-input"
+                    id={`${titleId}-pw`}
+                    type="password"
+                    autoComplete="current-password"
+                    dir="ltr"
+                    value={password}
+                    aria-invalid={error !== null ? 'true' : undefined}
+                    aria-describedby={error !== null ? errId : undefined}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                    }}
+                  />
+                </div>
+              </>
+            )}
+            {!isCashier && error !== null && (
+              <p id={errId} role="alert" className="session-lock__error">
+                <Icon name="status.danger" />
+                <span>{error}</span>
+              </p>
+            )}
+            <div>
+              {!isCashier && (
+                <button
+                  type="submit"
+                  className="v5-live-btn v5-live-btn--primary v5-btn v5-btn--primary"
+                  disabled={busy}
+                  aria-busy={busy ? 'true' : undefined}
+                >
+                  {LOCK_UNLOCK_LABEL}
+                </button>
+              )}
+              {onSwitchOperator !== undefined && (
+                <button
+                  type="button"
+                  className="v5-live-btn v5-btn"
+                  disabled={busy}
+                  onClick={onSwitchOperator}
+                >
+                  دخول موظف آخر
+                </button>
+              )}
+            </div>
+          </form>
+          <PoweredBy snapshot={branding} className="session-lock__powered-by" />
         </Dialog>
       </DialogHost>
     </div>

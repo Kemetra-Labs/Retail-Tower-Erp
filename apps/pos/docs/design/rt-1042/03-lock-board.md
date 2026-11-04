@@ -11,7 +11,7 @@ Actions and go on RT-1095.
 | #   | Decision                                                                                                            |
 | --- | ------------------------------------------------------------------------------------------------------------------- |
 | L-1 | This board, as drawn below.                                                                                         |
-| L-2 | **(a)** The lock uses the same Ink band as sign-in (S3, RT-1092). No second band is built; the lock adopts S3's.     |
+| L-2 | **(a)** The lock uses the same Ink band family as sign-in. The lock renders the shared `EntryBand` (RT-1096, #295) unchanged; no second band is built.     |
 | L-3 | Format copy is sign-in's own: error «الرقم السري من 4 إلى 6 أرقام.», hint «من 4 إلى 6 أرقام.». No English (G-1 §5). |
 | L-4 | «قليلًا» in `rate_limited` on lock and sign-in.                                                                      |
 | L-5 | The lock's own refusal family stays as shipped (generic; manager no-connection line).                               |
@@ -62,7 +62,8 @@ Digits `0–9`, Backspace and Enter work from the hardware keyboard anywhere in 
 clears the entry and keeps the lock. Tab stays inside the dialog. Keys never reach the sale behind
 the lock. The scan guard (capture listener on `window`) runs first, as on sign-in.
 
-## Sequencing
+## Band
 
-The band itself waits for RT-1092 (S3): this slice ships the dock, the copy, the scoped Ink
-scope on the lock root and the forced-colours mapping first, then adopts S3's band.
+The lock renders `EntryBand` as-is (the mark on a Mint tile and «Retail Tower»), pinned at the top
+over the opaque backdrop. The tenant logo stays in the dialog, never on Ink, so OD-10's white card
+is not needed. The band's own forced-colours mapping (Canvas, a 1px edge, no Mint) applies.
