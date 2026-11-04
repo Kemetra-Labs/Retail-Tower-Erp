@@ -264,6 +264,46 @@
   --shadow-inset: inset 0 1px 3px rgba(0, 0, 0, 0.45);
 }
 
+/* ── RT-1091 (RT-1042 S2) — entry-surface Ink and Mint ─────────────────────
+ *
+ * Owner decision OD-1 (2026-11-03): the Console's four Ink roles, under the
+ * same names (RT-414 vocabulary), as the brand surface of the ENTRY screens
+ * only: the band at the top of sign-in, later lock, pairing, Ready and boot
+ * (DESIGN.md "Colour on the entry screens"). Values are DESIGN.md's.
+ *
+ * SCOPED, not global. They are declared on an opt-in attribute instead of
+ * :root, so `var(--color-ink)` does not resolve on the sale, checkout or
+ * recovery surfaces. A screen root opts in with `data-entry-surface`
+ * (S3 sign-in, S6 lock, S7 pairing, Ready and boot each set it on their own
+ * root; no slice edits this block). The attribute is not `data-surface`,
+ * which FitGuard already uses for its notice.
+ *
+ *   --color-ink        the band surface; also the glyph on a Mint tile
+ *   --color-on-ink     primary text and icons on Ink (16.7:1)
+ *   --color-ink-muted  secondary text on Ink (8.9:1)
+ *   --color-mint       highlight on Ink only (10.4:1 on Ink, 1.6:1 on white):
+ *                      the brand-mark tile, ornament strokes; never text or
+ *                      fill on a light surface
+ *
+ * Not here, on purpose:
+ *  - no `@theme` entry: that would emit global `bg-ink` / `text-mint`
+ *    utilities and undo the scope;
+ *  - no TS export in colors.ts: tokens.test.ts requires every export there to
+ *    be a :root `--color-*` var;
+ *  - no dark-register override: Ink is dark in both themes, so the roles are
+ *    theme-invariant (the Console states the same);
+ *  - no forced-colours mapping: the band maps to Canvas / CanvasText with a
+ *    1px edge in the consumer (S3), not in a token value.
+ *
+ * Guard: styles/__tests__/entry-surface-tokens.test.ts.
+ */
+[data-entry-surface] {
+  --color-ink: #0a2125;
+  --color-on-ink: #ffffff;
+  --color-ink-muted: #a9c2c5;
+  --color-mint: #5fe0cf;
+}
+
 @theme {
   --color-surface: var(--color-surface);
   --color-surface-muted: var(--color-surface-muted);
