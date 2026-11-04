@@ -611,6 +611,8 @@ This section is the repository record. The rationale, boards and prototype are i
   sign-in adds), the roster cards, the PIN dock and the refusal slot above the dots
   (`routes/sign-in.tsx`, `v5/entry/SignInBand.tsx`, `v5/entry/sign-in.css`). It ships on the
   current radius tokens, and the dock avatar is the filled Teal disc the references draw.
+- **Lock *(S6, RT-1095)*.** The lock uses sign-in's PIN dock and Arabic-only format copy; board:
+  [`03-lock-board.md`](design/rt-1042/03-lock-board.md).
 - **Behaviour is unchanged.** Refusal categories and copy, PIN rules, offline admission
   (RT-113/RT-114), the roster no-retry rule (RT-246), the scanner owner and keys (D-K1) stay as
   they are. Where a rule below seems to need a behaviour change, stop and raise it.
