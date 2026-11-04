@@ -483,6 +483,21 @@ jobs:
           role-session-name: rt-deploy-lab-${{ github.run_id }}
           role-duration-seconds: 3600
 
+      # RT-1084: before the document, the live-state record (/rt/lab/live-state) is read: a record that is not
+      # valid, or a product in doubt other than this one, stops the run. Then this run is marked inflight; if
+      # that write fails, no document is sent. The record is cleared of the marker only by the step after the
+      # ledger, from what the ledger proves (live_state.py).
+      - name: Mark the live-state record inflight (re-validates it first)
+        id: begin
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/live-ledger"
+          python3 .github/release/live_state.py begin --kind backend --run-id "$RUN_ID" --sha "$RUN_SHA" --product backend \
+            --out-dir "$RUNNER_TEMP/live-ledger" >> "$GITHUB_OUTPUT"
+
       # Exactly two document runs: the lab-02 backup, then the lab-01 deploy. The
       # documents print only fixed RT_* lines; only lines matching the strict
       # pattern below ever reach this public log or the ledger.
@@ -625,6 +640,30 @@ jobs:
             echo '```'
             if [ -n "$FAILURE" ]; then echo; echo "Failure boundary: $FAILURE"; fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # RT-1084: what the ledger proves is recorded: a finished deploy makes the product ok with the version the
+      # ledger names; a run that may have reached the host makes it dirty; a run that provably never reached it
+      # changes nothing. It never infers success. A write that fails leaves the run marked inflight (the next
+      # preflight refuses) and keeps the intended record in state-finish.json next to the ledger.
+      - name: Assume the deploy role to record the outcome (GitHub OIDC, no stored keys)
+        if: ${{ always() && steps.begin.outcome == 'success' }}
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: rt-deploy-lab-state-finish-${{ github.run_id }}
+
+      - name: Record the live state
+        if: ${{ always() && steps.begin.outcome == 'success' }}
+        env:
+          BEGIN_VERSION: ${{ steps.begin.outputs.begin_version }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 .github/release/live_state.py finish --kind backend --run-id "$RUN_ID" --sha "$RUN_SHA" \
+            --ledger "$RUNNER_TEMP/live-ledger/ledger.json" --begin-version "$BEGIN_VERSION" \
+            --root "$GITHUB_WORKSPACE" --out-dir "$RUNNER_TEMP/live-ledger"
 
       - name: Upload the live ledger
         if: always()

@@ -141,8 +141,14 @@ class DeploySystemLab(unittest.TestCase):
         live, pre = job(self.text, "live"), job(self.text, "preflight")
         self.assertIn("environment: aws-lab", live)
         self.assertIn("id-token: write", live)
-        self.assertNotIn("id-token", pre)
-        self.assertNotIn(": write", pre)
+        # RT-1084: the preflight holds the OIDC token for one reason, the read-only state role (G9). It never
+        # assumes the deploy role and writes nothing: id-token is its only `write` permission.
+        self.assertEqual(pre.count("id-token: write"), 1)
+        self.assertEqual(re.findall(r"^      ([a-z-]+): write", pre, re.M), ["id-token"])
+        self.assertEqual(re.findall(r"^          role-to-assume: (.+)$", pre, re.M), ["${{ vars.AWS_STATE_READ_ROLE_ARN }}"])
+        self.assertNotIn("AWS_ROLE_ARN", pre.replace("AWS_STATE_READ_ROLE_ARN", ""))
+        self.assertNotIn("put-parameter", pre)
+        self.assertNotIn("ssm-run.sh", pre)
         self.assertNotIn("aws ", pre)
 
     def test_live_only_after_preflight_and_never_on_a_dry_run(self):
@@ -234,7 +240,7 @@ class DeploySystemLab(unittest.TestCase):
 
     def test_a_role_is_assumed_before_each_document(self):
         live = job(self.text, "live")
-        assumes = [m.start() for m in re.finditer(r"- name: Assume the deploy role", live)]
+        assumes = [m.start() for m in re.finditer(r"- name: Assume the deploy role for the", live)]
         runs = [live.index(f"- name: {name}") for name, *_ in ORDER]
         self.assertEqual(len(assumes), len(runs))
         for assume, run in zip(assumes, runs):
@@ -260,7 +266,7 @@ class DeploySystemLab(unittest.TestCase):
 
     def test_each_role_and_document_runs_on_its_own_step_flag(self):
         live = job(self.text, "live")
-        assumes = [m.start() for m in re.finditer(r"- name: Assume the deploy role", live)]
+        assumes = [m.start() for m in re.finditer(r"- name: Assume the deploy role for the", live)]
         for (name, label, *_), assume in zip(ORDER, assumes):
             flag = f"if: ${{{{ needs.preflight.outputs.{FLAGS[label]} == 'true' }}}}"
             self.assertIn(flag, step(self.text, name))
@@ -318,6 +324,91 @@ class DeploySystemLab(unittest.TestCase):
                          ("JIRA_KEY", "RT-0"), ("DRY_RUN", "maybe"), ("FORCE_ALL", ""), ("FORCE_ALL", "yes")):
             self.assertNotEqual(run_step(guard, {**good, key: bad}).returncode, 0, f"{key}={bad} passed the guard")
 
+    # ---- RT-1084: the live-state record (G9), one resolved current manifest, the inflight marker
+
+    def test_current_manifest_is_resolved_once_and_never_read_from_the_input_again(self):
+        """Only the first guard (a pattern check of the optional input) and the state step read the input;
+        every other step of both jobs takes the one resolved value."""
+        self.assertEqual(self.text.count("inputs.current_manifest"), 3)  # guard, state step, and a comment
+        self.assertIn("${{ inputs.current_manifest }}", step(self.text, "Guard (main only, validated inputs)"))
+        self.assertIn("${{ inputs.current_manifest }}", step(self.text, "Read the live-state record (G9, resolves current_manifest)"))
+        pre, live = job(self.text, "preflight"), job(self.text, "live")
+        for name in ("Read the manifests", "System release gate (offline G1-G5)", "Live lab check (G8, current_manifest matches the live ledgers)",
+                     "Write the planned system ledger"):
+            self.assertEqual(step_env(pre, name, "CURRENT_MANIFEST"), "${{ steps.state.outputs.manifest }}", name)
+        for name in ("Guard (main only, live run, verified plan)", "Read the manifests", "Write the system ledger"):
+            self.assertEqual(step_env(live, name, "CURRENT_MANIFEST"), "${{ needs.preflight.outputs.current_manifest }}", name)
+        self.assertIn("current_manifest: ${{ steps.state.outputs.manifest }}", pre)
+        self.assertIn("required: false", re.search(r"      current_manifest:\n(?:        .*\n)+", self.text).group(0))
+        guard = step_script(self.text, "Guard (main only, validated inputs)")
+        self.assertIn('[ -z "$CURRENT_MANIFEST" ] ||', guard)
+
+    def test_the_state_steps_come_after_the_checkout_and_before_any_manifest_is_read(self):
+        pre = job(self.text, "preflight")
+        order = [pre.index(f"- name: {name}") for name in (
+            "Checkout main", "Assume the state-read role", "Read the live-state record (G9, resolves current_manifest)", "Read the manifests",
+            "System release gate (offline G1-G5)", "Live lab check (G8")]
+        self.assertEqual(order, sorted(order))
+        self.assertNotRegex(step(pre, "Assume the state-read role"), r"(?m)^        if:")
+        self.assertNotRegex(step(pre, "Read the live-state record"), r"(?m)^        if:")  # a failed assume or read stops every later step
+        self.assertIn("live_state.py read", step_script(pre, "Read the live-state record"))
+        self.assertIn('>> "$GITHUB_OUTPUT"', step_script(pre, "Read the live-state record"))
+        # the gate step must not truncate the G9 line the state step wrote
+        self.assertNotIn(': > "$GATES"', step_script(pre, "System release gate (offline G1-G5)"))
+
+    def test_the_state_read_credentials_reach_no_later_preflight_step(self):
+        pre = job(self.text, "preflight")
+        drop = step(pre, "Drop the state-read credentials from the environment")
+        self.assertIn("if: ${{ always() && steps.state_auth.outcome == 'success' }}", drop)
+        script = step_script(pre, "Drop the state-read credentials from the environment")
+        for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_REGION", "AWS_DEFAULT_REGION"):
+            self.assertIn(name, script)
+        self.assertIn('>> "$GITHUB_ENV"', script)
+        order = [pre.index(f"- name: {name}") for name in (
+            "Read the live-state record (G9, resolves current_manifest)", "Drop the state-read credentials from the environment", "Read the manifests")]
+        self.assertEqual(order, sorted(order))
+
+    def test_g8_is_not_changed_and_g9_is_its_own_rule(self):
+        pre = job(self.text, "preflight")
+        script = step_script(pre, "Live lab check (G8, current_manifest matches the live ledgers)")
+        self.assertIn("live_check.py", script)
+        self.assertNotIn("live_state", script)
+        plan = step(pre, "Write the planned system ledger")
+        self.assertIn("for NAME in STATE_AUTH STATE VALUES GATE LIVE_LAB", plan)
+        self.assertIn("OUTCOME_STATE_AUTH: ${{ steps.state_auth.outcome }}", plan)
+        self.assertIn("OUTCOME_STATE: ${{ steps.state.outcome }}", plan)
+        # a refused G9 leaves no current manifest: the ledger is still written, refused, with no --current-manifest
+        self.assertIn('CURRENT_ARGS=(--current-manifest "$CURRENT_MANIFEST")', plan)
+        self.assertIn("if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}", plan)
+
+    def test_the_live_job_marks_the_record_before_any_document_and_records_after_the_ledger(self):
+        live = job(self.text, "live")
+        order = [live.index(f"- name: {name}") for name in (
+            "Guard (main only, live run, verified plan)", "Checkout main", "Re-check the POS compat gate after approval", "Print the OIDC claims",
+            "Assume the deploy role to mark the live-state record", "Mark the live-state record inflight", "Assume the deploy role for the backup",
+            "Run RT-BackendLabBackup on lab-02", "Write the system ledger", "Assume the deploy role to record the outcome", "Record the live state",
+            "Upload the system ledger")]
+        self.assertEqual(order, sorted(order))
+        begin = step(live, "Mark the live-state record inflight")
+        self.assertNotRegex(begin, r"(?m)^        if:")  # a failed marker stops every later step: no document is sent
+        script = step_script(live, "Mark the live-state record inflight")
+        for text in ("live_state.py begin --kind system", '--expect-version "$STATE_VERSION"', '--expect-sha256 "$STATE_SHA256"', '--run-steps "$RUN_STEPS"'):
+            self.assertIn(text, script)
+        for name in ("Assume the deploy role to record the outcome", "Record the live state"):
+            self.assertIn("if: ${{ always() && steps.begin.outcome == 'success' }}", step(live, name), name)
+        finish = step_script(live, "Record the live state")
+        for text in ("live_state.py finish --kind system", "ledger.json", '--begin-version "$BEGIN_VERSION"', '--manifest "$MANIFEST"'):
+            self.assertIn(text, finish)
+        self.assertIn("if: always()", step(live, "Upload the system ledger"))
+        self.assertNotIn("continue-on-error", self.text)
+
+    def test_the_ledgers_carry_the_live_state_the_preflight_read(self):
+        self.assertIn("--state-version", step_script(job(self.text, "preflight"), "Write the planned system ledger"))
+        self.assertIn("--state-version", step_script(job(self.text, "live"), "Write the system ledger"))
+
+    def test_the_lab_deploy_lock_is_the_shared_one(self):
+        self.assertRegex(self.text, r"(?m)^concurrency:\n  group: deploy-aws-lab\n  cancel-in-progress: false$")
+
     @unittest.skipUnless(HAVE_BASH, "bash not available")
     def test_live_guard_needs_the_verified_plan_and_every_rule_passed(self):
         guard = step_script(self.text, "Guard (main only, live run, verified plan)")
@@ -327,7 +418,8 @@ class DeploySystemLab(unittest.TestCase):
                 "ROLLBACK_ALLOWED": "true", "CONSOLE_ARCHIVE_DIGEST": DIGEST, "CONSOLE_RELEASE_SHA": SHA,
                 "CONSOLE_CONTRACT_PIN": SHA, "ERP_EXPECTED_VERSION": "0.1.0", "ERP_CURRENT_TREE": SHA,
                 "ERP_ROLLBACK_CLASS": "image-only", "ENVIRONMENT_GATE": "reviewed",
-                "GATE_RESULTS": "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass G8=pass",
+                "GATE_RESULTS": "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass G8=pass G9=pass",
+                "STATE_VERSION": "1", "STATE_SHA256": "a" * 64, "MANIFEST_SOURCE": "record",
                 "RUN_BACKUP": "true", "RUN_BACKEND": "true", "RUN_CONSOLE": "true", "RUN_ERP": "true",
                 "RUN_STEPS": "backup,backend,console,erp"}
         result = run_step(guard, good)
@@ -339,12 +431,17 @@ class DeploySystemLab(unittest.TestCase):
                        {**{key: "false" for key in ("RUN_BACKUP", "RUN_BACKEND", "RUN_CONSOLE", "RUN_ERP")}, "RUN_STEPS": ""}):
             self.assertNotEqual(run_step(guard, {**good, **change}).returncode, 0, f"{change} passed the live guard")
         for key, bad in (("DRY_RUN", "true"), ("ENVIRONMENT_GATE", "unverified"), ("API_DIGEST", ""),
+                         ("CURRENT_MANIFEST", ""), ("STATE_VERSION", ""), ("STATE_VERSION", "0"), ("STATE_SHA256", "abc"),
+                         ("MANIFEST_SOURCE", "input"),
                          ("CONSOLE_CONTRACT_PIN", "35114fd49d7765dccf4e4c9f3b5c3a6e2d6dd828"), ("ROLLBACK_ALLOWED", ""),
-                         ("ERP_ROLLBACK_CLASS", "maybe"), ("GATE_RESULTS", "G1=pass G2=pass G3=pass G4=FAIL G5=pass G6=pass G7=pass G8=pass"),
-                         ("GATE_RESULTS", "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=unverified G8=pass"),
-                         ("GATE_RESULTS", "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass G8=FAIL"),
+                         ("ERP_ROLLBACK_CLASS", "maybe"), ("GATE_RESULTS", "G1=pass G2=pass G3=pass G4=FAIL G5=pass G6=pass G7=pass G8=pass G9=pass"),
+                         ("GATE_RESULTS", "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=unverified G8=pass G9=pass"),
+                         ("GATE_RESULTS", "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass G8=FAIL G9=pass"),
+                         ("GATE_RESULTS", "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass G8=pass"),
+                         ("GATE_RESULTS", "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass G8=pass G9=FAIL"),
+                         ("GATE_RESULTS", "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass G8=pass G9=not-run"),
                          ("GATE_RESULTS", "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass"),
-                         ("GATE_RESULTS", "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass G8=not-run")):
+                         ("GATE_RESULTS", "G1=pass G2=pass G3=pass G4=pass G5=pass G6=pass G7=pass G8=not-run G9=pass")):
             self.assertNotEqual(run_step(guard, {**good, key: bad}).returncode, 0, f"{key}={bad} passed the live guard")
 
 

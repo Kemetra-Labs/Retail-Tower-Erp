@@ -36,12 +36,12 @@ Locally, run `python .github/release/system_gate.py --manifest system/releases/<
 `.github/workflows/deploy-system-lab.yml` (RT-1031) deploys one system version to the lab. Its inputs:
 
 - `manifest`: the version to deploy.
-- `current_manifest`: the version live now. For a same-version redeploy it is the same file.
+- `current_manifest`: optional (RT-1084). Empty, it is resolved from the live-state record (step 1a). Given, it must be the file the record names. For a same-version redeploy it is the same file.
 - `jira_key`.
 - `dry_run`: defaults to `true`.
 - `force_all`: defaults to `false`. When `false`, a product that is the same in both files is skipped (RT-1085). `true` runs all four documents, to prove the whole path.
 
-The preflight runs the gate above on both files, plus the online checks of each product and G8 (the live lab check, step 1), and writes a planned system ledger. It touches no AWS resource. A live run needs one `aws-lab` approval, then sends the documents of the step plan in order and stops at the first failure. The ledgers are built by `.github/release/system_ledger.py`. First proven live on 2026-11-01: [run 41306750385](https://github.com/Kemetra-Labs/Retail-Tower-Erp/actions/runs/41306750385), RT-1032.
+The preflight runs the gate above on both files, plus the online checks of each product and G8 (the live lab check, step 1), and writes a planned system ledger. It changes nothing in AWS: it reads one SSM parameter, the live-state record, with a read-only role (G9, step 1a). A live run needs one `aws-lab` approval, then sends the documents of the step plan in order and stops at the first failure. The ledgers are built by `.github/release/system_ledger.py`. First proven live on 2026-11-01: [run 41306750385](https://github.com/Kemetra-Labs/Retail-Tower-Erp/actions/runs/41306750385), RT-1032.
 
 ### 1. Find the version live now
 
@@ -53,7 +53,9 @@ G8 also looks at runs newer than the last deploy that did not deploy:
 - It **refuses** when the run's ledger shows its host may have changed: a Backend-Core run that got past its `backup-config` gate (it arms the auto-revert next) or has a revert, a Console run that swapped or reverted, any ERP run that held, or that failed after its `check` gate, and a run whose live job started but left no ledger. The owner reconciles the host (see the notes under step 2 below), then a successful deploy of that product with its per-product workflow clears the refusal. There is no override input.
 - It records a **note** and passes when the ledger shows the run stopped before it reached a host (for example a Backend-Core run refused at `G-Host`, or a live job that never reached SSM).
 
-G8 also fails closed: when a ledger is missing, a run was re-run (its ledger cannot be ordered), a ledger is expired (artifacts are kept 90 days, so after a quiet quarter run any per-product deploy first), unreadable or malformed, when a workflow has no deployed ledger in its newest 100 runs, or when the token cannot read the runs. G8 proves what the ledgers say was deployed, not what the hosts run: `RT-BackendLabDeploy` G-Host and `RT-ErpLabDeploy` still check the hosts.
+G8 also fails closed: when a ledger is missing, a run was re-run (its ledger cannot be ordered), a ledger is expired, unreadable or malformed, when a workflow has no deployed ledger in its newest 100 runs, or when the token cannot read the runs. G8 proves what the ledgers say was deployed, not what the hosts run: `RT-BackendLabDeploy` G-Host and `RT-ErpLabDeploy` still check the hosts.
+
+**Known limit of G8 (open, deliberately not changed by RT-1084).** Ledger artifacts are kept 90 days, and G8 fails when a product has no deployed ledger left in them. The live-state record (step 1a) does not remove that dependency, because G8 still reads the ledgers as the second check. Do not run a lab deploy only to refresh a ledger. A separate follow-up decides how G8 should treat a fresh record that agrees with the ledgers that remain.
 
 To do the same by hand, or to find the file after a refusal:
 
@@ -77,6 +79,56 @@ To do the same by hand, or to find the file after a refusal:
 3. If no file here matches all three, add one (the next `lab-YYYY.MM.N`) that describes the live lab, by PR. `contracts/check` runs the gate on it.
 
 Before G8, a stale manifest was refused only on lab-01, before any version changed but after the lab-02 backup had been written, with `RT_FAIL gate=G-Host reason=wrapper-does-not-use-the-current-release`. `lab-2026.11.1` was added for exactly this reason, after RT-473 and RT-807 deployed newer releases. G-Host stays as the check on the host itself.
+
+### 1a. The live-state record (RT-1084, G9)
+
+The durable answer to "what does the lab run now" is one SSM String parameter, `/rt/lab/live-state` (us-east-1), written by `.github/release/live_state.py`. Schema `retail-tower/lab-live-state@1`, at most 4096 bytes, no secrets:
+
+```json
+{"schema": "retail-tower/lab-live-state@1", "updatedAt": "<UTC>", "writer": {"workflow": "<one of the four lab deploys>", "runId": 41738798480, "sha": "<40 hex of main>"},
+ "system": "lab-YYYY.MM.N or null", "note": "optional text",
+ "products": {"backend": {"release": "backend-core/vX.Y.Z", "sha": "<40 hex>", "runId": 41738798480, "at": "<UTC>", "state": "ok"},
+              "console": {"release": "admin-console/vX.Y.Z", "sha": "<40 hex>", "runId": 41738798480, "at": "<UTC>", "state": "ok"},
+              "erp": {"digest": "sha256:<64 hex>", "sha": "<40 hex>", "runId": 41738798480, "at": "<UTC>", "state": "ok"}},
+ "inflight": null}
+```
+
+Any other key, a bad pattern, a `dirty` product without a `reason`, or a bigger record is refused.
+
+**Who reads and writes it.** The `deploy-system-lab.yml` preflight reads it with the read-only role `rt-gha-aws-lab-state-read` (repository variable `AWS_STATE_READ_ROLE_ARN`; `ssm:GetParameter` on this parameter only; trust is the `main` branch). It assumes no deploy role. Every live job (`deploy-system-lab.yml`, `deploy-lab.yml`, `deploy-console-lab.yml`, `deploy-erp-lab.yml`) reads and writes it with the deploy role `rt-gha-aws-lab-deploy`, after the `aws-lab` approval. The parameter name is fixed in `live_state.py`: no input or variable changes it.
+
+**G9, in the preflight.**
+- Empty `current_manifest`: the one `system/releases/lab-*.json` that names the recorded Backend-Core release, Console release and ERP digest and commit (the file named by the record's `system` breaks a tie; otherwise two matches are refused). Given: it must be that file.
+- That one value is used by every later step of both jobs (the gate, G8, the planned ledger, the live job, the final ledger). Both ledgers record `liveState`: the parameter, its version, the sha256 of its value and whether `current_manifest` was `given` or came from the `record`.
+- G9 refuses, and writes no output, when the record is missing (`ParameterNotFound`), unreadable (access denied, repeated failures), malformed, of another schema, names no or several manifests, or has a product `dirty` or a run `inflight`. The refusal is a `G9 FAIL: record: <reason>` line in the planned ledger, which has no current manifest and no step plan.
+- G8 is unchanged and still runs as the second check.
+
+**The live job.**
+1. After approval and before any document it reads the record again. If the version or digest differs from the value read during the preflight, the live job refuses the run (run a new dry run).
+2. It marks the run `inflight` (`workflow`, `runId`, `startedAt`, the products the run touches) in one write. If that write fails, no document is sent.
+3. The documents run as before.
+4. After the ledger is written, `finish` records what the ledger proves, once, only while the record is still the one this run marked:
+
+| Ledger says | Record |
+| --- | --- |
+| a step finished (`ok`) | that product is `ok`, with the release and commit (or digest and commit) the ledger names |
+| a step failed and may have reached its host (the same rule as G8) | that product is `dirty`, with the reason; its old version stays and the target is never recorded |
+| a step failed and provably never sent its document, or did not run, or was skipped | that product is exactly as it was |
+| the ledger file cannot be read, or is not JSON | `inflight` stays set and no product changes: the next preflight refuses |
+| the ledger is JSON but is not a ledger this tool can read | every product the run marked becomes `dirty` |
+
+`inflight` is cleared in the same write. `system` is set only by a system run whose products all match the manifest. Nothing is inferred from a skipped or failed step.
+
+**Failures never produce a false `ok`.** A run that is cancelled, times out or loses its runner before `finish` leaves `inflight` set. A `finish` that fails after it has checked the record is still the one this run marked (the ledger cannot be read, a release commit cannot be found, the write fails) leaves it set too, and says what failed in `state-finish.json` beside the ledger (the artifact), with the record it meant to write when it got that far. The Backend-Core and Console ledgers carry their release commit, so a shallow checkout without tags is enough. In both cases the next preflight refuses with the reason.
+
+**Writes.** SSM has no compare-and-set. The workflows share the `deploy-aws-lab` concurrency group, so lab deploys run one at a time; the record is also re-read before each write and read back after it. A write that errors may still have landed: the record is read back, the intended text means it landed (accepted, never written twice), the unchanged record is tried again (three attempts at most), anything else means another writer changed it and the run stops. A write outside the lock is not prevented, only detected, and only if it lands after this run's read: the owner must not write the record while a lab deploy runs (from its approval to its last step; check that no lab deploy is in progress first). If an owner write lands between a run's read and its write, the version then jumps by two, the run fails loudly, and the value the owner wrote is the previous version in the parameter's history, where the owner can recover it. An owner write between `begin` and `finish` makes `finish` refuse and leave the owner's record as it is.
+
+**Recovery, with no deadlock and no automatic clearing of an uncertain host.** A job never clears `dirty` or `inflight` by itself.
+- One product in doubt: run that product's own workflow (`deploy-lab.yml`, `deploy-console-lab.yml` or `deploy-erp-lab.yml`). It may start only when exactly that product is the one in doubt, its own host gates check the host, and only a ledger that proves the deploy makes it `ok`. When it starts, a product left `inflight` by a crashed run is first turned into `dirty` (with the earlier run named), so a recovery run that fails without reaching the host leaves it `dirty`, never `ok`.
+- A system run, or a product run while another product is in doubt, is refused. This is deliberate: the owner reads the hosts first.
+- More than one product in doubt: the owner reads the hosts (read-only, as for the 2026-11-04 seed: RT-1084 comments 15420 and 15421) and overwrites the record from what the hosts run, with a non-root identity (step 7). No agent or CI job does this.
+
+**No record yet.** The preflight refuses until the owner seeds it once, without overwrite (step 7).
 
 ### 2. Choose the target
 
@@ -125,7 +177,7 @@ gh workflow run deploy-system-lab.yml --ref main -f manifest=system/releases/<ta
 - `outcome` is `planned`;
 - `refusals` is empty;
 - `stepPlan` runs the steps you expect (a dry run with nothing to deploy is still `planned`, with every step `skip`);
-- G1–G8 all pass (G1–G5 are the gate above; G6 is the ERP image attestation from `build-erp-image.yml`; G7 is the `aws-lab` required reviewer; G8 is the live lab check of step 1);
+- G1–G9 all pass (G1–G5 are the gate above; G6 is the ERP image attestation from `build-erp-image.yml`; G7 is the `aws-lab` required reviewer; G8 is the live lab check of step 1; G9 is the live-state record of step 1a);
 - `environmentGate` is `reviewed`.
 
 The `backend-core/` folder in the artifact holds the Backend-Core verifier's own ledger, with its reasons when the plan was refused.
@@ -172,6 +224,9 @@ Refusals seen so far:
 | Line | Meaning | Action |
 | --- | --- | --- |
 | `G8 FAIL: <product>: the live lab runs …` (preflight) | `current_manifest` is stale, or a newer run left the host unreconciled | step 1 |
+| `G9 FAIL: record: …` (preflight) | the live-state record is missing, unreadable, invalid, names no (or several) manifests, has a product in doubt, or `current_manifest` is not the file it names | step 1a |
+| `live-state: … changed since the preflight read it` (live job, before any document) | the record changed after the dry run | run a new dry run |
+| `live-state: a previous run left … in doubt` (live job) | a `dirty` or `inflight` product | step 1a, Recovery |
 | `nothing to deploy: every product is unchanged between the manifests` (preflight, live run) | the two files name the same versions | choose the right files (step 2), or set `force_all=true` to prove the path |
 | `G-Host reason=wrapper-does-not-use-the-current-release` | `current_manifest` is stale and G8 could not see it (G8 reads ledgers, not hosts) | step 1 |
 | `G-Host reason=an-earlier-auto-revert-is-armed-or-elapsed` | an earlier Backend-Core revert unit is still there | the owner checks it (`services/backend-core/deploy/README.md`, Live run) |
@@ -193,4 +248,5 @@ Refusals seen so far:
   ```
 
   `RT-ErpLabDeploy` is JSON: use `--document-format JSON`. Then check that `DefaultVersion` equals `LatestVersion`: `aws ssm describe-document --name <document> --region us-east-1 --profile <profile>`.
+- **The live-state record.** Created once by the owner, without overwrite, from what the hosts run: `aws ssm put-parameter --name /rt/lab/live-state --type String --value file://record.json --region us-east-1 --profile "$AWS_PROFILE"` (run in the folder that holds `record.json`), then read back (`get-parameter`) to compare the version and the value. Re-seeding after a multi-product doubt is the same command with `--overwrite`, after reading the hosts. Use a non-root identity. The roles are `rt-gha-aws-lab-state-read` (`ssm:GetParameter` on this parameter only) for the preflight and `rt-gha-aws-lab-deploy` (`GetParameter` and `PutParameter`, inside its permissions boundary) for the live jobs; the repository variable is `AWS_STATE_READ_ROLE_ARN`.
 - **Approval.** The `aws-lab` approval is the human gate of every live run.

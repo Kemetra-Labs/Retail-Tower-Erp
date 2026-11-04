@@ -460,9 +460,12 @@ describe("deploy-lab workflow: live job (RT-842)", () => {
       "Checkout main",
       "Re-check the POS compat gate",
       "Print the OIDC claims",
-      "Assume the deploy role",
+      "Assume the deploy role (GitHub OIDC",
+      "Mark the live-state record inflight",
       "Run the SSM gates",
       "Write the live ledger",
+      "Assume the deploy role to record the outcome",
+      "Record the live state",
       "Upload the live ledger",
     ];
     expect(live.steps.map((s) => steps.findIndex((p) => (s.name ?? "").startsWith(p)))).toEqual(steps.map((_, i) => i));
@@ -487,8 +490,8 @@ describe("deploy-lab workflow: live job (RT-842)", () => {
     expect(assume.with).toMatchObject({ "role-to-assume": "${{ vars.AWS_ROLE_ARN }}", "aws-region": "${{ vars.AWS_REGION }}" });
     expect(assume.with).not.toHaveProperty("aws-access-key-id");
     expect(varsCheck().env).toEqual({ AWS_ROLE_ARN: "${{ vars.AWS_ROLE_ARN }}", AWS_REGION: "${{ vars.AWS_REGION }}" });
-    // the only `vars.` references are the variable check and the credentials step
-    expect([...workflowText.matchAll(/vars\.(\w+)/g)].map((m) => m[1]).sort()).toEqual(["AWS_REGION", "AWS_REGION", "AWS_ROLE_ARN", "AWS_ROLE_ARN"]);
+    // the only `vars.` references are the variable check and the credentials steps (RT-1084: one more to record the outcome)
+    expect([...workflowText.matchAll(/vars\.(\w+)/g)].map((m) => m[1]).sort()).toEqual(["AWS_REGION", "AWS_REGION", "AWS_REGION", "AWS_ROLE_ARN", "AWS_ROLE_ARN", "AWS_ROLE_ARN"]);
   });
 
   itBash.each([
