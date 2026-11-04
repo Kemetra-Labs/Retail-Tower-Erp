@@ -1,0 +1,186 @@
+[
+  {
+    "file": "rt1119-sale-1024x768-light-before.png",
+    "viewport": "1024x768",
+    "mode": "light",
+    "errors": [],
+    "axe": [],
+    "labels": [
+      {
+        "text": "التقاط مسح الباركود",
+        "fontSize": "11px",
+        "fontWeight": "700",
+        "color": "rgb(11, 91, 85)"
+      },
+      {
+        "text": "البحث بالاسم أو الباركود",
+        "fontSize": "11px",
+        "fontWeight": "700",
+        "color": "rgb(11, 91, 85)"
+      }
+    ],
+    "commit": {
+      "disabled": true,
+      "rect": [
+        97,
+        691,
+        254,
+        56
+      ],
+      "describedBy": null
+    },
+    "reason": null,
+    "overflow": {
+      "page": [
+        0,
+        0
+      ],
+      "liveSale": [
+        0,
+        0
+      ],
+      "cart": [
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "file": "rt1119-sale-1024x768-forced-before.png",
+    "viewport": "1024x768",
+    "mode": "forced",
+    "errors": [],
+    "axe": [],
+    "labels": [
+      {
+        "text": "التقاط مسح الباركود",
+        "fontSize": "11px",
+        "fontWeight": "700",
+        "color": "rgb(0, 0, 0)"
+      },
+      {
+        "text": "البحث بالاسم أو الباركود",
+        "fontSize": "11px",
+        "fontWeight": "700",
+        "color": "rgb(0, 0, 0)"
+      }
+    ],
+    "commit": {
+      "disabled": true,
+      "rect": [
+        97,
+        691,
+        254,
+        56
+      ],
+      "describedBy": null
+    },
+    "reason": null,
+    "overflow": {
+      "page": [
+        0,
+        0
+      ],
+      "liveSale": [
+        0,
+        0
+      ],
+      "cart": [
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "file": "rt1119-sale-1280x800-light-before.png",
+    "viewport": "1280x800",
+    "mode": "light",
+    "errors": [],
+    "axe": [],
+    "labels": [
+      {
+        "text": "التقاط مسح الباركود",
+        "fontSize": "11px",
+        "fontWeight": "700",
+        "color": "rgb(11, 91, 85)"
+      },
+      {
+        "text": "البحث بالاسم أو الباركود",
+        "fontSize": "11px",
+        "fontWeight": "700",
+        "color": "rgb(11, 91, 85)"
+      }
+    ],
+    "commit": {
+      "disabled": true,
+      "rect": [
+        105,
+        715,
+        286,
+        56
+      ],
+      "describedBy": null
+    },
+    "reason": null,
+    "overflow": {
+      "page": [
+        0,
+        0
+      ],
+      "liveSale": [
+        0,
+        0
+      ],
+      "cart": [
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "file": "rt1119-sale-1280x800-forced-before.png",
+    "viewport": "1280x800",
+    "mode": "forced",
+    "errors": [],
+    "axe": [],
+    "labels": [
+      {
+        "text": "التقاط مسح الباركود",
+        "fontSize": "11px",
+        "fontWeight": "700",
+        "color": "rgb(0, 0, 0)"
+      },
+      {
+        "text": "البحث بالاسم أو الباركود",
+        "fontSize": "11px",
+        "fontWeight": "700",
+        "color": "rgb(0, 0, 0)"
+      }
+    ],
+    "commit": {
+      "disabled": true,
+      "rect": [
+        105,
+        715,
+        286,
+        56
+      ],
+      "describedBy": null
+    },
+    "reason": null,
+    "overflow": {
+      "page": [
+        0,
+        0
+      ],
+      "liveSale": [
+        0,
+        0
+      ],
+      "cart": [
+        0,
+        0
+      ]
+    }
+  }
+]
