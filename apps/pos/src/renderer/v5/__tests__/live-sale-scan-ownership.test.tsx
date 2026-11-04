@@ -6,6 +6,7 @@
  * the burst must reach the catalogue lookup and must never press `+` or `حذف`.
  */
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { ScanGuardHost, resetScanGuardForTests } from '../../scan/ScanGuardHost';
@@ -15,7 +16,13 @@ import { useCatalogueSearchStore } from '../../stores/catalogueSearchStore';
 import { useFeatureFlagsStore } from '../../stores/feature-flags-store';
 import { useOperatorSessionStore } from '../../stores/operator-session-store';
 import { usePaymentStore } from '../../stores/payment-store';
-import { makeBridges, saleWithLines } from './__helpers__/live-sale-harness';
+import {
+  makeBridges,
+  PANADOL,
+  renderSale,
+  saleWithLines,
+  signIn,
+} from './__helpers__/live-sale-harness';
 
 afterEach(() => {
   cleanup();
@@ -101,6 +108,40 @@ describe('the Sale screen is the scan owner (F-01)', () => {
     expect(await screen.findByText(SCAN_DIALOG_OPEN_MESSAGE)).toBeInTheDocument();
     expect(bridges.lookupBarcode).not.toHaveBeenCalled();
     expect(bridges.voidCart).not.toHaveBeenCalled();
+  });
+
+  // RT-1167 (RT-1044 S1, F-01): the search field has no auto-add branch.
+  it.each([
+    ['an exact product name', 'بنادول'],
+    ['a full barcode', '6223004355218'],
+  ])('Enter in the search field after %s never adds a line (no scan guard)', async (_n, typed) => {
+    const bridges = makeBridges();
+    const searchMock = (bridges.catalogue as unknown as { search: ReturnType<typeof vi.fn> })
+      .search;
+    searchMock.mockResolvedValue({
+      kind: 'results',
+      items: [PANADOL],
+      truncated: false,
+    });
+    signIn();
+    renderSale(bridges);
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('البحث بالاسم أو الباركود'), typed);
+    // Press Enter only once the result is on screen: that is the case an auto-add would break.
+    expect(await screen.findByText('بنادول')).toBeInTheDocument();
+    const callsBeforeEnter = searchMock.mock.calls.length;
+    await user.keyboard('{Enter}');
+    await waitFor(() => {
+      expect(searchMock.mock.calls.length).toBeGreaterThan(callsBeforeEnter);
+    });
+    // Settle the Enter-triggered search before asserting that nothing was added.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText('بنادول')).toBeInTheDocument();
+    expect(bridges.add).not.toHaveBeenCalled();
+    expect(bridges.lookupBarcode).not.toHaveBeenCalled();
+    expect(document.querySelectorAll('.v5-sale-cart-line')).toHaveLength(0);
   });
 
   it('a burst typed into the search field is a scan and clears the field', async () => {
