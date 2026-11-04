@@ -91,7 +91,8 @@ parameters:
   # tests. Kill switch and rollback: set this default to false.
   # Credit bound, owner decision 2026-11-04: 500k credits per month. CircleCI config cannot count
   # credits, so the bound is structural: only a main push that changed those paths starts a run
-  # (the job halts otherwise), one at a time (serial-group), each stopped by the CLI's
+  # (the job halts otherwise; a push that is not provably one squash or merge commit always runs),
+  # one at a time (serial-group), each stopped by the CLI's
   # test-analysis-duration (30 min) and the step's no_output_timeout. ESTIMATE, to verify against
   # CircleCI usage after the first runs: a large machine is about 20 credits per minute, so one
   # run of up to about 45 minutes is about 900 credits, and 500k credits allow about 550 runs per
@@ -409,24 +410,35 @@ jobs:
     resource_class: large
     steps:
       - checkout
-      # RT-1188 credit bound: a main commit that changed nothing the analysis reads starts no
-      # work. Fails open (runs the analysis) when there is no parent to compare with.
+      # RT-1188 credit bound: a main push that changed nothing the analysis reads starts no work.
+      # A GitHub App project has no pipeline.git.base_revision, so the push's first commit is
+      # unknown. HEAD^..HEAD covers the whole push only when HEAD is one squash-merge commit
+      # (single parent, subject ends in "(#N)") or one merge commit (two parents: the diff to the
+      # first parent is the whole merged branch). Anything else, such as a rebase merge or a direct
+      # multi-commit push, may hide an earlier commit, so the analysis runs. Fails open too when
+      # git cannot answer.
       - run:
-          name: Stop unless this main commit changed Backend-Core, .circleci or the root .nvmrc
+          name: Stop unless this main push changed Backend-Core, .circleci or the root .nvmrc
           command: |
             if [ "${CIRCLE_BRANCH:-}" != "main" ]; then
               echo "Not main; running the analysis."
               exit 0
             fi
-            if ! git rev-parse --verify --quiet HEAD^ > /dev/null; then
-              echo "No parent commit; running the analysis."
+            words="$(git rev-list --parents -n 1 HEAD | wc -w)" || words=0
+            subject="$(git log -1 --format=%s HEAD)" || subject=""
+            if [ "$words" -eq 3 ]; then
+              echo "HEAD is a merge commit; its diff to the first parent is the whole push."
+            elif [ "$words" -eq 2 ] && [[ "$subject" =~ \(#[0-9]+\)$ ]]; then
+              echo "HEAD is a squash-merge commit; it is the whole push."
+            else
+              echo "Cannot tell that HEAD is the whole push (parents: $((words - 1)), subject '$subject'); running the analysis."
               exit 0
             fi
             # --quiet exits 1 when the paths changed, 0 when not; anything else runs the analysis.
             rc=0
             git diff --quiet HEAD^ HEAD -- services/backend-core/ .circleci/ .nvmrc || rc=$?
             if [ "$rc" -eq 0 ]; then
-              echo "No Backend-Core, .circleci or .nvmrc change in this commit; nothing to analyze."
+              echo "No Backend-Core, .circleci or .nvmrc change in this push; nothing to analyze."
               circleci-agent step halt
             else
               echo "Backend-Core, .circleci or .nvmrc changed (git diff rc=$rc); running the analysis."
