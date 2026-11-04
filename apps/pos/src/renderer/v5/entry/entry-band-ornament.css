@@ -1,6 +1,7 @@
 /*
- * RT-1093 (RT-1042 S4, OD-5) — the sign-in band's ornament. It loads only with
- * `EntryBandOrnament`, so every other entry screen's band is untouched.
+ * RT-1093 (RT-1042 S4, OD-5) — the sign-in band's ornament. It ships with
+ * `EntryBandOrnament`, and every selector is scoped to the ornament classes, so it
+ * is inert on every other entry screen's band.
  *
  * - Mint strokes on Ink, never on a light surface: the layer lives inside the
  *   band, and the Mint role only resolves under `[data-entry-surface]`.

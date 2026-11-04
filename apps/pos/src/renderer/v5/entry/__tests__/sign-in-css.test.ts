@@ -299,7 +299,9 @@ describe('RT-1093 entry-band-ornament.css', () => {
       'v5/entry/EntryCard.tsx',
       'v5/foundation/RouteLoading.tsx',
     ]) {
-      expect(readFileSync(resolve(root, file), 'utf-8'), file).not.toMatch(/\bornament\b/);
+      expect(readFileSync(resolve(root, file), 'utf-8'), file).not.toMatch(
+        /^\s*ornament\s*$|\bornament=/m,
+      );
     }
     expect(readFileSync(resolve(root, 'v5/entry/SignInBand.tsx'), 'utf-8')).toMatch(
       /^\s*ornament\s*$/m,
