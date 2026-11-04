@@ -166,11 +166,11 @@ export class SignInHandler {
       password: req.password,
     });
     if (exchange.kind === 'no_connection') {
-      this.logRefusal('no_connection', 'clerk');
+      this.logRefusal('no_connection', 'identity_provider');
       return REFUSE_NO_CONN;
     }
     if (exchange.kind === 'refused') {
-      this.logRefusal('invalid_input', 'clerk');
+      this.logRefusal('invalid_input', 'identity_provider');
       return REFUSE_INVALID;
     }
     // RT-444 — refused before any backend session exists.
