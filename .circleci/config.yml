@@ -91,7 +91,8 @@ parameters:
   # false.
   # Credit bound, owner decision 2026-11-04: 500k credits per month. CircleCI config cannot count
   # credits, so the bound is structural: one run at a time (serial-group), each stopped by the
-  # CLI's test-analysis-duration (30 min) and the step's no_output_timeout, and the kill switch
+  # CLI's test-analysis-duration (30 min target) and a 50-minute wall-clock `timeout` on the
+  # analysis step (about 1,200 credits at most per run, setup included), and the kill switch
   # above. Every main push starts a run (a path guard cannot be sound without the push's first
   # commit, see backend-api-jest-analysis). ESTIMATE, to verify against CircleCI usage after the
   # first runs: a large machine is about 20 credits per minute, so a run that analyzes for 30
@@ -424,7 +425,12 @@ jobs:
           no_output_timeout: 60m
           environment:
             NODE_OPTIONS: --max-old-space-size=4096
-          command: circleci testsuite run "backend api jest" --run-tests=none
+          # test-analysis-duration (30 min) is a target the CLI checks between specs, not a hard
+          # limit, and no_output_timeout only fires when output stops. As in the manual full-analysis
+          # job: a wall-clock stop (SIGKILL 2 min after SIGTERM, in case Jest children hold the step
+          # open), so one run cannot hold the serial group longer than 50 minutes. A killed run
+          # saves nothing; the next push repeats its specs.
+          command: timeout -k 2m 50m circleci testsuite run "backend api jest" --run-tests=none
 
   # One link of the manual full-analysis chain: the analysis job above with a hard stop.
   # Analysis saves impact data at the end of each run and the next run continues from it
