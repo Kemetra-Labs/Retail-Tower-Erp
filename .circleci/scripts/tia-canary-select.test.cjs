@@ -179,6 +179,42 @@ test("a selection that, with must-run, covers every spec is FULL", () => {
   const p = sel.decide(inputs({ selectedText: all.join("\n"), probeText: probeText({ selected: 4, skipped: 1 }) }));
   assert.equal(p.mode, FULL);
   assert.match(p.reasons[0], /covers every spec/);
+  assert.equal(p.staleImpactData, undefined);
+});
+
+// RT-921 c15655 item 1: canary #1094's case. The CLI selected everything because main changed a
+// full-test-run path after the last analysis; the plan is FULL and labelled stale-impact-data.
+const CONTRACT = "../../packages/contracts/openapi/pos-sales/sales.yaml";
+const allSelectedBy = (trigger) => {
+  const all = SPECS.filter((s) => s !== MUST);
+  const text = probeText({ selected: 4, skipped: 1 }).replace(
+    "Discovering...",
+    `Discovering...\nSelecting all test atoms, 'full-test-run-paths' detected modified file: ${trigger}`,
+  );
+  return inputs({ selectedText: all.join("\n"), probeText: text });
+};
+
+test("select-all caused by a full-test-run path the branch did not change is labelled stale impact data", () => {
+  const p = sel.decide(allSelectedBy(CONTRACT));
+  assert.equal(p.mode, FULL);
+  assert.match(p.reasons[0], /^stale impact data: full-test-run path services\/backend-core\/packages\/contracts\/openapi\/pos-sales\/sales\.yaml changed on main/);
+  assert.deepEqual(p.staleImpactData, { trigger: "services/backend-core/packages/contracts/openapi/pos-sales/sales.yaml" });
+  assert.equal(p.impact.fullRunTrigger, CONTRACT);
+});
+
+test("select-all caused by a full-test-run path the branch itself changed is a plain all-selected FULL", () => {
+  const over = allSelectedBy("../../../../.circleci/config.yml");
+  const p = sel.decide({ ...over, guardChanged: [...over.guardChanged, ".circleci/config.yml"] });
+  assert.equal(p.mode, FULL);
+  assert.match(p.reasons[0], /covers every spec/);
+  assert.equal(p.staleImpactData, undefined);
+});
+
+test("repoPath maps the CLI's apps/api-relative paths to repository paths", () => {
+  assert.equal(sel.repoPath(CONTRACT), "services/backend-core/packages/contracts/openapi/pos-sales/sales.yaml");
+  assert.equal(sel.repoPath("../../../../.circleci/config.yml"), ".circleci/config.yml");
+  assert.equal(sel.repoPath("jest.config.cjs"), "services/backend-core/apps/api/jest.config.cjs");
+  assert.equal(sel.repoPath("../../../../../outside"), null);
 });
 
 // ---- FULL: probe (impact data) ------------------------------------------------------------
@@ -335,6 +371,18 @@ test("config.yml: the canary is read only inside remote-api-jest, and its FULL p
   assert.match(canary, /--runTestsByPath "\$\{atoms\[@\]\}"/);
   assert.match(canary, /--run-tests=none --analyze-tests=none/);
   assert.match(canary, /TIA_GUARD_RUNTIME=1 timeout 120 node --test ~\/project\/\.circleci\/scripts\/tia-canary-select\.test\.cjs/);
+  // RT-921 c15655 item 2: the canary path runs the risk guard and list-tests, never doctor; the
+  // default path keeps tia-shadow-start (guard, doctor, list-tests) unchanged.
+  const whenBlocks = job.split(/\n {6}- when:\n/).slice(1);
+  const defaultBlock = whenBlocks.find((b) => /not: << pipeline\.parameters\.api_tia_canary >>/.test(b));
+  const canaryBlock = whenBlocks.find((b) => !/not: /.test(b) && /api_tia_canary/.test(b));
+  assert.ok(defaultBlock && canaryBlock, "both when blocks found in remote-api-jest");
+  assert.match(defaultBlock, /- tia-shadow-start\n/);
+  assert.match(canaryBlock, /- tia-risk-guard\n {12}- tia-list-tests\n {12}- tia-canary\n/);
+  const listTests = cfg.slice(cfg.indexOf("\n  tia-list-tests:\n"), cfg.indexOf("\n  # RT-1188: the report after the full run"));
+  assert.match(listTests, /circleci testsuite list-tests "backend api jest"/);
+  assert.doesNotMatch(listTests, /testsuite doctor/);
+  assert.doesNotMatch(canary, /testsuite doctor/);
   // The vendor's impacted mode is not used: the must-run specs could not be added to it.
   assert.doesNotMatch(cfg, /--run-tests=impacted/);
   // remote-api-jest stays the only job of remote-dev-api, in the remote-dev serial group.

@@ -228,8 +228,16 @@ commands:
   # RT-1188: the TIA shadow before the pre-push full run: the risk guard, then doctor and the
   # specs list-tests would select. Runs only after remote-guard, so it executes main's
   # .circleci/scripts. Every problem is recorded and the step exits 0: the full suite always runs.
+  # RT-1239 follow-up: its two steps are the commands tia-risk-guard and tia-doctor-list-tests, so
+  # the canary can reuse the guard and skip doctor; the compiled default path is unchanged.
   tia-shadow-start:
     description: Shadow only. Risk guard decision and the impact-analysis selection, never failing.
+    steps:
+      - tia-risk-guard
+      - tia-doctor-list-tests
+
+  tia-risk-guard:
+    description: The RT-1075 risk guard (self-test first); writes guard.json, never failing. Shadow on the default path; drives the canary plan.
     steps:
       - run:
           name: "TIA shadow: risk guard (self-test, then FORCE_FULL or TIA_ELIGIBLE on the whole branch diff)"
@@ -251,6 +259,10 @@ commands:
             timeout 120 node .circleci/scripts/tia-risk-guard.cjs --repo ~/project --out /tmp/tia || rc=$?
             if [ "$rc" -ne 0 ]; then force_full "guard exited $rc"; fi
             exit 0
+
+  tia-doctor-list-tests:
+    description: Shadow only. doctor, then the specs impact analysis would select, never failing.
+    steps:
       - run:
           name: "TIA shadow: doctor and the specs impact analysis would select"
           working_directory: ~/project/services/backend-core/apps/api
@@ -276,6 +288,28 @@ commands:
               || echo "could not count the suite's specs"
             exit 0
 
+  # RT-1239 follow-up (RT-921 c15655 item 2): the canary's selection step, without doctor. doctor
+  # is a diagnostic that runs a sample of specs (4 min 40 s with list-tests in canary #1094) and
+  # plays no part in selection. Same outputs the selector reads: selected.txt, list-tests.rc and
+  # discovered.count. Never fails; any problem is FULL in the selector.
+  tia-list-tests:
+    description: Canary only. The specs impact analysis would select (list-tests), never failing.
+    steps:
+      - run:
+          name: "TIA canary: the specs impact analysis would select (list-tests, no doctor)"
+          working_directory: ~/project/services/backend-core/apps/api
+          command: |
+            rc=0
+            timeout 300 circleci testsuite list-tests "backend api jest" > /tmp/tia/selected.txt 2> /tmp/tia/list-tests.log || rc=$?
+            echo "$rc" > /tmp/tia/list-tests.rc
+            cat /tmp/tia/list-tests.log
+            echo "list-tests exit code: $rc; $(wc -l < /tmp/tia/selected.txt) lines in selected.txt"
+            find ~/project/.circleci -maxdepth 1 -name 'impact-*.json' -exec mv -t /tmp/tia {} + \
+              || echo "could not move an impact file out of the checkout"
+            node_modules/.bin/jest --listTests | wc -l > /tmp/tia/discovered.count \
+              || echo "could not count the suite's specs"
+            exit 0
+
   # RT-1188: the report after the full run, only when tia-shadow-start ran (its marker exists
   # only after remote-guard passed), so a refused run never executes branch code here.
   tia-shadow-report:
@@ -295,7 +329,12 @@ commands:
           path: /tmp/tia
           destination: tia
 
-  # RT-1239: the impacted-only canary, after tia-shadow-start (guard.json, selected.txt). Only the
+  # RT-1239: the impacted-only canary, after tia-risk-guard and tia-list-tests (guard.json,
+  # selected.txt). Before triggering one (RT-921 c15655 item 1): check that the latest
+  # backend-api-jest-analysis job (workflow tia-main-analysis) SUCCEEDED on the candidate's
+  # merge-base or a later main commit and logged no "full-test-run-paths detected modified file"
+  # line (a failed or killed analysis saves nothing). Otherwise the CLI selects every spec and
+  # the selector labels the plan stale-impact-data (inconclusive; canary #1094). Only the
   # probe and the selector decide; both exit 0 and every doubt becomes FULL, which is the same
   # plain-Jest full run as the default path. The run step keeps Jest's exit code and the
   # converter's, and verify fails the job when a planned spec has no result: a failure stays red.
@@ -310,7 +349,7 @@ commands:
             rc=0
             timeout 300 circleci testsuite run "backend api jest" --run-tests=none --analyze-tests=none > /tmp/tia/probe.log 2>&1 || rc=$?
             echo "$rc" > /tmp/tia/probe.rc
-            grep -E '^(Discovered|Found test impact|- [0-9]+ |Selected|Patching|Analyzing|Running impact analysis)' /tmp/tia/probe.log || true
+            grep -E '^(Discovered|Found test impact|Selecting all|- [0-9]+ |Selected|Patching|Analyzing|Running impact analysis)' /tmp/tia/probe.log || true
             echo "probe exit code: $rc"
             # Nothing ran, but clear any report path anyway so verify reads only the canary run.
             rm -rf /tmp/api-jest.json /tmp/test-reports
@@ -606,7 +645,8 @@ jobs:
   # around it (tia-shadow-start before, tia-shadow-report after): the guard decision, the
   # list-tests selection and the misses against this run's results, as RT-920's measurement.
   # RT-1239: api_tia_canary=true swaps the full-run and shadow-report steps for the canary steps
-  # (see the parameter). Default false compiles to exactly the steps above.
+  # (see the parameter). Default false compiles to exactly the steps above. The canary runs the
+  # same risk guard but list-tests without doctor (tia-list-tests).
   remote-api-jest:
     machine:
       image: ubuntu-2404:2026.05.1
@@ -615,11 +655,11 @@ jobs:
       - checkout
       - remote-guard
       - backend-setup
-      - tia-shadow-start
       - when:
           condition:
             not: << pipeline.parameters.api_tia_canary >>
           steps:
+            - tia-shadow-start
             - run:
                 name: API Jest, full suite (remote, advisory)
                 working_directory: ~/project/services/backend-core/apps/api
@@ -636,6 +676,8 @@ jobs:
       - when:
           condition: << pipeline.parameters.api_tia_canary >>
           steps:
+            - tia-risk-guard
+            - tia-list-tests
             - tia-canary
       - store_test_results:
           path: /tmp/test-reports

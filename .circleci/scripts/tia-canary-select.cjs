@@ -91,6 +91,9 @@ function parseProbe(text) {
     const block = sel ? after.slice(0, Math.max(0, sel.index - found.index)) : after;
     for (const m of block.matchAll(/^- (\d+) (.+?)\s*$/gm)) reasons[m[2]] = (reasons[m[2]] ?? 0) + Number(m[1]);
   }
+  // CLI 1.0.69018 prints one such line (the first matching path); only that one is read. It only
+  // labels a FULL plan, so a second trigger it might omit cannot make a plan IMPACTED.
+  const trigger = /^Selecting all test atoms, 'full-test-run-paths' detected modified file: (.+?)\s*$/m.exec(text);
   return {
     impactSource: found ? found[1] : null,
     impactVersion: version ? Number(version[1]) : null,
@@ -98,7 +101,16 @@ function parseProbe(text) {
     skipped: sel ? Number(sel[2]) : null,
     reasons,
     analysisStarted: /^(Analyzing \d+ test atoms|Running impact analysis for)/m.test(text),
+    // The CLI names the full-test-run path (relative to apps/api) that made it select everything.
+    fullRunTrigger: trigger ? trigger[1] : null,
   };
+}
+
+// A full-test-run path as the CLI prints it (relative to apps/api) to a repo-relative path, or
+// null when it leaves the repository.
+function repoPath(fromApi) {
+  const p = path.posix.normalize(`${API_PREFIX}${fromApi}`);
+  return p.startsWith("../") || p.startsWith("/") ? null : p;
 }
 
 // Pure decision. `inp` holds already-read inputs; text inputs are null when the file is missing.
@@ -182,7 +194,17 @@ function decide(inp) {
   if (unselected.length) return fail(`changed spec(s) not selected: ${unselected.join(", ")}`);
 
   plan.counts.planned = union.size;
-  if (union.size === discovered.size) return fail("the selection covers every spec");
+  if (union.size === discovered.size) {
+    // RT-921 c15655 item 1: when the CLI selected everything because of a full-test-run path the
+    // branch did not change, main changed it after the last analysis: the impact data is behind
+    // main and the result says nothing about selection (canary #1094). Still FULL; labelled.
+    const trigger = probe.fullRunTrigger === null ? null : repoPath(probe.fullRunTrigger);
+    if (trigger !== null && !inp.guardChanged.includes(trigger)) {
+      plan.staleImpactData = { trigger };
+      return fail(`stale impact data: full-test-run path ${trigger} changed on main after the last analysis (inconclusive; re-run after tia-main-analysis covers the merge-base)`);
+    }
+    return fail("the selection covers every spec");
+  }
   plan.mode = IMPACTED;
   plan.atoms = [...union].sort();
   reasons.push(
@@ -330,6 +352,6 @@ function main(argv, env) {
   return 2;
 }
 
-module.exports = { IMPACTED, FULL, ATOM_RE, READ_RE, EXEMPT_HELPERS, textReaders, readTestModules, parseProbe, decide, compare, readInputs, runPlan, runVerify, main };
+module.exports = { repoPath, IMPACTED, FULL, ATOM_RE, READ_RE, EXEMPT_HELPERS, textReaders, readTestModules, parseProbe, decide, compare, readInputs, runPlan, runVerify, main };
 
 if (require.main === module) process.exit(main(process.argv.slice(2), process.env));
