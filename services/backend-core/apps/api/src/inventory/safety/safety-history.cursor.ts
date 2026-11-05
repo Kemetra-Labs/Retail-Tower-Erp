@@ -16,6 +16,7 @@ import { createHash } from 'node:crypto';
 
 import { z } from 'zod';
 
+import { decodeOpaque, encodeOpaque } from '../../common/cursor/opaque-cursor';
 import { KEY_INSTANT, LOWER_UUID, namesRealInstant } from '../../console-sales/console-sales.query';
 
 export class SafetyHistoryCursorError extends Error {
@@ -70,20 +71,12 @@ export function encodeSafetyHistoryCursor(binding: SafetyHistoryCursorBinding, k
     at: keyset.atKey,
     id: keyset.id.toLowerCase(),
   };
-  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  return encodeOpaque(payload);
 }
 
 /** The keyset position of `cursor`, or SafetyHistoryCursorError when it was not issued for `binding`. */
 export function decodeSafetyHistoryCursor(binding: SafetyHistoryCursorBinding, cursor: string): SafetyHistoryKeyset {
-  let decoded: unknown;
-  try {
-    decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-  } catch {
-    throw new SafetyHistoryCursorError();
-  }
-  const parsed = CursorPayload.safeParse(decoded);
-  if (!parsed.success) throw new SafetyHistoryCursorError();
-  const p = parsed.data;
+  const p = decodeOpaque(cursor, CursorPayload, () => new SafetyHistoryCursorError());
   const boundHere =
     p.op === binding.op && p.tenant === binding.tenantId.toLowerCase() && p.digest === digestOf(binding);
   if (!boundHere) throw new SafetyHistoryCursorError();
