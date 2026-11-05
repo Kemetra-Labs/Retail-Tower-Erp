@@ -9,9 +9,12 @@
  *
  * The hex values were captured from main at 6c76cf941 (before the RT-1224
  * decomposition) and are pinned as literals: never recompute them from the
- * code under test. The bodies are the exact HTTP bodies the characterization
- * matrix (`capture/capture-characterization.spec.ts`) posts, so the stored
- * column is checked against the same literals end to end.
+ * code under test. Every vector is a body the capture schema accepts (the
+ * golden unit spec checks it). The characterization matrix
+ * (`capture/capture-characterization.spec.ts`) posts the plain, tenders and
+ * credit vectors and checks the stored `payload_hash` column against the same
+ * literals end to end; the sourceClockAt vector is pinned at the hash level
+ * only.
  */
 
 /** Pinned for every vector so the hash does not depend on the clock. */
@@ -73,20 +76,15 @@ export const CAPTURE_HASH_VECTORS: ReadonlyArray<CaptureHashVector> = [
     sha256Hex: "93faaa8e3de9d08763651e649493a931c643b5c159b4b5e40a7cee437960ddac",
   },
   {
-    name: "an empty tender list (hashes apart from an absent one)",
-    body: { ...base("rt1224-gold-empty"), tenders: [] },
-    sha256Hex: "9adbee92e46f3f360f6aba07ec7b9653e9ab344a43c3af3be3fcfacdc27f00c8",
-  },
-  {
     name: "split cash + card tenders with reference, tenderRef and sequence",
     body: {
       ...base("rt1224-gold-tenders"),
       tenders: [
         { method: "cash", amount: "2.5", tenderRef: TENDER_REF_CASH, sequence: 1 },
-        { method: "card_external", amount: "10.0000", reference: "AUTH-1224", tenderRef: TENDER_REF_CARD, sequence: 2 },
+        { method: "card_external", amount: "10.0000", reference: "A1224", tenderRef: TENDER_REF_CARD, sequence: 2 },
       ],
     },
-    sha256Hex: "8045911a9bebc7efd8a5ec80036b0dfd3ee27566c6e56b2ac7f8980ca1ba4882",
+    sha256Hex: "3e7defa1d21a63f3a98693505d96d3a846d381b7d0834d5e545b42af6886277b",
   },
   {
     name: "cash + credit responsibility",

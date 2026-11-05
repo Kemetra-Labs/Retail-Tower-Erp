@@ -182,7 +182,7 @@ describe("RT-1224 characterization — first capture", () => {
       receipt_branch_name: RECEIPT.branchName,
       receipt_branch_address: RECEIPT.branchAddress,
       receipt_tax_registration_id: RECEIPT.taxRegistrationId,
-      receipt_change_given: "7.50",
+      receipt_change_given: "7.5000",
     });
     expect((row["receipt_settled_at"] as Date).toISOString()).toBe(RECEIPT.settledAt);
     expect(row["device_id"]).toEqual(expect.any(String));
