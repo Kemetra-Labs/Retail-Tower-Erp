@@ -78,20 +78,23 @@ describe("RT-1206 — identical provenance replay", () => {
 });
 
 describe("RT-1206 — provenance replay with a different body", () => {
+  // `tag` keeps the two Idempotency-Keys distinct: idempKey() keeps only the
+  // first 32 characters, and a shared key would be answered by the
+  // Idempotency-Key layer (its own 409) instead of the provenance compare.
   it.each([
-    ["changed lines", { lines: [{ lineName: "Widget", unitPrice: "12.5000", currencyCode: "USD", quantity: "1", lineAmount: "12.5000", unit: "ea" }] }],
-    ["a changed posTotal", { posTotal: "12.5100" }],
-    ["a changed occurredAt", { occurredAt: "2026-05-01T10:00:01.000Z" }],
-  ])("%s → 409 idempotency_key_conflict, one sale, nothing rewritten, one audit event", async (_name, change) => {
+    ["changed lines", "lines", { lines: [{ lineName: "Widget", unitPrice: "12.5000", currencyCode: "USD", quantity: "1", lineAmount: "12.5000", unit: "ea" }] }],
+    ["a changed posTotal", "total", { posTotal: "12.5100" }],
+    ["a changed occurredAt", "occurred", { occurredAt: "2026-05-01T10:00:01.000Z" }],
+  ])("%s → 409 idempotency_key_conflict, one sale, nothing rewritten, one audit event", async (_name, tag, change) => {
     if (skip()) return;
-    const ext = `rt1206-diff-${_name.replace(/\W+/g, "-")}`;
+    const ext = `rt1206-diff-${tag}`;
     const body = captureBody({ externalId: ext });
-    const first = await post(body, `${ext}-1`);
+    const first = await post(body, `r1206${tag}1`);
     expect(first.status).toBe(201);
     const before = await stored(ext);
     spy.reset();
 
-    const replay = await post({ ...body, ...change }, `${ext}-2`);
+    const replay = await post({ ...body, ...change }, `r1206${tag}2`);
     expect(replay.status).toBe(409);
     expect(replay.body.error.code).toBe("idempotency_key_conflict");
     expect(replay.headers["idempotent-replayed"]).toBeUndefined();
