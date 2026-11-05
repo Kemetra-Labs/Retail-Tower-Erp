@@ -211,6 +211,20 @@
   flex-wrap: wrap;
   gap: var(--space-2);
 }
+/* RT-1195/RT-1196: a store button names its store ("Change values for {store}",
+ * "Set a level for {store}"), so its label can be longer than a phone-width panel,
+ * and the panel clips (`overflow: hidden`). The shared button is `white-space:
+ * nowrap`; here the label wraps instead, the button stays inside its panel and grows
+ * taller than the 36px target (never shorter), and the full label stays visible. */
+.catalog-detail__store-actions > .btn-secondary,
+.catalog-retire__actions > .btn-secondary {
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  padding-block: var(--space-2);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
 .catalog-override__choices {
   display: grid;
   gap: var(--space-2);
