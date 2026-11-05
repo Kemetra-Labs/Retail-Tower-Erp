@@ -198,3 +198,45 @@ test("the script exits 0 even when guard.json cannot be read", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ---- RT-920: must-run specs for neutral changes ------------------------------------------------
+
+test("TIA_ELIGIBLE with a must-run spec: it joins the guarded selection, so its failure is not a miss", () => {
+  const { json, text } = run({ guard: eligible({ mustRun: ["test/c.spec.ts"] }) });
+  assert.deepEqual(json.misses, ["test/c.spec.ts"], "the raw miss stays listed");
+  assert.deepEqual(json.guarded, { status: "measured", selectedSpecs: 2, selectionRatio: 2 / 3, misses: [], mustRun: ["test/c.spec.ts"] });
+  assert.match(text, /^GUARDED: selected 2\/3 \(66\.7%\), MISSES 0$/m);
+});
+
+test("TIA_ELIGIBLE with an already-selected must-run spec counts it once", () => {
+  const { json } = run({ guard: eligible({ mustRun: ["test/a.spec.ts"] }) });
+  assert.equal(json.guarded.selectedSpecs, 1);
+  assert.deepEqual(json.guarded.misses, ["test/c.spec.ts"]);
+});
+
+test("a must-run spec absent from the full run, or a malformed list, is not a measured result", () => {
+  const missing = run({ guard: eligible({ mustRun: ["test/gone.spec.ts"] }) }).json.guarded;
+  assert.deepEqual(missing, { status: "must-run-missing", selectedSpecs: null, selectionRatio: null, misses: null });
+  for (const bad of ["test/c.spec.ts", [1], null, {}]) {
+    const g = run({ guard: eligible({ mustRun: bad }) }).json.guarded;
+    assert.equal(g.status, "must-run-unknown", JSON.stringify(bad));
+    assert.equal(g.misses, null);
+  }
+});
+
+test("FORCE_FULL ignores must-run (every spec runs anyway)", () => {
+  const { json } = run({ guard: full({ mustRun: ["test/gone.spec.ts"] }) });
+  assert.deepEqual(json.guarded, { status: "force-full", selectedSpecs: 3, selectionRatio: 1, misses: [] });
+});
+
+test("the guarded status follows the union: an empty raw selection lifted by must-run is measured", () => {
+  const { json } = run({ selected: "", guard: eligible({ mustRun: ["test/c.spec.ts"] }) });
+  assert.equal(json.status, "empty-selection", "the raw status is unchanged");
+  assert.deepEqual(json.guarded, { status: "measured", selectedSpecs: 1, selectionRatio: 1 / 3, misses: [], mustRun: ["test/c.spec.ts"] });
+});
+
+test("the guarded status is all-selected when must-run completes the suite", () => {
+  const { json } = run({ selected: "test/a.spec.ts\ntest/b.spec.ts\n", guard: eligible({ mustRun: ["test/c.spec.ts"] }) });
+  assert.equal(json.guarded.status, "all-selected");
+  assert.equal(json.guarded.selectedSpecs, 3);
+});

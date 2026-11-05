@@ -18,6 +18,13 @@
 // plus an add, so both sides are classified. A main push, an unknown branch, a failed fetch,
 // merge-base or diff, an empty diff and any unexpected error force FULL.
 //
+// RT-920 (owner decision 2026-11-05): a changelog fragment (changelog.d/*.md, added or modified
+// regular file) is NEUTRAL: it neither forces FULL nor makes a PR eligible on its own. Every
+// Backend-Core PR adds one, so without this almost no PR could reach TIA_ELIGIBLE. The one spec
+// that reads the fragments (NEUTRAL_MUST_RUN) is recorded in guard.json `mustRun`, and the shadow
+// report adds it to the guarded selection, so a bad fragment can never count as a hidden miss.
+// A PR whose only changes are neutral is FULL (there is no API change to measure).
+//
 // Shadow only: the decision is printed and written to <outDir>/guard.json and guard.txt. The
 // job runs the full suite (--run-tests=all) in BOTH cases; nothing here selects or skips a test.
 // This script never fails the job: every problem becomes FORCE_FULL and it exits 0.
@@ -58,6 +65,11 @@ const CRITICAL_API_GLOBS = [
   "apps/api/src/catalog/{erpnext-*,read-down,sale-sync-ops}/**",
 ];
 
+// Neutral paths (relative to services/backend-core/) and the specs that must run when one changes
+// (relative to apps/api, the shadow report's spelling).
+const NEUTRAL_GLOBS = ["changelog.d/*.md"];
+const NEUTRAL_MUST_RUN = ["test/tooling/changelog-fragments.spec.ts"];
+
 // Graph glob syntax (pgraph/globs.py): `*` stays inside one segment, `?` is one character of a
 // segment, `**` spans segments (`**/` also matches no segment), `{a,b}` expands. Returns the
 // pattern body; globToRegExp anchors it.
@@ -90,6 +102,7 @@ const compile = (globs) => globs.map((g) => globToRegExp(BC + g));
 const FAST_RES = compile(FAST_GLOBS);
 const EXCLUDE_RES = compile(FAST_EXCLUDES);
 const CRITICAL_RES = compile(CRITICAL_API_GLOBS);
+const NEUTRAL_RES = compile(NEUTRAL_GLOBS);
 
 // Why a repo-relative path forces FULL, or null when it is in the eligible fast class.
 function pathRisk(p) {
@@ -115,20 +128,50 @@ function changeRisk(change) {
   return pathRisk(c.path);
 }
 
+// True for an added/modified regular file on a neutral path (a changelog fragment). A delete,
+// rename side, type change or special mode is never neutral: changeRisk classifies it.
+function isNeutral(change) {
+  const c = typeof change === "string" ? { status: "M", mode: "100644", path: change } : change;
+  if (c.status !== "A" && c.status !== "M") return false;
+  if (!REGULAR_MODES.includes(c.mode)) return false;
+  if (pathRisk(c.path) === "unclassifiable path") return false;
+  return NEUTRAL_RES.some((re) => re.test(c.path));
+}
+
 // Decision for a list of changes. An empty list is ambiguous on a PR head, so it is FULL.
 function classify(changes) {
   if (!Array.isArray(changes) || changes.length === 0) {
-    return { decision: FORCE_FULL, reason: "empty or missing diff", forcing: [], changed: [] };
+    return { decision: FORCE_FULL, reason: "empty or missing diff", forcing: [], changed: [], neutral: [], mustRun: [] };
   }
   const changed = changes.map((c) => (typeof c === "string" ? c : c.path));
   const forcing = [];
+  const neutral = [];
   for (const c of changes) {
+    const p = typeof c === "string" ? c : c.path;
+    if (isNeutral(c)) {
+      neutral.push(p);
+      continue;
+    }
     const why = changeRisk(c);
-    if (why) forcing.push({ path: typeof c === "string" ? c : c.path, why });
+    if (why) forcing.push({ path: p, why });
   }
-  return forcing.length
-    ? { decision: FORCE_FULL, reason: `${forcing.length} change(s) force the full suite`, forcing, changed }
-    : { decision: TIA_ELIGIBLE, reason: "every change is an added/modified file in the API fast class", forcing: [], changed };
+  const mustRun = neutral.length ? [...NEUTRAL_MUST_RUN] : [];
+  if (forcing.length) {
+    return { decision: FORCE_FULL, reason: `${forcing.length} change(s) force the full suite`, forcing, changed, neutral, mustRun };
+  }
+  if (neutral.length === changes.length) {
+    return { decision: FORCE_FULL, reason: "only neutral changes (changelog fragments): no API change to measure", forcing, changed, neutral, mustRun };
+  }
+  return {
+    decision: TIA_ELIGIBLE,
+    reason: neutral.length
+      ? `every change is an added/modified file in the API fast class, plus ${neutral.length} neutral changelog fragment(s)`
+      : "every change is an added/modified file in the API fast class",
+    forcing,
+    changed,
+    neutral,
+    mustRun,
+  };
 }
 
 // `git diff --raw -z --no-renames`: ":OLDMODE NEWMODE OLDSHA NEWSHA STATUS" NUL PATH NUL ...
@@ -155,7 +198,7 @@ function git(repo, args) {
 // The whole PR diff against merge-base(origin/main, HEAD), or a FORCE_FULL result on any doubt.
 function evaluate(repo, branch) {
   const ctx = { branch: branch || "", base: null, head: null };
-  const full = (reason) => ({ ...ctx, decision: FORCE_FULL, reason, forcing: [], changed: [] });
+  const full = (reason) => ({ ...ctx, decision: FORCE_FULL, reason, forcing: [], changed: [], neutral: [], mustRun: [] });
   const first = (e) => e.message.split("\n")[0];
   if (!branch) return full("unknown branch (CIRCLE_BRANCH empty)");
   if (branch === "main") return full("push to main");
@@ -191,6 +234,9 @@ function report(result) {
     `changed paths (${result.changed.length}, cumulative PR diff):`,
     ...result.changed.map((p) => `  ${p}`),
   ];
+  if (result.neutral && result.neutral.length) {
+    lines.push(`neutral changes (${result.neutral.length}; must run: ${result.mustRun.join(", ")}):`, ...result.neutral.map((p) => `  ${p}`));
+  }
   if (result.forcing.length) {
     lines.push(`forcing changes (${result.forcing.length}):`, ...result.forcing.map((f) => `  ${f.path}  [${f.why}]`));
   }
@@ -209,7 +255,7 @@ function main(argv, env) {
   try {
     result = evaluate(repo, env.CIRCLE_BRANCH);
   } catch (e) {
-    result = { branch: env.CIRCLE_BRANCH || "", base: null, head: null, decision: FORCE_FULL, reason: `unexpected error: ${e.message}`, forcing: [], changed: [] };
+    result = { branch: env.CIRCLE_BRANCH || "", base: null, head: null, decision: FORCE_FULL, reason: `unexpected error: ${e.message}`, forcing: [], changed: [], neutral: [], mustRun: [] };
   }
   const text = report(result);
   console.log(text);
@@ -224,8 +270,8 @@ function main(argv, env) {
 }
 
 module.exports = {
-  FORCE_FULL, TIA_ELIGIBLE, FAST_GLOBS, FAST_EXCLUDES, CRITICAL_API_GLOBS,
-  globToRegExp, pathRisk, changeRisk, classify, parseRawZ, evaluate, main,
+  FORCE_FULL, TIA_ELIGIBLE, FAST_GLOBS, FAST_EXCLUDES, CRITICAL_API_GLOBS, NEUTRAL_GLOBS, NEUTRAL_MUST_RUN,
+  globToRegExp, pathRisk, changeRisk, isNeutral, classify, parseRawZ, evaluate, main,
 };
 
 if (require.main === module) main(process.argv.slice(2), process.env);

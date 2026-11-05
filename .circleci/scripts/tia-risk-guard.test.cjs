@@ -438,3 +438,58 @@ test("main() writes guard.json and guard.txt, and never throws", () => {
     console.log = log;
   }
 });
+
+// ---- RT-920: changelog fragments are neutral ----------------------------------------------------
+
+const FRAG = "services/backend-core/changelog.d/";
+
+test("a changelog fragment beside ordinary API changes is neutral: TIA_ELIGIBLE with the fragments spec as must-run", () => {
+  const r = guard.classify([`${SRC}x.ts`, `${FRAG}RT-1-changed.md`]);
+  assert.equal(r.decision, TIA_ELIGIBLE);
+  assert.deepEqual(r.forcing, []);
+  assert.deepEqual(r.neutral, [`${FRAG}RT-1-changed.md`]);
+  assert.deepEqual(r.mustRun, ["test/tooling/changelog-fragments.spec.ts"]);
+  assert.match(r.reason, /1 neutral changelog fragment/);
+});
+
+test("ordinary API changes alone carry no must-run spec", () => {
+  const r = guard.classify([`${SRC}x.ts`]);
+  assert.equal(r.decision, TIA_ELIGIBLE);
+  assert.deepEqual(r.neutral, []);
+  assert.deepEqual(r.mustRun, []);
+});
+
+test("only changelog fragments: FORCE_FULL (no API change to measure)", () => {
+  const r = guard.classify([`${FRAG}RT-1-changed.md`, `${FRAG}RT-1-fixed.md`]);
+  assert.equal(r.decision, FORCE_FULL);
+  assert.match(r.reason, /only neutral changes/);
+});
+
+test("a fragment never hides a forcing change, and the fragment is still recorded as neutral", () => {
+  const r = guard.classify([`${SRC}inventory/x.ts`, `${FRAG}RT-1-changed.md`]);
+  assert.equal(r.decision, FORCE_FULL);
+  assert.deepEqual(r.forcing.map((f) => f.path), [`${SRC}inventory/x.ts`]);
+  assert.deepEqual(r.neutral, [`${FRAG}RT-1-changed.md`]);
+});
+
+test("deleted, renamed-away, special-mode, nested and non-md changelog paths are not neutral", () => {
+  const forced = [
+    { status: "D", mode: "100644", path: `${FRAG}RT-1-changed.md` },
+    { status: "T", mode: "120000", path: `${FRAG}RT-1-changed.md` },
+    { status: "A", mode: "120000", path: `${FRAG}RT-1-changed.md` },
+    { status: "A", mode: "100644", path: `${FRAG}sub/RT-1-changed.md` },
+    { status: "A", mode: "100644", path: `${FRAG}RT-1-changed.txt` },
+    { status: "A", mode: "100644", path: "changelog.d/RT-1-changed.md" },
+    { status: "A", mode: "100644", path: `${FRAG}../x.md` },
+  ];
+  for (const c of forced) {
+    assert.equal(guard.isNeutral(c), false, JSON.stringify(c));
+    assert.equal(guard.classify([`${SRC}x.ts`, c]).decision, FORCE_FULL, JSON.stringify(c));
+  }
+});
+
+test("the must-run spec exists in the repository", () => {
+  for (const spec of guard.NEUTRAL_MUST_RUN) {
+    assert.ok(fs.existsSync(path.join(ROOT, "services/backend-core/apps/api", spec)), spec);
+  }
+});
