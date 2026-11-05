@@ -56,6 +56,7 @@ import {
   setStockRunStranded,
   type StockReconciliationSweepOutcome,
 } from "../observability/metrics/worker.metrics";
+import { errorClassName } from "../common/error-class-name";
 import { sweepPeriod, type SweepPeriod } from "./stock-run-sweep.config";
 import type {
   ExpireStaleRunsResult,
@@ -376,15 +377,6 @@ const SCHEDULED_JOB_ID = new RegExp(String.raw`^repeat:${STOCK_RUN_SWEEP_JOB_NAM
 export function scheduledAtFromJobId(jobId: string | undefined): Date | undefined {
   const match = jobId === undefined ? null : SCHEDULED_JOB_ID.exec(jobId);
   return match ? new Date(Number(match[1])) : undefined;
-}
-
-/**
- * The error's class name for logs, never its message: a pg or Redis message
- * can carry row values or a connection string (§VII / §XIV).
- */
-export function errorClassName(err: unknown): string {
-  if (!(err instanceof Error)) return "UnknownError";
-  return err.name || "Error";
 }
 
 /** Short identifier-like codes only: a SQLSTATE (`40P01`) or a Node code (`ECONNRESET`). */
