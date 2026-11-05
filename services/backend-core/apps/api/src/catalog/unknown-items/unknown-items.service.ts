@@ -62,7 +62,7 @@ import {
   NotFoundException,
   Optional,
 } from "@nestjs/common";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { randomUUID } from "node:crypto";
 
 import { runWithTenantContext } from "@data-pulse-2/db";
@@ -81,6 +81,12 @@ import {
   applyItemStoreScope,
   applyListStoreScope,
 } from "./unknown-item-store-scope";
+import {
+  findPendingDuplicate,
+  insertPendingUnknownItem,
+  toUnknownItemDto,
+  type PendingUnknownItemDbRow,
+} from "./unknown-item-rows";
 
 /**
  * Inputs accepted at the service boundary. Mirrors the contract's
@@ -192,6 +198,41 @@ export type CaptureItemResult =
   | { readonly kind: "unknown"; readonly unknownItem: CapturedUnknownItemRow }
   | ResolvedAliasMatch;
 
+/** Outcome of the capture transaction, before the metric + DTO mapping. */
+type CaptureTxnOutcome =
+  | { kind: "resolved"; productId: string; aliasId: string }
+  | { kind: "unknown"; inserted: boolean; row: PendingUnknownItemDbRow };
+
+/**
+ * Alias-resolution prelude (T514, refined by T516 for FR-030a).
+ *
+ * Uses the partial index `idx_product_aliases_lookup` (tenant_id,
+ * identifier_type, value) WHERE retired_at IS NULL; the `store_id` predicate
+ * is a residual filter: `store_id IS NULL` (tenant-wide alias, resolves
+ * anywhere) OR `store_id = $current_store` (resolves ONLY at the submitting
+ * store). Store-scoped wins over tenant-wide: `ORDER BY (store_id IS NULL)
+ * ASC` puts FALSE first; `created_at DESC` is a defensive tiebreaker (003's
+ * partial unique indexes allow at most one active row per scope).
+ */
+async function findActiveAlias(
+  client: PoolClient,
+  input: CaptureItemInput,
+): Promise<{ id: string; product_id: string } | undefined> {
+  const result = await client.query<{ id: string; product_id: string }>(
+    `SELECT id, product_id
+       FROM product_aliases
+      WHERE tenant_id       = $1
+        AND identifier_type = $2
+        AND value           = $3
+        AND retired_at IS NULL
+        AND (store_id IS NULL OR store_id = $4)
+      ORDER BY (store_id IS NULL) ASC, created_at DESC
+      LIMIT 1`,
+    [input.tenantId, input.identifierType, input.identifierValue, input.storeId],
+  );
+  return result.rows[0];
+}
+
 @Injectable()
 export class UnknownItemsService {
   constructor(
@@ -279,271 +320,51 @@ export class UnknownItemsService {
     const result = await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
-      async (client): Promise<
-        | { kind: "resolved"; productId: string; aliasId: string }
-        | { kind: "unknown"; inserted: boolean; row: {
-            id: string;
-            tenant_id: string;
-            store_id: string;
-            identifier_type: string;
-            value: string;
-            source_system: string | null;
-            resolution_status: "pending";
-            resolution_action: null;
-            resolved_at: null;
-            resolved_by: null;
-            resolved_product_id: null;
-            encountered_at: Date;
-            sale_context: Record<string, unknown> | null;
-          } }
-      > => {
-        // Alias-resolution prelude (T514, refined by T516 for FR-030a).
-        //
-        // Uses the partial index `idx_product_aliases_lookup`
-        // (tenant_id, identifier_type, value) WHERE retired_at IS NULL.
-        // The `store_id` predicate is applied as a residual filter:
-        // `store_id IS NULL` (tenant-wide alias, resolves anywhere) OR
-        // `store_id = $current_store` (store-scoped alias, resolves
-        // ONLY at the submitting store). A store-scoped alias bound to
-        // a DIFFERENT store of the same tenant MUST NOT match — that's
-        // the FR-030a invariant.
-        //
-        // Precedence (FR-030a): store-scoped wins over tenant-wide for
-        // the same identifier. `ORDER BY (store_id IS NULL) ASC` puts
-        // FALSE (store-scoped) before TRUE (tenant-wide); `created_at
-        // DESC` is a defensive tiebreaker (003's partial unique indexes
-        // already guarantee at most one active row per scope).
-        const aliasHit = await client.query<{
-          id: string;
-          product_id: string;
-        }>(
-          `SELECT id, product_id
-             FROM product_aliases
-            WHERE tenant_id       = $1
-              AND identifier_type = $2
-              AND value           = $3
-              AND retired_at IS NULL
-              AND (store_id IS NULL OR store_id = $4)
-            ORDER BY (store_id IS NULL) ASC, created_at DESC
-            LIMIT 1`,
-          [
-            input.tenantId,
-            input.identifierType,
-            input.identifierValue,
-            input.storeId,
-          ],
-        );
-
-        const hit = aliasHit.rows[0];
-        if (hit) {
-          // FR-022 / FR-030 / FR-031: no INSERT; surface the resolved
-          // product directly. Store GUC remains unset on this branch —
-          // the resolved path does not read or write `unknown_items`
-          // and therefore needs neither the store_read RLS predicate
-          // nor the insert WITH CHECK predicate.
-          return {
-            kind: "resolved",
-            productId: hit.product_id,
-            aliasId: hit.id,
-          };
+      async (client): Promise<CaptureTxnOutcome> => {
+        // Alias-resolution prelude (T514/T516): a hit short-circuits before
+        // any `unknown_items` access, so the store GUC stays unset here.
+        const alias = await findActiveAlias(client, input);
+        if (alias) {
+          return { kind: "resolved", productId: alias.product_id, aliasId: alias.id };
         }
 
-        // Set the store GUC BEFORE the dedup SELECT.
-        //
-        // 003 ships TWO permissive SELECT policies on `unknown_items`:
-        //   - `unknown_items_tenant_isolation` (tenant_id = $tenant)
-        //   - `unknown_items_store_read`       (store_id = $store OR
-        //                                       store='')
-        // Permissive policies OR — visibility requires at least one to
-        // be TRUE. But `current_setting('app.current_store', true)`
-        // returns NULL when unset (the `true` second arg suppresses the
-        // missing-setting error), so `NULL::uuid` makes both halves of
-        // the store policy NULL → NULL, which Postgres treats as FALSE
-        // in filter context. Tenant-isolation alone would be enough to
-        // see the row in theory, but the OR'd-NULL drives the policy
-        // evaluation to FALSE for the store_read branch and the row is
-        // filtered when the tenant policy is also unreachable for the
-        // current login role. Setting `app.current_store` here makes
-        // the store_read policy succeed and the dedup query find any
-        // pending rows the prior capture committed.
-        //
-        // The GUC is harmless to the resolved-alias branch above: that
-        // branch returned BEFORE this point, so the store GUC remains
-        // unset for the resolved-path commit (no row written, no SELECT
-        // attempted on `unknown_items` on that branch).
-        await client.query(
-          "SELECT set_config('app.current_store', $1, true)",
-          [input.storeId],
-        );
+        // The store GUC MUST be set BEFORE the dedup SELECT: with it unset,
+        // `current_setting('app.current_store', true)` is NULL and 003's
+        // `unknown_items_store_read` policy filters the row out. It also
+        // satisfies the `unknown_items_insert` WITH CHECK below.
+        await client.query("SELECT set_config('app.current_store', $1, true)", [
+          input.storeId,
+        ]);
 
-        // Natural-dedup check (T518, FR-032).
-        //
-        // Uses the partial index `idx_unknown_items_lookup_value`
-        // (tenant_id, identifier_type, value) WHERE resolution_status =
-        // 'pending'. The predicate is written literally (not
-        // parameterized) so the planner can match the partial index;
-        // `store_id` and `source_system` are applied as residual filters.
-        //
-        // Store-scope enforcement: `store_id = $4` ensures dedup is
-        // bounded to the submitting store. A pending row at a DIFFERENT
-        // store of the same tenant MUST NOT short-circuit this capture
-        // — that's the FR-030a invariant carried forward from T516.
-        //
-        // source_system matching: 003's `unknown_items_source_system_required`
-        // CHK ties source_system NOT NULL <=> identifier_type =
-        // 'external_pos_id'. For `barcode` / `sku` / `plu` /
-        // `supplier_code` the column is always NULL; for
-        // `external_pos_id` it's always NOT NULL. `IS NOT DISTINCT
-        // FROM` matches both branches (NULL=NULL → TRUE,
-        // 'pos-a'='pos-a' → TRUE, NULL='pos-a' → FALSE).
-        //
-        // FR-005 invariant: dismissed/resolved rows are excluded by the
-        // partial-index predicate `WHERE resolution_status = 'pending'`,
-        // so resubmitting an identifier whose only prior row is
-        // `dismissed` correctly falls through to INSERT a new pending
-        // row (the dismissed row is NOT returned). T545 elsewhere
-        // codifies this as a service-layer assertion.
-        const dedupHit = await client.query<{
-          id: string;
-          tenant_id: string;
-          store_id: string;
-          identifier_type: string;
-          value: string;
-          source_system: string | null;
-          resolution_status: "pending";
-          resolution_action: null;
-          resolved_at: null;
-          resolved_by: null;
-          resolved_product_id: null;
-          encountered_at: Date;
-          sale_context: Record<string, unknown> | null;
-        }>(
-          `SELECT id, tenant_id, store_id, identifier_type, value,
-                  source_system, resolution_status, resolution_action,
-                  resolved_at, resolved_by, resolved_product_id,
-                  encountered_at, sale_context
-             FROM unknown_items
-            WHERE tenant_id       = $1
-              AND store_id        = $2
-              AND identifier_type = $3
-              AND value           = $4
-              AND source_system IS NOT DISTINCT FROM $5
-              AND resolution_status = 'pending'
-            ORDER BY encountered_at ASC
-            LIMIT 1`,
-          [
-            input.tenantId,
-            input.storeId,
-            input.identifierType,
-            input.identifierValue,
-            input.sourceSystem,
-          ],
-        );
-
-        const existing = dedupHit.rows[0];
+        // Natural dedup (T518, FR-032): return the existing pending row
+        // unchanged — no INSERT, no metric; `encountered_at` stays the
+        // ORIGINAL capture time.
+        const existing = await findPendingDuplicate(client, input);
         if (existing) {
-          // FR-032: a pending row already exists for this logical
-          // identifier in the same (tenant, store). Return its
-          // reference unchanged — no INSERT, no metric increment
-          // (`unknown_item_captured_total` counts NEW pending rows
-          // per docs/observability/signals.md). The row's
-          // `encountered_at` reflects the ORIGINAL capture time, not
-          // this resubmission — that's intentional per FR-032
-          // ("return that existing record's reference").
           return { kind: "unknown", inserted: false, row: existing };
         }
 
-        // Both misses → capture path (T511). The store GUC required by
-        // 003's `unknown_items_insert` RLS policy was already set above
-        // (before the dedup SELECT) and remains in scope for this
-        // transaction.
-        const insertResult = await client.query<{
-          id: string;
-          tenant_id: string;
-          store_id: string;
-          identifier_type: string;
-          value: string;
-          source_system: string | null;
-          resolution_status: "pending";
-          resolution_action: null;
-          resolved_at: null;
-          resolved_by: null;
-          resolved_product_id: null;
-          encountered_at: Date;
-          sale_context: Record<string, unknown> | null;
-        }>(
-          `INSERT INTO unknown_items
-             (id, tenant_id, store_id, identifier_type, value,
-              source_system, resolution_status, sale_context,
-              correlation_id)
-           VALUES
-             ($1, $2, $3, $4, $5, $6, 'pending', $7, $8)
-           RETURNING id, tenant_id, store_id, identifier_type, value,
-                     source_system, resolution_status, resolution_action,
-                     resolved_at, resolved_by, resolved_product_id,
-                     encountered_at, sale_context`,
-          [
-            id,
-            input.tenantId,
-            input.storeId,
-            input.identifierType,
-            input.identifierValue,
-            input.sourceSystem,
-            input.saleContext,
-            input.correlationId,
-          ],
-        );
-
-        const r = insertResult.rows[0];
-        if (!r) {
-          // RLS returning zero rows on a self-insert means the principal's
-          // tenant/store context did not satisfy `unknown_items_insert`.
-          // This is a guard error, not a domain error; surface a thrown
-          // exception rather than corrupt the response shape.
+        const inserted = await insertPendingUnknownItem(client, { ...input, id });
+        if (!inserted) {
+          // RLS returned zero rows on a self-insert: a guard error, not a
+          // domain error — throw rather than corrupt the response shape.
           throw new Error("unknown_items: insert produced no row");
         }
-        return { kind: "unknown", inserted: true, row: r };
+        return { kind: "unknown", inserted: true, row: inserted };
       },
     );
 
     if (result.kind === "resolved") {
-      // FR-022: identifier resolved to an existing tenant product. No
-      // capture-metric increment (the counter tracks `unknown_items`
-      // inserts, not POS submissions).
-      return {
-        kind: "resolved",
-        productId: result.productId,
-        aliasId: result.aliasId,
-      };
+      // FR-022: no capture-metric increment (the counter tracks
+      // `unknown_items` inserts, not POS submissions).
+      return result;
     }
-
     if (result.inserted) {
-      // T518 / FR-032: only increment the capture counter on a FRESH
-      // INSERT. A dedup-hit returns an existing pending row (no new
-      // `unknown_items` write) and so must NOT increment the counter
-      // — per docs/observability/signals.md `unknown_item_captured_total`
-      // tracks "successful POS capture INTO unknown_items table".
+      // T518 / FR-032: count FRESH inserts only (signals.md
+      // `unknown_item_captured_total`).
       recordUnknownItemCaptured();
     }
-
-    const row = result.row;
-    const captured: CapturedUnknownItemRow = {
-      id: row.id,
-      tenantId: row.tenant_id,
-      storeId: row.store_id,
-      identifierType: row.identifier_type,
-      identifierValue: row.value,
-      sourceSystem: row.source_system,
-      resolutionStatus: "pending",
-      resolutionAction: null,
-      resolvedAt: null,
-      resolvedBy: null,
-      resolvedProductId: null,
-      encounteredAt: row.encountered_at,
-      saleContext: row.sale_context,
-    };
-
-    return { kind: "unknown", unknownItem: captured };
+    return { kind: "unknown", unknownItem: toUnknownItemDto(result.row) };
   }
 
   /**

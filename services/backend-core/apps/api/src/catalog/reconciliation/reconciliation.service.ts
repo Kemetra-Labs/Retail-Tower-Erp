@@ -84,6 +84,13 @@ import {
   recordDuplicateAliasConflict,
 } from "../../observability/metrics/api.metrics";
 import { applyItemStoreScope } from "../unknown-items/unknown-item-store-scope";
+import {
+  findPendingDuplicate,
+  insertPendingUnknownItem,
+  toUnknownItemDto,
+  UNKNOWN_ITEM_COLUMNS,
+  type UnknownItemDbRow,
+} from "../unknown-items/unknown-item-rows";
 // The row shape is owned by unknown-items.service.ts (type-only import).
 import type { UnknownItemRow } from "../unknown-items/unknown-items.service";
 
@@ -415,7 +422,7 @@ export class ReconciliationService {
           );
         }
 
-        return { kind: "ok", row: toUnknownItemRow(updated) };
+        return { kind: "ok", row: toUnknownItemDto(updated) };
       },
     );
 
@@ -559,7 +566,7 @@ export class ReconciliationService {
           );
         }
 
-        return { kind: "ok", productId, row: toUnknownItemRow(updated) };
+        return { kind: "ok", productId, row: toUnknownItemDto(updated) };
       },
     );
     } catch (err: unknown) {
@@ -695,7 +702,7 @@ export class ReconciliationService {
         // createdFresh=false: no row was created, so the caller maps this to
         // 200 OK and emits no fresh-capture audit.
         if (target.resolution_status === "pending") {
-          return { kind: "ok", row: toUnknownItemRow(target), createdFresh: false };
+          return { kind: "ok", row: toUnknownItemDto(target), createdFresh: false };
         }
 
         // target is `dismissed` → reopen. First check for an existing pending
@@ -704,33 +711,19 @@ export class ReconciliationService {
         // 005 FR-032). source_system uses IS NOT DISTINCT FROM to match the
         // NULL (barcode/sku/plu/supplier_code) and NOT-NULL (external_pos_id)
         // branches uniformly — same predicate as captureItem's dedup.
-        const siblingResult = await client.query<UnknownItemDbRow>(
-          `SELECT ${UNKNOWN_ITEM_COLUMNS}
-             FROM unknown_items
-            WHERE tenant_id       = $1
-              AND store_id        = $2
-              AND identifier_type = $3
-              AND value           = $4
-              AND source_system IS NOT DISTINCT FROM $5
-              AND resolution_status = 'pending'
-            ORDER BY encountered_at ASC
-            LIMIT 1`,
-          [
-            target.tenant_id,
-            target.store_id,
-            target.identifier_type,
-            target.value,
-            target.source_system,
-          ],
-        );
-
-        const sibling = siblingResult.rows[0];
+        const sibling = await findPendingDuplicate(client, {
+          tenantId: target.tenant_id,
+          storeId: target.store_id,
+          identifierType: target.identifier_type,
+          identifierValue: target.value,
+          sourceSystem: target.source_system,
+        });
         if (sibling) {
           // Already pending — no duplicate (FR-043). Return the sibling row.
           // createdFresh=false: reused an existing row → 200 OK, no fresh-capture
           // audit (the row already existed; a `captured` event here would be a
           // phantom provenance record).
-          return { kind: "ok", row: toUnknownItemRow(sibling), createdFresh: false };
+          return { kind: "ok", row: toUnknownItemDto(sibling), createdFresh: false };
         }
 
         // No sibling → INSERT a fresh pending row for the same logical
@@ -738,29 +731,19 @@ export class ReconciliationService {
         // Mirrors UnknownItemsService.captureItem's INSERT. correlation_id is
         // NOT NULL per 0007_catalog.sql; the controller derives it from the
         // request id (no POS correlation exists on a reopen).
-        const insertResult = await client.query<UnknownItemDbRow>(
-          `INSERT INTO unknown_items
-             (id, tenant_id, store_id, identifier_type, value,
-              source_system, resolution_status, sale_context, correlation_id)
-           VALUES
-             ($1, $2, $3, $4, $5, $6, 'pending', $7, $8)
-           RETURNING ${UNKNOWN_ITEM_COLUMNS}`,
-          [
-            freshRowId,
-            target.tenant_id,
-            target.store_id,
-            target.identifier_type,
-            target.value,
-            target.source_system,
-            // The dismissed row's sale_context is provenance; a fresh reopen
-            // carries no new sale context (the original is preserved on the
-            // dismissed row). NULL keeps the fresh row's review surface clean.
-            null,
-            input.correlationId,
-          ],
-        );
-
-        const inserted = insertResult.rows[0];
+        const inserted = await insertPendingUnknownItem(client, {
+          id: freshRowId,
+          tenantId: target.tenant_id,
+          storeId: target.store_id,
+          identifierType: target.identifier_type,
+          identifierValue: target.value,
+          sourceSystem: target.source_system,
+          // The dismissed row's sale_context is provenance; a fresh reopen
+          // carries no new sale context (the original is preserved on the
+          // dismissed row). NULL keeps the fresh row's review surface clean.
+          saleContext: null,
+          correlationId: input.correlationId,
+        });
         if (!inserted) {
           // RLS returning zero rows on a self-insert means the principal's
           // tenant/store context did not satisfy unknown_items_insert. A guard
@@ -771,7 +754,7 @@ export class ReconciliationService {
 
         // A fresh pending row was INSERTed → createdFresh=true (201 + both
         // audit events).
-        return { kind: "ok", row: toUnknownItemRow(inserted), createdFresh: true };
+        return { kind: "ok", row: toUnknownItemDto(inserted), createdFresh: true };
       },
     );
 
@@ -864,50 +847,4 @@ export class ReconciliationService {
         );
       });
   }
-}
-
-/** Raw snake_case unknown_items row (FOR UPDATE / sibling / UPDATE / INSERT RETURNING). */
-interface UnknownItemDbRow {
-  id: string;
-  tenant_id: string;
-  store_id: string;
-  identifier_type: string;
-  value: string;
-  source_system: string | null;
-  resolution_status: "pending" | "resolved" | "dismissed";
-  resolution_action: "linked" | "created" | "dismissed" | null;
-  resolved_at: Date | null;
-  resolved_by: string | null;
-  resolved_product_id: string | null;
-  encountered_at: Date;
-  sale_context: Record<string, unknown> | null;
-}
-
-/** Column list matching {@link UnknownItemDbRow} for SELECT / RETURNING clauses. */
-const UNKNOWN_ITEM_COLUMNS = `id, tenant_id, store_id, identifier_type, value,
-                  source_system, resolution_status, resolution_action,
-                  resolved_at, resolved_by, resolved_product_id,
-                  encountered_at, sale_context`;
-
-/**
- * Adapter — raw snake_case row (FOR UPDATE / sibling / INSERT RETURNING) to the
- * camelCase {@link UnknownItemRow} the controller projects. Shared by all
- * reconciliation branches so the mapping lives in exactly one place.
- */
-function toUnknownItemRow(row: UnknownItemDbRow): UnknownItemRow {
-  return {
-    id: row.id,
-    tenantId: row.tenant_id,
-    storeId: row.store_id,
-    identifierType: row.identifier_type,
-    identifierValue: row.value,
-    sourceSystem: row.source_system,
-    resolutionStatus: row.resolution_status,
-    resolutionAction: row.resolution_action,
-    resolvedAt: row.resolved_at,
-    resolvedBy: row.resolved_by,
-    resolvedProductId: row.resolved_product_id,
-    encounteredAt: row.encountered_at,
-    saleContext: row.sale_context,
-  };
 }
