@@ -14,6 +14,9 @@
  *
  * Constitution §VII / FR-B-003 / FR-B-006 / P4 W5.
  */
+import { EventEmitter } from "node:events";
+
+import { Logger } from "@nestjs/common";
 import { Pool } from "pg";
 
 import {
@@ -248,5 +251,68 @@ describe("InstrumentedPool.query (callback form) — passthrough", () => {
       expect(mockedRecord).not.toHaveBeenCalled();
       done();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RT-1246 — a dropped connection does not crash the process (Sentry BACKEND-CORE-7)
+// ---------------------------------------------------------------------------
+
+/**
+ * A socket-less pg client, so pg-pool's real checkout/release path runs: pg-pool
+ * builds it through the `Client` option, listens on it while idle and removes
+ * that listener at checkout.
+ */
+class FakeClient extends EventEmitter {
+  /** pg-pool returns a released client to the idle list only when it is queryable. */
+  _queryable = true;
+  connect(cb: (err?: Error) => void): void {
+    cb();
+  }
+  end(cb?: () => void): Promise<void> {
+    cb?.();
+    return Promise.resolve();
+  }
+  query(): Promise<{ rows: never[] }> {
+    return Promise.resolve({ rows: [] });
+  }
+}
+
+const terminated = (): Error =>
+  Object.assign(new Error("terminating connection due to administrator command"), {
+    code: "57P01",
+  });
+
+describe("InstrumentedPool — dropped connection (RT-1246, Sentry BACKEND-CORE-7)", () => {
+  let warn: jest.SpyInstance;
+  let pool: InstrumentedPool;
+
+  beforeEach(() => {
+    warn = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    pool = new InstrumentedPool({ Client: FakeClient as never, max: 1 });
+  });
+
+  afterEach(async () => {
+    await pool.end();
+    jest.restoreAllMocks();
+  });
+
+  it("a checked-out client's error (a restart mid-transaction) does not throw", async () => {
+    const client = await pool.connect();
+
+    expect(() => client.emit("error", terminated())).not.toThrow();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain("SQLSTATE 57P01");
+    client.release(true);
+  });
+
+  it("an idle client's error, re-emitted on the pool by pg-pool, does not throw and logs once", async () => {
+    const client = await pool.connect();
+    client.release();
+    expect(pool.idleCount).toBe(1); // back in the idle list, under pg-pool's idle listener
+
+    expect(() => client.emit("error", terminated())).not.toThrow();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(pool.totalCount).toBe(0); // pg-pool dropped the dead client
   });
 });
