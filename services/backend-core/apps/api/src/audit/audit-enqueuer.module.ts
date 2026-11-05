@@ -24,8 +24,7 @@ import { Module, type Provider } from "@nestjs/common";
 import { Queue, type JobsOptions } from "bullmq";
 import type { Pool } from "pg";
 
-import type { Logger } from "@data-pulse-2/shared";
-import { requireRedisUrl } from "@data-pulse-2/shared";
+import { requireRedisUrl, type Logger } from "@data-pulse-2/shared";
 import { DEFAULT_JOB_OPTIONS } from "@data-pulse-2/shared/queues/queue-config";
 
 import { createApiLogger } from "../common/api-logger";
