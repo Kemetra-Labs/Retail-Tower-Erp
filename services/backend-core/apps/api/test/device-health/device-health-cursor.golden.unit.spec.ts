@@ -5,6 +5,7 @@
  * existing tokens still decode, and every refusal: each is InvalidDeviceHealthCursorError,
  * which the controller maps to 400 `validation_error`.
  */
+import { InvalidCursorError } from "../../src/common/cursor/opaque-cursor";
 import {
   InvalidDeviceHealthCursorError,
   decodeDeviceHealthCursor,
@@ -83,5 +84,9 @@ describe("InvalidDeviceHealthCursorError", () => {
     expect(caught).toBeInstanceOf(Error);
     expect((caught as Error).name).toBe("InvalidDeviceHealthCursorError");
     expect((caught as Error).message).toBe("cursor is not a valid continuation token for this operation");
+  });
+
+  it("extends the shared InvalidCursorError base (RT-1213)", () => {
+    expect(new InvalidDeviceHealthCursorError()).toBeInstanceOf(InvalidCursorError);
   });
 });
