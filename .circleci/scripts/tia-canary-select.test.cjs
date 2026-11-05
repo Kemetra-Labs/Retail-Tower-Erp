@@ -67,6 +67,20 @@ test("text readers: direct fs/child_process use, and helpers that read, transiti
   assert.deepEqual(r, ["test/a/fence.spec.ts", "test/a/git.spec.ts", "test/a/via-chain.spec.ts", "test/a/via-helper.spec.ts"]);
 });
 
+// RT-921 c15663 finding 3: specs that load the OpenAPI YAML through src/openapi/loader.ts, directly
+// or through a test helper, read files the coverage map cannot see.
+test("text readers: a src module that reads files makes its importers readers, also through helpers", () => {
+  const r = sel.textReaders({
+    "src/openapi/loader.ts": 'import { readFileSync, readdirSync } from "node:fs";\n',
+    "src/catalog/x.ts": "export const x = 1;\n",
+    "test/_helpers/scoped-http-harness.ts": 'import { loadOpenApiContracts } from "../../src/openapi/loader";\n',
+    "test/a/direct.spec.ts": 'import { loadOpenApiContracts } from "../../src/openapi/loader";\n',
+    "test/a/via-harness.spec.ts": 'import { harness } from "../_helpers/scoped-http-harness";\n',
+    "test/a/plain.spec.ts": 'import { x } from "../../src/catalog/x";\n',
+  });
+  assert.deepEqual(r, ["test/a/direct.spec.ts", "test/a/via-harness.spec.ts"]);
+});
+
 test("IMPACTED always adds every text-reader spec; unknown or undiscovered readers plan FULL", () => {
   const p = sel.decide(inputs({ textReaders: ["test/b/four.spec.ts"] }));
   assert.equal(p.mode, IMPACTED, p.reasons.join("; "));
@@ -82,6 +96,9 @@ test("real suite: the import-fence spec is a text reader, and readers stay a min
   assert.ok(modules, "could not read apps/api/test");
   const readers = sel.textReaders(modules);
   assert.ok(readers.includes("test/ai-entitlements/pos-isolation.spec.ts"), "pos-isolation (src import fence) must be a text reader");
+  // Loads the OpenAPI YAML only through src/openapi/loader.ts (via a helper): must be a reader.
+  assert.ok(modules["src/openapi/loader.ts"], "src modules are read too");
+  assert.ok(readers.includes("test/devices/devices.contract.spec.ts"), "devices.contract (OpenAPI via the src loader) must be a text reader");
   const specs = Object.keys(modules).filter((p) => p.endsWith(".spec.ts")).length;
   assert.ok(readers.length > 20 && readers.length < specs / 2, `${readers.length} readers of ${specs} specs`);
 });
@@ -211,6 +228,78 @@ test("select-all caused by a full-test-run path the branch itself changed is a p
   assert.equal(p.mode, FULL);
   assert.match(p.reasons[0], /covers every spec/);
   assert.equal(p.impactDataMismatch, undefined);
+});
+
+// ---- full-test-run-paths bypass (RT-921 c15663 option A) ----------------------------------
+
+test("stripFullRunPaths removes only the full-test-run-paths list from the real suite file", () => {
+  const text = readText(".circleci/test-suites.yml");
+  const s = sel.stripFullRunPaths(text);
+  assert.ok(s, "the real suite file must strip");
+  assert.ok(s.removed.includes("../../packages/contracts/openapi/*"));
+  assert.ok(s.removed.length >= 10);
+  assert.doesNotMatch(s.text.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n"), /full-test-run-paths/);
+  for (const keep of ["name: backend api jest", "  test-impact-analysis: true", "  test-analysis-duration: 30", "discover:", "run: >-", "analysis: >-"]) {
+    assert.ok(s.text.includes(keep), `lost ${keep}`);
+  }
+  assert.equal(s.text.split("\n").length, text.split("\n").length - s.removed.length - 1);
+});
+
+test("stripFullRunPaths refuses a missing, repeated or empty list", () => {
+  const base = "options:\n  test-impact-analysis: true\n";
+  assert.equal(sel.stripFullRunPaths(base), null);
+  assert.equal(sel.stripFullRunPaths(`${base}  full-test-run-paths:\n`), null);
+  assert.equal(sel.stripFullRunPaths(`${base}  full-test-run-paths:\n    - a\n  full-test-run-paths:\n    - b\n`), null);
+  assert.equal(sel.stripFullRunPaths(null), null);
+  assert.deepEqual(sel.stripFullRunPaths(`${base}  full-test-run-paths:\n    - a\n    - b\nnext: 1\n`), { text: `${base}next: 1\n`, removed: ["a", "b"] });
+});
+
+test("a bypassed suite file must be restored before planning, or the plan is FULL", () => {
+  const applied = { applied: true, removed: ["a", "b"] };
+  const ok = sel.decide(inputs({ bypass: applied, restoreRc: 0 }));
+  assert.equal(ok.mode, IMPACTED, ok.reasons.join("; "));
+  assert.deepEqual(ok.fullRunBypass, { applied: true, removed: 2, reason: null });
+  assert.equal(sel.decide(inputs({ bypass: applied, restoreRc: 1 })).mode, FULL);
+  assert.equal(sel.decide(inputs({ bypass: applied, restoreRc: null })).mode, FULL);
+  // Not applied: a failed restore still means a dirty checkout, so FULL.
+  assert.equal(sel.decide(inputs({ bypass: { applied: false, reason: "x" }, restoreRc: 1 })).mode, FULL);
+  assert.equal(sel.decide(inputs({ bypass: { applied: false, reason: "x" }, restoreRc: 0 })).mode, IMPACTED);
+});
+
+test("runBypass strips the suite file only for a pinned TIA_ELIGIBLE guard", () => {
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), "rt1239-bypass-"));
+  const suites = path.join(out, "test-suites.yml");
+  const original = "options:\n  test-impact-analysis: true\n  full-test-run-paths:\n    - ../../a\n    - ../../b/*\n";
+  const run = (guard, env = { CIRCLE_SHA1: SHA, EXPECTED_SHA: SHA }) => {
+    fs.writeFileSync(suites, original);
+    fs.writeFileSync(path.join(out, "guard.json"), JSON.stringify(guard));
+    const log = console.log;
+    console.log = () => {};
+    try {
+      return sel.runBypass(out, env, suites);
+    } finally {
+      console.log = log;
+    }
+  };
+  try {
+    const eligible = { decision: "TIA_ELIGIBLE", reason: "ok", head: SHA, mustRun: [], changed: [] };
+    const r = run(eligible);
+    assert.equal(r.applied, true);
+    assert.deepEqual(r.removed, ["../../a", "../../b/*"]);
+    assert.equal(fs.readFileSync(suites, "utf8"), "options:\n  test-impact-analysis: true\n");
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(out, "fullrun-bypass.json"), "utf8")), r);
+    for (const [guard, env] of [
+      [{ ...eligible, decision: "FORCE_FULL" }, undefined],
+      [{ ...eligible, head: "b".repeat(40) }, undefined],
+      [eligible, { CIRCLE_SHA1: SHA, EXPECTED_SHA: "" }],
+    ]) {
+      const n = run(guard, env);
+      assert.equal(n.applied, false, JSON.stringify(n));
+      assert.equal(fs.readFileSync(suites, "utf8"), original);
+    }
+  } finally {
+    fs.rmSync(out, { recursive: true, force: true });
+  }
 });
 
 test("repoPath maps the CLI's apps/api-relative paths to repository paths", () => {
@@ -381,7 +470,20 @@ test("config.yml: the canary is read only inside remote-api-jest, and its FULL p
   const canaryBlock = whenBlocks.find((b) => !/not: /.test(b) && /api_tia_canary/.test(b));
   assert.ok(defaultBlock && canaryBlock, "both when blocks found in remote-api-jest");
   assert.match(defaultBlock, /- tia-shadow-start\n/);
-  assert.match(canaryBlock, /- tia-risk-guard\n {12}- tia-list-tests\n {12}- tia-canary\n/);
+  assert.match(canaryBlock, /- tia-risk-guard\n {12}- tia-fullrun-bypass\n {12}- tia-list-tests\n {12}- tia-canary\n/);
+  // RT-921 c15663 option A: the bypass edits only the job's copy; the plan step restores it with
+  // git and records the result before it lists or plans anything.
+  const bypass = cfg.slice(cfg.indexOf("\n  tia-fullrun-bypass:\n"), cfg.indexOf("\n  # RT-1239 follow-up (RT-921 c15655 item 2)"));
+  assert.match(bypass, /tia-canary-select\.cjs bypass --out \/tmp\/tia --suites \.circleci\/test-suites\.yml/);
+  assert.match(bypass, /TIA_GUARD_RUNTIME=1 timeout 120 node --test \.circleci\/scripts\/tia-canary-select\.test\.cjs/);
+  const planStep = canary.slice(canary.indexOf("TIA canary: plan IMPACTED or FULL"));
+  const restoreAt = planStep.indexOf("git -C ~/project checkout -- .circleci/test-suites.yml");
+  assert.ok(restoreAt > 0, "the plan step restores the suite file");
+  assert.ok(restoreAt < planStep.indexOf("jest --listTests"), "restore before discovery");
+  assert.match(planStep, /git -C ~\/project diff --quiet -- \.circleci\/test-suites\.yml \|\| rc=\$\?\n\s+echo "\$rc" > \/tmp\/tia\/fullrun-restore\.rc/);
+  // The default (non-canary) path never bypasses.
+  assert.doesNotMatch(defaultBlock, /tia-fullrun-bypass/);
+  assert.equal((cfg.match(/- tia-fullrun-bypass\n/g) || []).length, 1);
   const listTests = cfg.slice(cfg.indexOf("\n  tia-list-tests:\n"), cfg.indexOf("\n  # RT-1188: the report after the full run"));
   assert.match(listTests, /circleci testsuite list-tests "backend api jest"/);
   assert.doesNotMatch(listTests, /testsuite doctor/);

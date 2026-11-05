@@ -14,23 +14,37 @@
 //     data, analyzed nothing, and its counts agree: selected + skipped = discovered, the
 //     per-reason counts add up to selected, and selected = the list-tests line count
 // IMPACTED also always adds every TEXT READER: a spec that reads files or runs processes itself,
-// or through a non-spec test module that does (helpers, transitively). Coverage maps a spec only
-// to the modules it imports, so a spec that scans src/ or test/ as text (pos-isolation's import
-// fence, route-marker enforcement, OpenAPI route scans) would otherwise be skipped when an
-// unmapped file it reads changes. Found at run time from the specs' source, so the list cannot go
-// stale; over-inclusion only runs more. One helper is exempt (EXEMPT_HELPERS): it reads only
-// packages/db migrations, which the guard already forces FULL. Its reads are pinned by the test.
+// or through a non-spec module that does (test helpers and apps/api/src modules, transitively).
+// Coverage maps a spec only to the modules it imports, so a spec that scans src/ or test/ as text
+// (pos-isolation's import fence, route-marker enforcement, OpenAPI route scans) or loads the
+// OpenAPI YAML through src/openapi/loader.ts would otherwise be skipped when an unmapped file it
+// reads changes. Found at run time from the source, so the list cannot go stale; over-inclusion
+// only runs more. One helper is exempt (EXEMPT_HELPERS): it reads only packages/db migrations,
+// which the guard already forces FULL. Its reads are pinned by the test.
 // A union that covers every spec is FULL (nothing would be skipped).
+//
+// `bypass` (RT-921 c15663 option A) runs before list-tests and the probe. When the guard is
+// TIA_ELIGIBLE and pinned to this commit, it removes `full-test-run-paths` from THIS JOB'S copy
+// of .circleci/test-suites.yml and records <out>/fullrun-bypass.json; otherwise it changes
+// nothing. The CLI compares those paths with the stored impact data, not with the branch's
+// merge-base, so any main change to one of them since the last analysis selected every spec
+// (canary #1094; 102 of 558 main commits in 14 days touched one). The guard is stricter for the
+// branch's own changes: TIA_ELIGIBLE means it changed only API src/spec .ts files (plus neutral
+// files), none of them a full-test-run path. main's own changes to those paths were tested by
+// main's full push run (the RT-1173 rule). The plan step restores the file with git before it
+// plans, and `plan` is FULL if a bypassed file was not restored (fullrun-restore.rc != 0).
 //
 // `verify` runs after the tests, always: it compares the JUnit report with the plan and writes
 // <out>/canary-report.json. It exits 1 when a planned spec has no result, or an IMPACTED run
 // reports a spec it was not given, so a short run can never look green. Jest's own exit code
 // stays the run step's.
 //
-// usage: tia-canary-select.cjs plan   --out <dir> [--api-root <dir>]
+// usage: tia-canary-select.cjs bypass --out <dir> --suites <test-suites.yml>
+//        tia-canary-select.cjs plan   --out <dir> [--api-root <dir>]
 //        tia-canary-select.cjs verify --out <dir> --junit <dir|file> [--api-root <dir>]
 //   inputs read from <out>: guard.json, selected.txt, list-tests.rc, discovered.txt, probe.log,
-//   probe.rc, run-seconds (verify); env: CIRCLE_SHA1, EXPECTED_SHA
+//   probe.rc, fullrun-bypass.json, fullrun-restore.rc, run-seconds (verify);
+//   env: CIRCLE_SHA1, EXPECTED_SHA
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
@@ -52,9 +66,10 @@ const READ_RE = /['"](?:node:)?(?:fs|fs\/promises|child_process)['"]|\b(?:readFi
 // FULL); 208 specs import it, so counting it would make every DB spec a text reader.
 const EXEMPT_HELPERS = ["test/_helpers/postgres-container.ts"];
 
-// Specs that read files or run processes directly or through a non-spec test module. `modules`
-// maps every test module path (relative to apps/api: specs and helpers) to its source text.
-// Imports are matched by module basename (over-inclusion is safe), to a fixpoint for helpers.
+// Specs that read files or run processes directly or through a non-spec module. `modules` maps
+// every module path (relative to apps/api: test specs and helpers, and src modules) to its source
+// text. Imports are matched by module basename (over-inclusion is safe), to a fixpoint over the
+// non-spec modules, so a spec importing src/openapi/loader.ts, or a helper that does, is a reader.
 function textReaders(modules) {
   const isSpec = (p) => p.endsWith(".spec.ts");
   const base = (p) => p.replace(/^.*\//, "").replace(/\.(?:ts|js|cjs|mjs)$/, "");
@@ -113,6 +128,27 @@ function repoPath(fromApi) {
   return p.startsWith("../") || p.startsWith("/") ? null : p;
 }
 
+// Pure: test-suites.yml text without its `full-test-run-paths` key and list, or null unless the
+// key appears exactly once (two-space indent, under options) with at least one four-space `- `
+// item, and no other non-comment line names it afterwards.
+function stripFullRunPaths(text) {
+  if (typeof text !== "string") return null;
+  const src = text.split("\n");
+  const keyAt = src.flatMap((l, i) => (/^ {2}full-test-run-paths:\s*$/.test(l.replace(/\r$/, "")) ? [i] : []));
+  if (keyAt.length !== 1) return null;
+  let end = keyAt[0] + 1;
+  const removed = [];
+  for (; end < src.length; end++) {
+    const m = /^ {4}- (\S.*?)\s*$/.exec(src[end].replace(/\r$/, ""));
+    if (!m) break;
+    removed.push(m[1]);
+  }
+  if (removed.length === 0) return null;
+  const kept = [...src.slice(0, keyAt[0]), ...src.slice(end)];
+  if (kept.some((l) => !/^\s*#/.test(l) && /full-test-run-paths/.test(l))) return null;
+  return { text: kept.join("\n"), removed };
+}
+
 // Pure decision. `inp` holds already-read inputs; text inputs are null when the file is missing.
 function decide(inp) {
   const reasons = [];
@@ -124,6 +160,7 @@ function decide(inp) {
     guard: { decision: inp.guard?.decision ?? null, reason: inp.guard?.reason ?? null, head: inp.guard?.head ?? null },
     impact: null,
     counts: { discovered: null, listTests: null, mustRun: null, mustRunAdded: null, changedSpecs: null, planned: null },
+    fullRunBypass: inp.bypass ? { applied: inp.bypass.applied === true, removed: inp.bypass.removed?.length ?? 0, reason: inp.bypass.reason ?? null } : null,
     mustRun: [],
     atoms: [],
   };
@@ -131,6 +168,14 @@ function decide(inp) {
     reasons.push(why);
     return plan;
   };
+
+  // A dirty suite file would also fail the specs that fence `git status --porcelain`.
+  if (inp.restoreRc !== null && inp.restoreRc !== undefined && inp.restoreRc !== 0) {
+    return fail(`.circleci/test-suites.yml was not restored after the full-test-run-paths bypass (exit ${inp.restoreRc})`);
+  }
+  if (inp.bypass?.applied === true && inp.restoreRc !== 0) {
+    return fail("full-test-run-paths bypass applied but no restore result (fullrun-restore.rc)");
+  }
 
   if (!inp.sha || !SHA_RE.test(inp.sha)) return fail(`CIRCLE_SHA1 is not a full SHA ('${inp.sha || ""}')`);
   if (inp.sha !== inp.expectedSha) return fail(`CIRCLE_SHA1 ${inp.sha} is not remote_expected_sha '${inp.expectedSha || ""}'`);
@@ -223,7 +268,8 @@ const readRc = (p) => {
   return t === null || !/^\s*\d+\s*$/.test(t) ? null : Number(t.trim());
 };
 
-// Every .ts/.js module under <apiRoot>/test, keyed by its path relative to apiRoot; null on error.
+// Every .ts/.js module under <apiRoot>/test and <apiRoot>/src, keyed by its path relative to
+// apiRoot; null on error or when test/ holds none.
 function readTestModules(apiRoot) {
   try {
     const modules = {};
@@ -238,7 +284,9 @@ function readTestModules(apiRoot) {
       }
     };
     walk("test");
-    return Object.keys(modules).length ? modules : null;
+    if (Object.keys(modules).length === 0) return null;
+    if (fs.existsSync(path.join(apiRoot, "src"))) walk("src");
+    return modules;
   } catch {
     return null;
   }
@@ -265,8 +313,47 @@ function readInputs(out, env, apiRoot) {
     listTestsRc: readRc(path.join(out, "list-tests.rc")),
     probeText: readIfExists(path.join(out, "probe.log")),
     probeRc: readRc(path.join(out, "probe.rc")),
+    bypass: readJson(path.join(out, "fullrun-bypass.json")),
+    restoreRc: readRc(path.join(out, "fullrun-restore.rc")),
     textReaders: modules ? textReaders(modules) : null,
   };
+}
+
+function readJson(p) {
+  try {
+    return JSON.parse(readIfExists(p) ?? "null");
+  } catch {
+    return { applied: false, reason: `unreadable ${path.basename(p)}` };
+  }
+}
+
+// Removes full-test-run-paths from the job's suite file only when the guard is TIA_ELIGIBLE and
+// pinned to this commit; always writes <out>/fullrun-bypass.json. Never throws.
+function runBypass(out, env, suites) {
+  const sha = env.CIRCLE_SHA1 || "";
+  let result;
+  try {
+    const g = readGuard(out, sha);
+    if (!SHA_RE.test(sha) || sha !== (env.EXPECTED_SHA || "")) {
+      result = { applied: false, reason: "CIRCLE_SHA1 is not the pinned remote_expected_sha" };
+    } else if (!g || g.decision !== "TIA_ELIGIBLE" || g.head !== sha) {
+      result = { applied: false, reason: `guard decision ${g?.decision ?? "missing"} (head ${g?.head ?? "none"})` };
+    } else {
+      const stripped = stripFullRunPaths(readIfExists(suites));
+      if (stripped === null) {
+        result = { applied: false, reason: `no single full-test-run-paths list in ${suites}` };
+      } else {
+        fs.writeFileSync(suites, stripped.text);
+        result = { applied: true, removed: stripped.removed };
+      }
+    }
+  } catch (e) {
+    result = { applied: false, reason: `bypass error: ${e.message}` };
+  }
+  fs.mkdirSync(out, { recursive: true });
+  fs.writeFileSync(path.join(out, "fullrun-bypass.json"), `${JSON.stringify(result, null, 2)}\n`);
+  console.log(result.applied ? `full-test-run-paths bypass: removed ${result.removed.length} path(s) from ${suites}` : `full-test-run-paths bypass not applied: ${result.reason}`);
+  return result;
 }
 
 function writePlan(out, plan) {
@@ -347,6 +434,10 @@ function main(argv, env) {
   };
   const out = arg("--out", "/tmp/tia");
   const apiRoot = arg("--api-root", process.cwd());
+  if (argv[0] === "bypass") {
+    runBypass(out, env, arg("--suites", ".circleci/test-suites.yml"));
+    return 0;
+  }
   if (argv[0] === "plan") {
     runPlan(out, env, apiRoot);
     return 0;
@@ -356,6 +447,6 @@ function main(argv, env) {
   return 2;
 }
 
-module.exports = { repoPath, IMPACTED, FULL, ATOM_RE, READ_RE, EXEMPT_HELPERS, textReaders, readTestModules, parseProbe, decide, compare, readInputs, runPlan, runVerify, main };
+module.exports = { repoPath, IMPACTED, FULL, ATOM_RE, READ_RE, EXEMPT_HELPERS, textReaders, readTestModules, stripFullRunPaths, parseProbe, decide, compare, readInputs, runBypass, runPlan, runVerify, main };
 
 if (require.main === module) process.exit(main(process.argv.slice(2), process.env));

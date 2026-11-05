@@ -288,6 +288,32 @@ commands:
               || echo "could not count the suite's specs"
             exit 0
 
+  # RT-921 c15663 option A: canary only, after tia-risk-guard and before list-tests and the probe.
+  # When the guard is TIA_ELIGIBLE and pinned to this commit, the selector removes
+  # full-test-run-paths from this job's copy of .circleci/test-suites.yml (fullrun-bypass.json
+  # records it). Those paths are compared with the stored impact data, so a main change to any of
+  # them since the last analysis selected every spec (canary #1094); a TIA_ELIGIBLE branch changed
+  # none of them. tia-canary's plan step restores the file with git and plans FULL if it cannot.
+  # The shadow lane and main's analysis keep the full list. Never fails.
+  tia-fullrun-bypass:
+    description: Canary only. Drop full-test-run-paths from this job's suite copy when the guard is TIA_ELIGIBLE, never failing.
+    steps:
+      - run:
+          name: "TIA canary: full-test-run-paths bypass for a TIA_ELIGIBLE branch (self-test first)"
+          environment:
+            EXPECTED_SHA: "<< pipeline.parameters.remote_expected_sha >>"
+          command: |
+            rc=0
+            TIA_GUARD_RUNTIME=1 timeout 120 node --test .circleci/scripts/tia-canary-select.test.cjs || rc=$?
+            if [ "$rc" -ne 0 ]; then
+              echo "selector self-test failed (exit $rc); no bypass."
+              printf '{"applied":false,"reason":"selector self-test failed (exit %s)"}\n' "$rc" > /tmp/tia/fullrun-bypass.json
+              exit 0
+            fi
+            timeout 60 node .circleci/scripts/tia-canary-select.cjs bypass --out /tmp/tia --suites .circleci/test-suites.yml \
+              || echo "bypass exited $?; the plan step restores the suite file either way."
+            exit 0
+
   # RT-1239 follow-up (RT-921 c15655 item 2): the canary's selection step, without doctor. doctor
   # is a diagnostic that runs a sample of specs (4 min 40 s with list-tests in canary #1094) and
   # plays no part in selection. Same outputs the selector reads: selected.txt, list-tests.rc and
@@ -329,14 +355,14 @@ commands:
           path: /tmp/tia
           destination: tia
 
-  # RT-1239: the impacted-only canary, after tia-risk-guard and tia-list-tests (guard.json,
-  # selected.txt). Before triggering one (RT-921 c15655 item 1): check that the latest
-  # backend-api-jest-analysis job (workflow tia-main-analysis) SUCCEEDED on the candidate's
-  # merge-base or a later main commit and logged no "full-test-run-paths detected modified file"
-  # line (a failed or killed analysis saves nothing), AND that the candidate contains every main
-  # change to a full-test-run path up to that analysed commit (if main changed one after the
-  # candidate's base, merge origin/main into it first). Otherwise the CLI selects every spec and
-  # the selector labels the plan impact-data-mismatch (inconclusive; canary #1094). Only the
+  # RT-1239: the impacted-only canary, after tia-risk-guard, tia-fullrun-bypass and tia-list-tests
+  # (guard.json, fullrun-bypass.json, selected.txt). Before triggering one: check that the latest
+  # backend-api-jest-analysis job (workflow tia-main-analysis) SUCCEEDED (a failed or killed
+  # analysis saves nothing). With the bypass (RT-921 c15663 option A), main's later changes to
+  # full-test-run paths no longer select every spec; main's later changes to src files can only
+  # select more. If the bypass was not applied, a full-test-run path that differs from the stored
+  # impact data still selects every spec and the selector labels the plan impact-data-mismatch
+  # (inconclusive; canary #1094). The plan step first restores the suite file (FULL if not). Only the
   # probe and the selector decide; both exit 0 and every doubt becomes FULL, which is the same
   # plain-Jest full run as the default path. The run step keeps Jest's exit code and the
   # converter's, and verify fails the job when a planned spec has no result: a failure stays red.
@@ -372,6 +398,12 @@ commands:
               : > /tmp/tia/canary-atoms.txt
             }
             touch /tmp/tia/canary-planned
+            # Undo tia-fullrun-bypass before anything else runs: specs fence `git status`.
+            rc=0
+            git -C ~/project checkout -- .circleci/test-suites.yml || rc=$?
+            git -C ~/project diff --quiet -- .circleci/test-suites.yml || rc=$?
+            echo "$rc" > /tmp/tia/fullrun-restore.rc
+            echo "suite file restore exit code: $rc"
             node_modules/.bin/jest --listTests | sed "s#^$PWD/##" | sort > /tmp/tia/discovered.txt \
               || echo "could not list the suite's specs (the selector plans FULL)"
             rc=0
@@ -679,6 +711,7 @@ jobs:
           condition: << pipeline.parameters.api_tia_canary >>
           steps:
             - tia-risk-guard
+            - tia-fullrun-bypass
             - tia-list-tests
             - tia-canary
       - store_test_results:
