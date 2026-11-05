@@ -9,6 +9,7 @@
  */
 import { z } from "zod";
 
+import { InvalidCursorError, decodeOpaque, encodeOpaque } from "../common/cursor/opaque-cursor";
 import { deriveCompliance, type Compliance } from "./compliance";
 import { deriveLiveness, lastSeenOf, secondsSince, type LastSeenSource, type Liveness } from "./liveness";
 
@@ -107,9 +108,9 @@ export function toDeviceHealthView(row: DeviceHealthReadRow, now: Date): DeviceH
 // ---------------------------------------------------------------------------
 
 /** Raised for a cursor this operation did not issue, or for another tenant → 400. */
-export class InvalidDeviceHealthCursorError extends Error {
+export class InvalidDeviceHealthCursorError extends InvalidCursorError {
   constructor() {
-    super("cursor is not a valid continuation token for this operation");
+    super();
     this.name = "InvalidDeviceHealthCursorError";
   }
 }
@@ -120,19 +121,12 @@ const CursorSchema = z.object({ k: z.literal("device_health"), t: z.string().reg
 
 /** The opaque keyset cursor: the last `deviceId` of a page, bound to the tenant. */
 export function encodeDeviceHealthCursor(input: { readonly tenantId: string; readonly deviceId: string }): string {
-  const payload = { k: "device_health", t: input.tenantId.toLowerCase(), d: input.deviceId.toLowerCase() };
-  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return encodeOpaque({ k: "device_health", t: input.tenantId.toLowerCase(), d: input.deviceId.toLowerCase() });
 }
 
 /** The `deviceId` after which the next page starts. */
 export function decodeDeviceHealthCursor(input: { readonly tenantId: string; readonly cursor: string }): string {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(Buffer.from(input.cursor, "base64url").toString("utf8"));
-  } catch {
-    throw new InvalidDeviceHealthCursorError();
-  }
-  const parsed = CursorSchema.safeParse(raw);
-  if (!parsed.success || parsed.data.t !== input.tenantId.toLowerCase()) throw new InvalidDeviceHealthCursorError();
-  return parsed.data.d;
+  const payload = decodeOpaque(input.cursor, CursorSchema, () => new InvalidDeviceHealthCursorError());
+  if (payload.t !== input.tenantId.toLowerCase()) throw new InvalidDeviceHealthCursorError();
+  return payload.d;
 }

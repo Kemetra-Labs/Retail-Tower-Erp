@@ -10,6 +10,7 @@
  * the full-history scan cannot be allowlisted per line. Byte-for-byte equality still holds,
  * because the JSON text, its key order and the unpadded base64url alphabet are all fixed here.
  */
+import { InvalidCursorError } from "../../src/common/cursor/opaque-cursor";
 import {
   InvalidDeviceHealthCursorError,
   decodeDeviceHealthCursor,
@@ -94,5 +95,9 @@ describe("InvalidDeviceHealthCursorError", () => {
     expect(caught).toBeInstanceOf(Error);
     expect((caught as Error).name).toBe("InvalidDeviceHealthCursorError");
     expect((caught as Error).message).toBe("cursor is not a valid continuation token for this operation");
+  });
+
+  it("extends the shared InvalidCursorError base (RT-1213)", () => {
+    expect(new InvalidDeviceHealthCursorError()).toBeInstanceOf(InvalidCursorError);
   });
 });
