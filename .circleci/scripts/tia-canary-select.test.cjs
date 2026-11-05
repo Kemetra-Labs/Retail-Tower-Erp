@@ -288,14 +288,18 @@ test("a bypassed suite file must be restored before planning, or the plan is FUL
   assert.equal(sel.decide(inputs({ bypass: { applied: false, reason: "x" }, restoreRc: 0 })).mode, IMPACTED);
 });
 
-test("suiteDefinitionHash ignores comments, blank lines, CRLF and full-test-run items, not the definition", () => {
+// PR #366 review (CodeRabbit, d91a0ac3b): blank and `#` lines can be part of a folded command, and
+// the kept full-test-run items guard coverage, so only CRLF and bypassable items are ignored.
+test("suiteDefinitionHash ignores only line endings and bypassable items", () => {
   const text = readText(".circleci/test-suites.yml");
   const h = sel.suiteDefinitionHash(text);
   assert.match(sel.SUITE_DEFINITION_SHA256, /^[0-9a-f]{64}$/);
   assert.equal(sel.suiteDefinitionHash(text.replace(/\n/g, "\r\n")), h);
-  assert.equal(sel.suiteDefinitionHash(`# new comment\n\n${text}`), h);
-  assert.equal(sel.suiteDefinitionHash(text.replace("    - jest.config.cjs\n", "")), h, "the full-test-run list is not the definition");
   assert.equal(sel.suiteDefinitionHash(sel.stripFullRunPaths(text).text), h, "the job's stripped copy keeps the definition");
+  assert.equal(sel.suiteDefinitionHash(text.replace("    - ../../docs/*\n", "")), h, "dropping a bypassable item needs no new pin");
+  assert.notEqual(sel.suiteDefinitionHash(text.replace("    - jest.config.cjs\n", "")), h, "a kept item is part of the pin");
+  assert.notEqual(sel.suiteDefinitionHash(`# new comment\n${text}`), h, "any other edit turns the bypass off");
+  assert.notEqual(sel.suiteDefinitionHash(text.replace("analysis: >-\n", "analysis: >-\n\n")), h, "a blank line inside a folded command");
   assert.notEqual(sel.suiteDefinitionHash(text.replace("test-analysis-duration: 30", "test-analysis-duration: 31")), h);
   assert.notEqual(sel.suiteDefinitionHash(text.replace("--coverageReporters=lcovonly", "--coverageReporters=lcov")), h);
 });

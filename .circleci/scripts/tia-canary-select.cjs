@@ -141,29 +141,21 @@ const BYPASSABLE_RE = /^(?:\.\.\/\.\.\/(?:packages\/contracts\/openapi|deploy|do
 // PR #366 review (CodeRabbit): .circleci/test-suites.yml itself defines discovery, the run and the
 // coverage analysis, so a change to it can make the stored impact data stale. It cannot stay a
 // full-test-run path here, because the bypass edits that file and the CLI would then always
-// select every spec. Instead the bypass applies only while the suite DEFINITION (the file without
-// comments, blank lines and the full-test-run-paths list) hashes to this pin. After changing the
-// definition, update the pin in a later PR, only once a backend-api-jest-analysis on main has
-// succeeded on a commit that contains the change; until then the canary never bypasses.
-const SUITE_DEFINITION_SHA256 = "04f332b8f0dc3699b3a8d4aac4dcf8e7323ffc0f15249be081515e9973198500";
+// select every spec. Instead the bypass applies only while the suite DEFINITION hashes to this pin:
+// the whole file, byte for byte apart from line endings, minus only the bypassable list items it
+// drops. Blank and `#` lines count too (inside a folded block scalar they are part of a command),
+// as do the kept full-test-run items, so any other edit, even a comment, turns the bypass off.
+// After a change, update the pin in a later PR, only once a backend-api-jest-analysis on main has
+// succeeded on a commit that contains it; until then the canary never bypasses (fail-closed).
+const SUITE_DEFINITION_SHA256 = "8a0a448079b9487c7d1a3ec7758879b693d170739b4c639c116d3071e973109c";
 
-// Pure: sha256 of the suite definition, ignoring comments, blank lines, line endings and the
-// full-test-run-paths list (its items are compared with the stored impact data on their own).
+// Pure: sha256 of the suite file with LF line endings and without the bypassable
+// full-test-run-paths items (the same text stripFullRunPaths leaves; the whole file when nothing
+// is bypassable). Bypassable items are excluded so dropping one never needs a new pin.
 function suiteDefinitionHash(text) {
-  const out = [];
-  let inList = false;
-  for (const raw of text.split("\n")) {
-    const l = raw.replace(/\r$/, "");
-    if (/^\s*(?:#.*)?$/.test(l)) continue;
-    if (/^ {2}full-test-run-paths:\s*$/.test(l)) {
-      inList = true;
-      continue;
-    }
-    if (inList && /^ {4}- /.test(l)) continue;
-    inList = false;
-    out.push(l.replace(/\s+$/, ""));
-  }
-  return require("node:crypto").createHash("sha256").update(out.join("\n")).digest("hex");
+  const lf = text.replace(/\r\n/g, "\n");
+  const stripped = stripFullRunPaths(lf);
+  return require("node:crypto").createHash("sha256").update(stripped ? stripped.text : lf).digest("hex");
 }
 
 // Pure: test-suites.yml text without the bypassable `full-test-run-paths` items (and without the
