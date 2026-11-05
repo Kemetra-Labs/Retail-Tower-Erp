@@ -150,6 +150,10 @@ jobs:
       - name: Lint
         run: python -m ruff check retail_tower_erpnext_connector deploy
 
+      # RT-1201: formatting is enforced; the tree was formatted in a formatting-only commit.
+      - name: Format check
+        run: python -m ruff format --check retail_tower_erpnext_connector deploy
+
       - name: Unit tests (frappe-free)
         run: >-
           python -m pytest -q retail_tower_erpnext_connector/tests
