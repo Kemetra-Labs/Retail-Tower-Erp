@@ -1,7 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
-    "scripts/**/*.ts",
     "e2e.config.ts",
     "tests/e2e-agent/**/*.e2e.ts",
     "tests/e2e/harness/*.tsx",
