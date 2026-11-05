@@ -63,6 +63,9 @@ export class QueueLagGaugeRegistrar implements OnModuleInit, OnModuleDestroy {
   private handle: { stop: () => void } | null = null;
 
   onModuleInit(): void {
+    // Not requireRedisUrl (RT-1212): this registrar silently no-ops without
+    // Redis in every environment, including production, so the shared
+    // throw-in-production guard would change behaviour.
     const redisUrl = process.env["REDIS_URL"];
     if (!redisUrl) {
       return;

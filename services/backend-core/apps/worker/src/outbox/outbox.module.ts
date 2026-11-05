@@ -41,6 +41,7 @@ import {
   type Provider,
 } from "@nestjs/common";
 import { Queue, type JobsOptions } from "bullmq";
+import { requireRedisUrl } from "@data-pulse-2/shared";
 import { DEFAULT_JOB_OPTIONS } from "@data-pulse-2/shared/queues/queue-config";
 
 import { OutboxConsumerRegistry } from "./registry";
@@ -147,14 +148,11 @@ export class OutboxAuditQueue
  * raw `Queue` — so Nest's `onModuleDestroy` hook fires on shutdown.
  */
 export function outboxAuditQueueFactory(): OutboxAuditQueue {
-  const url = process.env["REDIS_URL"];
-  if (!url) {
-    if (process.env["NODE_ENV"] === "production") {
-      throw new Error(
-        "OutboxModule: REDIS_URL is required in production " +
-          "(audit consumer cannot enqueue without it).",
-      );
-    }
+  const url = requireRedisUrl({
+    component: "OutboxModule",
+    reason: "audit consumer cannot enqueue without it",
+  });
+  if (url === null) {
     return new OutboxAuditQueue(new NoOpAuditQueue(), null);
   }
   const queue = new Queue(OUTBOX_AUDIT_QUEUE_NAME, {
@@ -227,14 +225,11 @@ export class OutboxSaleProcessingQueue
  * raw `Queue` — so Nest's `onModuleDestroy` hook fires on shutdown.
  */
 export function outboxSaleProcessingQueueFactory(): OutboxSaleProcessingQueue {
-  const url = process.env["REDIS_URL"];
-  if (!url) {
-    if (process.env["NODE_ENV"] === "production") {
-      throw new Error(
-        "OutboxModule: REDIS_URL is required in production " +
-          "(sale.captured consumer cannot enqueue without it).",
-      );
-    }
+  const url = requireRedisUrl({
+    component: "OutboxModule",
+    reason: "sale.captured consumer cannot enqueue without it",
+  });
+  if (url === null) {
     return new OutboxSaleProcessingQueue(new NoOpSaleProcessingQueue(), null);
   }
   const queue = new Queue(OUTBOX_SALE_PROCESSING_QUEUE_NAME, {

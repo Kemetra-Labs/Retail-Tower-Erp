@@ -14,6 +14,7 @@
  */
 import { Injectable, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { Queue, type JobsOptions } from "bullmq";
+import { requireRedisUrl } from "@data-pulse-2/shared";
 import { DEFAULT_JOB_OPTIONS } from "@data-pulse-2/shared/queues/queue-config";
 
 export interface RepeatableSchedulerConfig {
@@ -41,14 +42,11 @@ export abstract class RepeatableScheduler implements OnModuleInit, OnModuleDestr
   async onModuleInit(): Promise<void> {
     const c = this.config;
     const every = c.resolveEveryMs();
-    const url = process.env["REDIS_URL"];
-    if (!url) {
-      if (process.env["NODE_ENV"] === "production") {
-        throw new Error(
-          `${c.label}: REDIS_URL is required in production ` +
-            `(cannot schedule ${c.description} without Redis).`,
-        );
-      }
+    const url = requireRedisUrl({
+      component: c.label,
+      reason: `cannot schedule ${c.description} without Redis`,
+    });
+    if (url === null) {
       return;
     }
     const jobOptions = c.retries ? (DEFAULT_JOB_OPTIONS as JobsOptions) : undefined;

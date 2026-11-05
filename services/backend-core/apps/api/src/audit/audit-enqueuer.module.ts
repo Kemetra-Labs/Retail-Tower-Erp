@@ -24,7 +24,7 @@ import { Module, type Provider } from "@nestjs/common";
 import { Queue, type JobsOptions } from "bullmq";
 import type { Pool } from "pg";
 
-import type { Logger } from "@data-pulse-2/shared";
+import { requireRedisUrl, type Logger } from "@data-pulse-2/shared";
 import { DEFAULT_JOB_OPTIONS } from "@data-pulse-2/shared/queues/queue-config";
 
 import { createApiLogger } from "../common/api-logger";
@@ -67,18 +67,14 @@ import { OutboxAuditEnqueuer } from "./outbox-audit-enqueuer";
 export function auditJobEnqueuerFactory(
   queueFactory?: (url: string) => AuditQueueLike,
 ): AuditJobEnqueuer {
-  const url = process.env["REDIS_URL"];
-  if (!url) {
-    if (process.env["NODE_ENV"] === "production") {
-      // Error message intentionally retains the historical "AuditModule:"
-      // prefix so existing operator runbooks and the
-      // `audit-queue.producer.spec.ts` literal-string assertion remain
-      // valid even though the factory has moved into this leaf module.
-      throw new Error(
-        "AuditModule: REDIS_URL is required in production " +
-          "(AuditQueueProducer cannot be wired without it).",
-      );
-    }
+  // The "AuditModule" prefix is intentionally historical so existing operator
+  // runbooks and the `audit-queue.producer.spec.ts` literal-string assertion
+  // remain valid even though the factory has moved into this leaf module.
+  const url = requireRedisUrl({
+    component: "AuditModule",
+    reason: "AuditQueueProducer cannot be wired without it",
+  });
+  if (url === null) {
     return new NoOpAuditJobEnqueuer();
   }
   // Defer Queue construction to first use. The thunk captures `url`

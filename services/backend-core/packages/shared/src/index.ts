@@ -1,6 +1,7 @@
 export * from "./zod/base";
 export * from "./errors/envelope";
 export * from "./logger/pino";
+export * from "./config/require-redis-url";
 export * from "./observability/otel";
 export * from "./observability/metrics-labels";
 export * from "./fragments/load-fragment-dir";
