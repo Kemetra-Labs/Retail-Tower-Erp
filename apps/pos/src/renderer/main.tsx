@@ -105,6 +105,15 @@ if (
     );
   });
 } else if (
+  // RT-1193: the manager home harness, same DEV-only contract (the real AppRouter
+  // at /app/dashboard against in-memory recovery and stuck-shift reads).
+  (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV &&
+  window.location.hash.startsWith('#/dev/manager-home-proof')
+) {
+  void import('./v5/manager/home/dev/ManagerHomeProof').then((m) => {
+    m.mountManagerHomeProof(root);
+  });
+} else if (
   // RT-445 (PK-3): the park / resume harness, same DEV-only contract (the real
   // AppRouter — Sale, parked list, review, shift close — against in-memory bridges).
   (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV &&

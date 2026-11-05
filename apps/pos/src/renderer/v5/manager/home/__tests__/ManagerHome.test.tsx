@@ -1,7 +1,9 @@
 /**
  * RT-499 (VN-S10 S10-2, G-6) — the manager home, `/app/dashboard`: one card per
  * manager screen, the cashier refusal, the recovery-mode redirect, and no figure
- * anywhere (there is no metrics contract).
+ * in a card's title or description. RT-1193 (approved G-6 amendment): a card may
+ * add one count line from an existing read; those are tested in
+ * `tile-counts.test.tsx`. With no read answering, the home still has no digit.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
