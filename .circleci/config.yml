@@ -289,12 +289,15 @@ commands:
             exit 0
 
   # RT-921 c15663 option A: canary only, after tia-risk-guard and before list-tests and the probe.
-  # When the guard is TIA_ELIGIBLE and pinned to this commit, the selector removes
-  # full-test-run-paths from this job's copy of .circleci/test-suites.yml (fullrun-bypass.json
-  # records it). Those paths are compared with the stored impact data, so a main change to any of
-  # them since the last analysis selected every spec (canary #1094); a TIA_ELIGIBLE branch changed
-  # none of them. tia-canary's plan step restores the file with git and plans FULL if it cannot.
-  # The shadow lane and main's analysis keep the full list. Never fails.
+  # When the guard is TIA_ELIGIBLE and pinned to this commit, the selector removes the text-only
+  # full-test-run-paths entries (OpenAPI YAML, deploy/, docs/, .circleci/) from this job's copy of
+  # .circleci/test-suites.yml (fullrun-bypass.json records it). Those paths are compared with the
+  # stored impact data, so a main change to any of them since the last analysis selected every
+  # spec (canary #1094). A TIA_ELIGIBLE branch changed none of them, and every spec that reads them
+  # is an always-run text reader. Entries that can change which src lines a spec covers (test
+  # helpers, jest/ts config, root package files, packages/ code, drizzle) stay. tia-canary's plan
+  # step restores the file with git and plans FULL if it cannot. The shadow lane and main's
+  # analysis keep the full list. Never fails.
   tia-fullrun-bypass:
     description: Canary only. Drop full-test-run-paths from this job's suite copy when the guard is TIA_ELIGIBLE, never failing.
     steps:
@@ -358,11 +361,13 @@ commands:
   # RT-1239: the impacted-only canary, after tia-risk-guard, tia-fullrun-bypass and tia-list-tests
   # (guard.json, fullrun-bypass.json, selected.txt). Before triggering one: check that the latest
   # backend-api-jest-analysis job (workflow tia-main-analysis) SUCCEEDED (a failed or killed
-  # analysis saves nothing). With the bypass (RT-921 c15663 option A), main's later changes to
-  # full-test-run paths no longer select every spec; main's later changes to src files can only
-  # select more. If the bypass was not applied, a full-test-run path that differs from the stored
-  # impact data still selects every spec and the selector labels the plan impact-data-mismatch
-  # (inconclusive; canary #1094). The plan step first restores the suite file (FULL if not). Only the
+  # analysis saves nothing). With the bypass (RT-921 c15663 option A), main's later changes to the
+  # text-only full-test-run paths no longer select every spec. A kept path (test helpers, jest/ts
+  # config, root package files, packages/ code, drizzle), or any path when the bypass was not
+  # applied, that differs from the stored impact data still selects every spec, and the selector
+  # labels the plan impact-data-mismatch (inconclusive; canary #1094): wait until an analysis
+  # covers the candidate's merge-base, or merge origin/main into the candidate if main changed it
+  # after the base. The plan step first restores the suite file (FULL if not). Only the
   # probe and the selector decide; both exit 0 and every doubt becomes FULL, which is the same
   # plain-Jest full run as the default path. The run step keeps Jest's exit code and the
   # converter's, and verify fails the job when a planned spec has no result: a failure stays red.

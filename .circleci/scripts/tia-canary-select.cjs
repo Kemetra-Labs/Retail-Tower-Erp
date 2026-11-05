@@ -24,15 +24,17 @@
 // A union that covers every spec is FULL (nothing would be skipped).
 //
 // `bypass` (RT-921 c15663 option A) runs before list-tests and the probe. When the guard is
-// TIA_ELIGIBLE and pinned to this commit, it removes `full-test-run-paths` from THIS JOB'S copy
-// of .circleci/test-suites.yml and records <out>/fullrun-bypass.json; otherwise it changes
-// nothing. The CLI compares those paths with the stored impact data, not with the branch's
-// merge-base, so any main change to one of them since the last analysis selected every spec
-// (canary #1094; 102 of 558 main commits in 14 days touched one). The guard is stricter for the
-// branch's own changes: TIA_ELIGIBLE means it changed only API src/spec .ts files (plus neutral
-// files), none of them a full-test-run path. main's own changes to those paths were tested by
-// main's full push run (the RT-1173 rule). The plan step restores the file with git before it
-// plans, and `plan` is FULL if a bypassed file was not restored (fullrun-restore.rc != 0).
+// TIA_ELIGIBLE and pinned to this commit, it removes the TEXT-ONLY entries (BYPASSABLE_RE:
+// OpenAPI YAML, deploy/, docs/, .circleci/) from `full-test-run-paths` in THIS JOB'S copy of
+// .circleci/test-suites.yml and records <out>/fullrun-bypass.json; otherwise it changes nothing.
+// The CLI compares those paths with the stored impact data, not with the branch's merge-base, so
+// any main change to one of them since the last analysis selected every spec (canary #1094; in
+// 14 days, 102 of 558 main commits touched a full-test-run path, 73 of them only text-only
+// ones). It is safe for these entries only: TIA_ELIGIBLE means the branch changed none of
+// them (only API src/spec .ts files plus neutral files), and every spec that reads them is an
+// always-run text reader. Entries that can change which src lines a spec covers (test helpers,
+// jest/ts config, root package files, packages/ code, drizzle) stay. The plan step restores the
+// file with git before it plans, and `plan` is FULL if it was not restored (fullrun-restore.rc).
 //
 // `verify` runs after the tests, always: it compares the JUnit report with the plan and writes
 // <out>/canary-report.json. It exits 1 when a planned spec has no result, or an IMPACTED run
@@ -128,25 +130,50 @@ function repoPath(fromApi) {
   return p.startsWith("../") || p.startsWith("/") ? null : p;
 }
 
-// Pure: test-suites.yml text without its `full-test-run-paths` key and list, or null unless the
-// key appears exactly once (two-space indent, under options) with at least one four-space `- `
-// item, and no other non-comment line names it afterwards.
+// full-test-run-paths entries (as written, relative to apps/api) the bypass may drop: files that
+// API specs only READ AS TEXT (OpenAPI YAML, deploy/, docs/, .circleci/), never import or run as
+// code. Every spec that reads files is an always-run text reader, so such a change can never be
+// skipped. Everything else stays: test helpers, jest/ts config, root package files, packages/
+// code and drizzle migrations can change which src lines a spec covers, which coverage cannot
+// see, so for those the CLI's select-all is the only signal that the stored map is stale.
+const BYPASSABLE_RE = /^(?:\.\.\/\.\.\/(?:packages\/contracts\/openapi|deploy|docs)\/|\.\.\/\.\.\/\.\.\/\.\.\/\.circleci\/)/;
+
+// Pure: test-suites.yml text without the bypassable `full-test-run-paths` items (and without the
+// key when no item is left), or null unless the key appears exactly once (two-space indent) with
+// only four-space `- ` items, comments or blank lines in its block, and at least one item is
+// bypassable.
 function stripFullRunPaths(text) {
   if (typeof text !== "string") return null;
   const src = text.split("\n");
-  const keyAt = src.flatMap((l, i) => (/^ {2}full-test-run-paths:\s*$/.test(l.replace(/\r$/, "")) ? [i] : []));
+  const bare = (l) => l.replace(/\r$/, "");
+  const keyAt = src.flatMap((l, i) => (/^ {2}full-test-run-paths:\s*$/.test(bare(l)) ? [i] : []));
   if (keyAt.length !== 1) return null;
   let end = keyAt[0] + 1;
   const removed = [];
+  const kept = [];
+  const block = [];
   for (; end < src.length; end++) {
-    const m = /^ {4}- (\S.*?)\s*$/.exec(src[end].replace(/\r$/, ""));
-    if (!m) break;
-    removed.push(m[1]);
+    const l = bare(src[end]);
+    if (/^\s*(?:#.*)?$/.test(l)) {
+      block.push(src[end]);
+      continue;
+    }
+    const m = /^ {4}- (\S.*?)\s*$/.exec(l);
+    if (!m) {
+      if (/^ {3,}/.test(l)) return null; // an unexpected line inside the list
+      break;
+    }
+    if (BYPASSABLE_RE.test(m[1])) {
+      removed.push(m[1]);
+    } else {
+      kept.push(m[1]);
+      block.push(src[end]);
+    }
   }
-  if (removed.length === 0) return null;
-  const kept = [...src.slice(0, keyAt[0]), ...src.slice(end)];
-  if (kept.some((l) => !/^\s*#/.test(l) && /full-test-run-paths/.test(l))) return null;
-  return { text: kept.join("\n"), removed };
+  if (kept.length + removed.length === 0 || removed.length === 0) return null;
+  const out = [...src.slice(0, keyAt[0]), ...(kept.length ? [src[keyAt[0]], ...block] : block), ...src.slice(end)];
+  if (!kept.length && out.some((l) => !/^\s*#/.test(l) && /full-test-run-paths/.test(l))) return null;
+  return { text: out.join("\n"), removed, kept };
 }
 
 // Pure decision. `inp` holds already-read inputs; text inputs are null when the file is missing.
@@ -341,10 +368,10 @@ function runBypass(out, env, suites) {
     } else {
       const stripped = stripFullRunPaths(readIfExists(suites));
       if (stripped === null) {
-        result = { applied: false, reason: `no single full-test-run-paths list in ${suites}` };
+        result = { applied: false, reason: `no single well-formed full-test-run-paths list with a text-only entry in ${suites}` };
       } else {
         fs.writeFileSync(suites, stripped.text);
-        result = { applied: true, removed: stripped.removed };
+        result = { applied: true, removed: stripped.removed, kept: stripped.kept };
       }
     }
   } catch (e) {
@@ -447,6 +474,6 @@ function main(argv, env) {
   return 2;
 }
 
-module.exports = { repoPath, IMPACTED, FULL, ATOM_RE, READ_RE, EXEMPT_HELPERS, textReaders, readTestModules, stripFullRunPaths, parseProbe, decide, compare, readInputs, runBypass, runPlan, runVerify, main };
+module.exports = { repoPath, IMPACTED, FULL, ATOM_RE, READ_RE, EXEMPT_HELPERS, BYPASSABLE_RE, textReaders, readTestModules, stripFullRunPaths, parseProbe, decide, compare, readInputs, runBypass, runPlan, runVerify, main };
 
 if (require.main === module) process.exit(main(process.argv.slice(2), process.env));

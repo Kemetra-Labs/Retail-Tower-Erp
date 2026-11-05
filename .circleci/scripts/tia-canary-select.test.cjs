@@ -232,26 +232,48 @@ test("select-all caused by a full-test-run path the branch itself changed is a p
 
 // ---- full-test-run-paths bypass (RT-921 c15663 option A) ----------------------------------
 
-test("stripFullRunPaths removes only the full-test-run-paths list from the real suite file", () => {
+// Review finding (pr-review, af6e73805): entries that can change which src lines a spec covers
+// must stay, because coverage cannot see them. Only text-only entries are dropped.
+test("stripFullRunPaths drops only the text-only entries of the real suite file", () => {
   const text = readText(".circleci/test-suites.yml");
   const s = sel.stripFullRunPaths(text);
   assert.ok(s, "the real suite file must strip");
-  assert.ok(s.removed.includes("../../packages/contracts/openapi/*"));
-  assert.ok(s.removed.length >= 10);
-  assert.doesNotMatch(s.text.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n"), /full-test-run-paths/);
+  for (const p of ["../../packages/contracts/openapi/*", "../../deploy/*", "../../docs/*", "../../../../.circleci/*.yml", "../../../../.circleci/scripts/*"]) {
+    assert.ok(s.removed.includes(p), `${p} should be dropped`);
+  }
+  const mustKeep = [
+    "../../../../.nvmrc", "../../package.json", "../../pnpm-lock.yaml", "../../pnpm-workspace.yaml", "../../tsconfig*.json",
+    "jest.config.cjs", "tsconfig*.json", "test/_helpers/*", "test/_helpers/*/*",
+    "../../packages/*/*", "../../packages/*/src/*", "../../packages/*/__tests__/*", "../../packages/db/drizzle/*",
+  ];
+  for (const p of mustKeep) assert.ok(s.kept.includes(p), `${p} must stay`);
+  assert.ok(s.removed.every((p) => sel.BYPASSABLE_RE.test(p)) && s.kept.every((p) => !sel.BYPASSABLE_RE.test(p)));
+  assert.match(s.text, /\n {2}full-test-run-paths:\n/);
+  for (const p of s.kept) assert.ok(s.text.includes(`\n    - ${p}\n`), `kept ${p} missing from the text`);
+  for (const p of s.removed) assert.ok(!s.text.includes(`\n    - ${p}\n`), `removed ${p} still in the text`);
   for (const keep of ["name: backend api jest", "  test-impact-analysis: true", "  test-analysis-duration: 30", "discover:", "run: >-", "analysis: >-"]) {
     assert.ok(s.text.includes(keep), `lost ${keep}`);
   }
-  assert.equal(s.text.split("\n").length, text.split("\n").length - s.removed.length - 1);
+  assert.equal(s.text.split("\n").length, text.split("\n").length - s.removed.length);
+  // CRLF checkouts strip the same way.
+  assert.deepEqual(sel.stripFullRunPaths(text.replace(/\n/g, "\r\n")).removed, s.removed);
 });
 
-test("stripFullRunPaths refuses a missing, repeated or empty list", () => {
+test("stripFullRunPaths refuses a missing, repeated, malformed or unbypassable list", () => {
   const base = "options:\n  test-impact-analysis: true\n";
+  const D = "../../docs/*";
+  const H = "test/_helpers/*";
   assert.equal(sel.stripFullRunPaths(base), null);
   assert.equal(sel.stripFullRunPaths(`${base}  full-test-run-paths:\n`), null);
-  assert.equal(sel.stripFullRunPaths(`${base}  full-test-run-paths:\n    - a\n  full-test-run-paths:\n    - b\n`), null);
+  assert.equal(sel.stripFullRunPaths(`${base}  full-test-run-paths:\n    - ${D}\n  full-test-run-paths:\n    - ${D}\n`), null);
   assert.equal(sel.stripFullRunPaths(null), null);
-  assert.deepEqual(sel.stripFullRunPaths(`${base}  full-test-run-paths:\n    - a\n    - b\nnext: 1\n`), { text: `${base}next: 1\n`, removed: ["a", "b"] });
+  assert.equal(sel.stripFullRunPaths(`${base}  full-test-run-paths:\n    - ${H}\n`), null, "nothing bypassable");
+  assert.equal(sel.stripFullRunPaths(`${base}  full-test-run-paths:\n    - ${D}\n      nested: 1\n`), null, "unexpected line in the list");
+  // All bypassable: the key goes too.
+  assert.deepEqual(sel.stripFullRunPaths(`${base}  full-test-run-paths:\n    - ${D}\n    - ../../deploy/*\nnext: 1\n`), { text: `${base}next: 1\n`, removed: [D, "../../deploy/*"], kept: [] });
+  // A comment or blank line inside the list never splits it (review finding 2).
+  const mixed = `${base}  full-test-run-paths:\n    - ${D}\n    # note\n\n    - ${H}\n    - ../../deploy/*\nnext: 1\n`;
+  assert.deepEqual(sel.stripFullRunPaths(mixed), { text: `${base}  full-test-run-paths:\n    # note\n\n    - ${H}\nnext: 1\n`, removed: [D, "../../deploy/*"], kept: [H] });
 });
 
 test("a bypassed suite file must be restored before planning, or the plan is FULL", () => {
@@ -269,10 +291,11 @@ test("a bypassed suite file must be restored before planning, or the plan is FUL
 test("runBypass strips the suite file only for a pinned TIA_ELIGIBLE guard", () => {
   const out = fs.mkdtempSync(path.join(os.tmpdir(), "rt1239-bypass-"));
   const suites = path.join(out, "test-suites.yml");
-  const original = "options:\n  test-impact-analysis: true\n  full-test-run-paths:\n    - ../../a\n    - ../../b/*\n";
-  const run = (guard, env = { CIRCLE_SHA1: SHA, EXPECTED_SHA: SHA }) => {
-    fs.writeFileSync(suites, original);
-    fs.writeFileSync(path.join(out, "guard.json"), JSON.stringify(guard));
+  const original = "options:\n  test-impact-analysis: true\n  full-test-run-paths:\n    - ../../docs/*\n    - jest.config.cjs\n";
+  const run = (guard, env = { CIRCLE_SHA1: SHA, EXPECTED_SHA: SHA }, content = original) => {
+    fs.writeFileSync(suites, content);
+    if (guard === null) fs.rmSync(path.join(out, "guard.json"), { force: true });
+    else fs.writeFileSync(path.join(out, "guard.json"), JSON.stringify(guard));
     const log = console.log;
     console.log = () => {};
     try {
@@ -285,17 +308,22 @@ test("runBypass strips the suite file only for a pinned TIA_ELIGIBLE guard", () 
     const eligible = { decision: "TIA_ELIGIBLE", reason: "ok", head: SHA, mustRun: [], changed: [] };
     const r = run(eligible);
     assert.equal(r.applied, true);
-    assert.deepEqual(r.removed, ["../../a", "../../b/*"]);
-    assert.equal(fs.readFileSync(suites, "utf8"), "options:\n  test-impact-analysis: true\n");
+    assert.deepEqual(r.removed, ["../../docs/*"]);
+    assert.deepEqual(r.kept, ["jest.config.cjs"]);
+    assert.equal(fs.readFileSync(suites, "utf8"), "options:\n  test-impact-analysis: true\n  full-test-run-paths:\n    - jest.config.cjs\n");
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(out, "fullrun-bypass.json"), "utf8")), r);
-    for (const [guard, env] of [
-      [{ ...eligible, decision: "FORCE_FULL" }, undefined],
-      [{ ...eligible, head: "b".repeat(40) }, undefined],
-      [eligible, { CIRCLE_SHA1: SHA, EXPECTED_SHA: "" }],
+    const unbypassable = "options:\n  full-test-run-paths:\n    - jest.config.cjs\n";
+    for (const [guard, env, content] of [
+      [{ ...eligible, decision: "FORCE_FULL" }, undefined, original],
+      [{ ...eligible, head: "b".repeat(40) }, undefined, original],
+      [eligible, { CIRCLE_SHA1: SHA, EXPECTED_SHA: "" }, original],
+      [null, undefined, original],
+      [eligible, undefined, unbypassable],
     ]) {
-      const n = run(guard, env);
+      const n = run(guard, env, content);
       assert.equal(n.applied, false, JSON.stringify(n));
-      assert.equal(fs.readFileSync(suites, "utf8"), original);
+      assert.equal(fs.readFileSync(suites, "utf8"), content);
+      assert.equal(JSON.parse(fs.readFileSync(path.join(out, "fullrun-bypass.json"), "utf8")).applied, false);
     }
   } finally {
     fs.rmSync(out, { recursive: true, force: true });
