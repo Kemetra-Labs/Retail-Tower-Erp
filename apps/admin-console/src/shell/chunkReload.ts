@@ -32,7 +32,7 @@ const RELOAD_KEY = "rtc.chunkReload";
 const CHUNK_LOAD_ERROR =
   /dynamically imported module|Importing a module script failed|Unable to preload CSS/i;
 
-export function isChunkLoadError(error: unknown): boolean {
+function isChunkLoadError(error: unknown): boolean {
   return error instanceof Error && CHUNK_LOAD_ERROR.test(error.message);
 }
 

@@ -62,7 +62,7 @@ describe("reloadOnceOnChunkError (RT-1247)", () => {
     const storage = memoryStorage();
     let now = 1_000_000;
     const first = deps({ storage, now: () => now });
-    void reloadOnceOnChunkError(chunkError, first);
+    reloadOnceOnChunkError(chunkError, first).catch(() => undefined);
 
     now += RELOAD_GUARD_MS - 1;
     const second = deps({ storage, now: () => now });
@@ -73,7 +73,7 @@ describe("reloadOnceOnChunkError (RT-1247)", () => {
   test("a different chunk failing after the guard window reloads again (a later deploy)", async () => {
     const storage = memoryStorage();
     let now = 1_000_000;
-    void reloadOnceOnChunkError(chunkError, deps({ storage, now: () => now }));
+    reloadOnceOnChunkError(chunkError, deps({ storage, now: () => now })).catch(() => undefined);
 
     now += RELOAD_GUARD_MS + 1;
     const later = deps({ storage, now: () => now });
@@ -87,7 +87,7 @@ describe("reloadOnceOnChunkError (RT-1247)", () => {
   test("the same chunk failing again after a slow reload rethrows, however long it took", async () => {
     const storage = memoryStorage();
     let now = 1_000_000;
-    void reloadOnceOnChunkError(chunkError, deps({ storage, now: () => now }));
+    reloadOnceOnChunkError(chunkError, deps({ storage, now: () => now })).catch(() => undefined);
 
     now += RELOAD_GUARD_MS * 10;
     const again = deps({ storage, now: () => now });
