@@ -4,7 +4,7 @@
  * Docker-free half (the real-Postgres half, incl. the Console read model, is
  * `apps/api/test/catalog/sale-sync-ops/sale-processing-deadletter.integration.spec.ts`):
  *   - a caught processing error maps to a §8 condition: a deterministic data
- *     error (SQLSTATE class 22 / 23, not 23505) is VALIDATION_FAILURE, anything
+ *     error (SQLSTATE class 22 / 23, not 23505 / 23P01) is VALIDATION_FAILURE, anything
  *     else is TRANSIENT;
  *   - the processor hands that condition to the producer, rethrows the ORIGINAL
  *     error for a retryable failure (BullMQ backs off) and a
@@ -74,7 +74,7 @@ describe("RT-1233 syncFailureConditionOf — error → §8 condition", () => {
     },
   );
 
-  it.each(["23505", "40001", "40P01", "57P01", "08006", "53300", "42P01"])(
+  it.each(["23505", "23P01", "40001", "40P01", "57P01", "08006", "53300", "42P01"])(
     "anything else (%s) is TRANSIENT",
     (code) => {
       expect(syncFailureConditionOf(pgError(code))).toBe(SYNC_FAILURE_CONDITION.TRANSIENT);

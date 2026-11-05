@@ -358,7 +358,7 @@ export function saleProcessingProcessorProviderFactory(
  * Factory for the `SaleSyncDeadletterProducer` provider (RT-1233): the 032 §8
  * quarantine writer, on the shared `AuditDbPool` pool (no second pool). Its
  * own log (ids + error class only) gets a real logger. On the null-pool path it
- * is never called, exactly like the processor it serves.
+ * is constructed but never used, exactly like the processor it serves.
  */
 function saleSyncDeadletterProducerProviderFactory(
   wrapper: AuditDbPool,
