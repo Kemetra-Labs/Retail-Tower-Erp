@@ -157,9 +157,9 @@ As the **on-call owner**, I want DP-2's structured logs (already redacted via th
 
 - **Organization:** `kemetra`, EU region (`https://de.sentry.io`, ingest `*.ingest.de.sentry.io`).
 - **Projects:** `backend-core` (this spec), `admin-console` and `erpnext-connector`. The four projects planned on 2026-06-17 (`pos-pulse`, `data-pulse-2`, `rt-console`, `rt-erpnext-connector`) do not exist under those names. There is no POS project yet (RT-1243).
-- **Releases:** `resolveReleaseVersion` (`packages/shared/src/observability/release-version.ts`) accepts only a commit SHA for `SENTRY_RELEASE` and sends SHA12 (OBS-1 §1). The monorepo lab deploy sets `SENTRY_RELEASE` to the release id `vX.Y.Z` (`deploy/lab/ssm/RT-ConsoleLabDeploy.yaml`). By the code, events from those deploys therefore carry **no** `release` or `version`.
-  - Needs verification: no backend-core event has arrived since 2026-10-24, the last one on `046b7f7cff53`.
-  - Sentry lists `v0.2.0`…`v0.5.0` releases with 0 events, and their origin is not found in this repository.
+- **Releases:** `resolveReleaseVersion` (`packages/shared/src/observability/release-version.ts`) accepts only a commit SHA for `SENTRY_RELEASE` (OBS-1 §1: SHA12). The monorepo lab deploy sets `SENTRY_RELEASE` to the release id `vX.Y.Z` (`deploy/lab/ssm/RT-BackendLabDeploy.yaml`, `TGT_ID`). `resolveReleaseVersion` drops that value, so the shared init passes no `release`.
+  - **Effect:** `@sentry/node` then falls back to `process.env.SENTRY_RELEASE` itself, so events carry `release = vX.Y.Z`, which matches the `v0.2.0`…`v0.5.0` releases in Sentry. What is missing is the `version` tag and OTel `service.version`, the OBS-1 §1 join key.
+  - **Needs verification:** no backend-core event has arrived since 2026-10-24 (the last one on `046b7f7cff53`).
   - No release has commits or deploys attached (RT-1241).
 - **Alerting:** only Sentry's default "high priority issue" rules exist. The routing is email only (D8 amended); see RT-1244.
 
@@ -173,10 +173,10 @@ As the **on-call owner**, I want DP-2's structured logs (already redacted via th
 
 ### Still open (not proven on `main`)
 
-- **T011:** the OTLP exporter is always constructed. It is not conditional on Datadog keys; inertness comes from the unset endpoint/agent.
+- **T011:** the OTLP exporter is constructed whenever the OTel SDK starts; it is not conditional on Datadog keys. With no endpoint set, it targets `localhost:4318`, so nothing leaves the host.
 - **T012:** no test was found that pins "no signal rename after OTLP registration".
 - **T015:** sampling is 10% head-based plus forced sampling of specific spans. "100% on error/checkout spans" is not implemented.
 - **T016, T017:** log shipping is out of scope (RT-617).
 - **T021:** Sentry alert routing, RT-1244. Datadog email alerts are live (RT-637).
 - **T022:** the ingestion-volume budget record.
-- **Datadog site:** this spec's runtime and the egress note in `services/backend-core/CLAUDE.md` name `us5`. The EU1 migration is tracked separately (RT-736) and is out of scope here.
+- **Datadog site:** out of scope for this reconcile. The repository still names `us5` (`deploy/prod.env.example` `DD_SITE`, and the egress note in `services/backend-core/CLAUDE.md`). RT-736 owns the EU1 migration and the correction of these references.

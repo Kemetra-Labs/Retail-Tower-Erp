@@ -18,14 +18,16 @@
 ## Phase 1: Setup (Shared Infrastructure)
 
 - [x] T001 [P] Add `@sentry/node` to `apps/api` + `apps/worker` deps (gated; the only `package.json` change). Add empty `SENTRY_DSN`, `DD_*`/OTLP keys to each `.env.example`.
-  - Evidence: `@sentry/node` 11.8.0 in `apps/api` and `apps/worker` `package.json`; empty `SENTRY_DSN`/`SENTRY_RELEASE` and commented OTLP keys in `deploy/prod.env.example` (not per-app `.env.example`). RT-609.
+  - Evidence: `@sentry/node` 11.8.0 in `apps/api` and `apps/worker` `package.json`; in `deploy/prod.env.example`, empty `SENTRY_DSN`/`SENTRY_RELEASE`/`DD_API_KEY` and commented-out OTLP keys (not per-app `.env.example`). RT-609.
 - [x] T002 [P] Confirm 1Password entries + droplet env wiring for the new keys (no key committed). Verify `.env.example` defaults are empty (default-inert).
   - Evidence: DSNs held in 1Password and set in the lab env (RT-617 comments 12523-12535, RT-638); `deploy/prod.env.example` defaults are empty.
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
 - [x] T003 Define the DP-2 Sentry forbidden-key set aligned to `.specify/memory/redaction-matrix.md` (single source of truth; do not fork the matrix).
-  - Evidence: an allowlist rebuild instead of a forbidden-key set, in `packages/shared/src/observability/sentry.ts` (`scrubSentryEvent`), with test 'never allowlists a key from the redaction matrix' and the shared RT-879 vectors.
+  - Evidence:
+    - `SENTRY_FORBIDDEN_KEYS` in `packages/shared/src/observability/sentry.ts`, derived from the logger's `DEFAULT_REDACT_PATHS`, with the test 'SENTRY_FORBIDDEN_KEYS (T003: derived from the redaction matrix, not forked)'.
+    - The allowlist scrubber `scrubSentryEvent`, with the test 'never allowlists a key from the redaction matrix', and the RT-879 vectors.
 - [x] T004 Confirm the `startOtel()` signature/seam in `packages/shared` can accept an optional OTLP exporter without changing existing Prometheus-drain behavior (US2 prerequisite).
   - Evidence: `packages/shared/src/observability/otel.ts` passes an `OTLPTraceExporter` to the NodeSDK beside the Prometheus reader; `__tests__/observability/otel.spec.ts`.
 
@@ -33,7 +35,7 @@
 
 ### Tests for US1 ⚠️ (write first)
 - [x] T005 [P] [US1] Unit: `initSentry` is a no-op when DSN empty/whitespace (default-inert, AC-1).
-  - Evidence: `packages/shared/__tests__/observability/sentry.spec.ts` 'does not call the SDK when the DSN is empty'.
+  - Evidence: `packages/shared/__tests__/observability/sentry.spec.ts` 'does not call the SDK when the DSN is empty'; blank and whitespace DSNs are covered by the `resolveSentryConfig` `it.each([undefined, "", "   "])` case.
 - [x] T006 [P] [US1] Unit: `beforeSend` strips `request`/`user`/forbidden keys and returns `null` when nothing safe remains (AC-2).
   - Evidence: same file, 'drops request, user, extra, contexts, breadcrumbs and transaction' and 'returns null when no exception remains'.
 - [x] T007 [P] [US1] Unit: a throwing `sentryInit` is caught, logged once **without** the DSN, service continues (AC-3).
@@ -53,7 +55,7 @@
 
 ### Tests for US2 ⚠️
 - [ ] T011 [P] [US2] Unit: Datadog exporter is NOT registered when keys empty (existing Prometheus drain intact, AC-1).
-  - Open: the OTLP exporter is always constructed (not key-gated); inertness relies on the unset endpoint/agent. No test pins the stated behavior.
+  - Open: whenever the SDK starts, the OTLP exporter is constructed (not key-gated). It is skipped only when `DP2_OTEL_DISABLED`/`OTEL_SDK_DISABLED` is set. With no endpoint, it targets the SDK default `localhost:4318`, so there is no external egress, but export is still attempted. No test pins the task's stated behavior.
 - [ ] T012 [P] [US2] Unit: registering the OTLP exporter does not rename/duplicate existing `getMeter` signals (AC-2).
   - Open: no test found that pins 'no rename/duplicate after OTLP registration'.
 
