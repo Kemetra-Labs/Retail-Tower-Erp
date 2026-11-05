@@ -860,7 +860,10 @@ An HMAC key, **secret**. The public-auth rate-limit buckets (`signin_pair`,
 `pwreset_email`, `email_verify_confirm_ip`, `invitation_accept_ip`) used to key Redis by
 the raw email or client IP (`rl:signin_account:<email>`). They now key by
 HMAC-SHA-256 of the normalized value under this secret, so a `SCAN` of Redis or a
-Redis snapshot no longer lists the emails and IPs that recently tried to sign in.
+Redis snapshot no longer lists the emails and IPs that recently tried to sign in
+through these buckets. Not covered (follow-up): three other public routes still key
+Redis by the raw client IP: `preauth_ip` (pre-auth failure reporter, off by default),
+`pairing_ip` (POS terminal pairing) and `console_telemetry_ip` (Console telemetry tunnel).
 `docker-compose.prod.yml` passes it; on the lab it lives in the root-only `backend.env`.
 Leave it out of git and out of logs.
 

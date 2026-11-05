@@ -55,6 +55,16 @@ describe("RT-1043 public-auth key secret", () => {
       expect(message).not.toContain(short);
     });
 
+    it("padding does not count towards the minimum length, and is not part of the secret", () => {
+      const padded = `${"a".repeat(PUBLIC_AUTH_KEY_SECRET_MIN_LENGTH - 1)}  
+`;
+      expect(() =>
+        assertPublicAuthKeySecretConfigured({ NODE_ENV: "production", [PUBLIC_AUTH_KEY_SECRET_ENV]: padded }),
+      ).toThrow(String(PUBLIC_AUTH_KEY_SECRET_MIN_LENGTH));
+      expect(resolvePublicAuthKeySecret({ NODE_ENV: "production", [PUBLIC_AUTH_KEY_SECRET_ENV]: ` ${GOOD}
+` })).toBe(GOOD);
+    });
+
     it("a long enough value boots and is the secret", () => {
       const env = { NODE_ENV: "production", [PUBLIC_AUTH_KEY_SECRET_ENV]: GOOD };
       expect(() => assertPublicAuthKeySecretConfigured(env)).not.toThrow();

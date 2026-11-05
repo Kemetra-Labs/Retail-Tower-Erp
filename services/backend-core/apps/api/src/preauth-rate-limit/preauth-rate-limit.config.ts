@@ -51,7 +51,7 @@ export const PREAUTH_RATE_LIMIT_NEAR_LIMIT_RATIO = 0.5;
 /** Warn logs (would-limit, fail-open) at most once per outcome per interval. */
 export const PREAUTH_RATE_LIMIT_LOG_INTERVAL_MS = 60_000;
 
-/** Redis key: `rl:preauth_ip:<ip>` (the `signin_ip` precedent). */
+/** Redis key: `rl:preauth_ip:<ip>` (the raw client IP; the sign-in buckets are HMAC'd since RT-1043). */
 export const PREAUTH_RATE_LIMIT_BUCKET_NAME = "preauth_ip";
 
 export interface PreAuthRateLimitConfig {

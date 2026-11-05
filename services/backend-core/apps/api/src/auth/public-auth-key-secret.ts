@@ -50,8 +50,10 @@ type Env = Readonly<Record<string, string | undefined>>;
  * Throws in a deployed environment when the secret is missing, blank or short.
  */
 export function resolvePublicAuthKeySecret(env: Env = process.env): string {
-  const raw = env[PUBLIC_AUTH_KEY_SECRET_ENV] ?? "";
-  const configured = raw.trim() === "" ? null : raw;
+  // Trimmed, so stray whitespace or a CR from an env file is neither part of the key
+  // nor counted towards the minimum length.
+  const trimmed = (env[PUBLIC_AUTH_KEY_SECRET_ENV] ?? "").trim();
+  const configured = trimmed === "" ? null : trimmed;
 
   if (isDeployedEnvironment(env)) {
     if (configured === null) {
