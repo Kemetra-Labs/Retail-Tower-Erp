@@ -117,18 +117,15 @@ import {
 // inventory.mappers.ts; the names that were public here stay importable from
 // this module.
 export { toMovementBody, toTrackingIdentityBody } from './inventory.mappers';
-export { MANUAL_MOVEMENT_TYPES, MOVEMENT_COLUMNS } from './inventory.types';
+export { MOVEMENT_COLUMNS } from './inventory.types';
 export type {
   BackfillRestockInboundInput,
   CreateStockMovementInput,
   CreateStockTransferInput,
-  ManualMovementType,
   MovementRow,
   OnHandBody,
   RecordStockCountInput,
-  StatusQuantityBody,
   StockCountResultBody,
-  StockLocationBody,
   StockLocationListBody,
   StockMovementBody,
   StockMovementListBody,

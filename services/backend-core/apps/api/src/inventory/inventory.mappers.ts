@@ -55,7 +55,7 @@ export function toMovementBody(r: MovementRow): StockMovementBody {
  * RT-432 (RT-290 G4-5): a movement's position. A movement recorded before 0044
  * has none and is read as (the store's primary location, sellable).
  */
-export function toPositionBody(
+function toPositionBody(
   r: MovementRow,
 ): Pick<StockMovementBody, 'stockLocationId' | 'inventoryStatus' | 'positionInterpreted'> {
   if (r.stock_location_id !== null && r.inventory_status !== null) {
