@@ -448,7 +448,7 @@ For every push to a PR that targets `main` (the first push and each corrective p
 3. Stop and report instead of merging blindly on a merge conflict, a stacked PR, uncommitted work, or a `main` change to shared, contract, security or policy paths.
 4. Each new head SHA needs its own green `required` on GitHub.
    - **No pre-merge sync (owner decision 2026-11-05, RT-1238):** the up-to-date rule (`strict`) is off on the `main` ruleset during the development stage. A PR may merge while behind `main`; do not merge `origin/main` and push only to bring it up to date.
-   - **Still sync:** when GitHub reports a merge conflict, or when step 3 applies.
+   - **Still sync:** only when GitHub reports a merge conflict. In the step 3 cases (a stacked PR, uncommitted work, or a `main` change to shared, contract, security or policy paths), stop and report instead of syncing.
    - **After merging:** check the merged commit's `push` run on `main`. It is the first test of the PR combined with `main`'s newer changes. If it is red, report it on the PR and the Jira issue, then open a fix-forward or revert PR when that is authorized; otherwise stop and ask the owner. Do not leave a red `main` unowned.
    - **Revisit:** the owner turns `strict` back on before pilot or production hardening ([Confluence ADR](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/69140481)). Restore the pre-merge sync then.
 5. **Heavy tests before the push, on CircleCI (smart CI Phase 1).** When a fix touches code covered by a CircleCI `remote_suite` (`api`, `db-package`, `backend-fast`, `admin`, `admin-e2e`, `pos`), run that suite on CircleCI before pushing to the PR branch.
