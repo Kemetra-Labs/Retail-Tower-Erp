@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Sales — Transaction Capture API
-  version: "1.18.0-draft"
+  version: "1.19.0-draft"
   description: >
     Spec 008 Sales / Transaction Capture contract surface. Defines the first
     sale fact the SaaS owns: an immutable `sales` header + frozen `sale_lines`
@@ -507,6 +507,11 @@ info:
     shipped client is near the limit. The server refuses a longer array with 400
     `validation_error` before validating any element. Narrowing only; no other
     wire change.
+
+    RT-1051 follow-up (1.19.0-draft; [GATED] owner decision, chat 2026-11-05,
+    recorded on Jira RT-1051; zod GHSA-mrhx-c7xc-m3w5): `CaptureSaleRequest`
+    `tenders` gains `maxItems: 16`. Narrowing only; the server refuses a longer
+    array with 400 `validation_error` before validating any element.
 
 servers:
   - url: https://api.example.com
@@ -1977,6 +1982,7 @@ components:
         tenders:
           type: array
           minItems: 1
+          maxItems: 16
           items:
             $ref: "#/components/schemas/SaleTender"
           description: >

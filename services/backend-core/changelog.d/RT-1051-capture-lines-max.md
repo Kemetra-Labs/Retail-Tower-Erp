@@ -6,4 +6,4 @@
   `validation_error` before any line is validated. Contract: `pos-sales/sales.yaml`
   1.18.0-draft (`CaptureSaleRequest.lines.maxItems: 500`). The POS caps a cart at 30
   lines (RT-1052); the POS pin is repinned in the same PR.
-  The capture-sale `tenders` array is still unbounded; its limit is not yet decided.
+  The capture-sale `tenders` array is bounded separately (RT-1051-capture-tenders-max).
