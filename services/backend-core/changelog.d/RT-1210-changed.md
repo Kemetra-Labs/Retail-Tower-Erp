@@ -1,0 +1,2 @@
+### Changed
+- RT-1210 Backend-Core worker: the six repeatable sweep scheduler/worker pairs (audit retention, outbox retention, stock run sweep, replay purge, sale re-drive, reservation sweep) now share one `RepeatableScheduler` and one `RepeatableWorker` base, and `errorClassName` moved to `common/`. Behaviour-preserving: queue and job names, scheduler ids and intervals, REDIS_URL guard messages and worker error logs are unchanged.
