@@ -10,6 +10,8 @@
  */
 import { z } from "zod";
 
+import { decodeOpaque, encodeOpaque } from "../common/cursor/opaque-cursor";
+
 export class TrackingIdentityCursorError extends Error {}
 
 export interface TrackingIdentityCursor {
@@ -42,27 +44,15 @@ function isCalendarDate(value: string): boolean {
 }
 
 export function encodeTrackingIdentityCursor(c: TrackingIdentityCursor): string {
-  return Buffer.from(
-    JSON.stringify({ p: c.productId.toLowerCase(), k: c.kind, e: c.expiry, c: c.code, i: c.id }),
-    "utf8",
-  ).toString("base64url");
+  return encodeOpaque({ p: c.productId.toLowerCase(), k: c.kind, e: c.expiry, c: c.code, i: c.id });
 }
 
 export function decodeTrackingIdentityCursor(
   token: string,
   productId: string,
 ): TrackingIdentityCursor {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(Buffer.from(token, "base64url").toString("utf8"));
-  } catch {
-    throw new TrackingIdentityCursorError("malformed cursor");
-  }
-  const parsed = PayloadSchema.safeParse(raw);
+  const d = decodeOpaque(token, PayloadSchema, () => new TrackingIdentityCursorError("malformed cursor"));
   // UUIDs compare case-insensitively: the same product may arrive in either case.
-  if (!parsed.success || parsed.data.p !== productId.toLowerCase()) {
-    throw new TrackingIdentityCursorError("malformed cursor");
-  }
-  const d = parsed.data;
+  if (d.p !== productId.toLowerCase()) throw new TrackingIdentityCursorError("malformed cursor");
   return { productId: d.p, kind: d.k, expiry: d.e, code: d.c, id: d.i };
 }
