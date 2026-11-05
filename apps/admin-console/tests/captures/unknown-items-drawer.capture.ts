@@ -222,7 +222,7 @@ const measureDrawer = () => {
     viewport: root.clientWidth,
     left: round(box.left),
     right: round(box.right),
-    width: round(box.width),
+    panelWidth: round(box.width),
     dialogWithinViewport: box.left >= -0.5 && box.right <= root.clientWidth + 0.5,
     dialogScrollsX: dialog.scrollWidth > dialog.clientWidth + 1,
     bodyScrollsX: body ? body.scrollWidth > body.clientWidth + 1 : false,
