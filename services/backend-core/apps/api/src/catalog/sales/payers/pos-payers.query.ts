@@ -16,6 +16,8 @@
  */
 import { z } from "zod";
 
+import { InvalidCursorError, decodeOpaque, encodeOpaque } from "../../../common/cursor/opaque-cursor";
+import { UUID_RE } from "../../../common/ids";
 import { PAYER_CATEGORIES, type PayerCategory } from "../../../settlement/dto/payer-account.dto";
 
 export const POS_PAYERS_PAGE_SIZE_DEFAULT = 50;
@@ -37,23 +39,22 @@ export const PosPayersQuerySchema = z
 export type PosPayersQuery = z.infer<typeof PosPayersQuerySchema>;
 
 /** Raised for a cursor this operation did not issue for this scope and filter → 400 validation_error. */
-export class InvalidPosPayersCursorError extends Error {
+export class InvalidPosPayersCursorError extends InvalidCursorError {
   constructor() {
     super("cursor is not a valid continuation token for this query");
     this.name = "InvalidPosPayersCursorError";
   }
 }
 
-const LOWER_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const CURSOR_KIND = "pos_payers";
 
 const CursorSchema = z
   .object({
     k: z.literal(CURSOR_KIND),
-    t: z.string().regex(LOWER_UUID_RE),
-    s: z.string().regex(LOWER_UUID_RE),
+    t: z.string().regex(UUID_RE),
+    s: z.string().regex(UUID_RE),
     c: z.enum(PAYER_CATEGORIES).nullable(),
-    i: z.string().regex(LOWER_UUID_RE),
+    i: z.string().regex(UUID_RE),
   })
   .strict();
 
@@ -71,20 +72,12 @@ export function encodePosPayersCursor(input: CursorScope & { readonly lastPayerR
     c: input.category,
     i: input.lastPayerRef.toLowerCase(),
   };
-  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return encodeOpaque(payload);
 }
 
 /** The last payerRef, if `cursor` was issued by this operation for this tenant, store and category. */
 export function decodePosPayersCursor(input: CursorScope & { readonly cursor: string }): string {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(Buffer.from(input.cursor, "base64url").toString("utf8"));
-  } catch {
-    throw new InvalidPosPayersCursorError();
-  }
-  const parsed = CursorSchema.safeParse(raw);
-  if (!parsed.success) throw new InvalidPosPayersCursorError();
-  const { t, s, c, i } = parsed.data;
+  const { t, s, c, i } = decodeOpaque(input.cursor, CursorSchema, () => new InvalidPosPayersCursorError());
   const issuedHere = t === input.tenantId.toLowerCase() && s === input.storeId.toLowerCase() && c === input.category;
   if (!issuedHere) throw new InvalidPosPayersCursorError();
   return i;
