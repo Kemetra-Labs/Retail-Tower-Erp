@@ -38,7 +38,8 @@
 
 .v5-manager-tile__glyph {
   display: grid;
-  grid-row: span 2;
+  grid-row: span 3;
+  align-self: start;
   place-items: center;
   inline-size: 44px;
   block-size: 44px;
@@ -54,6 +55,27 @@
 
 .v5-manager-tile__line {
   color: var(--color-text-muted);
+}
+
+.v5-manager-tile__count {
+  display: flex;
+  grid-column: 2;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+  font-weight: var(--font-weight-bold);
+}
+
+.v5-manager-tile__dot {
+  flex: none;
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: 50%;
+  background: var(--color-warning);
+}
+
+.v5-manager-tile__figure {
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── a page whose only content is an honest notice ──────────────── */
@@ -86,5 +108,10 @@
   .v5-manager-tile,
   .v5-manager-tile__glyph {
     border: 1px solid CanvasText;
+  }
+
+  .v5-manager-tile__dot {
+    background: CanvasText;
+    forced-color-adjust: none;
   }
 }
