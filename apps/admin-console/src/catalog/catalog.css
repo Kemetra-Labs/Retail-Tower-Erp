@@ -22,6 +22,12 @@
   .catalog-nowrap {
     white-space: nowrap;
   }
+  /* A long code can still make the table wider than its panel; the panel's scroll
+   * region then takes the overflow, and the name keeps room to read: a 120px cell,
+   * less the cell's own padding. */
+  .catalog-item {
+    min-inline-size: calc(120px - 2 * var(--space-4));
+  }
 }
 
 .catalog-chips {
