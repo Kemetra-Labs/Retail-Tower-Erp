@@ -93,7 +93,7 @@ const j = (value: unknown): string => tok(JSON.stringify(value));
 const digest = (parts: unknown): string => createHash("sha256").update(JSON.stringify(parts), "utf8").digest("base64url").slice(0, 22);
 
 /** Every refusal shape a JSON cursor must keep refusing. */
-const garbage = [["not base64 JSON", "***"], ["empty string", ""], ["not JSON", tok("not json")], ["JSON null", tok("null")], ["a JSON array", tok("[1]")], ["an empty object", tok("{}")]] as const;
+const garbage: Array<[string, string]> = [["not base64 JSON", "***"], ["empty string", ""], ["not JSON", tok("not json")], ["JSON null", tok("null")], ["a JSON array", tok("[1]")], ["an empty object", tok("{}")]];
 
 describe("devices cursor (golden)", () => {
   const keyset = { rank: 2, expiresAtKey: AT, deviceId: ID };

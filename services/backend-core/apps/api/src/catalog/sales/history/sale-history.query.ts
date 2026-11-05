@@ -24,16 +24,13 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 import { InvalidCursorError, decodeOpaque, encodeOpaque, isCalendarInstant } from "../../../common/cursor/opaque-cursor";
-// The lower-case shape is this file's cursor rule; `UUID_RE` below stays the mixed-case export.
-import { UUID_RE as LOWER_UUID_RE, UUID_RE_I } from "../../../common/ids";
+import { UUID_RE } from "../../../common/ids";
 export const PAGE_SIZE_DEFAULT = 50;
 export const PAGE_SIZE_MAX = 100;
 /** OD-534-4: 31 business days, `to - from <= 30`. */
 export const MAX_SPAN_DAYS = 30;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-/** A canonical UUID (any version), lower or upper case. */
-export const UUID_RE = UUID_RE_I;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Epoch ms of a `YYYY-MM-DD` that names a real calendar day (year >= 1), else NaN. */
@@ -152,12 +149,12 @@ const CURSOR_KIND = "sale_history";
 const CursorSchema = z
   .object({
     k: z.literal(CURSOR_KIND),
-    t: z.string().regex(LOWER_UUID_RE),
-    s: z.string().regex(LOWER_UUID_RE),
+    t: z.string().regex(UUID_RE),
+    s: z.string().regex(UUID_RE),
     f: z.string().min(1),
     d: z.string().refine(isCalendarDate),
     o: z.string().regex(OCCURRED_AT_KEY_RE),
-    i: z.string().regex(LOWER_UUID_RE),
+    i: z.string().regex(UUID_RE),
   })
   .strict();
 
