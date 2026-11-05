@@ -30,7 +30,9 @@ import type { Pool } from "pg";
 
 import {
   assertMetricLabels,
+  createDbPoolGauges,
   getMeter,
+  registerPoolGauges,
   type Attributes,
   type Counter,
   type ObservableGauge,
@@ -59,12 +61,9 @@ const meter = getMeter("db");
 // Pool introspection requires a pool-observer hook that depends on the
 // SDK metrics extension (plan §10). The instruments are registered now
 // so signal-presence tests and the ALLOWED_METRIC_LABELS allowlist hold.
-const _dbPoolInUse: ObservableGauge = meter.createObservableGauge("db_pool_in_use", {
-  description: "Number of connections currently checked out from the DB pool.",
-});
-const _dbPoolWaiters: ObservableGauge = meter.createObservableGauge("db_pool_waiters", {
-  description: "Number of requests currently waiting for a DB pool connection.",
-});
+// db_pool_in_use / db_pool_waiters are created by the shared helper (RT-1211)
+// on this app's own meter (scope "db").
+const _dbPoolGauges = createDbPoolGauges(meter);
 // Migration-status gauge: each migration state is observed as 1 (in that
 // state) or 0. The addCallback is registered by the migration-runner
 // bootstrap once integrated. Until then, zero observations are produced.
@@ -164,32 +163,7 @@ export function recordDbSlowQuery(attrs: DbSlowQueryAttrs): void {
 export function registerDbPoolGauges(deps: {
   readonly pool: Pool | null;
 }): { stop: () => void } {
-  const pool = deps.pool;
-  if (pool === null) {
-    return { stop: () => undefined };
-  }
-
-  const inUseCallback = (result: {
-    observe(value: number, attributes: Attributes): void;
-  }): void => {
-    result.observe(pool.totalCount - pool.idleCount, {} as Attributes);
-  };
-
-  const waitersCallback = (result: {
-    observe(value: number, attributes: Attributes): void;
-  }): void => {
-    result.observe(pool.waitingCount, {} as Attributes);
-  };
-
-  _dbPoolInUse.addCallback(inUseCallback);
-  _dbPoolWaiters.addCallback(waitersCallback);
-
-  return {
-    stop: () => {
-      _dbPoolInUse.removeCallback(inUseCallback);
-      _dbPoolWaiters.removeCallback(waitersCallback);
-    },
-  };
+  return registerPoolGauges(_dbPoolGauges, deps.pool);
 }
 
 // ---------------------------------------------------------------------------
