@@ -2,6 +2,7 @@ import { Inject, Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/commo
 import type { Pool } from "pg";
 
 import { InstrumentedPool } from "../observability/instrumented-pool";
+import type { DomainColumnGrant } from "./grant-fragment";
 import { GRANT_REGISTRY } from "./grant-registry";
 
 export const PG_POOL = "PG_POOL";
@@ -109,6 +110,26 @@ export const AUTH_LOOKUP_FORBIDDEN_GRANTS: ReadonlyArray<readonly [string, strin
 export const DOMAIN_REQUIRED_GRANTS: ReadonlyArray<readonly [string, string]> =
   GRANT_REGISTRY.domainRequired;
 
+/**
+ * RT-1249: column privileges the domain role must hold, for tables it reaches
+ * only column by column (`users`). Assembled from the fragments' optional
+ * `domainRequiredColumns` (grants/users-columns.grants.ts).
+ */
+export const DOMAIN_REQUIRED_COLUMN_GRANTS: ReadonlyArray<DomainColumnGrant> =
+  GRANT_REGISTRY.domainRequiredColumns;
+
+/**
+ * RT-1249 (RT-147 probe 5): [table, column, comma-separated privileges] the
+ * domain role must hold none of. `users` has no RLS, so a domain role that can
+ * read or write `password_hash` reaches every tenant's password hashes; only
+ * the auth lookup role may (sign-in, rehash, reset). A table-level grant, a
+ * grant to PUBLIC, an inherited role and a role the domain role can SET ROLE
+ * to all count. A fixed security invariant, not a per-feature fragment.
+ */
+export const DOMAIN_FORBIDDEN_COLUMN_GRANTS: ReadonlyArray<
+  readonly [table: string, column: string, privileges: string]
+> = [["users", "password_hash", "SELECT, INSERT, UPDATE"]];
+
 interface GrantRow {
   table_name: string;
   privilege: string;
@@ -136,18 +157,102 @@ async function readGrants(
   return result.rows;
 }
 
-function formatGrants(grants: ReadonlyArray<GrantRow>): string {
-  return grants.map((g) => `${g.privilege} ON ${g.table_name}`).join(", ");
+interface ColumnGrantRow extends GrantRow {
+  column_name: string;
+  /** False when the table or column does not exist. */
+  column_exists: boolean;
+}
+
+/**
+ * RT-1249: `has_column_privilege` for each (table, column, privilege), in the
+ * given order. A missing table or column reads as not granted. With
+ * `viaMembership`, a privilege held by any role the checked role is a member
+ * of also counts, even without INHERIT: `has_column_privilege` sees inherited
+ * privileges only, while SET ROLE reaches every membership (unless granted
+ * WITH SET FALSE, PG16+). The worker's retention check uses the same rule.
+ */
+async function readColumnGrants(
+  pool: Pool,
+  checks: ReadonlyArray<DomainColumnGrant>,
+  viaMembership: boolean,
+): Promise<ColumnGrantRow[]> {
+  const result = await pool.query<ColumnGrantRow>(
+    `SELECT t.table_name, t.column_name, t.privilege,
+            CASE WHEN a.attnum IS NULL THEN false
+                 ELSE has_column_privilege(current_user, a.attrelid, a.attnum, t.privilege)
+                      OR ($4::boolean AND EXISTS (
+                        SELECT 1 FROM pg_roles g
+                         WHERE g.rolname <> current_user
+                           AND pg_has_role(current_user, g.oid, 'MEMBER')
+                           AND has_column_privilege(g.oid, a.attrelid, a.attnum, t.privilege)))
+            END AS granted,
+            a.attnum IS NOT NULL AS column_exists
+       FROM unnest($1::text[], $2::text[], $3::text[]) WITH ORDINALITY
+              AS t(table_name, column_name, privilege, ord)
+       LEFT JOIN pg_attribute a
+              ON a.attrelid = to_regclass('public.' || t.table_name)
+             AND a.attname = t.column_name AND a.attnum > 0 AND NOT a.attisdropped
+      ORDER BY t.ord`,
+    [
+      checks.map(([table]) => table),
+      checks.map(([, column]) => column),
+      checks.map(([, , privilege]) => privilege),
+      viaMembership,
+    ],
+  );
+  return result.rows;
+}
+
+function formatGrants(grants: ReadonlyArray<GrantRow | ColumnGrantRow>): string {
+  return grants
+    .map((g) => ("column_name" in g ? `${g.privilege} ON ${g.table_name}(${g.column_name})` : `${g.privilege} ON ${g.table_name}`))
+    .join(", ");
+}
+
+/** One [table, column, privilege] check per privilege of each forbidden entry, in order. */
+function forbiddenColumnChecks(): DomainColumnGrant[] {
+  return DOMAIN_FORBIDDEN_COLUMN_GRANTS.flatMap(([table, column, privileges]) =>
+    privileges.split(",").map((privilege) => [table, column, privilege.trim()] as const),
+  );
 }
 
 async function assertDomainGrants(domainPool: Pool): Promise<void> {
-  const required = await readGrants(domainPool, DOMAIN_REQUIRED_GRANTS);
-  const missing = required.filter((g) => !g.granted);
+  const [required, requiredColumns] = await Promise.all([
+    readGrants(domainPool, DOMAIN_REQUIRED_GRANTS),
+    readColumnGrants(domainPool, DOMAIN_REQUIRED_COLUMN_GRANTS, false),
+  ]);
+  const missing = [...required, ...requiredColumns].filter((g) => !g.granted);
   if (missing.length > 0) {
     throw new Error(
       "AuthModule: DATABASE_URL role is missing required grants: " +
         formatGrants(missing) +
         " (see docs/operations/database-roles.md)",
+    );
+  }
+}
+
+/**
+ * RT-1249: the domain role must not reach users.password_hash in any way.
+ * Fails closed when a forbidden column is missing: a rename would otherwise
+ * leave the new name unguarded while this check passed.
+ */
+async function assertDomainForbiddenColumns(domainPool: Pool): Promise<void> {
+  const rows = await readColumnGrants(domainPool, forbiddenColumnChecks(), true);
+  const absent = rows.filter((g) => !g.column_exists);
+  if (absent.length > 0) {
+    throw new Error(
+      "AuthModule: forbidden column not found, so the domain role's access to it cannot be checked: " +
+        [...new Set(absent.map((g) => `${g.table_name}(${g.column_name})`))].join(", ") +
+        " (update DOMAIN_FORBIDDEN_COLUMN_GRANTS with the schema; RT-1249)",
+    );
+  }
+  const held = rows.filter((g) => g.granted);
+  if (held.length > 0) {
+    throw new Error(
+      "AuthModule: DATABASE_URL role holds forbidden column grants: " +
+        formatGrants(held) +
+        "; only the AUTH_LOOKUP_DATABASE_URL role may read or write password hashes" +
+        " (RT-1249, see docs/operations/database-roles.md)",
     );
   }
 }
@@ -204,6 +309,7 @@ export async function verifyDatabasePoolBoundary(
   assertDomainRole(domainRole);
   assertLookupRole(lookupRole, domainRole.role_name);
   await assertDomainGrants(domainPool);
+  await assertDomainForbiddenColumns(domainPool);
   await assertLookupGrants(lookupPool);
 }
 

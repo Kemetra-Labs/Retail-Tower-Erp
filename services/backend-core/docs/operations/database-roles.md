@@ -5,7 +5,7 @@ Production uses four independent PostgreSQL credentials.
 | Environment variable | Purpose | Required posture |
 | --- | --- | --- |
 | `MIGRATION_DATABASE_URL` | One-shot schema migration | DDL-capable owner, `NOSUPERUSER NOCREATEROLE`; never injected into API or worker |
-| `DATABASE_URL` | Tenant/domain runtime | Non-superuser, `NOBYPASSRLS`; tenant access only inside `runWithTenantContext`; no `UPDATE` or `DELETE` on `audit_events` (the worker's boot check enforces no `UPDATE` on `retention_marked_at`, RT-353) |
+| `DATABASE_URL` | Tenant/domain runtime | Non-superuser, `NOBYPASSRLS`; tenant access only inside `runWithTenantContext`; no `UPDATE` or `DELETE` on `audit_events` (the worker's boot check enforces no `UPDATE` on `retention_marked_at`, RT-353); only column grants for `SELECT` and `INSERT` on `users`, never on `password_hash` (the API's boot check enforces it, RT-1249) |
 | `AUTH_LOOKUP_DATABASE_URL` | Pre-tenant authentication/bootstrap | Distinct non-superuser role with only the table operations listed below |
 | `AUDIT_RETENTION_DATABASE_URL` | The worker's audit retention sweep only | `audit_retention_worker`: non-superuser, `NOBYPASSRLS`, only `SELECT` and `UPDATE (retention_marked_at)` on `audit_events`, member of no role (RT-353) |
 
@@ -154,6 +154,15 @@ Legitimate deployments never set a role option.
   A deploy that skips that grant step now fails to boot, and the error names
   each missing privilege and table, instead of starting healthy with those
   routes returning 500.
+
+  RT-1249: the domain role also holds every required **column** grant
+  (`DOMAIN_REQUIRED_COLUMN_GRANTS`, the `users` columns below), and holds no
+  `SELECT`, `INSERT` or `UPDATE` on `users.password_hash`
+  (`DOMAIN_FORBIDDEN_COLUMN_GRANTS`). A table-level grant, a grant to
+  `PUBLIC`, an inherited role and any role the domain role is a member of,
+  even without `INHERIT`, all count, as in the worker's retention check. The
+  error names each column privilege. See
+  [users.password_hash belongs to the lookup role](#userspassword_hash-belongs-to-the-lookup-role-rt-1249).
 - **API, lookup role:** it is not a superuser, has `BYPASSRLS`, holds every
   grant listed below, and holds none of the forbidden grants (RT-143,
   `AUTH_LOOKUP_REQUIRED_GRANTS` / `AUTH_LOOKUP_FORBIDDEN_GRANTS`). The
@@ -164,7 +173,8 @@ Legitimate deployments never set a role option.
   `store_access` (RT-212).
   `TRUNCATE` matters most: it is not subject to row security.
 
-  All three lists are in `apps/api/src/auth/database-pools.ts`.
+  All three lists are in `apps/api/src/auth/database-pools.ts`, with the
+  domain role's column lists (RT-1249).
 - **Worker, domain role:** its `DATABASE_URL` role is not a superuser and does
   not have `BYPASSRLS` (RT-143), and cannot `UPDATE`
   `audit_events.retention_marked_at` (RT-353). The retention decision record
@@ -229,7 +239,10 @@ README or bundle edit; see `CONTRIBUTING.md`):
 - `apps/api/src/auth/grants/<slug>.grants.ts`, naming the script. Its
   `domainRequired` must equal the script's `GRANT`s, so the API refuses to boot
   without them. It also lists the new tables in `lookupForbidden`, or in
-  `lookupAllowed` with a written reason.
+  `lookupAllowed` with a written reason. Column grants
+  (`GRANT SELECT (a, b) ON t TO :"domain_role";`, one privilege per statement)
+  go in the optional `domainRequiredColumns` instead (RT-1249). Never grant a
+  table-level privilege on `users`.
 
 A script without the marker, such as the owner-gated
 `ai-entitlements-domain-grants.sql`, is never run by step 2.
@@ -327,9 +340,11 @@ A script without the marker, such as the owner-gated
 - **Accepting an invitation as a new user (RT-937, no migration).** Run
   [`sql/invitation-acceptance-domain-grants.sql`](sql/invitation-acceptance-domain-grants.sql)
   in the same step 2 of [`deploy/README.md`](../../deploy/README.md#deploy), with the
-  same `-v domain_role=<role>`. It grants the domain role `INSERT` on `users`,
+  same `-v domain_role=<role>`. It grants the domain role `INSERT` on
   `external_identity_links`, `memberships` and `store_access`, and `UPDATE` on
-  `invitations`. Without them the API refuses to boot in production. The new-user
+  `invitations`. (Until RT-1249 it also granted table-level `INSERT` on `users`.
+  The new user's row now needs `INSERT` on four `users` columns only, from
+  `users-columns-domain-grants.sql`.) Without them the API refuses to boot in production. The new-user
   path never updates or deletes a user or a link, so no other privilege is granted.
   The auth lookup role gets nothing new and must still hold no membership mutation.
 
@@ -588,6 +603,91 @@ A script without the marker, such as the owner-gated
   the API refuses to boot (`DOMAIN_REQUIRED_GRANTS`) rather than failing every
   issue with 500. The lookup role keeps `SELECT` only on `pairing_codes`
   (`AUTH_LOOKUP_FORBIDDEN_GRANTS`).
+
+## users.password_hash belongs to the lookup role (RT-1249)
+
+`users` has no row security. RT-147 probe 5 (2026-11-05, lab-02, database
+`rtlab`) found that the domain role held table-level `SELECT`, `INSERT`,
+`UPDATE` and `DELETE` on it. A leaked domain credential, or an injection in any
+domain path, could therefore read or overwrite every tenant's password hashes.
+Only the auth lookup role needs `password_hash` (sign-in, rehash on sign-in,
+reset; `AuthService` runs on `AUTH_LOOKUP_POOL`). It keeps `SELECT` and `UPDATE`
+on `users`.
+
+[`sql/users-columns-domain-grants.sql`](sql/users-columns-domain-grants.sql)
+runs in step 2 of every release. It revokes the domain role's table-level
+`SELECT`, `INSERT` and `UPDATE` on `users`, and grants these columns:
+
+| Column | Privilege | Domain code that needs it |
+| --- | --- | --- |
+| `id` | `SELECT` | every join and lookup by user |
+| `email` | `SELECT` | `MembershipRepository` (`listForTenant`, `findUserSummary`), `MembershipsRepository`, `InvitationsRepository.findUserByEmail` |
+| `display_name` | `SELECT` | membership reads, console people names, sale history, stuck shifts, cashier and POS operator rosters |
+| `is_platform_admin` | `SELECT` | `MembershipRepository.isPlatformAdmin` / `findUserSummary`, invitation acceptance, support-session origin audit |
+| `deleted_at` | `SELECT` | the live-user filter of every read above |
+| `id`, `email`, `display_name`, `email_verified_at` | `INSERT` | `InvitationsRepository.insertUser` (RT-937 new user; `password_hash` stays `NULL`) |
+
+No `UPDATE`: no domain code updates `users`. The full list, with each file, is
+in `apps/api/src/auth/grants/users-columns.grants.ts`. The test harness gives
+`app_test` the same list, so every real-Postgres suite that uses the harness
+role runs domain code without `password_hash`.
+
+PostgreSQL checks a privilege for every column a statement names, even one
+whose value is `DEFAULT`. Domain code must therefore name `users` columns
+explicitly: no `SELECT *`, no Drizzle `.select()` without a projection, and no
+`db.insert(users)` (Drizzle names every column).
+
+**The first deploy with this script.** Step 2 runs while the previous release
+may still serve (until step 3 starts the new one). In that window the previous
+release's invitation acceptance names `password_hash` (its Drizzle select and
+insert name every column) and fails with 500, and if that release restarts it
+refuses to boot (its check wants table-level `INSERT` on `users`). Nothing is
+written; the window closes when step 3 starts the new release. Every other
+domain read in the previous release already names only granted columns.
+
+**Recorded, not changed:** the lab domain role's table-wide `DELETE` on `users`.
+No documented grant asks for it. Whether to revoke it is a separate owner
+decision (RT-1249); the script neither grants nor revokes it.
+
+**Owner-run CLIs** that write `users` must run as the migration owner, like
+`migrate`, never with the API's `DATABASE_URL`. These are `bootstrap-pilot`
+(it inserts `clerk_user_id` and `is_platform_admin`) and
+`identity-link-cutover`.
+
+**Lab check (owner, after the script has run).** As the migration owner:
+
+```sql
+SELECT r.rolname, p.priv,
+       has_column_privilege(r.rolname, 'public.users', 'password_hash', p.priv) AS held
+  FROM (VALUES ('<domain role>'), ('auth_lookup')) AS r(rolname)
+ CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE')) AS p(priv)
+ ORDER BY 1, 2;
+```
+
+Expected: `f` on every domain-role row, and `t` for `auth_lookup` `SELECT` and
+`UPDATE` (its `INSERT` is `f`, by design). The API must still pass
+`/health/ready`, which also proves the boot check passed. This query does not
+see a role the domain role can only `SET ROLE` to; the script's own
+verification and the boot check do.
+
+**Rolling back to a release from before RT-1249.** Such a release's boot check
+requires table-level `INSERT` on `users`, and its invitation code reads and
+inserts whole rows, so on these grants it refuses to boot. The lab's app-only
+auto-revert restores the previous images without re-running grants, so it would
+leave the API down.
+
+Before starting a pre-RT-1249 release, run
+[`sql/users-columns-rollback.sql`](sql/users-columns-rollback.sql) as the
+migration owner (`psql -X -v domain_role=<role> -f ...`). The release bundle
+does not ship it; on a host, run its one statement directly:
+`GRANT SELECT, INSERT ON users TO <domain role>;`. It restores
+table-level `SELECT` and `INSERT` (not `UPDATE`), which **re-opens the RT-147
+finding**: the domain role can read every tenant's password hash again, and
+insert `users` rows with any value, including `is_platform_admin = true` and a
+chosen `password_hash`. Keep it only while the pre-RT-1249 release runs. Run
+`users-columns-domain-grants.sql` **before** starting a release from RT-1249
+on (a normal deploy does so in step 2): its boot check refuses to start while
+the rollback grants are in place.
 
 ## Redis credential
 

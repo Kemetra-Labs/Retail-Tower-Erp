@@ -18,7 +18,7 @@ import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import * as ts from "typescript";
 import type { Pool } from "pg";
-import { routineGrantScripts, scriptGrants } from "../_helpers/domain-grant-scripts";
+import { routineGrantScripts, scriptColumnGrants, scriptGrants } from "../_helpers/domain-grant-scripts";
 
 const apiRoot = resolve(__dirname, "..", "..");
 let outDir: string;
@@ -42,13 +42,33 @@ function compile(into: string): void {
   if (errors.length > 0) throw new Error(ts.formatDiagnostics(errors, ts.createCompilerHost(options)));
 }
 
-/** A pg Pool double: the role row, and has_table_privilege over `grants` ("table:PRIV"). */
-function fakePool(role: { name: string; bypassRls: boolean }, grants: ReadonlySet<string>): Pool {
-  const query = async (sql: string, params?: [string[], string[]]) => {
+/**
+ * A pg Pool double: the role row, has_table_privilege over `grants`
+ * ("table:PRIV") and, RT-1249, has_column_privilege over `columnGrants`
+ * ("table(column):PRIV").
+ */
+function fakePool(
+  role: { name: string; bypassRls: boolean },
+  grants: ReadonlySet<string>,
+  columnGrants: ReadonlySet<string> = new Set(),
+): Pool {
+  const query = async (sql: string, params?: string[][]) => {
+    if (sql.includes("has_column_privilege")) {
+      const [tables, columns, privileges] = params!;
+      return {
+        rows: tables!.map((table_name, i) => ({
+          table_name,
+          column_name: columns![i],
+          privilege: privileges![i],
+          granted: columnGrants.has(`${table_name}(${columns![i]}):${privileges![i]}`),
+          column_exists: true,
+        })),
+      };
+    }
     if (!sql.includes("has_table_privilege")) {
       return { rows: [{ role_name: role.name, session_role: role.name, is_superuser: false, bypass_rls: role.bypassRls }] };
     }
-    const [tables, privileges] = params!;
+    const [tables, privileges] = params as [string[], string[]];
     return {
       rows: tables.map((table_name, i) => ({
         table_name,
@@ -61,6 +81,7 @@ function fakePool(role: { name: string; bypassRls: boolean }, grants: ReadonlySe
 }
 
 const SCRIPT_GRANTS: ReadonlySet<string> = new Set(routineGrantScripts().flatMap((s) => scriptGrants(s)));
+const SCRIPT_COLUMN_GRANTS: ReadonlySet<string> = new Set(routineGrantScripts().flatMap((s) => scriptColumnGrants(s)));
 
 beforeAll(() => {
   outDir = mkdtempSync(join(apiRoot, ".rt812-compiled-"));
@@ -95,18 +116,30 @@ describe("compiled grants registry (dist layout)", () => {
     expect(compiled.pools.AUTH_LOOKUP_FORBIDDEN_GRANTS.length).toBeGreaterThan(0);
   });
 
+  it("RT-1249: loads every column grant the routine deploy scripts give the domain role", () => {
+    const required = compiled.pools.DOMAIN_REQUIRED_COLUMN_GRANTS.map(([t, c, p]) => `${t}(${c}):${p}`);
+    expect([...required].sort()).toEqual([...SCRIPT_COLUMN_GRANTS].sort());
+    expect(SCRIPT_COLUMN_GRANTS.size).toBeGreaterThan(0);
+  });
+
   it("boots with the full grant set and refuses, naming it, without one grant", async () => {
     const lookupGrants = new Set(compiled.pools.AUTH_LOOKUP_REQUIRED_GRANTS.map(([t, p]) => `${t}:${p}`));
     const lookup = fakePool({ name: "app_auth_lookup", bypassRls: true }, lookupGrants);
-    await expect(
-      compiled.pools.verifyDatabasePoolBoundary(fakePool({ name: "app_domain", bypassRls: false }, SCRIPT_GRANTS), lookup),
-    ).resolves.toBeUndefined();
+    const domain = (grants: ReadonlySet<string>, columns: ReadonlySet<string> = SCRIPT_COLUMN_GRANTS): Pool =>
+      fakePool({ name: "app_domain", bypassRls: false }, grants, columns);
+    await expect(compiled.pools.verifyDatabasePoolBoundary(domain(SCRIPT_GRANTS), lookup)).resolves.toBeUndefined();
 
     const missing = new Set(SCRIPT_GRANTS);
     missing.delete("refund_executions:INSERT");
-    await expect(
-      compiled.pools.verifyDatabasePoolBoundary(fakePool({ name: "app_domain", bypassRls: false }, missing), lookup),
-    ).rejects.toThrow(/missing required grants: INSERT ON refund_executions/);
+    await expect(compiled.pools.verifyDatabasePoolBoundary(domain(missing), lookup)).rejects.toThrow(
+      /missing required grants: INSERT ON refund_executions/,
+    );
+
+    // RT-1249: the compiled boot check refuses a domain role that can read password hashes.
+    const leaking = new Set([...SCRIPT_COLUMN_GRANTS, "users(password_hash):SELECT"]);
+    await expect(compiled.pools.verifyDatabasePoolBoundary(domain(SCRIPT_GRANTS, leaking), lookup)).rejects.toThrow(
+      /holds forbidden column grants: SELECT ON users\(password_hash\)/,
+    );
   });
 
   describe("refuses instead of loading an empty registry", () => {

@@ -24,7 +24,7 @@ import cookieParser from "cookie-parser";
 import { Pool } from "pg";
 import request from "supertest";
 
-import { AuthModule, PG_POOL } from "../../../src/auth/auth.module";
+import { AUTH_LOOKUP_POOL, AuthModule, PG_POOL } from "../../../src/auth/auth.module";
 import { EMAIL_JOB_ENQUEUER, NoOpEmailJobEnqueuer } from "../../../src/auth/email-job.enqueuer";
 import { GlobalExceptionFilter } from "../../../src/common/exception.filter";
 import { LoggingInterceptor } from "../../../src/common/logging.interceptor";
@@ -130,6 +130,10 @@ beforeAll(async () => {
   })
     .overrideProvider(PG_POOL)
     .useValue(singleConnectionPool)
+    // RT-1249: sign-in reads password_hash on the lookup role, which the
+    // domain role (app_test) no longer may; the admin pool stands in for it.
+    .overrideProvider(AUTH_LOOKUP_POOL)
+    .useValue(env.admin)
     .overrideProvider(EMAIL_JOB_ENQUEUER)
     .useValue(new NoOpEmailJobEnqueuer())
     .compile();

@@ -39,7 +39,7 @@ import cookieParser from "cookie-parser";
 import { Pool } from "pg";
 import request from "supertest";
 
-import { AuthModule, PG_POOL, REDIS_CLIENT } from "../../src/auth/auth.module";
+import { AUTH_LOOKUP_POOL, AuthModule, PG_POOL, REDIS_CLIENT } from "../../src/auth/auth.module";
 import { EMAIL_JOB_ENQUEUER, NoOpEmailJobEnqueuer } from "../../src/auth/email-job.enqueuer";
 import { ContextModule } from "../../src/context/context.module";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
@@ -177,6 +177,8 @@ beforeAll(async () => {
       imports: [AuthModule, ContextModule, MembershipsModule],
     })
       .overrideProvider(PG_POOL).useValue(env.app)
+      // RT-1249: sign-in reads password_hash on the lookup role, never app_test.
+      .overrideProvider(AUTH_LOOKUP_POOL).useValue(env.admin)
       .overrideProvider(REDIS_CLIENT).useValue(new AlwaysAllowRedis())
       .overrideProvider(EMAIL_JOB_ENQUEUER).useValue(new NoOpEmailJobEnqueuer())
       .compile();

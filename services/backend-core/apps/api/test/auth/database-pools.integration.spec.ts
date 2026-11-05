@@ -13,6 +13,7 @@ import { TenantsService } from "../../src/tenants/tenants.service";
 import {
   APP_ROLE_NAME,
   applyAllUpAndCreateAppRole,
+  restrictDomainUsersColumns,
   startPgEnv,
   stopPgEnv,
   type PgTestEnv,
@@ -221,6 +222,103 @@ describe("production database pool separation", () => {
       }
     }
 
+    await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
+  });
+
+  it("RT-1249: the domain role holds no password_hash privilege, and each way back to it fails boot verification", async () => {
+    if (dockerSkipped) return;
+    const { app, admin } = env!;
+    const lookupPool = lookup!;
+    const holds = async (role: string, privilege: string): Promise<boolean> =>
+      (
+        await admin.query<{ ok: boolean }>(
+          `SELECT has_column_privilege($1, 'users', 'password_hash', $2) AS ok`,
+          [role, privilege],
+        )
+      ).rows[0]!.ok;
+
+    // RT-147 probe 5, against the harness role: f for the domain role, t for the lookup role.
+    for (const privilege of ["SELECT", "INSERT", "UPDATE"]) {
+      expect({ privilege, held: await holds(APP_ROLE_NAME, privilege) }).toEqual({ privilege, held: false });
+    }
+    expect(await holds(LOOKUP_ROLE, "SELECT")).toBe(true);
+    expect(await holds(LOOKUP_ROLE, "UPDATE")).toBe(true);
+    await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
+    await expect(app.query("SELECT password_hash FROM users LIMIT 1")).rejects.toThrow(/permission denied/i);
+    await expect(app.query("UPDATE users SET password_hash = NULL WHERE false")).rejects.toThrow(/permission denied/i);
+
+    const cases: ReadonlyArray<{ name: string; grant: string; undo: string; message: RegExp }> = [
+      {
+        name: "a column SELECT",
+        grant: `GRANT SELECT (password_hash) ON users TO ${APP_ROLE_NAME}`,
+        undo: `REVOKE SELECT (password_hash) ON users FROM ${APP_ROLE_NAME}`,
+        message: /DATABASE_URL role holds forbidden column grants: SELECT ON users\(password_hash\)/,
+      },
+      {
+        name: "a column UPDATE",
+        grant: `GRANT UPDATE (password_hash) ON users TO ${APP_ROLE_NAME}`,
+        undo: `REVOKE UPDATE (password_hash) ON users FROM ${APP_ROLE_NAME}`,
+        message: /holds forbidden column grants: UPDATE ON users\(password_hash\)/,
+      },
+      {
+        name: "a column INSERT",
+        grant: `GRANT INSERT (password_hash) ON users TO ${APP_ROLE_NAME}`,
+        undo: `REVOKE INSERT (password_hash) ON users FROM ${APP_ROLE_NAME}`,
+        message: /holds forbidden column grants: INSERT ON users\(password_hash\)/,
+      },
+      {
+        // The lab state RT-147 found: table-level privileges cover every column.
+        name: "a table-level SELECT, INSERT, UPDATE",
+        grant: `GRANT SELECT, INSERT, UPDATE ON users TO ${APP_ROLE_NAME}`,
+        undo: `REVOKE SELECT, INSERT, UPDATE ON users FROM ${APP_ROLE_NAME}`,
+        message:
+          /holds forbidden column grants: SELECT ON users\(password_hash\), INSERT ON users\(password_hash\), UPDATE ON users\(password_hash\)/,
+      },
+      {
+        name: "a grant to PUBLIC",
+        grant: "GRANT SELECT ON users TO PUBLIC",
+        undo: "REVOKE SELECT ON users FROM PUBLIC",
+        message: /holds forbidden column grants: SELECT ON users\(password_hash\)/,
+      },
+      {
+        // has_column_privilege does not see a NOINHERIT membership, but SET ROLE reaches it.
+        name: "a NOINHERIT membership in a role that reads hashes",
+        grant: `CREATE ROLE rt1249_hash_reader NOLOGIN;
+                GRANT SELECT (password_hash) ON users TO rt1249_hash_reader;
+                GRANT rt1249_hash_reader TO ${APP_ROLE_NAME} WITH INHERIT FALSE`,
+        undo: `REVOKE rt1249_hash_reader FROM ${APP_ROLE_NAME};
+               REVOKE ALL ON users FROM rt1249_hash_reader;
+               DROP ROLE rt1249_hash_reader`,
+        message: /holds forbidden column grants: SELECT ON users\(password_hash\)/,
+      },
+    ];
+    for (const c of cases) {
+      await admin.query(c.grant);
+      try {
+        await expect(verifyDatabasePoolBoundary(app, lookupPool)).rejects.toThrow(c.message);
+      } finally {
+        await admin.query(c.undo);
+        // Revoking a table-level privilege also revokes it on every column.
+        await restrictDomainUsersColumns(admin, APP_ROLE_NAME);
+      }
+    }
+
+    await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
+  });
+
+  it("RT-1249: a domain role missing a users column grant fails boot verification, naming it", async () => {
+    if (dockerSkipped) return;
+    const { app, admin } = env!;
+    const lookupPool = lookup!;
+
+    await admin.query(`REVOKE SELECT (display_name) ON users FROM ${APP_ROLE_NAME}`);
+    try {
+      await expect(verifyDatabasePoolBoundary(app, lookupPool)).rejects.toThrow(
+        /DATABASE_URL role is missing required grants: SELECT ON users\(display_name\)/,
+      );
+    } finally {
+      await restrictDomainUsersColumns(admin, APP_ROLE_NAME);
+    }
     await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
   });
 

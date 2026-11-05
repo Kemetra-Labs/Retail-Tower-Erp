@@ -9,10 +9,12 @@
  */
 import { join } from "node:path";
 import { loadFragmentDir, type LoadedFragment } from "@data-pulse-2/shared";
-import type { DomainGrant, ForbiddenGrant, GrantFragment } from "./grant-fragment";
+import type { DomainColumnGrant, DomainGrant, ForbiddenGrant, GrantFragment } from "./grant-fragment";
 
 export interface GrantRegistry {
   readonly domainRequired: readonly DomainGrant[];
+  /** RT-1249: column privileges the domain role must hold. */
+  readonly domainRequiredColumns: readonly DomainColumnGrant[];
   readonly lookupForbidden: readonly ForbiddenGrant[];
   /** routine deploy script → the fragment that pairs with it. */
   readonly deployScripts: Readonly<Record<string, string>>;
@@ -23,6 +25,8 @@ export interface GrantRegistry {
 }
 
 const PRIVILEGES = new Set(["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"]);
+/** RT-1249: the privileges PostgreSQL grants on a single column. */
+const COLUMN_PRIVILEGES = new Set(["SELECT", "INSERT", "UPDATE", "REFERENCES"]);
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
 const ROUTINE_SCRIPT = /^[a-z0-9][a-z0-9-]*-domain-grants\.sql$/;
 
@@ -64,6 +68,23 @@ class FragmentValidator {
   }
 
   /**
+   * RT-1249: a domainRequiredColumns entry, [table, column, privilege], names
+   * exactly one privilege that a column can hold.
+   */
+  columnGrant(entry: unknown): void {
+    const triple = Array.isArray(entry) && entry.length === 3 ? entry : [];
+    const [table, column, privilege] = triple as unknown[];
+    if (typeof table !== "string" || typeof column !== "string" || typeof privilege !== "string") {
+      this.fail(`${JSON.stringify(entry)} is not a [table, column, privilege] triple`);
+    }
+    this.table(table);
+    if (!IDENTIFIER.test(column)) this.fail(`"${column}" is not a column name`);
+    if (!COLUMN_PRIVILEGES.has(privilege)) {
+      this.fail(`${JSON.stringify(entry)}: a column grant names exactly one column privilege`);
+    }
+  }
+
+  /**
    * A domainRequired entry names exactly one privilege: has_table_privilege
    * reads "SELECT, INSERT" as "any of them", so a list would check fewer grants.
    */
@@ -93,6 +114,9 @@ function validateFragment({ name, exports }: LoadedFragment): GrantFragment {
   check.list(raw, "domainRequired").forEach((entry) => check.domainGrant(entry));
   check.list(raw, "lookupForbidden").forEach((entry) => check.pair(entry));
   check.list(raw, "lookupAllowed").forEach((entry) => check.allowed(entry));
+  if (raw["domainRequiredColumns"] !== undefined) {
+    check.list(raw, "domainRequiredColumns").forEach((entry) => check.columnGrant(entry));
+  }
   return grants as GrantFragment;
 }
 
@@ -115,6 +139,7 @@ class Claims {
 
 interface RegistryClaims {
   readonly domain: Claims;
+  readonly columns: Claims;
   readonly forbidden: Claims;
   readonly scripts: Claims;
   readonly allowed: Claims;
@@ -122,6 +147,9 @@ interface RegistryClaims {
 
 function claimFragment({ name, grants }: { name: string; grants: GrantFragment }, claims: RegistryClaims): void {
   for (const [table, privilege] of grants.domainRequired) claims.domain.claim(`${privilege} ON ${table}`, name);
+  for (const [table, column, privilege] of grants.domainRequiredColumns ?? []) {
+    claims.columns.claim(`${privilege} ON ${table}(${column})`, name);
+  }
   for (const [table] of grants.lookupForbidden) claims.forbidden.claim(table, name);
   for (const script of grants.deployScripts) claims.scripts.claim(script, name);
   for (const { table } of grants.lookupAllowed) claims.allowed.claim(table, name);
@@ -132,6 +160,7 @@ export function buildGrantRegistry(loaded: readonly LoadedFragment[]): GrantRegi
   const fragments = loaded.map((f) => ({ name: f.name, grants: validateFragment(f) }));
   const claims: RegistryClaims = {
     domain: new Claims("domain grant"),
+    columns: new Claims("column grant"),
     forbidden: new Claims("forbidden table"),
     scripts: new Claims("deploy script"),
     allowed: new Claims("allowed table"),
@@ -143,6 +172,7 @@ export function buildGrantRegistry(loaded: readonly LoadedFragment[]): GrantRegi
   if (conflicting) throw new Error(`lookup table ${conflicting.table} is both forbidden and allowed`);
   return {
     domainRequired: Object.freeze(fragments.flatMap(({ grants }) => grants.domainRequired)),
+    domainRequiredColumns: Object.freeze(fragments.flatMap(({ grants }) => grants.domainRequiredColumns ?? [])),
     lookupForbidden: Object.freeze(fragments.flatMap(({ grants }) => grants.lookupForbidden)),
     deployScripts: Object.freeze(claims.scripts.entries()),
     lookupAllowed: Object.freeze(Object.fromEntries(allowed.map(({ table, reason }) => [table, reason]))),
