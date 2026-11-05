@@ -85,7 +85,7 @@ import { RateLimiter, type RedisLike, type WindowHit } from "./rate-limit";
 import { SessionRepository } from "./session.repository";
 import { signInMembershipsReader } from "./signin-memberships";
 import { endSupportSessions } from "../platform-support-sessions/support-session.lifecycle";
-import { QUEUE_NAMES } from "@data-pulse-2/shared";
+import { QUEUE_NAMES, requireRedisUrl } from "@data-pulse-2/shared";
 
 /** Name of the BullMQ queue both the producer and the (future) worker bind to. */
 export const EMAIL_QUEUE_NAME = QUEUE_NAMES.email;
@@ -105,14 +105,11 @@ export const EMAIL_QUEUE_NAME = QUEUE_NAMES.email;
  *     form and RateLimiter's incrWindow() runs as one atomic script.
  */
 export function redisClientFactory(): RedisLike {
-  const url = process.env["REDIS_URL"];
-  if (!url) {
-    if (process.env["NODE_ENV"] === "production") {
-      throw new Error(
-        "AuthModule: REDIS_URL is required in production " +
-          "(rate limiting + idempotency disabled without it).",
-      );
-    }
+  const url = requireRedisUrl({
+    component: "AuthModule",
+    reason: "rate limiting + idempotency disabled without it",
+  });
+  if (url === null) {
     return new AlwaysAllowRedis();
   }
   // Wrap the real ioredis client in IoredisIdempotencyAdapter, which
@@ -158,14 +155,11 @@ export const REDIS_CLIENT = "REDIS_CLIENT";
  *     options on first enqueue.
  */
 export function emailJobEnqueuerFactory(): EmailJobEnqueuer {
-  const url = process.env["REDIS_URL"];
-  if (!url) {
-    if (process.env["NODE_ENV"] === "production") {
-      throw new Error(
-        "AuthModule: REDIS_URL is required in production " +
-          "(EmailQueueProducer cannot be wired without it).",
-      );
-    }
+  const url = requireRedisUrl({
+    component: "AuthModule",
+    reason: "EmailQueueProducer cannot be wired without it",
+  });
+  if (url === null) {
     return new NoOpEmailJobEnqueuer();
   }
   // Defer Queue construction to first use. The thunk captures `url`

@@ -104,7 +104,7 @@ import {
 } from "./email/email.worker";
 import { AuditFanoutProcessor, AUDIT_DB, type AuditDbLike } from "./audit/audit-fanout.processor";
 import { AuditWorker } from "./audit/audit.worker";
-import { createLogger } from "@data-pulse-2/shared";
+import { createLogger, requireRedisUrl } from "@data-pulse-2/shared";
 import { SaleProcessingProcessor } from "./sales/sale-processing.processor";
 import { SaleSyncDeadletterProducer } from "./sales/sale-sync-deadletter.producer";
 import { resolveSaleRedriveWindow } from "./sales/sale-redrive.config";
@@ -244,14 +244,11 @@ export class NoOpWorkerFactory implements WorkerFactory {
  * call it directly and assert the production-vs-dev branch behavior.
  */
 export function workerFactoryProviderFactory(): WorkerFactory {
-  const url = process.env["REDIS_URL"];
-  if (!url) {
-    if (process.env["NODE_ENV"] === "production") {
-      throw new Error(
-        "WorkerModule: REDIS_URL is required in production " +
-          "(BullMQ Worker cannot be created without it).",
-      );
-    }
+  const url = requireRedisUrl({
+    component: "WorkerModule",
+    reason: "BullMQ Worker cannot be created without it",
+  });
+  if (url === null) {
     return new NoOpWorkerFactory();
   }
   return new BullMqWorkerFactory(url);
@@ -269,6 +266,9 @@ export { AuditDbPool, OutboxPendingGaugeRegistrar, QueueLagGaugeRegistrar, Worke
  * Exported so tests can call it directly without booting Nest DI.
  */
 export function pgPoolProviderFactory(): AuditDbPool {
+  // Not requireRedisUrl (RT-1212): the DATABASE_URL x REDIS_URL truth table
+  // above throws on a missing DATABASE_URL even in dev, so Redis is only one
+  // input to the decision rather than a throw-in-prod/fallback-in-dev guard.
   const dbUrl = process.env["DATABASE_URL"];
   const redisUrl = process.env["REDIS_URL"];
   const isProd = process.env["NODE_ENV"] === "production";
