@@ -26,7 +26,7 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import { newId } from "@data-pulse-2/shared";
 
 import { PG_POOL } from "../auth/auth.module";
-import { compareCodeUnits } from "../common/compare-code-units";
+import { canonicalJsonPayload } from "../catalog/sales/payload-hash";
 import { recordSettlementReceivable } from "../observability/metrics/api.metrics";
 import { decideApplication } from "./apply-payment-decision";
 import type { ReceivableRow } from "./dto/receivable.dto";
@@ -112,27 +112,16 @@ interface DurableIntentBody {
 
 class SettlementReferenceConflictError extends Error {}
 
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson).join(",")}]`;
-  }
-  if (value !== null && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record)
-      .sort(compareCodeUnits)
-      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
-}
-
 function sha256(value: string): Buffer {
   return createHash("sha256").update(value).digest();
 }
 
+// Stored as `idempotency_keys.request_hash` and compared byte-for-byte on
+// retry; uses the payload-hash serializer (RT-1214, golden vectors in
+// test/_helpers/canonical-json-golden.ts).
 function requestHash(input: OpenIntentInput): Buffer {
   return sha256(
-    canonicalJson({
+    canonicalJsonPayload({
       saleRef: input.saleRef,
       payers: input.payers.map((payer) => ({
         payerRef: payer.payerRef,
