@@ -9,10 +9,6 @@ In addition to the root pre-flight list:
 At the end of every lab, bench, hardware or verification session, record in Confluence (the runbook page, or the relevant durable page such as Current State) what was done, the procedure that worked, the lessons learned and gotchas, and any failure with its first failing boundary. Jira keeps the work state and the evidence for the issue; Confluence keeps the procedures and lessons that the next session needs. Do not skip this because the Jira evidence comment is already posted.
 
 
-## RT Jira Issues - Operating System Contract
-
-Before creating, modifying, or reviewing any RT Jira issue, read and apply section 4A of the Retail Tower Project Operating System in Confluence. Do not proceed with issue changes that violate this contract.
-
 # POS-Pulse — Agent Context
 
 POS-Pulse is the desktop Point-of-Sale terminal for the SmartDataPulse pharmacy platform. It is
