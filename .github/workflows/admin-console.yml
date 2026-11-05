@@ -225,6 +225,12 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # RT-1200: dead code (knip), duplication (jscpd) and Biome cognitive-complexity warnings may
+      # not grow past scripts/code-health/baseline.json. A PR that lowers a count runs
+      # `pnpm code-health:update` in the same PR; --update never raises a count.
+      - name: Code-health ratchet (RT-1200)
+        run: pnpm code-health
+
       - name: Unit tests
         run: pnpm test
 

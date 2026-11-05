@@ -50,7 +50,7 @@
  *   - Auto-set active tenant on first sign-in for users with exactly
  *     one membership. Spec §6.6 mentions this but it's an
  *     `AuthService`-layer decision, deferred.
- *   - Run inside `runRequestScopedTenantContext`. The context
+ *   - Run inside a request-scoped tenant context. The context
  *     endpoints are intentionally NOT tenant-guarded (you must be
  *     able to switch FROM no-context); they read auxiliary tables
  *     directly via `MembershipRepository`'s plain-Pool surface.

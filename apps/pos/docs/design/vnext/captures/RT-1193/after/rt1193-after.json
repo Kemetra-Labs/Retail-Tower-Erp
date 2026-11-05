@@ -1,0 +1,542 @@
+[
+  {
+    "file": "rt1193-home-without-1024x768-light-after.png",
+    "page": "without",
+    "viewport": "1024x768",
+    "mode": "light",
+    "errors": [],
+    "tiles": [
+      {
+        "title": "إدارة الكاشير",
+        "count": null,
+        "rect": [
+          556,
+          56,
+          452,
+          88
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      },
+      {
+        "title": "المبيعات المعلقة",
+        "count": null,
+        "rect": [
+          92,
+          56,
+          452,
+          88
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      },
+      {
+        "title": "الورديات العالقة",
+        "count": null,
+        "rect": [
+          556,
+          156,
+          452,
+          88
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      }
+    ]
+  },
+  {
+    "file": "rt1193-home-with-1024x768-light-after.png",
+    "page": "with",
+    "viewport": "1024x768",
+    "mode": "light",
+    "errors": [],
+    "tiles": [
+      {
+        "title": "إدارة الكاشير",
+        "count": null,
+        "rect": [
+          556,
+          56,
+          452,
+          88
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      },
+      {
+        "title": "المبيعات المعلقة",
+        "count": "1دفع معلّق",
+        "rect": [
+          92,
+          56,
+          452,
+          96
+        ],
+        "scrollFits": true,
+        "dotColor": "rgb(163, 90, 0)"
+      },
+      {
+        "title": "الورديات العالقة",
+        "count": "2ورديتان عالقتان",
+        "rect": [
+          556,
+          164,
+          452,
+          96
+        ],
+        "scrollFits": true,
+        "dotColor": "rgb(163, 90, 0)"
+      }
+    ]
+  },
+  {
+    "file": "rt1193-home-held-1024x768-light-after.png",
+    "page": "held",
+    "viewport": "1024x768",
+    "mode": "light",
+    "errors": [],
+    "tiles": [
+      {
+        "title": "إدارة الكاشير",
+        "count": null,
+        "rect": [
+          556,
+          56,
+          452,
+          88
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      },
+      {
+        "title": "المبيعات المعلقة",
+        "count": "4مبيعات محفوظة",
+        "rect": [
+          92,
+          56,
+          452,
+          96
+        ],
+        "scrollFits": true,
+        "dotColor": "rgb(163, 90, 0)"
+      },
+      {
+        "title": "الورديات العالقة",
+        "count": null,
+        "rect": [
+          556,
+          164,
+          452,
+          88
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      }
+    ]
+  },
+  {
+    "file": "rt1193-home-without-1024x768-forced-after.png",
+    "page": "without",
+    "viewport": "1024x768",
+    "mode": "forced",
+    "errors": [],
+    "tiles": [
+      {
+        "title": "إدارة الكاشير",
+        "count": null,
+        "rect": [
+          556,
+          56,
+          452,
+          88
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      },
+      {
+        "title": "المبيعات المعلقة",
+        "count": null,
+        "rect": [
+          92,
+          56,
+          452,
+          88
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      },
+      {
+        "title": "الورديات العالقة",
+        "count": null,
+        "rect": [
+          556,
+          156,
+          452,
+          88
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      }
+    ]
+  },
+  {
+    "file": "rt1193-home-with-1024x768-forced-after.png",
+    "page": "with",
+    "viewport": "1024x768",
+    "mode": "forced",
+    "errors": [],
+    "tiles": [
+      {
+        "title": "إدارة الكاشير",
+        "count": null,
+        "rect": [
+          556,
+          56,
+          452,
+          88
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      },
+      {
+        "title": "المبيعات المعلقة",
+        "count": "1دفع معلّق",
+        "rect": [
+          92,
+          56,
+          452,
+          96
+        ],
+        "scrollFits": true,
+        "dotColor": "rgb(0, 0, 0)"
+      },
+      {
+        "title": "الورديات العالقة",
+        "count": "2ورديتان عالقتان",
+        "rect": [
+          556,
+          164,
+          452,
+          96
+        ],
+        "scrollFits": true,
+        "dotColor": "rgb(0, 0, 0)"
+      }
+    ]
+  },
+  {
+    "file": "rt1193-home-held-1024x768-forced-after.png",
+    "page": "held",
+    "viewport": "1024x768",
+    "mode": "forced",
+    "errors": [],
+    "tiles": [
+      {
+        "title": "إدارة الكاشير",
+        "count": null,
+        "rect": [
+          556,
+          56,
+          452,
+          88
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      },
+      {
+        "title": "المبيعات المعلقة",
+        "count": "4مبيعات محفوظة",
+        "rect": [
+          92,
+          56,
+          452,
+          96
+        ],
+        "scrollFits": true,
+        "dotColor": "rgb(0, 0, 0)"
+      },
+      {
+        "title": "الورديات العالقة",
+        "count": null,
+        "rect": [
+          556,
+          164,
+          452,
+          88
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      }
+    ]
+  },
+  {
+    "file": "rt1193-home-without-1280x800-light-after.png",
+    "page": "without",
+    "viewport": "1280x800",
+    "mode": "light",
+    "errors": [],
+    "tiles": [
+      {
+        "title": "إدارة الكاشير",
+        "count": null,
+        "rect": [
+          684,
+          64,
+          572,
+          96
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      },
+      {
+        "title": "المبيعات المعلقة",
+        "count": null,
+        "rect": [
+          100,
+          64,
+          572,
+          96
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      },
+      {
+        "title": "الورديات العالقة",
+        "count": null,
+        "rect": [
+          684,
+          172,
+          572,
+          96
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      }
+    ]
+  },
+  {
+    "file": "rt1193-home-with-1280x800-light-after.png",
+    "page": "with",
+    "viewport": "1280x800",
+    "mode": "light",
+    "errors": [],
+    "tiles": [
+      {
+        "title": "إدارة الكاشير",
+        "count": null,
+        "rect": [
+          684,
+          64,
+          572,
+          96
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      },
+      {
+        "title": "المبيعات المعلقة",
+        "count": "1دفع معلّق",
+        "rect": [
+          100,
+          64,
+          572,
+          104
+        ],
+        "scrollFits": true,
+        "dotColor": "rgb(163, 90, 0)"
+      },
+      {
+        "title": "الورديات العالقة",
+        "count": "2ورديتان عالقتان",
+        "rect": [
+          684,
+          180,
+          572,
+          104
+        ],
+        "scrollFits": true,
+        "dotColor": "rgb(163, 90, 0)"
+      }
+    ]
+  },
+  {
+    "file": "rt1193-home-held-1280x800-light-after.png",
+    "page": "held",
+    "viewport": "1280x800",
+    "mode": "light",
+    "errors": [],
+    "tiles": [
+      {
+        "title": "إدارة الكاشير",
+        "count": null,
+        "rect": [
+          684,
+          64,
+          572,
+          96
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      },
+      {
+        "title": "المبيعات المعلقة",
+        "count": "4مبيعات محفوظة",
+        "rect": [
+          100,
+          64,
+          572,
+          104
+        ],
+        "scrollFits": true,
+        "dotColor": "rgb(163, 90, 0)"
+      },
+      {
+        "title": "الورديات العالقة",
+        "count": null,
+        "rect": [
+          684,
+          180,
+          572,
+          96
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      }
+    ]
+  },
+  {
+    "file": "rt1193-home-without-1280x800-forced-after.png",
+    "page": "without",
+    "viewport": "1280x800",
+    "mode": "forced",
+    "errors": [],
+    "tiles": [
+      {
+        "title": "إدارة الكاشير",
+        "count": null,
+        "rect": [
+          684,
+          64,
+          572,
+          96
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      },
+      {
+        "title": "المبيعات المعلقة",
+        "count": null,
+        "rect": [
+          100,
+          64,
+          572,
+          96
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      },
+      {
+        "title": "الورديات العالقة",
+        "count": null,
+        "rect": [
+          684,
+          172,
+          572,
+          96
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      }
+    ]
+  },
+  {
+    "file": "rt1193-home-with-1280x800-forced-after.png",
+    "page": "with",
+    "viewport": "1280x800",
+    "mode": "forced",
+    "errors": [],
+    "tiles": [
+      {
+        "title": "إدارة الكاشير",
+        "count": null,
+        "rect": [
+          684,
+          64,
+          572,
+          96
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      },
+      {
+        "title": "المبيعات المعلقة",
+        "count": "1دفع معلّق",
+        "rect": [
+          100,
+          64,
+          572,
+          104
+        ],
+        "scrollFits": true,
+        "dotColor": "rgb(0, 0, 0)"
+      },
+      {
+        "title": "الورديات العالقة",
+        "count": "2ورديتان عالقتان",
+        "rect": [
+          684,
+          180,
+          572,
+          104
+        ],
+        "scrollFits": true,
+        "dotColor": "rgb(0, 0, 0)"
+      }
+    ]
+  },
+  {
+    "file": "rt1193-home-held-1280x800-forced-after.png",
+    "page": "held",
+    "viewport": "1280x800",
+    "mode": "forced",
+    "errors": [],
+    "tiles": [
+      {
+        "title": "إدارة الكاشير",
+        "count": null,
+        "rect": [
+          684,
+          64,
+          572,
+          96
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      },
+      {
+        "title": "المبيعات المعلقة",
+        "count": "4مبيعات محفوظة",
+        "rect": [
+          100,
+          64,
+          572,
+          104
+        ],
+        "scrollFits": true,
+        "dotColor": "rgb(0, 0, 0)"
+      },
+      {
+        "title": "الورديات العالقة",
+        "count": null,
+        "rect": [
+          684,
+          180,
+          572,
+          96
+        ],
+        "scrollFits": true,
+        "dotColor": null
+      }
+    ]
+  }
+]

@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
  *     (static, dynamic, `vi.mock`, with or without a `.js` suffix);
  *  2. `router.tsx` names `AppShell` in code (comments are stripped);
  *  3. `--color-accent` or a `--color-rail*` token is defined or read in the
- *     stylesheet, or `accent` is exported from `ui/tokens/colors.ts`;
+ *     stylesheet, or `ui/tokens/colors.ts` comes back;
  *  4. a retired class prefix appears in production `.tsx` or in `tailwind.css`;
  *  5. a manager surface's visible copy says «Coming soon».
  * It also pins that the retired files are gone from disk.
@@ -38,6 +38,9 @@ const RETIRED_PATHS = [
   'src/renderer/connection',
   'src/renderer/ui/sales-sync/SaleSyncStatus.tsx',
   'src/renderer/ui/tokens/connection-state.ts',
+  // RT-1202: the TS token mirrors had no importer; only `touch.ts` is live.
+  'src/renderer/ui/tokens/colors.ts',
+  'src/renderer/ui/tokens/index.ts',
   'src/renderer/hooks/useTheme.ts',
 ];
 
@@ -153,12 +156,6 @@ describe('shell retirement guard (RT-504, VN-S10 S10-Z)', () => {
     const css = readFileSync(STYLESHEET, 'utf-8');
     expect(css).not.toMatch(/--color-accent\b/);
     expect(css).not.toMatch(/--color-rail\b|--color-rail-/);
-  });
-
-  it('ui/tokens/colors.ts does not export the accent token', () => {
-    const tokens = stripComments(readFileSync(join(RENDERER, 'ui/tokens/colors.ts'), 'utf-8'));
-    expect(tokens).not.toMatch(/\baccent\b/);
-    expect(tokens).not.toMatch(/--color-accent/);
   });
 
   it.each(RETIRED_PREFIXES)('the retired prefix %s is in no production .tsx', (prefix) => {

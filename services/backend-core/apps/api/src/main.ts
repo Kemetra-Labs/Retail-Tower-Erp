@@ -16,7 +16,6 @@ import { getRootLogger } from "./common/root-logger.module";
 import { RequestIdInterceptor } from "./common/request-id.interceptor";
 import { ZodValidationPipe } from "./common/zod-validation.pipe";
 import { assertDeploymentEnvironmentConfigured } from "./connector/deployment-environment";
-import { ContextInterceptor } from "./context/context.interceptor";
 import { loadOpenApiContracts } from "./openapi/loader";
 import { logoUploadPassthrough } from "./tenant-branding/logo-body";
 
@@ -83,13 +82,10 @@ async function bootstrap(): Promise<void> {
   app.use(logoUploadPassthrough);
 
   // Global interceptors — RequestIdInterceptor must run first so the others
-  // can read request.requestId. ContextInterceptor bridges
-  // request.context (set by TenantContextGuard, when present) into the
-  // AsyncLocalStorage scope; it no-ops on routes that aren't guarded.
+  // can read request.requestId.
   app.useGlobalInterceptors(
     new RequestIdInterceptor(),
     new LoggingInterceptor(rootLogger),
-    new ContextInterceptor(),
   );
 
   // Global exception filter — every uncaught error formatted into the

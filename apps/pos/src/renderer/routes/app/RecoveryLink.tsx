@@ -1,10 +1,11 @@
-import { useEffect, type JSX } from 'react';
+import { useEffect, useState, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import type { RecoveryListHeldResponse } from '../../../shared/operator/recovery';
 import { useOperatorSessionStore } from '../../stores/operator-session-store';
 import { HOME_COPY } from '../../v5/manager/home/home-copy';
 import { ManagerTile } from '../../v5/manager/home/ManagerTile';
+import { recoveryTileCount, type TileCount } from '../../v5/manager/home/tile-counts';
 import { windowRecoveryBridges } from '../../v5/recovery/RecoveryScreen';
 import { RECOVERY_COPY } from '../../v5/recovery/recovery-copy';
 
@@ -20,16 +21,23 @@ function useIsManager(): boolean {
 const inRecoveryMode = (answer: RecoveryListHeldResponse): boolean =>
   answer.kind === 'held' && answer.recovery_mode;
 
-/** A session main admitted in RECOVERY MODE goes straight to the recovery screen. */
-function useRecoveryModeRedirect(enabled: boolean): void {
+/**
+ * One `listHeld` read serves two things: a session main admitted in RECOVERY
+ * MODE goes straight to the recovery screen, and (RT-1193) the tile's count.
+ * A refusal, a failed read or a missing bridge leaves the count `null`.
+ */
+function useRecoveryRead(enabled: boolean): TileCount | null {
   const navigate = useNavigate();
+  const [count, setCount] = useState<TileCount | null>(null);
   useEffect(() => {
     const bridges = enabled ? windowRecoveryBridges() : null;
     if (bridges === null) return;
     let live = true;
     bridges.recovery.listHeld().then(
       (answer) => {
-        if (live && inRecoveryMode(answer)) void navigate(RECOVERY_PATH, { replace: true });
+        if (!live) return;
+        if (inRecoveryMode(answer)) void navigate(RECOVERY_PATH, { replace: true });
+        setCount(recoveryTileCount(answer.kind === 'held' ? answer : null));
       },
       () => undefined,
     );
@@ -37,6 +45,7 @@ function useRecoveryModeRedirect(enabled: boolean): void {
       live = false;
     };
   }, [enabled, navigate]);
+  return count;
 }
 
 /**
@@ -47,7 +56,7 @@ function useRecoveryModeRedirect(enabled: boolean): void {
  */
 export function RecoveryLink(): JSX.Element | null {
   const isManager = useIsManager();
-  useRecoveryModeRedirect(isManager);
+  const count = useRecoveryRead(isManager);
   if (!isManager) return null;
   return (
     <ManagerTile
@@ -56,6 +65,7 @@ export function RecoveryLink(): JSX.Element | null {
       title={RECOVERY_COPY.link}
       description={HOME_COPY.recovery.description}
       testId="dashboard-recovery-link"
+      count={count}
     />
   );
 }
