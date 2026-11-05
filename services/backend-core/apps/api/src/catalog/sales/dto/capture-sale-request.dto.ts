@@ -104,16 +104,16 @@ export const CaptureSaleLineSchema = z
   .strict();
 
 /**
- * RT-225 ([GATED] approval: Jira RT-225, owner, 2026-10-05): the widest
- * allowed gap between `admissionCheckAt` and `occurredAt`.
- */
-/**
  * RT-1051 (owner decision, Jira RT-1051 comment 15572, 2026-11-05): the most lines one
  * captured sale carries; mirrored as `CaptureSaleRequest.lines.maxItems` in sales.yaml.
  * The POS caps a cart at 30 lines (RT-1052), so this is a server-side safety bound.
  */
 export const MAX_CAPTURE_LINES = 500;
 
+/**
+ * RT-225 ([GATED] approval: Jira RT-225, owner, 2026-10-05): the widest
+ * allowed gap between `admissionCheckAt` and `occurredAt`.
+ */
 export const MAX_ADMISSION_CHECK_GAP_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
