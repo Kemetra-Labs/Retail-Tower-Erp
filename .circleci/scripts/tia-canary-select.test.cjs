@@ -288,18 +288,30 @@ test("a bypassed suite file must be restored before planning, or the plan is FUL
   assert.equal(sel.decide(inputs({ bypass: { applied: false, reason: "x" }, restoreRc: 0 })).mode, IMPACTED);
 });
 
+test("suiteDefinitionHash ignores comments, blank lines, CRLF and full-test-run items, not the definition", () => {
+  const text = readText(".circleci/test-suites.yml");
+  const h = sel.suiteDefinitionHash(text);
+  assert.match(sel.SUITE_DEFINITION_SHA256, /^[0-9a-f]{64}$/);
+  assert.equal(sel.suiteDefinitionHash(text.replace(/\n/g, "\r\n")), h);
+  assert.equal(sel.suiteDefinitionHash(`# new comment\n\n${text}`), h);
+  assert.equal(sel.suiteDefinitionHash(text.replace("    - jest.config.cjs\n", "")), h, "the full-test-run list is not the definition");
+  assert.equal(sel.suiteDefinitionHash(sel.stripFullRunPaths(text).text), h, "the job's stripped copy keeps the definition");
+  assert.notEqual(sel.suiteDefinitionHash(text.replace("test-analysis-duration: 30", "test-analysis-duration: 31")), h);
+  assert.notEqual(sel.suiteDefinitionHash(text.replace("--coverageReporters=lcovonly", "--coverageReporters=lcov")), h);
+});
+
 test("runBypass strips the suite file only for a pinned TIA_ELIGIBLE guard", () => {
   const out = fs.mkdtempSync(path.join(os.tmpdir(), "rt1239-bypass-"));
   const suites = path.join(out, "test-suites.yml");
   const original = "options:\n  test-impact-analysis: true\n  full-test-run-paths:\n    - ../../docs/*\n    - jest.config.cjs\n";
-  const run = (guard, env = { CIRCLE_SHA1: SHA, EXPECTED_SHA: SHA }, content = original) => {
+  const run = (guard, env = { CIRCLE_SHA1: SHA, EXPECTED_SHA: SHA }, content = original, pin = null) => {
     fs.writeFileSync(suites, content);
     if (guard === null) fs.rmSync(path.join(out, "guard.json"), { force: true });
     else fs.writeFileSync(path.join(out, "guard.json"), JSON.stringify(guard));
     const log = console.log;
     console.log = () => {};
     try {
-      return sel.runBypass(out, env, suites);
+      return sel.runBypass(out, env, suites, pin ?? sel.suiteDefinitionHash(content));
     } finally {
       console.log = log;
     }
@@ -325,6 +337,11 @@ test("runBypass strips the suite file only for a pinned TIA_ELIGIBLE guard", () 
       assert.equal(fs.readFileSync(suites, "utf8"), content);
       assert.equal(JSON.parse(fs.readFileSync(path.join(out, "fullrun-bypass.json"), "utf8")).applied, false);
     }
+    // PR #366 review: a suite definition that is not the pinned one never bypasses.
+    const changed = run(eligible, undefined, original, "0".repeat(64));
+    assert.equal(changed.applied, false);
+    assert.match(changed.reason, /suite definition .* is not the pinned/);
+    assert.equal(fs.readFileSync(suites, "utf8"), original);
   } finally {
     fs.rmSync(out, { recursive: true, force: true });
   }

@@ -138,6 +138,34 @@ function repoPath(fromApi) {
 // see, so for those the CLI's select-all is the only signal that the stored map is stale.
 const BYPASSABLE_RE = /^(?:\.\.\/\.\.\/(?:packages\/contracts\/openapi|deploy|docs)\/|\.\.\/\.\.\/\.\.\/\.\.\/\.circleci\/)/;
 
+// PR #366 review (CodeRabbit): .circleci/test-suites.yml itself defines discovery, the run and the
+// coverage analysis, so a change to it can make the stored impact data stale. It cannot stay a
+// full-test-run path here, because the bypass edits that file and the CLI would then always
+// select every spec. Instead the bypass applies only while the suite DEFINITION (the file without
+// comments, blank lines and the full-test-run-paths list) hashes to this pin. After changing the
+// definition, update the pin in a later PR, only once a backend-api-jest-analysis on main has
+// succeeded on a commit that contains the change; until then the canary never bypasses.
+const SUITE_DEFINITION_SHA256 = "04f332b8f0dc3699b3a8d4aac4dcf8e7323ffc0f15249be081515e9973198500";
+
+// Pure: sha256 of the suite definition, ignoring comments, blank lines, line endings and the
+// full-test-run-paths list (its items are compared with the stored impact data on their own).
+function suiteDefinitionHash(text) {
+  const out = [];
+  let inList = false;
+  for (const raw of text.split("\n")) {
+    const l = raw.replace(/\r$/, "");
+    if (/^\s*(?:#.*)?$/.test(l)) continue;
+    if (/^ {2}full-test-run-paths:\s*$/.test(l)) {
+      inList = true;
+      continue;
+    }
+    if (inList && /^ {4}- /.test(l)) continue;
+    inList = false;
+    out.push(l.replace(/\s+$/, ""));
+  }
+  return require("node:crypto").createHash("sha256").update(out.join("\n")).digest("hex");
+}
+
 // Pure: test-suites.yml text without the bypassable `full-test-run-paths` items (and without the
 // key when no item is left), or null unless the key appears exactly once (two-space indent) with
 // only four-space `- ` items, comments or blank lines in its block, and at least one item is
@@ -356,7 +384,7 @@ function readJson(p) {
 
 // Removes full-test-run-paths from the job's suite file only when the guard is TIA_ELIGIBLE and
 // pinned to this commit; always writes <out>/fullrun-bypass.json. Never throws.
-function runBypass(out, env, suites) {
+function runBypass(out, env, suites, pin = SUITE_DEFINITION_SHA256) {
   const sha = env.CIRCLE_SHA1 || "";
   let result;
   try {
@@ -366,8 +394,12 @@ function runBypass(out, env, suites) {
     } else if (!g || g.decision !== "TIA_ELIGIBLE" || g.head !== sha) {
       result = { applied: false, reason: `guard decision ${g?.decision ?? "missing"} (head ${g?.head ?? "none"})` };
     } else {
-      const stripped = stripFullRunPaths(readIfExists(suites));
-      if (stripped === null) {
+      const text = readIfExists(suites);
+      const definition = text === null ? null : suiteDefinitionHash(text);
+      const stripped = definition === pin ? stripFullRunPaths(text) : null;
+      if (definition !== pin) {
+        result = { applied: false, reason: `suite definition ${definition ?? "missing"} is not the pinned ${pin} (changed since the pin; see SUITE_DEFINITION_SHA256)` };
+      } else if (stripped === null) {
         result = { applied: false, reason: `no single well-formed full-test-run-paths list with a text-only entry in ${suites}` };
       } else {
         fs.writeFileSync(suites, stripped.text);
@@ -474,6 +506,6 @@ function main(argv, env) {
   return 2;
 }
 
-module.exports = { repoPath, IMPACTED, FULL, ATOM_RE, READ_RE, EXEMPT_HELPERS, BYPASSABLE_RE, textReaders, readTestModules, stripFullRunPaths, parseProbe, decide, compare, readInputs, runBypass, runPlan, runVerify, main };
+module.exports = { repoPath, IMPACTED, FULL, ATOM_RE, READ_RE, EXEMPT_HELPERS, BYPASSABLE_RE, SUITE_DEFINITION_SHA256, suiteDefinitionHash, textReaders, readTestModules, stripFullRunPaths, parseProbe, decide, compare, readInputs, runBypass, runPlan, runVerify, main };
 
 if (require.main === module) process.exit(main(process.argv.slice(2), process.env));

@@ -295,7 +295,10 @@ commands:
   # stored impact data, so a main change to any of them since the last analysis selected every
   # spec (canary #1094). A TIA_ELIGIBLE branch changed none of them, and every spec that reads them
   # is an always-run text reader. Entries that can change which src lines a spec covers (test
-  # helpers, jest/ts config, root package files, packages/ code, drizzle) stay. tia-canary's plan
+  # helpers, jest/ts config, root package files, packages/ code, drizzle) stay. The suite file
+  # itself defines coverage analysis, so the bypass applies only while its definition matches the
+  # selector's SUITE_DEFINITION_SHA256 pin (update it only after main's analysis has run on a
+  # changed definition). tia-canary's plan
   # step restores the file with git and plans FULL if it cannot. The shadow lane and main's
   # analysis keep the full list. Never fails.
   tia-fullrun-bypass:
