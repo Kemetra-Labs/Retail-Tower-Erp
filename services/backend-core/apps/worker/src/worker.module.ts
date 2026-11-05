@@ -106,6 +106,7 @@ import { AuditFanoutProcessor, AUDIT_DB, type AuditDbLike } from "./audit/audit-
 import { AuditWorker } from "./audit/audit.worker";
 import { createLogger } from "@data-pulse-2/shared";
 import { SaleProcessingProcessor } from "./sales/sale-processing.processor";
+import { SaleSyncDeadletterProducer } from "./sales/sale-sync-deadletter.producer";
 import { resolveSaleRedriveWindow } from "./sales/sale-redrive.config";
 import { SaleRedriveProcessor } from "./sales/sale-redrive.processor";
 import { NoOpSaleRedriveRepository, PgSaleRedriveRepository } from "./sales/sale-redrive.repository";
@@ -333,18 +334,38 @@ export function auditDbProviderFactory(wrapper: AuditDbPool): AuditDbLike {
  * `wrapper.pool as Pool` so the processor is still constructible (Nest needs a
  * value); any path that actually consumes (REDIS_URL set) forces
  * `pgPoolProviderFactory` to guarantee a non-null pool via the
- * consume-without-persist guard. We do NOT change the processor's constructor.
+ * consume-without-persist guard.
+ *
+ * RT-1233: the processor's failure branch records each failed attempt for sale
+ * sync through the injected `SaleSyncDeadletterProducer` (same pool).
  *
  * Exported so tests can call it directly without booting Nest DI.
  */
 export function saleProcessingProcessorProviderFactory(
   wrapper: AuditDbPool,
+  deadletters: SaleSyncDeadletterProducer,
 ): SaleProcessingProcessor {
   // RT-457: the processor's failure log (ids + error class only) needs a real
   // logger; before RT-457 it was built without one, so failures left no trace.
   return new SaleProcessingProcessor(
     wrapper.pool as Pool,
     createLogger({ service: "backend-worker", bindings: { component: "sales.sale-processing" } }),
+    deadletters,
+  );
+}
+
+/**
+ * Factory for the `SaleSyncDeadletterProducer` provider (RT-1233): the 032 §8
+ * quarantine writer, on the shared `AuditDbPool` pool (no second pool). Its
+ * own log (ids + error class only) gets a real logger. On the null-pool path it
+ * is never called, exactly like the processor it serves.
+ */
+function saleSyncDeadletterProducerProviderFactory(
+  wrapper: AuditDbPool,
+): SaleSyncDeadletterProducer {
+  return new SaleSyncDeadletterProducer(
+    wrapper.pool as Pool,
+    createLogger({ service: "backend-worker", bindings: { component: "sales.sale-sync-deadletter" } }),
   );
 }
 
@@ -668,10 +689,19 @@ export class AuditRetentionRoleVerifier implements OnModuleInit {
     // are DEFERRED to a monitoring follow-up that owns those files. The
     // enqueue (outbox → queue) half is likewise deferred (it needs apps/api +
     // the gated packages/db OUTBOX_EVENT_TYPES registry).
+    //
+    // RT-1233: the dead-letter producer is the processor's failure-branch
+    // writer (needs-repair quarantine / failed-retryable). Metric emission for
+    // it stays deferred to the monitoring follow-up, as its header records.
+    {
+      provide: SaleSyncDeadletterProducer,
+      useFactory: saleSyncDeadletterProducerProviderFactory,
+      inject: [AuditDbPool],
+    },
     {
       provide: SaleProcessingProcessor,
       useFactory: saleProcessingProcessorProviderFactory,
-      inject: [AuditDbPool],
+      inject: [AuditDbPool, SaleSyncDeadletterProducer],
     },
     {
       provide: SaleWorker,

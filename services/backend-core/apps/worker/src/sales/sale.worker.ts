@@ -65,11 +65,13 @@
  */
 import { Injectable, type OnModuleDestroy } from "@nestjs/common";
 import { DEFAULT_WORKER_OPTIONS } from "@data-pulse-2/shared/queues/queue-config";
+import { UnrecoverableError } from "bullmq";
 
 import {
   SaleProcessingProcessor,
   type SaleProcessingJob,
 } from "./sale-processing.processor";
+import { SaleProcessingQuarantinedError } from "./sale-processing-failure";
 import {
   type JobLike,
   type WorkerFactory,
@@ -123,7 +125,17 @@ export class SaleWorker implements OnModuleDestroy {
     this.worker = this.workerFactory.create(
       SALE_PROCESSING_QUEUE_NAME,
       async (job: JobLike): Promise<void> => {
-        await this.processor.process(job.data as SaleProcessingJob);
+        try {
+          await this.processor.process(job.data as SaleProcessingJob);
+        } catch (err: unknown) {
+          // RT-1233: a quarantined (needs-repair) sale is not retried; the
+          // operator repairs it from the Console. Every other error propagates
+          // unchanged so BullMQ's retry / backoff applies.
+          if (err instanceof SaleProcessingQuarantinedError) {
+            throw new UnrecoverableError(err.message);
+          }
+          throw err;
+        }
       },
       DEFAULT_WORKER_OPTIONS,
     );
