@@ -73,9 +73,6 @@ export const SENSITIVE_SOURCE_STATUSES: ReadonlySet<InventoryStatus> = new Set([
   'recall_hold',
 ]);
 
-/** The roles that may move stock (D2); a store_manager only within its store scope. */
-export const POSITION_MOVE_ROLES = ['owner', 'tenant_admin', 'store_manager'] as const;
-
 /** The roles that may make a sensitive move (D2). */
 const SENSITIVE_MOVE_ROLES: ReadonlySet<string> = new Set(['owner', 'tenant_admin']);
 

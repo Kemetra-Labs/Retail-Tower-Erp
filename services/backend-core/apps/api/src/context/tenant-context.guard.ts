@@ -78,11 +78,9 @@
  * ---------------------------
  *   - Set the Postgres GUCs (`app.current_tenant`,
  *     `app.is_platform_admin`). That's the DB middleware's job (T155).
- *   - Wrap downstream handlers in `runInContext(...)`. That's the
- *     companion interceptor's job (also T155). The guard exposes
- *     `runInContext` / `getResolvedContext` from `context.als.ts` so
- *     the interceptor can bridge `request.context` into the ALS once
- *     it lands.
+ *   - Publish the context anywhere but `request.context`. Handlers and
+ *     services read it from the request (RT-1203 removed the unused
+ *     AsyncLocalStorage bridge).
  *   - Audit context switches. That's `ContextController` (T152/T153).
  */
 import {

@@ -68,7 +68,6 @@ import {
   NoOpEmailJobEnqueuer,
   type EmailJobEnqueuer,
 } from "../../src/auth/email-job.enqueuer";
-import { ContextInterceptor } from "../../src/context/context.interceptor";
 import { ContextModule } from "../../src/context/context.module";
 import { StoresModule } from "../../src/stores/stores.module";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
@@ -1310,7 +1309,6 @@ describe("T313 / C-5 — multi-tenant sign-in: no active tenant set, subsequent 
       c5App.useGlobalInterceptors(
         new RequestIdInterceptor(),
         new LoggingInterceptor(logger),
-        new ContextInterceptor(),
       );
       c5App.useGlobalFilters(new GlobalExceptionFilter());
       c5App.useGlobalPipes(new ZodValidationPipe());
