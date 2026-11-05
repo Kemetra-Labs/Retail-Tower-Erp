@@ -6,9 +6,9 @@
   "knipUnusedDependencies": 0,
   "knipUnlistedDependencies": 1,
   "knipDuplicateExports": 0,
-  "jscpdClones": 348,
-  "jscpdDuplicatedLines": 4128,
-  "eslintComplexity": 6,
-  "eslintMaxLinesPerFunction": 3,
+  "jscpdClones": 333,
+  "jscpdDuplicatedLines": 3928,
+  "eslintComplexity": 5,
+  "eslintMaxLinesPerFunction": 2,
   "eslintMaxLines": 3
 }
