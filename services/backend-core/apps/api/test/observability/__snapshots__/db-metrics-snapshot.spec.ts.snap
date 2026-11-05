@@ -1,0 +1,70 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`RT-1211 api db metric snapshot asserts exactly these label sets 1`] = `
+[
+  {
+    "labels": [
+      "state",
+    ],
+    "metric": "db_migration_status",
+  },
+  {
+    "labels": [],
+    "metric": "db_pool_in_use",
+  },
+  {
+    "labels": [],
+    "metric": "db_pool_waiters",
+  },
+  {
+    "labels": [],
+    "metric": "db_rls_context_failure_total",
+  },
+  {
+    "labels": [
+      "query_class",
+    ],
+    "metric": "db_slow_query_total",
+  },
+]
+`;
+
+exports[`RT-1211 api db metric snapshot registers exactly these instruments (scope, kind, name, description, unit) 1`] = `
+[
+  {
+    "description": "Migration status indicator (1 = in state). Labels: state ∈ {pending, applied, failed}.",
+    "kind": "observable_gauge",
+    "name": "db_migration_status",
+    "scope": "db",
+    "unit": undefined,
+  },
+  {
+    "description": "Number of connections currently checked out from the DB pool.",
+    "kind": "observable_gauge",
+    "name": "db_pool_in_use",
+    "scope": "db",
+    "unit": undefined,
+  },
+  {
+    "description": "Number of requests currently waiting for a DB pool connection.",
+    "kind": "observable_gauge",
+    "name": "db_pool_waiters",
+    "scope": "db",
+    "unit": undefined,
+  },
+  {
+    "description": "Total DB RLS context bootstrap failures. No per-tenant labels — alertable on any non-zero increment (FR-B-009). tenant_id is forbidden as a metric label (FR-B-006).",
+    "kind": "counter",
+    "name": "db_rls_context_failure_total",
+    "scope": "db",
+    "unit": undefined,
+  },
+  {
+    "description": "Total DB queries exceeding the slow-query threshold (default 500 ms), labelled by parameterized-statement class. query_class is a hash of the SQL template — NEVER the rendered query text.",
+    "kind": "counter",
+    "name": "db_slow_query_total",
+    "scope": "db",
+    "unit": undefined,
+  },
+]
+`;

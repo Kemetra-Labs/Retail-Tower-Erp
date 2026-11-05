@@ -1,0 +1,289 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`RT-1211 worker metric snapshot WORKER_METRIC_NAMES is exactly the registered instrument names that have emission helpers 1`] = `
+[
+  "db_pool_in_use",
+  "db_pool_waiters",
+  "db_slow_query_total",
+  "erpnext_posting_reconciliation_total",
+  "erpnext_posting_reversal_deferred_dead_letter_total",
+  "erpnext_stock_reconciliation_sweep_total",
+  "erpnext_stock_run_expired_total",
+  "erpnext_stock_run_stranded",
+  "inventory_sale_effect_skipped_total",
+  "outbox_dead_letter_total",
+  "outbox_drain_duration_seconds",
+  "outbox_pending_total",
+  "queue_dead_letter_total",
+  "queue_failed_total",
+  "queue_lag_seconds",
+  "queue_retry_total",
+  "redis_command_duration_seconds",
+  "sale_redrive_total",
+  "worker_job_duration_seconds",
+  "worker_processing_failure_total",
+]
+`;
+
+exports[`RT-1211 worker metric snapshot asserts exactly these label sets 1`] = `
+[
+  {
+    "labels": [],
+    "metric": "db_pool_in_use",
+  },
+  {
+    "labels": [],
+    "metric": "db_pool_waiters",
+  },
+  {
+    "labels": [
+      "query_class",
+    ],
+    "metric": "db_slow_query_total",
+  },
+  {
+    "labels": [],
+    "metric": "erpnext_posting_reconciliation_total",
+  },
+  {
+    "labels": [],
+    "metric": "erpnext_posting_reversal_deferred_dead_letter_total",
+  },
+  {
+    "labels": [
+      "outcome",
+    ],
+    "metric": "erpnext_stock_reconciliation_sweep_total",
+  },
+  {
+    "labels": [],
+    "metric": "erpnext_stock_run_expired_total",
+  },
+  {
+    "labels": [
+      "outcome",
+    ],
+    "metric": "erpnext_stock_run_stranded",
+  },
+  {
+    "labels": [
+      "event_type",
+      "reason",
+    ],
+    "metric": "inventory_sale_effect_skipped_total",
+  },
+  {
+    "labels": [
+      "event_type",
+    ],
+    "metric": "outbox_dead_letter_total",
+  },
+  {
+    "labels": [
+      "event_type",
+    ],
+    "metric": "outbox_drain_duration_seconds",
+  },
+  {
+    "labels": [
+      "event_type",
+    ],
+    "metric": "outbox_pending_total",
+  },
+  {
+    "labels": [
+      "queue",
+    ],
+    "metric": "queue_dead_letter_total",
+  },
+  {
+    "labels": [
+      "error_class",
+      "queue",
+    ],
+    "metric": "queue_failed_total",
+  },
+  {
+    "labels": [
+      "queue",
+    ],
+    "metric": "queue_lag_seconds",
+  },
+  {
+    "labels": [
+      "queue",
+    ],
+    "metric": "queue_retry_total",
+  },
+  {
+    "labels": [
+      "command",
+    ],
+    "metric": "redis_command_duration_seconds",
+  },
+  {
+    "labels": [
+      "reason",
+    ],
+    "metric": "sale_redrive_total",
+  },
+  {
+    "labels": [
+      "job_name",
+    ],
+    "metric": "worker_job_duration_seconds",
+  },
+  {
+    "labels": [
+      "error_class",
+      "job_name",
+    ],
+    "metric": "worker_processing_failure_total",
+  },
+]
+`;
+
+exports[`RT-1211 worker metric snapshot registers exactly these instruments (scope, kind, name, description, unit) 1`] = `
+[
+  {
+    "description": "Number of connections currently checked out from the DB pool.",
+    "kind": "observable_gauge",
+    "name": "db_pool_in_use",
+    "scope": "worker",
+    "unit": undefined,
+  },
+  {
+    "description": "Number of requests currently waiting for a DB pool connection.",
+    "kind": "observable_gauge",
+    "name": "db_pool_waiters",
+    "scope": "worker",
+    "unit": undefined,
+  },
+  {
+    "description": "Total DB queries exceeding the slow-query threshold (500 ms), labelled by parameterized-statement class. query_class is a hash of the SQL template — NEVER the rendered query text.",
+    "kind": "counter",
+    "name": "db_slow_query_total",
+    "scope": "worker",
+    "unit": undefined,
+  },
+  {
+    "description": "ERPNext posting rows that became permanently_rejected at 015-RESOLVE creation time (unmapped_item / unmapped_store). The reconciliation / dead-letter flag the 017 surface drains. Unlabeled — the affected (tenant, store, sale, category) lives on the erpnext_posting_status row.",
+    "kind": "counter",
+    "name": "erpnext_posting_reconciliation_total",
+    "scope": "worker",
+    "unit": undefined,
+  },
+  {
+    "description": "erpnext.posting.requested reversals dead-lettered in the outbox while still awaiting their sale's sale_post posting row (the RT-173 deferral exhausted its attempts). No erpnext_posting_status row exists for these; the dead-lettered outbox row is the record. Unlabeled — the tenant, sale and outbox event are in the posting.reversal.dead_lettered error log.",
+    "kind": "counter",
+    "name": "erpnext_posting_reversal_deferred_dead_letter_total",
+    "scope": "worker",
+    "unit": undefined,
+  },
+  {
+    "description": "Stores considered by the scheduled ERPNext stock reconciliation sweep, by outcome: created (a scheduled run was created), skipped_running (the store already had a running stock run), skipped_period (a scheduled run already exists for this period), skipped_ineligible (the tenant was suspended or the store / stock map retired before creation). The (tenant, store) is on the run row and the sweep log, never a label.",
+    "kind": "counter",
+    "name": "erpnext_stock_reconciliation_sweep_total",
+    "scope": "worker",
+    "unit": undefined,
+  },
+  {
+    "description": "ERPNext stock reconciliation runs the scheduled sweep moved running → failed because they passed the run TTL without a complete connector Bin report (summary.failure.reason = bin_view_not_completed). The (tenant, store, run) is on the run row, its audit row and the sweep log, never a label.",
+    "kind": "counter",
+    "name": "erpnext_stock_run_expired_total",
+    "scope": "worker",
+    "unit": undefined,
+  },
+  {
+    "description": "ERPNext stock reconciliation runs still running past the run TTL (2 h from started_at), as of the last scheduled sweep, by outcome: report_incomplete (no complete connector Bin report; the sweep expires these, so the series is zero after a healthy sweep) or report_complete (the report completed but the reconciliation worker has not processed the run; never expired). No tenant or store label.",
+    "kind": "observable_gauge",
+    "name": "erpnext_stock_run_stranded",
+    "scope": "worker",
+    "unit": undefined,
+  },
+  {
+    "description": "Sale / void / return lines whose Inventory Effect was skipped instead of stalling the sale (RT-427): reason unit_mismatch (not the product's established stocking unit), quantity_precision (more than 4 decimals) or tracked_product (needs a tracking identity, RT-451). The tenant, sale and line are in the inventory.sale_effect.skipped warn log, never labels.",
+    "kind": "counter",
+    "name": "inventory_sale_effect_skipped_total",
+    "scope": "worker",
+    "unit": undefined,
+  },
+  {
+    "description": "Outbox events that exhausted drain retries (row.attempts >= MAX_ATTEMPTS), labelled by event_type.",
+    "kind": "counter",
+    "name": "outbox_dead_letter_total",
+    "scope": "worker",
+    "unit": undefined,
+  },
+  {
+    "description": "Outbox per-row drain duration in seconds, labelled by event_type. Wall-clock from claim-dispatch to consumer return (success or failure).",
+    "kind": "histogram",
+    "name": "outbox_drain_duration_seconds",
+    "scope": "worker",
+    "unit": "s",
+  },
+  {
+    "description": "Pending outbox events by event_type. Sampled at OTel scrape time via SELECT COUNT(*) GROUP BY event_type on rows whose delivery_state is in ('pending','claimed','failed'). 'delivered' and 'dead_lettered' are terminal and excluded.",
+    "kind": "observable_gauge",
+    "name": "outbox_pending_total",
+    "scope": "worker",
+    "unit": undefined,
+  },
+  {
+    "description": "Total jobs that exhausted retries and landed in the BullMQ failed-jobs set (acts as DLQ per shared queue.config), labelled by queue.",
+    "kind": "counter",
+    "name": "queue_dead_letter_total",
+    "scope": "worker",
+    "unit": undefined,
+  },
+  {
+    "description": "Total failed jobs by queue and sanitized error_class.",
+    "kind": "counter",
+    "name": "queue_failed_total",
+    "scope": "worker",
+    "unit": undefined,
+  },
+  {
+    "description": "BullMQ queue lag in seconds, labelled by queue. Sampled by the metrics SDK; never polled synchronously to avoid Redis pressure.",
+    "kind": "observable_gauge",
+    "name": "queue_lag_seconds",
+    "scope": "worker",
+    "unit": "s",
+  },
+  {
+    "description": "Total retry attempts (failed + attemptsMade < attemptsLimit) by queue.",
+    "kind": "counter",
+    "name": "queue_retry_total",
+    "scope": "worker",
+    "unit": undefined,
+  },
+  {
+    "description": "Redis command duration in seconds, labelled by the command verb (get/set/del/hget/hset/...). NEVER labelled by the Redis key.",
+    "kind": "histogram",
+    "name": "redis_command_duration_seconds",
+    "scope": "worker",
+    "unit": "s",
+  },
+  {
+    "description": "Items the scheduled sale re-drive sweep recovered, by reason: sale_processing (a stranded unprocessed sale was processed), sale_post_intent / reversal_intent (a missing erpnext.posting.requested event was re-emitted). The tenant and sale are in the sweep log, never a label.",
+    "kind": "counter",
+    "name": "sale_redrive_total",
+    "scope": "worker",
+    "unit": undefined,
+  },
+  {
+    "description": "Worker job processing duration in seconds, labelled by job_name. Histogram — quantiles (p50/p95/p99) recovered at the query layer.",
+    "kind": "histogram",
+    "name": "worker_job_duration_seconds",
+    "scope": "worker",
+    "unit": "s",
+  },
+  {
+    "description": "Total worker job processing failures by job_name and sanitized error_class (closed allowlist; unknown classes coerced to UnknownError).",
+    "kind": "counter",
+    "name": "worker_processing_failure_total",
+    "scope": "worker",
+    "unit": undefined,
+  },
+]
+`;

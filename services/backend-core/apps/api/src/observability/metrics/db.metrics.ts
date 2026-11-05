@@ -29,9 +29,13 @@
 import type { Pool } from "pg";
 
 import {
+  DB_POOL_IN_USE_DESCRIPTION,
+  DB_POOL_WAITERS_DESCRIPTION,
   assertMetricLabels,
   getMeter,
+  registerPoolGauges,
   type Attributes,
+  type DbPoolGauges,
   type Counter,
   type ObservableGauge,
 } from "@data-pulse-2/shared";
@@ -59,12 +63,16 @@ const meter = getMeter("db");
 // Pool introspection requires a pool-observer hook that depends on the
 // SDK metrics extension (plan §10). The instruments are registered now
 // so signal-presence tests and the ALLOWED_METRIC_LABELS allowlist hold.
-const _dbPoolInUse: ObservableGauge = meter.createObservableGauge("db_pool_in_use", {
-  description: "Number of connections currently checked out from the DB pool.",
-});
-const _dbPoolWaiters: ObservableGauge = meter.createObservableGauge("db_pool_waiters", {
-  description: "Number of requests currently waiting for a DB pool connection.",
-});
+// db_pool_in_use / db_pool_waiters live on this app's own meter (scope "db");
+// the callbacks are registered by the shared `registerPoolGauges` (RT-1211).
+const _dbPoolGauges: DbPoolGauges = {
+  inUse: meter.createObservableGauge("db_pool_in_use", {
+    description: DB_POOL_IN_USE_DESCRIPTION,
+  }),
+  waiters: meter.createObservableGauge("db_pool_waiters", {
+    description: DB_POOL_WAITERS_DESCRIPTION,
+  }),
+};
 // Migration-status gauge: each migration state is observed as 1 (in that
 // state) or 0. The addCallback is registered by the migration-runner
 // bootstrap once integrated. Until then, zero observations are produced.
@@ -164,32 +172,7 @@ export function recordDbSlowQuery(attrs: DbSlowQueryAttrs): void {
 export function registerDbPoolGauges(deps: {
   readonly pool: Pool | null;
 }): { stop: () => void } {
-  const pool = deps.pool;
-  if (pool === null) {
-    return { stop: () => undefined };
-  }
-
-  const inUseCallback = (result: {
-    observe(value: number, attributes: Attributes): void;
-  }): void => {
-    result.observe(pool.totalCount - pool.idleCount, {} as Attributes);
-  };
-
-  const waitersCallback = (result: {
-    observe(value: number, attributes: Attributes): void;
-  }): void => {
-    result.observe(pool.waitingCount, {} as Attributes);
-  };
-
-  _dbPoolInUse.addCallback(inUseCallback);
-  _dbPoolWaiters.addCallback(waitersCallback);
-
-  return {
-    stop: () => {
-      _dbPoolInUse.removeCallback(inUseCallback);
-      _dbPoolWaiters.removeCallback(waitersCallback);
-    },
-  };
+  return registerPoolGauges(_dbPoolGauges, deps.pool);
 }
 
 // ---------------------------------------------------------------------------

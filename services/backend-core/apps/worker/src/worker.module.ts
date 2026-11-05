@@ -73,19 +73,18 @@
 import {
   Injectable,
   Module,
-  type OnModuleDestroy,
   type OnModuleInit,
 } from "@nestjs/common";
-import { Queue, Worker as BullMqWorker } from "bullmq";
+import { Worker as BullMqWorker } from "bullmq";
 import { Pool } from "pg";
 
+import { AuditDbPool } from "./audit-db-pool";
 import {
-  registerDbPoolGauges,
-  registerOutboxPendingGauge,
-  registerQueueLagGauge,
-  WORKER_QUEUE_NAMES,
-  type WorkerQueueName,
-} from "./observability/metrics/worker.metrics";
+  QueueLagGaugeRegistrar,
+  OutboxPendingGaugeRegistrar,
+  WorkerDbPoolGaugeRegistrar,
+} from "./observability/gauge-registrars";
+import { poolOrNoOp } from "./observability/pool-or-noop";
 import { InstrumentedRedis } from "./observability/instrumented-redis";
 import { InstrumentedPool } from "./observability/instrumented-pool";
 
@@ -257,70 +256,7 @@ export function workerFactoryProviderFactory(): WorkerFactory {
   return new BullMqWorkerFactory(url);
 }
 
-/**
- * Nest-managed wrapper that owns the worker's `pg.Pool` lifecycle.
- *
- * Why this exists
- * ---------------
- * Nest only invokes `onModuleDestroy` on providers whose resolved value
- * is a class instance implementing the hook. A `useFactory` returning a
- * raw `Pool` would be opaque to Nest — `app.close()` would not call
- * `pool.end()`, and the worker process would hang on open Postgres
- * connections under SIGTERM. This wrapper makes pool teardown
- * explicit and Nest-aware.
- *
- * Field semantics
- * ---------------
- * - `pool === null` is the safe non-prod / no-Redis / no-DB path
- *   (paired with `NoOpAuditDbAdapter` downstream). `onModuleDestroy`
- *   is then a no-op.
- * - `pool !== null` is the real DB path. `onModuleDestroy` ends the
- *   pool exactly once; double-destroy is tolerated because we null the
- *   reference before awaiting `pool.end()`.
- *
- * Constructed by `pgPoolProviderFactory()` — never `new`-instantiated
- * directly outside that factory and tests.
- */
-@Injectable()
-export class AuditDbPool implements OnModuleDestroy {
-  private _pool: Pool | null;
-  private _heartbeatPool: Pool | null;
-
-  constructor(pool: Pool | null, heartbeatPool: Pool | null = null) {
-    this._pool = pool;
-    this._heartbeatPool = heartbeatPool;
-  }
-
-  /** The underlying pool, or `null` on the safe no-DB path. */
-  get pool(): Pool | null {
-    return this._pool;
-  }
-
-  get heartbeatPool(): Pool | null {
-    return this._heartbeatPool;
-  }
-
-  /**
-   * Nest lifecycle hook — fires on `app.close()` from `main.ts`.
-   * Idempotent: a second invocation is a no-op because we null the
-   * reference before awaiting.
-   */
-  async onModuleDestroy(): Promise<void> {
-    const p = this._pool;
-    const heartbeatPool = this._heartbeatPool;
-    this._pool = null;
-    this._heartbeatPool = null;
-    try {
-      if (heartbeatPool !== null) {
-        await heartbeatPool.end();
-      }
-    } finally {
-      if (p !== null) {
-        await p.end();
-      }
-    }
-  }
-}
+export { AuditDbPool, OutboxPendingGaugeRegistrar, QueueLagGaugeRegistrar, WorkerDbPoolGaugeRegistrar };
 
 /**
  * Factory for the `AuditDbPool` provider (PR-D).
@@ -377,11 +313,7 @@ export function pgPoolProviderFactory(): AuditDbPool {
  * is on the wrapper, not the adapter.
  */
 export function auditDbProviderFactory(wrapper: AuditDbPool): AuditDbLike {
-  const pool = wrapper.pool;
-  if (pool === null) {
-    return new NoOpAuditDbAdapter();
-  }
-  return new DrizzleAuditDbAdapter(pool);
+  return poolOrNoOp(wrapper.pool, () => new NoOpAuditDbAdapter(), (pool) => new DrizzleAuditDbAdapter(pool));
 }
 
 /**
@@ -446,10 +378,11 @@ export function saleWorkerProviderFactory(
 export function auditRetentionRepoProviderFactory(
   wrapper: { readonly pool: Pool | null },
 ): AuditRetentionRepository {
-  if (wrapper.pool === null) {
-    return new NoOpAuditRetentionRepository();
-  }
-  return new DrizzleAuditRetentionRepository(wrapper.pool);
+  return poolOrNoOp(
+    wrapper.pool,
+    () => new NoOpAuditRetentionRepository(),
+    (pool) => new DrizzleAuditRetentionRepository(pool),
+  );
 }
 
 /**
@@ -466,10 +399,11 @@ export function auditRetentionRepoProviderFactory(
 export function outboxRetentionRepoProviderFactory(
   wrapper: AuditDbPool,
 ): OutboxRetentionRepository {
-  if (wrapper.pool === null) {
-    return new NoOpOutboxRetentionRepository();
-  }
-  return new DrizzleOutboxRetentionRepository(wrapper.pool);
+  return poolOrNoOp(
+    wrapper.pool,
+    () => new NoOpOutboxRetentionRepository(),
+    (pool) => new DrizzleOutboxRetentionRepository(pool),
+  );
 }
 
 /**
@@ -485,8 +419,11 @@ export function saleRedriveProcessorProviderFactory(
   wrapper: AuditDbPool,
   saleProcessing: SaleProcessingProcessor,
 ): SaleRedriveProcessor {
-  const repo =
-    wrapper.pool === null ? new NoOpSaleRedriveRepository() : new PgSaleRedriveRepository(wrapper.pool);
+  const repo = poolOrNoOp(
+    wrapper.pool,
+    () => new NoOpSaleRedriveRepository(),
+    (pool) => new PgSaleRedriveRepository(pool),
+  );
   return new SaleRedriveProcessor(repo, saleProcessing, resolveSaleRedriveWindow());
 }
 
@@ -501,10 +438,11 @@ export function saleRedriveProcessorProviderFactory(
 export function stockRunSweepProcessorProviderFactory(
   wrapper: AuditDbPool,
 ): StockRunSweepProcessor {
-  const repo =
-    wrapper.pool === null
-      ? new NoOpStockRunSweepRepository()
-      : new PgStockRunSweepRepository(wrapper.pool);
+  const repo = poolOrNoOp(
+    wrapper.pool,
+    () => new NoOpStockRunSweepRepository(),
+    (pool) => new PgStockRunSweepRepository(pool),
+  );
   return new StockRunSweepProcessor(repo, resolveStockRunSweepIntervalMs());
 }
 
@@ -515,10 +453,11 @@ export function stockRunSweepProcessorProviderFactory(
  * the NoOp repository lists no tenants, so a purge is an empty pass.
  */
 export function replayPurgeProcessorProviderFactory(wrapper: AuditDbPool): ReplayPurgeProcessor {
-  const repo =
-    wrapper.pool === null
-      ? new NoOpReplayPurgeRepository()
-      : new PgReplayPurgeRepository(wrapper.pool);
+  const repo = poolOrNoOp(
+    wrapper.pool,
+    () => new NoOpReplayPurgeRepository(),
+    (pool) => new PgReplayPurgeRepository(pool),
+  );
   return new ReplayPurgeProcessor(repo);
 }
 
@@ -529,10 +468,11 @@ export function replayPurgeProcessorProviderFactory(wrapper: AuditDbPool): Repla
  * the NoOp repository lists no tenants, so a sweep is an empty pass.
  */
 export function reservationSweepProcessorProviderFactory(wrapper: AuditDbPool): ReservationSweepProcessor {
-  const repo =
-    wrapper.pool === null
-      ? new NoOpReservationSweepRepository()
-      : new PgReservationSweepRepository(wrapper.pool);
+  const repo = poolOrNoOp(
+    wrapper.pool,
+    () => new NoOpReservationSweepRepository(),
+    (pool) => new PgReservationSweepRepository(pool),
+  );
   return new ReservationSweepProcessor(repo, { lookbackSeconds: resolveReservationSweepLookbackSeconds() });
 }
 
@@ -613,128 +553,6 @@ export function outboxDrainerRunnerProviderFactory(
     } as unknown as DrainerProcessor);
   }
   return new OutboxDrainerRunner(drainer);
-}
-
-/**
- * Shared teardown for the gauge registrars: stops the registered gauge
- * handle once and clears it, so a repeated shutdown is a no-op.
- */
-abstract class GaugeHandleOwner implements OnModuleDestroy {
-  protected handle: { stop: () => void } | null = null;
-
-  onModuleDestroy(): void {
-    const h = this.handle;
-    this.handle = null;
-    if (h !== null) {
-      h.stop();
-    }
-  }
-}
-
-/**
- * Nest-aware registrar for the `db_pool_in_use` and `db_pool_waiters`
- * ObservableGauge callbacks (P4 W1).
- *
- * On `onModuleInit` registers both pool-stats callbacks against
- * `AuditDbPool.pool`. On `onModuleDestroy` removes them so the callbacks
- * do not reference a closed pool. The no-DB path (`wrapper.pool === null`)
- * is handled inside `registerDbPoolGauges` — the registrar is always safe
- * to wire regardless of the runtime environment.
- */
-@Injectable()
-export class WorkerDbPoolGaugeRegistrar extends GaugeHandleOwner implements OnModuleInit {
-  constructor(private readonly wrapper: AuditDbPool) {
-    super();
-  }
-
-  onModuleInit(): void {
-    this.handle = registerDbPoolGauges({ pool: this.wrapper.pool });
-  }
-}
-
-/**
- * Nest-aware registrar for the `queue_lag_seconds` ObservableGauge
- * callback (P4 W2).
- *
- * On `onModuleInit`:
- *   - If `REDIS_URL` is absent → no-op (matches `NoOpWorkerFactory` path).
- *   - Otherwise → creates one lightweight BullMQ `Queue` reader per entry in
- *     `WORKER_QUEUE_NAMES` and passes the map to `registerQueueLagGauge`.
- *     Queue readers share the same connection format as the BullMQ workers but
- *     are read-only (no processor attached). BullMQ owns each connection's
- *     lifecycle.
- *
- * On `onModuleDestroy`:
- *   - Removes the OTel callback.
- *   - Closes all Queue reader connections (fire-and-forget errors are
- *     swallowed since the process is already exiting).
- */
-@Injectable()
-export class QueueLagGaugeRegistrar implements OnModuleInit, OnModuleDestroy {
-  private queues: Map<WorkerQueueName, Queue> | null = null;
-  private clients: InstrumentedRedis[] | null = null;
-  private handle: { stop: () => void } | null = null;
-
-  onModuleInit(): void {
-    const redisUrl = process.env["REDIS_URL"];
-    if (!redisUrl) {
-      return;
-    }
-    const pairs = WORKER_QUEUE_NAMES.map((name) => {
-      const client = new InstrumentedRedis(redisUrl);
-      const queue = new Queue(name, { connection: client });
-      return { client, queue, name };
-    });
-    this.clients = pairs.map((p) => p.client);
-    this.queues = new Map(pairs.map((p) => [p.name, p.queue]));
-    this.handle = registerQueueLagGauge({ queues: this.queues });
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    const h = this.handle;
-    this.handle = null;
-    if (h !== null) {
-      h.stop();
-    }
-    const qs = this.queues;
-    this.queues = null;
-    if (qs !== null) {
-      await Promise.all([...qs.values()].map((q) => q.close().catch(() => undefined)));
-    }
-    const cs = this.clients;
-    this.clients = null;
-    if (cs !== null) {
-      await Promise.all(cs.map((c) => c.quit().catch(() => undefined)));
-    }
-  }
-}
-
-/**
- * Nest-aware registrar for the `outbox_pending_total` ObservableGauge
- * callback (T595 PR-B-2).
- *
- * Mirrors `OutboxDrainerRunner`'s lifecycle pattern:
- *   - On `onModuleInit`, calls `registerOutboxPendingGauge` with the
- *     shared `AuditDbPool.pool` (real `pg.Pool` in production, `null`
- *     on the safe non-prod / no-DB path — registrar handles both).
- *   - On `onModuleDestroy`, calls the returned `stop` handle so the
- *     OTel callback is removed during graceful shutdown and does not
- *     try to query a closed pool.
- *
- * The registrar is its own provider class (not folded into
- * `OutboxDrainerRunner`) so its lifecycle is independent: the drainer's
- * poll loop and the gauge callback start / stop on their own. The
- * shared `AuditDbPool` wrapper owns pool teardown for both.
- */
-@Injectable()
-export class OutboxPendingGaugeRegistrar extends GaugeHandleOwner implements OnModuleInit {
-  constructor(private readonly wrapper: AuditDbPool) {
-    super();
-  }
-
-  onModuleInit(): void {
-    this.handle = registerOutboxPendingGauge({ pool: this.wrapper.pool });
-  }
 }
 
 /**
