@@ -12,9 +12,9 @@
  * string. The `sequence` stays a STRING end-to-end (it is a 64-bit identity;
  * never parsed to a JS number, which would lose precision past 2^53).
  */
-/** Thrown when an opaque token is malformed or presented under a foreign scope. */
 import { anyJsonObject, decodeOpaque, encodeOpaque } from "../../common/cursor/opaque-cursor";
 
+/** Thrown when an opaque token is malformed or presented under a foreign scope. */
 export class ReadDownCursorError extends Error {}
 
 export interface SnapshotCursor {

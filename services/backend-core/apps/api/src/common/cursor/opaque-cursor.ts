@@ -20,7 +20,9 @@ export class InvalidCursorError extends Error {
 
 /**
  * Any JSON object, for the callers that validate the fields themselves (and answer each failed
- * field with its own message). Refuses `null`, arrays and primitives as a malformed token.
+ * field with its own message). Refuses `null`, arrays and primitives as a malformed token
+ * (RT-386: reading a field of `null` threw a TypeError that escaped as HTTP 500 instead of the
+ * FR-024 404).
  */
 export const anyJsonObject = z.record(z.string(), z.unknown());
 
