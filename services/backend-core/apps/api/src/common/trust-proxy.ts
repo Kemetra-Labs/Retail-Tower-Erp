@@ -59,7 +59,11 @@ function isRecognizedTrustProxy(raw: string): boolean {
   return raw === "true" || raw === "false";
 }
 
-function isDeployed(env: NodeJS.ProcessEnv): boolean {
+/**
+ * A deployed environment: `NODE_ENV=production`, or `DEPLOYMENT_ENVIRONMENT`
+ * staging, pilot or prod. Shared by the boot checks (RT-624, RT-625, RT-1043).
+ */
+export function isDeployedEnvironment(env: Readonly<Record<string, string | undefined>>): boolean {
   if (env["NODE_ENV"] === "production") return true;
   return ["staging", "pilot", "prod"].includes(resolveDeploymentEnvironment(env) ?? "");
 }
@@ -73,7 +77,7 @@ function isDeployed(env: NodeJS.ProcessEnv): boolean {
 export function checkTrustProxyConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): TrustProxyCheck {
-  if (!isDeployed(env)) return { warn: false };
+  if (!isDeployedEnvironment(env)) return { warn: false };
   const raw = env["TRUST_PROXY"] ?? "";
   if (raw === "true") throw new Error(TRUST_PROXY_TRUE_REFUSED);
   // A hop count of 0 trusts no hop: the same as `false` behind a proxy.

@@ -15,6 +15,7 @@ import { LoggingInterceptor } from "./common/logging.interceptor";
 import { getRootLogger } from "./common/root-logger.module";
 import { RequestIdInterceptor } from "./common/request-id.interceptor";
 import { ZodValidationPipe } from "./common/zod-validation.pipe";
+import { assertPublicAuthKeySecretConfigured } from "./auth/public-auth-key-secret";
 import { assertDeploymentEnvironmentConfigured } from "./connector/deployment-environment";
 import { loadOpenApiContracts } from "./openapi/loader";
 import { logoUploadPassthrough } from "./tenant-branding/logo-body";
@@ -23,6 +24,9 @@ async function bootstrap(): Promise<void> {
   // RT-152: production must declare which deployment environment it is, before
   // any provider starts, so the connector feed gate can never run unconfigured.
   assertDeploymentEnvironmentConfigured();
+  // RT-1043: the public-auth rate-limit keys are HMAC'd under a server secret. A
+  // deployed environment without a usable one stops here, never as a 500 at sign-in.
+  assertPublicAuthKeySecretConfigured();
 
   // OTel SDK is already running (started by ./instrumentation, which is
   // imported as the very first module in this file). The PrometheusExporter
