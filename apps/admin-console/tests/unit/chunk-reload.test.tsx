@@ -28,7 +28,13 @@ function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
 }
 
 function deps(over: Partial<ChunkReloadDeps> = {}): ChunkReloadDeps {
-  return { storage: memoryStorage(), reload: vi.fn(), now: () => 1_000_000, ...over };
+  return {
+    storage: memoryStorage(),
+    reload: vi.fn(),
+    now: () => 1_000_000,
+    route: () => "/stores",
+    ...over,
+  };
 }
 
 /** Settles to "pending" when the promise has neither resolved nor rejected yet. */
@@ -114,6 +120,25 @@ describe("reloadOnceOnChunkError (RT-1247)", () => {
     const d = deps();
     expect(await state(reloadOnceOnChunkError(error, d))).toBe("pending");
     expect(d.reload).toHaveBeenCalledTimes(1);
+  });
+
+  test("Safari (no chunk URL): a failure on another route after the window reloads again", async () => {
+    const storage = memoryStorage();
+    let now = 1_000_000;
+    const safari = new TypeError("Importing a module script failed.");
+    reloadOnceOnChunkError(safari, deps({ storage, now: () => now, route: () => "/stores" })).catch(
+      () => undefined,
+    );
+
+    now += RELOAD_GUARD_MS + 1;
+    const elsewhere = deps({ storage, now: () => now, route: () => "/devices" });
+    expect(await state(reloadOnceOnChunkError(safari, elsewhere))).toBe("pending");
+    expect(elsewhere.reload).toHaveBeenCalledTimes(1);
+
+    now += RELOAD_GUARD_MS + 1;
+    const sameRoute = deps({ storage, now: () => now, route: () => "/devices" });
+    await expect(reloadOnceOnChunkError(safari, sameRoute)).rejects.toBe(safari);
+    expect(sameRoute.reload).not.toHaveBeenCalled();
   });
 
   test("a module that loaded but threw while evaluating is a bug: rethrow, no reload", async () => {

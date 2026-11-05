@@ -40,6 +40,8 @@ export interface ChunkReloadDeps {
   storage: Pick<Storage, "getItem" | "setItem"> | null;
   reload: () => void;
   now: () => number;
+  /** The current route; tells apart chunk errors that do not name their chunk (Safari). */
+  route: () => string;
 }
 
 interface ReloadRecord {
@@ -54,12 +56,21 @@ function browserDeps(): ChunkReloadDeps {
   } catch {
     // Blocked site data: no guard, so no reload.
   }
-  return { storage, reload: () => window.location.reload(), now: () => Date.now() };
+  return {
+    storage,
+    reload: () => window.location.reload(),
+    now: () => Date.now(),
+    route: () => window.location.pathname,
+  };
 }
 
-/** The failure's identity: the message names the missing chunk. Kept in this tab only. */
-function errorKey(error: unknown): string {
-  return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+/**
+ * The failure's identity, kept in this tab only. Chrome and Firefox name the
+ * missing chunk; Safari's message does not, so the route stands in for it.
+ */
+function errorKey(error: unknown, route: string): string {
+  const key = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  return key.includes("/") ? key : `${key} @ ${route}`;
 }
 
 function readRecord(raw: string | null): ReloadRecord | null {
@@ -84,9 +95,9 @@ export function reloadOnceOnChunkError<T = never>(
   error: unknown,
   deps: ChunkReloadDeps = browserDeps(),
 ): Promise<T> {
-  const { storage, reload, now } = deps;
+  const { storage, reload, now, route } = deps;
   if (storage === null || !isChunkLoadError(error)) return Promise.reject(error);
-  const key = errorKey(error);
+  const key = errorKey(error, route());
   try {
     const last = readRecord(storage.getItem(RELOAD_KEY));
     const at = now();
