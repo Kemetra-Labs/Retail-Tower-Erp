@@ -18,6 +18,9 @@
  */
 import { z } from "zod";
 
+import { InvalidCursorError, decodeOpaque, encodeOpaque, isCalendarInstant } from "../common/cursor/opaque-cursor";
+import { UUID_RE } from "../common/ids";
+
 import {
   evaluateLifecycle,
   type ImpactBlockCode,
@@ -125,14 +128,13 @@ function refuse(status: 403 | 409 | 422, code: RevokeRefusalCode): RevokeDecisio
 // ---------------------------------------------------------------------------
 
 /** Raised for a cursor this operation did not issue → 400 validation_error. */
-export class InvalidDeviceCursorError extends Error {
+export class InvalidDeviceCursorError extends InvalidCursorError {
   constructor() {
-    super("cursor is not a valid continuation token for this operation");
+    super();
     this.name = "InvalidDeviceCursorError";
   }
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** `expires_at` as rendered by `EXPIRES_AT_KEY_SQL`: UTC, exactly six fractional digits. */
 const INSTANT_KEY_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
 
@@ -160,27 +162,15 @@ export interface DeviceKeyset {
 
 export function encodeDeviceCursor(input: { readonly tenantId: string } & DeviceKeyset): string {
   const payload = { k: "devices", t: input.tenantId.toLowerCase(), r: input.rank, e: input.expiresAtKey, d: input.deviceId };
-  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return encodeOpaque(payload);
 }
 
 /** The keyset position, if `cursor` was issued by this operation for `tenantId`. */
 export function decodeDeviceCursor(input: { readonly tenantId: string; readonly cursor: string }): DeviceKeyset {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(Buffer.from(input.cursor, "base64url").toString("utf8"));
-  } catch {
-    throw new InvalidDeviceCursorError();
-  }
-  const parsed = CursorSchema.safeParse(raw);
-  if (!parsed.success || parsed.data.t !== input.tenantId.toLowerCase()) throw new InvalidDeviceCursorError();
-  if (!isCalendarInstant(parsed.data.e)) throw new InvalidDeviceCursorError();
-  return { rank: parsed.data.r, expiresAtKey: parsed.data.e, deviceId: parsed.data.d };
-}
-
-/** True when the key names a real UTC instant (`Date.parse` rolls "02-31" over; Postgres refuses it). */
-function isCalendarInstant(key: string): boolean {
-  const ms = Date.parse(key);
-  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 19) === key.slice(0, 19);
+  const parsed = decodeOpaque(input.cursor, CursorSchema, () => new InvalidDeviceCursorError());
+  if (parsed.t !== input.tenantId.toLowerCase()) throw new InvalidDeviceCursorError();
+  if (!isCalendarInstant(parsed.e)) throw new InvalidDeviceCursorError();
+  return { rank: parsed.r, expiresAtKey: parsed.e, deviceId: parsed.d };
 }
 
 // ---------------------------------------------------------------------------
