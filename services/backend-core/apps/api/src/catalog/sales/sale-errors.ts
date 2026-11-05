@@ -49,6 +49,21 @@ export class SaleLinePricingInvalidError extends Error {
 }
 
 /**
+ * RT-1206 (RT-148 owner ruling 2026-10-02, sales.yaml `Conflict`): a capture
+ * re-delivered under an existing `(tenant, source_system, external_id)`
+ * provenance in the caller's store whose `payload_hash` differs from the stored
+ * one. A different payload (→ 409 `idempotency_key_conflict`), never a replay.
+ * Carries the stored sale's id for the ids-only mismatch audit; the sale is in
+ * the caller's own store (the cross-store 404 is decided first).
+ */
+export class SalePayloadReplayConflictError extends Error {
+  constructor(readonly saleId: string) {
+    super("sale provenance already captured with a different payload");
+    this.name = "SalePayloadReplayConflictError";
+  }
+}
+
+/**
  * RT-77: a capture re-delivered under an existing `(tenant, source_system,
  * external_id)` provenance whose tender set differs from the one recorded — a
  * different payload (→ 409), never a replay (RT-77 comment 10509: the compare

@@ -16,6 +16,7 @@ import {
   seedPreInvariantSale,
   type HarnessHandle,
 } from "./__capture-harness";
+import { sha256CanonicalHex } from "../../../../src/catalog/sales/payload-hash";
 
 const TENDERS_FLAG = "POS_SALE_TENDERS_ENABLED";
 const h: HarnessHandle = { harness: null, dockerSkipped: false };
@@ -130,16 +131,16 @@ describe("RT-105 — a line that cannot be returned exactly is 422 and nothing i
 describe("RT-105 — ordering", () => {
   it("a replay of a sale captured before RT-105 is not re-checked: 200 with the stored sale", async () => {
     if (skip()) return;
+    const replayBody = oneLine("lp-legacy", { unitPrice: "3.3333", quantity: "3", lineAmount: "10.0000" });
     const legacy = await seedPreInvariantSale(h, {
       externalId: "lp-legacy",
       unitPrice: "3.3333",
       quantity: "3",
       lineAmount: "10.0000",
+      // RT-1206: the hash that sale's own capture stored, so the replay is identical.
+      payloadHash: sha256CanonicalHex(replayBody),
     });
-    const res = await post(
-      oneLine("lp-legacy", { unitPrice: "3.3333", quantity: "3", lineAmount: "10.0000" }),
-      "lplegacy",
-    );
+    const res = await post(replayBody, "lplegacy");
     expect(res.status).toBe(200);
     expect(res.body.saleRef).toBe(legacy.saleRef);
     expect(res.body.lines[0].lineAmount).toBe("10.0000");

@@ -357,15 +357,23 @@ describe("RT-418 — replay", () => {
     return res.body.saleRef as string;
   }
 
-  it("the same responsibilities (new Idempotency-Key, 10 vs 10.0000) → 200 replay, same sale, no new row", async () => {
+  it("the same responsibilities (new Idempotency-Key) → 200 replay, same sale, no new row", async () => {
     if (skip()) return;
     const saleRef = await captureOnce("rt418-replay");
-    const res = await post(captureBody({ externalId: "rt418-replay", tenders: CASH_2_5, responsibilities: [credit(P_STORE, "10.0000")] }));
+    const res = await post(captureBody({ externalId: "rt418-replay", ...SPLIT }));
     expect(res.status).toBe(200);
     expect(res.headers["idempotent-replayed"]).toBe("true");
     expect(res.body.saleRef).toBe(saleRef);
     expect(res.body.responsibilities).toEqual([{ payerRef: P_STORE, amount: "10.0000", sequence: 1 }]);
     expect(await written("rt418-replay")).toEqual({ sales: 1, responsibilities: 1 });
+  });
+
+  it("RT-1206: 10 vs 10.0000 is a different payload (new Idempotency-Key) → 409, no new row", async () => {
+    if (skip()) return;
+    await captureOnce("rt418-replay-fmt");
+    const res = await post(captureBody({ externalId: "rt418-replay-fmt", tenders: CASH_2_5, responsibilities: [credit(P_STORE, "10.0000")] }));
+    expect(errorOf(res)).toEqual({ status: 409, code: "idempotency_key_conflict" });
+    expect(await written("rt418-replay-fmt")).toEqual({ sales: 1, responsibilities: 1 });
   });
 
   it.each([

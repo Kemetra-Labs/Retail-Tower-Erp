@@ -58,6 +58,7 @@ import {
 import {
   SaleLinePricingInvalidError,
   SaleNotFoundError,
+  SalePayloadReplayConflictError,
   SaleTenderMismatchError,
   SaleTenderReplayConflictError,
   SaleTendersNotVisibleError,
@@ -87,6 +88,7 @@ import {
 export {
   SaleLinePricingInvalidError,
   SaleNotFoundError,
+  SalePayloadReplayConflictError,
   SaleTenderMismatchError,
   SaleTenderReplayConflictError,
   SaleTendersNotVisibleError,
@@ -377,8 +379,9 @@ export class SalesService {
             store_id: string;
             tender_count: number;
             responsibility_count: number;
+            payload_hash: string;
           }>(
-            `SELECT id, store_id, tender_count, responsibility_count FROM sales
+            `SELECT id, store_id, tender_count, responsibility_count, payload_hash FROM sales
               WHERE tenant_id = $1 AND source_system = $2 AND external_id = $3
               LIMIT 1`,
             [tenantId, body.sourceSystem, body.externalId],
@@ -392,6 +395,14 @@ export class SalesService {
           // below would not find it). Checked BEFORE the tender compare so a
           // replay can never probe another store's tenders.
           if (winnerRow.store_id !== storeId) throw new SaleNotFoundError();
+          // RT-1206 (RT-148 owner ruling 2026-10-02): a replay whose hashed
+          // body differs from the stored one is a different payload (409),
+          // never the stored sale. After the store check (non-disclosure) and
+          // before the tender and responsibility compares, which stay as
+          // defence in depth; the persisted hash bytes are unchanged.
+          if (winnerRow.payload_hash !== payloadHash) {
+            throw new SalePayloadReplayConflictError(winnerRow.id);
+          }
           // RT-77: a replay that adds, drops or changes tenders is a different
           // payload (409). Only the tender set is compared (RT-77 10509).
           await assertSameTenders(client, winnerRow, tenders);

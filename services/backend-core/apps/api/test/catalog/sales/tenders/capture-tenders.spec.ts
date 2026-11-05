@@ -223,22 +223,32 @@ describe("RT-77 — idempotent replay and the tender conflict", () => {
     if (skip()) return;
     const first = await post(captureBody({ externalId: "rt77-rep", tenders: SPLIT }), "rt77rep1");
     expect(first.status).toBe(201);
-    // "2.5000" and "10" are the same numeric amounts in a different order.
-    const again = await post(
-      captureBody({
-        externalId: "rt77-rep",
-        tenders: [
-          { method: "card_external", amount: "10", reference: "A1B2C3" },
-          { method: "cash", amount: "2.5000" },
-        ],
-      }),
-      "rt77rep2",
-    );
+    const again = await post(captureBody({ externalId: "rt77-rep", tenders: SPLIT }), "rt77rep2");
     expect(again.status).toBe(200);
     expect(again.headers["idempotent-replayed"]).toBe("true");
     expect(again.body.saleRef).toBe(first.body.saleRef);
     expect(again.body.tenders).toEqual(first.body.tenders);
     expect(await counts("rt77-rep")).toEqual({ sales: 1, tenders: 2 });
+  });
+
+  it("RT-1206: the same tenders in another order and format are a different payload → 409, nothing changes", async () => {
+    if (skip()) return;
+    const first = await post(captureBody({ externalId: "rt77-rep-fmt", tenders: SPLIT }), "rt77repfmt1");
+    expect(first.status).toBe(201);
+    // Numerically equal, but the hashed body differs (order and decimal format).
+    const again = await post(
+      captureBody({
+        externalId: "rt77-rep-fmt",
+        tenders: [
+          { method: "card_external", amount: "10", reference: "A1B2C3" },
+          { method: "cash", amount: "2.5000" },
+        ],
+      }),
+      "rt77repfmt2",
+    );
+    expect(again.status).toBe(409);
+    expect(again.body.error?.code ?? again.body.code).toBe("idempotency_key_conflict");
+    expect(await counts("rt77-rep-fmt")).toEqual({ sales: 1, tenders: 2 });
   });
 
   it.each([
