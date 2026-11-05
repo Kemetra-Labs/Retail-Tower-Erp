@@ -7,10 +7,9 @@
  * decimal-string → integer-minor-unit parse — NEVER a JS float.
  *
  * The backend `SellableCatalogRow` shape is mirrored here as a LOCAL structural
- * type. The generated `src/shared/api-types.ts` is NOT yet re-pinned from the
- * deployed contract (T002 is blocked on D-DEPLOY / issue #349) — re-pinning is
- * out of this slice's scope and api-types.ts MUST NOT be hand-edited. When the
- * re-pin lands, this local type is replaced by the generated one.
+ * type. The generated `src/shared/api-types.ts` now carries the same schema
+ * (`components["schemas"]["SellableCatalogRow"]`), but it MUST NOT be hand-edited;
+ * switching this mapper to the generated type is a separate change.
  *
  * Three owner-ratified GAP mappings (a6-reconciliation-findings.md):
  *   • GAP-1 (money): `price{amount,currency_code}` → integer `price_minor`. Parse

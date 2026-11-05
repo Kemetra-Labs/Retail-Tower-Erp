@@ -164,7 +164,7 @@
 
 /*
  * Signal settle-in (150ms): a proven or informative state arrives with a small
- * drop and a fade. Applied to Notice, Banner, Toast, the inline scan notice,
+ * drop and a fade. Applied to Notice, Banner, the inline scan notice,
  * the Checkout tender entry panel and the completion outcome line. Never to a
  * danger-toned message, a recovery surface or a payment of UNKNOWN outcome
  * ("risk suppresses expression"), and never to money or a whole screen.
