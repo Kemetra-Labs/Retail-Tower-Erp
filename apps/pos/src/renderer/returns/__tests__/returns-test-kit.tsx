@@ -22,6 +22,7 @@ import {
   useOperatorSessionStore,
   type OperatorSessionView,
 } from '../../stores/operator-session-store.js';
+import type { RecentSalesBridge } from '../../sale-lookup/recent-sales-bridge';
 import { ReturnsRoute } from '../ReturnsRoute.js';
 
 /** RT-15 S3 test kit: S2-shaped fixtures, a scripted bridge, a render helper. */
@@ -157,13 +158,21 @@ export interface RenderReturnsOptions {
   readonly role?: Role;
   readonly flag?: boolean;
   readonly sessionEvents?: FakeSessionEvents;
+  /** RT-1192: today's-sales read; absent = none (no list, no short number). */
+  readonly sales?: RecentSalesBridge | null;
 }
 
 export function renderReturns(options: RenderReturnsOptions = {}): RenderResult {
   useFeatureFlagsStore.getState().hydrate({ returns: options.flag ?? true });
   signIn(session(options.role ?? 'manager'));
   const bridge = options.bridge === undefined ? fakeBridge() : options.bridge;
-  return render(<ReturnsRoute bridge={bridge} sessionEvents={options.sessionEvents ?? null} />);
+  return render(
+    <ReturnsRoute
+      bridge={bridge}
+      sessionEvents={options.sessionEvents ?? null}
+      sales={options.sales ?? null}
+    />,
+  );
 }
 
 export function resetStores(): void {

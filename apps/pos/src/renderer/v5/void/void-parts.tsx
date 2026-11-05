@@ -1,7 +1,8 @@
-import type { JSX } from 'react';
+import { useId, type JSX, type ReactNode } from 'react';
 
 import { formatCheckoutMoney } from '../../ui/payments/format-checkout-money';
 import { Notice } from '../foundation/Notice';
+import { formatShiftTime } from '../shift/shift-format';
 
 /**
  * RT-654 — small pieces shared by the void screen and its dialog.
@@ -45,5 +46,32 @@ export function VoidAlert({ message }: Readonly<{ message: string }>): JSX.Eleme
         {message}
       </Notice>
     </div>
+  );
+}
+
+/** An absolute Arabic date and time: the text face with tabular digits (never monospace). */
+export function VoidTime({ iso }: Readonly<{ iso: string }>): JSX.Element {
+  return (
+    <time className="v5-void-when" dateTime={iso}>
+      {formatShiftTime(iso)}
+    </time>
+  );
+}
+
+/** A void-screen panel: a heading row and its body; `hug` sizes it to its content. */
+export function VoidPanel(
+  props: Readonly<{ title: string; hug?: boolean; children: ReactNode }>,
+): JSX.Element {
+  const headingId = useId();
+  return (
+    <section
+      className={props.hug === true ? 'v5-void-panel v5-void-panel--hug' : 'v5-void-panel'}
+      aria-labelledby={headingId}
+    >
+      <div className="v5-void-panel-head">
+        <h2 id={headingId}>{props.title}</h2>
+      </div>
+      {props.children}
+    </section>
   );
 }

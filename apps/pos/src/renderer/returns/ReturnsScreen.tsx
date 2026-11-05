@@ -1,6 +1,7 @@
 import type { JSX } from 'react';
 
 import type { ReturnJournalView, ReturnsBridgeAPI } from '../../shared/returns/types.js';
+import type { RecentSalesBridge } from '../sale-lookup/recent-sales-bridge';
 import type { SessionEvents } from './returns-bridge.js';
 import { LinePicker } from './LinePicker';
 import { RefundSummary } from './RefundSummary';
@@ -21,6 +22,8 @@ export interface ReturnsScreenProps {
   readonly bridge: ReturnsBridgeAPI;
   /** Unlock re-reads the journal (H4); null when no push is available. */
   readonly sessionEvents: SessionEvents | null;
+  /** RT-1192: today's sales for the lookup step; null hides the list and the short number. */
+  readonly sales: RecentSalesBridge | null;
 }
 
 function outcomeKey(outcome: Outcome): string {
@@ -36,14 +39,16 @@ function latestIn(rows: readonly ReturnJournalView[], returnId: string): ReturnJ
 function FlowStep({
   flow,
   payout,
+  sales,
 }: {
   readonly flow: ReturnFlow;
   readonly payout: PayoutDeps;
+  readonly sales: RecentSalesBridge | null;
 }): JSX.Element {
   const { state } = flow;
   switch (state.step) {
     case 'lookup':
-      return <SaleLookup flow={flow} notice={state.notice} />;
+      return <SaleLookup flow={flow} notice={state.notice} recent={sales} />;
     case 'select':
       return <LinePicker flow={flow} state={state} />;
     case 'summary':
@@ -61,7 +66,7 @@ function FlowStep({
   }
 }
 
-export function ReturnsScreen({ bridge, sessionEvents }: ReturnsScreenProps): JSX.Element {
+export function ReturnsScreen({ bridge, sessionEvents, sales }: ReturnsScreenProps): JSX.Element {
   const history = useReturnHistory(bridge, sessionEvents);
   const flow = useReturnFlow(bridge, history.reload);
   const reprint = useHistoryReprint(bridge);
@@ -69,6 +74,7 @@ export function ReturnsScreen({ bridge, sessionEvents }: ReturnsScreenProps): JS
     <>
       <FlowStep
         flow={flow}
+        sales={sales}
         payout={{
           bridge,
           reload: history.reload,

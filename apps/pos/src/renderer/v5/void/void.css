@@ -107,6 +107,22 @@
   color: var(--color-text-muted);
 }
 
+/* RT-1192: the lookup and today's sales stack in the first column. */
+.v5-void-left {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  min-inline-size: 0;
+  min-block-size: 0;
+  /* The column scrolls when the found sale and the list outgrow the screen; its panels keep their own height. */
+  overflow-y: auto;
+}
+
+.v5-void-left > .v5-void-panel {
+  flex: none;
+  min-block-size: auto;
+}
+
 /* ── the lookup ─────────────────────────────────────────────────── */
 .v5-void-lookup {
   display: flex;
