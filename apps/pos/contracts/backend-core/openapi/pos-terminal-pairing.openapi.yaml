@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Terminal Pairing API
-  version: "1.5.0-draft"
+  version: "1.6.0-draft"
   description: >
     POS-Pulse 002-terminal-pairing + 008-sale-finalization-and-receipts
     terminal pairing surface. Defines the single unauthenticated
@@ -10,16 +10,16 @@ info:
     rotation of the credential that pairing issued.
 
 
-    **Posture (RT-1181, RT-1165 S1, `[GATED]`).** `1.5.0-draft` makes
-    `printer_vendor_id` and `printer_product_id` of `TerminalPairResponse`
-    nullable. The keys stay required and always present; the value is `null`
-    when the issuer did not supply it (`devices.openapi.yaml` 1.6.0-draft makes
-    the issue request fields optional). `printer_com_port` was already
-    nullable. The POS stores the three fields and never reads them. A terminal
-    that validates the response strictly against an older snapshot, where the
-    two ids are non-null, would reject a `null`: the owner removes the fields
-    from pairing (RT-1165 comment 15479) and the POS stops reading them in
-    RT-1183. No operation is added or removed.
+    **Posture (RT-1184, RT-1165 S4, `[GATED]`, BREAKING).** `1.6.0-draft`
+    removes the receipt printer's three fields (USB vendor id, USB product id
+    and COM port) from `TerminalPairResponse`: the 200 body no longer carries
+    them and no longer lists them as required. The owner decision is to remove
+    the printer fields from pairing (RT-1165 comment 15479). `1.5.0-draft`
+    (RT-1181) had made two of them nullable first. The response schema stays
+    closed (`additionalProperties: false`), so a terminal that reads a printer
+    field from the response now gets `undefined`. The POS stops storing them
+    in RT-1183; a paired POS build older than that must be retired before
+    this version is deployed. No operation is added or removed.
 
 
     **Posture (RT-327).** `1.4.0-draft` is additive and adds no operation.
@@ -94,23 +94,6 @@ info:
         a string so the format can evolve (current ETA spec: 9-digit
         numeric, but the contract is intentionally permissive at the
         string level).
-      - `printer_vendor_id`, `printer_product_id`, `printer_com_port`:
-        terminal-resident printer config used by the POS print pipeline
-        (008 AD-1 / Slice 3). The vendor + product IDs are USB
-        identifiers in hex string form (e.g. `0x04B8` for Epson) and
-        were ALWAYS required in 008 v1 (every supported printer model is
-        USB-connected, per docs/hardware-matrix.md, the committed pair is
-        Epson TM-T20III + APG VBS320, both USB). Since RT-1181 (RT-1165
-        S1) they are NULLABLE: `null` when the issuer did not supply them.
-        The `printer_com_port` is an OPTIONAL additional field set
-        ONLY when an RS-232 serial path is also available alongside
-        the USB connection (some Epson models expose both); it is
-        sent as `null` for USB-only printers. The contract enforces:
-        `printer_vendor_id` nullable string, `printer_product_id` nullable
-        string, `printer_com_port` nullable string; all three keys are always
-        present. A "COM-port-only" terminal
-        config is NOT permitted by this contract in 008 v1; pure-serial
-        printer support would require a future contract revision.
 
 
     Authentication boundary: `posPairTerminal` is the ONLY backend operation
@@ -892,9 +875,6 @@ components:
         - branch_name
         - branch_address
         - tenant_tax_registration_id
-        - printer_vendor_id
-        - printer_product_id
-        - printer_com_port
       properties:
         device_token:
           type: string
@@ -978,43 +958,6 @@ components:
             ETA spec evolution). Printed on every fiscal receipt
             per Egyptian e-invoicing rules. Added 2026-05-28 to
             satisfy the Slice 1 closeout-gap audit finding.
-        printer_vendor_id:
-          type: [string, "null"]
-          minLength: 4
-          maxLength: 8
-          pattern: "^0x[0-9A-Fa-f]{4}$"
-          description: >
-            USB vendor ID of the receipt printer, as a hex string
-            (e.g. `0x04B8` for Epson), or `null` when the issuer did not
-            supply it (nullable since RT-1181). Used by the POS print pipeline
-            (008 Slice 3) to discover the printer at app startup.
-            Added 2026-05-28 to satisfy the Slice 3 prep-audit
-            finding on printer-config provenance.
-        printer_product_id:
-          type: [string, "null"]
-          minLength: 4
-          maxLength: 8
-          pattern: "^0x[0-9A-Fa-f]{4}$"
-          description: >
-            USB product ID of the receipt printer, as a hex string
-            (e.g. `0x0202` for Epson TM-T20III), or `null` when the issuer
-            did not supply it (nullable since RT-1181). Paired with
-            `printer_vendor_id` to uniquely identify the device.
-            Added 2026-05-28 to satisfy the Slice 3 prep-audit
-            finding.
-        printer_com_port:
-          type: [string, "null"]
-          minLength: 1
-          maxLength: 32
-          description: >
-            OPTIONAL additional COM port (e.g. `COM3` on Windows,
-            `/dev/ttyS0` on Linux) set ONLY when an RS-232 serial path
-            is also available alongside the required USB connection
-            (some Epson models expose both). NULL for USB-only
-            printers. A "COM-port-only" terminal config was NOT
-            permitted by this contract in 008 v1; since RT-1181 the two
-            USB ids may be null as well. Added
-            2026-05-28 to satisfy the Slice 3 prep-audit finding.
 
     Error:
       type: object

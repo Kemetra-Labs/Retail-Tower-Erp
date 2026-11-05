@@ -51,10 +51,6 @@ export interface PairingCodeRow {
   branch_name: string;
   branch_address: string;
   tenant_tax_registration_id: string;
-  /** NULL when the issuer did not supply it (RT-1181: the column is nullable). */
-  printer_vendor_id: string | null;
-  printer_product_id: string | null;
-  printer_com_port: string | null;
   status: "pending" | "used" | "cancelled";
   expires_at: Date;
   attempt_count: number;
@@ -65,9 +61,8 @@ export interface PairingCodeRow {
 
 const CODE_COLS =
   "id, tenant_id, store_id, terminal_id, terminal_label, branch_name, " +
-  "branch_address, tenant_tax_registration_id, printer_vendor_id, " +
-  "printer_product_id, printer_com_port, status, expires_at, attempt_count, " +
-  "last_attempt_at, replaces_device_id";
+  "branch_address, tenant_tax_registration_id, status, expires_at, " +
+  "attempt_count, last_attempt_at, replaces_device_id";
 
 @Injectable()
 export class PairingRepository {

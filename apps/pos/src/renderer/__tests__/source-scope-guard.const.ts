@@ -397,12 +397,14 @@ export function isRt1051ExemptFile(branch: string, file: string): boolean {
  *
  * Authority: owner decision 2026-11-04 (RT-1165 / RT-1181: merge #313 with the
  * known-red `contracts/check` POS pin, then repin), following the RT-889 / RT-1051
- * pattern: exactly ONE file on exactly ONE branch (exact name, no `startsWith`).
+ * pattern: exactly TWO files on exactly ONE branch (exact name, no `startsWith`).
  * Narrowness is asserted by `source-scope-guard-rt1181.test.ts`.
  */
 export const RT_1181_POS_PIN_REPIN_BRANCH = 'claude/rt-1181-pos-pin-repin' as const;
 export const RT_1181_POS_PIN_REPIN_EXEMPT_FILES = [
   'src/shared/api-types.ts',
+  // RT-1184: the repin makes a cast in this test unnecessary (lint), so it is edited on this branch.
+  'src/main/pairing/__tests__/service.test.ts',
 ] as const satisfies readonly string[];
 
 /** True when `file` is one of the files the RT-1181 exemption allows on `branch`. */
@@ -410,5 +412,35 @@ export function isRt1181ExemptFile(branch: string, file: string): boolean {
   return (
     branch === RT_1181_POS_PIN_REPIN_BRANCH &&
     (RT_1181_POS_PIN_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}
+
+/**
+ * `claude/rt-1183-pos-stop-storing-printer-fields` implements Jira RT-1183 (RT-1165 S3): the POS stops
+ * storing the printer USB and COM fields from the pairing response, which lives in
+ * the pairing store and service under `src/main/pairing/`.
+ *
+ * Authority: owner decision 2026-11-04 (RT-1165, comment 15479, remove the printer
+ * fields from pairing), following the RT-591 file-list pattern: exactly SEVEN files on
+ * exactly ONE branch (exact name, no `startsWith`). Narrowness is asserted by
+ * `source-scope-guard-rt1183.test.ts`.
+ */
+export const RT_1183_STOP_STORING_PRINTER_FIELDS_BRANCH =
+  'claude/rt-1183-pos-stop-storing-printer-fields' as const;
+export const RT_1183_STOP_STORING_PRINTER_FIELDS_EXEMPT_FILES = [
+  'src/main/pairing/__tests__/service.test.ts',
+  'src/main/pairing/__tests__/store-device-revoked.test.ts',
+  'src/main/pairing/__tests__/store-token-binding.test.ts',
+  'src/main/pairing/__tests__/store.test.ts',
+  'src/main/pairing/dev-skip-pairing.ts',
+  'src/main/pairing/service.ts',
+  'src/main/pairing/store.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is one of the files the RT-1183 exemption allows on `branch`. */
+export function isRt1183ExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1183_STOP_STORING_PRINTER_FIELDS_BRANCH &&
+    (RT_1183_STOP_STORING_PRINTER_FIELDS_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }

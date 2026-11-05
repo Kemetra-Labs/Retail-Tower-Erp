@@ -11,27 +11,29 @@ import {
 
 /**
  * RT-1181 — the exemption that lets the repin to the bounded Backend-Core
- * contracts regenerate `src/shared/api-types.ts` is narrow: one file, one branch.
+ * contracts regenerate `src/shared/api-types.ts` is narrow: two files, one branch.
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BRANCH = 'claude/rt-1181-pos-pin-repin';
-const EXEMPT_FILES = ['src/shared/api-types.ts'];
+const EXEMPT_FILES = ['src/shared/api-types.ts', 'src/main/pairing/__tests__/service.test.ts'];
 
 describe('source-scope guard — RT-1181 exemption is narrow', () => {
-  it('exempts exactly one file on exactly one branch', () => {
+  it('exempts exactly two files on exactly one branch', () => {
     expect([...RT_1181_POS_PIN_REPIN_EXEMPT_FILES]).toEqual(EXEMPT_FILES);
     expect(RT_1181_POS_PIN_REPIN_BRANCH).toBe(BRANCH);
   });
 
-  it('allows src/shared/api-types.ts on the RT-1181 branch', () => {
-    expect(isRt1181ExemptFile(BRANCH, 'src/shared/api-types.ts')).toBe(true);
+  it('allows each exempt file on the RT-1181 branch', () => {
+    for (const file of EXEMPT_FILES) expect(isRt1181ExemptFile(BRANCH, file)).toBe(true);
   });
 
   it.each([
     'scripts/codegen-api.ts',
     'src/shared/api-types.ts.orig',
     'src/main/pairing/network.ts',
+    'src/main/pairing/service.ts',
+    'src/main/pairing/__tests__/store.test.ts',
     'src/main/secrets/store.ts',
     '.github/workflows/ci.yml',
   ])('does not allow %s on the RT-1181 branch', (file) => {

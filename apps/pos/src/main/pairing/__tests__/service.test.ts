@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createPairingService, type PairingAttemptLogRecord } from '../service.js';
 import type { PairingStore, PersistInput } from '../store.js';
-import { TransportError, type Network, type PairResult } from '../network.js';
+import { TransportError, type Network, type PairResult, type PairSuccessBody } from '../network.js';
 
 // service.ts imports addBreadcrumb from @sentry/electron/main; mock it here
 // so Vitest does not try to load the real Electron-dependent module in a
@@ -46,16 +46,34 @@ const SUCCESS_BODY = {
   branch_id: 'branch-B',
   terminal_id: 'terminal-C',
   terminal_label: 'Counter 1',
-  // The 6 fields below were pinned 2026-05-28 from Data-Pulse-2 PR #388
-  // (T094a's contract slice). They populate `terminal_assignment` rows
-  // at the terminal and are read by the receipt + print pipelines.
+  // The branch / tax fields below were pinned 2026-05-28 from Data-Pulse-2
+  // PR #388 (T094a's contract slice). They populate `terminal_assignment`
+  // rows at the terminal and are read by the receipt + print pipelines.
   branch_name: 'Test Branch',
   branch_address: '12 Test Road',
   tenant_tax_registration_id: '123456789',
+};
+
+/**
+ * RT-1183 (RT-1165 S3) — the printer USB / COM fields the pair response
+ * may still carry. The POS ignores them. The re-pinned contract no longer
+ * has these fields, but an older backend can still send them, so the tests
+ * model that legacy response (a server that sends them as strings, as
+ * null, or not at all).
+ */
+const PRINTER_FIELDS_AS_STRINGS = {
   printer_vendor_id: '0x04B8',
   printer_product_id: '0x0202',
+  printer_com_port: 'COM3',
+};
+const PRINTER_FIELDS_AS_NULL = {
+  printer_vendor_id: null,
+  printer_product_id: null,
   printer_com_port: null,
 };
+function pairBody(printerFields: Record<string, string | null> | undefined): PairSuccessBody {
+  return { ...SUCCESS_BODY, ...printerFields };
+}
 const PAIRED_AT = 1735689600;
 
 interface Harness {
@@ -94,7 +112,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   const pair = vi.fn<Network['pair']>(() => {
     if (pairRejection !== undefined) return Promise.reject(pairRejection);
     if (opts.pairResult !== undefined) return Promise.resolve(opts.pairResult);
-    return Promise.resolve({ ok: true, status: 200, body: SUCCESS_BODY });
+    return Promise.resolve({ ok: true, status: 200, body: pairBody(undefined) });
   });
   const network: Network = { pair };
 
@@ -128,16 +146,55 @@ describe('PairingService.submit — success path (T022)', () => {
       terminal_id: SUCCESS_BODY.terminal_id,
       terminal_label: SUCCESS_BODY.terminal_label,
       paired_at: PAIRED_AT,
-      // 6 fields added 2026-05-28 by 008 T094a; service.ts forwards
+      // 3 fields added 2026-05-28 by 008 T094a; service.ts forwards
       // them straight from `pairResult.body` into `store.persist`.
       branch_name: SUCCESS_BODY.branch_name,
       branch_address: SUCCESS_BODY.branch_address,
       tenant_tax_registration_id: SUCCESS_BODY.tenant_tax_registration_id,
-      printer_vendor_id: SUCCESS_BODY.printer_vendor_id,
-      printer_product_id: SUCCESS_BODY.printer_product_id,
-      printer_com_port: SUCCESS_BODY.printer_com_port,
     });
   });
+
+  // RT-1183 — pairing succeeds whether the response carries the printer
+  // fields as strings, as null, or omits them, and never persists them.
+  it.each([
+    ['as strings', PRINTER_FIELDS_AS_STRINGS],
+    ['as null', PRINTER_FIELDS_AS_NULL],
+    ['omitted', undefined],
+  ] as const)(
+    'RT-1183: printer fields %s -> pairing succeeds and they are not persisted',
+    async (_label, printerFields) => {
+      const h = makeHarness({
+        pairResult: { ok: true, status: 200, body: pairBody(printerFields) },
+      });
+      const result = await h.service.submit('VALIDCODE');
+
+      expect(result).toEqual({
+        outcome: 'success',
+        tenant_id: SUCCESS_BODY.tenant_id,
+        branch_id: SUCCESS_BODY.branch_id,
+        terminal_id: SUCCESS_BODY.terminal_id,
+        terminal_label: SUCCESS_BODY.terminal_label,
+      });
+      expect(h.store.persist).toHaveBeenCalledTimes(1);
+      const persisted: unknown = h.store.persist.mock.calls[0]?.[0];
+      expect(persisted).toEqual({
+        device_token: SUCCESS_BODY.device_token,
+        tenant_id: SUCCESS_BODY.tenant_id,
+        branch_id: SUCCESS_BODY.branch_id,
+        terminal_id: SUCCESS_BODY.terminal_id,
+        terminal_label: SUCCESS_BODY.terminal_label,
+        paired_at: PAIRED_AT,
+        branch_name: SUCCESS_BODY.branch_name,
+        branch_address: SUCCESS_BODY.branch_address,
+        tenant_tax_registration_id: SUCCESS_BODY.tenant_tax_registration_id,
+      });
+      expect(persisted).not.toHaveProperty('printer_vendor_id');
+      expect(persisted).not.toHaveProperty('printer_product_id');
+      expect(persisted).not.toHaveProperty('printer_com_port');
+      expect(h.logRecords).toHaveLength(1);
+      expect(h.logRecords[0]).toMatchObject({ outcome: 'success' });
+    },
+  );
 
   it('returns outcome=success carrying the assignment fields (no device_token)', async () => {
     const h = makeHarness();
@@ -718,7 +775,7 @@ describe('PairingService.submit — REPLACEMENT_BLOCKED branch (RT-591)', () => 
     const h = makeHarness({ pairResult: BLOCKED });
     expect(await h.service.submit('CODE')).toEqual({ outcome: 'replacement_blocked' });
 
-    h.network.pair.mockResolvedValueOnce({ ok: true, status: 200, body: SUCCESS_BODY });
+    h.network.pair.mockResolvedValueOnce({ ok: true, status: 200, body: pairBody(undefined) });
     const retry = await h.service.submit('CODE');
 
     expect(retry).toMatchObject({ outcome: 'success', terminal_id: SUCCESS_BODY.terminal_id });

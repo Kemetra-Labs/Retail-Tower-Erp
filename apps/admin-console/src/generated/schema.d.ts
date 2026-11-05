@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 8c72ed5e3436c6095704f97eceb6cb88349166cc
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 447ec6e7bbb5fd2ab8afc61d602ea524f3dfb981
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -6770,9 +6770,10 @@ export namespace DevicesSchema {
             TerminalLabel: string;
             /** @description Operator text pinned on the code, not blank, no NUL. */
             BindingText: string;
-            /** @description A USB vendor or product id as `0xHHHH` (0024 CHECK). */
-            PrinterUsbId: string;
-            /** @description The code to issue. The tenant is the session's, never the request's. `branchName`, `branchAddress`, `taxRegistrationId` and the printer fields are the terminal binding `posPairTerminal` returns: the terminal pins them at pairing and prints them on receipts. Backend-Core holds no store address, tax registration or printer, so the issuer supplies them, as the bootstrap CLI does. */
+            /**
+             * @description The code to issue. The tenant is the session's, never the request's. `branchName`, `branchAddress` and `taxRegistrationId` are the terminal binding `posPairTerminal` returns: the terminal pins them at pairing and prints them on receipts. Backend-Core holds no store address or tax registration, so the issuer supplies them, as the bootstrap CLI does.
+             *     **No printer fields (RT-1184, RT-1165 S4).** The request no longer carries the receipt printer's USB ids or COM port, and the request is strict, so a client that sends one gets a 400.
+             */
             PairingCodeIssueRequest: {
                 /**
                  * Format: uuid
@@ -6797,10 +6798,6 @@ export namespace DevicesSchema {
                 branchAddress: components["schemas"]["BindingText"];
                 /** @description The tenant's tax registration id printed on fiscal receipts. */
                 taxRegistrationId: string;
-                printerVendorId: components["schemas"]["PrinterUsbId"];
-                printerProductId: components["schemas"]["PrinterUsbId"];
-                /** @description The optional RS-232 port alongside the USB printer (e.g. `COM3`); omitted or null for a USB-only printer. */
-                printerComPort?: string | null;
             };
             /** @description The issued code. `code` is the SECRET, present here only, once. Every other field can be read again from the list while the code is live. */
             PairingCodeIssued: {

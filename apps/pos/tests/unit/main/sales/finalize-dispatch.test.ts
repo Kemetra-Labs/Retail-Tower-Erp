@@ -65,11 +65,9 @@ function seedTerminalAssignment(): void {
   db.run(
     `INSERT INTO terminal_assignment
        (id, tenant_id, branch_id, terminal_id, terminal_label, paired_at,
-        branch_name, branch_address, tenant_tax_registration_id,
-        printer_vendor_id, printer_product_id, printer_com_port)
+        branch_name, branch_address, tenant_tax_registration_id)
      VALUES (1, 'tenant-1', 'branch-1', 'terminal-1', 'TERM-01', 1716800000,
-        'Maadi Branch', '12 Road 9, Maadi', 'TRN-100-200-300',
-        '04b8', '0e15', NULL)`,
+        'Maadi Branch', '12 Road 9, Maadi', 'TRN-100-200-300')`,
   );
 }
 

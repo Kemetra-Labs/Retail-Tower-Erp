@@ -173,14 +173,16 @@ export function createPairingService(deps: CreatePairingServiceOptions): Pairing
         // we catch and route to unknown_error so the bridge contract
         // holds.
         try {
-          // 008 T094a — six new fields from the post-PR #272 pinned
-          // TerminalPairResponse shape. The snapshot's response type
-          // declares them as required strings (printer_com_port is
-          // `string | null`), so the body is guaranteed to carry them
-          // on a 200 response. We pass them straight through to the
-          // store; the store row TypeScript shape declares all six as
-          // `string | null` for forward compatibility with pre-migration-
-          // 0027 dev rows (NULL on read).
+          // 008 T094a — the branch / tax-registration fields from the
+          // post-PR #272 pinned TerminalPairResponse shape, passed
+          // straight through to the store (the store row declares them
+          // as `string | null` for forward compatibility with pre-
+          // migration-0027 dev rows).
+          //
+          // RT-1183 (RT-1165 S3): the response's printer USB vendor /
+          // product ID and COM port fields are deliberately NOT read.
+          // Backend-Core may send them as strings, as null, or not at
+          // all; pairing behaves the same in every case.
           await store.persist({
             device_token: pairResult.body.device_token,
             tenant_id: pairResult.body.tenant_id,
@@ -191,9 +193,6 @@ export function createPairingService(deps: CreatePairingServiceOptions): Pairing
             branch_name: pairResult.body.branch_name,
             branch_address: pairResult.body.branch_address,
             tenant_tax_registration_id: pairResult.body.tenant_tax_registration_id,
-            printer_vendor_id: pairResult.body.printer_vendor_id,
-            printer_product_id: pairResult.body.printer_product_id,
-            printer_com_port: pairResult.body.printer_com_port,
           });
         } catch {
           // Storage error after a successful network call. The store
