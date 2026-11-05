@@ -513,12 +513,7 @@ If the schema changed between the releases, the auto-revert only records
 that an owner restore or forward-fix decision is needed (the recovery rule
 above).
 
-The auto-revert does not re-run grants. A revert from a release with RT-1249 to
-one without it leaves an API that refuses to boot: that release's boot check
-requires table-level `INSERT` on `users`, which `users-columns-domain-grants.sql`
-removed. Run `docs/operations/sql/users-columns-rollback.sql` as the migration
-owner, then restart the API
-([database-roles.md](../docs/operations/database-roles.md#userspassword_hash-belongs-to-the-lookup-role-rt-1249)). The run uploads a `deploy-lab-live-ledger-<run id>` artifact with:
+The run uploads a `deploy-lab-live-ledger-<run id>` artifact with:
 
 - the prior and target digests;
 - the backup name and checksum;
@@ -526,6 +521,16 @@ owner, then restart the API
 - the failure boundary.
 
 Record it on the Jira issue.
+
+The auto-revert does not re-run grants. A revert from a release with RT-1249 to
+one without it leaves an API that refuses to boot: that release's boot check
+requires table-level `INSERT` on `users`, which `users-columns-domain-grants.sql`
+removed. As the migration owner, run
+`GRANT SELECT, INSERT ON users TO <domain role>;` (the whole of
+`docs/operations/sql/users-columns-rollback.sql`, which the release bundle does
+not ship), then restart the API. This re-opens the RT-147 read finding until
+`users-columns-domain-grants.sql` runs again
+([database-roles.md](../docs/operations/database-roles.md#userspassword_hash-belongs-to-the-lookup-role-rt-1249)).
 
 **Everything below is owner-only.** No agent or CI job creates, changes or
 runs any of it, and none of it is done by merging this workflow:

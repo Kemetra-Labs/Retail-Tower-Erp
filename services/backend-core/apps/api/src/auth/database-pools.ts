@@ -159,6 +159,8 @@ async function readGrants(
 
 interface ColumnGrantRow extends GrantRow {
   column_name: string;
+  /** False when the table or column does not exist. */
+  column_exists: boolean;
 }
 
 /**
@@ -183,7 +185,8 @@ async function readColumnGrants(
                          WHERE g.rolname <> current_user
                            AND pg_has_role(current_user, g.oid, 'MEMBER')
                            AND has_column_privilege(g.oid, a.attrelid, a.attnum, t.privilege)))
-            END AS granted
+            END AS granted,
+            a.attnum IS NOT NULL AS column_exists
        FROM unnest($1::text[], $2::text[], $3::text[]) WITH ORDINALITY
               AS t(table_name, column_name, privilege, ord)
        LEFT JOIN pg_attribute a
@@ -228,9 +231,22 @@ async function assertDomainGrants(domainPool: Pool): Promise<void> {
   }
 }
 
-/** RT-1249: the domain role must not reach users.password_hash in any way. */
+/**
+ * RT-1249: the domain role must not reach users.password_hash in any way.
+ * Fails closed when a forbidden column is missing: a rename would otherwise
+ * leave the new name unguarded while this check passed.
+ */
 async function assertDomainForbiddenColumns(domainPool: Pool): Promise<void> {
-  const held = (await readColumnGrants(domainPool, forbiddenColumnChecks(), true)).filter((g) => g.granted);
+  const rows = await readColumnGrants(domainPool, forbiddenColumnChecks(), true);
+  const absent = rows.filter((g) => !g.column_exists);
+  if (absent.length > 0) {
+    throw new Error(
+      "AuthModule: forbidden column not found, so the domain role's access to it cannot be checked: " +
+        [...new Set(absent.map((g) => `${g.table_name}(${g.column_name})`))].join(", ") +
+        " (update DOMAIN_FORBIDDEN_COLUMN_GRANTS with the schema; RT-1249)",
+    );
+  }
+  const held = rows.filter((g) => g.granted);
   if (held.length > 0) {
     throw new Error(
       "AuthModule: DATABASE_URL role holds forbidden column grants: " +

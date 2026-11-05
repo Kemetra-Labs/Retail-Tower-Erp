@@ -131,7 +131,8 @@ export async function startPgEnv(opts: StartPgEnvOptions = {}): Promise<PgTestEn
  * src/auth/grants/users-columns.grants.ts, which a test keeps equal to
  * docs/operations/sql/users-columns-domain-grants.sql. `password_hash` is
  * then out of the domain role's reach, as in production, so every suite that
- * runs domain code on `app_test` proves it works without it. Revoking a
+ * runs domain code on `app_test` through this helper proves it works without
+ * it (a spec that grants `app_test` ALL TABLES itself re-opens it there). Revoking a
  * table-level privilege also revokes it on every column, so this is
  * idempotent. DELETE is left as it is (out of RT-1249's scope).
  */

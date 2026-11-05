@@ -5,7 +5,7 @@ Production uses four independent PostgreSQL credentials.
 | Environment variable | Purpose | Required posture |
 | --- | --- | --- |
 | `MIGRATION_DATABASE_URL` | One-shot schema migration | DDL-capable owner, `NOSUPERUSER NOCREATEROLE`; never injected into API or worker |
-| `DATABASE_URL` | Tenant/domain runtime | Non-superuser, `NOBYPASSRLS`; tenant access only inside `runWithTenantContext`; no `UPDATE` or `DELETE` on `audit_events` (the worker's boot check enforces no `UPDATE` on `retention_marked_at`, RT-353); column grants only on `users`, never `password_hash` (the API's boot check enforces it, RT-1249) |
+| `DATABASE_URL` | Tenant/domain runtime | Non-superuser, `NOBYPASSRLS`; tenant access only inside `runWithTenantContext`; no `UPDATE` or `DELETE` on `audit_events` (the worker's boot check enforces no `UPDATE` on `retention_marked_at`, RT-353); only column grants for `SELECT` and `INSERT` on `users`, never on `password_hash` (the API's boot check enforces it, RT-1249) |
 | `AUTH_LOOKUP_DATABASE_URL` | Pre-tenant authentication/bootstrap | Distinct non-superuser role with only the table operations listed below |
 | `AUDIT_RETENTION_DATABASE_URL` | The worker's audit retention sweep only | `audit_retention_worker`: non-superuser, `NOBYPASSRLS`, only `SELECT` and `UPDATE (retention_marked_at)` on `audit_events`, member of no role (RT-353) |
 
@@ -629,13 +629,21 @@ runs in step 2 of every release. It revokes the domain role's table-level
 
 No `UPDATE`: no domain code updates `users`. The full list, with each file, is
 in `apps/api/src/auth/grants/users-columns.grants.ts`. The test harness gives
-`app_test` the same list, so every real-Postgres suite runs domain code without
-`password_hash`.
+`app_test` the same list, so every real-Postgres suite that uses the harness
+role runs domain code without `password_hash`.
 
 PostgreSQL checks a privilege for every column a statement names, even one
 whose value is `DEFAULT`. Domain code must therefore name `users` columns
 explicitly: no `SELECT *`, no Drizzle `.select()` without a projection, and no
 `db.insert(users)` (Drizzle names every column).
+
+**The first deploy with this script.** Step 2 runs while the previous release
+may still serve (until step 3 starts the new one). In that window the previous
+release's invitation acceptance names `password_hash` (its Drizzle select and
+insert name every column) and fails with 500, and if that release restarts it
+refuses to boot (its check wants table-level `INSERT` on `users`). Nothing is
+written; the window closes when step 3 starts the new release. Every other
+domain read in the previous release already names only granted columns.
 
 **Recorded, not changed:** the lab domain role's table-wide `DELETE` on `users`.
 No documented grant asks for it. Whether to revoke it is a separate owner
@@ -658,7 +666,9 @@ SELECT r.rolname, p.priv,
 
 Expected: `f` on every domain-role row, and `t` for `auth_lookup` `SELECT` and
 `UPDATE` (its `INSERT` is `f`, by design). The API must still pass
-`/health/ready`.
+`/health/ready`, which also proves the boot check passed. This query does not
+see a role the domain role can only `SET ROLE` to; the script's own
+verification and the boot check do.
 
 **Rolling back to a release from before RT-1249.** Such a release's boot check
 requires table-level `INSERT` on `users`, and its invitation code reads and
@@ -668,7 +678,9 @@ leave the API down.
 
 Before starting a pre-RT-1249 release, run
 [`sql/users-columns-rollback.sql`](sql/users-columns-rollback.sql) as the
-migration owner (`psql -X -v domain_role=<role> -f ...`). It restores
+migration owner (`psql -X -v domain_role=<role> -f ...`). The release bundle
+does not ship it; on a host, run its one statement directly:
+`GRANT SELECT, INSERT ON users TO <domain role>;`. It restores
 table-level `SELECT` and `INSERT` (not `UPDATE`), which **re-opens the RT-147
 finding**. Re-run `users-columns-domain-grants.sql` as soon as a release from
 RT-1249 on is running; its boot check refuses to start until you do.

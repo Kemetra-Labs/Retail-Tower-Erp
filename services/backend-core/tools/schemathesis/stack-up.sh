@@ -75,6 +75,14 @@ DO $$ DECLARE t text; g text; BEGIN
 END $$;
 SQL
 
+# RT-1249: the API runs with NODE_ENV=production here, so its boot check refuses
+# a domain role that can reach users.password_hash. pg-init's default privileges
+# give fuzz_app table-level access to users; apply the deploy's own column-grant
+# script, as release step 2 does, so this stack matches the production posture.
+echo "Restricting the domain role to the users columns it needs"
+compose exec -T postgres psql -X -q -v ON_ERROR_STOP=1 -U fuzz_owner -d fuzz -v domain_role=fuzz_app \
+  <"$ROOT/docs/operations/sql/users-columns-domain-grants.sql" >/dev/null
+
 echo "Seeding tenant, roles and store"
 tenant=$(docker run --rm --network "$net" -e NODE_ENV=production -e DATABASE_URL="$owner_url" \
   -e OPERATOR_PROVIDER_KEY=clerk -e OPERATOR_PROVIDER_ISSUER=https://clerk.dp2.local \

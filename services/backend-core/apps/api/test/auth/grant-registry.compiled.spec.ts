@@ -61,6 +61,7 @@ function fakePool(
           column_name: columns![i],
           privilege: privileges![i],
           granted: columnGrants.has(`${table_name}(${columns![i]}):${privileges![i]}`),
+          column_exists: true,
         })),
       };
     }

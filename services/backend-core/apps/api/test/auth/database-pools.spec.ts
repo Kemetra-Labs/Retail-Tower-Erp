@@ -47,6 +47,8 @@ function rolePool(input: {
    * the domain column set for a non-BYPASSRLS role, none for a BYPASSRLS one.
    */
   columnGrants?: ReadonlySet<string>;
+  /** RT-1249: "table(column)" keys the schema lacks. Default: none. */
+  missingColumns?: ReadonlySet<string>;
 }): Pool {
   const grants = input.grants ?? (input.bypassRls ? LOOKUP_GRANTS : DOMAIN_GRANTS);
   const columnGrants = input.columnGrants ?? (input.bypassRls ? new Set<string>() : DOMAIN_COLUMN_GRANTS);
@@ -60,6 +62,7 @@ function rolePool(input: {
             column_name: columns![i],
             privilege: privileges![i],
             granted: columnGrants.has(`${table_name}(${columns![i]}):${privileges![i]}`),
+            column_exists: !(input.missingColumns ?? new Set<string>()).has(`${table_name}(${columns![i]})`),
           })),
         };
       }
@@ -361,6 +364,15 @@ describe("database pool boundary", () => {
     ).rejects.toThrow(
       /holds forbidden column grants: SELECT ON users\(password_hash\), UPDATE ON users\(password_hash\)/,
     );
+  });
+
+  it("RT-1249: refuses to boot when password_hash is missing (a rename would go unguarded)", async () => {
+    await expect(
+      verifyDatabasePoolBoundary(
+        rolePool({ roleName: "app_domain", missingColumns: new Set(["users(password_hash)"]) }),
+        rolePool({ roleName: "app_auth_lookup", bypassRls: true }),
+      ),
+    ).rejects.toThrow(/forbidden column not found.*users\(password_hash\)/);
   });
 
   it("RT-1249: the lookup role keeps password_hash; only the domain role is checked", async () => {

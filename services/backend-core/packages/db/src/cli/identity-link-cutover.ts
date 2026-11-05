@@ -42,7 +42,9 @@
  * Output is counts and codes only — never ids, subjects or emails. `users` and
  * `external_identity_links` are tenant-agnostic (no RLS), so no tenant GUC is set.
  *
- * Build first: `pnpm --filter @data-pulse-2/db build`, then
+ * Build first: `pnpm --filter @data-pulse-2/db build`, then, with DATABASE_URL
+ * set to the migration owner (never the API's domain role, which has no UPDATE
+ * on `users` and cannot take this tool's row lock, RT-1249):
  *   DATABASE_URL=postgres://... node dist/cli/identity-link-cutover.js apply \
  *     --user <uuid> --from <provider> --to <provider> --subject <id> \
  *     --issuer <https url> --dry-run
