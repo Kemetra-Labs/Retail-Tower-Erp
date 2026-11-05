@@ -1,0 +1,99 @@
+/*
+ * RT-1192 — today's sales as ledger rows (the RT-1026 .v5-ledger-row): the short
+ * number, the Cairo time, the tender and seller, the exact number beside them and
+ * the total at the end. A row is a 48px button; the list scrolls inside its panel
+ * so the lookup and the journal keep their place.
+ */
+.v5-recent-scroll {
+  max-block-size: 208px;
+  overflow-y: auto;
+}
+
+.v5-recent-rows {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.v5-recent-row {
+  inline-size: 100%;
+  min-block-size: 48px;
+  padding-block: var(--space-1);
+  padding-inline: var(--space-2);
+  border: 0;
+  border-block-end: 1px solid var(--color-border-soft);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  text-align: start;
+  cursor: pointer;
+}
+
+.v5-recent-row:hover:not(:disabled) {
+  background: var(--color-surface-sunken);
+}
+
+.v5-recent-row:focus-visible {
+  outline: 3px solid var(--color-focus-ring);
+  outline-offset: -3px;
+}
+
+.v5-recent-row__lead {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  min-inline-size: 0;
+}
+
+.v5-recent-row__short {
+  font-family: var(--font-family-money);
+  font-size: var(--font-size-lg);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: var(--font-weight-bold);
+}
+
+.v5-recent-row__time {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.v5-recent-row__facts {
+  color: var(--color-text-muted);
+}
+
+.v5-recent-row__exact {
+  flex-basis: 100%;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums lining-nums;
+  user-select: text;
+}
+
+.v5-recent-row__amount {
+  flex: none;
+}
+
+.v5-recent-note {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+@media (forced-colors: active) {
+  .v5-recent-row {
+    border-block-end-color: CanvasText;
+  }
+
+  .v5-recent-row:focus-visible {
+    outline-color: Highlight;
+  }
+
+  .v5-recent-row__facts,
+  .v5-recent-row__exact,
+  .v5-recent-note {
+    color: CanvasText;
+  }
+}

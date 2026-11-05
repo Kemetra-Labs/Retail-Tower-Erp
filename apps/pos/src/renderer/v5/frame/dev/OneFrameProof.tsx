@@ -14,6 +14,7 @@ import type { ReturnsBridgeAPI } from '../../../../shared/returns/types';
 import type { PairingStatus } from '../../../../shared/pairing-types';
 import type { Role } from '../../../../shared/operator/role';
 import type { BannerState } from '../../../../shared/sales/types';
+import { proofListRecent } from '../../../sale-lookup/dev/recent-sales-proof';
 import { AppRouter } from '../../../router';
 import { useFeatureFlagsStore } from '../../../stores/feature-flags-store';
 import { useOperatorSessionStore } from '../../../stores/operator-session-store';
@@ -314,6 +315,8 @@ export function installWindowApi(
           banner_state: bannerState(params.banner),
         }),
       unsubscribe: () => Promise.resolve({ kind: 'ok' }),
+      // RT-1192: today's sales for the Returns and Void lookups.
+      listRecent: proofListRecent,
     },
   };
 }

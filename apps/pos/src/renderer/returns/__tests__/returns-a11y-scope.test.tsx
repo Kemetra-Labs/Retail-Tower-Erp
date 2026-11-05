@@ -68,15 +68,23 @@ describe('accessibility (K3)', () => {
   });
 });
 
-describe('scope (X1, A1 through window.api)', () => {
+describe('scope (X1, A1 through window.api; RT-1192 adds sales.listRecent only)', () => {
   it('uses only window.api.returns; no payout control until the return is confirmed', async () => {
     const returns = fakeBridge();
     const other = { payments: vi.fn(), receipts: vi.fn(), sales: vi.fn(), cart: vi.fn() };
+    // RT-1192: the one other read is today's sales (sales.listRecent); any other sales member is watched.
+    const listRecent = vi.fn(() =>
+      Promise.resolve({ kind: 'ok', business_day: '2026-11-05', items: [], truncated: false }),
+    );
+    const salesNamespace = new Proxy(
+      { listRecent },
+      { get: (target, key) => (key === 'listRecent' ? target.listRecent : other.sales) },
+    );
     vi.stubGlobal('api', {
       returns,
       payments: watched(other.payments),
       receipts: watched(other.receipts),
-      sales: watched(other.sales),
+      sales: salesNamespace,
       cart: watched(other.cart),
     });
     useFeatureFlagsStore.getState().hydrate({ returns: true });
@@ -95,6 +103,7 @@ describe('scope (X1, A1 through window.api)', () => {
     expect(returns.payout).not.toHaveBeenCalled();
     expect(returns.submit).toHaveBeenCalledTimes(1);
     for (const fn of Object.values(other)) expect(fn).not.toHaveBeenCalled();
+    expect(listRecent.mock.calls).toEqual([[{}]]);
   });
 
   it('shows the missing-bridge notice when window.api has no returns namespace', () => {
