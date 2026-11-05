@@ -8,7 +8,7 @@
  * (tenant, store), is a non-disclosing 404 at the controller, as the
  * catalogue read-down's (`catalog/read-down/read-down.cursor.ts`).
  */
-import { isJsonObject } from '../../catalog/read-down/read-down.cursor';
+import { anyJsonObject, decodeOpaque, encodeOpaque } from '../../common/cursor/opaque-cursor';
 
 /** A malformed or foreign page token. */
 export class SafetyFeedCursorError extends Error {}
@@ -25,21 +25,12 @@ export interface SafetyFeedPageToken {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function encodePageToken(token: SafetyFeedPageToken): string {
-  return Buffer.from(
-    JSON.stringify({ t: token.tenantId, s: token.storeId, r: token.revision, a: token.afterHoldId }),
-    'utf8',
-  ).toString('base64url');
+  return encodeOpaque({ t: token.tenantId, s: token.storeId, r: token.revision, a: token.afterHoldId });
 }
 
 /** Decode a page token and check it belongs to the caller's (tenant, store). */
 export function decodePageToken(token: string, tenantId: string, storeId: string): SafetyFeedPageToken {
-  let payload: unknown;
-  try {
-    payload = JSON.parse(Buffer.from(token, 'base64url').toString('utf8'));
-  } catch {
-    throw new SafetyFeedCursorError('malformed page token');
-  }
-  if (!isJsonObject(payload)) throw new SafetyFeedCursorError('malformed page token');
+  const payload = decodeOpaque(token, anyJsonObject, () => new SafetyFeedCursorError('malformed page token'));
   const { t, s, r, a } = payload;
   if (t !== tenantId || s !== storeId) throw new SafetyFeedCursorError('page token scope mismatch');
   if (typeof r !== 'number' || !Number.isSafeInteger(r) || r < 0) {
