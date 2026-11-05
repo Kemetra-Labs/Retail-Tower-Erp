@@ -8,6 +8,7 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom/vitest';
 
+import { formatHumanDateTime } from '../../../ui/format/human-format';
 import { formatCheckoutMoney } from '../../../ui/payments/format-checkout-money';
 import { RecoveryScreen, windowRecoveryBridges } from '../RecoveryScreen';
 import { RECOVERY_COPY, recoveryRefusalMessage } from '../recovery-copy';
@@ -98,6 +99,17 @@ describe('RecoveryScreen — the stuck payment', () => {
     expect(fact(stuck, RECOVERY_COPY.voucher)).toHaveTextContent(formatCheckoutMoney(900));
   });
 
+  it('shows when the stuck payment started, from started_at (RT-1190)', async () => {
+    const started = '2026-10-13T09:00:00.000Z';
+    show(fakeBridges(heldView({ stuck: stuckAttempt({ started_at: started }) })));
+    await screen.findByText(RECOVERY_COPY.complete);
+    const stuck = panel(RECOVERY_COPY.stuckTitle);
+    const time = stuck.querySelector('time') as HTMLTimeElement;
+    expect(time).toHaveTextContent(formatHumanDateTime(started, { withYear: true }) as string);
+    expect(time).toHaveAttribute('datetime', started);
+    expect(time.closest('.v5-ledger-row')).not.toBeNull();
+  });
+
   it('sets the facts as rows of one Precision Ledger, «المتبقي» last (RT-1026, UX-02)', async () => {
     show(fakeBridges(heldView({ stuck: stuckAttempt() })));
     await screen.findByText(RECOVERY_COPY.complete);
@@ -139,6 +151,54 @@ describe('RecoveryScreen — held sales', () => {
     expect(parked).toHaveTextContent(RECOVERY_COPY.parked);
     expect(parked).toHaveTextContent(formatCheckoutMoney(9_900));
     expect(within(parked).getByRole('button', { name: RECOVERY_COPY.cancelSale })).toBeVisible();
+  });
+
+  it('shows exactly one status badge per row; «معلّقة» is a quiet qualifier, not a second badge (RT-1190)', async () => {
+    show(
+      fakeBridges(
+        heldView({
+          held: [
+            heldCart({ cart_id: 'c-1', kind: 'draft', parked: true }),
+            heldCart({ cart_id: 'c-2', kind: 'handed_off', parked: false }),
+          ],
+        }),
+      ),
+    );
+    const [parkedDraft, plain] = (await screen.findAllByRole('listitem')) as [
+      HTMLElement,
+      HTMLElement,
+    ];
+    for (const row of [parkedDraft, plain]) {
+      expect(row.querySelectorAll('.v5-recovery-tag')).toHaveLength(1);
+    }
+    const badge = parkedDraft.querySelector('.v5-recovery-tag') as HTMLElement;
+    expect(badge).toHaveTextContent(RECOVERY_COPY.draft);
+    expect(badge).not.toHaveTextContent(RECOVERY_COPY.parked);
+    const qualifier = within(parkedDraft).getByText(RECOVERY_COPY.parked);
+    expect(qualifier).not.toHaveClass('v5-recovery-tag');
+    expect(qualifier.closest('.v5-recovery-meta')).not.toBeNull();
+    expect(plain).not.toHaveTextContent(RECOVERY_COPY.parked);
+    expect(plain.querySelector('.v5-recovery-tag')).toHaveTextContent(RECOVERY_COPY.handedOff);
+  });
+
+  it('shows each held row its last-change time, absolute, in Western digits (RT-1190)', async () => {
+    const updated = '2026-10-13T08:30:00.000Z';
+    show(fakeBridges(heldView({ held: [heldCart({ cart_id: 'c-1', updated_at: updated })] })));
+    const row = (await screen.findAllByRole('listitem'))[0] as HTMLElement;
+    const expected = formatHumanDateTime(updated, { withYear: true });
+    expect(expected).not.toBeNull();
+    const time = row.querySelector('time') as HTMLTimeElement;
+    expect(time).toHaveTextContent(expected as string);
+    expect(time).toHaveAttribute('datetime', updated);
+    expect(time.textContent).toContain('2026');
+    expect(time.textContent).toMatch(/\d/);
+    expect(time.textContent).not.toMatch(/[٠-٩]/);
+  });
+
+  it('leaves the row meta empty of a time when updated_at is unparseable', async () => {
+    show(fakeBridges(heldView({ held: [heldCart({ cart_id: 'c-1', updated_at: 'garbage' })] })));
+    const row = (await screen.findAllByRole('listitem'))[0] as HTMLElement;
+    expect(row.querySelector('time')).toBeNull();
   });
 
   it('names owners from the roster, else «موظف آخر»', async () => {
