@@ -76,6 +76,7 @@ export interface ForwardStamp {
   readonly replacements?: Readonly<Record<string, string>>;
 }
 
+/** `value` with every RegExp metacharacter escaped, for a literal match. */
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

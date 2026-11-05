@@ -100,6 +100,7 @@ export function resolveTargetFromDsn(
 export class SentryEnvelopeForwarder {
   private inFlight = 0;
 
+  /** `target` null means inert: `forward` sends nothing. `label` prefixes the fixed log lines. */
   constructor(
     private readonly target: ForwardTarget | null,
     private readonly fetchFn: TelemetryFetch,
@@ -144,6 +145,7 @@ export class SentryEnvelopeForwarder {
 /** The Console tunnel's forwarder (RT-632): `CONSOLE_SENTRY_DSN` only. */
 @Injectable()
 export class ConsoleTelemetryForwarder extends SentryEnvelopeForwarder {
+  /** Resolves `CONSOLE_SENTRY_DSN` once, at boot; inert when unset or invalid. */
   constructor(
     @Inject(CONSOLE_TELEMETRY_FETCH) fetchFn: TelemetryFetch,
     @Optional() @Inject(ROOT_LOGGER) logger?: Logger,

@@ -45,6 +45,7 @@ export interface PosTelemetryConfig {
 @DeviceBearer()
 @UseGuards(PosDeviceAuthGuard)
 export class PosTelemetryController {
+  /** The POS forwarder (DSN, refs and stamp) and the shared Redis-backed rate limiter. */
   constructor(
     private readonly forwarder: PosTelemetryForwarder,
     private readonly rateLimiter: RateLimiter,

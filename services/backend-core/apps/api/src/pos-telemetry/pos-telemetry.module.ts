@@ -18,6 +18,7 @@ import { POS_TELEMETRY_FETCH, PosTelemetryForwarder } from "./pos-telemetry.forw
 
 const globalFetch: TelemetryFetch = (url, init) => fetch(url, init);
 
+/** The POS device telemetry tunnel module (RT-1252), registered in AppModule. */
 @Module({
   imports: [AuthModule],
   controllers: [PosTelemetryController],

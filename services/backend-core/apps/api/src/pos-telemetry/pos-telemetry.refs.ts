@@ -32,6 +32,7 @@ export function resolveRefKey(env: NodeJS.ProcessEnv): string | null {
   return raw !== undefined && raw.length >= MIN_REF_KEY_LENGTH ? raw : null;
 }
 
+/** One ref: the first {@link REF_LENGTH} hex characters of HMAC-SHA256(key, `kind:id`). */
 function ref(key: string, kind: string, id: string): string {
   return createHmac("sha256", key).update(`${kind}:${id}`, "utf8").digest("hex").slice(0, REF_LENGTH);
 }

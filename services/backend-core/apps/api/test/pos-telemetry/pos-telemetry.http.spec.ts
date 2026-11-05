@@ -45,6 +45,7 @@ const BEARERS: Record<string, typeof DEVICE_A> = { "token-a": DEVICE_A, "token-b
 
 /** Publishes the scope like `PosDeviceAuthGuard`; anything else is the generic 401. */
 class StubDeviceGuard implements CanActivate {
+  /** Publishes the known device's scope, or throws the generic 401. */
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<TenantContextRequest>();
     const auth = req.headers["authorization"];
@@ -56,21 +57,26 @@ class StubDeviceGuard implements CanActivate {
   }
 }
 
+/** An in-memory window counter standing in for Redis. */
 class MapRedis implements RedisLike {
   readonly store = new Map<string, number>();
+  /** Increments a counter in a fixed window. */
   async incrWindow(key: string): Promise<{ count: number; ttlMs: number }> {
     const next = (this.store.get(key) ?? 0) + 1;
     this.store.set(key, next);
     return { count: next, ttlMs: 42_000 };
   }
+  /** A fixed remaining window. */
   async pttl(): Promise<number> {
     return 42_000;
   }
+  /** Decrements a counter. */
   async decr(key: string): Promise<number> {
     const next = (this.store.get(key) ?? 0) - 1;
     this.store.set(key, next);
     return next;
   }
+  /** Deletes a counter. */
   async del(key: string): Promise<number> {
     return this.store.delete(key) ? 1 : 0;
   }
@@ -86,6 +92,7 @@ class GlobalSpentRedis extends MapRedis {
   }
 }
 
+/** A rate-limit store that is unavailable. */
 class BrokenRedis extends MapRedis {
   override async incrWindow(): Promise<{ count: number; ttlMs: number }> {
     throw new Error("redis down");
@@ -104,6 +111,7 @@ interface EventOptions {
   readonly tags?: Record<string, string>;
 }
 
+/** A Sentry envelope with one error event captured under DEVICE_A unless told otherwise. */
 function envelope(options: EventOptions = {}): string {
   const capture = options.captureTerminal === undefined ? DEVICE_A.deviceId : options.captureTerminal;
   const event = JSON.stringify({
@@ -127,6 +135,7 @@ function envelope(options: EventOptions = {}): string {
 const ENV_KEYS = ["POS_SENTRY_DSN", "POS_TELEMETRY_REF_KEY", "SENTRY_ENVIRONMENT", "DEPLOYMENT_ENVIRONMENT"] as const;
 const ORIGINAL_ENV = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
 
+/** Sets exactly the given tunnel env values and unsets the others. */
 function setEnv(values: Partial<Record<(typeof ENV_KEYS)[number], string>>): void {
   for (const key of ENV_KEYS) {
     const value = values[key];
@@ -135,6 +144,7 @@ function setEnv(values: Partial<Record<(typeof ENV_KEYS)[number], string>>): voi
   }
 }
 
+/** Boots the tunnel controller with the given env and store, a fetch spy and the stub guard. */
 async function boot(
   env: Partial<Record<(typeof ENV_KEYS)[number], string>> = { POS_SENTRY_DSN: POS_DSN, POS_TELEMETRY_REF_KEY: REF_KEY, SENTRY_ENVIRONMENT: "staging" },
   redis: MapRedis = new MapRedis(),
@@ -161,6 +171,7 @@ async function boot(
   return { app, fetchSpy, warn };
 }
 
+/** POSTs an envelope with a device bearer. */
 function post(h: Harness, body: string | Buffer, bearer = "token-a", contentType = "text/plain;charset=UTF-8") {
   return request(h.app.getHttpServer())
     .post(PATH)

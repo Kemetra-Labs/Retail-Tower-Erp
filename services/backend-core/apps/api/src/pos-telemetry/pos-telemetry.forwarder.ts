@@ -54,6 +54,7 @@ export function resolvePosTelemetryTarget(env: NodeJS.ProcessEnv, logger?: WarnL
 export class PosTelemetryForwarder extends SentryEnvelopeForwarder {
   private readonly refKey: string | null;
 
+  /** Resolves `POS_SENTRY_DSN` and the ref key once, at boot; inert when either is missing. */
   constructor(
     @Inject(POS_TELEMETRY_FETCH) fetchFn: TelemetryFetch,
     @Optional() @Inject(ROOT_LOGGER) logger?: Logger,
