@@ -87,8 +87,8 @@
 
 - [ ] T019 [P] Update the orchestrator `CLAUDE.md` allowed-egress confirmation reference (already merged PR #169) — verify, don't re-author.
   - Not applicable: the Orchestrator is retired (AD-ORCH-003); the egress rule now lives in `services/backend-core/CLAUDE.md`.
-- [x] T020 Redaction audit (US1 events + US3 logs): zero forbidden keys / zero business payload (SC-002, SC-004).
-  - Evidence (Sentry events only; no logs are shipped): RT-638 redaction audit, with F-A fixed by RT-682/RT-694 and re-verified on the lab.
+- [ ] T020 Redaction audit (US1 events + US3 logs): zero forbidden keys / zero business payload (SC-002, SC-004).
+  - Half done: the Sentry-event audit passed (RT-638; F-A fixed by RT-682/RT-694 and re-verified on the lab). The log audit is still open and gates any future log shipping (US3 not built).
 - [ ] T021 Set Email + Telegram alerting (Phase 0 OQ-5) in-tool (not code).
   - Open: owner decision D8 (2026-10-17) amended routing to email only, Telegram parked. Datadog email alerts are live (RT-637); Sentry rules are RT-1244.
 - [ ] T022 Record first-pilot-week ingestion volume → propose the budget cap (closes Phase 0 OQ-1 / OD-4 retention input).

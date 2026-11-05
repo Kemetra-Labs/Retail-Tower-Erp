@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-17
 
-**Status**: Implemented on `main` for US1 (Sentry errors) and US2 (OTLP traces via the Datadog Agent); US3 is partly implemented (Synthetics only, no log shipping). Reconciled 2026-11-05 (RT-1245); see "Implementation Reconciliation (2026-11-05)" at the end of this file and the checked tasks in [tasks.md](./tasks.md).
+**Status**: Implemented on `main` for US1 (Sentry errors). US2 is partly implemented: OTLP traces and the API metrics go through the Datadog Agent, but the worker metrics are not scraped. US3 is partly implemented (Synthetics only, no log shipping). Reconciled 2026-11-05 (RT-1245); see "Implementation Reconciliation (2026-11-05)" at the end of this file and the checked tasks in [tasks.md](./tasks.md).
 
 **Input**: Orchestrator [AD-TOOL-003](https://github.com/ahmed-shaaban-94/Retail-Tower-Orchestrator/blob/main/docs/decisions/AD-TOOL-003-observability-layer-sentry-datadog.md) (Accepted 2026-06-17) + [Phase 0 inventory](https://github.com/ahmed-shaaban-94/Retail-Tower-Orchestrator/blob/main/docs/tooling/observability-phase-0-inventory.md). Adopt Sentry (app errors) + Datadog (platform telemetry) on top of DP-2's existing Spec-004/Track-B OpenTelemetry layer.
 
@@ -168,7 +168,7 @@ As the **on-call owner**, I want DP-2's structured logs (already redacted via th
 | Story | Status on `main` | Evidence |
 |---|---|---|
 | US1 — Sentry backend errors | **Implemented**, live on the lab | `packages/shared/src/observability/sentry.ts` (DSN-gated init, allowlist scrubber); `apps/{api,worker}/src/observability/sentry/sentry.ts`, called from each `instrumentation.ts`; HTTP 500 capture in `apps/api/src/common/exception.filter.ts`; final BullMQ job failures in `apps/worker/src/observability/sentry/failed-job.ts`. Jira: RT-609, RT-631, RT-682, RT-698, RT-879; lab proof RT-638. |
-| US2 — Datadog OTLP traces/metrics | **Implemented** via the Datadog Agent (OTLP `:4318`) and an OpenMetrics scrape of `:9464` | `packages/shared/src/observability/otel.ts` (`OTLPTraceExporter`, URL-redacting wrapper, force-sample sampler); `deploy/prod.env.example` (`OTEL_EXPORTER_OTLP_ENDPOINT`, 10% `OTEL_TRACES_SAMPLER_ARG`); `deploy/README.md` (agent profile). Jira: RT-609, RT-631, RT-640, RT-684. OD-5 was answered by enabling APM through the Agent. |
+| US2 — Datadog OTLP traces/metrics | **Partially implemented**. The Datadog Agent receives OTLP (`:4318`) and scrapes the API's OpenMetrics endpoint (`:9464`). It does not scrape the worker's `127.0.0.1:9091` listener, so queue lag and the outbox backlog are not monitored (RT-637 gap 1). | `packages/shared/src/observability/otel.ts` (`OTLPTraceExporter`, URL-redacting wrapper, force-sample sampler); `deploy/prod.env.example` (`OTEL_EXPORTER_OTLP_ENDPOINT`, 10% `OTEL_TRACES_SAMPLER_ARG`); `deploy/README.md` (agent profile). Jira: RT-609, RT-631, RT-640, RT-684. OD-5 was answered by enabling APM through the Agent. |
 | US3 — Logs + Synthetics | **Synthetics implemented; log shipping not built** | `deploy/datadog/synthetics-api-health.json` (existing `/api/v1/health/ready` only) and `deploy/datadog/monitors.json` (RT-637). RT-617 puts log shipping out of scope. |
 
 ### Still open (not proven on `main`)
@@ -177,6 +177,7 @@ As the **on-call owner**, I want DP-2's structured logs (already redacted via th
 - **T012:** no test was found that pins "no signal rename after OTLP registration".
 - **T015:** sampling is 10% head-based plus forced sampling of specific spans. "100% on error/checkout spans" is not implemented.
 - **T016, T017:** log shipping is out of scope (RT-617).
+- **T020:** the Sentry-event redaction audit passed (RT-638). The log audit is still open and gates any future log shipping.
 - **T021:** Sentry alert routing, RT-1244. Datadog email alerts are live (RT-637).
 - **T022:** the ingestion-volume budget record.
 - **Datadog site:** out of scope for this reconcile. The repository still names `us5` (`deploy/prod.env.example` `DD_SITE`, and the egress note in `services/backend-core/CLAUDE.md`). RT-736 owns the EU1 migration and the correction of these references.
