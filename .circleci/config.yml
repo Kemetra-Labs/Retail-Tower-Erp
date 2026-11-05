@@ -28,7 +28,12 @@
 # the compiled config is that commit's, so an equal .circleci/ makes it main's. The guard pins
 # only .circleci/; the branch's own code (.nvmrc, packageManager, lockfile, build scripts,
 # tests) still runs, which is the point, and the protection is that the jobs read no secrets.
-# This repo and its CircleCI builds are public: the jobs store test results only, no artifacts.
+# This repo and its CircleCI builds are public: the jobs store test results only, no artifacts
+# (RT-1188 exception: remote-api-jest also stores the tia/ shadow files, as the advisory job does).
+# RT-1188: remote-api-jest also records the TIA shadow next to its unchanged plain-Jest full run:
+# the RT-1075 risk guard, `circleci testsuite list-tests` and the RT-1083 report (guard.json,
+# report.json), so every pre-push api run is also an RT-920 measurement. Shadow only: the suite
+# is never narrowed, no TIA parameter is set, and the shadow steps never fail the job.
 # RT-1036 adds remote-dev-backend-fast, remote-dev-admin, remote-dev-admin-e2e and remote-dev-pos
 # with the same guard.
 # Not covered remotely: POS Windows packaging and Electron e2e, and the ERPNext Connector.
@@ -80,6 +85,24 @@ parameters:
   remote_expected_sha:
     type: string
     default: ""
+  # RT-1188: the main-only impact analysis (workflow tia-main-analysis). true (default) runs
+  # backend-api-jest-analysis on every push to main, one run at a time. It builds the impact data
+  # the pre-push shadow reads and runs no tests. Kill switch and rollback: set this default to
+  # false.
+  # Credit bound, owner decision 2026-11-04: 500k credits per month. CircleCI config cannot count
+  # credits, so the bound is structural: one run at a time (serial-group), each stopped by the
+  # CLI's test-analysis-duration (30 min target) and a 50-minute wall-clock `timeout` on the
+  # analysis step (about 1,200 credits at most per run, setup included), and the kill switch
+  # above. Every main push starts a run (a path guard cannot be sound without the push's first
+  # commit, see backend-api-jest-analysis). ESTIMATE, to verify against CircleCI usage after the
+  # first runs: a large machine is about 20 credits per minute, so a run that analyzes for 30
+  # minutes is about 900 credits and a run with nothing stale (setup only) about 100 to 160. With
+  # about 20 main pushes per day, that is roughly 60k credits per month when nothing is stale and
+  # up to about 540k if every push left stale specs, so the cap can be exceeded in that worst
+  # case. Read the real cost on RT-1188 after the first runs and set the switch accordingly.
+  main_analysis_enabled:
+    type: boolean
+    default: true
 
 commands:
   backend-setup:
@@ -186,6 +209,76 @@ commands:
             fi
             echo "nproc=$(nproc)"
             node --version
+
+  # RT-1188: the TIA shadow before the pre-push full run: the risk guard, then doctor and the
+  # specs list-tests would select. Runs only after remote-guard, so it executes main's
+  # .circleci/scripts. Every problem is recorded and the step exits 0: the full suite always runs.
+  tia-shadow-start:
+    description: Shadow only. Risk guard decision and the impact-analysis selection, never failing.
+    steps:
+      - run:
+          name: "TIA shadow: risk guard (self-test, then FORCE_FULL or TIA_ELIGIBLE on the whole branch diff)"
+          command: |
+            mkdir -p /tmp/tia
+            touch /tmp/tia/started
+            force_full() {
+              echo "RISK GUARD: $1; recording FORCE_FULL (the full suite still runs)."
+              printf 'TIA_GUARD_DECISION=FORCE_FULL\nreason: %s\n' "$1" > /tmp/tia/guard.txt
+              printf '{"decision":"FORCE_FULL","reason":"%s"}\n' "$1" > /tmp/tia/guard.json
+            }
+            rc=0
+            TIA_GUARD_RUNTIME=1 timeout 120 node --test .circleci/scripts/tia-risk-guard.test.cjs || rc=$?
+            if [ "$rc" -ne 0 ]; then
+              force_full "guard self-test failed (exit $rc)"
+              exit 0
+            fi
+            rc=0
+            timeout 120 node .circleci/scripts/tia-risk-guard.cjs --repo ~/project --out /tmp/tia || rc=$?
+            if [ "$rc" -ne 0 ]; then force_full "guard exited $rc"; fi
+            exit 0
+      - run:
+          name: "TIA shadow: doctor and the specs impact analysis would select"
+          working_directory: ~/project/services/backend-core/apps/api
+          command: |
+            rc=0
+            timeout 300 circleci testsuite doctor "backend api jest" > /tmp/tia/doctor.log 2>&1 || rc=$?
+            cat /tmp/tia/doctor.log
+            echo "doctor exit code: $rc"
+            # doctor runs a sample of specs through the suite's run command, which writes
+            # /tmp/api-jest.json and JUnit under /tmp/test-reports; drop them so the report reads
+            # only the full run's results.
+            rm -rf /tmp/api-jest.json /tmp/test-reports
+            rc=0
+            timeout 300 circleci testsuite list-tests "backend api jest" > /tmp/tia/selected.txt 2> /tmp/tia/list-tests.log || rc=$?
+            echo "$rc" > /tmp/tia/list-tests.rc
+            cat /tmp/tia/list-tests.log
+            echo "list-tests exit code: $rc; $(wc -l < /tmp/tia/selected.txt) lines in selected.txt"
+            # doctor leaves an untracked .circleci/impact-doctor-*.json; specs that fence
+            # `git status --porcelain` would fail on it. Keep it as evidence, outside git.
+            find ~/project/.circleci -maxdepth 1 -name 'impact-doctor-*.json' -exec mv -t /tmp/tia {} + \
+              || echo "could not move the doctor's impact file out of the checkout"
+            node_modules/.bin/jest --listTests | wc -l > /tmp/tia/discovered.count \
+              || echo "could not count the suite's specs"
+            exit 0
+
+  # RT-1188: the report after the full run, only when tia-shadow-start ran (its marker exists
+  # only after remote-guard passed), so a refused run never executes branch code here.
+  tia-shadow-report:
+    description: Shadow only. Selection ratio, misses and the guarded selection, never failing.
+    steps:
+      - run:
+          name: "TIA shadow: selection ratio, guarded selection and misses"
+          when: always
+          command: |
+            if [ ! -f /tmp/tia/started ]; then
+              echo "The TIA shadow did not start (the remote guard refused, or an earlier step failed); no report."
+              exit 0
+            fi
+            node .circleci/scripts/tia-shadow-report.cjs /tmp/tia/selected.txt /tmp/test-reports /tmp/tia ~/project/services/backend-core/apps/api || echo "tia-shadow-report.cjs failed; the full run's result stands."
+            exit 0
+      - store_artifacts:
+          path: /tmp/tia
+          destination: tia
 
 jobs:
   backend-api-jest:
@@ -320,6 +413,11 @@ jobs:
     resource_class: large
     steps:
       - checkout
+      # RT-1188: no path guard here on purpose. A GitHub App project has no
+      # pipeline.git.base_revision, so the first commit of a push is unknown, and no commit shape
+      # (squash, merge) proves that HEAD is the whole push. Skipping on a guess could leave the
+      # impact data stale. The analysis itself only works on specs whose data is stale and a run
+      # with nothing stale ends after the setup, so the cost of an unrelated push is the setup.
       - backend-setup
       - run:
           name: Impact analysis of the API Jest suite (LCOV, one spec at a time)
@@ -327,7 +425,13 @@ jobs:
           no_output_timeout: 60m
           environment:
             NODE_OPTIONS: --max-old-space-size=4096
-          command: circleci testsuite run "backend api jest" --run-tests=none
+          # test-analysis-duration (30 min) is a target the CLI checks between specs, not a hard
+          # limit, and no_output_timeout only fires when output stops. As in the manual full-analysis
+          # job: a wall-clock stop (SIGTERM at 50 minutes, SIGKILL 2 minutes later in case Jest
+          # children hold the step open), so this step ends within 52 minutes. The setup steps
+          # before it are extra, so a whole run holds the serial group for about 60 minutes at
+          # most. A killed run saves nothing; the next push repeats its specs.
+          command: timeout -k 2m 50m circleci testsuite run "backend api jest" --run-tests=none
 
   # One link of the manual full-analysis chain: the analysis job above with a hard stop.
   # Analysis saves impact data at the end of each run and the next run continues from it
@@ -388,8 +492,10 @@ jobs:
             fi
 
   # RT-981: the api suite for a pushed feature branch, as bc/db-integration but without
-  # --coverage (GitHub enforces the coverage floors). Plain Jest, not `circleci testsuite`: no
-  # test atoms, no impact data, no shadow report, so RT-920's measurements are untouched.
+  # --coverage (GitHub enforces the coverage floors). The full run is plain Jest, not
+  # `circleci testsuite run`: no test atoms and no new impact data. RT-1188 adds the TIA shadow
+  # around it (tia-shadow-start before, tia-shadow-report after): the guard decision, the
+  # list-tests selection and the misses against this run's results, as RT-920's measurement.
   remote-api-jest:
     machine:
       image: ubuntu-2404:2026.05.1
@@ -398,6 +504,7 @@ jobs:
       - checkout
       - remote-guard
       - backend-setup
+      - tia-shadow-start
       - run:
           name: API Jest, full suite (remote, advisory)
           working_directory: ~/project/services/backend-core/apps/api
@@ -410,6 +517,7 @@ jobs:
             timeout -k 2m 20m node_modules/.bin/jest --forceExit --json --outputFile=/tmp/remote/api-jest.json || rc=$?
             node ~/project/.circleci/scripts/jest-json-to-junit.cjs /tmp/remote/api-jest.json /tmp/test-reports/remote-api-jest.xml "$PWD" || rc=1
             exit $rc
+      - tia-shadow-report
       - store_test_results:
           path: /tmp/test-reports
 
@@ -698,6 +806,23 @@ workflows:
           filters:
             branches:
               only: main
+
+  # RT-1188: the main-only impact analysis on its own, so a PR or feature-branch pipeline stays
+  # empty (RT-1059). Not together with the advisory workflow, which already schedules the same
+  # job when advisory_enabled is true, nor with the manual TIA routes. One run at a time: two
+  # overlapping analysis runs pick the same atoms. Kill switch: main_analysis_enabled.
+  tia-main-analysis:
+    when:
+      and:
+        - << pipeline.parameters.main_analysis_enabled >>
+        - equal: [main, << pipeline.git.branch >>]
+        - not: << pipeline.parameters.advisory_enabled >>
+        - not: << pipeline.parameters.full_tia_analysis >>
+        - not: << pipeline.parameters.tia_probe >>
+        - equal: [none, << pipeline.parameters.remote_suite >>]
+    jobs:
+      - backend-api-jest-analysis:
+          serial-group: << pipeline.project.slug >>/tia-main-analysis
 
   # Manual, main only: up to 10 links x 30 min = about 880 specs, enough for the 589 not yet
   # analyzed (677 in all, about 88 per link) with room for a lost link or two. A link that finds
