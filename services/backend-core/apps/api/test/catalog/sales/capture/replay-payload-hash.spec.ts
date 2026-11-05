@@ -39,12 +39,15 @@ beforeEach(() => {
 });
 afterEach(() => deleteCapturedSales(h));
 
+/** True when Docker is unavailable and the harness was skipped. */
 const skip = (): boolean => h.dockerSkipped || !h.harness;
 
+/** POST a capture with its own Idempotency-Key (a new key per call is a provenance re-delivery). */
 function post(body: Record<string, unknown>, key: string) {
   return h.harness!.http().post("/api/pos/v1/sales").set("Idempotency-Key", idempKey(key)).send(body);
 }
 
+/** The stored rows for a provenance: sales, lines, `sale.captured` outbox rows and the stored payload_hash. */
 async function stored(externalId: string): Promise<{ sales: number; lines: number; captured: number; hash: string | null }> {
   const r = await h.harness!.env.admin.query<{ sales: string; lines: string; captured: string; hash: string | null }>(
     `SELECT (SELECT count(*) FROM sales WHERE external_id = $1)::text AS sales,
@@ -58,6 +61,7 @@ async function stored(externalId: string): Promise<{ sales: number; lines: numbe
   return { sales: Number(row.sales), lines: Number(row.lines), captured: Number(row.captured), hash: row.hash };
 }
 
+/** The RT-1206 replay-mismatch audit events the spy enqueuer received. */
 const mismatchEvents = () => spy.calls.filter((c) => c.action === "sale.replay_payload_mismatch_rejected");
 
 describe("RT-1206 — identical provenance replay", () => {

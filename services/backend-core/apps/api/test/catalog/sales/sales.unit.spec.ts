@@ -622,6 +622,7 @@ describe("SalesController — guard + status branches (unit)", () => {
     });
     afterEach(() => conflictSpy.mockRestore());
 
+    /** A controller whose service always throws the RT-1206 conflict, with an optional audit enqueuer. */
     function controller(enqueue: jest.Mock | null): SalesController {
       const svc = { captureSale: jest.fn().mockRejectedValue(new SalePayloadReplayConflictError(VALID_REF)) };
       return new SalesController(svc as never, undefined as never, enqueue === null ? null : ({ enqueue } as never));
