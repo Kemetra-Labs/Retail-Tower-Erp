@@ -272,145 +272,36 @@ interface SaleLineRow {
 export class SalesService {
   constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
 
+  /**
+   * RT-1224 (RT-148 H-7): the capture path as named steps. The whole capture
+   * is ONE transaction, opened here; every step receives its client.
+   *
+   * Dedup (FR-050) is enforced atomically by the header INSERT ... ON
+   * CONFLICT — a single race-safe path, no read-before-write window. A
+   * re-delivery with the same provenance resolves deterministically to the
+   * existing row (FR-100) in `resolveReplay`. The dedup key is scoped by
+   * tenant_id, so a cross-tenant externalId collision is isolated (SI-001).
+   */
   async captureSale(input: CaptureSaleInput): Promise<CaptureSaleResult> {
-    const { tenantId, storeId, actorUserId, deviceId, body } = input;
+    const { tenantId, storeId, actorUserId, body } = input;
     const payloadHash = sha256CanonicalHex(body);
     const tenders = body.tenders ?? [];
     const responsibilities = body.responsibilities ?? [];
-    const receipt = receiptColumns(input.receipt);
 
     const result = await runWithTenantContext(
       this.pool,
       { tenantId, isPlatformAdmin: false },
       async (client): Promise<{ saleId: string; created: boolean }> => {
-        // Dedup (FR-050) is enforced atomically by the INSERT ... ON CONFLICT
-        // below — a single race-safe path, no read-before-write window. A
-        // re-delivery with the same provenance resolves deterministically to
-        // the existing row (FR-100). The dedup key is scoped by tenant_id, so a
-        // cross-tenant externalId collision is isolated (SI-001).
-
-        // Advisory comparison total (gate A.3/A.4): half-up sum of per-line
-        // amounts, computed by Postgres numeric — NEVER JS float. mismatch_flag
-        // is TRUE when it differs from the POS-reported total. The POS total is
-        // stored verbatim regardless (FR-030).
-        const compare = await client.query<{ mismatch: boolean }>(
-          `SELECT (round(SUM(amt)::numeric, 4) <> $1::numeric) AS mismatch
-             FROM unnest($2::numeric[]) AS amt`,
-          [body.posTotal, body.lines.map((l) => l.lineAmount)],
-        );
-        const mismatchFlag = compare.rows[0]?.mismatch ?? false;
-
+        const mismatchFlag = await validateSaleTotals(client, body);
         // UUIDv7 (time-ordered) via the shared id policy — fact tables are
         // high-write, so v7 B-tree locality matters; matches reconciliation.
         const saleId = newId();
+        const storeTimezone = await resolveStoreTimezone(client, storeId);
+        const header = { saleId, payloadHash, mismatchFlag, storeTimezone };
+        const inserted = await insertSaleHeader(client, input, header);
 
-        // business_date is the occurredAt CALENDAR DATE in the STORE's timezone
-        // (FR-023) — never the client clock. Resolve the store's IANA zone under
-        // tenant RLS; the principal's own store always resolves (the sales FK
-        // guarantees the store exists), so a miss is a misconfigured principal —
-        // fail loudly, never silently default to UTC. (Stores default to 'UTC'
-        // until an operator sets a real zone, so this reproduces the prior UTC
-        // behavior until then.) processed_at stays NULL — the worker claims it.
-        const tz = await client.query<{ timezone: string }>(
-          `SELECT timezone FROM stores WHERE id = $1`,
-          [storeId],
-        );
-        const storeTimezone = tz.rows[0]?.timezone;
-        if (!storeTimezone) {
-          throw new Error("store timezone not resolvable for capture");
-        }
-        //
-        // Atomic dedup (FR-050/100): ON CONFLICT on the
-        // (tenant_id, source_system, external_id) unique index makes the write
-        // race-safe — a concurrent or re-delivered identical capture does NOT
-        // double-insert or surface a 500; it falls through to the deterministic
-        // resolve below (zero rows returned ⇒ the row already exists).
-        const inserted = await client.query<{ id: string }>(
-          // 032 §7: `sync_status` is set to 'captured' IN the capture
-          // transaction (server-authoritative; POS never supplies it). The
-          // column also DEFAULTs to 'captured' in 0026, but it is bound
-          // explicitly here so the capture write is self-documenting and does
-          // not silently depend on the default. The off-request drain advances
-          // it to 'synced' (see SaleProcessingProcessor).
-          // RT-539: the receipt snapshot columns ($17-$25) are written with the
-          // row; ON CONFLICT DO NOTHING keeps a replay from rewriting them.
-          `INSERT INTO sales
-             (id, tenant_id, store_id, currency_code, pos_total, occurred_at,
-              business_date, source_clock_at, source_system, external_id,
-              payload_hash, mismatch_flag, created_by, sync_status,
-              device_id, tender_count, responsibility_count,
-              receipt_sale_number, receipt_number, receipt_terminal_label,
-              receipt_operator_display_name, receipt_settled_at, receipt_branch_name,
-              receipt_branch_address, receipt_tax_registration_id, receipt_change_given)
-           VALUES ($1, $2, $3, $4, $5::numeric, $6::timestamptz,
-                   ($6::timestamptz AT TIME ZONE $13)::date, $7::timestamptz,
-                   $8, $9, $10, $11, $12, $14, $15, $16, $26,
-                   $17, $18, $19, $20, $21::timestamptz, $22, $23, $24, $25::numeric)
-           ON CONFLICT (tenant_id, source_system, external_id) DO NOTHING
-           RETURNING id`,
-          [
-            saleId,
-            tenantId,
-            storeId,
-            body.currencyCode,
-            body.posTotal,
-            body.occurredAt,
-            body.sourceClockAt ?? null,
-            body.sourceSystem,
-            body.externalId,
-            payloadHash,
-            mismatchFlag,
-            actorUserId,
-            storeTimezone,
-            SALE_SYNC_STATUS.CAPTURED,
-            deviceId,
-            tenders.length,
-            ...receipt,
-            responsibilities.length,
-          ],
-        );
-
-        if (inserted.rows.length === 0) {
-          // The provenance already exists — a prior re-delivery or a concurrent
-          // racing capture won. Resolve to that row deterministically (replay,
-          // no double-apply). No line inserts: the winner already wrote them.
-          const winner = await client.query<{
-            id: string;
-            store_id: string;
-            tender_count: number;
-            responsibility_count: number;
-            payload_hash: string;
-          }>(
-            `SELECT id, store_id, tender_count, responsibility_count, payload_hash FROM sales
-              WHERE tenant_id = $1 AND source_system = $2 AND external_id = $3
-              LIMIT 1`,
-            [tenantId, body.sourceSystem, body.externalId],
-          );
-          const winnerRow = winner.rows[0];
-          if (!winnerRow) {
-            throw new Error("dedup conflict but no existing sale row found");
-          }
-          // The provenance belongs to a sale in another store of this tenant:
-          // non-disclosing, exactly as before RT-77 (the store-scoped read
-          // below would not find it). Checked BEFORE the tender compare so a
-          // replay can never probe another store's tenders.
-          if (winnerRow.store_id !== storeId) throw new SaleNotFoundError();
-          // RT-1206 (RT-148 owner ruling 2026-10-02): a replay whose hashed
-          // body differs from the stored one is a different payload (409),
-          // never the stored sale. After the store check (non-disclosure) and
-          // before the tender and responsibility compares, which stay as
-          // defence in depth; the persisted hash bytes are unchanged.
-          if (winnerRow.payload_hash !== payloadHash) {
-            throw new SalePayloadReplayConflictError(winnerRow.id);
-          }
-          // RT-77: a replay that adds, drops or changes tenders is a different
-          // payload (409). Only the tender set is compared (RT-77 10509).
-          await assertSameTenders(client, winnerRow, tenders);
-          // RT-418: and the responsibilities (payer, amount, sequence). Every
-          // RT-418 refusal below comes after this, so a stored credit sale
-          // replays even if its payer, its operator's role or the path changed.
-          await assertSameResponsibilities(client, winnerRow, responsibilities);
-          return { saleId: winnerRow.id, created: false };
+        if (!inserted) {
+          return resolveReplay(client, { tenantId, storeId, body, payloadHash, tenders, responsibilities });
         }
 
         // A FIRST capture from here: every refusal throws and rolls the
@@ -424,54 +315,15 @@ export class SalesService {
           tenders,
           responsibilities,
         });
-
-        await insertSaleLines(client, { saleId, tenantId, storeId, lines: body.lines });
-        if (tenders.length > 0) {
-          await insertTenders(client, {
-            saleId,
-            tenantId,
-            storeId,
-            currencyCode: body.currencyCode,
-            tenders,
-          });
-        }
-        if (responsibilities.length > 0) {
-          await insertResponsibilities(client, { saleId, tenantId, storeId, responsibilities });
-        }
-
-        // Emit the `sale.captured` outbox event IN-TRANSACTION, atomic with the
-        // sale + sale_lines inserts (the inventory-service precedent). The
-        // worker-side `SaleCapturedConsumer` bridges this row to the
-        // "sale-processing" BullMQ queue. ONLY the created path emits — the
-        // dedup-replay branch above already returned `created: false` without
-        // reaching here, so a re-delivery does NOT double-emit.
-        //
-        // Payload is IDs-only (`sale_id` / `store_id`, both uuid) — NO money,
-        // line amounts, or PII (FR-042 / FR-092), matching the consumer's Zod
-        // schema. The emit runs under the same tenant GUC as the inserts (this
-        // callback is inside `runWithTenantContext` with `tenantId`), so the
-        // outbox RLS WITH CHECK passes. A failing emit ROLLS BACK the whole
-        // capture — the sale and its event commit together or not at all.
-        //
-        // `correlationId` is null: `CaptureSaleInput` carries no correlation id
-        // (unlike the inventory movement path), so there is none to forward.
-        await emit(client, {
-          eventType: OUTBOX_EVENT_TYPES.SALE_CAPTURED,
-          tenantId,
-          storeId,
-          payload: { sale_id: saleId, store_id: storeId },
-          correlationId: null,
-        });
-
+        await insertCaptureRows(client, { saleId, tenantId, storeId, body, tenders, responsibilities });
+        // ONLY the created path emits: a replay returned above, so a
+        // re-delivery does NOT double-emit.
+        await emitSaleCaptured(client, { saleId, tenantId, storeId });
         return { saleId, created: true };
       },
     );
 
-    const projection = await this.readSaleProjection(
-      tenantId,
-      storeId,
-      result.saleId,
-    );
+    const projection = await this.readSaleProjection(tenantId, storeId, result.saleId);
     return { projection, created: result.created };
   }
 
@@ -1000,6 +852,218 @@ function receiptColumns(receipt: CaptureSaleReceiptDto | undefined): ReadonlyArr
 /** A tender's reference, or null — only card_external carries one. */
 function tenderReference(t: SaleTenderDto): string | null {
   return t.method === "card_external" ? (t.reference ?? null) : null;
+}
+
+/**
+ * RT-1224: the advisory comparison total (gate A.3/A.4) — the half-up sum of
+ * the per-line amounts, computed by Postgres numeric, NEVER JS float. Returns
+ * the `mismatch_flag`: TRUE when it differs from the POS-reported total. It
+ * never refuses: the POS total is stored verbatim regardless (FR-030), and the
+ * tender / coverage refusals stay in `assertFirstCaptureAccepted`, after the
+ * replay branch.
+ */
+async function validateSaleTotals(client: PoolClient, body: CaptureSaleRequestDto): Promise<boolean> {
+  const compare = await client.query<{ mismatch: boolean }>(
+    `SELECT (round(SUM(amt)::numeric, 4) <> $1::numeric) AS mismatch
+       FROM unnest($2::numeric[]) AS amt`,
+    [body.posTotal, body.lines.map((l) => l.lineAmount)],
+  );
+  return compare.rows[0]?.mismatch ?? false;
+}
+
+/**
+ * business_date is the occurredAt CALENDAR DATE in the STORE's timezone
+ * (FR-023) — never the client clock. Resolve the store's IANA zone under
+ * tenant RLS; the principal's own store always resolves (the sales FK
+ * guarantees the store exists), so a miss is a misconfigured principal — fail
+ * loudly, never silently default to UTC. (Stores default to 'UTC' until an
+ * operator sets a real zone, so this reproduces the prior UTC behavior until
+ * then.)
+ */
+async function resolveStoreTimezone(client: PoolClient, storeId: string): Promise<string> {
+  const tz = await client.query<{ timezone: string }>(`SELECT timezone FROM stores WHERE id = $1`, [storeId]);
+  const storeTimezone = tz.rows[0]?.timezone;
+  if (!storeTimezone) {
+    throw new Error("store timezone not resolvable for capture");
+  }
+  return storeTimezone;
+}
+
+/**
+ * Write the `sales` header; returns false when the provenance already exists.
+ *
+ * Atomic dedup (FR-050/100): ON CONFLICT on the (tenant_id, source_system,
+ * external_id) unique index makes the write race-safe — a concurrent or
+ * re-delivered identical capture does NOT double-insert or surface a 500; it
+ * falls through to `resolveReplay` (zero rows returned ⇒ the row already
+ * exists).
+ *
+ * 032 §7: `sync_status` is set to 'captured' IN the capture transaction
+ * (server-authoritative; POS never supplies it). The column also DEFAULTs to
+ * 'captured' in 0026, but it is bound explicitly here so the capture write is
+ * self-documenting and does not silently depend on the default. The
+ * off-request drain advances it to 'synced' (see SaleProcessingProcessor).
+ * processed_at stays NULL — the worker claims it.
+ *
+ * RT-539: the receipt snapshot columns ($17-$25) are written with the row; ON
+ * CONFLICT DO NOTHING keeps a replay from rewriting them.
+ */
+async function insertSaleHeader(
+  client: PoolClient,
+  input: CaptureSaleInput,
+  header: {
+    readonly saleId: string;
+    readonly payloadHash: string;
+    readonly mismatchFlag: boolean;
+    readonly storeTimezone: string;
+  },
+): Promise<boolean> {
+  const { body } = input;
+  const inserted = await client.query<{ id: string }>(
+    `INSERT INTO sales
+       (id, tenant_id, store_id, currency_code, pos_total, occurred_at,
+        business_date, source_clock_at, source_system, external_id,
+        payload_hash, mismatch_flag, created_by, sync_status,
+        device_id, tender_count, responsibility_count,
+        receipt_sale_number, receipt_number, receipt_terminal_label,
+        receipt_operator_display_name, receipt_settled_at, receipt_branch_name,
+        receipt_branch_address, receipt_tax_registration_id, receipt_change_given)
+     VALUES ($1, $2, $3, $4, $5::numeric, $6::timestamptz,
+             ($6::timestamptz AT TIME ZONE $13)::date, $7::timestamptz,
+             $8, $9, $10, $11, $12, $14, $15, $16, $26,
+             $17, $18, $19, $20, $21::timestamptz, $22, $23, $24, $25::numeric)
+     ON CONFLICT (tenant_id, source_system, external_id) DO NOTHING
+     RETURNING id`,
+    [
+      header.saleId,
+      input.tenantId,
+      input.storeId,
+      body.currencyCode,
+      body.posTotal,
+      body.occurredAt,
+      body.sourceClockAt ?? null,
+      body.sourceSystem,
+      body.externalId,
+      header.payloadHash,
+      header.mismatchFlag,
+      input.actorUserId,
+      header.storeTimezone,
+      SALE_SYNC_STATUS.CAPTURED,
+      input.deviceId,
+      (body.tenders ?? []).length,
+      ...receiptColumns(input.receipt),
+      (body.responsibilities ?? []).length,
+    ],
+  );
+  return inserted.rows.length > 0;
+}
+
+/**
+ * The provenance already exists — a prior re-delivery or a concurrent racing
+ * capture won. Resolve to that row deterministically (replay, no
+ * double-apply). No line inserts: the winner already wrote them. Every check
+ * here runs BEFORE `assertFirstCaptureAccepted`, so a replay never answers
+ * with a first-capture refusal.
+ */
+async function resolveReplay(
+  client: PoolClient,
+  replay: {
+    readonly tenantId: string;
+    readonly storeId: string;
+    readonly body: CaptureSaleRequestDto;
+    readonly payloadHash: string;
+    readonly tenders: ReadonlyArray<SaleTenderDto>;
+    readonly responsibilities: ReadonlyArray<SaleResponsibilityDto>;
+  },
+): Promise<{ saleId: string; created: false }> {
+  const winner = await client.query<{
+    id: string;
+    store_id: string;
+    tender_count: number;
+    responsibility_count: number;
+    payload_hash: string;
+  }>(
+    `SELECT id, store_id, tender_count, responsibility_count, payload_hash FROM sales
+      WHERE tenant_id = $1 AND source_system = $2 AND external_id = $3
+      LIMIT 1`,
+    [replay.tenantId, replay.body.sourceSystem, replay.body.externalId],
+  );
+  const winnerRow = winner.rows[0];
+  if (!winnerRow) {
+    throw new Error("dedup conflict but no existing sale row found");
+  }
+  // The provenance belongs to a sale in another store of this tenant:
+  // non-disclosing, exactly as before RT-77 (the store-scoped read would not
+  // find it). Checked BEFORE the hash and tender compares so a replay can
+  // never probe another store's payload or tenders.
+  if (winnerRow.store_id !== replay.storeId) throw new SaleNotFoundError();
+  // RT-1206 (RT-148 owner ruling 2026-10-02): a replay whose hashed body
+  // differs from the stored one is a different payload (409), never the
+  // stored sale. After the store check (non-disclosure) and before the tender
+  // and responsibility compares, which stay as defence in depth; the
+  // persisted hash bytes are unchanged.
+  if (winnerRow.payload_hash !== replay.payloadHash) {
+    throw new SalePayloadReplayConflictError(winnerRow.id);
+  }
+  // RT-77: a replay that adds, drops or changes tenders is a different
+  // payload (409). Only the tender set is compared (RT-77 10509).
+  await assertSameTenders(client, winnerRow, replay.tenders);
+  // RT-418: and the responsibilities (payer, amount, sequence). Every RT-418
+  // refusal comes after this, so a stored credit sale replays even if its
+  // payer, its operator's role or the path changed.
+  await assertSameResponsibilities(client, winnerRow, replay.responsibilities);
+  return { saleId: winnerRow.id, created: false };
+}
+
+/** RT-1224: a first capture's child rows — the line snapshot, then its tenders and responsibilities. */
+async function insertCaptureRows(
+  client: PoolClient,
+  sale: {
+    readonly saleId: string;
+    readonly tenantId: string;
+    readonly storeId: string;
+    readonly body: CaptureSaleRequestDto;
+    readonly tenders: ReadonlyArray<SaleTenderDto>;
+    readonly responsibilities: ReadonlyArray<SaleResponsibilityDto>;
+  },
+): Promise<void> {
+  const { saleId, tenantId, storeId, body, tenders, responsibilities } = sale;
+  await insertSaleLines(client, { saleId, tenantId, storeId, lines: body.lines });
+  if (tenders.length > 0) {
+    await insertTenders(client, { saleId, tenantId, storeId, currencyCode: body.currencyCode, tenders });
+  }
+  if (responsibilities.length > 0) {
+    await insertResponsibilities(client, { saleId, tenantId, storeId, responsibilities });
+  }
+}
+
+/**
+ * Emit the `sale.captured` outbox event IN-TRANSACTION, atomic with the sale
+ * + sale_lines inserts (the inventory-service precedent). The worker-side
+ * `SaleCapturedConsumer` bridges this row to the "sale-processing" BullMQ
+ * queue. Called ONLY on the created path of `captureSale`.
+ *
+ * Payload is IDs-only (`sale_id` / `store_id`, both uuid) — NO money, line
+ * amounts, or PII (FR-042 / FR-092), matching the consumer's Zod schema. The
+ * emit runs under the same tenant GUC as the inserts (the caller is inside
+ * `runWithTenantContext` with `tenantId`), so the outbox RLS WITH CHECK
+ * passes. A failing emit ROLLS BACK the whole capture — the sale and its
+ * event commit together or not at all.
+ *
+ * `correlationId` is null: `CaptureSaleInput` carries no correlation id
+ * (unlike the inventory movement path), so there is none to forward.
+ */
+async function emitSaleCaptured(
+  client: PoolClient,
+  sale: { readonly saleId: string; readonly tenantId: string; readonly storeId: string },
+): Promise<void> {
+  await emit(client, {
+    eventType: OUTBOX_EVENT_TYPES.SALE_CAPTURED,
+    tenantId: sale.tenantId,
+    storeId: sale.storeId,
+    payload: { sale_id: sale.saleId, store_id: sale.storeId },
+    correlationId: null,
+  });
 }
 
 /**
