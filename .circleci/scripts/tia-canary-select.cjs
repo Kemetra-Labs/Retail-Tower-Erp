@@ -14,23 +14,39 @@
 //     data, analyzed nothing, and its counts agree: selected + skipped = discovered, the
 //     per-reason counts add up to selected, and selected = the list-tests line count
 // IMPACTED also always adds every TEXT READER: a spec that reads files or runs processes itself,
-// or through a non-spec test module that does (helpers, transitively). Coverage maps a spec only
-// to the modules it imports, so a spec that scans src/ or test/ as text (pos-isolation's import
-// fence, route-marker enforcement, OpenAPI route scans) would otherwise be skipped when an
-// unmapped file it reads changes. Found at run time from the specs' source, so the list cannot go
-// stale; over-inclusion only runs more. One helper is exempt (EXEMPT_HELPERS): it reads only
-// packages/db migrations, which the guard already forces FULL. Its reads are pinned by the test.
+// or through a non-spec module that does (test helpers and apps/api/src modules, transitively).
+// Coverage maps a spec only to the modules it imports, so a spec that scans src/ or test/ as text
+// (pos-isolation's import fence, route-marker enforcement, OpenAPI route scans) or loads the
+// OpenAPI YAML through src/openapi/loader.ts would otherwise be skipped when an unmapped file it
+// reads changes. Found at run time from the source, so the list cannot go stale; over-inclusion
+// only runs more. One helper is exempt (EXEMPT_HELPERS): it reads only packages/db migrations,
+// which the guard already forces FULL. Its reads are pinned by the test.
 // A union that covers every spec is FULL (nothing would be skipped).
+//
+// `bypass` (RT-921 c15663 option A) runs before list-tests and the probe. When the guard is
+// TIA_ELIGIBLE and pinned to this commit, it removes the TEXT-ONLY entries (BYPASSABLE_RE:
+// OpenAPI YAML, deploy/, docs/, .circleci/) from `full-test-run-paths` in THIS JOB'S copy of
+// .circleci/test-suites.yml and records <out>/fullrun-bypass.json; otherwise it changes nothing.
+// The CLI compares those paths with the stored impact data, not with the branch's merge-base, so
+// any main change to one of them since the last analysis selected every spec (canary #1094; in
+// 14 days, 102 of 558 main commits touched a full-test-run path, 73 of them only text-only
+// ones). It is safe for these entries only: TIA_ELIGIBLE means the branch changed none of
+// them (only API src/spec .ts files plus neutral files), and every spec that reads them is an
+// always-run text reader. Entries that can change which src lines a spec covers (test helpers,
+// jest/ts config, root package files, packages/ code, drizzle) stay. The plan step restores the
+// file with git before it plans, and `plan` is FULL if it was not restored (fullrun-restore.rc).
 //
 // `verify` runs after the tests, always: it compares the JUnit report with the plan and writes
 // <out>/canary-report.json. It exits 1 when a planned spec has no result, or an IMPACTED run
 // reports a spec it was not given, so a short run can never look green. Jest's own exit code
 // stays the run step's.
 //
-// usage: tia-canary-select.cjs plan   --out <dir> [--api-root <dir>]
+// usage: tia-canary-select.cjs bypass --out <dir> --suites <test-suites.yml>
+//        tia-canary-select.cjs plan   --out <dir> [--api-root <dir>]
 //        tia-canary-select.cjs verify --out <dir> --junit <dir|file> [--api-root <dir>]
 //   inputs read from <out>: guard.json, selected.txt, list-tests.rc, discovered.txt, probe.log,
-//   probe.rc, run-seconds (verify); env: CIRCLE_SHA1, EXPECTED_SHA
+//   probe.rc, fullrun-bypass.json, fullrun-restore.rc, run-seconds (verify);
+//   env: CIRCLE_SHA1, EXPECTED_SHA
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
@@ -52,9 +68,10 @@ const READ_RE = /['"](?:node:)?(?:fs|fs\/promises|child_process)['"]|\b(?:readFi
 // FULL); 208 specs import it, so counting it would make every DB spec a text reader.
 const EXEMPT_HELPERS = ["test/_helpers/postgres-container.ts"];
 
-// Specs that read files or run processes directly or through a non-spec test module. `modules`
-// maps every test module path (relative to apps/api: specs and helpers) to its source text.
-// Imports are matched by module basename (over-inclusion is safe), to a fixpoint for helpers.
+// Specs that read files or run processes directly or through a non-spec module. `modules` maps
+// every module path (relative to apps/api: test specs and helpers, and src modules) to its source
+// text. Imports are matched by module basename (over-inclusion is safe), to a fixpoint over the
+// non-spec modules, so a spec importing src/openapi/loader.ts, or a helper that does, is a reader.
 function textReaders(modules) {
   const isSpec = (p) => p.endsWith(".spec.ts");
   const base = (p) => p.replace(/^.*\//, "").replace(/\.(?:ts|js|cjs|mjs)$/, "");
@@ -113,6 +130,72 @@ function repoPath(fromApi) {
   return p.startsWith("../") || p.startsWith("/") ? null : p;
 }
 
+// full-test-run-paths entries (as written, relative to apps/api) the bypass may drop: files that
+// API specs only READ AS TEXT (OpenAPI YAML, deploy/, docs/, .circleci/), never import or run as
+// code. Every spec that reads files is an always-run text reader, so such a change can never be
+// skipped. Everything else stays: test helpers, jest/ts config, root package files, packages/
+// code and drizzle migrations can change which src lines a spec covers, which coverage cannot
+// see, so for those the CLI's select-all is the only signal that the stored map is stale.
+const BYPASSABLE_RE = /^(?:\.\.\/\.\.\/(?:packages\/contracts\/openapi|deploy|docs)\/|\.\.\/\.\.\/\.\.\/\.\.\/\.circleci\/)/;
+
+// PR #366 review (CodeRabbit): .circleci/test-suites.yml itself defines discovery, the run and the
+// coverage analysis, so a change to it can make the stored impact data stale. It cannot stay a
+// full-test-run path here, because the bypass edits that file and the CLI would then always
+// select every spec. Instead the bypass applies only while the suite DEFINITION hashes to this pin:
+// the whole file, byte for byte apart from line endings, minus only the bypassable list items it
+// drops. Blank and `#` lines count too (inside a folded block scalar they are part of a command),
+// as do the kept full-test-run items, so any other edit, even a comment, turns the bypass off.
+// After a change, update the pin in a later PR, only once a backend-api-jest-analysis on main has
+// succeeded on a commit that contains it; until then the canary never bypasses (fail-closed).
+const SUITE_DEFINITION_SHA256 = "8a0a448079b9487c7d1a3ec7758879b693d170739b4c639c116d3071e973109c";
+
+// Pure: sha256 of the suite file with LF line endings and without the bypassable
+// full-test-run-paths items (the same text stripFullRunPaths leaves; the whole file when nothing
+// is bypassable). Bypassable items are excluded so dropping one never needs a new pin.
+function suiteDefinitionHash(text) {
+  const lf = text.replace(/\r\n/g, "\n");
+  const stripped = stripFullRunPaths(lf);
+  return require("node:crypto").createHash("sha256").update(stripped ? stripped.text : lf).digest("hex");
+}
+
+// Pure: test-suites.yml text without the bypassable `full-test-run-paths` items (and without the
+// key when no item is left), or null unless the key appears exactly once (two-space indent) with
+// only four-space `- ` items, comments or blank lines in its block, and at least one item is
+// bypassable.
+function stripFullRunPaths(text) {
+  if (typeof text !== "string") return null;
+  const src = text.split("\n");
+  const bare = (l) => l.replace(/\r$/, "");
+  const keyAt = src.flatMap((l, i) => (/^ {2}full-test-run-paths:\s*$/.test(bare(l)) ? [i] : []));
+  if (keyAt.length !== 1) return null;
+  let end = keyAt[0] + 1;
+  const removed = [];
+  const kept = [];
+  const block = [];
+  for (; end < src.length; end++) {
+    const l = bare(src[end]);
+    if (/^\s*(?:#.*)?$/.test(l)) {
+      block.push(src[end]);
+      continue;
+    }
+    const m = /^ {4}- (\S.*?)\s*$/.exec(l);
+    if (!m) {
+      if (/^ {3,}/.test(l)) return null; // an unexpected line inside the list
+      break;
+    }
+    if (BYPASSABLE_RE.test(m[1])) {
+      removed.push(m[1]);
+    } else {
+      kept.push(m[1]);
+      block.push(src[end]);
+    }
+  }
+  if (kept.length + removed.length === 0 || removed.length === 0) return null;
+  const out = [...src.slice(0, keyAt[0]), ...(kept.length ? [src[keyAt[0]], ...block] : block), ...src.slice(end)];
+  if (!kept.length && out.some((l) => !/^\s*#/.test(l) && /full-test-run-paths/.test(l))) return null;
+  return { text: out.join("\n"), removed, kept };
+}
+
 // Pure decision. `inp` holds already-read inputs; text inputs are null when the file is missing.
 function decide(inp) {
   const reasons = [];
@@ -124,6 +207,7 @@ function decide(inp) {
     guard: { decision: inp.guard?.decision ?? null, reason: inp.guard?.reason ?? null, head: inp.guard?.head ?? null },
     impact: null,
     counts: { discovered: null, listTests: null, mustRun: null, mustRunAdded: null, changedSpecs: null, planned: null },
+    fullRunBypass: inp.bypass ? { applied: inp.bypass.applied === true, removed: inp.bypass.removed?.length ?? 0, reason: inp.bypass.reason ?? null } : null,
     mustRun: [],
     atoms: [],
   };
@@ -131,6 +215,14 @@ function decide(inp) {
     reasons.push(why);
     return plan;
   };
+
+  // A dirty suite file would also fail the specs that fence `git status --porcelain`.
+  if (inp.restoreRc !== null && inp.restoreRc !== undefined && inp.restoreRc !== 0) {
+    return fail(`.circleci/test-suites.yml was not restored after the full-test-run-paths bypass (exit ${inp.restoreRc})`);
+  }
+  if (inp.bypass?.applied === true && inp.restoreRc !== 0) {
+    return fail("full-test-run-paths bypass applied but no restore result (fullrun-restore.rc)");
+  }
 
   if (!inp.sha || !SHA_RE.test(inp.sha)) return fail(`CIRCLE_SHA1 is not a full SHA ('${inp.sha || ""}')`);
   if (inp.sha !== inp.expectedSha) return fail(`CIRCLE_SHA1 ${inp.sha} is not remote_expected_sha '${inp.expectedSha || ""}'`);
@@ -223,7 +315,8 @@ const readRc = (p) => {
   return t === null || !/^\s*\d+\s*$/.test(t) ? null : Number(t.trim());
 };
 
-// Every .ts/.js module under <apiRoot>/test, keyed by its path relative to apiRoot; null on error.
+// Every .ts/.js module under <apiRoot>/test and <apiRoot>/src, keyed by its path relative to
+// apiRoot; null on error or when test/ holds none.
 function readTestModules(apiRoot) {
   try {
     const modules = {};
@@ -238,7 +331,9 @@ function readTestModules(apiRoot) {
       }
     };
     walk("test");
-    return Object.keys(modules).length ? modules : null;
+    if (Object.keys(modules).length === 0) return null;
+    if (fs.existsSync(path.join(apiRoot, "src"))) walk("src");
+    return modules;
   } catch {
     return null;
   }
@@ -265,8 +360,51 @@ function readInputs(out, env, apiRoot) {
     listTestsRc: readRc(path.join(out, "list-tests.rc")),
     probeText: readIfExists(path.join(out, "probe.log")),
     probeRc: readRc(path.join(out, "probe.rc")),
+    bypass: readJson(path.join(out, "fullrun-bypass.json")),
+    restoreRc: readRc(path.join(out, "fullrun-restore.rc")),
     textReaders: modules ? textReaders(modules) : null,
   };
+}
+
+function readJson(p) {
+  try {
+    return JSON.parse(readIfExists(p) ?? "null");
+  } catch {
+    return { applied: false, reason: `unreadable ${path.basename(p)}` };
+  }
+}
+
+// Removes full-test-run-paths from the job's suite file only when the guard is TIA_ELIGIBLE and
+// pinned to this commit; always writes <out>/fullrun-bypass.json. Never throws.
+function runBypass(out, env, suites, pin = SUITE_DEFINITION_SHA256) {
+  const sha = env.CIRCLE_SHA1 || "";
+  let result;
+  try {
+    const g = readGuard(out, sha);
+    if (!SHA_RE.test(sha) || sha !== (env.EXPECTED_SHA || "")) {
+      result = { applied: false, reason: "CIRCLE_SHA1 is not the pinned remote_expected_sha" };
+    } else if (!g || g.decision !== "TIA_ELIGIBLE" || g.head !== sha) {
+      result = { applied: false, reason: `guard decision ${g?.decision ?? "missing"} (head ${g?.head ?? "none"})` };
+    } else {
+      const text = readIfExists(suites);
+      const definition = text === null ? null : suiteDefinitionHash(text);
+      const stripped = definition === pin ? stripFullRunPaths(text) : null;
+      if (definition !== pin) {
+        result = { applied: false, reason: `suite definition ${definition ?? "missing"} is not the pinned ${pin} (changed since the pin; see SUITE_DEFINITION_SHA256)` };
+      } else if (stripped === null) {
+        result = { applied: false, reason: `no single well-formed full-test-run-paths list with a text-only entry in ${suites}` };
+      } else {
+        fs.writeFileSync(suites, stripped.text);
+        result = { applied: true, removed: stripped.removed, kept: stripped.kept };
+      }
+    }
+  } catch (e) {
+    result = { applied: false, reason: `bypass error: ${e.message}` };
+  }
+  fs.mkdirSync(out, { recursive: true });
+  fs.writeFileSync(path.join(out, "fullrun-bypass.json"), `${JSON.stringify(result, null, 2)}\n`);
+  console.log(result.applied ? `full-test-run-paths bypass: removed ${result.removed.length} path(s) from ${suites}` : `full-test-run-paths bypass not applied: ${result.reason}`);
+  return result;
 }
 
 function writePlan(out, plan) {
@@ -347,6 +485,10 @@ function main(argv, env) {
   };
   const out = arg("--out", "/tmp/tia");
   const apiRoot = arg("--api-root", process.cwd());
+  if (argv[0] === "bypass") {
+    runBypass(out, env, arg("--suites", ".circleci/test-suites.yml"));
+    return 0;
+  }
   if (argv[0] === "plan") {
     runPlan(out, env, apiRoot);
     return 0;
@@ -356,6 +498,6 @@ function main(argv, env) {
   return 2;
 }
 
-module.exports = { repoPath, IMPACTED, FULL, ATOM_RE, READ_RE, EXEMPT_HELPERS, textReaders, readTestModules, parseProbe, decide, compare, readInputs, runPlan, runVerify, main };
+module.exports = { repoPath, IMPACTED, FULL, ATOM_RE, READ_RE, EXEMPT_HELPERS, BYPASSABLE_RE, SUITE_DEFINITION_SHA256, suiteDefinitionHash, textReaders, readTestModules, stripFullRunPaths, parseProbe, decide, compare, readInputs, runBypass, runPlan, runVerify, main };
 
 if (require.main === module) process.exit(main(process.argv.slice(2), process.env));
