@@ -6,13 +6,13 @@
 import { z } from "zod";
 import { boundedArray } from "../../../common/bounded-array";
 import { hasNoNul, NO_NUL_MESSAGE } from "../../../common/text-validation";
+import { UUID_RE_I } from "../../../common/ids";
 
 /** RT-1051: `maxItems` of a return's `lines` (the POS caps a return at 50 lines). */
 export const MAX_RETURN_LINES = 50;
 /** RT-1051: `maxItems` of a return's or reversal's `refundTenders`. */
 export const MAX_REFUND_TENDERS = 16;
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const quantity = z
   .string()
@@ -25,7 +25,7 @@ const amount = z
 
 export const ReturnLineRequestSchema = z
   .object({
-    lineRef: z.string().regex(UUID_RE, "must be a uuid"),
+    lineRef: z.string().regex(UUID_RE_I, "must be a uuid"),
     quantity,
   })
   .strict();
@@ -39,8 +39,8 @@ export const RefundTenderSchema = z
   .object({
     method: z.literal("cash"),
     amount,
-    allocationRef: z.string().regex(UUID_RE, "must be a uuid").optional(),
-    originalTenderRef: z.string().regex(UUID_RE, "must be a uuid").optional(),
+    allocationRef: z.string().regex(UUID_RE_I, "must be a uuid").optional(),
+    originalTenderRef: z.string().regex(UUID_RE_I, "must be a uuid").optional(),
     instrument: z.literal("cash").optional(),
   })
   .strict();

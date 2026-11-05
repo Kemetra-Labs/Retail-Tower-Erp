@@ -18,8 +18,8 @@ import { z } from "zod";
 import { boundedArray } from "../../../common/bounded-array";
 import { MAX_REFUND_TENDERS, MAX_RETURN_LINES, ReturnLineRequestSchema } from "./record-return-request.dto";
 import { VoidApprovalSchema } from "./record-void-request.dto";
+import { UUID_RE_I } from "../../../common/ids";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const AMOUNT_RE = /^\d{1,15}(\.\d{1,4})?$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /**
@@ -48,7 +48,7 @@ export const CreditReversalRefundTenderSchema = z
   .object({
     method: z.enum(["cash", "card_external"]),
     amount: z.string().regex(AMOUNT_RE, "must be a non-negative exact-decimal string"),
-    tenderRef: z.string().regex(UUID_RE, "must be a uuid").optional(),
+    tenderRef: z.string().regex(UUID_RE_I, "must be a uuid").optional(),
     reference: z.string().regex(/^[A-Z0-9]{1,6}$/).optional(),
   })
   .strict()

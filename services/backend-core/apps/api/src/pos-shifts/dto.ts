@@ -1,11 +1,11 @@
 import { z } from "zod";
+import { UUID_RE_I } from "../common/ids";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const StuckShiftsQuerySchema = z.object({
   branch_id: z
     .string({ required_error: "branch_id is required" })
-    .regex(UUID_RE, "branch_id must be a valid UUID"),
+    .regex(UUID_RE_I, "branch_id must be a valid UUID"),
 });
 
 export type StuckShiftsQuery = z.infer<typeof StuckShiftsQuerySchema>;
