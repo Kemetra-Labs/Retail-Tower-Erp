@@ -13,6 +13,7 @@
 import "reflect-metadata";
 import {
   Controller,
+  HttpException,
   HttpStatus,
   Param,
   Post,
@@ -40,6 +41,7 @@ import {
   composeTuple,
 } from "../../src/idempotency/idempotency.interceptor";
 import type { InProgressMarker } from "../../src/idempotency/in-progress-marker";
+import { nonReplayableMarker } from "../../src/idempotency/non-replayable";
 import * as metrics from "../../src/observability/metrics/api.metrics";
 
 const KEY = "char-key-0123456789abcdef";
@@ -294,6 +296,7 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
       { status: 201, body: { ok: true, n: 1 } }, expect.any(Date),
     );
     expect(marker.del).toHaveBeenCalledWith(tuple("/char"));
+    expect(marker.del).toHaveBeenCalledTimes(1);
     expect(store.releaseClaim).not.toHaveBeenCalled();
     expect(metricCalls()).toEqual({ replay: [], conflict: [], inProgress: [], tokenMismatch: [] });
     expect(auditEnqueuer.enqueue).not.toHaveBeenCalled();
@@ -310,6 +313,7 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
     expect(keys[0]).toContain(RESOURCE);
     expect(keys[1]).toBe(`POST:/char/:id/act:${USER}:${KEY}`);
     expect(store.save.mock.calls[0]?.[3]).toBe(keys[0]);
+    expect(marker.del).toHaveBeenCalledTimes(1);
   });
 
   it("legacy template-only key occupied on a param route: 409 legacy message + conflict metric, handler not run", async () => {
@@ -319,8 +323,10 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
     expect(res.body).toEqual(errorBody("idempotency_key_conflict", LEGACY_KEY_MESSAGE));
     expect(controller.calls).toBe(0);
     expect(store.claim).not.toHaveBeenCalled();
-    expect(metricCalls().conflict).toEqual([[{ route: "POST:/char/:id/act" }]]);
-    expect(marker.del).toHaveBeenCalled();
+    expect(metricCalls()).toEqual({
+      replay: [], conflict: [[{ route: "POST:/char/:id/act" }]], inProgress: [], tokenMismatch: [],
+    });
+    expect(marker.del).toHaveBeenCalledTimes(2);
   });
 
   // -------------------------------------------------------------------------
@@ -350,7 +356,10 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
     expect(controller.calls).toBe(0);
     expect(store.claim).not.toHaveBeenCalled();
     expect(marker.del).toHaveBeenCalledWith(tuple("/char"));
-    expect(metricCalls().inProgress).toEqual([[{ route: "POST:/char" }]]);
+    expect(marker.del).toHaveBeenCalledTimes(1);
+    expect(metricCalls()).toEqual({
+      replay: [], conflict: [], inProgress: [[{ route: "POST:/char" }]], tokenMismatch: [],
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -367,6 +376,7 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
     expect(store.claim).not.toHaveBeenCalled();
     expect(store.save).not.toHaveBeenCalled();
     expect(marker.del).toHaveBeenCalledWith(tuple("/char"));
+    expect(marker.del).toHaveBeenCalledTimes(1);
     expect(metricCalls()).toEqual({
       replay: [[{ route: "POST:/char" }]], conflict: [], inProgress: [], tokenMismatch: [],
     });
@@ -383,6 +393,7 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
     expect(res.body).toEqual(errorBody("idempotency_key_conflict", COLLISION_MESSAGE));
     expect(controller.calls).toBe(0);
     expect(marker.del).toHaveBeenCalledWith(tuple("/char"));
+    expect(marker.del).toHaveBeenCalledTimes(2);
     expect(metricCalls()).toEqual({
       replay: [], conflict: [[{ route: "POST:/char" }]], inProgress: [], tokenMismatch: [],
     });
@@ -401,6 +412,7 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
       inProgress: [],
       tokenMismatch: [[]],
     });
+    expect(marker.del).toHaveBeenCalledTimes(2);
     expect(auditEnqueuer.enqueue).toHaveBeenCalledTimes(1);
     expect(auditEnqueuer.enqueue).toHaveBeenCalledWith({
       actor_user_id: USER,
@@ -447,6 +459,7 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
     expect(res.headers["idempotent-replayed"]).toBe("true");
     expect(controller.calls).toBe(0);
     expect(marker.del).toHaveBeenCalledWith(tuple("/char"));
+    expect(marker.del).toHaveBeenCalledTimes(1);
     expect(metricCalls()).toEqual({
       replay: [[{ route: "POST:/char" }]], conflict: [], inProgress: [], tokenMismatch: [],
     });
@@ -459,7 +472,7 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
     expect(res.status).toBe(409);
     expect(res.body).toEqual(errorBody("idempotency_key_conflict", COLLISION_MESSAGE));
     expect(controller.calls).toBe(0);
-    expect(marker.del).toHaveBeenCalled();
+    expect(marker.del).toHaveBeenCalledTimes(1);
     expect(metricCalls()).toEqual({ replay: [], conflict: [], inProgress: [], tokenMismatch: [] });
     expect(auditEnqueuer.enqueue).not.toHaveBeenCalled();
   });
@@ -470,7 +483,10 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
     const res = await post("/char");
     expect(res.status).toBe(425);
     expect(res.body).toEqual({ error: "idempotency_in_progress", retryAfterSec: 2 });
-    expect(metricCalls().inProgress).toEqual([[{ route: "POST:/char" }]]);
+    expect(marker.del).toHaveBeenCalledTimes(1);
+    expect(metricCalls()).toEqual({
+      replay: [], conflict: [], inProgress: [[{ route: "POST:/char" }]], tokenMismatch: [],
+    });
   });
 
   it("lost claim, winner released: claims again and runs the handler once", async () => {
@@ -482,6 +498,7 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
     expect(res.body).toEqual({ ok: true, n: 1 });
     expect(store.claim).toHaveBeenCalledTimes(2);
     expect(store.save).toHaveBeenCalledTimes(1);
+    expect(marker.del).toHaveBeenCalledTimes(2);
   });
 
   it("lost claim on a non-replayable route: 409 non-replayable message + conflict metric", async () => {
@@ -490,6 +507,7 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
     const res = await post("/char-forbid");
     expect(res.status).toBe(409);
     expect(res.body).toEqual(errorBody("idempotency_key_conflict", NON_REPLAYABLE_MESSAGE));
+    expect(marker.del).toHaveBeenCalledTimes(1);
     expect(metricCalls()).toEqual({
       replay: [], conflict: [[{ route: "POST:/char-forbid" }]], inProgress: [], tokenMismatch: [],
     });
@@ -519,8 +537,47 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
     expect(res.headers["idempotent-replayed"]).toBeUndefined();
     expect(controller.calls).toBe(0);
     expect(marker.del).toHaveBeenCalledWith(tuple("/char-forbid"));
+    expect(marker.del).toHaveBeenCalledTimes(2);
     expect(metricCalls()).toEqual({
       replay: [], conflict: [[{ route: "POST:/char-forbid" }]], inProgress: [], tokenMismatch: [],
+    });
+  });
+
+  it("store in_progress on a param route: 425 and NO legacy-key probe", async () => {
+    script.findOrCreate.push(async () => ({ hit: "in_progress" }));
+    const res = await post(`/char/${RESOURCE}/act`);
+    expect(res.status).toBe(425);
+    expect(res.body).toEqual({ error: "idempotency_in_progress", retryAfterSec: 2 });
+    expect(store.findOrCreate).toHaveBeenCalledTimes(1);
+    expect(marker.del).toHaveBeenCalledTimes(1);
+    expect(metricCalls()).toEqual({
+      replay: [], conflict: [], inProgress: [[{ route: "POST:/char/:id/act" }]], tokenMismatch: [],
+    });
+  });
+
+  it("replay on a param route: stored result and NO legacy-key probe", async () => {
+    script.findOrCreate.push(async () => hit({ status: 201, body: { ok: true, n: 9 } }));
+    const res = await post(`/char/${RESOURCE}/act`);
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ ok: true, n: 9 });
+    expect(store.findOrCreate).toHaveBeenCalledTimes(1);
+    expect(marker.del).toHaveBeenCalledTimes(1);
+    expect(metricCalls()).toEqual({
+      replay: [[{ route: "POST:/char/:id/act" }]], conflict: [], inProgress: [], tokenMismatch: [],
+    });
+  });
+
+  it("stored non-replayable marker on a normal route: 409, never replayed", async () => {
+    script.findOrCreate.push(async () =>
+      hit({ status: 201, body: nonReplayableMarker({ id: "r-1", secret: "x" }, ["id"]) }));
+    const res = await post("/char");
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual(errorBody("idempotency_key_conflict", NON_REPLAYABLE_MESSAGE));
+    expect(res.headers["idempotent-replayed"]).toBeUndefined();
+    expect(controller.calls).toBe(0);
+    expect(marker.del).toHaveBeenCalledTimes(2);
+    expect(metricCalls()).toEqual({
+      replay: [], conflict: [[{ route: "POST:/char" }]], inProgress: [], tokenMismatch: [],
     });
   });
 
@@ -537,7 +594,19 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
     expect(res.body).toEqual(errorBody("internal_error", "Internal Server Error"));
     expect(controller.calls).toBe(0);
     expect(marker.del).toHaveBeenCalledWith(tuple("/char"));
+    expect(marker.del).toHaveBeenCalledTimes(1);
     expect(metricCalls()).toEqual({ replay: [], conflict: [], inProgress: [], tokenMismatch: [] });
+  });
+
+  it("store error with a failing marker cleanup: the ORIGINAL error surfaces", async () => {
+    script.findOrCreate.push(async () => {
+      throw new HttpException("teapot", 418);
+    });
+    marker.del.mockRejectedValueOnce(new Error("redis down on del"));
+    const res = await post("/char");
+    expect(res.status).toBe(418);
+    expect(controller.calls).toBe(0);
+    expect(marker.del).toHaveBeenCalledTimes(1);
   });
 
   // CURRENT BEHAVIOUR, pinned on purpose: `handle` returns `runFresh(...)`
@@ -550,6 +619,7 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
     store.claim.mockRejectedValueOnce(new Error("pg down"));
     const res = await post("/char");
     expect(res.status).toBe(500);
+    expect(res.body).toEqual(errorBody("internal_error", "Internal Server Error"));
     expect(controller.calls).toBe(0);
     expect(marker.trySet).toHaveBeenCalledWith(tuple("/char"), expect.any(Number));
     expect(marker.del).not.toHaveBeenCalled();
@@ -562,11 +632,13 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
     const res = await post("/char");
     await settle();
     expect(res.status).toBe(500);
+    expect(res.body).toEqual(errorBody("internal_error", "Internal Server Error"));
     expect(store.releaseClaim).toHaveBeenCalledWith({
       tenantId: TENANT, storeId: null, clientId: USER, key: storeKey("/char"),
     });
     expect(store.save).not.toHaveBeenCalled();
     expect(marker.del).toHaveBeenCalledWith(tuple("/char"));
+    expect(marker.del).toHaveBeenCalledTimes(1);
   });
 
   it("save failure: response still returned and the degradation is warn-logged", async () => {
