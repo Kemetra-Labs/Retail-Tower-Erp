@@ -41,3 +41,13 @@ export function decodeOpaque<T>(raw: string, schema: ZodType<T>, onInvalid: () =
   if (!parsed.success) throw onInvalid();
   return parsed.data;
 }
+
+/**
+ * True when `key` (UTC, ISO text) names a real instant. `Date.parse` rolls an out-of-range day
+ * over ("02-31" becomes "03-03") where Postgres refuses the cast, so the date and time are
+ * checked to survive the round trip unchanged.
+ */
+export function isCalendarInstant(key: string): boolean {
+  const ms = Date.parse(key);
+  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 19) === key.slice(0, 19);
+}
