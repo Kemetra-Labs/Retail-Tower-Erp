@@ -323,3 +323,206 @@ for (const forced of [false, true]) {
     expect(stops.at(-1)?.label).toContain(t("catalog.list.loadMore"));
   });
 }
+
+/**
+ * RT-1236: the list anchors numbers and flexes identity (UX-10). A cell that
+ * holds a number, a code or a date never breaks across lines; when the columns do
+ * not fit, the item name takes the squeeze and metadata drops first (S5). Rows are
+ * measured from the rendered text, so a wrapped cell cannot pass by being short:
+ * a cell is wrapped when its text spans more than one line box. The Item cell is
+ * left out of that count: a name wraps to two lines by design.
+ */
+const TEN_ROWS = Array.from({ length: 10 }, (_, i) => {
+  const id = `0190f000-0000-7000-8000-0000000008${String(i).padStart(2, "0")}`;
+  return product({
+    productId: id,
+    name: i % 3 === 0 ? "Mineral water 1.5L" : `Item number ${i + 1}`,
+    primarySku: `SKU-${String(42 + i).padStart(4, "0")}`,
+    primaryBarcode: `00123456789${String(10 + i).padStart(2, "0")}`,
+    defaultPrice: { amount: `${10 + i * 7}.5000`, currencyCode: "EGP" },
+    storeView: storeView({
+      effectivePrice: { amount: `${12 + i * 7}.0000`, currencyCode: "EGP" },
+      hasOverride: i % 2 === 0,
+    }),
+  });
+});
+
+/** Per visible body cell: its column header and whether its text spans one line box. */
+async function measureCells(p: Page, itemHeader: string) {
+  return p.evaluate((itemHeader) => {
+    const heads = [...document.querySelectorAll(".catalog-table th")].map((th) => ({
+      th: th as HTMLElement,
+      text: th.textContent?.trim() ?? "",
+    }));
+    const lines = (el: Element) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      let count = 0;
+      let bottom = Number.NEGATIVE_INFINITY;
+      for (const r of [...range.getClientRects()].sort((a, b) => a.top - b.top)) {
+        if (r.width === 0 || r.height === 0) continue;
+        if (r.top >= bottom - 1) count += 1;
+        bottom = Math.max(bottom, r.bottom);
+      }
+      return count;
+    };
+    const rows = [...document.querySelectorAll(".catalog-table tbody tr")];
+    const region = document.querySelector(".data-table__scroll") as HTMLElement | null;
+    const panel = document.querySelector(".catalog-results") as HTMLElement | null;
+    const page = document.documentElement;
+    return {
+      headers: heads.filter((h) => h.th.offsetParent !== null).map((h) => h.text),
+      rowHeights: rows.map((r) => Math.round(r.getBoundingClientRect().height)),
+      wrapped: rows.flatMap((r) =>
+        [...r.children]
+          .map((td, i) => ({ td: td as HTMLElement, head: heads[i]?.text ?? "" }))
+          .filter(
+            ({ td, head }) => head !== itemHeader && td.offsetParent !== null && lines(td) > 1,
+          )
+          .map(({ head }) => head),
+      ),
+      regionScrolls: region ? region.scrollWidth > region.clientWidth + 1 : false,
+      regionInsidePanel:
+        region && panel
+          ? region.getBoundingClientRect().right <= panel.getBoundingClientRect().right + 1 &&
+            region.getBoundingClientRect().left >= panel.getBoundingClientRect().left - 1
+          : false,
+      itemWidth: Math.round(rows[0]?.firstElementChild?.getBoundingClientRect().width ?? 0),
+      pageScrolls: page.scrollWidth > page.clientWidth,
+    };
+  }, itemHeader);
+}
+
+const MUST_SURVIVE = [
+  "catalog.list.col.item",
+  "catalog.list.col.status",
+  "catalog.list.col.price",
+] as const;
+
+/** The item name keeps room to read: a few words, not a sliver (S7 and S7b). */
+const MIN_ITEM_WIDTH = 120;
+
+for (const width of [1440, 1280, 1200]) {
+  test(`S7: with a store in scope, SKU and price stay on one line at ${width}`, async ({
+    page: p,
+    t,
+  }) => {
+    await mockBase(p, "store_manager", { id: CAIRO, name: "Cairo Festival" });
+    await mockList(p, [{ items: TEN_ROWS, nextCursor: null }]);
+    await p.setViewportSize({ width, height: 900 });
+    await p.goto("/catalog/products");
+    await expect(p.getByRole("table").getByText("Item number 2")).toBeVisible();
+
+    const m = await measureCells(p, t("catalog.list.col.item"));
+    expect(m.wrapped).toEqual([]);
+    expect(m.regionScrolls, "the results panel does not scroll sideways").toBe(false);
+    expect(m.itemWidth).toBeGreaterThanOrEqual(MIN_ITEM_WIDTH);
+    // Single-line rows from 1280. At 1200 the availability chips may stack (two
+    // chips, 89px: CI's fonts are wider than the laptop's); they flex-wrap by design
+    // and are not the cells this test guards, so only a sane height is asserted.
+    expect(Math.max(...m.rowHeights)).toBeLessThanOrEqual(width >= 1280 ? 60 : 100);
+    for (const key of [...MUST_SURVIVE, "catalog.list.col.sku"] as const) {
+      expect(m.headers).toContain(t(key));
+    }
+    // Metadata goes first, in the existing order: tax category and tracking at
+    // 1600px and below, updated-at last (1380px and below). So updated-at is a
+    // measured single-line cell at 1440 only; at 1280 and 1200 it is dropped.
+    expect(m.headers.includes(t("catalog.list.col.updatedAt"))).toBe(width === 1440);
+    expect(m.headers).not.toContain(t("catalog.list.col.taxCategory"));
+    expect(m.headers).not.toContain(t("catalog.list.col.tracking"));
+  });
+}
+
+// The drop boundaries themselves: tax category and tracking go at 1600px and
+// below, updated-at at 1380px and below.
+for (const [width, taxAndTracking, updatedAt] of [
+  [1601, true, true],
+  [1600, false, true],
+  [1381, false, true],
+  [1380, false, false],
+] as const) {
+  test(`S7a: with a store in scope, metadata drops at the ${width}px boundary`, async ({
+    page: p,
+    t,
+  }) => {
+    await mockBase(p, "store_manager", { id: CAIRO, name: "Cairo Festival" });
+    await mockList(p, [{ items: TEN_ROWS, nextCursor: null }]);
+    await p.setViewportSize({ width, height: 900 });
+    await p.goto("/catalog/products");
+    await expect(p.getByRole("table").getByText("Item number 2")).toBeVisible();
+
+    const m = await measureCells(p, t("catalog.list.col.item"));
+    expect(m.headers.includes(t("catalog.list.col.taxCategory"))).toBe(taxAndTracking);
+    expect(m.headers.includes(t("catalog.list.col.tracking"))).toBe(taxAndTracking);
+    expect(m.headers.includes(t("catalog.list.col.updatedAt"))).toBe(updatedAt);
+    expect(m.wrapped).toEqual([]);
+  });
+}
+
+for (const width of [1440, 1280, 1200, 1101, 1024]) {
+  test(`S7b: tenant scope at ${width} keeps single-line rows and a readable item name`, async ({
+    page: p,
+    t,
+  }) => {
+    await mockBase(p, "owner");
+    await mockList(p, [
+      { items: TEN_ROWS.map((r) => ({ ...r, storeView: undefined })), nextCursor: null },
+    ]);
+    await p.setViewportSize({ width, height: 900 });
+    await p.goto("/catalog/products");
+    await expect(p.getByRole("table").getByText("Item number 2")).toBeVisible();
+
+    const m = await measureCells(p, t("catalog.list.col.item"));
+    expect(m.wrapped).toEqual([]);
+    expect(m.regionScrolls, "the results panel does not scroll sideways").toBe(false);
+    expect(m.itemWidth).toBeGreaterThanOrEqual(MIN_ITEM_WIDTH);
+    expect(Math.max(...m.rowHeights)).toBeLessThanOrEqual(60);
+    for (const key of MUST_SURVIVE) expect(m.headers).toContain(t(key));
+    // All three metadata columns at 1440, none at 1380px and below.
+    expect(m.headers.includes(t("catalog.list.col.updatedAt"))).toBe(width === 1440);
+  });
+}
+
+test("S7d: a very long SKU cannot squeeze the item name below its floor at 1101", async ({
+  page: p,
+  t,
+}) => {
+  await mockBase(p, "owner");
+  await mockList(p, [
+    {
+      items: TEN_ROWS.map((r) => ({
+        ...r,
+        storeView: undefined,
+        primarySku: "BEV-WATER-1500ML-PK6-EXTRA-LONG-SUPPLIER-CODE-000042",
+      })),
+      nextCursor: null,
+    },
+  ]);
+  await p.setViewportSize({ width: 1101, height: 900 });
+  await p.goto("/catalog/products");
+  await expect(p.getByRole("table").getByText("Item number 2")).toBeVisible();
+
+  const m = await measureCells(p, t("catalog.list.col.item"));
+  expect(m.itemWidth).toBeGreaterThanOrEqual(MIN_ITEM_WIDTH);
+  // The table is wider than its panel, so the panel's scroll region takes it.
+  expect(m.regionScrolls).toBe(true);
+  expect(m.regionInsidePanel).toBe(true);
+  expect(m.pageScrolls).toBe(false);
+});
+
+test("S7c: a store in scope at 1024 keeps item, status and price and never clips the panel", async ({
+  page: p,
+  t,
+}) => {
+  await mockBase(p, "store_manager", { id: CAIRO, name: "Cairo Festival" });
+  await mockList(p, [{ items: TEN_ROWS, nextCursor: null }]);
+  await p.setViewportSize({ width: 1024, height: 900 });
+  await p.goto("/catalog/products");
+  await expect(p.getByRole("table").getByText("Item number 2")).toBeVisible();
+
+  const m = await measureCells(p, t("catalog.list.col.item"));
+  for (const key of MUST_SURVIVE) expect(m.headers).toContain(t(key));
+  // The scroll region may scroll (RT-826) but stays inside its panel, and the page does not.
+  expect(m.regionInsidePanel).toBe(true);
+  expect(m.pageScrolls).toBe(false);
+});

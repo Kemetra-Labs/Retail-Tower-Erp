@@ -9,7 +9,8 @@
  * The columns follow UX-10: Item, Status and Price must survive; SKU, Barcode,
  * Category (and, with a store in scope, Store availability) are contextual; tax
  * category, tracking and updated-at are metadata, dropped first when narrow
- * (`catalog.css`). Every value is the server's: no price or availability is
+ * (`catalog.css`). Above 1100px numbers, codes and dates never wrap (RT-1236): the
+ * item name takes the squeeze. Every value is the server's: no price or availability is
  * computed here.
  *
  * RT-1010 (v4.0): every result state sits in one results panel. The rows open
@@ -27,7 +28,11 @@ import type { CatalogError, CatalogListState } from "./useCatalog";
 /** A machine value (SKU, barcode, tax category): isolated LTR, "—" when absent. */
 function Code({ value }: Readonly<{ value: string | null }>): React.JSX.Element {
   if (value === null) return <>—</>;
-  return <bdi dir="ltr">{value}</bdi>;
+  return (
+    <bdi dir="ltr" className="catalog-nowrap">
+      {value}
+    </bdi>
+  );
 }
 
 /** The store's resolved price with a store in scope, else the tenant default. */
@@ -41,7 +46,7 @@ function Price({
   if (storeInScope && !product.storeView) return <>—</>;
   const money = storeInScope ? product.storeView?.effectivePrice : product.defaultPrice;
   if (!money) return <>{t("catalog.value.noPrice")}</>;
-  return <Money value={money.amount} currency={money.currencyCode} />;
+  return <Money value={money.amount} currency={money.currencyCode} className="catalog-nowrap" />;
 }
 
 function Availability({ product }: Readonly<{ product: CatalogProduct }>): React.JSX.Element {
@@ -113,7 +118,7 @@ function catalogColumns(t: T, storeInScope: boolean): DataTableColumn<CatalogPro
     {
       key: "updatedAt",
       header: t("catalog.list.col.updatedAt"),
-      cell: (p) => <DateTime value={p.updatedAt} />,
+      cell: (p) => <DateTime value={p.updatedAt} className="catalog-nowrap" />,
     },
   );
   return columns;
@@ -219,10 +224,11 @@ function ResultState({
 }: Readonly<CatalogResultsProps>): React.JSX.Element {
   const t = useT();
   const columns = catalogColumns(t, storeInScope);
+  const tableClass = storeInScope ? "catalog-table catalog-table--store" : "catalog-table";
   const caption = t(searching ? "catalog.list.captionSearch" : "catalog.list.caption");
   if (list.isLoading) {
     return (
-      <div className="catalog-table">
+      <div className={tableClass}>
         <DataTableSkeleton
           caption={caption}
           columns={columns}
@@ -240,7 +246,7 @@ function ResultState({
   return (
     <>
       {list.rows.length > 0 ? (
-        <div className="catalog-table">
+        <div className={tableClass}>
           <DataTable
             caption={caption}
             columns={columns}
