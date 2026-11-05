@@ -48,6 +48,7 @@ import { catchError, concatMap, finalize, switchMap } from "rxjs/operators";
 
 import {
   IdempotencyKeyStore,
+  type IdempotencyEntry,
   type Logger,
   type StoredResult,
 } from "@data-pulse-2/shared";
@@ -180,6 +181,33 @@ export function composeTuple(tenantId: string, storeKey: string): string {
   return `${tenantId}:${storeKey}`;
 }
 
+interface IdempotentRequest {
+  method: string;
+  route?: { path?: string };
+  params?: Record<string, unknown>;
+  url: string;
+  headers: Record<string, string | string[] | undefined>;
+  body?: unknown;
+  context?: ResolvedContext;
+  principal?: { userId?: string };
+}
+
+/** The dedup identity of one idempotent request (`resolvePolicyAndKey`). */
+interface ResolvedKey {
+  req: IdempotentRequest;
+  headerValue: string;
+  routePath: string;
+  /** `${METHOD}:${routePath}` — the metric label. */
+  route: string;
+  clientId: string;
+  tenantId: string;
+  storeKey: string;
+  legacyKey: string | null;
+  replayForbidden: boolean;
+  tuple: string;
+  fingerprint: Buffer;
+}
+
 @Injectable()
 export class IdempotencyInterceptor implements NestInterceptor {
   constructor(
@@ -228,48 +256,95 @@ export class IdempotencyInterceptor implements NestInterceptor {
   }
 
   /**
-   * Another request holds the in-progress marker for this tuple: write the 425
-   * directly and return EMPTY so NestJS does not attempt a second serialization
-   * pass (EMPTY completes with no values).
+   * Step 2–4: enforce the header policy and compose the dedup identity.
+   * Returns null when an optional route has no header (pass through without
+   * replay protection). Throws 400 for a missing required or malformed key,
+   * and 401 (via `deviceClientId`) for a device route with no device.
    */
-  private respondInProgress(execCtx: ExecutionContext): Observable<unknown> {
-    // Write the response directly and return EMPTY so NestJS does not
-    // attempt a second serialization pass (EMPTY completes with no values).
-    const rawRes = execCtx.switchToHttp().getResponse<{
-      status(code: number): unknown;
-      setHeader(name: string, value: string): void;
-      headersSent: boolean;
-      json(body: unknown): void;
-    }>();
-    rawRes.setHeader("Retry-After", "2");
-    rawRes.status(425 as unknown as number);
-    rawRes.json({ error: "idempotency_in_progress", retryAfterSec: 2 });
-    return EMPTY;
+  private resolvePolicyAndKey(
+    execCtx: ExecutionContext,
+    policy: IdempotentPolicy,
+    options: IdempotentOptions,
+  ): ResolvedKey | null {
+    const req = execCtx.switchToHttp().getRequest<IdempotentRequest>();
+    const rawKey = req.headers[HEADER_NAME];
+    const headerValue = Array.isArray(rawKey) ? rawKey[0] : rawKey;
+
+    if (!headerValue) {
+      if (policy === "required") {
+        throw new BadRequestException({
+          code: "idempotency_key_required",
+          message:
+            "This endpoint requires an Idempotency-Key header. Generate a UUIDv7 and include it with every retry.",
+        });
+      }
+      return null;
+    }
+    if (!KEY_REGEX.test(headerValue)) {
+      throw new BadRequestException({
+        code: "idempotency_key_malformed",
+        message:
+          "Idempotency-Key must be 16–128 printable ASCII characters with no whitespace.",
+      });
+    }
+
+    const method = req.method.toUpperCase();
+    const routePath = req.route?.path ?? req.url;
+    const cId = options.clientScope === "device" ? deviceClientId(execCtx) : clientId(execCtx);
+    const tId = tenantId(execCtx) ?? "no-tenant";
+    // RT-155: the resolved path params are bound into the store key.
+    const storeKey = composeStoreKey({ method, routePath, params: req.params }, cId, headerValue);
+    return {
+      req,
+      headerValue,
+      routePath,
+      route: `${method}:${routePath}`,
+      clientId: cId,
+      tenantId: tId,
+      storeKey,
+      // K2: the pre-RT-155 template-only key, probed on param routes only.
+      legacyKey:
+        paramsSegment(req.params) === ""
+          ? null
+          : composeStoreKey({ method, routePath }, cId, headerValue),
+      replayForbidden: options.replay === "forbid",
+      tuple: composeTuple(tId, storeKey),
+      fingerprint: bodyFingerprint(req.body),
+    };
   }
 
-  /** Replay path — short-circuit before the handler, never as a 2xx for a non-replayable route. */
-  private replayStored(
+  /** Another request holds the in-progress marker for this tuple: 425. */
+  private handleInFlight(execCtx: ExecutionContext, route: string): Observable<unknown> {
+    recordIdempotencyInProgress({ route });
+    return replyInProgress(execCtx);
+  }
+
+  /** Stored result for this key and body: release the marker, then replay or refuse (K3). */
+  private async handleReplay(
     execCtx: ExecutionContext,
-    entry: { result: { status: number; body: unknown } },
-    opts: { route: string; replayForbidden: boolean },
-  ): Observable<unknown> {
-    const { route, replayForbidden } = opts;
-    // K3: a non-replayable route (or any stored marker) is never replayed
-    // as a 2xx — the secret was never stored, so the only answer is 409.
-    if (replayForbidden || isNonReplayableMarker(entry.result.body)) {
-      recordIdempotencyConflict({ route });
-      throw idempotencyConflict(NON_REPLAYABLE_MESSAGE);
+    key: ResolvedKey,
+    entry: IdempotencyEntry,
+  ): Promise<Observable<unknown>> {
+    await this.marker.del(key.tuple);
+    return replayOrRefuse(execCtx, key.route, key.replayForbidden, entry);
+  }
+
+  /** Same key, different body: release the marker, then 409 with its telemetry. */
+  private async handleCollision(key: ResolvedKey): Promise<never> {
+    await this.marker.del(key.tuple);
+    return this.rejectCollision(key.req, key.route, key.routePath);
+  }
+
+  /** K2: a param route whose legacy template-only key is occupied is refused 409. */
+  private async rejectIfLegacyKeyOccupied(key: ResolvedKey): Promise<void> {
+    if (
+      key.legacyKey !== null &&
+      (await legacyKeyOccupied(this.store, key.tenantId, key.clientId, key.legacyKey, key.fingerprint))
+    ) {
+      await this.marker.del(key.tuple);
+      recordIdempotencyConflict({ route: key.route });
+      throw idempotencyConflict(LEGACY_KEY_MESSAGE);
     }
-    recordIdempotencyReplay({ route });
-    const rawRes = execCtx.switchToHttp().getResponse<{
-      status(code: number): unknown;
-      setHeader(name: string, value: string): void;
-      json(body: unknown): void;
-    }>();
-    rawRes.setHeader("Idempotent-Replayed", "true");
-    rawRes.status(entry.result.status);
-    rawRes.json(entry.result.body);
-    return EMPTY;
   }
 
   /**
@@ -349,133 +424,71 @@ export class IdempotencyInterceptor implements NestInterceptor {
     });
   }
 
+  /**
+   * Dispatcher (RT-1223). Policy and key → in-progress marker → stored
+   * result → replay / collision / legacy refusal / fresh execution.
+   */
   private async handle(
     execCtx: ExecutionContext,
     next: CallHandler,
     policy: IdempotentPolicy,
     options: IdempotentOptions,
   ): Promise<Observable<unknown>> {
-    const req = execCtx.switchToHttp().getRequest<{
-      method: string;
-      route?: { path?: string };
-      params?: Record<string, unknown>;
-      url: string;
-      headers: Record<string, string | string[] | undefined>;
-      body?: unknown;
-      context?: ResolvedContext;
-      principal?: { userId?: string };
-    }>();
+    const key = this.resolvePolicyAndKey(execCtx, policy, options);
+    if (key === null) return next.handle();
 
-    const rawKey = req.headers[HEADER_NAME];
-    const headerValue = Array.isArray(rawKey) ? rawKey[0] : rawKey;
-
-    // Step 2: enforce policy for missing header
-    if (!headerValue) {
-      if (policy === "required") {
-        throw new BadRequestException({
-          code: "idempotency_key_required",
-          message:
-            "This endpoint requires an Idempotency-Key header. Generate a UUIDv7 and include it with every retry.",
-        });
-      }
-      // optional: pass through without replay protection
-      return next.handle();
-    }
-
-    // Step 3: validate header format
-    if (!KEY_REGEX.test(headerValue)) {
-      throw new BadRequestException({
-        code: "idempotency_key_malformed",
-        message:
-          "Idempotency-Key must be 16–128 printable ASCII characters with no whitespace.",
-      });
-    }
-
-    const method = req.method.toUpperCase();
-    const routePath = req.route?.path ?? req.url;
-    const cId = options.clientScope === "device" ? deviceClientId(execCtx) : clientId(execCtx);
-    const tId = tenantId(execCtx) ?? "no-tenant";
-    const route = `${method}:${routePath}`;
-
-    const storeKey = composeStoreKey({ method, routePath, params: req.params }, cId, headerValue);
-    // K2: the pre-RT-155 template-only key, probed on param routes only.
-    const legacyKey =
-      paramsSegment(req.params) === ""
-        ? null
-        : composeStoreKey({ method, routePath }, cId, headerValue);
-    const replayForbidden = options.replay === "forbid";
-    const tuple = composeTuple(tId, storeKey);
-    const fp = bodyFingerprint(req.body);
-
-    // Step 5: check in-progress marker BEFORE store lookup.
+    // Step 5: the in-progress marker is checked BEFORE the store lookup.
     const inflightTtlSec = options.inflightTtlSec ?? DEFAULT_INFLIGHT_TTL_SEC;
-    const markerOwned = await this.marker.trySet(tuple, inflightTtlSec);
-
-    if (!markerOwned) {
-      // Another request is in flight for this tuple.
-      recordIdempotencyInProgress({ route });
-      return this.respondInProgress(execCtx);
+    if (!(await this.marker.trySet(key.tuple, inflightTtlSec))) {
+      return this.handleInFlight(execCtx, key.route);
     }
 
     try {
-      // Step 6: check IdempotencyKeyStore.
-      const replayTtlMs =
-        options.replayTtlSec !== undefined
-          ? options.replayTtlSec * 1000
-          : 72 * 60 * 60 * 1000; // 72h default
-
+      // Step 6: check the IdempotencyKeyStore.
       const stored = await this.store.findOrCreate(
-        tId,
-        null,
-        cId,
-        storeKey,
-        fp,
+        key.tenantId, null, key.clientId, key.storeKey, key.fingerprint,
       );
-
-      if (stored.hit === true) {
-        // Replay path — short-circuit before handler.
-        await this.marker.del(tuple);
-        return this.replayStored(execCtx, stored.entry, { route, replayForbidden });
-      }
-
-      if (stored.hit === "collision") {
-        // Same key, different body — conflict.
-        await this.marker.del(tuple);
-        this.rejectCollision(req, route, routePath);
-      }
-
-      if (
-        stored.hit === false &&
-        legacyKey !== null &&
-        (await legacyKeyOccupied(this.store, tId, cId, legacyKey, fp))
-      ) {
-        await this.marker.del(tuple);
-        recordIdempotencyConflict({ route });
-        throw idempotencyConflict(LEGACY_KEY_MESSAGE);
-      }
-
-      return runFresh({
-        store: this.store,
-        marker: this.marker,
-        logger: this.logger,
-        execCtx,
-        next,
-        route,
-        tuple,
-        tenantId: tId,
-        clientId: cId,
-        storeKey,
-        fingerprint: fp,
-        replayTtlMs,
-        hit: stored.hit,
-        keyFingerprint: keyFingerprint(headerValue),
-        replayForbidden,
-        replayMarkerFields: options.replayMarkerFields ?? [],
-      });
+      if (stored.hit === true) return await this.handleReplay(execCtx, key, stored.entry);
+      if (stored.hit === "collision") return await this.handleCollision(key);
+      if (stored.hit === false) await this.rejectIfLegacyKeyOccupied(key);
+      // Deliberately NOT awaited: a rejection from runFresh (e.g. the claim
+      // write) bypasses this catch and leaves the marker to its TTL. This is
+      // the pre-RT-1223 behaviour, pinned by the characterization matrix.
+      return runFresh(this.freshAttempt(execCtx, next, key, options, stored.hit));
     } catch (err) {
-      await this.marker.del(tuple).catch(() => undefined);
+      await this.marker.del(key.tuple).catch(() => undefined);
       throw err;
     }
+  }
+
+  private freshAttempt(
+    execCtx: ExecutionContext,
+    next: CallHandler,
+    key: ResolvedKey,
+    options: IdempotentOptions,
+    hit: false | "in_progress",
+  ): FreshAttempt {
+    return {
+      store: this.store,
+      marker: this.marker,
+      logger: this.logger,
+      execCtx,
+      next,
+      route: key.route,
+      tuple: key.tuple,
+      tenantId: key.tenantId,
+      clientId: key.clientId,
+      storeKey: key.storeKey,
+      fingerprint: key.fingerprint,
+      replayTtlMs:
+        options.replayTtlSec !== undefined
+          ? options.replayTtlSec * 1000
+          : 72 * 60 * 60 * 1000, // 72h default
+      hit,
+      keyFingerprint: keyFingerprint(key.headerValue),
+      replayForbidden: key.replayForbidden,
+      replayMarkerFields: options.replayMarkerFields ?? [],
+    };
   }
 }
 
@@ -584,12 +597,7 @@ async function lostClaim(attempt: FreshAttempt): Promise<Observable<unknown>> {
   );
   await attempt.marker.del(attempt.tuple);
   if (again.hit === true) {
-    if (attempt.replayForbidden || isNonReplayableMarker(again.entry.result.body)) {
-      recordIdempotencyConflict({ route: attempt.route });
-      throw idempotencyConflict(NON_REPLAYABLE_MESSAGE);
-    }
-    recordIdempotencyReplay({ route: attempt.route });
-    return replyReplay(attempt.execCtx, again.entry.result.status, again.entry.result.body);
+    return replayOrRefuse(attempt.execCtx, attempt.route, attempt.replayForbidden, again.entry);
   }
   if (again.hit === "collision") {
     throw new ConflictException({
@@ -603,6 +611,25 @@ async function lostClaim(attempt: FreshAttempt): Promise<Observable<unknown>> {
     return replyInProgress(attempt.execCtx);
   }
   return runFresh({ ...attempt, hit: false });
+}
+
+/**
+ * Replay a stored result, or refuse it (K3): a non-replayable route, or a
+ * stored non-replayable marker, is never replayed as a 2xx — the secret was
+ * never stored, so the only answer is 409.
+ */
+function replayOrRefuse(
+  execCtx: ExecutionContext,
+  route: string,
+  replayForbidden: boolean,
+  entry: IdempotencyEntry,
+): Observable<never> {
+  if (replayForbidden || isNonReplayableMarker(entry.result.body)) {
+    recordIdempotencyConflict({ route });
+    throw idempotencyConflict(NON_REPLAYABLE_MESSAGE);
+  }
+  recordIdempotencyReplay({ route });
+  return replyReplay(execCtx, entry.result.status, entry.result.body);
 }
 
 function replyInProgress(execCtx: ExecutionContext): Observable<never> {
