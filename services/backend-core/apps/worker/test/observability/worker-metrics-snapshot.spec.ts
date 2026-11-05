@@ -54,7 +54,7 @@ jest.mock("@data-pulse-2/shared", () => {
   };
 });
 
-import * as workerMetrics from "../../src/observability/metrics/worker.metrics";
+import { WORKER_METRIC_NAMES } from "../../src/observability/metrics/worker.metrics";
 
 const byName = <T extends { name?: string; metric?: string }>(a: T, b: T): number =>
   (a.name ?? a.metric ?? "").localeCompare(b.name ?? b.metric ?? "");
@@ -73,6 +73,6 @@ describe("RT-1211 worker metric snapshot", () => {
   });
 
   it("WORKER_METRIC_NAMES is exactly the registered instrument names that have emission helpers", () => {
-    expect([...workerMetrics.WORKER_METRIC_NAMES].sort()).toMatchSnapshot();
+    expect([...WORKER_METRIC_NAMES].sort()).toMatchSnapshot();
   });
 });
