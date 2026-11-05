@@ -18,11 +18,15 @@
 // plus an add, so both sides are classified. A main push, an unknown branch, a failed fetch,
 // merge-base or diff, an empty diff and any unexpected error force FULL.
 //
-// RT-920 (owner decisions 2026-11-05): a changelog fragment (changelog.d/*.md) or the code-health
-// ratchet baseline (tools/code-health/baseline.json), as an added or modified regular file, is NEUTRAL: it neither forces FULL nor makes a PR eligible on its own. Every
-// Backend-Core PR adds a fragment and most refactors lower the baseline, so without this almost no
-// PR could reach TIA_ELIGIBLE. The specs that read a neutral file (a rule's mustRun) are recorded in guard.json `mustRun`, and the shadow
-// report adds it to the guarded selection, so a bad fragment can never count as a hidden miss.
+// RT-920 (owner decisions 2026-11-05): two kinds of added or modified regular file are NEUTRAL:
+// they neither force FULL nor make a PR eligible on their own.
+//   changelog.d/*.md                 Every Backend-Core PR adds one. The one spec that reads the
+//                                    fragments is a must-run (guard.json `mustRun`), and the shadow
+//                                    report adds it to the guarded selection, so a bad fragment can
+//                                    never count as a hidden miss.
+//   tools/code-health/baseline.json  Most refactors lower it. Only the bc/fast ratchet reads it,
+//                                    never an API spec (a self-test pins that), so it has no must-run
+//                                    spec; its own failures surface in bc/fast.
 // A PR whose only changes are neutral is FULL (there is no API change to measure).
 //
 // Shadow only: the decision is printed and written to <outDir>/guard.json and guard.txt. The

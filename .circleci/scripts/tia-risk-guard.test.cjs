@@ -513,16 +513,22 @@ test("the code-health baseline is neutral with no must-run spec", () => {
   }
 });
 
-test("no API spec reads the code-health baseline (so it needs no must-run spec)", () => {
-  const apiRoot = path.join(ROOT, "services/backend-core/apps/api");
+test("no API spec or helper reads the code-health baseline (so it needs no must-run spec)", () => {
+  // A heuristic, not a proof: it looks for the literal names. Widen it if a reader appears.
+  const bc = path.join(ROOT, "services/backend-core");
+  const roots = ["apps/api/src", "apps/api/test", "tools/test-support", "tools/changelog"].map((r) => path.join(bc, r));
   const hits = [];
   const walk = (d) => {
+    if (!fs.existsSync(d)) return;
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       const p = path.join(d, e.name);
-      if (e.isDirectory()) { if (e.name !== "node_modules" && e.name !== "dist") walk(p); }
-      else if (/\.ts$/.test(e.name) && /code-health/.test(fs.readFileSync(p, "utf8"))) hits.push(p);
+      if (e.isDirectory()) {
+        if (e.name !== "node_modules" && e.name !== "dist") walk(p);
+      } else if (/\.(ts|cjs|mjs|js)$/.test(e.name) && /code-health|baseline\.json/.test(fs.readFileSync(p, "utf8"))) {
+        hits.push(path.relative(bc, p));
+      }
     }
   };
-  for (const sub of ["src", "test"]) walk(path.join(apiRoot, sub));
+  for (const r of roots) walk(r);
   assert.deepEqual(hits, []);
 });
