@@ -56,32 +56,64 @@
  * DLQ entries for `sale-processing`. The quarantine itself (the durable row +
  * status advance) is the §VII data source that slice will count.
  *
- * LIVE DRAIN-TRIGGER — KNOWN GAP (deferred, the 008 precedent)
- * -----------------------------------------------------------
- * This producer is the tested CAPABILITY; it is NOT yet auto-fired from the
- * `SaleProcessingProcessor` failure branch, and is NOT registered in
- * `worker.module.ts` (that file is outside this slice's `apps/worker/src/sales/**`
- * lock scope, exactly as the 008 enqueue-wiring + metrics-emission were deferred
- * to their own slices). Wiring it means: classify a caught processor error ->
- * needs-repair -> `quarantine(...)`; transient -> a guarded `failed-retryable`
- * write that won't clobber a concurrent `synced` (this producer already does
- * that), then rethrow for BullMQ backoff. That additive change touches the
- * processor happy path + the module DI graph and is left to the wiring slice so
- * the F-invariants are reviewed there. Until then, US2's NEEDS_REPAIR list +
- * repair op are non-inert WHENEVER a caller invokes this producer (e.g. a
- * test/seed or the future trigger); the table is no longer write-dead.
+ * LIVE DRAIN-TRIGGER — WIRED (RT-1233)
+ * ------------------------------------
+ * `worker.module.ts` registers this producer and injects it into
+ * `SaleProcessingProcessor`, whose failure branch maps the caught error to a
+ * §8 condition (`sale-processing-failure.ts`) and calls
+ * `recordProcessingFailure`:
+ *   - needs-repair -> one OPEN dead-letter row + `failed-needs-repair` (the
+ *     `quarantine` writes, same transaction), and the job is not retried;
+ *   - transient -> a STATUS-ONLY `failed-retryable` write, then the original
+ *     error is rethrown so BullMQ backs off. No dead-letter row: nothing ever
+ *     resolves an open `retryable` row, and an open row of either class blocks
+ *     the next insert (one OPEN row per sale), so a later deterministic failure
+ *     would never reach the Console's needs-repair list.
+ * Neither path touches a `synced` sale, and a transient failure never
+ * downgrades a `failed-needs-repair` one. `quarantine(...)` itself is
+ * unchanged (callers and specs still use it directly).
  */
 import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 
 import {
   classifySyncFailure,
+  SYNC_STATUS_FAILED_NEEDS_REPAIR,
+  SYNC_STATUS_FAILED_RETRYABLE,
   type SyncFailureClassification,
   type SyncFailureCondition,
 } from "./sale-sync-failure-classifier";
 
 /** Worker-local copy of the §7 terminal-success status (pinned, not imported). */
 const SYNC_STATUS_SYNCED = "synced" as const;
+
+/**
+ * RT-1233: one failed sale-processing drain. The job's scope and a §8
+ * condition; the provenance is read from the sale itself. `correlationId` is
+ * the job's free text: a non-UUID is stored as null.
+ */
+interface ProcessingFailureInput {
+  readonly saleId: string;
+  readonly tenantId: string;
+  readonly storeId: string;
+  readonly condition: SyncFailureCondition;
+  readonly correlationId?: string | null;
+}
+
+/**
+ * - `quarantined`: the sale has an OPEN needs-repair row (written now, or by
+ *   an earlier delivery) — retrying cannot help;
+ * - `retryable`: a transient failure, the status is (or already was) guarded
+ *   to `failed-retryable` where allowed — retry;
+ * - `skipped`: the sale is synced or not in scope — nothing was written.
+ */
+type ProcessingFailureOutcome = "quarantined" | "retryable" | "skipped";
+
+interface LockedSale {
+  source_system: string;
+  external_id: string;
+  sync_status: string;
+}
 
 /**
  * The input to quarantine one failed sale-sync. Carries the (tenant, store)
@@ -126,6 +158,11 @@ export interface QuarantineResult {
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A UUID correlation id is kept; free text (the job's may be) becomes null. */
+function uuidOrNull(value: string | null | undefined): string | null {
+  return typeof value === "string" && UUID_RE.test(value) ? value : null;
+}
 
 /** Thrown when the target sale does not resolve within the tenant/store scope. */
 export class QuarantineSaleNotFoundError extends Error {
@@ -213,6 +250,87 @@ export class SaleSyncDeadletterProducer {
     }
   }
 
+  /**
+   * RT-1233: record one failed sale-processing drain (the processor's failure
+   * branch). One transaction under tenant RLS; the sale row is locked first,
+   * so a concurrent drain cannot sync it between the check and the write.
+   * See the file docstring for what each classification writes.
+   */
+  async recordProcessingFailure(
+    input: ProcessingFailureInput,
+  ): Promise<ProcessingFailureOutcome> {
+    this.assertScope(input);
+    const classification = classifySyncFailure(input.condition);
+    return await runWithTenantContext(
+      this.pool,
+      { tenantId: input.tenantId, isPlatformAdmin: false },
+      async (client): Promise<ProcessingFailureOutcome> => {
+        const sale = await this.lockSaleInScope(client, input);
+        if (!sale || sale.sync_status === SYNC_STATUS_SYNCED) return "skipped";
+        if (classification.classification === "retryable") {
+          await this.markRetryable(client, input);
+          return "retryable";
+        }
+        const quarantine: QuarantineInput = {
+          ...input,
+          sourceSystem: sale.source_system,
+          externalId: sale.external_id,
+          correlationId: uuidOrNull(input.correlationId),
+        };
+        if (await this.insertDeadletter(client, quarantine, classification)) {
+          await this.advanceStatus(client, quarantine, classification);
+          return "quarantined";
+        }
+        // An OPEN row already exists (a re-delivery): the first classification
+        // stands, exactly as in `quarantine`.
+        return sale.sync_status === SYNC_STATUS_FAILED_NEEDS_REPAIR ? "quarantined" : "retryable";
+      },
+    );
+  }
+
+  /** The sale in (tenant, store) scope, locked for this transaction; null when absent. */
+  private async lockSaleInScope(
+    client: PoolClient,
+    input: ProcessingFailureInput,
+  ): Promise<LockedSale | null> {
+    const r = await client.query<LockedSale>(
+      `SELECT source_system, external_id, sync_status
+         FROM sales
+        WHERE id = $1 AND store_id = $2
+          FOR UPDATE`,
+      [input.saleId, input.storeId],
+    );
+    return r.rows[0] ?? null;
+  }
+
+  /**
+   * The transient write: status only, no dead-letter row. Moves a sale to
+   * `failed-retryable` unless it is already there (no version churn on every
+   * retry), `synced` (never clobber success), or `failed-needs-repair` (a
+   * transient failure must not hide an open needs-repair row).
+   */
+  private async markRetryable(
+    client: PoolClient,
+    input: ProcessingFailureInput,
+  ): Promise<void> {
+    await client.query(
+      `UPDATE sales
+          SET sync_status = $3,
+              -- RT-1061 (RT-973): every sync_status write moves the version by one.
+              sync_status_version = sync_status_version + 1
+        WHERE id = $1
+          AND store_id = $2
+          AND sync_status NOT IN ($3, $4, $5)`,
+      [
+        input.saleId,
+        input.storeId,
+        SYNC_STATUS_FAILED_RETRYABLE,
+        SYNC_STATUS_SYNCED,
+        SYNC_STATUS_FAILED_NEEDS_REPAIR,
+      ],
+    );
+  }
+
   /** Object-safety: the sale resolves within (tenant, store) scope. */
   private async readSaleInScope(
     client: PoolClient,
@@ -295,19 +413,7 @@ export class SaleSyncDeadletterProducer {
   }
 
   private assertInput(input: QuarantineInput): void {
-    if (!UUID_RE.test(input.saleId)) {
-      throw new Error("SaleSyncDeadletterProducer: saleId must be a UUID string");
-    }
-    if (!UUID_RE.test(input.tenantId)) {
-      throw new Error(
-        "SaleSyncDeadletterProducer: tenantId must be a UUID string",
-      );
-    }
-    if (!UUID_RE.test(input.storeId)) {
-      throw new Error(
-        "SaleSyncDeadletterProducer: storeId must be a UUID string",
-      );
-    }
+    this.assertScope(input);
     if (typeof input.sourceSystem !== "string" || input.sourceSystem.length === 0) {
       throw new Error(
         "SaleSyncDeadletterProducer: sourceSystem must be a non-empty string",
@@ -329,6 +435,22 @@ export class SaleSyncDeadletterProducer {
     ) {
       throw new Error(
         "SaleSyncDeadletterProducer: correlationId must be a UUID string or null",
+      );
+    }
+  }
+
+  private assertScope(input: { saleId: string; tenantId: string; storeId: string }): void {
+    if (!UUID_RE.test(input.saleId)) {
+      throw new Error("SaleSyncDeadletterProducer: saleId must be a UUID string");
+    }
+    if (!UUID_RE.test(input.tenantId)) {
+      throw new Error(
+        "SaleSyncDeadletterProducer: tenantId must be a UUID string",
+      );
+    }
+    if (!UUID_RE.test(input.storeId)) {
+      throw new Error(
+        "SaleSyncDeadletterProducer: storeId must be a UUID string",
       );
     }
   }

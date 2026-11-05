@@ -27,6 +27,7 @@ import {
 } from "../../src/worker.module";
 import { SaleWorker } from "../../src/sales/sale.worker";
 import { SaleProcessingProcessor } from "../../src/sales/sale-processing.processor";
+import { SaleSyncDeadletterProducer } from "../../src/sales/sale-sync-deadletter.producer";
 
 const ORIGINAL_NODE_ENV = process.env["NODE_ENV"];
 const ORIGINAL_REDIS_URL = process.env["REDIS_URL"];
@@ -110,13 +111,13 @@ describe("saleProcessingProcessorProviderFactory — pool reuse", () => {
   it("constructs a SaleProcessingProcessor from the wrapper's pool", () => {
     const fakePool = { connect: () => undefined } as unknown as Pool;
     const wrapper = new AuditDbPool(fakePool);
-    const processor = saleProcessingProcessorProviderFactory(wrapper);
+    const processor = saleProcessingProcessorProviderFactory(wrapper, new SaleSyncDeadletterProducer(wrapper.pool as Pool));
     expect(processor).toBeInstanceOf(SaleProcessingProcessor);
   });
 
   it("is constructible on the null-pool safe path (paired with NoOp worker)", () => {
     const wrapper = new AuditDbPool(null);
-    const processor = saleProcessingProcessorProviderFactory(wrapper);
+    const processor = saleProcessingProcessorProviderFactory(wrapper, new SaleSyncDeadletterProducer(wrapper.pool as Pool));
     expect(processor).toBeInstanceOf(SaleProcessingProcessor);
   });
 });
@@ -124,7 +125,7 @@ describe("saleProcessingProcessorProviderFactory — pool reuse", () => {
 describe("saleWorkerProviderFactory — construction", () => {
   it("constructs a SaleWorker from the processor + shared worker factory", () => {
     const wrapper = new AuditDbPool(null);
-    const processor = saleProcessingProcessorProviderFactory(wrapper);
+    const processor = saleProcessingProcessorProviderFactory(wrapper, new SaleSyncDeadletterProducer(wrapper.pool as Pool));
     const worker = saleWorkerProviderFactory(processor, new NoOpWorkerFactory());
     expect(worker).toBeInstanceOf(SaleWorker);
   });

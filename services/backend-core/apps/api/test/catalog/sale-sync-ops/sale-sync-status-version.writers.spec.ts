@@ -21,7 +21,9 @@ const SOURCE_DIRS = ["apps/api/src", "apps/worker/src", "packages/db/src", "pack
 /** The pinned writers: file → number of `sync_status` UPDATE statements in it. */
 const WRITERS: Readonly<Record<string, number>> = {
   "apps/worker/src/sales/sale-processing.processor.ts": 1, // the drain → synced
-  "apps/worker/src/sales/sale-sync-deadletter.producer.ts": 1, // the dead-letter producer → failed-*
+  // the dead-letter producer: quarantine → failed-*, and (RT-1233) the
+  // drain-failure status-only write → failed-retryable
+  "apps/worker/src/sales/sale-sync-deadletter.producer.ts": 2,
   "apps/api/src/catalog/sale-sync-ops/sale-sync-ops.read-model.service.ts": 1, // the console repair → failed-retryable
 };
 
@@ -96,7 +98,7 @@ describe("RT-1061 sync_status writers", () => {
     for (const file of Object.keys(WRITERS)) expect(files).toContain(file);
   });
 
-  it("the writers are exactly the pinned three (a new writer must be added here)", () => {
+  it("the writers are exactly the pinned ones (a new writer must be added here)", () => {
     const counts: Record<string, number> = {};
     for (const w of statusWriters()) counts[w.file] = (counts[w.file] ?? 0) + 1;
     expect(counts).toEqual(WRITERS);

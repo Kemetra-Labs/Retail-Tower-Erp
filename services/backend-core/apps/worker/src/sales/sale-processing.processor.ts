@@ -38,6 +38,18 @@
  * 008-WORKER `allowed_files` globs. The wiring deferral is flagged to the
  * orchestrator (same precedent as `AuditFanoutProcessor`'s KNOWN GAP).
  *
+ * Failure branch → sale sync (RT-1233)
+ * -------------------------------------
+ * With the dead-letter producer wired (WorkerModule always wires it), a failed
+ * attempt is also recorded for sale sync AFTER the transaction rolled back:
+ * the error is mapped to a §8 condition (`sale-processing-failure.ts`) and
+ * handed to `SaleSyncDeadletterProducer.recordProcessingFailure`. A
+ * needs-repair sale is quarantined and `SaleProcessingQuarantinedError` is
+ * thrown (no retry); a transient one is marked `failed-retryable` and the
+ * ORIGINAL error is rethrown so BullMQ backs off. Recording is best effort: if
+ * it fails too, that is logged and the original error is still rethrown. The
+ * happy path is unchanged.
+ *
  * PII / redaction (FR-042 / FR-092)
  * ---------------------------------
  * Raw POS payloads, line amounts, and the sale row are NEVER logged. On
@@ -59,6 +71,11 @@ import {
   recordWorkerProcessingFailure,
   sanitizeErrorClass,
 } from "../observability/metrics/worker.metrics";
+import {
+  SaleProcessingQuarantinedError,
+  syncFailureConditionOf,
+} from "./sale-processing-failure";
+import type { SaleSyncDeadletterProducer } from "./sale-sync-deadletter.producer";
 
 // ---------------------------------------------------------------------------
 // Envelope — the off-request job carries the tenant scope + correlation id
@@ -122,6 +139,9 @@ export class SaleProcessingProcessor {
   constructor(
     private readonly pool: Pool,
     private readonly logger?: SaleProcessingLogger,
+    // RT-1233: optional only so a bare processor (specs) still constructs;
+    // WorkerModule always passes it.
+    private readonly deadletters?: Pick<SaleSyncDeadletterProducer, "recordProcessingFailure">,
   ) {}
 
   /**
@@ -288,7 +308,40 @@ export class SaleProcessingProcessor {
         },
         "sale processing failed",
       );
-      throw err;
+      throw await this.recordSyncFailure(job, err);
+    }
+  }
+
+  /**
+   * RT-1233: record the failed attempt for sale sync and return what to throw:
+   * `SaleProcessingQuarantinedError` once the sale is needs-repair, otherwise
+   * the original error. Never masks the original error.
+   */
+  private async recordSyncFailure(job: SaleProcessingJob, err: unknown): Promise<unknown> {
+    if (!this.deadletters) return err;
+    try {
+      const outcome = await this.deadletters.recordProcessingFailure({
+        saleId: job.saleId,
+        tenantId: job.tenantId,
+        storeId: job.storeId,
+        condition: syncFailureConditionOf(err),
+        correlationId: job.correlationId ?? null,
+      });
+      return outcome === "quarantined" ? new SaleProcessingQuarantinedError(err) : err;
+    } catch (recordErr: unknown) {
+      // Identifiers + error class only, as above.
+      this.logger?.error(
+        {
+          job_name: "sale-processing",
+          sale_id: job.saleId,
+          tenant_id: job.tenantId,
+          store_id: job.storeId,
+          correlation_id: job.correlationId ?? null,
+          error_class: recordErr instanceof Error ? recordErr.constructor.name : "Unknown",
+        },
+        "sale sync failure not recorded",
+      );
+      return err;
     }
   }
 

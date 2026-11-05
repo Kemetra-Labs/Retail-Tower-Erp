@@ -11,6 +11,7 @@ import type { Pool } from "pg";
 
 import * as metrics from "../../src/observability/metrics/worker.metrics";
 import { SaleProcessingProcessor } from "../../src/sales/sale-processing.processor";
+import { SaleSyncDeadletterProducer } from "../../src/sales/sale-sync-deadletter.producer";
 import { saleProcessingProcessorProviderFactory } from "../../src/worker.module";
 
 const JOB = {
@@ -44,7 +45,7 @@ describe("SaleProcessingProcessor failure signal (RT-457)", () => {
   });
 
   it("is wired with a logger by the module factory", () => {
-    const processor = saleProcessingProcessorProviderFactory({ pool: downPool } as never);
+    const processor = saleProcessingProcessorProviderFactory({ pool: downPool } as never, new SaleSyncDeadletterProducer(downPool));
     expect((processor as unknown as { logger?: unknown }).logger).toBeDefined();
   });
 });
