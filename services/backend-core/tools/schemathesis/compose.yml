@@ -42,6 +42,9 @@ services:
       # No real Descope: the cookie-auth surface never calls it, and the JWKS is
       # fetched lazily, so a well-formed dummy project id satisfies the production boot.
       DESCOPE_PROJECT_ID: P2fuzzDummyNotARealProject
+      # RT-1043: the production boot refuses to start without the public-auth key
+      # secret. stack-up.sh generates a throwaway one per run.
+      PUBLIC_AUTH_RATE_LIMIT_KEY_SECRET: ${PUBLIC_AUTH_RATE_LIMIT_KEY_SECRET:?}
       OTEL_SDK_DISABLED: "true"
     ports:
       - "127.0.0.1:${API_PORT:-23000}:3000"

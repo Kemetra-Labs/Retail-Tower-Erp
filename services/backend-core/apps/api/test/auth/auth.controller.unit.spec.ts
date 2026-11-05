@@ -60,7 +60,7 @@ import type { Principal } from "../../src/auth/auth.guard";
 import { AuthService } from "../../src/auth/auth.service";
 import { RateLimiter } from "../../src/auth/rate-limit";
 import type { RateLimitDecision, RedisLike, WindowHit } from "../../src/auth/rate-limit";
-import { emailIpPairKey } from "../../src/auth/public-auth-keys";
+import { accountIdentifier, emailIpPairIdentifier } from "../../src/auth/public-auth-keys";
 import { fixedWindowHit, type FixedWindowEntry } from "../_helpers/fixed-window-hit";
 import { AuthController } from "../../src/auth/auth.controller";
 import { ZodValidationPipe } from "../../src/common/zod-validation.pipe";
@@ -1484,7 +1484,7 @@ describe("RT-625 real counters behind one trusted proxy hop", () => {
     return statuses;
   }
 
-  const accountCount = (email = E): number => redis.count(`rl:signin_account:${email}`);
+  const accountCount = (email = E): number => redis.count(`rl:signin_account:${accountIdentifier(email)}`);
 
   it("test 1: five failures from X lock X; a correct sign-in for E from Y still succeeds", async () => {
     expect(await fail(X, 5)).toEqual([401, 401, 401, 401, 401]);
@@ -1603,7 +1603,7 @@ describe("RT-625 real counters behind one trusted proxy hop", () => {
 
   it("test 22: the over-limit requests from X do not spend the per-email budget", async () => {
     for (let i = 0; i < 30; i++) await resetRequest(X);
-    expect(redis.count(`rl:pwreset_email:${E}`)).toBe(5);
+    expect(redis.count(`rl:pwreset_email:${accountIdentifier(E)}`)).toBe(5);
   });
 
   it("test 23: four IPs x five requests use the per-email cap; a fifth IP answers 202 and sends nothing", async () => {
@@ -1616,6 +1616,6 @@ describe("RT-625 real counters behind one trusted proxy hop", () => {
     expect(fifth.body).toEqual({});
     expect(sentResets).toHaveLength(20);
     // The refused request gave its pair hit back: nothing was sent.
-    expect(redis.count(`rl:pwreset_pair:${emailIpPairKey(E, "192.0.2.5")}`)).toBe(0);
+    expect(redis.count(`rl:pwreset_pair:${emailIpPairIdentifier(E, "192.0.2.5")}`)).toBe(0);
   });
 });

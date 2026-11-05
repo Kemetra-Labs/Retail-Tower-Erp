@@ -33,16 +33,18 @@ mask() { if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then echo "::add-mask::$1"; f
 # avoids `-o /dev/null`, which Git Bash's curl cannot open with MSYS_NO_PATHCONV.
 http_status() { curl -s -o - -w '\n%{http_code}' "$@" | tail -n 1; }
 
-export PG_OWNER_PASSWORD PG_APP_PASSWORD PG_AUTH_PASSWORD REDIS_PASSWORD
+export PG_OWNER_PASSWORD PG_APP_PASSWORD PG_AUTH_PASSWORD REDIS_PASSWORD PUBLIC_AUTH_RATE_LIMIT_KEY_SECRET
 PG_OWNER_PASSWORD="$(secret)"
 PG_APP_PASSWORD="$(secret)"
 PG_AUTH_PASSWORD="$(secret)"
 REDIS_PASSWORD="$(secret)"
 ADMIN_PASSWORD="$(secret)"
-for s in "$PG_OWNER_PASSWORD" "$PG_APP_PASSWORD" "$PG_AUTH_PASSWORD" "$REDIS_PASSWORD" "$ADMIN_PASSWORD"; do mask "$s"; done
+# RT-1043: the api refuses to boot in production mode without this (>= 32 characters).
+PUBLIC_AUTH_RATE_LIMIT_KEY_SECRET="$(openssl rand -hex 32)"
+for s in "$PG_OWNER_PASSWORD" "$PG_APP_PASSWORD" "$PG_AUTH_PASSWORD" "$REDIS_PASSWORD" "$ADMIN_PASSWORD" "$PUBLIC_AUTH_RATE_LIMIT_KEY_SECRET"; do mask "$s"; done
 # The teardown step needs the same compose variables.
-printf 'PG_OWNER_PASSWORD=%s\nPG_APP_PASSWORD=%s\nPG_AUTH_PASSWORD=%s\nREDIS_PASSWORD=%s\n' \
-  "$PG_OWNER_PASSWORD" "$PG_APP_PASSWORD" "$PG_AUTH_PASSWORD" "$REDIS_PASSWORD" >"$FUZZ_OUT/stack.env"
+printf 'PG_OWNER_PASSWORD=%s\nPG_APP_PASSWORD=%s\nPG_AUTH_PASSWORD=%s\nREDIS_PASSWORD=%s\nPUBLIC_AUTH_RATE_LIMIT_KEY_SECRET=%s\n' \
+  "$PG_OWNER_PASSWORD" "$PG_APP_PASSWORD" "$PG_AUTH_PASSWORD" "$REDIS_PASSWORD" "$PUBLIC_AUTH_RATE_LIMIT_KEY_SECRET" >"$FUZZ_OUT/stack.env"
 
 compose() { docker compose -p "$FUZZ_PROJECT" -f "$HERE/compose.yml" "$@"; }
 psql_owner() { compose exec -T postgres psql -v ON_ERROR_STOP=1 -U fuzz_owner -d fuzz -qAt "$@"; }

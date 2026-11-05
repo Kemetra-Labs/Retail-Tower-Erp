@@ -178,7 +178,9 @@ export class RateLimiter {
    * Atomically count this hit against a bucket and decide whether it is
    * allowed. The bucket key is `rl:<bucketName>:<identifier>` — bucket
    * name namespaces the policy (e.g. `signin_account`), identifier is
-   * the per-caller dimension (account id, IP, …).
+   * the per-caller dimension. Public-auth identifiers that would be an
+   * email or an IP are HMAC'd first (RT-1043, `public-auth-keys.ts`), so
+   * Redis never holds them; this class keys on whatever it is given.
    *
    * One Redis round trip (RT-618). The first hit in a fresh window seeds
    * the TTL; subsequent hits in the same window keep counting until

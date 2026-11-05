@@ -47,7 +47,7 @@ import {
   RateLimiter,
   type RateLimitDecision,
 } from "./rate-limit";
-import { accountKey, clientIpKey, emailIpPairKey } from "./public-auth-keys";
+import { accountIdentifier, clientIpIdentifier, emailIpPairIdentifier } from "./public-auth-keys";
 import {
   checkWithin,
   clearWithin,
@@ -147,7 +147,7 @@ export class AuthController {
     // RT-430: refuse login CSRF from a foreign Origin. A missing Origin is
     // admitted: sign-in carries no ambient credential.
     assertTrustedOrigin(req, { allowMissing: true });
-    const ip = clientIpKey(readClientIp(req));
+    const ip = readClientIp(req);
     // RT-136 / RT-625: the pair (email, IP) and per-account budgets count
     // FAILED sign-ins only. Each hit is reserved atomically up front, so
     // concurrent guesses cannot overrun a limit, and given back unless the
@@ -161,9 +161,9 @@ export class AuthController {
     const held: Reservation[] = [];
     let result: SignInResult;
     try {
-      await this.reserve(held, "signin_pair", emailIpPairKey(body.email, ip), RATE_LIMIT_BUCKETS.signInPerPair, res);
-      await this.reserve(held, "signin_account", accountKey(body.email), RATE_LIMIT_BUCKETS.signInPerAccount, res);
-      await this.guardRateLimit("signin_ip", ip, RATE_LIMIT_BUCKETS.signInPerIp, res);
+      await this.reserve(held, "signin_pair", emailIpPairIdentifier(body.email, ip), RATE_LIMIT_BUCKETS.signInPerPair, res);
+      await this.reserve(held, "signin_account", accountIdentifier(body.email), RATE_LIMIT_BUCKETS.signInPerAccount, res);
+      await this.guardRateLimit("signin_ip", clientIpIdentifier(ip), RATE_LIMIT_BUCKETS.signInPerIp, res);
       result = await this.authService.signIn(body);
     } catch (err) {
       // Every credential failure (unknown email, wrong password, SSO-only,
@@ -294,11 +294,11 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<void> {
     const ip = readClientIp(req);
-    await this.guardRateLimit("pwreset_ip", ip, RATE_LIMIT_BUCKETS.passwordResetPerIp, res);
+    await this.guardRateLimit("pwreset_ip", clientIpIdentifier(ip), RATE_LIMIT_BUCKETS.passwordResetPerIp, res);
     // RT-626 / RT-625: per-(email, IP) and per-email budgets. Over either the
     // request is still 202 (contract, no account-existence signal) but nothing
     // is sent.
-    if (!(await this.withinResetEmailBudget(body.email, clientIpKey(ip)))) return;
+    if (!(await this.withinResetEmailBudget(body.email, ip))) return;
     await this.authService.requestPasswordReset({ email: body.email });
     // Body is empty — contract says 202 with no schema.
   }
@@ -317,7 +317,12 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<void> {
     const ip = readClientIp(req);
-    await this.guardRateLimit("pwreset_confirm_ip", ip, RATE_LIMIT_BUCKETS.passwordResetConfirmPerIp, res);
+    await this.guardRateLimit(
+      "pwreset_confirm_ip",
+      clientIpIdentifier(ip),
+      RATE_LIMIT_BUCKETS.passwordResetConfirmPerIp,
+      res,
+    );
     const email = await this.authService.confirmPasswordReset({
       rawToken: body.token,
       newPassword: body.new_password,
@@ -325,7 +330,7 @@ export class AuthController {
     // RT-625 D2: the reset token proved control of the address, so the real
     // user's sign-in lockout is lifted: the account budget and this IP's pair.
     // A failed or expired confirm threw above and clears nothing.
-    if (email) await this.clearSignInLockout(email, clientIpKey(ip));
+    if (email) await this.clearSignInLockout(email, ip);
   }
 
   // ---------------------------------------------------------------------
@@ -374,7 +379,12 @@ export class AuthController {
     // RT-626: public and unauthenticated, so bounded per client IP like the
     // other public-auth routes (429 / outage 503, both with Retry-After).
     const ip = readClientIp(req);
-    await this.guardRateLimit("email_verify_confirm_ip", ip, RATE_LIMIT_BUCKETS.emailVerifyConfirmPerIp, res);
+    await this.guardRateLimit(
+      "email_verify_confirm_ip",
+      clientIpIdentifier(ip),
+      RATE_LIMIT_BUCKETS.emailVerifyConfirmPerIp,
+      res,
+    );
     await this.authService.confirmEmailVerification({ rawToken: body.token });
   }
 
@@ -413,8 +423,8 @@ export class AuthController {
   /** RT-625 D2: lift the account lockout and this IP's pair lockout, in parallel and best-effort. */
   private async clearSignInLockout(email: string, ip: string): Promise<void> {
     await Promise.all([
-      clearWithin(this.rateLimiter, "signin_account", accountKey(email), this.limiterTimeoutMs),
-      clearWithin(this.rateLimiter, "signin_pair", emailIpPairKey(email, ip), this.limiterTimeoutMs),
+      clearWithin(this.rateLimiter, "signin_account", accountIdentifier(email), this.limiterTimeoutMs),
+      clearWithin(this.rateLimiter, "signin_pair", emailIpPairIdentifier(email, ip), this.limiterTimeoutMs),
     ]);
   }
 
@@ -428,11 +438,11 @@ export class AuthController {
    * check before it already carries the O6 fail-closed posture.
    */
   private async withinResetEmailBudget(email: string, ip: string): Promise<boolean> {
-    const pair = emailIpPairKey(email, ip);
+    const pair = emailIpPairIdentifier(email, ip);
     if (!(await this.resetBudgetAllows("pwreset_pair", pair, RATE_LIMIT_BUCKETS.passwordResetPerPair))) {
       return false;
     }
-    if (await this.resetBudgetAllows("pwreset_email", accountKey(email), RATE_LIMIT_BUCKETS.passwordResetPerEmail)) {
+    if (await this.resetBudgetAllows("pwreset_email", accountIdentifier(email), RATE_LIMIT_BUCKETS.passwordResetPerEmail)) {
       return true;
     }
     await releaseWithin(this.rateLimiter, "pwreset_pair", pair, this.limiterTimeoutMs);

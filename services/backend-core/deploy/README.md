@@ -853,6 +853,37 @@ the root-only `backend.env`). Leave it out of git and out of logs.
 - **Copies:** the lab deploy document backs up `backend.env` before each live run (see the
   runbook, step 6). A rotation must purge those copies too.
 
+### `PUBLIC_AUTH_RATE_LIMIT_KEY_SECRET` (RT-1043, RT-625 D4)
+
+An HMAC key, **secret**. The public-auth rate-limit buckets (`signin_pair`,
+`signin_account`, `signin_ip`, `pwreset_ip`, `pwreset_confirm_ip`, `pwreset_pair`,
+`pwreset_email`, `email_verify_confirm_ip`, `invitation_accept_ip`) used to key Redis by
+the raw email or client IP (`rl:signin_account:<email>`). They now key by
+HMAC-SHA-256 of the normalized value under this secret, so a `SCAN` of Redis or a
+Redis snapshot no longer lists the emails and IPs that recently tried to sign in.
+`docker-compose.prod.yml` passes it; on the lab it lives in the root-only `backend.env`.
+Leave it out of git and out of logs.
+
+- **Required:** compose refuses to start the api without it (`${…:?}`), and the api
+  refuses to boot in a deployed environment (`NODE_ENV=production`, or
+  `DEPLOYMENT_ENVIRONMENT` staging, pilot or prod) when it is unset, blank or shorter
+  than 32 characters. A missing secret therefore stops the deploy before traffic, and
+  is never a 500 at sign-in. Outside a deployed environment, tests use a fixed test
+  default and local development gets a random per-process secret.
+- **Generate:** `openssl rand -hex 32` (64 characters) from a CSPRNG. One value per
+  environment; do not reuse it across environments.
+- **Deploy order:** add the secret to each environment's `backend.env` or secret
+  manager **before** deploying a release that contains RT-1043. Deploying first leaves
+  compose refusing to start the api (the running api keeps running; nothing is replaced).
+- **One-time counter reset:** the key change means every public-auth counter starts over
+  once at the deploy (RT-625 section 7: accepted). Anyone locked out or near a limit at
+  that moment gets a fresh window. Rotating the secret later does the same.
+- **Rotation:** replace the value in the secret manager and restart the api. All
+  api instances must hold the same value: two values give two key spaces and split every
+  counter in half.
+- **Copies:** the lab deploy document backs up `backend.env` before each live run (see the
+  runbook, step 6). A rotation must purge those copies too.
+
 ## Known follow-ups (not in this artifact)
 
 - **Hardening:** run containers as a non-root user; add resource limits; offsite backups

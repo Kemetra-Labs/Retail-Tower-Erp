@@ -24,6 +24,7 @@ import {
   enforcePublicLimit,
   readPublicAuthLimiterTimeoutMs,
 } from "../auth/public-auth-limiter";
+import { clientIpIdentifier } from "../auth/public-auth-keys";
 import { RATE_LIMIT_BUCKETS, RateLimiter } from "../auth/rate-limit";
 import { Public } from "../auth/route-auth";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
@@ -53,7 +54,7 @@ export class InvitationAcceptController {
       this.rateLimiter,
       {
         bucketName: "invitation_accept_ip",
-        identifier: clientIp(req),
+        identifier: clientIpIdentifier(clientIp(req)),
         bucket: RATE_LIMIT_BUCKETS.invitationAcceptPerIp,
       },
       this.limiterTimeoutMs,

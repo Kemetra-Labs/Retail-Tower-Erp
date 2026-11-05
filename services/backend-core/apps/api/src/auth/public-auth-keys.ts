@@ -4,9 +4,25 @@
  *
  * Every caller that builds or clears one of these keys goes through this
  * module: the sign-in buckets, the password-reset request buckets and the
- * reset-confirm clear (D2). A key built inline anywhere else would differ
- * and silently miss its counter. RT-1043 swaps the encoding for an HMAC at
- * this one point.
+ * reset-confirm clear (D2), the email-verify confirm and the invitation
+ * accept. A key built inline anywhere else would differ and silently miss
+ * its counter.
+ *
+ * Two layers:
+ *
+ *   - NORMALIZERS (`accountKey`, `clientIpKey`, `emailIpPairKey`): the
+ *     canonical form of the value. They contain the raw email and IP, so they
+ *     never reach Redis.
+ *   - IDENTIFIERS (`accountIdentifier`, `clientIpIdentifier`,
+ *     `emailIpPairIdentifier`, RT-1043): what the limiter buckets actually use.
+ *     Each is the HMAC-SHA-256 (hex) of a versioned message
+ *     `v1|<dimension>|<normalized value>` under `PUBLIC_AUTH_RATE_LIMIT_KEY_SECRET`
+ *     (`public-auth-key-secret.ts`), so Redis holds no raw email or IP. The
+ *     dimension tag keeps the three apart, and the pair message inherits the
+ *     length-prefixed encoding below, so the HMAC does not hide an ambiguous
+ *     concatenation: no two inputs share a message, hence none share a key.
+ *
+ * Normalization rules:
  *
  *   - IPv4 is keyed by the full address.
  *   - IPv6 is keyed by its /64 prefix: one host normally holds a whole /64,
@@ -18,7 +34,10 @@
  *   - The pair identifier is length-prefixed: IPv6 contains `:`, so a raw
  *     `email:ip` concatenation could map two different pairs to one key.
  */
+import { createHmac } from "node:crypto";
 import { isIP } from "node:net";
+
+import { resolvePublicAuthKeySecret } from "./public-auth-key-secret";
 
 /**
  * The account dimension: the email exactly as the shared `Email` schema
@@ -46,6 +65,31 @@ export function clientIpKey(ip: string): string {
 export function emailIpPairKey(email: string, ip: string): string {
   const account = accountKey(email);
   return `${account.length}:${account}|${clientIpKey(ip)}`;
+}
+
+/**
+ * HMAC-SHA-256 (hex) of `v1|<dimension>|<message>` under the server secret.
+ * The version prefix lets a later encoding coexist without ever colliding.
+ */
+function keyed(dimension: "account" | "ip" | "pair", message: string): string {
+  return createHmac("sha256", resolvePublicAuthKeySecret())
+    .update(`v1|${dimension}|${message}`)
+    .digest("hex");
+}
+
+/** The limiter identifier for an email: what the per-account buckets use in Redis. */
+export function accountIdentifier(email: string): string {
+  return keyed("account", accountKey(email));
+}
+
+/** The limiter identifier for a client IP: what the per-IP buckets use in Redis. */
+export function clientIpIdentifier(ip: string): string {
+  return keyed("ip", clientIpKey(ip));
+}
+
+/** The limiter identifier for an (email, client IP) pair: what the pair buckets use in Redis. */
+export function emailIpPairIdentifier(email: string, ip: string): string {
+  return keyed("pair", emailIpPairKey(email, ip));
 }
 
 /** The eight 16-bit groups of a valid IPv6 address (no zone id). */
