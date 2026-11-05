@@ -8,6 +8,7 @@
  *
  * Constitution §VII / FR-B-003 / FR-B-006 / P4 W5.
  */
+import { Logger } from "@nestjs/common";
 import { Pool } from "pg";
 
 import {
@@ -246,5 +247,26 @@ describe("InstrumentedPool.query (callback form) — passthrough", () => {
       expect(mockedRecord).not.toHaveBeenCalled();
       done();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RT-1246 — an idle connection's error does not crash the process
+// ---------------------------------------------------------------------------
+
+describe("InstrumentedPool — idle connection error (RT-1246, Sentry BACKEND-CORE-7)", () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it("has an error listener, so a 57P01 from a Postgres restart does not throw", () => {
+    const warn = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const pool = new InstrumentedPool({ connectionString: "postgres://localhost/test" });
+    const err = Object.assign(new Error("terminating connection due to administrator command"), {
+      code: "57P01",
+    });
+
+    expect(pool.listenerCount("error")).toBe(1);
+    expect(() => pool.emit("error", err, undefined as never)).not.toThrow();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain("SQLSTATE 57P01");
   });
 });

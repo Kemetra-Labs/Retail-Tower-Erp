@@ -112,6 +112,42 @@ export function withSlowQueryRecorder<
 }
 
 // ---------------------------------------------------------------------------
+// Idle-client errors (RT-1246)
+// ---------------------------------------------------------------------------
+
+/** A Postgres SQLSTATE: five digits or upper-case letters. */
+const SQLSTATE_PATTERN = /^[0-9A-Z]{5}$/;
+
+/** The `error` event surface of a `pg.Pool` (an `EventEmitter`). */
+export interface ErrorEmitter {
+  on(event: "error", listener: (err: unknown) => void): unknown;
+}
+
+/**
+ * Keeps the process alive when a pooled connection dies while idle.
+ *
+ * pg-pool re-emits an idle client's error on the pool after it has already
+ * removed that client, so the next checkout opens a new connection. With no
+ * `error` listener, Node throws instead and the process exits: a Postgres
+ * restart (SQLSTATE 57P01) took down both the api and the worker
+ * (Sentry BACKEND-CORE-7).
+ *
+ * `warn` gets the SQLSTATE only. The error message is never logged: it can
+ * name hosts, roles or databases. This is a log line, not a Sentry event, so
+ * a routine database restart does not open an issue.
+ */
+export function onIdleClientError(pool: ErrorEmitter, warn: (message: string) => void): void {
+  pool.on("error", (err: unknown) => {
+    const code = (err as { code?: unknown } | null)?.code;
+    const sqlstate = typeof code === "string" && SQLSTATE_PATTERN.test(code) ? code : "unknown";
+    warn(
+      `pg pool: an idle connection failed (SQLSTATE ${sqlstate}); ` +
+        "the pool dropped it and will open a new one",
+    );
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Pool gauges
 // ---------------------------------------------------------------------------
 
