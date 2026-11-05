@@ -1,4 +1,9 @@
-import { type ChunkReloadDeps, RELOAD_GUARD_MS, reloadOnceOnChunkError } from "@/shell/chunkReload";
+import {
+  type ChunkReloadDeps,
+  RELOAD_GUARD_MS,
+  RELOAD_STUCK_MS,
+  reloadOnceOnChunkError,
+} from "@/shell/chunkReload";
 import { lazyPage } from "@/shell/lazyPage";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { Component, type ReactNode } from "react";
@@ -39,7 +44,11 @@ async function state(p: Promise<unknown>): Promise<"pending" | "resolved" | "rej
   return outcome === pending ? "pending" : (outcome as "resolved" | "rejected");
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe("reloadOnceOnChunkError (RT-1247)", () => {
   test("the first failure reloads once and never settles, so no error reaches the route", async () => {
@@ -61,15 +70,39 @@ describe("reloadOnceOnChunkError (RT-1247)", () => {
     expect(second.reload).not.toHaveBeenCalled();
   });
 
-  test("a failure after the guard window reloads again (a later deploy)", async () => {
+  test("a different chunk failing after the guard window reloads again (a later deploy)", async () => {
     const storage = memoryStorage();
     let now = 1_000_000;
     void reloadOnceOnChunkError(chunkError, deps({ storage, now: () => now }));
 
     now += RELOAD_GUARD_MS + 1;
     const later = deps({ storage, now: () => now });
-    expect(await state(reloadOnceOnChunkError(chunkError, later))).toBe("pending");
+    const nextDeploy = new TypeError(
+      "Failed to fetch dynamically imported module: https://lab.kemetralabs.com/assets/StoreList-Next.js",
+    );
+    expect(await state(reloadOnceOnChunkError(nextDeploy, later))).toBe("pending");
     expect(later.reload).toHaveBeenCalledTimes(1);
+  });
+
+  test("the same chunk failing again after a slow reload rethrows, however long it took", async () => {
+    const storage = memoryStorage();
+    let now = 1_000_000;
+    void reloadOnceOnChunkError(chunkError, deps({ storage, now: () => now }));
+
+    now += RELOAD_GUARD_MS * 10;
+    const again = deps({ storage, now: () => now });
+    await expect(reloadOnceOnChunkError(chunkError, again)).rejects.toBe(chunkError);
+    expect(again.reload).not.toHaveBeenCalled();
+  });
+
+  test("a reload that never happens (e.g. a cancelled leave prompt) rethrows after a timeout", async () => {
+    vi.useFakeTimers();
+    const d = deps();
+    const p = reloadOnceOnChunkError(chunkError, d);
+    const settled = expect(p).rejects.toBe(chunkError);
+    await vi.advanceTimersByTimeAsync(RELOAD_STUCK_MS);
+    await settled;
+    expect(d.reload).toHaveBeenCalledTimes(1);
   });
 
   test("without storage it rethrows and never reloads (no guard, no reload)", async () => {
@@ -92,9 +125,9 @@ describe("reloadOnceOnChunkError (RT-1247)", () => {
     expect(d.reload).not.toHaveBeenCalled();
   });
 
-  test("a corrupt stored value counts as no earlier reload", async () => {
+  test("a corrupt stored record counts as no earlier reload", async () => {
     const storage = memoryStorage();
-    storage.setItem("rtc.chunkReloadAt", "not-a-number");
+    storage.setItem("rtc.chunkReload", "not-json");
     const d = deps({ storage });
     expect(await state(reloadOnceOnChunkError(chunkError, d))).toBe("pending");
     expect(d.reload).toHaveBeenCalledTimes(1);
@@ -141,6 +174,24 @@ describe("lazyPage chunk failure (RT-1247)", () => {
       </Boundary>,
     );
     expect(await screen.findByText("Route error")).toBeTruthy();
-    vi.restoreAllMocks();
+  });
+
+  test("by default a failed chunk reloads the page (wired to reloadOnceOnChunkError)", async () => {
+    const reload = vi.fn();
+    vi.stubGlobal("location", { ...window.location, reload });
+    window.sessionStorage.clear();
+    const Page = lazyPage(
+      () => Promise.reject(chunkError) as Promise<{ Screen: () => React.JSX.Element }>,
+      "Screen",
+    );
+    render(
+      <Boundary>
+        <Page />
+      </Boundary>,
+    );
+    await act(async () => undefined);
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Loading items…")).toBeTruthy();
+    vi.unstubAllGlobals();
   });
 });
