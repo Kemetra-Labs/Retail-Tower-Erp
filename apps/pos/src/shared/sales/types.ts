@@ -252,6 +252,9 @@ export const SALES_REFUSAL_REASONS = [
   // RT-542 `receipts.reprint`: the sale has a live void; OD-534-8 B allows no
   // unmarked duplicate of it.
   'sale_voided',
+  // RT-1189 `sales.listRecent`: a request key other than `short_number`, or a
+  // `short_number` that is not one to nine digits after normalisation.
+  'invalid_input',
 ] as const;
 export type SalesRefusalReason = (typeof SALES_REFUSAL_REASONS)[number];
 

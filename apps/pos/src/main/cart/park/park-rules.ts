@@ -26,21 +26,13 @@ export function normalizeLabel(label: string | undefined): NormalizedLabel {
 }
 
 /**
- * The Africa/Cairo calendar day of an instant, as `YYYY-MM-DD`. RT-550: the
- * zone and the conversion live in the shared business-day module.
- */
-export function cairoBusinessDay(instant: Date): string {
-  return businessDayOf(instant);
-}
-
-/**
  * K4 (display only): older than 12 h, or parked on an earlier Cairo business
  * day than `now` (the D-N1 rule). Revalidation runs on every resume anyway.
  */
 export function isStale(parkedAt: string, now: Date): boolean {
   const parked = new Date(parkedAt);
   if (now.getTime() - parked.getTime() > PARK_STALE_AFTER_MS) return true;
-  return cairoBusinessDay(parked) < cairoBusinessDay(now);
+  return businessDayOf(parked) < businessDayOf(now);
 }
 
 /** R-7: a stable digest of a request's fields, in a fixed key order. */
