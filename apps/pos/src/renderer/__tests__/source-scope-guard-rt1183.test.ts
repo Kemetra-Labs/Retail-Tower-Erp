@@ -59,14 +59,17 @@ describe('source-scope guard — RT-1183 exemption is narrow', () => {
     expect(isRt1183ExemptFile(BRANCH, file)).toBe(false);
   });
 
-  it.each(['main', 'claude/rt-1183-', 'claude/rt-1183-pos-stop-storing-printer-fields-x', 'claude/rt-1183-pos-stop-storing-printer-fields/extra', ''])(
-    'does not allow the files on branch %j',
-    (branch) => {
-      for (const file of EXEMPT_FILES) {
-        expect(isRt1183ExemptFile(branch, file), `${branch} ${file}`).toBe(false);
-      }
-    },
-  );
+  it.each([
+    'main',
+    'claude/rt-1183-',
+    'claude/rt-1183-pos-stop-storing-printer-fields-x',
+    'claude/rt-1183-pos-stop-storing-printer-fields/extra',
+    '',
+  ])('does not allow the files on branch %j', (branch) => {
+    for (const file of EXEMPT_FILES) {
+      expect(isRt1183ExemptFile(branch, file), `${branch} ${file}`).toBe(false);
+    }
+  });
 
   it('the guard consults the exemption exactly once, as a filter on the violations', () => {
     const guard = readFileSync(path.join(HERE, 'source-scope-guard.test.ts'), 'utf8');
