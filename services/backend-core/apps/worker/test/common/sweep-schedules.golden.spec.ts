@@ -55,6 +55,7 @@ const PLAIN_QUEUE_OPTS = { connection: { url: URL } };
 
 const CASES: Array<{
   name: string;
+  errorMessage: string;
   make: () => { onModuleInit(): Promise<void> };
   queue: string;
   job: string;
@@ -64,6 +65,9 @@ const CASES: Array<{
 }> = [
   {
     name: "audit retention",
+    errorMessage:
+      "AuditRetentionScheduler: REDIS_URL is required in production " +
+        "(cannot schedule audit retention sweep without Redis).",
     make: () => new AuditRetentionScheduler(),
     queue: "audit-retention",
     job: "audit-retention-sweep",
@@ -73,6 +77,9 @@ const CASES: Array<{
   },
   {
     name: "outbox retention",
+    errorMessage:
+      "OutboxRetentionScheduler: REDIS_URL is required in production " +
+        "(cannot schedule outbox retention sweep without Redis).",
     make: () => new OutboxRetentionScheduler(),
     queue: "outbox-retention",
     job: "outbox-retention-sweep",
@@ -82,6 +89,9 @@ const CASES: Array<{
   },
   {
     name: "stock run sweep",
+    errorMessage:
+      "StockRunSweepScheduler: REDIS_URL is required in production " +
+        "(cannot schedule the stock reconciliation sweep without Redis).",
     make: () => new StockRunSweepScheduler(),
     queue: "erpnext-stock-reconciliation-sweep",
     job: "erpnext-stock-reconciliation-sweep",
@@ -96,6 +106,9 @@ const CASES: Array<{
   },
   {
     name: "replay purge",
+    errorMessage:
+      "ReplayPurgeScheduler: REDIS_URL is required in production " +
+        "(cannot schedule the cashier-admission replay purge without Redis).",
     make: () => new ReplayPurgeScheduler(),
     queue: "cashier-admission-replay-purge",
     job: "cashier-admission-replay-purge",
@@ -105,6 +118,9 @@ const CASES: Array<{
   },
   {
     name: "sale re-drive",
+    errorMessage:
+      "SaleRedriveScheduler: REDIS_URL is required in production " +
+        "(cannot schedule the sale re-drive sweep without Redis).",
     make: () => new SaleRedriveScheduler(),
     queue: "sale-redrive",
     job: "sale-redrive",
@@ -114,6 +130,9 @@ const CASES: Array<{
   },
   {
     name: "reservation sweep",
+    errorMessage:
+      "ReservationSweepScheduler: REDIS_URL is required in production " +
+        "(cannot schedule the AI usage reservation sweep without Redis).",
     make: () => new ReservationSweepScheduler(),
     queue: "ai-usage-reservation-sweep",
     job: "ai-usage-reservation-sweep",
@@ -136,7 +155,6 @@ describe("RT-1210 sweep schedule golden record", () => {
   it.each(CASES)("$name production without REDIS_URL throws its own prefix", async (c) => {
     delete process.env["REDIS_URL"];
     process.env["NODE_ENV"] = "production";
-    const prefix = c.make().constructor.name + ": REDIS_URL is required in production (cannot schedule ";
-    await expect(c.make().onModuleInit()).rejects.toThrow(prefix);
+    await expect(c.make().onModuleInit()).rejects.toThrow(c.errorMessage);
   });
 });
