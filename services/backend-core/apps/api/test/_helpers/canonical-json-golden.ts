@@ -40,7 +40,8 @@ export const GOLDEN_SHA256_HEX =
 //
 // The `rich` vector covers the payload-hash semantics the request-hash
 // serializer (`idempotency/canonical-json.ts`) does NOT share: an `undefined`
-// member is written as `null` (not dropped).
+// member is written as `null` (not dropped). The `Date` vector pins that a
+// `Date` serializes by its own enumerable keys (`{}`), not as an ISO string.
 // ---------------------------------------------------------------------------
 
 const GOLDEN_SALE = "71000000-0000-4000-8000-000000000004";
@@ -138,5 +139,15 @@ export const RECEIVABLE_INTENT_VECTORS: readonly ReceivableIntentVector[] = [
       `"payerRef":"${GOLDEN_PAYER_A}"}],"saleRef":"${GOLDEN_SALE}"}`,
     sha256Hex:
       "c63c59c76655c2121ebc24c7fceb1ec4a852f2fa048635a10405582fbca12fb6",
+  },
+  {
+    name: "Date in claimMetadata serializes as an empty object",
+    saleRef: GOLDEN_SALE,
+    payers: [{ payerRef: GOLDEN_PAYER_A, owedAmount: "1.00", claimMetadata: { at: new Date(0) } }],
+    canonical:
+      '{"payers":[{"claimMetadata":{"at":{}},"owedAmount":"1.00",' +
+      `"payerRef":"${GOLDEN_PAYER_A}"}],"saleRef":"${GOLDEN_SALE}"}`,
+    sha256Hex:
+      "3707fe712b56080ad0dc3d0965c7cb01ee8c211d025fa380f7f10cb9664e59a9",
   },
 ];
