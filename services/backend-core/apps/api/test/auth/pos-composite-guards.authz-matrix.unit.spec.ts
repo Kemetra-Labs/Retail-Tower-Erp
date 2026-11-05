@@ -198,6 +198,7 @@ interface Harness {
   readonly audit: { recordRefusal(refusal: SaleHistoryRefusal): Promise<void> };
 }
 
+/** A fresh world-backed harness: the real envelope and device guards plus in-memory collaborators. */
 function harness(opts: { auditFails?: boolean } = {}): Harness {
   const calls: string[] = [];
   const audits: SaleHistoryRefusal[] = [];
@@ -306,6 +307,7 @@ function harness(opts: { auditFails?: boolean } = {}): Harness {
 
 type Req = TenantContextRequest & { params?: Record<string, string> };
 
+/** A POST request presenting `bearer`, with optional headers and route params. */
 function requestWith(bearer: string, body: unknown, headers: Record<string, string> = {}, params: Record<string, string> = {}): Req {
   return {
     method: "POST",
@@ -317,6 +319,7 @@ function requestWith(bearer: string, body: unknown, headers: Record<string, stri
   } as unknown as Req;
 }
 
+/** An HTTP ExecutionContext for `request`, routed to `handler` (whose metadata the guards read). */
 function ctxFor(request: Req, handler: () => void): ExecutionContext {
   return {
     switchToHttp: () => ({ getRequest: () => request }),
@@ -332,6 +335,7 @@ type Expected =
 
 const REFUSED_BODY = { code: "refused", message: "Forbidden" };
 
+/** Run a guard: `true` on success, else the thrown error. */
 async function outcomeOf(run: () => Promise<boolean>): Promise<true | HttpException | Error> {
   try {
     const result = await run();
@@ -342,6 +346,7 @@ async function outcomeOf(run: () => Promise<boolean>): Promise<true | HttpExcept
   }
 }
 
+/** The HTTP status the global filter would answer for `err`. */
 function statusOf(err: Error): number {
   if (err instanceof HttpException) return err.getStatus();
   if (err.name === "ZodError") return 400; // the global filter maps a ZodError to the 400 validation_error
@@ -401,6 +406,7 @@ function assertRedacted(h: Harness): void {
 // SaleCaptureAuthGuard
 // ---------------------------------------------------------------------------
 
+/** A valid captureSale body, plus `extra` fields. */
 const saleBody = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
   sourceSystem: "pos-pulse",
   externalId: "rt1229-matrix-1",
@@ -488,6 +494,7 @@ const OPEN_ROUTE: ShiftFactRouteSpec = { schema: OpenShiftRequestSchema, timeFie
 const openHandler = (): void => undefined;
 Reflect.defineMetadata(SHIFT_FACT_ROUTE_KEY, OPEN_ROUTE, openHandler);
 
+/** A valid openShift body stated for `opening`, plus `extra` fields. */
 const openBody = (opening: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
   shiftId: "0192f5a2-3b4c-7d8e-9f01-23456789ab01",
   openedAt: FACT_AT,

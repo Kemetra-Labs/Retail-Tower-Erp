@@ -105,14 +105,17 @@ export class ShiftCashUpAuthGuard extends CompositePosAuthGuard<ShiftFactRouteSp
     super(envelope, device, logger);
   }
 
+  /** The route's `@ShiftFactRoute` spec; a route without one is the 500, before any credential. */
   protected routeOf(context: ExecutionContext): ShiftFactRouteSpec {
     return routeSpecOf(context);
   }
 
+  /** Cash-up writes: a body carrying `operatorUserId` takes the device path (RT-224 model). */
   protected carriesCashierSelector(request: TenantContextRequest): boolean {
     return selectsDevicePath(request.body);
   }
 
+  /** Steps b to d: the strict body (400), then the claim rules and the verifier (generic 403 `refused`). */
   protected async verifiedCashier(
     request: TenantContextRequest,
     scope: DeviceScope,

@@ -137,10 +137,12 @@ export class SaleHistoryAuthGuard extends CompositePosAuthGuard<boolean> {
     return isReprintRoute(context);
   }
 
+  /** The device path is selected by the `X-Cashier-Admission` header (its presence). */
   protected carriesCashierSelector(request: TenantContextRequest): boolean {
     return Object.hasOwn(request.headers, CASHIER_ADMISSION_HEADER);
   }
 
+  /** Steps b and c: the header and reprint body (400), then the admission selector (generic 403 `refused`). */
   protected async verifiedCashier(
     request: TenantContextRequest,
     scope: DeviceScope,

@@ -95,14 +95,17 @@ export class SaleCaptureAuthGuard extends CompositePosAuthGuard {
     super(envelope, device, logger);
   }
 
+  /** captureSale has no per-route policy. */
   protected routeOf(_context: ExecutionContext): undefined {
     return undefined;
   }
 
+  /** captureSale: `operatorUserId` in the body (any value) selects the device path. */
   protected carriesCashierSelector(request: TenantContextRequest): boolean {
     return selectsDevicePath(request.body);
   }
 
+  /** Steps b and c: the body (400), then the attribution verifier (generic 403 `refused`). */
   protected async verifiedCashier(request: TenantContextRequest, scope: DeviceScope): Promise<string> {
     // b. The body (400 on a malformed body, as the handler's pipe would).
     const body = this.bodyPipe.transform(request.body, { type: "body" });

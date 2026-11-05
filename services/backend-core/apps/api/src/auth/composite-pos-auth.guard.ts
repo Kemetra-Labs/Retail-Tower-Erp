@@ -50,6 +50,10 @@ export abstract class CompositePosAuthGuard<Route = undefined> implements CanAct
     protected readonly logger?: Pick<Logger, "warn">,
   ) {}
 
+  /**
+   * The shared decision flow (steps 0 to 5 above). Subclasses must not
+   * override it: it is what runs the device guard before any claim check.
+   */
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const route = this.routeOf(context);
     const request = context.switchToHttp().getRequest<TenantContextRequest>();
