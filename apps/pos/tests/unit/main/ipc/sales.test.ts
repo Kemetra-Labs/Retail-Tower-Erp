@@ -61,11 +61,20 @@ function makeBridgeSpy(): SalesBridge {
           coverage: 'this_device_only',
         }) as never,
     ),
+    listRecent: vi.fn(
+      () =>
+        Promise.resolve({
+          kind: 'ok',
+          business_day: '2026-10-16',
+          items: [],
+          truncated: false,
+        }) as never,
+    ),
   };
 }
 
 describe('T094c — registerSalesHandlers', () => {
-  it('registers all five sales.* channels', () => {
+  it('registers all six sales.* channels', () => {
     const fake = makeFakeIpcMain();
     registerSalesHandlers(fake.ipcMain, { salesBridge: makeBridgeSpy() });
     const channels = fake.channels();
@@ -75,7 +84,30 @@ describe('T094c — registerSalesHandlers', () => {
     expect(channels).toContain(SALES_IPC_CHANNELS.UNSUBSCRIBE);
     expect(channels).toContain(SALES_IPC_CHANNELS.LIST);
     expect(SALES_IPC_CHANNELS.LIST).toBe('sales:list');
+    expect(channels).toContain(SALES_IPC_CHANNELS.LIST_RECENT);
+    expect(SALES_IPC_CHANNELS.LIST_RECENT).toBe('sales:listRecent');
   });
+
+  it('RT-1189: delegates sales.listRecent to the bridge with the request payload', async () => {
+    const fake = makeFakeIpcMain();
+    const bridge = makeBridgeSpy();
+    registerSalesHandlers(fake.ipcMain, { salesBridge: bridge });
+    const req = { short_number: '47' };
+    await fake.invoke(SALES_IPC_CHANNELS.LIST_RECENT, req);
+    expect(bridge.listRecent).toHaveBeenCalledWith(req);
+  });
+
+  it.each([null, undefined, 42, 'x', ['47']])(
+    'RT-1189: refuses a non-object sales.listRecent request (%j) as invalid_input without calling the bridge',
+    async (request) => {
+      const fake = makeFakeIpcMain();
+      const bridge = makeBridgeSpy();
+      registerSalesHandlers(fake.ipcMain, { salesBridge: bridge });
+      const res = await fake.invoke(SALES_IPC_CHANNELS.LIST_RECENT, request);
+      expect(res).toEqual({ kind: 'refused', reason: 'invalid_input' });
+      expect(bridge.listRecent).not.toHaveBeenCalled();
+    },
+  );
 
   it('RT-541: delegates sales.list to the bridge with the request payload', async () => {
     const fake = makeFakeIpcMain();

@@ -51,6 +51,7 @@ export type SaleAccessAction =
   | 'sales.findByNumber'
   | 'sales.subscribe'
   | 'sales.list'
+  | 'sales.listRecent'
   | 'receipts.preview'
   | 'receipts.retryPrint'
   | 'receipts.reprint'

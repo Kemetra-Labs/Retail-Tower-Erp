@@ -18,6 +18,8 @@ export const RECOVERY_COPY = Object.freeze({
   someoneElse: 'موظف آخر',
   // RT-837: the signed-in manager's own held sale.
   you: 'أنت',
+  // RT-1190: the stuck payment's start time (a ledger row label).
+  startedAt: 'بدأ الدفع',
   lines: 'عدد الأصناف',
   total: 'الإجمالي',
   cash: 'نقدي مدفوع',
