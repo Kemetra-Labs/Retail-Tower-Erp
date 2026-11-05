@@ -34,7 +34,7 @@ export const FORWARD_TIMEOUT_MS = 5000;
 
 const SENTRY_CLIENT = "backend-core-console-tunnel/1.0";
 
-interface ForwardTarget {
+export interface ForwardTarget {
   readonly url: string;
   readonly auth: string;
   /** The server's Sentry environment, served by the config read and stamped on events. */
@@ -63,33 +63,49 @@ function targetFromDsn(dsn: string, environment: string): ForwardTarget {
 
 /** `null` (inert) unless `CONSOLE_SENTRY_DSN` is a usable DSN. Never logs the value. */
 export function resolveForwardTarget(env: NodeJS.ProcessEnv, logger?: WarnLogger): ForwardTarget | null {
-  const raw = env["CONSOLE_SENTRY_DSN"]?.trim();
+  return resolveTargetFromDsn(env["CONSOLE_SENTRY_DSN"], env, logger, "CONSOLE_SENTRY_DSN", "console telemetry");
+}
+
+/**
+ * `null` (inert) unless `rawDsn` (the value of `dsnVar`) is a usable DSN.
+ * Shared with the POS tunnel (RT-1252). Never logs the value.
+ */
+export function resolveTargetFromDsn(
+  rawDsn: string | undefined,
+  env: NodeJS.ProcessEnv,
+  logger: WarnLogger | undefined,
+  dsnVar: string,
+  label: string,
+): ForwardTarget | null {
+  const raw = rawDsn?.trim();
   if (!raw) return null;
   // The API's own Sentry environment (SENTRY_ENVIRONMENT, else
-  // DEPLOYMENT_ENVIRONMENT, else "unknown"), with the Console DSN.
+  // DEPLOYMENT_ENVIRONMENT, else "unknown"), with the tunnel's DSN.
   const config = resolveSentryConfig({
     SENTRY_DSN: raw,
     SENTRY_ENVIRONMENT: env["SENTRY_ENVIRONMENT"],
     DEPLOYMENT_ENVIRONMENT: env["DEPLOYMENT_ENVIRONMENT"],
   });
   if (config === null) {
-    logger?.warn("console telemetry disabled: CONSOLE_SENTRY_DSN is not a valid DSN");
+    logger?.warn(`${label} disabled: ${dsnVar} is not a valid DSN`);
     return null;
   }
   return targetFromDsn(config.dsn, config.environment);
 }
 
-@Injectable()
-export class ConsoleTelemetryForwarder {
-  private readonly target: ForwardTarget | null;
+/**
+ * Fire-and-forget envelope forward to one server-configured Sentry project.
+ * Shared by the Console tunnel and, since RT-1252, the POS device tunnel.
+ */
+export class SentryEnvelopeForwarder {
   private inFlight = 0;
 
   constructor(
-    @Inject(CONSOLE_TELEMETRY_FETCH) private readonly fetchFn: TelemetryFetch,
-    @Optional() @Inject(ROOT_LOGGER) private readonly logger?: Logger,
-  ) {
-    this.target = resolveForwardTarget(process.env, logger);
-  }
+    private readonly target: ForwardTarget | null,
+    private readonly fetchFn: TelemetryFetch,
+    private readonly logger: Logger | undefined,
+    private readonly label: string,
+  ) {}
 
   /** The environment to serve and stamp, or `null` when the tunnel is inert. */
   get environment(): string | null {
@@ -117,10 +133,21 @@ export class ConsoleTelemetryForwarder {
       });
       await response.body?.cancel().catch(() => undefined);
       if (response.status < 200 || response.status >= 300) {
-        this.logger?.warn({ status: response.status }, "console telemetry: upstream rejected envelope");
+        this.logger?.warn({ status: response.status }, `${this.label}: upstream rejected envelope`);
       }
     } catch {
-      this.logger?.warn("console telemetry: forward failed");
+      this.logger?.warn(`${this.label}: forward failed`);
     }
+  }
+}
+
+/** The Console tunnel's forwarder (RT-632): `CONSOLE_SENTRY_DSN` only. */
+@Injectable()
+export class ConsoleTelemetryForwarder extends SentryEnvelopeForwarder {
+  constructor(
+    @Inject(CONSOLE_TELEMETRY_FETCH) fetchFn: TelemetryFetch,
+    @Optional() @Inject(ROOT_LOGGER) logger?: Logger,
+  ) {
+    super(resolveForwardTarget(process.env, logger), fetchFn, logger, "console telemetry");
   }
 }

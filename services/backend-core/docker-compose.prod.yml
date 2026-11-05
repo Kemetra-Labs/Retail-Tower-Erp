@@ -154,6 +154,11 @@ services:
       # RT-632: the Console Sentry project, used only by the same-origin tunnel
       # POST /api/v1/console/telemetry/envelope. Empty = tunnel inert.
       CONSOLE_SENTRY_DSN: ${CONSOLE_SENTRY_DSN:-}
+      # RT-1252: the POS Sentry project and the fleet-ref HMAC key, used only by
+      # the device tunnel POST /api/pos/v1/telemetry/envelope. Both are needed;
+      # either empty = tunnel inert.
+      POS_SENTRY_DSN: ${POS_SENTRY_DSN:-}
+      POS_TELEMETRY_REF_KEY: ${POS_TELEMETRY_REF_KEY:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
       OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
       OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-0.1}

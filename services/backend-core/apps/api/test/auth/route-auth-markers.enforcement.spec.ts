@@ -162,6 +162,9 @@ describe("route auth markers are enforced at the route (RT-129 / A9)", () => {
       "InventorySafetyFeedController.getSnapshot",
       // RT-788 (RT-114 MA-BC2): the approver-eligibility read (device bearer only).
       "PosApproversController.checkEligibility",
+      // RT-1252: the POS device telemetry tunnel and its config (device bearer only).
+      "PosTelemetryController.config",
+      "PosTelemetryController.forwardEnvelope",
       "ReadDownController.getDeltas",
       "ReadDownController.getSnapshot",
       // RT-369: the device token rotation (DeviceRotationAuthGuard).
