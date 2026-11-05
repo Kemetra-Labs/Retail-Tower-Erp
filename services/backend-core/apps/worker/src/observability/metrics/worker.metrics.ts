@@ -187,7 +187,7 @@ export function sanitizeErrorClass(
 // the instrument creation and WORKER_METRIC_NAMES. Adding a signal is one row.
 // ---------------------------------------------------------------------------
 
-export interface WorkerMetricDef {
+interface WorkerMetricDef {
   readonly name: string;
   readonly kind: "counter" | "histogram" | "observable_gauge";
   /** Closed label set, validated by `assertMetricLabels` at module load. */
@@ -196,7 +196,7 @@ export interface WorkerMetricDef {
   readonly unit?: string;
 }
 
-export const WORKER_METRICS = [
+const WORKER_METRICS = [
   // DB pool (P4 W1): the worker observes its own pool on port 9091; the API observes its own
   // independently on port 9464 via db.metrics.ts. Both use the shared helpers (RT-1211).
   {

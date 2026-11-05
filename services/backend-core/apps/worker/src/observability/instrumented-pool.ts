@@ -16,13 +16,12 @@ import { Pool } from "pg";
 import {
   SLOW_QUERY_THRESHOLD_SECONDS,
   hashQueryTemplate,
-  isValidQueryClass,
   withSlowQueryRecorder,
 } from "@data-pulse-2/shared";
 
 import { recordDbSlowQuery } from "./metrics/worker.metrics";
 
-export { SLOW_QUERY_THRESHOLD_SECONDS, hashQueryTemplate, isValidQueryClass };
+export { SLOW_QUERY_THRESHOLD_SECONDS, hashQueryTemplate };
 
 /** `pg.Pool` whose Promise-form `query()` reports slow queries on the worker's meter. */
 export class InstrumentedPool extends withSlowQueryRecorder(Pool, recordDbSlowQuery) {}
