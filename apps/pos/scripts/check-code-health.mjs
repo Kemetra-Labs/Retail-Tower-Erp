@@ -5,7 +5,8 @@
 // scripts/code-health/rules.mjs) and type errors in tests/ (tsconfig.tests.json), then compares
 // them with the committed baseline scripts/code-health.baseline.json. It fails (exit 1) when any
 // count grows, and passes with a hint when a count shrinks so the PR that cleans up lowers the
-// baseline (run with --update to rewrite it).
+// baseline (run with --update to rewrite it; --update refuses when any count grew, so a rise
+// needs a hand edit of the baseline in the PR, with owner approval).
 //
 // Usage: node scripts/check-code-health.mjs [--update]
 // Exit codes: 0 pass, 1 a count grew past the baseline, 2 a tool or the baseline failed.
@@ -183,16 +184,16 @@ async function main() {
     ...measureTestsTypeErrors(),
   };
 
-  if (update) {
-    writeBaseline(current);
-    console.log('code-health: baseline written.');
-    console.table(current);
-    return 0;
-  }
-
   const { grew, shrank, ok } = compare(current, readBaseline());
   console.table(current);
-  reportShrank(shrank);
+  // --update only lowers the baseline: a count that grew fails here as in a normal run, so a drop
+  // in one metric can never carry a rise in another into the baseline.
+  if (update && ok) {
+    writeBaseline(current);
+    console.log('code-health: baseline written.');
+    return 0;
+  }
+  if (!update) reportShrank(shrank);
   return reportGrew(grew, ok);
 }
 
@@ -217,7 +218,8 @@ function reportGrew(grew, ok) {
   }
   console.error(
     'code-health: remove the new unused code, duplication, oversized function or test type ' +
-      'error, or explain in the PR why the baseline must rise (owner approval required).',
+      'error. If the baseline must rise, edit scripts/code-health.baseline.json by hand and ' +
+      'explain why in the PR (owner approval required); --update never raises it.',
   );
   return 1;
 }
