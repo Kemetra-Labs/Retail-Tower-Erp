@@ -8,10 +8,13 @@
 --
 -- It gives the domain role table-level SELECT and INSERT on users back, which
 -- RE-OPENS THE RT-147 FINDING: the domain role can read every tenant's
--- password hash again (not overwrite it: UPDATE is not restored, and no
--- release needs it). Roll forward, or run users-columns-domain-grants.sql again
--- as soon as a release from RT-1249 on is running; the RT-1249 boot check
--- refuses to start while these grants are in place.
+-- password hash again, and insert users rows with any column value, including
+-- is_platform_admin = true and a chosen password_hash (the table-level INSERT
+-- every release before RT-1249 had). UPDATE is not restored; no release needs
+-- it. Leave it in place only while a pre-RT-1249 release runs. Run
+-- users-columns-domain-grants.sql BEFORE starting a release from RT-1249 on
+-- (a normal deploy does so in step 2): that release's boot check refuses to
+-- start while these grants are in place.
 --
 -- Run as the migration owner, with the connection in libpq environment
 -- variables (never a URL argument):

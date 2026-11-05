@@ -528,8 +528,10 @@ requires table-level `INSERT` on `users`, which `users-columns-domain-grants.sql
 removed. As the migration owner, run
 `GRANT SELECT, INSERT ON users TO <domain role>;` (the whole of
 `docs/operations/sql/users-columns-rollback.sql`, which the release bundle does
-not ship), then restart the API. This re-opens the RT-147 read finding until
-`users-columns-domain-grants.sql` runs again
+not ship), then restart the API. This re-opens the RT-147 finding (hash reads,
+and `users` inserts with any value) until `users-columns-domain-grants.sql`
+runs again, which must happen before a release from RT-1249 on starts; a
+normal deploy does it in step 2
 ([database-roles.md](../docs/operations/database-roles.md#userspassword_hash-belongs-to-the-lookup-role-rt-1249)).
 
 **Everything below is owner-only.** No agent or CI job creates, changes or

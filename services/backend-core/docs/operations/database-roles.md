@@ -682,8 +682,12 @@ migration owner (`psql -X -v domain_role=<role> -f ...`). The release bundle
 does not ship it; on a host, run its one statement directly:
 `GRANT SELECT, INSERT ON users TO <domain role>;`. It restores
 table-level `SELECT` and `INSERT` (not `UPDATE`), which **re-opens the RT-147
-finding**. Re-run `users-columns-domain-grants.sql` as soon as a release from
-RT-1249 on is running; its boot check refuses to start until you do.
+finding**: the domain role can read every tenant's password hash again, and
+insert `users` rows with any value, including `is_platform_admin = true` and a
+chosen `password_hash`. Keep it only while the pre-RT-1249 release runs. Run
+`users-columns-domain-grants.sql` **before** starting a release from RT-1249
+on (a normal deploy does so in step 2): its boot check refuses to start while
+the rollback grants are in place.
 
 ## Redis credential
 
