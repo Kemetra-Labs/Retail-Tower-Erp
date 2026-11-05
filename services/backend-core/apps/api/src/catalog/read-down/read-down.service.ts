@@ -32,6 +32,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import type { Pool, PoolClient } from "pg";
 
 import { PG_POOL } from "../../auth/auth.module";
+import { anyJsonObject, decodeOpaque, encodeOpaque } from "../../common/cursor/opaque-cursor";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import { recordCatalogUnpricedIssue } from "../../observability/metrics/api.metrics";
 import {
@@ -42,7 +43,6 @@ import {
 import {
   encodeCursor,
   decodeCursor,
-  isJsonObject,
   ReadDownCursorError,
   type SnapshotCursor,
 } from "./read-down.cursor";
@@ -466,10 +466,7 @@ interface PageTokenPayload {
 }
 
 function encodePageToken(p: PageTokenPayload): string {
-  return Buffer.from(
-    JSON.stringify({ t: p.tenantId, s: p.storeId, a: p.afterProductId }),
-    "utf8",
-  ).toString("base64url");
+  return encodeOpaque({ t: p.tenantId, s: p.storeId, a: p.afterProductId });
 }
 
 function decodePageToken(
@@ -477,15 +474,7 @@ function decodePageToken(
   tenantId: string,
   storeId: string,
 ): string {
-  let payload: unknown;
-  try {
-    payload = JSON.parse(Buffer.from(token, "base64url").toString("utf8"));
-  } catch {
-    throw new ReadDownCursorError("malformed page_token");
-  }
-  if (!isJsonObject(payload)) {
-    throw new ReadDownCursorError("malformed page_token");
-  }
+  const payload = decodeOpaque(token, anyJsonObject, () => new ReadDownCursorError("malformed page_token"));
   if (
     payload.t !== tenantId ||
     payload.s !== storeId ||
