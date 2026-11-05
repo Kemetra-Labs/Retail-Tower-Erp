@@ -101,18 +101,37 @@ function readGuard(outDir, sha) {
   if (g.decision === "TIA_ELIGIBLE" && !(head && sha)) {
     return unknown("stale-head", `TIA_ELIGIBLE not pinned to this commit (guard head ${head || "none"}, CIRCLE_SHA1 ${sha || "unset"})`, head);
   }
-  return { decision: g.decision, source: fallback ? "fallback" : "guard.json", reason: typeof g.reason === "string" ? g.reason : null, head };
+  // RT-920: specs the guard requires for neutral changes (changelog fragments). Anything that is
+  // not a list of strings becomes null, and the guarded block then fails closed (see below).
+  // A guard.json without the field (written before RT-920) has no must-run specs.
+  const mustRun =
+    g.mustRun === undefined ? [] : Array.isArray(g.mustRun) && g.mustRun.every((m) => typeof m === "string") ? g.mustRun : null;
+  return { decision: g.decision, source: fallback ? "fallback" : "guard.json", reason: typeof g.reason === "string" ? g.reason : null, head, mustRun };
 }
 
 // What would have run with the guard in force. Only a known decision yields misses.
-function guardedSelection(r) {
+function guardedSelection(r, selected) {
   const none = (status) => ({ status, selectedSpecs: null, selectionRatio: null, misses: null });
   if (r.guard.decision === "FORCE_FULL") {
     return { status: "force-full", selectedSpecs: r.totalSpecs, selectionRatio: r.totalSpecs ? 1 : null, misses: [] };
   }
   if (r.guard.decision !== "TIA_ELIGIBLE") return none("force-full-unknown");
-  if (!r.misses) return none(r.status);
-  return { status: r.status, selectedSpecs: r.selectedSpecs, selectionRatio: r.selectionRatio, misses: [...r.misses] };
+  if (!r.misses || !selected) return none(r.status);
+  // RT-920: the guard's must-run specs join the raw selection. A must-run list that is missing
+  // or names a spec absent from the full run means the guard's assumption broke: not measured.
+  const mustRun = r.guard.mustRun;
+  if (!mustRun) return none("must-run-unknown");
+  if (mustRun.some((m) => !r.allSpecs.has(m))) return none("must-run-missing");
+  const union = new Set([...selected, ...mustRun]);
+  const guarded = {
+    status: r.status,
+    selectedSpecs: union.size,
+    selectionRatio: r.totalSpecs ? union.size / r.totalSpecs : null,
+    misses: r.failingSpecs.filter((s) => !union.has(s)),
+  };
+  // Only a PR with neutral changes carries the field, so every earlier report keeps its shape.
+  if (mustRun.length) guarded.mustRun = [...mustRun];
+  return guarded;
 }
 
 function buildReport(args) {
@@ -143,10 +162,11 @@ function buildReport(args) {
     return report;
   }
 
-  measureRaw(report, args[0], specs, apiRoot || "");
+  const selected = measureRaw(report, args[0], specs, apiRoot || "");
   // The guarded selection does not depend on list-tests: FORCE_FULL is computable even when
   // list-tests failed.
-  report.guarded = guardedSelection(report);
+  Object.defineProperty(report, "allSpecs", { value: specs, enumerable: false });
+  report.guarded = guardedSelection(report, selected);
   return report;
 }
 
@@ -158,7 +178,7 @@ function measureRaw(report, selectedPath, specs, apiRoot) {
   if (selectionText === null || report.listTestsExitCode !== 0) {
     report.status = "no-selection-data";
     report.note = "list-tests failed or wrote nothing; selection ratio and misses not computable.";
-    return;
+    return null;
   }
   const { selected, unknown } = parseSelection(selectionText, specs, apiRoot);
   report.selectedSpecs = selected.size;
@@ -177,6 +197,7 @@ function measureRaw(report, selectedPath, specs, apiRoot) {
   } else {
     report.status = "measured";
   }
+  return selected;
 }
 
 function renderGuarded(r, lines) {
