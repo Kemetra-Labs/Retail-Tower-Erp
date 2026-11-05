@@ -26,6 +26,13 @@
  * its differences: the selector, the claim check, and optionally the route
  * policy and the envelope path. route-auth-markers.enforcement.spec.ts lists
  * the subclasses as the reviewed composites that run PosDeviceAuthGuard.
+ *
+ * Security seams (RT-1229 review): a subclass must NOT override
+ * `canActivate`, which is what guarantees that the device guard runs before
+ * any claim check and that only a verified cashier is published. An
+ * `envelopePath` override (today only the sale history's device probe) must
+ * rethrow the envelope's refusal unless it refuses with its own 403. It is
+ * a new composite and needs its own security review.
  */
 import { type CanActivate, type ExecutionContext, ForbiddenException } from "@nestjs/common";
 import type { Logger } from "@data-pulse-2/shared";

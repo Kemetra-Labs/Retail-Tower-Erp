@@ -4,7 +4,9 @@
   `CompositePosAuthGuard` (`apps/api/src/auth/composite-pos-auth.guard.ts`).
   The flow is: route policy, selector, envelope path, device first, the claim
   check, then publish. Each guard keeps its class name and supplies only its
-  selector and claim check. Who is allowed, refusal reasons and HTTP codes,
+  differences: its selector and claim check, plus the route policy (shift
+  cash-up, sale history) and the envelope-path device probe (sale history).
+  Who is allowed, refusal reasons and HTTP codes,
   log events, audit rows and check order are unchanged. A new authorization
   matrix spec (`test/auth/pos-composite-guards.authz-matrix.unit.spec.ts`)
   pins them across envelope only, device only, a revoked device, an expired

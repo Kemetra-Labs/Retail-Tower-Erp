@@ -72,7 +72,7 @@ const DEVICE_REVOKED = "0c122900-0000-4000-8000-0000000000e2";
 
 const MANAGER = "0c122900-0000-4000-8000-0000000000d1"; // store_manager, all stores
 const CASHIER = "0c122900-0000-4000-8000-0000000000d2"; // store_staff, STORE_A
-const DELETED = "0c122900-0000-4000-8000-0000000000d3"; // store_staff, user and membership deleted
+const DELETED = "0c122900-0000-4000-8000-0000000000d3"; // store_staff, user row deleted
 const PLATFORM_ADMIN = "0c122900-0000-4000-8000-0000000000d4"; // no membership in TENANT
 const OTHER_STORE_MANAGER = "0c122900-0000-4000-8000-0000000000d5"; // store_manager, STORE_B only
 const OTHER_STORE_CASHIER = "0c122900-0000-4000-8000-0000000000d6"; // store_staff, STORE_B only
@@ -105,13 +105,16 @@ interface WorldUser {
 }
 
 /**
- * The deleted user's membership is soft-deleted with it. (The live re-verify
- * reads memberships, not users.deleted_at; this slice changes neither.)
+ * The deleted user keeps an active store_staff membership, so the device
+ * path reaches the eligibility rule `user_deleted`. On the envelope path its
+ * envelope is refused by the live re-verify for its role (store_staff): the
+ * re-verify reads memberships and roles, not users.deleted_at. This slice
+ * changes neither.
  */
 const USERS: Readonly<Record<string, WorldUser>> = {
   [MANAGER]: { deleted: false, membership: { role: "store_manager", active: true, stores: null } },
   [CASHIER]: { deleted: false, membership: { role: "store_staff", active: true, stores: [STORE_A] } },
-  [DELETED]: { deleted: true, membership: { role: "store_staff", active: false, stores: [STORE_A] } },
+  [DELETED]: { deleted: true, membership: { role: "store_staff", active: true, stores: [STORE_A] } },
   [PLATFORM_ADMIN]: { deleted: false, membership: null },
   [OTHER_STORE_MANAGER]: { deleted: false, membership: { role: "store_manager", active: true, stores: [STORE_B] } },
   [OTHER_STORE_CASHIER]: { deleted: false, membership: { role: "store_staff", active: true, stores: [STORE_B] } },
@@ -357,7 +360,9 @@ function assertOutcome(result: true | Error, request: Req, expected: Expected, d
       isPlatformAdmin: false,
       source: "token",
     });
-    expect(request.principal).toMatchObject({ kind: "token", tenantId: TENANT, userId, storeId: deviceStore, scope });
+    // The device path's principal is the device (tokenId = device id); the envelope's is its auth_tokens row.
+    const tokenId = scope === "pos" ? DEVICE_A : ENVELOPES["env-manager"]!.id;
+    expect(request.principal).toEqual({ kind: "token", tokenId, tenantId: TENANT, userId, storeId: deviceStore, scope });
     expect(request.posDeviceId).toBe(DEVICE_A);
     return;
   }
@@ -428,7 +433,7 @@ const CAPTURE_MATRIX: readonly Cell[] = [
   { name: "store_staff holding an envelope → 401 (role not eligible)", bearer: "env-staff", expected: { status: 401 }, calls: ["envelope"], events: [] },
   { name: "wrong store: the claimed cashier's only admission is another store's → 403", bearer: "device-a", claim: OTHER_STORE_CASHIER, expected: { status: 403 }, calls: ["device", "verify"], events: [captureEvent("no_covering_admission")] },
   { name: "wrong store: envelope of a manager without access to the store → 401", bearer: "env-wrong-store", expected: { status: 401 }, calls: ["envelope"], events: [] },
-  { name: "deleted user claimed on the device → 403", bearer: "device-a", claim: DELETED, expected: { status: 403 }, calls: ["device", "verify"], events: [captureEvent("membership_inactive")] },
+  { name: "deleted user claimed on the device → 403", bearer: "device-a", claim: DELETED, expected: { status: 403 }, calls: ["device", "verify"], events: [captureEvent("user_deleted")] },
   { name: "deleted user's envelope → 401", bearer: "env-deleted", expected: { status: 401 }, calls: ["envelope"], events: [] },
   { name: "platform admin without membership, claimed on the device → 403", bearer: "device-a", claim: PLATFORM_ADMIN, expected: { status: 403 }, calls: ["device", "verify"], events: [captureEvent("membership_inactive")] },
   { name: "platform admin without membership, own envelope → 401", bearer: "env-platform", expected: { status: 401 }, calls: ["envelope"], events: [] },
@@ -581,7 +586,7 @@ const HISTORY_MATRIX: readonly HistoryCell[] = [
   { name: "expired admission → 403 admission_not_live", bearer: "device-a", admission: ADM_EXPIRED, expected: { status: 403 }, calls: ["device", "resolve"], reason: "admission_not_live", auditActor: CASHIER },
   { name: "wrong store: another store's admission → 403 admission_unknown", bearer: "device-a", admission: ADM_OTHER_STORE, expected: { status: 403 }, calls: ["device", "resolve"], reason: "admission_unknown", auditActor: null },
   { name: "wrong store: envelope of a manager without access to the store → 401", bearer: "env-wrong-store", expected: { status: 401 }, calls: ["envelope", "device"] },
-  { name: "deleted user's admission → 403 membership_inactive", bearer: "device-a", admission: ADM_DELETED, expected: { status: 403 }, calls: ["device", "resolve"], reason: "membership_inactive", auditActor: DELETED },
+  { name: "deleted user's admission → 403 user_deleted", bearer: "device-a", admission: ADM_DELETED, expected: { status: 403 }, calls: ["device", "resolve"], reason: "user_deleted", auditActor: DELETED },
   { name: "deleted user's envelope → 401", bearer: "env-deleted", expected: { status: 401 }, calls: ["envelope", "device"] },
   { name: "platform admin without membership, admission → 403 membership_inactive", bearer: "device-a", admission: ADM_PLATFORM, expected: { status: 403 }, calls: ["device", "resolve"], reason: "membership_inactive", auditActor: PLATFORM_ADMIN },
   { name: "platform admin without membership, own envelope → 401", bearer: "env-platform", expected: { status: 401 }, calls: ["envelope", "device"] },
