@@ -18,10 +18,8 @@
 import { z } from "zod";
 
 import { RECEIVABLE_STATES } from "../receivable-state-machine";
+import { UUID_RE_I } from "../../common/ids";
 
-/** Any-version UUID — the receivable id is `gen_random_uuid()` (v4). */
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const ReceivableListQuerySchema = z
   .object({
@@ -32,7 +30,7 @@ export const ReceivableListQuerySchema = z
       .string()
       .min(1)
       .max(36, "cursor exceeds the maximum length")
-      .regex(UUID_RE, "cursor must be a receivable-reference token")
+      .regex(UUID_RE_I, "cursor must be a receivable-reference token")
       .optional(),
     page_size: z.coerce.number().int().min(1).max(200).optional(),
   })

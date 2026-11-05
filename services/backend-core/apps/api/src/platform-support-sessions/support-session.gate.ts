@@ -42,6 +42,7 @@ import {
   type CrossTenantRefusal,
   type SupportSessionRecord,
 } from "./support-session.store";
+import { UUID_RE_I } from "../common/ids";
 
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -191,7 +192,7 @@ export class SupportSessionGate {
    * unresolvable and its row must be platform-scoped.
    */
   async tenantRowExists(tenantId: string): Promise<boolean> {
-    if (!UUID_RE.test(tenantId)) return false;
+    if (!UUID_RE_I.test(tenantId)) return false;
     return await this.withPlatformCtx(async (client) => {
       const { rows } = await client.query(`SELECT 1 FROM tenants WHERE id = $1`, [tenantId]);
       return rows.length > 0;
@@ -220,10 +221,9 @@ export class SupportSessionGate {
   }
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function readTenant(client: PoolClient, tenantId: string): Promise<TenantState> {
-  if (!UUID_RE.test(tenantId)) return { exists: false, suspended: false };
+  if (!UUID_RE_I.test(tenantId)) return { exists: false, suspended: false };
   const { rows } = await client.query<{ status: string }>(
     `SELECT status FROM tenants WHERE id = $1 AND deleted_at IS NULL`,
     [tenantId],

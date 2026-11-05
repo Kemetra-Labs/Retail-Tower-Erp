@@ -21,6 +21,8 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
+import { InvalidCursorError, decodeOpaque, encodeOpaque } from "../common/cursor/opaque-cursor";
+import { UUID_RE } from "../common/ids";
 import {
   isCalendarDate,
   MAX_SPAN_DAYS,
@@ -139,7 +141,7 @@ export function hasAnyFilter(filters: ConsoleSaleFilters): boolean {
 // ---------------------------------------------------------------------------
 
 /** A cursor this operation did not issue for this tenant, store and filters → 400. */
-export class InvalidConsoleSaleCursorError extends Error {
+export class InvalidConsoleSaleCursorError extends InvalidCursorError {
   constructor() {
     super("cursor is not a valid continuation token for this query");
     this.name = "InvalidConsoleSaleCursorError";
@@ -147,7 +149,8 @@ export class InvalidConsoleSaleCursorError extends Error {
 }
 
 const OPERATION = "console_sales";
-export const LOWER_UUID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
+/** The lower-case UUID shape, under the name the console modules import. */
+export const LOWER_UUID = UUID_RE;
 export const KEY_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
 
 const CursorPayload = z
@@ -204,20 +207,12 @@ export function encodeConsoleSaleCursor(binding: ConsoleCursorBinding, keyset: S
     at: keyset.occurredAtKey,
     id: keyset.saleId,
   };
-  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return encodeOpaque(payload);
 }
 
 /** The keyset position of `cursor`, or InvalidConsoleSaleCursorError when it was not issued for `binding`. */
 export function decodeConsoleSaleCursor(binding: ConsoleCursorBinding, cursor: string): SaleHistoryKeyset {
-  let decoded: unknown;
-  try {
-    decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
-  } catch {
-    throw new InvalidConsoleSaleCursorError();
-  }
-  const parsed = CursorPayload.safeParse(decoded);
-  if (!parsed.success) throw new InvalidConsoleSaleCursorError();
-  const p = parsed.data;
+  const p = decodeOpaque(cursor, CursorPayload, () => new InvalidConsoleSaleCursorError());
   const boundHere =
     p.tenant === binding.tenantId.toLowerCase() &&
     p.store === binding.storeId.toLowerCase() &&

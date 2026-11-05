@@ -1,0 +1,2 @@
+### Changed
+- RT-1213: the opaque keyset cursors share one codec (`common/cursor/opaque-cursor.ts`: `encodeOpaque`, `decodeOpaque`, `isCalendarInstant`, an `InvalidCursorError` base) and one pair of UUID shapes (`common/ids.ts`: `UUID_RE`, `UUID_RE_I`). Token bytes, error classes and messages, HTTP mapping, the tenant checks and which UUID case each site accepts are unchanged; a golden spec pins them for every cursor module.

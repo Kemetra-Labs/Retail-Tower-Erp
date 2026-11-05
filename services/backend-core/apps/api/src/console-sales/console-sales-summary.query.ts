@@ -18,6 +18,7 @@
  */
 import { z } from "zod";
 
+import { InvalidCursorError, decodeOpaque, encodeOpaque } from "../common/cursor/opaque-cursor";
 import { isCalendarDate } from "../catalog/sales/history/sale-history.query";
 import {
   BusinessDateSchema,
@@ -63,7 +64,7 @@ export function businessDatesOf(from: string, to: string): string[] {
 // ---------------------------------------------------------------------------
 
 /** A cursor this operation did not issue for this tenant, store, range and page size → 400. */
-export class InvalidSalesSummaryCursorError extends Error {
+export class InvalidSalesSummaryCursorError extends InvalidCursorError {
   constructor() {
     super("cursor is not a valid continuation token for this query");
     this.name = "InvalidSalesSummaryCursorError";
@@ -105,24 +106,13 @@ export function encodeSalesSummaryCursor(binding: SummaryCursorBinding, afterSto
     size: binding.pageSize,
     after: afterStoreId.toLowerCase(),
   };
-  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-}
-
-/** The payload of a well-formed token of this operation, or null. */
-function payloadOf(cursor: string): CursorPayload | null {
-  try {
-    const parsed = CursorPayload.safeParse(JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")));
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
+  return encodeOpaque(payload);
 }
 
 /** The last store id of the previous page, or InvalidSalesSummaryCursorError when not issued for `binding`. */
 export function decodeSalesSummaryCursor(binding: SummaryCursorBinding, cursor: string): string {
-  const payload = payloadOf(cursor);
-  const expected = encodeSalesSummaryCursor(binding, payload?.after ?? "");
+  const payload = decodeOpaque(cursor, CursorPayload, () => new InvalidSalesSummaryCursorError());
   // Re-encoding the binding with the token's position must give the token's exact payload.
-  if (payload === null || cursor !== expected) throw new InvalidSalesSummaryCursorError();
+  if (cursor !== encodeSalesSummaryCursor(binding, payload.after)) throw new InvalidSalesSummaryCursorError();
   return payload.after;
 }

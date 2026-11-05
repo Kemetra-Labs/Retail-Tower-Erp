@@ -121,6 +121,7 @@ import {
   type SaleProjection,
   type TerminalEventProjection,
 } from "./sales.service";
+import { UUID_RE_I } from "../../common/ids";
 
 /** RT-1206: the capture route's `idempotency_conflict_total` label, as the interceptor forms it. */
 const CAPTURE_SALE_ROUTE = "POST:/api/pos/v1/sales";
@@ -189,9 +190,6 @@ function toResponsibilityHttpError(err: unknown): unknown {
   return null;
 }
 
-/** Canonical UUID shape (any version) — a saleRef that fails this never hits the DB. */
-const SALE_REF_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** RT-787: the RT-490 allocation refusals of `recordReturn` (`ReturnUnprocessable`, rule 1's 400). */
 const ALLOCATION_REFUSALS: ReadonlyArray<readonly [new () => Error, 400 | 422, string]> = [
@@ -427,7 +425,7 @@ export class SalesController {
       // within its own store (spec §120/§449, FR-063). Mirrors captureSale.
       throw new UnauthorizedException("store_context_required");
     }
-    if (!SALE_REF_RE.test(saleRef)) {
+    if (!UUID_RE_I.test(saleRef)) {
       // Non-disclosing input guard: a malformed ref must not reach the DB (an
       // invalid uuid would surface as a 500). Treat it as a safe-404.
       throw new NotFoundException("not_found");
@@ -471,7 +469,7 @@ export class SalesController {
     if (ctx.storeId === null) {
       throw new UnauthorizedException("store_context_required");
     }
-    if (!SALE_REF_RE.test(saleRef)) {
+    if (!UUID_RE_I.test(saleRef)) {
       // A malformed ref is a non-disclosing safe-404, never a 500 (SI-004).
       throw new NotFoundException("not_found");
     }
@@ -524,7 +522,7 @@ export class SalesController {
     if (ctx.storeId === null) {
       throw new UnauthorizedException("store_context_required");
     }
-    if (!SALE_REF_RE.test(saleRef)) {
+    if (!UUID_RE_I.test(saleRef)) {
       throw new NotFoundException("not_found");
     }
     try {
@@ -570,7 +568,7 @@ export class SalesController {
     if (ctx.storeId === null) {
       throw new UnauthorizedException("store_context_required");
     }
-    if (!SALE_REF_RE.test(saleRef)) {
+    if (!UUID_RE_I.test(saleRef)) {
       throw new NotFoundException("not_found");
     }
     try {

@@ -42,10 +42,10 @@ import {
   type PosAuditEventsSyncResponseBody,
   type RejectedEvent,
 } from "./dto";
+import { UUID_RE_I } from "../common/ids";
 
 const ACTION_CATEGORY_SET = new Set<string>(POS_AUDIT_ACTION_CATEGORIES);
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * The audit-ingest `shift.open` → legacy `shifts` row. $1 shift, $2 tenant,
@@ -81,7 +81,7 @@ function isSchemaViolation(event: AuditEventItemInput): boolean {
   // shift.open: payload.shift_id must be a valid UUID string.
   if (event.action_category === "shift.open") {
     const payloadShiftId = (event.payload as Record<string, unknown>)["shift_id"];
-    return typeof payloadShiftId !== "string" || !UUID_RE.test(payloadShiftId);
+    return typeof payloadShiftId !== "string" || !UUID_RE_I.test(payloadShiftId);
   }
   // RT-740 DEP-2: a manual-discount event carries a closed key set and a
   // reason code from the closed list, never free text.

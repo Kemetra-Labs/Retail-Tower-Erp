@@ -3,7 +3,7 @@
  */
 import { z } from "zod";
 
-import { InvalidCursorError, decodeOpaque, encodeOpaque } from "../../src/common/cursor/opaque-cursor";
+import { InvalidCursorError, decodeOpaque, encodeOpaque, isCalendarInstant, anyJsonObject } from "../../src/common/cursor/opaque-cursor";
 
 class TestCursorError extends InvalidCursorError {
   constructor() {
@@ -58,5 +58,33 @@ describe("InvalidCursorError", () => {
     const sub = new TestCursorError();
     expect(sub).toBeInstanceOf(InvalidCursorError);
     expect(sub.name).toBe("TestCursorError");
+  });
+});
+
+describe("isCalendarInstant", () => {
+  it("accepts a real UTC instant", () => {
+    expect(isCalendarInstant("2026-03-04T05:06:07.123456Z")).toBe(true);
+    expect(isCalendarInstant("2024-02-29T23:59:59.999999Z")).toBe(true);
+  });
+
+  it.each([
+    ["a day that rolls over", "2026-02-31T05:06:07.123456Z"],
+    ["hour 24", "2026-03-04T24:00:00.000000Z"],
+    ["a non-leap Feb 29", "2026-02-29T00:00:00.000000Z"],
+    ["text", "not-a-date"],
+    ["empty", ""],
+  ])("refuses %s", (_label, key) => {
+    expect(isCalendarInstant(key)).toBe(false);
+  });
+});
+
+describe("anyJsonObject", () => {
+  it("passes a JSON object through, keys and values untouched", () => {
+    expect(decodeOpaque(encodeOpaque({ t: "a", q: 1, n: null }), anyJsonObject, () => new TestCursorError())).toEqual({ t: "a", q: 1, n: null });
+  });
+
+  it.each([["null", "null"], ["an array", "[1]"], ["a string", '"x"'], ["a number", "5"], ["not JSON", "nope"]])("refuses %s", (_label, text) => {
+    const token = Buffer.from(text, "utf8").toString("base64url");
+    expect(() => decodeOpaque(token, anyJsonObject, () => new TestCursorError())).toThrow(TestCursorError);
   });
 });

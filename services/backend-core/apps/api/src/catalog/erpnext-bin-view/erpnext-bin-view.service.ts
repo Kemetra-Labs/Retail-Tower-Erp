@@ -57,6 +57,7 @@ import {
   BIN_VIEW_MAX_WINDOWS,
   BIN_VIEW_WINDOW_MAX_ITEMS,
 } from "./dto/snapshot-report.dto";
+import { UUID_RE_I } from "../../common/ids";
 
 /** Max feed items per page (009/012 ceiling). */
 const BIN_VIEW_FEED_MAX_PAGE = 500;
@@ -71,9 +72,6 @@ const BIN_VIEW_REQUEST_NS = "0190b1de-0000-7000-8000-0000000be019";
  * current attempt back (stock-view 1.2: a stale/superseded attempt → 409).
  */
 const SUPERSEDED_ATTEMPTS_KEPT = 20;
-/** UUID shape guard for the opaque feed cursor (malformed → from-start, not 500). */
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * The opaque `requestRef` of a run's bin-view request under one warehouse map
@@ -342,7 +340,7 @@ export class ErpnextBinViewService {
     // v1 encodes it as a run id (uuid). A malformed cursor is treated as
     // from-start (null) rather than a 500 on a bad `::uuid` cast — the feed is a
     // pure read, so re-baselining is harmless + idempotent.
-    const since = input.since && UUID_RE.test(input.since) ? input.since : null;
+    const since = input.since && UUID_RE_I.test(input.since) ? input.since : null;
 
     return await runWithTenantContext(
       this.pool,

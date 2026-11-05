@@ -31,9 +31,8 @@
  * hardening pass can add it without changing the wire format.
  */
 import { z } from "zod";
+import { UUID_RE_I } from "../common/ids";
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Whitelist regex for the cursor's occurred_at text component. The
@@ -106,7 +105,7 @@ export function decodeCursor(raw: string): OutboxAdminCursor {
   if (!OCCURRED_AT_TEXT_RE.test(occurredAtText)) {
     throw new Error("cursor: invalid occurred_at");
   }
-  if (!UUID_RE.test(idPart)) {
+  if (!UUID_RE_I.test(idPart)) {
     throw new Error("cursor: invalid event_id");
   }
   return { occurredAtText, eventId: idPart };
@@ -160,7 +159,7 @@ export const OutboxAdminListQuerySchema = z
     event_type: z.string().min(1).optional(),
     tenant_id: z
       .string()
-      .regex(UUID_RE, "must be a UUID")
+      .regex(UUID_RE_I, "must be a UUID")
       .optional(),
     cursor: z
       .string()

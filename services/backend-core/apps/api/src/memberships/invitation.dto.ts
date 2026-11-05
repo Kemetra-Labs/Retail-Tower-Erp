@@ -3,8 +3,8 @@ import { z } from "zod";
 import { passwordString } from "../auth/dto";
 import { boundedArray } from "../common/bounded-array";
 import { MAX_STORE_IDS } from "./dto";
+import { UUID_RE_I } from "../common/ids";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const InvitationCreateSchema = z
   .object({
@@ -13,7 +13,7 @@ export const InvitationCreateSchema = z
     store_access_kind: z.enum(["all", "specific"]),
     store_ids: boundedArray(
       MAX_STORE_IDS,
-      z.array(z.string().regex(UUID_RE, "each store_id must be a UUID")),
+      z.array(z.string().regex(UUID_RE_I, "each store_id must be a UUID")),
     ).optional(),
   })
   .strict()

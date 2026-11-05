@@ -41,6 +41,7 @@ import { annotateAudit, Auditable } from "../../../audit/auditable.decorator";
 import { PosWriteRateLimitBucket } from "../../../auth/pos-write-rate-limit.decorator";
 import { PosWriteRateLimitGuard } from "../../../auth/pos-write-rate-limit.guard";
 import { DeviceBearer, ReportsBuildIdentity } from "../../../auth/route-auth";
+import { UUID_RE_I } from "../../../common/ids";
 import { ZodValidationPipe } from "../../../common/zod-validation.pipe";
 import type { TenantContextRequest } from "../../../context/types";
 import { Idempotent } from "../../../idempotency/idempotent.decorator";
@@ -50,7 +51,6 @@ import {
   InvalidSaleHistoryCursorError,
   SaleHistoryListQuerySchema,
   SaleReprintRequestSchema,
-  UUID_RE,
   type SaleHistoryFilters,
   type SaleHistoryListQuery,
   type SaleReprintRequestDto,
@@ -114,7 +114,7 @@ function assertNoQuery(query: Record<string, unknown>): void {
 
 /** A malformed ref resolves like any invisible one: the non-disclosing 404 (never a DB 500). */
 function saleRefOf(raw: string): string {
-  if (!UUID_RE.test(raw)) throw new NotFoundException("not_found");
+  if (!UUID_RE_I.test(raw)) throw new NotFoundException("not_found");
   return raw.toLowerCase();
 }
 

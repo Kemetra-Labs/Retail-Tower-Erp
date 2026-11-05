@@ -51,9 +51,8 @@ import {
 } from "./refund-executions.service";
 import type { RefundExecutionProjection, ReturnReadProjection } from "./return-reads";
 import { toReversalHttpError } from "./sales.controller";
+import { UUID_RE_I } from "../../common/ids";
 
-/** Canonical UUID shape (any version) — a ref that fails this never hits the DB. */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface PosScope {
   readonly tenantId: string;
@@ -66,7 +65,7 @@ function posScope(request: TenantContextRequest, saleRef: string): PosScope {
   const ctx = request.context;
   if (!ctx || ctx.tenantId === null) throw new UnauthorizedException("Unauthorized");
   if (ctx.storeId === null) throw new UnauthorizedException("store_context_required");
-  if (!UUID_RE.test(saleRef)) throw new NotFoundException("not_found");
+  if (!UUID_RE_I.test(saleRef)) throw new NotFoundException("not_found");
   return { tenantId: ctx.tenantId, storeId: ctx.storeId, userId: ctx.userId };
 }
 
@@ -134,7 +133,7 @@ export class RefundExecutionsController {
   ): Promise<RefundExecutionProjection> {
     const scope = posScope(request, saleRef);
     if (scope.userId === null) throw new UnauthorizedException("Unauthorized");
-    if (!UUID_RE.test(returnRef)) throw new NotFoundException("not_found");
+    if (!UUID_RE_I.test(returnRef)) throw new NotFoundException("not_found");
     try {
       const result = await this.refundExecutionsService.recordExecution({
         tenantId: scope.tenantId,

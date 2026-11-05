@@ -12,6 +12,8 @@
  * string. The `sequence` stays a STRING end-to-end (it is a 64-bit identity;
  * never parsed to a JS number, which would lose precision past 2^53).
  */
+import { anyJsonObject, decodeOpaque, encodeOpaque } from "../../common/cursor/opaque-cursor";
+
 /** Thrown when an opaque token is malformed or presented under a foreign scope. */
 export class ReadDownCursorError extends Error {}
 
@@ -23,19 +25,7 @@ export interface SnapshotCursor {
 }
 
 export function encodeCursor(c: SnapshotCursor): string {
-  return Buffer.from(
-    JSON.stringify({ t: c.tenantId, s: c.storeId, q: c.sequence }),
-    "utf8",
-  ).toString("base64url");
-}
-
-/**
- * True iff a decoded token body is a JSON object. `null`, a primitive or an
- * array is a malformed token (RT-386: reading a field of `null` threw a
- * TypeError that escaped as HTTP 500 instead of the FR-024 404).
- */
-export function isJsonObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return encodeOpaque({ t: c.tenantId, s: c.storeId, q: c.sequence });
 }
 
 /**
@@ -48,15 +38,8 @@ export function decodeCursor(
   tenantId: string,
   storeId: string,
 ): SnapshotCursor {
-  let payload: unknown;
-  try {
-    payload = JSON.parse(Buffer.from(token, "base64url").toString("utf8"));
-  } catch {
-    throw new ReadDownCursorError("malformed cursor");
-  }
-  if (!isJsonObject(payload)) {
-    throw new ReadDownCursorError("malformed cursor");
-  }
+  // A token that is not base64url JSON, or not a JSON object, is malformed.
+  const payload = decodeOpaque(token, anyJsonObject, () => new ReadDownCursorError("malformed cursor"));
   if (
     payload.t !== tenantId ||
     payload.s !== storeId ||

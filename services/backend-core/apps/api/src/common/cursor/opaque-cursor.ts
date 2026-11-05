@@ -4,13 +4,12 @@
  * Callers keep their own payload shape, schema, tenant check and error class; only the
  * encode, parse and validate steps live here.
  */
-import type { ZodType } from "zod";
+import { z, type ZodType } from "zod";
 
 /**
  * Base class for every "cursor this operation did not issue" error (each maps to a 400).
- * Not the same class as `InvalidCursorError` in
- * catalog/erpnext-reconciliation/negative-on-hand.projection.ts, which is unrelated until that
- * module moves onto this codec (RT-1213 follow-up): import the right one for `instanceof`.
+ * `catalog/erpnext-reconciliation/negative-on-hand.projection.ts` exports a subclass that is also
+ * named `InvalidCursorError`: import the right one for `instanceof`.
  */
 export class InvalidCursorError extends Error {
   constructor(message = "cursor is not a valid continuation token for this operation") {
@@ -18,6 +17,14 @@ export class InvalidCursorError extends Error {
     this.name = "InvalidCursorError";
   }
 }
+
+/**
+ * Any JSON object, for the callers that validate the fields themselves (and answer each failed
+ * field with its own message). Refuses `null`, arrays and primitives as a malformed token
+ * (RT-386: reading a field of `null` threw a TypeError that escaped as HTTP 500 instead of the
+ * FR-024 404).
+ */
+export const anyJsonObject = z.record(z.string(), z.unknown());
 
 /** base64url of the payload's JSON, keys in insertion order. */
 export function encodeOpaque(payload: Readonly<Record<string, unknown>>): string {
@@ -40,4 +47,14 @@ export function decodeOpaque<T>(raw: string, schema: ZodType<T>, onInvalid: () =
   const parsed = schema.safeParse(json);
   if (!parsed.success) throw onInvalid();
   return parsed.data;
+}
+
+/**
+ * True when `key` (UTC, ISO text) names a real instant. `Date.parse` rolls an out-of-range day
+ * over ("02-31" becomes "03-03") where Postgres refuses the cast, so the date and time are
+ * checked to survive the round trip unchanged.
+ */
+export function isCalendarInstant(key: string): boolean {
+  const ms = Date.parse(key);
+  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 19) === key.slice(0, 19);
 }

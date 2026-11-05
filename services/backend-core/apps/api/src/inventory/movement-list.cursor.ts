@@ -16,6 +16,7 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
+import { decodeOpaque, encodeOpaque } from "../common/cursor/opaque-cursor";
 // The keyset-instant / UUID rules are the console-sales cursor's (same wire form).
 import { KEY_INSTANT, LOWER_UUID, namesRealInstant } from "../console-sales/console-sales.query";
 
@@ -78,7 +79,7 @@ export function encodeStockMovementCursor(
     at: keyset.occurredAtKey,
     id: keyset.id.toLowerCase(),
   };
-  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return encodeOpaque(payload);
 }
 
 /** The keyset position of `cursor`, or StockMovementCursorError when it was not issued for `binding`. */
@@ -86,15 +87,7 @@ export function decodeStockMovementCursor(
   binding: StockMovementCursorBinding,
   cursor: string,
 ): StockMovementKeyset {
-  let decoded: unknown;
-  try {
-    decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
-  } catch {
-    throw new StockMovementCursorError();
-  }
-  const parsed = CursorPayload.safeParse(decoded);
-  if (!parsed.success) throw new StockMovementCursorError();
-  const p = parsed.data;
+  const p = decodeOpaque(cursor, CursorPayload, () => new StockMovementCursorError());
   const boundHere =
     p.tenant === binding.tenantId.toLowerCase() &&
     p.store === binding.storeId.toLowerCase() &&

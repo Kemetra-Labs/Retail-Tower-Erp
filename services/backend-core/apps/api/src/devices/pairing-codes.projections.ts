@@ -10,6 +10,9 @@ import { randomInt } from "node:crypto";
 
 import { z } from "zod";
 
+import { InvalidCursorError, decodeOpaque, encodeOpaque, isCalendarInstant } from "../common/cursor/opaque-cursor";
+import { UUID_RE } from "../common/ids";
+
 /** 30 symbols with no look-alikes (no 0 / O, 1 / I / L, U). */
 export const PAIRING_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTVWXYZ23456789";
 const PAIRING_CODE_LENGTH = 16;
@@ -39,14 +42,13 @@ export function defaultTerminalLabel(terminalId: string): string {
 // ---------------------------------------------------------------------------
 
 /** Raised for a cursor this operation did not issue → 400 validation_error. */
-export class InvalidPairingCodeCursorError extends Error {
+export class InvalidPairingCodeCursorError extends InvalidCursorError {
   constructor() {
-    super("cursor is not a valid continuation token for this operation");
+    super();
     this.name = "InvalidPairingCodeCursorError";
   }
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const INSTANT_KEY_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
 
 /** Renders `created_at` as the cursor key: UTC with microseconds, exact on the cast back. */
@@ -69,23 +71,13 @@ export interface PairingCodeKeyset {
 
 export function encodePairingCodeCursor(input: { readonly tenantId: string } & PairingCodeKeyset): string {
   const payload = { k: "pairing_codes", t: input.tenantId.toLowerCase(), c: input.createdAtKey, i: input.pairingCodeId };
-  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return encodeOpaque(payload);
 }
 
 export function decodePairingCodeCursor(input: { readonly tenantId: string; readonly cursor: string }): PairingCodeKeyset {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(Buffer.from(input.cursor, "base64url").toString("utf8"));
-  } catch {
-    throw new InvalidPairingCodeCursorError();
-  }
-  const parsed = CursorSchema.safeParse(raw);
-  if (!parsed.success || parsed.data.t !== input.tenantId.toLowerCase()) throw new InvalidPairingCodeCursorError();
-  const ms = Date.parse(parsed.data.c);
-  if (Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 19) !== parsed.data.c.slice(0, 19)) {
-    throw new InvalidPairingCodeCursorError();
-  }
-  return { createdAtKey: parsed.data.c, pairingCodeId: parsed.data.i };
+  const parsed = decodeOpaque(input.cursor, CursorSchema, () => new InvalidPairingCodeCursorError());
+  if (parsed.t !== input.tenantId.toLowerCase() || !isCalendarInstant(parsed.c)) throw new InvalidPairingCodeCursorError();
+  return { createdAtKey: parsed.c, pairingCodeId: parsed.i };
 }
 
 // ---------------------------------------------------------------------------

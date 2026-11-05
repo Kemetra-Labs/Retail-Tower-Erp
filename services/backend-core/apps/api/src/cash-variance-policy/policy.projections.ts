@@ -16,6 +16,8 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
+import { InvalidCursorError, decodeOpaque, encodeOpaque } from "../common/cursor/opaque-cursor";
+import { UUID_RE } from "../common/ids";
 import { canonicalJson } from "../idempotency/canonical-json";
 import { revisionState, type ResolvedPolicy, type RevisionState } from "./policy-resolution";
 import type { PolicyValue } from "./policy-value";
@@ -132,14 +134,13 @@ export function policyEtag(policy: ResolvedPolicy): string {
 // ---------------------------------------------------------------------------
 
 /** Raised for a cursor this operation did not issue → 400 validation_error. */
-export class InvalidPolicyCursorError extends Error {
+export class InvalidPolicyCursorError extends InvalidCursorError {
   constructor() {
-    super("cursor is not a valid continuation token for this operation");
+    super();
     this.name = "InvalidPolicyCursorError";
   }
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** `created_at` as the repository renders it: UTC, six fractional digits, never year 0000. */
 const KEY_RE = /^(?!0000)\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
 
@@ -167,25 +168,18 @@ export function encodePolicyCursor(scope: CursorScope, keyset: RevisionKeyset): 
     c: keyset.createdAtKey,
     i: keyset.id,
   };
-  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return encodeOpaque(payload);
 }
 
 /** The keyset position, if `cursor` was issued for exactly this list. */
 export function decodePolicyCursor(scope: CursorScope, cursor: string): RevisionKeyset {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
-  } catch {
-    throw new InvalidPolicyCursorError();
-  }
-  const parsed = CursorSchema.safeParse(raw);
+  const parsed = decodeOpaque(cursor, CursorSchema, () => new InvalidPolicyCursorError());
   const sameList =
-    parsed.success &&
-    parsed.data.t === scope.tenantId.toLowerCase() &&
-    parsed.data.s === (scope.storeId?.toLowerCase() ?? null) &&
-    isRealInstant(parsed.data.c);
+    parsed.t === scope.tenantId.toLowerCase() &&
+    parsed.s === (scope.storeId?.toLowerCase() ?? null) &&
+    isRealInstant(parsed.c);
   if (!sameList) throw new InvalidPolicyCursorError();
-  return { createdAtKey: parsed.data.c, id: parsed.data.i };
+  return { createdAtKey: parsed.c, id: parsed.i };
 }
 
 /** True when `key` names a real calendar instant (no Feb 30, no hour 24), so Postgres never refuses it. */

@@ -60,7 +60,8 @@ import { ROOT_LOGGER } from "../../../common/logging.interceptor";
 import type { TenantContextRequest } from "../../../context/types";
 import type { RefusalReason } from "../../../pos-cashier-admissions/cashier-eligibility";
 import { deviceScopeOf, type DeviceScope } from "../../../pos-cashier-admissions/device-scope";
-import { SaleReprintRequestSchema, UUID_RE, type SaleReprintRequestDto } from "./sale-history.query";
+import { UUID_RE_I } from "../../../common/ids";
+import { SaleReprintRequestSchema, type SaleReprintRequestDto } from "./sale-history.query";
 
 /** The header naming the admitted cashier on the device path. */
 export const CASHIER_ADMISSION_HEADER = "x-cashier-admission";
@@ -258,13 +259,13 @@ function lenientReprintBody(request: TenantContextRequest): SaleReprintRequestDt
 /** The route's saleRef when it is a UUID (for the refusal audit), else null. */
 function saleRefParam(request: TenantContextRequest): string | null {
   const saleRef: unknown = (request.params as Record<string, unknown> | undefined)?.["saleRef"];
-  return typeof saleRef === "string" && UUID_RE.test(saleRef) ? saleRef.toLowerCase() : null;
+  return typeof saleRef === "string" && UUID_RE_I.test(saleRef) ? saleRef.toLowerCase() : null;
 }
 
 /** The header's admission id, lower-cased; a value that is not one UUID is a 400. */
 function admissionIdOf(request: TenantContextRequest): string {
   const raw = request.headers[CASHIER_ADMISSION_HEADER];
-  if (typeof raw !== "string" || !UUID_RE.test(raw)) {
+  if (typeof raw !== "string" || !UUID_RE_I.test(raw)) {
     throw new BadRequestException({ code: "validation_error", message: "X-Cashier-Admission must be a uuid" });
   }
   return raw.toLowerCase();

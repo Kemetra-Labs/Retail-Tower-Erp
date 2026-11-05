@@ -19,13 +19,12 @@ import {
 } from "@data-pulse-2/shared";
 import { runWithTenantContext } from "@data-pulse-2/db/middleware/tenant-context";
 import type { Pool, PoolClient } from "pg";
+import { UUID_RE_I } from "../common/ids";
 
 const CLAIM_BODY = JSON.stringify({ __dp2IdempotencyClaim: true });
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isTenantUuid(value: string): boolean {
-  return UUID_RE.test(value);
+  return UUID_RE_I.test(value);
 }
 
 interface MirrorRow {

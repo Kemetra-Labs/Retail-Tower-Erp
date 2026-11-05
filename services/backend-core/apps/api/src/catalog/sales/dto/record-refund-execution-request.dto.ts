@@ -6,10 +6,10 @@
  */
 import { z } from "zod";
 import { hasNoNul, NO_NUL_MESSAGE } from "../../../common/text-validation";
+import { UUID_RE_I } from "../../../common/ids";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const uuid = z.string().regex(UUID_RE, "must be a uuid");
+const uuid = z.string().regex(UUID_RE_I, "must be a uuid");
 
 /** `PositiveDecimalAmount`: numeric(19,4), no sign, zero rejected. */
 const positiveAmount = z

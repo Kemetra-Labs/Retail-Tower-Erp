@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 import { boundedArray } from "../common/bounded-array";
+import { UUID_RE_I } from "../common/ids";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** RT-1051: `maxItems` of `store_ids` on a membership update or an invitation. */
 export const MAX_STORE_IDS = 100;
@@ -11,7 +11,7 @@ export const MembershipUpdateSchema = z
   .object({
     role_code: z.string().min(1).optional(),
     store_access_kind: z.enum(["all", "specific"]).optional(),
-    store_ids: boundedArray(MAX_STORE_IDS, z.array(z.string().regex(UUID_RE, "each store_id must be a UUID"))).optional(),
+    store_ids: boundedArray(MAX_STORE_IDS, z.array(z.string().regex(UUID_RE_I, "each store_id must be a UUID"))).optional(),
   })
   .strict()
   .superRefine((v, ctx) => {
