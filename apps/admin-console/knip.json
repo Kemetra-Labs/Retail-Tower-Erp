@@ -1,0 +1,14 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "scripts/**/*.ts",
+    "e2e.config.ts",
+    "tests/e2e-agent/**/*.e2e.ts",
+    "tests/e2e/harness/*.tsx"
+  ],
+  "project": ["src/**/*.{ts,tsx}", "scripts/**/*.ts", "tests/**/*.{ts,tsx}"],
+  "playwright": {
+    "config": ["playwright.config.ts", "tests/captures/playwright.captures.config.ts"]
+  },
+  "ignoreDependencies": ["jscpd"]
+}
