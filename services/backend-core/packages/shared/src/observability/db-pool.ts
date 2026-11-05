@@ -122,6 +122,12 @@ export interface PoolStats {
   readonly waitingCount: number;
 }
 
+/** Descriptions of the two pool gauges; exported so a table-driven app can reuse them. */
+export const DB_POOL_IN_USE_DESCRIPTION =
+  "Number of connections currently checked out from the DB pool.";
+export const DB_POOL_WAITERS_DESCRIPTION =
+  "Number of requests currently waiting for a DB pool connection.";
+
 export interface DbPoolGauges {
   readonly inUse: ObservableGauge;
   readonly waiters: ObservableGauge;
@@ -136,10 +142,10 @@ export interface DbPoolGauges {
 export function createDbPoolGauges(meter: Meter): DbPoolGauges {
   return {
     inUse: meter.createObservableGauge("db_pool_in_use", {
-      description: "Number of connections currently checked out from the DB pool.",
+      description: DB_POOL_IN_USE_DESCRIPTION,
     }),
     waiters: meter.createObservableGauge("db_pool_waiters", {
-      description: "Number of requests currently waiting for a DB pool connection.",
+      description: DB_POOL_WAITERS_DESCRIPTION,
     }),
   };
 }
