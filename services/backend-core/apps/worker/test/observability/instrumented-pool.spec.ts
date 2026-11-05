@@ -262,10 +262,13 @@ describe("InstrumentedPool.query (callback form) — passthrough", () => {
  * that listener at checkout.
  */
 class FakeClient extends EventEmitter {
+  /** pg-pool returns a released client to the idle list only when it is queryable. */
+  _queryable = true;
   connect(cb: (err?: Error) => void): void {
     cb();
   }
-  end(): Promise<void> {
+  end(cb?: () => void): Promise<void> {
+    cb?.();
     return Promise.resolve();
   }
   query(): Promise<{ rows: never[] }> {
@@ -304,6 +307,7 @@ describe("InstrumentedPool — dropped connection (RT-1246, Sentry BACKEND-CORE-
   it("an idle client's error, re-emitted on the pool by pg-pool, does not throw and logs once", async () => {
     const client = await pool.connect();
     client.release();
+    expect(pool.idleCount).toBe(1); // back in the idle list, under pg-pool's idle listener
 
     expect(() => client.emit("error", terminated())).not.toThrow();
     expect(warn).toHaveBeenCalledTimes(1);
