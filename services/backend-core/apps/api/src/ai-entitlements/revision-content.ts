@@ -8,6 +8,13 @@
  * string). It covers the plan, state, effective dates, overrides, source and
  * reason, not the tenant or the version, so two revisions with the same
  * content have the same hash.
+ *
+ * Why its own `canonicalJson` (RT-1214): it is typed to `Json` values only —
+ * callers normalise optionals (omitted) and instants (ISO strings) before
+ * hashing, so it needs neither the `undefined`/`Date` rules of
+ * `idempotency/canonical-json.ts` nor those of `catalog/sales/payload-hash.ts`.
+ * Persisted column: `tenant_ai_entitlements.content_hash` (BYTEA, migration
+ * 0055). Changing this serializer changes that stored hash.
  */
 import { createHash } from "node:crypto";
 
