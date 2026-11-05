@@ -2,6 +2,7 @@
 import tsEslint from 'typescript-eslint';
 import reactPlugin from 'eslint-plugin-react';
 import reactHooksPlugin from 'eslint-plugin-react-hooks';
+import { SIZE_RULE_FILES, SIZE_RULE_IGNORES, SIZE_RULES } from './scripts/code-health/rules.mjs';
 
 export default tsEslint.config(
   {
@@ -63,10 +64,17 @@ export default tsEslint.config(
       'react-hooks/exhaustive-deps': 'warn',
     },
   },
+  // RT-1198: size and complexity rules, as warnings. scripts/check-code-health.mjs counts them
+  // in CI and fails only when the count grows (baseline: scripts/code-health.baseline.json).
+  {
+    files: SIZE_RULE_FILES,
+    ignores: SIZE_RULE_IGNORES,
+    rules: SIZE_RULES,
+  },
   // RT-893: plain-Node CI scripts (scripts/*.mjs, e.g. check-index-size.mjs) are in no tsconfig
   // project, so the project service cannot type them. Lint them with the non-type-aware rules.
   {
-    files: ['scripts/*.mjs'],
+    files: ['scripts/*.mjs', 'scripts/code-health/*.mjs'],
     ...tsEslint.configs.disableTypeChecked,
   },
   // Deferred: add electron-security ESLint plugin rules once package name is confirmed

@@ -1,0 +1,15 @@
+{
+  "path": ["src"],
+  "format": ["typescript", "tsx"],
+  "ignore": [
+    "**/__tests__/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "src/shared/api-types.ts",
+    "src/tests/**"
+  ],
+  "minTokens": 50,
+  "reporters": ["json"],
+  "silent": true,
+  "gitignore": true
+}

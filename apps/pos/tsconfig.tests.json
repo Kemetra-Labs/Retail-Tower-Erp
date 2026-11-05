@@ -1,0 +1,14 @@
+{
+  // RT-1198: type-checks tests/** and src/tests/**, which no other tsconfig covers.
+  // They are not yet clean, so `npm run typecheck` does not run this file; the error count is
+  // ratcheted by scripts/check-code-health.mjs (metric testsTypeErrors) and may only go down.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "jsx": "react-jsx",
+    "noEmit": true
+  },
+  "include": ["tests/**/*", "src/tests/**/*", "src/**/*.d.ts"],
+  "exclude": ["tests/e2e/**"]
+}
