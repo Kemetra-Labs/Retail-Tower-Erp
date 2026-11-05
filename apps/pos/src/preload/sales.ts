@@ -12,6 +12,8 @@ import type {
   SalesUnsubscribeResponse,
   SalesListRequest,
   SalesListResponse,
+  SalesListRecentRequest,
+  SalesListRecentResponse,
 } from '../shared/bridge-api.js';
 import { SALES_IPC_CHANNELS } from '../shared/sales/channels.js';
 
@@ -51,4 +53,7 @@ export const sales: SalesBridgeAPI = {
   // RT-541: read-only; main validates the range and applies the role gate.
   list: (req: SalesListRequest) =>
     ipcRenderer.invoke(SALES_IPC_CHANNELS.LIST, req) as Promise<SalesListResponse>,
+  // RT-1189: read-only; main derives scope, role filter and the Cairo day.
+  listRecent: (req: SalesListRecentRequest) =>
+    ipcRenderer.invoke(SALES_IPC_CHANNELS.LIST_RECENT, req) as Promise<SalesListRecentResponse>,
 };

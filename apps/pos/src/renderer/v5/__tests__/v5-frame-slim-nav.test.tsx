@@ -101,6 +101,30 @@ describe('the frame nav', () => {
     expect(screen.getByRole('button', { name: 'تسجيل الخروج' })).toBeInTheDocument();
   });
 
+  // RT-1191 — Void has no nav entry of its own; the dashboard hub stays current.
+  it('marks the dashboard entry current on the Void route', () => {
+    signIn('manager');
+    renderAt('/app/void');
+    const nav = screen.getByRole('navigation', { name: 'التنقل الرئيسي' });
+    expect(within(nav).getByRole('link', { name: 'لوحة المتابعة' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(within(nav).queryAllByRole('link', { current: 'page' })).toHaveLength(1);
+  });
+
+  // Owner decision 2026-11-04: the slim rail shows «خروج»; the name stays whole.
+  it('names sign-out in full and carries the short slim label as hidden text', () => {
+    signIn('cashier');
+    renderAt('/app/cart');
+    expect(screen.getByTestId('v5-frame-operator')).toHaveTextContent('د. سارة');
+    const button = screen.getByRole('button', { name: 'تسجيل الخروج' });
+    const short = button.querySelector('.v5-frame__sign-out-short');
+    expect(short).toHaveTextContent(/^خروج$/);
+    expect(short).toHaveAttribute('aria-hidden', 'true');
+    expect(button.querySelector('.v5-frame__sign-out-long')).toHaveTextContent(/^تسجيل الخروج$/);
+  });
+
   it('is axe-clean in the slim rail', async () => {
     signIn('manager');
     await expectNoAxeViolations(renderAt('/app/cart'));
@@ -127,6 +151,45 @@ describe('slim rail CSS', () => {
     expect(rule).not.toBeNull();
     for (const match of (rule?.[1] ?? '').matchAll(/min-block-size:\s*(\d+)px/g)) {
       expect(Number(match[1])).toBeGreaterThanOrEqual(44);
+    }
+  });
+
+  // RT-1191 — ≈76px rail: name and sign-out each fit on one line with an ellipsis.
+  it.each(['operator-name', 'sign-out button'])('keeps the slim-rail %s on one line', (which) => {
+    const selector =
+      which === 'operator-name'
+        ? /\.v5-frame\[data-nav='slim'\] \.v5-frame__operator-name\s*\{([^}]*)\}/
+        : /\.v5-frame\[data-nav='slim'\] \.v5-frame__sign-out:not\(\.v5-frame__sign-out--confirming\) button\s*\{([^}]*)\}/;
+    const body = selector.exec(css)?.[1] ?? '';
+    expect(body).toMatch(/white-space:\s*nowrap/);
+    expect(body).toMatch(/overflow:\s*hidden/);
+    expect(body).toMatch(/text-overflow:\s*ellipsis/);
+    expect(body).not.toMatch(/line-clamp/);
+    expect(body).not.toMatch(/white-space:\s*normal/);
+  });
+
+  it('shows the short sign-out label only in the slim rail', () => {
+    expect(css).toMatch(/\.v5-frame__sign-out-short\s*\{[^}]*display:\s*none/);
+    expect(css).toMatch(
+      /\.v5-frame\[data-nav='slim'\] \.v5-frame__sign-out-short\s*\{[^}]*display:\s*inline/,
+    );
+    expect(css).toMatch(
+      /\.v5-frame\[data-nav='slim'\] \.v5-frame__sign-out-long\s*\{[^}]*display:\s*none/,
+    );
+  });
+
+  // Review (CodeRabbit): the two-button confirm step keeps wrapping, never clips.
+  it('leaves the confirm step buttons free to wrap in the slim rail', () => {
+    const rule = /\.v5-frame\[data-nav='slim'\] \.v5-frame__sign-out button\s*\{([^}]*)\}/.exec(
+      css,
+    );
+    expect(rule?.[1]).toMatch(/white-space:\s*normal/);
+    expect(rule?.[1]).not.toMatch(/overflow:\s*hidden/);
+    // No later confirm-specific rule may bring nowrap or clipping back.
+    const confirmRules = [...css.matchAll(/--confirming(?!\))[^{]*\{([^}]*)\}/g)];
+    for (const [, body] of confirmRules) {
+      expect(body).not.toMatch(/white-space:\s*nowrap/);
+      expect(body).not.toMatch(/overflow:\s*hidden/);
     }
   });
 });

@@ -47,8 +47,13 @@ export const v5NavEntries: ReadonlyArray<V5NavEntry> = shellNavEntries.map((entr
  * RT-498 (VN-S10, D-10-5) — the manager sub-screens the dashboard links to.
  * They have no nav entry of their own, so the dashboard entry stays current
  * on them. The cashier's own shift screen (`/app/shift`) is not one of them.
+ * RT-1191 — `/app/void` (a manager void of a finalized sale) is one too.
  */
-const DASHBOARD_HUB_PATHS: ReadonlyArray<string> = ['/app/manager', '/app/shift/manager'];
+const DASHBOARD_HUB_PATHS: ReadonlyArray<string> = [
+  '/app/manager',
+  '/app/shift/manager',
+  '/app/void',
+];
 
 /**
  * Is this entry the current one? Prefix match like NavLink, plus: the Sale

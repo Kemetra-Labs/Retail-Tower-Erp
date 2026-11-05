@@ -38,6 +38,9 @@
  *     `lines` (`sale-lines.ts`); `sales.list` reads this device's sales over a
  *     range of store business days (`sales-list.ts`) behind the same gate,
  *     with a cashier limited to their own sales by `ownerFilter`.
+ *   • RT-1189 (RT-249 N-S1): `sales.listRecent` reads this terminal's sales on
+ *     the current Cairo business day (`sales-recent.ts`), behind the same gate,
+ *     with the same own-sales rule and an optional short-form filter.
  */
 
 import { FORBIDDEN_PAYLOAD_KEYS } from '../../shared/audit/forbidden-keys.js';
@@ -62,14 +65,22 @@ import type {
   SalesUnsubscribeResponse,
   SalesListRequest,
   SalesListResponse,
+  SalesListRecentRequest,
+  SalesListRecentResponse,
   SaleSummary,
 } from '../../shared/bridge-api.js';
-import type { SaleId, SaleNumber, TenderLineSummary } from '../../shared/sales/types.js';
+import type {
+  SaleId,
+  SaleNumber,
+  SalesRefusalReason,
+  TenderLineSummary,
+} from '../../shared/sales/types.js';
 import type { BannerStateProjector } from './banner-state-projector.js';
 import type { SaleAuditEmitter } from './audit-emitter.js';
 import { SALE_OWNERSHIP_REFUSAL, createSaleAccessPolicy } from './sale-access-policy.js';
 import { projectSaleLines } from './sale-lines.js';
 import { planSalesList, runSalesList } from './sales-list.js';
+import { planRecentList, runRecentList } from './sales-recent.js';
 
 // ─── Session shape (mirrors 006's OperatorSessionForPayments) ──────────────
 //
@@ -99,7 +110,12 @@ export interface SalesBridgeDependencies {
   getCurrentSession: () => OperatorSessionForSales | null;
   salesRepo: Pick<
     SalesRepository,
-    'readById' | 'findByNumber' | 'findByHandoffActionId' | 'insert' | 'listByFinalizedRange'
+    | 'readById'
+    | 'findByNumber'
+    | 'findByHandoffActionId'
+    | 'insert'
+    | 'listByFinalizedRange'
+    | 'listRecentInWindow'
   >;
   printEventsRepo: Pick<
     PrintEventsRepository,
@@ -123,6 +139,8 @@ export interface SalesBridgeDependencies {
   isSessionLocked?: () => boolean;
   /** RT-546: records `sale.access.refused` for a role-gate refusal. */
   auditEmitter?: Pick<SaleAuditEmitter, 'emitRaw'>;
+  /** RT-1189: main's clock for the recent list's business day. Absent → the system clock. */
+  clock?: () => Date;
 }
 
 // ─── Forbidden-field-in-request scan ────────────────────────────────────────
@@ -271,6 +289,29 @@ export function createSalesBridge(deps: SalesBridgeDependencies): SalesBridge {
     return `sub-${String(subscriptionSeq)}`;
   };
 
+  // The gate shared by the range reads (`sales.list`, `sales.listRecent`):
+  // forbidden-key scan, then the session, then the session's scope and the
+  // OD-534-1 own-sales filter. Scope and owner come from the session only.
+  const admitScopedRead = (
+    action: 'sales.list' | 'sales.listRecent',
+    req: unknown,
+  ):
+    | { ok: true; scope: TenantScope; owner: string | null }
+    | { ok: false; refusal: { kind: 'refused'; reason: SalesRefusalReason } } => {
+    if (findForbiddenKey(req) !== null) {
+      return { ok: false, refusal: { kind: 'refused', reason: 'forbidden_field_in_request' } };
+    }
+    const admitted = access.admitSession(action);
+    if (!admitted.ok) return { ok: false, refusal: { kind: 'refused', reason: admitted.reason } };
+    const { session } = admitted;
+    const scope = {
+      tenant_id: session.tenant_id,
+      branch_id: session.branch_id,
+      terminal_id: session.terminal_id,
+    };
+    return { ok: true, scope, owner: access.ownerFilter(session) };
+  };
+
   // The admitted sale with its latest print / drawer projections.
   const okSale = (
     saleRow: Parameters<typeof projectSaleForRenderer>[0],
@@ -405,25 +446,30 @@ export function createSalesBridge(deps: SalesBridgeDependencies): SalesBridge {
     },
 
     async list(req: SalesListRequest): Promise<SalesListResponse> {
-      const forbidden = findForbiddenKey(req);
-      if (forbidden !== null) {
-        return await Promise.resolve({ kind: 'refused', reason: 'forbidden_field_in_request' });
-      }
-      const admitted = access.admitSession('sales.list');
-      if (!admitted.ok) {
-        return await Promise.resolve({ kind: 'refused', reason: admitted.reason });
-      }
-      const { session } = admitted;
+      const admitted = admitScopedRead('sales.list', req);
+      if (!admitted.ok) return await Promise.resolve(admitted.refusal);
       const planned = planSalesList(req as unknown as Record<string, unknown>);
       if (!planned.ok) return await Promise.resolve(planned.refusal);
-      // Scope and the OD-534-1 own-sales filter come from the session only.
-      const scope = {
-        tenant_id: session.tenant_id,
-        branch_id: session.branch_id,
-        terminal_id: session.terminal_id,
-      };
       return await Promise.resolve(
-        runSalesList(salesRepo, scope, access.ownerFilter(session), planned.plan),
+        runSalesList(salesRepo, admitted.scope, admitted.owner, planned.plan),
+      );
+    },
+
+    async listRecent(req: SalesListRecentRequest): Promise<SalesListRecentResponse> {
+      const admitted = admitScopedRead('sales.listRecent', req);
+      if (!admitted.ok) return await Promise.resolve(admitted.refusal);
+      const planned = planRecentList(req as unknown as Record<string, unknown>);
+      if (!planned.ok) return await Promise.resolve(planned.refusal);
+      return await Promise.resolve(
+        runRecentList(
+          { salesRepo, printEventsRepo },
+          {
+            scope: admitted.scope,
+            sellingOperatorId: admitted.owner,
+            plan: planned.plan,
+            now: (deps.clock ?? (() => new Date()))(),
+          },
+        ),
       );
     },
 
