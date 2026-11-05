@@ -23,6 +23,9 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
+import { InvalidCursorError, decodeOpaque, encodeOpaque, isCalendarInstant } from "../../../common/cursor/opaque-cursor";
+// The lower-case shape is this file's cursor rule; `UUID_RE` below stays the mixed-case export.
+import { UUID_RE as LOWER_UUID_RE, UUID_RE_I } from "../../../common/ids";
 export const PAGE_SIZE_DEFAULT = 50;
 export const PAGE_SIZE_MAX = 100;
 /** OD-534-4: 31 business days, `to - from <= 30`. */
@@ -30,8 +33,7 @@ export const MAX_SPAN_DAYS = 30;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** A canonical UUID (any version), lower or upper case. */
-export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const LOWER_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export const UUID_RE = UUID_RE_I;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Epoch ms of a `YYYY-MM-DD` that names a real calendar day (year >= 1), else NaN. */
@@ -116,7 +118,7 @@ export type SaleReprintRequestDto = z.infer<typeof SaleReprintRequestSchema>;
 // ---------------------------------------------------------------------------
 
 /** Raised for a cursor this operation did not issue for these filters -> 400 validation_error. */
-export class InvalidSaleHistoryCursorError extends Error {
+export class InvalidSaleHistoryCursorError extends InvalidCursorError {
   constructor() {
     super("cursor is not a valid continuation token for this query");
     this.name = "InvalidSaleHistoryCursorError";
@@ -187,30 +189,18 @@ export function encodeSaleHistoryCursor(input: CursorScope & { readonly keyset: 
     o: input.keyset.occurredAtKey,
     i: input.keyset.saleId,
   };
-  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return encodeOpaque(payload);
 }
 
 /** The keyset position, if `cursor` was issued by this operation for this tenant, store and filters. */
 export function decodeSaleHistoryCursor(input: CursorScope & { readonly cursor: string }): SaleHistoryKeyset {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(Buffer.from(input.cursor, "base64url").toString("utf8"));
-  } catch {
-    throw new InvalidSaleHistoryCursorError();
-  }
-  const parsed = CursorSchema.safeParse(raw);
-  if (!parsed.success || !issuedFor(parsed.data, input)) throw new InvalidSaleHistoryCursorError();
-  return { businessDate: parsed.data.d, occurredAtKey: parsed.data.o, saleId: parsed.data.i };
+  const parsed = decodeOpaque(input.cursor, CursorSchema, () => new InvalidSaleHistoryCursorError());
+  if (!issuedFor(parsed, input)) throw new InvalidSaleHistoryCursorError();
+  return { businessDate: parsed.d, occurredAtKey: parsed.o, saleId: parsed.i };
 }
 
 /** The cursor was issued for this tenant, store and filters, and names a real instant. */
 function issuedFor(cursor: z.infer<typeof CursorSchema>, scope: CursorScope): boolean {
   const sameScope = cursor.t === scope.tenantId.toLowerCase() && cursor.s === scope.storeId.toLowerCase();
   return sameScope && cursor.f === filtersDigest(scope.filters) && isCalendarInstant(cursor.o);
-}
-
-/** True when the key names a real UTC instant (no rolled-over day or hour). */
-function isCalendarInstant(key: string): boolean {
-  const ms = Date.parse(key);
-  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 19) === key.slice(0, 19);
 }
