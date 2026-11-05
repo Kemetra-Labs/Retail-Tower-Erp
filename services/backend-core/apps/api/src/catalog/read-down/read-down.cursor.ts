@@ -13,6 +13,8 @@
  * never parsed to a JS number, which would lose precision past 2^53).
  */
 /** Thrown when an opaque token is malformed or presented under a foreign scope. */
+import { anyJsonObject, decodeOpaque, encodeOpaque } from "../../common/cursor/opaque-cursor";
+
 export class ReadDownCursorError extends Error {}
 
 export interface SnapshotCursor {
@@ -23,10 +25,7 @@ export interface SnapshotCursor {
 }
 
 export function encodeCursor(c: SnapshotCursor): string {
-  return Buffer.from(
-    JSON.stringify({ t: c.tenantId, s: c.storeId, q: c.sequence }),
-    "utf8",
-  ).toString("base64url");
+  return encodeOpaque({ t: c.tenantId, s: c.storeId, q: c.sequence });
 }
 
 /**
@@ -48,15 +47,8 @@ export function decodeCursor(
   tenantId: string,
   storeId: string,
 ): SnapshotCursor {
-  let payload: unknown;
-  try {
-    payload = JSON.parse(Buffer.from(token, "base64url").toString("utf8"));
-  } catch {
-    throw new ReadDownCursorError("malformed cursor");
-  }
-  if (!isJsonObject(payload)) {
-    throw new ReadDownCursorError("malformed cursor");
-  }
+  // A token that is not base64url JSON, or not a JSON object, is malformed.
+  const payload = decodeOpaque(token, anyJsonObject, () => new ReadDownCursorError("malformed cursor"));
   if (
     payload.t !== tenantId ||
     payload.s !== storeId ||
