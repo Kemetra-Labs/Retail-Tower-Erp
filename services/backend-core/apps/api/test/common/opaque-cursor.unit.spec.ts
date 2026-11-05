@@ -3,7 +3,7 @@
  */
 import { z } from "zod";
 
-import { InvalidCursorError, decodeOpaque, encodeOpaque, isCalendarInstant } from "../../src/common/cursor/opaque-cursor";
+import { InvalidCursorError, decodeOpaque, encodeOpaque, isCalendarInstant, anyJsonObject } from "../../src/common/cursor/opaque-cursor";
 
 class TestCursorError extends InvalidCursorError {
   constructor() {
@@ -75,5 +75,16 @@ describe("isCalendarInstant", () => {
     ["empty", ""],
   ])("refuses %s", (_label, key) => {
     expect(isCalendarInstant(key)).toBe(false);
+  });
+});
+
+describe("anyJsonObject", () => {
+  it("passes a JSON object through, keys and values untouched", () => {
+    expect(decodeOpaque(encodeOpaque({ t: "a", q: 1, n: null }), anyJsonObject, () => new TestCursorError())).toEqual({ t: "a", q: 1, n: null });
+  });
+
+  it.each([["null", "null"], ["an array", "[1]"], ["a string", '"x"'], ["a number", "5"], ["not JSON", "nope"]])("refuses %s", (_label, text) => {
+    const token = Buffer.from(text, "utf8").toString("base64url");
+    expect(() => decodeOpaque(token, anyJsonObject, () => new TestCursorError())).toThrow(TestCursorError);
   });
 });

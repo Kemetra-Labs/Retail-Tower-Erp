@@ -31,9 +31,8 @@
 import { z } from "zod";
 
 import { AUDIT_ACTION_KINDS } from "./audit-action-kinds";
+import { UUID_RE_I } from "../common/ids";
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Parsed cursor payload — never serialized as-is on the wire.
@@ -83,7 +82,7 @@ export function decodeCursor(raw: string): AuditCursor {
   if (Number.isNaN(occurredAt.getTime())) {
     throw new TypeError("cursor: invalid occurred_at");
   }
-  if (!UUID_RE.test(idPart)) {
+  if (!UUID_RE_I.test(idPart)) {
     throw new Error("cursor: invalid id");
   }
   return { occurredAt, id: idPart };
@@ -153,9 +152,9 @@ export const AuditQuerySchema = z
     kind: z.enum(AUDIT_ACTION_KINDS).optional(),
     actor_user_id: z
       .string()
-      .regex(UUID_RE, "must be a UUID")
+      .regex(UUID_RE_I, "must be a UUID")
       .optional(),
-    store_id: z.string().regex(UUID_RE, "must be a UUID").optional(),
+    store_id: z.string().regex(UUID_RE_I, "must be a UUID").optional(),
     from: dateTimeString.optional(),
     to: dateTimeString.optional(),
     cursor: z

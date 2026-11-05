@@ -25,6 +25,7 @@ import {
   decodeOpaque,
   encodeOpaque,
 } from "../../common/cursor/opaque-cursor";
+import { UUID_RE_I } from "../../common/ids";
 
 /** RT-51 D4 — v1 constant: a snapshot older than this is `stale`. */
 export const STALE_AFTER_SECONDS = 86_400;
@@ -35,8 +36,6 @@ export const NEGATIVE_ON_HAND_KIND = "erpnext_negative_on_hand" as const;
 /** Exact-decimal quantity as the Connector reports it (the 019 contract pattern). */
 const QUANTITY_RE = /^(-?)(\d{1,15})(?:\.(\d{1,6}))?$/;
 const SCALE_DIGITS = 6;
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Parse an exact-decimal quantity string into integer millionths. Returns null
@@ -118,7 +117,7 @@ function scaledOf(quantity: unknown): bigint | null {
 
 /** The resolved product ref when it is a uuid, else null (treated as unmapped). */
 function productRefOf(ref: unknown): string | null {
-  return typeof ref === "string" && UUID_RE.test(ref) ? ref : null;
+  return typeof ref === "string" && UUID_RE_I.test(ref) ? ref : null;
 }
 
 /** A well-formed, strictly-negative entry normalized for the view; else null. */
@@ -180,14 +179,14 @@ export interface ItemListScope extends StoreListScope {
 }
 
 const StoreCursorSchema = z
-  .object({ k: z.literal("s"), t: z.string().regex(UUID_RE), s: z.string().regex(UUID_RE) })
+  .object({ k: z.literal("s"), t: z.string().regex(UUID_RE_I), s: z.string().regex(UUID_RE_I) })
   .strict();
 
 const ItemCursorSchema = z
   .object({
     k: z.literal("i"),
-    t: z.string().regex(UUID_RE),
-    st: z.string().regex(UUID_RE),
+    t: z.string().regex(UUID_RE_I),
+    st: z.string().regex(UUID_RE_I),
     q: z.string().regex(QUANTITY_RE),
     n: z.string().min(1).max(140),
     o: z.number().int().min(1),

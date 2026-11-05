@@ -9,6 +9,7 @@
  * catalogue read-down's (`catalog/read-down/read-down.cursor.ts`).
  */
 import { anyJsonObject, decodeOpaque, encodeOpaque } from '../../common/cursor/opaque-cursor';
+import { UUID_RE_I } from '../../common/ids';
 
 /** A malformed or foreign page token. */
 export class SafetyFeedCursorError extends Error {}
@@ -22,7 +23,6 @@ export interface SafetyFeedPageToken {
   readonly afterHoldId: string;
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function encodePageToken(token: SafetyFeedPageToken): string {
   return encodeOpaque({ t: token.tenantId, s: token.storeId, r: token.revision, a: token.afterHoldId });
@@ -36,6 +36,6 @@ export function decodePageToken(token: string, tenantId: string, storeId: string
   if (typeof r !== 'number' || !Number.isSafeInteger(r) || r < 0) {
     throw new SafetyFeedCursorError('malformed page token');
   }
-  if (typeof a !== 'string' || !UUID.test(a)) throw new SafetyFeedCursorError('malformed page token');
+  if (typeof a !== 'string' || !UUID_RE_I.test(a)) throw new SafetyFeedCursorError('malformed page token');
   return { tenantId, storeId, revision: r, afterHoldId: a };
 }
