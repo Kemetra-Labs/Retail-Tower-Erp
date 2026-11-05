@@ -397,12 +397,14 @@ export function isRt1051ExemptFile(branch: string, file: string): boolean {
  *
  * Authority: owner decision 2026-11-04 (RT-1165 / RT-1181: merge #313 with the
  * known-red `contracts/check` POS pin, then repin), following the RT-889 / RT-1051
- * pattern: exactly ONE file on exactly ONE branch (exact name, no `startsWith`).
+ * pattern: exactly TWO files on exactly ONE branch (exact name, no `startsWith`).
  * Narrowness is asserted by `source-scope-guard-rt1181.test.ts`.
  */
 export const RT_1181_POS_PIN_REPIN_BRANCH = 'claude/rt-1181-pos-pin-repin' as const;
 export const RT_1181_POS_PIN_REPIN_EXEMPT_FILES = [
   'src/shared/api-types.ts',
+  // RT-1184: the repin makes a cast in this test unnecessary (lint), so it is edited on this branch.
+  'src/main/pairing/__tests__/service.test.ts',
 ] as const satisfies readonly string[];
 
 /** True when `file` is one of the files the RT-1181 exemption allows on `branch`. */

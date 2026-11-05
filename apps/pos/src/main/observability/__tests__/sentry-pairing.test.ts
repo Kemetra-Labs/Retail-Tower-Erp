@@ -4,7 +4,7 @@ import { createPairingService } from '../../pairing/service.js';
 import { createPairingLog } from '../../pairing/log.js';
 import { TransportError } from '../../pairing/network.js';
 import type { PairingStore } from '../../pairing/store.js';
-import type { Network, PairSuccessBody } from '../../pairing/network.js';
+import type { Network } from '../../pairing/network.js';
 
 /**
  * 002-terminal-pairing T064 (US6) — Sentry breadcrumb behaviour test.
@@ -78,7 +78,7 @@ function makeNetwork(
             branch_name: 'Test Branch',
             branch_address: '12 Test Road',
             tenant_tax_registration_id: '123456789',
-          } as unknown as PairSuccessBody,
+          },
         });
       }
       if (result.type === 'transport') {
