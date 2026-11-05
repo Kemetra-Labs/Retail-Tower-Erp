@@ -4816,12 +4816,6 @@ export namespace PosTerminalPairing {
                  * @description The device credential's expiry (`devices.expires_at`, RT-138 L2: 90 days after pairing). Populated by Backend-Core since RT-367; older servers omitted it, so a client tolerates its absence. Reported, not enforced until RT-370. POS-Pulse v1 ignores it; the rotation client (RT-373) rotates before it.
                  */
                 expires_at?: string | null;
-                /** @description OPTIONAL additional COM port (e.g. `COM3` on Windows, `/dev/ttyS0` on Linux) set ONLY when an RS-232 serial path is also available alongside the required USB connection (some Epson models expose both). NULL for USB-only printers. A "COM-port-only" terminal config was NOT permitted by this contract in 008 v1; since RT-1181 the two USB ids may be null as well. Added 2026-05-28 to satisfy the Slice 3 prep-audit finding. */
-                printer_com_port: string | null;
-                /** @description USB product ID of the receipt printer, as a hex string (e.g. `0x0202` for Epson TM-T20III), or `null` when the issuer did not supply it (nullable since RT-1181). Paired with `printer_vendor_id` to uniquely identify the device. Added 2026-05-28 to satisfy the Slice 3 prep-audit finding. */
-                printer_product_id: string | null;
-                /** @description USB vendor ID of the receipt printer, as a hex string (e.g. `0x04B8` for Epson), or `null` when the issuer did not supply it (nullable since RT-1181). Used by the POS print pipeline (008 Slice 3) to discover the printer at app startup. Added 2026-05-28 to satisfy the Slice 3 prep-audit finding on printer-config provenance. */
-                printer_vendor_id: string | null;
                 /**
                  * Format: uuid
                  * @description Tenant the terminal is bound to. Persisted in the local `terminal_assignment` row; included in every subsequent POS-authenticated request via the JWT principal.
