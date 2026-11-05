@@ -52,12 +52,14 @@ jest.mock("@data-pulse-2/db", () => ({
 import {
   SalesService,
   SaleNotFoundError,
+  SalePayloadReplayConflictError,
   SaleTenderMismatchError,
   SaleTenderReplayConflictError,
   SaleTendersNotVisibleError,
   TerminalEventProvenanceConflictError,
 } from "../../../src/catalog/sales/sales.service";
 import { SalesController } from "../../../src/catalog/sales/sales.controller";
+import * as apiMetrics from "../../../src/observability/metrics/api.metrics";
 import {
   VoidApprovalInvalidError,
   VoidApprovalRequiredError,
@@ -129,7 +131,11 @@ const CAPTURE = {
 function scriptClient(opts: {
   mismatchRows?: Array<{ mismatch: boolean }>;
   insertedRows?: Array<{ id: string }>;
-  winnerRows?: Array<{ id: string; store_id?: string; tender_count?: number }>;
+  /**
+   * RT-1206: a winner's `payload_hash` defaults to the hash this request's own
+   * INSERT bound ($10), i.e. an identical replay; set it to model a different body.
+   */
+  winnerRows?: Array<{ id: string; store_id?: string; tender_count?: number; payload_hash?: string }>;
   saleRows?: Array<Record<string, unknown>>;
   lineRows?: Array<Record<string, unknown>>;
   storeRows?: Array<{ timezone: string }>;
@@ -142,7 +148,8 @@ function scriptClient(opts: {
   /** RT-77: the stored tenders the read projection returns. */
   tenderRows?: Array<Record<string, unknown>>;
 }): jest.Mock {
-  return jest.fn(async (sql: string) => {
+  let boundHash: unknown;
+  return jest.fn(async (sql: string, params?: unknown[]) => {
     // RT-77 — matched before the plain sale_tenders read (the compare CTE reads it too).
     if (/WITH req AS/.test(sql)) return { rows: [{ same: opts.sameTenders ?? true }] };
     if (/AS matches/.test(sql)) return { rows: [{ matches: opts.tendersMatch ?? true }] };
@@ -154,10 +161,15 @@ function scriptClient(opts: {
       if (opts.outboxError) throw opts.outboxError;
       return { rows: [] };
     }
-    if (/INSERT INTO sales/.test(sql)) return { rows: opts.insertedRows ?? [{ id: VALID_REF }] };
-    if (/SELECT id(, store_id, tender_count(, responsibility_count)?)? FROM sales/.test(sql)) {
+    if (/INSERT INTO sales/.test(sql)) {
+      boundHash = params?.[9];
+      return { rows: opts.insertedRows ?? [{ id: VALID_REF }] };
+    }
+    if (/SELECT id(, store_id, tender_count(, responsibility_count(, payload_hash)?)?)? FROM sales/.test(sql)) {
       // RT-418: a winner without responsibilities unless the test says otherwise.
-      return { rows: (opts.winnerRows ?? []).map((w) => ({ responsibility_count: 0, ...w })) };
+      return {
+        rows: (opts.winnerRows ?? []).map((w) => ({ responsibility_count: 0, payload_hash: boundHash, ...w })),
+      };
     }
     if (/INSERT INTO sale_lines/.test(sql)) return { rows: [] };
     if (/FROM sales WHERE id/.test(sql)) return { rows: opts.saleRows ?? [saleRow()] };
@@ -339,6 +351,38 @@ describe("SalesService — capture branches (unit)", () => {
     const svc = new SalesService({} as never);
     await expect(svc.captureSale({ ...CAPTURE, body: body() })).rejects.toBeInstanceOf(SaleNotFoundError);
     expect(clientQuery.mock.calls.some((c) => /sale_tenders/.test(String(c[0])))).toBe(false);
+  });
+
+  it("RT-1206: the replay re-read selects the stored payload_hash with the winner", async () => {
+    clientQuery = scriptClient({ insertedRows: [], winnerRows: [{ id: VALID_REF, store_id: CAPTURE.storeId, tender_count: 0 }] });
+    await new SalesService({} as never).captureSale({ ...CAPTURE, body: body() });
+    const winnerSql = clientQuery.mock.calls.map((c) => String(c[0])).find((s) => /FROM sales\s+WHERE tenant_id/.test(s))!;
+    expect(winnerSql).toMatch(/payload_hash/);
+  });
+
+  it("RT-1206: a provenance replay with a different payload_hash → SalePayloadReplayConflictError before any tender read or write", async () => {
+    clientQuery = scriptClient({
+      insertedRows: [],
+      winnerRows: [{ id: VALID_REF, store_id: CAPTURE.storeId, tender_count: 1, payload_hash: "f".repeat(64) }],
+    });
+    const svc = new SalesService({} as never);
+    const err = await svc
+      .captureSale({ ...CAPTURE, body: body({ tenders: [{ method: "cash", amount: "12.5" }] }) })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SalePayloadReplayConflictError);
+    expect((err as SalePayloadReplayConflictError).saleId).toBe(VALID_REF);
+    const touched = (re: RegExp) => clientQuery.mock.calls.some((c) => re.test(String(c[0])));
+    expect(touched(/sale_tenders|sale_responsibilities/)).toBe(false);
+    expect(touched(/INSERT INTO (sale_lines|outbox_events)\b/)).toBe(false);
+  });
+
+  it("RT-1206: a different body from another store stays the non-disclosing 404 (store check before the hash)", async () => {
+    clientQuery = scriptClient({
+      insertedRows: [],
+      winnerRows: [{ id: VALID_REF, store_id: "0d000000-0000-7000-8000-0000000000b2", payload_hash: "f".repeat(64) }],
+    });
+    const svc = new SalesService({} as never);
+    await expect(svc.captureSale({ ...CAPTURE, body: body() })).rejects.toBeInstanceOf(SaleNotFoundError);
   });
 
   it("RT-77: a provenance replay whose tender count differs → conflict, without reading sale_tenders", async () => {
@@ -568,6 +612,68 @@ describe("SalesController — guard + status branches (unit)", () => {
     await expect(
       failing(boom).captureSale(req as never, body() as never, makeRes() as never),
     ).rejects.toBe(boom);
+  });
+
+  describe("RT-1206: a provenance replay with a different payload", () => {
+    const req = { context: ctx, posDeviceId: CAPTURE.deviceId, requestId: "req-1206" };
+    let conflictSpy: jest.SpyInstance;
+    beforeEach(() => {
+      conflictSpy = jest.spyOn(apiMetrics, "recordIdempotencyConflict").mockImplementation(() => undefined);
+    });
+    afterEach(() => conflictSpy.mockRestore());
+
+    function controller(enqueue: jest.Mock | null): SalesController {
+      const svc = { captureSale: jest.fn().mockRejectedValue(new SalePayloadReplayConflictError(VALID_REF)) };
+      return new SalesController(svc as never, undefined as never, enqueue === null ? null : ({ enqueue } as never));
+    }
+
+    it("→ 409 idempotency_key_conflict, one conflict metric and one ids-only audit event", async () => {
+      const enqueue = jest.fn().mockResolvedValue(undefined);
+      const err = await controller(enqueue)
+        .captureSale(req as never, body() as never, makeRes() as never)
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getResponse()).toMatchObject({ code: "idempotency_key_conflict" });
+      expect(conflictSpy).toHaveBeenCalledTimes(1);
+      expect(conflictSpy).toHaveBeenCalledWith({ route: "POST:/api/pos/v1/sales" });
+      expect(enqueue).toHaveBeenCalledTimes(1);
+      expect(enqueue.mock.calls[0]![0]).toEqual({
+        actor_user_id: CAPTURE.actorUserId,
+        actor_label: null,
+        tenant_id: CAPTURE.tenantId,
+        store_id: CAPTURE.storeId,
+        action: "sale.replay_payload_mismatch_rejected",
+        target_type: null,
+        target_id: null,
+        request_id: "req-1206",
+        metadata: { sale_ref: VALID_REF },
+      });
+    });
+
+    it("an audit enqueue failure never replaces the 409", async () => {
+      const enqueue = jest.fn().mockRejectedValue(new Error("redis down"));
+      const err = await controller(enqueue)
+        .captureSale(req as never, body() as never, makeRes() as never)
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+    });
+
+    it("without an audit enqueuer the answer is the same 409", async () => {
+      const err = await controller(null)
+        .captureSale(req as never, body() as never, makeRes() as never)
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect(conflictSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("the tender replay conflict keeps its 409 and emits no RT-1206 audit", async () => {
+      const enqueue = jest.fn().mockResolvedValue(undefined);
+      const svc = { captureSale: jest.fn().mockRejectedValue(new SaleTenderReplayConflictError()) };
+      const c = new SalesController(svc as never, undefined as never, { enqueue } as never);
+      const err = await c.captureSale(req as never, body() as never, makeRes() as never).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect(enqueue).not.toHaveBeenCalled();
+    });
   });
 
   it("RT-224: the actor is the guard-verified context user; operatorUserId never reaches the service", async () => {

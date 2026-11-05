@@ -159,17 +159,26 @@ describe("RT-360 — a same-method split tender", () => {
 });
 
 describe("RT-360 — replay compares tender by tender, refs included", () => {
-  it("the same refs in another body order → 200 replay, same sale", async () => {
+  it("the same refs in the same body → 200 replay, same sale", async () => {
     if (skip()) return;
     const first = await post(captureBody({ externalId: "rt360-rep", tenders: SPLIT_CASH }), "rt360rep1");
     expect(first.status).toBe(201);
-    const again = await post(
-      captureBody({ externalId: "rt360-rep", tenders: [SPLIT_CASH[1], SPLIT_CASH[0]] }),
-      "rt360rep2",
-    );
+    const again = await post(captureBody({ externalId: "rt360-rep", tenders: SPLIT_CASH }), "rt360rep2");
     expect(again.status).toBe(200);
     expect(again.body.saleRef).toBe(first.body.saleRef);
     expect(again.body.tenders).toEqual(SPLIT_CASH_OUT);
+  });
+
+  it("RT-1206: the same refs in another body order are a different payload → 409", async () => {
+    if (skip()) return;
+    const first = await post(captureBody({ externalId: "rt360-rep-ord", tenders: SPLIT_CASH }), "rt360repord1");
+    expect(first.status).toBe(201);
+    const again = await post(
+      captureBody({ externalId: "rt360-rep-ord", tenders: [SPLIT_CASH[1], SPLIT_CASH[0]] }),
+      "rt360repord2",
+    );
+    expect(again.status).toBe(409);
+    expect(again.body.error?.code ?? again.body.code).toBe("idempotency_key_conflict");
   });
 
   it.each([

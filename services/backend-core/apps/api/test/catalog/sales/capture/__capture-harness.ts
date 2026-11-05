@@ -463,6 +463,12 @@ export async function seedPreInvariantSale(
     quantity: string;
     lineAmount: string;
     taxAmount?: string;
+    /**
+     * RT-1206: the stored `payload_hash`. A test that replays the sale over
+     * HTTP passes the hash of the body it re-sends, as a real pre-RT-105
+     * capture of that body stored; the default is a placeholder.
+     */
+    payloadHash?: string;
   },
 ): Promise<{ saleRef: string; lineRef: string }> {
   const admin = h.harness!.env.admin;
@@ -473,7 +479,7 @@ export async function seedPreInvariantSale(
      VALUES (gen_random_uuid(), $1, $2, 'USD', $3::numeric, now(),
              (now() AT TIME ZONE 'UTC')::date, 'pos-1', $4, $5, $6)
      RETURNING id::text AS id`,
-    [TENANT_A, STORE_A_X, opts.lineAmount, opts.externalId, "0".repeat(64), DEVICE_USER_ID],
+    [TENANT_A, STORE_A_X, opts.lineAmount, opts.externalId, opts.payloadHash ?? "0".repeat(64), DEVICE_USER_ID],
   );
   const saleRef = sale.rows[0]!.id;
   const line = await admin.query<{ id: string }>(

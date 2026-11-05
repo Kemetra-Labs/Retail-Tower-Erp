@@ -32,7 +32,9 @@ import {
   ForbiddenException,
   Get,
   HttpStatus,
+  Inject,
   NotFoundException,
+  Optional,
   Param,
   Post,
   Req,
@@ -42,6 +44,11 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import type { Response } from "express";
+import type { Logger } from "@data-pulse-2/shared";
+
+import { AUDIT_JOB_ENQUEUER, type AuditJobEnqueuer } from "../../audit/audit-job.enqueuer";
+import { ROOT_LOGGER } from "../../common/logging.interceptor";
+import { recordIdempotencyConflict } from "../../observability/metrics/api.metrics";
 
 import { annotateAudit, Auditable } from "../../audit/auditable.decorator";
 import { PosOperatorAuthGuard } from "../../auth/pos-operator-auth.guard";
@@ -107,12 +114,18 @@ import {
   SalesService,
   SaleLinePricingInvalidError,
   SaleNotFoundError,
+  SalePayloadReplayConflictError,
   SaleTenderMismatchError,
   SaleTenderReplayConflictError,
   TerminalEventProvenanceConflictError,
   type SaleProjection,
   type TerminalEventProjection,
 } from "./sales.service";
+
+/** RT-1206: the capture route's `idempotency_conflict_total` label, as the interceptor forms it. */
+const CAPTURE_SALE_ROUTE = "POST:/api/pos/v1/sales";
+/** RT-1206: the audit action of a refused provenance replay with a different payload. */
+const SALE_REPLAY_MISMATCH_AUDIT_ACTION = "sale.replay_payload_mismatch_rejected";
 
 /**
  * Map a capture service error to its contract response (RT-77). The filter's
@@ -131,6 +144,14 @@ function toCaptureHttpError(err: unknown): unknown {
     return new UnprocessableEntityException({
       code: "sale_line_pricing_invalid",
       message: "a sale line's price, amount or quantity breaks the price invariant",
+    });
+  }
+  if (err instanceof SalePayloadReplayConflictError) {
+    // RT-1206: the same 409 wire code, widened (sales.yaml `Conflict`) to a
+    // provenance replay whose payload differs from the captured sale.
+    return new ConflictException({
+      code: "idempotency_key_conflict",
+      message: "sale already captured with a different payload",
     });
   }
   if (err instanceof SaleTenderReplayConflictError) {
@@ -257,7 +278,49 @@ export class SalesController {
   constructor(
     private readonly salesService: SalesService,
     private readonly saleReturnsService: SaleReturnsService,
+    // RT-1206: the replay-mismatch audit. Optional so fixtures without
+    // AuditModule still build; a missing enqueuer never changes the 409.
+    @Optional() @Inject(AUDIT_JOB_ENQUEUER)
+    private readonly auditEnqueuer: AuditJobEnqueuer | null = null,
+    @Optional() @Inject(ROOT_LOGGER)
+    private readonly logger: Logger | null = null,
   ) {}
+
+  /**
+   * RT-1206 (RT-148 owner ruling: "record the mismatch in audit/metrics"): the
+   * platform `idempotency_conflict_total` counter and one ids-only audit event.
+   * Emitted here, after the capture transaction has rolled back, so neither is
+   * lost with it. Fire-and-forget: an audit failure never replaces the 409.
+   */
+  private recordReplayMismatch(request: TenantContextRequest, err: SalePayloadReplayConflictError): void {
+    recordIdempotencyConflict({ route: CAPTURE_SALE_ROUTE });
+    if (this.auditEnqueuer === null) return;
+    const ctx = request.context;
+    const requestId = (request as { requestId?: string }).requestId ?? null;
+    this.auditEnqueuer
+      .enqueue({
+        actor_user_id: ctx?.userId ?? null,
+        actor_label: null,
+        tenant_id: ctx?.tenantId ?? null,
+        store_id: ctx?.storeId ?? null,
+        action: SALE_REPLAY_MISMATCH_AUDIT_ACTION,
+        target_type: null,
+        target_id: null,
+        request_id: requestId,
+        metadata: { sale_ref: err.saleId },
+      })
+      .catch((auditErr: unknown) => {
+        this.logger?.error(
+          {
+            component: "sales.capture",
+            action: SALE_REPLAY_MISMATCH_AUDIT_ACTION,
+            request_id: requestId,
+            err_class: auditErr instanceof Error ? auditErr.name : typeof auditErr,
+          },
+          "SalesController: replay-mismatch audit enqueue failed",
+        );
+      });
+  }
 
   @Post("api/pos/v1/sales")
   // RT-224 (Option B): two alternative credentials. SaleCaptureAuthGuard runs
@@ -327,6 +390,7 @@ export class SalesController {
         ...(receipt === undefined ? {} : { receipt }),
       });
     } catch (err) {
+      if (err instanceof SalePayloadReplayConflictError) this.recordReplayMismatch(request, err);
       throw toCaptureHttpError(err);
     }
 
