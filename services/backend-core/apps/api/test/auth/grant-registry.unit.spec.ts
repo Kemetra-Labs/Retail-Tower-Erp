@@ -65,7 +65,41 @@ describe("buildGrantRegistry", () => {
     ["a script outside the routine naming", fragment("x", { ...empty, deployScripts: ["../a.sql"] })],
     ["an allowed table with no reason", fragment("x", { ...empty, lookupAllowed: [{ table: "a", reason: " " }] })],
     ["a domain grant naming two privileges", fragment("x", { ...empty, domainRequired: [["a", "SELECT, INSERT"]] })],
+    // RT-1249: column grants are optional, but a present list is checked as strictly.
+    ["a column list that is not an array", fragment("x", { ...empty, domainRequiredColumns: "users" })],
+    ["a column grant that is not a triple", fragment("x", { ...empty, domainRequiredColumns: [["users", "SELECT"]] })],
+    ["a non-identifier column", fragment("x", { ...empty, domainRequiredColumns: [["users", "id; DROP", "SELECT"]] })],
+    ["a non-identifier column table", fragment("x", { ...empty, domainRequiredColumns: [["us ers", "id", "SELECT"]] })],
+    ["a column grant naming two privileges", fragment("x", { ...empty, domainRequiredColumns: [["users", "id", "SELECT, INSERT"]] })],
+    ["a privilege columns cannot hold", fragment("x", { ...empty, domainRequiredColumns: [["users", "id", "DELETE"]] })],
   ])("refuses a fragment with %s", (_label, bad) => {
     expect(() => buildGrantRegistry([fragment("baseline", empty), bad])).toThrow(/grants fragment x/);
+  });
+});
+
+describe("buildGrantRegistry: column grants (RT-1249)", () => {
+  it("merges column grants in load order; a fragment without the list adds none", () => {
+    const registry = buildGrantRegistry([
+      fragment("baseline", empty),
+      fragment("users-columns", {
+        ...empty,
+        deployScripts: ["users-columns-domain-grants.sql"],
+        domainRequiredColumns: [["users", "id", "SELECT"], ["users", "email", "SELECT"], ["users", "id", "INSERT"]],
+      }),
+    ]);
+    expect(registry.domainRequiredColumns).toEqual([
+      ["users", "id", "SELECT"],
+      ["users", "email", "SELECT"],
+      ["users", "id", "INSERT"],
+    ]);
+    expect(registry.domainRequired).toEqual([]);
+    expect(Object.isFrozen(registry.domainRequiredColumns)).toBe(true);
+  });
+
+  it("refuses a column grant declared by two fragments", () => {
+    const grants = { ...empty, domainRequiredColumns: [["users", "email", "SELECT"]] };
+    expect(() => buildGrantRegistry([fragment("baseline", grants), fragment("other", grants)])).toThrow(
+      /column grant SELECT ON users\(email\).*baseline and other/,
+    );
   });
 });

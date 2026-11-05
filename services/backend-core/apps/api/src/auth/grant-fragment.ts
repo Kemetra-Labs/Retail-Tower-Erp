@@ -18,6 +18,14 @@ export type DomainGrant = readonly [table: string, privilege: string];
 /** [table, comma-separated privileges]: none of them may be held by the lookup role. */
 export type ForbiddenGrant = readonly [table: string, privileges: string];
 
+/**
+ * RT-1249: [table, column, privilege]: one column privilege the domain role
+ * must hold, for a table it may reach only column by column (`users`, whose
+ * `password_hash` belongs to the auth lookup role alone). Checked with
+ * `has_column_privilege`, because `has_table_privilege` ignores column grants.
+ */
+export type DomainColumnGrant = readonly [table: string, column: string, privilege: string];
+
 export interface GrantFragment {
   /**
    * The routine `docs/operations/sql/<x>-domain-grants.sql` scripts this
@@ -27,6 +35,13 @@ export interface GrantFragment {
   readonly deployScripts: readonly string[];
   /** Privileges the domain role must hold; the API refuses to boot without them. */
   readonly domainRequired: readonly DomainGrant[];
+  /**
+   * RT-1249: column privileges the domain role must hold; the API refuses to
+   * boot without them. Optional, so fragments without column grants (the
+   * frozen baseline among them) stay unchanged. Their scripts' column GRANTs
+   * must equal this list exactly (a test).
+   */
+  readonly domainRequiredColumns?: readonly DomainColumnGrant[];
   /** Tables the auth lookup role must hold none of the listed privileges on. */
   readonly lookupForbidden: readonly ForbiddenGrant[];
   /**

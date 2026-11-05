@@ -511,7 +511,14 @@ before re-running.
 
 If the schema changed between the releases, the auto-revert only records
 that an owner restore or forward-fix decision is needed (the recovery rule
-above). The run uploads a `deploy-lab-live-ledger-<run id>` artifact with:
+above).
+
+The auto-revert does not re-run grants. A revert from a release with RT-1249 to
+one without it leaves an API that refuses to boot: that release's boot check
+requires table-level `INSERT` on `users`, which `users-columns-domain-grants.sql`
+removed. Run `docs/operations/sql/users-columns-rollback.sql` as the migration
+owner, then restart the API
+([database-roles.md](../docs/operations/database-roles.md#userspassword_hash-belongs-to-the-lookup-role-rt-1249)). The run uploads a `deploy-lab-live-ledger-<run id>` artifact with:
 
 - the prior and target digests;
 - the backup name and checksum;

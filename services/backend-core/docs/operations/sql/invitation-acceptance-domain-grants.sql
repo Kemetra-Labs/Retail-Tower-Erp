@@ -22,9 +22,12 @@
 -- with the boot check off, accepting an invitation as a new user fails with 500
 -- (permission denied).
 --
--- INSERT on users, external_identity_links, memberships and store_access, and
--- UPDATE on invitations, only. The new-user path never updates or deletes a
--- user or a link: a link is flipped by the owner-run identity-link-cutover CLI.
+-- INSERT on external_identity_links, memberships and store_access, and UPDATE
+-- on invitations, only. The new user's row needs INSERT on four users columns,
+-- which users-columns-domain-grants.sql grants (RT-1249): a table-level INSERT
+-- on users would also cover password_hash, so this script grants none. The
+-- new-user path never updates or deletes a user or a link: a link is flipped
+-- by the owner-run identity-link-cutover CLI.
 -- Never grant DELETE or TRUNCATE here: TRUNCATE is not subject to row
 -- security. memberships, store_access and invitations are protected by row
 -- security, so the grants give access only inside runWithTenantContext. The
@@ -40,13 +43,12 @@
   DO $$ BEGIN RAISE EXCEPTION 'domain_role not set'; END $$;
 \endif
 
-GRANT INSERT ON users, external_identity_links, memberships, store_access TO :"domain_role";
+GRANT INSERT ON external_identity_links, memberships, store_access TO :"domain_role";
 GRANT UPDATE ON invitations TO :"domain_role";
 
 -- Verify the domain role: every row must read `t`.
 SELECT t.tbl, t.priv, has_table_privilege(:'domain_role', t.tbl, t.priv) AS granted
   FROM (VALUES
-    ('users', 'INSERT'),
     ('external_identity_links', 'INSERT'),
     ('memberships', 'INSERT'),
     ('store_access', 'INSERT'),
@@ -55,7 +57,6 @@ SELECT t.tbl, t.priv, has_table_privilege(:'domain_role', t.tbl, t.priv) AS gran
 
 SELECT bool_and(has_table_privilege(:'domain_role', t.tbl, t.priv)) AS domain_ok
   FROM (VALUES
-    ('users', 'INSERT'),
     ('external_identity_links', 'INSERT'),
     ('memberships', 'INSERT'),
     ('store_access', 'INSERT'),

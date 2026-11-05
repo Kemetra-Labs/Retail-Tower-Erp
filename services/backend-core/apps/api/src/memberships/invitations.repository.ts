@@ -8,7 +8,6 @@ import {
   users,
   type InvitationRow,
   type MembershipRow,
-  type UserRow,
 } from "@data-pulse-2/db/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
@@ -32,6 +31,13 @@ export interface CreateInvitationParams {
   readonly invitedByUserId: string;
   readonly tokenHash: Buffer;
   readonly expiresAt: Date;
+}
+
+/** RT-1249: the `users` fields the invitation paths read on the domain role. */
+export interface InvitedUser {
+  readonly id: string;
+  readonly email: string;
+  readonly displayName: string | null;
 }
 
 @Injectable()
@@ -187,10 +193,12 @@ export class InvitationsRepository {
   async findUserByEmail(
     client: PoolClient,
     normalizedEmail: string,
-  ): Promise<UserRow | null> {
+  ): Promise<InvitedUser | null> {
     const db = drizzle(client);
+    // RT-1249: name the columns. The domain role holds no grant on
+    // password_hash, so a whole-row select would be refused.
     const rows = await db
-      .select()
+      .select({ id: users.id, email: users.email, displayName: users.displayName })
       .from(users)
       .where(and(eq(users.email, normalizedEmail), isNull(users.deletedAt)))
       .limit(1);
@@ -209,13 +217,13 @@ export class InvitationsRepository {
     client: PoolClient,
     params: { readonly id: string; readonly email: string; readonly displayName: string },
   ): Promise<void> {
-    const db = drizzle(client);
-    await db.insert(users).values({
-      id: params.id,
-      email: params.email,
-      displayName: params.displayName,
-      emailVerifiedAt: sql`now()`,
-    });
+    // RT-1249: plain SQL, not db.insert(users): Drizzle names every column of
+    // the table (DEFAULT for the omitted ones), and PostgreSQL checks INSERT on
+    // each named column. The domain role holds INSERT on these four only.
+    await client.query(
+      `INSERT INTO users (id, email, display_name, email_verified_at) VALUES ($1, $2, $3, now())`,
+      [params.id, params.email, params.displayName],
+    );
   }
 
   /**

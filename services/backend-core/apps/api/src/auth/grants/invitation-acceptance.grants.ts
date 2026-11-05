@@ -5,8 +5,10 @@
  * invitation accepted. No runtime code inserted `users` or
  * `external_identity_links` before this; only owner-run CLIs did.
  *
- *   - users, external_identity_links: INSERT. Never UPDATE, DELETE or TRUNCATE
+ *   - external_identity_links: INSERT. Never UPDATE, DELETE or TRUNCATE
  *     here: a link is flipped by the owner-run cutover CLI, not by this path.
+ *   - users: INSERT of the new-user columns only, in users-columns.grants.ts
+ *     (RT-1249): a table-level INSERT would also cover password_hash.
  *   - memberships, store_access: INSERT (the grant of the invited membership).
  *   - invitations: UPDATE (the single-use acceptance mark).
  *
@@ -18,7 +20,6 @@ import type { GrantFragment } from "../grant-fragment";
 export const GRANTS: GrantFragment = {
   deployScripts: ["invitation-acceptance-domain-grants.sql"],
   domainRequired: [
-    ["users", "INSERT"],
     ["external_identity_links", "INSERT"],
     ["memberships", "INSERT"],
     ["store_access", "INSERT"],

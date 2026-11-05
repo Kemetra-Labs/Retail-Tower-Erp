@@ -27,6 +27,7 @@ import {
 } from "@testcontainers/postgresql";
 import { Client, Pool } from "pg";
 
+import { GRANTS as USERS_COLUMNS } from "../../src/auth/grants/users-columns.grants";
 import { deviceActivity } from "../../src/pos-operators/device-activity";
 import {
   cloneDatabase,
@@ -125,6 +126,30 @@ export async function startPgEnv(opts: StartPgEnvOptions = {}): Promise<PgTestEn
 }
 
 /**
+ * RT-1249: give `role` the production column grants on `users` instead of its
+ * table-level SELECT, INSERT and UPDATE: exactly the list in
+ * src/auth/grants/users-columns.grants.ts, which a test keeps equal to
+ * docs/operations/sql/users-columns-domain-grants.sql. `password_hash` is
+ * then out of the domain role's reach, as in production, so every suite that
+ * runs domain code on `app_test` proves it works without it. Revoking a
+ * table-level privilege also revokes it on every column, so this is
+ * idempotent. DELETE is left as it is (out of RT-1249's scope).
+ */
+export async function restrictDomainUsersColumns(admin: Pool, role: string): Promise<void> {
+  const byPrivilege = new Map<string, string[]>();
+  for (const [table, column, privilege] of USERS_COLUMNS.domainRequiredColumns ?? []) {
+    if (table !== "users") throw new Error(`users-columns fragment names table ${table}`);
+    byPrivilege.set(privilege, [...(byPrivilege.get(privilege) ?? []), column]);
+  }
+  // Identifiers come from the validated fragment (lowercase [a-z_][a-z0-9_]*).
+  const statements = [`REVOKE SELECT, INSERT, UPDATE ON users FROM ${role}`];
+  for (const [privilege, columns] of byPrivilege) {
+    statements.push(`GRANT ${privilege} (${columns.join(", ")}) ON users TO ${role}`);
+  }
+  await admin.query(statements.join(";\n"));
+}
+
+/**
  * Apply UP migration via the admin pool, then create the non-superuser
  * `app_test` role and grant it the privileges a real backend would have.
  */
@@ -148,6 +173,7 @@ export async function applyUpAndCreateAppRole(env: PgTestEnv): Promise<void> {
     GRANT USAGE, SELECT
     ON ALL SEQUENCES IN SCHEMA public TO ${APP_ROLE_NAME}
   `);
+  await restrictDomainUsersColumns(env.admin, APP_ROLE_NAME);
 }
 
 /**
@@ -302,4 +328,5 @@ export async function applyAllMigrationsAndAppRole(admin: Pool): Promise<void> {
     GRANT USAGE, SELECT
     ON ALL SEQUENCES IN SCHEMA public TO ${APP_ROLE_NAME}
   `);
+  await restrictDomainUsersColumns(admin, APP_ROLE_NAME);
 }

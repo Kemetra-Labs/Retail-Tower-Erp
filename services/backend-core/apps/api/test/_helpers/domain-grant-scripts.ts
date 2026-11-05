@@ -28,26 +28,41 @@ export function routineGrantScripts(dir = SQL_DIR): string[] {
     .sort();
 }
 
+const TABLE_GRANT = /^\s*GRANT\s+([A-Z, ]+?)\s+ON\s+([a-z0-9_, ]+?)\s+TO\s+:"domain_role"\s*;/gm;
+/** RT-1249: `GRANT <PRIVILEGE> (<col>, ...) ON <table> TO :"domain_role";`, one privilege per statement. */
+const COLUMN_GRANT = /^\s*GRANT\s+([A-Z]+)\s*\(([a-z0-9_, ]+)\)\s+ON\s+([a-z0-9_]+)\s+TO\s+:"domain_role"\s*;/gm;
+
+const split = (list: string): string[] => list.split(",").map((item) => item.trim());
+
 /**
- * "table:PRIVILEGE" for each privilege a script GRANTs to the domain role.
- * Fails closed: a GRANT statement in any other shape (lowercase, `ON TABLE`, a
- * schema prefix, another grantee) throws instead of being
- * skipped, so no grant deploy applies can escape the comparison.
+ * Every GRANT of a script, parsed as table grants ("table:PRIVILEGE") and
+ * column grants ("table(column):PRIVILEGE"). Fails closed: a GRANT statement in
+ * any other shape (lowercase, `ON TABLE`, a schema prefix, another grantee, two
+ * privileges in one column grant) throws instead of being skipped, so no grant
+ * deploy applies can escape the comparison.
  */
-export function scriptGrants(script: string, dir = SQL_DIR): string[] {
+function parseScript(script: string, dir: string): { tables: string[]; columns: string[] } {
   const sql = read(resolve(dir, script));
   const statements = sql.match(/^\s*GRANT\b[^;]*;?/gim) ?? [];
-  const parsed = [...sql.matchAll(/^\s*GRANT\s+([A-Z, ]+?)\s+ON\s+([a-z0-9_, ]+?)\s+TO\s+:"domain_role"\s*;/gm)];
-  if (statements.length !== parsed.length) {
-    throw new Error(`${script}: ${statements.length - parsed.length} GRANT statement(s) the grant oracle cannot parse`);
+  const tableGrants = [...sql.matchAll(TABLE_GRANT)];
+  const columnGrants = [...sql.matchAll(COLUMN_GRANT)];
+  const unparsed = statements.length - tableGrants.length - columnGrants.length;
+  if (unparsed !== 0) {
+    throw new Error(`${script}: ${unparsed} GRANT statement(s) the grant oracle cannot parse`);
   }
-  const grants: string[] = [];
-  for (const m of parsed) {
-    for (const table of m[2]!.split(",").map((t) => t.trim())) {
-      for (const privilege of m[1]!.split(",").map((p) => p.trim())) grants.push(`${table}:${privilege}`);
-    }
-  }
-  return grants;
+  const tables = tableGrants.flatMap((m) => split(m[2]!).flatMap((table) => split(m[1]!).map((p) => `${table}:${p}`)));
+  const columns = columnGrants.flatMap((m) => split(m[2]!).map((column) => `${m[3]!}(${column}):${m[1]!}`));
+  return { tables, columns };
+}
+
+/** "table:PRIVILEGE" for each table-level privilege a script GRANTs to the domain role. */
+export function scriptGrants(script: string, dir = SQL_DIR): string[] {
+  return parseScript(script, dir).tables;
+}
+
+/** RT-1249: "table(column):PRIVILEGE" for each column privilege a script GRANTs to the domain role. */
+export function scriptColumnGrants(script: string, dir = SQL_DIR): string[] {
+  return parseScript(script, dir).columns;
 }
 
 /** Tables created by the up migrations after `afterId` (lexical id order). */

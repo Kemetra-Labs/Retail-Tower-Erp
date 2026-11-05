@@ -12,17 +12,21 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DOMAIN_REQUIRED_GRANTS } from "../../src/auth/database-pools";
+import { DOMAIN_REQUIRED_COLUMN_GRANTS, DOMAIN_REQUIRED_GRANTS } from "../../src/auth/database-pools";
 import { GRANT_REGISTRY } from "../../src/auth/grant-registry";
 import {
   GRANTS_BASELINE_HEAD,
   ROUTINE_MARKER,
   routineGrantScripts,
+  scriptColumnGrants,
   scriptGrants,
   tablesCreatedAfter,
 } from "../_helpers/domain-grant-scripts";
 
 const key = ([table, privilege]: readonly [string, string]): string => `${table}:${privilege}`;
+/** RT-1249: the oracle's key for one column grant. */
+const columnKey = ([table, column, privilege]: readonly [string, string, string]): string =>
+  `${table}(${column}):${privilege}`;
 const sorted = (items: Iterable<string>): string[] => [...new Set(items)].sort();
 
 /** The baseline's scripts, frozen at origin/main 7847a9e9. Never add one. */
@@ -88,8 +92,32 @@ describe("routine deploy scripts ⇔ grants fragments", () => {
     expect(DOMAIN_REQUIRED_GRANTS.length).toBeGreaterThanOrEqual(60);
   });
 
+  it("RT-1249: each fragment requires exactly the column GRANTs of its scripts", () => {
+    for (const { name, grants } of GRANT_REGISTRY.fragments) {
+      expect({ name, required: sorted((grants.domainRequiredColumns ?? []).map(columnKey)) }).toEqual({
+        name,
+        required: sorted(grants.deployScripts.flatMap((s) => scriptColumnGrants(s))),
+      });
+    }
+  });
+
+  it("RT-1249: the boot check verifies every column grant the routine scripts give the domain role", () => {
+    expect(sorted(DOMAIN_REQUIRED_COLUMN_GRANTS.map(columnKey))).toEqual(
+      sorted(routineGrantScripts().flatMap((s) => scriptColumnGrants(s))),
+    );
+    expect(DOMAIN_REQUIRED_COLUMN_GRANTS.length).toBeGreaterThan(0);
+  });
+
+  it("RT-1249: no routine script grants a table-level privilege on users", () => {
+    const usersTableGrants = routineGrantScripts().flatMap((s) => scriptGrants(s).filter((g) => g.startsWith("users:")));
+    expect(usersTableGrants).toEqual([]);
+  });
+
   it("every routine script grants something to the domain role", () => {
-    for (const script of routineGrantScripts()) expect({ script, grants: scriptGrants(script).length > 0 }).toEqual({ script, grants: true });
+    for (const script of routineGrantScripts()) {
+      const count = scriptGrants(script).length + scriptColumnGrants(script).length;
+      expect({ script, grants: count > 0 }).toEqual({ script, grants: true });
+    }
   });
 
   it("keeps the owner-gated AI entitlement grants out of the routine set", () => {
@@ -113,12 +141,25 @@ describe("the oracle reads the scripts the way deploy runs them", () => {
     expect(scriptGrants("a-domain-grants.sql", dir).sort()).toEqual(["a:INSERT", "a:SELECT", "b:INSERT", "b:SELECT"]);
   });
 
+  it("RT-1249: parses column GRANTs separately from table GRANTs", () => {
+    writeFileSync(
+      join(dir, "u-domain-grants.sql"),
+      `${ROUTINE_MARKER}\nREVOKE SELECT ON u FROM :"domain_role";\nGRANT SELECT (id, email) ON u TO :"domain_role";\nGRANT INSERT (id) ON u TO :"domain_role";\nGRANT SELECT ON v TO :"domain_role";\n`,
+    );
+    expect(scriptGrants("u-domain-grants.sql", dir)).toEqual(["v:SELECT"]);
+    expect(scriptColumnGrants("u-domain-grants.sql", dir).sort()).toEqual(["u(email):SELECT", "u(id):INSERT", "u(id):SELECT"]);
+  });
+
   it("refuses a GRANT it cannot parse instead of skipping it", () => {
     for (const grant of [
       'GRANT SELECT ON TABLE t TO :"domain_role";',
       'GRANT SELECT ON public.t TO :"domain_role";',
       'grant select on t to :"domain_role";',
       'GRANT SELECT ON t TO :"lookup_role";',
+      // RT-1249: one privilege per column grant, and only the domain role.
+      'GRANT SELECT (id), INSERT (id) ON t TO :"domain_role";',
+      'GRANT SELECT (id) ON public.t TO :"domain_role";',
+      'GRANT SELECT (id) ON t TO :"lookup_role";',
     ]) {
       writeFileSync(join(dir, "x-domain-grants.sql"), `${ROUTINE_MARKER}\nGRANT INSERT ON a TO :"domain_role";\n${grant}\n`);
       expect(() => scriptGrants("x-domain-grants.sql", dir)).toThrow(/1 GRANT statement\(s\) the grant oracle cannot parse/);

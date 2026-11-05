@@ -3,10 +3,11 @@ import type { Pool } from "pg";
 import {
   AUTH_LOOKUP_FORBIDDEN_GRANTS,
   AUTH_LOOKUP_REQUIRED_GRANTS,
+  DOMAIN_FORBIDDEN_COLUMN_GRANTS,
   authLookupPoolFactory,
   verifyDatabasePoolBoundary,
 } from "../../src/auth/database-pools";
-import { routineGrantScripts, scriptGrants } from "../_helpers/domain-grant-scripts";
+import { routineGrantScripts, scriptColumnGrants, scriptGrants } from "../_helpers/domain-grant-scripts";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -21,6 +22,9 @@ afterEach(() => {
  * fails, and so does a script grant the boot check does not verify.
  */
 const DOMAIN_GRANTS: ReadonlySet<string> = new Set(routineGrantScripts().flatMap((s) => scriptGrants(s)));
+
+/** RT-1249: the domain role's column grants, "table(column):PRIVILEGE", read from the scripts. */
+const DOMAIN_COLUMN_GRANTS: ReadonlySet<string> = new Set(routineGrantScripts().flatMap((s) => scriptColumnGrants(s)));
 
 const LOOKUP_GRANTS: ReadonlySet<string> = new Set(
   AUTH_LOOKUP_REQUIRED_GRANTS.map(([t, p]) => `${t}:${p}`),
@@ -38,12 +42,29 @@ function rolePool(input: {
    * set for a BYPASSRLS one.
    */
   grants?: ReadonlySet<string>;
+  /**
+   * RT-1249: "table(column):PRIVILEGE" keys the role holds. Default: exactly
+   * the domain column set for a non-BYPASSRLS role, none for a BYPASSRLS one.
+   */
+  columnGrants?: ReadonlySet<string>;
 }): Pool {
   const grants = input.grants ?? (input.bypassRls ? LOOKUP_GRANTS : DOMAIN_GRANTS);
+  const columnGrants = input.columnGrants ?? (input.bypassRls ? new Set<string>() : DOMAIN_COLUMN_GRANTS);
   return {
-    query: jest.fn(async (sql: string, params?: [string[], string[]]) => {
+    query: jest.fn(async (sql: string, params?: string[][]) => {
+      if (sql.includes("has_column_privilege")) {
+        const [tables, columns, privileges] = params!;
+        return {
+          rows: tables!.map((table_name, i) => ({
+            table_name,
+            column_name: columns![i],
+            privilege: privileges![i],
+            granted: columnGrants.has(`${table_name}(${columns![i]}):${privileges![i]}`),
+          })),
+        };
+      }
       if (sql.includes("has_table_privilege")) {
-        const [tables, privileges] = params!;
+        const [tables, privileges] = params as [string[], string[]];
         // Mirrors has_table_privilege: a comma-separated list is true when
         // ANY listed privilege is held.
         return {
@@ -302,4 +323,73 @@ describe("database pool boundary", () => {
       /AuthModule: DATABASE_URL role is missing required grants: UPDATE ON cashier_admissions, DELETE ON cashier_admission_requests/,
     );
   });
+
+  // RT-1249 (RT-147 probe 5): only the auth lookup role may read or write
+  // password hashes. The domain role holds column grants on users instead.
+  it("RT-1249: forbids SELECT, INSERT and UPDATE on users.password_hash for the domain role", () => {
+    const entry = DOMAIN_FORBIDDEN_COLUMN_GRANTS.find(([t, c]) => t === "users" && c === "password_hash");
+    expect(entry).toBeDefined();
+    expect(entry![2].split(",").map((p) => p.trim()).sort()).toEqual(["INSERT", "SELECT", "UPDATE"]);
+  });
+
+  it.each(["SELECT", "INSERT", "UPDATE"])(
+    "RT-1249: rejects a domain role that can %s users.password_hash",
+    async (privilege) => {
+      const columnGrants = new Set([...DOMAIN_COLUMN_GRANTS, `users(password_hash):${privilege}`]);
+      await expect(
+        verifyDatabasePoolBoundary(
+          rolePool({ roleName: "app_domain", columnGrants }),
+          rolePool({ roleName: "app_auth_lookup", bypassRls: true }),
+        ),
+      ).rejects.toThrow(
+        new RegExp(`AuthModule: DATABASE_URL role holds forbidden column grants: ${privilege} ON users\\(password_hash\\)`),
+      );
+    },
+  );
+
+  it("RT-1249: names every forbidden column grant in one message", async () => {
+    const columnGrants = new Set([
+      ...DOMAIN_COLUMN_GRANTS,
+      "users(password_hash):SELECT",
+      "users(password_hash):UPDATE",
+    ]);
+    await expect(
+      verifyDatabasePoolBoundary(
+        rolePool({ roleName: "app_domain", columnGrants }),
+        rolePool({ roleName: "app_auth_lookup", bypassRls: true }),
+      ),
+    ).rejects.toThrow(
+      /holds forbidden column grants: SELECT ON users\(password_hash\), UPDATE ON users\(password_hash\)/,
+    );
+  });
+
+  it("RT-1249: the lookup role keeps password_hash; only the domain role is checked", async () => {
+    await expect(
+      verifyDatabasePoolBoundary(
+        rolePool({ roleName: "app_domain" }),
+        rolePool({
+          roleName: "app_auth_lookup",
+          bypassRls: true,
+          columnGrants: new Set(["users(password_hash):SELECT", "users(password_hash):UPDATE"]),
+        }),
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it.each([...DOMAIN_COLUMN_GRANTS])(
+    "RT-1249: rejects a domain role missing the column grant %s, naming it",
+    async (key) => {
+      const [, table, column, privilege] = /^([a-z_]+)\(([a-z_]+)\):([A-Z]+)$/.exec(key)!;
+      const columnGrants = new Set(DOMAIN_COLUMN_GRANTS);
+      columnGrants.delete(key);
+      await expect(
+        verifyDatabasePoolBoundary(
+          rolePool({ roleName: "app_domain", columnGrants }),
+          rolePool({ roleName: "app_auth_lookup", bypassRls: true }),
+        ),
+      ).rejects.toThrow(
+        new RegExp(`DATABASE_URL role is missing required grants: ${privilege} ON ${table}\\(${column}\\)`),
+      );
+    },
+  );
 });
