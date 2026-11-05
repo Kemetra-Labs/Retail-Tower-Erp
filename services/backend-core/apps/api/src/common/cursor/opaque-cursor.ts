@@ -6,7 +6,12 @@
  */
 import type { ZodType } from "zod";
 
-/** Base class for every "cursor this operation did not issue" error (each maps to a 400). */
+/**
+ * Base class for every "cursor this operation did not issue" error (each maps to a 400).
+ * Not the same class as `InvalidCursorError` in
+ * catalog/erpnext-reconciliation/negative-on-hand.projection.ts, which is unrelated until that
+ * module moves onto this codec (RT-1213 follow-up): import the right one for `instanceof`.
+ */
 export class InvalidCursorError extends Error {
   constructor(message = "cursor is not a valid continuation token for this operation") {
     super(message);
@@ -21,8 +26,9 @@ export function encodeOpaque(payload: Readonly<Record<string, unknown>>): string
 
 /**
  * The payload of a cursor this operation issued, validated by `schema`. A token that is not
- * base64url JSON, or that fails the schema, throws `onInvalid()`. Any tenant binding is the
- * caller's check on the returned payload.
+ * base64url JSON, or that fails the schema, throws `onInvalid()`: it should return the error,
+ * not throw it, and it is called at most once. Any tenant binding is the caller's check on the
+ * returned payload.
  */
 export function decodeOpaque<T>(raw: string, schema: ZodType<T>, onInvalid: () => Error): T {
   let json: unknown;
