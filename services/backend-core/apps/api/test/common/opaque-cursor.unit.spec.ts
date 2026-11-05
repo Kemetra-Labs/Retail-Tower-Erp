@@ -38,6 +38,16 @@ describe("decodeOpaque", () => {
   ])("throws the caller's error for %s", (_label, raw) => {
     expect(() => decodeOpaque(raw, Schema, invalid)).toThrow(TestCursorError);
   });
+
+  it("calls onInvalid only on failure, and only once", () => {
+    const onInvalid = jest.fn((): Error => new TestCursorError());
+    decodeOpaque(encodeOpaque({ k: "test", n: 1 }), Schema, onInvalid);
+    expect(onInvalid).toHaveBeenCalledTimes(0);
+    expect(() => decodeOpaque(b64("nope"), Schema, onInvalid)).toThrow(TestCursorError);
+    expect(onInvalid).toHaveBeenCalledTimes(1);
+    expect(() => decodeOpaque(b64('{"k":"other","n":1}'), Schema, onInvalid)).toThrow(TestCursorError);
+    expect(onInvalid).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("InvalidCursorError", () => {
