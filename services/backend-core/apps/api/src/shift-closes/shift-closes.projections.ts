@@ -21,6 +21,9 @@
  */
 import { z } from "zod";
 
+import { InvalidCursorError, decodeOpaque, encodeOpaque, isCalendarInstant } from "../common/cursor/opaque-cursor";
+import { UUID_RE } from "../common/ids";
+
 import type { PolicyTriState } from "../cash-variance-policy/policy-value";
 import { approverCheckOf, type ApproverCheck } from "../pos-shifts/shift-close-approver";
 import {
@@ -35,14 +38,13 @@ import { formatMoney } from "../pos-shifts/shift-money";
 // ---------------------------------------------------------------------------
 
 /** Raised for a cursor this operation did not issue → 400 validation_error. */
-export class InvalidShiftCloseCursorError extends Error {
+export class InvalidShiftCloseCursorError extends InvalidCursorError {
   constructor() {
-    super("cursor is not a valid continuation token for this operation");
+    super();
     this.name = "InvalidShiftCloseCursorError";
   }
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** `closed_at` as rendered by `CLOSED_AT_KEY_SQL`: UTC, exactly six fractional digits. */
 const CLOSED_AT_KEY_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
 
@@ -70,33 +72,14 @@ export interface ShiftCloseKeyset {
 
 export function encodeShiftCloseCursor(input: { readonly tenantId: string } & ShiftCloseKeyset): string {
   const payload = { k: "shift_closes", t: input.tenantId.toLowerCase(), c: input.closedAtKey, s: input.shiftId };
-  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return encodeOpaque(payload);
 }
 
 /** The keyset position, if `cursor` was issued by this operation for `tenantId`. */
 export function decodeShiftCloseCursor(input: { readonly tenantId: string; readonly cursor: string }): ShiftCloseKeyset {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(Buffer.from(input.cursor, "base64url").toString("utf8"));
-  } catch {
-    throw new InvalidShiftCloseCursorError();
-  }
-  const parsed = CursorSchema.safeParse(raw);
-  if (!parsed.success || parsed.data.t !== input.tenantId.toLowerCase()) {
-    throw new InvalidShiftCloseCursorError();
-  }
-  if (!isCalendarInstant(parsed.data.c)) throw new InvalidShiftCloseCursorError();
-  return { closedAtKey: parsed.data.c, shiftId: parsed.data.s };
-}
-
-/**
- * True when the key names a real UTC instant. `Date.parse` rolls an
- * out-of-range day over ("02-31" → "03-03") where Postgres refuses the cast,
- * so the date and time are checked to survive the round trip unchanged.
- */
-function isCalendarInstant(key: string): boolean {
-  const ms = Date.parse(key);
-  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 19) === key.slice(0, 19);
+  const parsed = decodeOpaque(input.cursor, CursorSchema, () => new InvalidShiftCloseCursorError());
+  if (parsed.t !== input.tenantId.toLowerCase() || !isCalendarInstant(parsed.c)) throw new InvalidShiftCloseCursorError();
+  return { closedAtKey: parsed.c, shiftId: parsed.s };
 }
 
 // ---------------------------------------------------------------------------
