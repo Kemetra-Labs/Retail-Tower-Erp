@@ -294,9 +294,16 @@ export class SalesController {
    */
   private recordReplayMismatch(request: TenantContextRequest, err: SalePayloadReplayConflictError): void {
     recordIdempotencyConflict({ route: CAPTURE_SALE_ROUTE });
-    if (this.auditEnqueuer === null) return;
     const ctx = request.context;
     const requestId = (request as { requestId?: string }).requestId ?? null;
+    if (this.auditEnqueuer === null) {
+      // Never silent: the ruling requires the audit, so a wiring gap is visible.
+      this.logger?.warn(
+        { component: "sales.capture", action: SALE_REPLAY_MISMATCH_AUDIT_ACTION, request_id: requestId },
+        "SalesController: no audit enqueuer wired; replay-mismatch audit not recorded",
+      );
+      return;
+    }
     this.auditEnqueuer
       .enqueue({
         actor_user_id: ctx?.userId ?? null,

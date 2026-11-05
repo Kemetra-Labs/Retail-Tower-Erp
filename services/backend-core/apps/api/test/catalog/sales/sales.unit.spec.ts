@@ -376,7 +376,7 @@ describe("SalesService — capture branches (unit)", () => {
     expect(touched(/INSERT INTO (sale_lines|outbox_events)\b/)).toBe(false);
   });
 
-  it("RT-1206: a different body from another store stays the non-disclosing 404 (store check before the hash)", async () => {
+  it("RT-1206: a different body from another store stays SaleNotFoundError (store check before the hash)", async () => {
     clientQuery = scriptClient({
       insertedRows: [],
       winnerRows: [{ id: VALID_REF, store_id: "0d000000-0000-7000-8000-0000000000b2", payload_hash: "f".repeat(64) }],
@@ -658,12 +658,14 @@ describe("SalesController — guard + status branches (unit)", () => {
       expect(err).toBeInstanceOf(ConflictException);
     });
 
-    it("without an audit enqueuer the answer is the same 409", async () => {
-      const err = await controller(null)
-        .captureSale(req as never, body() as never, makeRes() as never)
-        .catch((e: unknown) => e);
+    it("without an audit enqueuer the answer is the same 409, and the gap is logged", async () => {
+      const warn = jest.fn();
+      const svc = { captureSale: jest.fn().mockRejectedValue(new SalePayloadReplayConflictError(VALID_REF)) };
+      const c = new SalesController(svc as never, undefined as never, null, { warn, error: jest.fn() } as never);
+      const err = await c.captureSale(req as never, body() as never, makeRes() as never).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(ConflictException);
       expect(conflictSpy).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledTimes(1);
     });
 
     it("the tender replay conflict keeps its 409 and emits no RT-1206 audit", async () => {

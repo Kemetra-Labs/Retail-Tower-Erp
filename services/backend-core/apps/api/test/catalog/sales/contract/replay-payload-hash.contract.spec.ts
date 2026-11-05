@@ -32,6 +32,12 @@ describe("RT-1206 — captureSale provenance replay with a different payload (co
     expect(info).toContain("dead-letter `payload_divergence`");
   });
 
+  it("the RT-740 discount note no longer says a provenance replay is not compared", () => {
+    const info = flat(doc.info.description);
+    expect(info).not.toContain("it is not compared on a provenance replay");
+    expect(info).toContain("with a changed `discount` is also 409 `idempotency_key_conflict` (RT-1206)");
+  });
+
   it("the response set is unchanged: 409 is still the shared Conflict response", () => {
     expect(Object.keys(capture.responses).sort()).toEqual(
       ["200", "201", "400", "401", "403", "409", "422", "429", "500"].sort(),

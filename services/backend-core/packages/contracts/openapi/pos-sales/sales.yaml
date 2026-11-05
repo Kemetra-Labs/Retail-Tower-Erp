@@ -400,9 +400,10 @@ info:
     it is NOT stored and NOT returned: `SaleLine` is unchanged, and neither
     `readSale`, the sale history and detail (`sale-history.yaml`) nor the
     reprint echoes it. Only the net `lineAmount` is stored. Like the other
-    line fields, it is not compared on a provenance replay (same
-    `sourceSystem` + `externalId` under another key), which returns the
-    stored sale. The stored net `lineAmount` is the sale fact, and the discount
+    line fields, it is hashed into the payload, so a provenance replay (same
+    `sourceSystem` + `externalId` under another key) with a changed
+    `discount` is also 409 `idempotency_key_conflict` (RT-1206); the stored
+    line is never rewritten. The stored net `lineAmount` is the sale fact, and the discount
     amount is `unitPrice × quantity − lineAmount`. The till's
     `cart.discount.manager_authorized` audit event (`pos-audit-events`
     1.1.0-draft) records the kind and reason, but it cannot be joined to the
