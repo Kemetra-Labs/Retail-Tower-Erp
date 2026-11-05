@@ -24,6 +24,18 @@ export const RELOAD_STUCK_MS = 10_000;
 
 const RELOAD_KEY = "rtc.chunkReload";
 
+/**
+ * How browsers (Chrome, Firefox, Safari) and Vite's CSS preload word a chunk
+ * that could not be fetched. Anything else, e.g. a module that loaded but threw
+ * while evaluating, is a bug and goes straight to the error element.
+ */
+const CHUNK_LOAD_ERROR =
+  /dynamically imported module|Importing a module script failed|Unable to preload CSS/i;
+
+export function isChunkLoadError(error: unknown): boolean {
+  return error instanceof Error && CHUNK_LOAD_ERROR.test(error.message);
+}
+
 export interface ChunkReloadDeps {
   storage: Pick<Storage, "getItem" | "setItem"> | null;
   reload: () => void;
@@ -63,7 +75,7 @@ function readRecord(raw: string | null): ReloadRecord | null {
 }
 
 /**
- * Reloads once and returns a promise that stays pending, so the page keeps its
+ * For a chunk-load failure, reloads once and returns a promise that stays pending, so the page keeps its
  * loading state until the reload (it rejects with `error` after
  * `RELOAD_STUCK_MS` if the page is still there). Otherwise rejects with `error`
  * unchanged.
@@ -73,7 +85,7 @@ export function reloadOnceOnChunkError<T = never>(
   deps: ChunkReloadDeps = browserDeps(),
 ): Promise<T> {
   const { storage, reload, now } = deps;
-  if (storage === null) return Promise.reject(error);
+  if (storage === null || !isChunkLoadError(error)) return Promise.reject(error);
   const key = errorKey(error);
   try {
     const last = readRecord(storage.getItem(RELOAD_KEY));

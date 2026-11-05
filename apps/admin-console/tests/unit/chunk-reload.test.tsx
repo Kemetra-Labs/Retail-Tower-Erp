@@ -105,6 +105,24 @@ describe("reloadOnceOnChunkError (RT-1247)", () => {
     expect(d.reload).toHaveBeenCalledTimes(1);
   });
 
+  test.each([
+    ["Chrome", new TypeError("Failed to fetch dynamically imported module: https://x.test/a.js")],
+    ["Firefox", new TypeError("error loading dynamically imported module: https://x.test/a.js")],
+    ["Safari", new TypeError("Importing a module script failed.")],
+    ["Vite CSS preload", new Error("Unable to preload CSS for /assets/a.css")],
+  ])("a %s chunk-load failure reloads", async (_browser, error) => {
+    const d = deps();
+    expect(await state(reloadOnceOnChunkError(error, d))).toBe("pending");
+    expect(d.reload).toHaveBeenCalledTimes(1);
+  });
+
+  test("a module that loaded but threw while evaluating is a bug: rethrow, no reload", async () => {
+    const d = deps();
+    const bug = new ReferenceError("formatMoney is not defined");
+    await expect(reloadOnceOnChunkError(bug, d)).rejects.toBe(bug);
+    expect(d.reload).not.toHaveBeenCalled();
+  });
+
   test("without storage it rethrows and never reloads (no guard, no reload)", async () => {
     const d = deps({ storage: null });
     await expect(reloadOnceOnChunkError(chunkError, d)).rejects.toBe(chunkError);
