@@ -7,7 +7,7 @@ How a reviewer confirms the slice is correct once implemented. **No step here is
 - Boot api + worker. Expect: identical-to-today behavior, existing Prometheus drain intact, **zero** Sentry/Datadog egress. (SC-001)
 
 ## 2. Sentry error capture (US1, P1 — the MVP)
-- Set `SENTRY_DSN` to the `data-pulse-2` Sentry project (preprod).
+- Set `SENTRY_DSN` to the `backend-core` Sentry project (org `kemetra`, EU ingest `*.ingest.de.sentry.io`; planned as `data-pulse-2`). The DSN comes from 1Password only.
 - Trigger a controlled unhandled exception on a non-production route.
 - Expect: a Sentry event appears, **scrubbed** — no Clerk token/JWT, no operator/patient PII, no business/catalog/inventory/sales payload. (SC-002)
 - Set a deliberately malformed DSN → service still boots; one warn line, no DSN echoed. (AC-3)
