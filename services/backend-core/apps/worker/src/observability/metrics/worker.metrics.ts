@@ -44,9 +44,13 @@ import type { Queue } from "bullmq";
 import type { Pool } from "pg";
 
 import {
+  DB_POOL_IN_USE_DESCRIPTION,
+  DB_POOL_WAITERS_DESCRIPTION,
   QUEUE_NAMES,
   assertMetricLabels,
   getMeter,
+  registerPoolGauges,
+  type DbPoolGauges,
   type Attributes,
   type Counter,
   type Histogram,
@@ -179,215 +183,301 @@ export function sanitizeErrorClass(
 }
 
 // ---------------------------------------------------------------------------
-// Module-load label-policy validation
-// ---------------------------------------------------------------------------
-// assertMetricLabels throws if a label is forbidden or not in the closed
-// allowlist (ALLOWED_METRIC_LABELS in packages/shared). Called once at
-// registration time; cannot be deferred to emit time.
-
-assertMetricLabels("db_pool_in_use", []);
-assertMetricLabels("db_pool_waiters", []);
-assertMetricLabels("db_slow_query_total", ["query_class"]);
-assertMetricLabels("redis_command_duration_seconds", ["command"]);
-assertMetricLabels("queue_lag_seconds", ["queue"]);
-assertMetricLabels("queue_failed_total", ["queue", "error_class"]);
-assertMetricLabels("queue_dead_letter_total", ["queue"]);
-assertMetricLabels("queue_retry_total", ["queue"]);
-assertMetricLabels("worker_job_duration_seconds", ["job_name"]);
-assertMetricLabels("worker_processing_failure_total", ["job_name", "error_class"]);
-
-// Track C outbox placeholders — registered as definitions only per
-// plan §6. Emission helpers are NOT exposed; the outbox slice will add
-// them when Track C P7 ships. Validating labels at module load now
-// catches drift early.
-assertMetricLabels("outbox_pending_total", ["event_type"]);
-assertMetricLabels("outbox_dead_letter_total", ["event_type"]);
-assertMetricLabels("outbox_drain_duration_seconds", ["event_type"]);
-
-// ERPNext posting domain — 015-POLISH (spec §VII). The SAME family the api side
-// registers (api.metrics.ts): a posting row that dead-letters at 015-RESOLVE
-// creation time (unmapped_item / unmapped_store) increments it here, mirroring
-// the connectorAckOutcome emission on the api side. UNLABELED — the affected
-// (tenant, store, sale, category) lives on the erpnext_posting_status row + audit.
-assertMetricLabels("erpnext_posting_reconciliation_total", []);
-
-// ERPNext stock reconciliation sweep — RT-179. One increment per (tenant, store)
-// the scheduled sweep considers; `outcome` is a closed four-value set.
-assertMetricLabels("erpnext_stock_reconciliation_sweep_total", ["outcome"]);
-
-// ERPNext stock run expiry — RT-688. The stranded gauge's `outcome` is a closed
-// two-value set; the expiry counter is unlabeled.
-assertMetricLabels("erpnext_stock_run_stranded", ["outcome"]);
-assertMetricLabels("erpnext_stock_run_expired_total", []);
-
-// ERPNext posting reversal dead-letter — RT-207. UNLABELED: the tenant, sale and
-// outbox event are fields of the structured error log, never labels.
-assertMetricLabels("erpnext_posting_reversal_deferred_dead_letter_total", []);
-
-// Sale re-drive sweep — RT-457. `reason` is a closed three-value set.
-assertMetricLabels("sale_redrive_total", ["reason"]);
-
-// Skipped sale effects — RT-427. `event_type` and `reason` are closed sets.
-assertMetricLabels("inventory_sale_effect_skipped_total", ["event_type", "reason"]);
-
-// ---------------------------------------------------------------------------
-// Instruments
+// Metric definitions (RT-1211): one table drives the label-policy assertion,
+// the instrument creation and WORKER_METRIC_NAMES. Adding a signal is one row.
 // ---------------------------------------------------------------------------
 
-const meter = getMeter("worker");
+interface WorkerMetricDef {
+  readonly name: string;
+  readonly kind: "counter" | "histogram" | "observable_gauge";
+  /** Closed label set, validated by `assertMetricLabels` at module load. */
+  readonly labels: readonly string[];
+  readonly description: string;
+  readonly unit?: string;
+}
 
-// DB pool — worker process observes its own AuditDbPool stats on port 9091.
-// The API process observes its pool independently on port 9464 via db.metrics.ts.
-const _dbSlowQuery: Counter = meter.createCounter("db_slow_query_total", {
-  description:
-    "Total DB queries exceeding the slow-query threshold (500 ms), labelled by " +
-    "parameterized-statement class. query_class is a hash of the SQL template — " +
-    "NEVER the rendered query text.",
-});
-const _dbPoolInUse: ObservableGauge = meter.createObservableGauge("db_pool_in_use", {
-  description: "Number of connections currently checked out from the DB pool.",
-});
-const _dbPoolWaiters: ObservableGauge = meter.createObservableGauge("db_pool_waiters", {
-  description: "Number of requests currently waiting for a DB pool connection.",
-});
-
-// Redis
-const _redisCommandDuration: Histogram = meter.createHistogram(
-  "redis_command_duration_seconds",
+const WORKER_METRICS = [
+  // DB pool (P4 W1): the worker observes its own pool on port 9091; the API observes its own
+  // independently on port 9464 via db.metrics.ts. Both use the shared helpers (RT-1211).
   {
+    name: "db_pool_in_use",
+    kind: "observable_gauge",
+    labels: [],
+    description: DB_POOL_IN_USE_DESCRIPTION,
+  },
+  {
+    name: "db_pool_waiters",
+    kind: "observable_gauge",
+    labels: [],
+    description: DB_POOL_WAITERS_DESCRIPTION,
+  },
+  // P4 W5: emitted by InstrumentedPool.query (shared `withSlowQueryRecorder`).
+  {
+    name: "db_slow_query_total",
+    kind: "counter",
+    labels: ["query_class"],
+    description:
+      "Total DB queries exceeding the slow-query threshold (500 ms), labelled by " +
+      "parameterized-statement class. query_class is a hash of the SQL template — NEVER the " +
+      "rendered query text.",
+  },
+  // Redis.
+  {
+    name: "redis_command_duration_seconds",
+    kind: "histogram",
+    labels: ["command"],
     description:
       "Redis command duration in seconds, labelled by the command verb " +
       "(get/set/del/hget/hset/...). NEVER labelled by the Redis key.",
     unit: "s",
   },
-);
-
-// BullMQ / queues
-// queue_lag_seconds is an observable gauge — pool-style introspection
-// (BullMQ getWaitingCount + oldest-waiting-job age) is sampled at the
-// SDK collection cadence. The addCallback wiring is deferred to the
-// emission slice; the instrument is registered now so signal-presence
-// holds.
-const _queueLag: ObservableGauge = meter.createObservableGauge("queue_lag_seconds", {
-  description:
-    "BullMQ queue lag in seconds, labelled by queue. Sampled by the metrics " +
-    "SDK; never polled synchronously to avoid Redis pressure.",
-  unit: "s",
-});
-const _queueFailed: Counter = meter.createCounter("queue_failed_total", {
-  description: "Total failed jobs by queue and sanitized error_class.",
-});
-const _queueDeadLetter: Counter = meter.createCounter("queue_dead_letter_total", {
-  description:
-    "Total jobs that exhausted retries and landed in the BullMQ failed-jobs " +
-    "set (acts as DLQ per shared queue.config), labelled by queue.",
-});
-const _queueRetry: Counter = meter.createCounter("queue_retry_total", {
-  description:
-    "Total retry attempts (failed + attemptsMade < attemptsLimit) by queue.",
-});
-
-// Workers
-const _workerJobDuration: Histogram = meter.createHistogram(
-  "worker_job_duration_seconds",
+  // BullMQ / queues. queue_lag_seconds is an observable gauge sampled at the SDK collection
+  // cadence (registerQueueLagGauge, wired by QueueLagGaugeRegistrar).
   {
+    name: "queue_lag_seconds",
+    kind: "observable_gauge",
+    labels: ["queue"],
     description:
-      "Worker job processing duration in seconds, labelled by job_name. " +
-      "Histogram — quantiles (p50/p95/p99) recovered at the query layer.",
+      "BullMQ queue lag in seconds, labelled by queue. Sampled by the metrics SDK; never " +
+      "polled synchronously to avoid Redis pressure.",
     unit: "s",
   },
-);
-const _workerProcessingFailure: Counter = meter.createCounter(
-  "worker_processing_failure_total",
   {
-    description:
-      "Total worker job processing failures by job_name and sanitized " +
-      "error_class (closed allowlist; unknown classes coerced to UnknownError).",
+    name: "queue_failed_total",
+    kind: "counter",
+    labels: ["error_class", "queue"],
+    description: "Total failed jobs by queue and sanitized error_class.",
   },
-);
-
-// Track C outbox — outbox_pending_total is an ObservableGauge whose
-// addCallback queries outbox_events GROUP BY event_type at scrape time.
-// The callback is registered by `registerOutboxPendingGauge` (T595 PR-B-2),
-// called from WorkerModule's OutboxPendingGaugeRegistrar on Nest init.
-// The instrument is created here so the OTel Meter handle stays at module
-// scope and the callback can be registered later against the SAME instrument
-// without re-creating it.
-const _outboxPending: ObservableGauge = meter.createObservableGauge(
-  "outbox_pending_total",
   {
+    name: "queue_dead_letter_total",
+    kind: "counter",
+    labels: ["queue"],
     description:
-      "Pending outbox events by event_type. Sampled at OTel scrape time " +
-      "via SELECT COUNT(*) GROUP BY event_type on rows whose delivery_state " +
-      "is in ('pending','claimed','failed'). 'delivered' and 'dead_lettered' " +
-      "are terminal and excluded.",
+      "Total jobs that exhausted retries and landed in the BullMQ failed-jobs set (acts as " +
+      "DLQ per shared queue.config), labelled by queue.",
   },
-);
-
-// T595 (PR-B-1): outbox_dead_letter_total and outbox_drain_duration_seconds
-// are emitted from DrainerProcessor's existing per-row branches. Helpers
-// exposed below mirror the recordQueue* / recordWorker* shape used by
-// PR-A's T596 emission.
-const _outboxDeadLetter: Counter = meter.createCounter("outbox_dead_letter_total", {
-  description:
-    "Outbox events that exhausted drain retries (row.attempts >= MAX_ATTEMPTS), " +
-    "labelled by event_type.",
-});
-const _outboxDrainDuration: Histogram = meter.createHistogram(
-  "outbox_drain_duration_seconds",
   {
+    name: "queue_retry_total",
+    kind: "counter",
+    labels: ["queue"],
+    description: "Total retry attempts (failed + attemptsMade < attemptsLimit) by queue.",
+  },
+  // Workers.
+  {
+    name: "worker_job_duration_seconds",
+    kind: "histogram",
+    labels: ["job_name"],
     description:
-      "Outbox per-row drain duration in seconds, labelled by event_type. " +
-      "Wall-clock from claim-dispatch to consumer return (success or failure).",
+      "Worker job processing duration in seconds, labelled by job_name. Histogram — quantiles " +
+      "(p50/p95/p99) recovered at the query layer.",
     unit: "s",
   },
-);
+  {
+    name: "worker_processing_failure_total",
+    kind: "counter",
+    labels: ["error_class", "job_name"],
+    description:
+      "Total worker job processing failures by job_name and sanitized error_class (closed " +
+      "allowlist; unknown classes coerced to UnknownError).",
+  },
+  // T595 (PR-B-1): emitted from DrainerProcessor.processRow.
+  {
+    name: "outbox_dead_letter_total",
+    kind: "counter",
+    labels: ["event_type"],
+    description:
+      "Outbox events that exhausted drain retries (row.attempts >= MAX_ATTEMPTS), labelled by " +
+      "event_type.",
+  },
+  {
+    name: "outbox_drain_duration_seconds",
+    kind: "histogram",
+    labels: ["event_type"],
+    description:
+      "Outbox per-row drain duration in seconds, labelled by event_type. Wall-clock from " +
+      "claim-dispatch to consumer return (success or failure).",
+    unit: "s",
+  },
+  // Track C outbox (T595). outbox_pending_total is an ObservableGauge whose callback is
+  // registered by `registerOutboxPendingGauge` (PR-B-2) against the SAME instrument.
+  {
+    name: "outbox_pending_total",
+    kind: "observable_gauge",
+    labels: ["event_type"],
+    description:
+      "Pending outbox events by event_type. Sampled at OTel scrape time via SELECT COUNT(*) " +
+      "GROUP BY event_type on rows whose delivery_state is in ('pending','claimed','failed'). " +
+      "'delivered' and 'dead_lettered' are terminal and excluded.",
+  },
+  // ERPNext posting domain, 015-POLISH (spec section VII): same family name as the api side;
+  // emitted by PostingRequestedConsumer on a creation-time rejection. Unlabeled.
+  {
+    name: "erpnext_posting_reconciliation_total",
+    kind: "counter",
+    labels: [],
+    description:
+      "ERPNext posting rows that became permanently_rejected at 015-RESOLVE creation time " +
+      "(unmapped_item / unmapped_store). The reconciliation / dead-letter flag the 017 " +
+      "surface drains. Unlabeled — the affected (tenant, store, sale, category) lives on the " +
+      "erpnext_posting_status row.",
+  },
+  // RT-179: emitted by StockRunSweepProcessor once per (tenant, store) with an active stock map.
+  {
+    name: "erpnext_stock_reconciliation_sweep_total",
+    kind: "counter",
+    labels: ["outcome"],
+    description:
+      "Stores considered by the scheduled ERPNext stock reconciliation sweep, by outcome: " +
+      "created (a scheduled run was created), skipped_running (the store already had a " +
+      "running stock run), skipped_period (a scheduled run already exists for this period), " +
+      "skipped_ineligible (the tenant was suspended or the store / stock map retired before " +
+      "creation). The (tenant, store) is on the run row and the sweep log, never a label.",
+  },
+  // RT-688 (RT-187 D4/D5): the sweep samples the stranded counts once per tick
+  // (`setStockRunStranded`); the gauge callback reports the latest sample.
+  {
+    name: "erpnext_stock_run_stranded",
+    kind: "observable_gauge",
+    labels: ["outcome"],
+    description:
+      "ERPNext stock reconciliation runs still running past the run TTL (2 h from " +
+      "started_at), as of the last scheduled sweep, by outcome: report_incomplete (no " +
+      "complete connector Bin report; the sweep expires these, so the series is zero after a " +
+      "healthy sweep) or report_complete (the report completed but the reconciliation worker " +
+      "has not processed the run; never expired). No tenant or store label.",
+  },
+  {
+    name: "erpnext_stock_run_expired_total",
+    kind: "counter",
+    labels: [],
+    description:
+      "ERPNext stock reconciliation runs the scheduled sweep moved running → failed because " +
+      "they passed the run TTL without a complete connector Bin report " +
+      "(summary.failure.reason = bin_view_not_completed). The (tenant, store, run) is on the " +
+      "run row, its audit row and the sweep log, never a label.",
+  },
+  // RT-207: emitted by PostingRequestedConsumer on the final outbox attempt of a reversal.
+  {
+    name: "erpnext_posting_reversal_deferred_dead_letter_total",
+    kind: "counter",
+    labels: [],
+    description:
+      "erpnext.posting.requested reversals dead-lettered in the outbox while still awaiting " +
+      "their sale's sale_post posting row (the RT-173 deferral exhausted its attempts). No " +
+      "erpnext_posting_status row exists for these; the dead-lettered outbox row is the " +
+      "record. Unlabeled — the tenant, sale and outbox event are in the " +
+      "posting.reversal.dead_lettered error log.",
+  },
+  // RT-457: emitted by SaleRedriveProcessor once per tick per reason.
+  {
+    name: "sale_redrive_total",
+    kind: "counter",
+    labels: ["reason"],
+    description:
+      "Items the scheduled sale re-drive sweep recovered, by reason: sale_processing (a " +
+      "stranded unprocessed sale was processed), sale_post_intent / reversal_intent (a " +
+      "missing erpnext.posting.requested event was re-emitted). The tenant and sale are in " +
+      "the sweep log, never a label.",
+  },
+  // RT-427 (owner decision 2): emitted by SaleProcessingProcessor per skipped sale line.
+  {
+    name: "inventory_sale_effect_skipped_total",
+    kind: "counter",
+    labels: ["event_type", "reason"],
+    description:
+      "Sale / void / return lines whose Inventory Effect was skipped instead of stalling the " +
+      "sale (RT-427): reason unit_mismatch (not the product's established stocking unit), " +
+      "quantity_precision (more than 4 decimals) or tracked_product (needs a tracking " +
+      "identity, RT-451). The tenant, sale and line are in the inventory.sale_effect.skipped " +
+      "warn log, never labels.",
+  },
+] as const satisfies readonly WorkerMetricDef[];
 
-// ERPNext posting domain — 015-POLISH (spec §VII). Same family name as the api
-// side; emitted by PostingRequestedConsumer when 015-RESOLVE rejects a posting
-// at creation (unmapped_item / unmapped_store → permanently_rejected).
-const _erpnextPostingReconciliation: Counter = meter.createCounter(
+export type WorkerMetricName = (typeof WORKER_METRICS)[number]["name"];
+
+/**
+ * Canonical names of all worker-side signals registered by this module.
+ * Derived from `WORKER_METRICS`, so the T465 presence test cannot drift from
+ * the instruments actually created below.
+ */
+export const WORKER_METRIC_NAMES: readonly WorkerMetricName[] = WORKER_METRICS.map((m) => m.name);
+
+// ---------------------------------------------------------------------------
+// Module-load label-policy validation + instruments
+// ---------------------------------------------------------------------------
+// assertMetricLabels throws if a label is forbidden or not in the closed
+// allowlist (ALLOWED_METRIC_LABELS in packages/shared). Called once per signal
+// at registration time; cannot be deferred to emit time.
+
+const meter = getMeter("worker");
+
+type WorkerInstrument = Counter | Histogram | ObservableGauge;
+const instruments = new Map<string, { kind: WorkerMetricDef["kind"]; instrument: WorkerInstrument }>();
+for (const def of WORKER_METRICS as readonly WorkerMetricDef[]) {
+  assertMetricLabels(def.name, def.labels);
+  const opts =
+    def.unit === undefined
+      ? { description: def.description }
+      : { description: def.description, unit: def.unit };
+  const instrument: WorkerInstrument =
+    def.kind === "counter"
+      ? meter.createCounter(def.name, opts)
+      : def.kind === "histogram"
+        ? meter.createHistogram(def.name, opts)
+        : meter.createObservableGauge(def.name, opts);
+  instruments.set(def.name, { kind: def.kind, instrument });
+}
+
+/** The instrument registered for `name`; a wrong `kind` is a programming error at load. */
+function instrumentOf<T extends WorkerInstrument>(
+  name: WorkerMetricName,
+  kind: WorkerMetricDef["kind"],
+): T {
+  const entry = instruments.get(name);
+  if (entry === undefined || entry.kind !== kind) {
+    throw new Error(`worker metric "${name}" is not a registered ${kind}`);
+  }
+  return entry.instrument as T;
+}
+
+const _dbSlowQuery = instrumentOf<Counter>("db_slow_query_total", "counter");
+const _dbPoolGauges: DbPoolGauges = {
+  inUse: instrumentOf<ObservableGauge>("db_pool_in_use", "observable_gauge"),
+  waiters: instrumentOf<ObservableGauge>("db_pool_waiters", "observable_gauge"),
+};
+const _redisCommandDuration = instrumentOf<Histogram>("redis_command_duration_seconds", "histogram");
+const _queueLag = instrumentOf<ObservableGauge>("queue_lag_seconds", "observable_gauge");
+const _queueFailed = instrumentOf<Counter>("queue_failed_total", "counter");
+const _queueDeadLetter = instrumentOf<Counter>("queue_dead_letter_total", "counter");
+const _queueRetry = instrumentOf<Counter>("queue_retry_total", "counter");
+const _workerJobDuration = instrumentOf<Histogram>("worker_job_duration_seconds", "histogram");
+const _workerProcessingFailure = instrumentOf<Counter>("worker_processing_failure_total", "counter");
+const _outboxPending = instrumentOf<ObservableGauge>("outbox_pending_total", "observable_gauge");
+const _outboxDeadLetter = instrumentOf<Counter>("outbox_dead_letter_total", "counter");
+const _outboxDrainDuration = instrumentOf<Histogram>("outbox_drain_duration_seconds", "histogram");
+const _erpnextPostingReconciliation = instrumentOf<Counter>(
   "erpnext_posting_reconciliation_total",
-  {
-    description:
-      "ERPNext posting rows that became permanently_rejected at 015-RESOLVE " +
-      "creation time (unmapped_item / unmapped_store). The reconciliation / " +
-      "dead-letter flag the 017 surface drains. Unlabeled — the affected " +
-      "(tenant, store, sale, category) lives on the erpnext_posting_status row.",
-  },
+  "counter",
 );
-
-// ERPNext stock reconciliation sweep — RT-179. Emitted by
-// StockRunSweepProcessor once per (tenant, store) with an active stock map.
-const _erpnextStockReconciliationSweep: Counter = meter.createCounter(
+const _erpnextStockReconciliationSweep = instrumentOf<Counter>(
   "erpnext_stock_reconciliation_sweep_total",
-  {
-    description:
-      "Stores considered by the scheduled ERPNext stock reconciliation sweep, " +
-      "by outcome: created (a scheduled run was created), skipped_running (the " +
-      "store already had a running stock run), skipped_period (a scheduled run " +
-      "already exists for this period), skipped_ineligible (the tenant was " +
-      "suspended or the store / stock map retired before creation). The " +
-      "(tenant, store) is on the run row " +
-      "and the sweep log, never a label.",
-  },
+  "counter",
+);
+const _erpnextStockRunStranded = instrumentOf<ObservableGauge>(
+  "erpnext_stock_run_stranded",
+  "observable_gauge",
+);
+const _erpnextStockRunExpired = instrumentOf<Counter>("erpnext_stock_run_expired_total", "counter");
+const _erpnextPostingReversalDeferredDeadLetter = instrumentOf<Counter>(
+  "erpnext_posting_reversal_deferred_dead_letter_total",
+  "counter",
+);
+const _saleRedrive = instrumentOf<Counter>("sale_redrive_total", "counter");
+const _inventorySaleEffectSkipped = instrumentOf<Counter>(
+  "inventory_sale_effect_skipped_total",
+  "counter",
 );
 
-// ERPNext stock run expiry — RT-688 (RT-187 D4/D5). The sweep samples the
-// stranded counts once per tick (`setStockRunStranded`); the gauge callback
-// reports the latest sample, so a scrape never queries the database.
-const _erpnextStockRunStranded: ObservableGauge = meter.createObservableGauge(
-  "erpnext_stock_run_stranded",
-  {
-    description:
-      "ERPNext stock reconciliation runs still running past the run TTL (2 h " +
-      "from started_at), as of the last scheduled sweep, by outcome: " +
-      "report_incomplete (no complete connector Bin report; the sweep expires " +
-      "these, so the series is zero after a healthy sweep) or report_complete " +
-      "(the report completed but the reconciliation worker has not processed " +
-      "the run; never expired). No tenant or store label.",
-  },
-);
 let stockRunStrandedSample: Readonly<Record<StockRunStrandedOutcome, number>> | null = null;
 _erpnextStockRunStranded.addCallback((result) => {
   const sample = stockRunStrandedSample;
@@ -396,58 +486,6 @@ _erpnextStockRunStranded.addCallback((result) => {
     result.observe(sample[outcome], { outcome });
   }
 });
-
-const _erpnextStockRunExpired: Counter = meter.createCounter(
-  "erpnext_stock_run_expired_total",
-  {
-    description:
-      "ERPNext stock reconciliation runs the scheduled sweep moved running → " +
-      "failed because they passed the run TTL without a complete connector Bin " +
-      "report (summary.failure.reason = bin_view_not_completed). The (tenant, " +
-      "store, run) is on the run row, its audit row and the sweep log, never a " +
-      "label.",
-  },
-);
-
-// Sale re-drive sweep — RT-457. Emitted by SaleRedriveProcessor once per tick
-// per reason with the number of items it re-drove.
-const _saleRedrive: Counter = meter.createCounter("sale_redrive_total", {
-  description:
-    "Items the scheduled sale re-drive sweep recovered, by reason: " +
-    "sale_processing (a stranded unprocessed sale was processed), " +
-    "sale_post_intent / reversal_intent (a missing erpnext.posting.requested " +
-    "event was re-emitted). The tenant and sale are in the sweep log, never a label.",
-});
-
-// Skipped sale effects — RT-427 (owner decision 2). Emitted by
-// SaleProcessingProcessor once per sale line whose Inventory Effect could not
-// be written exactly (the sale itself is never stalled).
-const _inventorySaleEffectSkipped: Counter = meter.createCounter(
-  "inventory_sale_effect_skipped_total",
-  {
-    description:
-      "Sale / void / return lines whose Inventory Effect was skipped instead of " +
-      "stalling the sale (RT-427): reason unit_mismatch (not the product's " +
-      "established stocking unit), quantity_precision (more than 4 decimals) or " +
-      "tracked_product (needs a tracking identity, RT-451). The tenant, sale and " +
-      "line are in the inventory.sale_effect.skipped warn log, never labels.",
-  },
-);
-
-// ERPNext posting reversal dead-letter — RT-207. Emitted by
-// PostingRequestedConsumer on the final outbox attempt of a reversal that is
-// still awaiting its sale's sale_post row (the drainer dead-letters that row).
-const _erpnextPostingReversalDeferredDeadLetter: Counter = meter.createCounter(
-  "erpnext_posting_reversal_deferred_dead_letter_total",
-  {
-    description:
-      "erpnext.posting.requested reversals dead-lettered in the outbox while " +
-      "still awaiting their sale's sale_post posting row (the RT-173 deferral " +
-      "exhausted its attempts). No erpnext_posting_status row exists for these; " +
-      "the dead-lettered outbox row is the record. Unlabeled — the tenant, sale " +
-      "and outbox event are in the posting.reversal.dead_lettered error log.",
-  },
-);
 
 // ---------------------------------------------------------------------------
 // Attribute types — TypeScript compile-time label enforcement (FR-B-006)
@@ -756,32 +794,7 @@ export function recordStockRunExpired(count: number): void {
 export function registerDbPoolGauges(deps: {
   readonly pool: Pool | null;
 }): { stop: () => void } {
-  const pool = deps.pool;
-  if (pool === null) {
-    return { stop: () => undefined };
-  }
-
-  const inUseCallback = (result: {
-    observe(value: number, attributes: Attributes): void;
-  }): void => {
-    result.observe(pool.totalCount - pool.idleCount, {} as Attributes);
-  };
-
-  const waitersCallback = (result: {
-    observe(value: number, attributes: Attributes): void;
-  }): void => {
-    result.observe(pool.waitingCount, {} as Attributes);
-  };
-
-  _dbPoolInUse.addCallback(inUseCallback);
-  _dbPoolWaiters.addCallback(waitersCallback);
-
-  return {
-    stop: () => {
-      _dbPoolInUse.removeCallback(inUseCallback);
-      _dbPoolWaiters.removeCallback(waitersCallback);
-    },
-  };
+  return registerPoolGauges(_dbPoolGauges, deps.pool);
 }
 
 // ---------------------------------------------------------------------------
@@ -1086,62 +1099,3 @@ export function registerOutboxPendingGauge(
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Signal-name registry — used by T465 signal-presence test
-// ---------------------------------------------------------------------------
-
-/**
- * Canonical names of all worker-side signals registered by this module
- * that ALSO have an emission helper exposed (i.e., the seven signals
- * the slice can emit today).
- *
- * Drift between this array and the actual instrument creation above
- * fails CI via the T465 presence test.
- */
-export const WORKER_METRIC_NAMES = [
-  // P4 W1: DB pool gauges — worker observes its own AuditDbPool via
-  // `registerDbPoolGauges`, wired by WorkerDbPoolGaugeRegistrar on Nest init.
-  "db_pool_in_use",
-  "db_pool_waiters",
-  // P4 W5: slow-query counter — emitted by InstrumentedPool.query when a
-  // pg.Pool query exceeds SLOW_QUERY_THRESHOLD_SECONDS (500 ms).
-  "db_slow_query_total",
-  "redis_command_duration_seconds",
-  // P4 W2: queue lag gauge — wired by QueueLagGaugeRegistrar on Nest init.
-  "queue_lag_seconds",
-  "queue_failed_total",
-  "queue_dead_letter_total",
-  "queue_retry_total",
-  "worker_job_duration_seconds",
-  "worker_processing_failure_total",
-  // T595 (PR-B-1): outbox dead-letter + drain-duration emitted from
-  // DrainerProcessor.processRow.
-  "outbox_dead_letter_total",
-  "outbox_drain_duration_seconds",
-  // T595 (PR-B-2): outbox_pending_total emitted via the
-  // `registerOutboxPendingGauge` ObservableGauge addCallback, wired by
-  // WorkerModule's OutboxPendingGaugeRegistrar against AuditDbPool on
-  // Nest init.
-  "outbox_pending_total",
-  // 015-POLISH (spec §VII): posting reconciliation / DLQ flag, emitted by
-  // PostingRequestedConsumer on a 015-RESOLVE creation-time rejection.
-  "erpnext_posting_reconciliation_total",
-  // RT-179: scheduled stock reconciliation sweep outcomes, emitted by
-  // StockRunSweepProcessor.
-  "erpnext_stock_reconciliation_sweep_total",
-  // RT-688: stranded stock runs (gauge sampled by the sweep) and expiries,
-  // emitted by StockRunSweepProcessor.
-  "erpnext_stock_run_stranded",
-  "erpnext_stock_run_expired_total",
-  // RT-207: reversal dead-lettered while awaiting its sale_post, emitted by
-  // PostingRequestedConsumer on the final outbox attempt.
-  "erpnext_posting_reversal_deferred_dead_letter_total",
-  // RT-457: sale re-drive sweep, emitted by SaleRedriveProcessor.
-  "sale_redrive_total",
-  // RT-427: sale effects skipped by owner decision 2, emitted by
-  // SaleProcessingProcessor.
-  "inventory_sale_effect_skipped_total",
-] as const satisfies readonly string[];
-
-export type WorkerMetricName = (typeof WORKER_METRIC_NAMES)[number];

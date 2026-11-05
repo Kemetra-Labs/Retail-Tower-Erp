@@ -1,4 +1,5 @@
-import { Injectable, Module, type OnModuleDestroy, type OnModuleInit, Inject } from "@nestjs/common";
+import { Injectable, Module, type OnModuleInit, Inject } from "@nestjs/common";
+import { GaugeHandleOwner } from "@data-pulse-2/shared";
 import { APP_GUARD } from "@nestjs/core";
 import { readdir, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -60,22 +61,6 @@ import {
   registerDbPoolGauges,
   registerDbMigrationStatusGauge,
 } from "./observability/metrics/db.metrics";
-
-/**
- * Shared teardown for the gauge registrars: stops the registered gauge
- * handle once and clears it, so a repeated shutdown is a no-op.
- */
-abstract class GaugeHandleOwner implements OnModuleDestroy {
-  protected handle: { stop: () => void } | null = null;
-
-  onModuleDestroy(): void {
-    const h = this.handle;
-    this.handle = null;
-    if (h !== null) {
-      h.stop();
-    }
-  }
-}
 
 /**
  * Nest-aware registrar for the `db_pool_in_use` and `db_pool_waiters`

@@ -6,6 +6,7 @@ export * from "./observability/metrics-labels";
 export * from "./fragments/load-fragment-dir";
 export * from "./observability/correlation";
 export * from "./observability/meter";
+export * from "./observability/db-pool";
 export * from "./observability/sentry";
 export * from "./observability/release-version";
 export * from "./ids/uuid";
