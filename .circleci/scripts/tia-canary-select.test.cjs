@@ -179,11 +179,12 @@ test("a selection that, with must-run, covers every spec is FULL", () => {
   const p = sel.decide(inputs({ selectedText: all.join("\n"), probeText: probeText({ selected: 4, skipped: 1 }) }));
   assert.equal(p.mode, FULL);
   assert.match(p.reasons[0], /covers every spec/);
-  assert.equal(p.staleImpactData, undefined);
+  assert.equal(p.impactDataMismatch, undefined);
 });
 
-// RT-921 c15655 item 1: canary #1094's case. The CLI selected everything because main changed a
-// full-test-run path after the last analysis; the plan is FULL and labelled stale-impact-data.
+// RT-921 c15655 item 1: canary #1094's case. The CLI selected everything because a full-test-run
+// path the branch did not change differs from the stored impact data (either side may be older);
+// the plan is FULL and labelled an impact-data mismatch, never a claim about which side is behind.
 const CONTRACT = "../../packages/contracts/openapi/pos-sales/sales.yaml";
 const allSelectedBy = (trigger) => {
   const all = SPECS.filter((s) => s !== MUST);
@@ -194,11 +195,13 @@ const allSelectedBy = (trigger) => {
   return inputs({ selectedText: all.join("\n"), probeText: text });
 };
 
-test("select-all caused by a full-test-run path the branch did not change is labelled stale impact data", () => {
+test("select-all caused by a full-test-run path the branch did not change is labelled an impact-data mismatch", () => {
   const p = sel.decide(allSelectedBy(CONTRACT));
   assert.equal(p.mode, FULL);
-  assert.match(p.reasons[0], /^stale impact data: full-test-run path services\/backend-core\/packages\/contracts\/openapi\/pos-sales\/sales\.yaml changed on main/);
-  assert.deepEqual(p.staleImpactData, { trigger: "services/backend-core/packages/contracts/openapi/pos-sales/sales.yaml" });
+  assert.match(p.reasons[0], /^impact-data mismatch: full-test-run path services\/backend-core\/packages\/contracts\/openapi\/pos-sales\/sales\.yaml differs between this checkout and the stored impact data/);
+  assert.match(p.reasons[0], /wait for tia-main-analysis .*or merge origin\/main/);
+  assert.doesNotMatch(p.reasons[0], /changed on main after the last analysis/);
+  assert.deepEqual(p.impactDataMismatch, { trigger: "services/backend-core/packages/contracts/openapi/pos-sales/sales.yaml" });
   assert.equal(p.impact.fullRunTrigger, CONTRACT);
 });
 
@@ -207,7 +210,7 @@ test("select-all caused by a full-test-run path the branch itself changed is a p
   const p = sel.decide({ ...over, guardChanged: [...over.guardChanged, ".circleci/config.yml"] });
   assert.equal(p.mode, FULL);
   assert.match(p.reasons[0], /covers every spec/);
-  assert.equal(p.staleImpactData, undefined);
+  assert.equal(p.impactDataMismatch, undefined);
 });
 
 test("repoPath maps the CLI's apps/api-relative paths to repository paths", () => {

@@ -195,13 +195,17 @@ function decide(inp) {
 
   plan.counts.planned = union.size;
   if (union.size === discovered.size) {
-    // RT-921 c15655 item 1: when the CLI selected everything because of a full-test-run path the
-    // branch did not change, main changed it after the last analysis: the impact data is behind
-    // main and the result says nothing about selection (canary #1094). Still FULL; labelled.
+    // RT-921 c15655 item 1: the CLI selected everything because a full-test-run path the branch
+    // did not change differs between this checkout and the stored impact data (canary #1094).
+    // Either side can be older: main changed the file after the last analysis (wait for
+    // tia-main-analysis), or after the branch's base and a newer analysis recorded it (merge
+    // origin/main into the branch). The result says nothing about selection. Still FULL; labelled.
     const trigger = probe.fullRunTrigger === null ? null : repoPath(probe.fullRunTrigger);
     if (trigger !== null && !inp.guardChanged.includes(trigger)) {
-      plan.staleImpactData = { trigger };
-      return fail(`stale impact data: full-test-run path ${trigger} changed on main after the last analysis (inconclusive; re-run after tia-main-analysis covers the merge-base)`);
+      plan.impactDataMismatch = { trigger };
+      return fail(
+        `impact-data mismatch: full-test-run path ${trigger} differs between this checkout and the stored impact data, and the branch did not change it (inconclusive: wait for tia-main-analysis to cover the merge-base, or merge origin/main if main changed it after the base)`,
+      );
     }
     return fail("the selection covers every spec");
   }

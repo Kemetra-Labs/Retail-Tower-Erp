@@ -333,8 +333,10 @@ commands:
   # selected.txt). Before triggering one (RT-921 c15655 item 1): check that the latest
   # backend-api-jest-analysis job (workflow tia-main-analysis) SUCCEEDED on the candidate's
   # merge-base or a later main commit and logged no "full-test-run-paths detected modified file"
-  # line (a failed or killed analysis saves nothing). Otherwise the CLI selects every spec and
-  # the selector labels the plan stale-impact-data (inconclusive; canary #1094). Only the
+  # line (a failed or killed analysis saves nothing), AND that the candidate contains every main
+  # change to a full-test-run path up to that analysed commit (if main changed one after the
+  # candidate's base, merge origin/main into it first). Otherwise the CLI selects every spec and
+  # the selector labels the plan impact-data-mismatch (inconclusive; canary #1094). Only the
   # probe and the selector decide; both exit 0 and every doubt becomes FULL, which is the same
   # plain-Jest full run as the default path. The run step keeps Jest's exit code and the
   # converter's, and verify fails the job when a planned spec has no result: a failure stays red.
