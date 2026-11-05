@@ -91,7 +91,7 @@ function applyReplacements(json: string, replacements: ForwardStamp["replacement
 }
 
 /** The Console tunnel's stamp (RT-632/RT-683). */
-export const CONSOLE_STAMP: ForwardStamp = { service: CONSOLE_SERVICE };
+const CONSOLE_STAMP: ForwardStamp = { service: CONSOLE_SERVICE };
 /** OBS-1 §1 release SHA12: exactly 12 lowercase hex chars (no 40-char SHA). */
 const SHA12 = /^[0-9a-f]{12}$/;
 const NEWLINE = 0x0a;

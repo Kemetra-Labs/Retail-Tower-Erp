@@ -23,11 +23,11 @@ import type { DeviceScope } from "../pos-cashier-admissions/device-scope";
 import { REF_KEY_VAR, mintFleetRefs, resolveRefKey } from "./pos-telemetry.refs";
 
 export const POS_TELEMETRY_FETCH = "POS_TELEMETRY_FETCH";
-export const POS_DSN_VAR = "POS_SENTRY_DSN";
+const POS_DSN_VAR = "POS_SENTRY_DSN";
 /** The OBS-1 §1 `service` for every POS event. */
-export const POS_SERVICE = "pos";
+const POS_SERVICE = "pos";
 /** The inbound tag carrying the terminal id the event was captured under (R1). Never forwarded. */
-export const CAPTURE_TERMINAL_TAG = "capture_terminal_id";
+const CAPTURE_TERMINAL_TAG = "capture_terminal_id";
 
 const LABEL = "pos telemetry";
 

@@ -32,7 +32,7 @@ import { PosTelemetryForwarder } from "./pos-telemetry.forwarder";
 import { POS_TELEMETRY_BUCKETS } from "./pos-telemetry.limits";
 
 const ROUTE_PREFIX = "api/pos/v1/telemetry";
-export const POS_TUNNEL_PATH = `/${ROUTE_PREFIX}/envelope`;
+const POS_TUNNEL_PATH = `/${ROUTE_PREFIX}/envelope`;
 
 /** Contract `PosTelemetryConfig`. */
 export interface PosTelemetryConfig {
