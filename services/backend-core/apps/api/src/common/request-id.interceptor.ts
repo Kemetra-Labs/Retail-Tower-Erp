@@ -7,10 +7,9 @@ import {
 import { newId } from "@data-pulse-2/shared";
 import type { Request, Response } from "express";
 import { Observable } from "rxjs";
+import { UUID_RE_I } from "./ids";
 
 export const REQUEST_ID_HEADER = "x-request-id";
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -29,7 +28,7 @@ declare global {
  */
 export function resolveRequestId(inbound: string | string[] | undefined): string {
   const inboundStr = Array.isArray(inbound) ? inbound[0] : inbound;
-  return typeof inboundStr === "string" && UUID_RE.test(inboundStr) ? inboundStr : newId();
+  return typeof inboundStr === "string" && UUID_RE_I.test(inboundStr) ? inboundStr : newId();
 }
 
 /**

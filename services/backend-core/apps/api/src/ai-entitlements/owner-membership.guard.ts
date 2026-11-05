@@ -19,8 +19,8 @@ import type { Pool } from "pg";
 import { PG_POOL } from "../auth/auth.module";
 import { MembershipRepository } from "../context/membership.repository";
 import type { ResolvedContext, TenantContextRequest } from "../context/types";
+import { UUID_RE_I } from "../common/ids";
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NOT_FOUND = { code: "not_found", message: "Not Found" } as const;
 
 type GuardRequest = TenantContextRequest & { params?: Record<string, string> };
@@ -39,7 +39,7 @@ function sessionMember(ctx: ResolvedContext | undefined): { userId: string; tena
 /** A well-formed `{tenant_id}` of another tenant (a malformed one is the handler's 400). */
 function namesAnotherTenant(request: GuardRequest, tenantId: string): boolean {
   const pathTenant = request.params?.["tenant_id"] ?? "";
-  return UUID.test(pathTenant) && pathTenant.toLowerCase() !== tenantId.toLowerCase();
+  return UUID_RE_I.test(pathTenant) && pathTenant.toLowerCase() !== tenantId.toLowerCase();
 }
 
 @Injectable()

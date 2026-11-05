@@ -20,6 +20,7 @@
  * answered once).
  */
 import { z } from "zod";
+import { UUID_RE_I } from "../common/ids";
 
 /** At most this many ids per request (contract `maxItems`). */
 export const PEOPLE_IDS_MAX = 200;
@@ -27,7 +28,6 @@ export const PEOPLE_IDS_MAX = 200;
 /** The longest raw `ids` value: 200 canonical UUIDs and 199 commas. */
 export const PEOPLE_IDS_MAX_LENGTH = PEOPLE_IDS_MAX * 36 + (PEOPLE_IDS_MAX - 1);
 
-const CANONICAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function refuse(ctx: z.RefinementCtx, message: string): typeof z.NEVER {
   ctx.addIssue({ code: z.ZodIssueCode.custom, message, fatal: true });
@@ -43,7 +43,7 @@ export const PeopleIdsSchema = z.unknown().transform((value, ctx): string[] => {
   if (value.length === 0) return refuse(ctx, "ids must name at least one id");
   const parts = value.split(",");
   if (parts.length > PEOPLE_IDS_MAX) return refuse(ctx, `ids must name at most ${PEOPLE_IDS_MAX} ids`);
-  if (!parts.every((p) => CANONICAL_UUID.test(p))) return refuse(ctx, "every id must be a UUID");
+  if (!parts.every((p) => UUID_RE_I.test(p))) return refuse(ctx, "every id must be a UUID");
   return [...new Set(parts.map((p) => p.toLowerCase()))];
 });
 

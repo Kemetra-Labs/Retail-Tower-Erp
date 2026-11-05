@@ -49,9 +49,8 @@ import {
 } from "./dto/credit-sale-reversal-request.dto";
 import { isPosReturnsEnabled } from "./returns-gate";
 import { toReversalHttpError } from "./sales.controller";
+import { UUID_RE_I } from "../../common/ids";
 
-/** Canonical UUID shape (any version) — a saleRef that fails this never hits the DB. */
-const SALE_REF_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The credit-reversal refusals (`CreditReversalForbidden` / `CreditReversalUnprocessable`). */
 const CREDIT_REFUSALS: ReadonlyArray<readonly [new () => Error, 403 | 422, string]> = [
@@ -99,7 +98,7 @@ export class CreditSaleReversalsController {
     if (ctx.storeId === null) {
       throw new UnauthorizedException("store_context_required");
     }
-    if (!SALE_REF_RE.test(saleRef)) {
+    if (!UUID_RE_I.test(saleRef)) {
       throw new NotFoundException("not_found");
     }
     try {

@@ -112,6 +112,7 @@ import {
   type TrackingIdentityRow,
   type TrackingIdentityListBody,
 } from './inventory.types';
+import { UUID_RE_I } from '../common/ids';
 
 // RT-1221 PR 1: the declarations below moved to inventory.types.ts /
 // inventory.mappers.ts; the names that were public here stay importable from
@@ -153,10 +154,9 @@ export class CrossUnitError extends BadRequestException {
 /** The established-unit EXCLUDE constraint added in migration 0016 (issue #465). */
 export const UNIT_GUARD_CONSTRAINT = 'stock_movements_one_unit_per_product';
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** True when `v` is a well-formed UUID string (for the UUID-typed outbox correlation_id). */
 function isUuid(v: unknown): v is string {
-  return typeof v === 'string' && UUID_RE.test(v);
+  return typeof v === 'string' && UUID_RE_I.test(v);
 }
 
 /**
