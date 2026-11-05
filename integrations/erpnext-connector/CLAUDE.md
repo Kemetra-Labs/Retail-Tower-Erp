@@ -8,19 +8,19 @@ Before creating, modifying, or reviewing any RT Jira issue, read and apply secti
 # Retail Tower ERPNext Connector — Agent Context
 
 Custom Frappe / ERPNext connector app integrating Retail Tower OS (via Data-Pulse-2, i.e.
-`Kemetra/Backend-Core` — see the legacy name aliases in §3 above) with ERPNext. The
+`Kemetra/Backend-Core` — see the legacy name aliases in §3 of the root CLAUDE.md) with ERPNext. The
 Data-Pulse-2 / Backend-Core repo is **read-only reference** for the Retail Tower side
 of mappings — never edit it from here, never re-derive its model.
 
 ## Repo-specific read order
 
-**The former "Agent OS / Maestro" dispatch system is retired and removed** (superseded by the RT operating instructions at the top of this file). The Maestro playbook, `agent-profiles.yaml`, `slice-schema.yaml`, and the per-spec `execution-map.yaml`/`wave-status.md` templates have been deleted — see git history if the old dispatch mechanism needs to be referenced. `docs/agent-os/standing-rules.md` has been rewritten to speak in Jira-native terms and remains the current repo engineering gates. "Execute slice X" is not a valid task form; the unit of work is a Jira issue (`Execute RT-XX`).
+**The former "Agent OS / Maestro" dispatch system is retired and removed** (superseded by the RT operating instructions in the root CLAUDE.md). The Maestro playbook, `agent-profiles.yaml`, `slice-schema.yaml`, and the per-spec `execution-map.yaml`/`wave-status.md` templates have been deleted — see git history if the old dispatch mechanism needs to be referenced. `docs/agent-os/standing-rules.md` has been rewritten to speak in Jira-native terms and remains the current repo engineering gates. "Execute slice X" is not a valid task form; the unit of work is a Jira issue (`Execute RT-XX`).
 
 Bootstrap read order for every session:
 
 1. `git fetch origin && git pull --ff-only origin main` — always start from latest `origin/main`.
 2. [.specify/memory/constitution.md](.specify/memory/constitution.md) — 7 Core Principles; supreme source of truth for all design constraints.
-3. [docs/agent-os/standing-rules.md](docs/agent-os/standing-rules.md) — repo engineering gates (constitution deference, branch hygiene, forbidden paths, no-local-bench validation, git discipline, stop conditions); subordinate to the RT operating instructions above for anything about work source, authority, or scope.
+3. [docs/agent-os/standing-rules.md](docs/agent-os/standing-rules.md) — repo engineering gates (constitution deference, branch hygiene, forbidden paths, no-local-bench validation, git discipline, stop conditions); subordinate to the RT operating instructions in the root CLAUDE.md for anything about work source, authority, or scope.
 4. GitHub PRs / reviews — current authoritative state for in-flight work.
 
 The Spec-Kit flow (specify → clarify → plan → tasks → analyze → implement) remains the spec-authoring process used within a Jira issue's scope; it does not replace Jira as the work-management authority. Do not duplicate standing-rules content here; `standing-rules.md` governs on engineering-gate questions.

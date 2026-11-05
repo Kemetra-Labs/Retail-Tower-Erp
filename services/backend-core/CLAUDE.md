@@ -11,13 +11,13 @@ Multi-tenant SaaS rebuild for Data Pulse. The legacy `Data-Pulse` repo is refere
 
 ## Repo-specific read order
 
-**The former "Agent OS / Maestro" operating mode is retired** (superseded by the RT operating instructions at the top of this file). `docs/agent-os/maestro-playbook.md`, `execution-map.yaml`, and `wave-status.md` are historical per-spec records only — they are not an active dispatch system, and "Execute slice X" is not a valid task form. The unit of work is a Jira issue (`Execute RT-XX`).
+**The former "Agent OS / Maestro" operating mode is retired** (superseded by the RT operating instructions in the root CLAUDE.md). `docs/agent-os/maestro-playbook.md`, `execution-map.yaml`, and `wave-status.md` are historical per-spec records only — they are not an active dispatch system, and "Execute slice X" is not a valid task form. The unit of work is a Jira issue (`Execute RT-XX`).
 
 Bootstrap read order for every agent session:
 
 1. `git fetch origin && git pull --ff-only origin main` — always start from latest `origin/main`.
 2. [.specify/memory/constitution.md](.specify/memory/constitution.md) — 14 Core Principles; source of truth for all design constraints.
-3. [docs/agent-os/standing-rules.md](docs/agent-os/standing-rules.md) — repo engineering gates only (branch hygiene, forbidden paths, git discipline, reporting format); subordinate to the RT operating instructions above for anything about work source, authority, or scope.
+3. [docs/agent-os/standing-rules.md](docs/agent-os/standing-rules.md) — repo engineering gates only (branch hygiene, forbidden paths, git discipline, reporting format); subordinate to the RT operating instructions in the root CLAUDE.md for anything about work source, authority, or scope.
 4. GitHub PRs / CI checks / CodeRabbit reviews — current authoritative state for in-flight work.
 
 Do not duplicate standing-rules content here.
@@ -34,17 +34,17 @@ Do not duplicate standing-rules content here.
 
 ## What this repo does NOT own
 
-Does not own POS (`Kemetra/POS`) or the admin/operator frontend (`Kemetra/Admin-Console`) — see the RT operating instructions §3 for repo ownership. This repo owns the SaaS backend, workers, infrastructure, and the OpenAPI contracts both POS and Admin-Console consume.
+Does not own POS (`Kemetra/POS`) or the admin/operator frontend (`Kemetra/Admin-Console`) — see the root CLAUDE.md §3 for repo ownership. This repo owns the SaaS backend, workers, infrastructure, and the OpenAPI contracts both POS and Admin-Console consume.
 
 ## Stack
 
-See the package manifests. Gotcha: `MIGRATION_TEST_ALLOW_SKIP=1` allows Docker-less local runs of the migration tests.
+See the package manifests for versions. Not in the manifests: Prometheus exporter on API `:9464` and worker `127.0.0.1:9091`; auth is argon2id with opaque revocable bearer tokens (API/POS) and httpOnly cookie sessions (dashboard humans); IDs are UUIDv7 with UUIDv4 fallback. Gotcha: `MIGRATION_TEST_ALLOW_SKIP=1` allows Docker-less local runs of the migration tests.
 
 The Admin-Console (`apps/admin-console/` in this monorepo) depends only on the OpenAPI contracts produced here.
 
 ## Working agreement
 
-See [docs/agent-os/standing-rules.md](docs/agent-os/standing-rules.md) for repo engineering gates (subordinate to the RT operating instructions above for work-management authority). Critical gates:
+See [docs/agent-os/standing-rules.md](docs/agent-os/standing-rules.md) for repo engineering gates (subordinate to the RT operating instructions in the root CLAUDE.md for work-management authority). Critical gates:
 
 - Never commit / stage / push / merge / open PR without explicit instruction.
 - Forbidden paths require `[GATED]` approval: `package.json`, `pnpm-lock.yaml`, SQL migrations, `packages/contracts/openapi/**`, `.github/**`.

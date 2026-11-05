@@ -2,7 +2,7 @@
 
 ## Pre-flight addition (POS)
 
-Before lab, bench, hardware or packaged-POS work, also read:
+In addition to the root pre-flight list:
 
 - for lab, bench, hardware or packaged-POS work: the Confluence page "Lab and Bench Runbook (rt9 lab, packaged POS, hardware)" (RETAIL space, page id 18874418). Read it before starting. It holds procedures only, never secrets or pairing-code values.
 
