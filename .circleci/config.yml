@@ -29,11 +29,15 @@
 # only .circleci/; the branch's own code (.nvmrc, packageManager, lockfile, build scripts,
 # tests) still runs, which is the point, and the protection is that the jobs read no secrets.
 # This repo and its CircleCI builds are public: the jobs store test results only, no artifacts
-# (RT-1188 exception: remote-api-jest also stores the tia/ shadow files, as the advisory job does).
+# (RT-1188 exception: remote-api-jest also stores the tia/ shadow files, as the advisory job does;
+# RT-1239: with api_tia_canary it stores the canary's tia/ files instead).
 # RT-1188: remote-api-jest also records the TIA shadow next to its unchanged plain-Jest full run:
 # the RT-1075 risk guard, `circleci testsuite list-tests` and the RT-1083 report (guard.json,
 # report.json), so every pre-push api run is also an RT-920 measurement. Shadow only: the suite
 # is never narrowed, no TIA parameter is set, and the shadow steps never fail the job.
+# RT-1239: remote_suite=api with api_tia_canary=true is the owner-triggered impacted-only canary
+# (tia-canary): plain Jest on the impact-analysis selection plus the guard's must-run specs, or the
+# unchanged full run whenever any check fails. Still advisory: no gate reads it.
 # RT-1036 adds remote-dev-backend-fast, remote-dev-admin, remote-dev-admin-e2e and remote-dev-pos
 # with the same guard.
 # Not covered remotely: POS Windows packaging and Electron e2e, and the ERPNext Connector.
@@ -103,6 +107,17 @@ parameters:
   main_analysis_enabled:
     type: boolean
     default: true
+  # RT-1239: owner-triggered impacted-only API Jest canary, a lab proof and never a gate. Read only
+  # by remote-api-jest, so it changes nothing unless remote_suite=api (every other pipeline and
+  # workflow compiles as before). true replaces that job's plain-Jest full run with: a
+  # selection-only impact-data probe, the selector (tia-canary-select.cjs plan), plain Jest on the
+  # IMPACTED specs plus the guard's must-run specs, or the unchanged full run when any check fails
+  # (FULL), then tia-canary-select.cjs verify, which fails the job if a planned spec has no result.
+  # Default false: remote_suite=api runs the full suite exactly as before. Same remote-guard,
+  # serial group and setup. Use it only with the owner's go-ahead for that run (RT-981 counts it).
+  api_tia_canary:
+    type: boolean
+    default: false
 
 commands:
   backend-setup:
@@ -275,6 +290,100 @@ commands:
               exit 0
             fi
             node .circleci/scripts/tia-shadow-report.cjs /tmp/tia/selected.txt /tmp/test-reports /tmp/tia ~/project/services/backend-core/apps/api || echo "tia-shadow-report.cjs failed; the full run's result stands."
+            exit 0
+      - store_artifacts:
+          path: /tmp/tia
+          destination: tia
+
+  # RT-1239: the impacted-only canary, after tia-shadow-start (guard.json, selected.txt). Only the
+  # probe and the selector decide; both exit 0 and every doubt becomes FULL, which is the same
+  # plain-Jest full run as the default path. The run step keeps Jest's exit code and the
+  # converter's, and verify fails the job when a planned spec has no result: a failure stays red.
+  tia-canary:
+    description: Lab canary. Impact-data probe, IMPACTED or FULL plan, the run, and its verification.
+    steps:
+      - run:
+          name: "TIA canary: impact-data probe (selection only, no analysis, no tests)"
+          working_directory: ~/project/services/backend-core/apps/api
+          command: |
+            mkdir -p /tmp/tia
+            rc=0
+            timeout 300 circleci testsuite run "backend api jest" --run-tests=none --analyze-tests=none > /tmp/tia/probe.log 2>&1 || rc=$?
+            echo "$rc" > /tmp/tia/probe.rc
+            grep -E '^(Discovered|Found test impact|- [0-9]+ |Selected|Patching|Analyzing|Running impact analysis)' /tmp/tia/probe.log || true
+            echo "probe exit code: $rc"
+            # Nothing ran, but clear any report path anyway so verify reads only the canary run.
+            rm -rf /tmp/api-jest.json /tmp/test-reports
+            # As after doctor: an untracked impact file in the checkout would fail the specs that
+            # fence `git status --porcelain`. Keep any as evidence, outside git.
+            find ~/project/.circleci -maxdepth 1 -name 'impact-*.json' -exec mv -t /tmp/tia {} + \
+              || echo "could not move an impact file out of the checkout"
+            exit 0
+      - run:
+          name: "TIA canary: plan IMPACTED or FULL (self-test first; any doubt is FULL)"
+          working_directory: ~/project/services/backend-core/apps/api
+          environment:
+            EXPECTED_SHA: "<< pipeline.parameters.remote_expected_sha >>"
+          command: |
+            full() {
+              echo "TIA canary: $1; planning FULL."
+              printf '{"mode":"FULL","reasons":["%s"],"atoms":[]}\n' "$1" > /tmp/tia/canary-plan.json
+              : > /tmp/tia/canary-atoms.txt
+            }
+            touch /tmp/tia/canary-planned
+            node_modules/.bin/jest --listTests | sed "s#^$PWD/##" | sort > /tmp/tia/discovered.txt \
+              || echo "could not list the suite's specs (the selector plans FULL)"
+            rc=0
+            TIA_GUARD_RUNTIME=1 timeout 120 node --test ~/project/.circleci/scripts/tia-canary-select.test.cjs || rc=$?
+            if [ "$rc" -ne 0 ]; then full "selector self-test failed (exit $rc)"; exit 0; fi
+            rc=0
+            timeout 120 node ~/project/.circleci/scripts/tia-canary-select.cjs plan --out /tmp/tia --api-root "$PWD" || rc=$?
+            if [ "$rc" -ne 0 ] || [ ! -f /tmp/tia/canary-plan.json ]; then full "selector exited $rc"; fi
+            exit 0
+      - run:
+          name: "TIA canary: API Jest, IMPACTED specs or the full suite (remote, advisory)"
+          working_directory: ~/project/services/backend-core/apps/api
+          no_output_timeout: 10m
+          environment:
+            NODE_OPTIONS: --max-old-space-size=4096
+          command: |
+            mkdir -p /tmp/remote /tmp/test-reports
+            mode=FULL
+            if [ -s /tmp/tia/canary-atoms.txt ] \
+              && [ "$(node -p 'require("/tmp/tia/canary-plan.json").mode' 2>/dev/null)" = IMPACTED ]; then
+              mode=IMPACTED
+            fi
+            echo "TIA canary mode: $mode"
+            start=$SECONDS
+            rc=0
+            if [ "$mode" = IMPACTED ]; then
+              mapfile -t atoms < /tmp/tia/canary-atoms.txt
+              echo "running ${#atoms[@]} specs"
+              timeout -k 2m 20m node_modules/.bin/jest --runTestsByPath "${atoms[@]}" --forceExit --json --outputFile=/tmp/remote/api-jest.json || rc=$?
+            else
+              timeout -k 2m 20m node_modules/.bin/jest --forceExit --json --outputFile=/tmp/remote/api-jest.json || rc=$?
+            fi
+            echo "$((SECONDS - start))" > /tmp/tia/run-seconds
+            node ~/project/.circleci/scripts/jest-json-to-junit.cjs /tmp/remote/api-jest.json /tmp/test-reports/remote-api-jest.xml "$PWD" || rc=1
+            exit $rc
+      - run:
+          name: "TIA canary: verify the run against the plan (fails on a planned spec without a result)"
+          when: always
+          working_directory: ~/project/services/backend-core/apps/api
+          command: |
+            if [ ! -f /tmp/tia/canary-planned ]; then
+              echo "The canary did not reach its plan (the remote guard refused, or an earlier step failed); nothing to verify."
+              exit 0
+            fi
+            node ~/project/.circleci/scripts/tia-canary-select.cjs verify --out /tmp/tia --junit /tmp/test-reports --api-root "$PWD"
+      # RT-1188's shadow report as well, so a canary that fell back to FULL is still an RT-920
+      # measurement (an IMPACTED run reads as partial-run there). Never fails the job.
+      - run:
+          name: "TIA shadow: selection ratio, guarded selection and misses (canary run)"
+          when: always
+          command: |
+            if [ ! -f /tmp/tia/canary-planned ]; then echo "The canary did not reach its plan; no report."; exit 0; fi
+            node .circleci/scripts/tia-shadow-report.cjs /tmp/tia/selected.txt /tmp/test-reports /tmp/tia ~/project/services/backend-core/apps/api || echo "tia-shadow-report.cjs failed; the canary's result stands."
             exit 0
       - store_artifacts:
           path: /tmp/tia
@@ -496,6 +605,8 @@ jobs:
   # `circleci testsuite run`: no test atoms and no new impact data. RT-1188 adds the TIA shadow
   # around it (tia-shadow-start before, tia-shadow-report after): the guard decision, the
   # list-tests selection and the misses against this run's results, as RT-920's measurement.
+  # RT-1239: api_tia_canary=true swaps the full-run and shadow-report steps for the canary steps
+  # (see the parameter). Default false compiles to exactly the steps above.
   remote-api-jest:
     machine:
       image: ubuntu-2404:2026.05.1
@@ -505,19 +616,27 @@ jobs:
       - remote-guard
       - backend-setup
       - tia-shadow-start
-      - run:
-          name: API Jest, full suite (remote, advisory)
-          working_directory: ~/project/services/backend-core/apps/api
-          no_output_timeout: 10m
-          environment:
-            NODE_OPTIONS: --max-old-space-size=4096
-          command: |
-            mkdir -p /tmp/remote /tmp/test-reports
-            rc=0
-            timeout -k 2m 20m node_modules/.bin/jest --forceExit --json --outputFile=/tmp/remote/api-jest.json || rc=$?
-            node ~/project/.circleci/scripts/jest-json-to-junit.cjs /tmp/remote/api-jest.json /tmp/test-reports/remote-api-jest.xml "$PWD" || rc=1
-            exit $rc
-      - tia-shadow-report
+      - when:
+          condition:
+            not: << pipeline.parameters.api_tia_canary >>
+          steps:
+            - run:
+                name: API Jest, full suite (remote, advisory)
+                working_directory: ~/project/services/backend-core/apps/api
+                no_output_timeout: 10m
+                environment:
+                  NODE_OPTIONS: --max-old-space-size=4096
+                command: |
+                  mkdir -p /tmp/remote /tmp/test-reports
+                  rc=0
+                  timeout -k 2m 20m node_modules/.bin/jest --forceExit --json --outputFile=/tmp/remote/api-jest.json || rc=$?
+                  node ~/project/.circleci/scripts/jest-json-to-junit.cjs /tmp/remote/api-jest.json /tmp/test-reports/remote-api-jest.xml "$PWD" || rc=1
+                  exit $rc
+            - tia-shadow-report
+      - when:
+          condition: << pipeline.parameters.api_tia_canary >>
+          steps:
+            - tia-canary
       - store_test_results:
           path: /tmp/test-reports
 
