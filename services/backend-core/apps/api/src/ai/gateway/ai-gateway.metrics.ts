@@ -36,5 +36,3 @@ export const aiGatewayMetrics: AiGatewayMetrics = {
     _providerCall.add(1, attrs as unknown as Attributes);
   },
 };
-
-export const AI_METRIC_NAMES = ["ai_gateway_run_total", "ai_gateway_provider_call_total"] as const;

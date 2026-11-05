@@ -69,9 +69,3 @@ export function recordPreAuthRateLimit(attrs: PreAuthRateLimitAttrs): void {
 export function recordPreAuthRateLimitUtilisation(attrs: PreAuthRateLimitUtilisationAttrs, utilisation: number): void {
   _preAuthRateLimitUtilisation.record(utilisation, attrs as unknown as Attributes);
 }
-
-/** Canonical names of the pre-auth rate-limit signals (RT-630). */
-export const PREAUTH_RATE_LIMIT_METRIC_NAMES = [
-  "preauth_rate_limit_total",
-  "preauth_rate_limit_utilisation",
-] as const satisfies readonly string[];
