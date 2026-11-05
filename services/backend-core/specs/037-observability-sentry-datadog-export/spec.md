@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-17
 
-**Status**: Draft (Spec Kit chain — `/specify`)
+**Status**: Implemented on `main` for US1 (Sentry errors). US2 is partly implemented: OTLP traces and the API metrics go through the Datadog Agent, but the worker metrics are not scraped. US3 is partly implemented (Synthetics only, no log shipping). Reconciled 2026-11-05 (RT-1245); see "Implementation Reconciliation (2026-11-05)" at the end of this file and the checked tasks in [tasks.md](./tasks.md).
 
 **Input**: Orchestrator [AD-TOOL-003](https://github.com/ahmed-shaaban-94/Retail-Tower-Orchestrator/blob/main/docs/decisions/AD-TOOL-003-observability-layer-sentry-datadog.md) (Accepted 2026-06-17) + [Phase 0 inventory](https://github.com/ahmed-shaaban-94/Retail-Tower-Orchestrator/blob/main/docs/tooling/observability-phase-0-inventory.md). Adopt Sentry (app errors) + Datadog (platform telemetry) on top of DP-2's existing Spec-004/Track-B OpenTelemetry layer.
 
@@ -20,7 +20,7 @@ As the **on-call owner**, when DP-2's API or worker throws an unhandled exceptio
 
 **Why this priority**: This is the genuinely-missing layer today (DP-2 has metrics but no error-triage surface). It is the highest-value, lowest-risk slice: it reuses the existing redaction matrix and adds no contract surface.
 
-**Independent Test**: Set `SENTRY_DSN` in a preprod env, induce a controlled unhandled exception on a non-production route, confirm a scrubbed event appears in the `data-pulse-2` Sentry project and the service does not crash.
+**Independent Test**: Set `SENTRY_DSN` in a preprod env, induce a controlled unhandled exception on a non-production route, confirm a scrubbed event appears in the `backend-core` Sentry project (org `kemetra`, EU region; planned here as `data-pulse-2`) and the service does not crash.
 
 **Acceptance Scenarios**:
 
@@ -97,7 +97,7 @@ As the **on-call owner**, I want DP-2's structured logs (already redacted via th
 - **SC-002**: 100% of induced unhandled exceptions appear in Sentry **with zero forbidden keys / zero business payload** in a redaction audit of the events.
 - **SC-003**: 100% of the named signals in `signals.md` appear in Datadog with **no signal-name drift** and **no new endpoint** added.
 - **SC-004**: A redaction audit of Datadog Logs finds **zero** non-compliant fields.
-- **SC-005**: Mean time-to-awareness of a backend failure drops from "operator reports a stuck terminal" to "Sentry alert within minutes" (Email + Telegram per Phase 0 OQ-5).
+- **SC-005**: Mean time-to-awareness of a backend failure drops from "operator reports a stuck terminal" to "Sentry alert within minutes" (Email + Telegram per Phase 0 OQ-5; amended by owner decision D8 on 2026-10-17 to **email only, Telegram parked**. Sentry alert rules: RT-1244).
 
 ## Assumptions
 
@@ -148,3 +148,36 @@ As the **on-call owner**, I want DP-2's structured logs (already redacted via th
 | OD-5 | Enable Datadog **APM** (+ a DDOT/OTLP collector) so the OTel layer can drain to Datadog (US2 full scope + the cross-hop sale trace)? | OPEN — owner. Until YES, US2 = infra-metrics-only. |
 | OD-6 | Enable Datadog **Logs** + **Synthetics** for US3? | OPEN — owner. |
 | OD-7 | Rename the Datadog environment tag `staging`/`dev` → `preprod` to match the program naming, or accept the current tag? | OPEN — owner (cosmetic, non-blocking). |
+
+## Implementation Reconciliation (2026-11-05) — what is built on `main`
+
+> **Append-only reconciliation note (RT-1245, Docs).** This records what GitHub `main` (`8d25c3f7e`) and Jira show as built. It changes no FR/SC meaning, contract or code. The 2026-06-17 note above stays as history. Facts not proven on `main` are listed as open.
+
+### Sentry (actual state)
+
+- **Organization:** `kemetra`, EU region (`https://de.sentry.io`, ingest `*.ingest.de.sentry.io`).
+- **Projects:** `backend-core` (this spec), `admin-console` and `erpnext-connector`. The four projects planned on 2026-06-17 (`pos-pulse`, `data-pulse-2`, `rt-console`, `rt-erpnext-connector`) do not exist under those names. There is no POS project yet (RT-1243).
+- **Releases:** `resolveReleaseVersion` (`packages/shared/src/observability/release-version.ts`) accepts only a commit SHA for `SENTRY_RELEASE` (OBS-1 §1: SHA12). The monorepo lab deploy sets `SENTRY_RELEASE` to the release id `vX.Y.Z` (`deploy/lab/ssm/RT-BackendLabDeploy.yaml`, `TGT_ID`). `resolveReleaseVersion` drops that value, so the shared init passes no `release`.
+  - **Effect:** `@sentry/node` then falls back to `process.env.SENTRY_RELEASE` itself, so events carry `release = vX.Y.Z`, which matches the `v0.2.0`…`v0.5.0` releases in Sentry. What is missing is the `version` tag and OTel `service.version`, the OBS-1 §1 join key.
+  - **Needs verification:** no backend-core event has arrived since 2026-10-24 (the last one on `046b7f7cff53`).
+  - No release has commits or deploys attached (RT-1241).
+- **Alerting:** only Sentry's default "high priority issue" rules exist. The routing is email only (D8 amended); see RT-1244.
+
+### Story status
+
+| Story | Status on `main` | Evidence |
+|---|---|---|
+| US1 — Sentry backend errors | **Implemented**, live on the lab | `packages/shared/src/observability/sentry.ts` (DSN-gated init, allowlist scrubber); `apps/{api,worker}/src/observability/sentry/sentry.ts`, called from each `instrumentation.ts`; HTTP 500 capture in `apps/api/src/common/exception.filter.ts`; final BullMQ job failures in `apps/worker/src/observability/sentry/failed-job.ts`. Jira: RT-609, RT-631, RT-682, RT-698, RT-879; lab proof RT-638. |
+| US2 — Datadog OTLP traces/metrics | **Partially implemented**. The Datadog Agent receives OTLP (`:4318`) and scrapes the API's OpenMetrics endpoint (`:9464`). It does not scrape the worker's `127.0.0.1:9091` listener, so queue lag and the outbox backlog are not monitored (RT-637 gap 1). | `packages/shared/src/observability/otel.ts` (`OTLPTraceExporter`, URL-redacting wrapper, force-sample sampler); `deploy/prod.env.example` (`OTEL_EXPORTER_OTLP_ENDPOINT`, 10% `OTEL_TRACES_SAMPLER_ARG`); `deploy/README.md` (agent profile). Jira: RT-609, RT-631, RT-640, RT-684. OD-5 was answered by enabling APM through the Agent. |
+| US3 — Logs + Synthetics | **Synthetics implemented; log shipping not built** | `deploy/datadog/synthetics-api-health.json` (existing `/api/v1/health/ready` only) and `deploy/datadog/monitors.json` (RT-637). RT-617 puts log shipping out of scope. |
+
+### Still open (not proven on `main`)
+
+- **T011:** the OTLP exporter is constructed whenever the OTel SDK starts; it is not conditional on Datadog keys. With no endpoint set, it targets `localhost:4318`, so nothing leaves the host.
+- **T012:** no test was found that pins "no signal rename after OTLP registration".
+- **T015:** sampling is 10% head-based plus forced sampling of specific spans. "100% on error/checkout spans" is not implemented.
+- **T016, T017:** log shipping is out of scope (RT-617).
+- **T020:** the Sentry-event redaction audit passed (RT-638). The log audit is still open and gates any future log shipping.
+- **T021:** Sentry alert routing, RT-1244. Datadog email alerts are live (RT-637).
+- **T022:** the ingestion-volume budget record.
+- **Datadog site:** out of scope for this reconcile. The repository still names `us5` (`deploy/prod.env.example` `DD_SITE`, and the egress note in `services/backend-core/CLAUDE.md`). RT-736 owns the EU1 migration and the correction of these references.
