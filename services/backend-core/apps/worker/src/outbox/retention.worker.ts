@@ -23,7 +23,6 @@ import { RepeatableWorker } from "../common/repeatable-worker";
 import {
   type JobLike,
   type WorkerFactory,
-  type WorkerLike,
   WORKER_FACTORY,
 } from "../email/email.worker";
 import { QUEUE_NAMES } from "@data-pulse-2/shared";
