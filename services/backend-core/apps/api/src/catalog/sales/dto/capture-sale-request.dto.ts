@@ -111,6 +111,13 @@ export const CaptureSaleLineSchema = z
 export const MAX_CAPTURE_LINES = 500;
 
 /**
+ * RT-1051 (owner decision 2026-11-05, chat: "Start with 16"; Jira RT-1051): the most tenders one
+ * captured sale carries; mirrored as `CaptureSaleRequest.tenders.maxItems` in sales.yaml. One
+ * tender per method plus same-method splits (RT-360); 16 matches the refund-tender bound.
+ */
+export const MAX_CAPTURE_TENDERS = 16;
+
+/**
  * RT-225 ([GATED] approval: Jira RT-225, owner, 2026-10-05): the widest
  * allowed gap between `admissionCheckAt` and `occurredAt`.
  */
@@ -318,27 +325,25 @@ function hasRepeat(values: ReadonlyArray<string | number | undefined>): boolean 
  * entry carries a `tenderRef`.
  */
 function tenderList(allowSameMethod: boolean) {
-  return z
-    .array(SaleTenderSchema)
-    .min(1)
-    .superRefine((ts: SaleTenderInput[], ctx) => {
-      if (hasRepeat(ts.map((t) => t.tenderRef))) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "tenderRef must be unique within the sale" });
-      }
-      if (hasRepeat(ts.map((t) => t.sequence))) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "sequence must be unique within the sale" });
-      }
-      if (!hasRepeat(ts.map((t) => t.method))) return;
-      if (!allowSameMethod) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "at most one tender per method" });
-      } else if (ts.some((t) => t.tenderRef === undefined)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "tenders sharing a method must each carry a tenderRef",
-        });
-      }
-    })
-    .optional();
+  const rules = (ts: SaleTenderInput[], ctx: z.RefinementCtx): void => {
+    if (hasRepeat(ts.map((t) => t.tenderRef))) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "tenderRef must be unique within the sale" });
+    }
+    if (hasRepeat(ts.map((t) => t.sequence))) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "sequence must be unique within the sale" });
+    }
+    if (!hasRepeat(ts.map((t) => t.method))) return;
+    if (!allowSameMethod) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "at most one tender per method" });
+    } else if (ts.some((t) => t.tenderRef === undefined)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "tenders sharing a method must each carry a tenderRef",
+      });
+    }
+  };
+  // RT-1051: the length is checked before any tender (zod GHSA-mrhx-c7xc-m3w5).
+  return boundedArray(MAX_CAPTURE_TENDERS, z.array(SaleTenderSchema).min(1).superRefine(rules)).optional();
 }
 
 /**
