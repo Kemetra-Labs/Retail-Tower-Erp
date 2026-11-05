@@ -112,38 +112,54 @@ export function withSlowQueryRecorder<
 }
 
 // ---------------------------------------------------------------------------
-// Idle-client errors (RT-1246)
+// Connection errors (RT-1246)
 // ---------------------------------------------------------------------------
 
 /** A Postgres SQLSTATE: five digits or upper-case letters. */
 const SQLSTATE_PATTERN = /^[0-9A-Z]{5}$/;
 
-/** The `error` event surface of a `pg.Pool` (an `EventEmitter`). */
+/** The `error` surface of a `pg.Client` (an `EventEmitter`). */
 export interface ErrorEmitter {
   on(event: "error", listener: (err: unknown) => void): unknown;
 }
 
+/** The `error` and `connect` surface of a `pg.Pool` (an `EventEmitter`). */
+export interface PoolEventEmitter {
+  on(event: "error", listener: (err: unknown) => void): unknown;
+  on(event: "connect", listener: (client: ErrorEmitter) => void): unknown;
+}
+
 /**
- * Keeps the process alive when a pooled connection dies while idle.
+ * Keeps the process alive when Postgres drops a pooled connection.
  *
- * pg-pool re-emits an idle client's error on the pool after it has already
- * removed that client, so the next checkout opens a new connection. With no
- * `error` listener, Node throws instead and the process exits: a Postgres
- * restart (SQLSTATE 57P01) took down both the api and the worker
+ * A Postgres restart (SQLSTATE 57P01) errors every connection, and pg emits
+ * that on the client. pg-pool listens on a client only while it is idle: it
+ * re-emits the error on the pool, and removes that listener when the client is
+ * checked out (`pool.connect()`, as `runWithTenantContext` does for a whole
+ * transaction). Without a listener at either place Node throws and the process
+ * exits: a Postgres restart took down both the api and the worker
  * (Sentry BACKEND-CORE-7).
+ *
+ * So every new client gets a permanent listener that logs, and the pool gets a
+ * silent one (the same error was already logged on its client). pg-pool has
+ * dropped an idle client already; a checked-out client's query or transaction
+ * still fails through its own promise, and `release()` discards it.
  *
  * `warn` gets the SQLSTATE only. The error message is never logged: it can
  * name hosts, roles or databases. This is a log line, not a Sentry event, so
  * a routine database restart does not open an issue.
  */
-export function onIdleClientError(pool: ErrorEmitter, warn: (message: string) => void): void {
-  pool.on("error", (err: unknown) => {
-    const code = (err as { code?: unknown } | null)?.code;
-    const sqlstate = typeof code === "string" && SQLSTATE_PATTERN.test(code) ? code : "unknown";
-    warn(
-      `pg pool: an idle connection failed (SQLSTATE ${sqlstate}); ` +
-        "the pool dropped it and will open a new one",
-    );
+export function onPoolClientError(pool: PoolEventEmitter, warn: (message: string) => void): void {
+  pool.on("error", () => undefined);
+  pool.on("connect", (client) => {
+    client.on("error", (err: unknown) => {
+      const code = (err as { code?: unknown } | null)?.code;
+      const sqlstate = typeof code === "string" && SQLSTATE_PATTERN.test(code) ? code : "unknown";
+      warn(
+        `pg pool: a connection failed (SQLSTATE ${sqlstate}); ` +
+          "the pool will open a new one",
+      );
+    });
   });
 }
 

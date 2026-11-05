@@ -17,7 +17,7 @@ import { Pool, type PoolConfig } from "pg";
 import {
   SLOW_QUERY_THRESHOLD_SECONDS,
   hashQueryTemplate,
-  onIdleClientError,
+  onPoolClientError,
   withSlowQueryRecorder,
 } from "@data-pulse-2/shared";
 
@@ -29,12 +29,12 @@ const logger = new Logger("db.pool");
 
 /** `pg.Pool` whose Promise-form `query()` reports slow queries on the worker's meter.
  *
- * RT-1246: an idle connection that Postgres terminates (e.g. 57P01 on a
- * restart) is logged and dropped instead of crashing the process.
+ * RT-1246: a connection that Postgres terminates (e.g. 57P01 on a
+ * restart), idle or checked out, is logged instead of crashing the process.
  */
 export class InstrumentedPool extends withSlowQueryRecorder(Pool, recordDbSlowQuery) {
   constructor(config?: PoolConfig) {
     super(config);
-    onIdleClientError(this, (message) => logger.warn(message));
+    onPoolClientError(this, (message) => logger.warn(message));
   }
 }
