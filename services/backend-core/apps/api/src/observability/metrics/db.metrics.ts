@@ -29,11 +29,13 @@
 import type { Pool } from "pg";
 
 import {
+  DB_POOL_IN_USE_DESCRIPTION,
+  DB_POOL_WAITERS_DESCRIPTION,
   assertMetricLabels,
-  createDbPoolGauges,
   getMeter,
   registerPoolGauges,
   type Attributes,
+  type DbPoolGauges,
   type Counter,
   type ObservableGauge,
 } from "@data-pulse-2/shared";
@@ -61,9 +63,16 @@ const meter = getMeter("db");
 // Pool introspection requires a pool-observer hook that depends on the
 // SDK metrics extension (plan §10). The instruments are registered now
 // so signal-presence tests and the ALLOWED_METRIC_LABELS allowlist hold.
-// db_pool_in_use / db_pool_waiters are created by the shared helper (RT-1211)
-// on this app's own meter (scope "db").
-const _dbPoolGauges = createDbPoolGauges(meter);
+// db_pool_in_use / db_pool_waiters live on this app's own meter (scope "db");
+// the callbacks are registered by the shared `registerPoolGauges` (RT-1211).
+const _dbPoolGauges: DbPoolGauges = {
+  inUse: meter.createObservableGauge("db_pool_in_use", {
+    description: DB_POOL_IN_USE_DESCRIPTION,
+  }),
+  waiters: meter.createObservableGauge("db_pool_waiters", {
+    description: DB_POOL_WAITERS_DESCRIPTION,
+  }),
+};
 // Migration-status gauge: each migration state is observed as 1 (in that
 // state) or 0. The addCallback is registered by the migration-runner
 // bootstrap once integrated. Until then, zero observations are produced.

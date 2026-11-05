@@ -12,7 +12,7 @@
  */
 import { createHash } from "node:crypto";
 
-import type { Attributes, Meter, ObservableGauge } from "./meter";
+import type { Attributes, ObservableGauge } from "./meter";
 
 // ---------------------------------------------------------------------------
 // Slow-query instrumentation
@@ -122,7 +122,7 @@ export interface PoolStats {
   readonly waitingCount: number;
 }
 
-/** Descriptions of the two pool gauges; exported so a table-driven app can reuse them. */
+/** Descriptions of the two pool gauges; each app creates them on its own meter and reuses these. */
 export const DB_POOL_IN_USE_DESCRIPTION =
   "Number of connections currently checked out from the DB pool.";
 export const DB_POOL_WAITERS_DESCRIPTION =
@@ -131,23 +131,6 @@ export const DB_POOL_WAITERS_DESCRIPTION =
 export interface DbPoolGauges {
   readonly inUse: ObservableGauge;
   readonly waiters: ObservableGauge;
-}
-
-/**
- * Creates `db_pool_in_use` and `db_pool_waiters` on the caller's meter (api
- * "db", worker "worker"), so each process scrapes its own pool. The caller
- * asserts the label sets (`assertMetricLabels(name, [])`) next to its other
- * signals.
- */
-export function createDbPoolGauges(meter: Meter): DbPoolGauges {
-  return {
-    inUse: meter.createObservableGauge("db_pool_in_use", {
-      description: DB_POOL_IN_USE_DESCRIPTION,
-    }),
-    waiters: meter.createObservableGauge("db_pool_waiters", {
-      description: DB_POOL_WAITERS_DESCRIPTION,
-    }),
-  };
 }
 
 /**
