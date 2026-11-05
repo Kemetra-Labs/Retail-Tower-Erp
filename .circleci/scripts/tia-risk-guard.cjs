@@ -18,10 +18,10 @@
 // plus an add, so both sides are classified. A main push, an unknown branch, a failed fetch,
 // merge-base or diff, an empty diff and any unexpected error force FULL.
 //
-// RT-920 (owner decision 2026-11-05): a changelog fragment (changelog.d/*.md, added or modified
-// regular file) is NEUTRAL: it neither forces FULL nor makes a PR eligible on its own. Every
-// Backend-Core PR adds one, so without this almost no PR could reach TIA_ELIGIBLE. The one spec
-// that reads the fragments (NEUTRAL_MUST_RUN) is recorded in guard.json `mustRun`, and the shadow
+// RT-920 (owner decisions 2026-11-05): a changelog fragment (changelog.d/*.md) or the code-health
+// ratchet baseline (tools/code-health/baseline.json), as an added or modified regular file, is NEUTRAL: it neither forces FULL nor makes a PR eligible on its own. Every
+// Backend-Core PR adds a fragment and most refactors lower the baseline, so without this almost no
+// PR could reach TIA_ELIGIBLE. The specs that read a neutral file (a rule's mustRun) are recorded in guard.json `mustRun`, and the shadow
 // report adds it to the guarded selection, so a bad fragment can never count as a hidden miss.
 // A PR whose only changes are neutral is FULL (there is no API change to measure).
 //
@@ -67,8 +67,14 @@ const CRITICAL_API_GLOBS = [
 
 // Neutral paths (relative to services/backend-core/) and the specs that must run when one changes
 // (relative to apps/api, the shadow report's spelling).
-const NEUTRAL_GLOBS = ["changelog.d/*.md"];
-const NEUTRAL_MUST_RUN = ["test/tooling/changelog-fragments.spec.ts"];
+// Each rule: a glob and the specs that read files matching it (none for the code-health
+// baseline, which only the bc/fast ratchet script reads, never an API spec).
+const NEUTRAL_RULES = [
+  { glob: "changelog.d/*.md", mustRun: ["test/tooling/changelog-fragments.spec.ts"] },
+  { glob: "tools/code-health/baseline.json", mustRun: [] },
+];
+const NEUTRAL_GLOBS = NEUTRAL_RULES.map((r) => r.glob);
+const NEUTRAL_MUST_RUN = [...new Set(NEUTRAL_RULES.flatMap((r) => r.mustRun))];
 
 // Graph glob syntax (pgraph/globs.py): `*` stays inside one segment, `?` is one character of a
 // segment, `**` spans segments (`**/` also matches no segment), `{a,b}` expands. Returns the
@@ -102,7 +108,7 @@ const compile = (globs) => globs.map((g) => globToRegExp(BC + g));
 const FAST_RES = compile(FAST_GLOBS);
 const EXCLUDE_RES = compile(FAST_EXCLUDES);
 const CRITICAL_RES = compile(CRITICAL_API_GLOBS);
-const NEUTRAL_RES = compile(NEUTRAL_GLOBS);
+const NEUTRAL_RULE_RES = NEUTRAL_RULES.map((r) => ({ re: globToRegExp(BC + r.glob), mustRun: r.mustRun }));
 
 // Why a repo-relative path forces FULL, or null when it is in the eligible fast class.
 function pathRisk(p) {
@@ -135,7 +141,7 @@ function isNeutral(change) {
   if (c.status !== "A" && c.status !== "M") return false;
   if (!REGULAR_MODES.includes(c.mode)) return false;
   if (pathRisk(c.path) === "unclassifiable path") return false;
-  return NEUTRAL_RES.some((re) => re.test(c.path));
+  return NEUTRAL_RULE_RES.some((r) => r.re.test(c.path));
 }
 
 // Decision for a list of changes. An empty list is ambiguous on a PR head, so it is FULL.
@@ -155,17 +161,17 @@ function classify(changes) {
     const why = changeRisk(c);
     if (why) forcing.push({ path: p, why });
   }
-  const mustRun = neutral.length ? [...NEUTRAL_MUST_RUN] : [];
+  const mustRun = [...new Set(NEUTRAL_RULE_RES.filter((r) => neutral.some((p) => r.re.test(p))).flatMap((r) => r.mustRun))];
   if (forcing.length) {
     return { decision: FORCE_FULL, reason: `${forcing.length} change(s) force the full suite`, forcing, changed, neutral, mustRun };
   }
   if (neutral.length === changes.length) {
-    return { decision: FORCE_FULL, reason: "only neutral changes (changelog fragments): no API change to measure", forcing, changed, neutral, mustRun };
+    return { decision: FORCE_FULL, reason: "only neutral changes (changelog fragments, code-health baseline): no API change to measure", forcing, changed, neutral, mustRun };
   }
   return {
     decision: TIA_ELIGIBLE,
     reason: neutral.length
-      ? `every change is an added/modified file in the API fast class, plus ${neutral.length} neutral changelog fragment(s)`
+      ? `every change is an added/modified file in the API fast class, plus ${neutral.length} neutral file(s)`
       : "every change is an added/modified file in the API fast class",
     forcing,
     changed,

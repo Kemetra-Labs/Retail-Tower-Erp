@@ -449,7 +449,7 @@ test("a changelog fragment beside ordinary API changes is neutral: TIA_ELIGIBLE 
   assert.deepEqual(r.forcing, []);
   assert.deepEqual(r.neutral, [`${FRAG}RT-1-changed.md`]);
   assert.deepEqual(r.mustRun, ["test/tooling/changelog-fragments.spec.ts"]);
-  assert.match(r.reason, /1 neutral changelog fragment/);
+  assert.match(r.reason, /1 neutral file/);
 });
 
 test("ordinary API changes alone carry no must-run spec", () => {
@@ -492,4 +492,37 @@ test("the must-run spec exists in the repository", () => {
   for (const spec of guard.NEUTRAL_MUST_RUN) {
     assert.ok(fs.existsSync(path.join(ROOT, "services/backend-core/apps/api", spec)), spec);
   }
+});
+
+test("the code-health baseline is neutral with no must-run spec", () => {
+  const BASE = "services/backend-core/tools/code-health/baseline.json";
+  const r = guard.classify([`${SRC}x.ts`, BASE]);
+  assert.equal(r.decision, TIA_ELIGIBLE);
+  assert.deepEqual(r.neutral, [BASE]);
+  assert.deepEqual(r.mustRun, []);
+  const both = guard.classify([`${SRC}x.ts`, BASE, `${FRAG}RT-1-changed.md`]);
+  assert.equal(both.decision, TIA_ELIGIBLE);
+  assert.deepEqual(both.mustRun, ["test/tooling/changelog-fragments.spec.ts"]);
+  assert.equal(guard.classify([BASE]).decision, FORCE_FULL, "baseline alone is not measurable");
+  for (const c of [
+    { status: "D", mode: "100644", path: BASE },
+    { status: "A", mode: "100644", path: "services/backend-core/tools/code-health/other.json" },
+    { status: "A", mode: "100644", path: "services/backend-core/apps/api/tools/code-health/baseline.json" },
+  ]) {
+    assert.equal(guard.classify([`${SRC}x.ts`, c]).decision, FORCE_FULL, JSON.stringify(c));
+  }
+});
+
+test("no API spec reads the code-health baseline (so it needs no must-run spec)", () => {
+  const apiRoot = path.join(ROOT, "services/backend-core/apps/api");
+  const hits = [];
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { if (e.name !== "node_modules" && e.name !== "dist") walk(p); }
+      else if (/\.ts$/.test(e.name) && /code-health/.test(fs.readFileSync(p, "utf8"))) hits.push(p);
+    }
+  };
+  for (const sub of ["src", "test"]) walk(path.join(apiRoot, sub));
+  assert.deepEqual(hits, []);
 });
