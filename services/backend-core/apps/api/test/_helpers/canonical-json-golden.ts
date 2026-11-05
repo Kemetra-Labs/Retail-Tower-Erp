@@ -38,8 +38,8 @@ export const GOLDEN_SHA256_HEX =
 // payload-hash serializer, and are pinned as literals — never recompute them
 // from the code under test.
 //
-// The `rich` vector covers the payload-hash semantics the request-hash
-// serializer (`idempotency/canonical-json.ts`) does NOT share: an `undefined`
+// The `rich` vector covers the payload-hash semantics the
+// idempotency-interceptor serializer (`idempotency/canonical-json.ts`) does NOT share: an `undefined`
 // member is written as `null` (not dropped). The `Date` vector pins that a
 // `Date` serializes by its own enumerable keys (`{}`), not as an ISO string.
 // ---------------------------------------------------------------------------

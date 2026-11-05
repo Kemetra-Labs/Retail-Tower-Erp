@@ -4,23 +4,27 @@
  * reproduce the hash from the stored payload. No float involved — the input
  * is a request DTO whose money fields are strings.
  *
- * `canonicalJsonPayload` is one of the two canonical-JSON serializers kept on
- * purpose (RT-1214); the other is `canonicalJson` in
- * `idempotency/canonical-json.ts`. Their bytes differ, and persisted hashes
- * depend on each, so neither may be swapped for the other.
+ * `canonicalJsonPayload` is one of three canonical-JSON serializers kept on
+ * purpose (RT-1214); the others are `canonicalJson` in
+ * `idempotency/canonical-json.ts` and in `ai-entitlements/revision-content.ts`.
+ * Their bytes differ, and persisted hashes depend on each, so none may be
+ * swapped for another.
  *
  * Semantics (pinned by golden vectors in `test/_helpers/canonical-json-golden.ts`):
  *   - object keys sorted by UTF-16 code unit (`compareCodeUnits`), every level;
  *   - an `undefined` member or element is written as `null` (NOT dropped);
  *   - a `Date` (or any object) is serialized by its own enumerable keys, so a
  *     `Date` becomes `{}` — `toJSON` is never called;
- *   - arrays keep their order; primitives as `JSON.stringify`.
+ *   - arrays keep their order; JSON primitives as `JSON.stringify`;
+ *   - function and symbol values are NOT supported: a member is written as the
+ *     text `undefined` and an array element is dropped. Callers pass
+ *     JSON-parsed request bodies, where such values cannot occur.
  *
  * Persisted bytes that depend on it:
  *   - `payload_hash` on `sales`, `sale_voids`, `sale_refunds`, `sale_returns`,
  *     `refund_executions` and `sale_credit_reversals` (via `sha256CanonicalHex`);
  *   - `erpnext_posting_status.payload_hash`, which the worker copies from the
- *     source fact's `payload_hash`;
+ *     parent sale's `sales.payload_hash`;
  *   - `idempotency_keys.request_hash` for settlement intents (key prefix
  *     `settlement-intent:`, `settlement/receivable.service.ts`).
  */

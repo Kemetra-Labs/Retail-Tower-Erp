@@ -1,7 +1,8 @@
 /**
- * Request canonical JSON (RT-1214). One of the two canonical-JSON serializers
- * kept on purpose; the other is `canonicalJsonPayload` in
- * `catalog/sales/payload-hash.ts`. Do not merge them.
+ * Request canonical JSON (RT-1214). One of three canonical-JSON serializers
+ * kept on purpose; the others are `canonicalJsonPayload` in
+ * `catalog/sales/payload-hash.ts` and `canonicalJson` in
+ * `ai-entitlements/revision-content.ts`. Do not merge them.
  *
  * Why it differs: it follows `JSON.stringify` semantics for request bodies —
  * an `undefined` object member is DROPPED (payload-hash writes `null`) and a
@@ -10,7 +11,8 @@
  *
  * Persisted / compared bytes that depend on it:
  *   - `idempotency_keys.request_hash` written by the HTTP idempotency
- *     interceptor (settlement-intent rows use payload-hash instead);
+ *     interceptor (including its row for the settlement-intent route; only
+ *     the service-owned `settlement-intent:` row uses payload-hash);
  *   - the idempotency store key, which embeds `canonicalJson(params)`
  *     (`store-key.ts`, RT-155 path-param binding);
  *   - the POS cashier-admission `request_hash` (`admission-request.ts`);
