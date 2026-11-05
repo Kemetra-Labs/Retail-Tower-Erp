@@ -1,13 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type JSX,
-  type ReactNode,
-  type RefObject,
-} from 'react';
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 
 import type {
   SaleVoidJournalView,
@@ -15,16 +6,18 @@ import type {
   SaleVoidSaleView,
   SaleVoidState,
 } from '../../../shared/sale-void/types';
+import { useRecentSales } from '../../sale-lookup/useRecentSales';
+import { useOperatorSessionStore } from '../../stores/operator-session-store';
 import { Notice } from '../foundation/Notice';
 import { ScreenSection } from '../foundation/ScreenSection';
 import { Icon } from '../../icons/Icon';
 import type { IconName } from '../../icons/registry';
 import { useSingleFlight } from '../shift/shift-bridge';
-import { formatShiftTime } from '../shift/shift-format';
 import { VOID_COPY, voidRefusalMessage, voidStateLabel, voidWaitingMessage } from './void-copy';
 import type { VoidBridges } from './void-bridges';
 import { VoidActionDialog } from './VoidActionDialog';
-import { VoidAlert, VoidCode, VoidMoney } from './void-parts';
+import { VoidLookup, type Found } from './VoidLookup';
+import { VoidAlert, VoidCode, VoidMoney, VoidPanel, VoidTime } from './void-parts';
 import './void.css';
 
 /**
@@ -77,11 +70,6 @@ function useVoidList(
   return { listed, reload };
 }
 
-type Found =
-  | { kind: 'idle' }
-  | { kind: 'sale'; sale: SaleVoidSaleView }
-  | { kind: 'refused'; message: string };
-
 export function VoidScreen({ bridges, refreshMs = 10_000 }: VoidScreenProps): JSX.Element {
   const { listed, reload } = useVoidList(bridges, refreshMs);
   const [found, setFound] = useState<Found>({ kind: 'idle' });
@@ -91,6 +79,11 @@ export function VoidScreen({ bridges, refreshMs = 10_000 }: VoidScreenProps): JS
   // the screen sends focus back to the sale number field after a request.
   const lookupRef = useRef<HTMLInputElement>(null);
   const [refocus, setRefocus] = useState(false);
+  const role = useOperatorSessionStore((s) =>
+    s.state.kind === 'signedIn' ? s.state.session.role : null,
+  );
+  // The list reads again after a void is requested; main scopes the rows (cashier: own sales).
+  const recent = useRecentSales(bridges.sales ?? null, outcome?.void_id ?? null);
   useEffect(() => {
     if (!refocus) return;
     lookupRef.current?.focus();
@@ -102,10 +95,12 @@ export function VoidScreen({ bridges, refreshMs = 10_000 }: VoidScreenProps): JS
       <div className="v5-void" dir="rtl" lang="ar">
         {outcome !== null && <RequestedNotice entry={outcome} />}
         <div className="v5-void-cols">
-          <LookupPanel
+          <VoidLookup
             inputRef={lookupRef}
             bridges={bridges}
             found={found}
+            recent={recent}
+            scope={role === 'cashier' ? 'own' : 'terminal'}
             onFound={(next) => {
               setOutcome(null);
               setFound(next);
@@ -146,153 +141,15 @@ function RequestedNotice({ entry }: { entry: SaleVoidJournalView }): JSX.Element
   );
 }
 
-function Panel(props: { title: string; hug?: boolean; children: ReactNode }): JSX.Element {
-  const headingId = useId();
-  return (
-    <section
-      className={props.hug === true ? 'v5-void-panel v5-void-panel--hug' : 'v5-void-panel'}
-      aria-labelledby={headingId}
-    >
-      <div className="v5-void-panel-head">
-        <h2 id={headingId}>{props.title}</h2>
-      </div>
-      {props.children}
-    </section>
-  );
-}
-
-function LookupPanel(props: {
-  inputRef: RefObject<HTMLInputElement | null>;
-  bridges: VoidBridges;
-  found: Found;
-  onFound: (found: Found) => void;
-  onVoid: (sale: SaleVoidSaleView) => void;
-}): JSX.Element {
-  const [value, setValue] = useState('');
-  const { busy, run } = useSingleFlight();
-  const search = (): void => {
-    const saleNumber = value.trim();
-    if (saleNumber.length === 0) return;
-    run(async () => {
-      try {
-        const answer = await props.bridges.saleVoid.lookup({ sale_number: saleNumber });
-        props.onFound(
-          answer.kind === 'sale'
-            ? { kind: 'sale', sale: answer.sale }
-            : { kind: 'refused', message: voidRefusalMessage(answer.reason) },
-        );
-      } catch {
-        props.onFound({ kind: 'refused', message: VOID_COPY.unavailable });
-      }
-    });
-  };
-  return (
-    <Panel title={VOID_COPY.lookupHeading} hug>
-      <div className="v5-void-panel-body">
-        <form
-          className="v5-void-lookup"
-          noValidate
-          onSubmit={(event) => {
-            event.preventDefault();
-            search();
-          }}
-        >
-          <div className="v5-void-field">
-            <label htmlFor="void-sale-number">{VOID_COPY.numberLabel}</label>
-            <input
-              ref={props.inputRef}
-              id="void-sale-number"
-              className="v5-void-input v5-void-input--code"
-              dir="ltr"
-              autoComplete="off"
-              spellCheck={false}
-              maxLength={64}
-              value={value}
-              onChange={(event) => {
-                setValue(event.target.value);
-              }}
-            />
-          </div>
-          <button
-            type="submit"
-            className="v5-void-btn v5-void-btn--primary v5-btn v5-btn--primary"
-            disabled={busy}
-          >
-            {VOID_COPY.search}
-          </button>
-        </form>
-        <FoundSale found={props.found} onVoid={props.onVoid} />
-      </div>
-    </Panel>
-  );
-}
-
-function FoundSale(props: { found: Found; onVoid: (sale: SaleVoidSaleView) => void }): JSX.Element {
-  const { found } = props;
-  if (found.kind === 'idle') return <p className="v5-void-hint">{VOID_COPY.sameDayHint}</p>;
-  if (found.kind === 'refused') return <VoidAlert message={found.message} />;
-  const { sale } = found;
-  return (
-    <div className="v5-void-result" data-testid="void-sale">
-      <dl className="v5-void-facts">
-        <dt>{VOID_COPY.saleNumber}</dt>
-        <dd>
-          <VoidCode value={sale.sale_number} />
-        </dd>
-        <dt>{VOID_COPY.soldAt}</dt>
-        <dd>
-          <VoidTime iso={sale.finalized_at} />
-        </dd>
-        <dt>{VOID_COPY.seller}</dt>
-        <dd>
-          <bdi>{sale.selling_operator_display_name}</bdi>
-        </dd>
-        <dt>{VOID_COPY.total}</dt>
-        <dd>
-          <VoidMoney minor={sale.total_minor} />
-        </dd>
-        <dt>{VOID_COPY.cash}</dt>
-        <dd>
-          <VoidMoney minor={sale.cash_minor} />
-        </dd>
-      </dl>
-      {sale.ineligible === null ? (
-        <div className="v5-void-actions">
-          <button
-            type="button"
-            className="v5-void-btn v5-void-btn--danger v5-btn v5-btn--danger-quiet"
-            onClick={() => {
-              props.onVoid(sale);
-            }}
-          >
-            {VOID_COPY.voidAction}
-          </button>
-        </div>
-      ) : (
-        <VoidAlert message={voidRefusalMessage(sale.ineligible)} />
-      )}
-    </div>
-  );
-}
-
-/** An absolute Arabic date and time: the text face with tabular digits (never monospace). */
-function VoidTime({ iso }: { iso: string }): JSX.Element {
-  return (
-    <time className="v5-void-when" dateTime={iso}>
-      {formatShiftTime(iso)}
-    </time>
-  );
-}
-
 function HistoryPanel(props: {
   listed: Listed;
   bridges: VoidBridges;
   onChanged: () => void;
 }): JSX.Element {
   return (
-    <Panel title={VOID_COPY.historyTitle}>
+    <VoidPanel title={VOID_COPY.historyTitle}>
       <HistoryBody {...props} />
-    </Panel>
+    </VoidPanel>
   );
 }
 

@@ -1,0 +1,290 @@
+[
+  {
+    "file": "rt1192-returns-lookup-1024x768-light-before.png",
+    "screen": "returns",
+    "scenario": "lookup",
+    "viewport": "1024x768",
+    "mode": "light",
+    "errors": [],
+    "headings": [
+      "المرتجعات",
+      "البحث عن بيع",
+      "سجل المرتجعات على هذا الجهاز"
+    ],
+    "recentRows": [],
+    "hint": [],
+    "alerts": [],
+    "targetsUnder44": [],
+    "horizontalOverflow": false
+  },
+  {
+    "file": "rt1192-returns-full-number-1024x768-light-before.png",
+    "screen": "returns",
+    "scenario": "full-number",
+    "viewport": "1024x768",
+    "mode": "light",
+    "errors": [],
+    "headings": [
+      "المرتجعات",
+      "اختر الأصناف المرتجعة",
+      "سجل المرتجعات على هذا الجهاز"
+    ],
+    "recentRows": [],
+    "hint": [],
+    "alerts": [],
+    "targetsUnder44": [],
+    "horizontalOverflow": false
+  },
+  {
+    "file": "rt1192-void-lookup-1024x768-light-before.png",
+    "screen": "void",
+    "scenario": "lookup",
+    "viewport": "1024x768",
+    "mode": "light",
+    "errors": [],
+    "headings": [
+      "إلغاء بيع",
+      "البحث عن بيع",
+      "طلبات الإلغاء"
+    ],
+    "recentRows": [],
+    "hint": [],
+    "alerts": [],
+    "targetsUnder44": [],
+    "horizontalOverflow": false
+  },
+  {
+    "file": "rt1192-void-full-number-1024x768-light-before.png",
+    "screen": "void",
+    "scenario": "full-number",
+    "viewport": "1024x768",
+    "mode": "light",
+    "errors": [],
+    "headings": [
+      "إلغاء بيع",
+      "البحث عن بيع",
+      "طلبات الإلغاء"
+    ],
+    "recentRows": [],
+    "hint": [],
+    "alerts": [],
+    "targetsUnder44": [],
+    "horizontalOverflow": false
+  },
+  {
+    "file": "rt1192-returns-lookup-1024x768-forced-before.png",
+    "screen": "returns",
+    "scenario": "lookup",
+    "viewport": "1024x768",
+    "mode": "forced",
+    "errors": [],
+    "headings": [
+      "المرتجعات",
+      "البحث عن بيع",
+      "سجل المرتجعات على هذا الجهاز"
+    ],
+    "recentRows": [],
+    "hint": [],
+    "alerts": [],
+    "targetsUnder44": [],
+    "horizontalOverflow": false
+  },
+  {
+    "file": "rt1192-returns-full-number-1024x768-forced-before.png",
+    "screen": "returns",
+    "scenario": "full-number",
+    "viewport": "1024x768",
+    "mode": "forced",
+    "errors": [],
+    "headings": [
+      "المرتجعات",
+      "اختر الأصناف المرتجعة",
+      "سجل المرتجعات على هذا الجهاز"
+    ],
+    "recentRows": [],
+    "hint": [],
+    "alerts": [],
+    "targetsUnder44": [],
+    "horizontalOverflow": false
+  },
+  {
+    "file": "rt1192-void-lookup-1024x768-forced-before.png",
+    "screen": "void",
+    "scenario": "lookup",
+    "viewport": "1024x768",
+    "mode": "forced",
+    "errors": [],
+    "headings": [
+      "إلغاء بيع",
+      "البحث عن بيع",
+      "طلبات الإلغاء"
+    ],
+    "recentRows": [],
+    "hint": [],
+    "alerts": [],
+    "targetsUnder44": [],
+    "horizontalOverflow": false
+  },
+  {
+    "file": "rt1192-void-full-number-1024x768-forced-before.png",
+    "screen": "void",
+    "scenario": "full-number",
+    "viewport": "1024x768",
+    "mode": "forced",
+    "errors": [],
+    "headings": [
+      "إلغاء بيع",
+      "البحث عن بيع",
+      "طلبات الإلغاء"
+    ],
+    "recentRows": [],
+    "hint": [],
+    "alerts": [],
+    "targetsUnder44": [],
+    "horizontalOverflow": false
+  },
+  {
+    "file": "rt1192-returns-lookup-1280x800-light-before.png",
+    "screen": "returns",
+    "scenario": "lookup",
+    "viewport": "1280x800",
+    "mode": "light",
+    "errors": [],
+    "headings": [
+      "المرتجعات",
+      "البحث عن بيع",
+      "سجل المرتجعات على هذا الجهاز"
+    ],
+    "recentRows": [],
+    "hint": [],
+    "alerts": [],
+    "targetsUnder44": [],
+    "horizontalOverflow": false
+  },
+  {
+    "file": "rt1192-returns-full-number-1280x800-light-before.png",
+    "screen": "returns",
+    "scenario": "full-number",
+    "viewport": "1280x800",
+    "mode": "light",
+    "errors": [],
+    "headings": [
+      "المرتجعات",
+      "اختر الأصناف المرتجعة",
+      "سجل المرتجعات على هذا الجهاز"
+    ],
+    "recentRows": [],
+    "hint": [],
+    "alerts": [],
+    "targetsUnder44": [],
+    "horizontalOverflow": false
+  },
+  {
+    "file": "rt1192-void-lookup-1280x800-light-before.png",
+    "screen": "void",
+    "scenario": "lookup",
+    "viewport": "1280x800",
+    "mode": "light",
+    "errors": [],
+    "headings": [
+      "إلغاء بيع",
+      "البحث عن بيع",
+      "طلبات الإلغاء"
+    ],
+    "recentRows": [],
+    "hint": [],
+    "alerts": [],
+    "targetsUnder44": [],
+    "horizontalOverflow": false
+  },
+  {
+    "file": "rt1192-void-full-number-1280x800-light-before.png",
+    "screen": "void",
+    "scenario": "full-number",
+    "viewport": "1280x800",
+    "mode": "light",
+    "errors": [],
+    "headings": [
+      "إلغاء بيع",
+      "البحث عن بيع",
+      "طلبات الإلغاء"
+    ],
+    "recentRows": [],
+    "hint": [],
+    "alerts": [],
+    "targetsUnder44": [],
+    "horizontalOverflow": false
+  },
+  {
+    "file": "rt1192-returns-lookup-1280x800-forced-before.png",
+    "screen": "returns",
+    "scenario": "lookup",
+    "viewport": "1280x800",
+    "mode": "forced",
+    "errors": [],
+    "headings": [
+      "المرتجعات",
+      "البحث عن بيع",
+      "سجل المرتجعات على هذا الجهاز"
+    ],
+    "recentRows": [],
+    "hint": [],
+    "alerts": [],
+    "targetsUnder44": [],
+    "horizontalOverflow": false
+  },
+  {
+    "file": "rt1192-returns-full-number-1280x800-forced-before.png",
+    "screen": "returns",
+    "scenario": "full-number",
+    "viewport": "1280x800",
+    "mode": "forced",
+    "errors": [],
+    "headings": [
+      "المرتجعات",
+      "اختر الأصناف المرتجعة",
+      "سجل المرتجعات على هذا الجهاز"
+    ],
+    "recentRows": [],
+    "hint": [],
+    "alerts": [],
+    "targetsUnder44": [],
+    "horizontalOverflow": false
+  },
+  {
+    "file": "rt1192-void-lookup-1280x800-forced-before.png",
+    "screen": "void",
+    "scenario": "lookup",
+    "viewport": "1280x800",
+    "mode": "forced",
+    "errors": [],
+    "headings": [
+      "إلغاء بيع",
+      "البحث عن بيع",
+      "طلبات الإلغاء"
+    ],
+    "recentRows": [],
+    "hint": [],
+    "alerts": [],
+    "targetsUnder44": [],
+    "horizontalOverflow": false
+  },
+  {
+    "file": "rt1192-void-full-number-1280x800-forced-before.png",
+    "screen": "void",
+    "scenario": "full-number",
+    "viewport": "1280x800",
+    "mode": "forced",
+    "errors": [],
+    "headings": [
+      "إلغاء بيع",
+      "البحث عن بيع",
+      "طلبات الإلغاء"
+    ],
+    "recentRows": [],
+    "hint": [],
+    "alerts": [],
+    "targetsUnder44": [],
+    "horizontalOverflow": false
+  }
+]

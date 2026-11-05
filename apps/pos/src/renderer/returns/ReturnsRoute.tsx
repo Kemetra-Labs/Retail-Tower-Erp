@@ -9,6 +9,10 @@ import {
   useOperatorSessionStore,
   type OperatorSessionView,
 } from '../stores/operator-session-store.js';
+import {
+  windowRecentSalesBridge,
+  type RecentSalesBridge,
+} from '../sale-lookup/recent-sales-bridge';
 import { windowReturnsBridge, windowSessionEvents, type SessionEvents } from './returns-bridge.js';
 import { OUTCOME_COPY, refusalMessage } from './returns-messages.js';
 import { ReturnsScreen } from './ReturnsScreen';
@@ -34,6 +38,8 @@ export interface ReturnsRouteProps {
   readonly bridge?: ReturnsBridgeAPI | null;
   /** Tests inject main's session-state push; production reads window.api.operator. */
   readonly sessionEvents?: SessionEvents | null;
+  /** RT-1192: tests inject today's-sales read (null = none); production reads window.api.sales. */
+  readonly sales?: RecentSalesBridge | null;
 }
 
 const RETURNS_ROLES: ReadonlySet<Role> = new Set<Role>(['manager', 'admin']);
@@ -48,13 +54,18 @@ function gateMessage(
   return bridge === null ? OUTCOME_COPY.bridgeMissing : null;
 }
 
-export function ReturnsRoute({ bridge, sessionEvents }: ReturnsRouteProps): JSX.Element | null {
+export function ReturnsRoute({
+  bridge,
+  sessionEvents,
+  sales,
+}: ReturnsRouteProps): JSX.Element | null {
   const session = useOperatorSessionStore((s) =>
     s.state.kind === 'signedIn' ? s.state.session : null,
   );
   const enabled = useFeatureFlagsStore((s) => s.returns);
   const api = bridge === undefined ? windowReturnsBridge() : bridge;
   const events = sessionEvents === undefined ? windowSessionEvents() : sessionEvents;
+  const recent = sales === undefined ? windowRecentSalesBridge() : sales;
   if (session === null) return null;
   const blocked = gateMessage(session, enabled, api);
 
@@ -67,7 +78,7 @@ export function ReturnsRoute({ bridge, sessionEvents }: ReturnsRouteProps): JSX.
         </div>
       ) : (
         <div className="v5-returns">
-          <ReturnsScreen key={session.id} bridge={api} sessionEvents={events} />
+          <ReturnsScreen key={session.id} bridge={api} sessionEvents={events} sales={recent} />
         </div>
       )}
     </ScreenSection>

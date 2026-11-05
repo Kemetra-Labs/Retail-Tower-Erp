@@ -99,6 +99,13 @@
   flex: 0 1 320px;
 }
 
+/* RT-1192 (M-N8): the field hint under the number input. */
+.v5-returns-field-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
 /* ── line selection: name + facts, then the stepper ─────────────── */
 .v5-returns-lines {
   display: grid;
