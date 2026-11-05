@@ -204,6 +204,15 @@ jobs:
       - name: oasdiff consumer-impact spec
         run: node --test tools/oasdiff/__tests__/consumer-impact.spec.mjs
 
+      # RT-1199: dead code (knip), duplication (jscpd) and size/complexity warnings (ESLint) may
+      # not grow past tools/code-health/baseline.json. A PR that lowers a count runs
+      # `pnpm code-health:update` in the same PR; --update never raises a count.
+      - name: Code-health ratchet spec (RT-1199)
+        run: node --test tools/code-health/__tests__/compare.spec.mjs
+
+      - name: Code-health ratchet (RT-1199)
+        run: pnpm code-health
+
       # The Testcontainers-backed outbox suites are excluded by default in
       # apps/worker/jest.config.cjs; they run in bc/db-package with
       # WORKER_INCLUDE_DB_TESTS=1.

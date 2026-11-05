@@ -17,6 +17,8 @@ rulesDirPlugin.RULES_DIR = path.join(__dirname, "tools", "eslint-rules");
 // disabled). One shared list: apps/api/test/ai/vendor-import-boundary.spec.ts
 // reads the same file and additionally covers packages/*/src, import() and require().
 const aiVendorDenylist = require("./tools/ai-vendor-sdk-denylist.json");
+// RT-1199: size and complexity warnings, counted by the code-health ratchet (tools/code-health).
+const { SIZE_RULE_FILES, SIZE_RULE_IGNORES, SIZE_RULES } = require("./tools/code-health/rules.cjs");
 const aiVendorImportMessage =
   "RT-655: vendor model SDKs may only be imported under apps/*/src/ai/adapters/<vendor>/**. " +
   "Depend on ModelProviderPort instead.";
@@ -63,6 +65,11 @@ module.exports = {
     {
       files: ["apps/*/src/ai/adapters/!(fake|recorded|disabled)/**/*.ts"],
       rules: { "no-restricted-imports": "off" }
+    },
+    {
+      files: SIZE_RULE_FILES,
+      excludedFiles: SIZE_RULE_IGNORES,
+      rules: SIZE_RULES
     }
   ],
   ignorePatterns: [

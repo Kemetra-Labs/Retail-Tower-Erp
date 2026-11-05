@@ -1,0 +1,74 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [
+        "tools/**/*.{js,cjs,mjs}"
+      ],
+      "project": [
+        "tools/**/*.{js,cjs,mjs}"
+      ]
+    },
+    "apps/api": {
+      "entry": [
+        "src/auth/grants/*.grants.ts",
+        "src/tenant-branding/logo-worker.ts",
+        "src/ai/ai.module.ts",
+        "test/**/*.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "test/**/*.ts"
+      ]
+    },
+    "apps/worker": {
+      "entry": [
+        "src/main.ts",
+        "test/**/*.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "test/**/*.ts"
+      ]
+    },
+    "packages/*": {
+      "entry": [
+        "src/index.ts",
+        "__tests__/**/*.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "__tests__/**/*.ts"
+      ]
+    },
+    "packages/contracts": {
+      "entry": [],
+      "project": []
+    },
+    "packages/shared": {
+      "entry": [
+        "src/index.ts",
+        "src/observability/metric-labels/*.labels.ts",
+        "__tests__/**/*.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "__tests__/**/*.ts"
+      ]
+    },
+    "packages/db": {
+      "entry": [
+        "src/index.ts",
+        "src/cli/*.ts",
+        "__tests__/**/*.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "__tests__/**/*.ts"
+      ]
+    }
+  },
+  "ignoreDependencies": [
+    "jscpd"
+  ]
+}

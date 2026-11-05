@@ -15,6 +15,8 @@
     "lint": "pnpm -r --if-present run lint",
     "lint:eslint": "eslint --ext .ts ./apps/api/src ./apps/worker/src",
     "typecheck": "pnpm -r --if-present run typecheck",
+    "code-health": "node tools/code-health/check.mjs",
+    "code-health:update": "node tools/code-health/check.mjs --update",
     "format": "pnpm -r --if-present run format",
     "migrate": "pnpm -r --if-present run migrate",
     "dev": "pnpm -r --parallel --if-present run dev",
@@ -27,6 +29,8 @@
     "@typescript-eslint/parser": "8.70.1",
     "eslint": "8.57.1",
     "eslint-plugin-rulesdir": "0.2.2",
+    "jscpd": "5.4.2",
+    "knip": "6.42.1",
     "typescript": "5.9.3"
   },
   "pnpm": {

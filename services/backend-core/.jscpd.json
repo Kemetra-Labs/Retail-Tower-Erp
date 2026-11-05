@@ -1,0 +1,9 @@
+{
+  "path": ["apps/api/src", "apps/worker/src", "packages/auth/src", "packages/db/src", "packages/shared/src"],
+  "format": ["typescript"],
+  "ignore": ["**/__tests__/**", "**/*.spec.ts", "**/*.test.ts", "**/*.d.ts", "**/node_modules/**", "**/dist/**"],
+  "minTokens": 50,
+  "reporters": ["json"],
+  "silent": true,
+  "gitignore": true
+}
