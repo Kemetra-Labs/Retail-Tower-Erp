@@ -45,21 +45,15 @@
  * paths authenticate here; route-auth-markers.enforcement.spec.ts lists this
  * guard as a reviewed composite that runs PosDeviceAuthGuard.
  */
-import {
-  type CanActivate,
-  type ExecutionContext,
-  ForbiddenException,
-  Inject,
-  Injectable,
-  Optional,
-} from "@nestjs/common";
+import { type ExecutionContext, Inject, Injectable, Optional } from "@nestjs/common";
 import type { Logger } from "@data-pulse-2/shared";
 
+import { CompositePosAuthGuard, type CompositeGate } from "../../auth/composite-pos-auth.guard";
 import { PosDeviceAuthGuard } from "../../auth/pos-device-auth.guard";
 import { PosOperatorEnvelopeSaleGuard } from "../../auth/pos-operator-envelope-sale.guard";
 import { ROOT_LOGGER } from "../../common/logging.interceptor";
 import type { TenantContextRequest } from "../../context/types";
-import { deviceScopeOf } from "../../pos-cashier-admissions/device-scope";
+import type { DeviceScope } from "../../pos-cashier-admissions/device-scope";
 import { CaptureSaleRequestPipe } from "./dto/capture-sale-request.pipe";
 import {
   ATTRIBUTION_REFUSAL_EVENTS,
@@ -80,36 +74,43 @@ export function selectsDevicePath(body: unknown): boolean {
   );
 }
 
-type Gate = Pick<CanActivate, "canActivate">;
-
+/**
+ * The flow (selection, envelope, device first, publish) is
+ * CompositePosAuthGuard's (RT-1229); this class supplies the body selector
+ * and steps b and c.
+ */
 @Injectable()
-export class SaleCaptureAuthGuard implements CanActivate {
+export class SaleCaptureAuthGuard extends CompositePosAuthGuard {
   private readonly bodyPipe = new CaptureSaleRequestPipe();
 
   // A class-referenced @UseGuards enhancer is reflection-instantiated, so
   // every dependency is an explicit, module-resolvable token (SalesModule
   // provides all four; ROOT_LOGGER is app-wide and optional).
   constructor(
-    @Inject(PosOperatorEnvelopeSaleGuard) private readonly envelope: Gate,
-    @Inject(PosDeviceAuthGuard) private readonly device: Gate,
+    @Inject(PosOperatorEnvelopeSaleGuard) envelope: CompositeGate,
+    @Inject(PosDeviceAuthGuard) device: CompositeGate,
     @Inject(OPERATOR_ATTRIBUTION_VERIFIER) private readonly attribution: OperatorAttributionVerifier,
-    @Optional() @Inject(ROOT_LOGGER) private readonly logger?: Pick<Logger, "warn">,
-  ) {}
+    @Optional() @Inject(ROOT_LOGGER) logger?: Pick<Logger, "warn">,
+  ) {
+    super(envelope, device, logger);
+  }
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<TenantContextRequest>();
-    if (!selectsDevicePath(request.body)) {
-      return (await this.envelope.canActivate(context)) as boolean;
-    }
+  /** captureSale has no per-route policy. */
+  protected routeOf(_context: ExecutionContext): undefined {
+    return undefined;
+  }
 
-    // a. The device (generic 401 on any failure).
-    await this.device.canActivate(context);
-    const scope = deviceScopeOf(request);
+  /** captureSale: `operatorUserId` in the body (any value) selects the device path. */
+  protected carriesCashierSelector(request: TenantContextRequest): boolean {
+    return selectsDevicePath(request.body);
+  }
 
+  /** Steps b and c: the body (400), then the attribution verifier (generic 403 `refused`). */
+  protected async verifiedCashier(request: TenantContextRequest, scope: DeviceScope): Promise<string> {
     // b. The body (400 on a malformed body, as the handler's pipe would).
     const body = this.bodyPipe.transform(request.body, { type: "body" });
     const userId = body.operatorUserId;
-    if (userId === undefined) throw refused();
+    if (userId === undefined) throw this.refused();
 
     // c. The claimed cashier. RT-225: an `admissionCheckAt` (validated by the
     // pipe: device path only, <= occurredAt, at most 7 days before it) is the
@@ -123,41 +124,10 @@ export class SaleCaptureAuthGuard implements CanActivate {
       ...(body.admissionCheckAt !== undefined ? { admissionCheckAt: body.admissionCheckAt } : {}),
     });
     if (!verdict.ok) {
-      this.logger?.warn(
-        {
-          event: ATTRIBUTION_REFUSAL_EVENTS[verdict.cause],
-          request_id: request.requestId ?? null,
-          tenant_id: scope.tenantId,
-          store_id: scope.storeId,
-          status: 403,
-          outcome: "failure",
-        },
-        "captureSale: operator attribution refused",
-      );
-      throw refused();
+      this.logRefusal(request, scope, ATTRIBUTION_REFUSAL_EVENTS[verdict.cause], "captureSale: operator attribution refused");
+      throw this.refused();
     }
-
-    // d. The verified cashier is the actor. Scope stays the device's.
-    request.context = {
-      userId,
-      tenantId: scope.tenantId,
-      storeId: scope.storeId,
-      isPlatformAdmin: false,
-      source: "token",
-    };
-    request.principal = {
-      kind: "token",
-      tokenId: scope.deviceId,
-      tenantId: scope.tenantId,
-      userId,
-      storeId: scope.storeId,
-      scope: "pos",
-    };
-    return true;
+    // d. The verified cashier is the actor (published by the base). Scope stays the device's.
+    return userId;
   }
-}
-
-/** The generic claim refusal: the cashier-admissions `refused` body (rev709 F1). */
-function refused(): ForbiddenException {
-  return new ForbiddenException({ code: "refused", message: "Forbidden" });
 }

@@ -42,18 +42,11 @@
  * here; route-auth-markers.enforcement.spec.ts lists this guard as a
  * reviewed composite that runs PosDeviceAuthGuard.
  */
-import {
-  type CanActivate,
-  type ExecutionContext,
-  ForbiddenException,
-  Inject,
-  Injectable,
-  Optional,
-  SetMetadata,
-} from "@nestjs/common";
+import { type ExecutionContext, Inject, Injectable, Optional, SetMetadata } from "@nestjs/common";
 import type { Logger } from "@data-pulse-2/shared";
 import type { ZodTypeAny } from "zod";
 
+import { CompositePosAuthGuard, type CompositeGate } from "../auth/composite-pos-auth.guard";
 import { PosDeviceAuthGuard } from "../auth/pos-device-auth.guard";
 import { PosOperatorEnvelopeSaleGuard } from "../auth/pos-operator-envelope-sale.guard";
 import {
@@ -64,7 +57,7 @@ import {
 import { selectsDevicePath } from "../catalog/sales/sale-capture-auth.guard";
 import { ROOT_LOGGER } from "../common/logging.interceptor";
 import type { TenantContextRequest } from "../context/types";
-import { deviceScopeOf, type DeviceScope } from "../pos-cashier-admissions/device-scope";
+import type { DeviceScope } from "../pos-cashier-admissions/device-scope";
 
 /** How one cash-up route is verified on the device path. */
 export interface ShiftFactRouteSpec {
@@ -94,47 +87,47 @@ export function shiftRefusalEvent(cause: ShiftClaimRefusal): string {
   return `shift.cash_up.operator_refused.${cause}`;
 }
 
-type Gate = Pick<CanActivate, "canActivate">;
 type FactBody = Record<string, unknown>;
 
+/**
+ * The flow (route spec first, selection, envelope, device first, publish) is
+ * CompositePosAuthGuard's (RT-1229); this class supplies the route spec, the
+ * body selector and steps b to d.
+ */
 @Injectable()
-export class ShiftCashUpAuthGuard implements CanActivate {
+export class ShiftCashUpAuthGuard extends CompositePosAuthGuard<ShiftFactRouteSpec> {
   constructor(
-    @Inject(PosOperatorEnvelopeSaleGuard) private readonly envelope: Gate,
-    @Inject(PosDeviceAuthGuard) private readonly device: Gate,
+    @Inject(PosOperatorEnvelopeSaleGuard) envelope: CompositeGate,
+    @Inject(PosDeviceAuthGuard) device: CompositeGate,
     @Inject(OPERATOR_ATTRIBUTION_VERIFIER) private readonly attribution: OperatorAttributionVerifier,
-    @Optional() @Inject(ROOT_LOGGER) private readonly logger?: Pick<Logger, "warn">,
-  ) {}
+    @Optional() @Inject(ROOT_LOGGER) logger?: Pick<Logger, "warn">,
+  ) {
+    super(envelope, device, logger);
+  }
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
-    const route = routeSpecOf(context);
-    const request = context.switchToHttp().getRequest<TenantContextRequest>();
-    if (!selectsDevicePath(request.body)) {
-      return (await this.envelope.canActivate(context)) as boolean;
-    }
+  /** The route's `@ShiftFactRoute` spec; a route without one is the 500, before any credential. */
+  protected routeOf(context: ExecutionContext): ShiftFactRouteSpec {
+    return routeSpecOf(context);
+  }
 
-    await this.device.canActivate(context);
-    const scope = deviceScopeOf(request);
+  /** Cash-up writes: a body carrying `operatorUserId` takes the device path (RT-224 model). */
+  protected carriesCashierSelector(request: TenantContextRequest): boolean {
+    return selectsDevicePath(request.body);
+  }
+
+  /** Steps b to d: the strict body (400), then the claim rules and the verifier (generic 403 `refused`). */
+  protected async verifiedCashier(
+    request: TenantContextRequest,
+    scope: DeviceScope,
+    route: ShiftFactRouteSpec,
+  ): Promise<string> {
     const body = route.schema.parse(request.body) as FactBody;
-
     const refusal = await this.refusalOf(scope, route, body);
     if (refusal !== null) {
-      this.logger?.warn(
-        {
-          event: shiftRefusalEvent(refusal),
-          request_id: request.requestId ?? null,
-          tenant_id: scope.tenantId,
-          store_id: scope.storeId,
-          status: 403,
-          outcome: "failure",
-        },
-        "shift cash-up: operator attribution refused",
-      );
-      throw new ForbiddenException({ code: "refused", message: "Forbidden" });
+      this.logRefusal(request, scope, shiftRefusalEvent(refusal), "shift cash-up: operator attribution refused");
+      throw this.refused();
     }
-
-    publishCashier(request, scope, body["operatorUserId"] as string);
-    return true;
+    return body["operatorUserId"] as string;
   }
 
   /** The first refusal cause of a device-path claim, or null when it is accepted. */
@@ -171,23 +164,4 @@ function routeSpecOf(context: ExecutionContext): ShiftFactRouteSpec {
     throw new Error("ShiftCashUpAuthGuard: the route has no @ShiftFactRoute spec (configuration error)");
   }
   return spec;
-}
-
-/** The verified cashier becomes the actor; scope stays the device's. */
-function publishCashier(request: TenantContextRequest, scope: DeviceScope, userId: string): void {
-  request.context = {
-    userId,
-    tenantId: scope.tenantId,
-    storeId: scope.storeId,
-    isPlatformAdmin: false,
-    source: "token",
-  };
-  request.principal = {
-    kind: "token",
-    tokenId: scope.deviceId,
-    tenantId: scope.tenantId,
-    userId,
-    storeId: scope.storeId,
-    scope: "pos",
-  };
 }
