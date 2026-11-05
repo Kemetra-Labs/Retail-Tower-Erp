@@ -44,9 +44,7 @@
  */
 import {
   BadRequestException,
-  type CanActivate,
   type ExecutionContext,
-  ForbiddenException,
   Inject,
   Injectable,
   Optional,
@@ -55,6 +53,7 @@ import {
 } from "@nestjs/common";
 import type { Logger } from "@data-pulse-2/shared";
 
+import { CompositePosAuthGuard, type CompositeGate } from "../../../auth/composite-pos-auth.guard";
 import { PosDeviceAuthGuard } from "../../../auth/pos-device-auth.guard";
 import { PosOperatorEnvelopeSaleGuard } from "../../../auth/pos-operator-envelope-sale.guard";
 import { ROOT_LOGGER } from "../../../common/logging.interceptor";
@@ -114,31 +113,39 @@ export interface SaleHistoryRefusalAudit {
 
 export const SALE_HISTORY_REFUSAL_AUDIT = Symbol.for("api.sales.history.refusalAudit");
 
-type Gate = Pick<CanActivate, "canActivate">;
-
+/**
+ * The flow (selection, device first, publish) is CompositePosAuthGuard's
+ * (RT-1229); this class supplies the header selector, the envelope path with
+ * its device probe, steps b and c, and the refusal audit.
+ */
 @Injectable()
-export class SaleHistoryAuthGuard implements CanActivate {
+export class SaleHistoryAuthGuard extends CompositePosAuthGuard<boolean> {
   // Class-referenced on the routes, so reflection-instantiated: every
   // dependency is an explicit token that SalesModule provides.
   constructor(
-    @Inject(PosOperatorEnvelopeSaleGuard) private readonly envelope: Gate,
-    @Inject(PosDeviceAuthGuard) private readonly device: Gate,
+    @Inject(PosOperatorEnvelopeSaleGuard) envelope: CompositeGate,
+    @Inject(PosDeviceAuthGuard) device: CompositeGate,
     @Inject(CASHIER_ADMISSION_SELECTOR) private readonly admissions: CashierAdmissionSelector,
     @Inject(SALE_HISTORY_REFUSAL_AUDIT) private readonly audit: SaleHistoryRefusalAudit,
-    @Optional() @Inject(ROOT_LOGGER) private readonly logger?: Pick<Logger, "warn">,
-  ) {}
+    @Optional() @Inject(ROOT_LOGGER) logger?: Pick<Logger, "warn">,
+  ) {
+    super(envelope, device, logger);
+  }
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<TenantContextRequest>();
-    const reprint = isReprintRoute(context);
-    if (!Object.hasOwn(request.headers, CASHIER_ADMISSION_HEADER)) {
-      return this.envelopeOrRefuse(context, request, reprint);
-    }
+  /** True on the reprint route: its body selects the admission instant and its refusals are audited. */
+  protected routeOf(context: ExecutionContext): boolean {
+    return isReprintRoute(context);
+  }
 
-    // a. The device (generic 401 on any failure), before any validation.
-    await this.device.canActivate(context);
-    const scope = deviceScopeOf(request);
+  protected carriesCashierSelector(request: TenantContextRequest): boolean {
+    return Object.hasOwn(request.headers, CASHIER_ADMISSION_HEADER);
+  }
 
+  protected async verifiedCashier(
+    request: TenantContextRequest,
+    scope: DeviceScope,
+    reprint: boolean,
+  ): Promise<string> {
     // b. The selector and, on the reprint route, the body (400 when malformed).
     const admissionId = admissionIdOf(request);
     const body = reprint ? SaleReprintRequestSchema.parse(request.body) : null;
@@ -148,20 +155,18 @@ export class SaleHistoryAuthGuard implements CanActivate {
     if (!verdict.ok) {
       return this.refuse(request, scope, { reprint, reason: verdict.cause, actorUserId: verdict.userId, body });
     }
-
-    // d. The admission's cashier is the actor. Scope stays the device's.
-    publishCashier(request, scope, verdict.userId);
-    return true;
+    // d. The admission's cashier is the actor (published by the base). Scope stays the device's.
+    return verdict.userId;
   }
 
   /** No header: the envelope; a valid DEVICE without the header is the 403, anything else the 401. */
-  private async envelopeOrRefuse(
+  protected override async envelopePath(
     context: ExecutionContext,
     request: TenantContextRequest,
     reprint: boolean,
   ): Promise<boolean> {
     try {
-      return (await this.envelope.canActivate(context)) as boolean;
+      return await super.envelopePath(context, request, reprint);
     } catch (err) {
       if (!(await this.isValidDeviceAfter(err, context))) throw err;
     }
@@ -199,22 +204,12 @@ export class SaleHistoryAuthGuard implements CanActivate {
   ): Promise<never> {
     const requestId = request.requestId ?? null;
     const { mode, kind } = refusal.body ?? NO_BODY;
-    this.logger?.warn(
-      {
-        event: `sale_history.cashier_refused.${refusal.reason}`,
-        request_id: requestId,
-        tenant_id: scope.tenantId,
-        store_id: scope.storeId,
-        status: 403,
-        outcome: "failure",
-      },
-      "sale history: cashier admission refused",
-    );
+    this.logRefusal(request, scope, `sale_history.cashier_refused.${refusal.reason}`, "sale history: cashier admission refused");
     if (refusal.reprint) {
       const audit = { scope, actorUserId: refusal.actorUserId, saleRef: saleRefParam(request), mode, kind };
       await this.recordRefusal({ ...audit, reason: refusal.reason, requestId });
     }
-    throw new ForbiddenException({ code: "refused", message: "Forbidden" });
+    throw this.refused();
   }
 
   /**
@@ -271,23 +266,4 @@ function admissionIdOf(request: TenantContextRequest): string {
     throw new BadRequestException({ code: "validation_error", message: "X-Cashier-Admission must be a uuid" });
   }
   return raw.toLowerCase();
-}
-
-/** The admission's cashier becomes the actor; scope stays the device's. */
-function publishCashier(request: TenantContextRequest, scope: DeviceScope, userId: string): void {
-  request.context = {
-    userId,
-    tenantId: scope.tenantId,
-    storeId: scope.storeId,
-    isPlatformAdmin: false,
-    source: "token",
-  };
-  request.principal = {
-    kind: "token",
-    tokenId: scope.deviceId,
-    tenantId: scope.tenantId,
-    userId,
-    storeId: scope.storeId,
-    scope: "pos",
-  };
 }
